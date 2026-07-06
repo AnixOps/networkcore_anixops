@@ -56,6 +56,10 @@
 - MITM 插件运行时的高频 Loon 子集兼容。
 - 可插拔代理执行内核适配接口。
 
+当前规格：
+
+- [Proxy Engine Adapter Interface](docs/architecture/proxy-engine-adapter.md)
+
 ## P4 Client And Platform Integration
 
 目标是在不破坏内核边界的前提下推进全平台客户端。

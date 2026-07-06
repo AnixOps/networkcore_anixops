@@ -236,6 +236,83 @@ pub struct RuntimeState {
     pub nodes: Vec<NodeRuntimeState>,
 }
 
+/// Supported proxy engine family.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ProxyEngineKind {
+    Native,
+    SingBox,
+    XrayCore,
+    Mihomo,
+    Other(String),
+}
+
+/// Capability exposed by a proxy execution engine adapter.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ProxyEngineCapability {
+    TcpProxy,
+    UdpProxy,
+    Tun,
+    Dns,
+    Mitm,
+    HotReload,
+    HealthCheck,
+}
+
+/// Available proxy execution engine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProxyEngineDescriptor {
+    pub id: String,
+    pub kind: ProxyEngineKind,
+    pub version: Option<String>,
+    pub capabilities: Vec<ProxyEngineCapability>,
+}
+
+/// Standardized engine configuration input.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProxyEngineConfig {
+    pub engine_id: String,
+    pub config: ConfigSnapshot,
+    pub nodes: Vec<NodeDescriptor>,
+    pub metadata: Metadata,
+}
+
+/// Proxy execution engine lifecycle state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ProxyEngineLifecycleState {
+    Stopped,
+    Starting,
+    Running,
+    Reloading,
+    Stopping,
+    Failed,
+}
+
+/// Proxy execution engine status.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProxyEngineStatus {
+    pub engine_id: String,
+    pub state: ProxyEngineLifecycleState,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Proxy execution engine event kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ProxyEngineEventKind {
+    Started,
+    Reloaded,
+    Stopped,
+    HealthChanged,
+    Failed,
+}
+
+/// Proxy execution engine event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProxyEngineEvent {
+    pub engine_id: String,
+    pub kind: ProxyEngineEventKind,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
 /// Compiled routing rules.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompiledRules {
@@ -479,6 +556,23 @@ pub trait PolicyRoutingService {
     fn explain(&self, route_decision: &RouteDecision) -> Vec<Diagnostic>;
 }
 
+/// Proxy execution engine adapter domain port.
+pub trait ProxyEngineService {
+    fn list_engines(&self) -> Vec<ProxyEngineDescriptor>;
+
+    fn validate_config(&self, engine_config: &ProxyEngineConfig) -> Vec<Diagnostic>;
+
+    fn start(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus>;
+
+    fn reload(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus>;
+
+    fn stop(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus>;
+
+    fn status(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus>;
+
+    fn events(&self, engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>>;
+}
+
 /// DNS policy domain port.
 pub trait DnsPolicyService {
     fn plan(
@@ -580,5 +674,24 @@ mod tests {
         let error = DomainError::new("policy.invalid", "rule set is invalid");
 
         assert_eq!(error.to_string(), "policy.invalid: rule set is invalid");
+    }
+
+    #[test]
+    fn proxy_engine_descriptor_preserves_adapter_identity() {
+        let descriptor = ProxyEngineDescriptor {
+            id: "sing-box".to_string(),
+            kind: ProxyEngineKind::SingBox,
+            version: Some("adapter-managed".to_string()),
+            capabilities: vec![
+                ProxyEngineCapability::TcpProxy,
+                ProxyEngineCapability::UdpProxy,
+                ProxyEngineCapability::HotReload,
+            ],
+        };
+
+        assert_eq!(descriptor.kind, ProxyEngineKind::SingBox);
+        assert!(descriptor
+            .capabilities
+            .contains(&ProxyEngineCapability::HotReload));
     }
 }

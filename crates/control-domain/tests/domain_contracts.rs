@@ -1,6 +1,8 @@
 use control_domain::{
     ConfigSnapshot, ConfigurationService, Diagnostic, DiagnosticSeverity, DomainResult,
-    OperatingSystem, PlatformCapabilities, SchemaVersion,
+    OperatingSystem, PlatformCapabilities, ProxyEngineCapability, ProxyEngineConfig,
+    ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineKind, ProxyEngineLifecycleState,
+    ProxyEngineService, ProxyEngineStatus, SchemaVersion,
 };
 
 struct NoopConfigurationService;
@@ -43,6 +45,63 @@ impl ConfigurationService for NoopConfigurationService {
     }
 }
 
+struct NoopProxyEngineService;
+
+impl ProxyEngineService for NoopProxyEngineService {
+    fn list_engines(&self) -> Vec<ProxyEngineDescriptor> {
+        vec![ProxyEngineDescriptor {
+            id: "native".to_string(),
+            kind: ProxyEngineKind::Native,
+            version: Some("test".to_string()),
+            capabilities: vec![
+                ProxyEngineCapability::TcpProxy,
+                ProxyEngineCapability::UdpProxy,
+                ProxyEngineCapability::HotReload,
+            ],
+        }]
+    }
+
+    fn validate_config(&self, _engine_config: &ProxyEngineConfig) -> Vec<Diagnostic> {
+        Vec::new()
+    }
+
+    fn start(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {
+        Ok(ProxyEngineStatus {
+            engine_id: engine_config.engine_id.clone(),
+            state: ProxyEngineLifecycleState::Running,
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn reload(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {
+        Ok(ProxyEngineStatus {
+            engine_id: engine_config.engine_id.clone(),
+            state: ProxyEngineLifecycleState::Reloading,
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn stop(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
+        Ok(ProxyEngineStatus {
+            engine_id: engine_id.to_string(),
+            state: ProxyEngineLifecycleState::Stopped,
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn status(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
+        Ok(ProxyEngineStatus {
+            engine_id: engine_id.to_string(),
+            state: ProxyEngineLifecycleState::Running,
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn events(&self, _engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>> {
+        Ok(Vec::new())
+    }
+}
+
 #[test]
 fn configuration_port_can_be_implemented_by_an_adapter() {
     let service = NoopConfigurationService;
@@ -60,5 +119,36 @@ fn configuration_port_can_be_implemented_by_an_adapter() {
     assert_eq!(
         snapshot.expect("snapshot should normalize").version.value(),
         1
+    );
+}
+
+#[test]
+fn proxy_engine_port_can_be_implemented_by_an_adapter() {
+    let engine = NoopProxyEngineService;
+    let capabilities = PlatformCapabilities {
+        os: OperatingSystem::Linux,
+        supports_tunnel: true,
+        supports_mitm: false,
+        supports_embedded_runtime: true,
+    };
+    let config_service = NoopConfigurationService;
+    let config = config_service
+        .normalize("profile = default", &capabilities)
+        .expect("config should normalize");
+    let engine_config = ProxyEngineConfig {
+        engine_id: "native".to_string(),
+        config,
+        nodes: Vec::new(),
+        metadata: Vec::new(),
+    };
+
+    assert_eq!(engine.list_engines().len(), 1);
+    assert!(engine.validate_config(&engine_config).is_empty());
+    assert_eq!(
+        engine
+            .start(&engine_config)
+            .expect("engine should start")
+            .state,
+        ProxyEngineLifecycleState::Running
     );
 }

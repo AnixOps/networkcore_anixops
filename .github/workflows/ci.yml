@@ -39,6 +39,7 @@ jobs:
           test -f docs/manual-intervention.md
           test -f docs/architecture/control-kernel-domain.md
           test -f docs/architecture/control-kernel-interfaces.md
+          test -f docs/architecture/proxy-engine-adapter.md
           test -f docs/architecture/adr-0001-initial-core-stack.md
           grep -q "本机只负责代码" AGENT.md
           grep -q "GitHub Actions" docs/ci-cd-policy.md
@@ -47,6 +48,7 @@ jobs:
           grep -q "Changelog" CHANGELOG.md
           grep -q "Control Kernel Domain Specification" docs/architecture/control-kernel-domain.md
           grep -q "Control Kernel Interface Draft" docs/architecture/control-kernel-interfaces.md
+          grep -q "Proxy Engine Adapter Interface" docs/architecture/proxy-engine-adapter.md
           grep -q "ADR 0001: Initial Core Stack" docs/architecture/adr-0001-initial-core-stack.md
 
   detect-projects:

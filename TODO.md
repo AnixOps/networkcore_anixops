@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 设计可插拔代理执行内核适配接口，保留 `sing-box`、`xray-core`、`mihomo` 适配空间。
+- [ ] 补齐 Rust dependency/security scan workflow，并通过 GitHub Actions 验证。
 
 ## 已完成
 
+- [x] 设计可插拔代理执行内核适配接口，保留 `sing-box`、`xray-core`、`mihomo` 适配空间。
 - [x] 创建最小 Rust workspace 与 `control-domain` crate 骨架，并通过 GitHub Actions 激活 Rust format、lint、test、build。
 - [x] 为配置模型、订阅解析、策略路由、DNS、MITM 插件和控制 API 建立文档化接口草案。
 - [x] 明确首个源码栈选择及对应 GitHub Actions 验证策略。
