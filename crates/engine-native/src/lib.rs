@@ -83,10 +83,23 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_RESPONSE_WRITTEN_CODE: &str =
     "engine.native.runtime.socks5_auth_method_response_written";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_RESPONSE_WRITE_FAILED_CODE: &str =
     "engine.native.runtime.socks5_auth_method_response_write_failed";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_READ_CODE: &str =
+    "engine.native.runtime.socks5_command_header_read";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_INVALID_CODE: &str =
+    "engine.native.runtime.socks5_command_header_invalid";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_READ_FAILED_CODE: &str =
+    "engine.native.runtime.socks5_command_header_read_failed";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_UNSUPPORTED_CODE: &str =
+    "engine.native.runtime.socks5_command_unsupported";
 
 const SOCKS5_VERSION: u8 = 0x05;
 const SOCKS5_AUTH_METHOD_NO_AUTHENTICATION_REQUIRED: u8 = 0x00;
 const SOCKS5_AUTH_METHOD_NO_ACCEPTABLE_METHODS: u8 = 0xff;
+const SOCKS5_COMMAND_CONNECT: u8 = 0x01;
+const SOCKS5_RESERVED: u8 = 0x00;
+const SOCKS5_ADDRESS_TYPE_IPV4: u8 = 0x01;
+const SOCKS5_ADDRESS_TYPE_DOMAIN_NAME: u8 = 0x03;
+const SOCKS5_ADDRESS_TYPE_IPV6: u8 = 0x04;
 const ACCEPTED_CONNECTION_READ_TIMEOUT_MS: u64 = 100;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -452,6 +465,32 @@ pub struct NativeSocks5AuthMethodResponseWriteReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5CommandHeader {
+    pub version: u8,
+    pub command: u8,
+    pub reserved: u8,
+    pub address_type: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5CommandHeaderReadReport {
+    pub command_header: Option<NativeSocks5CommandHeader>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeSocks5CommandDecision {
+    Connect,
+    UnsupportedCommand,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5CommandSupportReport {
+    pub decision: NativeSocks5CommandDecision,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
 pub fn read_socks5_greeting<R>(reader: &mut R) -> NativeSocks5GreetingReadReport
 where
     R: Read,
@@ -568,6 +607,64 @@ where
     NativeSocks5AuthMethodResponseWriteReport {
         response,
         diagnostics: vec![diagnostic],
+    }
+}
+
+pub fn read_socks5_command_header<R>(reader: &mut R) -> NativeSocks5CommandHeaderReadReport
+where
+    R: Read,
+{
+    let mut header = [0_u8; 4];
+    if reader.read_exact(&mut header).is_err() {
+        return NativeSocks5CommandHeaderReadReport {
+            command_header: None,
+            diagnostics: vec![runtime_warning(
+                ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_READ_FAILED_CODE,
+                "native SOCKS5 command header could not be read",
+            )],
+        };
+    }
+
+    let command_header = NativeSocks5CommandHeader {
+        version: header[0],
+        command: header[1],
+        reserved: header[2],
+        address_type: header[3],
+    };
+    let diagnostic = if socks5_command_header_valid(&command_header) {
+        runtime_info(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_READ_CODE,
+            "native SOCKS5 command header was read",
+        )
+    } else {
+        runtime_warning(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_INVALID_CODE,
+            "native SOCKS5 command header is invalid",
+        )
+    };
+
+    NativeSocks5CommandHeaderReadReport {
+        command_header: Some(command_header),
+        diagnostics: vec![diagnostic],
+    }
+}
+
+pub fn reject_unsupported_socks5_command(
+    command_header: &NativeSocks5CommandHeader,
+) -> NativeSocks5CommandSupportReport {
+    if command_header.command == SOCKS5_COMMAND_CONNECT {
+        return NativeSocks5CommandSupportReport {
+            decision: NativeSocks5CommandDecision::Connect,
+            diagnostics: Vec::new(),
+        };
+    }
+
+    NativeSocks5CommandSupportReport {
+        decision: NativeSocks5CommandDecision::UnsupportedCommand,
+        diagnostics: vec![runtime_warning(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_UNSUPPORTED_CODE,
+            "native SOCKS5 command is not supported",
+        )],
     }
 }
 
@@ -1262,6 +1359,15 @@ fn outbound_runtime_protocol_supported(protocol: &Protocol) -> bool {
     matches!(protocol, Protocol::Socks)
 }
 
+fn socks5_command_header_valid(command_header: &NativeSocks5CommandHeader) -> bool {
+    command_header.version == SOCKS5_VERSION
+        && command_header.reserved == SOCKS5_RESERVED
+        && matches!(
+            command_header.address_type,
+            SOCKS5_ADDRESS_TYPE_IPV4 | SOCKS5_ADDRESS_TYPE_DOMAIN_NAME | SOCKS5_ADDRESS_TYPE_IPV6
+        )
+}
+
 fn is_loopback_host(host: &str) -> bool {
     let host = host.trim();
 
@@ -1347,6 +1453,19 @@ fn read_socks5_greeting_and_close_accepted_connection(
         let decision = selection_report.decision;
         diagnostics.extend(selection_report.diagnostics);
         diagnostics.extend(write_socks5_auth_method_response(&mut stream, decision).diagnostics);
+        if decision == NativeSocks5AuthMethodDecision::NoAuthenticationRequired {
+            let NativeSocks5CommandHeaderReadReport {
+                command_header,
+                diagnostics: command_diagnostics,
+            } = read_socks5_command_header(&mut stream);
+            diagnostics.extend(command_diagnostics);
+            if let Some(command_header) = command_header
+                .as_ref()
+                .filter(|command_header| socks5_command_header_valid(command_header))
+            {
+                diagnostics.extend(reject_unsupported_socks5_command(command_header).diagnostics);
+            }
+        }
     }
     let _ = stream.shutdown(Shutdown::Both);
     pre_protocol_closed_connections.fetch_add(1, Ordering::SeqCst);

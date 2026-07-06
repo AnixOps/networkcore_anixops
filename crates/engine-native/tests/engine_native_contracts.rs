@@ -5,11 +5,12 @@ use control_domain::{
     RouteAction, RuleSet, SchemaVersion,
 };
 use engine_native::{
-    read_socks5_greeting, select_socks5_auth_method, write_socks5_auth_method_response,
-    BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle,
-    NativeOutboundHandlerHandle, NativeProxyEngineService, NativeRuntimeAssembly,
-    NativeRuntimeAssemblyPlan, NativeSocks5AuthMethodDecision, NativeSocks5Greeting,
-    DEFAULT_NATIVE_ENGINE_ID, ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
+    read_socks5_command_header, read_socks5_greeting, reject_unsupported_socks5_command,
+    select_socks5_auth_method, write_socks5_auth_method_response, BoundLoopbackTcpListenerHandle,
+    LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle,
+    NativeProxyEngineService, NativeRuntimeAssembly, NativeRuntimeAssemblyPlan,
+    NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision, NativeSocks5CommandHeader,
+    NativeSocks5Greeting, DEFAULT_NATIVE_ENGINE_ID, ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_ID_DUPLICATE_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_KIND_UNSUPPORTED_CODE,
@@ -28,6 +29,10 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_RESPONSE_WRITTEN_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_SELECTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_UNSUPPORTED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_INVALID_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_READ_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_READ_FAILED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_UNSUPPORTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_FAILED_CODE, ENGINE_NATIVE_START_BIND_FAILED_CODE,
@@ -417,8 +422,8 @@ fn runtime_accept_loop_contract_accepts_loopback_tcp_connection_and_shuts_down()
     let mut stream = TcpStream::connect(("127.0.0.1", port))
         .expect("loopback tcp accept loop should accept local connections");
     stream
-        .write_all(&[0x05, 0x02, 0x00, 0x02])
-        .expect("test client should send a SOCKS5 greeting");
+        .write_all(&[0x05, 0x02, 0x00, 0x02, 0x05, 0x01, 0x00, 0x01])
+        .expect("test client should send a SOCKS5 greeting and command header");
     wait_until_accept_count(&accept_loop, 1);
     wait_until_pre_protocol_closed_count(&accept_loop, 1);
     drop(stream);
@@ -442,6 +447,10 @@ fn runtime_accept_loop_contract_accepts_loopback_tcp_connection_and_shuts_down()
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_RESPONSE_WRITTEN_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_READ_CODE,
     );
     assert_diagnostic(
         &report.diagnostics,
@@ -495,6 +504,63 @@ fn runtime_accept_loop_contract_reports_unsupported_socks5_auth_methods_before_c
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_RESPONSE_WRITTEN_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE,
+    );
+}
+
+#[test]
+fn runtime_accept_loop_contract_reports_unsupported_socks5_command_before_close() {
+    let port = unused_loopback_port();
+    let listener = LoopbackListenerHandle::from_descriptor(&local_tcp_listener_with_bind(
+        "unsupported-command-accept-loopback-local-tcp",
+        "127.0.0.1",
+        port,
+        ListenerRoute::DefaultAction(RouteAction::Proxy {
+            node_id: "node-1".to_string(),
+        }),
+    ))
+    .expect("loopback tcp listener handle should be representable");
+    let bound_listener = BoundLoopbackTcpListenerHandle::bind(listener)
+        .expect("loopback tcp listener should bind on an available port");
+    let outbound = NativeOutboundHandlerHandle::from_node(&node())
+        .expect("socks outbound handler handle should be representable");
+
+    let accept_loop = NativeLoopbackTcpAcceptLoopHandle::start(bound_listener, outbound)
+        .expect("loopback tcp accept loop should start from bound resources");
+
+    let mut stream = TcpStream::connect(("127.0.0.1", port))
+        .expect("loopback tcp accept loop should accept local connections");
+    stream
+        .write_all(&[0x05, 0x01, 0x00, 0x05, 0x02, 0x00, 0x01])
+        .expect("test client should send a SOCKS5 greeting and unsupported command header");
+    wait_until_accept_count(&accept_loop, 1);
+    wait_until_pre_protocol_closed_count(&accept_loop, 1);
+    drop(stream);
+
+    let report = accept_loop.shutdown();
+
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_SELECTED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_RESPONSE_WRITTEN_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_READ_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_UNSUPPORTED_CODE,
     );
     assert_diagnostic(
         &report.diagnostics,
@@ -616,6 +682,85 @@ fn socks5_auth_method_response_contract_reports_write_failure() {
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_RESPONSE_WRITE_FAILED_CODE,
+    );
+}
+
+#[test]
+fn socks5_command_header_contract_reads_connect_header() {
+    let mut reader = Cursor::new(vec![0x05, 0x01, 0x00, 0x03]);
+
+    let report = read_socks5_command_header(&mut reader);
+
+    let diagnostics = report.diagnostics;
+    let command_header = report
+        .command_header
+        .expect("valid SOCKS5 command header should be parsed");
+    assert_eq!(command_header.version, 0x05);
+    assert_eq!(command_header.command, 0x01);
+    assert_eq!(command_header.reserved, 0x00);
+    assert_eq!(command_header.address_type, 0x03);
+    assert_diagnostic(
+        &diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_READ_CODE,
+    );
+
+    let support_report = reject_unsupported_socks5_command(&command_header);
+
+    assert_eq!(
+        support_report.decision,
+        NativeSocks5CommandDecision::Connect
+    );
+    assert_no_diagnostic(
+        &support_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_UNSUPPORTED_CODE,
+    );
+}
+
+#[test]
+fn socks5_command_header_contract_reports_invalid_and_incomplete_header() {
+    let mut invalid_reserved = Cursor::new(vec![0x05, 0x01, 0x01, 0x01]);
+
+    let invalid_report = read_socks5_command_header(&mut invalid_reserved);
+
+    let invalid_diagnostics = invalid_report.diagnostics;
+    let invalid_header = invalid_report
+        .command_header
+        .expect("invalid SOCKS5 command header should still report observed bytes");
+    assert_eq!(invalid_header.reserved, 0x01);
+    assert_diagnostic(
+        &invalid_diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_INVALID_CODE,
+    );
+
+    let mut incomplete_header = Cursor::new(vec![0x05, 0x01, 0x00]);
+
+    let incomplete_report = read_socks5_command_header(&mut incomplete_header);
+
+    assert!(incomplete_report.command_header.is_none());
+    assert_diagnostic(
+        &incomplete_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_READ_FAILED_CODE,
+    );
+}
+
+#[test]
+fn socks5_command_contract_rejects_unsupported_commands() {
+    let command_header = NativeSocks5CommandHeader {
+        version: 0x05,
+        command: 0x02,
+        reserved: 0x00,
+        address_type: 0x01,
+    };
+
+    let report = reject_unsupported_socks5_command(&command_header);
+
+    assert_eq!(
+        report.decision,
+        NativeSocks5CommandDecision::UnsupportedCommand
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_UNSUPPORTED_CODE,
     );
 }
 
