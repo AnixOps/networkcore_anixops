@@ -42,8 +42,7 @@ pub const ENGINE_NATIVE_CONFIG_ROUTE_EMPTY_CODE: &str = "engine.native.config.ro
 pub const ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE: &str =
     "engine.native.start.runtime_unavailable";
 pub const ENGINE_NATIVE_START_BIND_FAILED_CODE: &str = "engine.native.start.bind_failed";
-pub const ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE: &str =
-    "engine.native.start.lifecycle_failed";
+pub const ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE: &str = "engine.native.start.lifecycle_failed";
 pub const ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE: &str =
     "engine.native.runtime.listener_disabled";
 pub const ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE: &str =

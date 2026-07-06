@@ -20,8 +20,7 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE, ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
     ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE, ENGINE_NATIVE_START_BIND_FAILED_CODE,
-    ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE,
-    ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
+    ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
 };
 use std::net::TcpListener;
 
@@ -462,7 +461,10 @@ fn runtime_assembly_plan_selects_loopback_tcp_listener_and_socks_outbound_from_c
         .start(&engine_config)
         .expect_err("service start remains intentionally unavailable");
 
-    assert_eq!(start_error.code, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE);
+    assert_eq!(
+        start_error.code,
+        ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE
+    );
 
     let release = handle.release();
 
