@@ -257,6 +257,55 @@ impl MitmPluginService for InvalidManifestMitmPluginService {
     }
 }
 
+struct AuditingMitmPluginService;
+
+impl MitmPluginService for AuditingMitmPluginService {
+    fn validate_manifest(&self, _plugin_manifest: &PluginManifest) -> Vec<Diagnostic> {
+        Vec::new()
+    }
+
+    fn load(
+        &self,
+        plugin_package: &PluginPackage,
+        _granted_permissions: &GrantedPermissions,
+    ) -> DomainResult<PluginInstance> {
+        Ok(PluginInstance {
+            manifest: plugin_package.manifest.clone(),
+        })
+    }
+
+    fn handle_http_event(
+        &self,
+        plugin_instance: &PluginInstance,
+        _http_event: &HttpEvent,
+    ) -> DomainResult<PluginResult> {
+        Ok(PluginResult {
+            audits: vec![AuditEvent {
+                actor: plugin_instance.manifest.id.clone(),
+                action: "plugin_result_audit".to_string(),
+                decision: AuditDecision::Allowed,
+                reason: Some("plugin handled HTTP event".to_string()),
+            }],
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn audit(&self, plugin_result: &PluginResult) -> Vec<AuditEvent> {
+        let actor = plugin_result
+            .audits
+            .first()
+            .map(|audit| audit.actor.clone())
+            .unwrap_or_else(|| "unknown-plugin".to_string());
+
+        vec![AuditEvent {
+            actor,
+            action: "plugin_audit_port".to_string(),
+            decision: AuditDecision::Allowed,
+            reason: Some("plugin audit port evaluated result".to_string()),
+        }]
+    }
+}
+
 #[test]
 fn start_runtime_prepares_config_and_starts_engine() {
     let orchestrator = RuntimeOrchestrator::new(
@@ -342,6 +391,57 @@ fn mitm_gate_allows_trusted_certificate_and_granted_permissions() {
         .audits
         .iter()
         .any(|audit| audit.action == "mitm_gate"));
+}
+
+#[test]
+fn mitm_gate_aggregates_gate_plugin_result_and_audit_port_events() {
+    let gate = MitmGateOrchestrator::new(
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        AuditingMitmPluginService,
+    );
+
+    let decision = gate
+        .mitm_gate(MitmGateRequest::new(
+            sample_plugin_package(),
+            granted_permissions(vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ]),
+            sample_http_event(),
+        ))
+        .expect("mitm gate should evaluate");
+
+    let audit_actions = decision
+        .audits
+        .iter()
+        .map(|audit| audit.action.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(decision.is_allowed());
+    assert_eq!(
+        audit_actions,
+        vec!["mitm_gate", "plugin_result_audit", "plugin_audit_port"]
+    );
+    assert_eq!(decision.audits.len(), 3);
+    assert!(decision
+        .audits
+        .iter()
+        .all(|audit| audit.actor == "header-rewriter"));
+    assert!(decision
+        .audits
+        .iter()
+        .all(|audit| audit.decision == AuditDecision::Allowed));
+    assert_eq!(decision.audits[0].reason, None);
+    assert_eq!(
+        decision.audits[1].reason.as_deref(),
+        Some("plugin handled HTTP event")
+    );
+    assert_eq!(
+        decision.audits[2].reason.as_deref(),
+        Some("plugin audit port evaluated result")
+    );
 }
 
 #[test]
