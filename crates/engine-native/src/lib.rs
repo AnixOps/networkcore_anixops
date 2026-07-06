@@ -121,6 +121,10 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_INVALID_CODE: &
     "engine.native.runtime.socks5_outbound_connect_response_invalid";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_READ_FAILED_CODE: &str =
     "engine.native.runtime.socks5_outbound_connect_response_read_failed";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_ACCEPTED_CODE: &str =
+    "engine.native.runtime.socks5_outbound_connect_response_accepted";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_REJECTED_CODE: &str =
+    "engine.native.runtime.socks5_outbound_connect_response_rejected";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE: &str =
     "engine.native.runtime.socks5_route_outbound_unwired";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE: &str =
@@ -629,6 +633,18 @@ pub struct NativeSocks5OutboundConnectResponse {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeSocks5OutboundConnectResponseReadReport {
     pub response: Option<NativeSocks5OutboundConnectResponse>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeSocks5OutboundConnectResponseDecision {
+    Accepted,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5OutboundConnectResponseDecisionReport {
+    pub decision: NativeSocks5OutboundConnectResponseDecision,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -1204,6 +1220,28 @@ where
     NativeSocks5OutboundConnectResponseReadReport {
         response: Some(response),
         diagnostics: vec![diagnostic],
+    }
+}
+
+pub fn decide_socks5_outbound_connect_response(
+    response: &NativeSocks5OutboundConnectResponse,
+) -> NativeSocks5OutboundConnectResponseDecisionReport {
+    if socks5_outbound_connect_response_valid(response) {
+        return NativeSocks5OutboundConnectResponseDecisionReport {
+            decision: NativeSocks5OutboundConnectResponseDecision::Accepted,
+            diagnostics: vec![runtime_info(
+                ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_ACCEPTED_CODE,
+                "native SOCKS5 outbound CONNECT response accepted the upstream request",
+            )],
+        };
+    }
+
+    NativeSocks5OutboundConnectResponseDecisionReport {
+        decision: NativeSocks5OutboundConnectResponseDecision::Rejected,
+        diagnostics: vec![runtime_warning(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_REJECTED_CODE,
+            "native SOCKS5 outbound CONNECT response rejected the upstream request or is invalid",
+        )],
     }
 }
 
@@ -2170,10 +2208,16 @@ fn read_socks5_greeting_and_close_accepted_connection(
                                             OUTBOUND_CONNECT_RESPONSE_READ_TIMEOUT_MS,
                                         ),
                                     ));
-                                    diagnostics.extend(
-                                        read_socks5_outbound_connect_response(&mut outbound_stream)
-                                            .diagnostics,
-                                    );
+                                    let read_report =
+                                        read_socks5_outbound_connect_response(&mut outbound_stream);
+                                    let response = read_report.response;
+                                    diagnostics.extend(read_report.diagnostics);
+                                    if let Some(response) = response.as_ref() {
+                                        diagnostics.extend(
+                                            decide_socks5_outbound_connect_response(response)
+                                                .diagnostics,
+                                        );
+                                    }
                                 }
                                 let _ = outbound_stream.shutdown(Shutdown::Both);
                             }

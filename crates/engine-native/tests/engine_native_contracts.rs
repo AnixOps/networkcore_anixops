@@ -6,8 +6,9 @@ use control_domain::{
 };
 use engine_native::{
     attempt_socks5_outbound_tcp_connection, build_socks5_outbound_connect_request_frame,
-    plan_socks5_outbound_tcp_connection, read_socks5_command_header, read_socks5_connect_target,
-    read_socks5_greeting, read_socks5_outbound_connect_response, reject_unsupported_socks5_command,
+    decide_socks5_outbound_connect_response, plan_socks5_outbound_tcp_connection,
+    read_socks5_command_header, read_socks5_connect_target, read_socks5_greeting,
+    read_socks5_outbound_connect_response, reject_unsupported_socks5_command,
     reject_unwired_socks5_route_outbound, select_socks5_auth_method,
     select_socks5_route_outbound_behavior, write_socks5_auth_method_response,
     write_socks5_outbound_connect_request, write_unwired_socks5_connect_failure_response,
@@ -15,7 +16,8 @@ use engine_native::{
     NativeOutboundHandlerHandle, NativeProxyEngineService, NativeRuntimeAssembly,
     NativeRuntimeAssemblyPlan, NativeSocks5Address, NativeSocks5AuthMethodDecision,
     NativeSocks5CommandDecision, NativeSocks5CommandHeader, NativeSocks5ConnectTarget,
-    NativeSocks5Greeting, NativeSocks5OutboundTcpConnectionPlan, NativeSocks5RouteOutboundBehavior,
+    NativeSocks5Greeting, NativeSocks5OutboundConnectResponseDecision,
+    NativeSocks5OutboundTcpConnectionPlan, NativeSocks5RouteOutboundBehavior,
     NativeSocks5RouteOutboundDecision, DEFAULT_NATIVE_ENGINE_ID,
     ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
@@ -52,9 +54,11 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITE_FAILED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITTEN_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_ACCEPTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_READ_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_READ_FAILED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_REJECTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_ATTEMPT_FAILED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_ATTEMPT_SUCCEEDED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_PLANNED_CODE,
@@ -521,7 +525,7 @@ fn runtime_accept_loop_contract_accepts_loopback_tcp_connection_and_shuts_down()
 }
 
 #[test]
-fn runtime_accept_loop_contract_reads_socks5_outbound_connect_response_before_unwired_failure() {
+fn runtime_accept_loop_contract_decides_socks5_outbound_connect_response_before_unwired_failure() {
     let port = unused_loopback_port();
     let outbound_listener =
         TcpListener::bind(("127.0.0.1", 0)).expect("test outbound listener should bind");
@@ -617,6 +621,10 @@ fn runtime_accept_loop_contract_reads_socks5_outbound_connect_response_before_un
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_READ_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_ACCEPTED_CODE,
     );
     assert_diagnostic(
         &report.diagnostics,
@@ -1311,6 +1319,63 @@ fn socks5_outbound_connect_response_read_contract_reports_failure_reply_and_inco
     assert_diagnostic(
         &incomplete_report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_READ_FAILED_CODE,
+    );
+}
+
+#[test]
+fn socks5_outbound_connect_response_decision_contract_accepts_success_response_without_relay() {
+    let mut reader = Cursor::new(vec![0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0x04, 0x38]);
+    let read_report = read_socks5_outbound_connect_response(&mut reader);
+    let response = read_report
+        .response
+        .expect("valid SOCKS5 outbound CONNECT response should be parsed");
+
+    let decision_report = decide_socks5_outbound_connect_response(&response);
+
+    assert_eq!(
+        decision_report.decision,
+        NativeSocks5OutboundConnectResponseDecision::Accepted
+    );
+    assert_diagnostic(
+        &decision_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_ACCEPTED_CODE,
+    );
+}
+
+#[test]
+fn socks5_outbound_connect_response_decision_contract_rejects_failure_or_invalid_response() {
+    let mut failure_reply = Cursor::new(vec![0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+    let failure_read_report = read_socks5_outbound_connect_response(&mut failure_reply);
+    let failure_response = failure_read_report
+        .response
+        .expect("complete SOCKS5 failure response should still report observed bytes");
+
+    let failure_decision_report = decide_socks5_outbound_connect_response(&failure_response);
+
+    assert_eq!(
+        failure_decision_report.decision,
+        NativeSocks5OutboundConnectResponseDecision::Rejected
+    );
+    assert_diagnostic(
+        &failure_decision_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_REJECTED_CODE,
+    );
+
+    let mut invalid_reserved = Cursor::new(vec![0x05, 0x00, 0x01, 0x01, 0, 0, 0, 0, 0, 0]);
+    let invalid_read_report = read_socks5_outbound_connect_response(&mut invalid_reserved);
+    let invalid_response = invalid_read_report
+        .response
+        .expect("complete invalid SOCKS5 response should still report observed bytes");
+
+    let invalid_decision_report = decide_socks5_outbound_connect_response(&invalid_response);
+
+    assert_eq!(
+        invalid_decision_report.decision,
+        NativeSocks5OutboundConnectResponseDecision::Rejected
+    );
+    assert_diagnostic(
+        &invalid_decision_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_REJECTED_CODE,
     );
 }
 
