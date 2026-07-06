@@ -28,8 +28,9 @@ gh run list --workflow ci.yml --limit 5
 
 后续涉及 iOS 时，还需要人工处理：
 
-- Apple Developer Program 账号确认
+- Apple Developer Program 组织账号和账号角色确认
 - App ID 与 Network Extension entitlement 配置
 - 证书与 Provisioning Profile 配置
 - App Store Connect 或 TestFlight 初次配置
 - GitHub Secrets 写入 Apple 相关凭据
+- App Review Notes、隐私政策和目标地区 VPN 牌照材料确认

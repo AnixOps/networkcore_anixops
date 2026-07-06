@@ -28,6 +28,7 @@
 
 - [Control Kernel Domain Specification](docs/architecture/control-kernel-domain.md)
 - [Control Kernel Interface Draft](docs/architecture/control-kernel-interfaces.md)
+- [iOS Platform Risk Assessment](docs/architecture/ios-platform-risk-assessment.md)
 - [ADR 0001: Initial Core Stack](docs/architecture/adr-0001-initial-core-stack.md)
 
 ## P2 Core Kernel Skeleton

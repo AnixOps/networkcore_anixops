@@ -25,6 +25,7 @@
 - [docs/architecture/control-kernel-domain.md](docs/architecture/control-kernel-domain.md)
 - [docs/architecture/control-kernel-interfaces.md](docs/architecture/control-kernel-interfaces.md)
 - [docs/architecture/proxy-engine-adapter.md](docs/architecture/proxy-engine-adapter.md)
+- [docs/architecture/ios-platform-risk-assessment.md](docs/architecture/ios-platform-risk-assessment.md)
 - [docs/architecture/adr-0001-initial-core-stack.md](docs/architecture/adr-0001-initial-core-stack.md)
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - [ROADMAP.md](ROADMAP.md)
@@ -33,7 +34,7 @@
 
 ## 当前状态
 
-当前仓库处于 P2 初始内核骨架阶段，已建立协作规范、规划治理入口、架构规格、Rust 首选栈决策、最小 `control-domain` crate 和 Rust 依赖安全扫描 CI。后续实现必须先补齐对应规格或设计说明，并通过 CI/CD 验证。
+当前仓库处于 P2 初始内核骨架阶段，已建立协作规范、规划治理入口、架构规格、iOS 平台风险评估、Rust 首选栈决策、最小 `control-domain` crate 和 Rust 依赖安全扫描 CI。后续实现必须先补齐对应规格或设计说明，并通过 CI/CD 验证。
 
 ## 源码布局
 
