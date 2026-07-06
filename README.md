@@ -23,7 +23,10 @@
 - [AGENT.md](AGENT.md)
 - [docs/ci-cd-policy.md](docs/ci-cd-policy.md)
 - [CONTRIBUTING.md](CONTRIBUTING.md)
+- [ROADMAP.md](ROADMAP.md)
+- [TODO.md](TODO.md)
+- [CHANGELOG.md](CHANGELOG.md)
 
 ## 当前状态
 
-当前仓库处于 bootstrap 阶段，已建立协作规范与 GitHub Actions 骨架。后续代码实现必须通过 CI/CD 验证。
+当前仓库处于 bootstrap 阶段，已建立协作规范、规划治理入口与 GitHub Actions 骨架。后续代码实现必须先补齐对应规格或设计说明，并通过 CI/CD 验证。

@@ -32,10 +32,16 @@ jobs:
           test -f AGENTS.md
           test -f README.md
           test -f CONTRIBUTING.md
+          test -f ROADMAP.md
+          test -f TODO.md
+          test -f CHANGELOG.md
           test -f docs/ci-cd-policy.md
           test -f docs/manual-intervention.md
           grep -q "本机只负责代码" AGENT.md
           grep -q "GitHub Actions" docs/ci-cd-policy.md
+          grep -q "Roadmap" ROADMAP.md
+          grep -q "TODO" TODO.md
+          grep -q "Changelog" CHANGELOG.md
 
   detect-projects:
     name: Detect project types
