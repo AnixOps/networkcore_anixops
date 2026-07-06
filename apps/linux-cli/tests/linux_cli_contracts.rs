@@ -5,14 +5,18 @@ use control_domain::{
     ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineLifecycleState, ProxyEngineService,
     ProxyEngineStatus, SchemaVersion,
 };
-use control_runtime::RuntimeOrchestrator;
+use control_runtime::{RuntimeOperationResult, RuntimeOrchestrator};
 use networkcore_linux::{
-    handle_capabilities, handle_entrypoint, handle_entrypoint_with_runtime, handle_prepare_config,
-    handle_start, handle_status, handle_stop, parse_args, render_response, ConfigReadError,
-    ConfigReader, LinuxCliCommand, LinuxCliExitCode, OutputFormat, UnavailableProxyEngineService,
+    handle_capabilities, handle_entrypoint, handle_entrypoint_with_runtime,
+    handle_foreground_lifecycle, handle_prepare_config, handle_start, handle_status, handle_stop,
+    parse_args, render_response, ConfigReadError, ConfigReader, ForegroundLifecycleHost,
+    ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxCliCommand, LinuxCliExitCode,
+    OutputFormat, UnavailableForegroundLifecycleHost, UnavailableProxyEngineService,
     CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
-    CLI_RUNTIME_UNWIRED_CODE, CLI_START_PLATFORM_DENIED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
-    CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE,
+    CLI_RUNTIME_UNWIRED_CODE, CLI_START_FOREGROUND_ONLY_CODE, CLI_START_LIFECYCLE_FAILED_CODE,
+    CLI_START_LIFECYCLE_HOST_MISSING_CODE, CLI_START_PLATFORM_DENIED_CODE,
+    CLI_STATUS_NO_RUNTIME_CONTEXT_CODE, CLI_STATUS_PLATFORM_ONLY_CODE,
+    CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
 };
 use platform_linux::{
     linux_diagnostic, LinuxCertificateProbe, LinuxDnsManagerState, LinuxFeatureProbe,
@@ -309,6 +313,73 @@ profile = "default"
 }
 
 #[test]
+fn foreground_lifecycle_contract_reports_missing_host_without_start_wiring() {
+    let response = handle_foreground_lifecycle(
+        runtime_operation_result(
+            ProxyEngineLifecycleState::Running,
+            vec![Diagnostic::new(
+                DiagnosticSeverity::Info,
+                "engine.ready",
+                "engine accepted foreground handoff",
+                Some("engine".to_string()),
+            )],
+        ),
+        &UnavailableForegroundLifecycleHost::new(),
+    );
+
+    assert!(!response.ok);
+    assert_eq!(response.command, "start");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Unavailable);
+    assert!(response.platform.is_some());
+    assert_diagnostic(&response.diagnostics, "engine.ready");
+    assert_diagnostic(&response.diagnostics, CLI_START_FOREGROUND_ONLY_CODE);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_START_LIFECYCLE_HOST_MISSING_CODE,
+    );
+}
+
+#[test]
+fn foreground_lifecycle_contract_rejects_non_running_engine_status_before_host() {
+    let response = handle_foreground_lifecycle(
+        runtime_operation_result(ProxyEngineLifecycleState::Starting, Vec::new()),
+        &TestForegroundLifecycleHost::success(vec![Diagnostic::new(
+            DiagnosticSeverity::Info,
+            "host.ran",
+            "host should not run",
+            Some("host".to_string()),
+        )]),
+    );
+
+    assert!(!response.ok);
+    assert_eq!(response.command, "start");
+    assert_eq!(response.exit_code, LinuxCliExitCode::GeneralFailure);
+    assert_diagnostic(&response.diagnostics, CLI_START_FOREGROUND_ONLY_CODE);
+    assert_diagnostic(&response.diagnostics, CLI_START_LIFECYCLE_FAILED_CODE);
+    assert_no_diagnostic(&response.diagnostics, "host.ran");
+}
+
+#[test]
+fn foreground_lifecycle_contract_aggregates_success_diagnostics() {
+    let response = handle_foreground_lifecycle(
+        runtime_operation_result(ProxyEngineLifecycleState::Running, Vec::new()),
+        &TestForegroundLifecycleHost::success(vec![Diagnostic::new(
+            DiagnosticSeverity::Info,
+            "host.foreground.ready",
+            "foreground host accepted runtime",
+            Some("host".to_string()),
+        )]),
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "start");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Success);
+    assert!(response.platform.is_some());
+    assert_diagnostic(&response.diagnostics, CLI_START_FOREGROUND_ONLY_CODE);
+    assert_diagnostic(&response.diagnostics, "host.foreground.ready");
+}
+
+#[test]
 fn json_output_contains_required_top_level_fields() {
     let platform =
         StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
@@ -375,6 +446,25 @@ impl MemoryLinuxReadOnlyProbe {
 impl LinuxReadOnlyProbe for MemoryLinuxReadOnlyProbe {
     fn snapshot(&self) -> LinuxReadOnlyProbeSnapshot {
         self.snapshot.clone()
+    }
+}
+
+struct TestForegroundLifecycleHost {
+    outcome: ForegroundLifecycleOutcome,
+}
+
+impl TestForegroundLifecycleHost {
+    fn success(diagnostics: Vec<Diagnostic>) -> Self {
+        Self {
+            outcome: ForegroundLifecycleOutcome::success(diagnostics),
+        }
+    }
+}
+
+impl ForegroundLifecycleHost for TestForegroundLifecycleHost {
+    fn run_foreground(&self, request: &ForegroundLifecycleRequest) -> ForegroundLifecycleOutcome {
+        assert_eq!(request.engine_status.engine_id.as_str(), DEFAULT_ENGINE_ID);
+        self.outcome.clone()
     }
 }
 
@@ -471,4 +561,32 @@ fn assert_diagnostic(diagnostics: &[Diagnostic], code: &str) {
         diagnostics.iter().any(|diagnostic| diagnostic.code == code),
         "missing diagnostic {code}: {diagnostics:?}"
     );
+}
+
+fn assert_no_diagnostic(diagnostics: &[Diagnostic], code: &str) {
+    assert!(
+        diagnostics.iter().all(|diagnostic| diagnostic.code != code),
+        "unexpected diagnostic {code}: {diagnostics:?}"
+    );
+}
+
+fn runtime_operation_result(
+    state: ProxyEngineLifecycleState,
+    diagnostics: Vec<Diagnostic>,
+) -> RuntimeOperationResult {
+    RuntimeOperationResult {
+        platform: LinuxPlatformSnapshot::available_for_tests().into_status(),
+        capabilities: PlatformCapabilities {
+            os: control_domain::OperatingSystem::Linux,
+            supports_tunnel: true,
+            supports_mitm: true,
+            supports_embedded_runtime: true,
+        },
+        engine_status: ProxyEngineStatus {
+            engine_id: DEFAULT_ENGINE_ID.to_string(),
+            state,
+            diagnostics: Vec::new(),
+        },
+        diagnostics,
+    }
 }

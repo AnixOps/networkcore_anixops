@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 补充 `networkcore-linux` 前台 lifecycle host 源码合同，继续不接入 `start` 到二进制入口。
+- [ ] 补充原生 listener/node 配置模型设计，明确 `engine-native` 何时可以从配置拒绝推进到真实 runtime handle。
 
 ## 已完成
 
+- [x] 补充 `networkcore-linux` 前台 lifecycle host 源码合同，继续不接入 `start` 到二进制入口。
 - [x] 新增最小 `engine-native` crate 的纯 adapter 合同和诊断测试，但不接入 `networkcore-linux start`。
 - [x] 补充原生代理执行内核源码前设计，明确首个 `ProxyEngineService` adapter、前台生命周期 host 和 `networkcore-linux start` 接线门槛。
 - [x] 新增最小纯配置服务实现，先支持稳定 schema/profile 解析并将 `prepare-config` 接入二进制入口；`start` 继续保持未接线诊断。

@@ -8,9 +8,9 @@ use control_domain::{
     CertificateTrustState, ConfigurationService, Diagnostic, DiagnosticSeverity, DomainError,
     DomainResult, OperatingSystem, PlatformCapabilityService, PlatformCapabilityStatus,
     PlatformFeatureState, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
-    ProxyEngineService, ProxyEngineStatus,
+    ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
 };
-use control_runtime::{RuntimeConfigRequest, RuntimeOrchestrator};
+use control_runtime::{RuntimeConfigRequest, RuntimeOperationResult, RuntimeOrchestrator};
 use serde::Serialize;
 
 pub const COMMAND_NAME: &str = "networkcore-linux";
@@ -26,6 +26,10 @@ pub const CLI_CONFIG_EMPTY_CODE: &str = "cli.linux.config.empty";
 pub const CLI_START_PLATFORM_DENIED_CODE: &str = "cli.linux.start.platform_denied";
 pub const CLI_START_CONFIG_DENIED_CODE: &str = "cli.linux.start.config_denied";
 pub const CLI_START_ENGINE_DENIED_CODE: &str = "cli.linux.start.engine_denied";
+pub const CLI_START_FOREGROUND_ONLY_CODE: &str = "cli.linux.start.foreground_only";
+pub const CLI_START_LIFECYCLE_HOST_MISSING_CODE: &str = "cli.linux.start.lifecycle_host_missing";
+pub const CLI_START_LIFECYCLE_INTERRUPTED_CODE: &str = "cli.linux.start.lifecycle_interrupted";
+pub const CLI_START_LIFECYCLE_FAILED_CODE: &str = "cli.linux.start.lifecycle_failed";
 pub const CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE: &str =
     "cli.linux.stop.unavailable_without_daemon";
 pub const CLI_STATUS_NO_RUNTIME_CONTEXT_CODE: &str = "cli.linux.status.no_runtime_context";
@@ -285,6 +289,60 @@ impl ProxyEngineService for UnavailableProxyEngineService {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForegroundLifecycleRequest {
+    pub engine_status: ProxyEngineStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForegroundLifecycleOutcome {
+    pub exit_code: LinuxCliExitCode,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl ForegroundLifecycleOutcome {
+    pub fn success(diagnostics: Vec<Diagnostic>) -> Self {
+        Self {
+            exit_code: LinuxCliExitCode::Success,
+            diagnostics,
+        }
+    }
+
+    pub fn failure(exit_code: LinuxCliExitCode, diagnostic: Diagnostic) -> Self {
+        Self {
+            exit_code,
+            diagnostics: vec![diagnostic],
+        }
+    }
+}
+
+pub trait ForegroundLifecycleHost {
+    fn run_foreground(&self, request: &ForegroundLifecycleRequest) -> ForegroundLifecycleOutcome;
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UnavailableForegroundLifecycleHost;
+
+impl UnavailableForegroundLifecycleHost {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl ForegroundLifecycleHost for UnavailableForegroundLifecycleHost {
+    fn run_foreground(&self, _request: &ForegroundLifecycleRequest) -> ForegroundLifecycleOutcome {
+        ForegroundLifecycleOutcome::failure(
+            LinuxCliExitCode::Unavailable,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_START_LIFECYCLE_HOST_MISSING_CODE,
+                "linux foreground lifecycle host is not wired",
+                SOURCE_CLI_START,
+            ),
+        )
+    }
+}
+
 #[derive(Debug, Default)]
 struct ParsedOptions {
     config_path: Option<String>,
@@ -479,6 +537,62 @@ where
             .with_diagnostics(result.diagnostics)
             .with_platform(result.platform),
         Err(error) => start_error_response(error),
+    }
+}
+
+pub fn handle_foreground_lifecycle<H>(
+    operation: RuntimeOperationResult,
+    host: &H,
+) -> LinuxCliResponse
+where
+    H: ForegroundLifecycleHost,
+{
+    let RuntimeOperationResult {
+        platform,
+        engine_status,
+        mut diagnostics,
+        ..
+    } = operation;
+
+    diagnostics.push(cli_diagnostic(
+        DiagnosticSeverity::Info,
+        CLI_START_FOREGROUND_ONLY_CODE,
+        "linux start is limited to the current foreground process",
+        SOURCE_CLI_START,
+    ));
+
+    if engine_status.state != ProxyEngineLifecycleState::Running {
+        diagnostics.push(cli_diagnostic(
+            DiagnosticSeverity::Error,
+            CLI_START_LIFECYCLE_FAILED_CODE,
+            "linux runtime did not enter running state before foreground hosting",
+            SOURCE_CLI_START,
+        ));
+
+        return LinuxCliResponse {
+            ok: false,
+            command: "start".to_string(),
+            exit_code: LinuxCliExitCode::GeneralFailure,
+            diagnostics,
+            platform: Some(platform),
+            config_profiles: Vec::new(),
+            version: None,
+        };
+    }
+
+    let request = ForegroundLifecycleRequest { engine_status };
+    let outcome = host.run_foreground(&request);
+    let ok = outcome.exit_code == LinuxCliExitCode::Success;
+    diagnostics.extend(outcome.diagnostics);
+
+    LinuxCliResponse {
+        ok,
+        command: "start".to_string(),
+        exit_code: outcome.exit_code,
+        diagnostics,
+        platform: Some(platform),
+        config_profiles: Vec::new(),
+        version: None,
     }
 }
 

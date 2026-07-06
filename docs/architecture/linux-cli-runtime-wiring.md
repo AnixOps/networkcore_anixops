@@ -109,5 +109,5 @@ diagnostic code。
 ## 后续工作
 
 - `config-core` 已提供最小纯配置服务，`networkcore-linux prepare-config` 已接入二进制入口；后续配置扩展继续保持纯内存解析和 secret 不泄露边界。
-- 代理引擎 adapter 和前台生命周期 host 按 [Linux Native Proxy Engine Start Design](linux-native-proxy-engine-start.md) 完成前，`networkcore-linux start` 继续保持未接线诊断。
+- `networkcore-linux` 已提供前台 lifecycle host 源码合同，但 binary 尚未接入；代理引擎 adapter 具备真实运行句柄前，`networkcore-linux start` 继续保持未接线诊断。
 - daemon/control socket、service install、DNS/TUN mutation 或 release artifact 进入前，继续先补设计和回滚合同。
