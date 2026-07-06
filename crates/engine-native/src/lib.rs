@@ -103,6 +103,10 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_GENERATED_
     "engine.native.runtime.socks5_outbound_connect_request_frame_generated";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_INVALID_CODE: &str =
     "engine.native.runtime.socks5_outbound_connect_request_frame_invalid";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_PLANNED_CODE: &str =
+    "engine.native.runtime.socks5_outbound_tcp_connection_planned";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_PLAN_INVALID_CODE: &str =
+    "engine.native.runtime.socks5_outbound_tcp_connection_plan_invalid";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE: &str =
     "engine.native.runtime.socks5_route_outbound_unwired";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE: &str =
@@ -569,6 +573,20 @@ pub struct NativeSocks5OutboundConnectRequestFrameReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5OutboundTcpConnectionPlan {
+    pub outbound_handler_id: String,
+    pub outbound_endpoint: Endpoint,
+    pub target: NativeSocks5ConnectTarget,
+    pub request_frame: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5OutboundTcpConnectionPlanReport {
+    pub plan: Option<NativeSocks5OutboundTcpConnectionPlan>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeSocks5RouteOutboundReport {
     pub decision: NativeSocks5RouteOutboundDecision,
     pub diagnostics: Vec<Diagnostic>,
@@ -920,6 +938,43 @@ pub fn build_socks5_outbound_connect_request_frame(
         diagnostics: vec![runtime_warning(
             ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_INVALID_CODE,
             "native SOCKS5 outbound CONNECT request frame target is invalid",
+        )],
+    }
+}
+
+pub fn plan_socks5_outbound_tcp_connection(
+    behavior: &NativeSocks5RouteOutboundBehavior,
+    request_frame: &[u8],
+) -> NativeSocks5OutboundTcpConnectionPlanReport {
+    let NativeSocks5RouteOutboundBehavior::ProxyViaSocksOutbound {
+        target,
+        outbound_handler,
+    } = behavior;
+
+    if outbound_handler.protocol != Protocol::Socks
+        || outbound_handler.endpoint.host.trim().is_empty()
+        || outbound_handler.endpoint.port == 0
+        || request_frame.is_empty()
+    {
+        return NativeSocks5OutboundTcpConnectionPlanReport {
+            plan: None,
+            diagnostics: vec![runtime_warning(
+                ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_PLAN_INVALID_CODE,
+                "native SOCKS5 outbound TCP connection plan is invalid",
+            )],
+        };
+    }
+
+    NativeSocks5OutboundTcpConnectionPlanReport {
+        plan: Some(NativeSocks5OutboundTcpConnectionPlan {
+            outbound_handler_id: outbound_handler.node_id.clone(),
+            outbound_endpoint: outbound_handler.endpoint.clone(),
+            target: target.clone(),
+            request_frame: request_frame.to_vec(),
+        }),
+        diagnostics: vec![runtime_info(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_PLANNED_CODE,
+            "native SOCKS5 outbound TCP connection plan was created",
         )],
     }
 }
@@ -1812,9 +1867,14 @@ fn read_socks5_greeting_and_close_accepted_connection(
                         let route_selection_report =
                             select_socks5_route_outbound_behavior(target, outbound_handler);
                         diagnostics.extend(route_selection_report.diagnostics);
+                        let frame_report = build_socks5_outbound_connect_request_frame(
+                            &route_selection_report.behavior,
+                        );
+                        diagnostics.extend(frame_report.diagnostics);
                         diagnostics.extend(
-                            build_socks5_outbound_connect_request_frame(
+                            plan_socks5_outbound_tcp_connection(
                                 &route_selection_report.behavior,
+                                &frame_report.frame,
                             )
                             .diagnostics,
                         );
