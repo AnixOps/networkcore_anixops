@@ -129,6 +129,10 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_UNWIRED_CODE: &str
     "engine.native.runtime.socks5_outbound_connect_relay_unwired";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_REJECTED_CODE: &str =
     "engine.native.runtime.socks5_outbound_connect_relay_rejected";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_UNWIRED_CODE: &str =
+    "engine.native.runtime.socks5_outbound_connect_data_relay_plan_unwired";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_REJECTED_CODE: &str =
+    "engine.native.runtime.socks5_outbound_connect_data_relay_plan_rejected";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE: &str =
     "engine.native.runtime.socks5_route_outbound_unwired";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE: &str =
@@ -661,6 +665,18 @@ pub enum NativeSocks5OutboundConnectRelayReadiness {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeSocks5OutboundConnectRelayReadinessReport {
     pub readiness: NativeSocks5OutboundConnectRelayReadiness,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeSocks5OutboundConnectDataRelayPlanDecision {
+    Blocked,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5OutboundConnectDataRelayPlanReport {
+    pub decision: NativeSocks5OutboundConnectDataRelayPlanDecision,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -1280,6 +1296,31 @@ pub fn assess_socks5_outbound_connect_relay_readiness(
                 diagnostics: vec![runtime_warning(
                     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_REJECTED_CODE,
                     "native SOCKS5 outbound CONNECT relay is blocked by upstream rejection",
+                )],
+            }
+        }
+    }
+}
+
+pub fn plan_socks5_outbound_connect_data_relay(
+    readiness: NativeSocks5OutboundConnectRelayReadiness,
+) -> NativeSocks5OutboundConnectDataRelayPlanReport {
+    match readiness {
+        NativeSocks5OutboundConnectRelayReadiness::Blocked => {
+            NativeSocks5OutboundConnectDataRelayPlanReport {
+                decision: NativeSocks5OutboundConnectDataRelayPlanDecision::Blocked,
+                diagnostics: vec![runtime_warning(
+                    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_UNWIRED_CODE,
+                    "native SOCKS5 outbound CONNECT data relay plan is not wired after upstream acceptance",
+                )],
+            }
+        }
+        NativeSocks5OutboundConnectRelayReadiness::Rejected => {
+            NativeSocks5OutboundConnectDataRelayPlanReport {
+                decision: NativeSocks5OutboundConnectDataRelayPlanDecision::Rejected,
+                diagnostics: vec![runtime_warning(
+                    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_REJECTED_CODE,
+                    "native SOCKS5 outbound CONNECT data relay plan is blocked by upstream rejection",
                 )],
             }
         }
@@ -2258,9 +2299,15 @@ fn read_socks5_greeting_and_close_accepted_connection(
                                             decide_socks5_outbound_connect_response(response);
                                         let decision = decision_report.decision;
                                         diagnostics.extend(decision_report.diagnostics);
-                                        diagnostics.extend(
+                                        let readiness_report =
                                             assess_socks5_outbound_connect_relay_readiness(
                                                 decision,
+                                            );
+                                        let readiness = readiness_report.readiness;
+                                        diagnostics.extend(readiness_report.diagnostics);
+                                        diagnostics.extend(
+                                            plan_socks5_outbound_connect_data_relay(
+                                                readiness,
                                             )
                                             .diagnostics,
                                         );
