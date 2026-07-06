@@ -4,12 +4,13 @@
 
 ## 当前
 
-- [ ] 在 release workflow 中补充版本格式与触发来源一致性 policy gate，防止 placeholder release 使用不可追踪版本。
+- [ ] 在 release workflow 中补充 release-ci-gate 占位 job，记录真实 artifact 前必须关联 `main` CI 成功结果。
 
 ## 已完成
 
 - [x] 在 release workflow 中补充 release summary job，输出当前 placeholder 发布状态和后续 artifact 门禁。
 - [x] 在 release workflow 中补充 workflow_dispatch 版本输入与触发 ref 记录，确保 summary 输出发布来源。
+- [x] 在 release workflow 中补充版本格式与触发来源一致性 policy gate，防止 placeholder release 使用不可追踪版本。
 - [x] 在 CI summary 中补充 GitHub Step Summary 表格，汇总项目检测开关与关键 job 结果。
 - [x] 在 CI workflow 中补充 summary 输出项目类型检测结果，确保每次 CI 都记录 Go、Rust、Node、Swift 和 Apple 检测开关。
 - [x] 在 CI summary 中补充 Go、Node、Swift 和 Apple 条件结果门禁，确保对应项目出现时 summary job 显式检查语言与平台结果。

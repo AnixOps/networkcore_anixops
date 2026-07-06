@@ -9,6 +9,7 @@
 当前 release workflow 只保留 policy 与 placeholder job：
 
 - 允许 tag `v*` 和 `workflow_dispatch` 触发。
+- release policy job 检查版本格式和触发来源一致性；手动 placeholder release 必须从 `main` 分支发起，tag release 必须使用同名 tag 版本。
 - 不生成 release artifact。
 - 不在本机打包、签名、测试或发布。
 - 通过 release summary job 输出发布来源、policy、placeholder、artifact 状态和后续 artifact 门禁。
@@ -64,7 +65,7 @@
 
 ## 版本与回滚
 
-- 版本号采用 `vMAJOR.MINOR.PATCH` tag 形式，预发布版本使用 `vMAJOR.MINOR.PATCH-rc.N`。
+- 版本号采用 `vMAJOR.MINOR.PATCH` tag 形式，预发布版本使用 `vMAJOR.MINOR.PATCH-rc.N`；当前 release policy gate 已按该格式检查手动版本输入与 tag 名。
 - 任何 release 修复都通过新 tag 发布，不覆盖已发布 tag。
 - 如果 release 失败在发布前发生，删除 draft 或 failed run artifact 即可；如果 release asset 已公开，必须发布撤回说明并以新版本替换。
 - iOS 和商店渠道回滚依赖 App Store Connect 或对应商店能力，必须在发布说明中记录可用路径。

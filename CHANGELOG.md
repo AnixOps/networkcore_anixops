@@ -8,6 +8,7 @@
 
 - 补充 release workflow summary job，输出 placeholder 发布状态和后续 artifact 门禁。
 - 补充 release workflow 发布来源 summary，记录 workflow_dispatch 版本输入、触发事件、ref、commit SHA 和 actor。
+- 补充 release workflow 版本格式与触发来源一致性 policy gate，约束手动 placeholder release 来源和 tag 版本。
 - 补充 CI summary GitHub Step Summary 表格，汇总项目类型检测开关和关键 job 结果。
 - 补充 CI summary 项目类型检测输出，每次记录 Go、Rust、Node、Swift 和 Apple 检测开关。
 - 补强 CI summary Go、Node、Swift 和 Apple 条件门禁，显式输出并在对应项目出现时检查语言与平台 job 结果。
