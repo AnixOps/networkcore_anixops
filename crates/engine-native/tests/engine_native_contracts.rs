@@ -569,6 +569,9 @@ fn runtime_accept_loop_contract_writes_client_success_response_and_relays_finite
             match outbound_listener.accept() {
                 Ok((mut outbound_stream, _)) => {
                     outbound_stream
+                        .set_nonblocking(false)
+                        .expect("captured outbound stream should use blocking reads");
+                    outbound_stream
                         .set_read_timeout(Some(Duration::from_secs(5)))
                         .expect("captured outbound stream should accept a read timeout");
                     let mut request_frame = [0_u8; 10];
