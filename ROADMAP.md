@@ -82,6 +82,7 @@
 
 - [Release Strategy](docs/release-strategy.md)
 - [Linux Artifact Pre-Release Design](docs/architecture/linux-artifact-pre-release-design.md)
+- [Linux Platform Adapter Design](docs/architecture/linux-platform-adapter.md)
 
 ## 迭代选择规则
 

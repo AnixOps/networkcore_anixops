@@ -6,6 +6,7 @@
 
 ### Added
 
+- 新增 Linux platform adapter 设计文档，定义 TUN、权限、DNS、服务管理、证书和诊断探测边界。
 - 新增 Linux artifact 发布前设计文档，明确首个平台产物的源码、packaging、checksum、签名/证明和回滚前置条件。
 - 补充 release rollback contract 占位 job，定义真实 artifact 发布说明必须输出的回滚字段。
 - 补充 release signing/attestation contract 占位 job，定义真实平台 artifact 发布前的签名或证明进入条件。
