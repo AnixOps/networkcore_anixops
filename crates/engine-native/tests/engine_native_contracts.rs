@@ -18,9 +18,9 @@ use engine_native::{
     NativeRuntimeAssemblyPlan, NativeSocks5Address, NativeSocks5AuthMethodDecision,
     NativeSocks5CommandDecision, NativeSocks5CommandHeader, NativeSocks5ConnectTarget,
     NativeSocks5Greeting, NativeSocks5OutboundConnectDataRelayPlanDecision,
-    NativeSocks5OutboundConnectRelayReadiness,
-    NativeSocks5OutboundConnectResponseDecision, NativeSocks5OutboundTcpConnectionPlan,
-    NativeSocks5RouteOutboundBehavior, NativeSocks5RouteOutboundDecision, DEFAULT_NATIVE_ENGINE_ID,
+    NativeSocks5OutboundConnectRelayReadiness, NativeSocks5OutboundConnectResponseDecision,
+    NativeSocks5OutboundTcpConnectionPlan, NativeSocks5RouteOutboundBehavior,
+    NativeSocks5RouteOutboundDecision, DEFAULT_NATIVE_ENGINE_ID,
     ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_ID_DUPLICATE_CODE,
@@ -1437,9 +1437,8 @@ fn socks5_outbound_connect_relay_readiness_contract_rejects_rejected_response() 
 
 #[test]
 fn socks5_outbound_connect_data_relay_plan_contract_blocks_unwired_relay_before_success_response() {
-    let report = plan_socks5_outbound_connect_data_relay(
-        NativeSocks5OutboundConnectRelayReadiness::Blocked,
-    );
+    let report =
+        plan_socks5_outbound_connect_data_relay(NativeSocks5OutboundConnectRelayReadiness::Blocked);
 
     assert_eq!(
         report.decision,

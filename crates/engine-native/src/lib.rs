@@ -2306,10 +2306,8 @@ fn read_socks5_greeting_and_close_accepted_connection(
                                         let readiness = readiness_report.readiness;
                                         diagnostics.extend(readiness_report.diagnostics);
                                         diagnostics.extend(
-                                            plan_socks5_outbound_connect_data_relay(
-                                                readiness,
-                                            )
-                                            .diagnostics,
+                                            plan_socks5_outbound_connect_data_relay(readiness)
+                                                .diagnostics,
                                         );
                                     }
                                 }
