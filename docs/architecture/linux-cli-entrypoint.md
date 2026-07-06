@@ -1,6 +1,6 @@
 # Linux CLI Entrypoint Design
 
-本文件定义首个 Linux 可运行入口进入源码前必须遵守的命令、配置加载、启动/停止、状态查询和诊断边界。它承接 [Linux Platform Adapter Design](linux-platform-adapter.md)、[Control Runtime Orchestration Design](control-runtime-orchestration.md) 和 [Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md)，用于约束后续 `networkcore-linux` CLI 不越过领域、运行层和平台 adapter 边界。
+本文件定义首个 Linux 可运行入口进入源码前必须遵守的命令、配置加载、启动/停止、状态查询和诊断边界。它承接 [Linux Platform Adapter Design](linux-platform-adapter.md)、[Control Runtime Orchestration Design](control-runtime-orchestration.md)、[Linux CLI Runtime Wiring Design](linux-cli-runtime-wiring.md) 和 [Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md)，用于约束后续 `networkcore-linux` CLI 不越过领域、运行层和平台 adapter 边界。
 
 评估时间：2026-07-06。
 
@@ -177,4 +177,6 @@ CLI 首个源码增量必须满足：
 ## 后续工作
 
 - 在 license/NOTICE 人工确认和 readiness gate 通过后，再补充 `package-linux` job；真实 artifact 发布前继续阻止 release asset。
+- `prepare-config` 接入二进制入口前，按 [Linux CLI Runtime Wiring Design](linux-cli-runtime-wiring.md) 补充最小纯配置服务实现。
+- `start` 接入二进制入口前，按 [Linux CLI Runtime Wiring Design](linux-cli-runtime-wiring.md) 补充代理引擎 adapter 和前台生命周期 host。
 - daemon/control socket、packaging 或任何会修改系统状态的 Linux probing 进入 CLI 前，先补充对应设计并通过 CI。
