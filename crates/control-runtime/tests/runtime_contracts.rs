@@ -336,6 +336,57 @@ impl MitmPluginService for NonErrorManifestMitmPluginService {
     }
 }
 
+struct DiagnosticResultMitmPluginService;
+
+impl MitmPluginService for DiagnosticResultMitmPluginService {
+    fn validate_manifest(&self, _plugin_manifest: &PluginManifest) -> Vec<Diagnostic> {
+        Vec::new()
+    }
+
+    fn load(
+        &self,
+        plugin_package: &PluginPackage,
+        _granted_permissions: &GrantedPermissions,
+    ) -> DomainResult<PluginInstance> {
+        Ok(PluginInstance {
+            manifest: plugin_package.manifest.clone(),
+        })
+    }
+
+    fn handle_http_event(
+        &self,
+        plugin_instance: &PluginInstance,
+        _http_event: &HttpEvent,
+    ) -> DomainResult<PluginResult> {
+        Ok(PluginResult {
+            audits: vec![AuditEvent {
+                actor: plugin_instance.manifest.id.clone(),
+                action: "handle_http_event".to_string(),
+                decision: AuditDecision::Allowed,
+                reason: None,
+            }],
+            diagnostics: vec![
+                Diagnostic::new(
+                    control_domain::DiagnosticSeverity::Warning,
+                    "plugin.result.header_skipped",
+                    "plugin skipped an optional response header",
+                    Some("plugin_result".to_string()),
+                ),
+                Diagnostic::new(
+                    control_domain::DiagnosticSeverity::Info,
+                    "plugin.result.rewrite_noop",
+                    "plugin left the request unchanged",
+                    Some("plugin_result".to_string()),
+                ),
+            ],
+        })
+    }
+
+    fn audit(&self, _plugin_result: &PluginResult) -> Vec<AuditEvent> {
+        Vec::new()
+    }
+}
+
 struct AuditingMitmPluginService;
 
 impl MitmPluginService for AuditingMitmPluginService {
@@ -730,6 +781,48 @@ fn mitm_gate_allows_manifest_non_error_diagnostics() {
         audit.action == "handle_http_event"
             && audit.reason.as_deref() == Some("plugin executed after manifest diagnostics")
     }));
+}
+
+#[test]
+fn mitm_gate_aggregates_plugin_result_diagnostics() {
+    let gate = MitmGateOrchestrator::new(
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        DiagnosticResultMitmPluginService,
+    );
+
+    let decision = gate
+        .mitm_gate(MitmGateRequest::new(
+            sample_plugin_package(),
+            granted_permissions(vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ]),
+            sample_http_event(),
+        ))
+        .expect("mitm gate should evaluate");
+
+    assert!(decision.is_allowed());
+    assert_eq!(decision.decision, AuditDecision::Allowed);
+    assert!(decision.reason.is_none());
+    assert!(decision.plugin_result.is_some());
+    assert!(decision.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "plugin.result.header_skipped"
+            && diagnostic.severity == control_domain::DiagnosticSeverity::Warning
+    }));
+    assert!(decision.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "plugin.result.rewrite_noop"
+            && diagnostic.severity == control_domain::DiagnosticSeverity::Info
+    }));
+    assert!(!decision
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == control_domain::DiagnosticSeverity::Error));
+    assert!(decision
+        .audits
+        .iter()
+        .any(|audit| audit.action == "handle_http_event"));
 }
 
 #[test]

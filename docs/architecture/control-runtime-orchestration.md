@@ -129,7 +129,7 @@ iOS adapter 接入前，运行层必须按以下规则建模：
 覆盖配置准备、启动、重载、停止、状态查询和事件读取；同时提供最小
 `MitmGateOrchestrator`，组合 `PlatformCapabilityService` 和
 `MitmPluginService`，覆盖平台 MITM 可用性、证书状态拒绝矩阵、远程脚本禁用与未知状态、
-manifest 诊断拒绝、manifest 非错误诊断聚合、插件权限拒绝审计、审计事件聚合和插件端口错误传播。
+manifest 诊断拒绝、manifest 非错误诊断聚合、插件结果诊断聚合、插件权限拒绝审计、审计事件聚合和插件端口错误传播。
 订阅、策略路由和 DNS 编排仍按后续扩展逐步加入。
 
 ## 后续扩展
