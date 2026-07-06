@@ -89,8 +89,8 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_PLAN_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_SELECTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE, ENGINE_NATIVE_START_BIND_FAILED_CODE,
-    ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE, ENGINE_NATIVE_START_RUNTIME_ASSEMBLY_READY_CODE,
-    ENGINE_NATIVE_START_RUNNING_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
+    ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE, ENGINE_NATIVE_START_RUNNING_CODE,
+    ENGINE_NATIVE_START_RUNTIME_ASSEMBLY_READY_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
     ENGINE_NATIVE_START_SERVICE_RUNTIME_OWNER_MISSING_CODE,
 };
 use std::io::{self, Cursor, Read, Write};
@@ -374,10 +374,7 @@ fn start_readiness_allows_service_owned_runtime_lifecycle() {
 
     let readiness = assess_native_proxy_engine_start_readiness(&engine_config);
 
-    assert_eq!(
-        readiness.readiness,
-        NativeProxyEngineStartReadiness::Ready
-    );
+    assert_eq!(readiness.readiness, NativeProxyEngineStartReadiness::Ready);
     assert_diagnostic(
         &readiness.diagnostics,
         ENGINE_NATIVE_START_RUNTIME_ASSEMBLY_READY_CODE,
@@ -401,7 +398,10 @@ fn start_readiness_allows_service_owned_runtime_lifecycle() {
         &status.diagnostics,
         ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
     );
-    assert_diagnostic(&status.diagnostics, ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE);
+    assert_diagnostic(
+        &status.diagnostics,
+        ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE,
+    );
 
     let stopped = service
         .stop(DEFAULT_NATIVE_ENGINE_ID)
@@ -2408,7 +2408,10 @@ fn service_start_owns_runtime_state_for_status_events_and_stop() {
         &status.diagnostics,
         ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
     );
-    assert_diagnostic(&status.diagnostics, ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE);
+    assert_diagnostic(
+        &status.diagnostics,
+        ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE,
+    );
 
     let events = service
         .events(DEFAULT_NATIVE_ENGINE_ID)

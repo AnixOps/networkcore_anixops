@@ -1730,8 +1730,9 @@ impl NativeRuntimeAssemblyPlan {
         };
 
         match NativeLoopbackTcpAcceptLoopHandle::start(bound_listener, outbound_handler) {
-            Ok(accept_loop) => Ok(NativeRuntimeAssembly::new(engine_id)
-                .with_accept_loop(accept_loop)),
+            Ok(accept_loop) => {
+                Ok(NativeRuntimeAssembly::new(engine_id).with_accept_loop(accept_loop))
+            }
             Err(error) => Err(Box::new(
                 NativeRuntimeAssembly::new(engine_id)
                     .with_listener(release_listener)
