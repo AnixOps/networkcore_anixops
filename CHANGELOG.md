@@ -6,6 +6,7 @@
 
 ### Added
 
+- 补充 release-ci-gate 占位 job，记录真实 artifact 前必须关联 `main` CI 成功结果。
 - 补充 release workflow summary job，输出 placeholder 发布状态和后续 artifact 门禁。
 - 补充 release workflow 发布来源 summary，记录 workflow_dispatch 版本输入、触发事件、ref、commit SHA 和 actor。
 - 补充 release workflow 版本格式与触发来源一致性 policy gate，约束手动 placeholder release 来源和 tag 版本。

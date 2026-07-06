@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 在 release workflow 中补充 release-ci-gate 占位 job，记录真实 artifact 前必须关联 `main` CI 成功结果。
+- [ ] 在 release workflow 中补充 artifact checksum 占位说明，定义首个真实 artifact job 的 checksum 输出字段。
 
 ## 已完成
 
+- [x] 在 release workflow 中补充 release-ci-gate 占位 job，记录真实 artifact 前必须关联 `main` CI 成功结果。
 - [x] 在 release workflow 中补充 release summary job，输出当前 placeholder 发布状态和后续 artifact 门禁。
 - [x] 在 release workflow 中补充 workflow_dispatch 版本输入与触发 ref 记录，确保 summary 输出发布来源。
 - [x] 在 release workflow 中补充版本格式与触发来源一致性 policy gate，防止 placeholder release 使用不可追踪版本。

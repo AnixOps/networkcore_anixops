@@ -6,13 +6,14 @@
 
 ## 当前发布状态
 
-当前 release workflow 只保留 policy 与 placeholder job：
+当前 release workflow 只保留 policy、release-ci-gate 与 placeholder job：
 
 - 允许 tag `v*` 和 `workflow_dispatch` 触发。
 - release policy job 检查版本格式和触发来源一致性；手动 placeholder release 必须从 `main` 分支发起，tag release 必须使用同名 tag 版本。
+- `release-ci-gate` job 记录真实 artifact 加入前必须关联 `main` 上同 commit 的成功 CI 结果；placeholder 阶段暂不执行 artifact CI 门禁。
 - 不生成 release artifact。
 - 不在本机打包、签名、测试或发布。
-- 通过 release summary job 输出发布来源、policy、placeholder、artifact 状态和后续 artifact 门禁。
+- 通过 release summary job 输出发布来源、policy、release-ci-gate、placeholder、artifact 状态和后续 artifact 门禁。
 - 任何真实产物必须先有对应源码、平台设计、GitHub Actions 验证和本文件定义的门禁。
 
 ## 发布原则

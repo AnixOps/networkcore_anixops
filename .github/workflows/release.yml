@@ -80,11 +80,44 @@ jobs:
           echo "release-ref=${RELEASE_REF}"
           echo "Release artifacts must be produced by GitHub Actions jobs."
 
+  release-ci-gate:
+    name: Release CI gate
+    runs-on: ubuntu-latest
+    needs:
+      - release-policy
+    steps:
+      - name: Record CI gate requirement
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_REF: ${{ github.ref }}
+          RELEASE_REF_NAME: ${{ github.ref_name }}
+          RELEASE_EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Release CI Gate"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current release mode | placeholder |"
+            echo "| Current commit | ${RELEASE_SHA} |"
+            echo "| Current ref | ${RELEASE_REF} |"
+            echo "| Current ref name | ${RELEASE_REF_NAME} |"
+            echo "| Trigger event | ${RELEASE_EVENT} |"
+            echo "| Artifact CI gate | not enforced until real artifact jobs exist |"
+            echo "| Required future gate | successful CI run on main for the same commit before packaging or publishing |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "release-ci-gate=placeholder"
+          echo "release-ci-required-before-artifacts=true"
+          echo "release-ci-required-ref=main"
+          echo "release-ci-required-sha=${RELEASE_SHA}"
+
   release-placeholder:
     name: Release placeholder
     runs-on: ubuntu-latest
     needs:
-      - release-policy
+      - release-ci-gate
     steps:
       - name: Explain current release state
         shell: bash
@@ -99,6 +132,7 @@ jobs:
     if: ${{ always() }}
     needs:
       - release-policy
+      - release-ci-gate
       - release-placeholder
     steps:
       - name: Summarize release state
@@ -127,6 +161,7 @@ jobs:
             echo "| Item | Status |"
             echo "| --- | --- |"
             echo "| Release policy | ${{ needs.release-policy.result }} |"
+            echo "| Release CI gate | ${{ needs.release-ci-gate.result }} |"
             echo "| Release placeholder | ${{ needs.release-placeholder.result }} |"
             echo "| Release artifacts | not defined |"
             echo "| Artifact gate | blocked until source, platform design, CI, checksum, signing, and rollback gates are implemented |"
@@ -138,8 +173,10 @@ jobs:
           echo "release-sha=${RELEASE_SHA}"
           echo "release-actor=${RELEASE_ACTOR}"
           echo "release-policy=${{ needs.release-policy.result }}"
+          echo "release-ci-gate=${{ needs.release-ci-gate.result }}"
           echo "release-placeholder=${{ needs.release-placeholder.result }}"
           echo "release-artifacts=not-defined"
           echo "artifact-gate=release-strategy-required"
           test "${{ needs.release-policy.result }}" = "success"
+          test "${{ needs.release-ci-gate.result }}" = "success"
           test "${{ needs.release-placeholder.result }}" = "success"
