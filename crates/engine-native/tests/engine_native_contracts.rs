@@ -371,7 +371,10 @@ fn start_readiness_blocks_valid_runtime_assembly_until_service_owns_lifecycle() 
 
     let readiness = assess_native_proxy_engine_start_readiness(&engine_config);
 
-    assert_eq!(readiness.readiness, NativeProxyEngineStartReadiness::Blocked);
+    assert_eq!(
+        readiness.readiness,
+        NativeProxyEngineStartReadiness::Blocked
+    );
     assert_diagnostic(
         &readiness.diagnostics,
         ENGINE_NATIVE_START_RUNTIME_ASSEMBLY_READY_CODE,
