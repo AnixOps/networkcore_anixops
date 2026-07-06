@@ -1541,9 +1541,7 @@ fn socks5_connect_target_valid(target: &NativeSocks5ConnectTarget) -> bool {
         }
 }
 
-fn socks5_connect_target_read_failed(
-    message: &'static str,
-) -> NativeSocks5ConnectTargetReadReport {
+fn socks5_connect_target_read_failed(message: &'static str) -> NativeSocks5ConnectTargetReadReport {
     NativeSocks5ConnectTargetReadReport {
         target: None,
         diagnostics: vec![runtime_warning(
@@ -1661,9 +1659,8 @@ fn read_socks5_greeting_and_close_accepted_connection(
                         .as_ref()
                         .filter(|target| socks5_connect_target_valid(target))
                     {
-                        diagnostics.extend(
-                            reject_unwired_socks5_route_outbound(target).diagnostics,
-                        );
+                        diagnostics
+                            .extend(reject_unwired_socks5_route_outbound(target).diagnostics);
                     }
                 }
             }
