@@ -133,6 +133,10 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_UNWIRED_
     "engine.native.runtime.socks5_outbound_connect_data_relay_plan_unwired";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_REJECTED_CODE: &str =
     "engine.native.runtime.socks5_outbound_connect_data_relay_plan_rejected";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_COMPLETED_CODE: &str =
+    "engine.native.runtime.socks5_outbound_connect_data_relay_completed";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_FAILED_CODE: &str =
+    "engine.native.runtime.socks5_outbound_connect_data_relay_failed";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_UNWIRED_CODE: &str =
     "engine.native.runtime.socks5_outbound_connect_client_success_response_unwired";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_REJECTED_CODE:
@@ -689,6 +693,13 @@ pub enum NativeSocks5OutboundConnectDataRelayPlanDecision {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeSocks5OutboundConnectDataRelayPlanReport {
     pub decision: NativeSocks5OutboundConnectDataRelayPlanDecision,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5OutboundConnectDataRelayReport {
+    pub client_to_outbound_bytes: u64,
+    pub outbound_to_client_bytes: u64,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -1366,6 +1377,44 @@ pub fn plan_socks5_outbound_connect_data_relay(
                 )],
             }
         }
+    }
+}
+
+pub fn relay_socks5_outbound_connect_data<CR, OW, OR, CW>(
+    client_reader: &mut CR,
+    outbound_writer: &mut OW,
+    outbound_reader: &mut OR,
+    client_writer: &mut CW,
+) -> NativeSocks5OutboundConnectDataRelayReport
+where
+    CR: Read,
+    OW: Write,
+    OR: Read,
+    CW: Write,
+{
+    let client_to_outbound_result =
+        relay_socks5_outbound_connect_data_direction(client_reader, outbound_writer);
+    let outbound_to_client_result =
+        relay_socks5_outbound_connect_data_direction(outbound_reader, client_writer);
+    let client_to_outbound_bytes = client_to_outbound_result.as_ref().copied().unwrap_or(0);
+    let outbound_to_client_bytes = outbound_to_client_result.as_ref().copied().unwrap_or(0);
+
+    let diagnostic = if client_to_outbound_result.is_ok() && outbound_to_client_result.is_ok() {
+        runtime_info(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_COMPLETED_CODE,
+            "native SOCKS5 outbound CONNECT data relay completed for both directions",
+        )
+    } else {
+        runtime_warning(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_FAILED_CODE,
+            "native SOCKS5 outbound CONNECT data relay failed in at least one direction",
+        )
+    };
+
+    NativeSocks5OutboundConnectDataRelayReport {
+        client_to_outbound_bytes,
+        outbound_to_client_bytes,
+        diagnostics: vec![diagnostic],
     }
 }
 
@@ -2198,6 +2247,20 @@ fn socks5_outbound_connect_response_valid(response: &NativeSocks5OutboundConnect
             }
             _ => false,
         }
+}
+
+fn relay_socks5_outbound_connect_data_direction<R, W>(
+    reader: &mut R,
+    writer: &mut W,
+) -> std::io::Result<u64>
+where
+    R: Read,
+    W: Write,
+{
+    let bytes = std::io::copy(reader, writer)?;
+    writer.flush()?;
+
+    Ok(bytes)
 }
 
 fn socks5_outbound_connect_client_success_response_frame(

@@ -12,8 +12,9 @@ use engine_native::{
     plan_socks5_outbound_connect_data_relay, plan_socks5_outbound_tcp_connection,
     read_socks5_command_header, read_socks5_connect_target, read_socks5_greeting,
     read_socks5_outbound_connect_response, reject_unsupported_socks5_command,
-    reject_unwired_socks5_route_outbound, select_socks5_auth_method,
-    select_socks5_route_outbound_behavior, write_socks5_auth_method_response,
+    reject_unwired_socks5_route_outbound, relay_socks5_outbound_connect_data,
+    select_socks5_auth_method, select_socks5_route_outbound_behavior,
+    write_socks5_auth_method_response,
     write_socks5_outbound_connect_client_success_response, write_socks5_outbound_connect_request,
     write_unwired_socks5_connect_failure_response, BoundLoopbackTcpListenerHandle,
     LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle,
@@ -63,6 +64,8 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_REJECTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_UNWIRED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITTEN_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_COMPLETED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_FAILED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_REJECTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_UNWIRED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_REJECTED_CODE,
@@ -1482,6 +1485,56 @@ fn socks5_outbound_connect_data_relay_plan_contract_rejects_rejected_relay() {
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_REJECTED_CODE,
+    );
+}
+
+#[test]
+fn socks5_outbound_connect_data_relay_contract_copies_bidirectional_streams() {
+    let client_payload = b"client payload".to_vec();
+    let outbound_payload = b"outbound payload".to_vec();
+    let mut client_reader = Cursor::new(client_payload.clone());
+    let mut outbound_writer = Vec::new();
+    let mut outbound_reader = Cursor::new(outbound_payload.clone());
+    let mut client_writer = Vec::new();
+
+    let report = relay_socks5_outbound_connect_data(
+        &mut client_reader,
+        &mut outbound_writer,
+        &mut outbound_reader,
+        &mut client_writer,
+    );
+
+    assert_eq!(outbound_writer, client_payload);
+    assert_eq!(client_writer, outbound_payload);
+    assert_eq!(report.client_to_outbound_bytes, outbound_writer.len() as u64);
+    assert_eq!(report.outbound_to_client_bytes, client_writer.len() as u64);
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_COMPLETED_CODE,
+    );
+}
+
+#[test]
+fn socks5_outbound_connect_data_relay_contract_reports_direction_failure() {
+    let outbound_payload = b"outbound payload".to_vec();
+    let mut client_reader = Cursor::new(b"client payload".to_vec());
+    let mut outbound_writer = FailingWriter;
+    let mut outbound_reader = Cursor::new(outbound_payload.clone());
+    let mut client_writer = Vec::new();
+
+    let report = relay_socks5_outbound_connect_data(
+        &mut client_reader,
+        &mut outbound_writer,
+        &mut outbound_reader,
+        &mut client_writer,
+    );
+
+    assert_eq!(report.client_to_outbound_bytes, 0);
+    assert_eq!(client_writer, outbound_payload);
+    assert_eq!(report.outbound_to_client_bytes, client_writer.len() as u64);
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_FAILED_CODE,
     );
 }
 
