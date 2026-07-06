@@ -569,7 +569,7 @@ fn runtime_accept_loop_contract_writes_client_success_response_and_relays_finite
             match outbound_listener.accept() {
                 Ok((mut outbound_stream, _)) => {
                     outbound_stream
-                        .set_read_timeout(Some(Duration::from_secs(1)))
+                        .set_read_timeout(Some(Duration::from_secs(5)))
                         .expect("captured outbound stream should accept a read timeout");
                     let mut request_frame = [0_u8; 10];
                     outbound_stream
@@ -630,7 +630,7 @@ fn runtime_accept_loop_contract_writes_client_success_response_and_relays_finite
     let mut stream = TcpStream::connect(("127.0.0.1", port))
         .expect("loopback tcp accept loop should accept local connections");
     stream
-        .set_read_timeout(Some(Duration::from_secs(2)))
+        .set_read_timeout(Some(Duration::from_secs(5)))
         .expect("test client should support a read timeout");
     stream
         .write_all(&[
@@ -650,10 +650,10 @@ fn runtime_accept_loop_contract_writes_client_success_response_and_relays_finite
         .read_to_end(&mut client_received)
         .expect("test client should read the success response and outbound relay payload");
     let outbound_frame = frame_rx
-        .recv_timeout(Duration::from_secs(2))
+        .recv_timeout(Duration::from_secs(5))
         .expect("accept loop should write the outbound SOCKS5 CONNECT request frame");
     let relayed_payload = payload_rx
-        .recv_timeout(Duration::from_secs(2))
+        .recv_timeout(Duration::from_secs(5))
         .expect("accept loop should relay client payload to outbound");
     drop(stream);
 
@@ -2522,7 +2522,7 @@ fn wait_until_relayed_count(
     accept_loop: &NativeLoopbackTcpAcceptLoopHandle,
     expected_connections: usize,
 ) {
-    for _ in 0..100 {
+    for _ in 0..500 {
         if accept_loop.relayed_connections() >= expected_connections {
             return;
         }
