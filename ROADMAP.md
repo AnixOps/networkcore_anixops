@@ -47,6 +47,10 @@
 
 - [control-domain](crates/control-domain)
 
+当前规格：
+
+- [Control Runtime Orchestration Design](docs/architecture/control-runtime-orchestration.md)
+
 ## P3 Runtime Capabilities
 
 目标是逐步实现可组合的网络控制能力。

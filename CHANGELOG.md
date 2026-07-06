@@ -6,6 +6,7 @@
 
 ### Added
 
+- 新增运行层编排设计文档，定义 `control-runtime` 的职责、生命周期、端口组合和首个源码增量验收条件。
 - 在 `control-domain` 中新增平台能力状态、MITM 证书状态和 `PlatformCapabilityService` 领域端口。
 - 新增发布策略文档，定义真实平台产物进入 release workflow 前的门禁、矩阵和回滚路径。
 - 新增 iOS 平台风险评估，覆盖 Network Extension、证书信任、插件脚本权限和 App Review 门禁。
