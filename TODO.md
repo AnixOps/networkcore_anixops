@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 在 CI summary 中补充 Go、Node、Swift 和 Apple 条件结果门禁，确保对应项目出现时 summary job 显式检查语言与平台结果。
+- [ ] 在 CI workflow 中补充 summary 输出项目类型检测结果，确保每次 CI 都记录 Go、Rust、Node、Swift 和 Apple 检测开关。
 
 ## 已完成
 
+- [x] 在 CI summary 中补充 Go、Node、Swift 和 Apple 条件结果门禁，确保对应项目出现时 summary job 显式检查语言与平台结果。
 - [x] 在 CI summary 中补充 Rust build/test 矩阵结果门禁，确保 summary job 显式检查 Rust build/test 结果。
 - [x] 在 `control-runtime` 中补充 MITM gate 权限拒绝诊断顺序合同测试，覆盖 manifest 非错误诊断会在 runtime 权限拒绝诊断前输出。
 - [x] 在 `control-runtime` 中补充 MITM gate manifest 错误拒绝诊断顺序合同测试，覆盖平台、证书、manifest 和 runtime 诊断按聚合顺序输出。

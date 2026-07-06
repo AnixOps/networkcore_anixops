@@ -364,12 +364,28 @@ jobs:
           echo "policy=${{ needs.policy.result }}"
           echo "detect-projects=${{ needs.detect-projects.result }}"
           echo "workspace-smoke=${{ needs.workspace-smoke.result }}"
+          echo "go-build-test=${{ needs.go-build-test.result }}"
           echo "rust-build-test=${{ needs.rust-build-test.result }}"
           echo "rust-security-audit=${{ needs.rust-security-audit.result }}"
+          echo "node-build-test=${{ needs.node-build-test.result }}"
+          echo "swift-build-test=${{ needs.swift-build-test.result }}"
+          echo "apple-project-smoke=${{ needs.apple-project-smoke.result }}"
           test "${{ needs.policy.result }}" = "success"
           test "${{ needs.detect-projects.result }}" = "success"
           test "${{ needs.workspace-smoke.result }}" = "success"
+          if [ "${{ needs.detect-projects.outputs.go }}" = "true" ]; then
+            test "${{ needs.go-build-test.result }}" = "success"
+          fi
           if [ "${{ needs.detect-projects.outputs.rust }}" = "true" ]; then
             test "${{ needs.rust-build-test.result }}" = "success"
             test "${{ needs.rust-security-audit.result }}" = "success"
+          fi
+          if [ "${{ needs.detect-projects.outputs.node }}" = "true" ]; then
+            test "${{ needs.node-build-test.result }}" = "success"
+          fi
+          if [ "${{ needs.detect-projects.outputs.swift }}" = "true" ]; then
+            test "${{ needs.swift-build-test.result }}" = "success"
+          fi
+          if [ "${{ needs.detect-projects.outputs.apple }}" = "true" ]; then
+            test "${{ needs.apple-project-smoke.result }}" = "success"
           fi

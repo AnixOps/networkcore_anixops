@@ -6,6 +6,7 @@
 
 ### Added
 
+- 补强 CI summary Go、Node、Swift 和 Apple 条件门禁，显式输出并在对应项目出现时检查语言与平台 job 结果。
 - 补强 CI summary Rust 门禁，显式输出并检查 Rust build/test 矩阵结果和 Rust dependency security audit 结果。
 - 补充 `control-runtime` MITM gate 权限拒绝诊断顺序合同测试，覆盖平台、证书、manifest 非错误诊断和 runtime 权限拒绝诊断按聚合顺序输出。
 - 补充 `control-runtime` MITM gate manifest 错误拒绝诊断顺序合同测试，覆盖平台、证书、manifest 和 runtime 诊断按聚合顺序输出。
