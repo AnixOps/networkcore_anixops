@@ -38,6 +38,7 @@ jobs:
           test -f docs/ci-cd-policy.md
           test -f docs/manual-intervention.md
           test -f docs/architecture/control-kernel-domain.md
+          test -f docs/architecture/control-kernel-interfaces.md
           test -f docs/architecture/adr-0001-initial-core-stack.md
           grep -q "本机只负责代码" AGENT.md
           grep -q "GitHub Actions" docs/ci-cd-policy.md
@@ -45,6 +46,7 @@ jobs:
           grep -q "TODO" TODO.md
           grep -q "Changelog" CHANGELOG.md
           grep -q "Control Kernel Domain Specification" docs/architecture/control-kernel-domain.md
+          grep -q "Control Kernel Interface Draft" docs/architecture/control-kernel-interfaces.md
           grep -q "ADR 0001: Initial Core Stack" docs/architecture/adr-0001-initial-core-stack.md
 
   detect-projects:

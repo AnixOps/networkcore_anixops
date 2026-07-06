@@ -27,6 +27,7 @@
 当前规格：
 
 - [Control Kernel Domain Specification](docs/architecture/control-kernel-domain.md)
+- [Control Kernel Interface Draft](docs/architecture/control-kernel-interfaces.md)
 - [ADR 0001: Initial Core Stack](docs/architecture/adr-0001-initial-core-stack.md)
 
 ## P2 Core Kernel Skeleton

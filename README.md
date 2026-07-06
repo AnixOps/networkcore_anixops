@@ -23,6 +23,7 @@
 - [AGENT.md](AGENT.md)
 - [docs/ci-cd-policy.md](docs/ci-cd-policy.md)
 - [docs/architecture/control-kernel-domain.md](docs/architecture/control-kernel-domain.md)
+- [docs/architecture/control-kernel-interfaces.md](docs/architecture/control-kernel-interfaces.md)
 - [docs/architecture/adr-0001-initial-core-stack.md](docs/architecture/adr-0001-initial-core-stack.md)
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - [ROADMAP.md](ROADMAP.md)
