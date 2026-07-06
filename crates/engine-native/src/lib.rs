@@ -1940,9 +1940,7 @@ fn socks5_connect_target_valid(target: &NativeSocks5ConnectTarget) -> bool {
         }
 }
 
-fn socks5_outbound_connect_response_valid(
-    response: &NativeSocks5OutboundConnectResponse,
-) -> bool {
+fn socks5_outbound_connect_response_valid(response: &NativeSocks5OutboundConnectResponse) -> bool {
     response.version == SOCKS5_VERSION
         && response.reply == SOCKS5_REPLY_SUCCEEDED
         && response.reserved == SOCKS5_RESERVED
@@ -2173,10 +2171,8 @@ fn read_socks5_greeting_and_close_accepted_connection(
                                         ),
                                     ));
                                     diagnostics.extend(
-                                        read_socks5_outbound_connect_response(
-                                            &mut outbound_stream,
-                                        )
-                                        .diagnostics,
+                                        read_socks5_outbound_connect_response(&mut outbound_stream)
+                                            .diagnostics,
                                     );
                                 }
                                 let _ = outbound_stream.shutdown(Shutdown::Both);
