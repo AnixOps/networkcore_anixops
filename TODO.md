@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 将 `networkcore-linux capabilities/status/diagnostics` 接入 `HostLinuxReadOnlyProbe`，通过 CLI 输出真实只读 Linux 平台诊断。
+- [ ] 补充 `networkcore-linux prepare-config/start` 运行层接线前设计，明确配置服务、代理引擎服务和前台生命周期 adapter 边界。
 
 ## 已完成
 
+- [x] 将 `networkcore-linux capabilities/status/diagnostics` 接入 `HostLinuxReadOnlyProbe`，通过 CLI 输出真实只读 Linux 平台诊断。
 - [x] 在 `platform-linux` 中新增只读 Linux 平台探测服务，提供 TUN、权限、DNS、service 和证书状态诊断映射合同测试。
 - [x] 补充 release workflow 中的 Linux artifact readiness gate，检查 CLI 源码、安装/回滚设计和 release 前置合同，继续阻止未满足门禁的 release asset。
 - [x] 补充 Linux CLI artifact 安装、卸载与回滚设计，明确首个压缩包发布前置条件。

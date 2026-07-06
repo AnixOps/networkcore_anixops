@@ -320,16 +320,21 @@ pub fn handle_entrypoint_skeleton(command: LinuxCliCommand) -> LinuxCliResponse 
     match command {
         LinuxCliCommand::Version { .. } => handle_version(),
         LinuxCliCommand::Stop { .. } => handle_stop(),
-        other => LinuxCliResponse::failure(
-            other.name(),
-            LinuxCliExitCode::Unavailable,
-            cli_diagnostic(
-                DiagnosticSeverity::Error,
-                CLI_RUNTIME_UNWIRED_CODE,
-                "linux CLI runtime wiring is not available in this skeleton",
-                SOURCE_CLI_RUNTIME,
-            ),
-        ),
+        other => handle_unwired_command(other.name()),
+    }
+}
+
+pub fn handle_entrypoint<P>(command: LinuxCliCommand, platform: &P) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+{
+    match command {
+        LinuxCliCommand::Version { .. } => handle_version(),
+        LinuxCliCommand::Capabilities { .. } => handle_capabilities(platform),
+        LinuxCliCommand::Status { .. } => handle_status(platform),
+        LinuxCliCommand::Diagnostics { .. } => handle_diagnostics(platform),
+        LinuxCliCommand::Stop { .. } => handle_stop(),
+        other => handle_unwired_command(other.name()),
     }
 }
 
@@ -662,6 +667,19 @@ fn domain_error_response(
         command,
         exit_code,
         cli_diagnostic(DiagnosticSeverity::Error, error.code, error.message, source),
+    )
+}
+
+fn handle_unwired_command(command: &'static str) -> LinuxCliResponse {
+    LinuxCliResponse::failure(
+        command,
+        LinuxCliExitCode::Unavailable,
+        cli_diagnostic(
+            DiagnosticSeverity::Error,
+            CLI_RUNTIME_UNWIRED_CODE,
+            "linux CLI runtime wiring is not available for this command",
+            SOURCE_CLI_RUNTIME,
+        ),
     )
 }
 

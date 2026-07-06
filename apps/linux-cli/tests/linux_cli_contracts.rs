@@ -1,20 +1,25 @@
 use control_domain::{
-    ConfigSnapshot, ConfigurationService, Diagnostic, DiagnosticSeverity, DomainResult,
-    PlatformCapabilities, PlatformFeatureState, ProxyEngineConfig, ProxyEngineDescriptor,
-    ProxyEngineEvent, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
-    SchemaVersion,
+    CertificateTrustState, ConfigSnapshot, ConfigurationService, Diagnostic, DiagnosticSeverity,
+    DomainResult, PlatformCapabilities, PlatformFeatureState, ProxyEngineConfig,
+    ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineLifecycleState, ProxyEngineService,
+    ProxyEngineStatus, SchemaVersion,
 };
 use control_runtime::RuntimeOrchestrator;
 use networkcore_linux::{
-    handle_capabilities, handle_prepare_config, handle_start, handle_status, handle_stop,
-    parse_args, render_response, ConfigReadError, ConfigReader, LinuxCliCommand, LinuxCliExitCode,
-    OutputFormat, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
-    CLI_START_PLATFORM_DENIED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
-    CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE,
+    handle_capabilities, handle_entrypoint, handle_prepare_config, handle_start, handle_status,
+    handle_stop, parse_args, render_response, ConfigReadError, ConfigReader, LinuxCliCommand,
+    LinuxCliExitCode, OutputFormat, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
+    CLI_CONFIG_READ_FAILED_CODE, CLI_RUNTIME_UNWIRED_CODE, CLI_START_PLATFORM_DENIED_CODE,
+    CLI_STATUS_NO_RUNTIME_CONTEXT_CODE, CLI_STATUS_PLATFORM_ONLY_CODE,
+    CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE,
 };
 use platform_linux::{
-    linux_diagnostic, LinuxFeatureProbe, LinuxPlatformSnapshot,
-    StaticLinuxPlatformCapabilityService, DNS_MANAGER_UNKNOWN_CODE, SOURCE_DNS,
+    linux_diagnostic, LinuxCertificateProbe, LinuxDnsManagerState, LinuxFeatureProbe,
+    LinuxPlatformSnapshot, LinuxPrivilegeProbe, LinuxReadOnlyProbe, LinuxReadOnlyProbeSnapshot,
+    LinuxServiceManagerState, LinuxTunDeviceState, ReadOnlyLinuxPlatformCapabilityService,
+    StaticLinuxPlatformCapabilityService, DNS_MANAGER_DETECTED_CODE, DNS_MANAGER_UNKNOWN_CODE,
+    PERMISSION_CAPABILITY_MISSING_CODE, PERMISSION_ELEVATION_REQUIRED_CODE, SOURCE_DNS,
+    SERVICE_UNSUPPORTED_ENVIRONMENT_CODE,
 };
 
 #[test]
@@ -141,6 +146,101 @@ fn status_without_runtime_context_reports_platform_only_diagnostics() {
 }
 
 #[test]
+fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
+    let platform = StaticLinuxPlatformCapabilityService::new(
+        LinuxPlatformSnapshot::available_for_tests().with_diagnostic(linux_diagnostic(
+            DiagnosticSeverity::Warning,
+            DNS_MANAGER_UNKNOWN_CODE,
+            "linux DNS manager could not be identified",
+            SOURCE_DNS,
+        )),
+    );
+
+    let capabilities = handle_entrypoint(
+        LinuxCliCommand::Capabilities {
+            format: OutputFormat::Text,
+        },
+        &platform,
+    );
+    let status = handle_entrypoint(
+        LinuxCliCommand::Status {
+            format: OutputFormat::Text,
+        },
+        &platform,
+    );
+    let diagnostics = handle_entrypoint(
+        LinuxCliCommand::Diagnostics {
+            format: OutputFormat::Text,
+        },
+        &platform,
+    );
+
+    assert!(capabilities.ok);
+    assert!(status.ok);
+    assert!(diagnostics.ok);
+    assert_eq!(capabilities.command, "capabilities");
+    assert_eq!(status.command, "status");
+    assert_eq!(diagnostics.command, "diagnostics");
+    assert_diagnostic(&capabilities.diagnostics, DNS_MANAGER_UNKNOWN_CODE);
+    assert_diagnostic(&status.diagnostics, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE);
+    assert_diagnostic(&diagnostics.diagnostics, DNS_MANAGER_UNKNOWN_CODE);
+}
+
+#[test]
+fn entrypoint_accepts_read_only_linux_probe_for_host_diagnostic_mapping() {
+    let platform = ReadOnlyLinuxPlatformCapabilityService::new(MemoryLinuxReadOnlyProbe::new(
+        LinuxReadOnlyProbeSnapshot {
+            tun_device: LinuxTunDeviceState::Available,
+            privileges: LinuxPrivilegeProbe {
+                effective_uid: Some(1000),
+                cap_net_admin: Some(false),
+            },
+            dns_manager: LinuxDnsManagerState::NetworkManager,
+            service_manager: LinuxServiceManagerState::Unsupported,
+            mitm_certificate: LinuxCertificateProbe::new(CertificateTrustState::NotInstalled),
+        },
+    ));
+
+    let response = handle_entrypoint(
+        LinuxCliCommand::Capabilities {
+            format: OutputFormat::Json,
+        },
+        &platform,
+    );
+
+    assert!(response.ok);
+    assert!(!response
+        .platform
+        .as_ref()
+        .expect("platform status")
+        .tunnel
+        .is_available());
+    assert_diagnostic(&response.diagnostics, PERMISSION_CAPABILITY_MISSING_CODE);
+    assert_diagnostic(&response.diagnostics, PERMISSION_ELEVATION_REQUIRED_CODE);
+    assert_diagnostic(&response.diagnostics, DNS_MANAGER_DETECTED_CODE);
+    assert_diagnostic(&response.diagnostics, SERVICE_UNSUPPORTED_ENVIRONMENT_CODE);
+}
+
+#[test]
+fn entrypoint_keeps_runtime_mutation_commands_unwired() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+
+    let response = handle_entrypoint(
+        LinuxCliCommand::Start {
+            config_path: Some("config.toml".to_string()),
+            format: OutputFormat::Text,
+        },
+        &platform,
+    );
+
+    assert!(!response.ok);
+    assert_eq!(response.command, "start");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Unavailable);
+    assert_diagnostic(&response.diagnostics, CLI_RUNTIME_UNWIRED_CODE);
+}
+
+#[test]
 fn json_output_contains_required_top_level_fields() {
     let platform =
         StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
@@ -191,6 +291,22 @@ impl MemoryConfigReader {
 impl ConfigReader for MemoryConfigReader {
     fn read_config(&self, _path: &str) -> Result<String, ConfigReadError> {
         self.result.clone().map_err(ConfigReadError::new)
+    }
+}
+
+struct MemoryLinuxReadOnlyProbe {
+    snapshot: LinuxReadOnlyProbeSnapshot,
+}
+
+impl MemoryLinuxReadOnlyProbe {
+    fn new(snapshot: LinuxReadOnlyProbeSnapshot) -> Self {
+        Self { snapshot }
+    }
+}
+
+impl LinuxReadOnlyProbe for MemoryLinuxReadOnlyProbe {
+    fn snapshot(&self) -> LinuxReadOnlyProbeSnapshot {
+        self.snapshot.clone()
     }
 }
 

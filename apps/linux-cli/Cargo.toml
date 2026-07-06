@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Linux CLI entrypoint skeleton for the AnixOps network control kernel."
+description = "Linux CLI entrypoint for the AnixOps network control kernel."
 
 [dependencies]
 control-domain = { path = "../../crates/control-domain" }

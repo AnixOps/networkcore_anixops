@@ -3,7 +3,10 @@ fn main() {
     let (format, response) = match parsed {
         Ok(command) => {
             let format = command.format();
-            let response = networkcore_linux::handle_entrypoint_skeleton(command);
+            let platform = platform_linux::ReadOnlyLinuxPlatformCapabilityService::new(
+                platform_linux::HostLinuxReadOnlyProbe::new(),
+            );
+            let response = networkcore_linux::handle_entrypoint(command, &platform);
             (format, response)
         }
         Err(error) => (

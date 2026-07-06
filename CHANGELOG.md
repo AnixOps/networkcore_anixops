@@ -6,6 +6,7 @@
 
 ### Added
 
+- 将 `networkcore-linux capabilities/status/diagnostics` 接入 `HostLinuxReadOnlyProbe`，通过 `PlatformCapabilityService` 输出只读 Linux 平台诊断，并保留 `start` 等运行层命令未接线诊断。
 - 在 `platform-linux` 中新增只读 Linux 平台探测服务，提供 `HostLinuxReadOnlyProbe`、可注入 probe 边界、TUN/权限/DNS/service 诊断映射和 `/proc/self/status` 解析合同测试。
 - 补充 release workflow 的 `linux-artifact-readiness` job，检查 Linux CLI 源码、platform adapter、安装/回滚设计和 license/NOTICE 人工事项，并继续阻止 release asset 上传。
 - 新增 Linux CLI artifact 安装、卸载与回滚设计文档，明确首个 `networkcore-linux` 压缩包的手动解压模型、卸载清单、用户侧回滚和 `package-linux` 前置门禁。

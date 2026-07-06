@@ -177,6 +177,6 @@ Linux adapter 首个源码增量必须满足：
 
 ## 后续工作
 
-- `apps/linux-cli` 后续接入 `HostLinuxReadOnlyProbe` 前，继续通过 `platform-linux` 边界注入能力服务，避免 CLI 直接触碰 Linux 系统 API。
+- `apps/linux-cli` 已通过 `PlatformCapabilityService` 注入 `HostLinuxReadOnlyProbe`，CLI 入口继续避免直接触碰 Linux 系统 API。
 - 后续任何会修改 TUN、路由、DNS、服务或证书信任的实现，都必须先补充单独设计和回滚合同。
 - Linux artifact 进入 release workflow 前，仍必须满足 [Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md) 的 packaging、checksum、签名/证明和回滚契约。
