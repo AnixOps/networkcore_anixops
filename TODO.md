@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT request write 诊断合同，继续不进行双向数据转发、不接入 `networkcore-linux start`。
+- [ ] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT response read 诊断合同，继续不进行双向数据转发、不接入 `networkcore-linux start`。
 
 ## 已完成
 
+- [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT request write 诊断合同，继续不进行双向数据转发、不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 outbound TCP connection attempt 诊断合同，继续不进行数据转发、不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 outbound TCP connection plan 诊断合同，继续不建立真实 outbound 连接、不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT request frame 生成诊断合同，继续不建立真实 outbound 连接、不接入 `networkcore-linux start`。

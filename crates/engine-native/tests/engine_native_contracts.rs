@@ -9,12 +9,13 @@ use engine_native::{
     plan_socks5_outbound_tcp_connection, read_socks5_command_header, read_socks5_connect_target,
     read_socks5_greeting, reject_unsupported_socks5_command, reject_unwired_socks5_route_outbound,
     select_socks5_auth_method, select_socks5_route_outbound_behavior,
-    write_socks5_auth_method_response, write_unwired_socks5_connect_failure_response,
-    BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle,
-    NativeOutboundHandlerHandle, NativeProxyEngineService, NativeRuntimeAssembly,
-    NativeRuntimeAssemblyPlan, NativeSocks5Address, NativeSocks5AuthMethodDecision,
-    NativeSocks5CommandDecision, NativeSocks5CommandHeader, NativeSocks5ConnectTarget,
-    NativeSocks5Greeting, NativeSocks5OutboundTcpConnectionPlan, NativeSocks5RouteOutboundBehavior,
+    write_socks5_auth_method_response, write_socks5_outbound_connect_request,
+    write_unwired_socks5_connect_failure_response, BoundLoopbackTcpListenerHandle,
+    LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle,
+    NativeProxyEngineService, NativeRuntimeAssembly, NativeRuntimeAssemblyPlan,
+    NativeSocks5Address, NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision,
+    NativeSocks5CommandHeader, NativeSocks5ConnectTarget, NativeSocks5Greeting,
+    NativeSocks5OutboundTcpConnectionPlan, NativeSocks5RouteOutboundBehavior,
     NativeSocks5RouteOutboundDecision, DEFAULT_NATIVE_ENGINE_ID,
     ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
@@ -49,6 +50,8 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_FAILED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_GENERATED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_INVALID_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITE_FAILED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITTEN_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_ATTEMPT_FAILED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_ATTEMPT_SUCCEEDED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_PLANNED_CODE,
@@ -57,8 +60,9 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE, ENGINE_NATIVE_START_BIND_FAILED_CODE,
     ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
 };
-use std::io::{self, Cursor, Write};
+use std::io::{self, Cursor, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
@@ -510,6 +514,111 @@ fn runtime_accept_loop_contract_accepts_loopback_tcp_connection_and_shuts_down()
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
+    );
+}
+
+#[test]
+fn runtime_accept_loop_contract_writes_socks5_outbound_connect_request_before_unwired_failure() {
+    let port = unused_loopback_port();
+    let outbound_listener =
+        TcpListener::bind(("127.0.0.1", 0)).expect("test outbound listener should bind");
+    outbound_listener
+        .set_nonblocking(true)
+        .expect("test outbound listener should support nonblocking accept");
+    let outbound_port = outbound_listener
+        .local_addr()
+        .expect("test outbound listener should have a local address")
+        .port();
+    let (frame_tx, frame_rx) = mpsc::channel();
+    let outbound_worker = thread::spawn(move || {
+        for _ in 0..100 {
+            match outbound_listener.accept() {
+                Ok((mut outbound_stream, _)) => {
+                    outbound_stream
+                        .set_read_timeout(Some(Duration::from_secs(1)))
+                        .expect("captured outbound stream should accept a read timeout");
+                    let mut request_frame = [0_u8; 10];
+                    outbound_stream
+                        .read_exact(&mut request_frame)
+                        .expect("outbound stream should receive the SOCKS5 CONNECT request frame");
+                    frame_tx
+                        .send(request_frame.to_vec())
+                        .expect("captured outbound frame should be reported to the test");
+                    return;
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("test outbound listener failed while accepting: {error}"),
+            }
+        }
+
+        panic!("test outbound listener did not receive a connection");
+    });
+    let listener = LoopbackListenerHandle::from_descriptor(&local_tcp_listener_with_bind(
+        "outbound-write-accept-loopback-local-tcp",
+        "127.0.0.1",
+        port,
+        ListenerRoute::DefaultAction(RouteAction::Proxy {
+            node_id: "node-1".to_string(),
+        }),
+    ))
+    .expect("loopback tcp listener handle should be representable");
+    let bound_listener = BoundLoopbackTcpListenerHandle::bind(listener)
+        .expect("loopback tcp listener should bind on an available port");
+    let outbound = NativeOutboundHandlerHandle::from_node(&NodeDescriptor {
+        endpoint: Endpoint {
+            host: "127.0.0.1".to_string(),
+            port: outbound_port,
+        },
+        ..node()
+    })
+    .expect("socks outbound handler handle should be representable");
+    let accept_loop = NativeLoopbackTcpAcceptLoopHandle::start(bound_listener, outbound)
+        .expect("loopback tcp accept loop should start from bound resources");
+
+    let mut stream = TcpStream::connect(("127.0.0.1", port))
+        .expect("loopback tcp accept loop should accept local connections");
+    stream
+        .write_all(&[
+            0x05, 0x01, 0x00, 0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0x01, 0xbb,
+        ])
+        .expect("test client should send a SOCKS5 greeting, CONNECT header, and IPv4 target");
+    wait_until_accept_count(&accept_loop, 1);
+    wait_until_pre_protocol_closed_count(&accept_loop, 1);
+    let outbound_frame = frame_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("accept loop should write the outbound SOCKS5 CONNECT request frame");
+    drop(stream);
+
+    let report = accept_loop.shutdown();
+    outbound_worker
+        .join()
+        .expect("outbound frame capture worker should finish");
+
+    assert_eq!(
+        outbound_frame,
+        vec![0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0x01, 0xbb]
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_ATTEMPT_SUCCEEDED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITTEN_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE,
     );
 }
 
@@ -1073,6 +1182,73 @@ fn socks5_outbound_tcp_connection_attempt_contract_reports_invalid_public_endpoi
     assert_diagnostic(
         &attempt_report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_ATTEMPT_FAILED_CODE,
+    );
+}
+
+#[test]
+fn socks5_outbound_connect_request_write_contract_writes_planned_frame_without_relaying_data() {
+    let plan = NativeSocks5OutboundTcpConnectionPlan {
+        outbound_handler_id: "node-1".to_string(),
+        outbound_endpoint: Endpoint {
+            host: "127.0.0.1".to_string(),
+            port: 1080,
+        },
+        target: NativeSocks5ConnectTarget {
+            address: NativeSocks5Address::Ipv4([127, 0, 0, 1]),
+            port: 443,
+        },
+        request_frame: vec![0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0x01, 0xbb],
+    };
+    let mut writer = Vec::new();
+
+    let report = write_socks5_outbound_connect_request(&mut writer, &plan);
+
+    assert_eq!(writer, plan.request_frame);
+    assert_eq!(report.request_frame, plan.request_frame);
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITTEN_CODE,
+    );
+}
+
+#[test]
+fn socks5_outbound_connect_request_write_contract_reports_invalid_public_input() {
+    let plan = NativeSocks5OutboundTcpConnectionPlan {
+        outbound_handler_id: "node-1".to_string(),
+        outbound_endpoint: Endpoint {
+            host: "127.0.0.1".to_string(),
+            port: 1080,
+        },
+        target: NativeSocks5ConnectTarget {
+            address: NativeSocks5Address::Ipv4([127, 0, 0, 1]),
+            port: 443,
+        },
+        request_frame: vec![0x05],
+    };
+    let mut failing_writer = FailingWriter;
+
+    let failed_report = write_socks5_outbound_connect_request(&mut failing_writer, &plan);
+
+    assert_eq!(failed_report.request_frame, plan.request_frame);
+    assert_diagnostic(
+        &failed_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITE_FAILED_CODE,
+    );
+
+    let empty_frame_plan = NativeSocks5OutboundTcpConnectionPlan {
+        request_frame: Vec::new(),
+        ..plan
+    };
+    let mut empty_frame_writer = Vec::new();
+
+    let empty_frame_report =
+        write_socks5_outbound_connect_request(&mut empty_frame_writer, &empty_frame_plan);
+
+    assert!(empty_frame_writer.is_empty());
+    assert!(empty_frame_report.request_frame.is_empty());
+    assert_diagnostic(
+        &empty_frame_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITE_FAILED_CODE,
     );
 }
 

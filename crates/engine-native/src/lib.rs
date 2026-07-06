@@ -111,6 +111,10 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_ATTEMPT_SUCCEEDED
     "engine.native.runtime.socks5_outbound_tcp_connection_attempt_succeeded";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_ATTEMPT_FAILED_CODE: &str =
     "engine.native.runtime.socks5_outbound_tcp_connection_attempt_failed";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITTEN_CODE: &str =
+    "engine.native.runtime.socks5_outbound_connect_request_written";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITE_FAILED_CODE: &str =
+    "engine.native.runtime.socks5_outbound_connect_request_write_failed";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE: &str =
     "engine.native.runtime.socks5_route_outbound_unwired";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE: &str =
@@ -141,6 +145,7 @@ const SOCKS5_CONNECT_FAILURE_RESPONSE: [u8; 10] = [
 ];
 const ACCEPTED_CONNECTION_READ_TIMEOUT_MS: u64 = 100;
 const OUTBOUND_CONNECTION_ATTEMPT_TIMEOUT_MS: u64 = 100;
+const OUTBOUND_CONNECT_REQUEST_WRITE_TIMEOUT_MS: u64 = 100;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoopbackListenerHandle {
@@ -598,6 +603,12 @@ pub struct NativeSocks5OutboundTcpConnectionAttemptReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5OutboundConnectRequestWriteReport {
+    pub request_frame: Vec<u8>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeSocks5RouteOutboundReport {
     pub decision: NativeSocks5RouteOutboundDecision,
     pub diagnostics: Vec<Diagnostic>,
@@ -1021,6 +1032,37 @@ pub fn attempt_socks5_outbound_tcp_connection(
                 "native SOCKS5 outbound TCP connection attempt failed",
             )],
         },
+    }
+}
+
+pub fn write_socks5_outbound_connect_request<W>(
+    writer: &mut W,
+    plan: &NativeSocks5OutboundTcpConnectionPlan,
+) -> NativeSocks5OutboundConnectRequestWriteReport
+where
+    W: Write,
+{
+    let request_frame = plan.request_frame.clone();
+    let diagnostic = if request_frame.is_empty() {
+        runtime_warning(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITE_FAILED_CODE,
+            "native SOCKS5 outbound CONNECT request requires a non-empty frame",
+        )
+    } else if writer.write_all(&request_frame).is_ok() {
+        runtime_info(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITTEN_CODE,
+            "native SOCKS5 outbound CONNECT request was written",
+        )
+    } else {
+        runtime_warning(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITE_FAILED_CODE,
+            "native SOCKS5 outbound CONNECT request could not be written",
+        )
+    };
+
+    NativeSocks5OutboundConnectRequestWriteReport {
+        request_frame,
+        diagnostics: vec![diagnostic],
     }
 }
 
@@ -1939,8 +1981,20 @@ fn read_socks5_greeting_and_close_accepted_connection(
                                 stream: outbound_stream,
                                 diagnostics: attempt_diagnostics,
                             } = attempt_socks5_outbound_tcp_connection(plan);
-                            drop(outbound_stream);
                             diagnostics.extend(attempt_diagnostics);
+                            if let Some(mut outbound_stream) = outbound_stream {
+                                let _ = outbound_stream.set_write_timeout(Some(
+                                    Duration::from_millis(
+                                        OUTBOUND_CONNECT_REQUEST_WRITE_TIMEOUT_MS,
+                                    ),
+                                ));
+                                let write_report = write_socks5_outbound_connect_request(
+                                    &mut outbound_stream,
+                                    plan,
+                                );
+                                diagnostics.extend(write_report.diagnostics);
+                                let _ = outbound_stream.shutdown(Shutdown::Both);
+                            }
                         }
                         diagnostics
                             .extend(reject_unwired_socks5_route_outbound(target).diagnostics);
