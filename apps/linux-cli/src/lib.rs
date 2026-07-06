@@ -666,12 +666,7 @@ fn domain_error_response(
     LinuxCliResponse::failure(
         command,
         exit_code,
-        cli_diagnostic(
-            DiagnosticSeverity::Error,
-            error.code,
-            error.message,
-            source,
-        ),
+        cli_diagnostic(DiagnosticSeverity::Error, error.code, error.message, source),
     )
 }
 
@@ -747,7 +742,11 @@ impl From<&LinuxCliResponse> for JsonCliResponse {
             ok: response.ok,
             command: response.command.clone(),
             exit_code: response.exit_code.code(),
-            diagnostics: response.diagnostics.iter().map(JsonDiagnostic::from).collect(),
+            diagnostics: response
+                .diagnostics
+                .iter()
+                .map(JsonDiagnostic::from)
+                .collect(),
             platform: response.platform.as_ref().map(JsonPlatform::from),
             config_profiles: response.config_profiles.clone(),
             version: response.version.clone(),
