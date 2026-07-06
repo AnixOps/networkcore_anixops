@@ -1099,9 +1099,7 @@ fn mitm_gate_preserves_platform_diagnostics_on_remote_script_denial() {
     let platform_diagnostic = decision
         .diagnostics
         .iter()
-        .find(|diagnostic| {
-            diagnostic.code == "platform.remote_script_execution.disabled_by_policy"
-        })
+        .find(|diagnostic| diagnostic.code == "platform.remote_script_execution.disabled_by_policy")
         .expect("remote script diagnostic should be preserved");
 
     assert!(!decision.is_allowed());
