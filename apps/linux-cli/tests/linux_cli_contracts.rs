@@ -333,10 +333,7 @@ fn foreground_lifecycle_contract_reports_missing_host_without_start_wiring() {
     assert!(response.platform.is_some());
     assert_diagnostic(&response.diagnostics, "engine.ready");
     assert_diagnostic(&response.diagnostics, CLI_START_FOREGROUND_ONLY_CODE);
-    assert_diagnostic(
-        &response.diagnostics,
-        CLI_START_LIFECYCLE_HOST_MISSING_CODE,
-    );
+    assert_diagnostic(&response.diagnostics, CLI_START_LIFECYCLE_HOST_MISSING_CODE);
 }
 
 #[test]
