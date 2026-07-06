@@ -52,10 +52,10 @@
 首期 CI/CD 目标平台：
 
 - `ubuntu-latest`
-- `macos-15`
+- `macos-26`
 - `windows-latest`
 
-iOS 相关验证只允许在固定版本 macOS runner 中执行。涉及签名、证书、Provisioning Profile 的内容必须使用 GitHub Secrets 或 Apple 官方流程，不得写入仓库。
+iOS 相关验证只允许在 macOS runner 中执行。为优先支持最新 Apple 平台能力，默认使用 `macos-26`；如 GitHub hosted runner 暂不可用或特定工具链存在兼容问题，必须在 GitHub Actions 日志中确认后再调整。涉及签名、证书、Provisioning Profile 的内容必须使用 GitHub Secrets 或 Apple 官方流程，不得写入仓库。
 
 ## 内核与客户端演进
 
