@@ -1983,11 +1983,10 @@ fn read_socks5_greeting_and_close_accepted_connection(
                             } = attempt_socks5_outbound_tcp_connection(plan);
                             diagnostics.extend(attempt_diagnostics);
                             if let Some(mut outbound_stream) = outbound_stream {
-                                let _ = outbound_stream.set_write_timeout(Some(
-                                    Duration::from_millis(
+                                let _ =
+                                    outbound_stream.set_write_timeout(Some(Duration::from_millis(
                                         OUTBOUND_CONNECT_REQUEST_WRITE_TIMEOUT_MS,
-                                    ),
-                                ));
+                                    )));
                                 let write_report = write_socks5_outbound_connect_request(
                                     &mut outbound_stream,
                                     plan,
