@@ -1,8 +1,8 @@
 //! Native proxy engine adapter contracts for NetworkCore.
 //!
 //! This crate intentionally exposes descriptor, validation, lifecycle
-//! diagnostics, and resource-backed runtime handle contracts while service-owned
-//! lifecycle state and binary foreground handoff remain unwired.
+//! diagnostics, and resource-backed runtime handle contracts while binary
+//! foreground handoff remains unwired.
 
 use control_domain::{
     Diagnostic, DiagnosticSeverity, DomainError, DomainResult, Endpoint, ListenerDescriptor,
@@ -14,7 +14,7 @@ use std::collections::BTreeSet;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -50,6 +50,7 @@ pub const ENGINE_NATIVE_START_RUNTIME_ASSEMBLY_READY_CODE: &str =
     "engine.native.start.runtime_assembly_ready";
 pub const ENGINE_NATIVE_START_SERVICE_RUNTIME_OWNER_MISSING_CODE: &str =
     "engine.native.start.service_runtime_owner_missing";
+pub const ENGINE_NATIVE_START_RUNNING_CODE: &str = "engine.native.start.running";
 pub const ENGINE_NATIVE_START_BIND_FAILED_CODE: &str = "engine.native.start.bind_failed";
 pub const ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE: &str = "engine.native.start.lifecycle_failed";
 pub const ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE: &str =
@@ -1704,6 +1705,41 @@ impl NativeRuntimeAssemblyPlan {
             )),
         }
     }
+
+    pub fn start_loopback_accept_loop(
+        self,
+    ) -> Result<NativeRuntimeAssembly, Box<NativeRuntimeStartupFailure>> {
+        let Self {
+            engine_id,
+            listener,
+            outbound_handler,
+        } = self;
+        let release_listener = listener.clone();
+        let release_outbound_handler = outbound_handler.clone();
+
+        let bound_listener = match BoundLoopbackTcpListenerHandle::bind(listener) {
+            Ok(bound_listener) => bound_listener,
+            Err(error) => {
+                return Err(Box::new(
+                    NativeRuntimeAssembly::new(engine_id)
+                        .with_listener(release_listener)
+                        .with_outbound_handler(outbound_handler)
+                        .fail(error.code.clone(), error.message.clone()),
+                ));
+            }
+        };
+
+        match NativeLoopbackTcpAcceptLoopHandle::start(bound_listener, outbound_handler) {
+            Ok(accept_loop) => Ok(NativeRuntimeAssembly::new(engine_id)
+                .with_accept_loop(accept_loop)),
+            Err(error) => Err(Box::new(
+                NativeRuntimeAssembly::new(engine_id)
+                    .with_listener(release_listener)
+                    .with_outbound_handler(release_outbound_handler)
+                    .fail(error.code.clone(), error.message.clone()),
+            )),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1913,12 +1949,38 @@ impl NativeRuntimeAssembly {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct NativeProxyEngineService;
+#[derive(Debug, Clone, Default)]
+pub struct NativeProxyEngineService {
+    runtime: Arc<Mutex<Option<NativeRuntimeHandle>>>,
+    lifecycle_events: Arc<Mutex<Vec<ProxyEngineEvent>>>,
+}
 
 impl NativeProxyEngineService {
-    pub const fn new() -> Self {
-        Self
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn runtime_state(
+        &self,
+    ) -> DomainResult<std::sync::MutexGuard<'_, Option<NativeRuntimeHandle>>> {
+        self.runtime.lock().map_err(|_| lifecycle_state_error())
+    }
+
+    fn lifecycle_event_state(
+        &self,
+    ) -> DomainResult<std::sync::MutexGuard<'_, Vec<ProxyEngineEvent>>> {
+        self.lifecycle_events
+            .lock()
+            .map_err(|_| lifecycle_state_error())
+    }
+
+    fn record_events(&self, events: Vec<ProxyEngineEvent>) -> DomainResult<()> {
+        if events.is_empty() {
+            return Ok(());
+        }
+
+        self.lifecycle_event_state()?.extend(events);
+        Ok(())
     }
 }
 
@@ -1945,12 +2007,10 @@ pub fn assess_native_proxy_engine_start_readiness(
                 "native runtime assembly plan is ready for service start evaluation",
                 SOURCE_ENGINE_NATIVE_LIFECYCLE,
             ));
-            diagnostics.push(engine_diagnostic(
-                DiagnosticSeverity::Error,
-                ENGINE_NATIVE_START_SERVICE_RUNTIME_OWNER_MISSING_CODE,
-                "native service start requires service-owned runtime state before returning running",
-                SOURCE_ENGINE_NATIVE_LIFECYCLE,
-            ));
+            return NativeProxyEngineStartReadinessReport {
+                readiness: NativeProxyEngineStartReadiness::Ready,
+                diagnostics,
+            };
         }
         Err(error) => diagnostics.push(engine_diagnostic(
             DiagnosticSeverity::Error,
@@ -1998,17 +2058,55 @@ impl ProxyEngineService for NativeProxyEngineService {
     fn start(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {
         ensure_native_engine_id(&engine_config.engine_id)?;
         let readiness = assess_native_proxy_engine_start_readiness(engine_config);
-        if readiness.readiness == NativeProxyEngineStartReadiness::Ready {
-            return Err(domain_error(
-                ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE,
-                "native proxy runtime service start reached an unsupported ready state",
-            ));
+        if readiness.readiness == NativeProxyEngineStartReadiness::Blocked {
+            let diagnostic = readiness
+                .diagnostics
+                .into_iter()
+                .find(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+                .unwrap_or_else(|| {
+                    engine_diagnostic(
+                        DiagnosticSeverity::Error,
+                        ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
+                        "native proxy runtime service start is unavailable",
+                        SOURCE_ENGINE_NATIVE_LIFECYCLE,
+                    )
+                });
+
+            return Err(domain_error(diagnostic.code, diagnostic.message));
         }
 
-        Err(domain_error(
-            ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
-            "native proxy runtime service start is blocked until service-owned runtime state and foreground lifecycle handoff are wired",
-        ))
+        {
+            let runtime = self.runtime_state()?;
+            if let Some(runtime) = runtime.as_ref() {
+                return Ok(running_status(runtime));
+            }
+        }
+
+        let plan = NativeRuntimeAssemblyPlan::from_config(engine_config)?;
+        let assembly = match plan.start_loopback_accept_loop() {
+            Ok(assembly) => assembly,
+            Err(failure) => {
+                let NativeRuntimeStartupFailure { error, release } = *failure;
+                let _ = self.record_events(release.events);
+                return Err(error);
+            }
+        };
+        let handle = assembly.finish()?;
+        let status = running_status(&handle);
+        let start_events = handle.events().to_vec();
+
+        let mut runtime = self.runtime_state()?;
+        if let Some(existing_runtime) = runtime.as_ref() {
+            let status = running_status(existing_runtime);
+            drop(runtime);
+            let _ = handle.release();
+            return Ok(status);
+        }
+
+        self.lifecycle_event_state()?.extend(start_events);
+        *runtime = Some(handle);
+
+        Ok(status)
     }
 
     fn reload(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {
@@ -2023,11 +2121,37 @@ impl ProxyEngineService for NativeProxyEngineService {
     fn stop(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
         ensure_native_engine_id(engine_id)?;
 
-        Ok(stopped_status(engine_id))
+        let handle = {
+            let mut runtime = self.runtime_state()?;
+            runtime.take()
+        };
+        let Some(handle) = handle else {
+            return Ok(stopped_status(engine_id));
+        };
+
+        let release = handle.release();
+        let release_event = release.events.last().cloned();
+        let status = ProxyEngineStatus {
+            engine_id: release.engine_id.clone(),
+            state: ProxyEngineLifecycleState::Stopped,
+            diagnostics: release.diagnostics.clone(),
+        };
+        if let Some(release_event) = release_event {
+            self.record_events(vec![release_event])?;
+        }
+
+        Ok(status)
     }
 
     fn status(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
         ensure_native_engine_id(engine_id)?;
+
+        {
+            let runtime = self.runtime_state()?;
+            if let Some(runtime) = runtime.as_ref() {
+                return Ok(runtime.foreground_handoff_status());
+            }
+        }
 
         Ok(stopped_status(engine_id))
     }
@@ -2035,8 +2159,19 @@ impl ProxyEngineService for NativeProxyEngineService {
     fn events(&self, engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>> {
         ensure_native_engine_id(engine_id)?;
 
-        Ok(Vec::new())
+        Ok(self.lifecycle_event_state()?.clone())
     }
+}
+
+fn running_status(handle: &NativeRuntimeHandle) -> ProxyEngineStatus {
+    let mut status = handle.foreground_handoff_status();
+    status.diagnostics.push(engine_diagnostic(
+        DiagnosticSeverity::Info,
+        ENGINE_NATIVE_START_RUNNING_CODE,
+        "native proxy runtime is running in the current process",
+        SOURCE_ENGINE_NATIVE_LIFECYCLE,
+    ));
+    status
 }
 
 fn stopped_status(engine_id: &str) -> ProxyEngineStatus {
@@ -2045,6 +2180,13 @@ fn stopped_status(engine_id: &str) -> ProxyEngineStatus {
         state: ProxyEngineLifecycleState::Stopped,
         diagnostics: Vec::new(),
     }
+}
+
+fn lifecycle_state_error() -> DomainError {
+    domain_error(
+        ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE,
+        "native proxy runtime lifecycle state is unavailable",
+    )
 }
 
 fn validate_listeners(engine_config: &ProxyEngineConfig, diagnostics: &mut Vec<Diagnostic>) {

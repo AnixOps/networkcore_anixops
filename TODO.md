@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 在 `engine-native` 中补充 service-owned runtime state 与 foreground lifecycle handoff 源码合同，继续不接入 `networkcore-linux start` binary。
+- [ ] 将 `networkcore-linux start` binary 接入 `NativeProxyEngineService` 与前台 lifecycle host，继续保持无 daemon/control socket 边界。
 
 ## 已完成
 
+- [x] 在 `engine-native` 中补充 service-owned runtime state 与 foreground lifecycle handoff 源码合同，`NativeProxyEngineService::start` 可持有 loopback TCP accept loop runtime 并返回 `Running`，`status`/`events`/`stop` 可观察和释放 runtime，继续不接入 `networkcore-linux start` binary。
 - [x] 在 `engine-native` 中补充 service start readiness gate 诊断合同，确认有效 runtime assembly plan 已具备但 service-owned runtime state 与 foreground lifecycle handoff 仍阻断 `NativeProxyEngineService::start` 返回 `Running`，继续不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT accept loop client success response 与 data relay 接线诊断合同，继续不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT data relay 执行诊断合同，继续不接入 `networkcore-linux start`。

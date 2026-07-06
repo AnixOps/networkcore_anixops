@@ -109,5 +109,5 @@ diagnostic code。
 ## 后续工作
 
 - `config-core` 已提供最小纯配置服务，`networkcore-linux prepare-config` 已接入二进制入口；后续配置扩展继续保持纯内存解析和 secret 不泄露边界。
-- `networkcore-linux` 已提供前台 lifecycle host 源码合同，但 binary 尚未接入；代理引擎 adapter 具备 service-owned runtime state 与 foreground lifecycle handoff 前，`networkcore-linux start` 继续保持未接线诊断。
+- `networkcore-linux` 已提供前台 lifecycle host 源码合同，但 binary 尚未接入；`engine-native` 已具备 service-owned runtime state 与 foreground lifecycle handoff 源码合同，`networkcore-linux start` 在 binary 接线前继续保持未接线诊断。
 - daemon/control socket、service install、DNS/TUN mutation 或 release artifact 进入前，继续先补设计和回滚合同。

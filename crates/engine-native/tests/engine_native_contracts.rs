@@ -90,7 +90,7 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_SELECTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE, ENGINE_NATIVE_START_BIND_FAILED_CODE,
     ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE, ENGINE_NATIVE_START_RUNTIME_ASSEMBLY_READY_CODE,
-    ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
+    ENGINE_NATIVE_START_RUNNING_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
     ENGINE_NATIVE_START_SERVICE_RUNTIME_OWNER_MISSING_CODE,
 };
 use std::io::{self, Cursor, Read, Write};
@@ -354,14 +354,17 @@ fn validate_config_reports_disabled_and_invalid_listener_boundaries() {
 }
 
 #[test]
-fn start_readiness_blocks_valid_runtime_assembly_until_service_owns_lifecycle() {
+fn start_readiness_allows_service_owned_runtime_lifecycle() {
+    let port = unused_loopback_port();
     let service = NativeProxyEngineService::new();
     let engine_config = graph_config(
         DEFAULT_NATIVE_ENGINE_ID,
         vec![node()],
         Vec::new(),
-        vec![local_tcp_listener(
+        vec![local_tcp_listener_with_bind(
             "service-start-loopback-local-tcp",
+            "127.0.0.1",
+            port,
             ListenerRoute::DefaultAction(RouteAction::Proxy {
                 node_id: "node-1".to_string(),
             }),
@@ -373,13 +376,13 @@ fn start_readiness_blocks_valid_runtime_assembly_until_service_owns_lifecycle() 
 
     assert_eq!(
         readiness.readiness,
-        NativeProxyEngineStartReadiness::Blocked
+        NativeProxyEngineStartReadiness::Ready
     );
     assert_diagnostic(
         &readiness.diagnostics,
         ENGINE_NATIVE_START_RUNTIME_ASSEMBLY_READY_CODE,
     );
-    assert_diagnostic(
+    assert_no_diagnostic(
         &readiness.diagnostics,
         ENGINE_NATIVE_START_SERVICE_RUNTIME_OWNER_MISSING_CODE,
     );
@@ -388,16 +391,31 @@ fn start_readiness_blocks_valid_runtime_assembly_until_service_owns_lifecycle() 
         ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
     );
 
-    let error = service
+    let status = service
         .start(&engine_config)
-        .expect_err("service start remains intentionally unavailable");
+        .expect("service start should own the native runtime");
 
-    assert_eq!(error.code, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE);
-    assert!(error.message.contains("service-owned runtime state"));
+    assert_eq!(status.state, ProxyEngineLifecycleState::Running);
+    assert_diagnostic(&status.diagnostics, ENGINE_NATIVE_START_RUNNING_CODE);
+    assert_diagnostic(
+        &status.diagnostics,
+        ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
+    );
+    assert_diagnostic(&status.diagnostics, ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE);
+
+    let stopped = service
+        .stop(DEFAULT_NATIVE_ENGINE_ID)
+        .expect("service stop should release the native runtime");
+
+    assert_eq!(stopped.state, ProxyEngineLifecycleState::Stopped);
+    assert_diagnostic(
+        &stopped.diagnostics,
+        ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
+    );
 }
 
 #[test]
-fn runtime_handle_contract_builds_foreground_handoff_without_service_start_wiring() {
+fn runtime_handle_contract_builds_foreground_handoff_status() {
     let listener = LoopbackListenerHandle::from_descriptor(&local_tcp_listener(
         "loopback-local-tcp",
         ListenerRoute::DefaultAction(RouteAction::Proxy {
@@ -423,14 +441,6 @@ fn runtime_handle_contract_builds_foreground_handoff_without_service_start_wirin
         ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
     );
     assert_eq!(handle.events()[0].kind, ProxyEngineEventKind::Started);
-
-    let service = NativeProxyEngineService::new();
-    let engine_config = config(DEFAULT_NATIVE_ENGINE_ID, vec![node()]);
-    let error = service
-        .start(&engine_config)
-        .expect_err("service start remains intentionally unavailable");
-
-    assert_eq!(error.code, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE);
 }
 
 #[test]
@@ -2122,15 +2132,6 @@ fn runtime_assembly_plan_selects_loopback_tcp_listener_and_socks_outbound_from_c
     assert_eq!(handle.bound_listeners()[0].local_port(), port);
     assert_eq!(handle.outbound_handlers()[0].node_id, "node-1");
 
-    let start_error = service
-        .start(&engine_config)
-        .expect_err("service start remains intentionally unavailable");
-
-    assert_eq!(
-        start_error.code,
-        ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE
-    );
-
     let release = handle.release();
 
     assert_eq!(
@@ -2359,6 +2360,95 @@ fn runtime_handle_contract_releases_acquired_resources_on_start_failure() {
         ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
     );
     assert_eq!(failure.release.events[0].kind, ProxyEngineEventKind::Failed);
+}
+
+#[test]
+fn service_start_owns_runtime_state_for_status_events_and_stop() {
+    let port = unused_loopback_port();
+    let service = NativeProxyEngineService::new();
+    let engine_config = graph_config(
+        DEFAULT_NATIVE_ENGINE_ID,
+        vec![node()],
+        Vec::new(),
+        vec![local_tcp_listener_with_bind(
+            "service-owned-loopback-local-tcp",
+            "127.0.0.1",
+            port,
+            ListenerRoute::DefaultAction(RouteAction::Proxy {
+                node_id: "node-1".to_string(),
+            }),
+        )],
+        Vec::new(),
+    );
+
+    let started = service
+        .start(&engine_config)
+        .expect("service start should own the loopback accept loop runtime");
+
+    assert_eq!(started.state, ProxyEngineLifecycleState::Running);
+    assert_diagnostic(&started.diagnostics, ENGINE_NATIVE_START_RUNNING_CODE);
+    assert_diagnostic(
+        &started.diagnostics,
+        ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE,
+    );
+
+    let second_start = service
+        .start(&engine_config)
+        .expect("service start should be idempotent while runtime is running");
+
+    assert_eq!(second_start.state, ProxyEngineLifecycleState::Running);
+    assert_diagnostic(&second_start.diagnostics, ENGINE_NATIVE_START_RUNNING_CODE);
+
+    let status = service
+        .status(DEFAULT_NATIVE_ENGINE_ID)
+        .expect("running service status should be inspectable");
+
+    assert_eq!(status.state, ProxyEngineLifecycleState::Running);
+    assert_diagnostic(
+        &status.diagnostics,
+        ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
+    );
+    assert_diagnostic(&status.diagnostics, ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE);
+
+    let events = service
+        .events(DEFAULT_NATIVE_ENGINE_ID)
+        .expect("running service events should be inspectable");
+
+    assert!(events
+        .iter()
+        .any(|event| event.kind == ProxyEngineEventKind::Started));
+
+    let stopped = service
+        .stop(DEFAULT_NATIVE_ENGINE_ID)
+        .expect("service stop should release the loopback accept loop runtime");
+
+    assert_eq!(stopped.state, ProxyEngineLifecycleState::Stopped);
+    assert_diagnostic(
+        &stopped.diagnostics,
+        ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
+    );
+    assert_diagnostic(&stopped.diagnostics, ENGINE_NATIVE_RUNTIME_RELEASED_CODE);
+
+    let stopped_status = service
+        .status(DEFAULT_NATIVE_ENGINE_ID)
+        .expect("stopped service status should be inspectable");
+
+    assert_eq!(stopped_status.state, ProxyEngineLifecycleState::Stopped);
+
+    let events_after_stop = service
+        .events(DEFAULT_NATIVE_ENGINE_ID)
+        .expect("stopped service events should remain inspectable");
+
+    assert!(events_after_stop
+        .iter()
+        .any(|event| event.kind == ProxyEngineEventKind::Started));
+    assert!(events_after_stop
+        .iter()
+        .any(|event| event.kind == ProxyEngineEventKind::Stopped));
+
+    let rebound = TcpListener::bind(("127.0.0.1", port))
+        .expect("service stop should free the loopback tcp port");
+    drop(rebound);
 }
 
 #[test]
