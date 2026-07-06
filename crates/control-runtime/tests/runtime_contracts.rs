@@ -678,9 +678,7 @@ fn platform_status_without_mitm() -> PlatformCapabilityStatus {
     PlatformCapabilityStatus {
         os: OperatingSystem::Ios,
         tunnel: PlatformFeatureState::available(),
-        mitm: PlatformFeatureState::unavailable(
-            "mitm capability is disabled by platform policy",
-        ),
+        mitm: PlatformFeatureState::unavailable("mitm capability is disabled by platform policy"),
         embedded_runtime: PlatformFeatureState::available(),
         remote_script_execution: PlatformFeatureState::available(),
         mitm_certificate: MitmCertificateStatus::new(CertificateTrustState::Trusted),
