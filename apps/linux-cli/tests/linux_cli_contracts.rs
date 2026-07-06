@@ -18,8 +18,8 @@ use platform_linux::{
     LinuxPlatformSnapshot, LinuxPrivilegeProbe, LinuxReadOnlyProbe, LinuxReadOnlyProbeSnapshot,
     LinuxServiceManagerState, LinuxTunDeviceState, ReadOnlyLinuxPlatformCapabilityService,
     StaticLinuxPlatformCapabilityService, DNS_MANAGER_DETECTED_CODE, DNS_MANAGER_UNKNOWN_CODE,
-    PERMISSION_CAPABILITY_MISSING_CODE, PERMISSION_ELEVATION_REQUIRED_CODE, SOURCE_DNS,
-    SERVICE_UNSUPPORTED_ENVIRONMENT_CODE,
+    PERMISSION_CAPABILITY_MISSING_CODE, PERMISSION_ELEVATION_REQUIRED_CODE,
+    SERVICE_UNSUPPORTED_ENVIRONMENT_CODE, SOURCE_DNS,
 };
 
 #[test]
