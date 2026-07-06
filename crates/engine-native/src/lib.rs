@@ -99,15 +99,32 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_READ_FAILED_CODE: &str =
     "engine.native.runtime.socks5_connect_target_read_failed";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE: &str =
     "engine.native.runtime.socks5_route_outbound_unwired";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE: &str =
+    "engine.native.runtime.socks5_connect_failure_response_written";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITE_FAILED_CODE: &str =
+    "engine.native.runtime.socks5_connect_failure_response_write_failed";
 
 const SOCKS5_VERSION: u8 = 0x05;
 const SOCKS5_AUTH_METHOD_NO_AUTHENTICATION_REQUIRED: u8 = 0x00;
 const SOCKS5_AUTH_METHOD_NO_ACCEPTABLE_METHODS: u8 = 0xff;
 const SOCKS5_COMMAND_CONNECT: u8 = 0x01;
+const SOCKS5_REPLY_GENERAL_FAILURE: u8 = 0x01;
 const SOCKS5_RESERVED: u8 = 0x00;
 const SOCKS5_ADDRESS_TYPE_IPV4: u8 = 0x01;
 const SOCKS5_ADDRESS_TYPE_DOMAIN_NAME: u8 = 0x03;
 const SOCKS5_ADDRESS_TYPE_IPV6: u8 = 0x04;
+const SOCKS5_CONNECT_FAILURE_RESPONSE: [u8; 10] = [
+    SOCKS5_VERSION,
+    SOCKS5_REPLY_GENERAL_FAILURE,
+    SOCKS5_RESERVED,
+    SOCKS5_ADDRESS_TYPE_IPV4,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+];
 const ACCEPTED_CONNECTION_READ_TIMEOUT_MS: u64 = 100;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -529,6 +546,12 @@ pub struct NativeSocks5RouteOutboundReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5ConnectFailureResponseWriteReport {
+    pub response: [u8; 10],
+    pub diagnostics: Vec<Diagnostic>,
+}
+
 pub fn read_socks5_greeting<R>(reader: &mut R) -> NativeSocks5GreetingReadReport
 where
     R: Read,
@@ -830,6 +853,31 @@ pub fn reject_unwired_socks5_route_outbound(
             ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE,
             "native SOCKS5 CONNECT route and outbound data plane are not wired",
         )],
+    }
+}
+
+pub fn write_unwired_socks5_connect_failure_response<W>(
+    writer: &mut W,
+) -> NativeSocks5ConnectFailureResponseWriteReport
+where
+    W: Write,
+{
+    let response = SOCKS5_CONNECT_FAILURE_RESPONSE;
+    let diagnostic = if writer.write_all(&response).is_ok() {
+        runtime_info(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE,
+            "native SOCKS5 CONNECT failure response was written for unwired route and outbound handling",
+        )
+    } else {
+        runtime_warning(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITE_FAILED_CODE,
+            "native SOCKS5 CONNECT failure response could not be written",
+        )
+    };
+
+    NativeSocks5ConnectFailureResponseWriteReport {
+        response,
+        diagnostics: vec![diagnostic],
     }
 }
 
@@ -1661,6 +1709,9 @@ fn read_socks5_greeting_and_close_accepted_connection(
                     {
                         diagnostics
                             .extend(reject_unwired_socks5_route_outbound(target).diagnostics);
+                        let failure_response_report =
+                            write_unwired_socks5_connect_failure_response(&mut stream);
+                        diagnostics.extend(failure_response_report.diagnostics);
                     }
                 }
             }

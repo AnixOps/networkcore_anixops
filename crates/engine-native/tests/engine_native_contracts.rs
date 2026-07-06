@@ -7,7 +7,8 @@ use control_domain::{
 use engine_native::{
     read_socks5_command_header, read_socks5_connect_target, read_socks5_greeting,
     reject_unsupported_socks5_command, reject_unwired_socks5_route_outbound,
-    select_socks5_auth_method, write_socks5_auth_method_response, BoundLoopbackTcpListenerHandle,
+    select_socks5_auth_method, write_socks5_auth_method_response,
+    write_unwired_socks5_connect_failure_response, BoundLoopbackTcpListenerHandle,
     LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle,
     NativeProxyEngineService, NativeRuntimeAssembly, NativeRuntimeAssemblyPlan,
     NativeSocks5Address, NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision,
@@ -35,6 +36,8 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_READ_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_READ_FAILED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_UNSUPPORTED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITE_FAILED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_READ_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_READ_FAILED_CODE,
@@ -470,6 +473,10 @@ fn runtime_accept_loop_contract_accepts_loopback_tcp_connection_and_shuts_down()
     );
     assert_diagnostic(
         &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE,
     );
     assert_diagnostic(
@@ -698,6 +705,33 @@ fn socks5_auth_method_response_contract_reports_write_failure() {
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_RESPONSE_WRITE_FAILED_CODE,
+    );
+}
+
+#[test]
+fn socks5_connect_failure_response_contract_writes_general_failure_for_unwired_route_outbound() {
+    let mut writer = Vec::new();
+
+    let report = write_unwired_socks5_connect_failure_response(&mut writer);
+
+    assert_eq!(writer, vec![0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(report.response, [0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE,
+    );
+}
+
+#[test]
+fn socks5_connect_failure_response_contract_reports_write_failure() {
+    let mut writer = FailingWriter;
+
+    let report = write_unwired_socks5_connect_failure_response(&mut writer);
+
+    assert_eq!(report.response, [0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITE_FAILED_CODE,
     );
 }
 

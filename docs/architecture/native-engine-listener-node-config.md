@@ -42,14 +42,14 @@ listener、node、route 和 DNS 配置模型边界。它承接
 - `engine-native` 已补充真实 loopback TCP listener 绑定/释放实现，runtime assembly 可持有当前进程内的 `TcpListener` resource 并在 release 或失败报告中释放。
 - `engine-native` 已补充从有效配置图生成首个 native runtime assembly plan 的源码合同，可选择 loopback TCP listener 与 SOCKS outbound handler，并在绑定失败或 lifecycle handoff 失败时输出 release report。
 - `engine-native` 已补充首个 loopback TCP accept loop 与受控关闭源码合同，可持有 bound listener 与 SOCKS outbound handler identity，记录 accepted connection 计数，并在 runtime release 或 drop 路径停止。
-- `engine-native` 已补充 accepted TCP connection 的协议前置关闭诊断合同，在完整 proxy protocol 尚未实现时显式关闭 accepted connection，记录 pre-protocol close 计数和 `engine.native.runtime.connection_pre_protocol_closed` 诊断；该实现尚未接入 `NativeProxyEngineService::start`，也没有认证协商、命令解析或 route/outbound 数据面。
-- `engine-native` 已补充首个 SOCKS5 greeting 版本/认证方法读取诊断合同，可在 accepted loopback TCP connection 上读取 greeting 并记录 `engine.native.runtime.socks5_greeting_read`、`engine.native.runtime.socks5_greeting_invalid` 或 `engine.native.runtime.socks5_greeting_read_failed` 诊断，随后仍关闭连接且不进入 route/outbound 数据面。
-- `engine-native` 已补充 SOCKS5 no-auth 方法选择与 unsupported auth 方法拒绝诊断合同，可在有效 greeting 后记录 `engine.native.runtime.socks5_auth_method_selected` 或 `engine.native.runtime.socks5_auth_method_unsupported` 诊断；该实现尚未写入 SOCKS5 方法响应，也没有命令解析或 route/outbound 数据面。
+- `engine-native` 已补充 accepted TCP connection 的协议前置关闭诊断合同，在完整 proxy protocol 尚未实现时显式关闭 accepted connection，记录 pre-protocol close 计数和 `engine.native.runtime.connection_pre_protocol_closed` 诊断；当前仍未接入 `NativeProxyEngineService::start`，也没有 route/outbound 数据面。
+- `engine-native` 已补充首个 SOCKS5 greeting 版本/认证方法读取诊断合同，可在 accepted loopback TCP connection 上读取 greeting 并记录 `engine.native.runtime.socks5_greeting_read`、`engine.native.runtime.socks5_greeting_invalid` 或 `engine.native.runtime.socks5_greeting_read_failed` 诊断，后续可进入 auth、命令和 CONNECT failure response 分支，最终仍关闭连接且不进入 route/outbound 数据面。
+- `engine-native` 已补充 SOCKS5 no-auth 方法选择与 unsupported auth 方法拒绝诊断合同，可在有效 greeting 后记录 `engine.native.runtime.socks5_auth_method_selected` 或 `engine.native.runtime.socks5_auth_method_unsupported` 诊断；当前已继续写入 SOCKS5 方法响应并读取命令，但仍没有 route/outbound 数据面。
 - `engine-native` 已补充 SOCKS5 认证方法响应写入诊断合同，可写入 `[0x05, method]` 响应并记录 `engine.native.runtime.socks5_auth_method_response_written` 或 `engine.native.runtime.socks5_auth_method_response_write_failed` 诊断。
 - `engine-native` 已补充 SOCKS5 命令头读取与 unsupported command 拒绝诊断合同，可在 no-auth 响应后读取 `[VER, CMD, RSV, ATYP]` 并记录 `engine.native.runtime.socks5_command_header_read`、`engine.native.runtime.socks5_command_header_invalid` 或 `engine.native.runtime.socks5_command_header_read_failed` 诊断，对非 CONNECT 命令记录 `engine.native.runtime.socks5_command_unsupported`。
-- `engine-native` 已补充 SOCKS5 CONNECT 目标地址读取与 route/outbound 未接入拒绝诊断合同，可在有效 no-auth CONNECT 命令后读取 IPv4、domain 或 IPv6 目标地址和端口并记录 `engine.native.runtime.socks5_connect_target_read`、`engine.native.runtime.socks5_connect_target_invalid` 或 `engine.native.runtime.socks5_connect_target_read_failed`，随后记录 `engine.native.runtime.socks5_route_outbound_unwired`；该实现尚未写入 SOCKS5 failure response，也没有 route/outbound 数据面。
+- `engine-native` 已补充 SOCKS5 CONNECT 目标地址读取、route/outbound 未接入拒绝与 CONNECT failure response 写入诊断合同，可在有效 no-auth CONNECT 命令后读取 IPv4、domain 或 IPv6 目标地址和端口并记录 `engine.native.runtime.socks5_connect_target_read`、`engine.native.runtime.socks5_connect_target_invalid` 或 `engine.native.runtime.socks5_connect_target_read_failed`，随后记录 `engine.native.runtime.socks5_route_outbound_unwired` 并写入 SOCKS5 general failure response；该实现尚没有 route/outbound 数据面。
 
-因此，`engine-native` 现在必须继续拒绝启动。虽然配置服务已经能解析最小 listener/node/route 子集，adapter 已能校验 listener/node/route 图，且源码中已有 runtime handle、runtime assembly plan、loopback TCP listener resource、accept loop 受控关闭合同、协议前置关闭诊断、SOCKS5 greeting 读取诊断、auth 方法选择/拒绝诊断、认证方法响应写入诊断、SOCKS5 命令头读取/unsupported command 拒绝诊断和 CONNECT 目标地址读取诊断，但在 SOCKS5 failure response、route/outbound 行为和真实运行句柄接线完成前，不得从 service `start()` 返回 `Running`，也不得接入 `networkcore-linux start`。
+因此，`engine-native` 现在必须继续拒绝启动。虽然配置服务已经能解析最小 listener/node/route 子集，adapter 已能校验 listener/node/route 图，且源码中已有 runtime handle、runtime assembly plan、loopback TCP listener resource、accept loop 受控关闭合同、协议前置关闭诊断、SOCKS5 greeting 读取诊断、auth 方法选择/拒绝诊断、认证方法响应写入诊断、SOCKS5 命令头读取/unsupported command 拒绝诊断、CONNECT 目标地址读取诊断和 CONNECT failure response 写入诊断，但在 route/outbound 行为和真实运行句柄接线完成前，不得从 service `start()` 返回 `Running`，也不得接入 `networkcore-linux start`。
 
 ## 配置所有权
 
@@ -168,6 +168,8 @@ DNS 配置进入前应继续保守：
 | `engine.native.runtime.socks5_connect_target_invalid` | Warning | accepted TCP connection 的 SOCKS5 CONNECT 目标地址或端口边界非法 |
 | `engine.native.runtime.socks5_connect_target_read_failed` | Warning | accepted TCP connection 在关闭或超时前未能完整读取 SOCKS5 CONNECT 目标地址或端口 |
 | `engine.native.runtime.socks5_route_outbound_unwired` | Warning | accepted TCP connection 的 CONNECT 目标已读取，但 route/outbound 数据面尚未接入 |
+| `engine.native.runtime.socks5_connect_failure_response_written` | Info | route/outbound 尚未接入时已向 client 写入 SOCKS5 CONNECT failure response |
+| `engine.native.runtime.socks5_connect_failure_response_write_failed` | Warning | route/outbound 尚未接入时 SOCKS5 CONNECT failure response 写入失败 |
 
 已有 code `engine.native.config.engine_id_unsupported`、`listener_missing` 和
 `node_missing` 保持兼容。
@@ -190,8 +192,9 @@ DNS 配置进入前应继续保守：
 12. 已补充 SOCKS5 认证方法响应写入诊断合同，继续不解析 SOCKS5 命令、不接入 route/outbound 或 `networkcore-linux start`。
 13. 已补充 SOCKS5 命令头读取与 unsupported command 拒绝诊断合同，继续不读取 CONNECT 目标地址、不接入 route/outbound 或 `networkcore-linux start`。
 14. 已补充 SOCKS5 CONNECT 目标地址读取与 route/outbound 未接入拒绝诊断合同，继续不写入 SOCKS5 failure response、不接入 `networkcore-linux start`。
-15. 下一步必须补充 SOCKS5 route/outbound 未接入时的 CONNECT failure response 写入诊断合同，继续不接入 `networkcore-linux start`。
-16. 最后再评估 `networkcore-linux start` binary 接线和前台 lifecycle host handoff。
+15. 已补充 SOCKS5 route/outbound 未接入时的 CONNECT failure response 写入诊断合同，继续不接入 `networkcore-linux start`。
+16. 下一步必须补充 SOCKS5 CONNECT route/outbound 行为选择诊断合同，继续不建立真实 outbound 连接、不接入 `networkcore-linux start`。
+17. 最后再评估 `networkcore-linux start` binary 接线和前台 lifecycle host handoff。
 
 每个阶段都必须同步 README、TODO、CHANGELOG、设计文档和合同测试，并只通过 GitHub Actions 验证。
 
@@ -211,7 +214,7 @@ DNS 配置进入前应继续保守：
 - 只解析了 listener/node 配置。
 - 只验证了节点存在。
 - 只创建了 runtime handle 合同结构，没有绑定或持有任何真实运行资源。
-- 只绑定端口、只生成 assembly plan、只启动 accept loop、只做协议前置关闭诊断、只读取 SOCKS5 greeting、只选择/拒绝 SOCKS5 auth 方法、只写入认证方法响应、只读取 SOCKS5 命令头或只解析 CONNECT 目标地址并报告 route/outbound 未接入，但没有 SOCKS5 failure response 写入和 route/outbound 行为合同。
+- 只绑定端口、只生成 assembly plan、只启动 accept loop、只做协议前置关闭诊断、只读取 SOCKS5 greeting、只选择/拒绝 SOCKS5 auth 方法、只写入认证方法响应、只读取 SOCKS5 命令头或只解析 CONNECT 目标地址并报告 route/outbound 未接入且写入 failure response，但没有 route/outbound 行为合同。
 - 只能在测试替身中返回 `Running`。
 
 ## 验收条件
@@ -221,10 +224,10 @@ DNS 配置进入前应继续保守：
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - README、ROADMAP、Linux native start 设计和 release strategy 能发现本文档。
 - TODO 指向下一步最小源码增量，而不是直接接入 `start`。
-- `engine-native` 在 listener/node 解析和图校验完成后，仍必须在 SOCKS5 failure response、route/outbound 行为和 service start 接线完成前继续保持 runtime unavailable 诊断。
+- `engine-native` 在 listener/node 解析和图校验完成后，仍必须在 route/outbound 行为和 service start 接线完成前继续保持 runtime unavailable 诊断。
 - `networkcore-linux start` 在真实 runtime handle 和 binary lifecycle 接线完成前继续保持 `cli.linux.runtime.unwired`。
 
 ## 后续工作
 
-- 在 `engine-native` 中补充 SOCKS5 route/outbound 未接入时的 CONNECT failure response 写入诊断合同，继续不接入 `networkcore-linux start`。
-- `engine-native` service 继续保持 runtime unavailable，直到 SOCKS5 failure response、route/outbound 行为和前台 lifecycle handoff 完成并通过 GitHub Actions 验证。
+- 在 `engine-native` 中补充 SOCKS5 CONNECT route/outbound 行为选择诊断合同，继续不建立真实 outbound 连接、不接入 `networkcore-linux start`。
+- `engine-native` service 继续保持 runtime unavailable，直到 route/outbound 行为和前台 lifecycle handoff 完成并通过 GitHub Actions 验证。
