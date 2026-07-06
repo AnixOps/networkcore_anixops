@@ -272,7 +272,8 @@ where
             let reason = platform
                 .mitm
                 .denial_reason()
-                .unwrap_or("mitm availability is unknown");
+                .unwrap_or("mitm availability is unknown")
+                .to_string();
             return Ok(denied_mitm_gate(
                 platform,
                 &actor,
