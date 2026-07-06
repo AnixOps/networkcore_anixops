@@ -141,6 +141,10 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_
     &str = "engine.native.runtime.socks5_outbound_connect_client_success_response_write_plan_unwired";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_REJECTED_CODE:
     &str = "engine.native.runtime.socks5_outbound_connect_client_success_response_write_plan_rejected";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITTEN_CODE:
+    &str = "engine.native.runtime.socks5_outbound_connect_client_success_response_written";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_FAILED_CODE:
+    &str = "engine.native.runtime.socks5_outbound_connect_client_success_response_write_failed";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE: &str =
     "engine.native.runtime.socks5_route_outbound_unwired";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE: &str =
@@ -709,6 +713,12 @@ pub enum NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeSocks5OutboundConnectClientSuccessResponseWritePlanReport {
     pub decision: NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5OutboundConnectClientSuccessResponseWriteReport {
+    pub response_frame: Vec<u8>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -1408,6 +1418,38 @@ pub fn plan_socks5_outbound_connect_client_success_response_write(
                 )],
             }
         }
+    }
+}
+
+pub fn write_socks5_outbound_connect_client_success_response<W>(
+    writer: &mut W,
+    response: &NativeSocks5OutboundConnectResponse,
+) -> NativeSocks5OutboundConnectClientSuccessResponseWriteReport
+where
+    W: Write,
+{
+    let response_frame =
+        socks5_outbound_connect_client_success_response_frame(response).unwrap_or_default();
+    let diagnostic = if response_frame.is_empty() {
+        runtime_warning(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_FAILED_CODE,
+            "native SOCKS5 outbound CONNECT client success response requires a valid upstream success response",
+        )
+    } else if writer.write_all(&response_frame).is_ok() {
+        runtime_info(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITTEN_CODE,
+            "native SOCKS5 outbound CONNECT client success response was written",
+        )
+    } else {
+        runtime_warning(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_FAILED_CODE,
+            "native SOCKS5 outbound CONNECT client success response could not be written",
+        )
+    };
+
+    NativeSocks5OutboundConnectClientSuccessResponseWriteReport {
+        response_frame,
+        diagnostics: vec![diagnostic],
     }
 }
 
@@ -2148,14 +2190,43 @@ fn socks5_outbound_connect_response_valid(response: &NativeSocks5OutboundConnect
     response.version == SOCKS5_VERSION
         && response.reply == SOCKS5_REPLY_SUCCEEDED
         && response.reserved == SOCKS5_RESERVED
-        && matches!(
-            response.address_type,
-            SOCKS5_ADDRESS_TYPE_IPV4 | SOCKS5_ADDRESS_TYPE_DOMAIN_NAME | SOCKS5_ADDRESS_TYPE_IPV6
-        )
-        && match &response.bound_address {
-            NativeSocks5Address::Ipv4(_) | NativeSocks5Address::Ipv6(_) => true,
-            NativeSocks5Address::DomainName(domain_name) => !domain_name.trim().is_empty(),
+        && match (response.address_type, &response.bound_address) {
+            (SOCKS5_ADDRESS_TYPE_IPV4, NativeSocks5Address::Ipv4(_)) => true,
+            (SOCKS5_ADDRESS_TYPE_IPV6, NativeSocks5Address::Ipv6(_)) => true,
+            (SOCKS5_ADDRESS_TYPE_DOMAIN_NAME, NativeSocks5Address::DomainName(domain_name)) => {
+                !domain_name.trim().is_empty() && domain_name.len() <= u8::MAX as usize
+            }
+            _ => false,
         }
+}
+
+fn socks5_outbound_connect_client_success_response_frame(
+    response: &NativeSocks5OutboundConnectResponse,
+) -> Option<Vec<u8>> {
+    if !socks5_outbound_connect_response_valid(response) {
+        return None;
+    }
+
+    let mut frame = vec![SOCKS5_VERSION, SOCKS5_REPLY_SUCCEEDED, SOCKS5_RESERVED];
+    match &response.bound_address {
+        NativeSocks5Address::Ipv4(address) => {
+            frame.push(SOCKS5_ADDRESS_TYPE_IPV4);
+            frame.extend_from_slice(address);
+        }
+        NativeSocks5Address::DomainName(domain_name) => {
+            let domain_name = domain_name.as_bytes();
+            frame.push(SOCKS5_ADDRESS_TYPE_DOMAIN_NAME);
+            frame.push(domain_name.len() as u8);
+            frame.extend_from_slice(domain_name);
+        }
+        NativeSocks5Address::Ipv6(address) => {
+            frame.push(SOCKS5_ADDRESS_TYPE_IPV6);
+            frame.extend_from_slice(address);
+        }
+    }
+    frame.extend_from_slice(&response.bound_port.to_be_bytes());
+
+    Some(frame)
 }
 
 fn socks5_outbound_connect_request_frame_bytes(

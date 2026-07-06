@@ -14,6 +14,7 @@ use engine_native::{
     read_socks5_outbound_connect_response, reject_unsupported_socks5_command,
     reject_unwired_socks5_route_outbound, select_socks5_auth_method,
     select_socks5_route_outbound_behavior, write_socks5_auth_method_response,
+    write_socks5_outbound_connect_client_success_response,
     write_socks5_outbound_connect_request, write_unwired_socks5_connect_failure_response,
     BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle,
     NativeOutboundHandlerHandle, NativeProxyEngineService, NativeRuntimeAssembly,
@@ -22,8 +23,9 @@ use engine_native::{
     NativeSocks5Greeting, NativeSocks5OutboundConnectClientSuccessResponseReadiness,
     NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision,
     NativeSocks5OutboundConnectDataRelayPlanDecision, NativeSocks5OutboundConnectRelayReadiness,
-    NativeSocks5OutboundConnectResponseDecision, NativeSocks5OutboundTcpConnectionPlan,
-    NativeSocks5RouteOutboundBehavior, NativeSocks5RouteOutboundDecision, DEFAULT_NATIVE_ENGINE_ID,
+    NativeSocks5OutboundConnectResponse, NativeSocks5OutboundConnectResponseDecision,
+    NativeSocks5OutboundTcpConnectionPlan, NativeSocks5RouteOutboundBehavior,
+    NativeSocks5RouteOutboundDecision, DEFAULT_NATIVE_ENGINE_ID,
     ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_ID_DUPLICATE_CODE,
@@ -57,8 +59,10 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_FAILED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_REJECTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_UNWIRED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_FAILED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_REJECTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_UNWIRED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITTEN_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_REJECTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_UNWIRED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_REJECTED_CODE,
@@ -1543,6 +1547,77 @@ fn socks5_outbound_connect_client_success_response_write_plan_contract_rejects_r
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_REJECTED_CODE,
+    );
+}
+
+#[test]
+fn socks5_client_success_response_write_contract_writes_success_frame() {
+    let mut writer = Vec::new();
+    let response = NativeSocks5OutboundConnectResponse {
+        version: 0x05,
+        reply: 0x00,
+        reserved: 0x00,
+        address_type: 0x01,
+        bound_address: NativeSocks5Address::Ipv4([127, 0, 0, 1]),
+        bound_port: 1080,
+    };
+
+    let report = write_socks5_outbound_connect_client_success_response(&mut writer, &response);
+
+    assert_eq!(
+        writer,
+        vec![0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0x04, 0x38]
+    );
+    assert_eq!(report.response_frame, writer);
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITTEN_CODE,
+    );
+}
+
+#[test]
+fn socks5_client_success_response_write_contract_reports_write_failure() {
+    let mut writer = FailingWriter;
+    let response = NativeSocks5OutboundConnectResponse {
+        version: 0x05,
+        reply: 0x00,
+        reserved: 0x00,
+        address_type: 0x01,
+        bound_address: NativeSocks5Address::Ipv4([127, 0, 0, 1]),
+        bound_port: 1080,
+    };
+
+    let report = write_socks5_outbound_connect_client_success_response(&mut writer, &response);
+
+    assert_eq!(
+        report.response_frame,
+        vec![0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0x04, 0x38]
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_FAILED_CODE,
+    );
+}
+
+#[test]
+fn socks5_client_success_response_write_contract_rejects_invalid_response() {
+    let mut writer = Vec::new();
+    let response = NativeSocks5OutboundConnectResponse {
+        version: 0x05,
+        reply: 0x05,
+        reserved: 0x00,
+        address_type: 0x01,
+        bound_address: NativeSocks5Address::Ipv4([127, 0, 0, 1]),
+        bound_port: 1080,
+    };
+
+    let report = write_socks5_outbound_connect_client_success_response(&mut writer, &response);
+
+    assert!(writer.is_empty());
+    assert!(report.response_frame.is_empty());
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_FAILED_CODE,
     );
 }
 

@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT client success response write 诊断合同，继续不进行双向数据转发、不接入 `networkcore-linux start`。
+- [ ] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT data relay 执行诊断合同，继续不接入 `networkcore-linux start`。
 
 ## 已完成
 
+- [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT client success response write 诊断合同，继续不进行双向数据转发、不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT client success response write plan 诊断合同，继续不写入 client success response、不进行双向数据转发、不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT client success response readiness 诊断合同，继续不写入 client success response、不进行双向数据转发、不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT data relay plan 诊断合同，继续不写入 client success response、不进行双向数据转发、不接入 `networkcore-linux start`。
