@@ -13,7 +13,7 @@
 
 ## 非目标
 
-- 不在本阶段实现真实 Linux 探测、CLI、daemon、systemd unit、installer 或 release artifact。
+- 不在本文实现会修改系统状态的 Linux 探测、CLI、daemon、systemd unit、installer 或 release artifact。
 - 不在本机探测 `/dev/net/tun`、capability、DNS 配置、systemd 状态或证书信任。
 - 不修改路由、DNS、防火墙、证书信任、systemd unit 或内核参数。
 - 不假设所有 Linux 发行版都存在 systemd、NetworkManager、resolved、iptables、nftables 或相同 CA trust store。
@@ -158,11 +158,12 @@ Linux adapter 输出的 `Diagnostic` 必须满足：
 当前 `crates/platform-linux` 已提供首批只读源码边界：
 
 - `StaticLinuxPlatformCapabilityService` 作为 `PlatformCapabilityService` 测试替身。
+- `ReadOnlyLinuxPlatformCapabilityService` 和 `HostLinuxReadOnlyProbe`，以只读方式检查 TUN 设备、进程权限、DNS 管理器、服务环境和证书状态。
 - `LinuxPlatformSnapshot`、`LinuxFeatureProbe` 和 `LinuxCertificateProbe` 用于把 Linux 探测快照映射到领域能力状态。
 - 稳定 `platform.linux.*` 诊断 code 常量和 `linux_diagnostic` helper。
-- 合同测试覆盖 TUN 可用、TUN 缺失、权限不足、DNS 管理器未知、服务管理器未知和证书状态矩阵。
+- 合同测试覆盖 TUN 可用、TUN 缺失、权限不足、缺少 `CAP_NET_ADMIN`、未知探测、DNS/service 只读诊断和证书状态矩阵。
 
-该 crate 当前不执行真实 Linux 探测、不修改系统状态，也不依赖 `control-runtime`。
+该 crate 当前只执行只读 Linux 探测，不修改系统状态，也不依赖 `control-runtime`。
 
 ## 首个源码增量验收条件
 
@@ -176,6 +177,6 @@ Linux adapter 首个源码增量必须满足：
 
 ## 后续工作
 
-- 在真实 Linux 探测进入 `platform-linux` 前，先补充探测实现设计和更细的权限/发行版差异合同。
-- `apps/linux-cli` 后续接入真实 Linux 探测前，继续通过 `platform-linux` 边界注入能力服务，避免 CLI 直接触碰 Linux 系统 API。
+- `apps/linux-cli` 后续接入 `HostLinuxReadOnlyProbe` 前，继续通过 `platform-linux` 边界注入能力服务，避免 CLI 直接触碰 Linux 系统 API。
+- 后续任何会修改 TUN、路由、DNS、服务或证书信任的实现，都必须先补充单独设计和回滚合同。
 - Linux artifact 进入 release workflow 前，仍必须满足 [Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md) 的 packaging、checksum、签名/证明和回滚契约。
