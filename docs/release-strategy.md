@@ -47,7 +47,7 @@
 | 平台/产物 | 初始形态 | Release runner | 发布前置条件 |
 | --- | --- | --- | --- |
 | Rust crates | 暂不发布到 crates.io | `ubuntu-latest` | 公共 API 稳定、license 与 README 完整、crate publishing policy 单独评审 |
-| Linux | 待定义 CLI 或 daemon 压缩包 | `ubuntu-latest` | Linux adapter 与安装/卸载设计完成 |
+| Linux | 待定义 CLI 或 daemon 压缩包 | `ubuntu-latest` | [Linux artifact pre-release design](architecture/linux-artifact-pre-release-design.md)、Linux adapter 与安装/卸载设计完成 |
 | Windows | 待定义 CLI、service 或 installer | `windows-latest` | Windows service 权限、签名证书和安装器策略完成 |
 | macOS | 待定义 CLI、app bundle、`.pkg` 或 `.dmg` | `macos-26` | 签名、notarization、entitlement 和 Gatekeeper 路径完成 |
 | iOS | App Store Connect 或 TestFlight 路径 | `macos-26` | Network Extension design、entitlement、Provisioning Profile、隐私政策和 App Review Notes 完成 |
@@ -93,7 +93,7 @@
 
 ## 下一步
 
-- 真实平台产物进入 release workflow 前，先为目标平台补齐 adapter 设计文档。
+- 真实平台产物进入 release workflow 前，先为目标平台补齐 adapter 设计文档；Linux 首个产物必须先满足 [Linux artifact pre-release design](architecture/linux-artifact-pre-release-design.md)。
 - 引入第一个 artifact job 时，同步加入 checksum、release summary 和回滚说明。
 - iOS 发布前必须先完成 `docs/architecture/ios-network-extension-design.md`。
 

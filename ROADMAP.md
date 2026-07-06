@@ -81,6 +81,7 @@
 当前发布规划：
 
 - [Release Strategy](docs/release-strategy.md)
+- [Linux Artifact Pre-Release Design](docs/architecture/linux-artifact-pre-release-design.md)
 
 ## 迭代选择规则
 
