@@ -37,6 +37,7 @@ gh run list --workflow ci.yml --limit 5
 
 后续涉及真实 release artifact 时，还需要人工处理：
 
+- 项目 license 或 artifact 内置许可/NOTICE 文本确认
 - GitHub Environments、protected tags、branch protection 和 release approval policy 配置
 - Windows 代码签名证书、时间戳服务和商店账号确认
 - 第三方发布渠道账号、API token、税务或合规材料确认

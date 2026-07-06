@@ -6,6 +6,8 @@
 
 ### Added
 
+- 新增 Linux CLI artifact 安装、卸载与回滚设计文档，明确首个 `networkcore-linux` 压缩包的手动解压模型、卸载清单、用户侧回滚和 `package-linux` 前置门禁。
+- 补充真实 release artifact 前的 license 或 NOTICE 文本人工确认事项。
 - 新增最小 `networkcore-linux` CLI crate，提供命令解析、配置读取抽象、平台能力/status/stop/start 诊断映射和 JSON 输出合同测试。
 - 新增最小 `platform-linux` crate，提供 `PlatformCapabilityService` 静态测试替身、Linux 诊断 code 常量和 TUN、权限、DNS、服务管理、证书状态映射合同测试。
 - 新增 Linux CLI entrypoint 设计文档，明确首个 `networkcore-linux` 入口的命令、配置加载、启动/停止、状态查询、输出和退出码边界。

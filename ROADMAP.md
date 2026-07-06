@@ -86,6 +86,7 @@
 - [Linux Artifact Pre-Release Design](docs/architecture/linux-artifact-pre-release-design.md)
 - [Linux Platform Adapter Design](docs/architecture/linux-platform-adapter.md)
 - [Linux CLI Entrypoint Design](docs/architecture/linux-cli-entrypoint.md)
+- [Linux CLI Artifact Installation And Rollback Design](docs/architecture/linux-cli-artifact-installation-rollback.md)
 
 ## 迭代选择规则
 

@@ -160,6 +160,7 @@ CLI 设计完成不代表可以发布 Linux artifact。进入 `.github/workflows
 
 - Linux CLI 源码和 GitHub Actions 验证存在。
 - Linux platform adapter 源码或测试替身能提供 `PlatformCapabilityService`。
+- Linux CLI artifact 安装、卸载和回滚设计完成。
 - 首个 artifact packaging job 输出 checksum、签名/证明状态和回滚字段。
 - 不上传空壳二进制、未验证二进制或本地构建产物。
 
@@ -174,5 +175,5 @@ CLI 首个源码增量必须满足：
 
 ## 后续工作
 
-- 补充 Linux CLI artifact 安装、卸载与回滚设计，明确首个压缩包发布前置条件。
+- 补充 release workflow 中的 Linux artifact readiness gate 或 `package-linux` 前置 job，继续阻止未满足门禁的 release asset。
 - 真实 Linux probing、daemon/control socket 或 packaging 进入 CLI 前，先补充对应设计并通过 CI。
