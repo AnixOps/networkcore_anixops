@@ -36,7 +36,7 @@
 
 ## 当前状态
 
-当前仓库处于 P2 初始内核骨架阶段，已建立协作规范、规划治理入口、架构规格、运行层编排设计、发布策略、iOS 平台风险评估、Rust 首选栈决策、最小 `control-domain` crate、最小 `control-runtime` crate、MITM gate 初始门禁用例、平台能力状态类型和 Rust 依赖安全扫描 CI。后续实现必须先补齐对应规格或设计说明，并通过 CI/CD 验证。
+当前仓库处于 P2 初始内核骨架阶段，已建立协作规范、规划治理入口、架构规格、运行层编排设计、发布策略、iOS 平台风险评估、Rust 首选栈决策、最小 `control-domain` crate、最小 `control-runtime` crate、MITM gate 初始门禁用例、远程脚本执行拒绝路径、平台能力状态类型和 Rust 依赖安全扫描 CI。后续实现必须先补齐对应规格或设计说明，并通过 CI/CD 验证。
 
 ## 源码布局
 

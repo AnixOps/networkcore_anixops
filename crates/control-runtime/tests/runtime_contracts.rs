@@ -118,7 +118,33 @@ impl ProxyEngineService for FakeProxyEngineService {
     }
 }
 
-struct FakeMitmPluginService;
+#[derive(Clone, Copy)]
+enum MitmFailureMode {
+    Load,
+    Handle,
+}
+
+struct FakeMitmPluginService {
+    failure: Option<MitmFailureMode>,
+}
+
+impl FakeMitmPluginService {
+    const fn new() -> Self {
+        Self { failure: None }
+    }
+
+    const fn fail_load() -> Self {
+        Self {
+            failure: Some(MitmFailureMode::Load),
+        }
+    }
+
+    const fn fail_handle() -> Self {
+        Self {
+            failure: Some(MitmFailureMode::Handle),
+        }
+    }
+}
 
 impl MitmPluginService for FakeMitmPluginService {
     fn validate_manifest(&self, _plugin_manifest: &PluginManifest) -> Vec<Diagnostic> {
@@ -130,6 +156,13 @@ impl MitmPluginService for FakeMitmPluginService {
         plugin_package: &PluginPackage,
         _granted_permissions: &GrantedPermissions,
     ) -> DomainResult<PluginInstance> {
+        if matches!(self.failure, Some(MitmFailureMode::Load)) {
+            return Err(DomainError::new(
+                "plugin.load_failed",
+                "plugin failed to load",
+            ));
+        }
+
         Ok(PluginInstance {
             manifest: plugin_package.manifest.clone(),
         })
@@ -140,6 +173,13 @@ impl MitmPluginService for FakeMitmPluginService {
         plugin_instance: &PluginInstance,
         _http_event: &HttpEvent,
     ) -> DomainResult<PluginResult> {
+        if matches!(self.failure, Some(MitmFailureMode::Handle)) {
+            return Err(DomainError::new(
+                "plugin.handle_failed",
+                "plugin failed to handle event",
+            ));
+        }
+
         Ok(PluginResult {
             audits: vec![AuditEvent {
                 actor: plugin_instance.manifest.id.clone(),
@@ -153,6 +193,34 @@ impl MitmPluginService for FakeMitmPluginService {
 
     fn audit(&self, plugin_result: &PluginResult) -> Vec<AuditEvent> {
         plugin_result.audits.clone()
+    }
+}
+
+struct PanicMitmPluginService;
+
+impl MitmPluginService for PanicMitmPluginService {
+    fn validate_manifest(&self, _plugin_manifest: &PluginManifest) -> Vec<Diagnostic> {
+        panic!("remote script gate should not validate plugin manifests")
+    }
+
+    fn load(
+        &self,
+        _plugin_package: &PluginPackage,
+        _granted_permissions: &GrantedPermissions,
+    ) -> DomainResult<PluginInstance> {
+        panic!("remote script gate should not load plugins")
+    }
+
+    fn handle_http_event(
+        &self,
+        _plugin_instance: &PluginInstance,
+        _http_event: &HttpEvent,
+    ) -> DomainResult<PluginResult> {
+        panic!("remote script gate should not handle HTTP events")
+    }
+
+    fn audit(&self, _plugin_result: &PluginResult) -> Vec<AuditEvent> {
+        panic!("remote script gate should not audit plugin results")
     }
 }
 
@@ -220,7 +288,7 @@ fn mitm_gate_allows_trusted_certificate_and_granted_permissions() {
         StaticPlatformCapabilityService {
             status: available_platform_status(),
         },
-        FakeMitmPluginService,
+        FakeMitmPluginService::new(),
     );
 
     let decision = gate
@@ -249,7 +317,7 @@ fn mitm_gate_rejects_untrusted_certificate() {
         StaticPlatformCapabilityService {
             status: platform_status_with_untrusted_certificate(),
         },
-        FakeMitmPluginService,
+        FakeMitmPluginService::new(),
     );
 
     let decision = gate
@@ -282,7 +350,7 @@ fn mitm_gate_rejects_ungranted_plugin_permission() {
         StaticPlatformCapabilityService {
             status: available_platform_status(),
         },
-        FakeMitmPluginService,
+        FakeMitmPluginService::new(),
     );
 
     let decision = gate
@@ -306,15 +374,93 @@ fn mitm_gate_rejects_ungranted_plugin_permission() {
         .any(|diagnostic| diagnostic.code == "runtime.mitm.permission_denied"));
 }
 
+#[test]
+fn mitm_gate_rejects_disabled_remote_script_execution_before_plugin_port() {
+    let gate = MitmGateOrchestrator::new(
+        StaticPlatformCapabilityService {
+            status: platform_status_without_remote_scripts(),
+        },
+        PanicMitmPluginService,
+    );
+
+    let decision = gate
+        .mitm_gate(MitmGateRequest::new(
+            sample_plugin_package(),
+            granted_permissions(vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ]),
+            sample_http_event(),
+        ))
+        .expect("mitm gate should return a denial decision");
+
+    assert!(!decision.is_allowed());
+    assert_eq!(decision.decision, AuditDecision::Denied);
+    assert!(decision.plugin_result.is_none());
+    assert!(decision
+        .reason
+        .as_deref()
+        .expect("denial reason should be present")
+        .contains("remote script execution is disabled on iOS"));
+    assert!(decision
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "runtime.mitm.remote_script_unavailable"));
+}
+
+#[test]
+fn mitm_gate_propagates_plugin_load_error() {
+    let gate = MitmGateOrchestrator::new(
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeMitmPluginService::fail_load(),
+    );
+
+    let error = gate
+        .mitm_gate(MitmGateRequest::new(
+            sample_plugin_package(),
+            granted_permissions(vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ]),
+            sample_http_event(),
+        ))
+        .expect_err("plugin load errors should propagate");
+
+    assert_eq!(error.code, "plugin.load_failed");
+}
+
+#[test]
+fn mitm_gate_propagates_plugin_handle_error() {
+    let gate = MitmGateOrchestrator::new(
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeMitmPluginService::fail_handle(),
+    );
+
+    let error = gate
+        .mitm_gate(MitmGateRequest::new(
+            sample_plugin_package(),
+            granted_permissions(vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ]),
+            sample_http_event(),
+        ))
+        .expect_err("plugin event errors should propagate");
+
+    assert_eq!(error.code, "plugin.handle_failed");
+}
+
 fn available_platform_status() -> PlatformCapabilityStatus {
     PlatformCapabilityStatus {
         os: OperatingSystem::Ios,
         tunnel: PlatformFeatureState::available(),
         mitm: PlatformFeatureState::available(),
         embedded_runtime: PlatformFeatureState::available(),
-        remote_script_execution: PlatformFeatureState::unavailable(
-            "remote script execution is disabled on iOS",
-        ),
+        remote_script_execution: PlatformFeatureState::available(),
         mitm_certificate: MitmCertificateStatus::new(CertificateTrustState::Trusted),
         diagnostics: Vec::new(),
     }
@@ -330,6 +476,20 @@ fn platform_status_with_untrusted_certificate() -> PlatformCapabilityStatus {
             "remote script execution is disabled on iOS",
         ),
         mitm_certificate: MitmCertificateStatus::new(CertificateTrustState::InstalledUntrusted),
+        diagnostics: Vec::new(),
+    }
+}
+
+fn platform_status_without_remote_scripts() -> PlatformCapabilityStatus {
+    PlatformCapabilityStatus {
+        os: OperatingSystem::Ios,
+        tunnel: PlatformFeatureState::available(),
+        mitm: PlatformFeatureState::available(),
+        embedded_runtime: PlatformFeatureState::available(),
+        remote_script_execution: PlatformFeatureState::unavailable(
+            "remote script execution is disabled on iOS",
+        ),
+        mitm_certificate: MitmCertificateStatus::new(CertificateTrustState::Trusted),
         diagnostics: Vec::new(),
     }
 }

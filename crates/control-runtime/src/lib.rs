@@ -298,6 +298,21 @@ where
             ));
         }
 
+        if !platform.remote_script_execution.is_available() {
+            let reason = platform
+                .remote_script_execution
+                .denial_reason()
+                .unwrap_or("remote script execution availability is unknown")
+                .to_string();
+            return Ok(denied_mitm_gate(
+                platform,
+                &actor,
+                "runtime.mitm.remote_script_unavailable",
+                format!("remote script execution is unavailable: {reason}"),
+                diagnostics,
+            ));
+        }
+
         let manifest_diagnostics = self
             .mitm
             .validate_manifest(&request.plugin_package.manifest);
