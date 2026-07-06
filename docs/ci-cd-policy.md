@@ -43,7 +43,7 @@
 - Node 代码出现后的 Node 构建与测试
 - Swift、Xcode 或 iOS 代码出现后的 Apple 平台验证
 
-CI summary job 必须显式输出并门禁已启用的关键结果；当检测到 Rust workspace 时，summary 必须同时检查 Rust build/test 矩阵和 Rust dependency security audit；当检测到 Go、Node、Swift 或 Apple 项目时，summary 必须检查对应语言或平台 job。
+CI summary job 必须显式输出 Go、Rust、Node、Swift、Apple 项目检测开关并门禁已启用的关键结果；当检测到 Rust workspace 时，summary 必须同时检查 Rust build/test 矩阵和 Rust dependency security audit；当检测到 Go、Node、Swift 或 Apple 项目时，summary 必须检查对应语言或平台 job。
 
 ### Release
 

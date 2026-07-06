@@ -361,6 +361,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo "detected-go=${{ needs.detect-projects.outputs.go }}"
+          echo "detected-rust=${{ needs.detect-projects.outputs.rust }}"
+          echo "detected-node=${{ needs.detect-projects.outputs.node }}"
+          echo "detected-swift=${{ needs.detect-projects.outputs.swift }}"
+          echo "detected-apple=${{ needs.detect-projects.outputs.apple }}"
           echo "policy=${{ needs.policy.result }}"
           echo "detect-projects=${{ needs.detect-projects.result }}"
           echo "workspace-smoke=${{ needs.workspace-smoke.result }}"

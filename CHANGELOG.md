@@ -6,6 +6,7 @@
 
 ### Added
 
+- 补充 CI summary 项目类型检测输出，每次记录 Go、Rust、Node、Swift 和 Apple 检测开关。
 - 补强 CI summary Go、Node、Swift 和 Apple 条件门禁，显式输出并在对应项目出现时检查语言与平台 job 结果。
 - 补强 CI summary Rust 门禁，显式输出并检查 Rust build/test 矩阵结果和 Rust dependency security audit 结果。
 - 补充 `control-runtime` MITM gate 权限拒绝诊断顺序合同测试，覆盖平台、证书、manifest 非错误诊断和 runtime 权限拒绝诊断按聚合顺序输出。
