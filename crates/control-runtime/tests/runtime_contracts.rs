@@ -878,6 +878,60 @@ fn mitm_gate_preserves_manifest_diagnostics_on_permission_denial() {
 }
 
 #[test]
+fn mitm_gate_orders_diagnostics_on_permission_denial() {
+    let expected_reason = "plugin permission is not granted: modify_request";
+    let gate = MitmGateOrchestrator::new(
+        StaticPlatformCapabilityService {
+            status: platform_status_with_gate_diagnostics(),
+        },
+        DiagnosticManifestOnlyMitmPluginService,
+    );
+
+    let decision = gate
+        .mitm_gate(MitmGateRequest::new(
+            sample_plugin_package(),
+            granted_permissions(vec![PluginPermission::ReadRequest]),
+            sample_http_event(),
+        ))
+        .expect("mitm gate should return a denial decision");
+
+    let diagnostic_codes = decision
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.code.as_str())
+        .collect::<Vec<_>>();
+    let runtime_diagnostic = decision
+        .diagnostics
+        .last()
+        .expect("runtime diagnostic should be appended");
+
+    assert_eq!(
+        diagnostic_codes,
+        vec![
+            "platform.mitm.profile_scope",
+            "platform.mitm_certificate.cached_trust",
+            "plugin.manifest.deprecated_header_match",
+            "plugin.manifest.compatibility_note",
+            "runtime.mitm.permission_denied",
+        ]
+    );
+    assert!(!decision.is_allowed());
+    assert_eq!(decision.decision, AuditDecision::Denied);
+    assert_eq!(decision.reason.as_deref(), Some(expected_reason));
+    assert!(decision.plugin_result.is_none());
+    assert_eq!(
+        runtime_diagnostic.code.as_str(),
+        "runtime.mitm.permission_denied"
+    );
+    assert_eq!(runtime_diagnostic.message.as_str(), expected_reason);
+    assert_eq!(decision.audits.len(), 1);
+    assert_eq!(decision.audits[0].actor, "header-rewriter");
+    assert_eq!(decision.audits[0].action, "mitm_gate");
+    assert_eq!(decision.audits[0].decision, AuditDecision::Denied);
+    assert_eq!(decision.audits[0].reason, decision.reason);
+}
+
+#[test]
 fn mitm_gate_audits_manifest_error_denial_before_plugin_ports() {
     let gate = MitmGateOrchestrator::new(
         StaticPlatformCapabilityService {

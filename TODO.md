@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 在 `control-runtime` 中补充 MITM gate 权限拒绝诊断顺序合同测试，覆盖 manifest 非错误诊断会在 runtime 权限拒绝诊断前输出。
+- [ ] 在 CI summary 中补充 Rust build/test 矩阵结果门禁，确保 summary job 显式检查 Rust build/test 结果。
 
 ## 已完成
 
+- [x] 在 `control-runtime` 中补充 MITM gate 权限拒绝诊断顺序合同测试，覆盖 manifest 非错误诊断会在 runtime 权限拒绝诊断前输出。
 - [x] 在 `control-runtime` 中补充 MITM gate manifest 错误拒绝诊断顺序合同测试，覆盖平台、证书、manifest 和 runtime 诊断按聚合顺序输出。
 - [x] 在 `control-runtime` 中补充 MITM gate manifest 错误优先于权限拒绝合同测试，覆盖 manifest 错误会在缺失权限前短路并返回 manifest 错误拒绝原因。
 - [x] 在 `control-runtime` 中补充 MITM gate manifest 错误拒绝证书诊断保留合同测试，覆盖证书诊断会保留在 manifest 错误拒绝决策输出中。
