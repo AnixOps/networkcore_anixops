@@ -555,12 +555,14 @@ impl NativeRuntimeHandle {
 
     pub fn release(self) -> NativeRuntimeReleaseReport {
         release_report(
-            self.engine_id,
-            self.listeners,
-            self.bound_listeners,
-            self.accept_loops,
-            self.outbound_handlers,
-            self.events,
+            NativeRuntimeReleaseResources {
+                engine_id: self.engine_id,
+                listeners: self.listeners,
+                bound_listeners: self.bound_listeners,
+                accept_loops: self.accept_loops,
+                outbound_handlers: self.outbound_handlers,
+                events: self.events,
+            },
             ProxyEngineEventKind::Stopped,
             Vec::new(),
         )
@@ -680,12 +682,14 @@ impl NativeRuntimeAssembly {
             SOURCE_ENGINE_NATIVE_RUNTIME,
         );
         let release = release_report(
-            self.engine_id,
-            self.listeners,
-            self.bound_listeners,
-            self.accept_loops,
-            self.outbound_handlers,
-            self.events,
+            NativeRuntimeReleaseResources {
+                engine_id: self.engine_id,
+                listeners: self.listeners,
+                bound_listeners: self.bound_listeners,
+                accept_loops: self.accept_loops,
+                outbound_handlers: self.outbound_handlers,
+                events: self.events,
+            },
             ProxyEngineEventKind::Failed,
             vec![failure_diagnostic],
         );
@@ -1127,16 +1131,29 @@ fn run_loopback_tcp_accept_loop(
     }
 }
 
-fn release_report(
+#[derive(Debug)]
+struct NativeRuntimeReleaseResources {
     engine_id: String,
     listeners: Vec<LoopbackListenerHandle>,
     bound_listeners: Vec<BoundLoopbackTcpListenerHandle>,
     accept_loops: Vec<NativeLoopbackTcpAcceptLoopHandle>,
     outbound_handlers: Vec<NativeOutboundHandlerHandle>,
-    mut events: Vec<ProxyEngineEvent>,
+    events: Vec<ProxyEngineEvent>,
+}
+
+fn release_report(
+    resources: NativeRuntimeReleaseResources,
     event_kind: ProxyEngineEventKind,
     mut diagnostics: Vec<Diagnostic>,
 ) -> NativeRuntimeReleaseReport {
+    let NativeRuntimeReleaseResources {
+        engine_id,
+        listeners,
+        bound_listeners,
+        accept_loops,
+        outbound_handlers,
+        mut events,
+    } = resources;
     let mut listener_ids = listeners
         .into_iter()
         .map(|listener| listener.listener_id)
