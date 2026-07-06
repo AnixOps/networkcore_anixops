@@ -200,7 +200,7 @@ struct PanicMitmPluginService;
 
 impl MitmPluginService for PanicMitmPluginService {
     fn validate_manifest(&self, _plugin_manifest: &PluginManifest) -> Vec<Diagnostic> {
-        panic!("remote script gate should not validate plugin manifests")
+        panic!("denied MITM gates should not validate plugin manifests")
     }
 
     fn load(
@@ -208,7 +208,7 @@ impl MitmPluginService for PanicMitmPluginService {
         _plugin_package: &PluginPackage,
         _granted_permissions: &GrantedPermissions,
     ) -> DomainResult<PluginInstance> {
-        panic!("remote script gate should not load plugins")
+        panic!("denied MITM gates should not load plugins")
     }
 
     fn handle_http_event(
@@ -216,11 +216,11 @@ impl MitmPluginService for PanicMitmPluginService {
         _plugin_instance: &PluginInstance,
         _http_event: &HttpEvent,
     ) -> DomainResult<PluginResult> {
-        panic!("remote script gate should not handle HTTP events")
+        panic!("denied MITM gates should not handle HTTP events")
     }
 
     fn audit(&self, _plugin_result: &PluginResult) -> Vec<AuditEvent> {
-        panic!("remote script gate should not audit plugin results")
+        panic!("denied MITM gates should not audit plugin results")
     }
 }
 
@@ -445,6 +445,44 @@ fn mitm_gate_aggregates_gate_plugin_result_and_audit_port_events() {
 }
 
 #[test]
+fn mitm_gate_rejects_unavailable_mitm_before_plugin_port() {
+    let gate = MitmGateOrchestrator::new(
+        StaticPlatformCapabilityService {
+            status: platform_status_without_mitm(),
+        },
+        PanicMitmPluginService,
+    );
+
+    let decision = gate
+        .mitm_gate(MitmGateRequest::new(
+            sample_plugin_package(),
+            granted_permissions(vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ]),
+            sample_http_event(),
+        ))
+        .expect("mitm gate should return a denial decision");
+
+    assert!(!decision.is_allowed());
+    assert_eq!(decision.decision, AuditDecision::Denied);
+    assert_eq!(
+        decision.reason.as_deref(),
+        Some("mitm is unavailable: mitm capability is disabled by platform policy")
+    );
+    assert!(decision.plugin_result.is_none());
+    assert!(decision.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "runtime.mitm.unavailable"
+            && diagnostic.severity == control_domain::DiagnosticSeverity::Error
+    }));
+    assert_eq!(decision.audits.len(), 1);
+    assert_eq!(decision.audits[0].actor, "header-rewriter");
+    assert_eq!(decision.audits[0].action, "mitm_gate");
+    assert_eq!(decision.audits[0].decision, AuditDecision::Denied);
+    assert_eq!(decision.audits[0].reason, decision.reason);
+}
+
+#[test]
 fn mitm_gate_rejects_untrusted_certificate() {
     let gate = MitmGateOrchestrator::new(
         StaticPlatformCapabilityService {
@@ -629,6 +667,20 @@ fn available_platform_status() -> PlatformCapabilityStatus {
         os: OperatingSystem::Ios,
         tunnel: PlatformFeatureState::available(),
         mitm: PlatformFeatureState::available(),
+        embedded_runtime: PlatformFeatureState::available(),
+        remote_script_execution: PlatformFeatureState::available(),
+        mitm_certificate: MitmCertificateStatus::new(CertificateTrustState::Trusted),
+        diagnostics: Vec::new(),
+    }
+}
+
+fn platform_status_without_mitm() -> PlatformCapabilityStatus {
+    PlatformCapabilityStatus {
+        os: OperatingSystem::Ios,
+        tunnel: PlatformFeatureState::available(),
+        mitm: PlatformFeatureState::unavailable(
+            "mitm capability is disabled by platform policy",
+        ),
         embedded_runtime: PlatformFeatureState::available(),
         remote_script_execution: PlatformFeatureState::available(),
         mitm_certificate: MitmCertificateStatus::new(CertificateTrustState::Trusted),

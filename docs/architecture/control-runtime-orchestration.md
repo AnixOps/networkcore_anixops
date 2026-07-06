@@ -128,8 +128,9 @@ iOS adapter 接入前，运行层必须按以下规则建模：
 `ConfigurationService`、`PlatformCapabilityService` 和 `ProxyEngineService`，
 覆盖配置准备、启动、重载、停止、状态查询和事件读取；同时提供最小
 `MitmGateOrchestrator`，组合 `PlatformCapabilityService` 和
-`MitmPluginService`，覆盖证书信任、远程脚本禁用、manifest 诊断拒绝、
-插件权限门禁、审计事件聚合和插件端口错误传播。订阅、策略路由和 DNS 编排仍按后续扩展逐步加入。
+`MitmPluginService`，覆盖平台 MITM 可用性、证书信任、远程脚本禁用、
+manifest 诊断拒绝、插件权限门禁、审计事件聚合和插件端口错误传播。
+订阅、策略路由和 DNS 编排仍按后续扩展逐步加入。
 
 ## 后续扩展
 
