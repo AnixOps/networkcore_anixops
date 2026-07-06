@@ -1301,9 +1301,11 @@ fn read_socks5_greeting_and_close_accepted_connection(
     )));
     let read_report = read_socks5_greeting(&mut stream);
     let mut diagnostics = read_report.diagnostics;
-    if let Some(greeting) = read_report.greeting.as_ref().filter(|greeting| {
-        greeting.version == SOCKS5_VERSION && !greeting.auth_methods.is_empty()
-    }) {
+    if let Some(greeting) = read_report
+        .greeting
+        .as_ref()
+        .filter(|greeting| greeting.version == SOCKS5_VERSION && !greeting.auth_methods.is_empty())
+    {
         diagnostics.extend(select_socks5_auth_method(greeting).diagnostics);
     }
     let _ = stream.shutdown(Shutdown::Both);
