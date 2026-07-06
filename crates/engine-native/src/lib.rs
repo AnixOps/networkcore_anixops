@@ -140,9 +140,10 @@ fn validate_listeners(engine_config: &ProxyEngineConfig, diagnostics: &mut Vec<D
         ));
     }
 
-    if enabled_listeners.iter().any(|listener| {
-        listener.bind.host.trim().is_empty() || listener.bind.port == 0
-    }) {
+    if enabled_listeners
+        .iter()
+        .any(|listener| listener.bind.host.trim().is_empty() || listener.bind.port == 0)
+    {
         diagnostics.push(config_error(
             ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
             "native proxy listener bind host and port must be explicit",
