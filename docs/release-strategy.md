@@ -14,7 +14,7 @@
 - `release-artifact-contract` job 记录首个真实 artifact job 必须输出 `artifact_name`、`artifact_path`、`checksum_algorithm`、`checksum_file` 和 `checksum_value`，且 checksum 算法默认为 `sha256`。
 - `release-signing-contract` job 记录真实平台 artifact 发布前必须声明签名或 attestation 策略，并要求后续 job 输出 `signing_policy`、`signing_status`、`attestation_status` 和 `provenance_file`。
 - `release-rollback-contract` job 记录真实 artifact 发布说明必须输出 `rollback_scope`、`rollback_trigger`、`rollback_steps`、`replacement_version` 和 `rollback_owner`。
-- `linux-artifact-readiness` job 检查 Linux CLI 源码、platform adapter、安装/回滚设计和 license/NOTICE 人工确认记录，但不构建、不打包、不上传 artifact。
+- `linux-artifact-readiness` job 检查 Linux CLI 源码、platform adapter、native listener/node 配置设计、安装/回滚设计和 license/NOTICE 人工确认记录，但不构建、不打包、不上传 artifact。
 - 不生成 release artifact。
 - 不在本机打包、签名、测试或发布。
 - 通过 release summary job 输出发布来源、policy、release-ci-gate、release-artifact-contract、release-signing-contract、release-rollback-contract、linux-artifact-readiness、placeholder、artifact 状态和后续 artifact 门禁。
@@ -48,7 +48,7 @@
 | 平台/产物 | 初始形态 | Release runner | 发布前置条件 |
 | --- | --- | --- | --- |
 | Rust crates | 暂不发布到 crates.io | `ubuntu-latest` | 公共 API 稳定、license 与 README 完整、crate publishing policy 单独评审 |
-| Linux | 待定义 CLI 或 daemon 压缩包 | `ubuntu-latest` | [Linux artifact pre-release design](architecture/linux-artifact-pre-release-design.md)、[Linux platform adapter design](architecture/linux-platform-adapter.md)、[Linux CLI entrypoint design](architecture/linux-cli-entrypoint.md)、[Linux CLI runtime wiring design](architecture/linux-cli-runtime-wiring.md)、[Linux native proxy engine start design](architecture/linux-native-proxy-engine-start.md) 与 [Linux CLI artifact installation and rollback design](architecture/linux-cli-artifact-installation-rollback.md) 完成 |
+| Linux | 待定义 CLI 或 daemon 压缩包 | `ubuntu-latest` | [Linux artifact pre-release design](architecture/linux-artifact-pre-release-design.md)、[Linux platform adapter design](architecture/linux-platform-adapter.md)、[Linux CLI entrypoint design](architecture/linux-cli-entrypoint.md)、[Linux CLI runtime wiring design](architecture/linux-cli-runtime-wiring.md)、[Native engine listener and node config design](architecture/native-engine-listener-node-config.md)、[Linux native proxy engine start design](architecture/linux-native-proxy-engine-start.md) 与 [Linux CLI artifact installation and rollback design](architecture/linux-cli-artifact-installation-rollback.md) 完成 |
 | Windows | 待定义 CLI、service 或 installer | `windows-latest` | Windows service 权限、签名证书和安装器策略完成 |
 | macOS | 待定义 CLI、app bundle、`.pkg` 或 `.dmg` | `macos-26` | 签名、notarization、entitlement 和 Gatekeeper 路径完成 |
 | iOS | App Store Connect 或 TestFlight 路径 | `macos-26` | Network Extension design、entitlement、Provisioning Profile、隐私政策和 App Review Notes 完成 |
@@ -95,7 +95,7 @@
 
 ## 下一步
 
-- 真实平台产物进入 release workflow 前，先为目标平台补齐 adapter 设计文档；Linux 首个产物必须先满足 [Linux artifact pre-release design](architecture/linux-artifact-pre-release-design.md)、[Linux platform adapter design](architecture/linux-platform-adapter.md)、[Linux CLI entrypoint design](architecture/linux-cli-entrypoint.md)、[Linux CLI runtime wiring design](architecture/linux-cli-runtime-wiring.md)、[Linux native proxy engine start design](architecture/linux-native-proxy-engine-start.md) 和 [Linux CLI artifact installation and rollback design](architecture/linux-cli-artifact-installation-rollback.md)。
+- 真实平台产物进入 release workflow 前，先为目标平台补齐 adapter 设计文档；Linux 首个产物必须先满足 [Linux artifact pre-release design](architecture/linux-artifact-pre-release-design.md)、[Linux platform adapter design](architecture/linux-platform-adapter.md)、[Linux CLI entrypoint design](architecture/linux-cli-entrypoint.md)、[Linux CLI runtime wiring design](architecture/linux-cli-runtime-wiring.md)、[Native engine listener and node config design](architecture/native-engine-listener-node-config.md)、[Linux native proxy engine start design](architecture/linux-native-proxy-engine-start.md) 和 [Linux CLI artifact installation and rollback design](architecture/linux-cli-artifact-installation-rollback.md)。
 - 引入第一个 artifact job 时，同步加入 checksum、安装/卸载边界、release summary 和回滚说明；Linux 在 `linux-artifact-readiness` 通过且 license/NOTICE 人工确认完成前不得进入 `package-linux`。
 - iOS 发布前必须先完成 `docs/architecture/ios-network-extension-design.md`。
 

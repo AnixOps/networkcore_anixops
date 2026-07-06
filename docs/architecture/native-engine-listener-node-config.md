@@ -1,0 +1,178 @@
+# Native Engine Listener And Node Config Design
+
+本文定义 `engine-native` 从当前配置拒绝合同推进到真实 runtime handle 前必须具备的
+listener、node、route 和 DNS 配置模型边界。它承接
+[Control Kernel Interface Draft](control-kernel-interfaces.md)、
+[Proxy Engine Adapter Interface](proxy-engine-adapter.md)、
+[Control Runtime Orchestration Design](control-runtime-orchestration.md) 和
+[Linux Native Proxy Engine Start Design](linux-native-proxy-engine-start.md)。
+
+评估时间：2026-07-06。
+
+## 目标
+
+- 明确原生执行内核启动前需要的最小 listener/node 图。
+- 定义 `ConfigSnapshot`、`NodeDescriptor`、`RuleSet`、`DnsUpstream` 和
+  `ProxyEngineConfig` 如何进入 `engine-native`。
+- 防止 adapter 因存在 profile 或任意 metadata 就停止返回配置拒绝诊断。
+- 为下一步源码增量提供可测试、可回滚的字段、诊断和接线门槛。
+
+## 非目标
+
+- 不在本文实现 TCP、UDP、SOCKS、HTTP、TUN、DNS、MITM 或透明代理协议。
+- 不选择 async runtime、socket 库、packet parser、DNS resolver 或 netlink 依赖。
+- 不定义订阅格式、外部代理内核原生配置格式、daemon/control socket 或 packaging。
+- 不把 listener、node、DNS 或平台文件系统细节放入 `control-runtime`。
+- 不在本机运行、构建、测试、打包或试用 CLI。
+
+## 当前源码状态
+
+当前仓库已经具备：
+
+- `control-domain::NodeDescriptor`，包含 `id`、`name`、`protocol`、`endpoint` 和 `tags`。
+- `control-domain::RuleSet`、`RouteRule` 和 `RouteAction`，能表达直连、代理节点和拒绝策略意图。
+- `control-domain::DnsUpstream`，能表达标准化 DNS 上游入口。
+- `control-domain::ProxyEngineConfig`，组合标准化 `ConfigSnapshot`、运行请求提供的 `nodes` 和 adapter `metadata`。
+- `control-runtime::RuntimeConfigRequest`，把 `engine_id`、原始配置、`nodes` 和 `metadata` 传给运行层。
+- `config-core::CoreConfigurationService`，当前只解析 schema/profile，不解析 listener、node、route 或 DNS。
+- `engine-native::NativeProxyEngineService`，当前稳定返回 `listener_missing`、`node_missing` 和 runtime unavailable 诊断。
+
+因此，`engine-native` 现在必须继续拒绝启动。没有 listener 描述、可用 outbound 图和真实运行句柄前，不得返回 `Running`，也不得接入 `networkcore-linux start`。
+
+## 配置所有权
+
+配置模型必须保持领域优先：
+
+1. `ConfigSnapshot` 是标准化配置事实来源，后续应显式承载 listener、route、DNS 和插件配置。
+2. `NodeDescriptor` 来自本地配置、订阅归一化或测试替身，进入 `ProxyEngineConfig.nodes`。
+3. `ProxyEngineConfig.metadata` 只用于 adapter 附加上下文，不得作为 listener 或节点主模型。
+4. `engine-native` 只消费 `ProxyEngineConfig`，不得重新读取 TOML、扫描默认配置路径或访问订阅来源。
+5. secret、token、密码和私钥必须进入后续显式 secret 模型；诊断不得输出原值、metadata value 或完整 URL secret。
+
+下一步源码若需要临时表达 listener，必须先扩展领域类型或配置快照；不得用自由格式 metadata 绕过领域模型。
+
+## Listener 模型
+
+后续领域模型应新增 `ListenerDescriptor` 或等价类型，最小字段如下：
+
+| 字段 | 含义 | 首版约束 |
+| --- | --- | --- |
+| `id` | listener 稳定标识 | 必填，同一配置内唯一 |
+| `kind` | 入站类型 | 首版只允许已实现的 kind，例如 `local_tcp` 或后续 `socks` |
+| `bind` | 监听地址和端口 | 必须显式，不能默认监听公网地址 |
+| `network` | `tcp`、`udp` 或 `tcp_udp` | 未实现 UDP 前必须拒绝 UDP listener |
+| `route` | 默认 route 或 rule set id | 必须能解析到有效 `RouteAction` |
+| `tags` | 用户或策略标签 | 不影响启动门禁 |
+| `metadata` | adapter 附加字段 | 不得携带 secret 原文 |
+
+首个可启动 listener 必须满足：
+
+- 至少存在一个 enabled listener。
+- listener id 不重复。
+- bind host 和 port 合法，端口范围为 `1..=65535`。
+- 首版默认只允许 loopback bind，例如 `127.0.0.1`、`::1` 或显式设计允许的本机地址；公网或通配地址进入前必须有权限、风险和提示设计。
+- listener kind、network 和后续 handler 已真实实现，否则返回 capability unsupported。
+- listener 的 route 引用能解析到存在的 rule set 或默认 route。
+
+## Node 模型
+
+现有 `NodeDescriptor` 是首个 outbound 节点模型。后续源码必须保持以下语义：
+
+- `id` 是策略引用和运行状态引用的唯一键。
+- `protocol` 只能取 adapter 已实现协议；未实现协议必须返回 unsupported，而不是静默降级。
+- `endpoint.host` 不能为空，`endpoint.port` 必须在合法范围内。
+- `tags` 只用于策略筛选，不得替代能力或 secret 声明。
+- 需要认证信息的协议必须先定义 secret redaction 和权限边界。
+
+`engine-native` 只有在以下条件满足时才能停止返回
+`engine.native.config.node_missing`：
+
+- 配置图至少存在一个可用于 `Proxy` route 的 node，或明确存在已实现的 `Direct` route。
+- 所有 `RouteAction::Proxy { node_id }` 都引用存在的 node。
+- node protocol 和 listener network 能被当前 native runtime 共同支持。
+- 不存在重复 node id。
+
+直连 route 不能被用作空 runtime 逃生口。只有 native runtime 已实现真实 direct connector 并有合同测试覆盖时，`Direct` 才能作为可启动 outbound。
+
+## Route 和 DNS 图
+
+listener 到 outbound 的图必须显式、可诊断：
+
+1. listener 选择一个默认 rule set 或 route。
+2. rule set 编译后得到 `RouteAction`。
+3. `Proxy` action 必须引用现有 node。
+4. `Direct` action 必须依赖已实现 direct connector。
+5. `Reject` action 不能作为唯一可启动路径。
+6. DNS 上游只有在 adapter 实际解析域名或代理协议需要域名解析时才是启动必需项。
+
+DNS 配置进入前应继续保守：
+
+- 缺少 DNS 时，如果所有 endpoints 都已是 IP 且协议不需要远程解析，可不阻断启动。
+- 需要本地解析域名但没有可用 DNS plan 时，返回 `engine.native.config.dns_required`。
+- DNS 不能触发 Linux 系统 DNS 修改；系统 DNS mutation 仍属于后续 Linux adapter 设计。
+
+## 推荐诊断 code
+
+| code | severity | 含义 |
+| --- | --- | --- |
+| `engine.native.config.listener_missing` | Error | 没有可启动 listener |
+| `engine.native.config.listener_id_duplicate` | Error | listener id 重复 |
+| `engine.native.config.listener_bind_invalid` | Error | listener bind 地址或端口非法 |
+| `engine.native.config.listener_kind_unsupported` | Error | listener kind 当前未实现 |
+| `engine.native.config.node_missing` | Error | 缺少可用 outbound node 或已实现 direct route |
+| `engine.native.config.node_id_duplicate` | Error | node id 重复 |
+| `engine.native.config.node_protocol_unsupported` | Error | node 协议当前未实现 |
+| `engine.native.config.route_target_missing` | Error | route 引用的 node 或 rule set 不存在 |
+| `engine.native.config.route_empty` | Error | listener 没有可执行 route |
+| `engine.native.config.dns_required` | Error | 当前配置需要 DNS plan 才能启动 |
+| `engine.native.config.secret_redacted` | Info | 诊断输出已隐藏敏感配置值 |
+
+已有 code `engine.native.config.engine_id_unsupported`、`listener_missing` 和
+`node_missing` 保持兼容。
+
+## 源码接线阶段
+
+后续最小源码增量应按以下顺序推进：
+
+1. 在 `control-domain` 中新增 listener 领域类型，或等价扩展 `ConfigSnapshot`，并补充合同测试。
+2. 在 `config-core` 中解析最小 listener/node/route TOML 子集，仍保持纯内存、无文件 I/O、无网络请求。
+3. 在 `control-runtime` 中保持只编排端口；如果需要从配置快照提取 nodes/listeners，应通过显式类型进入 `ProxyEngineConfig`，不读取 adapter 私有 metadata。
+4. 在 `engine-native` 中把配置拒绝从固定 `listener_missing`/`node_missing` 改为结构化图校验。
+5. 只有当 native runtime 创建并持有真实 listener handle 后，`start()` 才能返回 `Running`。
+6. 最后再评估 `networkcore-linux start` binary 接线和前台 lifecycle host handoff。
+
+每个阶段都必须同步 README、TODO、CHANGELOG、设计文档和合同测试，并只通过 GitHub Actions 验证。
+
+## `Running` 门槛
+
+`engine-native::start` 返回 `ProxyEngineLifecycleState::Running` 前必须同时满足：
+
+- listener 配置图已通过校验。
+- outbound node/direct route 图已通过校验。
+- 平台能力已由 `RuntimeOrchestrator` 确认可启动。
+- adapter 已创建当前进程拥有的 listener/runtime handle。
+- 失败路径能释放已创建的句柄，并返回稳定 `DomainError` 或 `Diagnostic`。
+- `events()` 至少能返回启动失败或运行状态变化的内存事件合同，或者在设计中明确首版事件为空的边界。
+
+不得把以下情况视为 running：
+
+- 只解析了 listener/node 配置。
+- 只验证了节点存在。
+- 只创建了数据结构，没有绑定或持有任何运行句柄。
+- 只绑定端口但没有 route/outbound 行为合同。
+- 只能在测试替身中返回 `Running`。
+
+## 验收条件
+
+本设计进入仓库后，后续源码必须满足：
+
+- `.github/workflows/ci.yml` governance 检查本文档存在和标题。
+- README、ROADMAP、Linux native start 设计和 release strategy 能发现本文档。
+- TODO 指向下一步最小源码增量，而不是直接接入 `start`。
+- `engine-native` 在 listener/node 源码合同完成前继续保持配置拒绝诊断。
+- `networkcore-linux start` 在真实 runtime handle 和 binary lifecycle 接线完成前继续保持 `cli.linux.runtime.unwired`。
+
+## 后续工作
+
+- 在 `control-domain` 中新增 listener 配置领域类型，并用合同测试覆盖 id、bind、network 和 route 引用边界。
+- `engine-native` 继续保持 runtime unavailable，直到 listener/node 图校验和真实 runtime handle 均完成。

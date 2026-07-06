@@ -208,12 +208,14 @@ jobs:
           test -f docs/architecture/linux-artifact-pre-release-design.md
           test -f docs/architecture/linux-platform-adapter.md
           test -f docs/architecture/linux-cli-entrypoint.md
+          test -f docs/architecture/native-engine-listener-node-config.md
           test -f docs/architecture/linux-cli-artifact-installation-rollback.md
           test -f docs/manual-intervention.md
           grep -q "networkcore-linux" apps/linux-cli/README.md
           grep -q "Linux Artifact Pre-Release Design" docs/architecture/linux-artifact-pre-release-design.md
           grep -q "Linux Platform Adapter Design" docs/architecture/linux-platform-adapter.md
           grep -q "Linux CLI Entrypoint Design" docs/architecture/linux-cli-entrypoint.md
+          grep -q "Native Engine Listener And Node Config Design" docs/architecture/native-engine-listener-node-config.md
           grep -q "Linux CLI Artifact Installation And Rollback Design" docs/architecture/linux-cli-artifact-installation-rollback.md
           grep -q "package-linux" docs/architecture/linux-cli-artifact-installation-rollback.md
           grep -q "license 或 artifact 内置许可/NOTICE" docs/manual-intervention.md
@@ -225,6 +227,7 @@ jobs:
             echo "| Current mode | readiness gate only |"
             echo "| CLI source | apps/linux-cli present |"
             echo "| Platform adapter source | crates/platform-linux present |"
+            echo "| Native listener/node config design | present |"
             echo "| Install and rollback design | present |"
             echo "| License or NOTICE confirmation | manual confirmation required before real artifact packaging |"
             echo "| Release asset upload | blocked until package-linux, checksum, signing/attestation, rollback, and license/NOTICE gates are complete |"
@@ -233,6 +236,7 @@ jobs:
           echo "linux-artifact-readiness=passed"
           echo "linux-artifact-mode=readiness-gate-only"
           echo "linux-artifact-cli-source=present"
+          echo "linux-artifact-native-listener-node-design=present"
           echo "linux-artifact-install-rollback-design=present"
           echo "linux-artifact-license-notice=manual-confirmation-required"
           echo "linux-artifact-release-assets=blocked"
