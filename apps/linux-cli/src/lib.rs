@@ -38,16 +38,11 @@ pub const SOURCE_CLI_STOP: &str = "cli.stop";
 pub const SOURCE_CLI_STATUS: &str = "cli.status";
 pub const SOURCE_CLI_RUNTIME: &str = "cli.runtime";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OutputFormat {
+    #[default]
     Text,
     Json,
-}
-
-impl Default for OutputFormat {
-    fn default() -> Self {
-        Self::Text
-    }
 }
 
 impl OutputFormat {
