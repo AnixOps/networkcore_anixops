@@ -6,6 +6,7 @@
 
 ### Added
 
+- 补充 release artifact checksum contract 占位 job，定义首个真实 artifact job 的 checksum 输出字段。
 - 补充 release-ci-gate 占位 job，记录真实 artifact 前必须关联 `main` CI 成功结果。
 - 补充 release workflow summary job，输出 placeholder 发布状态和后续 artifact 门禁。
 - 补充 release workflow 发布来源 summary，记录 workflow_dispatch 版本输入、触发事件、ref、commit SHA 和 actor。
