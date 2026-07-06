@@ -69,7 +69,7 @@ iOS MITM 必须作为显式用户授权能力，而不是默认网络功能：
 
 领域模型要求：
 
-- `PlatformCapabilityPort` 后续需要报告 `certificate_installed`、`certificate_trusted`、`mitm_available` 和 `mitm_denied_reason` 等状态。
+- `PlatformCapabilityStatus` 和 `MitmCertificateStatus` 需要报告证书安装、信任状态、MITM 可用性和拒绝原因。
 - `MitmPluginService` 后续需要区分读取、改写、网络访问、持久化等权限，并在 iOS 上默认拒绝未授权能力。
 - 配置模型必须能表达 MITM 被平台禁止、证书未信任、用户未授权和插件权限不足四类不同诊断。
 
@@ -112,7 +112,7 @@ iOS 插件策略：
 
 - 在实现 iOS adapter 前，新增 `docs/architecture/ios-network-extension-design.md`。
 - 发布真实平台产物必须遵守 `docs/release-strategy.md` 中的签名、产物矩阵和回滚门禁。
-- 在 `control-domain` 后续增量中补充平台能力状态和 MITM 证书状态的领域类型。
+- 后续平台 adapter 必须通过 `PlatformCapabilityService` 提供 iOS 能力和证书信任状态。
 
 ## 参考
 

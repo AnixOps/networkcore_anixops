@@ -34,7 +34,7 @@
 | Proxy Runtime | 编排自研或外部代理执行内核 | 标准化配置、路由/DNS 决策 | 运行状态、健康事件、错误 |
 | MITM Plugin Runtime | 执行受控脚本和请求/响应改写能力 | 插件包、权限声明、HTTP 事件 | 改写结果、审计事件、拒绝原因 |
 | Control API | 暴露跨平台控制平面 | 客户端命令、查询请求 | 状态快照、操作结果 |
-| Platform Capability | 描述平台能力和限制 | OS、权限、Network Extension 状态 | 能力矩阵、不可用原因 |
+| Platform Capability | 描述平台能力和限制 | OS、权限、Network Extension 状态、证书信任状态 | 能力矩阵、MITM 可用性、不可用原因 |
 
 ## 端口与适配器
 
@@ -46,7 +46,7 @@
 - `DnsResolverPort`：执行平台或自定义 DNS 解析。
 - `PluginSandboxPort`：加载插件、执行脚本、限制权限并输出审计事件。
 - `ControlTransportPort`：暴露本地 socket、HTTP、gRPC 或平台专用控制通道。
-- `PlatformCapabilityPort`：查询平台权限、隧道能力和证书状态。
+- `PlatformCapabilityPort`：查询平台权限、隧道能力、嵌入式运行时、远程脚本执行边界和证书状态。
 
 适配器可以依赖平台 SDK、外部代理内核和系统 API，但不得把这些依赖反向泄漏到领域模型。
 

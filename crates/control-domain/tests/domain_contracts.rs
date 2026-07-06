@@ -1,8 +1,10 @@
 use control_domain::{
-    ConfigSnapshot, ConfigurationService, Diagnostic, DiagnosticSeverity, DomainResult,
-    OperatingSystem, PlatformCapabilities, ProxyEngineCapability, ProxyEngineConfig,
-    ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineKind, ProxyEngineLifecycleState,
-    ProxyEngineService, ProxyEngineStatus, SchemaVersion,
+    CertificateTrustState, ConfigSnapshot, ConfigurationService, Diagnostic, DiagnosticSeverity,
+    DomainResult, MitmCertificateStatus, OperatingSystem, PlatformCapabilities,
+    PlatformCapabilityService, PlatformCapabilityStatus, PlatformFeatureState,
+    ProxyEngineCapability, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
+    ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
+    SchemaVersion,
 };
 
 struct NoopConfigurationService;
@@ -102,6 +104,26 @@ impl ProxyEngineService for NoopProxyEngineService {
     }
 }
 
+struct NoopPlatformCapabilityService;
+
+impl PlatformCapabilityService for NoopPlatformCapabilityService {
+    fn status(&self) -> DomainResult<PlatformCapabilityStatus> {
+        Ok(PlatformCapabilityStatus {
+            os: OperatingSystem::Ios,
+            tunnel: PlatformFeatureState::available(),
+            mitm: PlatformFeatureState::available(),
+            embedded_runtime: PlatformFeatureState::available(),
+            remote_script_execution: PlatformFeatureState::unavailable(
+                "remote script execution is disabled on iOS",
+            ),
+            mitm_certificate: MitmCertificateStatus::new(
+                CertificateTrustState::InstalledUntrusted,
+            ),
+            diagnostics: Vec::new(),
+        })
+    }
+}
+
 #[test]
 fn configuration_port_can_be_implemented_by_an_adapter() {
     let service = NoopConfigurationService;
@@ -150,5 +172,29 @@ fn proxy_engine_port_can_be_implemented_by_an_adapter() {
             .expect("engine should start")
             .state,
         ProxyEngineLifecycleState::Running
+    );
+}
+
+#[test]
+fn platform_capability_port_reports_mitm_certificate_state() {
+    let service = NoopPlatformCapabilityService;
+    let status = service.status().expect("platform status should load");
+
+    assert_eq!(status.os, OperatingSystem::Ios);
+    assert!(status.tunnel.is_available());
+    assert!(!status.remote_script_execution.is_available());
+    assert_eq!(
+        status.remote_script_execution.denial_reason(),
+        Some("remote script execution is disabled on iOS")
+    );
+    assert_eq!(
+        status.mitm_certificate.state,
+        CertificateTrustState::InstalledUntrusted
+    );
+    assert!(status.mitm_certificate.is_installed());
+    assert!(!status.mitm_available());
+    assert_eq!(
+        status.mitm_denied_reason(),
+        Some("mitm certificate is installed but not trusted")
     );
 }

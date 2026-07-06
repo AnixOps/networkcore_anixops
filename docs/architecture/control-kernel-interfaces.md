@@ -23,6 +23,8 @@
 | `DnsQuery` | DNS 策略输入 | `name`、`record_type`、`client_context` |
 | `DnsDecision` | DNS 策略结果 | `upstream`、`strategy`、`cache_policy`、`diagnostics` |
 | `PluginManifest` | MITM 插件声明 | `id`、`version`、`permissions`、`hooks` |
+| `PlatformCapabilityStatus` | 平台能力状态 | `os`、`tunnel`、`mitm`、`embedded_runtime`、`remote_script_execution`、`mitm_certificate` |
+| `MitmCertificateStatus` | MITM 证书状态 | `state`、`subject`、`fingerprint_sha256`、`diagnostics` |
 | `AuditEvent` | 安全敏感操作审计事件 | `time`、`actor`、`action`、`decision`、`reason` |
 
 ## 配置模型接口
@@ -52,6 +54,33 @@
 - `validate(raw_config, capabilities) -> diagnostics`
 - `normalize(raw_config, capabilities) -> config_snapshot`
 - `migrate(raw_config, from_version, to_version) -> migrated_config`
+
+## 平台能力接口
+
+`PlatformCapabilityService` 负责把平台代理、权限、隧道和证书信任状态归一化为领域可消费的状态。
+
+输入：
+
+- 当前操作系统。
+- 平台权限、entitlement、证书安装和用户授权状态。
+- 平台 adapter 能探测到的限制或错误。
+
+输出：
+
+- `PlatformCapabilityStatus`
+- `MitmCertificateStatus`
+- `Diagnostic` 列表
+
+错误边界：
+
+- 平台状态不可读取。
+- Network Extension、TUN、系统代理或嵌入式运行时不可用。
+- MITM 证书未安装、未信任、已撤销或状态未知。
+- 远程脚本执行被平台或审核策略禁止。
+
+最小操作：
+
+- `status() -> platform_capability_status`
 
 ## 订阅解析接口
 
@@ -207,6 +236,7 @@
 首个 Rust 骨架应至少提供：
 
 - 共享类型模块。
+- 平台能力状态和 MITM 证书状态类型。
 - 上述服务的 trait 或等价接口定义。
 - 不依赖外部系统的占位实现或测试替身。
 - GitHub Actions 中 Rust format、lint、test、build 全部通过。

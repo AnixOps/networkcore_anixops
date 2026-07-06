@@ -113,6 +113,140 @@ pub struct PlatformCapabilities {
     pub supports_embedded_runtime: bool,
 }
 
+/// Availability of a platform feature after permissions and platform limits are considered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlatformFeatureState {
+    Available,
+    Unavailable { reason: String },
+    Unknown,
+}
+
+impl PlatformFeatureState {
+    /// Creates an available platform feature state.
+    pub const fn available() -> Self {
+        Self::Available
+    }
+
+    /// Creates an unavailable platform feature state with a stable denial reason.
+    pub fn unavailable(reason: impl Into<String>) -> Self {
+        Self::Unavailable {
+            reason: reason.into(),
+        }
+    }
+
+    /// Creates an unknown platform feature state.
+    pub const fn unknown() -> Self {
+        Self::Unknown
+    }
+
+    /// Returns whether the feature is currently available.
+    pub fn is_available(&self) -> bool {
+        matches!(self, Self::Available)
+    }
+
+    /// Returns the reason a feature cannot be used yet.
+    pub fn denial_reason(&self) -> Option<&str> {
+        match self {
+            Self::Available => None,
+            Self::Unavailable { reason } => Some(reason.as_str()),
+            Self::Unknown => Some("platform feature availability is unknown"),
+        }
+    }
+}
+
+/// Trust state of the MITM certificate visible to the domain layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CertificateTrustState {
+    NotInstalled,
+    InstalledUntrusted,
+    Trusted,
+    Revoked,
+    Unknown,
+}
+
+impl CertificateTrustState {
+    /// Returns whether a certificate is present on the platform.
+    pub fn is_installed(self) -> bool {
+        matches!(
+            self,
+            Self::InstalledUntrusted | Self::Trusted | Self::Revoked
+        )
+    }
+
+    /// Returns whether the platform currently trusts the MITM certificate.
+    pub fn is_trusted(self) -> bool {
+        self == Self::Trusted
+    }
+
+    /// Returns a denial reason when the certificate cannot be used for MITM.
+    pub fn denial_reason(self) -> Option<&'static str> {
+        match self {
+            Self::Trusted => None,
+            Self::NotInstalled => Some("mitm certificate is not installed"),
+            Self::InstalledUntrusted => Some("mitm certificate is installed but not trusted"),
+            Self::Revoked => Some("mitm certificate is revoked"),
+            Self::Unknown => Some("mitm certificate trust state is unknown"),
+        }
+    }
+}
+
+/// MITM certificate status reported by a platform adapter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MitmCertificateStatus {
+    pub state: CertificateTrustState,
+    pub subject: Option<String>,
+    pub fingerprint_sha256: Option<String>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl MitmCertificateStatus {
+    /// Creates MITM certificate status with no certificate metadata.
+    pub fn new(state: CertificateTrustState) -> Self {
+        Self {
+            state,
+            subject: None,
+            fingerprint_sha256: None,
+            diagnostics: Vec::new(),
+        }
+    }
+
+    /// Returns whether the certificate is installed on the platform.
+    pub fn is_installed(&self) -> bool {
+        self.state.is_installed()
+    }
+
+    /// Returns whether the certificate is trusted by the platform.
+    pub fn is_trusted(&self) -> bool {
+        self.state.is_trusted()
+    }
+}
+
+/// Rich platform capability status visible to domain services and clients.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlatformCapabilityStatus {
+    pub os: OperatingSystem,
+    pub tunnel: PlatformFeatureState,
+    pub mitm: PlatformFeatureState,
+    pub embedded_runtime: PlatformFeatureState,
+    pub remote_script_execution: PlatformFeatureState,
+    pub mitm_certificate: MitmCertificateStatus,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl PlatformCapabilityStatus {
+    /// Returns whether MITM can be used now, including certificate trust.
+    pub fn mitm_available(&self) -> bool {
+        self.mitm.is_available() && self.mitm_certificate.is_trusted()
+    }
+
+    /// Returns the first reason MITM cannot be used now.
+    pub fn mitm_denied_reason(&self) -> Option<&str> {
+        self.mitm
+            .denial_reason()
+            .or_else(|| self.mitm_certificate.state.denial_reason())
+    }
+}
+
 /// Normalized configuration snapshot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfigSnapshot {
@@ -533,6 +667,11 @@ pub trait ConfigurationService {
     ) -> DomainResult<String>;
 }
 
+/// Platform capability domain port.
+pub trait PlatformCapabilityService {
+    fn status(&self) -> DomainResult<PlatformCapabilityStatus>;
+}
+
 /// Subscription parsing domain port.
 pub trait SubscriptionService {
     fn fetch(&self, source: &SubscriptionSource) -> DomainResult<RawSubscription>;
@@ -693,5 +832,41 @@ mod tests {
         assert!(descriptor
             .capabilities
             .contains(&ProxyEngineCapability::HotReload));
+    }
+
+    #[test]
+    fn platform_feature_state_exposes_denial_reason() {
+        let unavailable =
+            PlatformFeatureState::unavailable("network extension entitlement is missing");
+
+        assert!(!unavailable.is_available());
+        assert_eq!(
+            unavailable.denial_reason(),
+            Some("network extension entitlement is missing")
+        );
+    }
+
+    #[test]
+    fn mitm_availability_requires_trusted_certificate() {
+        let status = PlatformCapabilityStatus {
+            os: OperatingSystem::Ios,
+            tunnel: PlatformFeatureState::available(),
+            mitm: PlatformFeatureState::available(),
+            embedded_runtime: PlatformFeatureState::available(),
+            remote_script_execution: PlatformFeatureState::unavailable(
+                "remote scripts are disabled on iOS",
+            ),
+            mitm_certificate: MitmCertificateStatus::new(
+                CertificateTrustState::InstalledUntrusted,
+            ),
+            diagnostics: Vec::new(),
+        };
+
+        assert!(status.mitm_certificate.is_installed());
+        assert!(!status.mitm_available());
+        assert_eq!(
+            status.mitm_denied_reason(),
+            Some("mitm certificate is installed but not trusted")
+        );
     }
 }

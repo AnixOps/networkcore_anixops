@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 在 `control-domain` 中补充平台能力状态和 MITM 证书状态的领域类型。
+- [ ] 在创建 `control-runtime` crate 前补充运行层编排设计文档。
 
 ## 已完成
 
+- [x] 在 `control-domain` 中补充平台能力状态和 MITM 证书状态的领域类型。
 - [x] 在 release workflow 中加入真实平台产物前，先完成发布策略文档。
 - [x] 评估 iOS Network Extension、证书安装、插件脚本权限和 App Review 风险。
 - [x] 补齐 Rust dependency/security scan workflow，并通过 GitHub Actions 验证。
