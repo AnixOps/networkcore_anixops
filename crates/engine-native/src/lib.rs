@@ -1345,9 +1345,7 @@ fn read_socks5_greeting_and_close_accepted_connection(
         let selection_report = select_socks5_auth_method(greeting);
         let decision = selection_report.decision;
         diagnostics.extend(selection_report.diagnostics);
-        diagnostics.extend(
-            write_socks5_auth_method_response(&mut stream, decision).diagnostics,
-        );
+        diagnostics.extend(write_socks5_auth_method_response(&mut stream, decision).diagnostics);
     }
     let _ = stream.shutdown(Shutdown::Both);
     pre_protocol_closed_connections.fetch_add(1, Ordering::SeqCst);
