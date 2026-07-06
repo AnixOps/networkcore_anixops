@@ -361,6 +361,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          {
+            echo "### CI Summary"
+            echo
+            echo "| Project type | Detected | Job result |"
+            echo "| --- | --- | --- |"
+            echo "| Go | ${{ needs.detect-projects.outputs.go }} | ${{ needs.go-build-test.result }} |"
+            echo "| Rust | ${{ needs.detect-projects.outputs.rust }} | build/test: ${{ needs.rust-build-test.result }}; audit: ${{ needs.rust-security-audit.result }} |"
+            echo "| Node | ${{ needs.detect-projects.outputs.node }} | ${{ needs.node-build-test.result }} |"
+            echo "| Swift | ${{ needs.detect-projects.outputs.swift }} | ${{ needs.swift-build-test.result }} |"
+            echo "| Apple | ${{ needs.detect-projects.outputs.apple }} | ${{ needs.apple-project-smoke.result }} |"
+            echo
+            echo "| Required job | Result |"
+            echo "| --- | --- |"
+            echo "| Repository policy | ${{ needs.policy.result }} |"
+            echo "| Detect project types | ${{ needs.detect-projects.result }} |"
+            echo "| Workspace smoke | ${{ needs.workspace-smoke.result }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
           echo "detected-go=${{ needs.detect-projects.outputs.go }}"
           echo "detected-rust=${{ needs.detect-projects.outputs.rust }}"
           echo "detected-node=${{ needs.detect-projects.outputs.node }}"
