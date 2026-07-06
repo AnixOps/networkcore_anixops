@@ -14,11 +14,11 @@
 
 | 类型 | 责任 | 关键字段 |
 | --- | --- | --- |
-| `ConfigSnapshot` | 标准化后的只读配置快照 | `version`、`profiles`、`listeners`、`policies`、`dns`、`plugins` |
+| `ConfigSnapshot` | 标准化后的只读配置快照 | `version`、`profiles`、`listeners`、`nodes`、`policies`、`dns`、`plugins` |
 | `Diagnostic` | 可展示和可记录的诊断信息 | `severity`、`code`、`message`、`source` |
 | `ListenerDescriptor` | 本地入站监听入口 | `id`、`enabled`、`kind`、`bind`、`network`、`route`、`tags`、`metadata` |
 | `NodeDescriptor` | 订阅或本地配置归一化后的代理节点 | `id`、`name`、`protocol`、`endpoint`、`tags` |
-| `RuleSet` | 策略路由规则集合 | `id`、`rules`、`default_policy` |
+| `RuleSet` | 策略路由规则集合 | `id`、`rules`、`default_action` |
 | `RouteContext` | 策略路由输入上下文 | `network`、`source`、`destination`、`metadata` |
 | `RouteDecision` | 策略路由结果 | `action`、`node_id`、`reason`、`diagnostics` |
 | `DnsQuery` | DNS 策略输入 | `name`、`record_type`、`client_context` |

@@ -112,6 +112,7 @@ fn config(engine_id: &str, nodes: Vec<NodeDescriptor>) -> ProxyEngineConfig {
             version: SchemaVersion::new(1),
             profiles: vec!["default".to_string()],
             listeners: Vec::new(),
+            nodes: Vec::new(),
             policies: Vec::new(),
             dns: Vec::new(),
             plugins: Vec::new(),
