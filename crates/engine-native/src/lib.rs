@@ -133,6 +133,10 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_UNWIRED_
     "engine.native.runtime.socks5_outbound_connect_data_relay_plan_unwired";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_REJECTED_CODE: &str =
     "engine.native.runtime.socks5_outbound_connect_data_relay_plan_rejected";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_UNWIRED_CODE: &str =
+    "engine.native.runtime.socks5_outbound_connect_client_success_response_unwired";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_REJECTED_CODE: &str =
+    "engine.native.runtime.socks5_outbound_connect_client_success_response_rejected";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE: &str =
     "engine.native.runtime.socks5_route_outbound_unwired";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE: &str =
@@ -677,6 +681,18 @@ pub enum NativeSocks5OutboundConnectDataRelayPlanDecision {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeSocks5OutboundConnectDataRelayPlanReport {
     pub decision: NativeSocks5OutboundConnectDataRelayPlanDecision,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeSocks5OutboundConnectClientSuccessResponseReadiness {
+    Blocked,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5OutboundConnectClientSuccessResponseReadinessReport {
+    pub readiness: NativeSocks5OutboundConnectClientSuccessResponseReadiness,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -1321,6 +1337,31 @@ pub fn plan_socks5_outbound_connect_data_relay(
                 diagnostics: vec![runtime_warning(
                     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_REJECTED_CODE,
                     "native SOCKS5 outbound CONNECT data relay plan is blocked by upstream rejection",
+                )],
+            }
+        }
+    }
+}
+
+pub fn assess_socks5_outbound_connect_client_success_response_readiness(
+    data_relay_plan: NativeSocks5OutboundConnectDataRelayPlanDecision,
+) -> NativeSocks5OutboundConnectClientSuccessResponseReadinessReport {
+    match data_relay_plan {
+        NativeSocks5OutboundConnectDataRelayPlanDecision::Blocked => {
+            NativeSocks5OutboundConnectClientSuccessResponseReadinessReport {
+                readiness: NativeSocks5OutboundConnectClientSuccessResponseReadiness::Blocked,
+                diagnostics: vec![runtime_warning(
+                    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_UNWIRED_CODE,
+                    "native SOCKS5 outbound CONNECT client success response is not ready because data relay is not wired",
+                )],
+            }
+        }
+        NativeSocks5OutboundConnectDataRelayPlanDecision::Rejected => {
+            NativeSocks5OutboundConnectClientSuccessResponseReadinessReport {
+                readiness: NativeSocks5OutboundConnectClientSuccessResponseReadiness::Rejected,
+                diagnostics: vec![runtime_warning(
+                    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_REJECTED_CODE,
+                    "native SOCKS5 outbound CONNECT client success response is blocked by upstream rejection",
                 )],
             }
         }
@@ -2305,10 +2346,16 @@ fn read_socks5_greeting_and_close_accepted_connection(
                                             );
                                         let readiness = readiness_report.readiness;
                                         diagnostics.extend(readiness_report.diagnostics);
-                                        diagnostics.extend(
-                                            plan_socks5_outbound_connect_data_relay(readiness)
-                                                .diagnostics,
-                                        );
+                                        let data_relay_plan_report =
+                                            plan_socks5_outbound_connect_data_relay(readiness);
+                                        let data_relay_plan = data_relay_plan_report.decision;
+                                        diagnostics.extend(data_relay_plan_report.diagnostics);
+                                        let client_success_readiness_report =
+                                            assess_socks5_outbound_connect_client_success_response_readiness(
+                                                data_relay_plan,
+                                            );
+                                        diagnostics
+                                            .extend(client_success_readiness_report.diagnostics);
                                     }
                                 }
                                 let _ = outbound_stream.shutdown(Shutdown::Both);
