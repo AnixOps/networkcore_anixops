@@ -2259,8 +2259,10 @@ fn read_socks5_greeting_and_close_accepted_connection(
                                         let decision = decision_report.decision;
                                         diagnostics.extend(decision_report.diagnostics);
                                         diagnostics.extend(
-                                            assess_socks5_outbound_connect_relay_readiness(decision)
-                                                .diagnostics,
+                                            assess_socks5_outbound_connect_relay_readiness(
+                                                decision,
+                                            )
+                                            .diagnostics,
                                         );
                                     }
                                 }

@@ -5,8 +5,8 @@ use control_domain::{
     RouteAction, RuleSet, SchemaVersion,
 };
 use engine_native::{
-    attempt_socks5_outbound_tcp_connection, build_socks5_outbound_connect_request_frame,
-    assess_socks5_outbound_connect_relay_readiness, decide_socks5_outbound_connect_response,
+    assess_socks5_outbound_connect_relay_readiness, attempt_socks5_outbound_tcp_connection,
+    build_socks5_outbound_connect_request_frame, decide_socks5_outbound_connect_response,
     plan_socks5_outbound_tcp_connection, read_socks5_command_header, read_socks5_connect_target,
     read_socks5_greeting, read_socks5_outbound_connect_response, reject_unsupported_socks5_command,
     reject_unwired_socks5_route_outbound, select_socks5_auth_method,
@@ -16,8 +16,8 @@ use engine_native::{
     NativeOutboundHandlerHandle, NativeProxyEngineService, NativeRuntimeAssembly,
     NativeRuntimeAssemblyPlan, NativeSocks5Address, NativeSocks5AuthMethodDecision,
     NativeSocks5CommandDecision, NativeSocks5CommandHeader, NativeSocks5ConnectTarget,
-    NativeSocks5Greeting, NativeSocks5OutboundConnectResponseDecision,
-    NativeSocks5OutboundConnectRelayReadiness, NativeSocks5OutboundTcpConnectionPlan,
+    NativeSocks5Greeting, NativeSocks5OutboundConnectRelayReadiness,
+    NativeSocks5OutboundConnectResponseDecision, NativeSocks5OutboundTcpConnectionPlan,
     NativeSocks5RouteOutboundBehavior, NativeSocks5RouteOutboundDecision, DEFAULT_NATIVE_ENGINE_ID,
     ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
@@ -50,12 +50,12 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_FAILED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_REJECTED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_UNWIRED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_GENERATED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITE_FAILED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITTEN_CODE,
-    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_REJECTED_CODE,
-    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_UNWIRED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_ACCEPTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_READ_CODE,
@@ -1394,8 +1394,7 @@ fn socks5_outbound_connect_relay_readiness_contract_blocks_accepted_response_wit
         .expect("valid SOCKS5 outbound CONNECT response should be parsed");
     let decision_report = decide_socks5_outbound_connect_response(&response);
 
-    let readiness_report =
-        assess_socks5_outbound_connect_relay_readiness(decision_report.decision);
+    let readiness_report = assess_socks5_outbound_connect_relay_readiness(decision_report.decision);
 
     assert_eq!(
         readiness_report.readiness,
@@ -1416,8 +1415,7 @@ fn socks5_outbound_connect_relay_readiness_contract_rejects_rejected_response() 
         .expect("complete SOCKS5 failure response should still report observed bytes");
     let decision_report = decide_socks5_outbound_connect_response(&failure_response);
 
-    let readiness_report =
-        assess_socks5_outbound_connect_relay_readiness(decision_report.decision);
+    let readiness_report = assess_socks5_outbound_connect_relay_readiness(decision_report.decision);
 
     assert_eq!(
         readiness_report.readiness,
