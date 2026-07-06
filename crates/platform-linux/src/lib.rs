@@ -17,8 +17,7 @@ pub const SOURCE_MITM_CERTIFICATE: &str = "platform.mitm_certificate";
 
 pub const TUN_DEVICE_MISSING_CODE: &str = "platform.linux.tun.device_missing";
 pub const TUN_PERMISSION_DENIED_CODE: &str = "platform.linux.tun.permission_denied";
-pub const PERMISSION_ELEVATION_REQUIRED_CODE: &str =
-    "platform.linux.permission.elevation_required";
+pub const PERMISSION_ELEVATION_REQUIRED_CODE: &str = "platform.linux.permission.elevation_required";
 pub const DNS_MANAGER_UNKNOWN_CODE: &str = "platform.linux.dns.manager_unknown";
 pub const SERVICE_MANAGER_UNKNOWN_CODE: &str = "platform.linux.service.manager_unknown";
 pub const MITM_CERTIFICATE_NOT_INSTALLED_CODE: &str =

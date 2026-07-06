@@ -25,7 +25,10 @@ fn available_snapshot_maps_to_linux_platform_status() {
     assert!(status.embedded_runtime.is_available());
     assert!(status.remote_script_execution.is_available());
     assert!(status.mitm_available());
-    assert_eq!(status.mitm_certificate.state, CertificateTrustState::Trusted);
+    assert_eq!(
+        status.mitm_certificate.state,
+        CertificateTrustState::Trusted
+    );
     assert!(status.diagnostics.is_empty());
     assert!(status.mitm_certificate.diagnostics.is_empty());
 }
