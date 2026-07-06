@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 在 `control-runtime` 中补充 MITM gate 平台诊断拒绝路径合同测试，覆盖平台能力诊断会保留在平台拒绝决策输出中。
+- [ ] 在 `control-runtime` 中补充 MITM gate 权限拒绝诊断聚合合同测试，覆盖 manifest 非错误诊断会保留在权限拒绝决策输出中。
 
 ## 已完成
 
+- [x] 在 `control-runtime` 中补充 MITM gate 平台诊断拒绝路径合同测试，覆盖平台能力诊断会保留在平台拒绝决策输出中。
 - [x] 在 `control-runtime` 中补充 MITM gate 平台诊断聚合合同测试，覆盖平台能力与证书诊断会进入允许决策输出。
 - [x] 在 `control-runtime` 中补充 MITM gate 插件结果诊断聚合合同测试，覆盖插件执行返回 warning/info 诊断会进入允许决策输出。
 - [x] 在 `control-runtime` 中补充 MITM gate manifest 警告诊断放行合同测试，覆盖 warning/info 诊断不会阻断插件执行且会聚合到输出。

@@ -613,6 +613,58 @@ fn mitm_gate_rejects_unavailable_mitm_before_plugin_port() {
 }
 
 #[test]
+fn mitm_gate_preserves_platform_diagnostics_on_platform_denial() {
+    let gate = MitmGateOrchestrator::new(
+        StaticPlatformCapabilityService {
+            status: platform_status_without_mitm_with_diagnostics(),
+        },
+        PanicMitmPluginService,
+    );
+
+    let decision = gate
+        .mitm_gate(MitmGateRequest::new(
+            sample_plugin_package(),
+            granted_permissions(vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ]),
+            sample_http_event(),
+        ))
+        .expect("mitm gate should return a denial decision");
+
+    let platform_diagnostic = decision
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code == "platform.mitm.entitlement_missing")
+        .expect("platform diagnostic should be preserved");
+
+    assert!(!decision.is_allowed());
+    assert_eq!(decision.decision, AuditDecision::Denied);
+    assert_eq!(
+        decision.reason.as_deref(),
+        Some("mitm is unavailable: mitm capability is disabled by platform policy")
+    );
+    assert!(decision.plugin_result.is_none());
+    assert_eq!(
+        platform_diagnostic.severity,
+        control_domain::DiagnosticSeverity::Warning
+    );
+    assert_eq!(
+        platform_diagnostic.message,
+        "mitm entitlement is unavailable on the current profile"
+    );
+    assert_eq!(platform_diagnostic.source.as_deref(), Some("platform.mitm"));
+    assert!(decision.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "runtime.mitm.unavailable"
+            && diagnostic.severity == control_domain::DiagnosticSeverity::Error
+    }));
+    assert_eq!(decision.audits.len(), 1);
+    assert_eq!(decision.audits[0].action, "mitm_gate");
+    assert_eq!(decision.audits[0].decision, AuditDecision::Denied);
+    assert_eq!(decision.audits[0].reason, decision.reason);
+}
+
+#[test]
 fn mitm_gate_rejects_certificate_denial_matrix_before_plugin_port() {
     let cases = [
         (
@@ -1028,6 +1080,17 @@ fn platform_status_without_mitm() -> PlatformCapabilityStatus {
         mitm_certificate: MitmCertificateStatus::new(CertificateTrustState::Trusted),
         diagnostics: Vec::new(),
     }
+}
+
+fn platform_status_without_mitm_with_diagnostics() -> PlatformCapabilityStatus {
+    let mut status = platform_status_without_mitm();
+    status.diagnostics = vec![Diagnostic::new(
+        control_domain::DiagnosticSeverity::Warning,
+        "platform.mitm.entitlement_missing",
+        "mitm entitlement is unavailable on the current profile",
+        Some("platform.mitm".to_string()),
+    )];
+    status
 }
 
 fn platform_status_with_certificate_state(
