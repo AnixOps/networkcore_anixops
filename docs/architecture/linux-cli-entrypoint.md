@@ -13,14 +13,14 @@
 
 ## 非目标
 
-- 不在本阶段创建 `apps/linux-cli` 或真实 CLI 源码。
+- 不在本阶段实现真实 Linux 探测、daemon 控制、服务安装、packaging 或 release asset。
 - 不在本机运行、构建、测试、打包或试用 CLI。
 - 不定义 daemon、systemd unit、installer、shell completion、TUI、GUI 或 release asset。
 - 不自动修改 TUN、路由、DNS、防火墙、证书信任或服务管理配置。
 
 ## 架构位置
 
-未来 CLI 应作为应用入口层存在，例如 `apps/linux-cli` 或等价 crate。依赖方向必须保持：
+CLI 作为应用入口层存在，当前首个源码边界是 `apps/linux-cli`。依赖方向必须保持：
 
 1. CLI 依赖 `control-runtime`，调用运行层用例。
 2. CLI 依赖后续 Linux adapter crate，获取 `PlatformCapabilityService` 实现。
@@ -28,7 +28,7 @@
 4. CLI 不把 Linux 文件系统、capability、systemd、DNS 管理器或证书命令细节传入 `control-domain` 或 `control-runtime`。
 5. CLI 不绕过 `RuntimeOrchestrator` 或 `MitmGateOrchestrator` 直接启动平台代理能力。
 
-首个 CLI 源码应保持单一二进制入口，优先验证配置加载、能力诊断和运行层编排，避免提前引入 daemon 或安装器复杂度。
+首个 CLI 源码保持单一二进制入口，优先验证配置加载、能力诊断和运行层编排，避免提前引入 daemon 或安装器复杂度。
 
 ## 命令面
 
@@ -44,7 +44,7 @@
 | `networkcore-linux status` | 输出当前进程可见的平台、配置或 runtime 状态 | 没有 daemon/control socket 前不得假装能读取后台状态 |
 | `networkcore-linux diagnostics` | 输出聚合诊断，便于 CI 日志、用户排错和后续 UI 消费 | 不读取敏感配置值，不输出密钥 |
 
-首个源码增量可以先实现命令骨架和测试替身；真实 TUN、DNS、服务管理和代理引擎执行必须等对应 adapter 设计和 CI 验证完成后再接入。
+首个源码增量已先实现命令骨架和测试替身；真实 TUN、DNS、服务管理和代理引擎执行必须等对应 adapter 设计和 CI 验证完成后再接入。
 
 ## 配置加载边界
 
@@ -142,6 +142,18 @@ CLI 源码出现时，验证必须只在 GitHub Actions 中执行：
 - 不在本机运行 CLI 命令验证行为。
 - 真实 Linux artifact job 加入前，CI summary 必须能证明 CLI crate、platform adapter 和 packaging 前置 job 均通过。
 
+## 当前源码映射
+
+当前 `apps/linux-cli` 已提供首批源码边界：
+
+- `networkcore-linux` package 和同名二进制入口骨架。
+- `LinuxCliCommand`、`OutputFormat`、`LinuxCliResponse` 和 exit code 映射。
+- `ConfigReader` 边界，用测试替身覆盖配置路径缺失、读取失败和空配置。
+- `handle_prepare_config` 与 `handle_start` 通过 `RuntimeOrchestrator` 进入运行层，不绕过领域端口。
+- `handle_capabilities`、`handle_status`、`handle_stop` 和 JSON renderer 覆盖平台诊断、无 daemon stop、无 runtime context status 和自动化输出合同。
+
+该 crate 当前不执行真实 Linux 探测、不修改系统状态、不安装 daemon，也不代表 Linux artifact 已可发布。
+
 ## Release 边界
 
 CLI 设计完成不代表可以发布 Linux artifact。进入 `.github/workflows/release.yml` 前仍必须满足：
@@ -153,15 +165,14 @@ CLI 设计完成不代表可以发布 Linux artifact。进入 `.github/workflows
 
 ## 验收条件
 
-CLI 源码落地前必须满足：
+CLI 首个源码增量必须满足：
 
 - 本设计文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
-- TODO 明确下一步最小源码增量。
+- TODO 明确下一步最小增量。
 - 后续源码实现不得扩大本文定义的首版命令边界，除非先更新设计并通过 CI。
 
 ## 后续工作
 
-- 创建最小 Linux CLI entrypoint crate，提供命令解析骨架、配置读取边界和平台诊断合同测试。
-- 创建 Linux CLI 源码前，同步确认 `apps/linux-cli` 或等价目录布局，并注入 `platform-linux` 测试替身。
-- Linux CLI artifact 发布前，仍需补充安装/卸载与回滚设计。
+- 补充 Linux CLI artifact 安装、卸载与回滚设计，明确首个压缩包发布前置条件。
+- 真实 Linux probing、daemon/control socket 或 packaging 进入 CLI 前，先补充对应设计并通过 CI。

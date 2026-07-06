@@ -177,5 +177,5 @@ Linux adapter 首个源码增量必须满足：
 ## 后续工作
 
 - 在真实 Linux 探测进入 `platform-linux` 前，先补充探测实现设计和更细的权限/发行版差异合同。
-- 创建最小 Linux CLI entrypoint crate 时注入 `platform-linux` 测试替身，避免 CLI 直接触碰 Linux 系统 API。
+- `apps/linux-cli` 后续接入真实 Linux 探测前，继续通过 `platform-linux` 边界注入能力服务，避免 CLI 直接触碰 Linux 系统 API。
 - Linux artifact 进入 release workflow 前，仍必须满足 [Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md) 的 packaging、checksum、签名/证明和回滚契约。

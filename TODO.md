@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 创建最小 Linux CLI entrypoint crate，提供命令解析骨架与配置/平台诊断合同测试。
+- [ ] 补充 Linux CLI artifact 安装、卸载与回滚设计，明确首个压缩包发布前置条件。
 
 ## 已完成
 
+- [x] 创建最小 Linux CLI entrypoint crate，提供命令解析骨架与配置/平台诊断合同测试。
 - [x] 创建最小 `platform-linux` crate，提供 `PlatformCapabilityService` 测试替身和 Linux 诊断映射合同测试。
 - [x] 补充 Linux CLI entrypoint 设计文档，明确首个可运行入口、配置加载、启动/停止和状态查询边界。
 - [x] 补充 Linux platform adapter 设计文档，定义 TUN、权限、DNS 与服务管理能力探测边界。
