@@ -5,9 +5,10 @@ use control_domain::{
     RouteAction, RuleSet, SchemaVersion,
 };
 use engine_native::{
-    BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeOutboundHandlerHandle,
-    NativeProxyEngineService, NativeRuntimeAssembly, NativeRuntimeAssemblyPlan,
-    DEFAULT_NATIVE_ENGINE_ID, ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
+    BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle,
+    NativeOutboundHandlerHandle, NativeProxyEngineService, NativeRuntimeAssembly,
+    NativeRuntimeAssemblyPlan, DEFAULT_NATIVE_ENGINE_ID,
+    ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_ID_DUPLICATE_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_KIND_UNSUPPORTED_CODE,
@@ -15,6 +16,7 @@ use engine_native::{
     ENGINE_NATIVE_CONFIG_NODE_MISSING_CODE, ENGINE_NATIVE_CONFIG_NODE_PROTOCOL_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_ROUTE_EMPTY_CODE, ENGINE_NATIVE_CONFIG_ROUTE_ID_DUPLICATE_CODE,
     ENGINE_NATIVE_CONFIG_ROUTE_TARGET_MISSING_CODE,
+    ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE, ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
     ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
     ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE, ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
@@ -22,7 +24,9 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE, ENGINE_NATIVE_START_BIND_FAILED_CODE,
     ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
 };
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
+use std::thread;
+use std::time::Duration;
 
 #[test]
 fn lists_native_descriptor_without_unimplemented_capabilities() {
@@ -372,6 +376,109 @@ fn runtime_handle_contract_binds_and_releases_loopback_tcp_listener() {
 
     let rebound = TcpListener::bind(("127.0.0.1", port))
         .expect("released loopback tcp listener port should be reusable");
+    drop(rebound);
+}
+
+#[test]
+fn runtime_accept_loop_contract_accepts_loopback_tcp_connection_and_shuts_down() {
+    let port = unused_loopback_port();
+    let listener = LoopbackListenerHandle::from_descriptor(&local_tcp_listener_with_bind(
+        "accept-loopback-local-tcp",
+        "127.0.0.1",
+        port,
+        ListenerRoute::DefaultAction(RouteAction::Proxy {
+            node_id: "node-1".to_string(),
+        }),
+    ))
+    .expect("loopback tcp listener handle should be representable");
+    let bound_listener = BoundLoopbackTcpListenerHandle::bind(listener)
+        .expect("loopback tcp listener should bind on an available port");
+    let outbound = NativeOutboundHandlerHandle::from_node(&node())
+        .expect("socks outbound handler handle should be representable");
+
+    let accept_loop = NativeLoopbackTcpAcceptLoopHandle::start(bound_listener, outbound)
+        .expect("loopback tcp accept loop should start from bound resources");
+
+    assert_eq!(accept_loop.listener_id(), "accept-loopback-local-tcp");
+    assert_eq!(accept_loop.outbound_handler_id(), "node-1");
+    assert_eq!(accept_loop.local_host(), "127.0.0.1");
+    assert_eq!(accept_loop.local_port(), port);
+
+    let stream = TcpStream::connect(("127.0.0.1", port))
+        .expect("loopback tcp accept loop should accept local connections");
+    drop(stream);
+    wait_until_accept_count(&accept_loop, 1);
+
+    let report = accept_loop.shutdown();
+
+    assert_eq!(report.listener_id, "accept-loopback-local-tcp");
+    assert_eq!(report.outbound_handler_id, "node-1");
+    assert_eq!(report.local_host, "127.0.0.1");
+    assert_eq!(report.local_port, port);
+    assert!(report.accepted_connections >= 1);
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
+    );
+}
+
+#[test]
+fn runtime_handle_contract_releases_accept_loop_on_runtime_release() {
+    let port = unused_loopback_port();
+    let listener = LoopbackListenerHandle::from_descriptor(&local_tcp_listener_with_bind(
+        "release-accept-loopback-local-tcp",
+        "127.0.0.1",
+        port,
+        ListenerRoute::DefaultAction(RouteAction::Proxy {
+            node_id: "node-1".to_string(),
+        }),
+    ))
+    .expect("loopback tcp listener handle should be representable");
+    let bound_listener = BoundLoopbackTcpListenerHandle::bind(listener)
+        .expect("loopback tcp listener should bind on an available port");
+    let outbound = NativeOutboundHandlerHandle::from_node(&node())
+        .expect("socks outbound handler handle should be representable");
+    let accept_loop = NativeLoopbackTcpAcceptLoopHandle::start(bound_listener, outbound)
+        .expect("loopback tcp accept loop should start from bound resources");
+
+    let handle = NativeRuntimeAssembly::new(DEFAULT_NATIVE_ENGINE_ID)
+        .with_accept_loop(accept_loop)
+        .finish()
+        .expect("runtime handle should own the loopback tcp accept loop");
+
+    assert!(handle.listeners().is_empty());
+    assert!(handle.bound_listeners().is_empty());
+    assert!(handle.outbound_handlers().is_empty());
+    assert_eq!(
+        handle.accept_loops()[0].listener_id(),
+        "release-accept-loopback-local-tcp"
+    );
+    assert_eq!(handle.accept_loops()[0].outbound_handler_id(), "node-1");
+    assert_eq!(handle.accept_loops()[0].local_port(), port);
+    assert_diagnostic(
+        &handle.events()[0].diagnostics,
+        ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE,
+    );
+    assert_diagnostic(
+        &handle.foreground_handoff_status().diagnostics,
+        ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE,
+    );
+
+    let release = handle.release();
+
+    assert_eq!(
+        release.listener_ids,
+        vec!["release-accept-loopback-local-tcp".to_string()]
+    );
+    assert_eq!(release.outbound_handler_ids, vec!["node-1".to_string()]);
+    assert_diagnostic(
+        &release.diagnostics,
+        ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
+    );
+    assert_diagnostic(&release.diagnostics, ENGINE_NATIVE_RUNTIME_RELEASED_CODE);
+
+    let rebound = TcpListener::bind(("127.0.0.1", port))
+        .expect("runtime release should stop the accept loop and free the loopback tcp port");
     drop(rebound);
 }
 
@@ -837,6 +944,24 @@ fn assert_no_diagnostic(diagnostics: &[Diagnostic], code: &str) {
     assert!(
         diagnostics.iter().all(|diagnostic| diagnostic.code != code),
         "unexpected diagnostic {code}: {diagnostics:?}"
+    );
+}
+
+fn wait_until_accept_count(
+    accept_loop: &NativeLoopbackTcpAcceptLoopHandle,
+    expected_connections: usize,
+) {
+    for _ in 0..100 {
+        if accept_loop.accepted_connections() >= expected_connections {
+            return;
+        }
+
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    panic!(
+        "accept loop observed {} connections, expected at least {expected_connections}",
+        accept_loop.accepted_connections()
     );
 }
 

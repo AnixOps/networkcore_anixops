@@ -11,7 +11,12 @@ use control_domain::{
     ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RouteAction, RuleSet,
 };
 use std::collections::BTreeSet;
+use std::io::ErrorKind;
 use std::net::{IpAddr, TcpListener};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 pub const DEFAULT_NATIVE_ENGINE_ID: &str = "native";
 
@@ -58,6 +63,10 @@ pub const ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE: &str =
 pub const ENGINE_NATIVE_RUNTIME_RELEASED_CODE: &str = "engine.native.runtime.released";
 pub const ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE: &str =
     "engine.native.runtime.foreground_handoff_ready";
+pub const ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE: &str =
+    "engine.native.runtime.accept_loop_ready";
+pub const ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE: &str =
+    "engine.native.runtime.accept_loop_stopped";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoopbackListenerHandle {
@@ -218,6 +227,158 @@ pub struct BoundLoopbackTcpListenerReleaseReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug)]
+pub struct NativeLoopbackTcpAcceptLoopHandle {
+    listener_id: String,
+    outbound_handler_id: String,
+    local_host: String,
+    local_port: u16,
+    accepted_connections: Arc<AtomicUsize>,
+    shutdown_tx: Option<mpsc::Sender<()>>,
+    worker: Option<JoinHandle<NativeLoopbackTcpAcceptLoopShutdownReport>>,
+}
+
+impl NativeLoopbackTcpAcceptLoopHandle {
+    pub fn start(
+        listener: BoundLoopbackTcpListenerHandle,
+        outbound_handler: NativeOutboundHandlerHandle,
+    ) -> DomainResult<Self> {
+        let BoundLoopbackTcpListenerHandle {
+            listener,
+            contract,
+            local_host,
+            local_port,
+        } = listener;
+
+        listener.set_nonblocking(true).map_err(|_| {
+            runtime_error(
+                ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE,
+                "failed to configure native loopback tcp accept loop",
+            )
+        })?;
+
+        let listener_id = contract.listener_id;
+        let outbound_handler_id = outbound_handler.node_id;
+        let accepted_connections = Arc::new(AtomicUsize::new(0));
+        let accepted_connections_for_worker = Arc::clone(&accepted_connections);
+        let (shutdown_tx, shutdown_rx) = mpsc::channel();
+        let worker_listener_id = listener_id.clone();
+        let worker_outbound_handler_id = outbound_handler_id.clone();
+        let worker_local_host = local_host.clone();
+
+        let worker = thread::spawn(move || {
+            run_loopback_tcp_accept_loop(
+                listener,
+                shutdown_rx,
+                accepted_connections_for_worker,
+                NativeLoopbackTcpAcceptLoopIdentity {
+                    listener_id: worker_listener_id,
+                    outbound_handler_id: worker_outbound_handler_id,
+                    local_host: worker_local_host,
+                    local_port,
+                },
+            )
+        });
+
+        Ok(Self {
+            listener_id,
+            outbound_handler_id,
+            local_host,
+            local_port,
+            accepted_connections,
+            shutdown_tx: Some(shutdown_tx),
+            worker: Some(worker),
+        })
+    }
+
+    pub fn listener_id(&self) -> &str {
+        &self.listener_id
+    }
+
+    pub fn outbound_handler_id(&self) -> &str {
+        &self.outbound_handler_id
+    }
+
+    pub fn local_host(&self) -> &str {
+        &self.local_host
+    }
+
+    pub fn local_port(&self) -> u16 {
+        self.local_port
+    }
+
+    pub fn accepted_connections(&self) -> usize {
+        self.accepted_connections.load(Ordering::SeqCst)
+    }
+
+    pub fn shutdown(mut self) -> NativeLoopbackTcpAcceptLoopShutdownReport {
+        self.shutdown_inner()
+    }
+
+    fn shutdown_inner(&mut self) -> NativeLoopbackTcpAcceptLoopShutdownReport {
+        if let Some(shutdown_tx) = self.shutdown_tx.take() {
+            let _ = shutdown_tx.send(());
+        }
+
+        if let Some(worker) = self.worker.take() {
+            match worker.join() {
+                Ok(report) => report,
+                Err(_) => NativeLoopbackTcpAcceptLoopShutdownReport {
+                    listener_id: self.listener_id.clone(),
+                    outbound_handler_id: self.outbound_handler_id.clone(),
+                    local_host: self.local_host.clone(),
+                    local_port: self.local_port,
+                    accepted_connections: self.accepted_connections(),
+                    diagnostics: vec![engine_diagnostic(
+                        DiagnosticSeverity::Error,
+                        ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE,
+                        "native loopback tcp accept loop worker failed during shutdown",
+                        SOURCE_ENGINE_NATIVE_RUNTIME,
+                    )],
+                },
+            }
+        } else {
+            NativeLoopbackTcpAcceptLoopShutdownReport {
+                listener_id: self.listener_id.clone(),
+                outbound_handler_id: self.outbound_handler_id.clone(),
+                local_host: self.local_host.clone(),
+                local_port: self.local_port,
+                accepted_connections: self.accepted_connections(),
+                diagnostics: vec![runtime_info(
+                    ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
+                    "native loopback tcp accept loop was already stopped",
+                )],
+            }
+        }
+    }
+}
+
+impl Drop for NativeLoopbackTcpAcceptLoopHandle {
+    fn drop(&mut self) {
+        if self.worker.is_some() {
+            let _ = self.shutdown_inner();
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeLoopbackTcpAcceptLoopShutdownReport {
+    pub listener_id: String,
+    pub outbound_handler_id: String,
+    pub local_host: String,
+    pub local_port: u16,
+    pub accepted_connections: usize,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone)]
+struct NativeLoopbackTcpAcceptLoopIdentity {
+    listener_id: String,
+    outbound_handler_id: String,
+    local_host: String,
+    local_port: u16,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeOutboundHandlerHandle {
     pub node_id: String,
@@ -347,6 +508,7 @@ pub struct NativeRuntimeHandle {
     engine_id: String,
     listeners: Vec<LoopbackListenerHandle>,
     bound_listeners: Vec<BoundLoopbackTcpListenerHandle>,
+    accept_loops: Vec<NativeLoopbackTcpAcceptLoopHandle>,
     outbound_handlers: Vec<NativeOutboundHandlerHandle>,
     events: Vec<ProxyEngineEvent>,
 }
@@ -360,6 +522,10 @@ impl NativeRuntimeHandle {
         &self.bound_listeners
     }
 
+    pub fn accept_loops(&self) -> &[NativeLoopbackTcpAcceptLoopHandle] {
+        &self.accept_loops
+    }
+
     pub fn outbound_handlers(&self) -> &[NativeOutboundHandlerHandle] {
         &self.outbound_handlers
     }
@@ -369,13 +535,21 @@ impl NativeRuntimeHandle {
     }
 
     pub fn foreground_handoff_status(&self) -> ProxyEngineStatus {
+        let mut diagnostics = vec![runtime_info(
+            ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
+            "native runtime handle is ready for foreground lifecycle handoff",
+        )];
+        if !self.accept_loops.is_empty() {
+            diagnostics.push(runtime_info(
+                ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE,
+                "native loopback tcp accept loop is ready",
+            ));
+        }
+
         ProxyEngineStatus {
             engine_id: self.engine_id.clone(),
             state: ProxyEngineLifecycleState::Running,
-            diagnostics: vec![runtime_info(
-                ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
-                "native runtime handle is ready for foreground lifecycle handoff",
-            )],
+            diagnostics,
         }
     }
 
@@ -384,6 +558,7 @@ impl NativeRuntimeHandle {
             self.engine_id,
             self.listeners,
             self.bound_listeners,
+            self.accept_loops,
             self.outbound_handlers,
             self.events,
             ProxyEngineEventKind::Stopped,
@@ -412,6 +587,7 @@ pub struct NativeRuntimeAssembly {
     engine_id: String,
     listeners: Vec<LoopbackListenerHandle>,
     bound_listeners: Vec<BoundLoopbackTcpListenerHandle>,
+    accept_loops: Vec<NativeLoopbackTcpAcceptLoopHandle>,
     outbound_handlers: Vec<NativeOutboundHandlerHandle>,
     events: Vec<ProxyEngineEvent>,
 }
@@ -422,6 +598,7 @@ impl NativeRuntimeAssembly {
             engine_id: engine_id.into(),
             listeners: Vec::new(),
             bound_listeners: Vec::new(),
+            accept_loops: Vec::new(),
             outbound_handlers: Vec::new(),
             events: Vec::new(),
         }
@@ -437,6 +614,11 @@ impl NativeRuntimeAssembly {
         self
     }
 
+    pub fn with_accept_loop(mut self, accept_loop: NativeLoopbackTcpAcceptLoopHandle) -> Self {
+        self.accept_loops.push(accept_loop);
+        self
+    }
+
     pub fn with_outbound_handler(mut self, outbound_handler: NativeOutboundHandlerHandle) -> Self {
         self.outbound_handlers.push(outbound_handler);
         self
@@ -445,28 +627,41 @@ impl NativeRuntimeAssembly {
     pub fn finish(mut self) -> DomainResult<NativeRuntimeHandle> {
         ensure_native_engine_id(&self.engine_id)?;
 
-        if (self.listeners.is_empty() && self.bound_listeners.is_empty())
-            || self.outbound_handlers.is_empty()
-        {
+        let has_listener_resource = !self.listeners.is_empty()
+            || !self.bound_listeners.is_empty()
+            || !self.accept_loops.is_empty();
+        let has_outbound_resource =
+            !self.outbound_handlers.is_empty() || !self.accept_loops.is_empty();
+
+        if !has_listener_resource || !has_outbound_resource {
             return Err(runtime_error(
                 ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE,
                 "native runtime handle requires at least one listener and outbound handler",
             ));
         }
 
+        let mut diagnostics = vec![runtime_info(
+            ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
+            "native runtime handle is ready for foreground lifecycle handoff",
+        )];
+        if !self.accept_loops.is_empty() {
+            diagnostics.push(runtime_info(
+                ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE,
+                "native loopback tcp accept loop is ready",
+            ));
+        }
+
         self.events.push(runtime_event(
             &self.engine_id,
             ProxyEngineEventKind::Started,
-            vec![runtime_info(
-                ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
-                "native runtime handle is ready for foreground lifecycle handoff",
-            )],
+            diagnostics,
         ));
 
         Ok(NativeRuntimeHandle {
             engine_id: self.engine_id,
             listeners: self.listeners,
             bound_listeners: self.bound_listeners,
+            accept_loops: self.accept_loops,
             outbound_handlers: self.outbound_handlers,
             events: self.events,
         })
@@ -488,6 +683,7 @@ impl NativeRuntimeAssembly {
             self.engine_id,
             self.listeners,
             self.bound_listeners,
+            self.accept_loops,
             self.outbound_handlers,
             self.events,
             ProxyEngineEventKind::Failed,
@@ -882,10 +1078,60 @@ fn is_loopback_host(host: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn run_loopback_tcp_accept_loop(
+    listener: TcpListener,
+    shutdown_rx: mpsc::Receiver<()>,
+    accepted_connections: Arc<AtomicUsize>,
+    identity: NativeLoopbackTcpAcceptLoopIdentity,
+) -> NativeLoopbackTcpAcceptLoopShutdownReport {
+    let mut diagnostics = Vec::new();
+
+    loop {
+        match shutdown_rx.try_recv() {
+            Ok(()) | Err(mpsc::TryRecvError::Disconnected) => break,
+            Err(mpsc::TryRecvError::Empty) => {}
+        }
+
+        match listener.accept() {
+            Ok((stream, _)) => {
+                accepted_connections.fetch_add(1, Ordering::SeqCst);
+                drop(stream);
+            }
+            Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(_) => {
+                diagnostics.push(engine_diagnostic(
+                    DiagnosticSeverity::Error,
+                    ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE,
+                    "native loopback tcp accept loop failed while accepting connections",
+                    SOURCE_ENGINE_NATIVE_RUNTIME,
+                ));
+                break;
+            }
+        }
+    }
+
+    diagnostics.push(runtime_info(
+        ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
+        "native loopback tcp accept loop stopped",
+    ));
+
+    NativeLoopbackTcpAcceptLoopShutdownReport {
+        listener_id: identity.listener_id,
+        outbound_handler_id: identity.outbound_handler_id,
+        local_host: identity.local_host,
+        local_port: identity.local_port,
+        accepted_connections: accepted_connections.load(Ordering::SeqCst),
+        diagnostics,
+    }
+}
+
 fn release_report(
     engine_id: String,
     listeners: Vec<LoopbackListenerHandle>,
     bound_listeners: Vec<BoundLoopbackTcpListenerHandle>,
+    accept_loops: Vec<NativeLoopbackTcpAcceptLoopHandle>,
     outbound_handlers: Vec<NativeOutboundHandlerHandle>,
     mut events: Vec<ProxyEngineEvent>,
     event_kind: ProxyEngineEventKind,
@@ -900,10 +1146,16 @@ fn release_report(
             .into_iter()
             .map(|listener| listener.release().listener_id),
     );
-    let outbound_handler_ids = outbound_handlers
+    let mut outbound_handler_ids = outbound_handlers
         .into_iter()
         .map(|outbound_handler| outbound_handler.node_id)
         .collect::<Vec<_>>();
+    for accept_loop in accept_loops {
+        let report = accept_loop.shutdown();
+        listener_ids.push(report.listener_id);
+        outbound_handler_ids.push(report.outbound_handler_id);
+        diagnostics.extend(report.diagnostics);
+    }
 
     diagnostics.push(runtime_info(
         ENGINE_NATIVE_RUNTIME_RELEASED_CODE,

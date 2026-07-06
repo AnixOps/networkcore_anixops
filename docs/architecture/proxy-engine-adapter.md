@@ -65,6 +65,6 @@
 ## 后续实现要求
 
 - 先在 `control-domain` 中维护纯领域类型和 trait。
-- 真实 adapter 必须放在 `engine-*` crate 中；当前 `engine-native` 首批源码提供配置拒绝、listener/node/route 图校验、native runtime handle 源码合同、有效配置图到 runtime assembly plan、真实 loopback TCP listener 绑定/释放和生命周期诊断合同，accept loop 与 outbound 数据面进入前必须遵守 [Native Engine Listener And Node Config Design](native-engine-listener-node-config.md)，`networkcore-linux start` 接线仍必须遵守 [Linux Native Proxy Engine Start Design](linux-native-proxy-engine-start.md)。
+- 真实 adapter 必须放在 `engine-*` crate 中；当前 `engine-native` 首批源码提供配置拒绝、listener/node/route 图校验、native runtime handle 源码合同、有效配置图到 runtime assembly plan、真实 loopback TCP listener 绑定/释放、loopback TCP accept loop 受控关闭和生命周期诊断合同，proxy protocol 与 outbound 数据面进入前必须遵守 [Native Engine Listener And Node Config Design](native-engine-listener-node-config.md)，`networkcore-linux start` 接线仍必须遵守 [Linux Native Proxy Engine Start Design](linux-native-proxy-engine-start.md)。
 - 每个 adapter 必须有测试替身或集成测试覆盖配置校验、生命周期和错误路径。
 - GitHub Actions 必须继续执行 Rust format、lint、test、build。

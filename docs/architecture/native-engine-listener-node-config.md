@@ -40,9 +40,10 @@ listener、node、route 和 DNS 配置模型边界。它承接
 - `engine-native::NativeProxyEngineService`，当前对 listener、node 和 route 做结构化图校验，合并 `ConfigSnapshot.nodes` 与运行请求 nodes 作为 typed node catalog，并在缺少 listener/node、重复 id、route target 缺失和超出当前 plan 合同的 handler/protocol 时返回稳定诊断。
 - `engine-native` 已补充首个 native runtime handle 源码合同，覆盖 loopback listener handle、SOCKS outbound handler handoff、启动失败释放报告、runtime events 和 foreground lifecycle handoff status。
 - `engine-native` 已补充真实 loopback TCP listener 绑定/释放实现，runtime assembly 可持有当前进程内的 `TcpListener` resource 并在 release 或失败报告中释放。
-- `engine-native` 已补充从有效配置图生成首个 native runtime assembly plan 的源码合同，可选择 loopback TCP listener 与 SOCKS outbound handler，并在绑定失败或 lifecycle handoff 失败时输出 release report；该实现尚未接入 `NativeProxyEngineService::start`，也没有 TCP accept loop、proxy protocol handler 或 route/outbound 数据面。
+- `engine-native` 已补充从有效配置图生成首个 native runtime assembly plan 的源码合同，可选择 loopback TCP listener 与 SOCKS outbound handler，并在绑定失败或 lifecycle handoff 失败时输出 release report。
+- `engine-native` 已补充首个 loopback TCP accept loop 与受控关闭源码合同，可持有 bound listener 与 SOCKS outbound handler identity，记录 accepted connection 计数，并在 runtime release 或 drop 路径停止；该实现尚未接入 `NativeProxyEngineService::start`，也没有 proxy protocol handler 或 route/outbound 数据面。
 
-因此，`engine-native` 现在必须继续拒绝启动。虽然配置服务已经能解析最小 listener/node/route 子集，adapter 已能校验 listener/node/route 图，且源码中已有 runtime handle、runtime assembly plan 与 loopback TCP listener resource，但在 TCP accept loop、route/outbound 行为和真实运行句柄接线完成前，不得从 service `start()` 返回 `Running`，也不得接入 `networkcore-linux start`。
+因此，`engine-native` 现在必须继续拒绝启动。虽然配置服务已经能解析最小 listener/node/route 子集，adapter 已能校验 listener/node/route 图，且源码中已有 runtime handle、runtime assembly plan、loopback TCP listener resource 与 accept loop 受控关闭合同，但在 proxy protocol、route/outbound 行为和真实运行句柄接线完成前，不得从 service `start()` 返回 `Running`，也不得接入 `networkcore-linux start`。
 
 ## 配置所有权
 
@@ -143,6 +144,8 @@ DNS 配置进入前应继续保守：
 | `engine.native.runtime.resource_missing` | Error | runtime handle 缺少 listener 或 outbound handler |
 | `engine.native.runtime.released` | Info | 启动失败或停止路径已释放已持有 handle |
 | `engine.native.runtime.foreground_handoff_ready` | Info | runtime handle 可交给前台 lifecycle host |
+| `engine.native.runtime.accept_loop_ready` | Info | loopback TCP accept loop 已准备好由 runtime handle 持有 |
+| `engine.native.runtime.accept_loop_stopped` | Info | loopback TCP accept loop 已受控停止 |
 
 已有 code `engine.native.config.engine_id_unsupported`、`listener_missing` 和
 `node_missing` 保持兼容。
@@ -158,8 +161,9 @@ DNS 配置进入前应继续保守：
 5. 已补充首个 native runtime handle 的最小源码合同，明确 loopback listener handle、SOCKS outbound handler handoff、失败释放、事件和前台 lifecycle handoff status。
 6. 已补充真实 loopback TCP listener 绑定/释放实现，合同测试覆盖可用端口绑定、占用端口失败和 release 后端口可复用。
 7. 已补充从有效配置图生成首个 runtime assembly plan 的源码合同，选择 loopback TCP listener 与 SOCKS outbound handler，并覆盖绑定失败和 lifecycle handoff 失败时的释放边界。
-8. 下一步必须补充首个 loopback TCP accept loop 与受控关闭源码合同，仍不接入 `networkcore-linux start`。
-9. 最后再评估 `networkcore-linux start` binary 接线和前台 lifecycle host handoff。
+8. 已补充首个 loopback TCP accept loop 与受控关闭源码合同，覆盖 accepted connection 计数、runtime release 停止报告和 ready/stopped 诊断，仍不接入 `networkcore-linux start`。
+9. 下一步必须补充首个 accepted TCP connection 的协议前置关闭诊断合同，明确未实现 proxy protocol 时的连接处理边界。
+10. 最后再评估 `networkcore-linux start` binary 接线和前台 lifecycle host handoff。
 
 每个阶段都必须同步 README、TODO、CHANGELOG、设计文档和合同测试，并只通过 GitHub Actions 验证。
 
@@ -170,7 +174,7 @@ DNS 配置进入前应继续保守：
 - listener 配置图已通过校验。
 - outbound node/direct route 图已通过校验。
 - 平台能力已由 `RuntimeOrchestrator` 确认可启动。
-- adapter 已创建当前进程拥有的真实 listener/runtime handle，并具备 accept loop 与受控关闭合同，而不仅是源码合同结构或 assembly plan。
+- adapter 已创建当前进程拥有的真实 listener/runtime handle，并具备 accept loop、受控关闭、proxy protocol、route/outbound 行为合同，而不仅是源码合同结构或 assembly plan。
 - 失败路径能释放已创建的句柄，并返回稳定 `DomainError` 或 `Diagnostic`。
 - `events()` 至少能返回启动失败或运行状态变化的内存事件合同，或者在设计中明确首版事件为空的边界。
 
@@ -179,7 +183,7 @@ DNS 配置进入前应继续保守：
 - 只解析了 listener/node 配置。
 - 只验证了节点存在。
 - 只创建了 runtime handle 合同结构，没有绑定或持有任何真实运行资源。
-- 只绑定端口或只生成 assembly plan，但没有 accept loop、route/outbound 行为合同。
+- 只绑定端口、只生成 assembly plan 或只启动 accept loop，但没有 proxy protocol、route/outbound 行为合同。
 - 只能在测试替身中返回 `Running`。
 
 ## 验收条件
@@ -189,10 +193,10 @@ DNS 配置进入前应继续保守：
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - README、ROADMAP、Linux native start 设计和 release strategy 能发现本文档。
 - TODO 指向下一步最小源码增量，而不是直接接入 `start`。
-- `engine-native` 在 listener/node 解析和图校验完成后，仍必须在 runtime handle 完成前继续保持配置拒绝或 runtime unavailable 诊断。
+- `engine-native` 在 listener/node 解析和图校验完成后，仍必须在 proxy protocol、route/outbound 行为和 service start 接线完成前继续保持 runtime unavailable 诊断。
 - `networkcore-linux start` 在真实 runtime handle 和 binary lifecycle 接线完成前继续保持 `cli.linux.runtime.unwired`。
 
 ## 后续工作
 
-- 在 `engine-native` 中补充首个 loopback TCP accept loop 与受控关闭源码合同，继续不接入 `networkcore-linux start`。
-- `engine-native` service 继续保持 runtime unavailable，直到 accept loop、route/outbound 行为和前台 lifecycle handoff 完成并通过 GitHub Actions 验证。
+- 在 `engine-native` 中补充首个 accepted TCP connection 的协议前置关闭诊断合同，明确未实现 proxy protocol 时的连接处理边界，继续不接入 `networkcore-linux start`。
+- `engine-native` service 继续保持 runtime unavailable，直到 proxy protocol、route/outbound 行为和前台 lifecycle handoff 完成并通过 GitHub Actions 验证。
