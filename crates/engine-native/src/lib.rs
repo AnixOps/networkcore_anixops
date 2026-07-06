@@ -99,6 +99,10 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_READ_FAILED_CODE: &str =
     "engine.native.runtime.socks5_connect_target_read_failed";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_SELECTED_CODE: &str =
     "engine.native.runtime.socks5_route_outbound_selected";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_GENERATED_CODE: &str =
+    "engine.native.runtime.socks5_outbound_connect_request_frame_generated";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_INVALID_CODE: &str =
+    "engine.native.runtime.socks5_outbound_connect_request_frame_invalid";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE: &str =
     "engine.native.runtime.socks5_route_outbound_unwired";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE: &str =
@@ -559,6 +563,12 @@ pub struct NativeSocks5RouteOutboundSelectionReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5OutboundConnectRequestFrameReport {
+    pub frame: Vec<u8>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeSocks5RouteOutboundReport {
     pub decision: NativeSocks5RouteOutboundDecision,
     pub diagnostics: Vec<Diagnostic>,
@@ -886,6 +896,30 @@ pub fn select_socks5_route_outbound_behavior(
         diagnostics: vec![runtime_info(
             ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_SELECTED_CODE,
             "native SOCKS5 CONNECT route selected the configured outbound handler",
+        )],
+    }
+}
+
+pub fn build_socks5_outbound_connect_request_frame(
+    behavior: &NativeSocks5RouteOutboundBehavior,
+) -> NativeSocks5OutboundConnectRequestFrameReport {
+    let NativeSocks5RouteOutboundBehavior::ProxyViaSocksOutbound { target, .. } = behavior;
+
+    if let Some(frame) = socks5_outbound_connect_request_frame_bytes(target) {
+        return NativeSocks5OutboundConnectRequestFrameReport {
+            frame,
+            diagnostics: vec![runtime_info(
+                ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_GENERATED_CODE,
+                "native SOCKS5 outbound CONNECT request frame was generated",
+            )],
+        };
+    }
+
+    NativeSocks5OutboundConnectRequestFrameReport {
+        frame: Vec::new(),
+        diagnostics: vec![runtime_warning(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_INVALID_CODE,
+            "native SOCKS5 outbound CONNECT request frame target is invalid",
         )],
     }
 }
@@ -1623,6 +1657,38 @@ fn socks5_connect_target_valid(target: &NativeSocks5ConnectTarget) -> bool {
         }
 }
 
+fn socks5_outbound_connect_request_frame_bytes(
+    target: &NativeSocks5ConnectTarget,
+) -> Option<Vec<u8>> {
+    if !socks5_connect_target_valid(target) {
+        return None;
+    }
+
+    let mut frame = vec![SOCKS5_VERSION, SOCKS5_COMMAND_CONNECT, SOCKS5_RESERVED];
+    match &target.address {
+        NativeSocks5Address::Ipv4(address) => {
+            frame.push(SOCKS5_ADDRESS_TYPE_IPV4);
+            frame.extend_from_slice(address);
+        }
+        NativeSocks5Address::DomainName(domain_name) => {
+            let domain_name = domain_name.as_bytes();
+            if domain_name.len() > u8::MAX as usize {
+                return None;
+            }
+            frame.push(SOCKS5_ADDRESS_TYPE_DOMAIN_NAME);
+            frame.push(domain_name.len() as u8);
+            frame.extend_from_slice(domain_name);
+        }
+        NativeSocks5Address::Ipv6(address) => {
+            frame.push(SOCKS5_ADDRESS_TYPE_IPV6);
+            frame.extend_from_slice(address);
+        }
+    }
+    frame.extend_from_slice(&target.port.to_be_bytes());
+
+    Some(frame)
+}
+
 fn socks5_connect_target_read_failed(message: &'static str) -> NativeSocks5ConnectTargetReadReport {
     NativeSocks5ConnectTargetReadReport {
         target: None,
@@ -1743,9 +1809,14 @@ fn read_socks5_greeting_and_close_accepted_connection(
                         .as_ref()
                         .filter(|target| socks5_connect_target_valid(target))
                     {
+                        let route_selection_report =
+                            select_socks5_route_outbound_behavior(target, outbound_handler);
+                        diagnostics.extend(route_selection_report.diagnostics);
                         diagnostics.extend(
-                            select_socks5_route_outbound_behavior(target, outbound_handler)
-                                .diagnostics,
+                            build_socks5_outbound_connect_request_frame(
+                                &route_selection_report.behavior,
+                            )
+                            .diagnostics,
                         );
                         diagnostics
                             .extend(reject_unwired_socks5_route_outbound(target).diagnostics);

@@ -5,15 +5,16 @@ use control_domain::{
     RouteAction, RuleSet, SchemaVersion,
 };
 use engine_native::{
-    read_socks5_command_header, read_socks5_connect_target, read_socks5_greeting,
-    reject_unsupported_socks5_command, reject_unwired_socks5_route_outbound,
-    select_socks5_auth_method, select_socks5_route_outbound_behavior,
-    write_socks5_auth_method_response, write_unwired_socks5_connect_failure_response,
-    BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle,
-    NativeOutboundHandlerHandle, NativeProxyEngineService, NativeRuntimeAssembly,
-    NativeRuntimeAssemblyPlan, NativeSocks5Address, NativeSocks5AuthMethodDecision,
-    NativeSocks5CommandDecision, NativeSocks5CommandHeader, NativeSocks5ConnectTarget,
-    NativeSocks5Greeting, NativeSocks5RouteOutboundBehavior, NativeSocks5RouteOutboundDecision,
+    build_socks5_outbound_connect_request_frame, read_socks5_command_header,
+    read_socks5_connect_target, read_socks5_greeting, reject_unsupported_socks5_command,
+    reject_unwired_socks5_route_outbound, select_socks5_auth_method,
+    select_socks5_route_outbound_behavior, write_socks5_auth_method_response,
+    write_unwired_socks5_connect_failure_response, BoundLoopbackTcpListenerHandle,
+    LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle,
+    NativeProxyEngineService, NativeRuntimeAssembly, NativeRuntimeAssemblyPlan,
+    NativeSocks5Address, NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision,
+    NativeSocks5CommandHeader, NativeSocks5ConnectTarget, NativeSocks5Greeting,
+    NativeSocks5RouteOutboundBehavior, NativeSocks5RouteOutboundDecision,
     DEFAULT_NATIVE_ENGINE_ID, ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_ID_DUPLICATE_CODE,
@@ -45,6 +46,8 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_FAILED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_GENERATED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_SELECTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE, ENGINE_NATIVE_START_BIND_FAILED_CODE,
     ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
@@ -475,6 +478,10 @@ fn runtime_accept_loop_contract_accepts_loopback_tcp_connection_and_shuts_down()
     );
     assert_diagnostic(
         &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_GENERATED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE,
     );
     assert_diagnostic(
@@ -894,6 +901,97 @@ fn socks5_route_outbound_behavior_contract_selects_configured_socks_handler_with
     assert_diagnostic(
         &route_report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE,
+    );
+}
+
+#[test]
+fn socks5_outbound_connect_request_frame_contract_generates_domain_frame_without_connecting() {
+    let target = NativeSocks5ConnectTarget {
+        address: NativeSocks5Address::DomainName("example.com".to_string()),
+        port: 443,
+    };
+    let outbound_handler = NativeOutboundHandlerHandle::from_node(&node())
+        .expect("socks node should become an outbound handler");
+    let selection_report = select_socks5_route_outbound_behavior(&target, &outbound_handler);
+
+    let frame_report = build_socks5_outbound_connect_request_frame(&selection_report.behavior);
+
+    assert_eq!(
+        frame_report.frame,
+        vec![
+            0x05, 0x01, 0x00, 0x03, 0x0b, b'e', b'x', b'a', b'm', b'p', b'l', b'e', b'.',
+            b'c', b'o', b'm', 0x01, 0xbb,
+        ]
+    );
+    assert_diagnostic(
+        &frame_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_GENERATED_CODE,
+    );
+}
+
+#[test]
+fn socks5_outbound_connect_request_frame_contract_generates_ip_frames() {
+    let outbound_handler = NativeOutboundHandlerHandle::from_node(&node())
+        .expect("socks node should become an outbound handler");
+    let ipv4_target = NativeSocks5ConnectTarget {
+        address: NativeSocks5Address::Ipv4([127, 0, 0, 1]),
+        port: 80,
+    };
+    let ipv4_behavior = NativeSocks5RouteOutboundBehavior::ProxyViaSocksOutbound {
+        target: ipv4_target,
+        outbound_handler: outbound_handler.clone(),
+    };
+    let ipv4_report = build_socks5_outbound_connect_request_frame(&ipv4_behavior);
+
+    assert_eq!(
+        ipv4_report.frame,
+        vec![0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0x00, 0x50]
+    );
+    assert_diagnostic(
+        &ipv4_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_GENERATED_CODE,
+    );
+
+    let mut ipv6_address = [0_u8; 16];
+    ipv6_address[15] = 1;
+    let ipv6_target = NativeSocks5ConnectTarget {
+        address: NativeSocks5Address::Ipv6(ipv6_address),
+        port: 443,
+    };
+    let ipv6_behavior = NativeSocks5RouteOutboundBehavior::ProxyViaSocksOutbound {
+        target: ipv6_target,
+        outbound_handler,
+    };
+    let ipv6_report = build_socks5_outbound_connect_request_frame(&ipv6_behavior);
+    let mut expected_ipv6_frame = vec![0x05, 0x01, 0x00, 0x04];
+    expected_ipv6_frame.extend_from_slice(&ipv6_address);
+    expected_ipv6_frame.extend_from_slice(&443_u16.to_be_bytes());
+
+    assert_eq!(ipv6_report.frame, expected_ipv6_frame);
+    assert_diagnostic(
+        &ipv6_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_GENERATED_CODE,
+    );
+}
+
+#[test]
+fn socks5_outbound_connect_request_frame_contract_reports_invalid_public_target_input() {
+    let outbound_handler = NativeOutboundHandlerHandle::from_node(&node())
+        .expect("socks node should become an outbound handler");
+    let oversized_domain_behavior = NativeSocks5RouteOutboundBehavior::ProxyViaSocksOutbound {
+        target: NativeSocks5ConnectTarget {
+            address: NativeSocks5Address::DomainName("a".repeat(256)),
+            port: 443,
+        },
+        outbound_handler,
+    };
+
+    let frame_report = build_socks5_outbound_connect_request_frame(&oversized_domain_behavior);
+
+    assert!(frame_report.frame.is_empty());
+    assert_diagnostic(
+        &frame_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_INVALID_CODE,
     );
 }
 
