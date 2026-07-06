@@ -1530,7 +1530,8 @@ fn socks5_outbound_connect_client_success_response_write_plan_contract_blocks_un
 }
 
 #[test]
-fn socks5_outbound_connect_client_success_response_write_plan_contract_rejects_rejected_readiness() {
+fn socks5_outbound_connect_client_success_response_write_plan_contract_rejects_rejected_readiness()
+{
     let report = plan_socks5_outbound_connect_client_success_response_write(
         NativeSocks5OutboundConnectClientSuccessResponseReadiness::Rejected,
     );
