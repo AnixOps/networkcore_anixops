@@ -163,11 +163,35 @@ jobs:
           echo "release-attestation-required-when-supported=true"
           echo "release-signing-output-fields=signing_policy,signing_status,attestation_status,provenance_file"
 
+  release-rollback-contract:
+    name: Release rollback contract
+    runs-on: ubuntu-latest
+    needs:
+      - release-signing-contract
+    steps:
+      - name: Record rollback contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Release Rollback Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current rollback mode | not configured |"
+            echo "| Required future gate | release notes must include rollback plan before publish |"
+            echo "| Public asset handling | replace with a new version or publish a withdrawal notice; do not overwrite tags |"
+            echo "| Required release note fields | rollback_scope, rollback_trigger, rollback_steps, replacement_version, rollback_owner |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "release-rollback-contract=placeholder"
+          echo "release-rollback-required-before-publish=true"
+          echo "release-rollback-output-fields=rollback_scope,rollback_trigger,rollback_steps,replacement_version,rollback_owner"
+
   release-placeholder:
     name: Release placeholder
     runs-on: ubuntu-latest
     needs:
-      - release-signing-contract
+      - release-rollback-contract
     steps:
       - name: Explain current release state
         shell: bash
@@ -185,6 +209,7 @@ jobs:
       - release-ci-gate
       - release-artifact-contract
       - release-signing-contract
+      - release-rollback-contract
       - release-placeholder
     steps:
       - name: Summarize release state
@@ -216,10 +241,12 @@ jobs:
             echo "| Release CI gate | ${{ needs.release-ci-gate.result }} |"
             echo "| Release artifact contract | ${{ needs.release-artifact-contract.result }} |"
             echo "| Release signing contract | ${{ needs.release-signing-contract.result }} |"
+            echo "| Release rollback contract | ${{ needs.release-rollback-contract.result }} |"
             echo "| Release placeholder | ${{ needs.release-placeholder.result }} |"
             echo "| Release artifacts | not defined |"
             echo "| Artifact checksum | sha256 required before upload or publish |"
             echo "| Artifact signing/attestation | required before platform artifact publish |"
+            echo "| Artifact rollback | rollback plan fields required before publish |"
             echo "| Artifact gate | blocked until source, platform design, CI, checksum, signing, and rollback gates are implemented |"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "release-version=${RELEASE_VERSION}"
@@ -232,13 +259,16 @@ jobs:
           echo "release-ci-gate=${{ needs.release-ci-gate.result }}"
           echo "release-artifact-contract=${{ needs.release-artifact-contract.result }}"
           echo "release-signing-contract=${{ needs.release-signing-contract.result }}"
+          echo "release-rollback-contract=${{ needs.release-rollback-contract.result }}"
           echo "release-placeholder=${{ needs.release-placeholder.result }}"
           echo "release-artifacts=not-defined"
           echo "release-checksum-contract=sha256-required"
           echo "release-signing-contract-state=placeholder"
+          echo "release-rollback-contract-state=placeholder"
           echo "artifact-gate=release-strategy-required"
           test "${{ needs.release-policy.result }}" = "success"
           test "${{ needs.release-ci-gate.result }}" = "success"
           test "${{ needs.release-artifact-contract.result }}" = "success"
           test "${{ needs.release-signing-contract.result }}" = "success"
+          test "${{ needs.release-rollback-contract.result }}" = "success"
           test "${{ needs.release-placeholder.result }}" = "success"

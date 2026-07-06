@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 在 release workflow 中补充 artifact rollback 占位说明，定义发布说明必须输出的回滚字段。
+- [ ] 补充 Linux artifact 发布前设计文档，明确首个平台产物的源码与 packaging 前置条件。
 
 ## 已完成
 
+- [x] 在 release workflow 中补充 artifact rollback 占位说明，定义发布说明必须输出的回滚字段。
 - [x] 在 release workflow 中补充 artifact signing/attestation 占位说明，定义真实 artifact 的签名或证明进入条件。
 - [x] 在 release workflow 中补充 artifact checksum 占位说明，定义首个真实 artifact job 的 checksum 输出字段。
 - [x] 在 release workflow 中补充 release-ci-gate 占位 job，记录真实 artifact 前必须关联 `main` CI 成功结果。
