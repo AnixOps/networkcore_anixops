@@ -5,12 +5,14 @@ use control_domain::{
     RouteAction, RuleSet, SchemaVersion,
 };
 use engine_native::{
-    read_socks5_command_header, read_socks5_greeting, reject_unsupported_socks5_command,
+    read_socks5_command_header, read_socks5_connect_target, read_socks5_greeting,
+    reject_unsupported_socks5_command, reject_unwired_socks5_route_outbound,
     select_socks5_auth_method, write_socks5_auth_method_response, BoundLoopbackTcpListenerHandle,
     LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle,
     NativeProxyEngineService, NativeRuntimeAssembly, NativeRuntimeAssemblyPlan,
-    NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision, NativeSocks5CommandHeader,
-    NativeSocks5Greeting, DEFAULT_NATIVE_ENGINE_ID,
+    NativeSocks5Address, NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision,
+    NativeSocks5CommandHeader, NativeSocks5Greeting, NativeSocks5RouteOutboundDecision,
+    DEFAULT_NATIVE_ENGINE_ID,
     ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_ID_DUPLICATE_CODE,
@@ -34,10 +36,15 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_READ_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_READ_FAILED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_UNSUPPORTED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_INVALID_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_READ_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_READ_FAILED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_CODE,
-    ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_FAILED_CODE, ENGINE_NATIVE_START_BIND_FAILED_CODE,
-    ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_FAILED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE,
+    ENGINE_NATIVE_START_BIND_FAILED_CODE, ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE,
+    ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
 };
 use std::io::{self, Cursor, Write};
 use std::net::{TcpListener, TcpStream};
@@ -423,8 +430,10 @@ fn runtime_accept_loop_contract_accepts_loopback_tcp_connection_and_shuts_down()
     let mut stream = TcpStream::connect(("127.0.0.1", port))
         .expect("loopback tcp accept loop should accept local connections");
     stream
-        .write_all(&[0x05, 0x02, 0x00, 0x02, 0x05, 0x01, 0x00, 0x01])
-        .expect("test client should send a SOCKS5 greeting and command header");
+        .write_all(&[
+            0x05, 0x02, 0x00, 0x02, 0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0x01, 0xbb,
+        ])
+        .expect("test client should send a SOCKS5 greeting, CONNECT header, and target");
     wait_until_accept_count(&accept_loop, 1);
     wait_until_pre_protocol_closed_count(&accept_loop, 1);
     drop(stream);
@@ -452,6 +461,14 @@ fn runtime_accept_loop_contract_accepts_loopback_tcp_connection_and_shuts_down()
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_READ_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_READ_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE,
     );
     assert_diagnostic(
         &report.diagnostics,
@@ -762,6 +779,148 @@ fn socks5_command_contract_rejects_unsupported_commands() {
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_UNSUPPORTED_CODE,
+    );
+}
+
+#[test]
+fn socks5_connect_target_contract_reads_domain_target_and_rejects_unwired_route_outbound() {
+    let command_header = NativeSocks5CommandHeader {
+        version: 0x05,
+        command: 0x01,
+        reserved: 0x00,
+        address_type: 0x03,
+    };
+    let mut reader = Cursor::new(vec![
+        0x0b, b'e', b'x', b'a', b'm', b'p', b'l', b'e', b'.', b'c', b'o', b'm', 0x01, 0xbb,
+    ]);
+
+    let report = read_socks5_connect_target(&mut reader, &command_header);
+
+    let diagnostics = report.diagnostics;
+    let target = report
+        .target
+        .expect("valid SOCKS5 domain CONNECT target should be parsed");
+    assert_eq!(
+        target.address,
+        NativeSocks5Address::DomainName("example.com".to_string())
+    );
+    assert_eq!(target.port, 443);
+    assert_diagnostic(
+        &diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_READ_CODE,
+    );
+
+    let route_report = reject_unwired_socks5_route_outbound(&target);
+
+    assert_eq!(
+        route_report.decision,
+        NativeSocks5RouteOutboundDecision::Unwired
+    );
+    assert_diagnostic(
+        &route_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE,
+    );
+}
+
+#[test]
+fn socks5_connect_target_contract_reads_ipv4_and_ipv6_targets() {
+    let ipv4_header = NativeSocks5CommandHeader {
+        version: 0x05,
+        command: 0x01,
+        reserved: 0x00,
+        address_type: 0x01,
+    };
+    let mut ipv4_reader = Cursor::new(vec![127, 0, 0, 1, 0x00, 0x50]);
+
+    let ipv4_report = read_socks5_connect_target(&mut ipv4_reader, &ipv4_header);
+
+    let ipv4_diagnostics = ipv4_report.diagnostics;
+    let ipv4_target = ipv4_report
+        .target
+        .expect("valid SOCKS5 IPv4 CONNECT target should be parsed");
+    assert_eq!(
+        ipv4_target.address,
+        NativeSocks5Address::Ipv4([127, 0, 0, 1])
+    );
+    assert_eq!(ipv4_target.port, 80);
+    assert_diagnostic(
+        &ipv4_diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_READ_CODE,
+    );
+
+    let ipv6_header = NativeSocks5CommandHeader {
+        version: 0x05,
+        command: 0x01,
+        reserved: 0x00,
+        address_type: 0x04,
+    };
+    let mut ipv6_reader = Cursor::new(vec![
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0x01, 0xbb,
+    ]);
+
+    let ipv6_report = read_socks5_connect_target(&mut ipv6_reader, &ipv6_header);
+
+    let ipv6_diagnostics = ipv6_report.diagnostics;
+    let ipv6_target = ipv6_report
+        .target
+        .expect("valid SOCKS5 IPv6 CONNECT target should be parsed");
+    assert_eq!(
+        ipv6_target.address,
+        NativeSocks5Address::Ipv6([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])
+    );
+    assert_eq!(ipv6_target.port, 443);
+    assert_diagnostic(
+        &ipv6_diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_READ_CODE,
+    );
+}
+
+#[test]
+fn socks5_connect_target_contract_reports_invalid_and_incomplete_targets() {
+    let domain_header = NativeSocks5CommandHeader {
+        version: 0x05,
+        command: 0x01,
+        reserved: 0x00,
+        address_type: 0x03,
+    };
+    let mut empty_domain = Cursor::new(vec![0x00]);
+
+    let empty_domain_report = read_socks5_connect_target(&mut empty_domain, &domain_header);
+
+    assert!(empty_domain_report.target.is_none());
+    assert_diagnostic(
+        &empty_domain_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_INVALID_CODE,
+    );
+
+    let ipv4_header = NativeSocks5CommandHeader {
+        version: 0x05,
+        command: 0x01,
+        reserved: 0x00,
+        address_type: 0x01,
+    };
+    let mut incomplete_ipv4 = Cursor::new(vec![127, 0, 0]);
+
+    let incomplete_report = read_socks5_connect_target(&mut incomplete_ipv4, &ipv4_header);
+
+    assert!(incomplete_report.target.is_none());
+    assert_diagnostic(
+        &incomplete_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_READ_FAILED_CODE,
+    );
+
+    let mut zero_port = Cursor::new(vec![127, 0, 0, 1, 0x00, 0x00]);
+
+    let zero_port_report = read_socks5_connect_target(&mut zero_port, &ipv4_header);
+
+    let zero_port_diagnostics = zero_port_report.diagnostics;
+    let zero_port_target = zero_port_report
+        .target
+        .expect("invalid port target should still report observed address");
+    assert_eq!(zero_port_target.port, 0);
+    assert_diagnostic(
+        &zero_port_diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_INVALID_CODE,
     );
 }
 

@@ -91,6 +91,14 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_HEADER_READ_FAILED_CODE: &str =
     "engine.native.runtime.socks5_command_header_read_failed";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_UNSUPPORTED_CODE: &str =
     "engine.native.runtime.socks5_command_unsupported";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_READ_CODE: &str =
+    "engine.native.runtime.socks5_connect_target_read";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_INVALID_CODE: &str =
+    "engine.native.runtime.socks5_connect_target_invalid";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_READ_FAILED_CODE: &str =
+    "engine.native.runtime.socks5_connect_target_read_failed";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE: &str =
+    "engine.native.runtime.socks5_route_outbound_unwired";
 
 const SOCKS5_VERSION: u8 = 0x05;
 const SOCKS5_AUTH_METHOD_NO_AUTHENTICATION_REQUIRED: u8 = 0x00;
@@ -491,6 +499,36 @@ pub struct NativeSocks5CommandSupportReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NativeSocks5Address {
+    Ipv4([u8; 4]),
+    DomainName(String),
+    Ipv6([u8; 16]),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5ConnectTarget {
+    pub address: NativeSocks5Address,
+    pub port: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5ConnectTargetReadReport {
+    pub target: Option<NativeSocks5ConnectTarget>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeSocks5RouteOutboundDecision {
+    Unwired,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5RouteOutboundReport {
+    pub decision: NativeSocks5RouteOutboundDecision,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
 pub fn read_socks5_greeting<R>(reader: &mut R) -> NativeSocks5GreetingReadReport
 where
     R: Read,
@@ -664,6 +702,133 @@ pub fn reject_unsupported_socks5_command(
         diagnostics: vec![runtime_warning(
             ENGINE_NATIVE_RUNTIME_SOCKS5_COMMAND_UNSUPPORTED_CODE,
             "native SOCKS5 command is not supported",
+        )],
+    }
+}
+
+pub fn read_socks5_connect_target<R>(
+    reader: &mut R,
+    command_header: &NativeSocks5CommandHeader,
+) -> NativeSocks5ConnectTargetReadReport
+where
+    R: Read,
+{
+    if !socks5_command_header_valid(command_header)
+        || command_header.command != SOCKS5_COMMAND_CONNECT
+    {
+        return NativeSocks5ConnectTargetReadReport {
+            target: None,
+            diagnostics: vec![runtime_warning(
+                ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_INVALID_CODE,
+                "native SOCKS5 CONNECT target requires a valid CONNECT command header",
+            )],
+        };
+    }
+
+    let address = match command_header.address_type {
+        SOCKS5_ADDRESS_TYPE_IPV4 => {
+            let mut address = [0_u8; 4];
+            if reader.read_exact(&mut address).is_err() {
+                return socks5_connect_target_read_failed(
+                    "native SOCKS5 CONNECT IPv4 target address could not be read",
+                );
+            }
+            NativeSocks5Address::Ipv4(address)
+        }
+        SOCKS5_ADDRESS_TYPE_DOMAIN_NAME => {
+            let mut length = [0_u8; 1];
+            if reader.read_exact(&mut length).is_err() {
+                return socks5_connect_target_read_failed(
+                    "native SOCKS5 CONNECT domain length could not be read",
+                );
+            }
+            if length[0] == 0 {
+                return NativeSocks5ConnectTargetReadReport {
+                    target: None,
+                    diagnostics: vec![runtime_warning(
+                        ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_INVALID_CODE,
+                        "native SOCKS5 CONNECT domain target cannot be empty",
+                    )],
+                };
+            }
+
+            let mut domain_name = vec![0_u8; length[0] as usize];
+            if reader.read_exact(&mut domain_name).is_err() {
+                return socks5_connect_target_read_failed(
+                    "native SOCKS5 CONNECT domain target could not be read",
+                );
+            }
+
+            match String::from_utf8(domain_name) {
+                Ok(domain_name) => NativeSocks5Address::DomainName(domain_name),
+                Err(_) => {
+                    return NativeSocks5ConnectTargetReadReport {
+                        target: None,
+                        diagnostics: vec![runtime_warning(
+                            ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_INVALID_CODE,
+                            "native SOCKS5 CONNECT domain target must be valid UTF-8",
+                        )],
+                    };
+                }
+            }
+        }
+        SOCKS5_ADDRESS_TYPE_IPV6 => {
+            let mut address = [0_u8; 16];
+            if reader.read_exact(&mut address).is_err() {
+                return socks5_connect_target_read_failed(
+                    "native SOCKS5 CONNECT IPv6 target address could not be read",
+                );
+            }
+            NativeSocks5Address::Ipv6(address)
+        }
+        _ => {
+            return NativeSocks5ConnectTargetReadReport {
+                target: None,
+                diagnostics: vec![runtime_warning(
+                    ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_INVALID_CODE,
+                    "native SOCKS5 CONNECT target address type is unsupported",
+                )],
+            };
+        }
+    };
+
+    let mut port = [0_u8; 2];
+    if reader.read_exact(&mut port).is_err() {
+        return socks5_connect_target_read_failed(
+            "native SOCKS5 CONNECT target port could not be read",
+        );
+    }
+
+    let target = NativeSocks5ConnectTarget {
+        address,
+        port: u16::from_be_bytes(port),
+    };
+    let diagnostic = if socks5_connect_target_valid(&target) {
+        runtime_info(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_READ_CODE,
+            "native SOCKS5 CONNECT target address and port were read",
+        )
+    } else {
+        runtime_warning(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_INVALID_CODE,
+            "native SOCKS5 CONNECT target address or port is invalid",
+        )
+    };
+
+    NativeSocks5ConnectTargetReadReport {
+        target: Some(target),
+        diagnostics: vec![diagnostic],
+    }
+}
+
+pub fn reject_unwired_socks5_route_outbound(
+    _target: &NativeSocks5ConnectTarget,
+) -> NativeSocks5RouteOutboundReport {
+    NativeSocks5RouteOutboundReport {
+        decision: NativeSocks5RouteOutboundDecision::Unwired,
+        diagnostics: vec![runtime_warning(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE,
+            "native SOCKS5 CONNECT route and outbound data plane are not wired",
         )],
     }
 }
@@ -1368,6 +1533,26 @@ fn socks5_command_header_valid(command_header: &NativeSocks5CommandHeader) -> bo
         )
 }
 
+fn socks5_connect_target_valid(target: &NativeSocks5ConnectTarget) -> bool {
+    target.port != 0
+        && match &target.address {
+            NativeSocks5Address::Ipv4(_) | NativeSocks5Address::Ipv6(_) => true,
+            NativeSocks5Address::DomainName(domain_name) => !domain_name.trim().is_empty(),
+        }
+}
+
+fn socks5_connect_target_read_failed(
+    message: &'static str,
+) -> NativeSocks5ConnectTargetReadReport {
+    NativeSocks5ConnectTargetReadReport {
+        target: None,
+        diagnostics: vec![runtime_warning(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_READ_FAILED_CODE,
+            message,
+        )],
+    }
+}
+
 fn is_loopback_host(host: &str) -> bool {
     let host = host.trim();
 
@@ -1463,7 +1648,24 @@ fn read_socks5_greeting_and_close_accepted_connection(
                 .as_ref()
                 .filter(|command_header| socks5_command_header_valid(command_header))
             {
-                diagnostics.extend(reject_unsupported_socks5_command(command_header).diagnostics);
+                let support_report = reject_unsupported_socks5_command(command_header);
+                let command_decision = support_report.decision;
+                diagnostics.extend(support_report.diagnostics);
+                if command_decision == NativeSocks5CommandDecision::Connect {
+                    let NativeSocks5ConnectTargetReadReport {
+                        target,
+                        diagnostics: target_diagnostics,
+                    } = read_socks5_connect_target(&mut stream, command_header);
+                    diagnostics.extend(target_diagnostics);
+                    if let Some(target) = target
+                        .as_ref()
+                        .filter(|target| socks5_connect_target_valid(target))
+                    {
+                        diagnostics.extend(
+                            reject_unwired_socks5_route_outbound(target).diagnostics,
+                        );
+                    }
+                }
             }
         }
     }
