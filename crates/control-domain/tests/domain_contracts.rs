@@ -57,5 +57,8 @@ fn configuration_port_can_be_implemented_by_an_adapter() {
     assert_eq!(diagnostics.len(), 1);
 
     let snapshot = service.normalize("profile = default", &capabilities);
-    assert_eq!(snapshot.expect("snapshot should normalize").version.value(), 1);
+    assert_eq!(
+        snapshot.expect("snapshot should normalize").version.value(),
+        1
+    );
 }
