@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "apps/linux-cli",
+    "crates/config-core",
     "crates/control-domain",
     "crates/control-runtime",
     "crates/platform-linux",

@@ -1,3 +1,4 @@
+use config_core::CoreConfigurationService;
 use control_domain::{
     CertificateTrustState, ConfigSnapshot, ConfigurationService, Diagnostic, DiagnosticSeverity,
     DomainResult, PlatformCapabilities, PlatformFeatureState, ProxyEngineConfig,
@@ -6,9 +7,10 @@ use control_domain::{
 };
 use control_runtime::RuntimeOrchestrator;
 use networkcore_linux::{
-    handle_capabilities, handle_entrypoint, handle_prepare_config, handle_start, handle_status,
-    handle_stop, parse_args, render_response, ConfigReadError, ConfigReader, LinuxCliCommand,
-    LinuxCliExitCode, OutputFormat, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
+    handle_capabilities, handle_entrypoint, handle_entrypoint_with_runtime, handle_prepare_config,
+    handle_start, handle_status, handle_stop, parse_args, render_response, ConfigReadError,
+    ConfigReader, LinuxCliCommand, LinuxCliExitCode, OutputFormat,
+    UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
     CLI_CONFIG_READ_FAILED_CODE, CLI_RUNTIME_UNWIRED_CODE, CLI_START_PLATFORM_DENIED_CODE,
     CLI_STATUS_NO_RUNTIME_CONTEXT_CODE, CLI_STATUS_PLATFORM_ONLY_CODE,
     CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE,
@@ -222,6 +224,41 @@ fn entrypoint_accepts_read_only_linux_probe_for_host_diagnostic_mapping() {
 }
 
 #[test]
+fn runtime_entrypoint_routes_prepare_config_to_core_config_service() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let orchestrator = RuntimeOrchestrator::new(
+        CoreConfigurationService::new(),
+        platform.clone(),
+        UnavailableProxyEngineService::new(),
+    );
+    let reader = MemoryConfigReader::ok(
+        r#"
+schema_version = 1
+profiles = ["default", "work"]
+"#,
+    );
+
+    let response = handle_entrypoint_with_runtime(
+        LinuxCliCommand::PrepareConfig {
+            config_path: Some("networkcore.toml".to_string()),
+            format: OutputFormat::Json,
+        },
+        &platform,
+        &orchestrator,
+        &reader,
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "prepare-config");
+    assert_eq!(
+        response.config_profiles,
+        vec!["default".to_string(), "work".to_string()]
+    );
+    assert!(response.platform.is_some());
+}
+
+#[test]
 fn entrypoint_keeps_runtime_mutation_commands_unwired() {
     let platform =
         StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
@@ -232,6 +269,38 @@ fn entrypoint_keeps_runtime_mutation_commands_unwired() {
             format: OutputFormat::Text,
         },
         &platform,
+    );
+
+    assert!(!response.ok);
+    assert_eq!(response.command, "start");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Unavailable);
+    assert_diagnostic(&response.diagnostics, CLI_RUNTIME_UNWIRED_CODE);
+}
+
+#[test]
+fn runtime_entrypoint_keeps_start_unwired_until_engine_adapter_exists() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let orchestrator = RuntimeOrchestrator::new(
+        CoreConfigurationService::new(),
+        platform.clone(),
+        UnavailableProxyEngineService::new(),
+    );
+    let reader = MemoryConfigReader::ok(
+        r#"
+schema_version = 1
+profile = "default"
+"#,
+    );
+
+    let response = handle_entrypoint_with_runtime(
+        LinuxCliCommand::Start {
+            config_path: Some("networkcore.toml".to_string()),
+            format: OutputFormat::Text,
+        },
+        &platform,
+        &orchestrator,
+        &reader,
     );
 
     assert!(!response.ok);

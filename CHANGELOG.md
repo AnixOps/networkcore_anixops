@@ -6,6 +6,7 @@
 
 ### Added
 
+- 新增最小 `config-core` crate，提供纯 TOML 配置服务、schema/profile 解析、secret 不泄露诊断合同测试，并将 `networkcore-linux prepare-config` 接入二进制入口；`start` 继续保持未接线诊断。
 - 新增 Linux CLI runtime wiring 设计文档，明确 `prepare-config`/`start` 接入运行层前的配置服务、代理引擎服务和前台生命周期 host 边界，并纳入 CI governance 检查。
 - 将 `networkcore-linux capabilities/status/diagnostics` 接入 `HostLinuxReadOnlyProbe`，通过 `PlatformCapabilityService` 输出只读 Linux 平台诊断，并保留 `start` 等运行层命令未接线诊断。
 - 在 `platform-linux` 中新增只读 Linux 平台探测服务，提供 `HostLinuxReadOnlyProbe`、可注入 probe 边界、TUN/权限/DNS/service 诊断映射和 `/proc/self/status` 解析合同测试。

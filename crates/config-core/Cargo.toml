@@ -1,0 +1,15 @@
+[package]
+name = "config-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Pure minimal configuration service for the AnixOps network control kernel."
+
+[dependencies]
+control-domain = { path = "../control-domain" }
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
+
+[lib]
+path = "src/lib.rs"

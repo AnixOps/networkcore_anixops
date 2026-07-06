@@ -152,8 +152,9 @@ CLI 源码出现时，验证必须只在 GitHub Actions 中执行：
 - `handle_prepare_config` 与 `handle_start` 通过 `RuntimeOrchestrator` 进入运行层，不绕过领域端口。
 - `handle_capabilities`、`handle_status`、`handle_diagnostics`、`handle_stop` 和 JSON renderer 覆盖平台诊断、无 daemon stop、无 runtime context status 和自动化输出合同。
 - `handle_entrypoint` 将 `capabilities`、`status` 和 `diagnostics` 路由到注入的 `PlatformCapabilityService`；二进制入口使用 `ReadOnlyLinuxPlatformCapabilityService<HostLinuxReadOnlyProbe>`。
+- `handle_entrypoint_with_runtime` 将 `prepare-config` 路由到 `RuntimeOrchestrator`；二进制入口组合 `CoreConfigurationService`、只读 Linux platform service 和显式 unavailable proxy engine service。
 
-该 crate 当前只执行只读 Linux 能力探测，不修改系统状态、不安装 daemon，也不代表 Linux artifact 已可发布。
+该 crate 当前只执行只读 Linux 能力探测和只读配置准备，不修改系统状态、不安装 daemon，也不代表 Linux artifact 已可发布。
 
 ## Release 边界
 
@@ -177,6 +178,5 @@ CLI 首个源码增量必须满足：
 ## 后续工作
 
 - 在 license/NOTICE 人工确认和 readiness gate 通过后，再补充 `package-linux` job；真实 artifact 发布前继续阻止 release asset。
-- `prepare-config` 接入二进制入口前，按 [Linux CLI Runtime Wiring Design](linux-cli-runtime-wiring.md) 补充最小纯配置服务实现。
 - `start` 接入二进制入口前，按 [Linux CLI Runtime Wiring Design](linux-cli-runtime-wiring.md) 补充代理引擎 adapter 和前台生命周期 host。
 - daemon/control socket、packaging 或任何会修改系统状态的 Linux probing 进入 CLI 前，先补充对应设计并通过 CI。

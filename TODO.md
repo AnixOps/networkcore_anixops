@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 新增最小纯配置服务实现，先支持稳定 schema/profile 解析并将 `prepare-config` 接入二进制入口；`start` 继续保持未接线诊断。
+- [ ] 补充原生代理执行内核源码前设计，明确首个 `ProxyEngineService` adapter、前台生命周期 host 和 `networkcore-linux start` 接线门槛。
 
 ## 已完成
 
+- [x] 新增最小纯配置服务实现，先支持稳定 schema/profile 解析并将 `prepare-config` 接入二进制入口；`start` 继续保持未接线诊断。
 - [x] 补充 `networkcore-linux prepare-config/start` 运行层接线前设计，明确配置服务、代理引擎服务和前台生命周期 adapter 边界。
 - [x] 将 `networkcore-linux capabilities/status/diagnostics` 接入 `HostLinuxReadOnlyProbe`，通过 CLI 输出真实只读 Linux 平台诊断。
 - [x] 在 `platform-linux` 中新增只读 Linux 平台探测服务，提供 TUN、权限、DNS、service 和证书状态诊断映射合同测试。

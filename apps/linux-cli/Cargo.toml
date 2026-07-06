@@ -7,6 +7,7 @@ repository.workspace = true
 description = "Linux CLI entrypoint for the AnixOps network control kernel."
 
 [dependencies]
+config-core = { path = "../../crates/config-core" }
 control-domain = { path = "../../crates/control-domain" }
 control-runtime = { path = "../../crates/control-runtime" }
 platform-linux = { path = "../../crates/platform-linux" }

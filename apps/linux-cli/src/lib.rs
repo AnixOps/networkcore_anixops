@@ -6,8 +6,9 @@
 
 use control_domain::{
     CertificateTrustState, ConfigurationService, Diagnostic, DiagnosticSeverity, DomainError,
-    OperatingSystem, PlatformCapabilityService, PlatformCapabilityStatus, PlatformFeatureState,
-    ProxyEngineService,
+    DomainResult, OperatingSystem, PlatformCapabilityService, PlatformCapabilityStatus,
+    PlatformFeatureState, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
+    ProxyEngineService, ProxyEngineStatus,
 };
 use control_runtime::{RuntimeConfigRequest, RuntimeOrchestrator};
 use serde::Serialize;
@@ -240,6 +241,50 @@ impl ConfigReader for FsConfigReader {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UnavailableProxyEngineService;
+
+impl UnavailableProxyEngineService {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl ProxyEngineService for UnavailableProxyEngineService {
+    fn list_engines(&self) -> Vec<ProxyEngineDescriptor> {
+        Vec::new()
+    }
+
+    fn validate_config(&self, _engine_config: &ProxyEngineConfig) -> Vec<Diagnostic> {
+        vec![cli_diagnostic(
+            DiagnosticSeverity::Error,
+            CLI_RUNTIME_UNWIRED_CODE,
+            "linux proxy engine adapter is not wired",
+            SOURCE_CLI_RUNTIME,
+        )]
+    }
+
+    fn start(&self, _engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {
+        Err(unavailable_engine_error())
+    }
+
+    fn reload(&self, _engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {
+        Err(unavailable_engine_error())
+    }
+
+    fn stop(&self, _engine_id: &str) -> DomainResult<ProxyEngineStatus> {
+        Err(unavailable_engine_error())
+    }
+
+    fn status(&self, _engine_id: &str) -> DomainResult<ProxyEngineStatus> {
+        Err(unavailable_engine_error())
+    }
+
+    fn events(&self, _engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>> {
+        Err(unavailable_engine_error())
+    }
+}
+
 #[derive(Debug, Default)]
 struct ParsedOptions {
     config_path: Option<String>,
@@ -335,6 +380,26 @@ where
         LinuxCliCommand::Diagnostics { .. } => handle_diagnostics(platform),
         LinuxCliCommand::Stop { .. } => handle_stop(),
         other => handle_unwired_command(other.name()),
+    }
+}
+
+pub fn handle_entrypoint_with_runtime<C, P, E, R>(
+    command: LinuxCliCommand,
+    platform: &P,
+    orchestrator: &RuntimeOrchestrator<C, P, E>,
+    reader: &R,
+) -> LinuxCliResponse
+where
+    C: ConfigurationService,
+    P: PlatformCapabilityService,
+    E: ProxyEngineService,
+    R: ConfigReader,
+{
+    match command {
+        LinuxCliCommand::PrepareConfig { config_path, .. } => {
+            handle_prepare_config(orchestrator, reader, config_path.as_deref())
+        }
+        other => handle_entrypoint(other, platform),
     }
 }
 
@@ -680,6 +745,13 @@ fn handle_unwired_command(command: &'static str) -> LinuxCliResponse {
             "linux CLI runtime wiring is not available for this command",
             SOURCE_CLI_RUNTIME,
         ),
+    )
+}
+
+fn unavailable_engine_error() -> DomainError {
+    DomainError::new(
+        CLI_RUNTIME_UNWIRED_CODE,
+        "linux proxy engine adapter is not wired",
     )
 }
 

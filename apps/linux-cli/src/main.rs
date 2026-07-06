@@ -6,7 +6,18 @@ fn main() {
             let platform = platform_linux::ReadOnlyLinuxPlatformCapabilityService::new(
                 platform_linux::HostLinuxReadOnlyProbe::new(),
             );
-            let response = networkcore_linux::handle_entrypoint(command, &platform);
+            let orchestrator = control_runtime::RuntimeOrchestrator::new(
+                config_core::CoreConfigurationService::new(),
+                platform.clone(),
+                networkcore_linux::UnavailableProxyEngineService::new(),
+            );
+            let reader = networkcore_linux::FsConfigReader;
+            let response = networkcore_linux::handle_entrypoint_with_runtime(
+                command,
+                &platform,
+                &orchestrator,
+                &reader,
+            );
             (format, response)
         }
         Err(error) => (

@@ -40,6 +40,7 @@ jobs:
           test -f docs/release-strategy.md
           test -f .github/workflows/release.yml
           test -f apps/linux-cli/README.md
+          test -f crates/config-core/README.md
           test -f crates/control-domain/README.md
           test -f crates/control-runtime/README.md
           test -f crates/platform-linux/README.md
@@ -62,6 +63,8 @@ jobs:
           grep -q "linux-artifact-readiness" .github/workflows/release.yml
           grep -q "Linux artifact readiness" .github/workflows/release.yml
           grep -q "networkcore-linux" apps/linux-cli/README.md
+          grep -q "config-core" crates/config-core/README.md
+          grep -q "\"crates/config-core\"" Cargo.toml
           grep -q "control-domain" crates/control-domain/README.md
           grep -q "control-runtime" crates/control-runtime/README.md
           grep -q "platform-linux" crates/platform-linux/README.md

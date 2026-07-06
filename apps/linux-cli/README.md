@@ -8,6 +8,6 @@ The crate currently provides:
 - A config reader boundary that can be tested without local file-system verification.
 - Response and diagnostic mapping for capabilities, prepare-config, start, stop, status, diagnostics, and version commands.
 - JSON response rendering for automation-facing output contracts.
-- A minimal binary that wires `capabilities`, `status`, and `diagnostics` to `HostLinuxReadOnlyProbe` through the platform service boundary.
+- A minimal binary that wires `capabilities`, `status`, and `diagnostics` to `HostLinuxReadOnlyProbe`, and wires `prepare-config` to the pure `config-core` service through `RuntimeOrchestrator`.
 
-This crate does not modify TUN, DNS, routing, firewall, certificates, service managers, or daemon state. All validation runs in GitHub Actions according to `docs/ci-cd-policy.md`.
+This crate does not modify TUN, DNS, routing, firewall, certificates, service managers, or daemon state. `start` remains unavailable until a real proxy engine adapter and foreground lifecycle host exist. All validation runs in GitHub Actions according to `docs/ci-cd-policy.md`.
