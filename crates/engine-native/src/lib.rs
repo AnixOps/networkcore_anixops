@@ -115,6 +115,12 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITTEN_CODE: &s
     "engine.native.runtime.socks5_outbound_connect_request_written";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITE_FAILED_CODE: &str =
     "engine.native.runtime.socks5_outbound_connect_request_write_failed";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_READ_CODE: &str =
+    "engine.native.runtime.socks5_outbound_connect_response_read";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_INVALID_CODE: &str =
+    "engine.native.runtime.socks5_outbound_connect_response_invalid";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_READ_FAILED_CODE: &str =
+    "engine.native.runtime.socks5_outbound_connect_response_read_failed";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE: &str =
     "engine.native.runtime.socks5_route_outbound_unwired";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE: &str =
@@ -126,6 +132,7 @@ const SOCKS5_VERSION: u8 = 0x05;
 const SOCKS5_AUTH_METHOD_NO_AUTHENTICATION_REQUIRED: u8 = 0x00;
 const SOCKS5_AUTH_METHOD_NO_ACCEPTABLE_METHODS: u8 = 0xff;
 const SOCKS5_COMMAND_CONNECT: u8 = 0x01;
+const SOCKS5_REPLY_SUCCEEDED: u8 = 0x00;
 const SOCKS5_REPLY_GENERAL_FAILURE: u8 = 0x01;
 const SOCKS5_RESERVED: u8 = 0x00;
 const SOCKS5_ADDRESS_TYPE_IPV4: u8 = 0x01;
@@ -146,6 +153,7 @@ const SOCKS5_CONNECT_FAILURE_RESPONSE: [u8; 10] = [
 const ACCEPTED_CONNECTION_READ_TIMEOUT_MS: u64 = 100;
 const OUTBOUND_CONNECTION_ATTEMPT_TIMEOUT_MS: u64 = 100;
 const OUTBOUND_CONNECT_REQUEST_WRITE_TIMEOUT_MS: u64 = 100;
+const OUTBOUND_CONNECT_RESPONSE_READ_TIMEOUT_MS: u64 = 100;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoopbackListenerHandle {
@@ -609,6 +617,22 @@ pub struct NativeSocks5OutboundConnectRequestWriteReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5OutboundConnectResponse {
+    pub version: u8,
+    pub reply: u8,
+    pub reserved: u8,
+    pub address_type: u8,
+    pub bound_address: NativeSocks5Address,
+    pub bound_port: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5OutboundConnectResponseReadReport {
+    pub response: Option<NativeSocks5OutboundConnectResponse>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeSocks5RouteOutboundReport {
     pub decision: NativeSocks5RouteOutboundDecision,
     pub diagnostics: Vec<Diagnostic>,
@@ -1062,6 +1086,123 @@ where
 
     NativeSocks5OutboundConnectRequestWriteReport {
         request_frame,
+        diagnostics: vec![diagnostic],
+    }
+}
+
+pub fn read_socks5_outbound_connect_response<R>(
+    reader: &mut R,
+) -> NativeSocks5OutboundConnectResponseReadReport
+where
+    R: Read,
+{
+    let mut header = [0_u8; 4];
+    if reader.read_exact(&mut header).is_err() {
+        return socks5_outbound_connect_response_read_failed(
+            "native SOCKS5 outbound CONNECT response header could not be read",
+        );
+    }
+
+    let version = header[0];
+    let reply = header[1];
+    let reserved = header[2];
+    let address_type = header[3];
+    let bound_address = match address_type {
+        SOCKS5_ADDRESS_TYPE_IPV4 => {
+            let mut address = [0_u8; 4];
+            if reader.read_exact(&mut address).is_err() {
+                return socks5_outbound_connect_response_read_failed(
+                    "native SOCKS5 outbound CONNECT response IPv4 bound address could not be read",
+                );
+            }
+            NativeSocks5Address::Ipv4(address)
+        }
+        SOCKS5_ADDRESS_TYPE_DOMAIN_NAME => {
+            let mut length = [0_u8; 1];
+            if reader.read_exact(&mut length).is_err() {
+                return socks5_outbound_connect_response_read_failed(
+                    "native SOCKS5 outbound CONNECT response domain length could not be read",
+                );
+            }
+            if length[0] == 0 {
+                return NativeSocks5OutboundConnectResponseReadReport {
+                    response: None,
+                    diagnostics: vec![runtime_warning(
+                        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_INVALID_CODE,
+                        "native SOCKS5 outbound CONNECT response domain bound address cannot be empty",
+                    )],
+                };
+            }
+
+            let mut domain_name = vec![0_u8; length[0] as usize];
+            if reader.read_exact(&mut domain_name).is_err() {
+                return socks5_outbound_connect_response_read_failed(
+                    "native SOCKS5 outbound CONNECT response domain bound address could not be read",
+                );
+            }
+
+            match String::from_utf8(domain_name) {
+                Ok(domain_name) => NativeSocks5Address::DomainName(domain_name),
+                Err(_) => {
+                    return NativeSocks5OutboundConnectResponseReadReport {
+                        response: None,
+                        diagnostics: vec![runtime_warning(
+                            ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_INVALID_CODE,
+                            "native SOCKS5 outbound CONNECT response domain bound address must be valid UTF-8",
+                        )],
+                    };
+                }
+            }
+        }
+        SOCKS5_ADDRESS_TYPE_IPV6 => {
+            let mut address = [0_u8; 16];
+            if reader.read_exact(&mut address).is_err() {
+                return socks5_outbound_connect_response_read_failed(
+                    "native SOCKS5 outbound CONNECT response IPv6 bound address could not be read",
+                );
+            }
+            NativeSocks5Address::Ipv6(address)
+        }
+        _ => {
+            return NativeSocks5OutboundConnectResponseReadReport {
+                response: None,
+                diagnostics: vec![runtime_warning(
+                    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_INVALID_CODE,
+                    "native SOCKS5 outbound CONNECT response address type is unsupported",
+                )],
+            };
+        }
+    };
+
+    let mut bound_port = [0_u8; 2];
+    if reader.read_exact(&mut bound_port).is_err() {
+        return socks5_outbound_connect_response_read_failed(
+            "native SOCKS5 outbound CONNECT response bound port could not be read",
+        );
+    }
+
+    let response = NativeSocks5OutboundConnectResponse {
+        version,
+        reply,
+        reserved,
+        address_type,
+        bound_address,
+        bound_port: u16::from_be_bytes(bound_port),
+    };
+    let diagnostic = if socks5_outbound_connect_response_valid(&response) {
+        runtime_info(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_READ_CODE,
+            "native SOCKS5 outbound CONNECT response was read",
+        )
+    } else {
+        runtime_warning(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_INVALID_CODE,
+            "native SOCKS5 outbound CONNECT response is invalid or not successful",
+        )
+    };
+
+    NativeSocks5OutboundConnectResponseReadReport {
+        response: Some(response),
         diagnostics: vec![diagnostic],
     }
 }
@@ -1799,6 +1940,22 @@ fn socks5_connect_target_valid(target: &NativeSocks5ConnectTarget) -> bool {
         }
 }
 
+fn socks5_outbound_connect_response_valid(
+    response: &NativeSocks5OutboundConnectResponse,
+) -> bool {
+    response.version == SOCKS5_VERSION
+        && response.reply == SOCKS5_REPLY_SUCCEEDED
+        && response.reserved == SOCKS5_RESERVED
+        && matches!(
+            response.address_type,
+            SOCKS5_ADDRESS_TYPE_IPV4 | SOCKS5_ADDRESS_TYPE_DOMAIN_NAME | SOCKS5_ADDRESS_TYPE_IPV6
+        )
+        && match &response.bound_address {
+            NativeSocks5Address::Ipv4(_) | NativeSocks5Address::Ipv6(_) => true,
+            NativeSocks5Address::DomainName(domain_name) => !domain_name.trim().is_empty(),
+        }
+}
+
 fn socks5_outbound_connect_request_frame_bytes(
     target: &NativeSocks5ConnectTarget,
 ) -> Option<Vec<u8>> {
@@ -1849,6 +2006,18 @@ fn socks5_connect_target_read_failed(message: &'static str) -> NativeSocks5Conne
         target: None,
         diagnostics: vec![runtime_warning(
             ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_READ_FAILED_CODE,
+            message,
+        )],
+    }
+}
+
+fn socks5_outbound_connect_response_read_failed(
+    message: &'static str,
+) -> NativeSocks5OutboundConnectResponseReadReport {
+    NativeSocks5OutboundConnectResponseReadReport {
+        response: None,
+        diagnostics: vec![runtime_warning(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_READ_FAILED_CODE,
             message,
         )],
     }
@@ -1991,7 +2160,25 @@ fn read_socks5_greeting_and_close_accepted_connection(
                                     &mut outbound_stream,
                                     plan,
                                 );
+                                let connect_request_written =
+                                    write_report.diagnostics.iter().any(|diagnostic| {
+                                        diagnostic.code
+                                            == ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITTEN_CODE
+                                    });
                                 diagnostics.extend(write_report.diagnostics);
+                                if connect_request_written {
+                                    let _ = outbound_stream.set_read_timeout(Some(
+                                        Duration::from_millis(
+                                            OUTBOUND_CONNECT_RESPONSE_READ_TIMEOUT_MS,
+                                        ),
+                                    ));
+                                    diagnostics.extend(
+                                        read_socks5_outbound_connect_response(
+                                            &mut outbound_stream,
+                                        )
+                                        .diagnostics,
+                                    );
+                                }
                                 let _ = outbound_stream.shutdown(Shutdown::Both);
                             }
                         }
