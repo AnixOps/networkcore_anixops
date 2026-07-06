@@ -1,0 +1,82 @@
+# CI/CD Policy
+
+## 总原则
+
+本仓库采用 GitHub Actions 作为唯一测试、构建、编译、打包、发布验证环境。
+
+本地环境的职责是：
+
+- 编写代码
+- 编写文档
+- 修改配置
+- 查看差异
+- 提交和推送
+- 触发和观察 GitHub Actions
+
+本地环境不承担：
+
+- 单元测试
+- 集成测试
+- 编译
+- 打包
+- 发布
+- 任何形式的构建验证
+
+## Workflow 分工
+
+### CI
+
+`.github/workflows/ci.yml` 是主验证入口。
+
+它应覆盖：
+
+- 治理文件存在性检查
+- Linux、macOS、Windows 基础工作区检查
+- Go 代码出现后的 Go 构建与测试
+- Rust 代码出现后的 Rust 构建与测试
+- Node 代码出现后的 Node 构建与测试
+- Swift、Xcode 或 iOS 代码出现后的 Apple 平台验证
+
+### Release
+
+`.github/workflows/release.yml` 是发布入口。
+
+发布规则：
+
+- 只能通过 tag 或 `workflow_dispatch` 触发。
+- 不允许在本机打包 release artifact。
+- 产物必须由 GitHub-hosted runner 或后续配置的受控 runner 生成。
+
+## 多平台目标
+
+首期 CI/CD 目标平台：
+
+- `ubuntu-latest`
+- `macos-latest`
+- `windows-latest`
+
+iOS 相关验证只允许在 macOS runner 中执行。涉及签名、证书、Provisioning Profile 的内容必须使用 GitHub Secrets 或 Apple 官方流程，不得写入仓库。
+
+## 内核与客户端演进
+
+后续出现具体代码栈时，应把验证规则加入 GitHub Actions：
+
+- Go 内核：`go test ./...`、`go build ./...`
+- Rust 内核：`cargo test --workspace --all-targets`、`cargo build --workspace --all-targets`
+- Node 或 Web 客户端：`npm test`、`npm run build`
+- Swift 或 iOS 客户端：`swift test`、`swift build`、`xcodebuild`
+
+这些命令只能在 GitHub Actions 中运行。
+
+## 人工介入边界
+
+允许人工介入的事项：
+
+- 首次创建 GitHub 仓库或配置远端
+- 首次推送 bootstrap 文件
+- GitHub CLI 登录或授权
+- Apple Developer 账号、证书、Provisioning Profile、App Store Connect 配置
+- GitHub Secrets 配置
+- 第一次确认 GitHub Actions 权限
+
+人工完成后，应继续由 CI/CD 自动推进。

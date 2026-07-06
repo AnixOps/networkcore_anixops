@@ -1,0 +1,234 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  policy:
+    name: Repository policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify governance files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f AGENT.md
+          test -f AGENTS.md
+          test -f README.md
+          test -f CONTRIBUTING.md
+          test -f docs/ci-cd-policy.md
+          test -f docs/manual-intervention.md
+          grep -q "本机只负责代码" AGENT.md
+          grep -q "GitHub Actions" docs/ci-cd-policy.md
+
+  workspace-smoke:
+    name: Workspace smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs:
+      - policy
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f README.md
+          test -f AGENT.md
+          find . -maxdepth 3 -type f | sort | sed -n '1,160p'
+
+  go-build-test:
+    name: Go build and test
+    runs-on: ${{ matrix.os }}
+    if: ${{ hashFiles('**/go.mod') != '' }}
+    needs:
+      - policy
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test
+        shell: bash
+        run: go test ./...
+
+      - name: Build
+        shell: bash
+        run: go build ./...
+
+  rust-build-test:
+    name: Rust build and test
+    runs-on: ${{ matrix.os }}
+    if: ${{ hashFiles('**/Cargo.toml') != '' }}
+    needs:
+      - policy
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Test
+        shell: bash
+        run: cargo test --workspace --all-targets
+
+      - name: Build
+        shell: bash
+        run: cargo build --workspace --all-targets
+
+  node-build-test:
+    name: Node build and test
+    runs-on: ${{ matrix.os }}
+    if: ${{ hashFiles('**/package.json') != '' }}
+    needs:
+      - policy
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Test
+        shell: bash
+        run: |
+          set -euo pipefail
+          if node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.test ? 0 : 1)"; then
+            npm test
+          else
+            echo "No npm test script found; skipping."
+          fi
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          if node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.build ? 0 : 1)"; then
+            npm run build
+          else
+            echo "No npm build script found; skipping."
+          fi
+
+  swift-build-test:
+    name: Swift build and test
+    runs-on: macos-latest
+    if: ${{ hashFiles('**/Package.swift') != '' }}
+    needs:
+      - policy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Test
+        shell: bash
+        run: swift test
+
+      - name: Build
+        shell: bash
+        run: swift build
+
+  apple-project-smoke:
+    name: Apple project smoke
+    runs-on: macos-latest
+    if: ${{ hashFiles('**/*.xcodeproj/**') != '' || hashFiles('**/*.xcworkspace/**') != '' }}
+    needs:
+      - policy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Inspect Xcode projects
+        shell: bash
+        run: |
+          set -euo pipefail
+          find . \( -name "*.xcodeproj" -o -name "*.xcworkspace" \) -maxdepth 4 -print
+
+  ci-summary:
+    name: CI summary
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    needs:
+      - policy
+      - workspace-smoke
+      - go-build-test
+      - rust-build-test
+      - node-build-test
+      - swift-build-test
+      - apple-project-smoke
+    steps:
+      - name: Check required jobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "policy=${{ needs.policy.result }}"
+          echo "workspace-smoke=${{ needs.workspace-smoke.result }}"
+          test "${{ needs.policy.result }}" = "success"
+          test "${{ needs.workspace-smoke.result }}" = "success"

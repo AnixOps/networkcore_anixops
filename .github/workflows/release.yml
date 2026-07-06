@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version, for example v0.1.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-policy:
+    name: Release policy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify release is CI/CD controlled
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f AGENT.md
+          grep -q "发布验证都必须在 GitHub Actions" AGENT.md
+          echo "Release artifacts must be produced by GitHub Actions jobs."
+
+  release-placeholder:
+    name: Release placeholder
+    runs-on: ubuntu-latest
+    needs:
+      - release-policy
+    steps:
+      - name: Explain current release state
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "No release artifacts are defined yet."
+          echo "Add platform-specific packaging jobs here after source code lands."
