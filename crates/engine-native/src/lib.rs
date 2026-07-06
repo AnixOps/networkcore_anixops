@@ -320,7 +320,7 @@ impl NativeRuntimeAssemblyPlan {
 
     pub fn bind_loopback_listener(
         self,
-    ) -> Result<NativeRuntimeAssembly, NativeRuntimeStartupFailure> {
+    ) -> Result<NativeRuntimeAssembly, Box<NativeRuntimeStartupFailure>> {
         let Self {
             engine_id,
             listener,
@@ -332,10 +332,12 @@ impl NativeRuntimeAssemblyPlan {
             Ok(bound_listener) => Ok(NativeRuntimeAssembly::new(engine_id)
                 .with_bound_listener(bound_listener)
                 .with_outbound_handler(outbound_handler)),
-            Err(error) => Err(NativeRuntimeAssembly::new(engine_id)
-                .with_listener(release_listener)
-                .with_outbound_handler(outbound_handler)
-                .fail(error.code.clone(), error.message.clone())),
+            Err(error) => Err(Box::new(
+                NativeRuntimeAssembly::new(engine_id)
+                    .with_listener(release_listener)
+                    .with_outbound_handler(outbound_handler)
+                    .fail(error.code.clone(), error.message.clone()),
+            )),
         }
     }
 }
