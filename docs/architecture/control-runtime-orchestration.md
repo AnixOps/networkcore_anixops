@@ -126,7 +126,9 @@ iOS adapter 接入前，运行层必须按以下规则建模：
 
 当前 `crates/control-runtime` 提供最小 `RuntimeOrchestrator`，组合
 `ConfigurationService`、`PlatformCapabilityService` 和 `ProxyEngineService`，
-覆盖配置准备、启动、重载、停止、状态查询和事件读取。MITM gate、订阅、策略路由和 DNS 编排仍按后续扩展逐步加入。
+覆盖配置准备、启动、重载、停止、状态查询和事件读取；同时提供最小
+`MitmGateOrchestrator`，组合 `PlatformCapabilityService` 和
+`MitmPluginService`，覆盖证书信任和插件权限门禁。远程脚本禁用细分、订阅、策略路由和 DNS 编排仍按后续扩展逐步加入。
 
 ## 后续扩展
 

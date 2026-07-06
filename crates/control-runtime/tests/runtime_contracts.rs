@@ -1,11 +1,15 @@
 use control_domain::{
-    CertificateTrustState, ConfigSnapshot, ConfigurationService, Diagnostic, DomainError,
-    DomainResult, MitmCertificateStatus, OperatingSystem, PlatformCapabilities,
-    PlatformCapabilityService, PlatformCapabilityStatus, PlatformFeatureState, ProxyEngineConfig,
+    AuditDecision, AuditEvent, CertificateTrustState, ConfigSnapshot, ConfigurationService,
+    Diagnostic, DomainError, DomainResult, GrantedPermissions, HookPoint, HttpEvent,
+    MitmCertificateStatus, MitmPluginService, OperatingSystem, PlatformCapabilities,
+    PlatformCapabilityService, PlatformCapabilityStatus, PlatformFeatureState, PluginInstance,
+    PluginManifest, PluginPackage, PluginPermission, PluginResult, ProxyEngineConfig,
     ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineLifecycleState, ProxyEngineService,
     ProxyEngineStatus, SchemaVersion,
 };
-use control_runtime::{RuntimeConfigRequest, RuntimeOrchestrator};
+use control_runtime::{
+    MitmGateOrchestrator, MitmGateRequest, RuntimeConfigRequest, RuntimeOrchestrator,
+};
 
 struct NoopConfigurationService;
 
@@ -114,6 +118,44 @@ impl ProxyEngineService for FakeProxyEngineService {
     }
 }
 
+struct FakeMitmPluginService;
+
+impl MitmPluginService for FakeMitmPluginService {
+    fn validate_manifest(&self, _plugin_manifest: &PluginManifest) -> Vec<Diagnostic> {
+        Vec::new()
+    }
+
+    fn load(
+        &self,
+        plugin_package: &PluginPackage,
+        _granted_permissions: &GrantedPermissions,
+    ) -> DomainResult<PluginInstance> {
+        Ok(PluginInstance {
+            manifest: plugin_package.manifest.clone(),
+        })
+    }
+
+    fn handle_http_event(
+        &self,
+        plugin_instance: &PluginInstance,
+        _http_event: &HttpEvent,
+    ) -> DomainResult<PluginResult> {
+        Ok(PluginResult {
+            audits: vec![AuditEvent {
+                actor: plugin_instance.manifest.id.clone(),
+                action: "handle_http_event".to_string(),
+                decision: AuditDecision::Allowed,
+                reason: None,
+            }],
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn audit(&self, plugin_result: &PluginResult) -> Vec<AuditEvent> {
+        plugin_result.audits.clone()
+    }
+}
+
 #[test]
 fn start_runtime_prepares_config_and_starts_engine() {
     let orchestrator = RuntimeOrchestrator::new(
@@ -172,6 +214,98 @@ fn start_runtime_propagates_engine_start_error() {
     assert_eq!(error.code, "engine.start_failed");
 }
 
+#[test]
+fn mitm_gate_allows_trusted_certificate_and_granted_permissions() {
+    let gate = MitmGateOrchestrator::new(
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeMitmPluginService,
+    );
+
+    let decision = gate
+        .mitm_gate(MitmGateRequest::new(
+            sample_plugin_package(),
+            granted_permissions(vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ]),
+            sample_http_event(),
+        ))
+        .expect("mitm gate should evaluate");
+
+    assert!(decision.is_allowed());
+    assert_eq!(decision.decision, AuditDecision::Allowed);
+    assert!(decision.plugin_result.is_some());
+    assert!(decision
+        .audits
+        .iter()
+        .any(|audit| audit.action == "mitm_gate"));
+}
+
+#[test]
+fn mitm_gate_rejects_untrusted_certificate() {
+    let gate = MitmGateOrchestrator::new(
+        StaticPlatformCapabilityService {
+            status: platform_status_with_untrusted_certificate(),
+        },
+        FakeMitmPluginService,
+    );
+
+    let decision = gate
+        .mitm_gate(MitmGateRequest::new(
+            sample_plugin_package(),
+            granted_permissions(vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ]),
+            sample_http_event(),
+        ))
+        .expect("mitm gate should return a denial decision");
+
+    assert!(!decision.is_allowed());
+    assert_eq!(decision.decision, AuditDecision::Denied);
+    assert!(decision.plugin_result.is_none());
+    assert_eq!(
+        decision.reason.as_deref(),
+        Some("mitm certificate is installed but not trusted")
+    );
+    assert!(decision.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "runtime.mitm.certificate_untrusted"
+            && diagnostic.severity == control_domain::DiagnosticSeverity::Error
+    }));
+}
+
+#[test]
+fn mitm_gate_rejects_ungranted_plugin_permission() {
+    let gate = MitmGateOrchestrator::new(
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeMitmPluginService,
+    );
+
+    let decision = gate
+        .mitm_gate(MitmGateRequest::new(
+            sample_plugin_package(),
+            granted_permissions(vec![PluginPermission::ReadRequest]),
+            sample_http_event(),
+        ))
+        .expect("mitm gate should return a denial decision");
+
+    assert!(!decision.is_allowed());
+    assert_eq!(decision.decision, AuditDecision::Denied);
+    assert!(decision.plugin_result.is_none());
+    assert_eq!(
+        decision.reason.as_deref(),
+        Some("plugin permission is not granted: modify_request")
+    );
+    assert!(decision
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "runtime.mitm.permission_denied"));
+}
+
 fn available_platform_status() -> PlatformCapabilityStatus {
     PlatformCapabilityStatus {
         os: OperatingSystem::Ios,
@@ -182,6 +316,20 @@ fn available_platform_status() -> PlatformCapabilityStatus {
             "remote script execution is disabled on iOS",
         ),
         mitm_certificate: MitmCertificateStatus::new(CertificateTrustState::Trusted),
+        diagnostics: Vec::new(),
+    }
+}
+
+fn platform_status_with_untrusted_certificate() -> PlatformCapabilityStatus {
+    PlatformCapabilityStatus {
+        os: OperatingSystem::Ios,
+        tunnel: PlatformFeatureState::available(),
+        mitm: PlatformFeatureState::available(),
+        embedded_runtime: PlatformFeatureState::available(),
+        remote_script_execution: PlatformFeatureState::unavailable(
+            "remote script execution is disabled on iOS",
+        ),
+        mitm_certificate: MitmCertificateStatus::new(CertificateTrustState::InstalledUntrusted),
         diagnostics: Vec::new(),
     }
 }
@@ -197,5 +345,32 @@ fn platform_status_without_tunnel() -> PlatformCapabilityStatus {
         ),
         mitm_certificate: MitmCertificateStatus::new(CertificateTrustState::Trusted),
         diagnostics: Vec::new(),
+    }
+}
+
+fn sample_plugin_package() -> PluginPackage {
+    PluginPackage {
+        manifest: PluginManifest {
+            id: "header-rewriter".to_string(),
+            version: "1.0.0".to_string(),
+            permissions: vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ],
+            hooks: vec![HookPoint::Request],
+        },
+        source: "export default function rewrite(request) { return request; }".to_string(),
+    }
+}
+
+fn granted_permissions(permissions: Vec<PluginPermission>) -> GrantedPermissions {
+    GrantedPermissions { permissions }
+}
+
+fn sample_http_event() -> HttpEvent {
+    HttpEvent {
+        request_id: "request-1".to_string(),
+        headers: Vec::new(),
+        body: Vec::new(),
     }
 }

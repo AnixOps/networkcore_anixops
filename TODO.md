@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 在 `control-runtime` 中补充 MITM gate 用例，覆盖证书未信任和权限拒绝路径。
+- [ ] 在 `control-runtime` 的 MITM gate 中补充远程脚本禁用边界和插件端口错误传播用例。
 
 ## 已完成
 
+- [x] 在 `control-runtime` 中补充 MITM gate 用例，覆盖证书未信任和权限拒绝路径。
 - [x] 创建最小 `control-runtime` crate，依赖 `control-domain` 并实现运行层编排的首批纯用例与测试替身。
 - [x] 在创建 `control-runtime` crate 前补充运行层编排设计文档。
 - [x] 在 `control-domain` 中补充平台能力状态和 MITM 证书状态的领域类型。

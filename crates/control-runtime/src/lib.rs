@@ -5,10 +5,11 @@
 //! UI work, or transport-specific control API behavior.
 
 use control_domain::{
-    ConfigSnapshot, ConfigurationService, Diagnostic, DiagnosticSeverity, DomainError,
-    DomainResult, Metadata, NodeDescriptor, PlatformCapabilities, PlatformCapabilityService,
-    PlatformCapabilityStatus, PlatformFeatureState, ProxyEngineConfig, ProxyEngineEvent,
-    ProxyEngineService, ProxyEngineStatus,
+    AuditDecision, AuditEvent, ConfigSnapshot, ConfigurationService, Diagnostic,
+    DiagnosticSeverity, DomainError, DomainResult, GrantedPermissions, HttpEvent, Metadata,
+    MitmPluginService, NodeDescriptor, PlatformCapabilities, PlatformCapabilityService,
+    PlatformCapabilityStatus, PlatformFeatureState, PluginPackage, PluginPermission, PluginResult,
+    ProxyEngineConfig, ProxyEngineEvent, ProxyEngineService, ProxyEngineStatus,
 };
 
 /// Prepared configuration and platform context ready for runtime use.
@@ -59,11 +60,58 @@ pub struct RuntimeStatusSnapshot {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// MITM plugin gate request for one HTTP event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MitmGateRequest {
+    pub plugin_package: PluginPackage,
+    pub granted_permissions: GrantedPermissions,
+    pub http_event: HttpEvent,
+}
+
+impl MitmGateRequest {
+    /// Creates a MITM gate request.
+    pub fn new(
+        plugin_package: PluginPackage,
+        granted_permissions: GrantedPermissions,
+        http_event: HttpEvent,
+    ) -> Self {
+        Self {
+            plugin_package,
+            granted_permissions,
+            http_event,
+        }
+    }
+}
+
+/// MITM gate decision with diagnostics and audit events.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MitmGateDecision {
+    pub platform: PlatformCapabilityStatus,
+    pub decision: AuditDecision,
+    pub reason: Option<String>,
+    pub plugin_result: Option<PluginResult>,
+    pub audits: Vec<AuditEvent>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl MitmGateDecision {
+    /// Returns whether the gate allowed plugin execution.
+    pub fn is_allowed(&self) -> bool {
+        self.decision == AuditDecision::Allowed
+    }
+}
+
 /// Pure runtime use case orchestrator.
 pub struct RuntimeOrchestrator<C, P, E> {
     configuration: C,
     platform: P,
     engine: E,
+}
+
+/// Pure MITM gate orchestrator.
+pub struct MitmGateOrchestrator<P, M> {
+    platform: P,
+    mitm: M,
 }
 
 impl<C, P, E> RuntimeOrchestrator<C, P, E>
@@ -204,6 +252,111 @@ where
     }
 }
 
+impl<P, M> MitmGateOrchestrator<P, M>
+where
+    P: PlatformCapabilityService,
+    M: MitmPluginService,
+{
+    /// Creates a MITM gate orchestrator from domain port implementations.
+    pub const fn new(platform: P, mitm: M) -> Self {
+        Self { platform, mitm }
+    }
+
+    /// Evaluates platform and permission gates before handling a MITM HTTP event.
+    pub fn mitm_gate(&self, request: MitmGateRequest) -> DomainResult<MitmGateDecision> {
+        let platform = self.platform.status()?;
+        let mut diagnostics = platform_diagnostics(&platform);
+        let actor = request.plugin_package.manifest.id.clone();
+
+        if !platform.mitm.is_available() {
+            let reason = platform
+                .mitm
+                .denial_reason()
+                .unwrap_or("mitm availability is unknown");
+            return Ok(denied_mitm_gate(
+                platform,
+                &actor,
+                "runtime.mitm.unavailable",
+                format!("mitm is unavailable: {reason}"),
+                diagnostics,
+            ));
+        }
+
+        if !platform.mitm_certificate.is_trusted() {
+            let reason = platform
+                .mitm_certificate
+                .state
+                .denial_reason()
+                .unwrap_or("mitm certificate trust state is unknown");
+            return Ok(denied_mitm_gate(
+                platform,
+                &actor,
+                "runtime.mitm.certificate_untrusted",
+                reason.to_string(),
+                diagnostics,
+            ));
+        }
+
+        let manifest_diagnostics = self
+            .mitm
+            .validate_manifest(&request.plugin_package.manifest);
+        let manifest_invalid = has_error_diagnostics(&manifest_diagnostics);
+        diagnostics.extend(manifest_diagnostics);
+        if manifest_invalid {
+            return Ok(denied_mitm_gate(
+                platform,
+                &actor,
+                "runtime.mitm.manifest_invalid",
+                "plugin manifest validation failed".to_string(),
+                diagnostics,
+            ));
+        }
+
+        if let Some(permission) = first_missing_permission(
+            &request.plugin_package.manifest.permissions,
+            &request.granted_permissions.permissions,
+        ) {
+            return Ok(denied_mitm_gate(
+                platform,
+                &actor,
+                "runtime.mitm.permission_denied",
+                format!(
+                    "plugin permission is not granted: {}",
+                    plugin_permission_name(permission)
+                ),
+                diagnostics,
+            ));
+        }
+
+        let plugin_instance = self
+            .mitm
+            .load(&request.plugin_package, &request.granted_permissions)?;
+        let plugin_result = self
+            .mitm
+            .handle_http_event(&plugin_instance, &request.http_event)?;
+        let plugin_audits = self.mitm.audit(&plugin_result);
+
+        diagnostics.extend(plugin_result.diagnostics.clone());
+        let mut audits = vec![AuditEvent {
+            actor,
+            action: "mitm_gate".to_string(),
+            decision: AuditDecision::Allowed,
+            reason: None,
+        }];
+        audits.extend(plugin_result.audits.clone());
+        audits.extend(plugin_audits);
+
+        Ok(MitmGateDecision {
+            platform,
+            decision: AuditDecision::Allowed,
+            reason: None,
+            plugin_result: Some(plugin_result),
+            audits,
+            diagnostics,
+        })
+    }
+}
+
 /// Converts rich platform status into the current configuration capability input.
 pub fn platform_capabilities_from_status(
     status: &PlatformCapabilityStatus,
@@ -249,20 +402,72 @@ fn reject_error_diagnostics(
     code: &'static str,
     message: &'static str,
 ) -> DomainResult<()> {
-    if diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
-    {
+    if has_error_diagnostics(diagnostics) {
         Err(DomainError::new(code, message))
     } else {
         Ok(())
     }
 }
 
+fn has_error_diagnostics(diagnostics: &[Diagnostic]) -> bool {
+    diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+}
+
 fn platform_diagnostics(status: &PlatformCapabilityStatus) -> Vec<Diagnostic> {
     let mut diagnostics = status.diagnostics.clone();
     diagnostics.extend(status.mitm_certificate.diagnostics.clone());
     diagnostics
+}
+
+fn denied_mitm_gate(
+    platform: PlatformCapabilityStatus,
+    actor: &str,
+    code: &'static str,
+    message: String,
+    mut diagnostics: Vec<Diagnostic>,
+) -> MitmGateDecision {
+    diagnostics.push(Diagnostic::new(
+        DiagnosticSeverity::Error,
+        code,
+        message.clone(),
+        Some("mitm_gate".to_string()),
+    ));
+
+    MitmGateDecision {
+        platform,
+        decision: AuditDecision::Denied,
+        reason: Some(message.clone()),
+        plugin_result: None,
+        audits: vec![AuditEvent {
+            actor: actor.to_string(),
+            action: "mitm_gate".to_string(),
+            decision: AuditDecision::Denied,
+            reason: Some(message),
+        }],
+        diagnostics,
+    }
+}
+
+fn first_missing_permission<'a>(
+    required_permissions: &'a [PluginPermission],
+    granted_permissions: &[PluginPermission],
+) -> Option<&'a PluginPermission> {
+    required_permissions
+        .iter()
+        .find(|permission| !granted_permissions.contains(*permission))
+}
+
+fn plugin_permission_name(permission: &PluginPermission) -> &'static str {
+    match permission {
+        PluginPermission::ReadRequest => "read_request",
+        PluginPermission::ModifyRequest => "modify_request",
+        PluginPermission::ReadResponse => "read_response",
+        PluginPermission::ModifyResponse => "modify_response",
+        PluginPermission::NetworkAccess => "network_access",
+        PluginPermission::PersistentStorage => "persistent_storage",
+    }
 }
 
 #[cfg(test)]
