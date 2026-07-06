@@ -738,6 +738,67 @@ fn mitm_gate_rejects_certificate_denial_matrix_before_plugin_port() {
 }
 
 #[test]
+fn mitm_gate_preserves_certificate_diagnostics_on_certificate_denial() {
+    let expected_reason = "mitm certificate is installed but not trusted";
+    let gate = MitmGateOrchestrator::new(
+        StaticPlatformCapabilityService {
+            status: platform_status_with_certificate_diagnostics(
+                CertificateTrustState::InstalledUntrusted,
+            ),
+        },
+        PanicMitmPluginService,
+    );
+
+    let decision = gate
+        .mitm_gate(MitmGateRequest::new(
+            sample_plugin_package(),
+            granted_permissions(vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ]),
+            sample_http_event(),
+        ))
+        .expect("mitm gate should return a denial decision");
+
+    let certificate_diagnostic = decision
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code == "platform.mitm_certificate.trust_pending")
+        .expect("certificate diagnostic should be preserved");
+
+    assert!(!decision.is_allowed());
+    assert_eq!(decision.decision, AuditDecision::Denied);
+    assert_eq!(decision.reason.as_deref(), Some(expected_reason));
+    assert_eq!(
+        decision.platform.mitm_certificate.state,
+        CertificateTrustState::InstalledUntrusted
+    );
+    assert!(decision.plugin_result.is_none());
+    assert_eq!(
+        certificate_diagnostic.severity,
+        control_domain::DiagnosticSeverity::Warning
+    );
+    assert_eq!(
+        certificate_diagnostic.message,
+        "mitm certificate is installed but still pending user trust"
+    );
+    assert_eq!(
+        certificate_diagnostic.source.as_deref(),
+        Some("platform.mitm_certificate")
+    );
+    assert!(decision.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "runtime.mitm.certificate_untrusted"
+            && diagnostic.message == expected_reason
+            && diagnostic.severity == control_domain::DiagnosticSeverity::Error
+    }));
+    assert_eq!(decision.audits.len(), 1);
+    assert_eq!(decision.audits[0].actor, "header-rewriter");
+    assert_eq!(decision.audits[0].action, "mitm_gate");
+    assert_eq!(decision.audits[0].decision, AuditDecision::Denied);
+    assert_eq!(decision.audits[0].reason, decision.reason);
+}
+
+#[test]
 fn mitm_gate_rejects_ungranted_plugin_permission() {
     let expected_reason = "plugin permission is not granted: modify_request";
     let gate = MitmGateOrchestrator::new(
@@ -1165,6 +1226,19 @@ fn platform_status_with_certificate_state(
         mitm_certificate: MitmCertificateStatus::new(state),
         diagnostics: Vec::new(),
     }
+}
+
+fn platform_status_with_certificate_diagnostics(
+    state: CertificateTrustState,
+) -> PlatformCapabilityStatus {
+    let mut status = platform_status_with_certificate_state(state);
+    status.mitm_certificate.diagnostics = vec![Diagnostic::new(
+        control_domain::DiagnosticSeverity::Warning,
+        "platform.mitm_certificate.trust_pending",
+        "mitm certificate is installed but still pending user trust",
+        Some("platform.mitm_certificate".to_string()),
+    )];
+    status
 }
 
 fn platform_status_without_remote_scripts() -> PlatformCapabilityStatus {
