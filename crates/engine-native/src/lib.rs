@@ -12,7 +12,7 @@ use control_domain::{
 };
 use std::collections::BTreeSet;
 use std::io::{ErrorKind, Read, Write};
-use std::net::{IpAddr, Shutdown, TcpListener, TcpStream};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread::{self, JoinHandle};
@@ -107,6 +107,10 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_PLANNED_CODE: &st
     "engine.native.runtime.socks5_outbound_tcp_connection_planned";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_PLAN_INVALID_CODE: &str =
     "engine.native.runtime.socks5_outbound_tcp_connection_plan_invalid";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_ATTEMPT_SUCCEEDED_CODE: &str =
+    "engine.native.runtime.socks5_outbound_tcp_connection_attempt_succeeded";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_ATTEMPT_FAILED_CODE: &str =
+    "engine.native.runtime.socks5_outbound_tcp_connection_attempt_failed";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE: &str =
     "engine.native.runtime.socks5_route_outbound_unwired";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE: &str =
@@ -136,6 +140,7 @@ const SOCKS5_CONNECT_FAILURE_RESPONSE: [u8; 10] = [
     0,
 ];
 const ACCEPTED_CONNECTION_READ_TIMEOUT_MS: u64 = 100;
+const OUTBOUND_CONNECTION_ATTEMPT_TIMEOUT_MS: u64 = 100;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoopbackListenerHandle {
@@ -586,6 +591,12 @@ pub struct NativeSocks5OutboundTcpConnectionPlanReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug)]
+pub struct NativeSocks5OutboundTcpConnectionAttemptReport {
+    pub stream: Option<TcpStream>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeSocks5RouteOutboundReport {
     pub decision: NativeSocks5RouteOutboundDecision,
@@ -976,6 +987,40 @@ pub fn plan_socks5_outbound_tcp_connection(
             ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_PLANNED_CODE,
             "native SOCKS5 outbound TCP connection plan was created",
         )],
+    }
+}
+
+pub fn attempt_socks5_outbound_tcp_connection(
+    plan: &NativeSocks5OutboundTcpConnectionPlan,
+) -> NativeSocks5OutboundTcpConnectionAttemptReport {
+    let Some(socket_addr) = endpoint_socket_addr(&plan.outbound_endpoint) else {
+        return NativeSocks5OutboundTcpConnectionAttemptReport {
+            stream: None,
+            diagnostics: vec![runtime_warning(
+                ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_ATTEMPT_FAILED_CODE,
+                "native SOCKS5 outbound TCP connection attempt requires an IP endpoint",
+            )],
+        };
+    };
+
+    match TcpStream::connect_timeout(
+        &socket_addr,
+        Duration::from_millis(OUTBOUND_CONNECTION_ATTEMPT_TIMEOUT_MS),
+    ) {
+        Ok(stream) => NativeSocks5OutboundTcpConnectionAttemptReport {
+            stream: Some(stream),
+            diagnostics: vec![runtime_info(
+                ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_ATTEMPT_SUCCEEDED_CODE,
+                "native SOCKS5 outbound TCP connection attempt succeeded",
+            )],
+        },
+        Err(_) => NativeSocks5OutboundTcpConnectionAttemptReport {
+            stream: None,
+            diagnostics: vec![runtime_warning(
+                ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_ATTEMPT_FAILED_CODE,
+                "native SOCKS5 outbound TCP connection attempt failed",
+            )],
+        },
     }
 }
 
@@ -1744,6 +1789,19 @@ fn socks5_outbound_connect_request_frame_bytes(
     Some(frame)
 }
 
+fn endpoint_socket_addr(endpoint: &Endpoint) -> Option<SocketAddr> {
+    if endpoint.port == 0 {
+        return None;
+    }
+
+    endpoint
+        .host
+        .trim()
+        .parse::<IpAddr>()
+        .ok()
+        .map(|host| SocketAddr::new(host, endpoint.port))
+}
+
 fn socks5_connect_target_read_failed(message: &'static str) -> NativeSocks5ConnectTargetReadReport {
     NativeSocks5ConnectTargetReadReport {
         target: None,
@@ -1871,13 +1929,19 @@ fn read_socks5_greeting_and_close_accepted_connection(
                             &route_selection_report.behavior,
                         );
                         diagnostics.extend(frame_report.diagnostics);
-                        diagnostics.extend(
-                            plan_socks5_outbound_tcp_connection(
-                                &route_selection_report.behavior,
-                                &frame_report.frame,
-                            )
-                            .diagnostics,
+                        let plan_report = plan_socks5_outbound_tcp_connection(
+                            &route_selection_report.behavior,
+                            &frame_report.frame,
                         );
+                        diagnostics.extend(plan_report.diagnostics);
+                        if let Some(plan) = plan_report.plan.as_ref() {
+                            let NativeSocks5OutboundTcpConnectionAttemptReport {
+                                stream: outbound_stream,
+                                diagnostics: attempt_diagnostics,
+                            } = attempt_socks5_outbound_tcp_connection(plan);
+                            drop(outbound_stream);
+                            diagnostics.extend(attempt_diagnostics);
+                        }
                         diagnostics
                             .extend(reject_unwired_socks5_route_outbound(target).diagnostics);
                         let failure_response_report =
