@@ -826,6 +826,48 @@ fn mitm_gate_aggregates_plugin_result_diagnostics() {
 }
 
 #[test]
+fn mitm_gate_aggregates_platform_diagnostics() {
+    let gate = MitmGateOrchestrator::new(
+        StaticPlatformCapabilityService {
+            status: platform_status_with_gate_diagnostics(),
+        },
+        FakeMitmPluginService::new(),
+    );
+
+    let decision = gate
+        .mitm_gate(MitmGateRequest::new(
+            sample_plugin_package(),
+            granted_permissions(vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ]),
+            sample_http_event(),
+        ))
+        .expect("mitm gate should evaluate");
+
+    assert!(decision.is_allowed());
+    assert_eq!(decision.decision, AuditDecision::Allowed);
+    assert!(decision.reason.is_none());
+    assert!(decision.plugin_result.is_some());
+    assert!(decision.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "platform.mitm.profile_scope"
+            && diagnostic.severity == control_domain::DiagnosticSeverity::Warning
+    }));
+    assert!(decision.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "platform.mitm_certificate.cached_trust"
+            && diagnostic.severity == control_domain::DiagnosticSeverity::Info
+    }));
+    assert!(!decision
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == control_domain::DiagnosticSeverity::Error));
+    assert!(decision
+        .audits
+        .iter()
+        .any(|audit| audit.action == "mitm_gate"));
+}
+
+#[test]
 fn mitm_gate_rejects_disabled_remote_script_execution_before_plugin_port() {
     let gate = MitmGateOrchestrator::new(
         StaticPlatformCapabilityService {
@@ -957,6 +999,23 @@ fn available_platform_status() -> PlatformCapabilityStatus {
         mitm_certificate: MitmCertificateStatus::new(CertificateTrustState::Trusted),
         diagnostics: Vec::new(),
     }
+}
+
+fn platform_status_with_gate_diagnostics() -> PlatformCapabilityStatus {
+    let mut status = available_platform_status();
+    status.diagnostics = vec![Diagnostic::new(
+        control_domain::DiagnosticSeverity::Warning,
+        "platform.mitm.profile_scope",
+        "mitm is limited to the selected profile",
+        Some("platform.mitm".to_string()),
+    )];
+    status.mitm_certificate.diagnostics = vec![Diagnostic::new(
+        control_domain::DiagnosticSeverity::Info,
+        "platform.mitm_certificate.cached_trust",
+        "mitm certificate trust state was served from cache",
+        Some("platform.mitm_certificate".to_string()),
+    )];
+    status
 }
 
 fn platform_status_without_mitm() -> PlatformCapabilityStatus {
