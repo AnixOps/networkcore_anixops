@@ -2457,9 +2457,7 @@ fn socks5_outbound_connect_data_relay_failed() -> NativeSocks5OutboundConnectDat
 }
 
 fn diagnostics_contain_code(diagnostics: &[Diagnostic], code: &str) -> bool {
-    diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.code == code)
+    diagnostics.iter().any(|diagnostic| diagnostic.code == code)
 }
 
 fn diagnostics_contain_client_success_written(diagnostics: &[Diagnostic]) -> bool {
