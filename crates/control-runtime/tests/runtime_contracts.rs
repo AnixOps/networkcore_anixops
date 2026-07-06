@@ -129,7 +129,10 @@ fn start_runtime_prepares_config_and_starts_engine() {
         .expect("runtime should start");
 
     assert_eq!(result.engine_status.engine_id, "native");
-    assert_eq!(result.engine_status.state, ProxyEngineLifecycleState::Running);
+    assert_eq!(
+        result.engine_status.state,
+        ProxyEngineLifecycleState::Running
+    );
     assert!(result.capabilities.supports_tunnel);
     assert!(result.capabilities.supports_embedded_runtime);
 }
