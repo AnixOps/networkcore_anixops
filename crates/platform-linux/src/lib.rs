@@ -21,8 +21,7 @@ pub const TUN_DEVICE_MISSING_CODE: &str = "platform.linux.tun.device_missing";
 pub const TUN_PERMISSION_DENIED_CODE: &str = "platform.linux.tun.permission_denied";
 pub const TUN_PROBE_UNKNOWN_CODE: &str = "platform.linux.tun.probe_unknown";
 pub const PERMISSION_NOT_ROOT_CODE: &str = "platform.linux.permission.not_root";
-pub const PERMISSION_CAPABILITY_MISSING_CODE: &str =
-    "platform.linux.permission.capability_missing";
+pub const PERMISSION_CAPABILITY_MISSING_CODE: &str = "platform.linux.permission.capability_missing";
 pub const PERMISSION_ELEVATION_REQUIRED_CODE: &str = "platform.linux.permission.elevation_required";
 pub const PERMISSION_PROBE_FAILED_CODE: &str = "platform.linux.permission.probe_failed";
 pub const DNS_MANAGER_DETECTED_CODE: &str = "platform.linux.dns.manager_detected";
