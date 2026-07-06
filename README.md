@@ -32,4 +32,8 @@
 
 ## 当前状态
 
-当前仓库处于 bootstrap 阶段，已建立协作规范、规划治理入口与 GitHub Actions 骨架。后续代码实现必须先补齐对应规格或设计说明，并通过 CI/CD 验证。
+当前仓库处于 P2 初始内核骨架阶段，已建立协作规范、规划治理入口、架构规格、Rust 首选栈决策和最小 `control-domain` crate。后续实现必须先补齐对应规格或设计说明，并通过 CI/CD 验证。
+
+## 源码布局
+
+- [crates/control-domain](crates/control-domain)：统一控制内核的首批领域类型与端口 trait。

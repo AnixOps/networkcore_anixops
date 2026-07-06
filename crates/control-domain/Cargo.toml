@@ -1,0 +1,10 @@
+[package]
+name = "control-domain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Domain contracts for the AnixOps network control kernel."
+
+[lib]
+path = "src/lib.rs"

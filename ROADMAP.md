@@ -41,6 +41,10 @@
 - GitHub Actions 中对应语言的 build、test、lint 或等效验证。
 - README、TODO、CHANGELOG 与设计文档同步更新。
 
+当前源码：
+
+- [control-domain](crates/control-domain)
+
 ## P3 Runtime Capabilities
 
 目标是逐步实现可组合的网络控制能力。
