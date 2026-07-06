@@ -138,11 +138,36 @@ jobs:
           echo "release-checksum-algorithm=sha256"
           echo "release-artifact-output-fields=artifact_name,artifact_path,checksum_algorithm,checksum_file,checksum_value"
 
+  release-signing-contract:
+    name: Release signing contract
+    runs-on: ubuntu-latest
+    needs:
+      - release-artifact-contract
+    steps:
+      - name: Record signing and attestation contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Release Signing Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current signing mode | not configured |"
+            echo "| Required future gate | platform artifacts must declare signing or attestation policy before publish |"
+            echo "| Credential handling | GitHub Secrets, Environments, or official platform only |"
+            echo "| Required job outputs | signing_policy, signing_status, attestation_status, provenance_file |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "release-signing-contract=placeholder"
+          echo "release-signing-required-before-publish=true"
+          echo "release-attestation-required-when-supported=true"
+          echo "release-signing-output-fields=signing_policy,signing_status,attestation_status,provenance_file"
+
   release-placeholder:
     name: Release placeholder
     runs-on: ubuntu-latest
     needs:
-      - release-artifact-contract
+      - release-signing-contract
     steps:
       - name: Explain current release state
         shell: bash
@@ -159,6 +184,7 @@ jobs:
       - release-policy
       - release-ci-gate
       - release-artifact-contract
+      - release-signing-contract
       - release-placeholder
     steps:
       - name: Summarize release state
@@ -189,9 +215,11 @@ jobs:
             echo "| Release policy | ${{ needs.release-policy.result }} |"
             echo "| Release CI gate | ${{ needs.release-ci-gate.result }} |"
             echo "| Release artifact contract | ${{ needs.release-artifact-contract.result }} |"
+            echo "| Release signing contract | ${{ needs.release-signing-contract.result }} |"
             echo "| Release placeholder | ${{ needs.release-placeholder.result }} |"
             echo "| Release artifacts | not defined |"
             echo "| Artifact checksum | sha256 required before upload or publish |"
+            echo "| Artifact signing/attestation | required before platform artifact publish |"
             echo "| Artifact gate | blocked until source, platform design, CI, checksum, signing, and rollback gates are implemented |"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "release-version=${RELEASE_VERSION}"
@@ -203,11 +231,14 @@ jobs:
           echo "release-policy=${{ needs.release-policy.result }}"
           echo "release-ci-gate=${{ needs.release-ci-gate.result }}"
           echo "release-artifact-contract=${{ needs.release-artifact-contract.result }}"
+          echo "release-signing-contract=${{ needs.release-signing-contract.result }}"
           echo "release-placeholder=${{ needs.release-placeholder.result }}"
           echo "release-artifacts=not-defined"
           echo "release-checksum-contract=sha256-required"
+          echo "release-signing-contract-state=placeholder"
           echo "artifact-gate=release-strategy-required"
           test "${{ needs.release-policy.result }}" = "success"
           test "${{ needs.release-ci-gate.result }}" = "success"
           test "${{ needs.release-artifact-contract.result }}" = "success"
+          test "${{ needs.release-signing-contract.result }}" = "success"
           test "${{ needs.release-placeholder.result }}" = "success"

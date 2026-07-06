@@ -6,15 +6,16 @@
 
 ## 当前发布状态
 
-当前 release workflow 只保留 policy、release-ci-gate、release-artifact-contract 与 placeholder job：
+当前 release workflow 只保留 policy、release-ci-gate、release-artifact-contract、release-signing-contract 与 placeholder job：
 
 - 允许 tag `v*` 和 `workflow_dispatch` 触发。
 - release policy job 检查版本格式和触发来源一致性；手动 placeholder release 必须从 `main` 分支发起，tag release 必须使用同名 tag 版本。
 - `release-ci-gate` job 记录真实 artifact 加入前必须关联 `main` 上同 commit 的成功 CI 结果；placeholder 阶段暂不执行 artifact CI 门禁。
 - `release-artifact-contract` job 记录首个真实 artifact job 必须输出 `artifact_name`、`artifact_path`、`checksum_algorithm`、`checksum_file` 和 `checksum_value`，且 checksum 算法默认为 `sha256`。
+- `release-signing-contract` job 记录真实平台 artifact 发布前必须声明签名或 attestation 策略，并要求后续 job 输出 `signing_policy`、`signing_status`、`attestation_status` 和 `provenance_file`。
 - 不生成 release artifact。
 - 不在本机打包、签名、测试或发布。
-- 通过 release summary job 输出发布来源、policy、release-ci-gate、release-artifact-contract、placeholder、artifact 状态和后续 artifact 门禁。
+- 通过 release summary job 输出发布来源、policy、release-ci-gate、release-artifact-contract、release-signing-contract、placeholder、artifact 状态和后续 artifact 门禁。
 - 任何真实产物必须先有对应源码、平台设计、GitHub Actions 验证和本文件定义的门禁。
 
 ## 发布原则
@@ -35,8 +36,9 @@
 3. release workflow 中的每个 artifact job 都显式声明 runner、toolchain、输入版本、输出文件名和上传路径。
 4. 产物必须由 GitHub-hosted runner 或后续受控 runner 生成，并上传为 workflow artifact 或 GitHub Release asset。
 5. 每个上传产物必须生成 checksum；首个真实 artifact job 至少输出 `artifact_name`、`artifact_path`、`checksum_algorithm`、`checksum_file` 和 `checksum_value`；后续有 signing 或 attestation 能力时必须纳入同一 release run。
-6. 涉及 Apple、Windows 或商店发布的产物必须先完成人工账号、证书、密钥和 Secrets 配置，并记录到 `docs/manual-intervention.md`。
-7. 发布说明必须链接对应 CHANGELOG、CI run、release run 和回滚方案。
+6. 真实平台 artifact 发布前必须声明签名或 attestation 策略，并至少输出 `signing_policy`、`signing_status`、`attestation_status` 和 `provenance_file`。
+7. 涉及 Apple、Windows 或商店发布的产物必须先完成人工账号、证书、密钥和 Secrets 配置，并记录到 `docs/manual-intervention.md`。
+8. 发布说明必须链接对应 CHANGELOG、CI run、release run 和回滚方案。
 
 ## 初始产物矩阵
 
@@ -58,11 +60,12 @@
 1. `release-policy`：检查 AGENT、CI/CD policy、release strategy、版本格式和 tag/ref 一致性。
 2. `release-ci-gate`：确认当前 commit 对应 CI run 已成功，或在 release workflow 中重新执行等效验证。
 3. `release-artifact-contract`：在 placeholder 阶段记录首个 artifact job 必须暴露的 checksum 输出字段，真实产物加入后由 `package-*` job 输出替代。
-4. `package-*`：每个平台独立构建产物并输出 checksum。
-5. `sign-*`：需要签名的平台在受控 runner 中读取 GitHub Secrets 或官方平台凭据。
-6. `notarize-*`：macOS 产物完成 Apple notarization 后再进入发布资产。
-7. `publish-github-release`：上传 release assets、checksums、release notes 和 provenance/attestation 信息。
-8. `post-release-summary`：输出产物清单、验证链接、人工事项和回滚说明。
+4. `release-signing-contract`：在 placeholder 阶段记录真实平台 artifact 发布前必须声明的 signing/attestation 输出字段，真实产物加入后由 `sign-*` 或 attestation job 输出替代。
+5. `package-*`：每个平台独立构建产物并输出 checksum。
+6. `sign-*`：需要签名的平台在受控 runner 中读取 GitHub Secrets 或官方平台凭据。
+7. `notarize-*`：macOS 产物完成 Apple notarization 后再进入发布资产。
+8. `publish-github-release`：上传 release assets、checksums、release notes 和 provenance/attestation 信息。
+9. `post-release-summary`：输出产物清单、验证链接、人工事项和回滚说明。
 
 真实产物加入前，`release-placeholder` 必须保留或替换为等价的显式说明，避免误认为 release 已经可用。
 
