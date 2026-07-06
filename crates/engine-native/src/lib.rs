@@ -75,8 +75,14 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_INVALID_CODE: &str =
     "engine.native.runtime.socks5_greeting_invalid";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_FAILED_CODE: &str =
     "engine.native.runtime.socks5_greeting_read_failed";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_SELECTED_CODE: &str =
+    "engine.native.runtime.socks5_auth_method_selected";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_UNSUPPORTED_CODE: &str =
+    "engine.native.runtime.socks5_auth_method_unsupported";
 
 const SOCKS5_VERSION: u8 = 0x05;
+const SOCKS5_AUTH_METHOD_NO_AUTHENTICATION_REQUIRED: u8 = 0x00;
+const SOCKS5_AUTH_METHOD_NO_ACCEPTABLE_METHODS: u8 = 0xff;
 const ACCEPTED_CONNECTION_READ_TIMEOUT_MS: u64 = 100;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -415,6 +421,27 @@ pub struct NativeSocks5GreetingReadReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeSocks5AuthMethodDecision {
+    NoAuthenticationRequired,
+    NoAcceptableMethods,
+}
+
+impl NativeSocks5AuthMethodDecision {
+    pub const fn method_code(self) -> u8 {
+        match self {
+            Self::NoAuthenticationRequired => SOCKS5_AUTH_METHOD_NO_AUTHENTICATION_REQUIRED,
+            Self::NoAcceptableMethods => SOCKS5_AUTH_METHOD_NO_ACCEPTABLE_METHODS,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5AuthMethodSelectionReport {
+    pub decision: NativeSocks5AuthMethodDecision,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
 pub fn read_socks5_greeting<R>(reader: &mut R) -> NativeSocks5GreetingReadReport
 where
     R: Read,
@@ -478,6 +505,32 @@ where
         diagnostics: vec![runtime_info(
             ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_CODE,
             "native SOCKS5 greeting version and auth methods were read",
+        )],
+    }
+}
+
+pub fn select_socks5_auth_method(
+    greeting: &NativeSocks5Greeting,
+) -> NativeSocks5AuthMethodSelectionReport {
+    if greeting.version == SOCKS5_VERSION
+        && greeting
+            .auth_methods
+            .contains(&SOCKS5_AUTH_METHOD_NO_AUTHENTICATION_REQUIRED)
+    {
+        return NativeSocks5AuthMethodSelectionReport {
+            decision: NativeSocks5AuthMethodDecision::NoAuthenticationRequired,
+            diagnostics: vec![runtime_info(
+                ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_SELECTED_CODE,
+                "native SOCKS5 no-auth method was selected",
+            )],
+        };
+    }
+
+    NativeSocks5AuthMethodSelectionReport {
+        decision: NativeSocks5AuthMethodDecision::NoAcceptableMethods,
+        diagnostics: vec![runtime_warning(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_UNSUPPORTED_CODE,
+            "native SOCKS5 greeting does not advertise a supported auth method",
         )],
     }
 }
@@ -1246,7 +1299,13 @@ fn read_socks5_greeting_and_close_accepted_connection(
     let _ = stream.set_read_timeout(Some(Duration::from_millis(
         ACCEPTED_CONNECTION_READ_TIMEOUT_MS,
     )));
-    let mut diagnostics = read_socks5_greeting(&mut stream).diagnostics;
+    let read_report = read_socks5_greeting(&mut stream);
+    let mut diagnostics = read_report.diagnostics;
+    if let Some(greeting) = read_report.greeting.as_ref().filter(|greeting| {
+        greeting.version == SOCKS5_VERSION && !greeting.auth_methods.is_empty()
+    }) {
+        diagnostics.extend(select_socks5_auth_method(greeting).diagnostics);
+    }
     let _ = stream.shutdown(Shutdown::Both);
     pre_protocol_closed_connections.fetch_add(1, Ordering::SeqCst);
 

@@ -5,9 +5,10 @@ use control_domain::{
     RouteAction, RuleSet, SchemaVersion,
 };
 use engine_native::{
-    read_socks5_greeting, BoundLoopbackTcpListenerHandle, LoopbackListenerHandle,
-    NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle, NativeProxyEngineService,
-    NativeRuntimeAssembly, NativeRuntimeAssemblyPlan, DEFAULT_NATIVE_ENGINE_ID,
+    read_socks5_greeting, select_socks5_auth_method, BoundLoopbackTcpListenerHandle,
+    LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle,
+    NativeProxyEngineService, NativeRuntimeAssembly, NativeRuntimeAssemblyPlan,
+    NativeSocks5AuthMethodDecision, NativeSocks5Greeting, DEFAULT_NATIVE_ENGINE_ID,
     ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_ID_DUPLICATE_CODE,
@@ -23,6 +24,8 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE, ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
     ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_SELECTED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_UNSUPPORTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_FAILED_CODE, ENGINE_NATIVE_START_BIND_FAILED_CODE,
@@ -432,11 +435,60 @@ fn runtime_accept_loop_contract_accepts_loopback_tcp_connection_and_shuts_down()
     );
     assert_diagnostic(
         &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_SELECTED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE,
     );
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
+    );
+}
+
+#[test]
+fn runtime_accept_loop_contract_reports_unsupported_socks5_auth_methods_before_close() {
+    let port = unused_loopback_port();
+    let listener = LoopbackListenerHandle::from_descriptor(&local_tcp_listener_with_bind(
+        "unsupported-auth-accept-loopback-local-tcp",
+        "127.0.0.1",
+        port,
+        ListenerRoute::DefaultAction(RouteAction::Proxy {
+            node_id: "node-1".to_string(),
+        }),
+    ))
+    .expect("loopback tcp listener handle should be representable");
+    let bound_listener = BoundLoopbackTcpListenerHandle::bind(listener)
+        .expect("loopback tcp listener should bind on an available port");
+    let outbound = NativeOutboundHandlerHandle::from_node(&node())
+        .expect("socks outbound handler handle should be representable");
+
+    let accept_loop = NativeLoopbackTcpAcceptLoopHandle::start(bound_listener, outbound)
+        .expect("loopback tcp accept loop should start from bound resources");
+
+    let mut stream = TcpStream::connect(("127.0.0.1", port))
+        .expect("loopback tcp accept loop should accept local connections");
+    stream
+        .write_all(&[0x05, 0x01, 0x02])
+        .expect("test client should send a SOCKS5 greeting without no-auth support");
+    wait_until_accept_count(&accept_loop, 1);
+    wait_until_pre_protocol_closed_count(&accept_loop, 1);
+    drop(stream);
+
+    let report = accept_loop.shutdown();
+
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_UNSUPPORTED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE,
     );
 }
 
@@ -481,6 +533,46 @@ fn socks5_greeting_contract_reports_invalid_version_and_incomplete_methods() {
     assert_diagnostic(
         &incomplete_report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_FAILED_CODE,
+    );
+}
+
+#[test]
+fn socks5_auth_method_contract_selects_no_auth_method() {
+    let greeting = NativeSocks5Greeting {
+        version: 0x05,
+        auth_methods: vec![0x02, 0x00],
+    };
+
+    let report = select_socks5_auth_method(&greeting);
+
+    assert_eq!(
+        report.decision,
+        NativeSocks5AuthMethodDecision::NoAuthenticationRequired
+    );
+    assert_eq!(report.decision.method_code(), 0x00);
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_SELECTED_CODE,
+    );
+}
+
+#[test]
+fn socks5_auth_method_contract_rejects_unsupported_auth_methods() {
+    let greeting = NativeSocks5Greeting {
+        version: 0x05,
+        auth_methods: vec![0x02, 0x80],
+    };
+
+    let report = select_socks5_auth_method(&greeting);
+
+    assert_eq!(
+        report.decision,
+        NativeSocks5AuthMethodDecision::NoAcceptableMethods
+    );
+    assert_eq!(report.decision.method_code(), 0xff);
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_UNSUPPORTED_CODE,
     );
 }
 
