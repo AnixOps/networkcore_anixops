@@ -14,8 +14,8 @@ use engine_native::{
     NativeProxyEngineService, NativeRuntimeAssembly, NativeRuntimeAssemblyPlan,
     NativeSocks5Address, NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision,
     NativeSocks5CommandHeader, NativeSocks5ConnectTarget, NativeSocks5Greeting,
-    NativeSocks5RouteOutboundBehavior, NativeSocks5RouteOutboundDecision,
-    DEFAULT_NATIVE_ENGINE_ID, ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
+    NativeSocks5RouteOutboundBehavior, NativeSocks5RouteOutboundDecision, DEFAULT_NATIVE_ENGINE_ID,
+    ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_ID_DUPLICATE_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_KIND_UNSUPPORTED_CODE,
@@ -919,8 +919,8 @@ fn socks5_outbound_connect_request_frame_contract_generates_domain_frame_without
     assert_eq!(
         frame_report.frame,
         vec![
-            0x05, 0x01, 0x00, 0x03, 0x0b, b'e', b'x', b'a', b'm', b'p', b'l', b'e', b'.',
-            b'c', b'o', b'm', 0x01, 0xbb,
+            0x05, 0x01, 0x00, 0x03, 0x0b, b'e', b'x', b'a', b'm', b'p', b'l', b'e', b'.', b'c',
+            b'o', b'm', 0x01, 0xbb,
         ]
     );
     assert_diagnostic(
