@@ -5,9 +5,9 @@ use control_domain::{
     RouteAction, RuleSet, SchemaVersion,
 };
 use engine_native::{
-    BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle,
-    NativeOutboundHandlerHandle, NativeProxyEngineService, NativeRuntimeAssembly,
-    NativeRuntimeAssemblyPlan, DEFAULT_NATIVE_ENGINE_ID,
+    read_socks5_greeting, BoundLoopbackTcpListenerHandle, LoopbackListenerHandle,
+    NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle, NativeProxyEngineService,
+    NativeRuntimeAssembly, NativeRuntimeAssemblyPlan, DEFAULT_NATIVE_ENGINE_ID,
     ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_ID_DUPLICATE_CODE,
@@ -22,9 +22,13 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE, ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE, ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
-    ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE, ENGINE_NATIVE_START_BIND_FAILED_CODE,
+    ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE, ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_INVALID_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_FAILED_CODE,
+    ENGINE_NATIVE_START_BIND_FAILED_CODE,
     ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
 };
+use std::io::{Cursor, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
 use std::time::Duration;
@@ -405,11 +409,14 @@ fn runtime_accept_loop_contract_accepts_loopback_tcp_connection_and_shuts_down()
     assert_eq!(accept_loop.local_host(), "127.0.0.1");
     assert_eq!(accept_loop.local_port(), port);
 
-    let stream = TcpStream::connect(("127.0.0.1", port))
+    let mut stream = TcpStream::connect(("127.0.0.1", port))
         .expect("loopback tcp accept loop should accept local connections");
-    drop(stream);
+    stream
+        .write_all(&[0x05, 0x02, 0x00, 0x02])
+        .expect("test client should send a SOCKS5 greeting");
     wait_until_accept_count(&accept_loop, 1);
     wait_until_pre_protocol_closed_count(&accept_loop, 1);
+    drop(stream);
 
     let report = accept_loop.shutdown();
 
@@ -421,11 +428,59 @@ fn runtime_accept_loop_contract_accepts_loopback_tcp_connection_and_shuts_down()
     assert!(report.pre_protocol_closed_connections >= 1);
     assert_diagnostic(
         &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE,
     );
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
+    );
+}
+
+#[test]
+fn socks5_greeting_contract_reads_version_and_auth_methods() {
+    let mut reader = Cursor::new(vec![0x05, 0x02, 0x00, 0x02]);
+
+    let report = read_socks5_greeting(&mut reader);
+
+    let greeting = report
+        .greeting
+        .expect("valid SOCKS5 greeting should be parsed");
+    assert_eq!(greeting.version, 0x05);
+    assert_eq!(greeting.auth_methods, vec![0x00, 0x02]);
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_CODE,
+    );
+}
+
+#[test]
+fn socks5_greeting_contract_reports_invalid_version_and_incomplete_methods() {
+    let mut unsupported_version = Cursor::new(vec![0x04, 0x01, 0x00]);
+
+    let unsupported_report = read_socks5_greeting(&mut unsupported_version);
+
+    let unsupported_greeting = unsupported_report
+        .greeting
+        .expect("unsupported version should still report the observed version");
+    assert_eq!(unsupported_greeting.version, 0x04);
+    assert!(unsupported_greeting.auth_methods.is_empty());
+    assert_diagnostic(
+        &unsupported_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_INVALID_CODE,
+    );
+
+    let mut incomplete_methods = Cursor::new(vec![0x05, 0x02, 0x00]);
+
+    let incomplete_report = read_socks5_greeting(&mut incomplete_methods);
+
+    assert!(incomplete_report.greeting.is_none());
+    assert_diagnostic(
+        &incomplete_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_FAILED_CODE,
     );
 }
 

@@ -11,7 +11,7 @@ use control_domain::{
     ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RouteAction, RuleSet,
 };
 use std::collections::BTreeSet;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read};
 use std::net::{IpAddr, Shutdown, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc};
@@ -69,6 +69,15 @@ pub const ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE: &str =
     "engine.native.runtime.accept_loop_stopped";
 pub const ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE: &str =
     "engine.native.runtime.connection_pre_protocol_closed";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_CODE: &str =
+    "engine.native.runtime.socks5_greeting_read";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_INVALID_CODE: &str =
+    "engine.native.runtime.socks5_greeting_invalid";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_FAILED_CODE: &str =
+    "engine.native.runtime.socks5_greeting_read_failed";
+
+const SOCKS5_VERSION: u8 = 0x05;
+const ACCEPTED_CONNECTION_READ_TIMEOUT_MS: u64 = 100;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoopbackListenerHandle {
@@ -392,6 +401,85 @@ struct NativeLoopbackTcpAcceptLoopIdentity {
     outbound_handler_id: String,
     local_host: String,
     local_port: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5Greeting {
+    pub version: u8,
+    pub auth_methods: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5GreetingReadReport {
+    pub greeting: Option<NativeSocks5Greeting>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+pub fn read_socks5_greeting<R>(reader: &mut R) -> NativeSocks5GreetingReadReport
+where
+    R: Read,
+{
+    let mut header = [0_u8; 2];
+    if reader.read_exact(&mut header).is_err() {
+        return NativeSocks5GreetingReadReport {
+            greeting: None,
+            diagnostics: vec![runtime_warning(
+                ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_FAILED_CODE,
+                "native SOCKS5 greeting header could not be read",
+            )],
+        };
+    }
+
+    let version = header[0];
+    let method_count = header[1] as usize;
+
+    if version != SOCKS5_VERSION {
+        return NativeSocks5GreetingReadReport {
+            greeting: Some(NativeSocks5Greeting {
+                version,
+                auth_methods: Vec::new(),
+            }),
+            diagnostics: vec![runtime_warning(
+                ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_INVALID_CODE,
+                "native SOCKS5 greeting version is unsupported",
+            )],
+        };
+    }
+
+    if method_count == 0 {
+        return NativeSocks5GreetingReadReport {
+            greeting: Some(NativeSocks5Greeting {
+                version,
+                auth_methods: Vec::new(),
+            }),
+            diagnostics: vec![runtime_warning(
+                ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_INVALID_CODE,
+                "native SOCKS5 greeting must advertise at least one auth method",
+            )],
+        };
+    }
+
+    let mut auth_methods = vec![0_u8; method_count];
+    if reader.read_exact(&mut auth_methods).is_err() {
+        return NativeSocks5GreetingReadReport {
+            greeting: None,
+            diagnostics: vec![runtime_warning(
+                ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_FAILED_CODE,
+                "native SOCKS5 greeting auth methods could not be read",
+            )],
+        };
+    }
+
+    NativeSocks5GreetingReadReport {
+        greeting: Some(NativeSocks5Greeting {
+            version,
+            auth_methods,
+        }),
+        diagnostics: vec![runtime_info(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_CODE,
+            "native SOCKS5 greeting version and auth methods were read",
+        )],
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1115,7 +1203,7 @@ fn run_loopback_tcp_accept_loop(
         match listener.accept() {
             Ok((stream, _)) => {
                 accepted_connections.fetch_add(1, Ordering::SeqCst);
-                diagnostics.push(close_accepted_connection_before_protocol_handling(
+                diagnostics.extend(read_socks5_greeting_and_close_accepted_connection(
                     stream,
                     &pre_protocol_closed_connections,
                 ));
@@ -1151,17 +1239,23 @@ fn run_loopback_tcp_accept_loop(
     }
 }
 
-fn close_accepted_connection_before_protocol_handling(
-    stream: TcpStream,
+fn read_socks5_greeting_and_close_accepted_connection(
+    mut stream: TcpStream,
     pre_protocol_closed_connections: &AtomicUsize,
-) -> Diagnostic {
+) -> Vec<Diagnostic> {
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(
+        ACCEPTED_CONNECTION_READ_TIMEOUT_MS,
+    )));
+    let mut diagnostics = read_socks5_greeting(&mut stream).diagnostics;
     let _ = stream.shutdown(Shutdown::Both);
     pre_protocol_closed_connections.fetch_add(1, Ordering::SeqCst);
 
-    runtime_info(
+    diagnostics.push(runtime_info(
         ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE,
-        "native loopback tcp connection was closed before proxy protocol handling",
-    )
+        "native loopback tcp connection was closed before route and outbound handling",
+    ));
+
+    diagnostics
 }
 
 #[derive(Debug)]
@@ -1229,6 +1323,15 @@ fn runtime_error(code: impl Into<String>, message: impl Into<String>) -> DomainE
 fn runtime_info(code: impl Into<String>, message: impl Into<String>) -> Diagnostic {
     engine_diagnostic(
         DiagnosticSeverity::Info,
+        code,
+        message,
+        SOURCE_ENGINE_NATIVE_RUNTIME,
+    )
+}
+
+fn runtime_warning(code: impl Into<String>, message: impl Into<String>) -> Diagnostic {
+    engine_diagnostic(
+        DiagnosticSeverity::Warning,
         code,
         message,
         SOURCE_ENGINE_NATIVE_RUNTIME,
