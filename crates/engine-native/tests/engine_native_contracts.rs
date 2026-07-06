@@ -7,12 +7,14 @@ use control_domain::{
 use engine_native::{
     read_socks5_command_header, read_socks5_connect_target, read_socks5_greeting,
     reject_unsupported_socks5_command, reject_unwired_socks5_route_outbound,
-    select_socks5_auth_method, write_socks5_auth_method_response,
+    select_socks5_auth_method, select_socks5_route_outbound_behavior,
+    write_socks5_auth_method_response,
     write_unwired_socks5_connect_failure_response, BoundLoopbackTcpListenerHandle,
     LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle,
     NativeProxyEngineService, NativeRuntimeAssembly, NativeRuntimeAssemblyPlan,
     NativeSocks5Address, NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision,
-    NativeSocks5CommandHeader, NativeSocks5Greeting, NativeSocks5RouteOutboundDecision,
+    NativeSocks5CommandHeader, NativeSocks5ConnectTarget, NativeSocks5Greeting,
+    NativeSocks5RouteOutboundBehavior, NativeSocks5RouteOutboundDecision,
     DEFAULT_NATIVE_ENGINE_ID, ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_ID_DUPLICATE_CODE,
@@ -44,7 +46,9 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_FAILED_CODE,
-    ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE, ENGINE_NATIVE_START_BIND_FAILED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_SELECTED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE,
+    ENGINE_NATIVE_START_BIND_FAILED_CODE,
     ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
 };
 use std::io::{self, Cursor, Write};
@@ -469,6 +473,10 @@ fn runtime_accept_loop_contract_accepts_loopback_tcp_connection_and_shuts_down()
     );
     assert_diagnostic(
         &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_SELECTED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE,
     );
     assert_diagnostic(
@@ -843,6 +851,43 @@ fn socks5_connect_target_contract_reads_domain_target_and_rejects_unwired_route_
     );
 
     let route_report = reject_unwired_socks5_route_outbound(&target);
+
+    assert_eq!(
+        route_report.decision,
+        NativeSocks5RouteOutboundDecision::Unwired
+    );
+    assert_diagnostic(
+        &route_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE,
+    );
+}
+
+#[test]
+fn socks5_route_outbound_behavior_contract_selects_configured_socks_handler_without_connecting() {
+    let target = NativeSocks5ConnectTarget {
+        address: NativeSocks5Address::DomainName("example.com".to_string()),
+        port: 443,
+    };
+    let outbound_handler = NativeOutboundHandlerHandle::from_node(&node())
+        .expect("socks node should become an outbound handler");
+
+    let report = select_socks5_route_outbound_behavior(&target, &outbound_handler);
+
+    let NativeSocks5RouteOutboundBehavior::ProxyViaSocksOutbound {
+        target: selected_target,
+        outbound_handler: selected_handler,
+    } = report.behavior;
+    assert_eq!(selected_target, target);
+    assert_eq!(selected_handler.node_id, "node-1");
+    assert_eq!(selected_handler.protocol, Protocol::Socks);
+    assert_eq!(selected_handler.endpoint.host, "127.0.0.1");
+    assert_eq!(selected_handler.endpoint.port, 1080);
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_SELECTED_CODE,
+    );
+
+    let route_report = reject_unwired_socks5_route_outbound(&selected_target);
 
     assert_eq!(
         route_report.decision,

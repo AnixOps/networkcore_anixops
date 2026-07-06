@@ -97,6 +97,8 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_INVALID_CODE: &str =
     "engine.native.runtime.socks5_connect_target_invalid";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_TARGET_READ_FAILED_CODE: &str =
     "engine.native.runtime.socks5_connect_target_read_failed";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_SELECTED_CODE: &str =
+    "engine.native.runtime.socks5_route_outbound_selected";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE: &str =
     "engine.native.runtime.socks5_route_outbound_unwired";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE: &str =
@@ -318,7 +320,7 @@ impl NativeLoopbackTcpAcceptLoopHandle {
         })?;
 
         let listener_id = contract.listener_id;
-        let outbound_handler_id = outbound_handler.node_id;
+        let outbound_handler_id = outbound_handler.node_id.clone();
         let accepted_connections = Arc::new(AtomicUsize::new(0));
         let accepted_connections_for_worker = Arc::clone(&accepted_connections);
         let pre_protocol_closed_connections = Arc::new(AtomicUsize::new(0));
@@ -338,6 +340,7 @@ impl NativeLoopbackTcpAcceptLoopHandle {
                 NativeLoopbackTcpAcceptLoopIdentity {
                     listener_id: worker_listener_id,
                     outbound_handler_id: worker_outbound_handler_id,
+                    outbound_handler,
                     local_host: worker_local_host,
                     local_port,
                 },
@@ -447,6 +450,7 @@ pub struct NativeLoopbackTcpAcceptLoopShutdownReport {
 struct NativeLoopbackTcpAcceptLoopIdentity {
     listener_id: String,
     outbound_handler_id: String,
+    outbound_handler: NativeOutboundHandlerHandle,
     local_host: String,
     local_port: u16,
 }
@@ -538,6 +542,20 @@ pub struct NativeSocks5ConnectTargetReadReport {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeSocks5RouteOutboundDecision {
     Unwired,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NativeSocks5RouteOutboundBehavior {
+    ProxyViaSocksOutbound {
+        target: NativeSocks5ConnectTarget,
+        outbound_handler: NativeOutboundHandlerHandle,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5RouteOutboundSelectionReport {
+    pub behavior: NativeSocks5RouteOutboundBehavior,
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -852,6 +870,22 @@ pub fn reject_unwired_socks5_route_outbound(
         diagnostics: vec![runtime_warning(
             ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE,
             "native SOCKS5 CONNECT route and outbound data plane are not wired",
+        )],
+    }
+}
+
+pub fn select_socks5_route_outbound_behavior(
+    target: &NativeSocks5ConnectTarget,
+    outbound_handler: &NativeOutboundHandlerHandle,
+) -> NativeSocks5RouteOutboundSelectionReport {
+    NativeSocks5RouteOutboundSelectionReport {
+        behavior: NativeSocks5RouteOutboundBehavior::ProxyViaSocksOutbound {
+            target: target.clone(),
+            outbound_handler: outbound_handler.clone(),
+        },
+        diagnostics: vec![runtime_info(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_SELECTED_CODE,
+            "native SOCKS5 CONNECT route selected the configured outbound handler",
         )],
     }
 }
@@ -1632,6 +1666,7 @@ fn run_loopback_tcp_accept_loop(
                 diagnostics.extend(read_socks5_greeting_and_close_accepted_connection(
                     stream,
                     &pre_protocol_closed_connections,
+                    &identity.outbound_handler,
                 ));
             }
             Err(error) if error.kind() == ErrorKind::WouldBlock => {
@@ -1668,6 +1703,7 @@ fn run_loopback_tcp_accept_loop(
 fn read_socks5_greeting_and_close_accepted_connection(
     mut stream: TcpStream,
     pre_protocol_closed_connections: &AtomicUsize,
+    outbound_handler: &NativeOutboundHandlerHandle,
 ) -> Vec<Diagnostic> {
     let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(Duration::from_millis(
@@ -1707,6 +1743,10 @@ fn read_socks5_greeting_and_close_accepted_connection(
                         .as_ref()
                         .filter(|target| socks5_connect_target_valid(target))
                     {
+                        diagnostics.extend(
+                            select_socks5_route_outbound_behavior(target, outbound_handler)
+                                .diagnostics,
+                        );
                         diagnostics
                             .extend(reject_unwired_socks5_route_outbound(target).diagnostics);
                         let failure_response_report =

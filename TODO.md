@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 在 `engine-native` 中补充 SOCKS5 CONNECT route/outbound 行为选择诊断合同，继续不建立真实 outbound 连接、不接入 `networkcore-linux start`。
+- [ ] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT request frame 生成诊断合同，继续不建立真实 outbound 连接、不接入 `networkcore-linux start`。
 
 ## 已完成
 
+- [x] 在 `engine-native` 中补充 SOCKS5 CONNECT route/outbound 行为选择诊断合同，继续不建立真实 outbound 连接、不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 route/outbound 未接入时的 CONNECT failure response 写入诊断合同，继续不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 CONNECT 目标地址读取与 route/outbound 未接入拒绝诊断合同，继续不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 命令头读取与 unsupported command 拒绝诊断合同，继续不接入 route/outbound 或 `networkcore-linux start`。
