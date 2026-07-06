@@ -29,7 +29,10 @@ fn validate_config_rejects_unsupported_engine_id_with_stable_diagnostic() {
 
     let diagnostics = service.validate_config(&engine_config);
 
-    assert_diagnostic(&diagnostics, ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE);
+    assert_diagnostic(
+        &diagnostics,
+        ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
+    );
     assert_diagnostic(&diagnostics, ENGINE_NATIVE_CONFIG_LISTENER_MISSING_CODE);
     assert_diagnostic(&diagnostics, ENGINE_NATIVE_CONFIG_NODE_MISSING_CODE);
 }
@@ -47,8 +50,7 @@ fn validate_config_does_not_leak_metadata_secret_values() {
 
     assert_diagnostic(&diagnostics, ENGINE_NATIVE_CONFIG_LISTENER_MISSING_CODE);
     assert!(diagnostics.iter().all(|diagnostic| {
-        !diagnostic.message.contains("super-secret-token")
-            && !diagnostic.message.contains("token")
+        !diagnostic.message.contains("super-secret-token") && !diagnostic.message.contains("token")
     }));
 }
 
