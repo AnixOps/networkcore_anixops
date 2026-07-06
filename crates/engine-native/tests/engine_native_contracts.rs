@@ -17,6 +17,7 @@ use engine_native::{
     ENGINE_NATIVE_CONFIG_ROUTE_EMPTY_CODE, ENGINE_NATIVE_CONFIG_ROUTE_ID_DUPLICATE_CODE,
     ENGINE_NATIVE_CONFIG_ROUTE_TARGET_MISSING_CODE, ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE,
     ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
+    ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE,
     ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
     ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE, ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
@@ -408,6 +409,7 @@ fn runtime_accept_loop_contract_accepts_loopback_tcp_connection_and_shuts_down()
         .expect("loopback tcp accept loop should accept local connections");
     drop(stream);
     wait_until_accept_count(&accept_loop, 1);
+    wait_until_pre_protocol_closed_count(&accept_loop, 1);
 
     let report = accept_loop.shutdown();
 
@@ -416,6 +418,11 @@ fn runtime_accept_loop_contract_accepts_loopback_tcp_connection_and_shuts_down()
     assert_eq!(report.local_host, "127.0.0.1");
     assert_eq!(report.local_port, port);
     assert!(report.accepted_connections >= 1);
+    assert!(report.pre_protocol_closed_connections >= 1);
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE,
+    );
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
@@ -962,6 +969,24 @@ fn wait_until_accept_count(
     panic!(
         "accept loop observed {} connections, expected at least {expected_connections}",
         accept_loop.accepted_connections()
+    );
+}
+
+fn wait_until_pre_protocol_closed_count(
+    accept_loop: &NativeLoopbackTcpAcceptLoopHandle,
+    expected_connections: usize,
+) {
+    for _ in 0..100 {
+        if accept_loop.pre_protocol_closed_connections() >= expected_connections {
+            return;
+        }
+
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    panic!(
+        "accept loop pre-protocol closed {} connections, expected at least {expected_connections}",
+        accept_loop.pre_protocol_closed_connections()
     );
 }
 

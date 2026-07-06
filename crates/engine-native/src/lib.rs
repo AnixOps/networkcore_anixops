@@ -12,7 +12,7 @@ use control_domain::{
 };
 use std::collections::BTreeSet;
 use std::io::ErrorKind;
-use std::net::{IpAddr, TcpListener};
+use std::net::{IpAddr, Shutdown, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread::{self, JoinHandle};
@@ -67,6 +67,8 @@ pub const ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE: &str =
     "engine.native.runtime.accept_loop_ready";
 pub const ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE: &str =
     "engine.native.runtime.accept_loop_stopped";
+pub const ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE: &str =
+    "engine.native.runtime.connection_pre_protocol_closed";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoopbackListenerHandle {
@@ -234,6 +236,7 @@ pub struct NativeLoopbackTcpAcceptLoopHandle {
     local_host: String,
     local_port: u16,
     accepted_connections: Arc<AtomicUsize>,
+    pre_protocol_closed_connections: Arc<AtomicUsize>,
     shutdown_tx: Option<mpsc::Sender<()>>,
     worker: Option<JoinHandle<NativeLoopbackTcpAcceptLoopShutdownReport>>,
 }
@@ -261,6 +264,9 @@ impl NativeLoopbackTcpAcceptLoopHandle {
         let outbound_handler_id = outbound_handler.node_id;
         let accepted_connections = Arc::new(AtomicUsize::new(0));
         let accepted_connections_for_worker = Arc::clone(&accepted_connections);
+        let pre_protocol_closed_connections = Arc::new(AtomicUsize::new(0));
+        let pre_protocol_closed_connections_for_worker =
+            Arc::clone(&pre_protocol_closed_connections);
         let (shutdown_tx, shutdown_rx) = mpsc::channel();
         let worker_listener_id = listener_id.clone();
         let worker_outbound_handler_id = outbound_handler_id.clone();
@@ -271,6 +277,7 @@ impl NativeLoopbackTcpAcceptLoopHandle {
                 listener,
                 shutdown_rx,
                 accepted_connections_for_worker,
+                pre_protocol_closed_connections_for_worker,
                 NativeLoopbackTcpAcceptLoopIdentity {
                     listener_id: worker_listener_id,
                     outbound_handler_id: worker_outbound_handler_id,
@@ -286,6 +293,7 @@ impl NativeLoopbackTcpAcceptLoopHandle {
             local_host,
             local_port,
             accepted_connections,
+            pre_protocol_closed_connections,
             shutdown_tx: Some(shutdown_tx),
             worker: Some(worker),
         })
@@ -311,6 +319,10 @@ impl NativeLoopbackTcpAcceptLoopHandle {
         self.accepted_connections.load(Ordering::SeqCst)
     }
 
+    pub fn pre_protocol_closed_connections(&self) -> usize {
+        self.pre_protocol_closed_connections.load(Ordering::SeqCst)
+    }
+
     pub fn shutdown(mut self) -> NativeLoopbackTcpAcceptLoopShutdownReport {
         self.shutdown_inner()
     }
@@ -329,6 +341,7 @@ impl NativeLoopbackTcpAcceptLoopHandle {
                     local_host: self.local_host.clone(),
                     local_port: self.local_port,
                     accepted_connections: self.accepted_connections(),
+                    pre_protocol_closed_connections: self.pre_protocol_closed_connections(),
                     diagnostics: vec![engine_diagnostic(
                         DiagnosticSeverity::Error,
                         ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE,
@@ -344,6 +357,7 @@ impl NativeLoopbackTcpAcceptLoopHandle {
                 local_host: self.local_host.clone(),
                 local_port: self.local_port,
                 accepted_connections: self.accepted_connections(),
+                pre_protocol_closed_connections: self.pre_protocol_closed_connections(),
                 diagnostics: vec![runtime_info(
                     ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
                     "native loopback tcp accept loop was already stopped",
@@ -368,6 +382,7 @@ pub struct NativeLoopbackTcpAcceptLoopShutdownReport {
     pub local_host: String,
     pub local_port: u16,
     pub accepted_connections: usize,
+    pub pre_protocol_closed_connections: usize,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -1086,6 +1101,7 @@ fn run_loopback_tcp_accept_loop(
     listener: TcpListener,
     shutdown_rx: mpsc::Receiver<()>,
     accepted_connections: Arc<AtomicUsize>,
+    pre_protocol_closed_connections: Arc<AtomicUsize>,
     identity: NativeLoopbackTcpAcceptLoopIdentity,
 ) -> NativeLoopbackTcpAcceptLoopShutdownReport {
     let mut diagnostics = Vec::new();
@@ -1099,7 +1115,10 @@ fn run_loopback_tcp_accept_loop(
         match listener.accept() {
             Ok((stream, _)) => {
                 accepted_connections.fetch_add(1, Ordering::SeqCst);
-                drop(stream);
+                diagnostics.push(close_accepted_connection_before_protocol_handling(
+                    stream,
+                    &pre_protocol_closed_connections,
+                ));
             }
             Err(error) if error.kind() == ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(10));
@@ -1127,8 +1146,22 @@ fn run_loopback_tcp_accept_loop(
         local_host: identity.local_host,
         local_port: identity.local_port,
         accepted_connections: accepted_connections.load(Ordering::SeqCst),
+        pre_protocol_closed_connections: pre_protocol_closed_connections.load(Ordering::SeqCst),
         diagnostics,
     }
+}
+
+fn close_accepted_connection_before_protocol_handling(
+    stream: TcpStream,
+    pre_protocol_closed_connections: &AtomicUsize,
+) -> Diagnostic {
+    let _ = stream.shutdown(Shutdown::Both);
+    pre_protocol_closed_connections.fetch_add(1, Ordering::SeqCst);
+
+    runtime_info(
+        ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE,
+        "native loopback tcp connection was closed before proxy protocol handling",
+    )
 }
 
 #[derive(Debug)]

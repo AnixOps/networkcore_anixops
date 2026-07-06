@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 在 `engine-native` 中补充首个 accepted TCP connection 的协议前置关闭诊断合同，明确未实现 proxy protocol 时的连接处理边界，继续不接入 `networkcore-linux start`。
+- [ ] 在 `engine-native` 中补充首个 SOCKS5 greeting 版本/认证方法读取诊断合同，继续不接入 route/outbound 或 `networkcore-linux start`。
 
 ## 已完成
 
+- [x] 在 `engine-native` 中补充首个 accepted TCP connection 的协议前置关闭诊断合同，明确未实现 proxy protocol 时的连接处理边界，继续不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充首个 loopback TCP accept loop 与受控关闭源码合同，继续不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充从有效配置图生成首个 native runtime assembly plan 的源码合同，选择 loopback TCP listener 与 SOCKS outbound handler，并覆盖失败释放边界，继续不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中为首个 native runtime handle 补充真实 loopback TCP listener 绑定/释放实现，继续不接入 `networkcore-linux start`。

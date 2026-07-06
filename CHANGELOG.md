@@ -6,6 +6,7 @@
 
 ### Added
 
+- 在 `engine-native` 中新增 accepted TCP connection 的协议前置关闭诊断合同，accept loop 会在 proxy protocol 尚未实现时显式关闭连接并记录 `engine.native.runtime.connection_pre_protocol_closed` 诊断和计数；proxy protocol 解析、route/outbound 数据面、`NativeProxyEngineService::start` 与 `networkcore-linux start` 继续保持未接线。
 - 在 `engine-native` 中新增首个 loopback TCP accept loop 源码合同，覆盖受控关闭、accepted connection 计数、runtime release 停止报告和 accept loop ready/stopped 诊断；proxy protocol、route/outbound 数据面、`NativeProxyEngineService::start` 与 `networkcore-linux start` 继续保持未接线。
 - 在 `engine-native` 中新增 `NativeRuntimeAssemblyPlan`，可从有效 listener/node/route 配置图选择 loopback TCP listener 与 SOCKS outbound handler，并将绑定失败或 lifecycle handoff 失败映射为带资源释放报告的 startup failure；`NativeProxyEngineService::start` 与 `networkcore-linux start` 继续保持未接线。
 - 在 `engine-native` 中新增真实 loopback TCP listener 绑定/释放实现，runtime assembly 可持有并释放当前进程内的 listener resource，覆盖绑定失败和端口释放合同测试；`NativeProxyEngineService::start` 与 `networkcore-linux start` 继续保持未接线。
