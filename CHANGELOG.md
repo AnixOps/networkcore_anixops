@@ -6,6 +6,7 @@
 
 ### Added
 
+- 新增最小 `engine-native` crate，提供原生 `ProxyEngineService` descriptor、配置拒绝、生命周期诊断和 secret 不泄露合同测试；`networkcore-linux start` 继续保持未接线。
 - 新增 Linux native proxy engine start 设计文档，明确首个原生 `ProxyEngineService` adapter、前台 lifecycle host、`networkcore-linux start` 接线门槛和继续保持未接线诊断的条件。
 - 新增最小 `config-core` crate，提供纯 TOML 配置服务、schema/profile 解析、secret 不泄露诊断合同测试，并将 `networkcore-linux prepare-config` 接入二进制入口；`start` 继续保持未接线诊断。
 - 新增 Linux CLI runtime wiring 设计文档，明确 `prepare-config`/`start` 接入运行层前的配置服务、代理引擎服务和前台生命周期 host 边界，并纳入 CI governance 检查。

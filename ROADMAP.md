@@ -46,8 +46,10 @@
 当前源码：
 
 - [networkcore-linux](apps/linux-cli)
+- [config-core](crates/config-core)
 - [control-domain](crates/control-domain)
 - [control-runtime](crates/control-runtime)
+- [engine-native](crates/engine-native)
 - [platform-linux](crates/platform-linux)
 
 当前规格：

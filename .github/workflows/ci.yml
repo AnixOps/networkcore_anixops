@@ -43,6 +43,7 @@ jobs:
           test -f crates/config-core/README.md
           test -f crates/control-domain/README.md
           test -f crates/control-runtime/README.md
+          test -f crates/engine-native/README.md
           test -f crates/platform-linux/README.md
           test -f docs/architecture/control-kernel-domain.md
           test -f docs/architecture/control-kernel-interfaces.md
@@ -68,6 +69,8 @@ jobs:
           grep -q "\"crates/config-core\"" Cargo.toml
           grep -q "control-domain" crates/control-domain/README.md
           grep -q "control-runtime" crates/control-runtime/README.md
+          grep -q "engine-native" crates/engine-native/README.md
+          grep -q "\"crates/engine-native\"" Cargo.toml
           grep -q "platform-linux" crates/platform-linux/README.md
           grep -q "Release Strategy" docs/release-strategy.md
           grep -q "Control Kernel Domain Specification" docs/architecture/control-kernel-domain.md

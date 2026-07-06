@@ -4,6 +4,7 @@ members = [
     "crates/config-core",
     "crates/control-domain",
     "crates/control-runtime",
+    "crates/engine-native",
     "crates/platform-linux",
 ]
 resolver = "2"

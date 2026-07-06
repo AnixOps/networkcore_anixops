@@ -1,0 +1,13 @@
+[package]
+name = "engine-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Minimal native proxy engine adapter contracts for the AnixOps network control kernel."
+
+[dependencies]
+control-domain = { path = "../control-domain" }
+
+[lib]
+path = "src/lib.rs"

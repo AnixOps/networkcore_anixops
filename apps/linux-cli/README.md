@@ -10,4 +10,4 @@ The crate currently provides:
 - JSON response rendering for automation-facing output contracts.
 - A minimal binary that wires `capabilities`, `status`, and `diagnostics` to `HostLinuxReadOnlyProbe`, and wires `prepare-config` to the pure `config-core` service through `RuntimeOrchestrator`.
 
-This crate does not modify TUN, DNS, routing, firewall, certificates, service managers, or daemon state. `start` remains unavailable until a real proxy engine adapter and foreground lifecycle host exist. All validation runs in GitHub Actions according to `docs/ci-cd-policy.md`.
+This crate does not modify TUN, DNS, routing, firewall, certificates, service managers, or daemon state. `start` remains unavailable until a real proxy engine runtime handle and foreground lifecycle host exist; the current `engine-native` crate is diagnostics-only and is not wired into this binary. All validation runs in GitHub Actions according to `docs/ci-cd-policy.md`.
