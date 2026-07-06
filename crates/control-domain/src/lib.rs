@@ -856,9 +856,7 @@ mod tests {
             remote_script_execution: PlatformFeatureState::unavailable(
                 "remote scripts are disabled on iOS",
             ),
-            mitm_certificate: MitmCertificateStatus::new(
-                CertificateTrustState::InstalledUntrusted,
-            ),
+            mitm_certificate: MitmCertificateStatus::new(CertificateTrustState::InstalledUntrusted),
             diagnostics: Vec::new(),
         };
 
