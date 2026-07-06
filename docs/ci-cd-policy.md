@@ -43,6 +43,8 @@
 - Node 代码出现后的 Node 构建与测试
 - Swift、Xcode 或 iOS 代码出现后的 Apple 平台验证
 
+CI summary job 必须显式输出并门禁已启用的关键结果；当检测到 Rust workspace 时，summary 必须同时检查 Rust build/test 矩阵和 Rust dependency security audit。
+
 ### Release
 
 `.github/workflows/release.yml` 是发布入口。

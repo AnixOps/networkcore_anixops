@@ -364,10 +364,12 @@ jobs:
           echo "policy=${{ needs.policy.result }}"
           echo "detect-projects=${{ needs.detect-projects.result }}"
           echo "workspace-smoke=${{ needs.workspace-smoke.result }}"
+          echo "rust-build-test=${{ needs.rust-build-test.result }}"
           echo "rust-security-audit=${{ needs.rust-security-audit.result }}"
           test "${{ needs.policy.result }}" = "success"
           test "${{ needs.detect-projects.result }}" = "success"
           test "${{ needs.workspace-smoke.result }}" = "success"
           if [ "${{ needs.detect-projects.outputs.rust }}" = "true" ]; then
+            test "${{ needs.rust-build-test.result }}" = "success"
             test "${{ needs.rust-security-audit.result }}" = "success"
           fi
