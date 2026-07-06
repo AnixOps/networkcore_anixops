@@ -1332,6 +1332,7 @@ fn read_socks5_greeting_and_close_accepted_connection(
     mut stream: TcpStream,
     pre_protocol_closed_connections: &AtomicUsize,
 ) -> Vec<Diagnostic> {
+    let _ = stream.set_nonblocking(false);
     let _ = stream.set_read_timeout(Some(Duration::from_millis(
         ACCEPTED_CONNECTION_READ_TIMEOUT_MS,
     )));
