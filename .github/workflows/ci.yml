@@ -37,6 +37,61 @@ jobs:
           grep -q "本机只负责代码" AGENT.md
           grep -q "GitHub Actions" docs/ci-cd-policy.md
 
+  detect-projects:
+    name: Detect project types
+    runs-on: ubuntu-latest
+    needs:
+      - policy
+    outputs:
+      go: ${{ steps.detect.outputs.go }}
+      rust: ${{ steps.detect.outputs.rust }}
+      node: ${{ steps.detect.outputs.node }}
+      swift: ${{ steps.detect.outputs.swift }}
+      apple: ${{ steps.detect.outputs.apple }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect project manifests
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          has_file() {
+            find . -path ./.git -prune -o "$@" -print -quit | grep -q .
+          }
+
+          if has_file -name go.mod; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if has_file -name Cargo.toml; then
+            echo "rust=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "rust=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if has_file -name package.json; then
+            echo "node=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "node=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if has_file -name Package.swift; then
+            echo "swift=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "swift=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if has_file -name "*.xcodeproj" -o -name "*.xcworkspace"; then
+            echo "apple=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "apple=false" >> "$GITHUB_OUTPUT"
+          fi
+
   workspace-smoke:
     name: Workspace smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -64,9 +119,9 @@ jobs:
   go-build-test:
     name: Go build and test
     runs-on: ${{ matrix.os }}
-    if: ${{ hashFiles('**/go.mod') != '' }}
     needs:
-      - policy
+      - detect-projects
+    if: ${{ needs.detect-projects.outputs.go == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -81,23 +136,37 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: stable
           cache: true
 
       - name: Test
         shell: bash
-        run: go test ./...
+        run: |
+          set -euo pipefail
+          while IFS= read -r module; do
+            dir="$(dirname "$module")"
+            echo "::group::go test $dir"
+            (cd "$dir" && go test ./...)
+            echo "::endgroup::"
+          done < <(find . -name go.mod -not -path "*/vendor/*" | sort)
 
       - name: Build
         shell: bash
-        run: go build ./...
+        run: |
+          set -euo pipefail
+          while IFS= read -r module; do
+            dir="$(dirname "$module")"
+            echo "::group::go build $dir"
+            (cd "$dir" && go build ./...)
+            echo "::endgroup::"
+          done < <(find . -name go.mod -not -path "*/vendor/*" | sort)
 
   rust-build-test:
     name: Rust build and test
     runs-on: ${{ matrix.os }}
-    if: ${{ hashFiles('**/Cargo.toml') != '' }}
     needs:
-      - policy
+      - detect-projects
+    if: ${{ needs.detect-projects.outputs.rust == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -127,9 +196,9 @@ jobs:
   node-build-test:
     name: Node build and test
     runs-on: ${{ matrix.os }}
-    if: ${{ hashFiles('**/package.json') != '' }}
     needs:
-      - policy
+      - detect-projects
+    if: ${{ needs.detect-projects.outputs.node == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -180,9 +249,9 @@ jobs:
   swift-build-test:
     name: Swift build and test
     runs-on: macos-latest
-    if: ${{ hashFiles('**/Package.swift') != '' }}
     needs:
-      - policy
+      - detect-projects
+    if: ${{ needs.detect-projects.outputs.swift == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -198,9 +267,9 @@ jobs:
   apple-project-smoke:
     name: Apple project smoke
     runs-on: macos-latest
-    if: ${{ hashFiles('**/*.xcodeproj/**') != '' || hashFiles('**/*.xcworkspace/**') != '' }}
     needs:
-      - policy
+      - detect-projects
+    if: ${{ needs.detect-projects.outputs.apple == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -209,7 +278,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          find . \( -name "*.xcodeproj" -o -name "*.xcworkspace" \) -maxdepth 4 -print
+          find . -maxdepth 4 \( -name "*.xcodeproj" -o -name "*.xcworkspace" \) -print
 
   ci-summary:
     name: CI summary
@@ -217,6 +286,7 @@ jobs:
     if: ${{ always() }}
     needs:
       - policy
+      - detect-projects
       - workspace-smoke
       - go-build-test
       - rust-build-test
@@ -229,6 +299,8 @@ jobs:
         run: |
           set -euo pipefail
           echo "policy=${{ needs.policy.result }}"
+          echo "detect-projects=${{ needs.detect-projects.result }}"
           echo "workspace-smoke=${{ needs.workspace-smoke.result }}"
           test "${{ needs.policy.result }}" = "success"
+          test "${{ needs.detect-projects.result }}" = "success"
           test "${{ needs.workspace-smoke.result }}" = "success"
