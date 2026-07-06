@@ -24,6 +24,10 @@
 - 插件权限模型和 iOS 审核风险初评。
 - 首个可验证源码栈的 CI 设计。
 
+当前规格：
+
+- [Control Kernel Domain Specification](docs/architecture/control-kernel-domain.md)
+
 ## P2 Core Kernel Skeleton
 
 目标是创建最小可编译、可测试、可回滚的内核骨架。

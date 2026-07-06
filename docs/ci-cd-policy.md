@@ -32,6 +32,7 @@
 
 - 治理文件存在性检查
 - Roadmap、TODO、CHANGELOG 等规划治理文件检查
+- 关键架构规格文件检查
 - Linux、macOS、Windows 基础工作区检查
 - Go 代码出现后的 Go 构建与测试
 - Rust 代码出现后的 Rust 构建与测试
