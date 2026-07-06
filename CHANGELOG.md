@@ -6,6 +6,7 @@
 
 ### Added
 
+- 补充 `control-runtime` MITM gate 权限拒绝审计合同测试，覆盖缺失权限 reason 和禁止调用插件 `load`/`handle_http_event`/`audit` 端口。
 - 补充 `control-runtime` MITM gate 远程脚本未知状态合同测试，覆盖未知状态拒绝原因、诊断、审计和禁止调用插件端口。
 - 补充 `control-runtime` MITM gate 证书状态拒绝矩阵合同测试，覆盖证书未安装、已安装未信任、已撤销和未知状态，并确认拒绝路径不会调用插件端口。
 - 补充 `control-runtime` MITM gate 平台 MITM 不可用合同测试，覆盖平台拒绝原因和禁止调用插件端口。

@@ -224,6 +224,34 @@ impl MitmPluginService for PanicMitmPluginService {
     }
 }
 
+struct ManifestOnlyMitmPluginService;
+
+impl MitmPluginService for ManifestOnlyMitmPluginService {
+    fn validate_manifest(&self, _plugin_manifest: &PluginManifest) -> Vec<Diagnostic> {
+        Vec::new()
+    }
+
+    fn load(
+        &self,
+        _plugin_package: &PluginPackage,
+        _granted_permissions: &GrantedPermissions,
+    ) -> DomainResult<PluginInstance> {
+        panic!("permission-denied MITM gates should not load plugins")
+    }
+
+    fn handle_http_event(
+        &self,
+        _plugin_instance: &PluginInstance,
+        _http_event: &HttpEvent,
+    ) -> DomainResult<PluginResult> {
+        panic!("permission-denied MITM gates should not handle events")
+    }
+
+    fn audit(&self, _plugin_result: &PluginResult) -> Vec<AuditEvent> {
+        panic!("permission-denied MITM gates should not audit results")
+    }
+}
+
 struct InvalidManifestMitmPluginService;
 
 impl MitmPluginService for InvalidManifestMitmPluginService {
@@ -542,11 +570,12 @@ fn mitm_gate_rejects_certificate_denial_matrix_before_plugin_port() {
 
 #[test]
 fn mitm_gate_rejects_ungranted_plugin_permission() {
+    let expected_reason = "plugin permission is not granted: modify_request";
     let gate = MitmGateOrchestrator::new(
         StaticPlatformCapabilityService {
             status: available_platform_status(),
         },
-        FakeMitmPluginService::new(),
+        ManifestOnlyMitmPluginService,
     );
 
     let decision = gate
@@ -560,14 +589,17 @@ fn mitm_gate_rejects_ungranted_plugin_permission() {
     assert!(!decision.is_allowed());
     assert_eq!(decision.decision, AuditDecision::Denied);
     assert!(decision.plugin_result.is_none());
-    assert_eq!(
-        decision.reason.as_deref(),
-        Some("plugin permission is not granted: modify_request")
-    );
-    assert!(decision
-        .diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.code == "runtime.mitm.permission_denied"));
+    assert_eq!(decision.reason.as_deref(), Some(expected_reason));
+    assert!(decision.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "runtime.mitm.permission_denied"
+            && diagnostic.message == expected_reason
+            && diagnostic.severity == control_domain::DiagnosticSeverity::Error
+    }));
+    assert_eq!(decision.audits.len(), 1);
+    assert_eq!(decision.audits[0].actor, "header-rewriter");
+    assert_eq!(decision.audits[0].action, "mitm_gate");
+    assert_eq!(decision.audits[0].decision, AuditDecision::Denied);
+    assert_eq!(decision.audits[0].reason.as_deref(), Some(expected_reason));
 }
 
 #[test]
