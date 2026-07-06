@@ -285,6 +285,57 @@ impl MitmPluginService for InvalidManifestMitmPluginService {
     }
 }
 
+struct NonErrorManifestMitmPluginService;
+
+impl MitmPluginService for NonErrorManifestMitmPluginService {
+    fn validate_manifest(&self, _plugin_manifest: &PluginManifest) -> Vec<Diagnostic> {
+        vec![
+            Diagnostic::new(
+                control_domain::DiagnosticSeverity::Warning,
+                "plugin.manifest.deprecated_header_match",
+                "plugin uses a deprecated header match hint",
+                Some("manifest.hooks[0]".to_string()),
+            ),
+            Diagnostic::new(
+                control_domain::DiagnosticSeverity::Info,
+                "plugin.manifest.compatibility_note",
+                "plugin manifest is compatible with request hooks",
+                Some("manifest".to_string()),
+            ),
+        ]
+    }
+
+    fn load(
+        &self,
+        plugin_package: &PluginPackage,
+        _granted_permissions: &GrantedPermissions,
+    ) -> DomainResult<PluginInstance> {
+        Ok(PluginInstance {
+            manifest: plugin_package.manifest.clone(),
+        })
+    }
+
+    fn handle_http_event(
+        &self,
+        plugin_instance: &PluginInstance,
+        _http_event: &HttpEvent,
+    ) -> DomainResult<PluginResult> {
+        Ok(PluginResult {
+            audits: vec![AuditEvent {
+                actor: plugin_instance.manifest.id.clone(),
+                action: "handle_http_event".to_string(),
+                decision: AuditDecision::Allowed,
+                reason: Some("plugin executed after manifest diagnostics".to_string()),
+            }],
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn audit(&self, _plugin_result: &PluginResult) -> Vec<AuditEvent> {
+        Vec::new()
+    }
+}
+
 struct AuditingMitmPluginService;
 
 impl MitmPluginService for AuditingMitmPluginService {
@@ -637,6 +688,48 @@ fn mitm_gate_rejects_manifest_error_diagnostics_before_loading_plugin() {
         .diagnostics
         .iter()
         .any(|diagnostic| diagnostic.code == "runtime.mitm.manifest_invalid"));
+}
+
+#[test]
+fn mitm_gate_allows_manifest_non_error_diagnostics() {
+    let gate = MitmGateOrchestrator::new(
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        NonErrorManifestMitmPluginService,
+    );
+
+    let decision = gate
+        .mitm_gate(MitmGateRequest::new(
+            sample_plugin_package(),
+            granted_permissions(vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ]),
+            sample_http_event(),
+        ))
+        .expect("mitm gate should evaluate");
+
+    assert!(decision.is_allowed());
+    assert_eq!(decision.decision, AuditDecision::Allowed);
+    assert!(decision.reason.is_none());
+    assert!(decision.plugin_result.is_some());
+    assert!(decision.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "plugin.manifest.deprecated_header_match"
+            && diagnostic.severity == control_domain::DiagnosticSeverity::Warning
+    }));
+    assert!(decision.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "plugin.manifest.compatibility_note"
+            && diagnostic.severity == control_domain::DiagnosticSeverity::Info
+    }));
+    assert!(!decision
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "runtime.mitm.manifest_invalid"));
+    assert!(decision.audits.iter().any(|audit| {
+        audit.action == "handle_http_event"
+            && audit.reason.as_deref() == Some("plugin executed after manifest diagnostics")
+    }));
 }
 
 #[test]
