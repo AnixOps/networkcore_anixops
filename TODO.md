@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 补齐 Rust dependency/security scan workflow，并通过 GitHub Actions 验证。
+- [ ] 评估 iOS Network Extension、证书安装、插件脚本权限和 App Review 风险。
 
 ## 已完成
 
+- [x] 补齐 Rust dependency/security scan workflow，并通过 GitHub Actions 验证。
 - [x] 设计可插拔代理执行内核适配接口，保留 `sing-box`、`xray-core`、`mihomo` 适配空间。
 - [x] 创建最小 Rust workspace 与 `control-domain` crate 骨架，并通过 GitHub Actions 激活 Rust format、lint、test、build。
 - [x] 为配置模型、订阅解析、策略路由、DNS、MITM 插件和控制 API 建立文档化接口草案。
@@ -16,7 +17,6 @@
 
 ## 后续
 
-- [ ] 评估 iOS Network Extension、证书安装、插件脚本权限和 App Review 风险。
 - [ ] 在 release workflow 中加入真实平台产物前，先完成发布策略文档。
 
 ## 维护规则

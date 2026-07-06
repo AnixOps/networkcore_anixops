@@ -216,6 +216,35 @@ jobs:
         shell: bash
         run: cargo build --workspace --all-targets
 
+  rust-security-audit:
+    name: Rust dependency security audit
+    runs-on: ubuntu-latest
+    needs:
+      - detect-projects
+    if: ${{ needs.detect-projects.outputs.rust == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Install cargo-audit
+        shell: bash
+        run: cargo install cargo-audit
+
+      - name: Generate lockfile
+        shell: bash
+        run: cargo generate-lockfile
+
+      - name: Audit dependencies
+        shell: bash
+        run: cargo audit
+
   node-build-test:
     name: Node build and test
     runs-on: ${{ matrix.os }}
@@ -313,6 +342,7 @@ jobs:
       - workspace-smoke
       - go-build-test
       - rust-build-test
+      - rust-security-audit
       - node-build-test
       - swift-build-test
       - apple-project-smoke
@@ -324,6 +354,10 @@ jobs:
           echo "policy=${{ needs.policy.result }}"
           echo "detect-projects=${{ needs.detect-projects.result }}"
           echo "workspace-smoke=${{ needs.workspace-smoke.result }}"
+          echo "rust-security-audit=${{ needs.rust-security-audit.result }}"
           test "${{ needs.policy.result }}" = "success"
           test "${{ needs.detect-projects.result }}" = "success"
           test "${{ needs.workspace-smoke.result }}" = "success"
+          if [ "${{ needs.detect-projects.outputs.rust }}" = "true" ]; then
+            test "${{ needs.rust-security-audit.result }}" = "success"
+          fi

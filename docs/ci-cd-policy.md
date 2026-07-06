@@ -38,6 +38,7 @@
 - Linux、macOS、Windows 基础工作区检查
 - Go 代码出现后的 Go 构建与测试
 - Rust 代码出现后的 Rust 构建与测试
+- Rust 代码出现后的依赖安全扫描
 - Node 代码出现后的 Node 构建与测试
 - Swift、Xcode 或 iOS 代码出现后的 Apple 平台验证
 
@@ -66,7 +67,7 @@ iOS 相关验证只允许在 macOS runner 中执行。为优先支持最新 Appl
 后续出现具体代码栈时，应把验证规则加入 GitHub Actions：
 
 - Go 内核：`go test ./...`、`go build ./...`
-- Rust 内核：`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace --all-targets`、`cargo build --workspace --all-targets`
+- Rust 内核：`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace --all-targets`、`cargo build --workspace --all-targets`、`cargo generate-lockfile`、`cargo audit`
 - Node 或 Web 客户端：`npm test`、`npm run build`
 - Swift 或 iOS 客户端：`swift test`、`swift build`、`xcodebuild`
 
