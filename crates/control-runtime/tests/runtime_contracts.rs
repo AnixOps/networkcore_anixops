@@ -483,36 +483,61 @@ fn mitm_gate_rejects_unavailable_mitm_before_plugin_port() {
 }
 
 #[test]
-fn mitm_gate_rejects_untrusted_certificate() {
-    let gate = MitmGateOrchestrator::new(
-        StaticPlatformCapabilityService {
-            status: platform_status_with_untrusted_certificate(),
-        },
-        FakeMitmPluginService::new(),
-    );
+fn mitm_gate_rejects_certificate_denial_matrix_before_plugin_port() {
+    let cases = [
+        (
+            CertificateTrustState::NotInstalled,
+            "mitm certificate is not installed",
+        ),
+        (
+            CertificateTrustState::InstalledUntrusted,
+            "mitm certificate is installed but not trusted",
+        ),
+        (
+            CertificateTrustState::Revoked,
+            "mitm certificate is revoked",
+        ),
+        (
+            CertificateTrustState::Unknown,
+            "mitm certificate trust state is unknown",
+        ),
+    ];
 
-    let decision = gate
-        .mitm_gate(MitmGateRequest::new(
-            sample_plugin_package(),
-            granted_permissions(vec![
-                PluginPermission::ReadRequest,
-                PluginPermission::ModifyRequest,
-            ]),
-            sample_http_event(),
-        ))
-        .expect("mitm gate should return a denial decision");
+    for (state, expected_reason) in cases {
+        let gate = MitmGateOrchestrator::new(
+            StaticPlatformCapabilityService {
+                status: platform_status_with_certificate_state(state),
+            },
+            PanicMitmPluginService,
+        );
 
-    assert!(!decision.is_allowed());
-    assert_eq!(decision.decision, AuditDecision::Denied);
-    assert!(decision.plugin_result.is_none());
-    assert_eq!(
-        decision.reason.as_deref(),
-        Some("mitm certificate is installed but not trusted")
-    );
-    assert!(decision.diagnostics.iter().any(|diagnostic| {
-        diagnostic.code == "runtime.mitm.certificate_untrusted"
-            && diagnostic.severity == control_domain::DiagnosticSeverity::Error
-    }));
+        let decision = gate
+            .mitm_gate(MitmGateRequest::new(
+                sample_plugin_package(),
+                granted_permissions(vec![
+                    PluginPermission::ReadRequest,
+                    PluginPermission::ModifyRequest,
+                ]),
+                sample_http_event(),
+            ))
+            .expect("mitm gate should return a denial decision");
+
+        assert!(!decision.is_allowed());
+        assert_eq!(decision.decision, AuditDecision::Denied);
+        assert_eq!(decision.platform.mitm_certificate.state, state);
+        assert_eq!(decision.reason.as_deref(), Some(expected_reason));
+        assert!(decision.plugin_result.is_none());
+        assert!(decision.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == "runtime.mitm.certificate_untrusted"
+                && diagnostic.message == expected_reason
+                && diagnostic.severity == control_domain::DiagnosticSeverity::Error
+        }));
+        assert_eq!(decision.audits.len(), 1);
+        assert_eq!(decision.audits[0].actor, "header-rewriter");
+        assert_eq!(decision.audits[0].action, "mitm_gate");
+        assert_eq!(decision.audits[0].decision, AuditDecision::Denied);
+        assert_eq!(decision.audits[0].reason.as_deref(), Some(expected_reason));
+    }
 }
 
 #[test]
@@ -686,16 +711,16 @@ fn platform_status_without_mitm() -> PlatformCapabilityStatus {
     }
 }
 
-fn platform_status_with_untrusted_certificate() -> PlatformCapabilityStatus {
+fn platform_status_with_certificate_state(
+    state: CertificateTrustState,
+) -> PlatformCapabilityStatus {
     PlatformCapabilityStatus {
         os: OperatingSystem::Ios,
         tunnel: PlatformFeatureState::available(),
         mitm: PlatformFeatureState::available(),
         embedded_runtime: PlatformFeatureState::available(),
-        remote_script_execution: PlatformFeatureState::unavailable(
-            "remote script execution is disabled on iOS",
-        ),
-        mitm_certificate: MitmCertificateStatus::new(CertificateTrustState::InstalledUntrusted),
+        remote_script_execution: PlatformFeatureState::available(),
+        mitm_certificate: MitmCertificateStatus::new(state),
         diagnostics: Vec::new(),
     }
 }
