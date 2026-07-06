@@ -6,6 +6,7 @@
 
 ### Added
 
+- 在 `engine-native` 中新增首个 native runtime handle 源码合同，覆盖 loopback listener handle、SOCKS outbound handler handoff、启动失败释放报告、runtime events 和 foreground lifecycle handoff status；`NativeProxyEngineService::start` 与 `networkcore-linux start` 继续保持未接线。
 - 在 `engine-native` 中新增 listener/node/route 结构化图校验，明确 `ConfigSnapshot.nodes` 与运行请求 nodes 的合并和重复 id 拒绝边界；`networkcore-linux start` 继续保持未接线。
 - 在 `config-core` 中解析最小 listener/node/route TOML 子集，将本地 nodes 标准化进 `ConfigSnapshot`，并补充稳定诊断合同测试；`networkcore-linux start` 继续保持未接线。
 - 在 `control-domain` 中新增 listener 配置领域类型，将 `ConfigSnapshot` 扩展为显式携带 listeners，并补充合同测试；`networkcore-linux start` 继续保持未接线。

@@ -1,11 +1,12 @@
 use control_domain::{
     ConfigSnapshot, Diagnostic, Endpoint, ListenerBind, ListenerDescriptor, ListenerKind,
     ListenerNetwork, ListenerRoute, MetadataEntry, NodeDescriptor, Protocol, ProxyEngineConfig,
-    ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, RouteAction, RuleSet,
-    SchemaVersion,
+    ProxyEngineEventKind, ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService,
+    RouteAction, RuleSet, SchemaVersion,
 };
 use engine_native::{
-    NativeProxyEngineService, DEFAULT_NATIVE_ENGINE_ID,
+    LoopbackListenerHandle, NativeOutboundHandlerHandle, NativeProxyEngineService,
+    NativeRuntimeAssembly, DEFAULT_NATIVE_ENGINE_ID,
     ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_ID_DUPLICATE_CODE,
@@ -14,6 +15,12 @@ use engine_native::{
     ENGINE_NATIVE_CONFIG_NODE_MISSING_CODE, ENGINE_NATIVE_CONFIG_NODE_PROTOCOL_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_ROUTE_EMPTY_CODE, ENGINE_NATIVE_CONFIG_ROUTE_ID_DUPLICATE_CODE,
     ENGINE_NATIVE_CONFIG_ROUTE_TARGET_MISSING_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
+    ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
+    ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE,
+    ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
+    ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
+    ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE, ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
+    ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE,
 };
 
 #[test]
@@ -245,6 +252,156 @@ fn start_rejects_until_real_runtime_handle_exists() {
 }
 
 #[test]
+fn runtime_handle_contract_builds_foreground_handoff_without_service_start_wiring() {
+    let listener = LoopbackListenerHandle::from_descriptor(&local_tcp_listener(
+        "loopback-local-tcp",
+        ListenerRoute::DefaultAction(RouteAction::Proxy {
+            node_id: "node-1".to_string(),
+        }),
+    ))
+    .expect("loopback tcp listener handle should be representable");
+    let outbound = NativeOutboundHandlerHandle::from_node(&node())
+        .expect("socks outbound handler handle should be representable");
+
+    let handle = NativeRuntimeAssembly::new(DEFAULT_NATIVE_ENGINE_ID)
+        .with_listener(listener)
+        .with_outbound_handler(outbound)
+        .finish()
+        .expect("runtime handle contract should finish with required resources");
+
+    assert_eq!(handle.listeners()[0].listener_id, "loopback-local-tcp");
+    assert_eq!(handle.outbound_handlers()[0].node_id, "node-1");
+    let handoff_status = handle.foreground_handoff_status();
+    assert_eq!(handoff_status.state, ProxyEngineLifecycleState::Running);
+    assert_diagnostic(
+        &handoff_status.diagnostics,
+        ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
+    );
+    assert_eq!(handle.events()[0].kind, ProxyEngineEventKind::Started);
+
+    let service = NativeProxyEngineService::new();
+    let engine_config = config(DEFAULT_NATIVE_ENGINE_ID, vec![node()]);
+    let error = service
+        .start(&engine_config)
+        .expect_err("service start remains intentionally unavailable");
+
+    assert_eq!(error.code, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE);
+}
+
+#[test]
+fn runtime_handle_contract_rejects_non_loopback_listener() {
+    let listener = local_tcp_listener_with_bind(
+        "public-local-tcp",
+        "0.0.0.0",
+        1080,
+        ListenerRoute::DefaultAction(RouteAction::Direct),
+    );
+
+    let error = LoopbackListenerHandle::from_descriptor(&listener)
+        .expect_err("public bind must not become a native runtime handle");
+
+    assert_eq!(error.code, ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE);
+}
+
+#[test]
+fn runtime_handle_contract_reports_disabled_invalid_and_missing_resources() {
+    let disabled_error = LoopbackListenerHandle::from_descriptor(&disabled_listener(
+        "disabled-loopback",
+    ))
+    .expect_err("disabled listeners must not become runtime handles");
+
+    assert_eq!(disabled_error.code, ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE);
+
+    let invalid_endpoint = NodeDescriptor {
+        endpoint: Endpoint {
+            host: "".to_string(),
+            port: 0,
+        },
+        ..node()
+    };
+    let endpoint_error = NativeOutboundHandlerHandle::from_node(&invalid_endpoint)
+        .expect_err("invalid outbound endpoint must not become a handler handle");
+
+    assert_eq!(
+        endpoint_error.code,
+        ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE
+    );
+
+    let missing_error = NativeRuntimeAssembly::new(DEFAULT_NATIVE_ENGINE_ID)
+        .finish()
+        .expect_err("runtime assembly must require listener and outbound handles");
+
+    assert_eq!(missing_error.code, ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE);
+}
+
+#[test]
+fn runtime_handle_contract_rejects_unsupported_outbound_protocol() {
+    let node = NodeDescriptor {
+        protocol: Protocol::Http,
+        ..node()
+    };
+
+    let error = NativeOutboundHandlerHandle::from_node(&node)
+        .expect_err("unsupported outbound protocol must not become a handler handle");
+
+    assert_eq!(error.code, ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE);
+}
+
+#[test]
+fn runtime_handle_contract_rejects_unsupported_engine_id() {
+    let listener = LoopbackListenerHandle::from_descriptor(&local_tcp_listener(
+        "loopback-local-tcp",
+        ListenerRoute::DefaultAction(RouteAction::Proxy {
+            node_id: "node-1".to_string(),
+        }),
+    ))
+    .expect("loopback tcp listener handle should be representable");
+    let outbound = NativeOutboundHandlerHandle::from_node(&node())
+        .expect("socks outbound handler handle should be representable");
+
+    let error = NativeRuntimeAssembly::new("external")
+        .with_listener(listener)
+        .with_outbound_handler(outbound)
+        .finish()
+        .expect_err("native runtime handles must keep the native engine id");
+
+    assert_eq!(error.code, ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE);
+}
+
+#[test]
+fn runtime_handle_contract_releases_acquired_resources_on_start_failure() {
+    let listener = LoopbackListenerHandle::from_descriptor(&local_tcp_listener(
+        "loopback-local-tcp",
+        ListenerRoute::DefaultAction(RouteAction::Proxy {
+            node_id: "node-1".to_string(),
+        }),
+    ))
+    .expect("loopback tcp listener handle should be representable");
+    let outbound = NativeOutboundHandlerHandle::from_node(&node())
+        .expect("socks outbound handler handle should be representable");
+
+    let failure = NativeRuntimeAssembly::new(DEFAULT_NATIVE_ENGINE_ID)
+        .with_listener(listener)
+        .with_outbound_handler(outbound)
+        .fail("engine.native.start.bind_failed", "failed to bind loopback listener");
+
+    assert_eq!(failure.error.code, "engine.native.start.bind_failed");
+    assert_eq!(
+        failure.release.listener_ids,
+        vec!["loopback-local-tcp".to_string()]
+    );
+    assert_eq!(
+        failure.release.outbound_handler_ids,
+        vec!["node-1".to_string()]
+    );
+    assert_diagnostic(
+        &failure.release.diagnostics,
+        ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
+    );
+    assert_eq!(failure.release.events[0].kind, ProxyEngineEventKind::Failed);
+}
+
+#[test]
 fn status_and_stop_remain_stopped_without_runtime_handle() {
     let service = NativeProxyEngineService::new();
 
@@ -314,6 +471,10 @@ fn listener(id: &str, route: ListenerRoute) -> ListenerDescriptor {
     listener_with_bind(id, "127.0.0.1", 1080, route)
 }
 
+fn local_tcp_listener(id: &str, route: ListenerRoute) -> ListenerDescriptor {
+    local_tcp_listener_with_bind(id, "127.0.0.1", 1080, route)
+}
+
 fn disabled_listener(id: &str) -> ListenerDescriptor {
     ListenerDescriptor {
         enabled: false,
@@ -334,6 +495,18 @@ fn listener_with_bind(id: &str, host: &str, port: u16, route: ListenerRoute) -> 
         route,
         tags: Vec::new(),
         metadata: Vec::new(),
+    }
+}
+
+fn local_tcp_listener_with_bind(
+    id: &str,
+    host: &str,
+    port: u16,
+    route: ListenerRoute,
+) -> ListenerDescriptor {
+    ListenerDescriptor {
+        kind: ListenerKind::LocalTcp,
+        ..listener_with_bind(id, host, port, route)
     }
 }
 

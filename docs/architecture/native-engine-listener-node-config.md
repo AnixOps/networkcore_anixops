@@ -37,9 +37,10 @@ listener、node、route 和 DNS 配置模型边界。它承接
 - `control-domain::ProxyEngineConfig`，组合标准化 `ConfigSnapshot`、运行请求提供的 `nodes` 和 adapter `metadata`。
 - `control-runtime::RuntimeConfigRequest`，把 `engine_id`、原始配置、`nodes` 和 `metadata` 传给运行层。
 - `config-core::CoreConfigurationService`，当前解析 schema/profile 和最小 listener/node/route TOML 子集；DNS、插件、订阅、secret、重复 id 和 listener/node 图校验仍未进入。
-- `engine-native::NativeProxyEngineService`，当前对 listener、node 和 route 做结构化图校验，合并 `ConfigSnapshot.nodes` 与运行请求 nodes 作为 typed node catalog，并在缺少 listener/node、重复 id、route target 缺失和未实现 handler/protocol 时返回稳定诊断；生命周期仍返回 runtime unavailable。
+- `engine-native::NativeProxyEngineService`，当前对 listener、node 和 route 做结构化图校验，合并 `ConfigSnapshot.nodes` 与运行请求 nodes 作为 typed node catalog，并在缺少 listener/node、重复 id、route target 缺失和未实现 handler/protocol 时返回稳定诊断。
+- `engine-native` 已补充首个 native runtime handle 源码合同，覆盖 loopback listener handle、SOCKS outbound handler handoff、启动失败释放报告、runtime events 和 foreground lifecycle handoff status；该合同尚未绑定真实 socket 或接入 `NativeProxyEngineService::start`。
 
-因此，`engine-native` 现在必须继续拒绝启动。虽然配置服务已经能解析最小 listener/node/route 子集，且 adapter 已能校验 listener/node/route 图，但在 DNS 需求判断、真实 listener/outbound handler 和真实运行句柄完成前，不得返回 `Running`，也不得接入 `networkcore-linux start`。
+因此，`engine-native` 现在必须继续拒绝启动。虽然配置服务已经能解析最小 listener/node/route 子集，adapter 已能校验 listener/node/route 图，且源码中已有 runtime handle 合同，但在 DNS 需求判断、真实 socket listener/outbound handler 和真实运行句柄接线完成前，不得返回 `Running`，也不得接入 `networkcore-linux start`。
 
 ## 配置所有权
 
@@ -130,6 +131,14 @@ DNS 配置进入前应继续保守：
 | `engine.native.config.route_empty` | Error | listener 没有可执行 route |
 | `engine.native.config.dns_required` | Error | 当前配置需要 DNS plan 才能启动 |
 | `engine.native.config.secret_redacted` | Info | 诊断输出已隐藏敏感配置值 |
+| `engine.native.runtime.listener_disabled` | Error | runtime handle 拒绝 disabled listener |
+| `engine.native.runtime.listener_non_loopback` | Error | runtime handle 拒绝非 loopback listener |
+| `engine.native.runtime.listener_unsupported` | Error | runtime handle 拒绝尚未声明的 listener handler |
+| `engine.native.runtime.outbound_endpoint_invalid` | Error | runtime handle 拒绝非法 outbound endpoint |
+| `engine.native.runtime.outbound_unsupported` | Error | runtime handle 拒绝尚未声明的 outbound handler |
+| `engine.native.runtime.resource_missing` | Error | runtime handle 缺少 listener 或 outbound handler |
+| `engine.native.runtime.released` | Info | 启动失败或停止路径已释放已持有 handle |
+| `engine.native.runtime.foreground_handoff_ready` | Info | runtime handle 可交给前台 lifecycle host |
 
 已有 code `engine.native.config.engine_id_unsupported`、`listener_missing` 和
 `node_missing` 保持兼容。
@@ -142,8 +151,9 @@ DNS 配置进入前应继续保守：
 2. 已在 `config-core` 中解析最小 listener/node/route TOML 子集，仍保持纯内存、无文件 I/O、无网络请求。
 3. `control-runtime` 继续只编排端口，并把 `ConfigSnapshot` 与 `RuntimeConfigRequest.nodes` 作为显式类型传入 `ProxyEngineConfig`；当前 typed node catalog 合并和去重在 `engine-native` 中完成，不读取 adapter 私有 metadata。
 4. 已在 `engine-native` 中把配置拒绝从固定 `listener_missing`/`node_missing` 改为结构化图校验，覆盖 enabled listener、重复 id、route target、typed node catalog 和未实现 listener/node handler。
-5. 下一步必须先定义并实现真实 listener/runtime handle 的最小源码合同；只有当 native runtime 创建并持有真实 listener handle 后，`start()` 才能返回 `Running`。
-6. 最后再评估 `networkcore-linux start` binary 接线和前台 lifecycle host handoff。
+5. 已补充首个 native runtime handle 的最小源码合同，明确 loopback listener handle、SOCKS outbound handler handoff、失败释放、事件和前台 lifecycle handoff status；该合同尚未绑定真实 socket，也未接入 `NativeProxyEngineService::start`。
+6. 下一步必须把 handle 合同推进为真实 loopback TCP listener 绑定/释放实现；只有当 native runtime 创建并持有真实 listener handle 后，`start()` 才能返回 `Running`。
+7. 最后再评估 `networkcore-linux start` binary 接线和前台 lifecycle host handoff。
 
 每个阶段都必须同步 README、TODO、CHANGELOG、设计文档和合同测试，并只通过 GitHub Actions 验证。
 
@@ -154,7 +164,7 @@ DNS 配置进入前应继续保守：
 - listener 配置图已通过校验。
 - outbound node/direct route 图已通过校验。
 - 平台能力已由 `RuntimeOrchestrator` 确认可启动。
-- adapter 已创建当前进程拥有的 listener/runtime handle。
+- adapter 已创建当前进程拥有的真实 listener/runtime handle，而不仅是源码合同结构。
 - 失败路径能释放已创建的句柄，并返回稳定 `DomainError` 或 `Diagnostic`。
 - `events()` 至少能返回启动失败或运行状态变化的内存事件合同，或者在设计中明确首版事件为空的边界。
 
@@ -162,7 +172,7 @@ DNS 配置进入前应继续保守：
 
 - 只解析了 listener/node 配置。
 - 只验证了节点存在。
-- 只创建了数据结构，没有绑定或持有任何运行句柄。
+- 只创建了 runtime handle 合同结构，没有绑定或持有任何真实运行资源。
 - 只绑定端口但没有 route/outbound 行为合同。
 - 只能在测试替身中返回 `Running`。
 
@@ -178,5 +188,5 @@ DNS 配置进入前应继续保守：
 
 ## 后续工作
 
-- 补充首个 native runtime handle 的最小源码合同，明确 loopback listener handle、outbound handler、失败释放、事件和前台 lifecycle handoff 边界。
-- `engine-native` 继续保持 runtime unavailable，直到真实 runtime handle 完成。
+- 在 `engine-native` 中为首个 native runtime handle 补充真实 loopback TCP listener 绑定/释放实现。
+- `engine-native` 继续保持 runtime unavailable，直到真实 runtime handle 完成并通过 GitHub Actions 验证。

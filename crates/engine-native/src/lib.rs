@@ -1,20 +1,23 @@
 //! Native proxy engine adapter contracts for NetworkCore.
 //!
-//! This crate intentionally exposes only descriptor, validation, and lifecycle
-//! diagnostics until a real in-process runtime handle exists.
+//! This crate intentionally exposes descriptor, validation, lifecycle
+//! diagnostics, and source-level handle contracts until a real resource-backed
+//! in-process runtime handle exists.
 
 use control_domain::{
-    Diagnostic, DiagnosticSeverity, DomainError, DomainResult, ListenerDescriptor, ListenerKind,
-    ListenerRoute, NodeDescriptor, Protocol, ProxyEngineConfig, ProxyEngineDescriptor,
-    ProxyEngineEvent, ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService,
-    ProxyEngineStatus, RouteAction, RuleSet,
+    Diagnostic, DiagnosticSeverity, DomainError, DomainResult, Endpoint, ListenerDescriptor,
+    ListenerKind, ListenerNetwork, ListenerRoute, NodeDescriptor, Protocol, ProxyEngineConfig,
+    ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineEventKind, ProxyEngineKind,
+    ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RouteAction, RuleSet,
 };
 use std::collections::BTreeSet;
+use std::net::IpAddr;
 
 pub const DEFAULT_NATIVE_ENGINE_ID: &str = "native";
 
 pub const SOURCE_ENGINE_NATIVE_CONFIG: &str = "engine.native.config";
 pub const SOURCE_ENGINE_NATIVE_LIFECYCLE: &str = "engine.native.lifecycle";
+pub const SOURCE_ENGINE_NATIVE_RUNTIME: &str = "engine.native.runtime";
 
 pub const ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE: &str =
     "engine.native.config.engine_id_unsupported";
@@ -38,6 +41,242 @@ pub const ENGINE_NATIVE_CONFIG_ROUTE_TARGET_MISSING_CODE: &str =
 pub const ENGINE_NATIVE_CONFIG_ROUTE_EMPTY_CODE: &str = "engine.native.config.route_empty";
 pub const ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE: &str =
     "engine.native.start.runtime_unavailable";
+pub const ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE: &str =
+    "engine.native.runtime.listener_disabled";
+pub const ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE: &str =
+    "engine.native.runtime.listener_non_loopback";
+pub const ENGINE_NATIVE_RUNTIME_LISTENER_UNSUPPORTED_CODE: &str =
+    "engine.native.runtime.listener_unsupported";
+pub const ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE: &str =
+    "engine.native.runtime.outbound_endpoint_invalid";
+pub const ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE: &str =
+    "engine.native.runtime.outbound_unsupported";
+pub const ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE: &str =
+    "engine.native.runtime.resource_missing";
+pub const ENGINE_NATIVE_RUNTIME_RELEASED_CODE: &str = "engine.native.runtime.released";
+pub const ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE: &str =
+    "engine.native.runtime.foreground_handoff_ready";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoopbackListenerHandle {
+    pub listener_id: String,
+    pub bind_host: String,
+    pub bind_port: u16,
+    pub kind: ListenerKind,
+    pub network: ListenerNetwork,
+}
+
+impl LoopbackListenerHandle {
+    pub fn from_descriptor(listener: &ListenerDescriptor) -> DomainResult<Self> {
+        if !listener.enabled {
+            return Err(runtime_error(
+                ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE,
+                "disabled listeners cannot own native runtime handles",
+            ));
+        }
+
+        if listener.bind.host.trim().is_empty() || listener.bind.port == 0 {
+            return Err(runtime_error(
+                ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
+                "native runtime listener bind host and port must be explicit",
+            ));
+        }
+
+        if !is_loopback_host(&listener.bind.host) {
+            return Err(runtime_error(
+                ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
+                "first native runtime listener handle must bind to loopback",
+            ));
+        }
+
+        if listener.network != ListenerNetwork::Tcp
+            || !listener_runtime_kind_supported(&listener.kind)
+        {
+            return Err(runtime_error(
+                ENGINE_NATIVE_RUNTIME_LISTENER_UNSUPPORTED_CODE,
+                "first native runtime listener handle only supports tcp loopback listeners",
+            ));
+        }
+
+        Ok(Self {
+            listener_id: listener.id.clone(),
+            bind_host: listener.bind.host.clone(),
+            bind_port: listener.bind.port,
+            kind: listener.kind.clone(),
+            network: listener.network,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeOutboundHandlerHandle {
+    pub node_id: String,
+    pub protocol: Protocol,
+    pub endpoint: Endpoint,
+}
+
+impl NativeOutboundHandlerHandle {
+    pub fn from_node(node: &NodeDescriptor) -> DomainResult<Self> {
+        if node.endpoint.host.trim().is_empty() || node.endpoint.port == 0 {
+            return Err(runtime_error(
+                ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
+                "native runtime outbound endpoint host and port must be explicit",
+            ));
+        }
+
+        if !outbound_runtime_protocol_supported(&node.protocol) {
+            return Err(runtime_error(
+                ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE,
+                "first native runtime outbound handler only declares socks node handoff",
+            ));
+        }
+
+        Ok(Self {
+            node_id: node.id.clone(),
+            protocol: node.protocol.clone(),
+            endpoint: node.endpoint.clone(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeRuntimeHandle {
+    engine_id: String,
+    listeners: Vec<LoopbackListenerHandle>,
+    outbound_handlers: Vec<NativeOutboundHandlerHandle>,
+    events: Vec<ProxyEngineEvent>,
+}
+
+impl NativeRuntimeHandle {
+    pub fn listeners(&self) -> &[LoopbackListenerHandle] {
+        &self.listeners
+    }
+
+    pub fn outbound_handlers(&self) -> &[NativeOutboundHandlerHandle] {
+        &self.outbound_handlers
+    }
+
+    pub fn events(&self) -> &[ProxyEngineEvent] {
+        &self.events
+    }
+
+    pub fn foreground_handoff_status(&self) -> ProxyEngineStatus {
+        ProxyEngineStatus {
+            engine_id: self.engine_id.clone(),
+            state: ProxyEngineLifecycleState::Running,
+            diagnostics: vec![runtime_info(
+                ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
+                "native runtime handle is ready for foreground lifecycle handoff",
+            )],
+        }
+    }
+
+    pub fn release(self) -> NativeRuntimeReleaseReport {
+        release_report(
+            self.engine_id,
+            self.listeners,
+            self.outbound_handlers,
+            self.events,
+            ProxyEngineEventKind::Stopped,
+            Vec::new(),
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeRuntimeReleaseReport {
+    pub engine_id: String,
+    pub listener_ids: Vec<String>,
+    pub outbound_handler_ids: Vec<String>,
+    pub diagnostics: Vec<Diagnostic>,
+    pub events: Vec<ProxyEngineEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeRuntimeStartupFailure {
+    pub error: DomainError,
+    pub release: NativeRuntimeReleaseReport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeRuntimeAssembly {
+    engine_id: String,
+    listeners: Vec<LoopbackListenerHandle>,
+    outbound_handlers: Vec<NativeOutboundHandlerHandle>,
+    events: Vec<ProxyEngineEvent>,
+}
+
+impl NativeRuntimeAssembly {
+    pub fn new(engine_id: impl Into<String>) -> Self {
+        Self {
+            engine_id: engine_id.into(),
+            listeners: Vec::new(),
+            outbound_handlers: Vec::new(),
+            events: Vec::new(),
+        }
+    }
+
+    pub fn with_listener(mut self, listener: LoopbackListenerHandle) -> Self {
+        self.listeners.push(listener);
+        self
+    }
+
+    pub fn with_outbound_handler(mut self, outbound_handler: NativeOutboundHandlerHandle) -> Self {
+        self.outbound_handlers.push(outbound_handler);
+        self
+    }
+
+    pub fn finish(mut self) -> DomainResult<NativeRuntimeHandle> {
+        ensure_native_engine_id(&self.engine_id)?;
+
+        if self.listeners.is_empty() || self.outbound_handlers.is_empty() {
+            return Err(runtime_error(
+                ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE,
+                "native runtime handle requires at least one listener and outbound handler",
+            ));
+        }
+
+        self.events.push(runtime_event(
+            &self.engine_id,
+            ProxyEngineEventKind::Started,
+            vec![runtime_info(
+                ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
+                "native runtime handle is ready for foreground lifecycle handoff",
+            )],
+        ));
+
+        Ok(NativeRuntimeHandle {
+            engine_id: self.engine_id,
+            listeners: self.listeners,
+            outbound_handlers: self.outbound_handlers,
+            events: self.events,
+        })
+    }
+
+    pub fn fail(
+        self,
+        code: impl Into<String>,
+        message: impl Into<String>,
+    ) -> NativeRuntimeStartupFailure {
+        let error = DomainError::new(code, message);
+        let failure_diagnostic = engine_diagnostic(
+            DiagnosticSeverity::Error,
+            error.code.clone(),
+            error.message.clone(),
+            SOURCE_ENGINE_NATIVE_RUNTIME,
+        );
+        let release = release_report(
+            self.engine_id,
+            self.listeners,
+            self.outbound_handlers,
+            self.events,
+            ProxyEngineEventKind::Failed,
+            vec![failure_diagnostic],
+        );
+
+        NativeRuntimeStartupFailure { error, release }
+    }
+}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NativeProxyEngineService;
@@ -333,6 +572,83 @@ fn listener_kind_supported(_kind: &ListenerKind) -> bool {
 
 fn node_protocol_supported(_protocol: &Protocol) -> bool {
     false
+}
+
+fn listener_runtime_kind_supported(kind: &ListenerKind) -> bool {
+    matches!(kind, ListenerKind::LocalTcp | ListenerKind::Socks)
+}
+
+fn outbound_runtime_protocol_supported(protocol: &Protocol) -> bool {
+    matches!(protocol, Protocol::Socks)
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    let host = host.trim();
+
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+
+    host.parse::<IpAddr>()
+        .map(|address| address.is_loopback())
+        .unwrap_or(false)
+}
+
+fn release_report(
+    engine_id: String,
+    listeners: Vec<LoopbackListenerHandle>,
+    outbound_handlers: Vec<NativeOutboundHandlerHandle>,
+    mut events: Vec<ProxyEngineEvent>,
+    event_kind: ProxyEngineEventKind,
+    mut diagnostics: Vec<Diagnostic>,
+) -> NativeRuntimeReleaseReport {
+    let listener_ids = listeners
+        .into_iter()
+        .map(|listener| listener.listener_id)
+        .collect::<Vec<_>>();
+    let outbound_handler_ids = outbound_handlers
+        .into_iter()
+        .map(|outbound_handler| outbound_handler.node_id)
+        .collect::<Vec<_>>();
+
+    diagnostics.push(runtime_info(
+        ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
+        "native runtime handles were released",
+    ));
+    events.push(runtime_event(&engine_id, event_kind, diagnostics.clone()));
+
+    NativeRuntimeReleaseReport {
+        engine_id,
+        listener_ids,
+        outbound_handler_ids,
+        diagnostics,
+        events,
+    }
+}
+
+fn runtime_error(code: impl Into<String>, message: impl Into<String>) -> DomainError {
+    DomainError::new(code, message)
+}
+
+fn runtime_info(code: impl Into<String>, message: impl Into<String>) -> Diagnostic {
+    engine_diagnostic(
+        DiagnosticSeverity::Info,
+        code,
+        message,
+        SOURCE_ENGINE_NATIVE_RUNTIME,
+    )
+}
+
+fn runtime_event(
+    engine_id: &str,
+    kind: ProxyEngineEventKind,
+    diagnostics: Vec<Diagnostic>,
+) -> ProxyEngineEvent {
+    ProxyEngineEvent {
+        engine_id: engine_id.to_string(),
+        kind,
+        diagnostics,
+    }
 }
 
 fn domain_error(code: impl Into<String>, message: impl Into<String>) -> DomainError {
