@@ -224,6 +224,39 @@ impl MitmPluginService for PanicMitmPluginService {
     }
 }
 
+struct InvalidManifestMitmPluginService;
+
+impl MitmPluginService for InvalidManifestMitmPluginService {
+    fn validate_manifest(&self, _plugin_manifest: &PluginManifest) -> Vec<Diagnostic> {
+        vec![Diagnostic::new(
+            control_domain::DiagnosticSeverity::Error,
+            "plugin.manifest.missing_hook",
+            "plugin manifest must declare at least one hook",
+            Some("manifest.hooks".to_string()),
+        )]
+    }
+
+    fn load(
+        &self,
+        _plugin_package: &PluginPackage,
+        _granted_permissions: &GrantedPermissions,
+    ) -> DomainResult<PluginInstance> {
+        panic!("invalid plugin manifests should not be loaded")
+    }
+
+    fn handle_http_event(
+        &self,
+        _plugin_instance: &PluginInstance,
+        _http_event: &HttpEvent,
+    ) -> DomainResult<PluginResult> {
+        panic!("invalid plugin manifests should not handle HTTP events")
+    }
+
+    fn audit(&self, _plugin_result: &PluginResult) -> Vec<AuditEvent> {
+        panic!("invalid plugin manifests should not audit plugin results")
+    }
+}
+
 #[test]
 fn start_runtime_prepares_config_and_starts_engine() {
     let orchestrator = RuntimeOrchestrator::new(
@@ -372,6 +405,43 @@ fn mitm_gate_rejects_ungranted_plugin_permission() {
         .diagnostics
         .iter()
         .any(|diagnostic| diagnostic.code == "runtime.mitm.permission_denied"));
+}
+
+#[test]
+fn mitm_gate_rejects_manifest_error_diagnostics_before_loading_plugin() {
+    let gate = MitmGateOrchestrator::new(
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        InvalidManifestMitmPluginService,
+    );
+
+    let decision = gate
+        .mitm_gate(MitmGateRequest::new(
+            sample_plugin_package(),
+            granted_permissions(vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ]),
+            sample_http_event(),
+        ))
+        .expect("mitm gate should return a denial decision");
+
+    assert!(!decision.is_allowed());
+    assert_eq!(decision.decision, AuditDecision::Denied);
+    assert_eq!(
+        decision.reason.as_deref(),
+        Some("plugin manifest validation failed")
+    );
+    assert!(decision.plugin_result.is_none());
+    assert!(decision
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "plugin.manifest.missing_hook"));
+    assert!(decision
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "runtime.mitm.manifest_invalid"));
 }
 
 #[test]
