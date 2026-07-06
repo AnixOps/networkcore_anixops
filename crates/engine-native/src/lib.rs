@@ -141,8 +141,8 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_
     &str = "engine.native.runtime.socks5_outbound_connect_client_success_response_write_plan_unwired";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_REJECTED_CODE:
     &str = "engine.native.runtime.socks5_outbound_connect_client_success_response_write_plan_rejected";
-pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITTEN_CODE:
-    &str = "engine.native.runtime.socks5_outbound_connect_client_success_response_written";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITTEN_CODE: &str =
+    "engine.native.runtime.socks5_outbound_connect_client_success_response_written";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_FAILED_CODE:
     &str = "engine.native.runtime.socks5_outbound_connect_client_success_response_write_failed";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE: &str =
