@@ -47,6 +47,7 @@
 
 - [control-domain](crates/control-domain)
 - [control-runtime](crates/control-runtime)
+- [platform-linux](crates/platform-linux)
 
 当前规格：
 

@@ -13,7 +13,7 @@
 
 ## 非目标
 
-- 不在本阶段创建 `apps/linux-cli`、`platform-linux` 或真实 CLI 源码。
+- 不在本阶段创建 `apps/linux-cli` 或真实 CLI 源码。
 - 不在本机运行、构建、测试、打包或试用 CLI。
 - 不定义 daemon、systemd unit、installer、shell completion、TUI、GUI 或 release asset。
 - 不自动修改 TUN、路由、DNS、防火墙、证书信任或服务管理配置。
@@ -162,6 +162,6 @@ CLI 源码落地前必须满足：
 
 ## 后续工作
 
-- 创建最小 `platform-linux` crate，提供 `PlatformCapabilityService` 测试替身和 Linux 诊断映射合同测试。
-- 创建 Linux CLI 源码前，同步确认 `apps/linux-cli` 或等价目录布局。
+- 创建最小 Linux CLI entrypoint crate，提供命令解析骨架、配置读取边界和平台诊断合同测试。
+- 创建 Linux CLI 源码前，同步确认 `apps/linux-cli` 或等价目录布局，并注入 `platform-linux` 测试替身。
 - Linux CLI artifact 发布前，仍需补充安装/卸载与回滚设计。

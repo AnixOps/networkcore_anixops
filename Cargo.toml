@@ -1,5 +1,9 @@
 [workspace]
-members = ["crates/control-domain", "crates/control-runtime"]
+members = [
+    "crates/control-domain",
+    "crates/control-runtime",
+    "crates/platform-linux",
+]
 resolver = "2"
 
 [workspace.package]

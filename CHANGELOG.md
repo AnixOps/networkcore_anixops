@@ -6,6 +6,7 @@
 
 ### Added
 
+- 新增最小 `platform-linux` crate，提供 `PlatformCapabilityService` 静态测试替身、Linux 诊断 code 常量和 TUN、权限、DNS、服务管理、证书状态映射合同测试。
 - 新增 Linux CLI entrypoint 设计文档，明确首个 `networkcore-linux` 入口的命令、配置加载、启动/停止、状态查询、输出和退出码边界。
 - 新增 Linux platform adapter 设计文档，定义 TUN、权限、DNS、服务管理、证书和诊断探测边界。
 - 新增 Linux artifact 发布前设计文档，明确首个平台产物的源码、packaging、checksum、签名/证明和回滚前置条件。

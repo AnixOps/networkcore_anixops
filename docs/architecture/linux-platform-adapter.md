@@ -1,6 +1,6 @@
 # Linux Platform Adapter Design
 
-本文件定义后续 Linux platform adapter crate 或等价模块落地前必须遵守的能力探测、权限、DNS、服务管理和诊断边界。它承接 [Control Kernel Domain Specification](control-kernel-domain.md)、[Control Runtime Orchestration Design](control-runtime-orchestration.md) 和 [Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md)，用于防止 Linux 系统 API 泄漏到领域层或运行编排层。
+本文件定义 Linux platform adapter crate 或等价模块必须遵守的能力探测、权限、DNS、服务管理和诊断边界。它承接 [Control Kernel Domain Specification](control-kernel-domain.md)、[Control Runtime Orchestration Design](control-runtime-orchestration.md) 和 [Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md)，用于防止 Linux 系统 API 泄漏到领域层或运行编排层。
 
 评估时间：2026-07-06。
 
@@ -13,14 +13,14 @@
 
 ## 非目标
 
-- 不在本阶段实现 `platform-linux` crate、CLI、daemon、systemd unit、installer 或 release artifact。
+- 不在本阶段实现真实 Linux 探测、CLI、daemon、systemd unit、installer 或 release artifact。
 - 不在本机探测 `/dev/net/tun`、capability、DNS 配置、systemd 状态或证书信任。
 - 不修改路由、DNS、防火墙、证书信任、systemd unit 或内核参数。
 - 不假设所有 Linux 发行版都存在 systemd、NetworkManager、resolved、iptables、nftables 或相同 CA trust store。
 
 ## 架构位置
 
-Linux adapter 必须位于后续平台 adapter 层，例如 `crates/platform-linux` 或等价 crate。依赖方向必须保持：
+Linux adapter 必须位于平台 adapter 层；当前首个源码边界是 `crates/platform-linux`。依赖方向必须保持：
 
 1. `control-domain` 定义 `PlatformCapabilityService`、`PlatformCapabilityStatus`、`PlatformFeatureState` 和诊断类型。
 2. `control-runtime` 只调用 `PlatformCapabilityService` 并聚合诊断。
@@ -153,18 +153,29 @@ Linux adapter 输出的 `Diagnostic` 必须满足：
 - Error 级别表示当前能力不可用；Warning 表示可继续但需要展示；Info 表示事实记录。
 - adapter 私有错误必须转换为 `DomainError` 或 `Diagnostic`，不能暴露 Linux crate、syscall 或命令库错误类型。
 
+## 当前源码映射
+
+当前 `crates/platform-linux` 已提供首批只读源码边界：
+
+- `StaticLinuxPlatformCapabilityService` 作为 `PlatformCapabilityService` 测试替身。
+- `LinuxPlatformSnapshot`、`LinuxFeatureProbe` 和 `LinuxCertificateProbe` 用于把 Linux 探测快照映射到领域能力状态。
+- 稳定 `platform.linux.*` 诊断 code 常量和 `linux_diagnostic` helper。
+- 合同测试覆盖 TUN 可用、TUN 缺失、权限不足、DNS 管理器未知、服务管理器未知和证书状态矩阵。
+
+该 crate 当前不执行真实 Linux 探测、不修改系统状态，也不依赖 `control-runtime`。
+
 ## 首个源码增量验收条件
 
-创建 Linux adapter 源码前必须满足：
+Linux adapter 首个源码增量必须满足：
 
 - 本设计文档保持在 README、ROADMAP、Release Strategy 和 CI policy 中可发现。
-- 后续 `platform-linux` 或等价 crate 只依赖 `control-domain` 和必要的 Linux 探测依赖，不依赖 `control-runtime` 的具体实现细节。
+- `platform-linux` 或等价 crate 只依赖 `control-domain` 和必要的 Linux 探测依赖，不依赖 `control-runtime` 的具体实现细节。
 - 提供纯测试替身覆盖 TUN 可用、TUN 缺失、权限不足、DNS 管理器未知、服务管理器未知和证书状态矩阵。
 - GitHub Actions 中 Rust format、lint、test、build 和 dependency audit 通过。
 - 不在本机执行 Linux 能力探测、构建、测试或打包验证。
 
 ## 后续工作
 
-- 创建最小 `platform-linux` crate，提供 `PlatformCapabilityService` 测试替身和 Linux 诊断映射合同测试。
-- Linux adapter 源码落地时，同步更新 `docs/release-strategy.md`、`README.md`、`CHANGELOG.md` 和 `TODO.md`。
+- 在真实 Linux 探测进入 `platform-linux` 前，先补充探测实现设计和更细的权限/发行版差异合同。
+- 创建最小 Linux CLI entrypoint crate 时注入 `platform-linux` 测试替身，避免 CLI 直接触碰 Linux 系统 API。
 - Linux artifact 进入 release workflow 前，仍必须满足 [Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md) 的 packaging、checksum、签名/证明和回滚契约。
