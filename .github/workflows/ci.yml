@@ -53,6 +53,7 @@ jobs:
           test -f docs/architecture/linux-platform-adapter.md
           test -f docs/architecture/linux-cli-entrypoint.md
           test -f docs/architecture/linux-cli-runtime-wiring.md
+          test -f docs/architecture/linux-native-proxy-engine-start.md
           test -f docs/architecture/linux-cli-artifact-installation-rollback.md
           test -f docs/architecture/adr-0001-initial-core-stack.md
           grep -q "本机只负责代码" AGENT.md
@@ -78,6 +79,7 @@ jobs:
           grep -q "Linux Platform Adapter Design" docs/architecture/linux-platform-adapter.md
           grep -q "Linux CLI Entrypoint Design" docs/architecture/linux-cli-entrypoint.md
           grep -q "Linux CLI Runtime Wiring Design" docs/architecture/linux-cli-runtime-wiring.md
+          grep -q "Linux Native Proxy Engine Start Design" docs/architecture/linux-native-proxy-engine-start.md
           grep -q "Linux CLI Artifact Installation And Rollback Design" docs/architecture/linux-cli-artifact-installation-rollback.md
           grep -q "ADR 0001: Initial Core Stack" docs/architecture/adr-0001-initial-core-stack.md
 

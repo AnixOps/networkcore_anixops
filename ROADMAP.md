@@ -68,6 +68,7 @@
 当前规格：
 
 - [Proxy Engine Adapter Interface](docs/architecture/proxy-engine-adapter.md)
+- [Linux Native Proxy Engine Start Design](docs/architecture/linux-native-proxy-engine-start.md)
 
 ## P4 Client And Platform Integration
 
@@ -87,6 +88,7 @@
 - [Linux Platform Adapter Design](docs/architecture/linux-platform-adapter.md)
 - [Linux CLI Entrypoint Design](docs/architecture/linux-cli-entrypoint.md)
 - [Linux CLI Runtime Wiring Design](docs/architecture/linux-cli-runtime-wiring.md)
+- [Linux Native Proxy Engine Start Design](docs/architecture/linux-native-proxy-engine-start.md)
 - [Linux CLI Artifact Installation And Rollback Design](docs/architecture/linux-cli-artifact-installation-rollback.md)
 
 ## 迭代选择规则

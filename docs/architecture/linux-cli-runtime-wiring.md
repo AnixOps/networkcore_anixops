@@ -101,13 +101,13 @@ diagnostic code。
 后续源码接线必须满足：
 
 - `prepare-config` 接入二进制入口前，配置服务有合同测试覆盖成功、空配置、非法配置、平台拒绝诊断保留和 secret 不输出边界。
-- `start` 接入二进制入口前，代理引擎 adapter 有合同测试覆盖配置拒绝、启动失败、运行状态和诊断传播。
-- 前台生命周期 host 有设计或源码合同，明确不 daemonize、不安装服务、不修改系统配置。
+- `start` 接入二进制入口前，按 [Linux Native Proxy Engine Start Design](linux-native-proxy-engine-start.md) 完成代理引擎 adapter 合同测试，覆盖配置拒绝、启动失败、运行状态和诊断传播。
+- 前台生命周期 host 按 [Linux Native Proxy Engine Start Design](linux-native-proxy-engine-start.md) 完成设计或源码合同，明确不 daemonize、不安装服务、不修改系统配置。
 - `.github/workflows/ci.yml` 必须在 GitHub Actions 中验证新增源码的 format、lint、test、build 和 dependency audit。
 - 不在本机运行 CLI、构建、测试或打包验证。
 
 ## 后续工作
 
 - `config-core` 已提供最小纯配置服务，`networkcore-linux prepare-config` 已接入二进制入口；后续配置扩展继续保持纯内存解析和 secret 不泄露边界。
-- 代理引擎 adapter 和前台生命周期 host 完成前，`networkcore-linux start` 继续保持未接线诊断。
+- 代理引擎 adapter 和前台生命周期 host 按 [Linux Native Proxy Engine Start Design](linux-native-proxy-engine-start.md) 完成前，`networkcore-linux start` 继续保持未接线诊断。
 - daemon/control socket、service install、DNS/TUN mutation 或 release artifact 进入前，继续先补设计和回滚合同。

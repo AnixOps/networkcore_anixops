@@ -65,6 +65,6 @@
 ## 后续实现要求
 
 - 先在 `control-domain` 中维护纯领域类型和 trait。
-- 真实 adapter 必须放在后续 `engine-*` crate 中。
+- 真实 adapter 必须放在后续 `engine-*` crate 中；首个原生 adapter 进入前必须遵守 [Linux Native Proxy Engine Start Design](linux-native-proxy-engine-start.md)。
 - 每个 adapter 必须有测试替身或集成测试覆盖配置校验、生命周期和错误路径。
 - GitHub Actions 必须继续执行 Rust format、lint、test、build。
