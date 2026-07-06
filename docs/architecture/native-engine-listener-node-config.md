@@ -49,7 +49,7 @@ listener、node、route 和 DNS 配置模型边界。它承接
 - `engine-native` 已补充 SOCKS5 命令头读取与 unsupported command 拒绝诊断合同，可在 no-auth 响应后读取 `[VER, CMD, RSV, ATYP]` 并记录 `engine.native.runtime.socks5_command_header_read`、`engine.native.runtime.socks5_command_header_invalid` 或 `engine.native.runtime.socks5_command_header_read_failed` 诊断，对非 CONNECT 命令记录 `engine.native.runtime.socks5_command_unsupported`。
 - `engine-native` 已补充 SOCKS5 CONNECT 目标地址读取、route/outbound 行为选择、SOCKS outbound CONNECT request frame 生成、SOCKS outbound TCP connection plan、SOCKS outbound TCP connection attempt、SOCKS outbound CONNECT request write、SOCKS outbound CONNECT response read、SOCKS outbound CONNECT response decision、SOCKS outbound CONNECT relay readiness、SOCKS outbound CONNECT data relay plan、SOCKS outbound CONNECT data relay execution、SOCKS outbound CONNECT client success response readiness、SOCKS outbound CONNECT client success response write plan、SOCKS outbound CONNECT client success response write、accept loop client success response 与有限 data relay 接线、未接入拒绝与 CONNECT failure response 写入诊断合同。accept loop 在上游 CONNECT accepted 后记录 `engine.native.runtime.socks5_outbound_connect_relay_ready`、`engine.native.runtime.socks5_outbound_connect_data_relay_plan_ready`、`engine.native.runtime.socks5_outbound_connect_client_success_response_ready` 和 `engine.native.runtime.socks5_outbound_connect_client_success_response_write_plan_ready`，写入 client success response frame，再对有限 client/outbound TCP stream 执行双向复制并记录 `engine.native.runtime.socks5_outbound_connect_data_relay_completed` 或 `engine.native.runtime.socks5_outbound_connect_data_relay_failed`；上游 rejected、连接失败或 plan 不完整路径继续记录 rejected/unwired 诊断，写入 SOCKS5 general failure response 并关闭连接。该实现尚没有 `NativeProxyEngineService::start` running 接线或 `networkcore-linux start` binary 接线。
 
-因此，`engine-native` 现在必须继续拒绝启动。虽然配置服务已经能解析最小 listener/node/route 子集，adapter 已能校验 listener/node/route 图，且源码中已有 runtime handle、runtime assembly plan、loopback TCP listener resource、accept loop 受控关闭合同、SOCKS5 CONNECT 到有限 data relay 的完整 accept-loop 诊断合同和 CONNECT failure response 写入诊断，但在 service start 接线、前台 lifecycle handoff 和 binary 接线完成前，不得从 service `start()` 返回 `Running`，也不得接入 `networkcore-linux start`。
+因此，`engine-native` 现在必须继续拒绝启动。虽然配置服务已经能解析最小 listener/node/route 子集，adapter 已能校验 listener/node/route 图，且源码中已有 runtime handle、runtime assembly plan、loopback TCP listener resource、accept loop 受控关闭合同、SOCKS5 CONNECT 到有限 data relay 的完整 accept-loop 诊断合同、CONNECT failure response 写入诊断和 service start readiness gate，但在 service-owned runtime state、foreground lifecycle handoff 和 binary 接线完成前，不得从 service `start()` 返回 `Running`，也不得接入 `networkcore-linux start`。
 
 ## 配置所有权
 
@@ -140,6 +140,8 @@ DNS 配置进入前应继续保守：
 | `engine.native.config.route_empty` | Error | listener 没有可执行 route |
 | `engine.native.config.dns_required` | Error | 当前配置需要 DNS plan 才能启动 |
 | `engine.native.config.secret_redacted` | Info | 诊断输出已隐藏敏感配置值 |
+| `engine.native.start.runtime_assembly_ready` | Info | 有效配置已可生成 native runtime assembly plan，可进入 service start gate 评估 |
+| `engine.native.start.service_runtime_owner_missing` | Error | service 尚未拥有可跨 start/status/events/stop 生命周期管理的 runtime state |
 | `engine.native.start.bind_failed` | Error | 真实 loopback TCP listener 绑定失败 |
 | `engine.native.start.lifecycle_failed` | Error | runtime handle 创建后进入 lifecycle handoff 失败 |
 | `engine.native.runtime.listener_disabled` | Error | runtime handle 拒绝 disabled listener |
@@ -237,7 +239,8 @@ DNS 配置进入前应继续保守：
 27. 已补充 SOCKS5 outbound CONNECT client success response write 诊断合同，源码层可写入 success response frame，但当时 accept loop 继续不进行双向数据转发、不接入 `networkcore-linux start`。
 28. 已补充 SOCKS5 outbound CONNECT data relay 执行诊断合同，源码层可对有限 client/outbound stream 进行双向复制，但当时 accept loop 继续不接入 data relay、不接入 `networkcore-linux start`。
 29. 已补充 SOCKS5 outbound CONNECT accept loop client success response 与有限 data relay 接线诊断合同，继续不接入 `networkcore-linux start`。
-30. 下一步评估 `engine-native` service start、`networkcore-linux start` binary 接线和前台 lifecycle host handoff。
+30. 已补充 `engine-native` service start readiness gate，确认有效 runtime assembly plan 已具备，但 service-owned runtime state 与 foreground lifecycle handoff 仍阻断 service `start()` 返回 `Running`，继续不接入 `networkcore-linux start`。
+31. 下一步补充 `engine-native` service-owned runtime state、`networkcore-linux start` binary 接线和前台 lifecycle host handoff。
 
 每个阶段都必须同步 README、TODO、CHANGELOG、设计文档和合同测试，并只通过 GitHub Actions 验证。
 
@@ -272,5 +275,5 @@ DNS 配置进入前应继续保守：
 
 ## 后续工作
 
-- 评估 `engine-native` service start、前台 lifecycle handoff 与 `networkcore-linux start` binary 接线门槛，继续保持未满足门槛前不接入。
+- 补充 `engine-native` service-owned runtime state 与 foreground lifecycle handoff 源码合同，继续保持未满足门槛前不接入 `networkcore-linux start`。
 - `engine-native` service 继续保持 runtime unavailable，直到 service start、真实 runtime handoff 和前台 lifecycle host binary 接线完成并通过 GitHub Actions 验证。

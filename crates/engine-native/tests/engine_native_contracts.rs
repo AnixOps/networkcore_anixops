@@ -5,6 +5,7 @@ use control_domain::{
     RouteAction, RuleSet, SchemaVersion,
 };
 use engine_native::{
+    assess_native_proxy_engine_start_readiness,
     assess_socks5_outbound_connect_client_success_response_readiness,
     assess_socks5_outbound_connect_relay_readiness, attempt_socks5_outbound_tcp_connection,
     build_socks5_outbound_connect_request_frame, decide_socks5_outbound_connect_response,
@@ -17,10 +18,11 @@ use engine_native::{
     write_socks5_auth_method_response, write_socks5_outbound_connect_client_success_response,
     write_socks5_outbound_connect_request, write_unwired_socks5_connect_failure_response,
     BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle,
-    NativeOutboundHandlerHandle, NativeProxyEngineService, NativeRuntimeAssembly,
-    NativeRuntimeAssemblyPlan, NativeSocks5Address, NativeSocks5AuthMethodDecision,
-    NativeSocks5CommandDecision, NativeSocks5CommandHeader, NativeSocks5ConnectTarget,
-    NativeSocks5Greeting, NativeSocks5OutboundConnectClientSuccessResponseReadiness,
+    NativeOutboundHandlerHandle, NativeProxyEngineService, NativeProxyEngineStartReadiness,
+    NativeRuntimeAssembly, NativeRuntimeAssemblyPlan, NativeSocks5Address,
+    NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision, NativeSocks5CommandHeader,
+    NativeSocks5ConnectTarget, NativeSocks5Greeting,
+    NativeSocks5OutboundConnectClientSuccessResponseReadiness,
     NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision,
     NativeSocks5OutboundConnectDataRelayPlanDecision, NativeSocks5OutboundConnectRelayReadiness,
     NativeSocks5OutboundConnectResponse, NativeSocks5OutboundConnectResponseDecision,
@@ -87,7 +89,9 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_PLAN_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_SELECTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE, ENGINE_NATIVE_START_BIND_FAILED_CODE,
-    ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
+    ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE, ENGINE_NATIVE_START_RUNTIME_ASSEMBLY_READY_CODE,
+    ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
+    ENGINE_NATIVE_START_SERVICE_RUNTIME_OWNER_MISSING_CODE,
 };
 use std::io::{self, Cursor, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
@@ -350,15 +354,43 @@ fn validate_config_reports_disabled_and_invalid_listener_boundaries() {
 }
 
 #[test]
-fn start_rejects_until_real_runtime_handle_exists() {
+fn start_readiness_blocks_valid_runtime_assembly_until_service_owns_lifecycle() {
     let service = NativeProxyEngineService::new();
-    let engine_config = config(DEFAULT_NATIVE_ENGINE_ID, vec![node()]);
+    let engine_config = graph_config(
+        DEFAULT_NATIVE_ENGINE_ID,
+        vec![node()],
+        Vec::new(),
+        vec![local_tcp_listener(
+            "service-start-loopback-local-tcp",
+            ListenerRoute::DefaultAction(RouteAction::Proxy {
+                node_id: "node-1".to_string(),
+            }),
+        )],
+        Vec::new(),
+    );
+
+    let readiness = assess_native_proxy_engine_start_readiness(&engine_config);
+
+    assert_eq!(readiness.readiness, NativeProxyEngineStartReadiness::Blocked);
+    assert_diagnostic(
+        &readiness.diagnostics,
+        ENGINE_NATIVE_START_RUNTIME_ASSEMBLY_READY_CODE,
+    );
+    assert_diagnostic(
+        &readiness.diagnostics,
+        ENGINE_NATIVE_START_SERVICE_RUNTIME_OWNER_MISSING_CODE,
+    );
+    assert_no_diagnostic(
+        &readiness.diagnostics,
+        ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
+    );
 
     let error = service
         .start(&engine_config)
-        .expect_err("native runtime handle is intentionally unavailable");
+        .expect_err("service start remains intentionally unavailable");
 
     assert_eq!(error.code, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE);
+    assert!(error.message.contains("service-owned runtime state"));
 }
 
 #[test]

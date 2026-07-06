@@ -1,8 +1,8 @@
 //! Native proxy engine adapter contracts for NetworkCore.
 //!
 //! This crate intentionally exposes descriptor, validation, lifecycle
-//! diagnostics, and source-level handle contracts until a real resource-backed
-//! in-process runtime handle exists.
+//! diagnostics, and resource-backed runtime handle contracts while service-owned
+//! lifecycle state and binary foreground handoff remain unwired.
 
 use control_domain::{
     Diagnostic, DiagnosticSeverity, DomainError, DomainResult, Endpoint, ListenerDescriptor,
@@ -46,6 +46,10 @@ pub const ENGINE_NATIVE_CONFIG_ROUTE_TARGET_MISSING_CODE: &str =
 pub const ENGINE_NATIVE_CONFIG_ROUTE_EMPTY_CODE: &str = "engine.native.config.route_empty";
 pub const ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE: &str =
     "engine.native.start.runtime_unavailable";
+pub const ENGINE_NATIVE_START_RUNTIME_ASSEMBLY_READY_CODE: &str =
+    "engine.native.start.runtime_assembly_ready";
+pub const ENGINE_NATIVE_START_SERVICE_RUNTIME_OWNER_MISSING_CODE: &str =
+    "engine.native.start.service_runtime_owner_missing";
 pub const ENGINE_NATIVE_START_BIND_FAILED_CODE: &str = "engine.native.start.bind_failed";
 pub const ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE: &str = "engine.native.start.lifecycle_failed";
 pub const ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE: &str =
@@ -1783,6 +1787,18 @@ pub struct NativeRuntimeStartupFailure {
     pub release: NativeRuntimeReleaseReport,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeProxyEngineStartReadiness {
+    Ready,
+    Blocked,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeProxyEngineStartReadinessReport {
+    pub readiness: NativeProxyEngineStartReadiness,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
 #[derive(Debug)]
 pub struct NativeRuntimeAssembly {
     engine_id: String,
@@ -1906,6 +1922,50 @@ impl NativeProxyEngineService {
     }
 }
 
+pub fn assess_native_proxy_engine_start_readiness(
+    engine_config: &ProxyEngineConfig,
+) -> NativeProxyEngineStartReadinessReport {
+    let service = NativeProxyEngineService::new();
+    let mut diagnostics = service.validate_config(engine_config);
+    if diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+    {
+        return NativeProxyEngineStartReadinessReport {
+            readiness: NativeProxyEngineStartReadiness::Blocked,
+            diagnostics,
+        };
+    }
+
+    match NativeRuntimeAssemblyPlan::from_config(engine_config) {
+        Ok(_plan) => {
+            diagnostics.push(engine_diagnostic(
+                DiagnosticSeverity::Info,
+                ENGINE_NATIVE_START_RUNTIME_ASSEMBLY_READY_CODE,
+                "native runtime assembly plan is ready for service start evaluation",
+                SOURCE_ENGINE_NATIVE_LIFECYCLE,
+            ));
+            diagnostics.push(engine_diagnostic(
+                DiagnosticSeverity::Error,
+                ENGINE_NATIVE_START_SERVICE_RUNTIME_OWNER_MISSING_CODE,
+                "native service start requires service-owned runtime state before returning running",
+                SOURCE_ENGINE_NATIVE_LIFECYCLE,
+            ));
+        }
+        Err(error) => diagnostics.push(engine_diagnostic(
+            DiagnosticSeverity::Error,
+            error.code,
+            error.message,
+            SOURCE_ENGINE_NATIVE_RUNTIME,
+        )),
+    }
+
+    NativeProxyEngineStartReadinessReport {
+        readiness: NativeProxyEngineStartReadiness::Blocked,
+        diagnostics,
+    }
+}
+
 impl ProxyEngineService for NativeProxyEngineService {
     fn list_engines(&self) -> Vec<ProxyEngineDescriptor> {
         vec![ProxyEngineDescriptor {
@@ -1937,10 +1997,17 @@ impl ProxyEngineService for NativeProxyEngineService {
 
     fn start(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {
         ensure_native_engine_id(&engine_config.engine_id)?;
+        let readiness = assess_native_proxy_engine_start_readiness(engine_config);
+        if readiness.readiness == NativeProxyEngineStartReadiness::Ready {
+            return Err(domain_error(
+                ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE,
+                "native proxy runtime service start reached an unsupported ready state",
+            ));
+        }
 
         Err(domain_error(
             ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
-            "native proxy runtime handle is not implemented yet",
+            "native proxy runtime service start is blocked until service-owned runtime state and foreground lifecycle handoff are wired",
         ))
     }
 
@@ -1949,7 +2016,7 @@ impl ProxyEngineService for NativeProxyEngineService {
 
         Err(domain_error(
             ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
-            "native proxy runtime handle is not implemented yet",
+            "native proxy runtime service lifecycle is not wired yet",
         ))
     }
 
