@@ -137,6 +137,10 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_
     "engine.native.runtime.socks5_outbound_connect_client_success_response_unwired";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_REJECTED_CODE:
     &str = "engine.native.runtime.socks5_outbound_connect_client_success_response_rejected";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_UNWIRED_CODE:
+    &str = "engine.native.runtime.socks5_outbound_connect_client_success_response_write_plan_unwired";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_REJECTED_CODE:
+    &str = "engine.native.runtime.socks5_outbound_connect_client_success_response_write_plan_rejected";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE: &str =
     "engine.native.runtime.socks5_route_outbound_unwired";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE: &str =
@@ -693,6 +697,18 @@ pub enum NativeSocks5OutboundConnectClientSuccessResponseReadiness {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeSocks5OutboundConnectClientSuccessResponseReadinessReport {
     pub readiness: NativeSocks5OutboundConnectClientSuccessResponseReadiness,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision {
+    Blocked,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5OutboundConnectClientSuccessResponseWritePlanReport {
+    pub decision: NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -1362,6 +1378,33 @@ pub fn assess_socks5_outbound_connect_client_success_response_readiness(
                 diagnostics: vec![runtime_warning(
                     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_REJECTED_CODE,
                     "native SOCKS5 outbound CONNECT client success response is blocked by upstream rejection",
+                )],
+            }
+        }
+    }
+}
+
+pub fn plan_socks5_outbound_connect_client_success_response_write(
+    readiness: NativeSocks5OutboundConnectClientSuccessResponseReadiness,
+) -> NativeSocks5OutboundConnectClientSuccessResponseWritePlanReport {
+    match readiness {
+        NativeSocks5OutboundConnectClientSuccessResponseReadiness::Blocked => {
+            NativeSocks5OutboundConnectClientSuccessResponseWritePlanReport {
+                decision:
+                    NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision::Blocked,
+                diagnostics: vec![runtime_warning(
+                    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_UNWIRED_CODE,
+                    "native SOCKS5 outbound CONNECT client success response write plan is not wired",
+                )],
+            }
+        }
+        NativeSocks5OutboundConnectClientSuccessResponseReadiness::Rejected => {
+            NativeSocks5OutboundConnectClientSuccessResponseWritePlanReport {
+                decision:
+                    NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision::Rejected,
+                diagnostics: vec![runtime_warning(
+                    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_REJECTED_CODE,
+                    "native SOCKS5 outbound CONNECT client success response write plan is blocked by upstream rejection",
                 )],
             }
         }
@@ -2354,8 +2397,16 @@ fn read_socks5_greeting_and_close_accepted_connection(
                                             assess_socks5_outbound_connect_client_success_response_readiness(
                                                 data_relay_plan,
                                             );
+                                        let client_success_readiness =
+                                            client_success_readiness_report.readiness;
                                         diagnostics
                                             .extend(client_success_readiness_report.diagnostics);
+                                        diagnostics.extend(
+                                            plan_socks5_outbound_connect_client_success_response_write(
+                                                client_success_readiness,
+                                            )
+                                            .diagnostics,
+                                        );
                                     }
                                 }
                                 let _ = outbound_stream.shutdown(Shutdown::Both);

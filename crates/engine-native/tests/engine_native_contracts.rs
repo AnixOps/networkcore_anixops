@@ -8,6 +8,7 @@ use engine_native::{
     assess_socks5_outbound_connect_client_success_response_readiness,
     assess_socks5_outbound_connect_relay_readiness, attempt_socks5_outbound_tcp_connection,
     build_socks5_outbound_connect_request_frame, decide_socks5_outbound_connect_response,
+    plan_socks5_outbound_connect_client_success_response_write,
     plan_socks5_outbound_connect_data_relay, plan_socks5_outbound_tcp_connection,
     read_socks5_command_header, read_socks5_connect_target, read_socks5_greeting,
     read_socks5_outbound_connect_response, reject_unsupported_socks5_command,
@@ -19,6 +20,7 @@ use engine_native::{
     NativeRuntimeAssemblyPlan, NativeSocks5Address, NativeSocks5AuthMethodDecision,
     NativeSocks5CommandDecision, NativeSocks5CommandHeader, NativeSocks5ConnectTarget,
     NativeSocks5Greeting, NativeSocks5OutboundConnectClientSuccessResponseReadiness,
+    NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision,
     NativeSocks5OutboundConnectDataRelayPlanDecision, NativeSocks5OutboundConnectRelayReadiness,
     NativeSocks5OutboundConnectResponseDecision, NativeSocks5OutboundTcpConnectionPlan,
     NativeSocks5RouteOutboundBehavior, NativeSocks5RouteOutboundDecision, DEFAULT_NATIVE_ENGINE_ID,
@@ -55,6 +57,8 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_FAILED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_REJECTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_UNWIRED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_REJECTED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_UNWIRED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_REJECTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_UNWIRED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_REJECTED_CODE,
@@ -646,6 +650,10 @@ fn runtime_accept_loop_contract_checks_socks5_outbound_relay_readiness_before_un
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_UNWIRED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_UNWIRED_CODE,
     );
     assert_diagnostic(
         &report.diagnostics,
@@ -1502,6 +1510,38 @@ fn socks5_outbound_connect_client_success_response_readiness_contract_rejects_re
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_REJECTED_CODE,
+    );
+}
+
+#[test]
+fn socks5_outbound_connect_client_success_response_write_plan_contract_blocks_unwired_readiness() {
+    let report = plan_socks5_outbound_connect_client_success_response_write(
+        NativeSocks5OutboundConnectClientSuccessResponseReadiness::Blocked,
+    );
+
+    assert_eq!(
+        report.decision,
+        NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision::Blocked
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_UNWIRED_CODE,
+    );
+}
+
+#[test]
+fn socks5_outbound_connect_client_success_response_write_plan_contract_rejects_rejected_readiness() {
+    let report = plan_socks5_outbound_connect_client_success_response_write(
+        NativeSocks5OutboundConnectClientSuccessResponseReadiness::Rejected,
+    );
+
+    assert_eq!(
+        report.decision,
+        NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision::Rejected
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_REJECTED_CODE,
     );
 }
 
