@@ -125,6 +125,10 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_ACCEPTED_CODE: 
     "engine.native.runtime.socks5_outbound_connect_response_accepted";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_REJECTED_CODE: &str =
     "engine.native.runtime.socks5_outbound_connect_response_rejected";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_UNWIRED_CODE: &str =
+    "engine.native.runtime.socks5_outbound_connect_relay_unwired";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_REJECTED_CODE: &str =
+    "engine.native.runtime.socks5_outbound_connect_relay_rejected";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE: &str =
     "engine.native.runtime.socks5_route_outbound_unwired";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE: &str =
@@ -645,6 +649,18 @@ pub enum NativeSocks5OutboundConnectResponseDecision {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeSocks5OutboundConnectResponseDecisionReport {
     pub decision: NativeSocks5OutboundConnectResponseDecision,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeSocks5OutboundConnectRelayReadiness {
+    Blocked,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5OutboundConnectRelayReadinessReport {
+    pub readiness: NativeSocks5OutboundConnectRelayReadiness,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -1242,6 +1258,31 @@ pub fn decide_socks5_outbound_connect_response(
             ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RESPONSE_REJECTED_CODE,
             "native SOCKS5 outbound CONNECT response rejected the upstream request or is invalid",
         )],
+    }
+}
+
+pub fn assess_socks5_outbound_connect_relay_readiness(
+    decision: NativeSocks5OutboundConnectResponseDecision,
+) -> NativeSocks5OutboundConnectRelayReadinessReport {
+    match decision {
+        NativeSocks5OutboundConnectResponseDecision::Accepted => {
+            NativeSocks5OutboundConnectRelayReadinessReport {
+                readiness: NativeSocks5OutboundConnectRelayReadiness::Blocked,
+                diagnostics: vec![runtime_warning(
+                    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_UNWIRED_CODE,
+                    "native SOCKS5 outbound CONNECT relay is not wired after upstream acceptance",
+                )],
+            }
+        }
+        NativeSocks5OutboundConnectResponseDecision::Rejected => {
+            NativeSocks5OutboundConnectRelayReadinessReport {
+                readiness: NativeSocks5OutboundConnectRelayReadiness::Rejected,
+                diagnostics: vec![runtime_warning(
+                    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_REJECTED_CODE,
+                    "native SOCKS5 outbound CONNECT relay is blocked by upstream rejection",
+                )],
+            }
+        }
     }
 }
 
@@ -2213,8 +2254,12 @@ fn read_socks5_greeting_and_close_accepted_connection(
                                     let response = read_report.response;
                                     diagnostics.extend(read_report.diagnostics);
                                     if let Some(response) = response.as_ref() {
+                                        let decision_report =
+                                            decide_socks5_outbound_connect_response(response);
+                                        let decision = decision_report.decision;
+                                        diagnostics.extend(decision_report.diagnostics);
                                         diagnostics.extend(
-                                            decide_socks5_outbound_connect_response(response)
+                                            assess_socks5_outbound_connect_relay_readiness(decision)
                                                 .diagnostics,
                                         );
                                     }
