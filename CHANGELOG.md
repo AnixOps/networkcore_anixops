@@ -6,6 +6,7 @@
 
 ### Added
 
+- 在 `engine-native` 中新增 listener/node/route 结构化图校验，明确 `ConfigSnapshot.nodes` 与运行请求 nodes 的合并和重复 id 拒绝边界；`networkcore-linux start` 继续保持未接线。
 - 在 `config-core` 中解析最小 listener/node/route TOML 子集，将本地 nodes 标准化进 `ConfigSnapshot`，并补充稳定诊断合同测试；`networkcore-linux start` 继续保持未接线。
 - 在 `control-domain` 中新增 listener 配置领域类型，将 `ConfigSnapshot` 扩展为显式携带 listeners，并补充合同测试；`networkcore-linux start` 继续保持未接线。
 - 新增 Native engine listener/node 配置设计文档，定义原生 runtime handle 前的 listener、node、route、DNS 图、诊断 code 和源码接线门槛，并纳入 CI/release readiness governance；`networkcore-linux start` 继续保持未接线。

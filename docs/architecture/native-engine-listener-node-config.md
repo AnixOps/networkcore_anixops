@@ -37,16 +37,16 @@ listener、node、route 和 DNS 配置模型边界。它承接
 - `control-domain::ProxyEngineConfig`，组合标准化 `ConfigSnapshot`、运行请求提供的 `nodes` 和 adapter `metadata`。
 - `control-runtime::RuntimeConfigRequest`，把 `engine_id`、原始配置、`nodes` 和 `metadata` 传给运行层。
 - `config-core::CoreConfigurationService`，当前解析 schema/profile 和最小 listener/node/route TOML 子集；DNS、插件、订阅、secret、重复 id 和 listener/node 图校验仍未进入。
-- `engine-native::NativeProxyEngineService`，当前稳定返回 `listener_missing`、`node_missing` 和 runtime unavailable 诊断。
+- `engine-native::NativeProxyEngineService`，当前对 listener、node 和 route 做结构化图校验，合并 `ConfigSnapshot.nodes` 与运行请求 nodes 作为 typed node catalog，并在缺少 listener/node、重复 id、route target 缺失和未实现 handler/protocol 时返回稳定诊断；生命周期仍返回 runtime unavailable。
 
-因此，`engine-native` 现在必须继续拒绝启动。虽然配置服务已经能解析最小 listener/node/route 子集，但在 listener/node/route/DNS 图校验、可用 outbound 图和真实运行句柄完成前，不得返回 `Running`，也不得接入 `networkcore-linux start`。
+因此，`engine-native` 现在必须继续拒绝启动。虽然配置服务已经能解析最小 listener/node/route 子集，且 adapter 已能校验 listener/node/route 图，但在 DNS 需求判断、真实 listener/outbound handler 和真实运行句柄完成前，不得返回 `Running`，也不得接入 `networkcore-linux start`。
 
 ## 配置所有权
 
 配置模型必须保持领域优先：
 
 1. `ConfigSnapshot` 是标准化配置事实来源，后续应显式承载 listener、node、route、DNS 和插件配置。
-2. `NodeDescriptor` 来自 `ConfigSnapshot.nodes`、运行请求、订阅归一化或测试替身；进入 `ProxyEngineConfig` 后必须有明确合并和去重规则。
+2. `NodeDescriptor` 来自 `ConfigSnapshot.nodes`、运行请求、订阅归一化或测试替身；`engine-native` 当前把 `ConfigSnapshot.nodes` 与 `ProxyEngineConfig.nodes` 合并为 typed node catalog，并用 `engine.native.config.node_id_duplicate` 拒绝重复 id。
 3. `ProxyEngineConfig.metadata` 只用于 adapter 附加上下文，不得作为 listener 或节点主模型。
 4. `engine-native` 只消费 `ProxyEngineConfig`，不得重新读取 TOML、扫描默认配置路径或访问订阅来源。
 5. secret、token、密码和私钥必须进入后续显式 secret 模型；诊断不得输出原值、metadata value 或完整 URL secret。
@@ -125,6 +125,7 @@ DNS 配置进入前应继续保守：
 | `engine.native.config.node_missing` | Error | 缺少可用 outbound node 或已实现 direct route |
 | `engine.native.config.node_id_duplicate` | Error | node id 重复 |
 | `engine.native.config.node_protocol_unsupported` | Error | node 协议当前未实现 |
+| `engine.native.config.route_id_duplicate` | Error | route/rule set id 重复 |
 | `engine.native.config.route_target_missing` | Error | route 引用的 node 或 rule set 不存在 |
 | `engine.native.config.route_empty` | Error | listener 没有可执行 route |
 | `engine.native.config.dns_required` | Error | 当前配置需要 DNS plan 才能启动 |
@@ -139,9 +140,9 @@ DNS 配置进入前应继续保守：
 
 1. 已在 `control-domain` 中新增 listener 领域类型并扩展 `ConfigSnapshot`，合同测试覆盖 id、bind、network 和 route 引用边界。
 2. 已在 `config-core` 中解析最小 listener/node/route TOML 子集，仍保持纯内存、无文件 I/O、无网络请求。
-3. 在 `control-runtime` 中保持只编排端口；如果需要合并 `ConfigSnapshot.nodes` 和 `RuntimeConfigRequest.nodes`，应通过显式规则进入 `ProxyEngineConfig`，不读取 adapter 私有 metadata。
-4. 下一步在 `engine-native` 中把配置拒绝从固定 `listener_missing`/`node_missing` 改为结构化图校验。
-5. 只有当 native runtime 创建并持有真实 listener handle 后，`start()` 才能返回 `Running`。
+3. `control-runtime` 继续只编排端口，并把 `ConfigSnapshot` 与 `RuntimeConfigRequest.nodes` 作为显式类型传入 `ProxyEngineConfig`；当前 typed node catalog 合并和去重在 `engine-native` 中完成，不读取 adapter 私有 metadata。
+4. 已在 `engine-native` 中把配置拒绝从固定 `listener_missing`/`node_missing` 改为结构化图校验，覆盖 enabled listener、重复 id、route target、typed node catalog 和未实现 listener/node handler。
+5. 下一步必须先定义并实现真实 listener/runtime handle 的最小源码合同；只有当 native runtime 创建并持有真实 listener handle 后，`start()` 才能返回 `Running`。
 6. 最后再评估 `networkcore-linux start` binary 接线和前台 lifecycle host handoff。
 
 每个阶段都必须同步 README、TODO、CHANGELOG、设计文档和合同测试，并只通过 GitHub Actions 验证。
@@ -172,10 +173,10 @@ DNS 配置进入前应继续保守：
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - README、ROADMAP、Linux native start 设计和 release strategy 能发现本文档。
 - TODO 指向下一步最小源码增量，而不是直接接入 `start`。
-- `engine-native` 在 listener/node 解析、图校验和 runtime handle 完成前继续保持配置拒绝诊断。
+- `engine-native` 在 listener/node 解析和图校验完成后，仍必须在 runtime handle 完成前继续保持配置拒绝或 runtime unavailable 诊断。
 - `networkcore-linux start` 在真实 runtime handle 和 binary lifecycle 接线完成前继续保持 `cli.linux.runtime.unwired`。
 
 ## 后续工作
 
-- 在 `engine-native` 中为标准化 listener/node/route 配置新增结构化图校验，并明确 `ConfigSnapshot.nodes` 与运行请求 nodes 的消费边界。
-- `engine-native` 继续保持 runtime unavailable，直到 listener/node 图校验和真实 runtime handle 均完成。
+- 补充首个 native runtime handle 的最小源码合同，明确 loopback listener handle、outbound handler、失败释放、事件和前台 lifecycle handoff 边界。
+- `engine-native` 继续保持 runtime unavailable，直到真实 runtime handle 完成。

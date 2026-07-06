@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 在 `engine-native` 中为标准化 listener/node/route 配置新增结构化图校验，并明确 `ConfigSnapshot.nodes` 与运行请求 nodes 的消费边界，继续不接入 `networkcore-linux start`。
+- [ ] 补充首个 native runtime handle 的最小源码合同，明确 loopback listener handle、outbound handler、失败释放、事件和前台 lifecycle handoff 边界，继续不接入 `networkcore-linux start`。
 
 ## 已完成
 
+- [x] 在 `engine-native` 中为标准化 listener/node/route 配置新增结构化图校验，并明确 `ConfigSnapshot.nodes` 与运行请求 nodes 的消费边界，继续不接入 `networkcore-linux start`。
 - [x] 在 `config-core` 中解析最小 listener/node/route TOML 子集，继续不接入 `networkcore-linux start`。
 - [x] 在 `control-domain` 中新增 listener 配置领域类型，继续不接入 `networkcore-linux start`。
 - [x] 补充原生 listener/node 配置模型设计，明确 `engine-native` 何时可以从配置拒绝推进到真实 runtime handle。
