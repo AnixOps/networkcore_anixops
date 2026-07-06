@@ -4,19 +4,20 @@
 
 ## 当前
 
-- [ ] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT accept loop client success response 与 data relay 接线诊断合同，继续不接入 `networkcore-linux start`。
+- [ ] 评估 `engine-native` service start、前台 lifecycle handoff 与 `networkcore-linux start` binary 接线门槛，继续保持未满足门槛前不接入。
 
 ## 已完成
 
+- [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT accept loop client success response 与 data relay 接线诊断合同，继续不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT data relay 执行诊断合同，继续不接入 `networkcore-linux start`。
-- [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT client success response write 诊断合同，继续不进行双向数据转发、不接入 `networkcore-linux start`。
+- [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT client success response write 诊断合同，当时继续不进行双向数据转发、不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT client success response write plan 诊断合同，继续不写入 client success response、不进行双向数据转发、不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT client success response readiness 诊断合同，继续不写入 client success response、不进行双向数据转发、不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT data relay plan 诊断合同，继续不写入 client success response、不进行双向数据转发、不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT relay readiness 诊断合同，继续不写入 client success response、不进行双向数据转发、不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT response decision 诊断合同，继续不写入 client success response、不进行双向数据转发、不接入 `networkcore-linux start`。
-- [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT response read 诊断合同，继续不进行双向数据转发、不接入 `networkcore-linux start`。
-- [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT request write 诊断合同，继续不进行双向数据转发、不接入 `networkcore-linux start`。
+- [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT response read 诊断合同，当时继续不进行双向数据转发、不接入 `networkcore-linux start`。
+- [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT request write 诊断合同，当时继续不进行双向数据转发、不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 outbound TCP connection attempt 诊断合同，继续不进行数据转发、不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 outbound TCP connection plan 诊断合同，继续不建立真实 outbound 连接、不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT request frame 生成诊断合同，继续不建立真实 outbound 连接、不接入 `networkcore-linux start`。

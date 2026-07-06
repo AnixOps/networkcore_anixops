@@ -58,15 +58,19 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_FAILED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_REJECTED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_READY_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_UNWIRED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_FAILED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_READY_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_REJECTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_UNWIRED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITTEN_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_COMPLETED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_FAILED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_READY_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_REJECTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_UNWIRED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_READY_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_REJECTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_UNWIRED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_FRAME_GENERATED_CODE,
@@ -87,7 +91,7 @@ use engine_native::{
     ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
 };
 use std::io::{self, Cursor, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -544,7 +548,7 @@ fn runtime_accept_loop_contract_accepts_loopback_tcp_connection_and_shuts_down()
 }
 
 #[test]
-fn runtime_accept_loop_contract_checks_socks5_outbound_relay_readiness_before_unwired_failure() {
+fn runtime_accept_loop_contract_writes_client_success_response_and_relays_finite_data() {
     let port = unused_loopback_port();
     let outbound_listener =
         TcpListener::bind(("127.0.0.1", 0)).expect("test outbound listener should bind");
@@ -555,7 +559,12 @@ fn runtime_accept_loop_contract_checks_socks5_outbound_relay_readiness_before_un
         .local_addr()
         .expect("test outbound listener should have a local address")
         .port();
+    let client_payload = b"client relay payload".to_vec();
+    let outbound_payload = b"outbound relay payload".to_vec();
     let (frame_tx, frame_rx) = mpsc::channel();
+    let (payload_tx, payload_rx) = mpsc::channel();
+    let worker_client_payload = client_payload.clone();
+    let worker_outbound_payload = outbound_payload.clone();
     let outbound_worker = thread::spawn(move || {
         for _ in 0..100 {
             match outbound_listener.accept() {
@@ -573,6 +582,19 @@ fn runtime_accept_loop_contract_checks_socks5_outbound_relay_readiness_before_un
                     outbound_stream
                         .write_all(&[0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0x04, 0x38])
                         .expect("outbound stream should send the SOCKS5 CONNECT response frame");
+                    let mut relayed_payload = vec![0_u8; worker_client_payload.len()];
+                    outbound_stream
+                        .read_exact(&mut relayed_payload)
+                        .expect("outbound stream should receive client relay payload");
+                    payload_tx
+                        .send(relayed_payload)
+                        .expect("relayed client payload should be reported to the test");
+                    outbound_stream
+                        .write_all(&worker_outbound_payload)
+                        .expect("outbound stream should send relay payload to client");
+                    outbound_stream
+                        .shutdown(Shutdown::Write)
+                        .expect("outbound stream should close the relay write side");
                     return;
                 }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
@@ -609,15 +631,31 @@ fn runtime_accept_loop_contract_checks_socks5_outbound_relay_readiness_before_un
     let mut stream = TcpStream::connect(("127.0.0.1", port))
         .expect("loopback tcp accept loop should accept local connections");
     stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("test client should support a read timeout");
+    stream
         .write_all(&[
             0x05, 0x01, 0x00, 0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0x01, 0xbb,
         ])
         .expect("test client should send a SOCKS5 greeting, CONNECT header, and IPv4 target");
+    stream
+        .write_all(&client_payload)
+        .expect("test client should send finite relay payload");
+    stream
+        .shutdown(Shutdown::Write)
+        .expect("test client should close the relay write side");
     wait_until_accept_count(&accept_loop, 1);
-    wait_until_pre_protocol_closed_count(&accept_loop, 1);
+    wait_until_relayed_count(&accept_loop, 1);
+    let mut client_received = Vec::new();
+    stream
+        .read_to_end(&mut client_received)
+        .expect("test client should read the success response and outbound relay payload");
     let outbound_frame = frame_rx
         .recv_timeout(Duration::from_secs(2))
         .expect("accept loop should write the outbound SOCKS5 CONNECT request frame");
+    let relayed_payload = payload_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("accept loop should relay client payload to outbound");
     drop(stream);
 
     let report = accept_loop.shutdown();
@@ -629,6 +667,12 @@ fn runtime_accept_loop_contract_checks_socks5_outbound_relay_readiness_before_un
         outbound_frame,
         vec![0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0x01, 0xbb]
     );
+    assert_eq!(relayed_payload, client_payload);
+    let mut expected_client_received =
+        vec![0x05, 0x00, 0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0x04, 0x38];
+    expected_client_received.extend(outbound_payload);
+    assert_eq!(client_received, expected_client_received);
+    assert!(report.relayed_connections >= 1);
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_ATTEMPT_SUCCEEDED_CODE,
@@ -647,31 +691,39 @@ fn runtime_accept_loop_contract_checks_socks5_outbound_relay_readiness_before_un
     );
     assert_diagnostic(
         &report.diagnostics,
-        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_UNWIRED_CODE,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_READY_CODE,
     );
     assert_diagnostic(
         &report.diagnostics,
-        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_UNWIRED_CODE,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_READY_CODE,
     );
     assert_diagnostic(
         &report.diagnostics,
-        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_UNWIRED_CODE,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_READY_CODE,
     );
     assert_diagnostic(
         &report.diagnostics,
-        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_UNWIRED_CODE,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_READY_CODE,
     );
     assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITTEN_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_COMPLETED_CODE,
+    );
+    assert_no_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE,
+    );
+    assert_no_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE,
     );
-    assert_diagnostic(
+    assert_no_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE,
-    );
-    assert_diagnostic(
-        &report.diagnostics,
-        ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE,
     );
 }
 
@@ -1415,7 +1467,7 @@ fn socks5_outbound_connect_response_decision_contract_rejects_failure_or_invalid
 }
 
 #[test]
-fn socks5_outbound_connect_relay_readiness_contract_blocks_accepted_response_without_relay() {
+fn socks5_outbound_connect_relay_readiness_contract_marks_accepted_response_ready() {
     let mut reader = Cursor::new(vec![0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0x04, 0x38]);
     let read_report = read_socks5_outbound_connect_response(&mut reader);
     let response = read_report
@@ -1427,11 +1479,11 @@ fn socks5_outbound_connect_relay_readiness_contract_blocks_accepted_response_wit
 
     assert_eq!(
         readiness_report.readiness,
-        NativeSocks5OutboundConnectRelayReadiness::Blocked
+        NativeSocks5OutboundConnectRelayReadiness::Ready
     );
     assert_diagnostic(
         &readiness_report.diagnostics,
-        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_UNWIRED_CODE,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_READY_CODE,
     );
 }
 
@@ -1453,6 +1505,21 @@ fn socks5_outbound_connect_relay_readiness_contract_rejects_rejected_response() 
     assert_diagnostic(
         &readiness_report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_RELAY_REJECTED_CODE,
+    );
+}
+
+#[test]
+fn socks5_outbound_connect_data_relay_plan_contract_accepts_ready_relay() {
+    let report =
+        plan_socks5_outbound_connect_data_relay(NativeSocks5OutboundConnectRelayReadiness::Ready);
+
+    assert_eq!(
+        report.decision,
+        NativeSocks5OutboundConnectDataRelayPlanDecision::Ready
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_PLAN_READY_CODE,
     );
 }
 
@@ -1541,6 +1608,22 @@ fn socks5_outbound_connect_data_relay_contract_reports_direction_failure() {
 }
 
 #[test]
+fn socks5_outbound_connect_client_success_response_readiness_contract_accepts_ready_data_relay() {
+    let report = assess_socks5_outbound_connect_client_success_response_readiness(
+        NativeSocks5OutboundConnectDataRelayPlanDecision::Ready,
+    );
+
+    assert_eq!(
+        report.readiness,
+        NativeSocks5OutboundConnectClientSuccessResponseReadiness::Ready
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_READY_CODE,
+    );
+}
+
+#[test]
 fn socks5_outbound_connect_client_success_response_readiness_contract_blocks_unwired_data_relay() {
     let report = assess_socks5_outbound_connect_client_success_response_readiness(
         NativeSocks5OutboundConnectDataRelayPlanDecision::Blocked,
@@ -1569,6 +1652,22 @@ fn socks5_outbound_connect_client_success_response_readiness_contract_rejects_re
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_REJECTED_CODE,
+    );
+}
+
+#[test]
+fn socks5_outbound_connect_client_success_response_write_plan_contract_accepts_ready_readiness() {
+    let report = plan_socks5_outbound_connect_client_success_response_write(
+        NativeSocks5OutboundConnectClientSuccessResponseReadiness::Ready,
+    );
+
+    assert_eq!(
+        report.decision,
+        NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision::Ready
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_CLIENT_SUCCESS_RESPONSE_WRITE_PLAN_READY_CODE,
     );
 }
 
@@ -2417,6 +2516,24 @@ fn wait_until_pre_protocol_closed_count(
     panic!(
         "accept loop pre-protocol closed {} connections, expected at least {expected_connections}",
         accept_loop.pre_protocol_closed_connections()
+    );
+}
+
+fn wait_until_relayed_count(
+    accept_loop: &NativeLoopbackTcpAcceptLoopHandle,
+    expected_connections: usize,
+) {
+    for _ in 0..100 {
+        if accept_loop.relayed_connections() >= expected_connections {
+            return;
+        }
+
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    panic!(
+        "accept loop relayed {} connections, expected at least {expected_connections}",
+        accept_loop.relayed_connections()
     );
 }
 
