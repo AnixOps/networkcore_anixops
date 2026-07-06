@@ -1075,6 +1075,65 @@ fn mitm_gate_rejects_disabled_remote_script_execution_before_plugin_port() {
 }
 
 #[test]
+fn mitm_gate_preserves_platform_diagnostics_on_remote_script_denial() {
+    let expected_reason =
+        "remote script execution is unavailable: remote script execution is disabled on iOS";
+    let gate = MitmGateOrchestrator::new(
+        StaticPlatformCapabilityService {
+            status: platform_status_without_remote_scripts_with_diagnostics(),
+        },
+        PanicMitmPluginService,
+    );
+
+    let decision = gate
+        .mitm_gate(MitmGateRequest::new(
+            sample_plugin_package(),
+            granted_permissions(vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ]),
+            sample_http_event(),
+        ))
+        .expect("mitm gate should return a denial decision");
+
+    let platform_diagnostic = decision
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic.code == "platform.remote_script_execution.disabled_by_policy"
+        })
+        .expect("remote script diagnostic should be preserved");
+
+    assert!(!decision.is_allowed());
+    assert_eq!(decision.decision, AuditDecision::Denied);
+    assert_eq!(decision.reason.as_deref(), Some(expected_reason));
+    assert!(!decision.platform.remote_script_execution.is_available());
+    assert!(decision.plugin_result.is_none());
+    assert_eq!(
+        platform_diagnostic.severity,
+        control_domain::DiagnosticSeverity::Warning
+    );
+    assert_eq!(
+        platform_diagnostic.message,
+        "remote script execution is disabled by platform policy"
+    );
+    assert_eq!(
+        platform_diagnostic.source.as_deref(),
+        Some("platform.remote_script_execution")
+    );
+    assert!(decision.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "runtime.mitm.remote_script_unavailable"
+            && diagnostic.message == expected_reason
+            && diagnostic.severity == control_domain::DiagnosticSeverity::Error
+    }));
+    assert_eq!(decision.audits.len(), 1);
+    assert_eq!(decision.audits[0].actor, "header-rewriter");
+    assert_eq!(decision.audits[0].action, "mitm_gate");
+    assert_eq!(decision.audits[0].decision, AuditDecision::Denied);
+    assert_eq!(decision.audits[0].reason, decision.reason);
+}
+
+#[test]
 fn mitm_gate_rejects_unknown_remote_script_execution_before_plugin_port() {
     let expected_reason =
         "remote script execution is unavailable: platform feature availability is unknown";
@@ -1253,6 +1312,17 @@ fn platform_status_without_remote_scripts() -> PlatformCapabilityStatus {
         mitm_certificate: MitmCertificateStatus::new(CertificateTrustState::Trusted),
         diagnostics: Vec::new(),
     }
+}
+
+fn platform_status_without_remote_scripts_with_diagnostics() -> PlatformCapabilityStatus {
+    let mut status = platform_status_without_remote_scripts();
+    status.diagnostics = vec![Diagnostic::new(
+        control_domain::DiagnosticSeverity::Warning,
+        "platform.remote_script_execution.disabled_by_policy",
+        "remote script execution is disabled by platform policy",
+        Some("platform.remote_script_execution".to_string()),
+    )];
+    status
 }
 
 fn platform_status_with_unknown_remote_scripts() -> PlatformCapabilityStatus {
