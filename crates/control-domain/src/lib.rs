@@ -252,9 +252,55 @@ impl PlatformCapabilityStatus {
 pub struct ConfigSnapshot {
     pub version: SchemaVersion,
     pub profiles: Vec<String>,
+    pub listeners: Vec<ListenerDescriptor>,
     pub policies: Vec<RuleSet>,
     pub dns: Vec<DnsUpstream>,
     pub plugins: Vec<PluginManifest>,
+}
+
+/// Inbound listener protocol family.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ListenerKind {
+    LocalTcp,
+    Socks,
+    Http,
+    Tun,
+    Other(String),
+}
+
+/// Listener bind address without socket ownership.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ListenerBind {
+    pub host: String,
+    pub port: u16,
+}
+
+/// Transport network accepted by a listener.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ListenerNetwork {
+    Tcp,
+    Udp,
+    TcpUdp,
+}
+
+/// Route entry selected by a listener.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ListenerRoute {
+    RuleSet { rule_set_id: String },
+    DefaultAction(RouteAction),
+}
+
+/// Normalized inbound listener description.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListenerDescriptor {
+    pub id: String,
+    pub enabled: bool,
+    pub kind: ListenerKind,
+    pub bind: ListenerBind,
+    pub network: ListenerNetwork,
+    pub route: ListenerRoute,
+    pub tags: Vec<String>,
+    pub metadata: Metadata,
 }
 
 /// Proxy protocol family.
@@ -832,6 +878,86 @@ mod tests {
         assert!(descriptor
             .capabilities
             .contains(&ProxyEngineCapability::HotReload));
+    }
+
+    #[test]
+    fn listener_descriptor_preserves_inbound_configuration_boundary() {
+        let listener = ListenerDescriptor {
+            id: "loopback-socks".to_string(),
+            enabled: true,
+            kind: ListenerKind::Socks,
+            bind: ListenerBind {
+                host: "127.0.0.1".to_string(),
+                port: 1080,
+            },
+            network: ListenerNetwork::Tcp,
+            route: ListenerRoute::RuleSet {
+                rule_set_id: "default-route".to_string(),
+            },
+            tags: vec!["local".to_string()],
+            metadata: vec![MetadataEntry {
+                key: "owner".to_string(),
+                value: "user".to_string(),
+            }],
+        };
+
+        assert_eq!(listener.id, "loopback-socks");
+        assert!(listener.enabled);
+        assert_eq!(listener.kind, ListenerKind::Socks);
+        assert_eq!(listener.bind.host, "127.0.0.1");
+        assert_eq!(listener.bind.port, 1080);
+        assert_eq!(listener.network, ListenerNetwork::Tcp);
+        assert_eq!(
+            listener.route,
+            ListenerRoute::RuleSet {
+                rule_set_id: "default-route".to_string()
+            }
+        );
+        assert_eq!(listener.tags, vec!["local".to_string()]);
+        assert_eq!(listener.metadata[0].key, "owner");
+    }
+
+    #[test]
+    fn listener_route_can_embed_default_route_action() {
+        let route = ListenerRoute::DefaultAction(RouteAction::Proxy {
+            node_id: "node-1".to_string(),
+        });
+
+        assert_eq!(
+            route,
+            ListenerRoute::DefaultAction(RouteAction::Proxy {
+                node_id: "node-1".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn config_snapshot_carries_listener_descriptors() {
+        let snapshot = ConfigSnapshot {
+            version: SchemaVersion::new(1),
+            profiles: vec!["default".to_string()],
+            listeners: vec![ListenerDescriptor {
+                id: "local-tcp".to_string(),
+                enabled: true,
+                kind: ListenerKind::LocalTcp,
+                bind: ListenerBind {
+                    host: "::1".to_string(),
+                    port: 8080,
+                },
+                network: ListenerNetwork::TcpUdp,
+                route: ListenerRoute::DefaultAction(RouteAction::Direct),
+                tags: Vec::new(),
+                metadata: Vec::new(),
+            }],
+            policies: Vec::new(),
+            dns: Vec::new(),
+            plugins: Vec::new(),
+        };
+
+        assert_eq!(snapshot.listeners.len(), 1);
+        assert_eq!(snapshot.listeners[0].id, "local-tcp");
+        assert_eq!(snapshot.listeners[0].bind.host, "::1");
+        assert_eq!(snapshot.listeners[0].network, ListenerNetwork::TcpUdp);
     }
 
     #[test]

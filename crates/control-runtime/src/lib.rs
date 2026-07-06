@@ -666,6 +666,7 @@ mod tests {
         ConfigSnapshot {
             version: SchemaVersion::new(1),
             profiles: vec!["default".to_string()],
+            listeners: Vec::new(),
             policies: Vec::new(),
             dns: Vec::new(),
             plugins: Vec::new(),

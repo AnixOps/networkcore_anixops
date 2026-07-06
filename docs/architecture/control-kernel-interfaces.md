@@ -14,8 +14,9 @@
 
 | 类型 | 责任 | 关键字段 |
 | --- | --- | --- |
-| `ConfigSnapshot` | 标准化后的只读配置快照 | `version`、`profiles`、`policies`、`dns`、`plugins` |
+| `ConfigSnapshot` | 标准化后的只读配置快照 | `version`、`profiles`、`listeners`、`policies`、`dns`、`plugins` |
 | `Diagnostic` | 可展示和可记录的诊断信息 | `severity`、`code`、`message`、`source` |
+| `ListenerDescriptor` | 本地入站监听入口 | `id`、`enabled`、`kind`、`bind`、`network`、`route`、`tags`、`metadata` |
 | `NodeDescriptor` | 订阅或本地配置归一化后的代理节点 | `id`、`name`、`protocol`、`endpoint`、`tags` |
 | `RuleSet` | 策略路由规则集合 | `id`、`rules`、`default_policy` |
 | `RouteContext` | 策略路由输入上下文 | `network`、`source`、`destination`、`metadata` |
@@ -47,7 +48,7 @@
 - schema 不兼容。
 - 必填字段缺失或类型错误。
 - 平台不支持某项能力。
-- 引用不存在的节点、策略、DNS 上游或插件。
+- 引用不存在的 listener、节点、策略、DNS 上游或插件。
 
 最小操作：
 

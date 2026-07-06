@@ -1,9 +1,10 @@
 use control_domain::{
     CertificateTrustState, ConfigSnapshot, ConfigurationService, Diagnostic, DiagnosticSeverity,
-    DomainResult, MitmCertificateStatus, OperatingSystem, PlatformCapabilities,
+    DomainResult, ListenerBind, ListenerDescriptor, ListenerKind, ListenerNetwork, ListenerRoute,
+    MetadataEntry, MitmCertificateStatus, OperatingSystem, PlatformCapabilities,
     PlatformCapabilityService, PlatformCapabilityStatus, PlatformFeatureState,
     ProxyEngineCapability, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
-    ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
+    ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RouteAction,
     SchemaVersion,
 };
 
@@ -31,6 +32,7 @@ impl ConfigurationService for NoopConfigurationService {
         Ok(ConfigSnapshot {
             version: SchemaVersion::new(1),
             profiles: vec!["default".to_string()],
+            listeners: Vec::new(),
             policies: Vec::new(),
             dns: Vec::new(),
             plugins: Vec::new(),
@@ -139,6 +141,74 @@ fn configuration_port_can_be_implemented_by_an_adapter() {
     assert_eq!(
         snapshot.expect("snapshot should normalize").version.value(),
         1
+    );
+}
+
+#[test]
+fn config_snapshot_exposes_listener_configuration_as_domain_model() {
+    let listener = ListenerDescriptor {
+        id: "loopback-socks".to_string(),
+        enabled: true,
+        kind: ListenerKind::Socks,
+        bind: ListenerBind {
+            host: "127.0.0.1".to_string(),
+            port: 1080,
+        },
+        network: ListenerNetwork::Tcp,
+        route: ListenerRoute::RuleSet {
+            rule_set_id: "default-policy".to_string(),
+        },
+        tags: vec!["local".to_string()],
+        metadata: vec![MetadataEntry {
+            key: "source".to_string(),
+            value: "test".to_string(),
+        }],
+    };
+    let snapshot = ConfigSnapshot {
+        version: SchemaVersion::new(1),
+        profiles: vec!["default".to_string()],
+        listeners: vec![listener],
+        policies: Vec::new(),
+        dns: Vec::new(),
+        plugins: Vec::new(),
+    };
+
+    assert_eq!(snapshot.listeners[0].id, "loopback-socks");
+    assert_eq!(snapshot.listeners[0].kind, ListenerKind::Socks);
+    assert_eq!(snapshot.listeners[0].bind.port, 1080);
+    assert_eq!(snapshot.listeners[0].network, ListenerNetwork::Tcp);
+    assert_eq!(
+        snapshot.listeners[0].route,
+        ListenerRoute::RuleSet {
+            rule_set_id: "default-policy".to_string()
+        }
+    );
+    assert_eq!(snapshot.listeners[0].metadata[0].key, "source");
+}
+
+#[test]
+fn listener_route_can_reference_default_action_without_runtime_validation() {
+    let listener = ListenerDescriptor {
+        id: "direct-loopback".to_string(),
+        enabled: false,
+        kind: ListenerKind::LocalTcp,
+        bind: ListenerBind {
+            host: "::1".to_string(),
+            port: 8080,
+        },
+        network: ListenerNetwork::TcpUdp,
+        route: ListenerRoute::DefaultAction(RouteAction::Direct),
+        tags: Vec::new(),
+        metadata: Vec::new(),
+    };
+
+    assert!(!listener.enabled);
+    assert_eq!(listener.kind, ListenerKind::LocalTcp);
+    assert_eq!(listener.bind.host, "::1");
+    assert_eq!(listener.network, ListenerNetwork::TcpUdp);
+    assert_eq!(
+        listener.route,
+        ListenerRoute::DefaultAction(RouteAction::Direct)
     );
 }
 

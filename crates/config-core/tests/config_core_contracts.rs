@@ -25,6 +25,7 @@ profiles = ["default", "work"]
         snapshot.profiles,
         vec!["default".to_string(), "work".to_string()]
     );
+    assert!(snapshot.listeners.is_empty());
     assert!(snapshot.policies.is_empty());
     assert!(snapshot.dns.is_empty());
     assert!(snapshot.plugins.is_empty());

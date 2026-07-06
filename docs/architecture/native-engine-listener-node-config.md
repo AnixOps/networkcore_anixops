@@ -30,14 +30,16 @@ listener、node、route 和 DNS 配置模型边界。它承接
 当前仓库已经具备：
 
 - `control-domain::NodeDescriptor`，包含 `id`、`name`、`protocol`、`endpoint` 和 `tags`。
+- `control-domain::ListenerDescriptor`、`ListenerBind`、`ListenerKind`、`ListenerNetwork` 和 `ListenerRoute`，能表达入站 listener 的 id、enabled、kind、bind、network、route、tags 和 metadata。
 - `control-domain::RuleSet`、`RouteRule` 和 `RouteAction`，能表达直连、代理节点和拒绝策略意图。
 - `control-domain::DnsUpstream`，能表达标准化 DNS 上游入口。
+- `control-domain::ConfigSnapshot.listeners`，作为 listener 配置的领域事实来源。
 - `control-domain::ProxyEngineConfig`，组合标准化 `ConfigSnapshot`、运行请求提供的 `nodes` 和 adapter `metadata`。
 - `control-runtime::RuntimeConfigRequest`，把 `engine_id`、原始配置、`nodes` 和 `metadata` 传给运行层。
 - `config-core::CoreConfigurationService`，当前只解析 schema/profile，不解析 listener、node、route 或 DNS。
 - `engine-native::NativeProxyEngineService`，当前稳定返回 `listener_missing`、`node_missing` 和 runtime unavailable 诊断。
 
-因此，`engine-native` 现在必须继续拒绝启动。没有 listener 描述、可用 outbound 图和真实运行句柄前，不得返回 `Running`，也不得接入 `networkcore-linux start`。
+因此，`engine-native` 现在必须继续拒绝启动。虽然领域层已经能表达 listener，但在配置解析、listener/node/route/DNS 图校验、可用 outbound 图和真实运行句柄完成前，不得返回 `Running`，也不得接入 `networkcore-linux start`。
 
 ## 配置所有权
 
@@ -49,15 +51,16 @@ listener、node、route 和 DNS 配置模型边界。它承接
 4. `engine-native` 只消费 `ProxyEngineConfig`，不得重新读取 TOML、扫描默认配置路径或访问订阅来源。
 5. secret、token、密码和私钥必须进入后续显式 secret 模型；诊断不得输出原值、metadata value 或完整 URL secret。
 
-下一步源码若需要临时表达 listener，必须先扩展领域类型或配置快照；不得用自由格式 metadata 绕过领域模型。
+下一步源码若需要解析或校验 listener，必须继续通过领域类型和配置快照推进；不得用自由格式 metadata 绕过领域模型。
 
 ## Listener 模型
 
-后续领域模型应新增 `ListenerDescriptor` 或等价类型，最小字段如下：
+当前领域模型已新增 `ListenerDescriptor` 和相关值类型，最小字段如下：
 
 | 字段 | 含义 | 首版约束 |
 | --- | --- | --- |
 | `id` | listener 稳定标识 | 必填，同一配置内唯一 |
+| `enabled` | 是否参与启动候选 | disabled listener 不计入可启动 listener |
 | `kind` | 入站类型 | 首版只允许已实现的 kind，例如 `local_tcp` 或后续 `socks` |
 | `bind` | 监听地址和端口 | 必须显式，不能默认监听公网地址 |
 | `network` | `tcp`、`udp` 或 `tcp_udp` | 未实现 UDP 前必须拒绝 UDP listener |
@@ -134,7 +137,7 @@ DNS 配置进入前应继续保守：
 
 后续最小源码增量应按以下顺序推进：
 
-1. 在 `control-domain` 中新增 listener 领域类型，或等价扩展 `ConfigSnapshot`，并补充合同测试。
+1. 已在 `control-domain` 中新增 listener 领域类型并扩展 `ConfigSnapshot`，合同测试覆盖 id、bind、network 和 route 引用边界。
 2. 在 `config-core` 中解析最小 listener/node/route TOML 子集，仍保持纯内存、无文件 I/O、无网络请求。
 3. 在 `control-runtime` 中保持只编排端口；如果需要从配置快照提取 nodes/listeners，应通过显式类型进入 `ProxyEngineConfig`，不读取 adapter 私有 metadata。
 4. 在 `engine-native` 中把配置拒绝从固定 `listener_missing`/`node_missing` 改为结构化图校验。
@@ -169,10 +172,10 @@ DNS 配置进入前应继续保守：
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - README、ROADMAP、Linux native start 设计和 release strategy 能发现本文档。
 - TODO 指向下一步最小源码增量，而不是直接接入 `start`。
-- `engine-native` 在 listener/node 源码合同完成前继续保持配置拒绝诊断。
+- `engine-native` 在 listener/node 解析、图校验和 runtime handle 完成前继续保持配置拒绝诊断。
 - `networkcore-linux start` 在真实 runtime handle 和 binary lifecycle 接线完成前继续保持 `cli.linux.runtime.unwired`。
 
 ## 后续工作
 
-- 在 `control-domain` 中新增 listener 配置领域类型，并用合同测试覆盖 id、bind、network 和 route 引用边界。
+- 在 `config-core` 中解析最小 listener/node/route TOML 子集，继续保持纯内存、无文件 I/O、无网络请求。
 - `engine-native` 继续保持 runtime unavailable，直到 listener/node 图校验和真实 runtime handle 均完成。

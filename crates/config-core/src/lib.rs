@@ -62,6 +62,7 @@ impl ConfigurationService for CoreConfigurationService {
         Ok(ConfigSnapshot {
             version: document.schema_version,
             profiles: document.profiles,
+            listeners: Vec::new(),
             policies: Vec::new(),
             dns: Vec::new(),
             plugins: Vec::new(),

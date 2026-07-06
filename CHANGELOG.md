@@ -6,6 +6,7 @@
 
 ### Added
 
+- 在 `control-domain` 中新增 listener 配置领域类型，将 `ConfigSnapshot` 扩展为显式携带 listeners，并补充合同测试；`config-core` 仍不解析 listener，`networkcore-linux start` 继续保持未接线。
 - 新增 Native engine listener/node 配置设计文档，定义原生 runtime handle 前的 listener、node、route、DNS 图、诊断 code 和源码接线门槛，并纳入 CI/release readiness governance；`networkcore-linux start` 继续保持未接线。
 - 新增 `networkcore-linux` 前台 lifecycle host 源码合同，覆盖 running handoff、默认 unavailable host、非 running 拒绝和诊断聚合；二进制入口的 `start` 继续保持未接线。
 - 新增最小 `engine-native` crate，提供原生 `ProxyEngineService` descriptor、配置拒绝、生命周期诊断和 secret 不泄露合同测试；`networkcore-linux start` 继续保持未接线。
