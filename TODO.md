@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 在 `engine-native` 中补充 SOCKS5 认证方法响应写入诊断合同，继续不接入 route/outbound 或 `networkcore-linux start`。
+- [ ] 在 `engine-native` 中补充 SOCKS5 命令头读取与 unsupported command 拒绝诊断合同，继续不接入 route/outbound 或 `networkcore-linux start`。
 
 ## 已完成
 
+- [x] 在 `engine-native` 中补充 SOCKS5 认证方法响应写入诊断合同，继续不解析 SOCKS5 命令、不接入 route/outbound 或 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 no-auth 方法选择与 unsupported auth 方法拒绝诊断合同，继续不写入 SOCKS5 方法响应、不接入 route/outbound 或 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充首个 SOCKS5 greeting 版本/认证方法读取诊断合同，继续不接入 route/outbound 或 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充首个 accepted TCP connection 的协议前置关闭诊断合同，明确未实现 proxy protocol 时的连接处理边界，继续不接入 `networkcore-linux start`。

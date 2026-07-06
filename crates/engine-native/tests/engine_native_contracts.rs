@@ -5,10 +5,11 @@ use control_domain::{
     RouteAction, RuleSet, SchemaVersion,
 };
 use engine_native::{
-    read_socks5_greeting, select_socks5_auth_method, BoundLoopbackTcpListenerHandle,
-    LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle,
-    NativeProxyEngineService, NativeRuntimeAssembly, NativeRuntimeAssemblyPlan,
-    NativeSocks5AuthMethodDecision, NativeSocks5Greeting, DEFAULT_NATIVE_ENGINE_ID,
+    read_socks5_greeting, select_socks5_auth_method, write_socks5_auth_method_response,
+    BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle,
+    NativeOutboundHandlerHandle, NativeProxyEngineService, NativeRuntimeAssembly,
+    NativeRuntimeAssemblyPlan, NativeSocks5AuthMethodDecision, NativeSocks5Greeting,
+    DEFAULT_NATIVE_ENGINE_ID,
     ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_ID_DUPLICATE_CODE,
@@ -24,6 +25,8 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE, ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
     ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_RESPONSE_WRITE_FAILED_CODE,
+    ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_RESPONSE_WRITTEN_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_SELECTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_UNSUPPORTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_INVALID_CODE,
@@ -31,7 +34,7 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_GREETING_READ_FAILED_CODE, ENGINE_NATIVE_START_BIND_FAILED_CODE,
     ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
 };
-use std::io::{Cursor, Write};
+use std::io::{self, Cursor, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
 use std::time::Duration;
@@ -417,6 +420,14 @@ fn runtime_accept_loop_contract_accepts_loopback_tcp_connection_and_shuts_down()
     stream
         .write_all(&[0x05, 0x02, 0x00, 0x02])
         .expect("test client should send a SOCKS5 greeting");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .expect("test client should configure a response read timeout");
+    let mut response = [0_u8; 2];
+    stream
+        .read_exact(&mut response)
+        .expect("test client should receive a SOCKS5 no-auth method response");
+    assert_eq!(response, [0x05, 0x00]);
     wait_until_accept_count(&accept_loop, 1);
     wait_until_pre_protocol_closed_count(&accept_loop, 1);
     drop(stream);
@@ -436,6 +447,10 @@ fn runtime_accept_loop_contract_accepts_loopback_tcp_connection_and_shuts_down()
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_SELECTED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_RESPONSE_WRITTEN_CODE,
     );
     assert_diagnostic(
         &report.diagnostics,
@@ -472,6 +487,14 @@ fn runtime_accept_loop_contract_reports_unsupported_socks5_auth_methods_before_c
     stream
         .write_all(&[0x05, 0x01, 0x02])
         .expect("test client should send a SOCKS5 greeting without no-auth support");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .expect("test client should configure a response read timeout");
+    let mut response = [0_u8; 2];
+    stream
+        .read_exact(&mut response)
+        .expect("test client should receive a SOCKS5 no-acceptable-methods response");
+    assert_eq!(response, [0x05, 0xff]);
     wait_until_accept_count(&accept_loop, 1);
     wait_until_pre_protocol_closed_count(&accept_loop, 1);
     drop(stream);
@@ -485,6 +508,10 @@ fn runtime_accept_loop_contract_reports_unsupported_socks5_auth_methods_before_c
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_UNSUPPORTED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_RESPONSE_WRITTEN_CODE,
     );
     assert_diagnostic(
         &report.diagnostics,
@@ -573,6 +600,39 @@ fn socks5_auth_method_contract_rejects_unsupported_auth_methods() {
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_UNSUPPORTED_CODE,
+    );
+}
+
+#[test]
+fn socks5_auth_method_response_contract_writes_selected_method_response() {
+    let mut writer = Vec::new();
+
+    let report = write_socks5_auth_method_response(
+        &mut writer,
+        NativeSocks5AuthMethodDecision::NoAuthenticationRequired,
+    );
+
+    assert_eq!(writer, vec![0x05, 0x00]);
+    assert_eq!(report.response, [0x05, 0x00]);
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_RESPONSE_WRITTEN_CODE,
+    );
+}
+
+#[test]
+fn socks5_auth_method_response_contract_reports_write_failure() {
+    let mut writer = FailingWriter;
+
+    let report = write_socks5_auth_method_response(
+        &mut writer,
+        NativeSocks5AuthMethodDecision::NoAcceptableMethods,
+    );
+
+    assert_eq!(report.response, [0x05, 0xff]);
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_RESPONSE_WRITE_FAILED_CODE,
     );
 }
 
@@ -1099,6 +1159,21 @@ fn assert_no_diagnostic(diagnostics: &[Diagnostic], code: &str) {
         diagnostics.iter().all(|diagnostic| diagnostic.code != code),
         "unexpected diagnostic {code}: {diagnostics:?}"
     );
+}
+
+struct FailingWriter;
+
+impl Write for FailingWriter {
+    fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
+        Err(io::Error::new(
+            io::ErrorKind::BrokenPipe,
+            "intentional test writer failure",
+        ))
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 fn wait_until_accept_count(

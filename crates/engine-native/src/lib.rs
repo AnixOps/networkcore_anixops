@@ -11,7 +11,7 @@ use control_domain::{
     ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RouteAction, RuleSet,
 };
 use std::collections::BTreeSet;
-use std::io::{ErrorKind, Read};
+use std::io::{ErrorKind, Read, Write};
 use std::net::{IpAddr, Shutdown, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc};
@@ -79,6 +79,10 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_SELECTED_CODE: &str =
     "engine.native.runtime.socks5_auth_method_selected";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_UNSUPPORTED_CODE: &str =
     "engine.native.runtime.socks5_auth_method_unsupported";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_RESPONSE_WRITTEN_CODE: &str =
+    "engine.native.runtime.socks5_auth_method_response_written";
+pub const ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_RESPONSE_WRITE_FAILED_CODE: &str =
+    "engine.native.runtime.socks5_auth_method_response_write_failed";
 
 const SOCKS5_VERSION: u8 = 0x05;
 const SOCKS5_AUTH_METHOD_NO_AUTHENTICATION_REQUIRED: u8 = 0x00;
@@ -442,6 +446,12 @@ pub struct NativeSocks5AuthMethodSelectionReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5AuthMethodResponseWriteReport {
+    pub response: [u8; 2],
+    pub diagnostics: Vec<Diagnostic>,
+}
+
 pub fn read_socks5_greeting<R>(reader: &mut R) -> NativeSocks5GreetingReadReport
 where
     R: Read,
@@ -532,6 +542,32 @@ pub fn select_socks5_auth_method(
             ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_UNSUPPORTED_CODE,
             "native SOCKS5 greeting does not advertise a supported auth method",
         )],
+    }
+}
+
+pub fn write_socks5_auth_method_response<W>(
+    writer: &mut W,
+    decision: NativeSocks5AuthMethodDecision,
+) -> NativeSocks5AuthMethodResponseWriteReport
+where
+    W: Write,
+{
+    let response = [SOCKS5_VERSION, decision.method_code()];
+    let diagnostic = if writer.write_all(&response).is_ok() {
+        runtime_info(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_RESPONSE_WRITTEN_CODE,
+            "native SOCKS5 auth method response was written",
+        )
+    } else {
+        runtime_warning(
+            ENGINE_NATIVE_RUNTIME_SOCKS5_AUTH_METHOD_RESPONSE_WRITE_FAILED_CODE,
+            "native SOCKS5 auth method response could not be written",
+        )
+    };
+
+    NativeSocks5AuthMethodResponseWriteReport {
+        response,
+        diagnostics: vec![diagnostic],
     }
 }
 
@@ -1306,7 +1342,12 @@ fn read_socks5_greeting_and_close_accepted_connection(
         .as_ref()
         .filter(|greeting| greeting.version == SOCKS5_VERSION && !greeting.auth_methods.is_empty())
     {
-        diagnostics.extend(select_socks5_auth_method(greeting).diagnostics);
+        let selection_report = select_socks5_auth_method(greeting);
+        let decision = selection_report.decision;
+        diagnostics.extend(selection_report.diagnostics);
+        diagnostics.extend(
+            write_socks5_auth_method_response(&mut stream, decision).diagnostics,
+        );
     }
     let _ = stream.shutdown(Shutdown::Both);
     pre_protocol_closed_connections.fetch_add(1, Ordering::SeqCst);
