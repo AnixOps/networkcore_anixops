@@ -119,6 +119,7 @@ release notes 和 release summary 必须输出：
 
 - `apps/linux-cli` 源码存在，并在 `main` 同 commit 上通过 CI 的 Rust format、lint、test、build 和 dependency audit。
 - [Linux Platform Adapter Design](linux-platform-adapter.md)、[Linux CLI Entrypoint Design](linux-cli-entrypoint.md)、[Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md) 和本文档均通过 CI governance 检查。
+- `linux-artifact-readiness` release job 检查 CLI 源码、platform adapter、安装/回滚设计和 license/NOTICE 人工确认记录，并继续阻止 release asset 上传。
 - release job 明确 runner、Rust toolchain、target triple、artifact 文件名、顶层目录和上传路径。
 - release job 输出 `artifact_name`、`artifact_path`、`checksum_algorithm`、`checksum_file`、`checksum_value`。
 - release job 输出 `signing_policy`、`signing_status`、`attestation_status`、`provenance_file`。

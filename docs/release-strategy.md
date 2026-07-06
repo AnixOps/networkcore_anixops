@@ -6,7 +6,7 @@
 
 ## 当前发布状态
 
-当前 release workflow 只保留 policy、release-ci-gate、release-artifact-contract、release-signing-contract、release-rollback-contract 与 placeholder job：
+当前 release workflow 只保留 policy、release-ci-gate、release-artifact-contract、release-signing-contract、release-rollback-contract、linux-artifact-readiness 与 placeholder job：
 
 - 允许 tag `v*` 和 `workflow_dispatch` 触发。
 - release policy job 检查版本格式和触发来源一致性；手动 placeholder release 必须从 `main` 分支发起，tag release 必须使用同名 tag 版本。
@@ -14,9 +14,10 @@
 - `release-artifact-contract` job 记录首个真实 artifact job 必须输出 `artifact_name`、`artifact_path`、`checksum_algorithm`、`checksum_file` 和 `checksum_value`，且 checksum 算法默认为 `sha256`。
 - `release-signing-contract` job 记录真实平台 artifact 发布前必须声明签名或 attestation 策略，并要求后续 job 输出 `signing_policy`、`signing_status`、`attestation_status` 和 `provenance_file`。
 - `release-rollback-contract` job 记录真实 artifact 发布说明必须输出 `rollback_scope`、`rollback_trigger`、`rollback_steps`、`replacement_version` 和 `rollback_owner`。
+- `linux-artifact-readiness` job 检查 Linux CLI 源码、platform adapter、安装/回滚设计和 license/NOTICE 人工确认记录，但不构建、不打包、不上传 artifact。
 - 不生成 release artifact。
 - 不在本机打包、签名、测试或发布。
-- 通过 release summary job 输出发布来源、policy、release-ci-gate、release-artifact-contract、release-signing-contract、release-rollback-contract、placeholder、artifact 状态和后续 artifact 门禁。
+- 通过 release summary job 输出发布来源、policy、release-ci-gate、release-artifact-contract、release-signing-contract、release-rollback-contract、linux-artifact-readiness、placeholder、artifact 状态和后续 artifact 门禁。
 - 任何真实产物必须先有对应源码、平台设计、GitHub Actions 验证和本文件定义的门禁。
 
 ## 发布原则
@@ -64,11 +65,12 @@
 3. `release-artifact-contract`：在 placeholder 阶段记录首个 artifact job 必须暴露的 checksum 输出字段，真实产物加入后由 `package-*` job 输出替代。
 4. `release-signing-contract`：在 placeholder 阶段记录真实平台 artifact 发布前必须声明的 signing/attestation 输出字段，真实产物加入后由 `sign-*` 或 attestation job 输出替代。
 5. `release-rollback-contract`：在 placeholder 阶段记录 release notes 必须暴露的回滚字段，真实发布加入后由 publish 或 post-release summary job 输出替代。
-6. `package-*`：每个平台独立构建产物并输出 checksum。
-7. `sign-*`：需要签名的平台在受控 runner 中读取 GitHub Secrets 或官方平台凭据。
-8. `notarize-*`：macOS 产物完成 Apple notarization 后再进入发布资产。
-9. `publish-github-release`：上传 release assets、checksums、release notes 和 provenance/attestation 信息。
-10. `post-release-summary`：输出产物清单、验证链接、人工事项和回滚说明。
+6. `linux-artifact-readiness` 或对应平台 readiness gate：在真实 packaging 前检查源码、设计、人工事项和发布阻断状态。
+7. `package-*`：每个平台独立构建产物并输出 checksum。
+8. `sign-*`：需要签名的平台在受控 runner 中读取 GitHub Secrets 或官方平台凭据。
+9. `notarize-*`：macOS 产物完成 Apple notarization 后再进入发布资产。
+10. `publish-github-release`：上传 release assets、checksums、release notes 和 provenance/attestation 信息。
+11. `post-release-summary`：输出产物清单、验证链接、人工事项和回滚说明。
 
 真实产物加入前，`release-placeholder` 必须保留或替换为等价的显式说明，避免误认为 release 已经可用。
 
@@ -94,7 +96,7 @@
 ## 下一步
 
 - 真实平台产物进入 release workflow 前，先为目标平台补齐 adapter 设计文档；Linux 首个产物必须先满足 [Linux artifact pre-release design](architecture/linux-artifact-pre-release-design.md)、[Linux platform adapter design](architecture/linux-platform-adapter.md)、[Linux CLI entrypoint design](architecture/linux-cli-entrypoint.md) 和 [Linux CLI artifact installation and rollback design](architecture/linux-cli-artifact-installation-rollback.md)。
-- 引入第一个 artifact job 时，同步加入 checksum、安装/卸载边界、release summary 和回滚说明。
+- 引入第一个 artifact job 时，同步加入 checksum、安装/卸载边界、release summary 和回滚说明；Linux 在 `linux-artifact-readiness` 通过且 license/NOTICE 人工确认完成前不得进入 `package-linux`。
 - iOS 发布前必须先完成 `docs/architecture/ios-network-extension-design.md`。
 
 ## 参考

@@ -175,5 +175,5 @@ CLI 首个源码增量必须满足：
 
 ## 后续工作
 
-- 补充 release workflow 中的 Linux artifact readiness gate 或 `package-linux` 前置 job，继续阻止未满足门禁的 release asset。
+- 在 license/NOTICE 人工确认和 readiness gate 通过后，再补充 `package-linux` job；真实 artifact 发布前继续阻止 release asset。
 - 真实 Linux probing、daemon/control socket 或 packaging 进入 CLI 前，先补充对应设计并通过 CI。

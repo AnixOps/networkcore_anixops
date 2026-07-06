@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 补充 release workflow 中的 Linux artifact readiness gate，检查 CLI 源码、安装/回滚设计和 release 前置合同，继续阻止未满足门禁的 release asset。
+- [ ] 在 license/NOTICE 人工确认后，补充首个 `package-linux` workflow artifact job，生成压缩包与 checksum，但继续阻止未满足签名/证明和发布说明门禁的 GitHub Release asset。
 
 ## 已完成
 
+- [x] 补充 release workflow 中的 Linux artifact readiness gate，检查 CLI 源码、安装/回滚设计和 release 前置合同，继续阻止未满足门禁的 release asset。
 - [x] 补充 Linux CLI artifact 安装、卸载与回滚设计，明确首个压缩包发布前置条件。
 - [x] 创建最小 Linux CLI entrypoint crate，提供命令解析骨架与配置/平台诊断合同测试。
 - [x] 创建最小 `platform-linux` crate，提供 `PlatformCapabilityService` 测试替身和 Linux 诊断映射合同测试。
