@@ -6,6 +6,7 @@
 
 ### Added
 
+- 新增 Linux CLI entrypoint 设计文档，明确首个 `networkcore-linux` 入口的命令、配置加载、启动/停止、状态查询、输出和退出码边界。
 - 新增 Linux platform adapter 设计文档，定义 TUN、权限、DNS、服务管理、证书和诊断探测边界。
 - 新增 Linux artifact 发布前设计文档，明确首个平台产物的源码、packaging、checksum、签名/证明和回滚前置条件。
 - 补充 release rollback contract 占位 job，定义真实 artifact 发布说明必须输出的回滚字段。

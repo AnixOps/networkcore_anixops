@@ -37,6 +37,7 @@
 - 运行层编排设计文件检查
 - Linux artifact 发布前设计文件检查
 - Linux platform adapter 设计文件检查
+- Linux CLI entrypoint 设计文件检查
 - 架构决策记录检查
 - Linux、macOS、Windows 基础工作区检查
 - Go 代码出现后的 Go 构建与测试

@@ -165,6 +165,6 @@ Linux adapter 输出的 `Diagnostic` 必须满足：
 
 ## 后续工作
 
-- 补充 Linux CLI entrypoint 设计文档，明确首个可运行入口、配置加载、启动/停止和状态查询边界。
+- 创建最小 `platform-linux` crate，提供 `PlatformCapabilityService` 测试替身和 Linux 诊断映射合同测试。
 - Linux adapter 源码落地时，同步更新 `docs/release-strategy.md`、`README.md`、`CHANGELOG.md` 和 `TODO.md`。
 - Linux artifact 进入 release workflow 前，仍必须满足 [Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md) 的 packaging、checksum、签名/证明和回滚契约。

@@ -47,6 +47,7 @@ jobs:
           test -f docs/architecture/ios-platform-risk-assessment.md
           test -f docs/architecture/linux-artifact-pre-release-design.md
           test -f docs/architecture/linux-platform-adapter.md
+          test -f docs/architecture/linux-cli-entrypoint.md
           test -f docs/architecture/adr-0001-initial-core-stack.md
           grep -q "本机只负责代码" AGENT.md
           grep -q "GitHub Actions" docs/ci-cd-policy.md
@@ -63,6 +64,7 @@ jobs:
           grep -q "iOS Platform Risk Assessment" docs/architecture/ios-platform-risk-assessment.md
           grep -q "Linux Artifact Pre-Release Design" docs/architecture/linux-artifact-pre-release-design.md
           grep -q "Linux Platform Adapter Design" docs/architecture/linux-platform-adapter.md
+          grep -q "Linux CLI Entrypoint Design" docs/architecture/linux-cli-entrypoint.md
           grep -q "ADR 0001: Initial Core Stack" docs/architecture/adr-0001-initial-core-stack.md
 
   detect-projects:

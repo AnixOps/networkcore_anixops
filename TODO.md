@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 补充 Linux CLI entrypoint 设计文档，明确首个可运行入口、配置加载、启动/停止和状态查询边界。
+- [ ] 创建最小 `platform-linux` crate，提供 `PlatformCapabilityService` 测试替身和 Linux 诊断映射合同测试。
 
 ## 已完成
 
+- [x] 补充 Linux CLI entrypoint 设计文档，明确首个可运行入口、配置加载、启动/停止和状态查询边界。
 - [x] 补充 Linux platform adapter 设计文档，定义 TUN、权限、DNS 与服务管理能力探测边界。
 - [x] 补充 Linux artifact 发布前设计文档，明确首个平台产物的源码与 packaging 前置条件。
 - [x] 在 release workflow 中补充 artifact rollback 占位说明，定义发布说明必须输出的回滚字段。
