@@ -665,7 +665,10 @@ fn mitm_gate_rejects_unknown_remote_script_execution_before_plugin_port() {
 
     assert!(!decision.is_allowed());
     assert_eq!(decision.decision, AuditDecision::Denied);
-    assert_eq!(decision.platform.remote_script_execution, PlatformFeatureState::Unknown);
+    assert_eq!(
+        decision.platform.remote_script_execution,
+        PlatformFeatureState::Unknown
+    );
     assert_eq!(decision.reason.as_deref(), Some(expected_reason));
     assert!(decision.plugin_result.is_none());
     assert!(decision.diagnostics.iter().any(|diagnostic| {
