@@ -102,7 +102,7 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
-          - macos-latest
+          - macos-15
           - windows-latest
     steps:
       - name: Checkout
@@ -127,7 +127,7 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
-          - macos-latest
+          - macos-15
           - windows-latest
     steps:
       - name: Checkout
@@ -172,7 +172,7 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
-          - macos-latest
+          - macos-15
           - windows-latest
     steps:
       - name: Checkout
@@ -204,7 +204,7 @@ jobs:
       matrix:
         os:
           - ubuntu-latest
-          - macos-latest
+          - macos-15
           - windows-latest
     steps:
       - name: Checkout
@@ -248,7 +248,7 @@ jobs:
 
   swift-build-test:
     name: Swift build and test
-    runs-on: macos-latest
+    runs-on: macos-15
     needs:
       - detect-projects
     if: ${{ needs.detect-projects.outputs.swift == 'true' }}
@@ -266,7 +266,7 @@ jobs:
 
   apple-project-smoke:
     name: Apple project smoke
-    runs-on: macos-latest
+    runs-on: macos-15
     needs:
       - detect-projects
     if: ${{ needs.detect-projects.outputs.apple == 'true' }}

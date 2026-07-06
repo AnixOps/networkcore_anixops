@@ -4,14 +4,18 @@
 
 ## 当前待处理
 
-1. 当前目录最初不是 Git 仓库，需要人工确认是否要把 `/home/dev/anixops/networkcore_AnixOps` 初始化并绑定到目标 GitHub 仓库。
-2. 需要人工提供或确认 GitHub 远端地址。
-3. 需要人工确认 GitHub CLI 是否已登录到正确账号，或手动在 GitHub 网页端观察 Actions。
-4. 首次 GitHub Actions 运行需要在文件推送到 GitHub 后触发。
+当前 bootstrap 阶段无阻塞项。
 
-## 人工完成后的下一步
+## 已完成的人工/外部事项
 
-完成 GitHub 仓库绑定并推送后，运行：
+1. 已确认 GitHub 远端地址：`https://github.com/AnixOps/networkcore_anixops.git`。
+2. 已初始化本地仓库并绑定远端。
+3. 已为 GitHub CLI 授权 `workflow` scope，使其可以推送 GitHub Actions workflow。
+4. 已推送 bootstrap 文件并打通 CI。
+
+## 后续 CI 观察命令
+
+需要观察 CI 时运行：
 
 ```bash
 gh workflow run ci.yml
