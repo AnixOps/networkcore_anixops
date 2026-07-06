@@ -1,0 +1,13 @@
+[package]
+name = "control-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Pure runtime orchestration use cases for the AnixOps network control kernel."
+
+[dependencies]
+control-domain = { path = "../control-domain" }
+
+[lib]
+path = "src/lib.rs"

@@ -122,6 +122,12 @@ iOS adapter 接入前，运行层必须按以下规则建模：
 - README、TODO、CHANGELOG 和相关架构文档同步更新。
 - 所有 format、lint、test、build 和安全扫描仍只通过 GitHub Actions 验证。
 
+## 当前源码映射
+
+当前 `crates/control-runtime` 提供最小 `RuntimeOrchestrator`，组合
+`ConfigurationService`、`PlatformCapabilityService` 和 `ProxyEngineService`，
+覆盖配置准备、启动、重载、停止、状态查询和事件读取。MITM gate、订阅、策略路由和 DNS 编排仍按后续扩展逐步加入。
+
 ## 后续扩展
 
 - 引入订阅、策略路由和 DNS 编排前，先补齐对应用例测试替身。

@@ -6,6 +6,7 @@
 
 ### Added
 
+- 新增最小 `control-runtime` crate，组合配置、平台能力和代理引擎领域端口，并覆盖启动成功、平台拒绝和引擎错误传播路径。
 - 新增运行层编排设计文档，定义 `control-runtime` 的职责、生命周期、端口组合和首个源码增量验收条件。
 - 在 `control-domain` 中新增平台能力状态、MITM 证书状态和 `PlatformCapabilityService` 领域端口。
 - 新增发布策略文档，定义真实平台产物进入 release workflow 前的门禁、矩阵和回滚路径。
