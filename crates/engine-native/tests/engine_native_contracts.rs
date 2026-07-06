@@ -14,13 +14,12 @@ use engine_native::{
     ENGINE_NATIVE_CONFIG_LISTENER_MISSING_CODE, ENGINE_NATIVE_CONFIG_NODE_ID_DUPLICATE_CODE,
     ENGINE_NATIVE_CONFIG_NODE_MISSING_CODE, ENGINE_NATIVE_CONFIG_NODE_PROTOCOL_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_ROUTE_EMPTY_CODE, ENGINE_NATIVE_CONFIG_ROUTE_ID_DUPLICATE_CODE,
-    ENGINE_NATIVE_CONFIG_ROUTE_TARGET_MISSING_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
+    ENGINE_NATIVE_CONFIG_ROUTE_TARGET_MISSING_CODE,
     ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
-    ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE,
-    ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
+    ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE, ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE, ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
-    ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE,
+    ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
 };
 
 #[test]
@@ -305,12 +304,14 @@ fn runtime_handle_contract_rejects_non_loopback_listener() {
 
 #[test]
 fn runtime_handle_contract_reports_disabled_invalid_and_missing_resources() {
-    let disabled_error = LoopbackListenerHandle::from_descriptor(&disabled_listener(
-        "disabled-loopback",
-    ))
-    .expect_err("disabled listeners must not become runtime handles");
+    let disabled_error =
+        LoopbackListenerHandle::from_descriptor(&disabled_listener("disabled-loopback"))
+            .expect_err("disabled listeners must not become runtime handles");
 
-    assert_eq!(disabled_error.code, ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE);
+    assert_eq!(
+        disabled_error.code,
+        ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE
+    );
 
     let invalid_endpoint = NodeDescriptor {
         endpoint: Endpoint {
@@ -331,7 +332,10 @@ fn runtime_handle_contract_reports_disabled_invalid_and_missing_resources() {
         .finish()
         .expect_err("runtime assembly must require listener and outbound handles");
 
-    assert_eq!(missing_error.code, ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE);
+    assert_eq!(
+        missing_error.code,
+        ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE
+    );
 }
 
 #[test]
@@ -383,7 +387,10 @@ fn runtime_handle_contract_releases_acquired_resources_on_start_failure() {
     let failure = NativeRuntimeAssembly::new(DEFAULT_NATIVE_ENGINE_ID)
         .with_listener(listener)
         .with_outbound_handler(outbound)
-        .fail("engine.native.start.bind_failed", "failed to bind loopback listener");
+        .fail(
+            "engine.native.start.bind_failed",
+            "failed to bind loopback listener",
+        );
 
     assert_eq!(failure.error.code, "engine.native.start.bind_failed");
     assert_eq!(
