@@ -6,8 +6,8 @@ use control_domain::{
 };
 use engine_native::{
     BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeOutboundHandlerHandle,
-    NativeProxyEngineService, NativeRuntimeAssembly, DEFAULT_NATIVE_ENGINE_ID,
-    ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
+    NativeProxyEngineService, NativeRuntimeAssembly, NativeRuntimeAssemblyPlan,
+    DEFAULT_NATIVE_ENGINE_ID, ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_ID_DUPLICATE_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_KIND_UNSUPPORTED_CODE,
@@ -20,6 +20,7 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE, ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
     ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE, ENGINE_NATIVE_START_BIND_FAILED_CODE,
+    ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE,
     ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
 };
 use std::net::TcpListener;
@@ -96,11 +97,11 @@ fn validate_config_uses_config_snapshot_nodes_for_route_targets() {
     assert_no_diagnostic(&diagnostics, ENGINE_NATIVE_CONFIG_NODE_MISSING_CODE);
     assert_no_diagnostic(&diagnostics, ENGINE_NATIVE_CONFIG_ROUTE_TARGET_MISSING_CODE);
     assert_no_diagnostic(&diagnostics, ENGINE_NATIVE_CONFIG_ROUTE_EMPTY_CODE);
-    assert_diagnostic(
+    assert_no_diagnostic(
         &diagnostics,
         ENGINE_NATIVE_CONFIG_LISTENER_KIND_UNSUPPORTED_CODE,
     );
-    assert_diagnostic(
+    assert_no_diagnostic(
         &diagnostics,
         ENGINE_NATIVE_CONFIG_NODE_PROTOCOL_UNSUPPORTED_CODE,
     );
@@ -127,6 +128,44 @@ fn validate_config_uses_runtime_request_nodes_for_route_targets() {
     assert_no_diagnostic(&diagnostics, ENGINE_NATIVE_CONFIG_NODE_MISSING_CODE);
     assert_no_diagnostic(&diagnostics, ENGINE_NATIVE_CONFIG_ROUTE_TARGET_MISSING_CODE);
     assert_no_diagnostic(&diagnostics, ENGINE_NATIVE_CONFIG_ROUTE_EMPTY_CODE);
+    assert_no_diagnostic(
+        &diagnostics,
+        ENGINE_NATIVE_CONFIG_LISTENER_KIND_UNSUPPORTED_CODE,
+    );
+    assert_no_diagnostic(
+        &diagnostics,
+        ENGINE_NATIVE_CONFIG_NODE_PROTOCOL_UNSUPPORTED_CODE,
+    );
+}
+
+#[test]
+fn validate_config_reports_unimplemented_listener_and_node_protocols() {
+    let service = NativeProxyEngineService::new();
+    let engine_config = graph_config(
+        DEFAULT_NATIVE_ENGINE_ID,
+        vec![NodeDescriptor {
+            protocol: Protocol::Http,
+            ..node()
+        }],
+        Vec::new(),
+        vec![ListenerDescriptor {
+            kind: ListenerKind::Http,
+            ..listener(
+                "http-loopback",
+                ListenerRoute::DefaultAction(RouteAction::Proxy {
+                    node_id: "node-1".to_string(),
+                }),
+            )
+        }],
+        Vec::new(),
+    );
+
+    let diagnostics = service.validate_config(&engine_config);
+
+    assert_diagnostic(
+        &diagnostics,
+        ENGINE_NATIVE_CONFIG_LISTENER_KIND_UNSUPPORTED_CODE,
+    );
     assert_diagnostic(
         &diagnostics,
         ENGINE_NATIVE_CONFIG_NODE_PROTOCOL_UNSUPPORTED_CODE,
@@ -358,6 +397,180 @@ fn runtime_handle_contract_reports_loopback_tcp_bind_failure() {
 
     assert_eq!(error.code, ENGINE_NATIVE_START_BIND_FAILED_CODE);
     drop(guard);
+}
+
+#[test]
+fn runtime_assembly_plan_selects_loopback_tcp_listener_and_socks_outbound_from_config_graph() {
+    let port = unused_loopback_port();
+    let service = NativeProxyEngineService::new();
+    let engine_config = graph_config(
+        DEFAULT_NATIVE_ENGINE_ID,
+        vec![node()],
+        Vec::new(),
+        vec![local_tcp_listener_with_bind(
+            "plan-loopback-local-tcp",
+            "127.0.0.1",
+            port,
+            ListenerRoute::RuleSet {
+                rule_set_id: "runtime-route".to_string(),
+            },
+        )],
+        vec![route_set(
+            "runtime-route",
+            RouteAction::Proxy {
+                node_id: "node-1".to_string(),
+            },
+        )],
+    );
+
+    let diagnostics = service.validate_config(&engine_config);
+
+    assert_no_diagnostic(
+        &diagnostics,
+        ENGINE_NATIVE_CONFIG_LISTENER_KIND_UNSUPPORTED_CODE,
+    );
+    assert_no_diagnostic(
+        &diagnostics,
+        ENGINE_NATIVE_CONFIG_NODE_PROTOCOL_UNSUPPORTED_CODE,
+    );
+    assert_no_diagnostic(&diagnostics, ENGINE_NATIVE_CONFIG_ROUTE_EMPTY_CODE);
+
+    let plan = NativeRuntimeAssemblyPlan::from_config(&engine_config)
+        .expect("valid graph should produce a native runtime assembly plan");
+
+    assert_eq!(plan.engine_id(), DEFAULT_NATIVE_ENGINE_ID);
+    assert_eq!(plan.listener().listener_id, "plan-loopback-local-tcp");
+    assert_eq!(plan.listener().bind_port, port);
+    assert_eq!(plan.outbound_handler().node_id, "node-1");
+    assert_eq!(plan.outbound_handler().protocol, Protocol::Socks);
+
+    let handle = plan
+        .bind_loopback_listener()
+        .expect("available loopback listener should bind into an assembly")
+        .finish()
+        .expect("bound assembly should finish with listener and outbound resources");
+
+    assert!(handle.listeners().is_empty());
+    assert_eq!(
+        handle.bound_listeners()[0].listener_id(),
+        "plan-loopback-local-tcp"
+    );
+    assert_eq!(handle.bound_listeners()[0].local_port(), port);
+    assert_eq!(handle.outbound_handlers()[0].node_id, "node-1");
+
+    let start_error = service
+        .start(&engine_config)
+        .expect_err("service start remains intentionally unavailable");
+
+    assert_eq!(start_error.code, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE);
+
+    let release = handle.release();
+
+    assert_eq!(
+        release.listener_ids,
+        vec!["plan-loopback-local-tcp".to_string()]
+    );
+    assert_diagnostic(&release.diagnostics, ENGINE_NATIVE_RUNTIME_RELEASED_CODE);
+
+    let rebound = TcpListener::bind(("127.0.0.1", port))
+        .expect("runtime assembly plan release should free the loopback tcp port");
+    drop(rebound);
+}
+
+#[test]
+fn runtime_assembly_plan_reports_bind_failure_with_release_boundary() {
+    let guard = TcpListener::bind(("127.0.0.1", 0))
+        .expect("test should reserve an ephemeral loopback tcp port");
+    let port = guard
+        .local_addr()
+        .expect("reserved listener should expose its local address")
+        .port();
+    let engine_config = graph_config(
+        DEFAULT_NATIVE_ENGINE_ID,
+        vec![node()],
+        Vec::new(),
+        vec![local_tcp_listener_with_bind(
+            "busy-plan-loopback-local-tcp",
+            "127.0.0.1",
+            port,
+            ListenerRoute::DefaultAction(RouteAction::Proxy {
+                node_id: "node-1".to_string(),
+            }),
+        )],
+        Vec::new(),
+    );
+    let plan = NativeRuntimeAssemblyPlan::from_config(&engine_config)
+        .expect("valid graph should produce a native runtime assembly plan");
+
+    let failure = plan
+        .bind_loopback_listener()
+        .expect_err("busy loopback listener should produce startup failure");
+
+    assert_eq!(failure.error.code, ENGINE_NATIVE_START_BIND_FAILED_CODE);
+    assert_eq!(
+        failure.release.listener_ids,
+        vec!["busy-plan-loopback-local-tcp".to_string()]
+    );
+    assert_eq!(
+        failure.release.outbound_handler_ids,
+        vec!["node-1".to_string()]
+    );
+    assert_diagnostic(
+        &failure.release.diagnostics,
+        ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
+    );
+    assert_eq!(failure.release.events[0].kind, ProxyEngineEventKind::Failed);
+
+    drop(guard);
+}
+
+#[test]
+fn runtime_assembly_plan_releases_bound_listener_when_lifecycle_handoff_fails() {
+    let port = unused_loopback_port();
+    let engine_config = graph_config(
+        DEFAULT_NATIVE_ENGINE_ID,
+        vec![node()],
+        Vec::new(),
+        vec![local_tcp_listener_with_bind(
+            "handoff-failure-loopback-local-tcp",
+            "127.0.0.1",
+            port,
+            ListenerRoute::DefaultAction(RouteAction::Proxy {
+                node_id: "node-1".to_string(),
+            }),
+        )],
+        Vec::new(),
+    );
+    let assembly = NativeRuntimeAssemblyPlan::from_config(&engine_config)
+        .expect("valid graph should produce a native runtime assembly plan")
+        .bind_loopback_listener()
+        .expect("available loopback listener should bind into an assembly");
+
+    let failure = assembly.fail(
+        ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE,
+        "failed to hand off native runtime to foreground lifecycle host",
+    );
+
+    assert_eq!(
+        failure.error.code,
+        ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE
+    );
+    assert_eq!(
+        failure.release.listener_ids,
+        vec!["handoff-failure-loopback-local-tcp".to_string()]
+    );
+    assert_eq!(
+        failure.release.outbound_handler_ids,
+        vec!["node-1".to_string()]
+    );
+    assert_diagnostic(
+        &failure.release.diagnostics,
+        ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
+    );
+
+    let rebound = TcpListener::bind(("127.0.0.1", port))
+        .expect("failed handoff release should free the loopback tcp port");
+    drop(rebound);
 }
 
 #[test]

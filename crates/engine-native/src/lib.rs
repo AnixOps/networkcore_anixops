@@ -42,6 +42,8 @@ pub const ENGINE_NATIVE_CONFIG_ROUTE_EMPTY_CODE: &str = "engine.native.config.ro
 pub const ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE: &str =
     "engine.native.start.runtime_unavailable";
 pub const ENGINE_NATIVE_START_BIND_FAILED_CODE: &str = "engine.native.start.bind_failed";
+pub const ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE: &str =
+    "engine.native.start.lifecycle_failed";
 pub const ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE: &str =
     "engine.native.runtime.listener_disabled";
 pub const ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE: &str =
@@ -245,6 +247,97 @@ impl NativeOutboundHandlerHandle {
             protocol: node.protocol.clone(),
             endpoint: node.endpoint.clone(),
         })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeRuntimeAssemblyPlan {
+    engine_id: String,
+    listener: LoopbackListenerHandle,
+    outbound_handler: NativeOutboundHandlerHandle,
+}
+
+impl NativeRuntimeAssemblyPlan {
+    pub fn from_config(engine_config: &ProxyEngineConfig) -> DomainResult<Self> {
+        ensure_native_engine_id(&engine_config.engine_id)?;
+        ensure_native_config_has_no_errors(engine_config)?;
+
+        let mut first_error = None;
+        for listener_descriptor in enabled_listeners(&engine_config.config.listeners) {
+            let listener = match LoopbackListenerHandle::from_descriptor(listener_descriptor) {
+                Ok(listener) => listener,
+                Err(error) => {
+                    first_error.get_or_insert(error);
+                    continue;
+                }
+            };
+            let node = match select_runtime_node(engine_config, listener_descriptor) {
+                Ok(node) => node,
+                Err(error) => {
+                    first_error.get_or_insert(error);
+                    continue;
+                }
+            };
+            let outbound_handler = match NativeOutboundHandlerHandle::from_node(node) {
+                Ok(outbound_handler) => outbound_handler,
+                Err(error) => {
+                    first_error.get_or_insert(error);
+                    continue;
+                }
+            };
+
+            return Ok(Self {
+                engine_id: engine_config.engine_id.clone(),
+                listener,
+                outbound_handler,
+            });
+        }
+
+        Err(first_error.unwrap_or_else(|| {
+            runtime_error(
+                ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE,
+                "native runtime assembly plan requires a loopback tcp listener and socks outbound handler",
+            )
+        }))
+    }
+
+    pub fn engine_id(&self) -> &str {
+        &self.engine_id
+    }
+
+    pub fn listener(&self) -> &LoopbackListenerHandle {
+        &self.listener
+    }
+
+    pub fn outbound_handler(&self) -> &NativeOutboundHandlerHandle {
+        &self.outbound_handler
+    }
+
+    pub fn into_unbound_assembly(self) -> NativeRuntimeAssembly {
+        NativeRuntimeAssembly::new(self.engine_id)
+            .with_listener(self.listener)
+            .with_outbound_handler(self.outbound_handler)
+    }
+
+    pub fn bind_loopback_listener(
+        self,
+    ) -> Result<NativeRuntimeAssembly, NativeRuntimeStartupFailure> {
+        let Self {
+            engine_id,
+            listener,
+            outbound_handler,
+        } = self;
+        let release_listener = listener.clone();
+
+        match BoundLoopbackTcpListenerHandle::bind(listener) {
+            Ok(bound_listener) => Ok(NativeRuntimeAssembly::new(engine_id)
+                .with_bound_listener(bound_listener)
+                .with_outbound_handler(outbound_handler)),
+            Err(error) => Err(NativeRuntimeAssembly::new(engine_id)
+                .with_listener(release_listener)
+                .with_outbound_handler(outbound_handler)
+                .fail(error.code.clone(), error.message.clone())),
+        }
     }
 }
 
@@ -680,6 +773,74 @@ fn effective_nodes(engine_config: &ProxyEngineConfig) -> Vec<&NodeDescriptor> {
         .collect()
 }
 
+fn ensure_native_config_has_no_errors(engine_config: &ProxyEngineConfig) -> DomainResult<()> {
+    let service = NativeProxyEngineService::new();
+    if let Some(diagnostic) = service
+        .validate_config(engine_config)
+        .into_iter()
+        .find(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+    {
+        return Err(domain_error(diagnostic.code, diagnostic.message));
+    }
+
+    Ok(())
+}
+
+fn select_runtime_node<'a>(
+    engine_config: &'a ProxyEngineConfig,
+    listener: &ListenerDescriptor,
+) -> DomainResult<&'a NodeDescriptor> {
+    let node_id = select_runtime_proxy_node_id(&listener.route, &engine_config.config.policies)?;
+    effective_nodes(engine_config)
+        .into_iter()
+        .find(|node| node.id == node_id)
+        .ok_or_else(|| {
+            runtime_error(
+                ENGINE_NATIVE_CONFIG_ROUTE_TARGET_MISSING_CODE,
+                "native runtime assembly plan route must reference an existing node",
+            )
+        })
+}
+
+fn select_runtime_proxy_node_id<'a>(
+    route: &'a ListenerRoute,
+    route_sets: &'a [RuleSet],
+) -> DomainResult<&'a str> {
+    let node_id = match route {
+        ListenerRoute::DefaultAction(action) => proxy_node_id(action),
+        ListenerRoute::RuleSet { rule_set_id } => {
+            let route_set = route_sets
+                .iter()
+                .find(|route_set| route_set.id == *rule_set_id)
+                .ok_or_else(|| {
+                    runtime_error(
+                        ENGINE_NATIVE_CONFIG_ROUTE_TARGET_MISSING_CODE,
+                        "native runtime assembly plan route set must exist",
+                    )
+                })?;
+            route_set
+                .rules
+                .iter()
+                .find_map(|rule| proxy_node_id(&rule.action))
+                .or_else(|| proxy_node_id(&route_set.default_action))
+        }
+    };
+
+    node_id.ok_or_else(|| {
+        runtime_error(
+            ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE,
+            "native runtime assembly plan requires a proxy route to a socks outbound node",
+        )
+    })
+}
+
+fn proxy_node_id(action: &RouteAction) -> Option<&str> {
+    match action {
+        RouteAction::Proxy { node_id } => Some(node_id),
+        RouteAction::Direct | RouteAction::Reject => None,
+    }
+}
+
 fn effective_node_ids(engine_config: &ProxyEngineConfig) -> BTreeSet<String> {
     effective_nodes(engine_config)
         .into_iter()
@@ -692,12 +853,12 @@ fn has_duplicate_ids<'a>(mut ids: impl Iterator<Item = &'a str>) -> bool {
     ids.any(|id| !seen.insert(id))
 }
 
-fn listener_kind_supported(_kind: &ListenerKind) -> bool {
-    false
+fn listener_kind_supported(kind: &ListenerKind) -> bool {
+    listener_runtime_kind_supported(kind)
 }
 
-fn node_protocol_supported(_protocol: &Protocol) -> bool {
-    false
+fn node_protocol_supported(protocol: &Protocol) -> bool {
+    outbound_runtime_protocol_supported(protocol)
 }
 
 fn listener_runtime_kind_supported(kind: &ListenerKind) -> bool {
