@@ -111,7 +111,7 @@ iOS 插件策略：
 ## 后续工作
 
 - 在实现 iOS adapter 前，新增 `docs/architecture/ios-network-extension-design.md`。
-- 在发布真实平台产物前，新增 release strategy 文档，覆盖签名、产物矩阵和回滚路径。
+- 发布真实平台产物必须遵守 `docs/release-strategy.md` 中的签名、产物矩阵和回滚门禁。
 - 在 `control-domain` 后续增量中补充平台能力状态和 MITM 证书状态的领域类型。
 
 ## 参考

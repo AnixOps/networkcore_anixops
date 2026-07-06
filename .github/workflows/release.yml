@@ -31,7 +31,9 @@ jobs:
         run: |
           set -euo pipefail
           test -f AGENT.md
+          test -f docs/release-strategy.md
           grep -q "发布验证都必须在 GitHub Actions" AGENT.md
+          grep -q "Release Strategy" docs/release-strategy.md
           echo "Release artifacts must be produced by GitHub Actions jobs."
 
   release-placeholder:

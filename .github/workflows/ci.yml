@@ -37,6 +37,7 @@ jobs:
           test -f CHANGELOG.md
           test -f docs/ci-cd-policy.md
           test -f docs/manual-intervention.md
+          test -f docs/release-strategy.md
           test -f docs/architecture/control-kernel-domain.md
           test -f docs/architecture/control-kernel-interfaces.md
           test -f docs/architecture/proxy-engine-adapter.md
@@ -47,6 +48,7 @@ jobs:
           grep -q "Roadmap" ROADMAP.md
           grep -q "TODO" TODO.md
           grep -q "Changelog" CHANGELOG.md
+          grep -q "Release Strategy" docs/release-strategy.md
           grep -q "Control Kernel Domain Specification" docs/architecture/control-kernel-domain.md
           grep -q "Control Kernel Interface Draft" docs/architecture/control-kernel-interfaces.md
           grep -q "Proxy Engine Adapter Interface" docs/architecture/proxy-engine-adapter.md

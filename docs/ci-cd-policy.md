@@ -51,6 +51,7 @@
 - 只能通过 tag 或 `workflow_dispatch` 触发。
 - 不允许在本机打包 release artifact。
 - 产物必须由 GitHub-hosted runner 或后续配置的受控 runner 生成。
+- 真实平台产物加入前必须满足 [Release Strategy](release-strategy.md) 中定义的门禁、矩阵和回滚策略。
 
 ## 多平台目标
 

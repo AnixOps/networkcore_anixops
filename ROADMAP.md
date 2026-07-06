@@ -12,6 +12,7 @@
 - CI/CD policy 明确本地与 GitHub Actions 的职责边界。
 - CI workflow 能检查治理文件并在多平台 runner 上完成基础工作区验证。
 - Roadmap、TODO、CHANGELOG 成为每轮迭代的固定记录入口。
+- Release strategy 明确真实平台产物进入 release workflow 前的门禁、矩阵和回滚路径。
 
 ## P1 Domain And Architecture Specification
 
@@ -71,6 +72,10 @@
 - iOS Network Extension 可行性验证。
 - 证书安装、权限提示、插件脚本边界和 App Review 风险治理。
 - 发布 workflow 的平台产物矩阵。
+
+当前发布规划：
+
+- [Release Strategy](docs/release-strategy.md)
 
 ## 迭代选择规则
 
