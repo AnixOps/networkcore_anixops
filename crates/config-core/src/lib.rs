@@ -347,10 +347,7 @@ fn normalize_node(raw: RawNode) -> DomainResult<NodeDescriptor> {
         id,
         name,
         protocol: parse_protocol(raw.protocol)?,
-        endpoint: Endpoint {
-            host,
-            port,
-        },
+        endpoint: Endpoint { host, port },
         tags: collect_tags(raw.tags),
     })
 }
@@ -383,7 +380,11 @@ fn collect_routes(raw_routes: Vec<RawRoute>) -> DomainResult<Vec<RuleSet>> {
 
 fn normalize_route(raw: RawRoute) -> DomainResult<RuleSet> {
     Ok(RuleSet {
-        id: required_trimmed(raw.id, CONFIG_ROUTE_ID_EMPTY_CODE, "route id cannot be empty")?,
+        id: required_trimmed(
+            raw.id,
+            CONFIG_ROUTE_ID_EMPTY_CODE,
+            "route id cannot be empty",
+        )?,
         rules: Vec::new(),
         default_action: parse_route_action(raw.default_action, raw.default_node)?,
     })
