@@ -59,10 +59,26 @@ jobs:
     steps:
       - name: Summarize release state
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          RELEASE_EVENT: ${{ github.event_name }}
+          RELEASE_REF: ${{ github.ref }}
+          RELEASE_REF_NAME: ${{ github.ref_name }}
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_ACTOR: ${{ github.actor }}
         run: |
           set -euo pipefail
           {
             echo "### Release Summary"
+            echo
+            echo "| Source | Value |"
+            echo "| --- | --- |"
+            echo "| Release version | ${RELEASE_VERSION} |"
+            echo "| Trigger event | ${RELEASE_EVENT} |"
+            echo "| Trigger ref | ${RELEASE_REF} |"
+            echo "| Trigger ref name | ${RELEASE_REF_NAME} |"
+            echo "| Commit SHA | ${RELEASE_SHA} |"
+            echo "| Actor | ${RELEASE_ACTOR} |"
             echo
             echo "| Item | Status |"
             echo "| --- | --- |"
@@ -71,6 +87,12 @@ jobs:
             echo "| Release artifacts | not defined |"
             echo "| Artifact gate | blocked until source, platform design, CI, checksum, signing, and rollback gates are implemented |"
           } >> "$GITHUB_STEP_SUMMARY"
+          echo "release-version=${RELEASE_VERSION}"
+          echo "release-event=${RELEASE_EVENT}"
+          echo "release-ref=${RELEASE_REF}"
+          echo "release-ref-name=${RELEASE_REF_NAME}"
+          echo "release-sha=${RELEASE_SHA}"
+          echo "release-actor=${RELEASE_ACTOR}"
           echo "release-policy=${{ needs.release-policy.result }}"
           echo "release-placeholder=${{ needs.release-placeholder.result }}"
           echo "release-artifacts=not-defined"
