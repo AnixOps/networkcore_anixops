@@ -11,7 +11,7 @@ use control_domain::{
     ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RouteAction, RuleSet,
 };
 use std::collections::BTreeSet;
-use std::net::IpAddr;
+use std::net::{IpAddr, TcpListener};
 
 pub const DEFAULT_NATIVE_ENGINE_ID: &str = "native";
 
@@ -41,6 +41,7 @@ pub const ENGINE_NATIVE_CONFIG_ROUTE_TARGET_MISSING_CODE: &str =
 pub const ENGINE_NATIVE_CONFIG_ROUTE_EMPTY_CODE: &str = "engine.native.config.route_empty";
 pub const ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE: &str =
     "engine.native.start.runtime_unavailable";
+pub const ENGINE_NATIVE_START_BIND_FAILED_CODE: &str = "engine.native.start.bind_failed";
 pub const ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE: &str =
     "engine.native.runtime.listener_disabled";
 pub const ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE: &str =
@@ -108,6 +109,114 @@ impl LoopbackListenerHandle {
     }
 }
 
+#[derive(Debug)]
+pub struct BoundLoopbackTcpListenerHandle {
+    listener: TcpListener,
+    contract: LoopbackListenerHandle,
+    local_host: String,
+    local_port: u16,
+}
+
+impl BoundLoopbackTcpListenerHandle {
+    pub fn bind(contract: LoopbackListenerHandle) -> DomainResult<Self> {
+        if contract.bind_host.trim().is_empty() || contract.bind_port == 0 {
+            return Err(runtime_error(
+                ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
+                "native runtime listener bind host and port must be explicit",
+            ));
+        }
+
+        if !is_loopback_host(&contract.bind_host) {
+            return Err(runtime_error(
+                ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
+                "native loopback tcp listener bind requires a loopback address",
+            ));
+        }
+
+        if contract.network != ListenerNetwork::Tcp
+            || !listener_runtime_kind_supported(&contract.kind)
+        {
+            return Err(runtime_error(
+                ENGINE_NATIVE_RUNTIME_LISTENER_UNSUPPORTED_CODE,
+                "native loopback tcp listener only supports tcp loopback listeners",
+            ));
+        }
+
+        let listener =
+            TcpListener::bind((contract.bind_host.as_str(), contract.bind_port)).map_err(|_| {
+                runtime_error(
+                    ENGINE_NATIVE_START_BIND_FAILED_CODE,
+                    "failed to bind native loopback tcp listener",
+                )
+            })?;
+        let local_addr = listener.local_addr().map_err(|_| {
+            runtime_error(
+                ENGINE_NATIVE_START_BIND_FAILED_CODE,
+                "failed to inspect native loopback tcp listener address",
+            )
+        })?;
+
+        Ok(Self {
+            listener,
+            contract,
+            local_host: local_addr.ip().to_string(),
+            local_port: local_addr.port(),
+        })
+    }
+
+    pub fn listener_id(&self) -> &str {
+        &self.contract.listener_id
+    }
+
+    pub fn bind_host(&self) -> &str {
+        &self.contract.bind_host
+    }
+
+    pub fn bind_port(&self) -> u16 {
+        self.contract.bind_port
+    }
+
+    pub fn local_host(&self) -> &str {
+        &self.local_host
+    }
+
+    pub fn local_port(&self) -> u16 {
+        self.local_port
+    }
+
+    pub fn release(self) -> BoundLoopbackTcpListenerReleaseReport {
+        let Self {
+            listener,
+            contract,
+            local_host,
+            local_port,
+        } = self;
+        drop(listener);
+
+        BoundLoopbackTcpListenerReleaseReport {
+            listener_id: contract.listener_id,
+            bind_host: contract.bind_host,
+            bind_port: contract.bind_port,
+            local_host,
+            local_port,
+            diagnostics: vec![runtime_info(
+                ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
+                "native loopback tcp listener was released",
+            )],
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoundLoopbackTcpListenerReleaseReport {
+    pub listener_id: String,
+    pub bind_host: String,
+    pub bind_port: u16,
+    pub local_host: String,
+    pub local_port: u16,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeOutboundHandlerHandle {
     pub node_id: String,
@@ -139,10 +248,11 @@ impl NativeOutboundHandlerHandle {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct NativeRuntimeHandle {
     engine_id: String,
     listeners: Vec<LoopbackListenerHandle>,
+    bound_listeners: Vec<BoundLoopbackTcpListenerHandle>,
     outbound_handlers: Vec<NativeOutboundHandlerHandle>,
     events: Vec<ProxyEngineEvent>,
 }
@@ -150,6 +260,10 @@ pub struct NativeRuntimeHandle {
 impl NativeRuntimeHandle {
     pub fn listeners(&self) -> &[LoopbackListenerHandle] {
         &self.listeners
+    }
+
+    pub fn bound_listeners(&self) -> &[BoundLoopbackTcpListenerHandle] {
+        &self.bound_listeners
     }
 
     pub fn outbound_handlers(&self) -> &[NativeOutboundHandlerHandle] {
@@ -175,6 +289,7 @@ impl NativeRuntimeHandle {
         release_report(
             self.engine_id,
             self.listeners,
+            self.bound_listeners,
             self.outbound_handlers,
             self.events,
             ProxyEngineEventKind::Stopped,
@@ -198,10 +313,11 @@ pub struct NativeRuntimeStartupFailure {
     pub release: NativeRuntimeReleaseReport,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct NativeRuntimeAssembly {
     engine_id: String,
     listeners: Vec<LoopbackListenerHandle>,
+    bound_listeners: Vec<BoundLoopbackTcpListenerHandle>,
     outbound_handlers: Vec<NativeOutboundHandlerHandle>,
     events: Vec<ProxyEngineEvent>,
 }
@@ -211,6 +327,7 @@ impl NativeRuntimeAssembly {
         Self {
             engine_id: engine_id.into(),
             listeners: Vec::new(),
+            bound_listeners: Vec::new(),
             outbound_handlers: Vec::new(),
             events: Vec::new(),
         }
@@ -218,6 +335,11 @@ impl NativeRuntimeAssembly {
 
     pub fn with_listener(mut self, listener: LoopbackListenerHandle) -> Self {
         self.listeners.push(listener);
+        self
+    }
+
+    pub fn with_bound_listener(mut self, listener: BoundLoopbackTcpListenerHandle) -> Self {
+        self.bound_listeners.push(listener);
         self
     }
 
@@ -229,7 +351,9 @@ impl NativeRuntimeAssembly {
     pub fn finish(mut self) -> DomainResult<NativeRuntimeHandle> {
         ensure_native_engine_id(&self.engine_id)?;
 
-        if self.listeners.is_empty() || self.outbound_handlers.is_empty() {
+        if (self.listeners.is_empty() && self.bound_listeners.is_empty())
+            || self.outbound_handlers.is_empty()
+        {
             return Err(runtime_error(
                 ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE,
                 "native runtime handle requires at least one listener and outbound handler",
@@ -248,6 +372,7 @@ impl NativeRuntimeAssembly {
         Ok(NativeRuntimeHandle {
             engine_id: self.engine_id,
             listeners: self.listeners,
+            bound_listeners: self.bound_listeners,
             outbound_handlers: self.outbound_handlers,
             events: self.events,
         })
@@ -268,6 +393,7 @@ impl NativeRuntimeAssembly {
         let release = release_report(
             self.engine_id,
             self.listeners,
+            self.bound_listeners,
             self.outbound_handlers,
             self.events,
             ProxyEngineEventKind::Failed,
@@ -597,15 +723,21 @@ fn is_loopback_host(host: &str) -> bool {
 fn release_report(
     engine_id: String,
     listeners: Vec<LoopbackListenerHandle>,
+    bound_listeners: Vec<BoundLoopbackTcpListenerHandle>,
     outbound_handlers: Vec<NativeOutboundHandlerHandle>,
     mut events: Vec<ProxyEngineEvent>,
     event_kind: ProxyEngineEventKind,
     mut diagnostics: Vec<Diagnostic>,
 ) -> NativeRuntimeReleaseReport {
-    let listener_ids = listeners
+    let mut listener_ids = listeners
         .into_iter()
         .map(|listener| listener.listener_id)
         .collect::<Vec<_>>();
+    listener_ids.extend(
+        bound_listeners
+            .into_iter()
+            .map(|listener| listener.release().listener_id),
+    );
     let outbound_handler_ids = outbound_handlers
         .into_iter()
         .map(|outbound_handler| outbound_handler.node_id)

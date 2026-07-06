@@ -38,9 +38,10 @@ listener、node、route 和 DNS 配置模型边界。它承接
 - `control-runtime::RuntimeConfigRequest`，把 `engine_id`、原始配置、`nodes` 和 `metadata` 传给运行层。
 - `config-core::CoreConfigurationService`，当前解析 schema/profile 和最小 listener/node/route TOML 子集；DNS、插件、订阅、secret、重复 id 和 listener/node 图校验仍未进入。
 - `engine-native::NativeProxyEngineService`，当前对 listener、node 和 route 做结构化图校验，合并 `ConfigSnapshot.nodes` 与运行请求 nodes 作为 typed node catalog，并在缺少 listener/node、重复 id、route target 缺失和未实现 handler/protocol 时返回稳定诊断。
-- `engine-native` 已补充首个 native runtime handle 源码合同，覆盖 loopback listener handle、SOCKS outbound handler handoff、启动失败释放报告、runtime events 和 foreground lifecycle handoff status；该合同尚未绑定真实 socket 或接入 `NativeProxyEngineService::start`。
+- `engine-native` 已补充首个 native runtime handle 源码合同，覆盖 loopback listener handle、SOCKS outbound handler handoff、启动失败释放报告、runtime events 和 foreground lifecycle handoff status。
+- `engine-native` 已补充真实 loopback TCP listener 绑定/释放实现，runtime assembly 可持有当前进程内的 `TcpListener` resource 并在 release 或失败报告中释放；该实现尚未接入 `NativeProxyEngineService::start`，也没有 TCP accept loop、proxy protocol handler 或 route/outbound 数据面。
 
-因此，`engine-native` 现在必须继续拒绝启动。虽然配置服务已经能解析最小 listener/node/route 子集，adapter 已能校验 listener/node/route 图，且源码中已有 runtime handle 合同，但在 DNS 需求判断、真实 socket listener/outbound handler 和真实运行句柄接线完成前，不得返回 `Running`，也不得接入 `networkcore-linux start`。
+因此，`engine-native` 现在必须继续拒绝启动。虽然配置服务已经能解析最小 listener/node/route 子集，adapter 已能校验 listener/node/route 图，且源码中已有 runtime handle 与 loopback TCP listener resource，但在 DNS 需求判断、配置图到 runtime assembly 的接线、TCP accept loop、route/outbound 行为和真实运行句柄接线完成前，不得从 service `start()` 返回 `Running`，也不得接入 `networkcore-linux start`。
 
 ## 配置所有权
 
@@ -131,6 +132,7 @@ DNS 配置进入前应继续保守：
 | `engine.native.config.route_empty` | Error | listener 没有可执行 route |
 | `engine.native.config.dns_required` | Error | 当前配置需要 DNS plan 才能启动 |
 | `engine.native.config.secret_redacted` | Info | 诊断输出已隐藏敏感配置值 |
+| `engine.native.start.bind_failed` | Error | 真实 loopback TCP listener 绑定失败 |
 | `engine.native.runtime.listener_disabled` | Error | runtime handle 拒绝 disabled listener |
 | `engine.native.runtime.listener_non_loopback` | Error | runtime handle 拒绝非 loopback listener |
 | `engine.native.runtime.listener_unsupported` | Error | runtime handle 拒绝尚未声明的 listener handler |
@@ -151,9 +153,10 @@ DNS 配置进入前应继续保守：
 2. 已在 `config-core` 中解析最小 listener/node/route TOML 子集，仍保持纯内存、无文件 I/O、无网络请求。
 3. `control-runtime` 继续只编排端口，并把 `ConfigSnapshot` 与 `RuntimeConfigRequest.nodes` 作为显式类型传入 `ProxyEngineConfig`；当前 typed node catalog 合并和去重在 `engine-native` 中完成，不读取 adapter 私有 metadata。
 4. 已在 `engine-native` 中把配置拒绝从固定 `listener_missing`/`node_missing` 改为结构化图校验，覆盖 enabled listener、重复 id、route target、typed node catalog 和未实现 listener/node handler。
-5. 已补充首个 native runtime handle 的最小源码合同，明确 loopback listener handle、SOCKS outbound handler handoff、失败释放、事件和前台 lifecycle handoff status；该合同尚未绑定真实 socket，也未接入 `NativeProxyEngineService::start`。
-6. 下一步必须把 handle 合同推进为真实 loopback TCP listener 绑定/释放实现；只有当 native runtime 创建并持有真实 listener handle 后，`start()` 才能返回 `Running`。
-7. 最后再评估 `networkcore-linux start` binary 接线和前台 lifecycle host handoff。
+5. 已补充首个 native runtime handle 的最小源码合同，明确 loopback listener handle、SOCKS outbound handler handoff、失败释放、事件和前台 lifecycle handoff status。
+6. 已补充真实 loopback TCP listener 绑定/释放实现，合同测试覆盖可用端口绑定、占用端口失败和 release 后端口可复用。
+7. 下一步必须补充从有效配置图生成首个 runtime assembly plan 的源码合同，选择 loopback TCP listener 与 SOCKS outbound handler，并覆盖绑定失败时释放已持有 listener。
+8. 最后再评估 `networkcore-linux start` binary 接线和前台 lifecycle host handoff。
 
 每个阶段都必须同步 README、TODO、CHANGELOG、设计文档和合同测试，并只通过 GitHub Actions 验证。
 
@@ -188,5 +191,5 @@ DNS 配置进入前应继续保守：
 
 ## 后续工作
 
-- 在 `engine-native` 中为首个 native runtime handle 补充真实 loopback TCP listener 绑定/释放实现。
-- `engine-native` 继续保持 runtime unavailable，直到真实 runtime handle 完成并通过 GitHub Actions 验证。
+- 在 `engine-native` 中补充从有效配置图生成首个 native runtime assembly plan 的源码合同，选择 loopback TCP listener 与 SOCKS outbound handler，并覆盖失败释放边界。
+- `engine-native` service 继续保持 runtime unavailable，直到 runtime assembly、accept loop、route/outbound 行为和前台 lifecycle handoff 完成并通过 GitHub Actions 验证。

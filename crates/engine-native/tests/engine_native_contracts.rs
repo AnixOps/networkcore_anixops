@@ -5,8 +5,8 @@ use control_domain::{
     RouteAction, RuleSet, SchemaVersion,
 };
 use engine_native::{
-    LoopbackListenerHandle, NativeOutboundHandlerHandle, NativeProxyEngineService,
-    NativeRuntimeAssembly, DEFAULT_NATIVE_ENGINE_ID,
+    BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeOutboundHandlerHandle,
+    NativeProxyEngineService, NativeRuntimeAssembly, DEFAULT_NATIVE_ENGINE_ID,
     ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_ID_DUPLICATE_CODE,
@@ -15,12 +15,14 @@ use engine_native::{
     ENGINE_NATIVE_CONFIG_NODE_MISSING_CODE, ENGINE_NATIVE_CONFIG_NODE_PROTOCOL_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_ROUTE_EMPTY_CODE, ENGINE_NATIVE_CONFIG_ROUTE_ID_DUPLICATE_CODE,
     ENGINE_NATIVE_CONFIG_ROUTE_TARGET_MISSING_CODE,
+    ENGINE_NATIVE_START_BIND_FAILED_CODE,
     ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
     ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE, ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE, ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
     ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
 };
+use std::net::TcpListener;
 
 #[test]
 fn lists_native_descriptor_without_unimplemented_capabilities() {
@@ -288,6 +290,74 @@ fn runtime_handle_contract_builds_foreground_handoff_without_service_start_wirin
 }
 
 #[test]
+fn runtime_handle_contract_binds_and_releases_loopback_tcp_listener() {
+    let port = unused_loopback_port();
+    let listener = LoopbackListenerHandle::from_descriptor(&local_tcp_listener_with_bind(
+        "bound-loopback-local-tcp",
+        "127.0.0.1",
+        port,
+        ListenerRoute::DefaultAction(RouteAction::Proxy {
+            node_id: "node-1".to_string(),
+        }),
+    ))
+    .expect("loopback tcp listener handle should be representable");
+    let bound_listener = BoundLoopbackTcpListenerHandle::bind(listener)
+        .expect("loopback tcp listener should bind on an available port");
+    let outbound = NativeOutboundHandlerHandle::from_node(&node())
+        .expect("socks outbound handler handle should be representable");
+
+    assert_eq!(bound_listener.listener_id(), "bound-loopback-local-tcp");
+    assert_eq!(bound_listener.bind_host(), "127.0.0.1");
+    assert_eq!(bound_listener.bind_port(), port);
+    assert_eq!(bound_listener.local_port(), port);
+
+    let handle = NativeRuntimeAssembly::new(DEFAULT_NATIVE_ENGINE_ID)
+        .with_bound_listener(bound_listener)
+        .with_outbound_handler(outbound)
+        .finish()
+        .expect("runtime handle should own the bound loopback listener");
+
+    assert!(handle.listeners().is_empty());
+    assert_eq!(handle.bound_listeners()[0].listener_id(), "bound-loopback-local-tcp");
+    assert_eq!(handle.bound_listeners()[0].local_port(), port);
+
+    let release = handle.release();
+
+    assert_eq!(
+        release.listener_ids,
+        vec!["bound-loopback-local-tcp".to_string()]
+    );
+    assert_diagnostic(&release.diagnostics, ENGINE_NATIVE_RUNTIME_RELEASED_CODE);
+
+    let rebound = TcpListener::bind(("127.0.0.1", port))
+        .expect("released loopback tcp listener port should be reusable");
+    drop(rebound);
+}
+
+#[test]
+fn runtime_handle_contract_reports_loopback_tcp_bind_failure() {
+    let guard = TcpListener::bind(("127.0.0.1", 0))
+        .expect("test should reserve an ephemeral loopback tcp port");
+    let port = guard
+        .local_addr()
+        .expect("reserved listener should expose its local address")
+        .port();
+    let listener = LoopbackListenerHandle::from_descriptor(&local_tcp_listener_with_bind(
+        "busy-loopback-local-tcp",
+        "127.0.0.1",
+        port,
+        ListenerRoute::DefaultAction(RouteAction::Direct),
+    ))
+    .expect("loopback tcp listener handle should be representable");
+
+    let error = BoundLoopbackTcpListenerHandle::bind(listener)
+        .expect_err("binding an already reserved loopback port should fail");
+
+    assert_eq!(error.code, ENGINE_NATIVE_START_BIND_FAILED_CODE);
+    drop(guard);
+}
+
+#[test]
 fn runtime_handle_contract_rejects_non_loopback_listener() {
     let listener = local_tcp_listener_with_bind(
         "public-local-tcp",
@@ -550,4 +620,15 @@ fn assert_no_diagnostic(diagnostics: &[Diagnostic], code: &str) {
         diagnostics.iter().all(|diagnostic| diagnostic.code != code),
         "unexpected diagnostic {code}: {diagnostics:?}"
     );
+}
+
+fn unused_loopback_port() -> u16 {
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .expect("test should allocate an ephemeral loopback tcp port");
+    let port = listener
+        .local_addr()
+        .expect("ephemeral listener should expose its local address")
+        .port();
+    drop(listener);
+    port
 }
