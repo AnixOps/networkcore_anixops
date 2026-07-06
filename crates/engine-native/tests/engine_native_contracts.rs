@@ -14,14 +14,13 @@ use engine_native::{
     read_socks5_outbound_connect_response, reject_unsupported_socks5_command,
     reject_unwired_socks5_route_outbound, relay_socks5_outbound_connect_data,
     select_socks5_auth_method, select_socks5_route_outbound_behavior,
-    write_socks5_auth_method_response,
-    write_socks5_outbound_connect_client_success_response, write_socks5_outbound_connect_request,
-    write_unwired_socks5_connect_failure_response, BoundLoopbackTcpListenerHandle,
-    LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle,
-    NativeProxyEngineService, NativeRuntimeAssembly, NativeRuntimeAssemblyPlan,
-    NativeSocks5Address, NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision,
-    NativeSocks5CommandHeader, NativeSocks5ConnectTarget, NativeSocks5Greeting,
-    NativeSocks5OutboundConnectClientSuccessResponseReadiness,
+    write_socks5_auth_method_response, write_socks5_outbound_connect_client_success_response,
+    write_socks5_outbound_connect_request, write_unwired_socks5_connect_failure_response,
+    BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle,
+    NativeOutboundHandlerHandle, NativeProxyEngineService, NativeRuntimeAssembly,
+    NativeRuntimeAssemblyPlan, NativeSocks5Address, NativeSocks5AuthMethodDecision,
+    NativeSocks5CommandDecision, NativeSocks5CommandHeader, NativeSocks5ConnectTarget,
+    NativeSocks5Greeting, NativeSocks5OutboundConnectClientSuccessResponseReadiness,
     NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision,
     NativeSocks5OutboundConnectDataRelayPlanDecision, NativeSocks5OutboundConnectRelayReadiness,
     NativeSocks5OutboundConnectResponse, NativeSocks5OutboundConnectResponseDecision,
@@ -1506,7 +1505,10 @@ fn socks5_outbound_connect_data_relay_contract_copies_bidirectional_streams() {
 
     assert_eq!(outbound_writer, client_payload);
     assert_eq!(client_writer, outbound_payload);
-    assert_eq!(report.client_to_outbound_bytes, outbound_writer.len() as u64);
+    assert_eq!(
+        report.client_to_outbound_bytes,
+        outbound_writer.len() as u64
+    );
     assert_eq!(report.outbound_to_client_bytes, client_writer.len() as u64);
     assert_diagnostic(
         &report.diagnostics,
