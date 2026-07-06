@@ -11,6 +11,7 @@
 - 允许 tag `v*` 和 `workflow_dispatch` 触发。
 - 不生成 release artifact。
 - 不在本机打包、签名、测试或发布。
+- 通过 release summary job 输出 policy、placeholder、artifact 状态和后续 artifact 门禁。
 - 任何真实产物必须先有对应源码、平台设计、GitHub Actions 验证和本文件定义的门禁。
 
 ## 发布原则

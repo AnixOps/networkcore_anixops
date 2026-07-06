@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 在 release workflow 中补充 release summary job，输出当前 placeholder 发布状态和后续 artifact 门禁。
+- [ ] 在 release workflow 中补充 workflow_dispatch 版本输入与触发 ref 记录，确保 summary 输出发布来源。
 
 ## 已完成
 
+- [x] 在 release workflow 中补充 release summary job，输出当前 placeholder 发布状态和后续 artifact 门禁。
 - [x] 在 CI summary 中补充 GitHub Step Summary 表格，汇总项目检测开关与关键 job 结果。
 - [x] 在 CI workflow 中补充 summary 输出项目类型检测结果，确保每次 CI 都记录 Go、Rust、Node、Swift 和 Apple 检测开关。
 - [x] 在 CI summary 中补充 Go、Node、Swift 和 Apple 条件结果门禁，确保对应项目出现时 summary job 显式检查语言与平台结果。

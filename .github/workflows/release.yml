@@ -48,3 +48,32 @@ jobs:
           set -euo pipefail
           echo "No release artifacts are defined yet."
           echo "Add platform-specific packaging jobs here after source code lands."
+
+  release-summary:
+    name: Release summary
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    needs:
+      - release-policy
+      - release-placeholder
+    steps:
+      - name: Summarize release state
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Release Summary"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Release policy | ${{ needs.release-policy.result }} |"
+            echo "| Release placeholder | ${{ needs.release-placeholder.result }} |"
+            echo "| Release artifacts | not defined |"
+            echo "| Artifact gate | blocked until source, platform design, CI, checksum, signing, and rollback gates are implemented |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "release-policy=${{ needs.release-policy.result }}"
+          echo "release-placeholder=${{ needs.release-placeholder.result }}"
+          echo "release-artifacts=not-defined"
+          echo "artifact-gate=release-strategy-required"
+          test "${{ needs.release-policy.result }}" = "success"
+          test "${{ needs.release-placeholder.result }}" = "success"
