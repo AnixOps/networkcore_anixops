@@ -15,12 +15,12 @@ use engine_native::{
     ENGINE_NATIVE_CONFIG_NODE_MISSING_CODE, ENGINE_NATIVE_CONFIG_NODE_PROTOCOL_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_ROUTE_EMPTY_CODE, ENGINE_NATIVE_CONFIG_ROUTE_ID_DUPLICATE_CODE,
     ENGINE_NATIVE_CONFIG_ROUTE_TARGET_MISSING_CODE,
-    ENGINE_NATIVE_START_BIND_FAILED_CODE,
     ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
     ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE, ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE, ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
-    ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
+    ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE, ENGINE_NATIVE_START_BIND_FAILED_CODE,
+    ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
 };
 use std::net::TcpListener;
 
@@ -318,7 +318,10 @@ fn runtime_handle_contract_binds_and_releases_loopback_tcp_listener() {
         .expect("runtime handle should own the bound loopback listener");
 
     assert!(handle.listeners().is_empty());
-    assert_eq!(handle.bound_listeners()[0].listener_id(), "bound-loopback-local-tcp");
+    assert_eq!(
+        handle.bound_listeners()[0].listener_id(),
+        "bound-loopback-local-tcp"
+    );
     assert_eq!(handle.bound_listeners()[0].local_port(), port);
 
     let release = handle.release();

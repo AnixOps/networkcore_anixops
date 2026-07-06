@@ -142,8 +142,8 @@ impl BoundLoopbackTcpListenerHandle {
             ));
         }
 
-        let listener =
-            TcpListener::bind((contract.bind_host.as_str(), contract.bind_port)).map_err(|_| {
+        let listener = TcpListener::bind((contract.bind_host.as_str(), contract.bind_port))
+            .map_err(|_| {
                 runtime_error(
                     ENGINE_NATIVE_START_BIND_FAILED_CODE,
                     "failed to bind native loopback tcp listener",
