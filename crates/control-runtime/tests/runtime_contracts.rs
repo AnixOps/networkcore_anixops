@@ -921,6 +921,48 @@ fn mitm_gate_audits_manifest_error_denial_before_plugin_ports() {
 }
 
 #[test]
+fn mitm_gate_prefers_manifest_error_over_permission_denial() {
+    let expected_reason = "plugin manifest validation failed";
+    let gate = MitmGateOrchestrator::new(
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        InvalidManifestMitmPluginService,
+    );
+
+    let decision = gate
+        .mitm_gate(MitmGateRequest::new(
+            sample_plugin_package(),
+            granted_permissions(vec![PluginPermission::ReadRequest]),
+            sample_http_event(),
+        ))
+        .expect("mitm gate should return a denial decision");
+
+    assert!(!decision.is_allowed());
+    assert_eq!(decision.decision, AuditDecision::Denied);
+    assert_eq!(decision.reason.as_deref(), Some(expected_reason));
+    assert!(decision.plugin_result.is_none());
+    assert!(decision.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "plugin.manifest.missing_hook"
+            && diagnostic.severity == control_domain::DiagnosticSeverity::Error
+    }));
+    assert!(decision.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "runtime.mitm.manifest_invalid"
+            && diagnostic.message == expected_reason
+            && diagnostic.severity == control_domain::DiagnosticSeverity::Error
+    }));
+    assert!(!decision.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "runtime.mitm.permission_denied"
+            || diagnostic.message == "plugin permission is not granted: modify_request"
+    }));
+    assert_eq!(decision.audits.len(), 1);
+    assert_eq!(decision.audits[0].actor, "header-rewriter");
+    assert_eq!(decision.audits[0].action, "mitm_gate");
+    assert_eq!(decision.audits[0].decision, AuditDecision::Denied);
+    assert_eq!(decision.audits[0].reason, decision.reason);
+}
+
+#[test]
 fn mitm_gate_preserves_platform_diagnostics_on_manifest_error_denial() {
     let expected_reason = "plugin manifest validation failed";
     let gate = MitmGateOrchestrator::new(
