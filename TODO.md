@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 补充真实 `package-linux` 前同 commit CI 成功结果读取合同，明确 release workflow 后续从 GitHub Actions 读取的 run/source 字段，继续保持 placeholder 不打包。
+- [ ] 补充 `package-linux` job 的 runner、Rust toolchain 和 target triple 合同，明确未来 packaging job 的平台输入字段，继续保持 placeholder 不打包。
 
 ## 已完成
 
+- [x] 补充真实 `package-linux` 前同 commit CI 成功结果读取合同；新增 Release CI success source contract，定义后续从 GitHub Actions 读取的 `ci_workflow_name`、`ci_workflow_file`、`ci_run_id`、`ci_run_attempt`、`ci_run_url`、`ci_run_status`、`ci_run_conclusion`、`ci_head_sha`、`ci_head_branch`、`ci_event`、`ci_repository` 和 `ci_checked_at` 字段，并让 `release-ci-gate` 与 release summary 输出该合同，继续不生成 `package-linux` artifact。
 - [x] 在 release placeholder summary 中补充 Linux artifact license/NOTICE source contract 状态；`release-placeholder` 现在 checkout 仓库、读取 `docs/manual-intervention.md` 的 pending/blocked marker，输出 source contract、source of truth、pending 状态、`package-linux` blocked 和 release asset blocked 状态，并继续不生成 `package-linux` artifact。
 - [x] 补充 Linux artifact license/NOTICE confirmation source contract，定义 `docs/manual-intervention.md` 中 pending/confirmed 机器字段、当前 `linux-artifact-license-notice-status=pending` marker、confirmed 后的最小人工确认字段和 manifest 映射边界；CI governance 与 `linux-artifact-readiness` 现在检查该合同和 pending marker，继续不生成 `package-linux` artifact。
 - [x] 在 release placeholder summary 中补充 Linux artifact manifest output contract 摘要；`release-placeholder` 和 `release-summary` 现在显式列出 `artifact_manifest_name`、`artifact_manifest_path`、`artifact_manifest_checksum_file` 和 `artifact_manifest_checksum_value`，CI governance 与 `linux-artifact-readiness` 静态检查该 summary 标识，继续不生成 `package-linux` artifact，并保持 license/NOTICE 未确认时阻止 release asset。

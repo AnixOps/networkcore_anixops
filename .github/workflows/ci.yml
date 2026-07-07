@@ -59,6 +59,7 @@ jobs:
           test -f docs/architecture/linux-cli-artifact-installation-rollback.md
           test -f docs/architecture/linux-package-artifact-manifest.md
           test -f docs/architecture/linux-artifact-license-notice-confirmation.md
+          test -f docs/architecture/release-ci-success-source-contract.md
           test -f docs/architecture/adr-0001-initial-core-stack.md
           grep -q "本机只负责代码" AGENT.md
           grep -q "GitHub Actions" docs/ci-cd-policy.md
@@ -71,6 +72,8 @@ jobs:
           grep -q "linux-artifact-manifest-output-fields" .github/workflows/release.yml
           grep -q "Linux Artifact License/NOTICE Source Contract" .github/workflows/release.yml
           grep -q "linux-artifact-license-notice-source=docs/manual-intervention.md" .github/workflows/release.yml
+          grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
+          grep -q "release-ci-success-source-contract=present" .github/workflows/release.yml
           grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
           grep -q "networkcore-linux" apps/linux-cli/README.md
@@ -96,6 +99,7 @@ jobs:
           grep -q "Linux CLI Artifact Installation And Rollback Design" docs/architecture/linux-cli-artifact-installation-rollback.md
           grep -q "Linux Package Artifact Manifest Design" docs/architecture/linux-package-artifact-manifest.md
           grep -q "Linux Artifact License Notice Confirmation Design" docs/architecture/linux-artifact-license-notice-confirmation.md
+          grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
           grep -q "ADR 0001: Initial Core Stack" docs/architecture/adr-0001-initial-core-stack.md
 
   detect-projects:

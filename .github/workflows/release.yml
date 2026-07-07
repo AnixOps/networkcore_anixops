@@ -86,6 +86,9 @@ jobs:
     needs:
       - release-policy
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Record CI gate requirement
         shell: bash
         env:
@@ -95,6 +98,8 @@ jobs:
           RELEASE_EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
+          test -f docs/architecture/release-ci-success-source-contract.md
+          grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
           {
             echo "### Release CI Gate"
             echo
@@ -107,11 +112,25 @@ jobs:
             echo "| Trigger event | ${RELEASE_EVENT} |"
             echo "| Artifact CI gate | not enforced until real artifact jobs exist |"
             echo "| Required future gate | successful CI run on main for the same commit before packaging or publishing |"
+            echo "| CI source contract | docs/architecture/release-ci-success-source-contract.md |"
+            echo "| Required CI workflow | CI |"
+            echo "| Required CI workflow file | .github/workflows/ci.yml |"
+            echo "| Required CI branch | main |"
+            echo "| Required CI conclusion | success |"
+            echo "| Required CI status | completed |"
+            echo "| Required CI source fields | ci_workflow_name, ci_workflow_file, ci_run_id, ci_run_attempt, ci_run_url, ci_run_status, ci_run_conclusion, ci_head_sha, ci_head_branch, ci_event, ci_repository, ci_checked_at |"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "release-ci-gate=placeholder"
+          echo "release-ci-success-source-contract=present"
+          echo "release-ci-source-contract=docs/architecture/release-ci-success-source-contract.md"
           echo "release-ci-required-before-artifacts=true"
           echo "release-ci-required-ref=main"
           echo "release-ci-required-sha=${RELEASE_SHA}"
+          echo "release-ci-required-workflow=CI"
+          echo "release-ci-required-workflow-file=.github/workflows/ci.yml"
+          echo "release-ci-required-status=completed"
+          echo "release-ci-required-conclusion=success"
+          echo "release-ci-required-fields=ci_workflow_name,ci_workflow_file,ci_run_id,ci_run_attempt,ci_run_url,ci_run_status,ci_run_conclusion,ci_head_sha,ci_head_branch,ci_event,ci_repository,ci_checked_at"
 
   release-artifact-contract:
     name: Release artifact contract
@@ -216,6 +235,7 @@ jobs:
           test -f docs/architecture/linux-cli-artifact-installation-rollback.md
           test -f docs/architecture/linux-package-artifact-manifest.md
           test -f docs/architecture/linux-artifact-license-notice-confirmation.md
+          test -f docs/architecture/release-ci-success-source-contract.md
           test -f docs/manual-intervention.md
           grep -q "networkcore-linux" apps/linux-cli/README.md
           grep -q "handle_foreground_lifecycle_with_runtime_stop" apps/linux-cli/src/lib.rs
@@ -234,12 +254,15 @@ jobs:
           grep -q "Linux CLI Artifact Installation And Rollback Design" docs/architecture/linux-cli-artifact-installation-rollback.md
           grep -q "Linux Package Artifact Manifest Design" docs/architecture/linux-package-artifact-manifest.md
           grep -q "Linux Artifact License Notice Confirmation Design" docs/architecture/linux-artifact-license-notice-confirmation.md
+          grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
           grep -q "artifact_manifest_path" docs/architecture/linux-package-artifact-manifest.md
           grep -q "artifact_manifest_checksum_value" docs/architecture/linux-package-artifact-manifest.md
           grep -q "Linux Artifact Manifest Output Contract" .github/workflows/release.yml
           grep -q "linux-artifact-manifest-output-fields" .github/workflows/release.yml
           grep -q "Linux Artifact License/NOTICE Source Contract" .github/workflows/release.yml
           grep -q "linux-artifact-license-notice-source=docs/manual-intervention.md" .github/workflows/release.yml
+          grep -q "release-ci-success-source-contract=present" .github/workflows/release.yml
+          grep -q "release-ci-required-fields" .github/workflows/release.yml
           grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-package-linux=blocked" docs/manual-intervention.md
@@ -385,6 +408,9 @@ jobs:
             echo "| --- | --- |"
             echo "| Release policy | ${{ needs.release-policy.result }} |"
             echo "| Release CI gate | ${{ needs.release-ci-gate.result }} |"
+            echo "| Release CI source contract | checked in release-ci-gate |"
+            echo "| Release CI required workflow | CI |"
+            echo "| Release CI required fields | ci_workflow_name, ci_workflow_file, ci_run_id, ci_run_attempt, ci_run_url, ci_run_status, ci_run_conclusion, ci_head_sha, ci_head_branch, ci_event, ci_repository, ci_checked_at |"
             echo "| Release artifact contract | ${{ needs.release-artifact-contract.result }} |"
             echo "| Release signing contract | ${{ needs.release-signing-contract.result }} |"
             echo "| Release rollback contract | ${{ needs.release-rollback-contract.result }} |"
@@ -411,6 +437,10 @@ jobs:
           echo "release-actor=${RELEASE_ACTOR}"
           echo "release-policy=${{ needs.release-policy.result }}"
           echo "release-ci-gate=${{ needs.release-ci-gate.result }}"
+          echo "release-ci-success-source-contract=present"
+          echo "release-ci-source-contract=docs/architecture/release-ci-success-source-contract.md"
+          echo "release-ci-required-workflow=CI"
+          echo "release-ci-required-fields=ci_workflow_name,ci_workflow_file,ci_run_id,ci_run_attempt,ci_run_url,ci_run_status,ci_run_conclusion,ci_head_sha,ci_head_branch,ci_event,ci_repository,ci_checked_at"
           echo "release-artifact-contract=${{ needs.release-artifact-contract.result }}"
           echo "release-signing-contract=${{ needs.release-signing-contract.result }}"
           echo "release-rollback-contract=${{ needs.release-rollback-contract.result }}"

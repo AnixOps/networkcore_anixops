@@ -10,7 +10,7 @@
 
 - 允许 tag `v*` 和 `workflow_dispatch` 触发。
 - release policy job 检查版本格式和触发来源一致性；手动 placeholder release 必须从 `main` 分支发起，tag release 必须使用同名 tag 版本。
-- `release-ci-gate` job 记录真实 artifact 加入前必须关联 `main` 上同 commit 的成功 CI 结果；placeholder 阶段暂不执行 artifact CI 门禁。
+- `release-ci-gate` job 记录真实 artifact 加入前必须关联 `main` 上同 commit 的成功 CI 结果，并输出 [Release CI success source contract](architecture/release-ci-success-source-contract.md) 中定义的 CI run/source 字段；placeholder 阶段暂不执行 artifact CI 门禁。
 - `release-artifact-contract` job 记录首个真实 artifact job 必须输出 `artifact_name`、`artifact_path`、`checksum_algorithm`、`checksum_file` 和 `checksum_value`，且 checksum 算法默认为 `sha256`。
 - `release-signing-contract` job 记录真实平台 artifact 发布前必须声明签名或 attestation 策略，并要求后续 job 输出 `signing_policy`、`signing_status`、`attestation_status` 和 `provenance_file`。
 - `release-rollback-contract` job 记录真实 artifact 发布说明必须输出 `rollback_scope`、`rollback_trigger`、`rollback_steps`、`replacement_version` 和 `rollback_owner`。
@@ -18,7 +18,7 @@
 - `release-placeholder` job 在 GitHub Step Summary 中列出 Linux artifact manifest output contract，明确后续 `package-linux` 至少必须输出 `artifact_manifest_name`、`artifact_manifest_path`、`artifact_manifest_checksum_file` 和 `artifact_manifest_checksum_value`；同一 placeholder 也读取 `docs/manual-intervention.md` 的 license/NOTICE pending marker，并输出 license/NOTICE source contract、source of truth、pending 状态、`package-linux` blocked 和 release asset blocked 状态。
 - 不生成 release artifact。
 - 不在本机打包、签名、测试或发布。
-- 通过 release summary job 输出发布来源、policy、release-ci-gate、release-artifact-contract、release-signing-contract、release-rollback-contract、linux-artifact-readiness、Linux foreground stop/release contract、Linux artifact manifest contract、Linux artifact manifest output fields、Linux artifact license/NOTICE source contract 与 status、placeholder、artifact 状态和后续 artifact 门禁。
+- 通过 release summary job 输出发布来源、policy、release-ci-gate、release CI success source contract、release-artifact-contract、release-signing-contract、release-rollback-contract、linux-artifact-readiness、Linux foreground stop/release contract、Linux artifact manifest contract、Linux artifact manifest output fields、Linux artifact license/NOTICE source contract 与 status、placeholder、artifact 状态和后续 artifact 门禁。
 - 任何真实产物必须先有对应源码、平台设计、GitHub Actions 验证和本文件定义的门禁。
 
 ## 发布原则
@@ -34,7 +34,7 @@
 
 真实 artifact job 合入前必须满足：
 
-1. `main` 上对应 commit 的 CI 全部通过，至少覆盖 policy、workspace smoke、语言 build/test/lint/security scan。
+1. `main` 上对应 commit 的 CI 全部通过，至少覆盖 policy、workspace smoke、语言 build/test/lint/security scan；真实 artifact packaging 前必须按 [Release CI success source contract](architecture/release-ci-success-source-contract.md) 自动读取同 repository、同 commit、`main` 分支、`completed`/`success` 的 CI run 字段。
 2. artifact 对应源码、平台设计和安装/卸载/回滚设计已存在，不能发布 placeholder、空壳或本地生成产物。
 3. release workflow 中的每个 artifact job 都显式声明 runner、toolchain、输入版本、输出文件名和上传路径。
 4. 产物必须由 GitHub-hosted runner 或后续受控 runner 生成，并上传为 workflow artifact 或 GitHub Release asset。
@@ -49,7 +49,7 @@
 | 平台/产物 | 初始形态 | Release runner | 发布前置条件 |
 | --- | --- | --- | --- |
 | Rust crates | 暂不发布到 crates.io | `ubuntu-latest` | 公共 API 稳定、license 与 README 完整、crate publishing policy 单独评审 |
-| Linux | 待定义 CLI 或 daemon 压缩包 | `ubuntu-latest` | [Linux artifact pre-release design](architecture/linux-artifact-pre-release-design.md)、[Linux platform adapter design](architecture/linux-platform-adapter.md)、[Linux CLI entrypoint design](architecture/linux-cli-entrypoint.md)、[Linux CLI runtime wiring design](architecture/linux-cli-runtime-wiring.md)、[Native engine listener and node config design](architecture/native-engine-listener-node-config.md)、[Linux native proxy engine start design](architecture/linux-native-proxy-engine-start.md)、[Linux CLI artifact installation and rollback design](architecture/linux-cli-artifact-installation-rollback.md)、[Linux package artifact manifest design](architecture/linux-package-artifact-manifest.md) 与 [Linux artifact license notice confirmation design](architecture/linux-artifact-license-notice-confirmation.md) 完成 |
+| Linux | 待定义 CLI 或 daemon 压缩包 | `ubuntu-latest` | [Linux artifact pre-release design](architecture/linux-artifact-pre-release-design.md)、[Linux platform adapter design](architecture/linux-platform-adapter.md)、[Linux CLI entrypoint design](architecture/linux-cli-entrypoint.md)、[Linux CLI runtime wiring design](architecture/linux-cli-runtime-wiring.md)、[Native engine listener and node config design](architecture/native-engine-listener-node-config.md)、[Linux native proxy engine start design](architecture/linux-native-proxy-engine-start.md)、[Linux CLI artifact installation and rollback design](architecture/linux-cli-artifact-installation-rollback.md)、[Linux package artifact manifest design](architecture/linux-package-artifact-manifest.md)、[Linux artifact license notice confirmation design](architecture/linux-artifact-license-notice-confirmation.md) 与 [Release CI success source contract](architecture/release-ci-success-source-contract.md) 完成 |
 | Windows | 待定义 CLI、service 或 installer | `windows-latest` | Windows service 权限、签名证书和安装器策略完成 |
 | macOS | 待定义 CLI、app bundle、`.pkg` 或 `.dmg` | `macos-26` | 签名、notarization、entitlement 和 Gatekeeper 路径完成 |
 | iOS | App Store Connect 或 TestFlight 路径 | `macos-26` | Network Extension design、entitlement、Provisioning Profile、隐私政策和 App Review Notes 完成 |
@@ -62,7 +62,7 @@
 未来 release workflow 应按以下阶段扩展：
 
 1. `release-policy`：检查 AGENT、CI/CD policy、release strategy、版本格式和 tag/ref 一致性。
-2. `release-ci-gate`：确认当前 commit 对应 CI run 已成功，或在 release workflow 中重新执行等效验证。
+2. `release-ci-gate`：按 [Release CI success source contract](architecture/release-ci-success-source-contract.md) 确认当前 commit 对应 CI run 已成功，或在 release workflow 中重新执行等效验证。
 3. `release-artifact-contract`：在 placeholder 阶段记录首个 artifact job 必须暴露的 checksum 输出字段，真实产物加入后由 `package-*` job 输出替代。
 4. `release-signing-contract`：在 placeholder 阶段记录真实平台 artifact 发布前必须声明的 signing/attestation 输出字段，真实产物加入后由 `sign-*` 或 attestation job 输出替代。
 5. `release-rollback-contract`：在 placeholder 阶段记录 release notes 必须暴露的回滚字段，真实发布加入后由 publish 或 post-release summary job 输出替代。
@@ -97,7 +97,7 @@
 
 ## 下一步
 
-- 真实平台产物进入 release workflow 前，先为目标平台补齐 adapter 设计文档；Linux 首个产物必须先满足 [Linux artifact pre-release design](architecture/linux-artifact-pre-release-design.md)、[Linux platform adapter design](architecture/linux-platform-adapter.md)、[Linux CLI entrypoint design](architecture/linux-cli-entrypoint.md)、[Linux CLI runtime wiring design](architecture/linux-cli-runtime-wiring.md)、[Native engine listener and node config design](architecture/native-engine-listener-node-config.md)、[Linux native proxy engine start design](architecture/linux-native-proxy-engine-start.md)、[Linux CLI artifact installation and rollback design](architecture/linux-cli-artifact-installation-rollback.md)、[Linux package artifact manifest design](architecture/linux-package-artifact-manifest.md) 和 [Linux artifact license notice confirmation design](architecture/linux-artifact-license-notice-confirmation.md)。
+- 真实平台产物进入 release workflow 前，先为目标平台补齐 adapter 设计文档；Linux 首个产物必须先满足 [Linux artifact pre-release design](architecture/linux-artifact-pre-release-design.md)、[Linux platform adapter design](architecture/linux-platform-adapter.md)、[Linux CLI entrypoint design](architecture/linux-cli-entrypoint.md)、[Linux CLI runtime wiring design](architecture/linux-cli-runtime-wiring.md)、[Native engine listener and node config design](architecture/native-engine-listener-node-config.md)、[Linux native proxy engine start design](architecture/linux-native-proxy-engine-start.md)、[Linux CLI artifact installation and rollback design](architecture/linux-cli-artifact-installation-rollback.md)、[Linux package artifact manifest design](architecture/linux-package-artifact-manifest.md)、[Linux artifact license notice confirmation design](architecture/linux-artifact-license-notice-confirmation.md) 和 [Release CI success source contract](architecture/release-ci-success-source-contract.md)。
 - 引入第一个 artifact job 时，同步加入 checksum、安装/卸载边界、release summary、artifact manifest/metadata 输出字段和回滚说明；Linux 在 `linux-artifact-readiness` 通过且 license/NOTICE 人工确认完成前不得进入 `package-linux`。
 - iOS 发布前必须先完成 `docs/architecture/ios-network-extension-design.md`。
 

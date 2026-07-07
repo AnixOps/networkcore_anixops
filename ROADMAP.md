@@ -96,6 +96,7 @@
 - [Linux CLI Artifact Installation And Rollback Design](docs/architecture/linux-cli-artifact-installation-rollback.md)
 - [Linux Package Artifact Manifest Design](docs/architecture/linux-package-artifact-manifest.md)
 - [Linux Artifact License Notice Confirmation Design](docs/architecture/linux-artifact-license-notice-confirmation.md)
+- [Release CI Success Source Contract](docs/architecture/release-ci-success-source-contract.md)
 
 ## 迭代选择规则
 
