@@ -149,7 +149,7 @@ iOS 上的插件能力必须拆分为数据和执行：
 iOS release workflow 在满足以下条件前不得定义真实 artifact、TestFlight upload 或 App Store upload job：
 
 - 本设计和 iOS Platform Risk Assessment 已纳入 CI governance。
-- `platform-ios` adapter source contract 已定义，并能映射 `PlatformCapabilityService`、`PlatformCapabilities` 和 `MitmCertificateStatus`。
+- [iOS Platform Adapter Source Contract](ios-platform-adapter-source-contract.md) 已定义；后续 `platform-ios` 源码必须按该合同映射 `PlatformCapabilityService`、`PlatformCapabilities` 和 `MitmCertificateStatus`。
 - Swift/Xcode project 已通过 GitHub Actions 的 macOS runner 验证。
 - Apple Developer、Network Extension entitlement、Provisioning Profile、GitHub Secrets、隐私政策和 App Review Notes 已完成人工确认。
 - MITM 证书设计、插件执行边界和地区 VPN 合规材料已完成。
@@ -162,7 +162,7 @@ Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux`
 
 - README、ROADMAP、TODO、CHANGELOG 和 CI/CD policy 链接或记录本文件。
 - `.github/workflows/ci.yml` 静态检查本文件存在和关键锚点。
-- `docs/architecture/ios-platform-risk-assessment.md` 的后续工作指向下一步 iOS adapter source contract。
+- `docs/architecture/ios-platform-risk-assessment.md` 的后续工作指向 `platform-ios` 首个源码骨架。
 - `docs/manual-intervention.md` 保留 Apple Developer、entitlement、Provisioning Profile、GitHub Secrets、App Review 和 VPN 合规人工事项。
 - 本地只执行静态文本检查和 git 操作；所有正式验证通过 GitHub Actions 完成。
 

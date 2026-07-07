@@ -54,6 +54,7 @@ jobs:
           test -f docs/architecture/control-runtime-orchestration.md
           test -f docs/architecture/ios-platform-risk-assessment.md
           test -f docs/architecture/ios-network-extension-design.md
+          test -f docs/architecture/ios-platform-adapter-source-contract.md
           test -f docs/architecture/linux-artifact-pre-release-design.md
           test -f docs/architecture/linux-platform-adapter.md
           test -f docs/architecture/linux-cli-entrypoint.md
@@ -527,6 +528,18 @@ jobs:
           grep -q "App Review" docs/architecture/ios-network-extension-design.md
           grep -q "GitHub Actions" docs/architecture/ios-network-extension-design.md
           grep -q "macos-26" docs/architecture/ios-network-extension-design.md
+          grep -q "iOS Platform Adapter Source Contract" docs/architecture/ios-platform-adapter-source-contract.md
+          grep -q "platform-ios" docs/architecture/ios-platform-adapter-source-contract.md
+          grep -q "StaticIosPlatformCapabilityService" docs/architecture/ios-platform-adapter-source-contract.md
+          grep -q "IosPlatformSnapshot" docs/architecture/ios-platform-adapter-source-contract.md
+          grep -q "PlatformCapabilityService" docs/architecture/ios-platform-adapter-source-contract.md
+          grep -q "PlatformCapabilityStatus" docs/architecture/ios-platform-adapter-source-contract.md
+          grep -q "MitmCertificateStatus" docs/architecture/ios-platform-adapter-source-contract.md
+          grep -q "NEPacketTunnelProvider" docs/architecture/ios-platform-adapter-source-contract.md
+          grep -q "NETunnelProviderManager" docs/architecture/ios-platform-adapter-source-contract.md
+          grep -q "entitlement_missing" docs/architecture/ios-platform-adapter-source-contract.md
+          grep -q "remote_script_execution" docs/architecture/ios-platform-adapter-source-contract.md
+          grep -q "macos-26" docs/architecture/ios-platform-adapter-source-contract.md
           grep -q "Linux Artifact Pre-Release Design" docs/architecture/linux-artifact-pre-release-design.md
           grep -q "Linux Platform Adapter Design" docs/architecture/linux-platform-adapter.md
           grep -q "Linux CLI Entrypoint Design" docs/architecture/linux-cli-entrypoint.md

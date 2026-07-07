@@ -31,6 +31,7 @@
 - [Control Kernel Interface Draft](docs/architecture/control-kernel-interfaces.md)
 - [iOS Platform Risk Assessment](docs/architecture/ios-platform-risk-assessment.md)
 - [iOS Network Extension Design](docs/architecture/ios-network-extension-design.md)
+- [iOS Platform Adapter Source Contract](docs/architecture/ios-platform-adapter-source-contract.md)
 - [ADR 0001: Initial Core Stack](docs/architecture/adr-0001-initial-core-stack.md)
 
 ## P2 Core Kernel Skeleton
@@ -91,6 +92,7 @@
 
 - [Release Strategy](docs/release-strategy.md)
 - [iOS Network Extension Design](docs/architecture/ios-network-extension-design.md)
+- [iOS Platform Adapter Source Contract](docs/architecture/ios-platform-adapter-source-contract.md)
 - [Linux Artifact Pre-Release Design](docs/architecture/linux-artifact-pre-release-design.md)
 - [Linux Platform Adapter Design](docs/architecture/linux-platform-adapter.md)
 - [Linux CLI Entrypoint Design](docs/architecture/linux-cli-entrypoint.md)
