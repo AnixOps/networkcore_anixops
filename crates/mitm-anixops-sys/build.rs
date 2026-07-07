@@ -49,6 +49,7 @@ fn main() {
         println!("cargo:rustc-link-lib=static=tre");
         println!("cargo:rustc-link-lib=static=intl");
         println!("cargo:rustc-link-lib=static=iconv");
+        println!("cargo:rustc-link-lib=advapi32");
     }
 }
 
