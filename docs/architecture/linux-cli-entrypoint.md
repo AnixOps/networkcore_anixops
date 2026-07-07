@@ -151,12 +151,12 @@ CLI 源码出现时，验证必须只在 GitHub Actions 中执行：
 - `LinuxCliCommand`、`OutputFormat`、`LinuxCliResponse` 和 exit code 映射。
 - `ConfigReader` 边界，用测试替身覆盖配置路径缺失、读取失败和空配置。
 - `handle_prepare_config` 与 `handle_start` 通过 `RuntimeOrchestrator` 进入运行层，不绕过领域端口。
-- `ForegroundLifecycleHost`、`ForegroundLifecycleRequest`、`ForegroundLifecycleOutcome`、`ForegroundLifecycleInterruptionSource` 和 `handle_foreground_lifecycle` 定义前台 lifecycle handoff/interruption 源码合同，并通过 current-process host 接入二进制入口。
+- `ForegroundLifecycleHost`、`ForegroundLifecycleRequest`、`ForegroundLifecycleOutcome`、`ForegroundLifecycleInterruptionSource`、Unix `OsSignalForegroundLifecycleInterruptionSource` 和 `handle_foreground_lifecycle` 定义前台 lifecycle handoff/interruption 源码合同，并通过 current-process host 接入二进制入口。
 - `handle_capabilities`、`handle_status`、`handle_diagnostics`、`handle_stop` 和 JSON renderer 覆盖平台诊断、无 daemon stop、无 runtime context status 和自动化输出合同。
 - `handle_entrypoint` 将 `capabilities`、`status` 和 `diagnostics` 路由到注入的 `PlatformCapabilityService`；二进制入口使用 `ReadOnlyLinuxPlatformCapabilityService<HostLinuxReadOnlyProbe>`。
 - `handle_entrypoint_with_runtime` 继续将 `prepare-config` 路由到 `RuntimeOrchestrator`；`handle_entrypoint_with_runtime_and_lifecycle` 将 `start` 路由到 `RuntimeOrchestrator::start_runtime`、`NativeProxyEngineService` 和前台 lifecycle host。
 
-该 crate 当前执行只读 Linux 能力探测、只读配置准备和前台 native runtime 启动，不修改系统状态、不安装 daemon，也不代表 Linux artifact 已可发布。`stop` 与后台 `status` 在没有 daemon/control socket 前继续保持稳定 unavailable 诊断。
+该 crate 当前执行只读 Linux 能力探测、只读配置准备和前台 native runtime 启动，不修改系统状态、不安装 daemon，也不代表 Linux artifact 已可发布。Unix 默认前台 host 会监听 `SIGINT`/`SIGTERM` 并映射为 `cli.linux.start.signal_received`、`cli.linux.start.lifecycle_interrupted` 和 130 退出码；`stop` 与后台 `status` 在没有 daemon/control socket 前继续保持稳定 unavailable 诊断。
 
 ## Release 边界
 
@@ -180,5 +180,5 @@ CLI 首个源码增量必须满足：
 ## 后续工作
 
 - 在 license/NOTICE 人工确认和 readiness gate 通过后，再补充 `package-linux` job；真实 artifact 发布前继续阻止 release asset。
-- 为 `CurrentProcessForegroundLifecycleHost` 接入真实 OS signal/interruption source，继续保持无 daemon/control socket 边界。
+- 为前台 lifecycle interruption 后的 runtime stop/release 诊断聚合补充显式合同，继续保持无 daemon/control socket 边界。
 - daemon/control socket、packaging 或任何会修改系统状态的 Linux probing 进入 CLI 前，先补充对应设计并通过 CI。

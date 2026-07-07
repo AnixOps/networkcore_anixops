@@ -21,9 +21,12 @@ use networkcore_linux::{
     CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
     CLI_RUNTIME_UNWIRED_CODE, CLI_START_FOREGROUND_ONLY_CODE, CLI_START_LIFECYCLE_FAILED_CODE,
     CLI_START_LIFECYCLE_HOST_MISSING_CODE, CLI_START_LIFECYCLE_INTERRUPTED_CODE,
-    CLI_START_PLATFORM_DENIED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
-    CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
+    CLI_START_PLATFORM_DENIED_CODE, CLI_START_SIGNAL_RECEIVED_CODE,
+    CLI_STATUS_NO_RUNTIME_CONTEXT_CODE, CLI_STATUS_PLATFORM_ONLY_CODE,
+    CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
 };
+#[cfg(unix)]
+use networkcore_linux::OsSignalForegroundLifecycleInterruptionSource;
 use platform_linux::{
     linux_diagnostic, LinuxCertificateProbe, LinuxDnsManagerState, LinuxFeatureProbe,
     LinuxPlatformSnapshot, LinuxPrivilegeProbe, LinuxReadOnlyProbe, LinuxReadOnlyProbeSnapshot,
@@ -32,6 +35,8 @@ use platform_linux::{
     PERMISSION_CAPABILITY_MISSING_CODE, PERMISSION_ELEVATION_REQUIRED_CODE,
     SERVICE_UNSUPPORTED_ENVIRONMENT_CODE, SOURCE_DNS,
 };
+#[cfg(unix)]
+use signal_hook::consts::signal::{SIGINT, SIGTERM};
 use std::net::TcpListener;
 
 #[test]
@@ -470,6 +475,18 @@ fn current_process_lifecycle_host_maps_interruption_to_stable_exit_contract() {
     assert_diagnostic(&response.diagnostics, CLI_START_FOREGROUND_ONLY_CODE);
     assert_diagnostic(&response.diagnostics, "host.signal.received");
     assert_diagnostic(&response.diagnostics, CLI_START_LIFECYCLE_INTERRUPTED_CODE);
+}
+
+#[cfg(unix)]
+#[test]
+fn os_signal_interruption_source_maps_unix_signals_to_stable_diagnostics() {
+    let sigint = OsSignalForegroundLifecycleInterruptionSource::interruption_for_signal(SIGINT);
+    let sigterm = OsSignalForegroundLifecycleInterruptionSource::interruption_for_signal(SIGTERM);
+
+    assert_eq!(sigint.reason, "SIGINT");
+    assert_eq!(sigterm.reason, "SIGTERM");
+    assert_diagnostic(&sigint.diagnostics, CLI_START_SIGNAL_RECEIVED_CODE);
+    assert_diagnostic(&sigterm.diagnostics, CLI_START_SIGNAL_RECEIVED_CODE);
 }
 
 #[test]

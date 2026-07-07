@@ -11,6 +11,11 @@ use control_domain::{
     ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
 };
 use control_runtime::{RuntimeConfigRequest, RuntimeOperationResult, RuntimeOrchestrator};
+#[cfg(unix)]
+use signal_hook::{
+    consts::signal::{SIGINT, SIGTERM},
+    iterator::Signals,
+};
 use serde::Serialize;
 use std::thread;
 
@@ -31,6 +36,8 @@ pub const CLI_START_FOREGROUND_ONLY_CODE: &str = "cli.linux.start.foreground_onl
 pub const CLI_START_LIFECYCLE_HOST_MISSING_CODE: &str = "cli.linux.start.lifecycle_host_missing";
 pub const CLI_START_LIFECYCLE_INTERRUPTED_CODE: &str = "cli.linux.start.lifecycle_interrupted";
 pub const CLI_START_LIFECYCLE_FAILED_CODE: &str = "cli.linux.start.lifecycle_failed";
+pub const CLI_START_SIGNAL_RECEIVED_CODE: &str = "cli.linux.start.signal_received";
+pub const CLI_START_SIGNAL_SOURCE_FAILED_CODE: &str = "cli.linux.start.signal_source_failed";
 pub const CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE: &str =
     "cli.linux.stop.unavailable_without_daemon";
 pub const CLI_STATUS_NO_RUNTIME_CONTEXT_CODE: &str = "cli.linux.status.no_runtime_context";
@@ -393,15 +400,72 @@ impl ForegroundLifecycleInterruptionSource for ParkingForegroundLifecycleInterru
     }
 }
 
+#[cfg(unix)]
 #[derive(Debug, Clone, Copy, Default)]
-pub struct CurrentProcessForegroundLifecycleHost<I = ParkingForegroundLifecycleInterruptionSource> {
+pub struct OsSignalForegroundLifecycleInterruptionSource;
+
+#[cfg(unix)]
+impl OsSignalForegroundLifecycleInterruptionSource {
+    pub const fn new() -> Self {
+        Self
+    }
+
+    pub fn interruption_for_signal(signal: i32) -> ForegroundLifecycleInterruption {
+        foreground_os_signal_interruption(signal)
+    }
+}
+
+#[cfg(unix)]
+impl ForegroundLifecycleInterruptionSource for OsSignalForegroundLifecycleInterruptionSource {
+    fn wait_for_interruption(
+        &self,
+        _request: &ForegroundLifecycleRequest,
+    ) -> ForegroundLifecycleInterruption {
+        let mut signals = match Signals::new([SIGINT, SIGTERM]) {
+            Ok(signals) => signals,
+            Err(error) => {
+                return ForegroundLifecycleInterruption::new("os-signal-source-failed")
+                    .with_diagnostics(vec![cli_diagnostic(
+                        DiagnosticSeverity::Error,
+                        CLI_START_SIGNAL_SOURCE_FAILED_CODE,
+                        format!("failed to register foreground OS signal source: {error}"),
+                        SOURCE_CLI_START,
+                    )]);
+            }
+        };
+
+        if let Some(signal) = signals.forever().next() {
+            return Self::interruption_for_signal(signal);
+        }
+
+        ForegroundLifecycleInterruption::new("os-signal-source-closed").with_diagnostics(vec![
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_START_SIGNAL_SOURCE_FAILED_CODE,
+                "foreground OS signal source closed before receiving an interruption",
+                SOURCE_CLI_START,
+            ),
+        ])
+    }
+}
+
+#[cfg(unix)]
+pub type DefaultForegroundLifecycleInterruptionSource =
+    OsSignalForegroundLifecycleInterruptionSource;
+
+#[cfg(not(unix))]
+pub type DefaultForegroundLifecycleInterruptionSource =
+    ParkingForegroundLifecycleInterruptionSource;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CurrentProcessForegroundLifecycleHost<I = DefaultForegroundLifecycleInterruptionSource> {
     interruption_source: I,
 }
 
-impl CurrentProcessForegroundLifecycleHost<ParkingForegroundLifecycleInterruptionSource> {
+impl CurrentProcessForegroundLifecycleHost<DefaultForegroundLifecycleInterruptionSource> {
     pub const fn new() -> Self {
         Self {
-            interruption_source: ParkingForegroundLifecycleInterruptionSource::new(),
+            interruption_source: DefaultForegroundLifecycleInterruptionSource::new(),
         }
     }
 }
@@ -435,6 +499,29 @@ where
             exit_code: LinuxCliExitCode::Interrupted,
             diagnostics,
         }
+    }
+}
+
+#[cfg(unix)]
+fn foreground_os_signal_interruption(signal: i32) -> ForegroundLifecycleInterruption {
+    let signal_name = foreground_os_signal_name(signal);
+
+    ForegroundLifecycleInterruption::new(signal_name.clone()).with_diagnostics(vec![
+        cli_diagnostic(
+            DiagnosticSeverity::Warning,
+            CLI_START_SIGNAL_RECEIVED_CODE,
+            format!("foreground OS signal {signal_name} interrupted linux runtime"),
+            SOURCE_CLI_START,
+        ),
+    ])
+}
+
+#[cfg(unix)]
+fn foreground_os_signal_name(signal: i32) -> String {
+    match signal {
+        SIGINT => "SIGINT".to_string(),
+        SIGTERM => "SIGTERM".to_string(),
+        _ => format!("signal-{signal}"),
     }
 }
 
