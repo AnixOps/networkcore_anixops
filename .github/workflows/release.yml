@@ -819,6 +819,9 @@ jobs:
     outputs:
       release_url: ${{ steps.publish.outputs.release_url }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download Linux release bundle
         uses: actions/download-artifact@v4
         with:
@@ -830,6 +833,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.release-policy.outputs.version }}
           RELEASE_KIND: ${{ needs.release-policy.outputs.release_kind }}
           ELIGIBILITY_STATUS: ${{ needs.publish-eligibility-gate.outputs.package_publish_eligibility_status }}
