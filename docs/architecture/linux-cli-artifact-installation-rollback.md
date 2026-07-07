@@ -124,6 +124,7 @@ release notes 和 release summary 必须输出：
 - release job 输出 `artifact_name`、`artifact_path`、`checksum_algorithm`、`checksum_file`、`checksum_value`。
 - release job 输出 `artifact_manifest_name`、`artifact_manifest_path`、`artifact_manifest_checksum_file`、`artifact_manifest_checksum_value`。
 - release job 输出 `signing_policy`、`signing_status`、`attestation_status`、`provenance_file`。
+- placeholder 阶段的 release summary 已列出 manifest output contract 字段，真实 job 不得删除该可见性。
 - release summary 输出安装模型、卸载边界、archive checksum、manifest checksum、回滚字段和 GitHub Actions 验证链接。
 - 发布说明链接本文档、CHANGELOG、CI run 和 release run。
 

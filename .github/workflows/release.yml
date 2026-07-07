@@ -234,6 +234,8 @@ jobs:
           grep -q "Linux Package Artifact Manifest Design" docs/architecture/linux-package-artifact-manifest.md
           grep -q "artifact_manifest_path" docs/architecture/linux-package-artifact-manifest.md
           grep -q "artifact_manifest_checksum_value" docs/architecture/linux-package-artifact-manifest.md
+          grep -q "Linux Artifact Manifest Output Contract" .github/workflows/release.yml
+          grep -q "linux-artifact-manifest-output-fields" .github/workflows/release.yml
           grep -q "package-linux" docs/architecture/linux-cli-artifact-installation-rollback.md
           grep -q "license 或 artifact 内置许可/NOTICE" docs/manual-intervention.md
           if grep -Eq '^  package-linux:' .github/workflows/release.yml; then
@@ -280,6 +282,24 @@ jobs:
           echo "No release artifacts are defined yet."
           echo "Linux artifact readiness is checked, but package-linux is not defined yet."
           echo "Add platform-specific packaging jobs only after all artifact gates are complete."
+          {
+            echo "### Linux Artifact Manifest Output Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | placeholder summary only |"
+            echo "| Required manifest outputs | artifact_manifest_name, artifact_manifest_path, artifact_manifest_checksum_file, artifact_manifest_checksum_value |"
+            echo "| Required archive outputs | artifact_name, artifact_path, checksum_algorithm, checksum_file, checksum_value |"
+            echo "| Manifest checksum algorithm | sha256 |"
+            echo "| Release summary requirement | archive checksum and manifest checksum must both be visible before upload |"
+            echo "| License or NOTICE confirmation | manual confirmation required before real artifact packaging |"
+            echo "| Current package-linux job | not defined |"
+            echo "| Current release asset upload | blocked |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "linux-artifact-manifest-output-contract=placeholder"
+          echo "linux-artifact-manifest-output-fields=artifact_manifest_name,artifact_manifest_path,artifact_manifest_checksum_file,artifact_manifest_checksum_value"
+          echo "linux-artifact-manifest-checksum-algorithm=sha256"
+          echo "linux-artifact-manifest-upload=blocked"
 
   release-summary:
     name: Release summary
@@ -327,6 +347,8 @@ jobs:
             echo "| Linux artifact readiness | ${{ needs.linux-artifact-readiness.result }} |"
             echo "| Linux foreground stop/release contract | checked in linux-artifact-readiness |"
             echo "| Linux artifact manifest contract | checked in linux-artifact-readiness |"
+            echo "| Linux artifact manifest output contract | summarized in release-placeholder |"
+            echo "| Linux artifact manifest output fields | artifact_manifest_name, artifact_manifest_path, artifact_manifest_checksum_file, artifact_manifest_checksum_value |"
             echo "| Release placeholder | ${{ needs.release-placeholder.result }} |"
             echo "| Release artifacts | not defined |"
             echo "| Artifact checksum | sha256 required before upload or publish |"
@@ -349,9 +371,12 @@ jobs:
           echo "linux-artifact-readiness=${{ needs.linux-artifact-readiness.result }}"
           echo "linux-artifact-foreground-stop-release-contract=checked"
           echo "linux-artifact-manifest-contract=present"
+          echo "linux-artifact-manifest-output-contract=placeholder"
+          echo "linux-artifact-manifest-output-fields=artifact_manifest_name,artifact_manifest_path,artifact_manifest_checksum_file,artifact_manifest_checksum_value"
           echo "release-placeholder=${{ needs.release-placeholder.result }}"
           echo "release-artifacts=not-defined"
           echo "linux-artifact-release-assets=blocked"
+          echo "linux-artifact-manifest-upload=blocked"
           echo "release-checksum-contract=sha256-required"
           echo "release-signing-contract-state=placeholder"
           echo "release-rollback-contract-state=placeholder"

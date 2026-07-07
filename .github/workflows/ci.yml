@@ -66,6 +66,8 @@ jobs:
           grep -q "Changelog" CHANGELOG.md
           grep -q "linux-artifact-readiness" .github/workflows/release.yml
           grep -q "Linux artifact readiness" .github/workflows/release.yml
+          grep -q "Linux Artifact Manifest Output Contract" .github/workflows/release.yml
+          grep -q "linux-artifact-manifest-output-fields" .github/workflows/release.yml
           grep -q "networkcore-linux" apps/linux-cli/README.md
           grep -q "config-core" crates/config-core/README.md
           grep -q "\"crates/config-core\"" Cargo.toml
