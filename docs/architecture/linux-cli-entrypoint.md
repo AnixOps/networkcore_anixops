@@ -180,5 +180,6 @@ CLI 首个源码增量必须满足：
 
 ## 后续工作
 
-- 在 Linux artifact readiness/release gate 中纳入 foreground stop/release 合同检查；license/NOTICE 人工确认完成前继续阻止 `package-linux` 和 release asset。
+- Linux artifact readiness/release gate 已纳入 foreground stop/release 合同检查；license/NOTICE 人工确认完成前继续阻止 `package-linux` 和 release asset。
+- 下一步在不生成 artifact 的前提下，补充首个 Linux `package-linux` artifact manifest/metadata 输出合同设计。
 - daemon/control socket、packaging 或任何会修改系统状态的 Linux probing 进入 CLI 前，先补充对应设计并通过 CI。

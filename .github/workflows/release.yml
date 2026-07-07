@@ -204,21 +204,38 @@ jobs:
           test -f apps/linux-cli/README.md
           test -f apps/linux-cli/src/main.rs
           test -f apps/linux-cli/src/lib.rs
+          test -f apps/linux-cli/tests/linux_cli_contracts.rs
+          test -f crates/engine-native/src/lib.rs
           test -f crates/platform-linux/Cargo.toml
           test -f docs/architecture/linux-artifact-pre-release-design.md
           test -f docs/architecture/linux-platform-adapter.md
           test -f docs/architecture/linux-cli-entrypoint.md
+          test -f docs/architecture/linux-cli-runtime-wiring.md
           test -f docs/architecture/native-engine-listener-node-config.md
+          test -f docs/architecture/linux-native-proxy-engine-start.md
           test -f docs/architecture/linux-cli-artifact-installation-rollback.md
           test -f docs/manual-intervention.md
           grep -q "networkcore-linux" apps/linux-cli/README.md
+          grep -q "handle_foreground_lifecycle_with_runtime_stop" apps/linux-cli/src/lib.rs
+          grep -q "orchestrator.stop_runtime(&engine_id)" apps/linux-cli/src/lib.rs
+          grep -q "cli.linux.start.runtime_stop_failed" apps/linux-cli/src/lib.rs
+          grep -q "foreground_interruption_stops_native_runtime_and_aggregates_release_diagnostics" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "foreground_interruption_stop_failure_adds_stable_cli_diagnostic" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "engine.native.runtime.accept_loop_stopped" crates/engine-native/src/lib.rs
+          grep -q "engine.native.runtime.released" crates/engine-native/src/lib.rs
           grep -q "Linux Artifact Pre-Release Design" docs/architecture/linux-artifact-pre-release-design.md
           grep -q "Linux Platform Adapter Design" docs/architecture/linux-platform-adapter.md
           grep -q "Linux CLI Entrypoint Design" docs/architecture/linux-cli-entrypoint.md
+          grep -q "Linux CLI Runtime Wiring Design" docs/architecture/linux-cli-runtime-wiring.md
           grep -q "Native Engine Listener And Node Config Design" docs/architecture/native-engine-listener-node-config.md
+          grep -q "Linux Native Proxy Engine Start Design" docs/architecture/linux-native-proxy-engine-start.md
           grep -q "Linux CLI Artifact Installation And Rollback Design" docs/architecture/linux-cli-artifact-installation-rollback.md
           grep -q "package-linux" docs/architecture/linux-cli-artifact-installation-rollback.md
           grep -q "license 或 artifact 内置许可/NOTICE" docs/manual-intervention.md
+          if grep -Eq '^  package-linux:' .github/workflows/release.yml; then
+            echo "::error::package-linux must stay undefined until license/NOTICE and artifact gates are complete."
+            exit 1
+          fi
           {
             echo "### Linux Artifact Readiness"
             echo
@@ -228,6 +245,8 @@ jobs:
             echo "| CLI source | apps/linux-cli present |"
             echo "| Platform adapter source | crates/platform-linux present |"
             echo "| Native listener/node config design | present |"
+            echo "| Foreground stop/release source contract | checked |"
+            echo "| Foreground stop/release contract tests | checked |"
             echo "| Install and rollback design | present |"
             echo "| License or NOTICE confirmation | manual confirmation required before real artifact packaging |"
             echo "| Release asset upload | blocked until package-linux, checksum, signing/attestation, rollback, and license/NOTICE gates are complete |"
@@ -237,6 +256,7 @@ jobs:
           echo "linux-artifact-mode=readiness-gate-only"
           echo "linux-artifact-cli-source=present"
           echo "linux-artifact-native-listener-node-design=present"
+          echo "linux-artifact-foreground-stop-release-contract=checked"
           echo "linux-artifact-install-rollback-design=present"
           echo "linux-artifact-license-notice=manual-confirmation-required"
           echo "linux-artifact-release-assets=blocked"
@@ -299,6 +319,7 @@ jobs:
             echo "| Release signing contract | ${{ needs.release-signing-contract.result }} |"
             echo "| Release rollback contract | ${{ needs.release-rollback-contract.result }} |"
             echo "| Linux artifact readiness | ${{ needs.linux-artifact-readiness.result }} |"
+            echo "| Linux foreground stop/release contract | checked in linux-artifact-readiness |"
             echo "| Release placeholder | ${{ needs.release-placeholder.result }} |"
             echo "| Release artifacts | not defined |"
             echo "| Artifact checksum | sha256 required before upload or publish |"
@@ -319,6 +340,7 @@ jobs:
           echo "release-signing-contract=${{ needs.release-signing-contract.result }}"
           echo "release-rollback-contract=${{ needs.release-rollback-contract.result }}"
           echo "linux-artifact-readiness=${{ needs.linux-artifact-readiness.result }}"
+          echo "linux-artifact-foreground-stop-release-contract=checked"
           echo "release-placeholder=${{ needs.release-placeholder.result }}"
           echo "release-artifacts=not-defined"
           echo "linux-artifact-release-assets=blocked"
