@@ -33,6 +33,7 @@ workflow artifact 或 GitHub Release asset。
 [Linux Package Publish Upload Boundary Contract](linux-package-publish-upload-boundary-contract.md)、
 [Linux Package Artifact Attestation Execution Validation Contract](linux-package-artifact-attestation-execution-validation-contract.md)、
 [Linux Package Release Notes Rollback Policy Binding Contract](linux-package-release-notes-rollback-policy-binding-contract.md)、
+[Linux Package Release Notes Rollback Execution Validation Contract](linux-package-release-notes-rollback-execution-validation-contract.md)、
 [Linux Package Publish Eligibility Aggregate Contract](linux-package-publish-eligibility-aggregate-contract.md)、
 [Linux Package License Notice Transition Validation Contract](linux-package-license-notice-transition-validation-contract.md)、
 [Release CI Success Source Contract](release-ci-success-source-contract.md) 和 release workflow 中的
@@ -161,8 +162,8 @@ upload 步骤。
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux package manifest
   设计、Linux package publish/upload boundary contract、Linux package checksum manifest contract、
   Linux package artifact attestation execution validation contract、
-  Linux package release notes/rollback policy binding contract、Linux package publish eligibility
-  aggregate contract、Linux CLI artifact 安装/回滚设计、
+  Linux package release notes/rollback policy binding contract、Linux package release notes/rollback execution
+  validation contract、Linux package publish eligibility aggregate contract、Linux CLI artifact 安装/回滚设计、
   Release CI success source contract、Linux package
   artifact job preflight validation contract、runner/toolchain/target contract、Linux package archive staging
   contract、Linux artifact license/NOTICE confirmation source contract 和 CI policy 中可发现。
@@ -181,4 +182,4 @@ upload 步骤。
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
 - Linux package release notes/rollback policy binding contract、publish eligibility aggregate contract、
   license/NOTICE transition validation contract 和 release CI gate activation validation contract 已定义；
-  Linux package artifact job preflight validation contract、Linux package artifact build command validation contract、Linux package artifact staging file validation contract、Linux package artifact archive creation validation contract 和 Linux package artifact checksum execution validation contract 已定义；Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract 和 Linux package artifact attestation execution validation contract 已定义；下一步可以补充 Linux package release notes/rollback execution validation contract，仍不发布 release asset。
+  Linux package artifact job preflight validation contract、Linux package artifact build command validation contract、Linux package artifact staging file validation contract、Linux package artifact archive creation validation contract 和 Linux package artifact checksum execution validation contract 已定义；Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract、Linux package artifact attestation execution validation contract 和 Linux package release notes/rollback execution validation contract 已定义；下一步可以补充 Linux package publish eligibility execution validation contract，仍不发布 release asset。

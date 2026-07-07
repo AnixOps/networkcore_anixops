@@ -36,6 +36,7 @@ job、不定义 publish job、不上传 workflow artifact、不发布 GitHub Rel
 [Linux Package Artifact Attestation Execution Validation Contract](linux-package-artifact-attestation-execution-validation-contract.md)、
 [Linux Package Signing Attestation Policy Binding Contract](linux-package-signing-attestation-policy-binding-contract.md)、
 [Linux Package Release Notes Rollback Policy Binding Contract](linux-package-release-notes-rollback-policy-binding-contract.md)、
+[Linux Package Release Notes Rollback Execution Validation Contract](linux-package-release-notes-rollback-execution-validation-contract.md)、
 [Linux Package Publish Eligibility Aggregate Contract](linux-package-publish-eligibility-aggregate-contract.md)、
 [Linux Package License Notice Transition Validation Contract](linux-package-license-notice-transition-validation-contract.md)
 和 release workflow
@@ -115,7 +116,7 @@ maintainer 上传文件、旧 run artifact、不同 commit artifact、不同 bra
 5. `package-linux` 校验 required files、manifest cross-check 和 release summary output fields。
 6. `package-linux` 上传同一 run 的 workflow artifact bundle，并设置 retention days。
 7. `attest-linux` 按 [Linux Package Artifact Attestation Execution Validation Contract](linux-package-artifact-attestation-execution-validation-contract.md) 和 [Linux Package Signing Attestation Policy Binding Contract](linux-package-signing-attestation-policy-binding-contract.md) 读取同一 run bundle，并输出 GitHub artifact attestation/provenance 状态。
-8. rollback/release notes gate 按 [Linux Package Release Notes Rollback Policy Binding Contract](linux-package-release-notes-rollback-policy-binding-contract.md) 输出 rollback 字段、withdrawal policy 和 replacement policy。
+8. rollback/release notes gate 按 [Linux Package Release Notes Rollback Policy Binding Contract](linux-package-release-notes-rollback-policy-binding-contract.md) 和 [Linux Package Release Notes Rollback Execution Validation Contract](linux-package-release-notes-rollback-execution-validation-contract.md) 输出并校验 rollback 字段、withdrawal policy 和 replacement policy。
 9. `publish-github-release` 从同一 run 下载 workflow artifact bundle。
 10. `publish-github-release` 重新校验 file set、checksum、manifest checksum、CI source、signing/attestation
     状态、rollback 字段和 license/NOTICE 状态。
@@ -164,6 +165,7 @@ maintainer 上传文件、旧 run artifact、不同 commit artifact、不同 bra
   policy binding contract、Linux package workflow artifact bundle upload validation contract、
   Linux package artifact attestation execution validation contract、
   Linux package release notes/rollback policy binding contract、
+  Linux package release notes/rollback execution validation contract、
   Linux package publish eligibility aggregate contract、
   Linux CLI artifact 安装/回滚设计、Release CI success source contract、
   Linux package artifact job preflight validation contract、Linux package runner/toolchain/target contract、
@@ -188,4 +190,4 @@ maintainer 上传文件、旧 run artifact、不同 commit artifact、不同 bra
   [Linux Package Artifact Manifest Checksum Validation Contract](linux-package-artifact-manifest-checksum-validation-contract.md)、
   [Linux Package Workflow Artifact Bundle Upload Validation Contract](linux-package-workflow-artifact-bundle-upload-validation-contract.md)
   和 [Linux Package Artifact Attestation Execution Validation Contract](linux-package-artifact-attestation-execution-validation-contract.md)
-  已定义；下一步可以补充 Linux package release notes/rollback execution validation contract，仍不发布 release asset。
+  已定义；下一步可以补充 Linux package publish eligibility execution validation contract，仍不发布 release asset。

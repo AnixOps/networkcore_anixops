@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 补充 Linux package release notes/rollback execution validation contract，明确 attestation/provenance 完成后生成 release notes required fields、rollback fields、withdrawal/replacement policy 校验、拒绝缺失回滚说明和仍不发布 release asset 的边界。
+- [ ] 补充 Linux package publish eligibility execution validation contract，明确 release notes/rollback execution 完成后综合 gate 聚合、eligible 字段、失败边界和仍不发布 release asset 的边界。
 
 ## 已完成
 
+- [x] 完成 Linux package release notes/rollback execution validation contract；新增 release notes/rollback execution validation contract，固定未来 attestation/provenance 完成后必须校验 release notes required fields、rollback required fields、withdrawal-not-overwrite、new-version-tag-required、缺失 rollback summary 阻断和 publish without release notes/rollback 阻断，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 release notes/rollback execution blocked 状态，继续不定义 `post-release-summary`、不创建 GitHub Release 或上传 release asset。
 - [x] 完成 Linux package artifact attestation execution validation contract；新增 artifact attestation execution validation contract，固定未来 `attest-linux` 从同一 release run workflow artifact bundle 下载 archive、archive checksum、manifest、manifest checksum 四文件并使用 GitHub artifact attestation/provenance、显式 subject path、required permissions、blocked action/status 和 release asset upload blocked 边界，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 artifact attestation execution blocked 状态，继续不定义 `attest-linux`、不启用 attestation permissions、不调用 `actions/attest` 或上传 release asset。
 - [x] 完成 Linux package workflow artifact bundle upload validation contract；新增 workflow artifact bundle upload validation contract，固定未来 manifest checksum sidecar 生成后校验 `dist/linux/${target}/artifacts` 中 archive、archive checksum、manifest、manifest checksum 四文件集合、同一 release run workflow artifact bundle 名称、retention days、`actions/upload-artifact` blocked 状态、失败条件和 release asset upload blocked 边界，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 workflow artifact bundle upload blocked 状态，继续不上传 workflow artifact 或 release asset。
 - [x] 完成 Linux package artifact manifest checksum validation contract；新增 manifest checksum validation contract，固定未来 manifest JSON 生成后使用 `sha256sum` 计算 `networkcore-linux-${version}-${target}.manifest.json.sha256`、校验 two-space record 格式、写 manifest checksum sidecar、失败条件和 workflow artifact/release asset upload blocked 边界，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 manifest checksum blocked 状态，继续不生成 manifest checksum 文件或 artifact。

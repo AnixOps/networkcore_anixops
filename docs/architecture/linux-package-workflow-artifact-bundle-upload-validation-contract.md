@@ -202,6 +202,4 @@ release asset。
 - 在 license/NOTICE 人工确认、release CI gate activation、artifact job preflight、build command、
   staging file、archive creation、checksum execution、manifest generation、manifest checksum 和 workflow
   artifact bundle upload gates 激活前，继续保持 `package-linux` 未定义。
-- Linux package artifact attestation execution validation contract 已定义；下一步可以补充 Linux package
-  release notes/rollback execution validation contract，明确 attestation/provenance 完成后 release notes、
-  rollback、withdrawal/replacement policy 校验和仍不发布 GitHub Release asset 的边界。
+- Linux package artifact attestation execution validation contract 和 Linux package release notes/rollback execution validation contract 已定义；下一步可以补充 Linux package publish eligibility execution validation contract，明确 release notes/rollback execution 完成后综合 gate 聚合、eligible 字段、失败边界和仍不发布 GitHub Release asset 的边界。

@@ -78,6 +78,7 @@ jobs:
           test -f docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
           test -f docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
           test -f docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
+          test -f docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
           test -f docs/architecture/adr-0001-initial-core-stack.md
           grep -q "本机只负责代码" AGENT.md
           grep -q "GitHub Actions" docs/ci-cd-policy.md
@@ -133,6 +134,13 @@ jobs:
           grep -q "package_artifact_attestation_execution_required_permissions" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
           grep -q "package_artifact_attestation_execution_subjects" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
           grep -q "Future Attestation Execution" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
+          grep -q "Linux Package Release Notes Rollback Execution Validation Contract" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
+          grep -q "package_release_notes_rollback_execution_status" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
+          grep -q "package_release_notes_rollback_execution_release_notes_required_fields" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
+          grep -q "package_release_notes_rollback_execution_rollback_required_fields" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
+          grep -q "package_release_notes_rollback_execution_withdrawal_policy" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
+          grep -q "package_release_notes_rollback_execution_replacement_policy" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
+          grep -q "Future Release Notes Rollback Execution" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
           grep -q "release-ci-success-source-contract=present" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-contract=present"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 4
@@ -305,6 +313,31 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-publish-job=publish-github-release"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-publish-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-next-action=release-notes-rollback-execution-after-attestation"$' .github/workflows/release.yml)" -ge 3
+          grep -q "Linux Package Release Notes Rollback Execution Validation Contract" .github/workflows/release.yml
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-required-job=post-release-summary"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-upstream-job=attest-linux"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-upstream-status=not-defined"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-attestation-status=blocked-not-attested"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-provenance-status=blocked-not-generated"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-release-notes-source=CHANGELOG.md-and-release-summary"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-release-notes-status=blocked-not-generated"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-release-notes-required-fields=version,artifact,checksums,ci,release,install,signing,rollback,withdrawal,replacement"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-release-body-status=blocked-not-rendered"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-rollback-policy=manual-extract-version-switch"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-rollback-status=blocked-not-summarized"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-rollback-required-fields=rollback_scope,rollback_trigger,rollback_steps,replacement_version,rollback_owner"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-withdrawal-policy=withdrawal-not-overwrite"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-replacement-policy=new-version-tag-required"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-missing-rollback=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-publish-without-release-notes=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-publish-without-rollback=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-publish-job=publish-github-release"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-publish-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-next-action=publish-eligibility-execution-after-release-notes-rollback"$' .github/workflows/release.yml)" -ge 3
           if grep -Eq '^[[:space:]]+uses:[[:space:]]+actions/upload-artifact(@|$)' .github/workflows/release.yml; then
             echo "::error::actions/upload-artifact must stay disabled until workflow artifact bundle upload validation is implemented."
             exit 1
@@ -319,6 +352,14 @@ jobs:
           fi
           if grep -Eq '^[[:space:]]+uses:[[:space:]]+actions/attest(@|$)' .github/workflows/release.yml; then
             echo "::error::actions/attest must stay disabled until artifact attestation execution is implemented."
+            exit 1
+          fi
+          if grep -Eq '^[[:space:]]+run:[[:space:]]+gh release create([[:space:]]|$)' .github/workflows/release.yml; then
+            echo "::error::gh release create must stay disabled until release notes/rollback execution and publish eligibility gates are complete."
+            exit 1
+          fi
+          if grep -Eq '^[[:space:]]+uses:[[:space:]]+(softprops/action-gh-release|ncipollo/release-action|actions/create-release|actions/upload-release-asset)(@|$)' .github/workflows/release.yml; then
+            echo "::error::GitHub Release actions must stay disabled until release notes/rollback execution and publish eligibility gates are complete."
             exit 1
           fi
           grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
@@ -408,6 +449,7 @@ jobs:
           grep -q "Linux Package Artifact Manifest Checksum Validation Contract" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
           grep -q "Linux Package Workflow Artifact Bundle Upload Validation Contract" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
           grep -q "Linux Package Artifact Attestation Execution Validation Contract" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
+          grep -q "Linux Package Release Notes Rollback Execution Validation Contract" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
           grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
           grep -q "Linux Package Archive Staging Contract" docs/architecture/linux-package-archive-staging-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
