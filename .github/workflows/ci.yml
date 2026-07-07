@@ -38,6 +38,7 @@ jobs:
           test -f docs/ci-cd-policy.md
           test -f docs/manual-intervention.md
           test -f docs/release-strategy.md
+          test -f docs/alpha-windows-smoke-test.md
           test -f .github/workflows/release.yml
           test -f apps/linux-cli/README.md
           test -f crates/config-core/README.md
@@ -204,7 +205,14 @@ jobs:
           grep -q "linux-artifact-license-notice-source=docs/manual-intervention.md" .github/workflows/release.yml
           grep -q "vMAJOR.MINOR.PATCH-alpha.N" .github/workflows/release.yml
           grep -q "vMAJOR.MINOR.PATCH-alpha.N" docs/release-strategy.md
+          grep -q "Alpha Windows Smoke Test" docs/alpha-windows-smoke-test.md
+          grep -q "v0.1.0-alpha.1" docs/alpha-windows-smoke-test.md
+          grep -q "not-produced-placeholder" docs/alpha-windows-smoke-test.md
+          grep -q "rerun-ci-release-workflows-after-marker-update" docs/alpha-windows-smoke-test.md
           grep -q "alpha-release-windows-manual-test-status=pending" docs/manual-intervention.md
+          grep -q "alpha-release-windows-manual-test-source-contract=docs/alpha-windows-smoke-test.md" docs/manual-intervention.md
+          grep -q "alpha-release-windows-manual-test-version=v0.1.0-alpha.1" docs/manual-intervention.md
+          grep -q "alpha-release-windows-manual-test-artifacts=not-produced-placeholder" docs/manual-intervention.md
           grep -q "alpha-release-windows-manual-test-result=blocked-pending-user" docs/manual-intervention.md
           grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
           grep -q "Linux Package Release CI Gate Activation Validation Contract" docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md

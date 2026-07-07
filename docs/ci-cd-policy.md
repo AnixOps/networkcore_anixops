@@ -93,7 +93,7 @@
 - Linux package publish eligibility execution validation contract 检查
 - Release workflow Linux artifact readiness gate 检查
 - Release workflow Linux artifact manifest output summary 检查
-- Alpha placeholder release version policy 与 Windows manual smoke pending marker 检查
+- Alpha placeholder release version policy、Windows manual smoke 测试清单与 pending marker 检查
 - 架构决策记录检查
 - Linux、macOS、Windows 基础工作区检查
 - Go 代码出现后的 Go 构建与测试

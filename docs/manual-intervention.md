@@ -12,6 +12,7 @@
   TestFlight upload、App Store upload、App Review submission 或 iOS release asset。当前 release workflow 仅允许
   `ios-upload-readiness` blocked placeholder 读取这些 marker，输出 source tree preflight 和 safe summary。
 - Alpha Windows 手工 smoke 测试仍为 pending；完成前不得把用户侧 Windows 结果声明为 alpha 已验证。
+  当前记录流程见 [Alpha Windows Smoke Test](alpha-windows-smoke-test.md)。
 
 ## 已完成的人工/外部事项
 
@@ -73,10 +74,15 @@ linux-artifact-license-notice-release-assets=blocked
 
 ```text
 alpha-release-windows-manual-test-status=pending
+alpha-release-windows-manual-test-source-contract=docs/alpha-windows-smoke-test.md
 alpha-release-windows-manual-test-source=manual-user-windows-environment
-alpha-release-windows-manual-test-version=pending
+alpha-release-windows-manual-test-version=v0.1.0-alpha.1
+alpha-release-windows-manual-test-commit=e40ab057b28c1d19c519d3e0cdfbc3139859147d
+alpha-release-windows-manual-test-ci-run=28900145651
+alpha-release-windows-manual-test-release-run=28900362686
 alpha-release-windows-manual-test-scope=windows-local-smoke-user-run
 alpha-release-windows-manual-test-ci=github-actions-windows-latest-still-required
+alpha-release-windows-manual-test-artifacts=not-produced-placeholder
 alpha-release-windows-manual-test-result=blocked-pending-user
 alpha-release-windows-manual-test-confirmed-at=pending
 alpha-release-windows-manual-test-confirmed-by=pending
