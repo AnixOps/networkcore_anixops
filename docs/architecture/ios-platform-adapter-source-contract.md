@@ -3,6 +3,7 @@
 本文件定义 `platform-ios` 源码必须满足的 source contract。它承接
 [iOS Network Extension Design](ios-network-extension-design.md)、
 [iOS Swift Network Extension Bridge Design](ios-swift-network-extension-bridge-design.md)、
+[iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md) 和
 [Control Runtime Orchestration Design](control-runtime-orchestration.md)，用于约束
 iOS platform adapter 如何把 Apple 平台事实映射为领域层可消费的能力状态。
@@ -58,7 +59,7 @@ crates/platform-ios/
 
 `Cargo.toml` 必须加入 workspace，但 `platform-ios` 首个版本只依赖 `control-domain`。Swift bridge design
 已定义 Apple SDK 事实去敏边界；如果后续需要 Swift 源码、C ABI、XCFramework 或 generated bindings，
-必须先补充独立 Swift/Xcode source contract。
+必须遵守 [iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)。
 
 当前公开类型：
 
@@ -180,7 +181,8 @@ iOS 首版必须固定拒绝任意远程脚本执行：
   missing、remote script disabled、shared storage failure 和 certificate not installed/installed untrusted/trusted/revoked/unknown。
 
 该 crate 当前不读取 Apple SDK 类型、不启动 Network Extension、不申请 entitlement、不读取或安装证书、不生成 iOS artifact。
-后续 Swift、Xcode 或 Network Extension bridge 源码必须先补充独立 source contract，再由 GitHub Actions
+后续 Swift、Xcode 或 Network Extension bridge 源码必须遵守
+[iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)，再由 GitHub Actions
 `macos-26` runner 验证。
 
 ## First Source Increment Acceptance
@@ -220,7 +222,7 @@ TestFlight upload 或 App Store upload job：
 
 - `crates/platform-ios` 首个源码增量已通过 GitHub Actions。
 - Swift/Network Extension bridge design 已完成并通过 GitHub Actions static governance。
-- Swift/Xcode bridge source contract 已完成并通过 GitHub Actions。
+- Swift/Xcode bridge source contract 已完成并通过 GitHub Actions static governance。
 - Apple Developer、App ID、Network Extension entitlement、Provisioning Profile、GitHub Secrets、
   隐私政策、App Review Notes 和目标地区 VPN 合规材料已完成人工确认。
 - MITM 证书生成、安装、信任检测和撤销设计已完成。

@@ -57,6 +57,7 @@ jobs:
           test -f docs/architecture/ios-network-extension-design.md
           test -f docs/architecture/ios-platform-adapter-source-contract.md
           test -f docs/architecture/ios-swift-network-extension-bridge-design.md
+          test -f docs/architecture/ios-swift-xcode-bridge-source-contract.md
           test -f docs/architecture/linux-artifact-pre-release-design.md
           test -f docs/architecture/linux-platform-adapter.md
           test -f docs/architecture/linux-cli-entrypoint.md
@@ -564,6 +565,28 @@ jobs:
           grep -q "platform.ios.keychain.access_denied" docs/architecture/ios-swift-network-extension-bridge-design.md
           grep -q "platform.ios.remote_script_execution.disabled_by_policy" docs/architecture/ios-swift-network-extension-bridge-design.md
           grep -q "macos-26" docs/architecture/ios-swift-network-extension-bridge-design.md
+          grep -q "iOS Swift Xcode Bridge Source Contract" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "Package.swift" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "NetworkCorePacketTunnel" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "PacketTunnelProvider.swift" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "IosPlatformSnapshotDTO" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "FFI" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "NEPacketTunnelProvider" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "NETunnelProviderManager" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "App Group" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "Keychain" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "IosPlatformSnapshot" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "IosNetworkExtensionProbe" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "IosSharedStorageProbe" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "IosEmbeddedRuntimeProbe" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "IosMitmCertificateProbe" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "CertificateTrustState" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "macos-26" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "swift build" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "swift test" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "xcodebuild" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "signing/provisioning secret" docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q "no iOS release asset" docs/architecture/ios-swift-xcode-bridge-source-contract.md
           grep -q "platform-ios" docs/architecture/ios-platform-adapter-source-contract.md
           grep -q "StaticIosPlatformCapabilityService" docs/architecture/ios-platform-adapter-source-contract.md
           grep -q "IosPlatformSnapshot" docs/architecture/ios-platform-adapter-source-contract.md

@@ -110,7 +110,7 @@ iOS 插件策略：
 
 ## 后续工作
 
-- 已新增 [iOS Network Extension Design](ios-network-extension-design.md)、[iOS Platform Adapter Source Contract](ios-platform-adapter-source-contract.md)、[iOS Swift Network Extension Bridge Design](ios-swift-network-extension-bridge-design.md) 和最小 `platform-ios` 纯 Rust 映射骨架，后续 iOS 工作应先补充 Swift/Xcode bridge source contract。
+- 已新增 [iOS Network Extension Design](ios-network-extension-design.md)、[iOS Platform Adapter Source Contract](ios-platform-adapter-source-contract.md)、[iOS Swift Network Extension Bridge Design](ios-swift-network-extension-bridge-design.md)、[iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md) 和最小 `platform-ios` 纯 Rust 映射骨架，后续 iOS 工作应先补充 embedded runtime FFI boundary design。
 - 发布真实平台产物必须遵守 `docs/release-strategy.md` 中的签名、产物矩阵和回滚门禁。
 - 后续平台 adapter 必须通过 `PlatformCapabilityService` 提供 iOS 能力和证书信任状态。
 
