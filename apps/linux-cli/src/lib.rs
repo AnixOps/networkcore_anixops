@@ -69,6 +69,7 @@ pub enum LinuxCliExitCode {
     PlatformDenied,
     EngineDenied,
     Unavailable,
+    Interrupted,
 }
 
 impl LinuxCliExitCode {
@@ -81,6 +82,7 @@ impl LinuxCliExitCode {
             Self::PlatformDenied => 4,
             Self::EngineDenied => 5,
             Self::Unavailable => 6,
+            Self::Interrupted => 130,
         }
     }
 }
@@ -317,8 +319,35 @@ impl ForegroundLifecycleOutcome {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForegroundLifecycleInterruption {
+    pub reason: String,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl ForegroundLifecycleInterruption {
+    pub fn new(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    pub fn with_diagnostics(mut self, diagnostics: Vec<Diagnostic>) -> Self {
+        self.diagnostics = diagnostics;
+        self
+    }
+}
+
 pub trait ForegroundLifecycleHost {
     fn run_foreground(&self, request: &ForegroundLifecycleRequest) -> ForegroundLifecycleOutcome;
+}
+
+pub trait ForegroundLifecycleInterruptionSource {
+    fn wait_for_interruption(
+        &self,
+        request: &ForegroundLifecycleRequest,
+    ) -> ForegroundLifecycleInterruption;
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -345,18 +374,63 @@ impl ForegroundLifecycleHost for UnavailableForegroundLifecycleHost {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub struct CurrentProcessForegroundLifecycleHost;
+pub struct ParkingForegroundLifecycleInterruptionSource;
 
-impl CurrentProcessForegroundLifecycleHost {
+impl ParkingForegroundLifecycleInterruptionSource {
     pub const fn new() -> Self {
         Self
     }
 }
 
-impl ForegroundLifecycleHost for CurrentProcessForegroundLifecycleHost {
-    fn run_foreground(&self, _request: &ForegroundLifecycleRequest) -> ForegroundLifecycleOutcome {
+impl ForegroundLifecycleInterruptionSource for ParkingForegroundLifecycleInterruptionSource {
+    fn wait_for_interruption(
+        &self,
+        _request: &ForegroundLifecycleRequest,
+    ) -> ForegroundLifecycleInterruption {
         loop {
             thread::park();
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CurrentProcessForegroundLifecycleHost<I = ParkingForegroundLifecycleInterruptionSource> {
+    interruption_source: I,
+}
+
+impl CurrentProcessForegroundLifecycleHost<ParkingForegroundLifecycleInterruptionSource> {
+    pub const fn new() -> Self {
+        Self {
+            interruption_source: ParkingForegroundLifecycleInterruptionSource::new(),
+        }
+    }
+}
+
+impl<I> CurrentProcessForegroundLifecycleHost<I> {
+    pub const fn with_interruption_source(interruption_source: I) -> Self {
+        Self {
+            interruption_source,
+        }
+    }
+}
+
+impl<I> ForegroundLifecycleHost for CurrentProcessForegroundLifecycleHost<I>
+where
+    I: ForegroundLifecycleInterruptionSource,
+{
+    fn run_foreground(&self, request: &ForegroundLifecycleRequest) -> ForegroundLifecycleOutcome {
+        let interruption = self.interruption_source.wait_for_interruption(request);
+        let mut diagnostics = interruption.diagnostics;
+        diagnostics.push(cli_diagnostic(
+            DiagnosticSeverity::Warning,
+            CLI_START_LIFECYCLE_INTERRUPTED_CODE,
+            format!("linux foreground runtime was interrupted: {}", interruption.reason),
+            SOURCE_CLI_START,
+        ));
+
+        ForegroundLifecycleOutcome {
+            exit_code: LinuxCliExitCode::Interrupted,
+            diagnostics,
         }
     }
 }

@@ -14,12 +14,14 @@ use networkcore_linux::{
     handle_capabilities, handle_entrypoint, handle_entrypoint_with_runtime,
     handle_entrypoint_with_runtime_and_lifecycle, handle_foreground_lifecycle,
     handle_prepare_config, handle_start, handle_status, handle_stop, parse_args, render_response,
-    ConfigReadError, ConfigReader, ForegroundLifecycleHost, ForegroundLifecycleOutcome,
-    ForegroundLifecycleRequest, LinuxCliCommand, LinuxCliExitCode, OutputFormat,
-    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
-    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE, CLI_RUNTIME_UNWIRED_CODE,
-    CLI_START_FOREGROUND_ONLY_CODE, CLI_START_LIFECYCLE_FAILED_CODE,
-    CLI_START_LIFECYCLE_HOST_MISSING_CODE, CLI_START_PLATFORM_DENIED_CODE,
+    ConfigReadError, ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
+    ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
+    ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxCliCommand, LinuxCliExitCode,
+    OutputFormat, UnavailableForegroundLifecycleHost, UnavailableProxyEngineService,
+    CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
+    CLI_RUNTIME_UNWIRED_CODE, CLI_START_FOREGROUND_ONLY_CODE,
+    CLI_START_LIFECYCLE_FAILED_CODE, CLI_START_LIFECYCLE_HOST_MISSING_CODE,
+    CLI_START_LIFECYCLE_INTERRUPTED_CODE, CLI_START_PLATFORM_DENIED_CODE,
     CLI_STATUS_NO_RUNTIME_CONTEXT_CODE, CLI_STATUS_PLATFORM_ONLY_CODE,
     CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
 };
@@ -444,6 +446,34 @@ fn foreground_lifecycle_contract_aggregates_success_diagnostics() {
 }
 
 #[test]
+fn current_process_lifecycle_host_maps_interruption_to_stable_exit_contract() {
+    let host = CurrentProcessForegroundLifecycleHost::with_interruption_source(
+        TestForegroundLifecycleInterruptionSource::new("sigint").with_diagnostics(vec![
+            Diagnostic::new(
+                DiagnosticSeverity::Info,
+                "host.signal.received",
+                "foreground host received interruption",
+                Some("host.signal".to_string()),
+            ),
+        ]),
+    );
+
+    let response = handle_foreground_lifecycle(
+        runtime_operation_result(ProxyEngineLifecycleState::Running, Vec::new()),
+        &host,
+    );
+
+    assert!(!response.ok);
+    assert_eq!(response.command, "start");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Interrupted);
+    assert_eq!(response.exit_code.code(), 130);
+    assert!(response.platform.is_some());
+    assert_diagnostic(&response.diagnostics, CLI_START_FOREGROUND_ONLY_CODE);
+    assert_diagnostic(&response.diagnostics, "host.signal.received");
+    assert_diagnostic(&response.diagnostics, CLI_START_LIFECYCLE_INTERRUPTED_CODE);
+}
+
+#[test]
 fn json_output_contains_required_top_level_fields() {
     let platform =
         StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
@@ -529,6 +559,36 @@ impl ForegroundLifecycleHost for TestForegroundLifecycleHost {
     fn run_foreground(&self, request: &ForegroundLifecycleRequest) -> ForegroundLifecycleOutcome {
         assert_eq!(request.engine_status.engine_id.as_str(), DEFAULT_ENGINE_ID);
         self.outcome.clone()
+    }
+}
+
+struct TestForegroundLifecycleInterruptionSource {
+    reason: String,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl TestForegroundLifecycleInterruptionSource {
+    fn new(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    fn with_diagnostics(mut self, diagnostics: Vec<Diagnostic>) -> Self {
+        self.diagnostics = diagnostics;
+        self
+    }
+}
+
+impl ForegroundLifecycleInterruptionSource for TestForegroundLifecycleInterruptionSource {
+    fn wait_for_interruption(
+        &self,
+        request: &ForegroundLifecycleRequest,
+    ) -> ForegroundLifecycleInterruption {
+        assert_eq!(request.engine_status.engine_id.as_str(), DEFAULT_ENGINE_ID);
+        ForegroundLifecycleInterruption::new(self.reason.clone())
+            .with_diagnostics(self.diagnostics.clone())
     }
 }
 

@@ -245,7 +245,8 @@ DNS 配置进入前应继续保守：
 30. 已补充 `engine-native` service start readiness gate，确认有效 runtime assembly plan 已具备，但当时 service-owned runtime state 与 foreground lifecycle handoff 仍阻断 service `start()` 返回 `Running`，继续不接入 `networkcore-linux start`。
 31. 已补充 `engine-native` service-owned runtime state 与 foreground lifecycle handoff 源码合同，`NativeProxyEngineService::start` 可持有 loopback TCP accept loop runtime 并返回 `Running`，`status`/`events`/`stop` 可观察和释放 runtime，继续不接入 `networkcore-linux start`。
 32. 已将 `networkcore-linux start` binary 接入 `NativeProxyEngineService` 与前台 lifecycle host。
-33. 下一步为 `networkcore-linux start` 前台 lifecycle host 补充 signal/interruption 处理合同。
+33. 已为 `networkcore-linux start` 前台 lifecycle host 补充 signal/interruption 处理合同。
+34. 下一步为 `CurrentProcessForegroundLifecycleHost` 接入真实 OS signal/interruption source。
 
 每个阶段都必须同步 README、TODO、CHANGELOG、设计文档和合同测试，并只通过 GitHub Actions 验证。
 
@@ -280,5 +281,5 @@ DNS 配置进入前应继续保守：
 
 ## 后续工作
 
-- 为 `networkcore-linux start` 前台 lifecycle host 补充 signal/interruption 处理合同，继续保持无 daemon/control socket 边界。
+- 为 `CurrentProcessForegroundLifecycleHost` 接入真实 OS signal/interruption source，继续保持无 daemon/control socket 边界。
 - 在 foreground lifecycle 退出路径完成并通过 GitHub Actions 验证前，继续阻止 Linux release artifact。

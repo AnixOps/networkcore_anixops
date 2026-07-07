@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 为 `networkcore-linux start` 前台 lifecycle host 补充 signal/interruption 处理合同，继续保持无 daemon/control socket 边界。
+- [ ] 为 `CurrentProcessForegroundLifecycleHost` 接入真实 OS signal/interruption source，继续保持无 daemon/control socket 边界。
 
 ## 已完成
 
+- [x] 为 `networkcore-linux start` 前台 lifecycle host 补充 signal/interruption 处理合同，新增可注入 interruption source、`cli.linux.start.lifecycle_interrupted` 诊断和 130 退出码映射，继续保持无 daemon/control socket 边界。
 - [x] 将 `networkcore-linux start` binary 接入 `NativeProxyEngineService` 与前台 lifecycle host，继续保持无 daemon/control socket 边界。
 - [x] 在 `engine-native` 中补充 service-owned runtime state 与 foreground lifecycle handoff 源码合同，`NativeProxyEngineService::start` 可持有 loopback TCP accept loop runtime 并返回 `Running`，`status`/`events`/`stop` 可观察和释放 runtime，继续不接入 `networkcore-linux start` binary。
 - [x] 在 `engine-native` 中补充 service start readiness gate 诊断合同，确认有效 runtime assembly plan 已具备但 service-owned runtime state 与 foreground lifecycle handoff 仍阻断 `NativeProxyEngineService::start` 返回 `Running`，继续不接入 `networkcore-linux start`。
