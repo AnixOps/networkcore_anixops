@@ -10,6 +10,8 @@ use engine_native::{
     NativeProxyEngineService, ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE,
     ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE, ENGINE_NATIVE_START_RUNNING_CODE,
 };
+#[cfg(unix)]
+use networkcore_linux::OsSignalForegroundLifecycleInterruptionSource;
 use networkcore_linux::{
     handle_capabilities, handle_entrypoint, handle_entrypoint_with_runtime,
     handle_entrypoint_with_runtime_and_lifecycle, handle_foreground_lifecycle,
@@ -25,8 +27,6 @@ use networkcore_linux::{
     CLI_STATUS_NO_RUNTIME_CONTEXT_CODE, CLI_STATUS_PLATFORM_ONLY_CODE,
     CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
 };
-#[cfg(unix)]
-use networkcore_linux::OsSignalForegroundLifecycleInterruptionSource;
 use platform_linux::{
     linux_diagnostic, LinuxCertificateProbe, LinuxDnsManagerState, LinuxFeatureProbe,
     LinuxPlatformSnapshot, LinuxPrivilegeProbe, LinuxReadOnlyProbe, LinuxReadOnlyProbeSnapshot,

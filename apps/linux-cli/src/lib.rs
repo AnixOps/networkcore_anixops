@@ -11,12 +11,12 @@ use control_domain::{
     ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
 };
 use control_runtime::{RuntimeConfigRequest, RuntimeOperationResult, RuntimeOrchestrator};
+use serde::Serialize;
 #[cfg(unix)]
 use signal_hook::{
     consts::signal::{SIGINT, SIGTERM},
     iterator::Signals,
 };
-use serde::Serialize;
 use std::thread;
 
 pub const COMMAND_NAME: &str = "networkcore-linux";
