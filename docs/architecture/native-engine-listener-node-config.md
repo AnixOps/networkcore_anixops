@@ -254,7 +254,8 @@ DNS 配置进入前应继续保守：
 39. 已在 release placeholder summary 中补充 license/NOTICE source contract 状态，继续不生成 artifact。
 40. 已补充 release CI success source contract，定义真实 `package-linux` 前同 commit CI run/source 字段，继续不生成 artifact。
 41. 已补充 Linux package runner/toolchain/target 输入合同，固定首个 Linux packaging runner、Rust toolchain、target triple、crate、binary 和 archive naming 输入，仍不生成 artifact。
-42. 下一步补充 `package-linux` archive staging、文件来源和顶层目录组装合同，仍不生成 artifact。
+42. 已补充 Linux package archive staging contract，固定 future `package-linux` staging/output/top-level directory、archive path 和允许文件来源，仍不生成 artifact。
+43. 下一步补充 `package-linux` checksum 文件命名、sha256 计算顺序和 manifest checksum 交叉校验合同，仍不生成 artifact。
 
 每个阶段都必须同步 README、TODO、CHANGELOG、设计文档和合同测试，并只通过 GitHub Actions 验证。
 
@@ -289,5 +290,5 @@ DNS 配置进入前应继续保守：
 
 ## 后续工作
 
-- Linux artifact readiness/release gate 已纳入 foreground stop/release 合同检查、artifact manifest 输出合同、license/NOTICE confirmation source contract、release placeholder license/NOTICE pending 状态 summary、release CI success source contract 和 package runner/toolchain/target contract，并继续保持 pending marker 未确认时不生成 `package-linux` artifact。
-- 下一步补充 `package-linux` archive staging、文件来源和顶层目录组装合同，仍不生成 artifact。
+- Linux artifact readiness/release gate 已纳入 foreground stop/release 合同检查、artifact manifest 输出合同、license/NOTICE confirmation source contract、release placeholder license/NOTICE pending 状态 summary、release CI success source contract、package runner/toolchain/target contract 和 archive staging contract，并继续保持 pending marker 未确认时不生成 `package-linux` artifact。
+- 下一步补充 `package-linux` checksum 文件命名、sha256 计算顺序和 manifest checksum 交叉校验合同，仍不生成 artifact。

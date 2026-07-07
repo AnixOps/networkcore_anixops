@@ -1,6 +1,6 @@
 # Linux CLI Artifact Installation And Rollback Design
 
-本文件定义首个 `networkcore-linux` CLI 压缩包进入 release workflow 前必须满足的安装、卸载和回滚边界。它承接 [Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md)、[Linux CLI Entrypoint Design](linux-cli-entrypoint.md)、[Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md)、[Linux Artifact License Notice Confirmation Design](linux-artifact-license-notice-confirmation.md)、[Release CI Success Source Contract](release-ci-success-source-contract.md)、[Linux Package Runner Toolchain Target Contract](linux-package-runner-toolchain-target-contract.md) 和 [Release Strategy](../release-strategy.md)，不是当前可下载产物说明。
+本文件定义首个 `networkcore-linux` CLI 压缩包进入 release workflow 前必须满足的安装、卸载和回滚边界。它承接 [Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md)、[Linux CLI Entrypoint Design](linux-cli-entrypoint.md)、[Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md)、[Linux Artifact License Notice Confirmation Design](linux-artifact-license-notice-confirmation.md)、[Release CI Success Source Contract](release-ci-success-source-contract.md)、[Linux Package Runner Toolchain Target Contract](linux-package-runner-toolchain-target-contract.md)、[Linux Package Archive Staging Contract](linux-package-archive-staging-contract.md) 和 [Release Strategy](../release-strategy.md)，不是当前可下载产物说明。
 
 评估时间：2026-07-06。
 
@@ -118,11 +118,11 @@ release notes 和 release summary 必须输出：
 真实 `package-linux` job 加入 `.github/workflows/release.yml` 前必须满足：
 
 - `apps/linux-cli` 源码存在，并在 `main` 同 commit 上通过 CI 的 Rust format、lint、test、build 和 dependency audit。
-- [Linux Platform Adapter Design](linux-platform-adapter.md)、[Linux CLI Entrypoint Design](linux-cli-entrypoint.md)、[Linux CLI Runtime Wiring Design](linux-cli-runtime-wiring.md)、[Native Engine Listener And Node Config Design](native-engine-listener-node-config.md)、[Linux Native Proxy Engine Start Design](linux-native-proxy-engine-start.md)、[Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md)、[Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md)、[Linux Artifact License Notice Confirmation Design](linux-artifact-license-notice-confirmation.md)、[Release CI Success Source Contract](release-ci-success-source-contract.md)、[Linux Package Runner Toolchain Target Contract](linux-package-runner-toolchain-target-contract.md) 和本文档均通过 CI governance 检查。
-- `linux-artifact-readiness` release job 检查 CLI 源码、platform adapter、native listener/node 配置设计、foreground stop/release 源码与合同测试、artifact manifest 合同设计、license/NOTICE confirmation source contract、release CI success source contract、package runner/toolchain/target contract、安装/回滚设计和 license/NOTICE pending marker，并继续阻止 release asset 上传。
+- [Linux Platform Adapter Design](linux-platform-adapter.md)、[Linux CLI Entrypoint Design](linux-cli-entrypoint.md)、[Linux CLI Runtime Wiring Design](linux-cli-runtime-wiring.md)、[Native Engine Listener And Node Config Design](native-engine-listener-node-config.md)、[Linux Native Proxy Engine Start Design](linux-native-proxy-engine-start.md)、[Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md)、[Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md)、[Linux Artifact License Notice Confirmation Design](linux-artifact-license-notice-confirmation.md)、[Release CI Success Source Contract](release-ci-success-source-contract.md)、[Linux Package Runner Toolchain Target Contract](linux-package-runner-toolchain-target-contract.md)、[Linux Package Archive Staging Contract](linux-package-archive-staging-contract.md) 和本文档均通过 CI governance 检查。
+- `linux-artifact-readiness` release job 检查 CLI 源码、platform adapter、native listener/node 配置设计、foreground stop/release 源码与合同测试、artifact manifest 合同设计、license/NOTICE confirmation source contract、release CI success source contract、package runner/toolchain/target contract、archive staging contract、安装/回滚设计和 license/NOTICE pending marker，并继续阻止 release asset 上传。
 - `release-ci-gate` 输出 release CI success source contract 和 required CI run/source 字段，真实 `package-linux` 前必须替换为同 commit 成功 CI run 自动读取门禁。
 - `docs/manual-intervention.md` 中的 `linux-artifact-license-notice-status` 必须从 `pending` 切换到 `confirmed` 后，真实 `package-linux` 才能进入后续 CI、checksum、manifest、签名/证明和回滚门禁。
-- release job 明确 runner、Rust toolchain、target triple、crate、binary、artifact 文件名、顶层目录和上传路径，并与 package runner/toolchain/target contract 一致。
+- release job 明确 runner、Rust toolchain、target triple、crate、binary、artifact 文件名、staging 目录、顶层目录、文件来源和上传路径，并与 package runner/toolchain/target contract、archive staging contract 一致。
 - release job 输出 `artifact_name`、`artifact_path`、`checksum_algorithm`、`checksum_file`、`checksum_value`。
 - release job 输出 `artifact_manifest_name`、`artifact_manifest_path`、`artifact_manifest_checksum_file`、`artifact_manifest_checksum_value`。
 - release job 输出 `signing_policy`、`signing_status`、`attestation_status`、`provenance_file`。
@@ -135,6 +135,7 @@ release notes 和 release summary 必须输出：
 ## 验收条件
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计和 CI policy 中可发现。
+- [Linux Package Archive Staging Contract](linux-package-archive-staging-contract.md) 保持与本文档的手动解压、禁止系统变更和顶层目录边界一致。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - TODO 把本设计标记为完成，并指向下一步最小 release workflow 增量。
 - 当前 `apps/linux-cli` 仍可作为源码前置条件，但不因本文档完成而自动成为可发布 artifact。

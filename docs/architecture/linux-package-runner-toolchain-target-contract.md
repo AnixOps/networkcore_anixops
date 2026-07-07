@@ -12,6 +12,7 @@ runner、Rust toolchain 和 target triple 输入合同。当前仍为 placeholde
 - 明确后续 `package-linux` job 必须在 GitHub Actions 中声明和输出的 runner、
   Rust toolchain、target triple、crate、binary 和 archive naming 字段。
 - 让 release summary、artifact manifest 和后续 publish gate 使用同一组平台输入字段。
+- 让 archive staging 合同复用同一组 version、target、archive name 和顶层目录字段。
 - 在 license/NOTICE 人工确认、同 commit CI success gate、checksum、manifest、签名/证明和回滚门禁完成前继续阻止真实 artifact。
 
 ## 非目标
@@ -66,9 +67,11 @@ runner、Rust toolchain 和 target triple 输入合同。当前仍为 placeholde
 | `package_install_model` | 固定为 `manual-extract` |
 | `package_system_mutation_policy` | 固定为 `none` |
 
-这些字段必须与 [Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md)
-中的 manifest `runner`、`rust_toolchain`、`target_triple`、`artifact_name`、
-`package_format`、`install_model` 和 `system_mutation_policy` 一致。
+这些字段必须与 [Linux Package Archive Staging Contract](linux-package-archive-staging-contract.md)
+中的 staging/output/top-level directory、archive path 和文件来源字段一致，也必须与
+[Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md) 中的 manifest
+`runner`、`rust_toolchain`、`target_triple`、`artifact_name`、`package_format`、
+`install_model` 和 `system_mutation_policy` 一致。
 
 ## Rejection Rules
 
@@ -121,10 +124,13 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、Git
   release placeholder/summary 输出字段。
 - release placeholder 和 release summary 输出 runner/toolchain/target/crate/binary/archive
   naming 合同字段。
+- release placeholder 和 release summary 输出的 archive staging 字段必须复用本文档定义的
+  `package_archive_name`、`package_top_level_dir` 和 `package_dist_dir`。
 - 不生成 artifact、不定义 `package-linux`、不上传 release asset、不在本机执行测试、
   构建、打包或发布。
 
 ## 后续工作
 
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
-- 下一步可以补充 `package-linux` archive staging、文件来源和顶层目录组装合同，仍不生成 artifact。
+- Linux package archive staging contract 已定义；下一步可以补充 `package-linux` checksum 文件命名、
+  sha256 计算顺序和 manifest checksum 交叉校验合同，仍不生成 artifact。

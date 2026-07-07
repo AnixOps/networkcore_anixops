@@ -237,6 +237,7 @@ jobs:
           test -f docs/architecture/linux-artifact-license-notice-confirmation.md
           test -f docs/architecture/release-ci-success-source-contract.md
           test -f docs/architecture/linux-package-runner-toolchain-target-contract.md
+          test -f docs/architecture/linux-package-archive-staging-contract.md
           test -f docs/manual-intervention.md
           grep -q "networkcore-linux" apps/linux-cli/README.md
           grep -q "handle_foreground_lifecycle_with_runtime_stop" apps/linux-cli/src/lib.rs
@@ -257,10 +258,13 @@ jobs:
           grep -q "Linux Artifact License Notice Confirmation Design" docs/architecture/linux-artifact-license-notice-confirmation.md
           grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
           grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
+          grep -q "Linux Package Archive Staging Contract" docs/architecture/linux-package-archive-staging-contract.md
           grep -q "artifact_manifest_path" docs/architecture/linux-package-artifact-manifest.md
           grep -q "artifact_manifest_checksum_value" docs/architecture/linux-package-artifact-manifest.md
           grep -q "rust_target_triple" docs/architecture/linux-package-runner-toolchain-target-contract.md
           grep -q "x86_64-unknown-linux-gnu" docs/architecture/linux-package-runner-toolchain-target-contract.md
+          grep -q "package_archive_staging_dir" docs/architecture/linux-package-archive-staging-contract.md
+          grep -q "bin/networkcore-linux" docs/architecture/linux-package-archive-staging-contract.md
           grep -q "Linux Artifact Manifest Output Contract" .github/workflows/release.yml
           grep -q "linux-artifact-manifest-output-fields" .github/workflows/release.yml
           grep -q "Linux Artifact License/NOTICE Source Contract" .github/workflows/release.yml
@@ -270,6 +274,9 @@ jobs:
           grep -q "Linux Package Platform Input Contract" .github/workflows/release.yml
           grep -q "linux-package-platform-input-contract=present" .github/workflows/release.yml
           grep -q "linux-package-required-target=x86_64-unknown-linux-gnu" .github/workflows/release.yml
+          grep -q "Linux Package Archive Staging Contract" .github/workflows/release.yml
+          grep -q "linux-package-archive-staging-contract=present" .github/workflows/release.yml
+          grep -Fq 'linux-package-required-staging-root=dist/linux/${target}/staging' .github/workflows/release.yml
           grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-package-linux=blocked" docs/manual-intervention.md
@@ -294,6 +301,7 @@ jobs:
             echo "| Artifact manifest contract design | present |"
             echo "| License/NOTICE confirmation source contract | present |"
             echo "| Package runner/toolchain/target contract | present |"
+            echo "| Package archive staging contract | present |"
             echo "| Install and rollback design | present |"
             echo "| License or NOTICE confirmation | pending in docs/manual-intervention.md |"
             echo "| Release asset upload | blocked until package-linux, checksum, signing/attestation, rollback, and license/NOTICE gates are complete |"
@@ -321,6 +329,19 @@ jobs:
           echo "linux-package-required-format=tar.gz"
           echo "linux-package-required-install-model=manual-extract"
           echo "linux-package-required-system-mutation-policy=none"
+          echo "linux-package-archive-staging-contract=present"
+          echo "linux-package-staging-contract=docs/architecture/linux-package-archive-staging-contract.md"
+          echo 'linux-package-required-dist-dir=dist/linux/${target}'
+          echo 'linux-package-required-staging-root=dist/linux/${target}/staging'
+          echo 'linux-package-required-top-level-dir=networkcore-linux-${version}-${target}'
+          echo 'linux-package-required-staging-dir=dist/linux/${target}/staging/networkcore-linux-${version}-${target}'
+          echo 'linux-package-required-output-dir=dist/linux/${target}/artifacts'
+          echo 'linux-package-required-archive-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz'
+          echo 'linux-package-required-binary-source=target/${target}/release/networkcore-linux'
+          echo "linux-package-required-binary-archive-path=bin/networkcore-linux"
+          echo "linux-package-required-install-doc=INSTALL.md"
+          echo "linux-package-required-license-source=license-notice-confirmed"
+          echo "linux-package-required-changelog-source=CHANGELOG.md"
           echo "linux-artifact-install-rollback-design=present"
           echo "linux-artifact-license-notice=manual-confirmation-required"
           echo "linux-artifact-release-assets=blocked"
@@ -383,6 +404,26 @@ jobs:
             echo "| Current package-linux job | not defined |"
             echo "| Current release asset upload | blocked |"
             echo
+            echo "### Linux Package Archive Staging Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | placeholder summary only |"
+            echo "| Source contract | docs/architecture/linux-package-archive-staging-contract.md |"
+            echo '| Required dist dir | dist/linux/${target} |'
+            echo '| Required staging root | dist/linux/${target}/staging |'
+            echo '| Required top-level dir | networkcore-linux-${version}-${target} |'
+            echo '| Required staging dir | dist/linux/${target}/staging/networkcore-linux-${version}-${target} |'
+            echo '| Required output dir | dist/linux/${target}/artifacts |'
+            echo '| Required archive path | dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz |'
+            echo '| Required binary source | target/${target}/release/networkcore-linux |'
+            echo "| Required binary archive path | bin/networkcore-linux |"
+            echo "| Required install doc | INSTALL.md |"
+            echo "| Required license source | license-notice-confirmed |"
+            echo "| Required changelog source | CHANGELOG.md |"
+            echo "| Current package-linux job | not defined |"
+            echo "| Current release asset upload | blocked |"
+            echo
             echo "### Linux Artifact License/NOTICE Source Contract"
             echo
             echo "| Item | Status |"
@@ -413,6 +454,19 @@ jobs:
           echo "linux-package-required-format=tar.gz"
           echo "linux-package-required-install-model=manual-extract"
           echo "linux-package-required-system-mutation-policy=none"
+          echo "linux-package-archive-staging-contract=present"
+          echo "linux-package-staging-contract=docs/architecture/linux-package-archive-staging-contract.md"
+          echo 'linux-package-required-dist-dir=dist/linux/${target}'
+          echo 'linux-package-required-staging-root=dist/linux/${target}/staging'
+          echo 'linux-package-required-top-level-dir=networkcore-linux-${version}-${target}'
+          echo 'linux-package-required-staging-dir=dist/linux/${target}/staging/networkcore-linux-${version}-${target}'
+          echo 'linux-package-required-output-dir=dist/linux/${target}/artifacts'
+          echo 'linux-package-required-archive-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz'
+          echo 'linux-package-required-binary-source=target/${target}/release/networkcore-linux'
+          echo "linux-package-required-binary-archive-path=bin/networkcore-linux"
+          echo "linux-package-required-install-doc=INSTALL.md"
+          echo "linux-package-required-license-source=license-notice-confirmed"
+          echo "linux-package-required-changelog-source=CHANGELOG.md"
           echo "linux-artifact-license-notice-contract=present"
           echo "linux-artifact-license-notice-source=docs/manual-intervention.md"
           echo "linux-artifact-license-notice-status=pending"
@@ -476,6 +530,10 @@ jobs:
             echo "| Linux package required target | x86_64-unknown-linux-gnu |"
             echo "| Linux package required crate | apps/linux-cli |"
             echo "| Linux package required binary | networkcore-linux |"
+            echo "| Linux package archive staging contract | summarized in release-placeholder |"
+            echo '| Linux package required staging root | dist/linux/${target}/staging |'
+            echo '| Linux package required top-level dir | networkcore-linux-${version}-${target} |'
+            echo "| Linux package required binary archive path | bin/networkcore-linux |"
             echo "| Linux artifact license/NOTICE contract | checked in linux-artifact-readiness |"
             echo "| Linux artifact license/NOTICE status | pending in docs/manual-intervention.md |"
             echo "| Release placeholder | ${{ needs.release-placeholder.result }} |"
@@ -518,6 +576,19 @@ jobs:
           echo "linux-package-required-format=tar.gz"
           echo "linux-package-required-install-model=manual-extract"
           echo "linux-package-required-system-mutation-policy=none"
+          echo "linux-package-archive-staging-contract=present"
+          echo "linux-package-staging-contract=docs/architecture/linux-package-archive-staging-contract.md"
+          echo 'linux-package-required-dist-dir=dist/linux/${target}'
+          echo 'linux-package-required-staging-root=dist/linux/${target}/staging'
+          echo 'linux-package-required-top-level-dir=networkcore-linux-${version}-${target}'
+          echo 'linux-package-required-staging-dir=dist/linux/${target}/staging/networkcore-linux-${version}-${target}'
+          echo 'linux-package-required-output-dir=dist/linux/${target}/artifacts'
+          echo 'linux-package-required-archive-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz'
+          echo 'linux-package-required-binary-source=target/${target}/release/networkcore-linux'
+          echo "linux-package-required-binary-archive-path=bin/networkcore-linux"
+          echo "linux-package-required-install-doc=INSTALL.md"
+          echo "linux-package-required-license-source=license-notice-confirmed"
+          echo "linux-package-required-changelog-source=CHANGELOG.md"
           echo "linux-artifact-license-notice-contract=present"
           echo "linux-artifact-license-notice-source=docs/manual-intervention.md"
           echo "linux-artifact-license-notice-status=pending"

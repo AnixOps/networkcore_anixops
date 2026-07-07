@@ -102,7 +102,8 @@ placeholder 阶段的 `linux-artifact-readiness` 必须：
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux
   package artifact manifest 设计、Linux CLI artifact 安装/回滚设计、Release CI success
-  source contract、Linux package runner/toolchain/target contract 和 CI policy 中可发现。
+  source contract、Linux package runner/toolchain/target contract、Linux package archive
+  staging contract 和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题和
   `docs/manual-intervention.md` 的 pending marker。
@@ -113,5 +114,6 @@ placeholder 阶段的 `linux-artifact-readiness` 必须：
 ## 后续工作
 
 - 在人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
-- Release CI success source contract 和 Linux package runner/toolchain/target contract 已定义；
-  下一步可以补充 `package-linux` archive staging、文件来源和顶层目录组装合同，仍不生成 artifact。
+- Release CI success source contract、Linux package runner/toolchain/target contract 和 Linux
+  package archive staging contract 已定义；下一步可以补充 `package-linux` checksum 文件命名、
+  sha256 计算顺序和 manifest checksum 交叉校验合同，仍不生成 artifact。

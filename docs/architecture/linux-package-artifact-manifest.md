@@ -6,7 +6,8 @@ artifact manifest 和 metadata 输出合同。它承接
 [Linux CLI Artifact Installation And Rollback Design](linux-cli-artifact-installation-rollback.md)、
 [Linux Artifact License Notice Confirmation Design](linux-artifact-license-notice-confirmation.md)、
 [Release CI Success Source Contract](release-ci-success-source-contract.md)、
-[Linux Package Runner Toolchain Target Contract](linux-package-runner-toolchain-target-contract.md) 和
+[Linux Package Runner Toolchain Target Contract](linux-package-runner-toolchain-target-contract.md)、
+[Linux Package Archive Staging Contract](linux-package-archive-staging-contract.md) 和
 [Release Strategy](../release-strategy.md)。当前仓库仍不生成 Linux artifact；
 本文件只定义后续 packaging job 的可检查字段。
 
@@ -74,7 +75,7 @@ manifest 顶层字段必须稳定、显式、可由自动化读取：
 | `rust_toolchain` | packaging job 使用的 Rust toolchain，首个 artifact 固定为 `stable` |
 | `archive` | archive 文件名、相对路径和 size bytes |
 | `checksum` | archive checksum 算法、文件名和值 |
-| `included_files` | 压缩包内文件清单和来源 |
+| `included_files` | 压缩包内文件清单和来源，必须来自 archive staging contract |
 | `install_model` | 固定为 `manual-extract`，除非安装设计先更新 |
 | `system_mutation_policy` | 固定为 `none`，首个 artifact 不修改系统状态 |
 | `license_notice_status` | license/NOTICE 确认状态；未确认时不得生成 artifact |
@@ -99,7 +100,7 @@ manifest 顶层字段必须稳定、显式、可由自动化读取：
   "rust_toolchain": "stable",
   "archive": {
     "file_name": "networkcore-linux-v0.1.0-x86_64-unknown-linux-gnu.tar.gz",
-    "relative_path": "dist/networkcore-linux-v0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+    "relative_path": "dist/linux/x86_64-unknown-linux-gnu/artifacts/networkcore-linux-v0.1.0-x86_64-unknown-linux-gnu.tar.gz",
     "size_bytes": 0
   },
   "checksum": {
@@ -115,7 +116,7 @@ manifest 顶层字段必须稳定、显式、可由自动化读取：
       "source": "apps/linux-cli"
     },
     {
-      "path": "README.md",
+      "path": "INSTALL.md",
       "kind": "documentation",
       "required": true,
       "source": "generated-from-repo-docs"
@@ -162,26 +163,29 @@ manifest 顶层字段必须稳定、显式、可由自动化读取：
 1. 确认 `docs/manual-intervention.md` 中的 license/NOTICE 状态为 `confirmed`。
 2. 确认 `release-ci-gate` 已按 [Release CI Success Source Contract](release-ci-success-source-contract.md) 读取同 commit 成功 CI run 字段。
 3. 确认 `package-linux` 已按 [Linux Package Runner Toolchain Target Contract](linux-package-runner-toolchain-target-contract.md) 声明 runner、Rust toolchain、target triple、crate、binary 和 archive naming 输入。
-4. 在 GitHub Actions runner 中构建 `networkcore-linux`。
-5. 组装只含允许文件的顶层目录。
-6. 创建 `.tar.gz` archive。
-7. 计算 archive sha256。
-8. 创建 manifest JSON。
-9. 计算 manifest sha256。
-10. 输出 archive、archive checksum、manifest 和 manifest checksum 字段。
-11. release summary 展示字段；后续 publish job 才能上传。
+4. 确认 `package-linux` 已按 [Linux Package Archive Staging Contract](linux-package-archive-staging-contract.md) 声明 staging/output/top-level directory、archive path 和允许文件来源。
+5. 在 GitHub Actions runner 中构建 `networkcore-linux`。
+6. 按 archive staging contract 组装只含允许文件的顶层目录。
+7. 创建 `.tar.gz` archive。
+8. 计算 archive sha256。
+9. 创建 manifest JSON。
+10. 计算 manifest sha256。
+11. 输出 archive、archive checksum、manifest 和 manifest checksum 字段。
+12. release summary 展示字段；后续 publish job 才能上传。
 
 manifest 不得反向参与 archive checksum。这样用户可以独立校验 archive 和
 manifest，release summary 也能引用两个 checksum。
 
 ## 文件清单边界
 
-首个 manifest 的 `included_files` 必须至少覆盖：
+首个 manifest 的 `included_files` 必须至少覆盖以下路径，并与
+[Linux Package Archive Staging Contract](linux-package-archive-staging-contract.md) 中的
+Required Archive Contents 保持一致：
 
 | path | kind | required | source |
 | --- | --- | --- | --- |
 | `bin/networkcore-linux` | `binary` | `true` | `apps/linux-cli` |
-| `README.md` 或 `INSTALL.md` | `documentation` | `true` | repo docs 或 packaging 生成文档 |
+| `INSTALL.md` | `documentation` | `true` | repo docs 或 packaging 生成文档 |
 | `LICENSE` | `license` | `true` | 人工确认后的 license/NOTICE 来源 |
 | `CHANGELOG.md` | `changelog` | `true` | `CHANGELOG.md` |
 
@@ -215,12 +219,12 @@ manifest，release summary 也能引用两个 checksum。
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux CLI artifact 安装/回滚设计和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
-- `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、release CI success source contract、package runner/toolchain/target contract、license/NOTICE source contract、release placeholder manifest output summary 和 license/NOTICE source contract summary，但继续拒绝定义 `package-linux` job。
-- release CI gate、release placeholder 和 release summary 输出 CI success source contract、package runner/toolchain/target contract、manifest output contract 字段清单与 license/NOTICE source contract pending 状态。
+- `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、release CI success source contract、package runner/toolchain/target contract、archive staging contract、license/NOTICE source contract、release placeholder manifest output summary 和 license/NOTICE source contract summary，但继续拒绝定义 `package-linux` job。
+- release CI gate、release placeholder 和 release summary 输出 CI success source contract、package runner/toolchain/target contract、archive staging contract、manifest output contract 字段清单与 license/NOTICE source contract pending 状态。
 - TODO 指向下一步最小 release workflow 或 release governance 增量。
 - 不生成 artifact、不上传 release asset、不在本机执行测试、构建、打包或发布。
 
 ## 后续工作
 
 - 在 license/NOTICE 人工确认完成前，继续不实现 `package-linux`。
-- 下一步可以补充 `package-linux` archive staging、文件来源和顶层目录组装合同，仍不生成 artifact。
+- 下一步可以补充 `package-linux` checksum 文件命名、sha256 计算顺序和 manifest checksum 交叉校验合同，仍不生成 artifact。
