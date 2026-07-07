@@ -59,14 +59,14 @@ fn find_mingw_prefix() -> PathBuf {
     }
     if let Ok(location) = env::var("MSYS2_LOCATION") {
         let location = PathBuf::from(location);
-        candidates.push(location.join("ucrt64"));
         candidates.push(location.join("mingw64"));
+        candidates.push(location.join("ucrt64"));
     }
-    candidates.push(PathBuf::from("C:/msys64/ucrt64"));
     candidates.push(PathBuf::from("C:/msys64/mingw64"));
+    candidates.push(PathBuf::from("C:/msys64/ucrt64"));
 
     let missing_regex_message =
-        "unable to locate MinGW regex.h; install MSYS2 UCRT64 and mingw-w64-ucrt-x86_64-libsystre";
+        "unable to locate MinGW regex.h; install MSYS2 MINGW64 and mingw-w64-x86_64-libsystre";
 
     candidates
         .into_iter()

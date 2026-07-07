@@ -650,18 +650,18 @@ jobs:
         uses: msys2/setup-msys2@v2
         id: msys2
         with:
-          msystem: UCRT64
+          msystem: MINGW64
           update: true
           install: >-
-            mingw-w64-ucrt-x86_64-gcc
-            mingw-w64-ucrt-x86_64-libsystre
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-libsystre
 
       - name: Configure Windows Rust GNU target
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $MsysRoot = "${{ steps.msys2.outputs.msys2-location }}"
-          $MingwPrefix = Join-Path $MsysRoot "ucrt64"
+          $MingwPrefix = Join-Path $MsysRoot "mingw64"
           "$MingwPrefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           "MSYS2_LOCATION=$MsysRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "MINGW_PREFIX=$MingwPrefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
