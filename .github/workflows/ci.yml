@@ -66,6 +66,7 @@ jobs:
           test -f docs/architecture/ios-app-review-manual-confirmation-source-contract.md
           test -f docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
           test -f docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          test -f docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
           test -f docs/architecture/linux-artifact-pre-release-design.md
           test -f docs/architecture/linux-platform-adapter.md
           test -f docs/architecture/linux-cli-entrypoint.md
@@ -109,6 +110,24 @@ jobs:
           grep -q "ios-upload-readiness" .github/workflows/release.yml
           grep -q "iOS upload readiness" .github/workflows/release.yml
           grep -q "iOS Upload Workflow Activation Validation Contract" .github/workflows/release.yml
+          grep -q "iOS Swift Xcode Source Tree Activation Preflight Contract" .github/workflows/release.yml
+          test "$(grep -Ec '^          echo "ios-source-tree-preflight-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-source-tree-preflight-source=ios-upload-readiness"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-source-tree-preflight-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-source-tree-preflight-current-mode=contract-only-no-ios-source-tree"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-source-tree-preflight-contract-path=docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-source-tree-preflight-root=apps/ios"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-source-tree-preflight-root-status=not-present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-source-tree-preflight-package-swift=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-source-tree-preflight-xcode-project=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-source-tree-preflight-network-extension-target=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-source-tree-preflight-privacy-manifest=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-source-tree-preflight-entitlement-provisioning=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-source-tree-preflight-macos-runner=macos-26"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-source-tree-preflight-source-scan=blocked-before-source"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-source-tree-preflight-upload-enabled-marker=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-source-tree-preflight-release-upload=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-source-tree-preflight-next-action=apps-ios-source-tree-readme-before-swift-files"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "ios-upload-workflow-activation-contract=present"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "ios-upload-workflow-activation-source=ios-upload-readiness"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "ios-upload-workflow-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
@@ -828,6 +847,19 @@ jobs:
           grep -q "blocked-placeholder" docs/architecture/ios-upload-workflow-activation-validation-contract.md
           grep -q "macos-26" docs/architecture/ios-upload-workflow-activation-validation-contract.md
           grep -q "no iOS release asset" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "iOS Swift Xcode Source Tree Activation Preflight Contract" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
+          grep -q "apps/ios" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
+          grep -q "Package.swift" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
+          grep -q "Xcode project" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
+          grep -q "NetworkCorePacketTunnel" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
+          grep -q "PrivacyInfo.xcprivacy" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
+          grep -q "entitlement/provisioning" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
+          grep -q "macos-26 source scan" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
+          grep -q "upload workflow enabled marker" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
+          grep -q "release/upload blocked" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
+          grep -q "ios-source-tree-preflight" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
+          grep -q "blocked-placeholder" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
+          grep -q "no iOS release asset" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
           grep -q "ios-app-review-manual-confirmation-status=pending" docs/manual-intervention.md
           grep -q "ios-app-review-manual-confirmation-source-contract=docs/architecture/ios-app-review-manual-confirmation-source-contract.md" docs/manual-intervention.md
           grep -q "ios-app-review-app-privacy-answers=blocked" docs/manual-intervention.md
@@ -859,8 +891,8 @@ jobs:
           grep -q "ios-upload-workflow-build-processing-check=blocked" docs/manual-intervention.md
           grep -q "ios-upload-workflow-confirmed-at=pending" docs/manual-intervention.md
           grep -q "ios-upload-workflow-confirmed-by=pending" docs/manual-intervention.md
-          if find . -path ./.git -prune -o \( -type f \( -name "PrivacyInfo.xcprivacy" -o -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" -o -name "ExportOptions.plist" -o -name "*.ipa" \) -o -type d \( -name "*.xcarchive" -o -name "*.xcresult" -o -name "*.dSYM" \) \) -print -quit | grep -q .; then
-            echo "::error::iOS PrivacyInfo, entitlement, provisioning, signing, binary embedding, archive/export, or upload material must stay out of the repository until the iOS source contracts allow it."
+          if find . -path ./.git -prune -o \( -type f \( -name "Package.swift" -o -name "*.swift" -o -name "PrivacyInfo.xcprivacy" -o -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" -o -name "ExportOptions.plist" -o -name "*.ipa" \) -o -type d \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "*.xcarchive" -o -name "*.xcresult" -o -name "*.dSYM" \) \) -print -quit | grep -q .; then
+            echo "::error::iOS Swift source tree, Package.swift, Xcode project, PrivacyInfo, entitlement, provisioning, signing, binary embedding, archive/export, or upload material must stay out of the repository until the iOS source contracts allow it."
             exit 1
           fi
           if grep -Eq '^  (ios-archive-export|ios-upload-testflight|ios-build-processing-gate|ios-app-review-submission-gate|ios-release-summary):' .github/workflows/release.yml; then

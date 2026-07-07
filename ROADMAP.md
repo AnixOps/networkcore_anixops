@@ -42,6 +42,7 @@
 - [iOS App Review Manual Confirmation Source Contract](docs/architecture/ios-app-review-manual-confirmation-source-contract.md)
 - [iOS TestFlight App Store Connect Upload Workflow Source Contract](docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md)
 - [iOS Upload Workflow Activation Validation Contract](docs/architecture/ios-upload-workflow-activation-validation-contract.md)
+- [iOS Swift Xcode Source Tree Activation Preflight Contract](docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md)
 - [ADR 0001: Initial Core Stack](docs/architecture/adr-0001-initial-core-stack.md)
 
 ## P2 Core Kernel Skeleton
@@ -114,6 +115,7 @@
 - [iOS App Review Manual Confirmation Source Contract](docs/architecture/ios-app-review-manual-confirmation-source-contract.md)
 - [iOS TestFlight App Store Connect Upload Workflow Source Contract](docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md)
 - [iOS Upload Workflow Activation Validation Contract](docs/architecture/ios-upload-workflow-activation-validation-contract.md)
+- [iOS Swift Xcode Source Tree Activation Preflight Contract](docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md)
 - [Linux Artifact Pre-Release Design](docs/architecture/linux-artifact-pre-release-design.md)
 - [Linux Platform Adapter Design](docs/architecture/linux-platform-adapter.md)
 - [Linux CLI Entrypoint Design](docs/architecture/linux-cli-entrypoint.md)

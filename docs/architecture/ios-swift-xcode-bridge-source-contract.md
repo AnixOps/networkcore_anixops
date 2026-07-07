@@ -11,10 +11,12 @@ GitHub Actions 验证入口的 source contract。它承接
 [iOS App Review Privacy Release Readiness Design](ios-app-review-privacy-release-readiness-design.md)、
 [iOS Privacy Manifest Source Contract](ios-privacy-manifest-source-contract.md)、
 [iOS App Review Manual Confirmation Source Contract](ios-app-review-manual-confirmation-source-contract.md)、
-[iOS TestFlight App Store Connect Upload Workflow Source Contract](ios-testflight-app-store-connect-upload-workflow-source-contract.md) 和
+[iOS TestFlight App Store Connect Upload Workflow Source Contract](ios-testflight-app-store-connect-upload-workflow-source-contract.md)、
+[iOS Upload Workflow Activation Validation Contract](ios-upload-workflow-activation-validation-contract.md)、
+[iOS Swift Xcode Source Tree Activation Preflight Contract](ios-swift-xcode-source-tree-activation-preflight-contract.md) 和
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
 
-当前状态：contract-only。仓库仍不包含 `Package.swift`、Xcode project、workspace、Swift source、
+当前状态：contract-only。仓库仍不包含 `apps/ios` Swift source tree、`Package.swift`、Xcode project、workspace、Swift source、
 Network Extension target、entitlement、Provisioning Profile、签名配置、TestFlight/App Store 上传 job
 或 iOS release asset。本地仍不得运行 `swift build`、`swift test`、`xcodebuild`、签名、打包或发布验证。
 
@@ -159,6 +161,8 @@ GitHub Environments 或 Apple 官方平台。
   `swift build`、`swift test`、`xcodebuild`、signing/provisioning secret 和 no iOS release asset。
 - 仓库仍不包含实际 Swift package、Xcode project、workspace、entitlement、Provisioning Profile、signing 配置、
   TestFlight/App Store upload job 或 iOS release asset。
+- Source tree activation preflight must remain blocked until `apps/ios`, `Package.swift`, Xcode project, Network Extension target,
+  `PrivacyInfo.xcprivacy`, entitlement/provisioning and upload enabled marker gates are complete.
 
 后续出现 `Package.swift` 时，CI 必须只在 GitHub Actions 中触发 Swift job：
 
@@ -176,7 +180,8 @@ Secrets/Apple 官方平台支持，不能在仓库内保存凭据。
 
 - README、ROADMAP、TODO、CHANGELOG、CI/CD policy 和 release strategy 同步记录本文件。
 - `.github/workflows/ci.yml` 检查本文件存在和关键锚点。
-- 不新增 `Package.swift`、`.xcodeproj`、`.xcworkspace`、Swift source、Network Extension target、
+- iOS Swift/Xcode source tree activation preflight contract 已链接本文件，并继续输出 blocked placeholder 状态。
+- 不新增 `apps/ios` Swift source tree、`Package.swift`、`.xcodeproj`、`.xcworkspace`、Swift source、Network Extension target、
   `.entitlements`、Provisioning Profile、signing config、TestFlight/App Store upload job 或 iOS release asset。
 - Linux artifact 继续等待 license/NOTICE confirmed marker；期间不得定义 `package-linux` 或发布 release asset。
 
@@ -193,6 +198,9 @@ TestFlight upload 或 App Store upload job：
 - iOS Privacy Manifest source contract 已完成并通过 GitHub Actions static governance。
 - iOS App Review manual confirmation source contract 已完成并通过 GitHub Actions static governance。
 - iOS TestFlight/App Store Connect upload workflow source contract 已完成并通过 GitHub Actions static governance。
+- iOS Swift/Xcode source tree activation preflight contract 已完成，且 `apps/ios` source tree、`Package.swift`、
+  Xcode project、Network Extension target、`PrivacyInfo.xcprivacy`、entitlement/provisioning 和 upload enabled marker
+  均通过 GitHub Actions gate。
 - Swift bridge、Network Extension target、FFI boundary 和 embedded runtime 已在 GitHub Actions `macos-26`
   runner 通过 `swift build`、`swift test` 和必要的 `xcodebuild` 验证。
 - Apple Developer、App ID、Network Extension entitlement、Provisioning Profile、GitHub Secrets、App Privacy disclosure、

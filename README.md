@@ -41,6 +41,7 @@
 - [docs/architecture/ios-app-review-manual-confirmation-source-contract.md](docs/architecture/ios-app-review-manual-confirmation-source-contract.md)
 - [docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md](docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md)
 - [docs/architecture/ios-upload-workflow-activation-validation-contract.md](docs/architecture/ios-upload-workflow-activation-validation-contract.md)
+- [docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md](docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md)
 - [docs/architecture/linux-artifact-pre-release-design.md](docs/architecture/linux-artifact-pre-release-design.md)
 - [docs/architecture/linux-platform-adapter.md](docs/architecture/linux-platform-adapter.md)
 - [docs/architecture/linux-cli-entrypoint.md](docs/architecture/linux-cli-entrypoint.md)
@@ -89,17 +90,20 @@ iOS Network Extension design、iOS platform adapter source contract、首个纯 
 iOS Swift/Network Extension bridge design、iOS Swift/Xcode bridge source contract、iOS embedded runtime
 FFI boundary design、iOS MITM certificate lifecycle design、iOS entitlement/provisioning source contract 和
 iOS App Review/privacy release readiness design、iOS Privacy Manifest source contract 和 iOS App Review manual
-confirmation source contract、iOS TestFlight/App Store Connect upload workflow source contract 和 iOS upload
-workflow activation validation contract 已补充；release workflow 现在只有 `ios-upload-readiness` blocked placeholder，
-并在 release placeholder/summary 中输出 marker、protected environment、manual approval、App Store Connect API
+confirmation source contract、iOS TestFlight/App Store Connect upload workflow source contract、iOS upload
+workflow activation validation contract 和 iOS Swift/Xcode source tree activation preflight contract 已补充；release workflow
+现在只有 `ios-upload-readiness` blocked placeholder，并在 release placeholder/summary 中输出 source tree preflight、
+`apps/ios` root、`Package.swift`、Xcode project、Network Extension target、`PrivacyInfo.xcprivacy`、
+entitlement/provisioning、upload enabled marker、marker、protected environment、manual approval、App Store Connect API
 secret status、archive/export、upload、submission 和 release asset blocked 字段；
 `.entitlements`、`PrivacyInfo.xcprivacy`、ExportOptions.plist、`.ipa`、`.xcarchive`、`.xcresult`、dSYM bundle、
-Swift/Xcode project、Network Extension target、Provisioning Profile、Rust FFI crate、证书安装源码、App Privacy 问卷、
+真实 `apps/ios` Swift source tree、`Package.swift`、Swift source、Xcode project、Network Extension target、
+Provisioning Profile、Rust FFI crate、证书安装源码、App Privacy 问卷、
 隐私政策 URL、App Review Notes、demo account、review attachment、签名、App Store Connect API key、
 TestFlight/App Store upload、App Review submission 和 iOS release asset 均未启用，
 后续 Apple SDK bridge、embedded runtime、certificate lifecycle、entitlement/provisioning、Privacy Manifest 源码和
 App Review manual confirmation marker、真实 Swift/Xcode source tree 和 upload workflow enabled marker 必须按 source
-contract 与 activation validation contract 通过 GitHub Actions 验证。
+contract、source tree preflight contract 与 activation validation contract 通过 GitHub Actions 验证。
 
 ## MITM adapter 接入边界
 
