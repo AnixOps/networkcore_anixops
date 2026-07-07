@@ -288,7 +288,7 @@ jobs:
           test -f docs/architecture/linux-package-artifact-build-command-validation-contract.md
           test -f docs/architecture/linux-package-artifact-staging-file-validation-contract.md
           test -f docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
-          test -f docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
+          test -f docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
           test -f docs/architecture/linux-package-runner-toolchain-target-contract.md
           test -f docs/architecture/linux-package-archive-staging-contract.md
           test -f docs/architecture/linux-package-checksum-manifest-contract.md
@@ -335,6 +335,11 @@ jobs:
           grep -q "package_artifact_archive_creation_single_top_level_dir" docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
           grep -q "package_artifact_archive_creation_archive_path" docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
           grep -q "Future Archive Command" docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
+          grep -q "Linux Package Artifact Checksum Execution Validation Contract" docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
+          grep -q "package_artifact_checksum_execution_status" docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
+          grep -q "package_artifact_checksum_execution_record_format" docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
+          grep -q "package_artifact_checksum_execution_checksum_path" docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
+          grep -q "Future Checksum Command" docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
           grep -q '^name = "networkcore-linux"$' apps/linux-cli/Cargo.toml
           grep -q '^\[\[bin\]\]$' apps/linux-cli/Cargo.toml
           grep -q '^path = "src/main.rs"$' apps/linux-cli/Cargo.toml
@@ -389,6 +394,7 @@ jobs:
           grep -q "Linux Package Artifact Build Command Validation Contract" .github/workflows/release.yml
           grep -q "Linux Package Artifact Staging File Validation Contract" .github/workflows/release.yml
           grep -q "Linux Package Artifact Archive Creation Validation Contract" .github/workflows/release.yml
+          grep -q "Linux Package Artifact Checksum Execution Validation Contract" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-contract=present"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-required-permission=actions-read"$' .github/workflows/release.yml)" -ge 4
@@ -451,6 +457,21 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-manifest=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-upload=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-next-action=checksum-manifest-after-archive"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-required-job=package-linux"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-archive-creation=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-algorithm=sha256"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-checksum-execution-archive-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-checksum-execution-archive-path=dist/linux/[$][{]target[}]/artifacts/networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-checksum-execution-checksum-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz.sha256'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-checksum-execution-checksum-path=dist/linux/[$][{]target[}]/artifacts/networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz.sha256'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-record-format=sha256sum-two-space-file-name"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-checksum-value=blocked-before-archive"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-checksum-file-write=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-manifest=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-upload=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-next-action=manifest-generation-after-checksum"$' .github/workflows/release.yml)" -ge 3
           grep -q "Linux Package Platform Input Contract" .github/workflows/release.yml
           grep -q "linux-package-platform-input-contract=present" .github/workflows/release.yml
           grep -q "linux-package-required-target=x86_64-unknown-linux-gnu" .github/workflows/release.yml
@@ -584,6 +605,7 @@ jobs:
             echo "| Package artifact build command validation contract | present |"
             echo "| Package artifact staging file validation contract | present |"
             echo "| Package artifact archive creation validation contract | present |"
+            echo "| Package artifact checksum execution validation contract | present |"
             echo "| Package runner/toolchain/target contract | present |"
             echo "| Package archive staging contract | present |"
             echo "| Package checksum/manifest checksum contract | present |"
@@ -708,6 +730,24 @@ jobs:
           echo "linux-package-artifact-archive-creation-manifest=blocked"
           echo "linux-package-artifact-archive-creation-upload=blocked"
           echo "linux-package-artifact-archive-creation-next-action=checksum-manifest-after-archive"
+          echo "linux-package-artifact-checksum-execution-contract=present"
+          echo "linux-package-artifact-checksum-execution-source=linux-artifact-readiness"
+          echo "linux-package-artifact-checksum-execution-status=blocked-placeholder"
+          echo "linux-package-artifact-checksum-execution-current-mode=contract-only-no-checksum"
+          echo "linux-package-artifact-checksum-execution-required-job=package-linux"
+          echo "linux-package-artifact-checksum-execution-job-status=not-defined"
+          echo "linux-package-artifact-checksum-execution-archive-creation=blocked-placeholder"
+          echo "linux-package-artifact-checksum-execution-algorithm=sha256"
+          echo 'linux-package-artifact-checksum-execution-archive-name=networkcore-linux-${version}-${target}.tar.gz'
+          echo 'linux-package-artifact-checksum-execution-archive-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz'
+          echo 'linux-package-artifact-checksum-execution-checksum-name=networkcore-linux-${version}-${target}.tar.gz.sha256'
+          echo 'linux-package-artifact-checksum-execution-checksum-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz.sha256'
+          echo "linux-package-artifact-checksum-execution-record-format=sha256sum-two-space-file-name"
+          echo "linux-package-artifact-checksum-execution-checksum-value=blocked-before-archive"
+          echo "linux-package-artifact-checksum-execution-checksum-file-write=blocked"
+          echo "linux-package-artifact-checksum-execution-manifest=blocked"
+          echo "linux-package-artifact-checksum-execution-upload=blocked"
+          echo "linux-package-artifact-checksum-execution-next-action=manifest-generation-after-checksum"
           echo "linux-package-license-notice-transition-contract=present"
           echo "linux-package-license-notice-transition-source=docs/manual-intervention.md"
           echo "linux-package-license-notice-transition-status=blocked-pending"
@@ -855,6 +895,8 @@ jobs:
           test -f docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           test -f docs/architecture/linux-package-artifact-build-command-validation-contract.md
           test -f docs/architecture/linux-package-artifact-staging-file-validation-contract.md
+          test -f docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
+          test -f docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
           grep -q "Linux Package Publish Upload Boundary Contract" docs/architecture/linux-package-publish-upload-boundary-contract.md
           grep -q "Linux Package Signing Attestation Policy Binding Contract" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
@@ -865,6 +907,7 @@ jobs:
           grep -q "Linux Package Artifact Build Command Validation Contract" docs/architecture/linux-package-artifact-build-command-validation-contract.md
           grep -q "Linux Package Artifact Staging File Validation Contract" docs/architecture/linux-package-artifact-staging-file-validation-contract.md
           grep -q "Linux Package Artifact Archive Creation Validation Contract" docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
+          grep -q "Linux Package Artifact Checksum Execution Validation Contract" docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
           require_license_notice_repo_file() {
             case "$1" in
               ""|/*|*..*|http://*|https://*)
@@ -1057,6 +1100,28 @@ jobs:
             echo "| Manifest | blocked |"
             echo "| Upload | blocked |"
             echo "| Next action | checksum-manifest-after-archive |"
+            echo
+            echo "### Linux Package Artifact Checksum Execution Validation Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | contract-only-no-checksum |"
+            echo "| Source contract | docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md |"
+            echo "| Checksum execution status | blocked-placeholder |"
+            echo "| Required job | package-linux |"
+            echo "| Current package-linux job | not defined |"
+            echo "| Archive creation status | blocked-placeholder |"
+            echo "| Algorithm | sha256 |"
+            echo '| Archive name | networkcore-linux-${version}-${target}.tar.gz |'
+            echo '| Archive path | dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz |'
+            echo '| Checksum name | networkcore-linux-${version}-${target}.tar.gz.sha256 |'
+            echo '| Checksum path | dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz.sha256 |'
+            echo "| Record format | sha256sum-two-space-file-name |"
+            echo "| Checksum value | blocked-before-archive |"
+            echo "| Checksum file write | blocked |"
+            echo "| Manifest | blocked |"
+            echo "| Upload | blocked |"
+            echo "| Next action | manifest-generation-after-checksum |"
             echo
             echo "### Linux Package Platform Input Contract"
             echo
@@ -1352,6 +1417,24 @@ jobs:
           echo "linux-package-artifact-archive-creation-manifest=blocked"
           echo "linux-package-artifact-archive-creation-upload=blocked"
           echo "linux-package-artifact-archive-creation-next-action=checksum-manifest-after-archive"
+          echo "linux-package-artifact-checksum-execution-contract=present"
+          echo "linux-package-artifact-checksum-execution-source=linux-artifact-readiness"
+          echo "linux-package-artifact-checksum-execution-status=blocked-placeholder"
+          echo "linux-package-artifact-checksum-execution-current-mode=contract-only-no-checksum"
+          echo "linux-package-artifact-checksum-execution-required-job=package-linux"
+          echo "linux-package-artifact-checksum-execution-job-status=not-defined"
+          echo "linux-package-artifact-checksum-execution-archive-creation=blocked-placeholder"
+          echo "linux-package-artifact-checksum-execution-algorithm=sha256"
+          echo 'linux-package-artifact-checksum-execution-archive-name=networkcore-linux-${version}-${target}.tar.gz'
+          echo 'linux-package-artifact-checksum-execution-archive-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz'
+          echo 'linux-package-artifact-checksum-execution-checksum-name=networkcore-linux-${version}-${target}.tar.gz.sha256'
+          echo 'linux-package-artifact-checksum-execution-checksum-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz.sha256'
+          echo "linux-package-artifact-checksum-execution-record-format=sha256sum-two-space-file-name"
+          echo "linux-package-artifact-checksum-execution-checksum-value=blocked-before-archive"
+          echo "linux-package-artifact-checksum-execution-checksum-file-write=blocked"
+          echo "linux-package-artifact-checksum-execution-manifest=blocked"
+          echo "linux-package-artifact-checksum-execution-upload=blocked"
+          echo "linux-package-artifact-checksum-execution-next-action=manifest-generation-after-checksum"
           echo "linux-package-platform-input-contract=present"
           echo "linux-package-platform-contract=docs/architecture/linux-package-runner-toolchain-target-contract.md"
           echo "linux-package-required-runner=ubuntu-latest"
@@ -1592,6 +1675,21 @@ jobs:
             echo "| Linux package artifact archive creation manifest | blocked |"
             echo "| Linux package artifact archive creation upload | blocked |"
             echo "| Linux package artifact archive creation next action | checksum-manifest-after-archive |"
+            echo "| Linux package artifact checksum execution validation contract | checked in linux-artifact-readiness |"
+            echo "| Linux package artifact checksum execution status | blocked-placeholder |"
+            echo "| Linux package artifact checksum execution required job | package-linux |"
+            echo "| Linux package artifact checksum execution archive creation | blocked-placeholder |"
+            echo "| Linux package artifact checksum execution algorithm | sha256 |"
+            echo '| Linux package artifact checksum execution archive name | networkcore-linux-${version}-${target}.tar.gz |'
+            echo '| Linux package artifact checksum execution archive path | dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz |'
+            echo '| Linux package artifact checksum execution checksum name | networkcore-linux-${version}-${target}.tar.gz.sha256 |'
+            echo '| Linux package artifact checksum execution checksum path | dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz.sha256 |'
+            echo "| Linux package artifact checksum execution record format | sha256sum-two-space-file-name |"
+            echo "| Linux package artifact checksum execution checksum value | blocked-before-archive |"
+            echo "| Linux package artifact checksum execution checksum file write | blocked |"
+            echo "| Linux package artifact checksum execution manifest | blocked |"
+            echo "| Linux package artifact checksum execution upload | blocked |"
+            echo "| Linux package artifact checksum execution next action | manifest-generation-after-checksum |"
             echo "| Release artifact contract | ${RELEASE_ARTIFACT_CONTRACT_RESULT} |"
             echo "| Release signing contract | ${RELEASE_SIGNING_CONTRACT_RESULT} |"
             echo "| Release rollback contract | ${RELEASE_ROLLBACK_CONTRACT_RESULT} |"
@@ -1817,6 +1915,24 @@ jobs:
           echo "linux-package-artifact-archive-creation-manifest=blocked"
           echo "linux-package-artifact-archive-creation-upload=blocked"
           echo "linux-package-artifact-archive-creation-next-action=checksum-manifest-after-archive"
+          echo "linux-package-artifact-checksum-execution-contract=present"
+          echo "linux-package-artifact-checksum-execution-source=linux-artifact-readiness"
+          echo "linux-package-artifact-checksum-execution-status=blocked-placeholder"
+          echo "linux-package-artifact-checksum-execution-current-mode=contract-only-no-checksum"
+          echo "linux-package-artifact-checksum-execution-required-job=package-linux"
+          echo "linux-package-artifact-checksum-execution-job-status=not-defined"
+          echo "linux-package-artifact-checksum-execution-archive-creation=blocked-placeholder"
+          echo "linux-package-artifact-checksum-execution-algorithm=sha256"
+          echo 'linux-package-artifact-checksum-execution-archive-name=networkcore-linux-${version}-${target}.tar.gz'
+          echo 'linux-package-artifact-checksum-execution-archive-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz'
+          echo 'linux-package-artifact-checksum-execution-checksum-name=networkcore-linux-${version}-${target}.tar.gz.sha256'
+          echo 'linux-package-artifact-checksum-execution-checksum-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz.sha256'
+          echo "linux-package-artifact-checksum-execution-record-format=sha256sum-two-space-file-name"
+          echo "linux-package-artifact-checksum-execution-checksum-value=blocked-before-archive"
+          echo "linux-package-artifact-checksum-execution-checksum-file-write=blocked"
+          echo "linux-package-artifact-checksum-execution-manifest=blocked"
+          echo "linux-package-artifact-checksum-execution-upload=blocked"
+          echo "linux-package-artifact-checksum-execution-next-action=manifest-generation-after-checksum"
           echo "release-artifact-contract=${RELEASE_ARTIFACT_CONTRACT_RESULT}"
           echo "release-signing-contract=${RELEASE_SIGNING_CONTRACT_RESULT}"
           echo "release-rollback-contract=${RELEASE_ROLLBACK_CONTRACT_RESULT}"

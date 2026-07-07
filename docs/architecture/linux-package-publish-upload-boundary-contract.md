@@ -180,4 +180,4 @@ maintainer 上传文件、旧 run artifact、不同 commit artifact、不同 bra
 - Linux package signing/attestation policy binding contract、release notes/rollback policy binding
   contract、publish eligibility aggregate contract、license/NOTICE transition validation contract、release CI
   gate activation validation contract、artifact job preflight validation contract、artifact build command
-  validation contract、artifact staging file validation contract 和 artifact archive creation validation contract 已定义；下一步可以补充 Linux package artifact checksum execution validation contract，仍不生成 artifact。
+  validation contract、artifact staging file validation contract、artifact archive creation validation contract 和 artifact checksum execution validation contract 已定义；下一步可以补充 Linux package artifact manifest generation validation contract，仍不生成 artifact。
