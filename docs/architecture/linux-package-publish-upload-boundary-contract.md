@@ -32,6 +32,7 @@ job、不定义 publish job、不上传 workflow artifact、不发布 GitHub Rel
 [Linux Package Archive Staging Contract](linux-package-archive-staging-contract.md)、
 [Linux Package Checksum Manifest Contract](linux-package-checksum-manifest-contract.md)、
 [Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md)、
+[Linux Package Workflow Artifact Bundle Upload Validation Contract](linux-package-workflow-artifact-bundle-upload-validation-contract.md)、
 [Linux Package Signing Attestation Policy Binding Contract](linux-package-signing-attestation-policy-binding-contract.md)、
 [Linux Package Release Notes Rollback Policy Binding Contract](linux-package-release-notes-rollback-policy-binding-contract.md)、
 [Linux Package Publish Eligibility Aggregate Contract](linux-package-publish-eligibility-aggregate-contract.md)、
@@ -159,7 +160,8 @@ maintainer 上传文件、旧 run artifact、不同 commit artifact、不同 bra
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux package
   manifest 设计、Linux package checksum manifest contract、Linux package signing/attestation
-  policy binding contract、Linux package release notes/rollback policy binding contract、
+  policy binding contract、Linux package workflow artifact bundle upload validation contract、
+  Linux package release notes/rollback policy binding contract、
   Linux package publish eligibility aggregate contract、
   Linux CLI artifact 安装/回滚设计、Release CI success source contract、
   Linux package artifact job preflight validation contract、Linux package runner/toolchain/target contract、
@@ -180,6 +182,7 @@ maintainer 上传文件、旧 run artifact、不同 commit artifact、不同 bra
 - Linux package signing/attestation policy binding contract、release notes/rollback policy binding
   contract、publish eligibility aggregate contract、license/NOTICE transition validation contract、release CI
   gate activation validation contract、artifact job preflight validation contract、artifact build command
-  validation contract、artifact staging file validation contract、artifact archive creation validation contract 和 artifact checksum execution validation contract 已定义；Linux package artifact manifest generation validation contract 和
+  validation contract、artifact staging file validation contract、artifact archive creation validation contract 和 artifact checksum execution validation contract 已定义；Linux package artifact manifest generation validation contract、
   [Linux Package Artifact Manifest Checksum Validation Contract](linux-package-artifact-manifest-checksum-validation-contract.md)
-  已定义；下一步可以补充 Linux package workflow artifact bundle upload validation contract，仍不发布 release asset。
+  和 [Linux Package Workflow Artifact Bundle Upload Validation Contract](linux-package-workflow-artifact-bundle-upload-validation-contract.md)
+  已定义；下一步可以补充 Linux package artifact attestation execution validation contract，仍不发布 release asset。

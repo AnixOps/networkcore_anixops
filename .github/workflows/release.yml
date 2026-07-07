@@ -291,6 +291,7 @@ jobs:
           test -f docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
           test -f docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
           test -f docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
+          test -f docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
           test -f docs/architecture/linux-package-runner-toolchain-target-contract.md
           test -f docs/architecture/linux-package-archive-staging-contract.md
           test -f docs/architecture/linux-package-checksum-manifest-contract.md
@@ -352,6 +353,11 @@ jobs:
           grep -q "package_artifact_manifest_checksum_record_format" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
           grep -q "package_artifact_manifest_checksum_path" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
           grep -q "Future Manifest Checksum Command" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
+          grep -q "Linux Package Workflow Artifact Bundle Upload Validation Contract" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
+          grep -q "package_workflow_artifact_bundle_upload_status" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
+          grep -q "package_workflow_artifact_bundle_upload_required_files" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
+          grep -q "package_workflow_artifact_bundle_upload_source_dir" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
+          grep -q "Future Workflow Artifact Upload" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
           grep -q '^name = "networkcore-linux"$' apps/linux-cli/Cargo.toml
           grep -q '^\[\[bin\]\]$' apps/linux-cli/Cargo.toml
           grep -q '^path = "src/main.rs"$' apps/linux-cli/Cargo.toml
@@ -409,6 +415,7 @@ jobs:
           grep -q "Linux Package Artifact Checksum Execution Validation Contract" .github/workflows/release.yml
           grep -q "Linux Package Artifact Manifest Generation Validation Contract" .github/workflows/release.yml
           grep -q "Linux Package Artifact Manifest Checksum Validation Contract" .github/workflows/release.yml
+          grep -q "Linux Package Workflow Artifact Bundle Upload Validation Contract" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-contract=present"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-required-permission=actions-read"$' .github/workflows/release.yml)" -ge 4
@@ -527,6 +534,26 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-upload=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-next-action=workflow-artifact-upload-after-manifest-checksum"$' .github/workflows/release.yml)" -ge 3
+          grep -Eq '^[[:space:]]+echo "### Linux Package Workflow Artifact Bundle Upload Validation Contract"$' .github/workflows/release.yml
+          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-required-job=package-linux"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-manifest-checksum=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-workflow-artifact-bundle-upload-source-dir=dist/linux/[$][{]target[}]/artifacts'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-workflow-artifact-bundle-upload-name=networkcore-linux-[$][{]version[}]-[$][{]target[}]-release-bundle'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-retention-days=14"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-required-files=archive,archive_sha256,manifest,manifest_sha256"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-workflow-artifact-bundle-upload-archive-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-workflow-artifact-bundle-upload-archive-checksum-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz.sha256'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-workflow-artifact-bundle-upload-manifest-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].manifest.json'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-workflow-artifact-bundle-upload-manifest-checksum-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].manifest.json.sha256'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-same-run=required"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-upload-action=actions/upload-artifact"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-upload-action-status=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-publish-job=publish-github-release"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-publish-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-next-action=attestation-after-workflow-artifact-bundle"$' .github/workflows/release.yml)" -ge 3
           grep -q "Linux Package Platform Input Contract" .github/workflows/release.yml
           grep -q "linux-package-platform-input-contract=present" .github/workflows/release.yml
           grep -q "linux-package-required-target=x86_64-unknown-linux-gnu" .github/workflows/release.yml
@@ -642,6 +669,10 @@ jobs:
             echo "::error::post-release-summary must stay undefined until release notes/rollback gates are complete."
             exit 1
           fi
+          if grep -Eq '^[[:space:]]+uses:[[:space:]]+actions/upload-artifact(@|$)' .github/workflows/release.yml; then
+            echo "::error::actions/upload-artifact must stay disabled until workflow artifact bundle upload validation is implemented."
+            exit 1
+          fi
           {
             echo "### Linux Artifact Readiness"
             echo
@@ -663,6 +694,7 @@ jobs:
             echo "| Package artifact checksum execution validation contract | present |"
             echo "| Package artifact manifest generation validation contract | present |"
             echo "| Package artifact manifest checksum validation contract | present |"
+            echo "| Package workflow artifact bundle upload validation contract | present |"
             echo "| Package runner/toolchain/target contract | present |"
             echo "| Package archive staging contract | present |"
             echo "| Package checksum/manifest checksum contract | present |"
@@ -852,6 +884,28 @@ jobs:
           echo "linux-package-artifact-manifest-checksum-release-asset=blocked"
           echo "linux-package-artifact-manifest-checksum-upload=blocked"
           echo "linux-package-artifact-manifest-checksum-next-action=workflow-artifact-upload-after-manifest-checksum"
+          echo "linux-package-workflow-artifact-bundle-upload-contract=present"
+          echo "linux-package-workflow-artifact-bundle-upload-source=linux-artifact-readiness"
+          echo "linux-package-workflow-artifact-bundle-upload-status=blocked-placeholder"
+          echo "linux-package-workflow-artifact-bundle-upload-current-mode=contract-only-no-workflow-artifact-upload"
+          echo "linux-package-workflow-artifact-bundle-upload-required-job=package-linux"
+          echo "linux-package-workflow-artifact-bundle-upload-job-status=not-defined"
+          echo "linux-package-workflow-artifact-bundle-upload-manifest-checksum=blocked-placeholder"
+          echo 'linux-package-workflow-artifact-bundle-upload-source-dir=dist/linux/${target}/artifacts'
+          echo 'linux-package-workflow-artifact-bundle-upload-name=networkcore-linux-${version}-${target}-release-bundle'
+          echo "linux-package-workflow-artifact-bundle-upload-retention-days=14"
+          echo "linux-package-workflow-artifact-bundle-upload-required-files=archive,archive_sha256,manifest,manifest_sha256"
+          echo 'linux-package-workflow-artifact-bundle-upload-archive-name=networkcore-linux-${version}-${target}.tar.gz'
+          echo 'linux-package-workflow-artifact-bundle-upload-archive-checksum-name=networkcore-linux-${version}-${target}.tar.gz.sha256'
+          echo 'linux-package-workflow-artifact-bundle-upload-manifest-name=networkcore-linux-${version}-${target}.manifest.json'
+          echo 'linux-package-workflow-artifact-bundle-upload-manifest-checksum-name=networkcore-linux-${version}-${target}.manifest.json.sha256'
+          echo "linux-package-workflow-artifact-bundle-upload-same-run=required"
+          echo "linux-package-workflow-artifact-bundle-upload-upload-action=actions/upload-artifact"
+          echo "linux-package-workflow-artifact-bundle-upload-upload-action-status=blocked"
+          echo "linux-package-workflow-artifact-bundle-upload-release-asset=blocked"
+          echo "linux-package-workflow-artifact-bundle-upload-publish-job=publish-github-release"
+          echo "linux-package-workflow-artifact-bundle-upload-publish-job-status=not-defined"
+          echo "linux-package-workflow-artifact-bundle-upload-next-action=attestation-after-workflow-artifact-bundle"
           echo "linux-package-license-notice-transition-contract=present"
           echo "linux-package-license-notice-transition-source=docs/manual-intervention.md"
           echo "linux-package-license-notice-transition-status=blocked-pending"
@@ -1003,6 +1057,7 @@ jobs:
           test -f docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
           test -f docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
           test -f docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
+          test -f docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
           grep -q "Linux Package Publish Upload Boundary Contract" docs/architecture/linux-package-publish-upload-boundary-contract.md
           grep -q "Linux Package Signing Attestation Policy Binding Contract" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
@@ -1016,6 +1071,7 @@ jobs:
           grep -q "Linux Package Artifact Checksum Execution Validation Contract" docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
           grep -q "Linux Package Artifact Manifest Generation Validation Contract" docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
           grep -q "Linux Package Artifact Manifest Checksum Validation Contract" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
+          grep -q "Linux Package Workflow Artifact Bundle Upload Validation Contract" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
           require_license_notice_repo_file() {
             case "$1" in
               ""|/*|*..*|http://*|https://*)
@@ -1285,6 +1341,32 @@ jobs:
             echo "| Release asset | blocked |"
             echo "| Upload | blocked |"
             echo "| Next action | workflow-artifact-upload-after-manifest-checksum |"
+            echo
+            echo "### Linux Package Workflow Artifact Bundle Upload Validation Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | contract-only-no-workflow-artifact-upload |"
+            echo "| Source contract | docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md |"
+            echo "| Workflow artifact bundle upload status | blocked-placeholder |"
+            echo "| Required job | package-linux |"
+            echo "| Current package-linux job | not defined |"
+            echo "| Manifest checksum status | blocked-placeholder |"
+            echo '| Source dir | dist/linux/${target}/artifacts |'
+            echo '| Bundle name | networkcore-linux-${version}-${target}-release-bundle |'
+            echo "| Retention days | 14 |"
+            echo "| Required files | archive,archive_sha256,manifest,manifest_sha256 |"
+            echo '| Archive name | networkcore-linux-${version}-${target}.tar.gz |'
+            echo '| Archive checksum name | networkcore-linux-${version}-${target}.tar.gz.sha256 |'
+            echo '| Manifest name | networkcore-linux-${version}-${target}.manifest.json |'
+            echo '| Manifest checksum name | networkcore-linux-${version}-${target}.manifest.json.sha256 |'
+            echo "| Same run | required |"
+            echo "| Upload action | actions/upload-artifact |"
+            echo "| Upload action status | blocked |"
+            echo "| Release asset | blocked |"
+            echo "| Publish job | publish-github-release |"
+            echo "| Publish job status | not-defined |"
+            echo "| Next action | attestation-after-workflow-artifact-bundle |"
             echo
             echo "### Linux Package Platform Input Contract"
             echo
@@ -1645,6 +1727,28 @@ jobs:
           echo "linux-package-artifact-manifest-checksum-release-asset=blocked"
           echo "linux-package-artifact-manifest-checksum-upload=blocked"
           echo "linux-package-artifact-manifest-checksum-next-action=workflow-artifact-upload-after-manifest-checksum"
+          echo "linux-package-workflow-artifact-bundle-upload-contract=present"
+          echo "linux-package-workflow-artifact-bundle-upload-source=linux-artifact-readiness"
+          echo "linux-package-workflow-artifact-bundle-upload-status=blocked-placeholder"
+          echo "linux-package-workflow-artifact-bundle-upload-current-mode=contract-only-no-workflow-artifact-upload"
+          echo "linux-package-workflow-artifact-bundle-upload-required-job=package-linux"
+          echo "linux-package-workflow-artifact-bundle-upload-job-status=not-defined"
+          echo "linux-package-workflow-artifact-bundle-upload-manifest-checksum=blocked-placeholder"
+          echo 'linux-package-workflow-artifact-bundle-upload-source-dir=dist/linux/${target}/artifacts'
+          echo 'linux-package-workflow-artifact-bundle-upload-name=networkcore-linux-${version}-${target}-release-bundle'
+          echo "linux-package-workflow-artifact-bundle-upload-retention-days=14"
+          echo "linux-package-workflow-artifact-bundle-upload-required-files=archive,archive_sha256,manifest,manifest_sha256"
+          echo 'linux-package-workflow-artifact-bundle-upload-archive-name=networkcore-linux-${version}-${target}.tar.gz'
+          echo 'linux-package-workflow-artifact-bundle-upload-archive-checksum-name=networkcore-linux-${version}-${target}.tar.gz.sha256'
+          echo 'linux-package-workflow-artifact-bundle-upload-manifest-name=networkcore-linux-${version}-${target}.manifest.json'
+          echo 'linux-package-workflow-artifact-bundle-upload-manifest-checksum-name=networkcore-linux-${version}-${target}.manifest.json.sha256'
+          echo "linux-package-workflow-artifact-bundle-upload-same-run=required"
+          echo "linux-package-workflow-artifact-bundle-upload-upload-action=actions/upload-artifact"
+          echo "linux-package-workflow-artifact-bundle-upload-upload-action-status=blocked"
+          echo "linux-package-workflow-artifact-bundle-upload-release-asset=blocked"
+          echo "linux-package-workflow-artifact-bundle-upload-publish-job=publish-github-release"
+          echo "linux-package-workflow-artifact-bundle-upload-publish-job-status=not-defined"
+          echo "linux-package-workflow-artifact-bundle-upload-next-action=attestation-after-workflow-artifact-bundle"
           echo "linux-package-platform-input-contract=present"
           echo "linux-package-platform-contract=docs/architecture/linux-package-runner-toolchain-target-contract.md"
           echo "linux-package-required-runner=ubuntu-latest"
@@ -1941,6 +2045,25 @@ jobs:
             echo "| Linux package artifact manifest checksum release asset | blocked |"
             echo "| Linux package artifact manifest checksum upload | blocked |"
             echo "| Linux package artifact manifest checksum next action | workflow-artifact-upload-after-manifest-checksum |"
+            echo "| Linux package workflow artifact bundle upload validation contract | checked in linux-artifact-readiness |"
+            echo "| Linux package workflow artifact bundle upload status | blocked-placeholder |"
+            echo "| Linux package workflow artifact bundle upload required job | package-linux |"
+            echo "| Linux package workflow artifact bundle upload manifest checksum | blocked-placeholder |"
+            echo '| Linux package workflow artifact bundle upload source dir | dist/linux/${target}/artifacts |'
+            echo '| Linux package workflow artifact bundle upload name | networkcore-linux-${version}-${target}-release-bundle |'
+            echo "| Linux package workflow artifact bundle upload retention days | 14 |"
+            echo "| Linux package workflow artifact bundle upload required files | archive,archive_sha256,manifest,manifest_sha256 |"
+            echo '| Linux package workflow artifact bundle upload archive name | networkcore-linux-${version}-${target}.tar.gz |'
+            echo '| Linux package workflow artifact bundle upload archive checksum name | networkcore-linux-${version}-${target}.tar.gz.sha256 |'
+            echo '| Linux package workflow artifact bundle upload manifest name | networkcore-linux-${version}-${target}.manifest.json |'
+            echo '| Linux package workflow artifact bundle upload manifest checksum name | networkcore-linux-${version}-${target}.manifest.json.sha256 |'
+            echo "| Linux package workflow artifact bundle upload same run | required |"
+            echo "| Linux package workflow artifact bundle upload upload action | actions/upload-artifact |"
+            echo "| Linux package workflow artifact bundle upload upload action status | blocked |"
+            echo "| Linux package workflow artifact bundle upload release asset | blocked |"
+            echo "| Linux package workflow artifact bundle upload publish job | publish-github-release |"
+            echo "| Linux package workflow artifact bundle upload publish job status | not-defined |"
+            echo "| Linux package workflow artifact bundle upload next action | attestation-after-workflow-artifact-bundle |"
             echo "| Release artifact contract | ${RELEASE_ARTIFACT_CONTRACT_RESULT} |"
             echo "| Release signing contract | ${RELEASE_SIGNING_CONTRACT_RESULT} |"
             echo "| Release rollback contract | ${RELEASE_ROLLBACK_CONTRACT_RESULT} |"
@@ -2231,6 +2354,28 @@ jobs:
           echo "linux-package-artifact-manifest-checksum-release-asset=blocked"
           echo "linux-package-artifact-manifest-checksum-upload=blocked"
           echo "linux-package-artifact-manifest-checksum-next-action=workflow-artifact-upload-after-manifest-checksum"
+          echo "linux-package-workflow-artifact-bundle-upload-contract=present"
+          echo "linux-package-workflow-artifact-bundle-upload-source=linux-artifact-readiness"
+          echo "linux-package-workflow-artifact-bundle-upload-status=blocked-placeholder"
+          echo "linux-package-workflow-artifact-bundle-upload-current-mode=contract-only-no-workflow-artifact-upload"
+          echo "linux-package-workflow-artifact-bundle-upload-required-job=package-linux"
+          echo "linux-package-workflow-artifact-bundle-upload-job-status=not-defined"
+          echo "linux-package-workflow-artifact-bundle-upload-manifest-checksum=blocked-placeholder"
+          echo 'linux-package-workflow-artifact-bundle-upload-source-dir=dist/linux/${target}/artifacts'
+          echo 'linux-package-workflow-artifact-bundle-upload-name=networkcore-linux-${version}-${target}-release-bundle'
+          echo "linux-package-workflow-artifact-bundle-upload-retention-days=14"
+          echo "linux-package-workflow-artifact-bundle-upload-required-files=archive,archive_sha256,manifest,manifest_sha256"
+          echo 'linux-package-workflow-artifact-bundle-upload-archive-name=networkcore-linux-${version}-${target}.tar.gz'
+          echo 'linux-package-workflow-artifact-bundle-upload-archive-checksum-name=networkcore-linux-${version}-${target}.tar.gz.sha256'
+          echo 'linux-package-workflow-artifact-bundle-upload-manifest-name=networkcore-linux-${version}-${target}.manifest.json'
+          echo 'linux-package-workflow-artifact-bundle-upload-manifest-checksum-name=networkcore-linux-${version}-${target}.manifest.json.sha256'
+          echo "linux-package-workflow-artifact-bundle-upload-same-run=required"
+          echo "linux-package-workflow-artifact-bundle-upload-upload-action=actions/upload-artifact"
+          echo "linux-package-workflow-artifact-bundle-upload-upload-action-status=blocked"
+          echo "linux-package-workflow-artifact-bundle-upload-release-asset=blocked"
+          echo "linux-package-workflow-artifact-bundle-upload-publish-job=publish-github-release"
+          echo "linux-package-workflow-artifact-bundle-upload-publish-job-status=not-defined"
+          echo "linux-package-workflow-artifact-bundle-upload-next-action=attestation-after-workflow-artifact-bundle"
           echo "release-artifact-contract=${RELEASE_ARTIFACT_CONTRACT_RESULT}"
           echo "release-signing-contract=${RELEASE_SIGNING_CONTRACT_RESULT}"
           echo "release-rollback-contract=${RELEASE_ROLLBACK_CONTRACT_RESULT}"

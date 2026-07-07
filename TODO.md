@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 补充 Linux package workflow artifact bundle upload validation contract，明确 manifest checksum sidecar 生成后校验 release bundle 文件集、上传同一 release run workflow artifact 和仍不发布 release asset 的边界。
+- [ ] 补充 Linux package artifact attestation execution validation contract，明确 workflow artifact bundle 上传后对 archive/archive checksum/manifest/manifest checksum 生成 GitHub artifact attestation/provenance、拒绝旧 run/外部 artifact 和仍不发布 release asset 的边界。
 
 ## 已完成
 
+- [x] 完成 Linux package workflow artifact bundle upload validation contract；新增 workflow artifact bundle upload validation contract，固定未来 manifest checksum sidecar 生成后校验 `dist/linux/${target}/artifacts` 中 archive、archive checksum、manifest、manifest checksum 四文件集合、同一 release run workflow artifact bundle 名称、retention days、`actions/upload-artifact` blocked 状态、失败条件和 release asset upload blocked 边界，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 workflow artifact bundle upload blocked 状态，继续不上传 workflow artifact 或 release asset。
 - [x] 完成 Linux package artifact manifest checksum validation contract；新增 manifest checksum validation contract，固定未来 manifest JSON 生成后使用 `sha256sum` 计算 `networkcore-linux-${version}-${target}.manifest.json.sha256`、校验 two-space record 格式、写 manifest checksum sidecar、失败条件和 workflow artifact/release asset upload blocked 边界，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 manifest checksum blocked 状态，继续不生成 manifest checksum 文件或 artifact。
 - [x] 完成 Linux package artifact manifest generation validation contract；新增 manifest generation validation contract，固定未来 archive checksum sidecar 写入后生成 `networkcore-linux-${version}-${target}.manifest.json`、校验 manifest 必需字段、archive/checksum 交叉引用、失败条件和 manifest checksum/upload blocked 边界，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 manifest generation blocked 状态，继续不生成 manifest、manifest checksum 或 artifact。
 - [x] 完成 Linux package artifact checksum execution validation contract；新增 checksum execution validation contract，固定未来 archive 创建后使用 `sha256sum` 计算 `networkcore-linux-${version}-${target}.tar.gz.sha256`、校验 two-space record 格式、写 archive checksum sidecar、失败条件和 manifest/upload blocked 边界，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 checksum execution blocked 状态，继续不生成 checksum 文件、manifest 或 artifact。
