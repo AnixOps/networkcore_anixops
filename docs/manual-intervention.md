@@ -4,9 +4,6 @@
 
 ## 当前待处理
 
-- Linux artifact license/NOTICE 文本确认仍为 pending；完成前 `release.yml` 的 `linux-artifact-readiness`
-  会在 GitHub Actions 中失败，阻止 `package-linux` 构建、workflow artifact 上传和 Linux release asset 发布。
-  当前仓库已加入 `LICENSE`，但仍需要人工确认 `Apache-2.0` 与 `NOTICE=not-required` 后才能切换 marker。
 - iOS App Review manual confirmation 仍为 pending；完成前不得启用 TestFlight upload、App Store upload、
   App Review submission 或 iOS release asset。
 - iOS TestFlight/App Store Connect upload workflow 仍为 pending；完成前不得执行 archive/export、
@@ -22,6 +19,10 @@
 5. 已确认 `v0.1.0-alpha.1` alpha Windows 手工 smoke 测试通过；候选 commit 为
    `67e86a84388023df77e53537f3f209b5a05c1682`，CI run 为 `28901464670`，release run 为
    `28901692913`，确认环境为 Windows 11 24H2 x64，且未运行本地构建或测试。
+6. 已确认 Linux CLI artifact 使用仓库 `LICENSE` 的 `Apache-2.0`，`NOTICE=not-required`，
+   artifact files 为 `LICENSE`；该确认只解除 license/NOTICE 人工门禁，真实二进制仍必须由
+   GitHub Actions 的 CI、checksum、manifest、attestation、release notes、rollback 和 publish
+   eligibility gates 生成、校验和发布。
 
 ## 后续 CI 观察命令
 
@@ -54,21 +55,28 @@ gh run list --workflow ci.yml --limit 5
 
 ## Linux Artifact License/NOTICE Confirmation
 
-以下字段是 release readiness 读取的机器状态。当前仍未完成 license/NOTICE 人工确认，
-因此 Linux artifact 发布保持阻断。`release.yml` 已具备真实 Linux CLI artifact 路径，但在本 marker
-切到 confirmed 前会失败在 `linux-artifact-readiness`，不会构建或上传二进制。
+以下字段是 release readiness 读取的机器状态。license/NOTICE 人工确认已完成；
+该确认只允许进入后续 GitHub Actions gates，不表示可跳过 CI、checksum、manifest、
+attestation、release notes、rollback 或 publish eligibility。
 
 ```text
-linux-artifact-license-notice-status=pending
+linux-artifact-license-notice-status=confirmed
 linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md
-linux-artifact-license-notice-package-linux=blocked
-linux-artifact-license-notice-release-assets=blocked
+linux-artifact-license-notice-transition-contract=docs/architecture/linux-package-license-notice-transition-validation-contract.md
+linux-artifact-license-notice-transition-commit=independent-manual-confirmation-commit
+linux-artifact-license-notice-confirmed-at=2026-07-08
+linux-artifact-license-notice-confirmed-by=operator
+linux-artifact-license-notice-scope=networkcore-linux
+linux-artifact-license-notice-license-source=LICENSE
+linux-artifact-license-notice-notice-source=not-required
+linux-artifact-license-notice-artifact-files=LICENSE
+linux-artifact-license-notice-package-linux=eligible-after-ci-and-release-gates
+linux-artifact-license-notice-release-assets=eligible-after-package-signing-checksum-and-rollback-gates
 ```
 
-人工确认完成前，不得触发通过真实 `package-linux` artifact job 或发布 Linux release asset。
-未来从 pending 切换到 confirmed 时，必须遵守
-`docs/architecture/linux-package-license-notice-transition-validation-contract.md` 中的独立提交、
-字段和 LICENSE/NOTICE 文件存在性检查规则。
+`package-linux` 和 release assets 仍必须遵守
+`docs/architecture/linux-package-license-notice-transition-validation-contract.md`、同 commit CI、
+checksum/manifest、attestation、release notes、rollback 和 publish eligibility gates。
 
 ## Alpha Windows Manual Smoke Test
 
