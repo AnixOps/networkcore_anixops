@@ -34,7 +34,8 @@ job、不定义 publish job、不上传 workflow artifact、不发布 GitHub Rel
 [Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md)、
 [Linux Package Signing Attestation Policy Binding Contract](linux-package-signing-attestation-policy-binding-contract.md)、
 [Linux Package Release Notes Rollback Policy Binding Contract](linux-package-release-notes-rollback-policy-binding-contract.md)、
-[Linux Package Publish Eligibility Aggregate Contract](linux-package-publish-eligibility-aggregate-contract.md)
+[Linux Package Publish Eligibility Aggregate Contract](linux-package-publish-eligibility-aggregate-contract.md)、
+[Linux Package License Notice Transition Validation Contract](linux-package-license-notice-transition-validation-contract.md)
 和 release workflow
 中的显式常量。不得由 maintainer 在 `workflow_dispatch` 中手动输入上传目录、asset 名称、
 retention 天数或 release asset 覆盖策略来绕过门禁。
@@ -176,5 +177,5 @@ maintainer 上传文件、旧 run artifact、不同 commit artifact、不同 bra
 
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
 - Linux package signing/attestation policy binding contract、release notes/rollback policy binding
-  contract 和 publish eligibility aggregate contract 已定义；下一步可以补充 Linux package
-  license/NOTICE confirmed-state transition validation contract，仍不生成 artifact。
+  contract、publish eligibility aggregate contract 和 license/NOTICE transition validation contract 已定义；
+  下一步可以补充 Linux package release CI gate activation validation contract，仍不生成 artifact。

@@ -243,6 +243,7 @@ jobs:
           test -f docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
           test -f docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
           test -f docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
+          test -f docs/architecture/linux-package-license-notice-transition-validation-contract.md
           test -f docs/manual-intervention.md
           grep -q "networkcore-linux" apps/linux-cli/README.md
           grep -q "handle_foreground_lifecycle_with_runtime_stop" apps/linux-cli/src/lib.rs
@@ -269,6 +270,7 @@ jobs:
           grep -q "Linux Package Signing Attestation Policy Binding Contract" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
           grep -q "Linux Package Release Notes Rollback Policy Binding Contract" docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
           grep -q "Linux Package Publish Eligibility Aggregate Contract" docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
+          grep -q "Linux Package License Notice Transition Validation Contract" docs/architecture/linux-package-license-notice-transition-validation-contract.md
           grep -q "artifact_manifest_path" docs/architecture/linux-package-artifact-manifest.md
           grep -q "artifact_manifest_checksum_value" docs/architecture/linux-package-artifact-manifest.md
           grep -q "rust_target_triple" docs/architecture/linux-package-runner-toolchain-target-contract.md
@@ -290,6 +292,9 @@ jobs:
           grep -q "package_publish_eligibility_status" docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
           grep -q "package_publish_eligibility_required_gates" docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
           grep -q "package_publish_eligibility_next_action" docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
+          grep -q "package_license_notice_transition_status" docs/architecture/linux-package-license-notice-transition-validation-contract.md
+          grep -q "package_license_notice_transition_required_commit" docs/architecture/linux-package-license-notice-transition-validation-contract.md
+          grep -q "package_license_notice_transition_license_file_check" docs/architecture/linux-package-license-notice-transition-validation-contract.md
           grep -q "Linux Artifact Manifest Output Contract" .github/workflows/release.yml
           grep -q "linux-artifact-manifest-output-fields" .github/workflows/release.yml
           grep -q "Linux Artifact License/NOTICE Source Contract" .github/workflows/release.yml
@@ -337,10 +342,62 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-publish-eligibility-ci=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-publish-eligibility-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-publish-eligibility-next-action=license-notice-confirmation-required"$' .github/workflows/release.yml)" -ge 3
-          grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
-          grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
-          grep -q "linux-artifact-license-notice-package-linux=blocked" docs/manual-intervention.md
-          grep -q "linux-artifact-license-notice-release-assets=blocked" docs/manual-intervention.md
+          grep -Eq '^[[:space:]]+echo "### Linux Package License Notice Transition Validation Contract"$' .github/workflows/release.yml
+          grep -q "linux-artifact-license-notice-transition-commit=independent-manual-confirmation-commit" .github/workflows/release.yml
+          test "$(grep -Ec '^          echo "linux-package-license-notice-transition-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-license-notice-transition-status=blocked-pending"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-license-notice-transition-required-commit=independent-manual-confirmation-commit"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-license-notice-transition-confirmed-marker=blocked-not-present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-license-notice-transition-license-file-check=blocked-until-confirmed"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-license-notice-transition-package-linux=not-defined"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-license-notice-transition-next-action=manual-license-notice-confirmation"$' .github/workflows/release.yml)" -ge 3
+          require_license_notice_repo_file() {
+            case "$1" in
+              ""|/*|*..*|http://*|https://*)
+                echo "::error::license/NOTICE source must be a repository-relative file path."
+                exit 1
+                ;;
+            esac
+            test -f "$1"
+          }
+
+          validate_license_notice_transition() {
+            grep -q '^linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md$' docs/manual-intervention.md
+            if grep -q '^linux-artifact-license-notice-status=confirmed$' docs/manual-intervention.md; then
+              if grep -q '^linux-artifact-license-notice-status=pending$' docs/manual-intervention.md; then
+                echo "::error::license/NOTICE cannot be pending and confirmed in the same manual record."
+                exit 1
+              fi
+              grep -q '^linux-artifact-license-notice-transition-contract=docs/architecture/linux-package-license-notice-transition-validation-contract.md$' docs/manual-intervention.md
+              grep -q '^linux-artifact-license-notice-transition-commit=independent-manual-confirmation-commit$' docs/manual-intervention.md
+              grep -Eq '^linux-artifact-license-notice-confirmed-at=[0-9]{4}-[0-9]{2}-[0-9]{2}$' docs/manual-intervention.md
+              grep -Eq '^linux-artifact-license-notice-confirmed-by=[A-Za-z0-9_.-]+$' docs/manual-intervention.md
+              grep -q '^linux-artifact-license-notice-scope=networkcore-linux$' docs/manual-intervention.md
+              grep -q '^linux-artifact-license-notice-license-source=LICENSE$' docs/manual-intervention.md
+              license_source="$(sed -n 's/^linux-artifact-license-notice-license-source=//p' docs/manual-intervention.md | tail -n 1)"
+              require_license_notice_repo_file "${license_source}"
+              notice_source="$(sed -n 's/^linux-artifact-license-notice-notice-source=//p' docs/manual-intervention.md | tail -n 1)"
+              if [ "${notice_source}" != "not-required" ]; then
+                require_license_notice_repo_file "${notice_source}"
+              fi
+              grep -q '^linux-artifact-license-notice-artifact-files=.*LICENSE' docs/manual-intervention.md
+              artifact_files="$(sed -n 's/^linux-artifact-license-notice-artifact-files=//p' docs/manual-intervention.md | tail -n 1)"
+              case "${artifact_files}" in
+                ""|/*|*..*|*http://*|*https://*)
+                  echo "::error::license/NOTICE artifact files must stay repository/artifact relative and include LICENSE."
+                  exit 1
+                  ;;
+              esac
+              grep -q '^linux-artifact-license-notice-package-linux=eligible-after-ci-and-release-gates$' docs/manual-intervention.md
+              grep -q '^linux-artifact-license-notice-release-assets=eligible-after-package-signing-checksum-and-rollback-gates$' docs/manual-intervention.md
+            else
+              grep -q '^linux-artifact-license-notice-status=pending$' docs/manual-intervention.md
+              grep -q '^linux-artifact-license-notice-package-linux=blocked$' docs/manual-intervention.md
+              grep -q '^linux-artifact-license-notice-release-assets=blocked$' docs/manual-intervention.md
+            fi
+          }
+
+          validate_license_notice_transition
           grep -q "package-linux" docs/architecture/linux-cli-artifact-installation-rollback.md
           grep -q "license 或 artifact 内置许可/NOTICE" docs/manual-intervention.md
           if grep -Eq '^  package-linux:' .github/workflows/release.yml; then
@@ -379,6 +436,7 @@ jobs:
             echo "| Package signing/attestation policy binding contract | present |"
             echo "| Package release notes/rollback policy binding contract | present |"
             echo "| Package publish eligibility aggregate contract | present |"
+            echo "| Package license/NOTICE transition validation contract | present |"
             echo "| Install and rollback design | present |"
             echo "| License or NOTICE confirmation | pending in docs/manual-intervention.md |"
             echo "| Release asset upload | blocked until package-linux, checksum, signing/attestation, rollback, and license/NOTICE gates are complete |"
@@ -394,6 +452,20 @@ jobs:
           echo "linux-artifact-license-notice-source=docs/manual-intervention.md"
           echo "linux-artifact-license-notice-status=pending"
           echo "linux-artifact-license-notice-package-linux=blocked"
+          echo "linux-package-license-notice-transition-contract=present"
+          echo "linux-package-license-notice-transition-source=docs/manual-intervention.md"
+          echo "linux-package-license-notice-transition-status=blocked-pending"
+          echo "linux-package-license-notice-transition-required-commit=independent-manual-confirmation-commit"
+          echo "linux-package-license-notice-transition-pending-marker=present"
+          echo "linux-package-license-notice-transition-confirmed-marker=blocked-not-present"
+          echo "linux-package-license-notice-transition-license-source=LICENSE"
+          echo "linux-package-license-notice-transition-license-file-check=blocked-until-confirmed"
+          echo "linux-package-license-notice-transition-notice-source=not-required"
+          echo "linux-package-license-notice-transition-notice-file-check=not-required-until-confirmed"
+          echo "linux-package-license-notice-transition-artifact-files=LICENSE"
+          echo "linux-package-license-notice-transition-package-linux=not-defined"
+          echo "linux-package-license-notice-transition-release-assets=blocked"
+          echo "linux-package-license-notice-transition-next-action=manual-license-notice-confirmation"
           echo "linux-package-platform-input-contract=present"
           echo "linux-package-platform-contract=docs/architecture/linux-package-runner-toolchain-target-contract.md"
           echo "linux-package-required-runner=ubuntu-latest"
@@ -523,15 +595,60 @@ jobs:
           test -f docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
           test -f docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
           test -f docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
+          test -f docs/architecture/linux-package-license-notice-transition-validation-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
           grep -q "Linux Package Publish Upload Boundary Contract" docs/architecture/linux-package-publish-upload-boundary-contract.md
           grep -q "Linux Package Signing Attestation Policy Binding Contract" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
           grep -q "Linux Package Release Notes Rollback Policy Binding Contract" docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
           grep -q "Linux Package Publish Eligibility Aggregate Contract" docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
-          grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
-          grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
-          grep -q "linux-artifact-license-notice-package-linux=blocked" docs/manual-intervention.md
-          grep -q "linux-artifact-license-notice-release-assets=blocked" docs/manual-intervention.md
+          grep -q "Linux Package License Notice Transition Validation Contract" docs/architecture/linux-package-license-notice-transition-validation-contract.md
+          require_license_notice_repo_file() {
+            case "$1" in
+              ""|/*|*..*|http://*|https://*)
+                echo "::error::license/NOTICE source must be a repository-relative file path."
+                exit 1
+                ;;
+            esac
+            test -f "$1"
+          }
+
+          validate_license_notice_transition() {
+            grep -q '^linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md$' docs/manual-intervention.md
+            if grep -q '^linux-artifact-license-notice-status=confirmed$' docs/manual-intervention.md; then
+              if grep -q '^linux-artifact-license-notice-status=pending$' docs/manual-intervention.md; then
+                echo "::error::license/NOTICE cannot be pending and confirmed in the same manual record."
+                exit 1
+              fi
+              grep -q '^linux-artifact-license-notice-transition-contract=docs/architecture/linux-package-license-notice-transition-validation-contract.md$' docs/manual-intervention.md
+              grep -q '^linux-artifact-license-notice-transition-commit=independent-manual-confirmation-commit$' docs/manual-intervention.md
+              grep -Eq '^linux-artifact-license-notice-confirmed-at=[0-9]{4}-[0-9]{2}-[0-9]{2}$' docs/manual-intervention.md
+              grep -Eq '^linux-artifact-license-notice-confirmed-by=[A-Za-z0-9_.-]+$' docs/manual-intervention.md
+              grep -q '^linux-artifact-license-notice-scope=networkcore-linux$' docs/manual-intervention.md
+              grep -q '^linux-artifact-license-notice-license-source=LICENSE$' docs/manual-intervention.md
+              license_source="$(sed -n 's/^linux-artifact-license-notice-license-source=//p' docs/manual-intervention.md | tail -n 1)"
+              require_license_notice_repo_file "${license_source}"
+              notice_source="$(sed -n 's/^linux-artifact-license-notice-notice-source=//p' docs/manual-intervention.md | tail -n 1)"
+              if [ "${notice_source}" != "not-required" ]; then
+                require_license_notice_repo_file "${notice_source}"
+              fi
+              grep -q '^linux-artifact-license-notice-artifact-files=.*LICENSE' docs/manual-intervention.md
+              artifact_files="$(sed -n 's/^linux-artifact-license-notice-artifact-files=//p' docs/manual-intervention.md | tail -n 1)"
+              case "${artifact_files}" in
+                ""|/*|*..*|*http://*|*https://*)
+                  echo "::error::license/NOTICE artifact files must stay repository/artifact relative and include LICENSE."
+                  exit 1
+                  ;;
+              esac
+              grep -q '^linux-artifact-license-notice-package-linux=eligible-after-ci-and-release-gates$' docs/manual-intervention.md
+              grep -q '^linux-artifact-license-notice-release-assets=eligible-after-package-signing-checksum-and-rollback-gates$' docs/manual-intervention.md
+            else
+              grep -q '^linux-artifact-license-notice-status=pending$' docs/manual-intervention.md
+              grep -q '^linux-artifact-license-notice-package-linux=blocked$' docs/manual-intervention.md
+              grep -q '^linux-artifact-license-notice-release-assets=blocked$' docs/manual-intervention.md
+            fi
+          }
+
+          validate_license_notice_transition
           if grep -Eq '^  package-linux:' .github/workflows/release.yml; then
             echo "::error::package-linux must stay undefined until license/NOTICE and artifact gates are complete."
             exit 1
@@ -720,6 +837,26 @@ jobs:
             echo "| Current post-release-summary job | not defined |"
             echo "| Next action | license-notice-confirmation-required |"
             echo
+            echo "### Linux Package License Notice Transition Validation Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | placeholder summary only |"
+            echo "| Source contract | docs/architecture/linux-package-license-notice-transition-validation-contract.md |"
+            echo "| Source of truth | docs/manual-intervention.md |"
+            echo "| Transition status | blocked-pending |"
+            echo "| Required transition commit | independent-manual-confirmation-commit |"
+            echo "| Pending marker | present |"
+            echo "| Future confirmed marker | blocked-not-present |"
+            echo "| Required license source | LICENSE |"
+            echo "| License file check | blocked-until-confirmed |"
+            echo "| Required NOTICE source | not-required |"
+            echo "| NOTICE file check | not-required-until-confirmed |"
+            echo "| Required artifact files | LICENSE |"
+            echo "| Current package-linux job | not defined |"
+            echo "| Current release asset | blocked |"
+            echo "| Next action | manual-license-notice-confirmation |"
+            echo
             echo "### Linux Artifact License/NOTICE Source Contract"
             echo
             echo "| Item | Status |"
@@ -844,6 +981,20 @@ jobs:
           echo "linux-package-publish-eligibility-publish-github-release=not-defined"
           echo "linux-package-publish-eligibility-post-release-summary=not-defined"
           echo "linux-package-publish-eligibility-next-action=license-notice-confirmation-required"
+          echo "linux-package-license-notice-transition-contract=present"
+          echo "linux-package-license-notice-transition-source=docs/manual-intervention.md"
+          echo "linux-package-license-notice-transition-status=blocked-pending"
+          echo "linux-package-license-notice-transition-required-commit=independent-manual-confirmation-commit"
+          echo "linux-package-license-notice-transition-pending-marker=present"
+          echo "linux-package-license-notice-transition-confirmed-marker=blocked-not-present"
+          echo "linux-package-license-notice-transition-license-source=LICENSE"
+          echo "linux-package-license-notice-transition-license-file-check=blocked-until-confirmed"
+          echo "linux-package-license-notice-transition-notice-source=not-required"
+          echo "linux-package-license-notice-transition-notice-file-check=not-required-until-confirmed"
+          echo "linux-package-license-notice-transition-artifact-files=LICENSE"
+          echo "linux-package-license-notice-transition-package-linux=not-defined"
+          echo "linux-package-license-notice-transition-release-assets=blocked"
+          echo "linux-package-license-notice-transition-next-action=manual-license-notice-confirmation"
           echo "linux-artifact-license-notice-contract=present"
           echo "linux-artifact-license-notice-source=docs/manual-intervention.md"
           echo "linux-artifact-license-notice-status=pending"
@@ -965,6 +1116,17 @@ jobs:
             echo "| Linux package publish eligibility publish-github-release | not-defined |"
             echo "| Linux package publish eligibility post-release-summary | not-defined |"
             echo "| Linux package publish eligibility next action | license-notice-confirmation-required |"
+            echo "| Linux package license/NOTICE transition validation contract | summarized in release-placeholder |"
+            echo "| Linux package license/NOTICE transition status | blocked-pending |"
+            echo "| Linux package license/NOTICE transition required commit | independent-manual-confirmation-commit |"
+            echo "| Linux package license/NOTICE transition confirmed marker | blocked-not-present |"
+            echo "| Linux package license/NOTICE transition license source | LICENSE |"
+            echo "| Linux package license/NOTICE transition license file check | blocked-until-confirmed |"
+            echo "| Linux package license/NOTICE transition notice source | not-required |"
+            echo "| Linux package license/NOTICE transition artifact files | LICENSE |"
+            echo "| Linux package license/NOTICE transition package-linux | not-defined |"
+            echo "| Linux package license/NOTICE transition release assets | blocked |"
+            echo "| Linux package license/NOTICE transition next action | manual-license-notice-confirmation |"
             echo "| Linux artifact license/NOTICE contract | checked in linux-artifact-readiness |"
             echo "| Linux artifact license/NOTICE status | pending in docs/manual-intervention.md |"
             echo "| Release placeholder | ${{ needs.release-placeholder.result }} |"
@@ -1101,6 +1263,20 @@ jobs:
           echo "linux-package-publish-eligibility-publish-github-release=not-defined"
           echo "linux-package-publish-eligibility-post-release-summary=not-defined"
           echo "linux-package-publish-eligibility-next-action=license-notice-confirmation-required"
+          echo "linux-package-license-notice-transition-contract=present"
+          echo "linux-package-license-notice-transition-source=docs/manual-intervention.md"
+          echo "linux-package-license-notice-transition-status=blocked-pending"
+          echo "linux-package-license-notice-transition-required-commit=independent-manual-confirmation-commit"
+          echo "linux-package-license-notice-transition-pending-marker=present"
+          echo "linux-package-license-notice-transition-confirmed-marker=blocked-not-present"
+          echo "linux-package-license-notice-transition-license-source=LICENSE"
+          echo "linux-package-license-notice-transition-license-file-check=blocked-until-confirmed"
+          echo "linux-package-license-notice-transition-notice-source=not-required"
+          echo "linux-package-license-notice-transition-notice-file-check=not-required-until-confirmed"
+          echo "linux-package-license-notice-transition-artifact-files=LICENSE"
+          echo "linux-package-license-notice-transition-package-linux=not-defined"
+          echo "linux-package-license-notice-transition-release-assets=blocked"
+          echo "linux-package-license-notice-transition-next-action=manual-license-notice-confirmation"
           echo "linux-artifact-license-notice-contract=present"
           echo "linux-artifact-license-notice-source=docs/manual-intervention.md"
           echo "linux-artifact-license-notice-status=pending"

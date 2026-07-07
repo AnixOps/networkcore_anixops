@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 补充 Linux package license/NOTICE confirmed-state transition validation contract，明确 pending 到 confirmed 的独立提交字段、LICENSE/NOTICE 文件存在性检查、release workflow confirmed marker 校验和 `package-linux` 继续保持未定义的条件。
+- [ ] 补充 Linux package release CI gate activation validation contract，明确 `release-ci-gate` 从 placeholder 字段合同切换到同 commit 成功 CI 自动读取前的权限、API 字段、失败条件和继续不生成 artifact 的边界。
 
 ## 已完成
 
+- [x] 完成 Linux package license/NOTICE confirmed-state transition validation contract；新增 transition validation contract，固定 pending 到 confirmed 的独立人工确认提交字段、`LICENSE`/可选 `NOTICE` 文件存在性检查、release workflow future confirmed marker 校验和当前 `package-linux` 继续未定义边界，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 blocked-pending transition 状态，继续不生成 artifact。
 - [x] 完成 Linux package publish eligibility aggregate contract；新增 publish eligibility aggregate contract，汇总 license/NOTICE、同 commit CI、runner/toolchain、archive/checksum/manifest、publish/upload、signing/attestation、release notes/rollback 的 eligible/blocked 状态，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 aggregate blocked 状态和 next action，继续不定义 `package-linux`、`publish-github-release`、`post-release-summary` 或上传 artifact。
 - [x] 完成 Linux package release notes/rollback policy binding contract；新增 release notes/rollback policy binding contract，固定首个 Linux artifact 的 release notes required fields、manual-extract rollback policy、withdrawal-not-overwrite、new-version-tag replacement policy、blocked status 和 publish without rollback 阻断，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出该合同，继续不定义 `package-linux`、`publish-github-release`、`post-release-summary` 或上传 artifact。
 - [x] 完成 Linux package signing/attestation policy binding contract；新增 signing/attestation policy binding contract，固定首个 Linux artifact 的 unsigned-no-detached-signature 策略、GitHub artifact attestation/provenance required 策略、attestation subjects、provenance reference、blocked status 和 publish without attestation 阻断，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出该合同，继续不定义 `package-linux`、`attest-linux`、`sign-linux`、`publish-github-release` 或上传 artifact。

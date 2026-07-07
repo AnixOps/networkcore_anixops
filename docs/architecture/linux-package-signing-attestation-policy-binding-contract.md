@@ -33,6 +33,7 @@ workflow artifact 或 GitHub Release asset。
 [Linux Package Publish Upload Boundary Contract](linux-package-publish-upload-boundary-contract.md)、
 [Linux Package Release Notes Rollback Policy Binding Contract](linux-package-release-notes-rollback-policy-binding-contract.md)、
 [Linux Package Publish Eligibility Aggregate Contract](linux-package-publish-eligibility-aggregate-contract.md)、
+[Linux Package License Notice Transition Validation Contract](linux-package-license-notice-transition-validation-contract.md)、
 [Release CI Success Source Contract](release-ci-success-source-contract.md) 和 release workflow 中的
 显式常量。不得由 maintainer 在 `workflow_dispatch` 中手动输入 signing status、attestation
 status、provenance reference 或 release asset eligibility 来绕过门禁。
@@ -177,5 +178,5 @@ upload 步骤。
 
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
 - Linux package release notes/rollback policy binding contract 和 publish eligibility aggregate contract
-  已定义；下一步可以补充 Linux package license/NOTICE confirmed-state transition validation
-  contract，仍不生成 artifact。
+  与 license/NOTICE transition validation contract 已定义；下一步可以补充 Linux package release CI gate
+  activation validation contract，仍不生成 artifact。

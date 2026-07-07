@@ -27,7 +27,8 @@ manifest 交叉校验边界由 [Linux Package Checksum Manifest Contract](linux-
 ## Source Of Truth
 
 首个真实 Linux archive staging 输入必须来自本文档、
-[Linux Package Runner Toolchain Target Contract](linux-package-runner-toolchain-target-contract.md)
+[Linux Package Runner Toolchain Target Contract](linux-package-runner-toolchain-target-contract.md)、
+[Linux Package License Notice Transition Validation Contract](linux-package-license-notice-transition-validation-contract.md)
 和 release workflow 中的显式常量。不得由 maintainer 在 `workflow_dispatch` 中手动输入
 staging 目录、archive 路径或文件来源来绕过门禁。
 
@@ -158,5 +159,5 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、Git
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
 - Linux package checksum manifest contract、publish/upload boundary contract、signing/attestation
   policy binding contract、release notes/rollback policy binding contract 和 publish eligibility
-  aggregate contract 已定义；下一步可以补充 Linux package license/NOTICE confirmed-state transition
-  validation contract，仍不生成 artifact。
+  aggregate contract、license/NOTICE transition validation contract 已定义；下一步可以补充 Linux package
+  release CI gate activation validation contract，仍不生成 artifact。

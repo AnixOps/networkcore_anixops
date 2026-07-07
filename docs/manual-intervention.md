@@ -55,3 +55,6 @@ linux-artifact-license-notice-release-assets=blocked
 ```
 
 人工确认完成前，不得实现真实 `package-linux` artifact job 或发布 Linux release asset。
+未来从 pending 切换到 confirmed 时，必须遵守
+`docs/architecture/linux-package-license-notice-transition-validation-contract.md` 中的独立提交、
+字段和 LICENSE/NOTICE 文件存在性检查规则。

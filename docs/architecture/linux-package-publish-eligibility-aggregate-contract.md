@@ -28,6 +28,7 @@ archive staging、checksum/manifest、artifact manifest、publish/upload、signi
 
 首个真实 Linux publish eligibility 输入必须来自本文档、
 [Linux Artifact License Notice Confirmation Design](linux-artifact-license-notice-confirmation.md)、
+[Linux Package License Notice Transition Validation Contract](linux-package-license-notice-transition-validation-contract.md)、
 [Release CI Success Source Contract](release-ci-success-source-contract.md)、
 [Linux Package Runner Toolchain Target Contract](linux-package-runner-toolchain-target-contract.md)、
 [Linux Package Archive Staging Contract](linux-package-archive-staging-contract.md)、
@@ -203,7 +204,8 @@ aggregate eligibility publish gate 或 upload 步骤。
   Linux package signing/attestation policy binding contract、Linux package release notes/rollback
   policy binding contract、Linux CLI artifact 安装/回滚设计、Release CI success source contract、
   Linux package runner/toolchain/target contract、Linux package archive staging contract、Linux artifact
-  license/NOTICE confirmation source contract 和 CI policy 中可发现。
+  license/NOTICE confirmation source contract、Linux package license/NOTICE transition validation contract
+  和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题和
   release placeholder/summary 输出字段。
@@ -216,6 +218,5 @@ aggregate eligibility publish gate 或 upload 步骤。
 ## 后续工作
 
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
-- 下一步可以补充 Linux package license/NOTICE confirmed-state transition validation contract，
-  明确 pending 到 confirmed 的独立提交字段、LICENSE/NOTICE 文件存在性检查和 `package-linux`
-  继续保持未定义的条件。
+- Linux package license/NOTICE transition validation contract 已定义；下一步可以补充 Linux package
+  release CI gate activation validation contract，仍不生成 artifact。

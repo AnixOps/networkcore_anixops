@@ -96,6 +96,7 @@
 - [Linux CLI Artifact Installation And Rollback Design](docs/architecture/linux-cli-artifact-installation-rollback.md)
 - [Linux Package Artifact Manifest Design](docs/architecture/linux-package-artifact-manifest.md)
 - [Linux Artifact License Notice Confirmation Design](docs/architecture/linux-artifact-license-notice-confirmation.md)
+- [Linux Package License Notice Transition Validation Contract](docs/architecture/linux-package-license-notice-transition-validation-contract.md)
 - [Release CI Success Source Contract](docs/architecture/release-ci-success-source-contract.md)
 - [Linux Package Runner Toolchain Target Contract](docs/architecture/linux-package-runner-toolchain-target-contract.md)
 - [Linux Package Archive Staging Contract](docs/architecture/linux-package-archive-staging-contract.md)
