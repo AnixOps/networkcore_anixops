@@ -251,6 +251,4 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、sec
 - 在 license/NOTICE 人工确认完成和 release CI gate activation 实现前，继续保持
   `package-linux` 未定义。
 - Linux package artifact build command validation contract 和 Linux package artifact staging file
-  validation contract 已定义；下一步可以补充 Linux package artifact archive creation validation
-  contract，明确真实 staging file 校验通过后创建 `.tar.gz` 的单顶层目录、路径、禁止额外文件和
-  仍不生成 checksum/upload 的边界。
+  validation contract 和 Linux package artifact archive creation validation contract 已定义；下一步可以补充 Linux package artifact checksum execution validation contract，明确真实 archive 创建后计算 `sha256`、写 archive checksum sidecar 和仍不写 manifest/upload 的边界。

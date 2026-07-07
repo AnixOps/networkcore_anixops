@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 补充 Linux package artifact archive creation validation contract，明确真实 staging file 校验通过后创建 `.tar.gz` 的单顶层目录、路径、禁止额外文件和仍不生成 checksum/upload 的边界。
+- [ ] 补充 Linux package artifact checksum execution validation contract，明确真实 archive 创建后计算 `sha256`、写 archive checksum sidecar 和仍不写 manifest/upload 的边界。
 
 ## 已完成
 
+- [x] 完成 Linux package artifact archive creation validation contract；新增 archive creation validation contract，固定未来 `package-linux` 的 `.tar.gz` archive name/path、`tar -czf` 命令形态、单顶层目录、required files、失败条件和 checksum/manifest/upload blocked 边界，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 archive creation blocked 状态，继续不创建 archive 或生成 artifact。
 - [x] 完成 Linux package artifact staging file validation contract；新增 staging file validation contract，固定未来 `package-linux` 的 build output、INSTALL、LICENSE/NOTICE 和 CHANGELOG 复制来源、目标路径、binary `0755` 权限、失败条件和 archive/upload blocked 边界，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 staging file blocked 状态，继续不创建 archive 或生成 artifact。
 - [x] 完成 Linux package artifact build command validation contract；新增 build command validation contract，固定未来 `package-linux` 的 `rustup target add`、`cargo build --locked --release --package networkcore-linux --bin networkcore-linux --target x86_64-unknown-linux-gnu`、binary path 校验、失败条件和当前 blocked-placeholder 状态，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 build command blocked 状态，继续不生成 artifact。
 - [x] 完成 Linux package artifact job preflight validation contract；新增 preflight validation contract，固定 `package-linux` 在 license/NOTICE 与 release CI gate 未解除前仍不定义，未来真实 job 的 `needs`、checkout、toolchain、build、staging 前置顺序、失败条件和当前 blocked-placeholder 状态，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 preflight blocked 状态，继续不生成 artifact。

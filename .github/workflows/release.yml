@@ -287,6 +287,8 @@ jobs:
           test -f docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           test -f docs/architecture/linux-package-artifact-build-command-validation-contract.md
           test -f docs/architecture/linux-package-artifact-staging-file-validation-contract.md
+          test -f docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
+          test -f docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
           test -f docs/architecture/linux-package-runner-toolchain-target-contract.md
           test -f docs/architecture/linux-package-archive-staging-contract.md
           test -f docs/architecture/linux-package-checksum-manifest-contract.md
@@ -328,6 +330,11 @@ jobs:
           grep -q "package_artifact_staging_file_binary_permission" docs/architecture/linux-package-artifact-staging-file-validation-contract.md
           grep -q "package_artifact_staging_file_archive_creation" docs/architecture/linux-package-artifact-staging-file-validation-contract.md
           grep -q "Future Staging File Copy" docs/architecture/linux-package-artifact-staging-file-validation-contract.md
+          grep -q "Linux Package Artifact Archive Creation Validation Contract" docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
+          grep -q "package_artifact_archive_creation_status" docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
+          grep -q "package_artifact_archive_creation_single_top_level_dir" docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
+          grep -q "package_artifact_archive_creation_archive_path" docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
+          grep -q "Future Archive Command" docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
           grep -q '^name = "networkcore-linux"$' apps/linux-cli/Cargo.toml
           grep -q '^\[\[bin\]\]$' apps/linux-cli/Cargo.toml
           grep -q '^path = "src/main.rs"$' apps/linux-cli/Cargo.toml
@@ -381,6 +388,7 @@ jobs:
           grep -q "Linux Package Artifact Job Preflight Validation Contract" .github/workflows/release.yml
           grep -q "Linux Package Artifact Build Command Validation Contract" .github/workflows/release.yml
           grep -q "Linux Package Artifact Staging File Validation Contract" .github/workflows/release.yml
+          grep -q "Linux Package Artifact Archive Creation Validation Contract" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-contract=present"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-required-permission=actions-read"$' .github/workflows/release.yml)" -ge 4
@@ -428,6 +436,21 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-archive-creation=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-upload=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-next-action=license-notice-ci-build-before-staging"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-required-job=package-linux"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-staging-file=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-archive-creation-output-dir=dist/linux/[$][{]target[}]/artifacts'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-archive-creation-top-level-dir=networkcore-linux-[$][{]version[}]-[$][{]target[}]'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-archive-creation-archive-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-archive-creation-archive-path=dist/linux/[$][{]target[}]/artifacts/networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-archive-format=tar.gz"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-single-top-level-dir=required"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-required-files=bin/networkcore-linux,INSTALL.md,LICENSE,CHANGELOG.md"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-checksum=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-manifest=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-upload=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-next-action=checksum-manifest-after-archive"$' .github/workflows/release.yml)" -ge 3
           grep -q "Linux Package Platform Input Contract" .github/workflows/release.yml
           grep -q "linux-package-platform-input-contract=present" .github/workflows/release.yml
           grep -q "linux-package-required-target=x86_64-unknown-linux-gnu" .github/workflows/release.yml
@@ -560,6 +583,7 @@ jobs:
             echo "| Package artifact job preflight validation contract | present |"
             echo "| Package artifact build command validation contract | present |"
             echo "| Package artifact staging file validation contract | present |"
+            echo "| Package artifact archive creation validation contract | present |"
             echo "| Package runner/toolchain/target contract | present |"
             echo "| Package archive staging contract | present |"
             echo "| Package checksum/manifest checksum contract | present |"
@@ -662,6 +686,28 @@ jobs:
           echo "linux-package-artifact-staging-file-archive-creation=blocked"
           echo "linux-package-artifact-staging-file-upload=blocked"
           echo "linux-package-artifact-staging-file-next-action=license-notice-ci-build-before-staging"
+          echo "linux-package-artifact-archive-creation-contract=present"
+          echo "linux-package-artifact-archive-creation-source=linux-artifact-readiness"
+          echo "linux-package-artifact-archive-creation-status=blocked-placeholder"
+          echo "linux-package-artifact-archive-creation-current-mode=contract-only-no-archive"
+          echo "linux-package-artifact-archive-creation-required-job=package-linux"
+          echo "linux-package-artifact-archive-creation-job-status=not-defined"
+          echo "linux-package-artifact-archive-creation-staging-file=blocked-placeholder"
+          echo 'linux-package-artifact-archive-creation-staging-root=dist/linux/${target}/staging'
+          echo 'linux-package-artifact-archive-creation-staging-dir=dist/linux/${target}/staging/networkcore-linux-${version}-${target}'
+          echo 'linux-package-artifact-archive-creation-output-dir=dist/linux/${target}/artifacts'
+          echo 'linux-package-artifact-archive-creation-top-level-dir=networkcore-linux-${version}-${target}'
+          echo 'linux-package-artifact-archive-creation-archive-name=networkcore-linux-${version}-${target}.tar.gz'
+          echo 'linux-package-artifact-archive-creation-archive-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz'
+          echo "linux-package-artifact-archive-creation-archive-format=tar.gz"
+          echo "linux-package-artifact-archive-creation-single-top-level-dir=required"
+          echo "linux-package-artifact-archive-creation-required-files=bin/networkcore-linux,INSTALL.md,LICENSE,CHANGELOG.md"
+          echo "linux-package-artifact-archive-creation-optional-files=NOTICE"
+          echo 'linux-package-artifact-archive-creation-tar-args=-czf,${archive_path},-C,${staging_root},${top_level_dir}'
+          echo "linux-package-artifact-archive-creation-checksum=blocked"
+          echo "linux-package-artifact-archive-creation-manifest=blocked"
+          echo "linux-package-artifact-archive-creation-upload=blocked"
+          echo "linux-package-artifact-archive-creation-next-action=checksum-manifest-after-archive"
           echo "linux-package-license-notice-transition-contract=present"
           echo "linux-package-license-notice-transition-source=docs/manual-intervention.md"
           echo "linux-package-license-notice-transition-status=blocked-pending"
@@ -818,6 +864,7 @@ jobs:
           grep -q "Linux Package Artifact Job Preflight Validation Contract" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           grep -q "Linux Package Artifact Build Command Validation Contract" docs/architecture/linux-package-artifact-build-command-validation-contract.md
           grep -q "Linux Package Artifact Staging File Validation Contract" docs/architecture/linux-package-artifact-staging-file-validation-contract.md
+          grep -q "Linux Package Artifact Archive Creation Validation Contract" docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
           require_license_notice_repo_file() {
             case "$1" in
               ""|/*|*..*|http://*|https://*)
@@ -988,6 +1035,28 @@ jobs:
             echo "| Archive creation | blocked |"
             echo "| Upload | blocked |"
             echo "| Next action | license-notice-ci-build-before-staging |"
+            echo
+            echo "### Linux Package Artifact Archive Creation Validation Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | contract-only-no-archive |"
+            echo "| Source contract | docs/architecture/linux-package-artifact-archive-creation-validation-contract.md |"
+            echo "| Archive creation status | blocked-placeholder |"
+            echo "| Required job | package-linux |"
+            echo "| Current package-linux job | not defined |"
+            echo "| Staging file status | blocked-placeholder |"
+            echo '| Output dir | dist/linux/${target}/artifacts |'
+            echo '| Top-level dir | networkcore-linux-${version}-${target} |'
+            echo '| Archive name | networkcore-linux-${version}-${target}.tar.gz |'
+            echo '| Archive path | dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz |'
+            echo "| Archive format | tar.gz |"
+            echo "| Single top-level dir | required |"
+            echo "| Required files | bin/networkcore-linux,INSTALL.md,LICENSE,CHANGELOG.md |"
+            echo "| Checksum | blocked |"
+            echo "| Manifest | blocked |"
+            echo "| Upload | blocked |"
+            echo "| Next action | checksum-manifest-after-archive |"
             echo
             echo "### Linux Package Platform Input Contract"
             echo
@@ -1261,6 +1330,28 @@ jobs:
           echo "linux-package-artifact-staging-file-archive-creation=blocked"
           echo "linux-package-artifact-staging-file-upload=blocked"
           echo "linux-package-artifact-staging-file-next-action=license-notice-ci-build-before-staging"
+          echo "linux-package-artifact-archive-creation-contract=present"
+          echo "linux-package-artifact-archive-creation-source=linux-artifact-readiness"
+          echo "linux-package-artifact-archive-creation-status=blocked-placeholder"
+          echo "linux-package-artifact-archive-creation-current-mode=contract-only-no-archive"
+          echo "linux-package-artifact-archive-creation-required-job=package-linux"
+          echo "linux-package-artifact-archive-creation-job-status=not-defined"
+          echo "linux-package-artifact-archive-creation-staging-file=blocked-placeholder"
+          echo 'linux-package-artifact-archive-creation-staging-root=dist/linux/${target}/staging'
+          echo 'linux-package-artifact-archive-creation-staging-dir=dist/linux/${target}/staging/networkcore-linux-${version}-${target}'
+          echo 'linux-package-artifact-archive-creation-output-dir=dist/linux/${target}/artifacts'
+          echo 'linux-package-artifact-archive-creation-top-level-dir=networkcore-linux-${version}-${target}'
+          echo 'linux-package-artifact-archive-creation-archive-name=networkcore-linux-${version}-${target}.tar.gz'
+          echo 'linux-package-artifact-archive-creation-archive-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz'
+          echo "linux-package-artifact-archive-creation-archive-format=tar.gz"
+          echo "linux-package-artifact-archive-creation-single-top-level-dir=required"
+          echo "linux-package-artifact-archive-creation-required-files=bin/networkcore-linux,INSTALL.md,LICENSE,CHANGELOG.md"
+          echo "linux-package-artifact-archive-creation-optional-files=NOTICE"
+          echo 'linux-package-artifact-archive-creation-tar-args=-czf,${archive_path},-C,${staging_root},${top_level_dir}'
+          echo "linux-package-artifact-archive-creation-checksum=blocked"
+          echo "linux-package-artifact-archive-creation-manifest=blocked"
+          echo "linux-package-artifact-archive-creation-upload=blocked"
+          echo "linux-package-artifact-archive-creation-next-action=checksum-manifest-after-archive"
           echo "linux-package-platform-input-contract=present"
           echo "linux-package-platform-contract=docs/architecture/linux-package-runner-toolchain-target-contract.md"
           echo "linux-package-required-runner=ubuntu-latest"
@@ -1486,6 +1577,21 @@ jobs:
             echo "| Linux package artifact staging file archive creation | blocked |"
             echo "| Linux package artifact staging file upload | blocked |"
             echo "| Linux package artifact staging file next action | license-notice-ci-build-before-staging |"
+            echo "| Linux package artifact archive creation validation contract | checked in linux-artifact-readiness |"
+            echo "| Linux package artifact archive creation status | blocked-placeholder |"
+            echo "| Linux package artifact archive creation required job | package-linux |"
+            echo "| Linux package artifact archive creation staging file | blocked-placeholder |"
+            echo '| Linux package artifact archive creation output dir | dist/linux/${target}/artifacts |'
+            echo '| Linux package artifact archive creation top-level dir | networkcore-linux-${version}-${target} |'
+            echo '| Linux package artifact archive creation archive name | networkcore-linux-${version}-${target}.tar.gz |'
+            echo '| Linux package artifact archive creation archive path | dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz |'
+            echo "| Linux package artifact archive creation archive format | tar.gz |"
+            echo "| Linux package artifact archive creation single top-level dir | required |"
+            echo "| Linux package artifact archive creation required files | bin/networkcore-linux,INSTALL.md,LICENSE,CHANGELOG.md |"
+            echo "| Linux package artifact archive creation checksum | blocked |"
+            echo "| Linux package artifact archive creation manifest | blocked |"
+            echo "| Linux package artifact archive creation upload | blocked |"
+            echo "| Linux package artifact archive creation next action | checksum-manifest-after-archive |"
             echo "| Release artifact contract | ${RELEASE_ARTIFACT_CONTRACT_RESULT} |"
             echo "| Release signing contract | ${RELEASE_SIGNING_CONTRACT_RESULT} |"
             echo "| Release rollback contract | ${RELEASE_ROLLBACK_CONTRACT_RESULT} |"
@@ -1689,6 +1795,28 @@ jobs:
           echo "linux-package-artifact-staging-file-archive-creation=blocked"
           echo "linux-package-artifact-staging-file-upload=blocked"
           echo "linux-package-artifact-staging-file-next-action=license-notice-ci-build-before-staging"
+          echo "linux-package-artifact-archive-creation-contract=present"
+          echo "linux-package-artifact-archive-creation-source=linux-artifact-readiness"
+          echo "linux-package-artifact-archive-creation-status=blocked-placeholder"
+          echo "linux-package-artifact-archive-creation-current-mode=contract-only-no-archive"
+          echo "linux-package-artifact-archive-creation-required-job=package-linux"
+          echo "linux-package-artifact-archive-creation-job-status=not-defined"
+          echo "linux-package-artifact-archive-creation-staging-file=blocked-placeholder"
+          echo 'linux-package-artifact-archive-creation-staging-root=dist/linux/${target}/staging'
+          echo 'linux-package-artifact-archive-creation-staging-dir=dist/linux/${target}/staging/networkcore-linux-${version}-${target}'
+          echo 'linux-package-artifact-archive-creation-output-dir=dist/linux/${target}/artifacts'
+          echo 'linux-package-artifact-archive-creation-top-level-dir=networkcore-linux-${version}-${target}'
+          echo 'linux-package-artifact-archive-creation-archive-name=networkcore-linux-${version}-${target}.tar.gz'
+          echo 'linux-package-artifact-archive-creation-archive-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz'
+          echo "linux-package-artifact-archive-creation-archive-format=tar.gz"
+          echo "linux-package-artifact-archive-creation-single-top-level-dir=required"
+          echo "linux-package-artifact-archive-creation-required-files=bin/networkcore-linux,INSTALL.md,LICENSE,CHANGELOG.md"
+          echo "linux-package-artifact-archive-creation-optional-files=NOTICE"
+          echo 'linux-package-artifact-archive-creation-tar-args=-czf,${archive_path},-C,${staging_root},${top_level_dir}'
+          echo "linux-package-artifact-archive-creation-checksum=blocked"
+          echo "linux-package-artifact-archive-creation-manifest=blocked"
+          echo "linux-package-artifact-archive-creation-upload=blocked"
+          echo "linux-package-artifact-archive-creation-next-action=checksum-manifest-after-archive"
           echo "release-artifact-contract=${RELEASE_ARTIFACT_CONTRACT_RESULT}"
           echo "release-signing-contract=${RELEASE_SIGNING_CONTRACT_RESULT}"
           echo "release-rollback-contract=${RELEASE_ROLLBACK_CONTRACT_RESULT}"
