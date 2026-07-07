@@ -2,7 +2,11 @@
 
 本路线图用于把 `networkcore_AnixOps` 从 bootstrap 仓库逐步推进为可验证、可维护的全平台网络内核与客户端体系。所有阶段都必须遵守 [AGENT.md](AGENT.md) 和 [docs/ci-cd-policy.md](docs/ci-cd-policy.md)：本机只编辑文件，验证只在 GitHub Actions 中运行。
 
-## 当前阶段：P0 Bootstrap Governance
+## 当前阶段：P3 Runtime Capabilities
+
+P0 Bootstrap Governance、P1 Domain And Architecture Specification 和 P2 Core Kernel Skeleton 已完成。当前工作进入运行能力阶段，优先把订阅 catalog、策略路由、DNS 策略、MITM 插件运行时和 native engine 数据面按最小可验证增量接入。
+
+## P0 Bootstrap Governance (Completed)
 
 目标是建立后续代码落地前必须稳定存在的协作、CI/CD 和规划基线。
 
@@ -14,7 +18,7 @@
 - Roadmap、TODO、CHANGELOG 成为每轮迭代的固定记录入口。
 - Release strategy 明确真实平台产物进入 release workflow 前的门禁、矩阵和回滚路径。
 
-## P1 Domain And Architecture Specification
+## P1 Domain And Architecture Specification (Completed)
 
 目标是先定义稳定边界，再选择具体技术栈和实现顺序。
 
@@ -46,21 +50,21 @@
 - [iOS Package.swift Source Ownership Activation Preflight Contract](docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md)
 - [ADR 0001: Initial Core Stack](docs/architecture/adr-0001-initial-core-stack.md)
 
-## P2 Core Kernel Skeleton
+## P2 Core Kernel Skeleton (Completed)
 
 目标是创建最小可编译、可测试、可回滚的内核骨架。
 
-预期产物：
+完成产物：
 
 - 内核仓库结构和模块边界。
-- 配置模型与订阅解析的最小接口。
+- 配置模型与订阅解析的最小接口和源码合同。
 - GitHub Actions 中对应语言的 build、test、lint 或等效验证。
 - README、TODO、CHANGELOG 与设计文档同步更新。
 
 当前源码：
 
 - [networkcore-linux](apps/linux-cli)
-- [config-core](crates/config-core)
+- [config-core](crates/config-core)（`CoreConfigurationService` 与 `CoreSubscriptionService`）
 - [control-domain](crates/control-domain)
 - [control-runtime](crates/control-runtime)
 - [engine-native](crates/engine-native)

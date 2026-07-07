@@ -59,7 +59,7 @@
 - Linux CLI runtime wiring 设计文件检查
 - Native engine listener/node 配置设计文件检查
 - Linux native proxy engine start 设计文件检查
-- config-core crate README 和 Rust workspace 覆盖检查
+- config-core crate README、subscription parser source contract 和 Rust workspace 覆盖检查
 - engine-native crate README 和 Rust workspace 覆盖检查
 - Linux CLI crate README 和 Rust workspace 覆盖检查
 - Linux CLI artifact 安装、卸载与回滚设计文件检查

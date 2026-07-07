@@ -1,9 +1,11 @@
 # config-core
 
-`config-core` contains the first pure configuration service for the unified network control kernel.
+`config-core` contains the first pure configuration and subscription parsing services for the unified network control kernel.
 
 The crate implements `ConfigurationService` for a minimal TOML document shape with `schema_version`, `profile`, `profiles`, `listeners`, `nodes`, and `routes` fields. It normalizes profiles, inbound listeners, local nodes, and default route sets into `ConfigSnapshot` without reading files, making network requests, starting proxy engines, or depending on platform adapters.
 
-The current parser intentionally keeps DNS, plugin, subscription, secret, duplicate-id, and listener/node graph validation out of scope. `networkcore-linux start` remains unwired until the native engine can validate the normalized graph and hold a real runtime handle.
+The crate also implements `SubscriptionService` as `CoreSubscriptionService` for the P2 skeleton. It only accepts explicit `inline:` subscription sources, parses the same minimal TOML `nodes` and `routes` subset into `SubscriptionDocument`, and normalizes it into `NodeCatalog`. Remote subscription fetching, file loading, authentication, DNS, plugin, secret, duplicate-id, and listener/node graph validation remain out of scope for this crate.
+
+`networkcore-linux start` consumes normalized local configuration through the runtime and native engine path; subscription catalogs are not yet wired into runtime startup. That integration belongs to P3 runtime capability work.
 
 Verification for this crate is performed only by GitHub Actions, following the repository CI/CD policy.

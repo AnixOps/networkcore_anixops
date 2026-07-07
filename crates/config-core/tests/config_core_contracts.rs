@@ -1,14 +1,17 @@
 use config_core::{
-    parse_config_document, CoreConfigurationService, CONFIG_LISTENER_BIND_PORT_INVALID_CODE,
-    CONFIG_LISTENER_NETWORK_UNSUPPORTED_CODE, CONFIG_LISTENER_ROUTE_CONFLICT_CODE,
-    CONFIG_LISTENER_ROUTE_MISSING_CODE, CONFIG_MIGRATION_UNSUPPORTED_CODE,
-    CONFIG_NODE_HOST_EMPTY_CODE, CONFIG_NODE_PORT_INVALID_CODE, CONFIG_PARSE_FAILED_CODE,
-    CONFIG_PROFILE_CONFLICT_CODE, CONFIG_PROFILE_EMPTY_CODE, CONFIG_PROFILE_MISSING_CODE,
-    CONFIG_ROUTE_PROXY_NODE_MISSING_CODE, CONFIG_SCHEMA_UNSUPPORTED_CODE, CURRENT_SCHEMA_VERSION,
+    parse_config_document, CoreConfigurationService, CoreSubscriptionService,
+    CONFIG_LISTENER_BIND_PORT_INVALID_CODE, CONFIG_LISTENER_NETWORK_UNSUPPORTED_CODE,
+    CONFIG_LISTENER_ROUTE_CONFLICT_CODE, CONFIG_LISTENER_ROUTE_MISSING_CODE,
+    CONFIG_MIGRATION_UNSUPPORTED_CODE, CONFIG_NODE_HOST_EMPTY_CODE, CONFIG_NODE_PORT_INVALID_CODE,
+    CONFIG_PARSE_FAILED_CODE, CONFIG_PROFILE_CONFLICT_CODE, CONFIG_PROFILE_EMPTY_CODE,
+    CONFIG_PROFILE_MISSING_CODE, CONFIG_ROUTE_PROXY_NODE_MISSING_CODE,
+    CONFIG_SCHEMA_UNSUPPORTED_CODE, CURRENT_SCHEMA_VERSION, SUBSCRIPTION_FETCH_UNSUPPORTED_CODE,
+    SUBSCRIPTION_PARSE_FAILED_CODE,
 };
 use control_domain::{
     ConfigurationService, Diagnostic, ListenerKind, ListenerNetwork, ListenerRoute,
-    OperatingSystem, PlatformCapabilities, Protocol, RouteAction, SchemaVersion,
+    OperatingSystem, PlatformCapabilities, Protocol, RawSubscription, RouteAction, SchemaVersion,
+    SubscriptionService, SubscriptionSource,
 };
 
 #[test]
@@ -372,6 +375,108 @@ fn migrate_preserves_same_version_and_rejects_cross_version() {
         .expect_err("cross-version migration should be explicit");
 
     assert_eq!(error.code, CONFIG_MIGRATION_UNSUPPORTED_CODE);
+}
+
+#[test]
+fn fetches_inline_subscription_source_without_network() {
+    let service = CoreSubscriptionService::new();
+    let inline_payload = concat!(
+        "inline:[[nodes]]\n",
+        "id = \"node-1\"\n",
+        "protocol = \"socks\"\n",
+        "host = \"127.0.0.1\"\n",
+        "port = 1081\n",
+    );
+
+    let raw = service
+        .fetch(&SubscriptionSource {
+            id: "inline-dev".to_string(),
+            location: inline_payload.to_string(),
+        })
+        .expect("inline subscription should fetch from source metadata");
+
+    assert_eq!(raw.source_id, "inline-dev");
+    assert!(raw.content.contains("[[nodes]]"));
+}
+
+#[test]
+fn parses_subscription_nodes_and_routes_from_toml() {
+    let service = CoreSubscriptionService::new();
+    let document = service
+        .parse(&RawSubscription {
+            source_id: "inline-dev".to_string(),
+            content: r#"
+[[nodes]]
+id = "node-1"
+name = "Subscription SOCKS"
+protocol = "socks"
+host = "127.0.0.1"
+port = 1081
+tags = ["subscription"]
+
+[[routes]]
+id = "subscription-default"
+default_action = "proxy"
+default_node = "node-1"
+"#
+            .to_string(),
+        })
+        .expect("subscription payload should parse");
+
+    assert_eq!(document.nodes.len(), 1);
+    assert_eq!(document.nodes[0].id, "node-1");
+    assert_eq!(document.nodes[0].name, "Subscription SOCKS");
+    assert_eq!(document.nodes[0].protocol, Protocol::Socks);
+    assert_eq!(document.nodes[0].endpoint.port, 1081);
+    assert_eq!(document.nodes[0].tags, vec!["subscription".to_string()]);
+    assert_eq!(document.rules.len(), 1);
+    assert_eq!(document.rules[0].id, "subscription-default");
+    assert_eq!(
+        document.rules[0].default_action,
+        RouteAction::Proxy {
+            node_id: "node-1".to_string()
+        }
+    );
+    assert!(document.diagnostics.is_empty());
+
+    let catalog = service
+        .normalize(&document)
+        .expect("subscription document should normalize into a catalog");
+
+    assert_eq!(catalog.nodes, document.nodes);
+    assert_eq!(catalog.rules, document.rules);
+}
+
+#[test]
+fn unsupported_subscription_location_returns_stable_error_without_leaking_secret() {
+    let service = CoreSubscriptionService::new();
+
+    let error = service
+        .fetch(&SubscriptionSource {
+            id: "remote-dev".to_string(),
+            location: "https://example.invalid/sub?token=super-secret-token".to_string(),
+        })
+        .expect_err("remote fetch is intentionally unsupported by config-core");
+
+    assert_eq!(error.code, SUBSCRIPTION_FETCH_UNSUPPORTED_CODE);
+    assert!(!error.message.contains("super-secret-token"));
+    assert!(!error.message.contains("https://example.invalid"));
+}
+
+#[test]
+fn subscription_parse_failure_does_not_leak_secret_values() {
+    let service = CoreSubscriptionService::new();
+
+    let error = service
+        .parse(&RawSubscription {
+            source_id: "inline-secret".to_string(),
+            content: "token = \"super-secret-token\"\nnodes = [".to_string(),
+        })
+        .expect_err("invalid subscription TOML should fail");
+
+    assert_eq!(error.code, SUBSCRIPTION_PARSE_FAILED_CODE);
+    assert!(!error.message.contains("super-secret-token"));
+    assert!(!error.message.contains("token ="));
 }
 
 fn capabilities() -> PlatformCapabilities {

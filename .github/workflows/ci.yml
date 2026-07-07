@@ -575,6 +575,11 @@ jobs:
           grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
           grep -q "networkcore-linux" apps/linux-cli/README.md
           grep -q "config-core" crates/config-core/README.md
+          grep -q "CoreSubscriptionService" crates/config-core/README.md
+          grep -q "CoreSubscriptionService" crates/config-core/src/lib.rs
+          grep -q "SubscriptionService for CoreSubscriptionService" crates/config-core/src/lib.rs
+          grep -q "parses_subscription_nodes_and_routes_from_toml" crates/config-core/tests/config_core_contracts.rs
+          grep -q "subscription_port_can_fetch_parse_and_normalize_a_catalog" crates/control-domain/tests/domain_contracts.rs
           grep -q "\"crates/config-core\"" Cargo.toml
           grep -q "control-domain" crates/control-domain/README.md
           grep -q "control-runtime" crates/control-runtime/README.md

@@ -1,11 +1,13 @@
 use control_domain::{
     CertificateTrustState, ConfigSnapshot, ConfigurationService, Diagnostic, DiagnosticSeverity,
-    DomainResult, ListenerBind, ListenerDescriptor, ListenerKind, ListenerNetwork, ListenerRoute,
-    MetadataEntry, MitmCertificateStatus, OperatingSystem, PlatformCapabilities,
+    DomainResult, Endpoint, ListenerBind, ListenerDescriptor, ListenerKind, ListenerNetwork,
+    ListenerRoute, MetadataEntry, MitmCertificateStatus, NodeCatalog, NodeDescriptor,
+    OperatingSystem, PlatformCapabilities, Protocol,
     PlatformCapabilityService, PlatformCapabilityStatus, PlatformFeatureState,
     ProxyEngineCapability, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
-    ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RouteAction,
-    SchemaVersion,
+    ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
+    RawSubscription, RouteAction, RuleSet, SchemaVersion, SubscriptionDocument,
+    SubscriptionService, SubscriptionSource,
 };
 
 struct NoopConfigurationService;
@@ -51,6 +53,38 @@ impl ConfigurationService for NoopConfigurationService {
 }
 
 struct NoopProxyEngineService;
+
+struct NoopSubscriptionService;
+
+impl SubscriptionService for NoopSubscriptionService {
+    fn fetch(&self, source: &SubscriptionSource) -> DomainResult<RawSubscription> {
+        Ok(RawSubscription {
+            source_id: source.id.clone(),
+            content: "node = test".to_string(),
+        })
+    }
+
+    fn parse(&self, raw_subscription: &RawSubscription) -> DomainResult<SubscriptionDocument> {
+        Ok(SubscriptionDocument {
+            nodes: vec![node_from_subscription(&raw_subscription.source_id)],
+            rules: vec![RuleSet {
+                id: "subscription-default".to_string(),
+                rules: Vec::new(),
+                default_action: RouteAction::Proxy {
+                    node_id: raw_subscription.source_id.clone(),
+                },
+            }],
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn normalize(&self, document: &SubscriptionDocument) -> DomainResult<NodeCatalog> {
+        Ok(NodeCatalog {
+            nodes: document.nodes.clone(),
+            rules: document.rules.clone(),
+        })
+    }
+}
 
 impl ProxyEngineService for NoopProxyEngineService {
     fn list_engines(&self) -> Vec<ProxyEngineDescriptor> {
@@ -215,6 +249,26 @@ fn listener_route_can_reference_default_action_without_runtime_validation() {
 }
 
 #[test]
+fn subscription_port_can_fetch_parse_and_normalize_a_catalog() {
+    let service = NoopSubscriptionService;
+    let source = SubscriptionSource {
+        id: "subscription-node".to_string(),
+        location: "inline".to_string(),
+    };
+
+    let raw = service.fetch(&source).expect("subscription should fetch");
+    let document = service.parse(&raw).expect("subscription should parse");
+    let catalog = service
+        .normalize(&document)
+        .expect("subscription should normalize");
+
+    assert_eq!(raw.source_id, "subscription-node");
+    assert_eq!(document.nodes.len(), 1);
+    assert_eq!(catalog.nodes[0].id, "subscription-node");
+    assert_eq!(catalog.rules[0].id, "subscription-default");
+}
+
+#[test]
 fn proxy_engine_port_can_be_implemented_by_an_adapter() {
     let engine = NoopProxyEngineService;
     let capabilities = PlatformCapabilities {
@@ -243,6 +297,19 @@ fn proxy_engine_port_can_be_implemented_by_an_adapter() {
             .state,
         ProxyEngineLifecycleState::Running
     );
+}
+
+fn node_from_subscription(id: &str) -> NodeDescriptor {
+    NodeDescriptor {
+        id: id.to_string(),
+        name: "Subscription node".to_string(),
+        protocol: Protocol::Socks,
+        endpoint: Endpoint {
+            host: "127.0.0.1".to_string(),
+            port: 1081,
+        },
+        tags: vec!["subscription".to_string()],
+    }
 }
 
 #[test]

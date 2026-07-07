@@ -6,8 +6,9 @@
 use control_domain::{
     ConfigSnapshot, ConfigurationService, Diagnostic, DiagnosticSeverity, DomainError,
     DomainResult, Endpoint, ListenerBind, ListenerDescriptor, ListenerKind, ListenerNetwork,
-    ListenerRoute, Metadata, MetadataEntry, NodeDescriptor, PlatformCapabilities, Protocol,
-    RouteAction, RuleSet, SchemaVersion,
+    ListenerRoute, Metadata, MetadataEntry, NodeCatalog, NodeDescriptor, PlatformCapabilities,
+    Protocol, RawSubscription, RouteAction, RuleSet, SchemaVersion, SubscriptionDocument,
+    SubscriptionService, SubscriptionSource,
 };
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -15,6 +16,7 @@ use std::collections::BTreeMap;
 pub const CURRENT_SCHEMA_VERSION: u32 = 1;
 
 pub const SOURCE_CONFIG_CORE: &str = "config.core";
+pub const SOURCE_SUBSCRIPTION_CORE: &str = "subscription.core";
 
 pub const CONFIG_PARSE_FAILED_CODE: &str = "config.core.parse_failed";
 pub const CONFIG_SCHEMA_UNSUPPORTED_CODE: &str = "config.core.schema_unsupported";
@@ -38,11 +40,25 @@ pub const CONFIG_ROUTE_ID_EMPTY_CODE: &str = "config.core.route_id_empty";
 pub const CONFIG_ROUTE_ACTION_UNSUPPORTED_CODE: &str = "config.core.route_action_unsupported";
 pub const CONFIG_ROUTE_PROXY_NODE_MISSING_CODE: &str = "config.core.route_proxy_node_missing";
 pub const CONFIG_MIGRATION_UNSUPPORTED_CODE: &str = "config.core.migration_unsupported";
+pub const SUBSCRIPTION_SOURCE_ID_EMPTY_CODE: &str = "subscription.core.source_id_empty";
+pub const SUBSCRIPTION_LOCATION_EMPTY_CODE: &str = "subscription.core.location_empty";
+pub const SUBSCRIPTION_FETCH_UNSUPPORTED_CODE: &str = "subscription.core.fetch_unsupported";
+pub const SUBSCRIPTION_INLINE_PAYLOAD_EMPTY_CODE: &str = "subscription.core.inline_payload_empty";
+pub const SUBSCRIPTION_PARSE_FAILED_CODE: &str = "subscription.core.parse_failed";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CoreConfigurationService;
 
 impl CoreConfigurationService {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CoreSubscriptionService;
+
+impl CoreSubscriptionService {
     pub const fn new() -> Self {
         Self
     }
@@ -64,6 +80,13 @@ struct RawConfigDocument {
     profile: Option<String>,
     profiles: Option<Vec<String>>,
     listeners: Option<Vec<RawListener>>,
+    nodes: Option<Vec<RawNode>>,
+    routes: Option<Vec<RawRoute>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawSubscriptionDocument {
     nodes: Option<Vec<RawNode>>,
     routes: Option<Vec<RawRoute>>,
 }
@@ -144,6 +167,68 @@ impl ConfigurationService for CoreConfigurationService {
             CONFIG_MIGRATION_UNSUPPORTED_CODE,
             "configuration migration is not supported by the minimal config service",
         ))
+    }
+}
+
+impl SubscriptionService for CoreSubscriptionService {
+    fn fetch(&self, source: &SubscriptionSource) -> DomainResult<RawSubscription> {
+        let source_id = required_trimmed(
+            source.id.clone(),
+            SUBSCRIPTION_SOURCE_ID_EMPTY_CODE,
+            "subscription source id cannot be empty",
+        )?;
+        let location = required_trimmed(
+            source.location.clone(),
+            SUBSCRIPTION_LOCATION_EMPTY_CODE,
+            "subscription source location cannot be empty",
+        )?;
+
+        let Some(content) = location.strip_prefix("inline:") else {
+            return Err(domain_error(
+                SUBSCRIPTION_FETCH_UNSUPPORTED_CODE,
+                "subscription source location is unsupported by the pure subscription service",
+            ));
+        };
+
+        if content.trim().is_empty() {
+            return Err(domain_error(
+                SUBSCRIPTION_INLINE_PAYLOAD_EMPTY_CODE,
+                "inline subscription payload cannot be empty",
+            ));
+        }
+
+        Ok(RawSubscription {
+            source_id,
+            content: content.to_string(),
+        })
+    }
+
+    fn parse(&self, raw_subscription: &RawSubscription) -> DomainResult<SubscriptionDocument> {
+        let _source_id = required_trimmed(
+            raw_subscription.source_id.clone(),
+            SUBSCRIPTION_SOURCE_ID_EMPTY_CODE,
+            "subscription source id cannot be empty",
+        )?;
+        let raw =
+            toml::from_str::<RawSubscriptionDocument>(&raw_subscription.content).map_err(|_| {
+                domain_error(
+                    SUBSCRIPTION_PARSE_FAILED_CODE,
+                    "subscription payload could not be parsed as NetworkCore TOML",
+                )
+            })?;
+
+        Ok(SubscriptionDocument {
+            nodes: collect_nodes(raw.nodes.unwrap_or_default())?,
+            rules: collect_routes(raw.routes.unwrap_or_default())?,
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn normalize(&self, document: &SubscriptionDocument) -> DomainResult<NodeCatalog> {
+        Ok(NodeCatalog {
+            nodes: document.nodes.clone(),
+            rules: document.rules.clone(),
+        })
     }
 }
 
