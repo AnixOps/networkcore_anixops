@@ -34,6 +34,7 @@
 - Roadmap、TODO、CHANGELOG 等规划治理文件检查
 - 关键架构规格与接口草案文件检查
 - 可插拔代理执行内核适配接口检查
+- 公有执行内核优先与三层维护框架 ADR 检查
 - `mitm_anixops` adapter 设计文件检查
 - subscription catalog runtime orchestration design 检查
 - subscription catalog runtime gate source contract 检查

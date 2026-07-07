@@ -6,7 +6,8 @@
 
 ### Changed
 
-- Release workflow 现在具备首个 Linux CLI 二进制发布路径：`package-linux` 在 GitHub Actions 中生成 lockfile、执行 locked release build、组装 tarball、sha256、manifest 与 manifest sha256，`attest-linux` 生成 GitHub artifact attestation，`publish-eligibility-gate` 聚合发布门禁，tag 触发的 `publish-github-release` 才会创建 GitHub Release 并上传 Linux assets；当前仍受 `linux-artifact-license-notice-status=pending` 阻断，确认前不会构建或上传二进制。
+- P3 runtime strategy 现在固化为 public engine adapter first：NetworkCore 维护控制层，`engine-*` 维护 adapter 层，`sing-box` 等公有执行内核先承担 VLESS、Shadowsocks、Trojan、VMess、Hysteria 等协议数据面；`engine-native` 保留为自研执行内核实验线，但私有协议实现暂缓。
+- Release workflow 已完成首个 Linux CLI 二进制发布路径：`v0.1.0-alpha.2` 通过 GitHub Actions 生成 lockfile、执行 locked release build、组装 tarball、sha256、manifest 与 manifest sha256，`attest-linux` 生成 GitHub artifact attestation，`publish-eligibility-gate` 聚合发布门禁，tag 触发的 `publish-github-release` 创建 GitHub Release 并上传 Linux assets。
 - CI governance 改为检查真实 Linux release job、artifact/attestation/publish gates、iOS upload 阻断、license marker 和本地产物禁止提交，不再要求 `package-linux` 永久保持未定义。
 - ROADMAP、README 和 TODO 现在将 P2 Core Kernel Skeleton 标记为 completed，并把当前阶段推进到 P3 Runtime Capabilities；P4 iOS `Package.swift` manifest-only activation validation contract 已作为 alpha 发布前停止边界补齐。
 - Release policy 现在允许 `vMAJOR.MINOR.PATCH-alpha.N` 作为 release 版本；手动 `workflow_dispatch` 只做验证，真实 GitHub Release asset 上传只允许 tag 触发，iOS upload job 仍保持 blocked。
@@ -15,6 +16,7 @@
 
 ### Added
 
+- 新增 ADR 0002 Public Engine Adapter First，定义 NetworkCore 控制层、执行内核 adapter 层、公有执行内核层的三层维护框架，固定 `sing-box` 为首个 public engine adapter 目标，要求 operator-provided binary path 优先于捆绑第三方二进制，并明确私有协议实现 deferred。
 - 新增 alpha Windows 手工 smoke 测试清单和 marker，固定 `v0.1.0-alpha.1`、release run head SHA、same-commit CI run、release run、placeholder artifact status 的记录方式和 marker update contract；该 marker 不替代 GitHub Actions Windows 矩阵，完成后需要独立更新 confirmed 字段并重新触发 CI/release workflow。
 - 新增 P3 `control-runtime` subscription catalog runtime gate 源码合同，提供 `prepare_runtime_request_with_subscription_catalogs`、`start_runtime_with_subscription_catalogs` 和 `reload_runtime_with_subscription_catalogs`，只接受调用方显式传入的 `SubscriptionSource`，把 inline `NodeCatalog.nodes` 编排进 `RuntimeConfigRequest.nodes`，用 `runtime.subscription.node_id_duplicate` 拒绝与 `ConfigSnapshot.nodes`、已有 `RuntimeConfigRequest.nodes` 或其他 catalog nodes 重复的 id，用 `runtime.subscription.rules_deferred` 保持 subscription rules deferred，并继续阻止远程/文件订阅、系统 DNS/TUN mutation、daemon/control socket、release artifact 和本地验证；CI governance 现在静态检查源码 API、诊断 code 和 runtime 合同测试 anchors。
 - 新增 iOS `Package.swift` manifest-only activation validation contract，固定未来独立提交引入 `apps/ios/Package.swift` 前的 manifest-only source scan、target list verification、no Swift source before source gate、`macos-26` Swift package validation hook、Xcode project blocked、upload workflow enabled marker blocked、release/upload blocked 和 `ios-package-swift-manifest-only-*` release summary 字段；CI/release governance 现在静态检查该合同和三处 blocked 输出，仍不引入真实 `Package.swift`、Swift source、Swift/Xcode project、Network Extension target、archive/export、签名、TestFlight/App Store upload、App Review submission 或 iOS release asset。

@@ -80,7 +80,10 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification 和 P2 Core K
 
 ## P3 Runtime Capabilities
 
-目标是逐步实现可组合的网络控制能力。
+目标是逐步实现可组合的网络控制能力。当前阶段采用公有执行内核 adapter 优先策略：
+先固化 NetworkCore 控制层、执行内核 adapter 层和公有执行内核层的三层维护框架，
+优先接入 `sing-box`，再按需要评估 `xray-core`、`mihomo`；`engine-native` 保留为自研执行内核实验线，
+但 VLESS、Shadowsocks、Trojan、VMess、Hysteria 等私有协议实现暂缓，直到公有内核 adapter 暴露出明确无法覆盖的产品缺口。
 
 预期方向：
 
@@ -88,16 +91,19 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification 和 P2 Core K
 - DNS 策略和缓存模型。
 - MITM 插件运行时的高频 Loon 子集兼容。
 - 可插拔代理执行内核适配接口。
+- 公有执行内核 adapter，优先 `sing-box`，并通过统一配置、生命周期、状态、日志和回滚边界维护。
+- 自研执行内核只保留小步可审计增量，不以协议兼容追平作为当前阶段目标。
 
 当前规格：
 
 - [Proxy Engine Adapter Interface](docs/architecture/proxy-engine-adapter.md)
+- [ADR 0002: Public Engine Adapter First](docs/architecture/adr-0002-public-engine-adapter-first.md)
 - [mitm_anixops Adapter Design](docs/architecture/mitm-anixops-adapter.md)
 - [Subscription Catalog Runtime Orchestration Design](docs/architecture/subscription-catalog-runtime-orchestration.md)
 - [Native Engine Listener And Node Config Design](docs/architecture/native-engine-listener-node-config.md)
 - [Linux Native Proxy Engine Start Design](docs/architecture/linux-native-proxy-engine-start.md)
 
-当前源码状态：`control-runtime` 已具备显式 inline subscription catalog runtime gate，可把 `NodeCatalog.nodes` 编排进 `RuntimeConfigRequest.nodes`，拒绝重复 node id，并保持 `NodeCatalog.rules` deferred；`networkcore-linux start` 仍不消费 subscription catalog。
+当前源码状态：`control-runtime` 已具备显式 inline subscription catalog runtime gate，可把 `NodeCatalog.nodes` 编排进 `RuntimeConfigRequest.nodes`，拒绝重复 node id，并保持 `NodeCatalog.rules` deferred；`networkcore-linux start` 仍不消费 subscription catalog。`networkcore-linux v0.1.0-alpha.2` 已发布 Linux CLI 二进制和原生 SOCKS skeleton；下一步 runtime 重点是 `sing-box` adapter 设计/source contract，而不是扩展私有协议实现。
 
 ## P4 Client And Platform Integration
 

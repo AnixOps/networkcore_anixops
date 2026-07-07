@@ -4,12 +4,14 @@
 
 ## 当前
 
-- [ ] Linux CLI 二进制进入 `v0.1.0-alpha.2`：release workflow 已具备 `package-linux`、attestation、publish eligibility 和 tag release asset 上传路径；下一步需要人工确认 `LICENSE=Apache-2.0` 且 `NOTICE=not-required`，把 `docs/manual-intervention.md` 的 `linux-artifact-license-notice-status` 从 pending 切到 confirmed，然后只通过 GitHub Actions 发布 Linux CLI artifact。
+- [ ] 补充 `sing-box` public engine adapter 设计和 source contract：在不捆绑第三方二进制、不本机验证的前提下，定义 operator-provided binary path、配置转换、secret redaction、生命周期、status/events/log、rollback 和 GitHub Actions 静态/源码验证边界，作为三层维护框架落地后的第一个 P3 runtime adapter 增量。
 
-说明：已完成条目保留当时的阶段状态；当前 release 状态以上方待办为准。
+说明：已完成条目保留当时的阶段状态；当前 runtime 方向以 [ROADMAP.md](ROADMAP.md) 和 [docs/architecture/adr-0002-public-engine-adapter-first.md](docs/architecture/adr-0002-public-engine-adapter-first.md) 为准。
 
 ## 已完成
 
+- [x] 固化公有执行内核 adapter 优先策略和三层维护框架：新增 ADR 0002，明确 NetworkCore 控制层、执行内核 adapter 层、公有执行内核层的职责，优先 `sing-box`，暂缓 `engine-native` 私有协议实现，后续只有在 adapter 路线暴露明确缺口时再扩展自研协议。
+- [x] Linux CLI 二进制进入 `v0.1.0-alpha.2`：release workflow 已在 GitHub Actions 中完成 `package-linux`、checksum、manifest、attestation、publish eligibility 和 tag release asset 上传，GitHub Release 已包含 Linux CLI tarball、sha256、manifest 和 manifest sha256；未运行本地构建、测试或打包。
 - [x] 补充 iOS `Package.swift` manifest-only activation validation contract，定义未来独立提交引入 `apps/ios/Package.swift` 时的 manifest-only source scan、target list verification、no Swift source before source gate、Xcode project 继续 blocked、upload workflow enabled marker 继续 blocked、`ios-package-swift-manifest-only-*` release blocked 输出和 `macos-26` GitHub Actions 验证入口；本轮仍不得引入真实 `Package.swift`、Swift source、Swift/Xcode project、`PrivacyInfo.xcprivacy`、Network Extension target、ExportOptions.plist、`.ipa`、`.xcarchive`、`.xcresult`、dSYM bundle、真实签名、TestFlight 上传或 iOS release asset。Linux artifact 继续等待 license/NOTICE confirmed marker，期间不得定义 `package-linux` 或发布 release asset。
 - [x] 实现 P3 subscription catalog runtime gate 源码合同，新增 `RuntimeOrchestrator::prepare_runtime_request_with_subscription_catalogs`、`start_runtime_with_subscription_catalogs` 和 `reload_runtime_with_subscription_catalogs`，基于显式 `SubscriptionService`/`SubscriptionSource` 把 inline `NodeCatalog.nodes` 编排进 `RuntimeConfigRequest.nodes`，用 `runtime.subscription.node_id_duplicate` 拒绝与 `ConfigSnapshot.nodes`、已有 `RuntimeConfigRequest.nodes` 或其他 catalog nodes 重复的 id，并用 `runtime.subscription.rules_deferred` 保持 `NodeCatalog.rules` deferred；`networkcore-linux start` 仍不扫描或消费 subscription catalog。验证仍只通过 GitHub Actions。
 - [x] 补充 P3 subscription catalog runtime orchestration design，定义 `CoreSubscriptionService` 产出的 `NodeCatalog` 如何进入 `RuntimeConfigRequest.nodes`、如何与本地 `ConfigSnapshot.nodes` 去重、如何在策略路由和 DNS 接入前保持诊断稳定；CI governance 静态检查该设计的 `NodeCatalog`、`RuntimeConfigRequest.nodes`、`ConfigSnapshot.nodes`、`ProxyEngineConfig.nodes`、重复 id、rules deferred、no remote/file subscription、no DNS/TUN mutation 和 no daemon/control socket anchors。验证仍只通过 GitHub Actions。

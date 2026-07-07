@@ -65,6 +65,7 @@ jobs:
 
           required_architecture_files=(
             docs/architecture/adr-0001-initial-core-stack.md
+            docs/architecture/adr-0002-public-engine-adapter-first.md
             docs/architecture/control-kernel-domain.md
             docs/architecture/control-kernel-interfaces.md
             docs/architecture/control-runtime-orchestration.md
@@ -133,6 +134,10 @@ jobs:
           grep -q '^\[\[bin\]\]$' apps/linux-cli/Cargo.toml
           grep -q '^name = "networkcore-linux"$' apps/linux-cli/Cargo.toml
           grep -q '^path = "src/main.rs"$' apps/linux-cli/Cargo.toml
+          grep -q "Public Engine Adapter First" docs/architecture/adr-0002-public-engine-adapter-first.md
+          grep -q "three-layer operating model" docs/architecture/adr-0002-public-engine-adapter-first.md
+          grep -q "private protocol implementation is deferred" docs/architecture/adr-0002-public-engine-adapter-first.md
+          grep -q "sing-box" docs/architecture/adr-0002-public-engine-adapter-first.md
 
           release_workflow=.github/workflows/release.yml
           grep -q '^  package-linux:' "${release_workflow}"
