@@ -4,7 +4,7 @@
 
 ## 当前
 
-- [ ] 补充 P3 subscription catalog runtime orchestration design，定义 `CoreSubscriptionService` 产出的 `NodeCatalog` 如何进入 `RuntimeConfigRequest.nodes`、如何与本地 `ConfigSnapshot.nodes` 去重、如何在策略路由和 DNS 接入前保持诊断稳定；本轮仍不得执行远程订阅拉取、文件订阅读取、系统 DNS/TUN mutation、daemon/control socket、真实 release artifact 或本地测试/构建。
+- [ ] 实现 P3 subscription catalog runtime gate 源码合同，基于 `SubscriptionService`/`NodeCatalog` 把显式 inline subscription nodes 编排进 `RuntimeConfigRequest.nodes`，在运行层拒绝与 `ConfigSnapshot.nodes` 或其他 catalog nodes 重复的 id，并保持 `NodeCatalog.rules` deferred；本轮仍不得执行远程订阅拉取、文件订阅读取、系统 DNS/TUN mutation、daemon/control socket、真实 release artifact 或本地测试/构建。
 
 ## 后续 P4
 
@@ -12,6 +12,7 @@
 
 ## 已完成
 
+- [x] 补充 P3 subscription catalog runtime orchestration design，定义 `CoreSubscriptionService` 产出的 `NodeCatalog` 如何进入 `RuntimeConfigRequest.nodes`、如何与本地 `ConfigSnapshot.nodes` 去重、如何在策略路由和 DNS 接入前保持诊断稳定；CI governance 静态检查该设计的 `NodeCatalog`、`RuntimeConfigRequest.nodes`、`ConfigSnapshot.nodes`、`ProxyEngineConfig.nodes`、重复 id、rules deferred、no remote/file subscription、no DNS/TUN mutation 和 no daemon/control socket anchors。验证仍只通过 GitHub Actions。
 - [x] 完成 P2 Core Kernel Skeleton 收口：新增 `CoreSubscriptionService` 最小 inline subscription parser，把最小 subscription TOML `nodes`/`routes` 子集解析为 `SubscriptionDocument` 并归一化为 `NodeCatalog`；补充 `control-domain` subscription port 合同测试、`config-core` subscription parser 合同测试、CI governance 静态检查，并把 ROADMAP/README/TODO/CHANGELOG 更新为 P2 completed、当前进入 P3。验证仍只通过 GitHub Actions。
 - [x] 补充 iOS `Package.swift` source ownership activation preflight contract，定义 `apps/ios/Package.swift` 引入前的 target ownership、source directory guard、no Swift source until package gate、`macos-26` Swift package validation hook、Xcode project 继续 blocked 和 upload workflow enabled marker 继续 blocked；仍不引入真实 `Package.swift`、Swift source、Swift/Xcode project、`PrivacyInfo.xcprivacy`、Network Extension target、ExportOptions.plist、`.ipa`、`.xcarchive`、`.xcresult`、dSYM bundle、真实签名、TestFlight 上传或 iOS release asset。Linux artifact 继续等待 license/NOTICE confirmed marker，期间不得定义 `package-linux` 或发布 release asset。
 - [x] 新增 `apps/ios/README.md` source tree governance placeholder，定义未来 Swift package ownership、source directory guard、`macos-26` source scan hook、no `Package.swift`/no Swift source/no Xcode project boundary 和 upload workflow enabled marker 继续 blocked；仍不引入真实 Swift/Xcode project、Swift source、`PrivacyInfo.xcprivacy`、Network Extension target、ExportOptions.plist、`.ipa`、`.xcarchive`、`.xcresult`、dSYM bundle、真实签名、TestFlight 上传或 iOS release asset。Linux artifact 继续等待 license/NOTICE confirmed marker，期间不得定义 `package-linux` 或发布 release asset。

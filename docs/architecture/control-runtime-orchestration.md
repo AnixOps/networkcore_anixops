@@ -130,10 +130,15 @@ iOS adapter 接入前，运行层必须按以下规则建模：
 `MitmGateOrchestrator`，组合 `PlatformCapabilityService` 和
 `MitmPluginService`，覆盖平台 MITM 可用性、证书状态拒绝矩阵、证书诊断拒绝保留、远程脚本禁用与未知状态、远程脚本诊断拒绝保留、
 manifest 诊断拒绝、manifest 错误拒绝审计、manifest 错误优先于权限拒绝、manifest 错误拒绝平台诊断保留、manifest 错误拒绝证书诊断保留、manifest 错误拒绝诊断顺序、manifest 非错误诊断聚合、manifest 诊断权限拒绝保留、权限拒绝诊断顺序、插件结果诊断聚合、平台诊断聚合、平台诊断拒绝保留、插件权限拒绝审计、审计事件聚合和插件端口错误传播。
-订阅、策略路由和 DNS 编排仍按后续扩展逐步加入。
+订阅 catalog runtime orchestration design 已定义 `NodeCatalog` 进入
+`RuntimeConfigRequest.nodes` 前的运行层所有权、重复 id 拒绝、`NodeCatalog.rules`
+deferred 语义和 no remote/file subscription、no system DNS/TUN mutation、no daemon/control
+socket 边界；源码仍未把 `CoreSubscriptionService` 接入 `RuntimeOrchestrator` 或
+`networkcore-linux start`。策略路由和 DNS 编排仍按后续扩展逐步加入。
 
 ## 后续扩展
 
-- 引入订阅、策略路由和 DNS 编排前，先补齐对应用例测试替身。
+- 引入订阅 catalog runtime gate 源码前，先按 [Subscription Catalog Runtime Orchestration Design](subscription-catalog-runtime-orchestration.md) 补齐 `NodeCatalog` 到 `RuntimeConfigRequest.nodes`、重复 id 拒绝和 rules deferred 合同测试替身。
+- 引入策略路由和 DNS 编排前，先补齐对应用例测试替身。
 - 引入 MITM 插件运行路径前，先补齐权限模型、审计事件和 iOS 拒绝路径测试。
 - 引入真实 adapter 前，为每个 adapter 单独建立设计文档、错误映射和 GitHub Actions 验证策略。

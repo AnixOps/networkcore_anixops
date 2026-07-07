@@ -54,6 +54,7 @@ jobs:
           test -f docs/architecture/proxy-engine-adapter.md
           test -f docs/architecture/mitm-anixops-adapter.md
           test -f docs/architecture/control-runtime-orchestration.md
+          test -f docs/architecture/subscription-catalog-runtime-orchestration.md
           test -f docs/architecture/ios-platform-risk-assessment.md
           test -f docs/architecture/ios-network-extension-design.md
           test -f docs/architecture/ios-platform-adapter-source-contract.md
@@ -580,6 +581,25 @@ jobs:
           grep -q "SubscriptionService for CoreSubscriptionService" crates/config-core/src/lib.rs
           grep -q "parses_subscription_nodes_and_routes_from_toml" crates/config-core/tests/config_core_contracts.rs
           grep -q "subscription_port_can_fetch_parse_and_normalize_a_catalog" crates/control-domain/tests/domain_contracts.rs
+          grep -q "Subscription Catalog Runtime Orchestration Design" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "NodeCatalog" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "RuntimeConfigRequest.nodes" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "ConfigSnapshot.nodes" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "ProxyEngineConfig.nodes" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "duplicate id" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "PolicyRoutingService" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "DnsPolicyService" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "Diagnostic" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "no remote subscription fetching" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "no file subscription loading" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "no system DNS/TUN mutation" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "no daemon/control socket" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "GitHub Actions" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "runtime.subscription.node_id_duplicate" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "runtime.subscription.rules_deferred" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "CoreSubscriptionService" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "SubscriptionService" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "engine.native.config.node_id_duplicate" docs/architecture/subscription-catalog-runtime-orchestration.md
           grep -q "\"crates/config-core\"" Cargo.toml
           grep -q "control-domain" crates/control-domain/README.md
           grep -q "control-runtime" crates/control-runtime/README.md

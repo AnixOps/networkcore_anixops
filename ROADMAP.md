@@ -92,6 +92,7 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification 和 P2 Core K
 
 - [Proxy Engine Adapter Interface](docs/architecture/proxy-engine-adapter.md)
 - [mitm_anixops Adapter Design](docs/architecture/mitm-anixops-adapter.md)
+- [Subscription Catalog Runtime Orchestration Design](docs/architecture/subscription-catalog-runtime-orchestration.md)
 - [Native Engine Listener And Node Config Design](docs/architecture/native-engine-listener-node-config.md)
 - [Linux Native Proxy Engine Start Design](docs/architecture/linux-native-proxy-engine-start.md)
 

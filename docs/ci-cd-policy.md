@@ -35,6 +35,7 @@
 - 关键架构规格与接口草案文件检查
 - 可插拔代理执行内核适配接口检查
 - `mitm_anixops` adapter 设计文件检查
+- subscription catalog runtime orchestration design 检查
 - `mitm-anixops-sys` crate、submodule 固定和 Rust FFI version 测试检查
 - 运行层编排设计文件检查
 - iOS Network Extension design 检查
