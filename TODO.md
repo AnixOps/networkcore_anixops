@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 补充 Linux package artifact job preflight validation contract，明确 `package-linux` 在 license/NOTICE 与 release CI gate 未解除前仍不定义，未来真实 job 的 checkout、toolchain、build、staging 前置顺序、失败条件和继续不上传 artifact 的边界。
+- [ ] 补充 Linux package artifact build command validation contract，明确真实 `package-linux` 解锁后可使用的 GitHub Actions build command、target 安装策略、binary path 校验和仍不发布 artifact 的边界。
 
 ## 已完成
 
+- [x] 完成 Linux package artifact job preflight validation contract；新增 preflight validation contract，固定 `package-linux` 在 license/NOTICE 与 release CI gate 未解除前仍不定义，未来真实 job 的 `needs`、checkout、toolchain、build、staging 前置顺序、失败条件和当前 blocked-placeholder 状态，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 preflight blocked 状态，继续不生成 artifact。
 - [x] 完成 Linux package release CI gate activation validation contract；新增 activation validation contract，固定 `release-ci-gate` 从 placeholder 切换到自动读取同 commit 成功 CI 前的 `actions-read` 权限、GitHub Actions runs API 字段、失败条件、same-release-sha 校验和当前 blocked-placeholder 状态，并让 `release-ci-gate`、`linux-artifact-readiness`、release placeholder 与 release summary 输出 activation blocked 状态，继续不定义 `package-linux` 或生成 artifact。
 - [x] 完成 Linux package license/NOTICE confirmed-state transition validation contract；新增 transition validation contract，固定 pending 到 confirmed 的独立人工确认提交字段、`LICENSE`/可选 `NOTICE` 文件存在性检查、release workflow future confirmed marker 校验和当前 `package-linux` 继续未定义边界，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 blocked-pending transition 状态，继续不生成 artifact。
 - [x] 完成 Linux package publish eligibility aggregate contract；新增 publish eligibility aggregate contract，汇总 license/NOTICE、同 commit CI、runner/toolchain、archive/checksum/manifest、publish/upload、signing/attestation、release notes/rollback 的 eligible/blocked 状态，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 aggregate blocked 状态和 next action，继续不定义 `package-linux`、`publish-github-release`、`post-release-summary` 或上传 artifact。

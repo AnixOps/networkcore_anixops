@@ -284,6 +284,7 @@ jobs:
           test -f docs/architecture/linux-artifact-license-notice-confirmation.md
           test -f docs/architecture/release-ci-success-source-contract.md
           test -f docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
+          test -f docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           test -f docs/architecture/linux-package-runner-toolchain-target-contract.md
           test -f docs/architecture/linux-package-archive-staging-contract.md
           test -f docs/architecture/linux-package-checksum-manifest-contract.md
@@ -312,6 +313,10 @@ jobs:
           grep -q "Linux Artifact License Notice Confirmation Design" docs/architecture/linux-artifact-license-notice-confirmation.md
           grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
           grep -q "Linux Package Release CI Gate Activation Validation Contract" docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
+          grep -q "Linux Package Artifact Job Preflight Validation Contract" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
+          grep -q "package_artifact_job_preflight_status" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
+          grep -q "package_artifact_job_preflight_required_needs" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
+          grep -q "package_artifact_job_preflight_failure_mode" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           if grep -Eq '^[[:space:]]+actions:[[:space:]]+read$' .github/workflows/release.yml; then
             echo "::error::actions: read must stay disabled until release CI gate activation is implemented."
             exit 1
@@ -359,6 +364,7 @@ jobs:
           grep -q "release-ci-success-source-contract=present" .github/workflows/release.yml
           grep -q "release-ci-required-fields" .github/workflows/release.yml
           grep -q "Linux Package Release CI Gate Activation Validation Contract" .github/workflows/release.yml
+          grep -q "Linux Package Artifact Job Preflight Validation Contract" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-contract=present"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-required-permission=actions-read"$' .github/workflows/release.yml)" -ge 4
@@ -367,6 +373,20 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-package-linux=not-defined"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-artifacts=blocked"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-next-action=ci-api-read-implementation-before-package-linux"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-required-job=package-linux"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-required-needs=release-policy,release-ci-gate,linux-artifact-readiness"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-license-notice=blocked-pending"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-ci-gate=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-checkout=blocked-before-gates"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-toolchain=blocked-before-gates"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-build=blocked-before-gates"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-staging=blocked-before-gates"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-upload=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-failure-mode=fail-before-checkout-toolchain-build-staging"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-next-action=license-notice-and-ci-gate-before-package-linux"$' .github/workflows/release.yml)" -ge 3
           grep -q "Linux Package Platform Input Contract" .github/workflows/release.yml
           grep -q "linux-package-platform-input-contract=present" .github/workflows/release.yml
           grep -q "linux-package-required-target=x86_64-unknown-linux-gnu" .github/workflows/release.yml
@@ -496,6 +516,7 @@ jobs:
             echo "| Artifact manifest contract design | present |"
             echo "| License/NOTICE confirmation source contract | present |"
             echo "| Release CI gate activation validation contract | present |"
+            echo "| Package artifact job preflight validation contract | present |"
             echo "| Package runner/toolchain/target contract | present |"
             echo "| Package archive staging contract | present |"
             echo "| Package checksum/manifest checksum contract | present |"
@@ -538,6 +559,24 @@ jobs:
           echo "linux-package-release-ci-gate-activation-package-linux=not-defined"
           echo "linux-package-release-ci-gate-activation-artifacts=blocked"
           echo "linux-package-release-ci-gate-activation-next-action=ci-api-read-implementation-before-package-linux"
+          echo "linux-package-artifact-job-preflight-contract=present"
+          echo "linux-package-artifact-job-preflight-source=linux-artifact-readiness"
+          echo "linux-package-artifact-job-preflight-status=blocked-placeholder"
+          echo "linux-package-artifact-job-preflight-current-mode=contract-only-no-package-linux"
+          echo "linux-package-artifact-job-preflight-required-job=package-linux"
+          echo "linux-package-artifact-job-preflight-job-status=not-defined"
+          echo "linux-package-artifact-job-preflight-required-needs=release-policy,release-ci-gate,linux-artifact-readiness"
+          echo "linux-package-artifact-job-preflight-license-notice=blocked-pending"
+          echo "linux-package-artifact-job-preflight-ci-gate=blocked-placeholder"
+          echo "linux-package-artifact-job-preflight-checkout=blocked-before-gates"
+          echo "linux-package-artifact-job-preflight-toolchain=blocked-before-gates"
+          echo "linux-package-artifact-job-preflight-build=blocked-before-gates"
+          echo "linux-package-artifact-job-preflight-staging=blocked-before-gates"
+          echo "linux-package-artifact-job-preflight-upload=blocked"
+          echo "linux-package-artifact-job-preflight-workflow-artifact=blocked"
+          echo "linux-package-artifact-job-preflight-release-asset=blocked"
+          echo "linux-package-artifact-job-preflight-failure-mode=fail-before-checkout-toolchain-build-staging"
+          echo "linux-package-artifact-job-preflight-next-action=license-notice-and-ci-gate-before-package-linux"
           echo "linux-package-license-notice-transition-contract=present"
           echo "linux-package-license-notice-transition-source=docs/manual-intervention.md"
           echo "linux-package-license-notice-transition-status=blocked-pending"
@@ -682,12 +721,14 @@ jobs:
           test -f docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
           test -f docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
           test -f docs/architecture/linux-package-license-notice-transition-validation-contract.md
+          test -f docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
           grep -q "Linux Package Publish Upload Boundary Contract" docs/architecture/linux-package-publish-upload-boundary-contract.md
           grep -q "Linux Package Signing Attestation Policy Binding Contract" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
           grep -q "Linux Package Release Notes Rollback Policy Binding Contract" docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
           grep -q "Linux Package Publish Eligibility Aggregate Contract" docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
           grep -q "Linux Package License Notice Transition Validation Contract" docs/architecture/linux-package-license-notice-transition-validation-contract.md
+          grep -q "Linux Package Artifact Job Preflight Validation Contract" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           require_license_notice_repo_file() {
             case "$1" in
               ""|/*|*..*|http://*|https://*)
@@ -789,6 +830,28 @@ jobs:
             echo "| Current package-linux job | not defined |"
             echo "| Current artifacts | blocked |"
             echo "| Next action | ci-api-read-implementation-before-package-linux |"
+            echo
+            echo "### Linux Package Artifact Job Preflight Validation Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | contract-only-no-package-linux |"
+            echo "| Source contract | docs/architecture/linux-package-artifact-job-preflight-validation-contract.md |"
+            echo "| Preflight status | blocked-placeholder |"
+            echo "| Required job | package-linux |"
+            echo "| Current package-linux job | not defined |"
+            echo "| Required needs | release-policy, release-ci-gate, linux-artifact-readiness |"
+            echo "| License/NOTICE gate | blocked-pending |"
+            echo "| Release CI gate | blocked-placeholder |"
+            echo "| Checkout | blocked-before-gates |"
+            echo "| Toolchain | blocked-before-gates |"
+            echo "| Build | blocked-before-gates |"
+            echo "| Staging | blocked-before-gates |"
+            echo "| Upload | blocked |"
+            echo "| Current workflow artifact | blocked |"
+            echo "| Current release asset | blocked |"
+            echo "| Failure mode | fail-before-checkout-toolchain-build-staging |"
+            echo "| Next action | license-notice-and-ci-gate-before-package-linux |"
             echo
             echo "### Linux Package Platform Input Contract"
             echo
@@ -1002,6 +1065,24 @@ jobs:
           echo "linux-package-release-ci-gate-activation-package-linux=not-defined"
           echo "linux-package-release-ci-gate-activation-artifacts=blocked"
           echo "linux-package-release-ci-gate-activation-next-action=ci-api-read-implementation-before-package-linux"
+          echo "linux-package-artifact-job-preflight-contract=present"
+          echo "linux-package-artifact-job-preflight-source=linux-artifact-readiness"
+          echo "linux-package-artifact-job-preflight-status=blocked-placeholder"
+          echo "linux-package-artifact-job-preflight-current-mode=contract-only-no-package-linux"
+          echo "linux-package-artifact-job-preflight-required-job=package-linux"
+          echo "linux-package-artifact-job-preflight-job-status=not-defined"
+          echo "linux-package-artifact-job-preflight-required-needs=release-policy,release-ci-gate,linux-artifact-readiness"
+          echo "linux-package-artifact-job-preflight-license-notice=blocked-pending"
+          echo "linux-package-artifact-job-preflight-ci-gate=blocked-placeholder"
+          echo "linux-package-artifact-job-preflight-checkout=blocked-before-gates"
+          echo "linux-package-artifact-job-preflight-toolchain=blocked-before-gates"
+          echo "linux-package-artifact-job-preflight-build=blocked-before-gates"
+          echo "linux-package-artifact-job-preflight-staging=blocked-before-gates"
+          echo "linux-package-artifact-job-preflight-upload=blocked"
+          echo "linux-package-artifact-job-preflight-workflow-artifact=blocked"
+          echo "linux-package-artifact-job-preflight-release-asset=blocked"
+          echo "linux-package-artifact-job-preflight-failure-mode=fail-before-checkout-toolchain-build-staging"
+          echo "linux-package-artifact-job-preflight-next-action=license-notice-and-ci-gate-before-package-linux"
           echo "linux-package-platform-input-contract=present"
           echo "linux-package-platform-contract=docs/architecture/linux-package-runner-toolchain-target-contract.md"
           echo "linux-package-required-runner=ubuntu-latest"
@@ -1189,6 +1270,19 @@ jobs:
             echo "| Linux package release CI gate activation package-linux | not-defined |"
             echo "| Linux package release CI gate activation artifacts | blocked |"
             echo "| Linux package release CI gate activation next action | ci-api-read-implementation-before-package-linux |"
+            echo "| Linux package artifact job preflight validation contract | checked in linux-artifact-readiness |"
+            echo "| Linux package artifact job preflight status | blocked-placeholder |"
+            echo "| Linux package artifact job preflight required job | package-linux |"
+            echo "| Linux package artifact job preflight current job | not-defined |"
+            echo "| Linux package artifact job preflight required needs | release-policy, release-ci-gate, linux-artifact-readiness |"
+            echo "| Linux package artifact job preflight license/NOTICE | blocked-pending |"
+            echo "| Linux package artifact job preflight release CI gate | blocked-placeholder |"
+            echo "| Linux package artifact job preflight checkout | blocked-before-gates |"
+            echo "| Linux package artifact job preflight toolchain | blocked-before-gates |"
+            echo "| Linux package artifact job preflight build | blocked-before-gates |"
+            echo "| Linux package artifact job preflight staging | blocked-before-gates |"
+            echo "| Linux package artifact job preflight upload | blocked |"
+            echo "| Linux package artifact job preflight next action | license-notice-and-ci-gate-before-package-linux |"
             echo "| Release artifact contract | ${RELEASE_ARTIFACT_CONTRACT_RESULT} |"
             echo "| Release signing contract | ${RELEASE_SIGNING_CONTRACT_RESULT} |"
             echo "| Release rollback contract | ${RELEASE_ROLLBACK_CONTRACT_RESULT} |"
@@ -1332,6 +1426,24 @@ jobs:
           echo "linux-package-release-ci-gate-activation-package-linux=not-defined"
           echo "linux-package-release-ci-gate-activation-artifacts=blocked"
           echo "linux-package-release-ci-gate-activation-next-action=ci-api-read-implementation-before-package-linux"
+          echo "linux-package-artifact-job-preflight-contract=present"
+          echo "linux-package-artifact-job-preflight-source=linux-artifact-readiness"
+          echo "linux-package-artifact-job-preflight-status=blocked-placeholder"
+          echo "linux-package-artifact-job-preflight-current-mode=contract-only-no-package-linux"
+          echo "linux-package-artifact-job-preflight-required-job=package-linux"
+          echo "linux-package-artifact-job-preflight-job-status=not-defined"
+          echo "linux-package-artifact-job-preflight-required-needs=release-policy,release-ci-gate,linux-artifact-readiness"
+          echo "linux-package-artifact-job-preflight-license-notice=blocked-pending"
+          echo "linux-package-artifact-job-preflight-ci-gate=blocked-placeholder"
+          echo "linux-package-artifact-job-preflight-checkout=blocked-before-gates"
+          echo "linux-package-artifact-job-preflight-toolchain=blocked-before-gates"
+          echo "linux-package-artifact-job-preflight-build=blocked-before-gates"
+          echo "linux-package-artifact-job-preflight-staging=blocked-before-gates"
+          echo "linux-package-artifact-job-preflight-upload=blocked"
+          echo "linux-package-artifact-job-preflight-workflow-artifact=blocked"
+          echo "linux-package-artifact-job-preflight-release-asset=blocked"
+          echo "linux-package-artifact-job-preflight-failure-mode=fail-before-checkout-toolchain-build-staging"
+          echo "linux-package-artifact-job-preflight-next-action=license-notice-and-ci-gate-before-package-linux"
           echo "release-artifact-contract=${RELEASE_ARTIFACT_CONTRACT_RESULT}"
           echo "release-signing-contract=${RELEASE_SIGNING_CONTRACT_RESULT}"
           echo "release-rollback-contract=${RELEASE_ROLLBACK_CONTRACT_RESULT}"

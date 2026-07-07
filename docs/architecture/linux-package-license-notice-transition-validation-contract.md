@@ -160,8 +160,8 @@ release workflow 必须拒绝以下情况：
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux artifact
   license/NOTICE confirmation source contract、Linux package manifest 设计、Linux package archive
-  staging contract、Linux package publish eligibility aggregate contract、Linux CLI artifact 安装/回滚设计
-  和 CI policy 中可发现。
+  staging contract、Linux package artifact job preflight validation contract、Linux package publish
+  eligibility aggregate contract、Linux CLI artifact 安装/回滚设计和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在、标题和 release workflow placeholder 输出字段。
 - `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、当前 pending marker、
   future confirmed marker transition 字段、license/NOTICE 文件存在性检查、transition blocked marker 和
@@ -174,6 +174,6 @@ release workflow 必须拒绝以下情况：
 ## 后续工作
 
 - 在人工确认完成前，继续保持 `linux-artifact-license-notice-status=pending`。
-- Linux package release CI gate activation validation contract 已定义；下一步可以补充 Linux package
-  artifact job preflight validation contract，明确 `package-linux` 在 license/NOTICE 与 release CI gate
-  未解除前仍不定义，未来真实 job 的前置顺序、失败条件和仍不上传 artifact 的边界。
+- Linux package release CI gate activation validation contract 和 Linux package artifact job preflight
+  validation contract 已定义；下一步可以补充 Linux package artifact build command validation contract，
+  仍不生成 artifact。

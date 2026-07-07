@@ -69,6 +69,7 @@ jobs:
           test -f docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
           test -f docs/architecture/linux-package-license-notice-transition-validation-contract.md
           test -f docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
+          test -f docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           test -f docs/architecture/adr-0001-initial-core-stack.md
           grep -q "本机只负责代码" AGENT.md
           grep -q "GitHub Actions" docs/ci-cd-policy.md
@@ -83,6 +84,10 @@ jobs:
           grep -q "linux-artifact-license-notice-source=docs/manual-intervention.md" .github/workflows/release.yml
           grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
           grep -q "Linux Package Release CI Gate Activation Validation Contract" docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
+          grep -q "Linux Package Artifact Job Preflight Validation Contract" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
+          grep -q "package_artifact_job_preflight_status" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
+          grep -q "package_artifact_job_preflight_required_needs" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
+          grep -q "package_artifact_job_preflight_failure_mode" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           grep -q "release-ci-success-source-contract=present" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-contract=present"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 4
@@ -92,6 +97,21 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-package-linux=not-defined"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-artifacts=blocked"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-next-action=ci-api-read-implementation-before-package-linux"$' .github/workflows/release.yml)" -ge 4
+          grep -q "Linux Package Artifact Job Preflight Validation Contract" .github/workflows/release.yml
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-required-job=package-linux"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-required-needs=release-policy,release-ci-gate,linux-artifact-readiness"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-license-notice=blocked-pending"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-ci-gate=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-checkout=blocked-before-gates"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-toolchain=blocked-before-gates"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-build=blocked-before-gates"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-staging=blocked-before-gates"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-upload=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-failure-mode=fail-before-checkout-toolchain-build-staging"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-next-action=license-notice-and-ci-gate-before-package-linux"$' .github/workflows/release.yml)" -ge 3
           grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
           grep -q "linux-package-platform-input-contract=present" .github/workflows/release.yml
           grep -q "linux-package-required-target=x86_64-unknown-linux-gnu" .github/workflows/release.yml
@@ -170,6 +190,7 @@ jobs:
           grep -q "Linux Artifact License Notice Confirmation Design" docs/architecture/linux-artifact-license-notice-confirmation.md
           grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
           grep -q "Linux Package Release CI Gate Activation Validation Contract" docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
+          grep -q "Linux Package Artifact Job Preflight Validation Contract" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
           grep -q "Linux Package Archive Staging Contract" docs/architecture/linux-package-archive-staging-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md

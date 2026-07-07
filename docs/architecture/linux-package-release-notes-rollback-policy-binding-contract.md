@@ -188,9 +188,9 @@ GitHub Release 或 upload 步骤。
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux package manifest
   设计、Linux package publish/upload boundary contract、Linux package checksum manifest contract、
   Linux package signing/attestation policy binding contract、Linux CLI artifact 安装/回滚设计、
-  Linux package publish eligibility aggregate contract、Release CI success source contract、
-  Linux package runner/toolchain/target contract、Linux package
-  archive staging contract、Linux artifact license/NOTICE confirmation source contract 和 CI policy 中可发现。
+  Linux package publish eligibility aggregate contract、Linux package artifact job preflight validation contract、
+  Release CI success source contract、Linux package runner/toolchain/target contract、Linux package archive
+  staging contract、Linux artifact license/NOTICE confirmation source contract 和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题和
   release placeholder/summary 输出字段。
@@ -204,6 +204,6 @@ GitHub Release 或 upload 步骤。
 ## 后续工作
 
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
-- Linux package publish eligibility aggregate contract、license/NOTICE transition validation contract 和 release
-  CI gate activation validation contract 已定义；下一步可以补充 Linux package artifact job preflight
-  validation contract，仍不生成 artifact。
+- Linux package publish eligibility aggregate contract、license/NOTICE transition validation contract、release
+  CI gate activation validation contract 和 artifact job preflight validation contract 已定义；下一步可以补充
+  Linux package artifact build command validation contract，仍不生成 artifact。

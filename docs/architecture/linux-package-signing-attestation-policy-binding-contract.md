@@ -162,8 +162,8 @@ upload 步骤。
   Linux package release notes/rollback policy binding contract、Linux package publish eligibility
   aggregate contract、Linux CLI artifact 安装/回滚设计、
   Release CI success source contract、Linux package
-  runner/toolchain/target contract、Linux package archive staging contract、Linux artifact license/NOTICE
-  confirmation source contract 和 CI policy 中可发现。
+  artifact job preflight validation contract、runner/toolchain/target contract、Linux package archive staging
+  contract、Linux artifact license/NOTICE confirmation source contract 和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题和
   release placeholder/summary 输出字段。
@@ -179,4 +179,4 @@ upload 步骤。
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
 - Linux package release notes/rollback policy binding contract、publish eligibility aggregate contract、
   license/NOTICE transition validation contract 和 release CI gate activation validation contract 已定义；
-  下一步可以补充 Linux package artifact job preflight validation contract，仍不生成 artifact。
+  Linux package artifact job preflight validation contract 已定义；下一步可以补充 Linux package artifact build command validation contract，仍不生成 artifact。
