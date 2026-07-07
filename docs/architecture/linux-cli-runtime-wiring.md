@@ -54,8 +54,8 @@
 
 ## start 接线边界
 
-`start` 在以下条件全部满足前必须继续返回
-`cli.linux.runtime.unwired` 或更具体的 unavailable 诊断：
+`start` 只有在以下条件全部满足后才能从
+`cli.linux.runtime.unwired` 或更具体的 unavailable 诊断进入前台启动路径：
 
 - 存在非测试替身的 `ConfigurationService` 实现。
 - 存在非空壳的 `ProxyEngineService` 实现，能够真实拥有当前进程内的运行生命周期。
@@ -109,5 +109,5 @@ diagnostic code。
 ## 后续工作
 
 - `config-core` 已提供最小纯配置服务，`networkcore-linux prepare-config` 已接入二进制入口；后续配置扩展继续保持纯内存解析和 secret 不泄露边界。
-- `networkcore-linux` 已提供前台 lifecycle host 源码合同，但 binary 尚未接入；`engine-native` 已具备 service-owned runtime state 与 foreground lifecycle handoff 源码合同，`networkcore-linux start` 在 binary 接线前继续保持未接线诊断。
+- `networkcore-linux start` 已接入 `NativeProxyEngineService` 和 current-process foreground lifecycle host；后续需要补充 signal/interruption lifecycle 合同，让前台运行退出路径输出稳定诊断。
 - daemon/control socket、service install、DNS/TUN mutation 或 release artifact 进入前，继续先补设计和回滚合同。

@@ -1,8 +1,8 @@
 //! Linux CLI entrypoint contracts for NetworkCore.
 //!
-//! The crate contains command parsing and response mapping only. Real platform
-//! probing, daemon control, service installation, and release packaging are
-//! deliberately outside this first source increment.
+//! The crate contains command parsing, response mapping, config I/O boundaries,
+//! and foreground runtime handoff. Daemon control, service installation, and
+//! release packaging are deliberately outside this first source increment.
 
 use control_domain::{
     CertificateTrustState, ConfigurationService, Diagnostic, DiagnosticSeverity, DomainError,
@@ -12,6 +12,7 @@ use control_domain::{
 };
 use control_runtime::{RuntimeConfigRequest, RuntimeOperationResult, RuntimeOrchestrator};
 use serde::Serialize;
+use std::thread;
 
 pub const COMMAND_NAME: &str = "networkcore-linux";
 pub const DEFAULT_ENGINE_ID: &str = "native";
@@ -343,6 +344,23 @@ impl ForegroundLifecycleHost for UnavailableForegroundLifecycleHost {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CurrentProcessForegroundLifecycleHost;
+
+impl CurrentProcessForegroundLifecycleHost {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl ForegroundLifecycleHost for CurrentProcessForegroundLifecycleHost {
+    fn run_foreground(&self, _request: &ForegroundLifecycleRequest) -> ForegroundLifecycleOutcome {
+        loop {
+            thread::park();
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 struct ParsedOptions {
     config_path: Option<String>,
@@ -461,6 +479,31 @@ where
     }
 }
 
+pub fn handle_entrypoint_with_runtime_and_lifecycle<C, P, E, R, H>(
+    command: LinuxCliCommand,
+    platform: &P,
+    orchestrator: &RuntimeOrchestrator<C, P, E>,
+    reader: &R,
+    lifecycle_host: &H,
+) -> LinuxCliResponse
+where
+    C: ConfigurationService,
+    P: PlatformCapabilityService,
+    E: ProxyEngineService,
+    R: ConfigReader,
+    H: ForegroundLifecycleHost,
+{
+    match command {
+        LinuxCliCommand::PrepareConfig { config_path, .. } => {
+            handle_prepare_config(orchestrator, reader, config_path.as_deref())
+        }
+        LinuxCliCommand::Start { config_path, .. } => {
+            handle_start_foreground(orchestrator, reader, config_path.as_deref(), lifecycle_host)
+        }
+        other => handle_entrypoint(other, platform),
+    }
+}
+
 pub fn handle_version() -> LinuxCliResponse {
     LinuxCliResponse::success("version").with_version(env!("CARGO_PKG_VERSION"))
 }
@@ -536,6 +579,31 @@ where
         Ok(result) => LinuxCliResponse::success("start")
             .with_diagnostics(result.diagnostics)
             .with_platform(result.platform),
+        Err(error) => start_error_response(error),
+    }
+}
+
+pub fn handle_start_foreground<C, P, E, R, H>(
+    orchestrator: &RuntimeOrchestrator<C, P, E>,
+    reader: &R,
+    config_path: Option<&str>,
+    lifecycle_host: &H,
+) -> LinuxCliResponse
+where
+    C: ConfigurationService,
+    P: PlatformCapabilityService,
+    E: ProxyEngineService,
+    R: ConfigReader,
+    H: ForegroundLifecycleHost,
+{
+    let raw_config = match read_required_config("start", reader, config_path) {
+        Ok(raw_config) => raw_config,
+        Err(response) => return *response,
+    };
+
+    let request = RuntimeConfigRequest::new(DEFAULT_ENGINE_ID, raw_config);
+    match orchestrator.start_runtime(request) {
+        Ok(result) => handle_foreground_lifecycle(result, lifecycle_host),
         Err(error) => start_error_response(error),
     }
 }

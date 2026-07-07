@@ -6,14 +6,19 @@ use control_domain::{
     ProxyEngineStatus, SchemaVersion,
 };
 use control_runtime::{RuntimeOperationResult, RuntimeOrchestrator};
+use engine_native::{
+    NativeProxyEngineService, ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE,
+    ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE, ENGINE_NATIVE_START_RUNNING_CODE,
+};
 use networkcore_linux::{
     handle_capabilities, handle_entrypoint, handle_entrypoint_with_runtime,
-    handle_foreground_lifecycle, handle_prepare_config, handle_start, handle_status, handle_stop,
-    parse_args, render_response, ConfigReadError, ConfigReader, ForegroundLifecycleHost,
-    ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxCliCommand, LinuxCliExitCode,
-    OutputFormat, UnavailableForegroundLifecycleHost, UnavailableProxyEngineService,
-    CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
-    CLI_RUNTIME_UNWIRED_CODE, CLI_START_FOREGROUND_ONLY_CODE, CLI_START_LIFECYCLE_FAILED_CODE,
+    handle_entrypoint_with_runtime_and_lifecycle, handle_foreground_lifecycle,
+    handle_prepare_config, handle_start, handle_status, handle_stop, parse_args, render_response,
+    ConfigReadError, ConfigReader, ForegroundLifecycleHost, ForegroundLifecycleOutcome,
+    ForegroundLifecycleRequest, LinuxCliCommand, LinuxCliExitCode, OutputFormat,
+    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
+    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE, CLI_RUNTIME_UNWIRED_CODE,
+    CLI_START_FOREGROUND_ONLY_CODE, CLI_START_LIFECYCLE_FAILED_CODE,
     CLI_START_LIFECYCLE_HOST_MISSING_CODE, CLI_START_PLATFORM_DENIED_CODE,
     CLI_STATUS_NO_RUNTIME_CONTEXT_CODE, CLI_STATUS_PLATFORM_ONLY_CODE,
     CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
@@ -26,6 +31,7 @@ use platform_linux::{
     PERMISSION_CAPABILITY_MISSING_CODE, PERMISSION_ELEVATION_REQUIRED_CODE,
     SERVICE_UNSUPPORTED_ENVIRONMENT_CODE, SOURCE_DNS,
 };
+use std::net::TcpListener;
 
 #[test]
 fn parses_prepare_config_with_explicit_path_and_json_format() {
@@ -313,6 +319,67 @@ profile = "default"
 }
 
 #[test]
+fn runtime_entrypoint_wires_start_to_native_engine_and_foreground_lifecycle() {
+    let port = unused_loopback_port();
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let orchestrator = RuntimeOrchestrator::new(
+        CoreConfigurationService::new(),
+        platform.clone(),
+        NativeProxyEngineService::new(),
+    );
+    let reader = MemoryConfigReader::ok(format!(
+        r#"
+schema_version = 1
+profile = "default"
+
+[[nodes]]
+id = "node-1"
+protocol = "socks"
+host = "127.0.0.1"
+port = 1081
+
+[[listeners]]
+id = "loopback-socks"
+enabled = true
+kind = "socks"
+bind_host = "127.0.0.1"
+bind_port = {port}
+network = "tcp"
+route_action = "proxy"
+route_node = "node-1"
+"#
+    ));
+
+    let response = handle_entrypoint_with_runtime_and_lifecycle(
+        LinuxCliCommand::Start {
+            config_path: Some("networkcore.toml".to_string()),
+            format: OutputFormat::Text,
+        },
+        &platform,
+        &orchestrator,
+        &reader,
+        &TestForegroundLifecycleHost::success(Vec::new()),
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "start");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Success);
+    assert!(response.platform.is_some());
+    assert_diagnostic(&response.diagnostics, ENGINE_NATIVE_START_RUNNING_CODE);
+    assert_diagnostic(
+        &response.diagnostics,
+        ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
+    );
+    assert_diagnostic(
+        &response.diagnostics,
+        ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE,
+    );
+    assert_diagnostic(&response.diagnostics, CLI_START_FOREGROUND_ONLY_CODE);
+    assert_no_diagnostic(&response.diagnostics, CLI_RUNTIME_UNWIRED_CODE);
+}
+
+#[test]
 fn foreground_lifecycle_contract_reports_missing_host_without_start_wiring() {
     let response = handle_foreground_lifecycle(
         runtime_operation_result(
@@ -588,4 +655,15 @@ fn runtime_operation_result(
         },
         diagnostics,
     }
+}
+
+fn unused_loopback_port() -> u16 {
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .expect("test should reserve an ephemeral loopback tcp port");
+    let port = listener
+        .local_addr()
+        .expect("reserved listener should expose its local address")
+        .port();
+    drop(listener);
+    port
 }

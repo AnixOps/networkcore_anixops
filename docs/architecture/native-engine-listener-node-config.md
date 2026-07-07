@@ -47,10 +47,11 @@ listener、node、route 和 DNS 配置模型边界。它承接
 - `engine-native` 已补充 SOCKS5 no-auth 方法选择与 unsupported auth 方法拒绝诊断合同，可在有效 greeting 后记录 `engine.native.runtime.socks5_auth_method_selected` 或 `engine.native.runtime.socks5_auth_method_unsupported` 诊断，并继续进入后续方法响应、命令和 CONNECT route/outbound 分支。
 - `engine-native` 已补充 SOCKS5 认证方法响应写入诊断合同，可写入 `[0x05, method]` 响应并记录 `engine.native.runtime.socks5_auth_method_response_written` 或 `engine.native.runtime.socks5_auth_method_response_write_failed` 诊断。
 - `engine-native` 已补充 SOCKS5 命令头读取与 unsupported command 拒绝诊断合同，可在 no-auth 响应后读取 `[VER, CMD, RSV, ATYP]` 并记录 `engine.native.runtime.socks5_command_header_read`、`engine.native.runtime.socks5_command_header_invalid` 或 `engine.native.runtime.socks5_command_header_read_failed` 诊断，对非 CONNECT 命令记录 `engine.native.runtime.socks5_command_unsupported`。
-- `engine-native` 已补充 SOCKS5 CONNECT 目标地址读取、route/outbound 行为选择、SOCKS outbound CONNECT request frame 生成、SOCKS outbound TCP connection plan、SOCKS outbound TCP connection attempt、SOCKS outbound CONNECT request write、SOCKS outbound CONNECT response read、SOCKS outbound CONNECT response decision、SOCKS outbound CONNECT relay readiness、SOCKS outbound CONNECT data relay plan、SOCKS outbound CONNECT data relay execution、SOCKS outbound CONNECT client success response readiness、SOCKS outbound CONNECT client success response write plan、SOCKS outbound CONNECT client success response write、accept loop client success response 与有限 data relay 接线、未接入拒绝与 CONNECT failure response 写入诊断合同。accept loop 在上游 CONNECT accepted 后记录 `engine.native.runtime.socks5_outbound_connect_relay_ready`、`engine.native.runtime.socks5_outbound_connect_data_relay_plan_ready`、`engine.native.runtime.socks5_outbound_connect_client_success_response_ready` 和 `engine.native.runtime.socks5_outbound_connect_client_success_response_write_plan_ready`，写入 client success response frame，再对有限 client/outbound TCP stream 执行双向复制并记录 `engine.native.runtime.socks5_outbound_connect_data_relay_completed` 或 `engine.native.runtime.socks5_outbound_connect_data_relay_failed`；上游 rejected、连接失败或 plan 不完整路径继续记录 rejected/unwired 诊断，写入 SOCKS5 general failure response 并关闭连接。`networkcore-linux start` binary 仍未接线。
+- `engine-native` 已补充 SOCKS5 CONNECT 目标地址读取、route/outbound 行为选择、SOCKS outbound CONNECT request frame 生成、SOCKS outbound TCP connection plan、SOCKS outbound TCP connection attempt、SOCKS outbound CONNECT request write、SOCKS outbound CONNECT response read、SOCKS outbound CONNECT response decision、SOCKS outbound CONNECT relay readiness、SOCKS outbound CONNECT data relay plan、SOCKS outbound CONNECT data relay execution、SOCKS outbound CONNECT client success response readiness、SOCKS outbound CONNECT client success response write plan、SOCKS outbound CONNECT client success response write、accept loop client success response 与有限 data relay 接线、未接入拒绝与 CONNECT failure response 写入诊断合同。accept loop 在上游 CONNECT accepted 后记录 `engine.native.runtime.socks5_outbound_connect_relay_ready`、`engine.native.runtime.socks5_outbound_connect_data_relay_plan_ready`、`engine.native.runtime.socks5_outbound_connect_client_success_response_ready` 和 `engine.native.runtime.socks5_outbound_connect_client_success_response_write_plan_ready`，写入 client success response frame，再对有限 client/outbound TCP stream 执行双向复制并记录 `engine.native.runtime.socks5_outbound_connect_data_relay_completed` 或 `engine.native.runtime.socks5_outbound_connect_data_relay_failed`；上游 rejected、连接失败或 plan 不完整路径继续记录 rejected/unwired 诊断，写入 SOCKS5 general failure response 并关闭连接。
 - `engine-native` 已补充 service-owned runtime state 与 foreground lifecycle handoff 源码合同；有效配置可让 `NativeProxyEngineService::start` 启动并持有 loopback TCP accept loop runtime，返回 `Running`、`engine.native.start.running`、`engine.native.runtime.foreground_handoff_ready` 和 `engine.native.runtime.accept_loop_ready`，`status`/`events`/`stop` 可观察和释放 runtime。
+- `networkcore-linux start` binary 已接入 `NativeProxyEngineService` 与 current-process foreground lifecycle host，继续保持无 daemon/control socket 边界。
 
-因此，`engine-native` service 层现在可以在源码合同中启动当前进程内 runtime；但在 `networkcore-linux start` binary 接入 `NativeProxyEngineService` 与前台 lifecycle host 前，不得把该能力路由到 CLI 二进制入口，也不得声称支持 daemon、control socket 或跨进程 stop/status。
+因此，`engine-native` service 层现在可以在源码合同和 Linux CLI 前台入口中启动当前进程内 runtime；但不得声称支持 daemon、control socket 或跨进程 stop/status。
 
 ## 配置所有权
 
@@ -243,7 +244,8 @@ DNS 配置进入前应继续保守：
 29. 已补充 SOCKS5 outbound CONNECT accept loop client success response 与有限 data relay 接线诊断合同，继续不接入 `networkcore-linux start`。
 30. 已补充 `engine-native` service start readiness gate，确认有效 runtime assembly plan 已具备，但当时 service-owned runtime state 与 foreground lifecycle handoff 仍阻断 service `start()` 返回 `Running`，继续不接入 `networkcore-linux start`。
 31. 已补充 `engine-native` service-owned runtime state 与 foreground lifecycle handoff 源码合同，`NativeProxyEngineService::start` 可持有 loopback TCP accept loop runtime 并返回 `Running`，`status`/`events`/`stop` 可观察和释放 runtime，继续不接入 `networkcore-linux start`。
-32. 下一步将 `networkcore-linux start` binary 接入 `NativeProxyEngineService` 与前台 lifecycle host。
+32. 已将 `networkcore-linux start` binary 接入 `NativeProxyEngineService` 与前台 lifecycle host。
+33. 下一步为 `networkcore-linux start` 前台 lifecycle host 补充 signal/interruption 处理合同。
 
 每个阶段都必须同步 README、TODO、CHANGELOG、设计文档和合同测试，并只通过 GitHub Actions 验证。
 
@@ -273,10 +275,10 @@ DNS 配置进入前应继续保守：
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - README、ROADMAP、Linux native start 设计和 release strategy 能发现本文档。
 - TODO 指向下一步最小源码增量，而不是直接接入 `start`。
-- `engine-native` 在 listener/node 解析和图校验完成后，必须先以 service-owned runtime state 返回 `Running`，再由后续增量接入 `networkcore-linux start` binary。
-- `networkcore-linux start` 在真实 runtime handle 和 binary lifecycle 接线完成前继续保持 `cli.linux.runtime.unwired`。
+- `engine-native` 在 listener/node 解析和图校验完成后，必须先以 service-owned runtime state 返回 `Running`，再接入 `networkcore-linux start` binary。
+- `networkcore-linux start` 接入真实 runtime handle 和 binary lifecycle 后，仍必须保持无 daemon/control socket 边界。
 
 ## 后续工作
 
-- 将 `networkcore-linux start` binary 接入 `NativeProxyEngineService` 与前台 lifecycle host，继续保持无 daemon/control socket 边界。
-- `networkcore-linux start` 继续保持 `cli.linux.runtime.unwired`，直到 service start、真实 runtime handoff 和前台 lifecycle host binary 接线完成并通过 GitHub Actions 验证。
+- 为 `networkcore-linux start` 前台 lifecycle host 补充 signal/interruption 处理合同，继续保持无 daemon/control socket 边界。
+- 在 foreground lifecycle 退出路径完成并通过 GitHub Actions 验证前，继续阻止 Linux release artifact。

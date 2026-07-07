@@ -1,8 +1,8 @@
 //! Native proxy engine adapter contracts for NetworkCore.
 //!
 //! This crate intentionally exposes descriptor, validation, lifecycle
-//! diagnostics, and resource-backed runtime handle contracts while binary
-//! foreground handoff remains unwired.
+//! diagnostics, and resource-backed runtime handle contracts for the
+//! current-process foreground runtime path.
 
 use control_domain::{
     Diagnostic, DiagnosticSeverity, DomainError, DomainResult, Endpoint, ListenerDescriptor,

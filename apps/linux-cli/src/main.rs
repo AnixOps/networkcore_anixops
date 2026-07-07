@@ -9,14 +9,16 @@ fn main() {
             let orchestrator = control_runtime::RuntimeOrchestrator::new(
                 config_core::CoreConfigurationService::new(),
                 platform.clone(),
-                networkcore_linux::UnavailableProxyEngineService::new(),
+                engine_native::NativeProxyEngineService::new(),
             );
             let reader = networkcore_linux::FsConfigReader;
-            let response = networkcore_linux::handle_entrypoint_with_runtime(
+            let lifecycle_host = networkcore_linux::CurrentProcessForegroundLifecycleHost::new();
+            let response = networkcore_linux::handle_entrypoint_with_runtime_and_lifecycle(
                 command,
                 &platform,
                 &orchestrator,
                 &reader,
+                &lifecycle_host,
             );
             (format, response)
         }
