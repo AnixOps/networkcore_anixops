@@ -74,6 +74,7 @@ jobs:
           test -f docs/architecture/linux-package-artifact-staging-file-validation-contract.md
           test -f docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
           test -f docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
+          test -f docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
           test -f docs/architecture/adr-0001-initial-core-stack.md
           grep -q "本机只负责代码" AGENT.md
           grep -q "GitHub Actions" docs/ci-cd-policy.md
@@ -109,6 +110,11 @@ jobs:
           grep -q "package_artifact_checksum_execution_record_format" docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
           grep -q "package_artifact_checksum_execution_checksum_path" docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
           grep -q "Future Checksum Command" docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
+          grep -q "Linux Package Artifact Manifest Generation Validation Contract" docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
+          grep -q "package_artifact_manifest_generation_status" docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
+          grep -q "package_artifact_manifest_generation_required_fields" docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
+          grep -q "package_artifact_manifest_generation_manifest_path" docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
+          grep -q "Future Manifest Generation" docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
           grep -q "release-ci-success-source-contract=present" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-contract=present"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 4
@@ -192,6 +198,32 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-manifest=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-upload=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-next-action=manifest-generation-after-checksum"$' .github/workflows/release.yml)" -ge 3
+          grep -q "Linux Package Artifact Manifest Generation Validation Contract" .github/workflows/release.yml
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-required-job=package-linux"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-checksum-execution=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-schema-version=1"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-artifact-kind=linux-cli-tarball"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-package-format=tar.gz"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-generation-manifest-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].manifest.json'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-generation-manifest-path=dist/linux/[$][{]target[}]/artifacts/networkcore-linux-[$][{]version[}]-[$][{]target[}].manifest.json'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-generation-archive-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-generation-archive-path=dist/linux/[$][{]target[}]/artifacts/networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-generation-checksum-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz.sha256'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-generation-checksum-path=dist/linux/[$][{]target[}]/artifacts/networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz.sha256'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-required-fields=schema_version,artifact_kind,package_format,artifact_name,target_triple,version,commit_sha,source_ref,ci_run_url,release_run_url,runner,rust_toolchain,archive,checksum,included_files,install_model,system_mutation_policy,license_notice_status,signing,release_notes,rollback,publish_eligibility"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-archive-file-field=archive.file_name"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-archive-path-field=archive.relative_path"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-checksum-algorithm-field=checksum.algorithm"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-checksum-file-field=checksum.file_name"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-checksum-value-field=checksum.value"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-included-files=bin/networkcore-linux,INSTALL.md,LICENSE,CHANGELOG.md"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-install-model=manual-extract"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-system-mutation-policy=none"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-manifest-checksum=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-upload=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-next-action=manifest-checksum-after-manifest"$' .github/workflows/release.yml)" -ge 3
           grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
           grep -q "linux-package-platform-input-contract=present" .github/workflows/release.yml
           grep -q "linux-package-required-target=x86_64-unknown-linux-gnu" .github/workflows/release.yml
@@ -275,6 +307,7 @@ jobs:
           grep -q "Linux Package Artifact Staging File Validation Contract" docs/architecture/linux-package-artifact-staging-file-validation-contract.md
           grep -q "Linux Package Artifact Archive Creation Validation Contract" docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
           grep -q "Linux Package Artifact Checksum Execution Validation Contract" docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
+          grep -q "Linux Package Artifact Manifest Generation Validation Contract" docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
           grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
           grep -q "Linux Package Archive Staging Contract" docs/architecture/linux-package-archive-staging-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md

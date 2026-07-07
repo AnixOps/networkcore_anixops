@@ -188,4 +188,4 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、sec
 
 - 在 license/NOTICE 人工确认、release CI gate activation 和 artifact job preflight 激活前，
   继续保持 `package-linux` 未定义。
-- Linux package artifact staging file validation contract、Linux package artifact archive creation validation contract 和 Linux package artifact checksum execution validation contract 已定义；下一步可以补充 Linux package artifact manifest generation validation contract，明确真实 archive checksum sidecar 写入后生成 manifest JSON 和仍不计算 manifest checksum/upload 的边界。
+- Linux package artifact staging file validation contract、Linux package artifact archive creation validation contract 和 Linux package artifact checksum execution validation contract 已定义；Linux package artifact manifest generation validation contract 已定义；下一步可以补充 Linux package artifact manifest checksum validation contract，明确真实 manifest JSON 生成后计算 manifest sha256、写 manifest checksum sidecar 和仍不 upload 的边界。

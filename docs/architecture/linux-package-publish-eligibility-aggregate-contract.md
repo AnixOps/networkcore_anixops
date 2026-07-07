@@ -225,4 +225,4 @@ aggregate eligibility publish gate 或 upload 步骤。
   validation contract、Linux package artifact job preflight validation contract、Linux package artifact build
   command validation contract、Linux package artifact staging file validation contract、Linux package artifact
   archive creation validation contract 和 Linux package artifact checksum execution validation contract 已定义；
-  下一步可以补充 Linux package artifact manifest generation validation contract，仍不生成 artifact。
+  Linux package artifact manifest generation validation contract 已定义；下一步可以补充 Linux package artifact manifest checksum validation contract，仍不生成 artifact。

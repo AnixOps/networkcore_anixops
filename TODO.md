@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 补充 Linux package artifact manifest generation validation contract，明确 archive checksum sidecar 生成后写 manifest JSON、校验 manifest 必需字段和仍不 upload 的边界。
+- [ ] 补充 Linux package artifact manifest checksum validation contract，明确 manifest JSON 生成后计算 manifest sha256、写 manifest checksum sidecar 和仍不 upload 的边界。
 
 ## 已完成
 
+- [x] 完成 Linux package artifact manifest generation validation contract；新增 manifest generation validation contract，固定未来 archive checksum sidecar 写入后生成 `networkcore-linux-${version}-${target}.manifest.json`、校验 manifest 必需字段、archive/checksum 交叉引用、失败条件和 manifest checksum/upload blocked 边界，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 manifest generation blocked 状态，继续不生成 manifest、manifest checksum 或 artifact。
 - [x] 完成 Linux package artifact checksum execution validation contract；新增 checksum execution validation contract，固定未来 archive 创建后使用 `sha256sum` 计算 `networkcore-linux-${version}-${target}.tar.gz.sha256`、校验 two-space record 格式、写 archive checksum sidecar、失败条件和 manifest/upload blocked 边界，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 checksum execution blocked 状态，继续不生成 checksum 文件、manifest 或 artifact。
 - [x] 完成 Linux package artifact archive creation validation contract；新增 archive creation validation contract，固定未来 `package-linux` 的 `.tar.gz` archive name/path、`tar -czf` 命令形态、单顶层目录、required files、失败条件和 checksum/manifest/upload blocked 边界，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 archive creation blocked 状态，继续不创建 archive 或生成 artifact。
 - [x] 完成 Linux package artifact staging file validation contract；新增 staging file validation contract，固定未来 `package-linux` 的 build output、INSTALL、LICENSE/NOTICE 和 CHANGELOG 复制来源、目标路径、binary `0755` 权限、失败条件和 archive/upload blocked 边界，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 staging file blocked 状态，继续不创建 archive 或生成 artifact。
