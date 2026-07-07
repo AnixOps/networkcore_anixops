@@ -110,6 +110,6 @@ diagnostic code。
 
 - `config-core` 已提供最小纯配置服务，`networkcore-linux prepare-config` 已接入二进制入口；后续配置扩展继续保持纯内存解析和 secret 不泄露边界。
 - `networkcore-linux start` 已接入 `NativeProxyEngineService` 和 current-process foreground lifecycle host；前台 lifecycle 已具备可注入 signal/interruption 合同、Unix `SIGINT`/`SIGTERM` OS signal source、`cli.linux.start.signal_received`/`cli.linux.start.lifecycle_interrupted` 诊断、130 退出码映射，以及 interruption 后通过当前进程内 `RuntimeOrchestrator::stop_runtime` 聚合 native runtime stop/release 诊断的合同。
-- Linux artifact readiness/release gate 已纳入 foreground stop/release 合同检查、artifact manifest 输出合同、license/NOTICE confirmation source contract、release placeholder license/NOTICE pending 状态 summary、release CI success source contract、package runner/toolchain/target contract、archive staging contract、checksum/manifest checksum contract、publish/upload boundary contract 和 signing/attestation policy binding contract；当前 pending marker 继续阻止 `package-linux`。
-- 下一步补充 Linux package release notes/rollback policy binding contract，仍不生成 artifact。
+- Linux artifact readiness/release gate 已纳入 foreground stop/release 合同检查、artifact manifest 输出合同、license/NOTICE confirmation source contract、release placeholder license/NOTICE pending 状态 summary、release CI success source contract、package runner/toolchain/target contract、archive staging contract、checksum/manifest checksum contract、publish/upload boundary contract、signing/attestation policy binding contract 和 release notes/rollback policy binding contract；当前 pending marker 继续阻止 `package-linux`。
+- 下一步补充 Linux package publish eligibility aggregate contract，仍不生成 artifact。
 - daemon/control socket、service install、DNS/TUN mutation 或 release artifact 进入前，继续先补设计和回滚合同。

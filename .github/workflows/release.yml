@@ -241,6 +241,7 @@ jobs:
           test -f docs/architecture/linux-package-checksum-manifest-contract.md
           test -f docs/architecture/linux-package-publish-upload-boundary-contract.md
           test -f docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
+          test -f docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
           test -f docs/manual-intervention.md
           grep -q "networkcore-linux" apps/linux-cli/README.md
           grep -q "handle_foreground_lifecycle_with_runtime_stop" apps/linux-cli/src/lib.rs
@@ -265,6 +266,7 @@ jobs:
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
           grep -q "Linux Package Publish Upload Boundary Contract" docs/architecture/linux-package-publish-upload-boundary-contract.md
           grep -q "Linux Package Signing Attestation Policy Binding Contract" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
+          grep -q "Linux Package Release Notes Rollback Policy Binding Contract" docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
           grep -q "artifact_manifest_path" docs/architecture/linux-package-artifact-manifest.md
           grep -q "artifact_manifest_checksum_value" docs/architecture/linux-package-artifact-manifest.md
           grep -q "rust_target_triple" docs/architecture/linux-package-runner-toolchain-target-contract.md
@@ -280,6 +282,9 @@ jobs:
           grep -q "package_signing_policy" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
           grep -q "package_attestation_policy" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
           grep -q "package_provenance_file" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
+          grep -q "package_release_notes_policy" docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
+          grep -q "package_rollback_policy" docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
+          grep -q "package_withdrawal_policy" docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
           grep -q "Linux Artifact Manifest Output Contract" .github/workflows/release.yml
           grep -q "linux-artifact-manifest-output-fields" .github/workflows/release.yml
           grep -q "Linux Artifact License/NOTICE Source Contract" .github/workflows/release.yml
@@ -313,6 +318,13 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-attestation-status=blocked-not-attested"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-provenance-file=github-artifact-attestation"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-publish-without-attestation=blocked"$' .github/workflows/release.yml)" -ge 3
+          grep -Eq '^[[:space:]]+echo "### Linux Package Release Notes Rollback Policy Binding Contract"$' .github/workflows/release.yml
+          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-policy-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-policy=required-before-publish"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-notes-status=blocked-not-generated"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-rollback-status=blocked-not-summarized"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-withdrawal-policy=withdrawal-not-overwrite"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-without-rollback=blocked"$' .github/workflows/release.yml)" -ge 3
           grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-package-linux=blocked" docs/manual-intervention.md
@@ -329,6 +341,10 @@ jobs:
           fi
           if grep -Eq '^  (attest-linux|sign-linux):' .github/workflows/release.yml; then
             echo "::error::attest-linux and sign-linux must stay undefined until signing/attestation gates are complete."
+            exit 1
+          fi
+          if grep -Eq '^  post-release-summary:' .github/workflows/release.yml; then
+            echo "::error::post-release-summary must stay undefined until release notes/rollback gates are complete."
             exit 1
           fi
           {
@@ -349,6 +365,7 @@ jobs:
             echo "| Package checksum/manifest checksum contract | present |"
             echo "| Package publish/upload boundary contract | present |"
             echo "| Package signing/attestation policy binding contract | present |"
+            echo "| Package release notes/rollback policy binding contract | present |"
             echo "| Install and rollback design | present |"
             echo "| License or NOTICE confirmation | pending in docs/manual-intervention.md |"
             echo "| Release asset upload | blocked until package-linux, checksum, signing/attestation, rollback, and license/NOTICE gates are complete |"
@@ -434,6 +451,22 @@ jobs:
           echo "linux-package-provenance-status=blocked-not-generated"
           echo "linux-package-publish-requires-attestation=true"
           echo "linux-package-publish-without-attestation=blocked"
+          echo "linux-package-release-notes-rollback-policy-contract=present"
+          echo "linux-package-release-notes-rollback-contract=docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md"
+          echo "linux-package-release-notes-policy=required-before-publish"
+          echo "linux-package-release-notes-status=blocked-not-generated"
+          echo "linux-package-release-notes-source=CHANGELOG.md-and-release-summary"
+          echo "linux-package-release-notes-required-fields=version,artifact,checksums,ci,release,install,signing,rollback,withdrawal,replacement"
+          echo "linux-package-rollback-policy=manual-extract-version-switch"
+          echo "linux-package-rollback-status=blocked-not-summarized"
+          echo "linux-package-rollback-scope=linux-cli-artifact"
+          echo "linux-package-rollback-trigger=checksum-install-runtime-security-or-provenance-defect"
+          echo "linux-package-rollback-steps=withdraw-release-asset-and-publish-replacement-version"
+          echo "linux-package-replacement-version=next-version-required"
+          echo "linux-package-rollback-owner=maintainer"
+          echo "linux-package-withdrawal-policy=withdrawal-not-overwrite"
+          echo "linux-package-replacement-policy=new-version-tag-required"
+          echo "linux-package-publish-without-rollback=blocked"
           echo "linux-artifact-install-rollback-design=present"
           echo "linux-artifact-license-notice=manual-confirmation-required"
           echo "linux-artifact-release-assets=blocked"
@@ -455,9 +488,11 @@ jobs:
           test -f docs/architecture/linux-package-checksum-manifest-contract.md
           test -f docs/architecture/linux-package-publish-upload-boundary-contract.md
           test -f docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
+          test -f docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
           grep -q "Linux Package Publish Upload Boundary Contract" docs/architecture/linux-package-publish-upload-boundary-contract.md
           grep -q "Linux Package Signing Attestation Policy Binding Contract" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
+          grep -q "Linux Package Release Notes Rollback Policy Binding Contract" docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
           grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-package-linux=blocked" docs/manual-intervention.md
@@ -472,6 +507,10 @@ jobs:
           fi
           if grep -Eq '^  (attest-linux|sign-linux):' .github/workflows/release.yml; then
             echo "::error::attest-linux and sign-linux must stay undefined until signing/attestation gates are complete."
+            exit 1
+          fi
+          if grep -Eq '^  post-release-summary:' .github/workflows/release.yml; then
+            echo "::error::post-release-summary must stay undefined until release notes/rollback gates are complete."
             exit 1
           fi
           echo "No release artifacts are defined yet."
@@ -597,6 +636,30 @@ jobs:
             echo "| Current sign-linux job | not defined |"
             echo "| Current publish-github-release job | not defined |"
             echo
+            echo "### Linux Package Release Notes Rollback Policy Binding Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | placeholder summary only |"
+            echo "| Source contract | docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md |"
+            echo "| Release notes policy | required-before-publish |"
+            echo "| Release notes status | blocked-not-generated |"
+            echo "| Release notes source | CHANGELOG.md-and-release-summary |"
+            echo "| Release notes required fields | version, artifact, checksums, ci, release, install, signing, rollback, withdrawal, replacement |"
+            echo "| Rollback policy | manual-extract-version-switch |"
+            echo "| Rollback status | blocked-not-summarized |"
+            echo "| Rollback scope | linux-cli-artifact |"
+            echo "| Rollback trigger | checksum-install-runtime-security-or-provenance-defect |"
+            echo "| Rollback steps | withdraw-release-asset-and-publish-replacement-version |"
+            echo "| Replacement version | next-version-required |"
+            echo "| Rollback owner | maintainer |"
+            echo "| Withdrawal policy | withdrawal-not-overwrite |"
+            echo "| Replacement policy | new-version-tag-required |"
+            echo "| Publish without rollback | blocked |"
+            echo "| Current package-linux job | not defined |"
+            echo "| Current publish-github-release job | not defined |"
+            echo "| Current post-release-summary job | not defined |"
+            echo
             echo "### Linux Artifact License/NOTICE Source Contract"
             echo
             echo "| Item | Status |"
@@ -685,6 +748,22 @@ jobs:
           echo "linux-package-provenance-status=blocked-not-generated"
           echo "linux-package-publish-requires-attestation=true"
           echo "linux-package-publish-without-attestation=blocked"
+          echo "linux-package-release-notes-rollback-policy-contract=present"
+          echo "linux-package-release-notes-rollback-contract=docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md"
+          echo "linux-package-release-notes-policy=required-before-publish"
+          echo "linux-package-release-notes-status=blocked-not-generated"
+          echo "linux-package-release-notes-source=CHANGELOG.md-and-release-summary"
+          echo "linux-package-release-notes-required-fields=version,artifact,checksums,ci,release,install,signing,rollback,withdrawal,replacement"
+          echo "linux-package-rollback-policy=manual-extract-version-switch"
+          echo "linux-package-rollback-status=blocked-not-summarized"
+          echo "linux-package-rollback-scope=linux-cli-artifact"
+          echo "linux-package-rollback-trigger=checksum-install-runtime-security-or-provenance-defect"
+          echo "linux-package-rollback-steps=withdraw-release-asset-and-publish-replacement-version"
+          echo "linux-package-replacement-version=next-version-required"
+          echo "linux-package-rollback-owner=maintainer"
+          echo "linux-package-withdrawal-policy=withdrawal-not-overwrite"
+          echo "linux-package-replacement-policy=new-version-tag-required"
+          echo "linux-package-publish-without-rollback=blocked"
           echo "linux-artifact-license-notice-contract=present"
           echo "linux-artifact-license-notice-source=docs/manual-intervention.md"
           echo "linux-artifact-license-notice-status=pending"
@@ -774,6 +853,19 @@ jobs:
             echo "| Linux package provenance file | github-artifact-attestation |"
             echo "| Linux package provenance status | blocked-not-generated |"
             echo "| Linux package publish without attestation | blocked |"
+            echo "| Linux package release notes/rollback policy binding contract | summarized in release-placeholder |"
+            echo "| Linux package release notes policy | required-before-publish |"
+            echo "| Linux package release notes status | blocked-not-generated |"
+            echo "| Linux package release notes required fields | version, artifact, checksums, ci, release, install, signing, rollback, withdrawal, replacement |"
+            echo "| Linux package rollback policy | manual-extract-version-switch |"
+            echo "| Linux package rollback status | blocked-not-summarized |"
+            echo "| Linux package rollback scope | linux-cli-artifact |"
+            echo "| Linux package rollback trigger | checksum-install-runtime-security-or-provenance-defect |"
+            echo "| Linux package rollback steps | withdraw-release-asset-and-publish-replacement-version |"
+            echo "| Linux package replacement version | next-version-required |"
+            echo "| Linux package withdrawal policy | withdrawal-not-overwrite |"
+            echo "| Linux package replacement policy | new-version-tag-required |"
+            echo "| Linux package publish without rollback | blocked |"
             echo "| Linux artifact license/NOTICE contract | checked in linux-artifact-readiness |"
             echo "| Linux artifact license/NOTICE status | pending in docs/manual-intervention.md |"
             echo "| Release placeholder | ${{ needs.release-placeholder.result }} |"
@@ -874,6 +966,22 @@ jobs:
           echo "linux-package-provenance-status=blocked-not-generated"
           echo "linux-package-publish-requires-attestation=true"
           echo "linux-package-publish-without-attestation=blocked"
+          echo "linux-package-release-notes-rollback-policy-contract=present"
+          echo "linux-package-release-notes-rollback-contract=docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md"
+          echo "linux-package-release-notes-policy=required-before-publish"
+          echo "linux-package-release-notes-status=blocked-not-generated"
+          echo "linux-package-release-notes-source=CHANGELOG.md-and-release-summary"
+          echo "linux-package-release-notes-required-fields=version,artifact,checksums,ci,release,install,signing,rollback,withdrawal,replacement"
+          echo "linux-package-rollback-policy=manual-extract-version-switch"
+          echo "linux-package-rollback-status=blocked-not-summarized"
+          echo "linux-package-rollback-scope=linux-cli-artifact"
+          echo "linux-package-rollback-trigger=checksum-install-runtime-security-or-provenance-defect"
+          echo "linux-package-rollback-steps=withdraw-release-asset-and-publish-replacement-version"
+          echo "linux-package-replacement-version=next-version-required"
+          echo "linux-package-rollback-owner=maintainer"
+          echo "linux-package-withdrawal-policy=withdrawal-not-overwrite"
+          echo "linux-package-replacement-policy=new-version-tag-required"
+          echo "linux-package-publish-without-rollback=blocked"
           echo "linux-artifact-license-notice-contract=present"
           echo "linux-artifact-license-notice-source=docs/manual-intervention.md"
           echo "linux-artifact-license-notice-status=pending"

@@ -258,7 +258,8 @@ DNS 配置进入前应继续保守：
 43. 已补充 Linux package checksum/manifest checksum contract，固定 future `package-linux` checksum sidecar 文件命名、sha256 计算顺序和 manifest 交叉校验字段，仍不生成 artifact。
 44. 已补充 Linux package publish/upload boundary contract，固定 future `package-linux` workflow artifact bundle、retention days、publish download source、release asset set 和禁止覆盖策略，仍不生成 artifact。
 45. 已补充 Linux package signing/attestation policy binding contract，固定首个 Linux artifact 的 unsigned tarball 策略、GitHub artifact attestation/provenance required 策略和 publish without attestation 阻断，仍不生成 artifact。
-46. 下一步补充 Linux package release notes/rollback policy binding contract，仍不生成 artifact。
+46. 已补充 Linux package release notes/rollback policy binding contract，固定 release notes required fields、manual-extract rollback policy、withdrawal/replacement policy 和 publish without rollback 阻断，仍不生成 artifact。
+47. 下一步补充 Linux package publish eligibility aggregate contract，仍不生成 artifact。
 
 每个阶段都必须同步 README、TODO、CHANGELOG、设计文档和合同测试，并只通过 GitHub Actions 验证。
 
@@ -293,5 +294,5 @@ DNS 配置进入前应继续保守：
 
 ## 后续工作
 
-- Linux artifact readiness/release gate 已纳入 foreground stop/release 合同检查、artifact manifest 输出合同、license/NOTICE confirmation source contract、release placeholder license/NOTICE pending 状态 summary、release CI success source contract、package runner/toolchain/target contract、archive staging contract、checksum/manifest checksum contract、publish/upload boundary contract 和 signing/attestation policy binding contract，并继续保持 pending marker 未确认时不生成 `package-linux` artifact。
-- 下一步补充 Linux package release notes/rollback policy binding contract，仍不生成 artifact。
+- Linux artifact readiness/release gate 已纳入 foreground stop/release 合同检查、artifact manifest 输出合同、license/NOTICE confirmation source contract、release placeholder license/NOTICE pending 状态 summary、release CI success source contract、package runner/toolchain/target contract、archive staging contract、checksum/manifest checksum contract、publish/upload boundary contract、signing/attestation policy binding contract 和 release notes/rollback policy binding contract，并继续保持 pending marker 未确认时不生成 `package-linux` artifact。
+- 下一步补充 Linux package publish eligibility aggregate contract，仍不生成 artifact。

@@ -32,7 +32,8 @@ job、不定义 publish job、不上传 workflow artifact、不发布 GitHub Rel
 [Linux Package Archive Staging Contract](linux-package-archive-staging-contract.md)、
 [Linux Package Checksum Manifest Contract](linux-package-checksum-manifest-contract.md)、
 [Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md)、
-[Linux Package Signing Attestation Policy Binding Contract](linux-package-signing-attestation-policy-binding-contract.md)
+[Linux Package Signing Attestation Policy Binding Contract](linux-package-signing-attestation-policy-binding-contract.md)、
+[Linux Package Release Notes Rollback Policy Binding Contract](linux-package-release-notes-rollback-policy-binding-contract.md)
 和 release workflow
 中的显式常量。不得由 maintainer 在 `workflow_dispatch` 中手动输入上传目录、asset 名称、
 retention 天数或 release asset 覆盖策略来绕过门禁。
@@ -110,7 +111,7 @@ maintainer 上传文件、旧 run artifact、不同 commit artifact、不同 bra
 5. `package-linux` 校验 required files、manifest cross-check 和 release summary output fields。
 6. `package-linux` 上传同一 run 的 workflow artifact bundle，并设置 retention days。
 7. `attest-linux` 按 [Linux Package Signing Attestation Policy Binding Contract](linux-package-signing-attestation-policy-binding-contract.md) 读取同一 run bundle，并输出 GitHub artifact attestation/provenance 状态。
-8. rollback/release notes gate 输出 rollback 字段和替代版本策略。
+8. rollback/release notes gate 按 [Linux Package Release Notes Rollback Policy Binding Contract](linux-package-release-notes-rollback-policy-binding-contract.md) 输出 rollback 字段、withdrawal policy 和 replacement policy。
 9. `publish-github-release` 从同一 run 下载 workflow artifact bundle。
 10. `publish-github-release` 重新校验 file set、checksum、manifest checksum、CI source、signing/attestation
     状态、rollback 字段和 license/NOTICE 状态。
@@ -124,7 +125,7 @@ maintainer 上传文件、旧 run artifact、不同 commit artifact、不同 bra
 
 真实 upload gate 必须拒绝以下情况：
 
-- `package-linux`、`attest-linux`、`publish-github-release` 或等价 upload job 在本文档和 signing/attestation policy binding 完成前被定义。
+- `package-linux`、`attest-linux`、`publish-github-release` 或等价 upload job 在本文档、signing/attestation policy binding 和 release notes/rollback policy binding 完成前被定义。
 - workflow artifact name、upload source dir、retention days 或 required file set 与本文档不一致。
 - workflow artifact 包含 required files 以外的文件。
 - publish job 从同一 release run 以外的 artifact、runner 本地文件、外部 URL 或人工上传文件读取。
@@ -156,7 +157,8 @@ maintainer 上传文件、旧 run artifact、不同 commit artifact、不同 bra
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux package
   manifest 设计、Linux package checksum manifest contract、Linux package signing/attestation
-  policy binding contract、Linux CLI artifact 安装/回滚设计、Release CI success source contract、
+  policy binding contract、Linux package release notes/rollback policy binding contract、
+  Linux CLI artifact 安装/回滚设计、Release CI success source contract、
   Linux package runner/toolchain/target contract、Linux package archive staging contract、Linux artifact
   license/NOTICE confirmation source contract 和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
@@ -171,5 +173,5 @@ maintainer 上传文件、旧 run artifact、不同 commit artifact、不同 bra
 ## 后续工作
 
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
-- Linux package signing/attestation policy binding contract 已定义；下一步可以补充 Linux package
-  release notes/rollback policy binding contract，仍不生成 artifact。
+- Linux package signing/attestation policy binding contract 和 release notes/rollback policy binding
+  contract 已定义；下一步可以补充 Linux package publish eligibility aggregate contract，仍不生成 artifact。
