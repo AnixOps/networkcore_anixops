@@ -100,6 +100,7 @@
 - [Linux Package License Notice Transition Validation Contract](docs/architecture/linux-package-license-notice-transition-validation-contract.md)
 - [Release CI Success Source Contract](docs/architecture/release-ci-success-source-contract.md)
 - [Linux Package Release CI Gate Activation Validation Contract](docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md)
+- [Release CI Gate Execution Validation Contract](docs/architecture/release-ci-gate-execution-validation-contract.md)
 - [Linux Package Artifact Job Preflight Validation Contract](docs/architecture/linux-package-artifact-job-preflight-validation-contract.md)
 - [Linux Package Artifact Build Command Validation Contract](docs/architecture/linux-package-artifact-build-command-validation-contract.md)
 - [Linux Package Artifact Staging File Validation Contract](docs/architecture/linux-package-artifact-staging-file-validation-contract.md)

@@ -46,6 +46,7 @@ eligible 字段、required gates、失败边界和当前 blocked 状态，不定
 [Linux Package Artifact Build Command Validation Contract](linux-package-artifact-build-command-validation-contract.md)、
 [Linux Package Artifact Job Preflight Validation Contract](linux-package-artifact-job-preflight-validation-contract.md)、
 [Linux Package Release CI Gate Activation Validation Contract](linux-package-release-ci-gate-activation-validation-contract.md)、
+[Release CI Gate Execution Validation Contract](release-ci-gate-execution-validation-contract.md)、
 [Release CI Success Source Contract](release-ci-success-source-contract.md)、
 [Linux Package License Notice Transition Validation Contract](linux-package-license-notice-transition-validation-contract.md)、
 [Linux Package Publish Upload Boundary Contract](linux-package-publish-upload-boundary-contract.md)、
@@ -83,7 +84,7 @@ eligibility 来绕过门禁。
 | `package_publish_eligibility_execution_release_creation` | `blocked` |
 | `package_publish_eligibility_execution_publish_job` | `publish-github-release` |
 | `package_publish_eligibility_execution_publish_job_status` | `not-defined` |
-| `package_publish_eligibility_execution_next_action` | `release-ci-gate-execution-after-publish-eligibility-contract` |
+| `package_publish_eligibility_execution_next_action` | `release-ci-gate-api-implementation-after-execution-contract` |
 
 `blocked-placeholder` 表示 release workflow 已记录 future publish eligibility execution 的验证要求，
 但当前 release 仍不得执行 publish eligibility gate、创建 GitHub Release、定义 publish jobs 或上传任何
@@ -185,7 +186,7 @@ release asset。
 - 标记 `linux-package-publish-eligibility-execution-release-creation=blocked`。
 - 标记 `linux-package-publish-eligibility-execution-publish-job=publish-github-release`。
 - 标记 `linux-package-publish-eligibility-execution-publish-job-status=not-defined`。
-- 标记 `linux-package-publish-eligibility-execution-next-action=release-ci-gate-execution-after-publish-eligibility-contract`。
+- 标记 `linux-package-publish-eligibility-execution-next-action=release-ci-gate-api-implementation-after-execution-contract`。
 - 继续不定义 `package-linux`、`attest-linux`、`publish-eligibility-gate`、
   `publish-github-release`、`post-release-summary` 或等价 publish job。
 - 继续不调用 GitHub Releases API、`gh release create`、release action、upload-release-asset API
@@ -217,5 +218,4 @@ release asset。
   workflow artifact bundle upload、attestation execution、release notes/rollback execution 和 publish
   eligibility execution gates 激活前，继续保持 `package-linux`、`attest-linux`、
   `publish-eligibility-gate`、`publish-github-release` 和 `post-release-summary` 未定义。
-- 下一步可以补充 release CI gate execution validation contract，明确如何从 release workflow 自动读取同
-  commit 成功 CI run，并继续阻止 `package-linux` 和 GitHub Release asset。
+- release CI gate execution validation contract 已定义；下一步可以补充 release CI gate API implementation plan，明确启用 `actions: read` 前的最小查询实现，并继续阻止 `package-linux` 和 GitHub Release asset。

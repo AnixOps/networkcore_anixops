@@ -32,6 +32,7 @@ toolchain、build、staging 前置顺序、失败条件和继续不上传 artifa
 首个 Linux package artifact job preflight 输入必须来自本文档、
 [Linux Package License Notice Transition Validation Contract](linux-package-license-notice-transition-validation-contract.md)、
 [Linux Package Release CI Gate Activation Validation Contract](linux-package-release-ci-gate-activation-validation-contract.md)、
+[Release CI Gate Execution Validation Contract](release-ci-gate-execution-validation-contract.md)、
 [Release CI Success Source Contract](release-ci-success-source-contract.md)、
 [Linux Package Artifact Build Command Validation Contract](linux-package-artifact-build-command-validation-contract.md)、
 [Linux Package Runner Toolchain Target Contract](linux-package-runner-toolchain-target-contract.md)、
@@ -235,7 +236,7 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、sec
   runner/toolchain/target contract、Linux package archive staging contract、Linux package checksum
   manifest contract、Linux package publish/upload boundary contract、Linux package license/NOTICE
   transition validation contract、release CI success source contract、Linux package release CI gate activation
-  validation contract、Linux package artifact build command validation contract、Linux package artifact
+  validation contract、release CI gate execution validation contract、Linux package artifact build command validation contract、Linux package artifact
   staging file validation contract 和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在、标题和 release workflow placeholder 输出字段。
 - `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、placeholder

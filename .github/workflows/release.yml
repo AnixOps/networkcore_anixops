@@ -100,8 +100,10 @@ jobs:
           set -euo pipefail
           test -f docs/architecture/release-ci-success-source-contract.md
           test -f docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
+          test -f docs/architecture/release-ci-gate-execution-validation-contract.md
           grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
           grep -q "Linux Package Release CI Gate Activation Validation Contract" docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
+          grep -q "Release CI Gate Execution Validation Contract" docs/architecture/release-ci-gate-execution-validation-contract.md
           if grep -Eq '^[[:space:]]+actions:[[:space:]]+read$' .github/workflows/release.yml; then
             echo "::error::actions: read must stay disabled until release CI gate activation is implemented."
             exit 1
@@ -147,6 +149,34 @@ jobs:
             echo "| Current package-linux job | not defined |"
             echo "| Current artifacts | blocked |"
             echo "| Next action | ci-api-read-implementation-before-package-linux |"
+            echo
+            echo "### Release CI Gate Execution Validation Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | contract-only-no-api-read |"
+            echo "| Source contract | docs/architecture/release-ci-gate-execution-validation-contract.md |"
+            echo "| Execution status | blocked-placeholder |"
+            echo "| Required job | release-ci-gate |"
+            echo "| Current job status | placeholder |"
+            echo "| Required permission | actions-read |"
+            echo "| Permission status | not-enabled |"
+            echo "| API source | github-actions-runs-api |"
+            echo "| API status | not-called |"
+            echo "| Query workflow | CI |"
+            echo "| Query workflow file | .github/workflows/ci.yml |"
+            echo "| Query branch | main |"
+            echo "| Query head SHA | same-release-sha |"
+            echo "| Query status | completed |"
+            echo "| Required conclusion | success |"
+            echo "| Allowed events | push,workflow_dispatch |"
+            echo "| Required fields | ci_workflow_name,ci_workflow_file,ci_run_id,ci_run_attempt,ci_run_url,ci_run_status,ci_run_conclusion,ci_head_sha,ci_head_branch,ci_event,ci_repository,ci_checked_at |"
+            echo "| CI summary | required-success |"
+            echo "| Manual input | blocked |"
+            echo "| Current package-linux job | not defined |"
+            echo "| Current workflow artifact | blocked |"
+            echo "| Current release asset | blocked |"
+            echo "| Next action | ci-api-read-implementation-before-package-linux |"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "release-ci-gate=placeholder"
           echo "release-ci-success-source-contract=present"
@@ -178,6 +208,30 @@ jobs:
           echo "linux-package-release-ci-gate-activation-package-linux=not-defined"
           echo "linux-package-release-ci-gate-activation-artifacts=blocked"
           echo "linux-package-release-ci-gate-activation-next-action=ci-api-read-implementation-before-package-linux"
+          echo "release-ci-gate-execution-contract=present"
+          echo "release-ci-gate-execution-source=release-ci-gate"
+          echo "release-ci-gate-execution-status=blocked-placeholder"
+          echo "release-ci-gate-execution-current-mode=contract-only-no-api-read"
+          echo "release-ci-gate-execution-required-job=release-ci-gate"
+          echo "release-ci-gate-execution-job-status=placeholder"
+          echo "release-ci-gate-execution-required-permission=actions-read"
+          echo "release-ci-gate-execution-permission-status=not-enabled"
+          echo "release-ci-gate-execution-api-source=github-actions-runs-api"
+          echo "release-ci-gate-execution-api-status=not-called"
+          echo "release-ci-gate-execution-query-workflow=CI"
+          echo "release-ci-gate-execution-query-workflow-file=.github/workflows/ci.yml"
+          echo "release-ci-gate-execution-query-branch=main"
+          echo "release-ci-gate-execution-query-head-sha=same-release-sha"
+          echo "release-ci-gate-execution-query-status=completed"
+          echo "release-ci-gate-execution-required-conclusion=success"
+          echo "release-ci-gate-execution-allowed-events=push,workflow_dispatch"
+          echo "release-ci-gate-execution-required-fields=ci_workflow_name,ci_workflow_file,ci_run_id,ci_run_attempt,ci_run_url,ci_run_status,ci_run_conclusion,ci_head_sha,ci_head_branch,ci_event,ci_repository,ci_checked_at"
+          echo "release-ci-gate-execution-ci-summary=required-success"
+          echo "release-ci-gate-execution-manual-input=blocked"
+          echo "release-ci-gate-execution-package-linux=not-defined"
+          echo "release-ci-gate-execution-workflow-artifact=blocked"
+          echo "release-ci-gate-execution-release-asset=blocked"
+          echo "release-ci-gate-execution-next-action=ci-api-read-implementation-before-package-linux"
 
   release-artifact-contract:
     name: Release artifact contract
@@ -284,6 +338,7 @@ jobs:
           test -f docs/architecture/linux-artifact-license-notice-confirmation.md
           test -f docs/architecture/release-ci-success-source-contract.md
           test -f docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
+          test -f docs/architecture/release-ci-gate-execution-validation-contract.md
           test -f docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           test -f docs/architecture/linux-package-artifact-build-command-validation-contract.md
           test -f docs/architecture/linux-package-artifact-staging-file-validation-contract.md
@@ -323,6 +378,7 @@ jobs:
           grep -q "Linux Artifact License Notice Confirmation Design" docs/architecture/linux-artifact-license-notice-confirmation.md
           grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
           grep -q "Linux Package Release CI Gate Activation Validation Contract" docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
+          grep -q "Release CI Gate Execution Validation Contract" docs/architecture/release-ci-gate-execution-validation-contract.md
           grep -q "Linux Package Artifact Job Preflight Validation Contract" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           grep -q "package_artifact_job_preflight_status" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           grep -q "package_artifact_job_preflight_required_needs" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
@@ -392,6 +448,7 @@ jobs:
           grep -q "Linux Package Publish Eligibility Execution Validation Contract" docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
           grep -q "Linux Package License Notice Transition Validation Contract" docs/architecture/linux-package-license-notice-transition-validation-contract.md
           grep -q "Linux Package Release CI Gate Activation Validation Contract" docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
+          grep -q "Release CI Gate Execution Validation Contract" docs/architecture/release-ci-gate-execution-validation-contract.md
           grep -q "artifact_manifest_path" docs/architecture/linux-package-artifact-manifest.md
           grep -q "artifact_manifest_checksum_value" docs/architecture/linux-package-artifact-manifest.md
           grep -q "rust_target_triple" docs/architecture/linux-package-runner-toolchain-target-contract.md
@@ -428,6 +485,11 @@ jobs:
           grep -q "package_release_ci_gate_activation_status" docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
           grep -q "package_release_ci_gate_activation_required_permission" docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
           grep -q "package_release_ci_gate_activation_api_status" docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
+          grep -q "release_ci_gate_execution_status" docs/architecture/release-ci-gate-execution-validation-contract.md
+          grep -q "release_ci_gate_execution_required_permission" docs/architecture/release-ci-gate-execution-validation-contract.md
+          grep -q "release_ci_gate_execution_api_status" docs/architecture/release-ci-gate-execution-validation-contract.md
+          grep -q "release_ci_gate_execution_required_fields" docs/architecture/release-ci-gate-execution-validation-contract.md
+          grep -q "Failure Boundary" docs/architecture/release-ci-gate-execution-validation-contract.md
           grep -q "Linux Artifact Manifest Output Contract" .github/workflows/release.yml
           grep -q "linux-artifact-manifest-output-fields" .github/workflows/release.yml
           grep -q "Linux Artifact License/NOTICE Source Contract" .github/workflows/release.yml
@@ -435,6 +497,7 @@ jobs:
           grep -q "release-ci-success-source-contract=present" .github/workflows/release.yml
           grep -q "release-ci-required-fields" .github/workflows/release.yml
           grep -q "Linux Package Release CI Gate Activation Validation Contract" .github/workflows/release.yml
+          grep -q "Release CI Gate Execution Validation Contract" .github/workflows/release.yml
           grep -q "Linux Package Artifact Job Preflight Validation Contract" .github/workflows/release.yml
           grep -q "Linux Package Artifact Build Command Validation Contract" .github/workflows/release.yml
           grep -q "Linux Package Artifact Staging File Validation Contract" .github/workflows/release.yml
@@ -454,6 +517,17 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-package-linux=not-defined"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-artifacts=blocked"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-next-action=ci-api-read-implementation-before-package-linux"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-execution-contract=present"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-execution-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-execution-required-permission=actions-read"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-execution-permission-status=not-enabled"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-execution-api-status=not-called"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-execution-query-head-sha=same-release-sha"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-execution-required-fields=ci_workflow_name,ci_workflow_file,ci_run_id,ci_run_attempt,ci_run_url,ci_run_status,ci_run_conclusion,ci_head_sha,ci_head_branch,ci_event,ci_repository,ci_checked_at"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-execution-ci-summary=required-success"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-execution-package-linux=not-defined"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-execution-release-asset=blocked"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-execution-next-action=ci-api-read-implementation-before-package-linux"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-contract=present"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-required-job=package-linux"$' .github/workflows/release.yml)" -ge 3
@@ -696,7 +770,7 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-release-creation=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-publish-job=publish-github-release"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-publish-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-next-action=release-ci-gate-execution-after-publish-eligibility-contract"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-next-action=release-ci-gate-api-implementation-after-execution-contract"$' .github/workflows/release.yml)" -ge 3
           grep -Eq '^[[:space:]]+echo "### Linux Package License Notice Transition Validation Contract"$' .github/workflows/release.yml
           grep -q "linux-artifact-license-notice-transition-commit=independent-manual-confirmation-commit" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-license-notice-transition-contract=present"$' .github/workflows/release.yml)" -ge 3
@@ -805,6 +879,7 @@ jobs:
             echo "| Artifact manifest contract design | present |"
             echo "| License/NOTICE confirmation source contract | present |"
             echo "| Release CI gate activation validation contract | present |"
+            echo "| Release CI gate execution validation contract | present |"
             echo "| Package artifact job preflight validation contract | present |"
             echo "| Package artifact build command validation contract | present |"
             echo "| Package artifact staging file validation contract | present |"
@@ -858,6 +933,30 @@ jobs:
           echo "linux-package-release-ci-gate-activation-package-linux=not-defined"
           echo "linux-package-release-ci-gate-activation-artifacts=blocked"
           echo "linux-package-release-ci-gate-activation-next-action=ci-api-read-implementation-before-package-linux"
+          echo "release-ci-gate-execution-contract=present"
+          echo "release-ci-gate-execution-source=release-ci-gate"
+          echo "release-ci-gate-execution-status=blocked-placeholder"
+          echo "release-ci-gate-execution-current-mode=contract-only-no-api-read"
+          echo "release-ci-gate-execution-required-job=release-ci-gate"
+          echo "release-ci-gate-execution-job-status=placeholder"
+          echo "release-ci-gate-execution-required-permission=actions-read"
+          echo "release-ci-gate-execution-permission-status=not-enabled"
+          echo "release-ci-gate-execution-api-source=github-actions-runs-api"
+          echo "release-ci-gate-execution-api-status=not-called"
+          echo "release-ci-gate-execution-query-workflow=CI"
+          echo "release-ci-gate-execution-query-workflow-file=.github/workflows/ci.yml"
+          echo "release-ci-gate-execution-query-branch=main"
+          echo "release-ci-gate-execution-query-head-sha=same-release-sha"
+          echo "release-ci-gate-execution-query-status=completed"
+          echo "release-ci-gate-execution-required-conclusion=success"
+          echo "release-ci-gate-execution-allowed-events=push,workflow_dispatch"
+          echo "release-ci-gate-execution-required-fields=ci_workflow_name,ci_workflow_file,ci_run_id,ci_run_attempt,ci_run_url,ci_run_status,ci_run_conclusion,ci_head_sha,ci_head_branch,ci_event,ci_repository,ci_checked_at"
+          echo "release-ci-gate-execution-ci-summary=required-success"
+          echo "release-ci-gate-execution-manual-input=blocked"
+          echo "release-ci-gate-execution-package-linux=not-defined"
+          echo "release-ci-gate-execution-workflow-artifact=blocked"
+          echo "release-ci-gate-execution-release-asset=blocked"
+          echo "release-ci-gate-execution-next-action=ci-api-read-implementation-before-package-linux"
           echo "linux-package-artifact-job-preflight-contract=present"
           echo "linux-package-artifact-job-preflight-source=linux-artifact-readiness"
           echo "linux-package-artifact-job-preflight-status=blocked-placeholder"
@@ -1225,7 +1324,7 @@ jobs:
           echo "linux-package-publish-eligibility-execution-release-creation=blocked"
           echo "linux-package-publish-eligibility-execution-publish-job=publish-github-release"
           echo "linux-package-publish-eligibility-execution-publish-job-status=not-defined"
-          echo "linux-package-publish-eligibility-execution-next-action=release-ci-gate-execution-after-publish-eligibility-contract"
+          echo "linux-package-publish-eligibility-execution-next-action=release-ci-gate-api-implementation-after-execution-contract"
           echo "linux-artifact-install-rollback-design=present"
           echo "linux-artifact-license-notice=manual-confirmation-required"
           echo "linux-artifact-release-assets=blocked"
@@ -1388,6 +1487,34 @@ jobs:
             echo "| Failure mode | fail-before-package-linux |"
             echo "| Current package-linux job | not defined |"
             echo "| Current artifacts | blocked |"
+            echo "| Next action | ci-api-read-implementation-before-package-linux |"
+            echo
+            echo "### Release CI Gate Execution Validation Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | contract-only-no-api-read |"
+            echo "| Source contract | docs/architecture/release-ci-gate-execution-validation-contract.md |"
+            echo "| Execution status | blocked-placeholder |"
+            echo "| Required job | release-ci-gate |"
+            echo "| Current job status | placeholder |"
+            echo "| Required permission | actions-read |"
+            echo "| Permission status | not-enabled |"
+            echo "| API source | github-actions-runs-api |"
+            echo "| API status | not-called |"
+            echo "| Query workflow | CI |"
+            echo "| Query workflow file | .github/workflows/ci.yml |"
+            echo "| Query branch | main |"
+            echo "| Query head SHA | same-release-sha |"
+            echo "| Query status | completed |"
+            echo "| Required conclusion | success |"
+            echo "| Allowed events | push,workflow_dispatch |"
+            echo "| Required fields | ci_workflow_name,ci_workflow_file,ci_run_id,ci_run_attempt,ci_run_url,ci_run_status,ci_run_conclusion,ci_head_sha,ci_head_branch,ci_event,ci_repository,ci_checked_at |"
+            echo "| CI summary | required-success |"
+            echo "| Manual input | blocked |"
+            echo "| Current package-linux job | not defined |"
+            echo "| Current workflow artifact | blocked |"
+            echo "| Current release asset | blocked |"
             echo "| Next action | ci-api-read-implementation-before-package-linux |"
             echo
             echo "### Linux Package Artifact Job Preflight Validation Contract"
@@ -1828,7 +1955,7 @@ jobs:
             echo "| Release creation | blocked |"
             echo "| Publish job | publish-github-release |"
             echo "| Publish job status | not-defined |"
-            echo "| Next action | release-ci-gate-execution-after-publish-eligibility-contract |"
+            echo "| Next action | release-ci-gate-api-implementation-after-execution-contract |"
             echo
             echo "### Linux Package License Notice Transition Validation Contract"
             echo
@@ -1887,6 +2014,30 @@ jobs:
           echo "linux-package-release-ci-gate-activation-package-linux=not-defined"
           echo "linux-package-release-ci-gate-activation-artifacts=blocked"
           echo "linux-package-release-ci-gate-activation-next-action=ci-api-read-implementation-before-package-linux"
+          echo "release-ci-gate-execution-contract=present"
+          echo "release-ci-gate-execution-source=release-ci-gate"
+          echo "release-ci-gate-execution-status=blocked-placeholder"
+          echo "release-ci-gate-execution-current-mode=contract-only-no-api-read"
+          echo "release-ci-gate-execution-required-job=release-ci-gate"
+          echo "release-ci-gate-execution-job-status=placeholder"
+          echo "release-ci-gate-execution-required-permission=actions-read"
+          echo "release-ci-gate-execution-permission-status=not-enabled"
+          echo "release-ci-gate-execution-api-source=github-actions-runs-api"
+          echo "release-ci-gate-execution-api-status=not-called"
+          echo "release-ci-gate-execution-query-workflow=CI"
+          echo "release-ci-gate-execution-query-workflow-file=.github/workflows/ci.yml"
+          echo "release-ci-gate-execution-query-branch=main"
+          echo "release-ci-gate-execution-query-head-sha=same-release-sha"
+          echo "release-ci-gate-execution-query-status=completed"
+          echo "release-ci-gate-execution-required-conclusion=success"
+          echo "release-ci-gate-execution-allowed-events=push,workflow_dispatch"
+          echo "release-ci-gate-execution-required-fields=ci_workflow_name,ci_workflow_file,ci_run_id,ci_run_attempt,ci_run_url,ci_run_status,ci_run_conclusion,ci_head_sha,ci_head_branch,ci_event,ci_repository,ci_checked_at"
+          echo "release-ci-gate-execution-ci-summary=required-success"
+          echo "release-ci-gate-execution-manual-input=blocked"
+          echo "release-ci-gate-execution-package-linux=not-defined"
+          echo "release-ci-gate-execution-workflow-artifact=blocked"
+          echo "release-ci-gate-execution-release-asset=blocked"
+          echo "release-ci-gate-execution-next-action=ci-api-read-implementation-before-package-linux"
           echo "linux-package-artifact-job-preflight-contract=present"
           echo "linux-package-artifact-job-preflight-source=linux-artifact-readiness"
           echo "linux-package-artifact-job-preflight-status=blocked-placeholder"
@@ -2240,7 +2391,7 @@ jobs:
           echo "linux-package-publish-eligibility-execution-release-creation=blocked"
           echo "linux-package-publish-eligibility-execution-publish-job=publish-github-release"
           echo "linux-package-publish-eligibility-execution-publish-job-status=not-defined"
-          echo "linux-package-publish-eligibility-execution-next-action=release-ci-gate-execution-after-publish-eligibility-contract"
+          echo "linux-package-publish-eligibility-execution-next-action=release-ci-gate-api-implementation-after-execution-contract"
           echo "linux-package-license-notice-transition-contract=present"
           echo "linux-package-license-notice-transition-source=docs/manual-intervention.md"
           echo "linux-package-license-notice-transition-status=blocked-pending"
@@ -2322,6 +2473,28 @@ jobs:
             echo "| Linux package release CI gate activation package-linux | not-defined |"
             echo "| Linux package release CI gate activation artifacts | blocked |"
             echo "| Linux package release CI gate activation next action | ci-api-read-implementation-before-package-linux |"
+            echo "| Release CI gate execution validation contract | checked in release-ci-gate |"
+            echo "| Release CI gate execution status | blocked-placeholder |"
+            echo "| Release CI gate execution required job | release-ci-gate |"
+            echo "| Release CI gate execution job status | placeholder |"
+            echo "| Release CI gate execution required permission | actions-read |"
+            echo "| Release CI gate execution permission status | not-enabled |"
+            echo "| Release CI gate execution API source | github-actions-runs-api |"
+            echo "| Release CI gate execution API status | not-called |"
+            echo "| Release CI gate execution query workflow | CI |"
+            echo "| Release CI gate execution query workflow file | .github/workflows/ci.yml |"
+            echo "| Release CI gate execution query branch | main |"
+            echo "| Release CI gate execution query head SHA | same-release-sha |"
+            echo "| Release CI gate execution query status | completed |"
+            echo "| Release CI gate execution required conclusion | success |"
+            echo "| Release CI gate execution allowed events | push,workflow_dispatch |"
+            echo "| Release CI gate execution required fields | ci_workflow_name, ci_workflow_file, ci_run_id, ci_run_attempt, ci_run_url, ci_run_status, ci_run_conclusion, ci_head_sha, ci_head_branch, ci_event, ci_repository, ci_checked_at |"
+            echo "| Release CI gate execution CI summary | required-success |"
+            echo "| Release CI gate execution manual input | blocked |"
+            echo "| Release CI gate execution package-linux | not-defined |"
+            echo "| Release CI gate execution workflow artifact | blocked |"
+            echo "| Release CI gate execution release asset | blocked |"
+            echo "| Release CI gate execution next action | ci-api-read-implementation-before-package-linux |"
             echo "| Linux package artifact job preflight validation contract | checked in linux-artifact-readiness |"
             echo "| Linux package artifact job preflight status | blocked-placeholder |"
             echo "| Linux package artifact job preflight required job | package-linux |"
@@ -2592,7 +2765,7 @@ jobs:
             echo "| Linux package publish eligibility execution release creation | blocked |"
             echo "| Linux package publish eligibility execution publish job | publish-github-release |"
             echo "| Linux package publish eligibility execution publish job status | not-defined |"
-            echo "| Linux package publish eligibility execution next action | release-ci-gate-execution-after-publish-eligibility-contract |"
+            echo "| Linux package publish eligibility execution next action | release-ci-gate-api-implementation-after-execution-contract |"
             echo "| Linux package license/NOTICE transition validation contract | summarized in release-placeholder |"
             echo "| Linux package license/NOTICE transition status | blocked-pending |"
             echo "| Linux package license/NOTICE transition required commit | independent-manual-confirmation-commit |"
@@ -2664,6 +2837,30 @@ jobs:
           echo "linux-package-release-ci-gate-activation-package-linux=not-defined"
           echo "linux-package-release-ci-gate-activation-artifacts=blocked"
           echo "linux-package-release-ci-gate-activation-next-action=ci-api-read-implementation-before-package-linux"
+          echo "release-ci-gate-execution-contract=present"
+          echo "release-ci-gate-execution-source=release-ci-gate"
+          echo "release-ci-gate-execution-status=blocked-placeholder"
+          echo "release-ci-gate-execution-current-mode=contract-only-no-api-read"
+          echo "release-ci-gate-execution-required-job=release-ci-gate"
+          echo "release-ci-gate-execution-job-status=placeholder"
+          echo "release-ci-gate-execution-required-permission=actions-read"
+          echo "release-ci-gate-execution-permission-status=not-enabled"
+          echo "release-ci-gate-execution-api-source=github-actions-runs-api"
+          echo "release-ci-gate-execution-api-status=not-called"
+          echo "release-ci-gate-execution-query-workflow=CI"
+          echo "release-ci-gate-execution-query-workflow-file=.github/workflows/ci.yml"
+          echo "release-ci-gate-execution-query-branch=main"
+          echo "release-ci-gate-execution-query-head-sha=same-release-sha"
+          echo "release-ci-gate-execution-query-status=completed"
+          echo "release-ci-gate-execution-required-conclusion=success"
+          echo "release-ci-gate-execution-allowed-events=push,workflow_dispatch"
+          echo "release-ci-gate-execution-required-fields=ci_workflow_name,ci_workflow_file,ci_run_id,ci_run_attempt,ci_run_url,ci_run_status,ci_run_conclusion,ci_head_sha,ci_head_branch,ci_event,ci_repository,ci_checked_at"
+          echo "release-ci-gate-execution-ci-summary=required-success"
+          echo "release-ci-gate-execution-manual-input=blocked"
+          echo "release-ci-gate-execution-package-linux=not-defined"
+          echo "release-ci-gate-execution-workflow-artifact=blocked"
+          echo "release-ci-gate-execution-release-asset=blocked"
+          echo "release-ci-gate-execution-next-action=ci-api-read-implementation-before-package-linux"
           echo "linux-package-artifact-job-preflight-contract=present"
           echo "linux-package-artifact-job-preflight-source=linux-artifact-readiness"
           echo "linux-package-artifact-job-preflight-status=blocked-placeholder"
@@ -3025,7 +3222,7 @@ jobs:
           echo "linux-package-publish-eligibility-execution-release-creation=blocked"
           echo "linux-package-publish-eligibility-execution-publish-job=publish-github-release"
           echo "linux-package-publish-eligibility-execution-publish-job-status=not-defined"
-          echo "linux-package-publish-eligibility-execution-next-action=release-ci-gate-execution-after-publish-eligibility-contract"
+          echo "linux-package-publish-eligibility-execution-next-action=release-ci-gate-api-implementation-after-execution-contract"
           echo "linux-package-license-notice-transition-contract=present"
           echo "linux-package-license-notice-transition-source=docs/manual-intervention.md"
           echo "linux-package-license-notice-transition-status=blocked-pending"
