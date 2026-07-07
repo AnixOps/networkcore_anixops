@@ -1150,6 +1150,13 @@ jobs:
           RELEASE_REF_NAME: ${{ github.ref_name }}
           RELEASE_SHA: ${{ github.sha }}
           RELEASE_ACTOR: ${{ github.actor }}
+          RELEASE_POLICY_RESULT: ${{ needs.release-policy.result }}
+          RELEASE_CI_GATE_RESULT: ${{ needs.release-ci-gate.result }}
+          RELEASE_ARTIFACT_CONTRACT_RESULT: ${{ needs.release-artifact-contract.result }}
+          RELEASE_SIGNING_CONTRACT_RESULT: ${{ needs.release-signing-contract.result }}
+          RELEASE_ROLLBACK_CONTRACT_RESULT: ${{ needs.release-rollback-contract.result }}
+          LINUX_ARTIFACT_READINESS_RESULT: ${{ needs.linux-artifact-readiness.result }}
+          RELEASE_PLACEHOLDER_RESULT: ${{ needs.release-placeholder.result }}
         run: |
           set -euo pipefail
           {
@@ -1166,8 +1173,8 @@ jobs:
             echo
             echo "| Item | Status |"
             echo "| --- | --- |"
-            echo "| Release policy | ${{ needs.release-policy.result }} |"
-            echo "| Release CI gate | ${{ needs.release-ci-gate.result }} |"
+            echo "| Release policy | ${RELEASE_POLICY_RESULT} |"
+            echo "| Release CI gate | ${RELEASE_CI_GATE_RESULT} |"
             echo "| Release CI source contract | checked in release-ci-gate |"
             echo "| Release CI required workflow | CI |"
             echo "| Release CI required fields | ci_workflow_name, ci_workflow_file, ci_run_id, ci_run_attempt, ci_run_url, ci_run_status, ci_run_conclusion, ci_head_sha, ci_head_branch, ci_event, ci_repository, ci_checked_at |"
@@ -1182,10 +1189,10 @@ jobs:
             echo "| Linux package release CI gate activation package-linux | not-defined |"
             echo "| Linux package release CI gate activation artifacts | blocked |"
             echo "| Linux package release CI gate activation next action | ci-api-read-implementation-before-package-linux |"
-            echo "| Release artifact contract | ${{ needs.release-artifact-contract.result }} |"
-            echo "| Release signing contract | ${{ needs.release-signing-contract.result }} |"
-            echo "| Release rollback contract | ${{ needs.release-rollback-contract.result }} |"
-            echo "| Linux artifact readiness | ${{ needs.linux-artifact-readiness.result }} |"
+            echo "| Release artifact contract | ${RELEASE_ARTIFACT_CONTRACT_RESULT} |"
+            echo "| Release signing contract | ${RELEASE_SIGNING_CONTRACT_RESULT} |"
+            echo "| Release rollback contract | ${RELEASE_ROLLBACK_CONTRACT_RESULT} |"
+            echo "| Linux artifact readiness | ${LINUX_ARTIFACT_READINESS_RESULT} |"
             echo "| Linux foreground stop/release contract | checked in linux-artifact-readiness |"
             echo "| Linux artifact manifest contract | checked in linux-artifact-readiness |"
             echo "| Linux artifact manifest output contract | summarized in release-placeholder |"
@@ -1267,7 +1274,7 @@ jobs:
             echo "| Linux package license/NOTICE transition next action | manual-license-notice-confirmation |"
             echo "| Linux artifact license/NOTICE contract | checked in linux-artifact-readiness |"
             echo "| Linux artifact license/NOTICE status | pending in docs/manual-intervention.md |"
-            echo "| Release placeholder | ${{ needs.release-placeholder.result }} |"
+            echo "| Release placeholder | ${RELEASE_PLACEHOLDER_RESULT} |"
             echo "| Release artifacts | not defined |"
             echo "| Artifact checksum | sha256 required before upload or publish |"
             echo "| Artifact signing/attestation | required before platform artifact publish |"
@@ -1275,14 +1282,33 @@ jobs:
             echo "| Linux artifact upload | blocked until package-linux, checksum, signing/attestation, rollback, and license/NOTICE gates are complete |"
             echo "| Artifact gate | readiness only; no package or release asset is produced |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Emit release state fields
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          RELEASE_EVENT: ${{ github.event_name }}
+          RELEASE_REF: ${{ github.ref }}
+          RELEASE_REF_NAME: ${{ github.ref_name }}
+          RELEASE_SHA: ${{ github.sha }}
+          RELEASE_ACTOR: ${{ github.actor }}
+          RELEASE_POLICY_RESULT: ${{ needs.release-policy.result }}
+          RELEASE_CI_GATE_RESULT: ${{ needs.release-ci-gate.result }}
+          RELEASE_ARTIFACT_CONTRACT_RESULT: ${{ needs.release-artifact-contract.result }}
+          RELEASE_SIGNING_CONTRACT_RESULT: ${{ needs.release-signing-contract.result }}
+          RELEASE_ROLLBACK_CONTRACT_RESULT: ${{ needs.release-rollback-contract.result }}
+          LINUX_ARTIFACT_READINESS_RESULT: ${{ needs.linux-artifact-readiness.result }}
+          RELEASE_PLACEHOLDER_RESULT: ${{ needs.release-placeholder.result }}
+        run: |
+          set -euo pipefail
           echo "release-version=${RELEASE_VERSION}"
           echo "release-event=${RELEASE_EVENT}"
           echo "release-ref=${RELEASE_REF}"
           echo "release-ref-name=${RELEASE_REF_NAME}"
           echo "release-sha=${RELEASE_SHA}"
           echo "release-actor=${RELEASE_ACTOR}"
-          echo "release-policy=${{ needs.release-policy.result }}"
-          echo "release-ci-gate=${{ needs.release-ci-gate.result }}"
+          echo "release-policy=${RELEASE_POLICY_RESULT}"
+          echo "release-ci-gate=${RELEASE_CI_GATE_RESULT}"
           echo "release-ci-success-source-contract=present"
           echo "release-ci-source-contract=docs/architecture/release-ci-success-source-contract.md"
           echo "release-ci-required-workflow=CI"
@@ -1306,10 +1332,10 @@ jobs:
           echo "linux-package-release-ci-gate-activation-package-linux=not-defined"
           echo "linux-package-release-ci-gate-activation-artifacts=blocked"
           echo "linux-package-release-ci-gate-activation-next-action=ci-api-read-implementation-before-package-linux"
-          echo "release-artifact-contract=${{ needs.release-artifact-contract.result }}"
-          echo "release-signing-contract=${{ needs.release-signing-contract.result }}"
-          echo "release-rollback-contract=${{ needs.release-rollback-contract.result }}"
-          echo "linux-artifact-readiness=${{ needs.linux-artifact-readiness.result }}"
+          echo "release-artifact-contract=${RELEASE_ARTIFACT_CONTRACT_RESULT}"
+          echo "release-signing-contract=${RELEASE_SIGNING_CONTRACT_RESULT}"
+          echo "release-rollback-contract=${RELEASE_ROLLBACK_CONTRACT_RESULT}"
+          echo "linux-artifact-readiness=${LINUX_ARTIFACT_READINESS_RESULT}"
           echo "linux-artifact-foreground-stop-release-contract=checked"
           echo "linux-artifact-manifest-contract=present"
           echo "linux-artifact-manifest-output-contract=placeholder"
@@ -1437,7 +1463,7 @@ jobs:
           echo "linux-artifact-license-notice-contract=present"
           echo "linux-artifact-license-notice-source=docs/manual-intervention.md"
           echo "linux-artifact-license-notice-status=pending"
-          echo "release-placeholder=${{ needs.release-placeholder.result }}"
+          echo "release-placeholder=${RELEASE_PLACEHOLDER_RESULT}"
           echo "release-artifacts=not-defined"
           echo "linux-artifact-release-assets=blocked"
           echo "linux-artifact-manifest-upload=blocked"
@@ -1445,10 +1471,23 @@ jobs:
           echo "release-signing-contract-state=placeholder"
           echo "release-rollback-contract-state=placeholder"
           echo "artifact-gate=readiness-only"
-          test "${{ needs.release-policy.result }}" = "success"
-          test "${{ needs.release-ci-gate.result }}" = "success"
-          test "${{ needs.release-artifact-contract.result }}" = "success"
-          test "${{ needs.release-signing-contract.result }}" = "success"
-          test "${{ needs.release-rollback-contract.result }}" = "success"
-          test "${{ needs.linux-artifact-readiness.result }}" = "success"
-          test "${{ needs.release-placeholder.result }}" = "success"
+
+      - name: Validate release dependencies
+        shell: bash
+        env:
+          RELEASE_POLICY_RESULT: ${{ needs.release-policy.result }}
+          RELEASE_CI_GATE_RESULT: ${{ needs.release-ci-gate.result }}
+          RELEASE_ARTIFACT_CONTRACT_RESULT: ${{ needs.release-artifact-contract.result }}
+          RELEASE_SIGNING_CONTRACT_RESULT: ${{ needs.release-signing-contract.result }}
+          RELEASE_ROLLBACK_CONTRACT_RESULT: ${{ needs.release-rollback-contract.result }}
+          LINUX_ARTIFACT_READINESS_RESULT: ${{ needs.linux-artifact-readiness.result }}
+          RELEASE_PLACEHOLDER_RESULT: ${{ needs.release-placeholder.result }}
+        run: |
+          set -euo pipefail
+          test "${RELEASE_POLICY_RESULT}" = "success"
+          test "${RELEASE_CI_GATE_RESULT}" = "success"
+          test "${RELEASE_ARTIFACT_CONTRACT_RESULT}" = "success"
+          test "${RELEASE_SIGNING_CONTRACT_RESULT}" = "success"
+          test "${RELEASE_ROLLBACK_CONTRACT_RESULT}" = "success"
+          test "${LINUX_ARTIFACT_READINESS_RESULT}" = "success"
+          test "${RELEASE_PLACEHOLDER_RESULT}" = "success"
