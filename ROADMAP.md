@@ -50,6 +50,7 @@
 - [control-domain](crates/control-domain)
 - [control-runtime](crates/control-runtime)
 - [engine-native](crates/engine-native)
+- [mitm-anixops-sys](crates/mitm-anixops-sys)
 - [platform-linux](crates/platform-linux)
 
 当前规格：

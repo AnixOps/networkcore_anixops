@@ -76,6 +76,8 @@
 
 `mitm_anixops` 接入已先以 adapter 设计形式记录：该库可作为 MITM 策略/plugin 兼容 C ABI core，但完整全平台 MITM 仍需要 NetworkCore 后续补齐领域 mutation model、HTTP/TLS 数据面和各平台证书/运行时 adapter。
 
+当前首个源码接入增量已新增 `mitm-anixops-sys` crate，通过 Git submodule 固定 `mitm_anixops` 并在 Rust CI 中编译 C core，测试 `anixops_version()` 以证明 NetworkCore 已链接该 C ABI。
+
 ## 源码布局
 
 - [apps/linux-cli](apps/linux-cli)：`networkcore-linux` CLI 入口的首批命令解析、配置读取边界、只读平台探测接线、`prepare-config` 运行层接线、`start` 原生 engine 前台接线、前台 lifecycle host/interruption source、Unix OS signal source、interruption 后 runtime stop/release 源码合同和诊断输出。
@@ -83,4 +85,5 @@
 - [crates/control-domain](crates/control-domain)：统一控制内核的首批领域类型与端口 trait。
 - [crates/control-runtime](crates/control-runtime)：组合领域端口的首批纯运行层编排用例。
 - [crates/engine-native](crates/engine-native)：原生代理执行内核的首批 adapter 合同、listener/node/route 图校验、native runtime handle 源码合同、loopback TCP listener 绑定/释放、runtime assembly plan、loopback TCP accept loop 受控关闭合同、service-owned runtime state 与 foreground lifecycle handoff 源码合同、accepted TCP connection 协议前置关闭诊断合同、SOCKS5 greeting 版本/认证方法读取诊断合同、SOCKS5 no-auth 方法选择/unsupported auth 方法拒绝诊断合同、SOCKS5 认证方法响应写入诊断合同、SOCKS5 命令头读取/unsupported command 拒绝诊断合同、SOCKS5 CONNECT 目标地址读取、route/outbound 行为选择、SOCKS outbound CONNECT request frame 生成、SOCKS outbound TCP connection plan、SOCKS outbound TCP connection attempt、SOCKS outbound CONNECT request write、SOCKS outbound CONNECT response read、SOCKS outbound CONNECT response decision、SOCKS outbound CONNECT relay readiness、SOCKS outbound CONNECT data relay plan、SOCKS outbound CONNECT data relay execution、SOCKS outbound CONNECT client success response readiness、SOCKS outbound CONNECT client success response write plan、SOCKS outbound CONNECT client success response write、accept loop client success response 与有限 data relay 接线、未接入拒绝与 CONNECT failure response 写入诊断合同、配置拒绝和生命周期诊断。
+- [crates/mitm-anixops-sys](crates/mitm-anixops-sys)：`mitm_anixops` C ABI 的首个 unsafe Rust FFI crate，当前编译 vendored C core 并验证 pinned version。
 - [crates/platform-linux](crates/platform-linux)：Linux 平台能力 adapter 的首批只读诊断映射、测试替身和 host probe 服务。

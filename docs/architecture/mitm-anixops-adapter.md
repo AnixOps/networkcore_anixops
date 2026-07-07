@@ -87,6 +87,8 @@ crates/mitm-policy
 
 `Engine` wrapper 不得实现 `Sync`。`mitm_anixops` engine 内部不加锁，运行时共享必须由 adapter 通过 `Mutex`、per-worker engine 或 immutable snapshot 控制。
 
+当前首个源码增量已新增 `crates/mitm-anixops-sys`，用 Git submodule 固定 `third_party/mitm_anixops` 并通过 `anixops_version()` FFI 测试证明 Rust workspace 已链接 C core。后续仍需新增 `mitm-policy` 和领域 adapter，才能进入 `MitmPluginService`。
+
 ## Domain Model 变更门槛
 
 在真实 rewrite 接入前，`control-domain` 需要新增 mutation 输出模型。
@@ -195,15 +197,11 @@ iOS：
 
 ## CI/CD 验证要求
 
-源码接入后，必须由 GitHub Actions 证明：
+源码接入必须按阶段由 GitHub Actions 证明：
 
-- Rust workspace 包含 `mitm-anixops-sys` 和 `mitm-policy`。
-- Linux runner 能编译 C static library 并跑 wrapper tests。
-- macOS runner 能编译 C static library 并跑 wrapper tests。
-- Windows runner 能编译 C static library 并跑 wrapper tests。
-- ABI allowlist 与 `mitm_anixops/ci/abi_exports.txt` 一致。
-- wrapper tests 覆盖 config diagnostic、MITM decision、URL rewrite、header rewrite、body rewrite、script dispatch。
-- CI summary 显式输出 `mitm_anixops` adapter 检测状态。
+- Phase 1A：Rust workspace 包含 `mitm-anixops-sys`，Linux/macOS/Windows runner 能编译 vendored C core，并用 version FFI test 调用 `anixops_version()`。
+- Phase 1B：新增 `mitm-policy`，用 safe wrapper tests 覆盖 config diagnostic、MITM decision、URL rewrite、header rewrite、body rewrite、script dispatch。
+- Phase 1C：ABI allowlist 与 `mitm_anixops/ci/abi_exports.txt` 一致，CI summary 显式输出 `mitm_anixops` adapter 检测状态。
 
 iOS 只能在 iOS platform crate 和 Network Extension 设计出现后，通过 macOS runner 增加 Swift/Xcode 或 cargo check 验证。
 

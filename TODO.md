@@ -8,6 +8,7 @@
 
 ## 已完成
 
+- [x] 新增 `mitm-anixops-sys` 首个源码接入增量，通过 Git submodule 固定 `mitm_anixops`，在 Rust workspace 中编译 C core，并用一个 version FFI 测试证明 NetworkCore 已链接 `anixops_version()`。
 - [x] 补充 `mitm_anixops` adapter 设计，明确该 C ABI core 在 NetworkCore 中只能先作为 MITM 策略/plugin 兼容后端接入，真实全平台 MITM 仍依赖后续领域 mutation model、HTTP/TLS 数据面、证书/信任 platform adapter 和 GitHub Actions 多平台验证。
 - [x] 完成 release CI gate execution validation contract；新增 release CI gate execution validation contract，固定未来 release workflow 必须自动读取同 repository、同 commit、`main` 成功 CI run 的 API 字段、`actions: read` 权限、CI summary 成功校验、manual input blocked 和失败边界，并让 `release-ci-gate`、`linux-artifact-readiness`、release placeholder 与 release summary 输出 execution blocked 状态，继续不定义 `package-linux` 或发布 release asset。
 - [x] 完成 Linux package publish eligibility execution validation contract；新增 publish eligibility execution validation contract，固定未来 release notes/rollback execution 后必须聚合全部 required gates、校验 eligible 字段、拒绝 missing/unknown/blocked gates、阻断 publish without eligible，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 publish eligibility execution blocked 状态，继续不定义 `publish-eligibility-gate`、`publish-github-release` 或上传 release asset。
