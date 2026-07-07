@@ -167,6 +167,13 @@ jobs:
           grep -q "package_publish_eligibility_execution_eligible_status_field" docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
           grep -q "Future Publish Eligibility Execution" docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
           grep -q "release-ci-success-source-contract=present" .github/workflows/release.yml
+          stale_actions_read_rejection_prefix="actions: read must stay disabled until release CI gate activation"
+          stale_actions_read_rejection_suffix="is implemented."
+          if grep -q "${stale_actions_read_rejection_prefix} ${stale_actions_read_rejection_suffix}" .github/workflows/release.yml; then
+            echo "::error::release CI gate readiness must not reject actions: read after API activation."
+            exit 1
+          fi
+          grep -Eq '^[[:space:]]+actions:[[:space:]]+read$' .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-contract=present"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-status=active"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-required-permission=actions-read"$' .github/workflows/release.yml)" -ge 4

@@ -631,8 +631,8 @@ jobs:
           grep -q '^name = "networkcore-linux"$' apps/linux-cli/Cargo.toml
           grep -q '^\[\[bin\]\]$' apps/linux-cli/Cargo.toml
           grep -q '^path = "src/main.rs"$' apps/linux-cli/Cargo.toml
-          if grep -Eq '^[[:space:]]+actions:[[:space:]]+read$' .github/workflows/release.yml; then
-            echo "::error::actions: read must stay disabled until release CI gate activation is implemented."
+          if ! grep -Eq '^[[:space:]]+actions:[[:space:]]+read$' .github/workflows/release.yml; then
+            echo "::error::release-ci-gate API read requires actions: read."
             exit 1
           fi
           grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
