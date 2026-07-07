@@ -12,10 +12,10 @@ TestFlight upload、App Store upload、App Review submission 或 iOS release ass
 [iOS TestFlight App Store Connect Upload Workflow Source Contract](ios-testflight-app-store-connect-upload-workflow-source-contract.md) 和
 [iOS Upload Workflow Activation Validation Contract](ios-upload-workflow-activation-validation-contract.md)。
 
-当前状态：contract-only-no-ios-source-tree。仓库仍不包含 `apps/ios` Swift source tree、`Package.swift`、
-Xcode project、workspace、Network Extension target、`PrivacyInfo.xcprivacy`、`.entitlements`、ExportOptions.plist、
-`.ipa`、`.xcarchive`、`.xcresult`、dSYM bundle、Provisioning Profile、signing config、TestFlight upload、
-App Store upload、App Review submission 或 iOS release asset。
+当前状态：readme-placeholder-no-swift-source。仓库只允许 `apps/ios/README.md` 作为 source tree governance
+placeholder；仍不包含 `Package.swift`、Swift source、Xcode project、workspace、Network Extension target、
+`PrivacyInfo.xcprivacy`、`.entitlements`、ExportOptions.plist、`.ipa`、`.xcarchive`、`.xcresult`、dSYM bundle、
+Provisioning Profile、signing config、TestFlight upload、App Store upload、App Review submission 或 iOS release asset。
 
 ## Goals
 
@@ -29,7 +29,7 @@ App Store upload、App Review submission 或 iOS release asset。
 
 ## Non-Goals
 
-- 不新增 `apps/ios` 目录、Swift source、`Package.swift`、`.xcodeproj`、`.xcworkspace`、Network Extension target、
+- 不新增 Swift source、`Package.swift`、`.xcodeproj`、`.xcworkspace`、Network Extension target、
   `PrivacyInfo.xcprivacy`、`.entitlements` 或 Apple project 文件。
 - 不执行 `swift build`、`swift test`、`xcodebuild`、archive/export、signing、TestFlight upload、App Store upload、
   App Review submission 或 release asset upload。
@@ -61,7 +61,7 @@ apps/ios/
 
 规则：
 
-- `apps/ios/README.md` 可以作为后续独立 placeholder 增量加入，但不能声称 Swift/Xcode source tree 已启用。
+- `apps/ios/README.md` 是当前唯一允许的 source tree governance placeholder，不能声称 Swift/Xcode source tree 已启用。
 - `Package.swift` 出现时，CI 必须在 GitHub Actions 上启用 Swift package source scan，并只在 Actions 中运行
   `swift build`/`swift test`。
 - `.xcodeproj` 或 `.xcworkspace` 出现时，必须引用同一 `apps/ios` source tree，不能成为唯一 source of truth。
@@ -72,7 +72,7 @@ apps/ios/
 
 | Gate | Required before enablement | Current status |
 | --- | --- | --- |
-| Source root | `apps/ios` layout reviewed and repository-relative | blocked |
+| Source root | `apps/ios` layout reviewed and repository-relative | readme-placeholder |
 | Swift package | `Package.swift` source ownership, target list and no secret settings | blocked |
 | Xcode project | project/workspace references `apps/ios` only and no signing secrets | blocked |
 | Network Extension target | `NetworkCorePacketTunnel` target membership and `PacketTunnelProvider.swift` source check | blocked |
@@ -81,6 +81,19 @@ apps/ios/
 | macOS source scan | `macos-26` static source scan for Swift/Xcode/Privacy/entitlement files | blocked-before-source |
 | Upload enabled marker | `ios-upload-workflow-status=enabled` only after all source and manual gates pass | blocked |
 | Release/upload | no archive/export/upload/submission/release asset until all gates are complete | blocked |
+
+## README Governance Placeholder
+
+`apps/ios/README.md` is allowed before Swift/Xcode activation only if it:
+
+- States `readme-placeholder-no-swift-source`.
+- Defines future Swift package ownership under `apps/ios`.
+- Defines the source directory guard for future `Package.swift`, `Sources` and `Tests`.
+- States no `Package.swift`, no Swift source and no Xcode project are currently enabled.
+- Names the `macos-26` source scan hook for future Swift/Xcode validation.
+- States the upload workflow enabled marker remains blocked.
+
+This placeholder is not a source tree activation. It must not introduce source, project, signing, archive/export or upload material.
 
 ## GitHub Actions `macos-26` Source Scan
 
@@ -105,8 +118,8 @@ Actions on `macos-26` or Apple official platforms.
 `docs/manual-intervention.md` must keep `ios-upload-workflow-status=pending` until all of these are true in independent commits:
 
 1. This source tree activation preflight contract passes CI static governance.
-2. `apps/ios` source tree exists with reviewed README and source ownership.
-3. `Package.swift` passes GitHub Actions Swift validation.
+2. `apps/ios/README.md` governance placeholder exists with source ownership and source directory guard.
+3. `apps/ios` source tree exists and `Package.swift` passes GitHub Actions Swift validation.
 4. Xcode project/workspace and `NetworkCorePacketTunnel` target pass `macos-26` source scan.
 5. `PrivacyInfo.xcprivacy` passes Privacy Manifest source contract and App Privacy answer source checks.
 6. Entitlement/provisioning source passes redaction checks and GitHub Secrets/manual intervention are configured.
@@ -123,10 +136,11 @@ If any precondition is missing, `ios-upload-workflow-status` must remain `pendin
 ios-source-tree-preflight-contract=present
 ios-source-tree-preflight-source=ios-upload-readiness
 ios-source-tree-preflight-status=blocked-placeholder
-ios-source-tree-preflight-current-mode=contract-only-no-ios-source-tree
+ios-source-tree-preflight-current-mode=readme-placeholder-no-swift-source
 ios-source-tree-preflight-contract-path=docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
 ios-source-tree-preflight-root=apps/ios
-ios-source-tree-preflight-root-status=not-present
+ios-source-tree-preflight-root-status=readme-placeholder
+ios-source-tree-preflight-readme-placeholder=present
 ios-source-tree-preflight-package-swift=blocked
 ios-source-tree-preflight-xcode-project=blocked
 ios-source-tree-preflight-network-extension-target=blocked
@@ -136,12 +150,13 @@ ios-source-tree-preflight-macos-runner=macos-26
 ios-source-tree-preflight-source-scan=blocked-before-source
 ios-source-tree-preflight-upload-enabled-marker=blocked
 ios-source-tree-preflight-release-upload=blocked
-ios-source-tree-preflight-next-action=apps-ios-source-tree-readme-before-swift-files
+ios-source-tree-preflight-next-action=package-swift-source-ownership-before-package-swift
 ```
 
 ## Failure Modes
 
 - Contract missing: fail repository policy and release readiness before summary.
+- `apps/ios/README.md` missing or claiming Swift/Xcode enablement: fail repository policy and release readiness.
 - `Package.swift` appears outside `apps/ios`: fail source scan.
 - Swift source appears outside `apps/ios/Sources` or `apps/ios/Tests`: fail source scan.
 - Xcode project declares signing identity, Team ID, profile UUID or account identifier: fail source scan.
@@ -157,7 +172,10 @@ Current `.github/workflows/ci.yml` must check:
 - This file exists and contains `iOS Swift Xcode Source Tree Activation Preflight Contract`.
 - Required anchors are present: `apps/ios`, `Package.swift`, `Xcode project`, `NetworkCorePacketTunnel`,
   `PrivacyInfo.xcprivacy`, `entitlement/provisioning`, `macos-26 source scan`, `upload workflow enabled marker`,
-  `release/upload blocked`, `ios-source-tree-preflight`, `blocked-placeholder` and no iOS release asset.
+  `release/upload blocked`, `readme-placeholder-no-swift-source`, `ios-source-tree-preflight`, `blocked-placeholder`
+  and no iOS release asset.
+- `apps/ios/README.md` exists and contains source ownership, source directory guard, no `Package.swift`, no Swift source,
+  no Xcode project, `macos-26` source scan hook and upload workflow enabled marker blocked anchors.
 - `.github/workflows/release.yml` emits the required placeholder fields in `ios-upload-readiness`, `release-placeholder`
   and `release-summary`.
 - The repository still has no `Package.swift`, Swift source, Xcode project/workspace, `PrivacyInfo.xcprivacy`,
@@ -169,7 +187,8 @@ Current `.github/workflows/ci.yml` must check:
 - README, ROADMAP, TODO, CHANGELOG, CI/CD policy, release strategy and upstream iOS contracts link this contract.
 - CI static governance checks this contract, release workflow fields and forbidden iOS source/artifact material.
 - Release workflow placeholder and summary output source tree preflight blocked fields.
-- No `apps/ios` Swift source tree, `Package.swift`, Xcode project/workspace, Network Extension target,
+- `apps/ios/README.md` exists as the only source tree governance placeholder.
+- No `apps/ios` Swift source tree, `Package.swift`, Swift source, Xcode project/workspace, Network Extension target,
   `PrivacyInfo.xcprivacy`, `.entitlements`, ExportOptions.plist, `.ipa`, `.xcarchive`, `.xcresult`, dSYM bundle,
   signing config, TestFlight upload, App Store upload, App Review submission or iOS release asset is added.
 - Linux artifact remains blocked on license/NOTICE confirmed marker; `package-linux` and release asset remain undefined/blocked.

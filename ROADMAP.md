@@ -64,6 +64,7 @@
 - [control-runtime](crates/control-runtime)
 - [engine-native](crates/engine-native)
 - [mitm-anixops-sys](crates/mitm-anixops-sys)
+- [apps/ios](apps/ios)（source tree governance placeholder，仅 README，不含 Swift/Xcode）
 - [platform-ios](crates/platform-ios)
 - [platform-linux](crates/platform-linux)
 

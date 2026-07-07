@@ -16,9 +16,10 @@ GitHub Actions 验证入口的 source contract。它承接
 [iOS Swift Xcode Source Tree Activation Preflight Contract](ios-swift-xcode-source-tree-activation-preflight-contract.md) 和
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
 
-当前状态：contract-only。仓库仍不包含 `apps/ios` Swift source tree、`Package.swift`、Xcode project、workspace、Swift source、
-Network Extension target、entitlement、Provisioning Profile、签名配置、TestFlight/App Store 上传 job
-或 iOS release asset。本地仍不得运行 `swift build`、`swift test`、`xcodebuild`、签名、打包或发布验证。
+当前状态：contract-only。仓库只允许 `apps/ios/README.md` 作为 source tree governance placeholder，仍不包含真实
+`apps/ios` Swift source tree、`Package.swift`、Xcode project、workspace、Swift source、Network Extension target、
+entitlement、Provisioning Profile、签名配置、TestFlight/App Store 上传 job 或 iOS release asset。本地仍不得运行
+`swift build`、`swift test`、`xcodebuild`、签名、打包或发布验证。
 
 ## Goals
 
@@ -161,8 +162,8 @@ GitHub Environments 或 Apple 官方平台。
   `swift build`、`swift test`、`xcodebuild`、signing/provisioning secret 和 no iOS release asset。
 - 仓库仍不包含实际 Swift package、Xcode project、workspace、entitlement、Provisioning Profile、signing 配置、
   TestFlight/App Store upload job 或 iOS release asset。
-- Source tree activation preflight must remain blocked until `apps/ios`, `Package.swift`, Xcode project, Network Extension target,
-  `PrivacyInfo.xcprivacy`, entitlement/provisioning and upload enabled marker gates are complete.
+- Source tree activation preflight must remain blocked after the README placeholder until `Package.swift`, Xcode project,
+  Network Extension target, `PrivacyInfo.xcprivacy`, entitlement/provisioning and upload enabled marker gates are complete.
 
 后续出现 `Package.swift` 时，CI 必须只在 GitHub Actions 中触发 Swift job：
 
@@ -181,8 +182,9 @@ Secrets/Apple 官方平台支持，不能在仓库内保存凭据。
 - README、ROADMAP、TODO、CHANGELOG、CI/CD policy 和 release strategy 同步记录本文件。
 - `.github/workflows/ci.yml` 检查本文件存在和关键锚点。
 - iOS Swift/Xcode source tree activation preflight contract 已链接本文件，并继续输出 blocked placeholder 状态。
-- 不新增 `apps/ios` Swift source tree、`Package.swift`、`.xcodeproj`、`.xcworkspace`、Swift source、Network Extension target、
-  `.entitlements`、Provisioning Profile、signing config、TestFlight/App Store upload job 或 iOS release asset。
+- 除 `apps/ios/README.md` governance placeholder 外，不新增真实 `apps/ios` Swift source tree、`Package.swift`、
+  `.xcodeproj`、`.xcworkspace`、Swift source、Network Extension target、`.entitlements`、Provisioning Profile、
+  signing config、TestFlight/App Store upload job 或 iOS release asset。
 - Linux artifact 继续等待 license/NOTICE confirmed marker；期间不得定义 `package-linux` 或发布 release asset。
 
 ## Release Boundary

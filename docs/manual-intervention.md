@@ -124,10 +124,12 @@ ios-upload-workflow-confirmed-by=pending
 检查 source contract、输出 source tree preflight、protected environment/manual approval/App Store Connect API secret status/
 archive/export/upload/submission/release asset 的 blocked 状态，不读取 secret、不定义真实 upload job。
 
-iOS Swift/Xcode source tree activation preflight 也保持 blocked：仓库仍没有真实 `apps/ios` Swift source tree、
-`Package.swift`、Xcode project、Network Extension target、`PrivacyInfo.xcprivacy`、entitlement/provisioning source
-或 iOS release asset。`ios-upload-workflow-status` 不得切换为 `enabled`，直到 source tree、manual confirmation、
-protected environment 和 secret setup 都按合同完成并通过 GitHub Actions。
+iOS Swift/Xcode source tree activation preflight 也保持 blocked：仓库只允许 `apps/ios/README.md` 作为 source tree
+governance placeholder，仍没有真实 `apps/ios` Swift source tree、`Package.swift`、Swift source、Xcode project、
+Network Extension target、`PrivacyInfo.xcprivacy`、entitlement/provisioning source 或 iOS release asset。
+`ios-upload-workflow-status` 不得切换为 `enabled`，直到 source tree、manual confirmation、protected environment
+和 secret setup 都按合同完成并通过 GitHub Actions。下一步 source tree gate 是补充 `Package.swift` source
+ownership preflight contract，仍不得新增真实 `Package.swift`。
 
 人工确认和 workflow activation enabled marker 完成前，不得定义 archive/export、TestFlight upload、App Store upload、
 App Review submission 或 iOS release asset。未来从 pending 切换到 enabled 时，必须遵守
