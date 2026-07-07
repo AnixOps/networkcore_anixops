@@ -6,10 +6,12 @@
 
 ### Changed
 
+- Release workflow 现在具备首个 Linux CLI 二进制发布路径：`package-linux` 在 GitHub Actions 中生成 lockfile、执行 locked release build、组装 tarball、sha256、manifest 与 manifest sha256，`attest-linux` 生成 GitHub artifact attestation，`publish-eligibility-gate` 聚合发布门禁，tag 触发的 `publish-github-release` 才会创建 GitHub Release 并上传 Linux assets；当前仍受 `linux-artifact-license-notice-status=pending` 阻断，确认前不会构建或上传二进制。
+- CI governance 改为检查真实 Linux release job、artifact/attestation/publish gates、iOS upload 阻断、license marker 和本地产物禁止提交，不再要求 `package-linux` 永久保持未定义。
 - ROADMAP、README 和 TODO 现在将 P2 Core Kernel Skeleton 标记为 completed，并把当前阶段推进到 P3 Runtime Capabilities；P4 iOS `Package.swift` manifest-only activation validation contract 已作为 alpha 发布前停止边界补齐。
-- Release policy 现在允许 `vMAJOR.MINOR.PATCH-alpha.N` 作为手动 placeholder release 版本；本轮 alpha 启动仍不生成 `package-linux`、iOS upload job、GitHub Release 或 release asset。
+- Release policy 现在允许 `vMAJOR.MINOR.PATCH-alpha.N` 作为 release 版本；手动 `workflow_dispatch` 只做验证，真实 GitHub Release asset 上传只允许 tag 触发，iOS upload job 仍保持 blocked。
 - Release placeholder 与 release summary 现在显式输出 alpha Windows 手工 smoke 测试清单、`docs/manual-intervention.md` confirmed marker、`passed` 结果、Windows 11 24H2 x64 环境、未运行本地构建/测试记录和 `not-produced-placeholder` artifact 状态；该输出只记录用户侧 Windows 手工确认，不替代 GitHub Actions Windows 矩阵。
-- `release-ci-gate` 现在在 job 级启用 `actions: read`，通过 GitHub Actions workflow runs API 查询同 repository、同 commit、`main` 分支 completed CI run，并通过 workflow jobs API 校验 `CI summary` job 成功；release summary 输出被选中的 `ci_workflow_name`、`ci_run_id`、`ci_run_url`、`ci_head_sha`、`ci_checked_at` 等字段，activation/execution/API implementation 状态切换为 active，`package-linux`、workflow artifact、attestation、GitHub Release 和 release asset 仍保持未定义或 blocked。
+- `release-ci-gate` 现在在 job 级启用 `actions: read`，通过 GitHub Actions workflow runs API 查询同 repository、同 commit、`main` 分支 completed CI run，并通过 workflow jobs API 校验 `CI summary` job 成功；release summary 输出被选中的 `ci_workflow_name`、`ci_run_id`、`ci_run_url`、`ci_head_sha`、`ci_checked_at` 等字段，activation/execution/API implementation 状态切换为 active，并被当前 Linux CLI artifact 发布路径复用。
 
 ### Added
 

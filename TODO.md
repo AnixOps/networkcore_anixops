@@ -4,7 +4,9 @@
 
 ## 当前
 
-- [ ] ALPHA placeholder 发布启动：release policy 接受 `vMAJOR.MINOR.PATCH-alpha.N`，本轮只允许从 `main` 触发 `workflow_dispatch` placeholder release；继续保持 `package-linux`、真实 `Package.swift`、Swift source、Swift/Xcode project、iOS upload jobs、TestFlight/App Store upload、App Review submission 和 release asset blocked；Windows 手工 smoke 测试由用户执行并记录 pending/confirmed marker，license/NOTICE confirmed marker 与 Apple/manual gates 完成前不得发布真实 artifact。
+- [ ] Linux CLI 二进制进入 `v0.1.0-alpha.2`：release workflow 已具备 `package-linux`、attestation、publish eligibility 和 tag release asset 上传路径；下一步需要人工确认 `LICENSE=Apache-2.0` 且 `NOTICE=not-required`，把 `docs/manual-intervention.md` 的 `linux-artifact-license-notice-status` 从 pending 切到 confirmed，然后只通过 GitHub Actions 发布 Linux CLI artifact。
+
+说明：已完成条目保留当时的阶段状态；当前 release 状态以上方待办为准。
 
 ## 已完成
 

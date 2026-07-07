@@ -24,1100 +24,172 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Verify governance files
+      - name: Verify governance and release contracts
         shell: bash
         run: |
           set -euo pipefail
-          test -f AGENT.md
-          test -f AGENTS.md
-          test -f README.md
-          test -f CONTRIBUTING.md
-          test -f ROADMAP.md
-          test -f TODO.md
-          test -f CHANGELOG.md
-          test -f docs/ci-cd-policy.md
-          test -f docs/manual-intervention.md
-          test -f docs/release-strategy.md
-          test -f docs/alpha-windows-smoke-test.md
-          test -f .github/workflows/release.yml
-          test -f apps/linux-cli/README.md
-          test -f crates/config-core/README.md
-          test -f crates/control-domain/README.md
-          test -f crates/control-runtime/README.md
-          test -f crates/engine-native/README.md
-          test -f crates/mitm-anixops-sys/README.md
-          test -f crates/platform-ios/README.md
-          test -f crates/platform-linux/README.md
-          test -f .gitmodules
-          test -f apps/ios/README.md
-          test -f docs/architecture/control-kernel-domain.md
-          test -f docs/architecture/control-kernel-interfaces.md
-          test -f docs/architecture/proxy-engine-adapter.md
-          test -f docs/architecture/mitm-anixops-adapter.md
-          test -f docs/architecture/control-runtime-orchestration.md
-          test -f docs/architecture/subscription-catalog-runtime-orchestration.md
-          test -f docs/architecture/ios-platform-risk-assessment.md
-          test -f docs/architecture/ios-network-extension-design.md
-          test -f docs/architecture/ios-platform-adapter-source-contract.md
-          test -f docs/architecture/ios-swift-network-extension-bridge-design.md
-          test -f docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          test -f docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          test -f docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          test -f docs/architecture/ios-entitlement-provisioning-source-contract.md
-          test -f docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          test -f docs/architecture/ios-privacy-manifest-source-contract.md
-          test -f docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          test -f docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          test -f docs/architecture/ios-upload-workflow-activation-validation-contract.md
-          test -f docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
-          test -f docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
-          test -f docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          test -f docs/architecture/linux-artifact-pre-release-design.md
-          test -f docs/architecture/linux-platform-adapter.md
-          test -f docs/architecture/linux-cli-entrypoint.md
-          test -f docs/architecture/linux-cli-runtime-wiring.md
-          test -f docs/architecture/native-engine-listener-node-config.md
-          test -f docs/architecture/linux-native-proxy-engine-start.md
-          test -f docs/architecture/linux-cli-artifact-installation-rollback.md
-          test -f docs/architecture/linux-package-artifact-manifest.md
-          test -f docs/architecture/linux-artifact-license-notice-confirmation.md
-          test -f docs/architecture/release-ci-success-source-contract.md
-          test -f docs/architecture/linux-package-runner-toolchain-target-contract.md
-          test -f docs/architecture/linux-package-archive-staging-contract.md
-          test -f docs/architecture/linux-package-checksum-manifest-contract.md
-          test -f docs/architecture/linux-package-publish-upload-boundary-contract.md
-          test -f docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
-          test -f docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
-          test -f docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
-          test -f docs/architecture/linux-package-license-notice-transition-validation-contract.md
-          test -f docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
-          test -f docs/architecture/release-ci-gate-execution-validation-contract.md
-          test -f docs/architecture/release-ci-gate-api-implementation-plan.md
-          test -f docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
-          test -f docs/architecture/linux-package-artifact-build-command-validation-contract.md
-          test -f docs/architecture/linux-package-artifact-staging-file-validation-contract.md
-          test -f docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
-          test -f docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
-          test -f docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
-          test -f docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
-          test -f docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
-          test -f docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
-          test -f docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
-          test -f docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
-          test -f docs/architecture/adr-0001-initial-core-stack.md
+
+          required_files=(
+            AGENT.md
+            AGENTS.md
+            README.md
+            CONTRIBUTING.md
+            ROADMAP.md
+            TODO.md
+            CHANGELOG.md
+            LICENSE
+            Cargo.toml
+            docs/ci-cd-policy.md
+            docs/manual-intervention.md
+            docs/release-strategy.md
+            docs/alpha-windows-smoke-test.md
+            .github/workflows/release.yml
+            apps/linux-cli/Cargo.toml
+            apps/linux-cli/README.md
+            apps/linux-cli/src/main.rs
+            apps/linux-cli/src/lib.rs
+            apps/linux-cli/tests/linux_cli_contracts.rs
+            crates/config-core/README.md
+            crates/control-domain/README.md
+            crates/control-runtime/README.md
+            crates/engine-native/README.md
+            crates/mitm-anixops-sys/README.md
+            crates/platform-ios/README.md
+            crates/platform-linux/README.md
+            apps/ios/README.md
+          )
+
+          for file in "${required_files[@]}"; do
+            test -f "${file}"
+          done
+
+          required_architecture_files=(
+            docs/architecture/adr-0001-initial-core-stack.md
+            docs/architecture/control-kernel-domain.md
+            docs/architecture/control-kernel-interfaces.md
+            docs/architecture/control-runtime-orchestration.md
+            docs/architecture/ios-app-review-manual-confirmation-source-contract.md
+            docs/architecture/ios-app-review-privacy-release-readiness-design.md
+            docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
+            docs/architecture/ios-entitlement-provisioning-source-contract.md
+            docs/architecture/ios-mitm-certificate-lifecycle-design.md
+            docs/architecture/ios-network-extension-design.md
+            docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+            docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+            docs/architecture/ios-platform-adapter-source-contract.md
+            docs/architecture/ios-platform-risk-assessment.md
+            docs/architecture/ios-privacy-manifest-source-contract.md
+            docs/architecture/ios-swift-network-extension-bridge-design.md
+            docs/architecture/ios-swift-xcode-bridge-source-contract.md
+            docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
+            docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+            docs/architecture/ios-upload-workflow-activation-validation-contract.md
+            docs/architecture/linux-artifact-license-notice-confirmation.md
+            docs/architecture/linux-artifact-pre-release-design.md
+            docs/architecture/linux-cli-artifact-installation-rollback.md
+            docs/architecture/linux-cli-entrypoint.md
+            docs/architecture/linux-cli-runtime-wiring.md
+            docs/architecture/linux-native-proxy-engine-start.md
+            docs/architecture/linux-package-archive-staging-contract.md
+            docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
+            docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
+            docs/architecture/linux-package-artifact-build-command-validation-contract.md
+            docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
+            docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
+            docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
+            docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
+            docs/architecture/linux-package-artifact-manifest.md
+            docs/architecture/linux-package-artifact-staging-file-validation-contract.md
+            docs/architecture/linux-package-checksum-manifest-contract.md
+            docs/architecture/linux-package-license-notice-transition-validation-contract.md
+            docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
+            docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
+            docs/architecture/linux-package-publish-upload-boundary-contract.md
+            docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
+            docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
+            docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
+            docs/architecture/linux-package-runner-toolchain-target-contract.md
+            docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
+            docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
+            docs/architecture/linux-platform-adapter.md
+            docs/architecture/mitm-anixops-adapter.md
+            docs/architecture/native-engine-listener-node-config.md
+            docs/architecture/proxy-engine-adapter.md
+            docs/architecture/release-ci-gate-api-implementation-plan.md
+            docs/architecture/release-ci-gate-execution-validation-contract.md
+            docs/architecture/release-ci-success-source-contract.md
+            docs/architecture/subscription-catalog-runtime-orchestration.md
+          )
+
+          for file in "${required_architecture_files[@]}"; do
+            test -f "${file}"
+          done
+
           grep -q "本机只负责代码" AGENT.md
           grep -q "GitHub Actions" docs/ci-cd-policy.md
-          grep -q "Roadmap" ROADMAP.md
-          grep -q "TODO" TODO.md
-          grep -q "Changelog" CHANGELOG.md
-          grep -q "linux-artifact-readiness" .github/workflows/release.yml
-          grep -q "Linux artifact readiness" .github/workflows/release.yml
-          grep -q "ios-upload-readiness" .github/workflows/release.yml
-          grep -q "iOS upload readiness" .github/workflows/release.yml
-          grep -q "iOS Upload Workflow Activation Validation Contract" .github/workflows/release.yml
-          grep -q "iOS Swift Xcode Source Tree Activation Preflight Contract" .github/workflows/release.yml
-          grep -q "iOS Package.swift Manifest-Only Activation Validation Contract" .github/workflows/release.yml
-          test "$(grep -Ec '^          echo "ios-source-tree-preflight-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-source-tree-preflight-source=ios-upload-readiness"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-source-tree-preflight-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-source-tree-preflight-current-mode=readme-placeholder-no-swift-source"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-source-tree-preflight-contract-path=docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-source-tree-preflight-root=apps/ios"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-source-tree-preflight-root-status=readme-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-source-tree-preflight-readme-placeholder=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-source-tree-preflight-package-swift=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-source-tree-preflight-xcode-project=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-source-tree-preflight-network-extension-target=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-source-tree-preflight-privacy-manifest=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-source-tree-preflight-entitlement-provisioning=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-source-tree-preflight-macos-runner=macos-26"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-source-tree-preflight-source-scan=blocked-before-source"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-source-tree-preflight-upload-enabled-marker=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-source-tree-preflight-release-upload=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-source-tree-preflight-next-action=add-package-swift-only-after-ownership-gate"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-ownership-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-ownership-source=ios-upload-readiness"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-ownership-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-ownership-current-mode=readme-placeholder-no-package-swift"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-ownership-contract-path=docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-ownership-package-path=apps/ios/Package.swift"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-ownership-targets=NetworkCoreBridge,NetworkCoreApp,NetworkCorePacketTunnel"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-ownership-test-targets=NetworkCoreBridgeTests"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-ownership-source-directory-guard=apps/ios/Sources,apps/ios/Tests"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-ownership-swift-source=blocked-until-package-gate"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-ownership-macos-runner=macos-26"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-ownership-validation-hook=swift-package-validation-blocked-before-package-swift"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-ownership-xcode-project=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-ownership-upload-enabled-marker=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-ownership-release-upload=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-ownership-next-action=add-package-swift-only-after-ownership-gate"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-source=ios-upload-readiness"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-current-mode=readme-placeholder-no-package-swift"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-contract-path=docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-package-path=apps/ios/Package.swift"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-manifest-status=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-activation-scope=future-independent-manifest-only-commit"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-source-scan=manifest-only-source-scan-blocked-before-package-swift"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-target-list-verification=blocked-before-package-swift"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-targets=NetworkCoreBridge,NetworkCoreApp,NetworkCorePacketTunnel"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-test-targets=NetworkCoreBridgeTests"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-source-directory-guard=apps/ios/Sources,apps/ios/Tests"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-swift-source=blocked-before-source-gate"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-swift-build-test=blocked-until-swift-source-gate"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-macos-runner=macos-26"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-validation-hook=manifest-only-validation-blocked-before-package-swift"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-xcode-project=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-network-extension-target=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-upload-enabled-marker=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-release-upload=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-next-action=add-package-swift-manifest-only-after-contract-gate"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-activation-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-activation-source=ios-upload-readiness"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-activation-current-mode=contract-only-no-ios-upload"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-source-contract=docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-activation-contract-path=docs/architecture/ios-upload-workflow-activation-validation-contract.md"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-manual-source=docs/manual-intervention.md"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-marker-status=pending"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-required-needs=release-policy,release-ci-gate,ios-upload-readiness"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-required-runner=macos-26"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-current-runner=ubuntu-latest-static-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-protected-environment-name=ios-app-store-connect"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-protected-environment=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-manual-approval=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-app-store-connect-api-secret-status=not-read-blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-signing-secret-status=not-read-blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-archive-export=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-testflight-upload=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-app-store-upload=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-app-review-submission=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-build-processing-check=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-release-assets=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-upload-jobs=not-defined"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-upload-workflow-next-action=swift-xcode-source-and-manual-confirmation-before-activation"$' .github/workflows/release.yml)" -ge 3
-          grep -q "Linux Artifact Manifest Output Contract" .github/workflows/release.yml
-          grep -q "linux-artifact-manifest-output-fields" .github/workflows/release.yml
-          grep -q "Linux Artifact License/NOTICE Source Contract" .github/workflows/release.yml
-          grep -q "linux-artifact-license-notice-source=docs/manual-intervention.md" .github/workflows/release.yml
-          grep -q "vMAJOR.MINOR.PATCH-alpha.N" .github/workflows/release.yml
-          grep -q "vMAJOR.MINOR.PATCH-alpha.N" docs/release-strategy.md
-          grep -q "Alpha Windows Smoke Test" docs/alpha-windows-smoke-test.md
-          grep -q "v0.1.0-alpha.1" docs/alpha-windows-smoke-test.md
-          grep -q "not-produced-placeholder" docs/alpha-windows-smoke-test.md
-          grep -q "rerun-ci-release-workflows-after-marker-update" docs/alpha-windows-smoke-test.md
-          grep -q "Alpha Windows Manual Smoke Test" .github/workflows/release.yml
-          grep -q "alpha-windows-manual-smoke-source-contract=docs/alpha-windows-smoke-test.md" .github/workflows/release.yml
-          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-contract=present"$' .github/workflows/release.yml)" -ge 2
-          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-status=confirmed"$' .github/workflows/release.yml)" -ge 2
-          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-result=passed"$' .github/workflows/release.yml)" -ge 2
-          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-artifacts=not-produced-placeholder"$' .github/workflows/release.yml)" -ge 2
-          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-local-build-test=not-run"$' .github/workflows/release.yml)" -ge 2
-          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-windows-ci=github-actions-windows-latest-confirmed-success"$' .github/workflows/release.yml)" -ge 2
-          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-next-action=rerun-ci-release-workflows-after-marker-update"$' .github/workflows/release.yml)" -ge 2
-          grep -q "alpha-release-windows-manual-test-status=confirmed" docs/manual-intervention.md
-          grep -q "alpha-release-windows-manual-test-source-contract=docs/alpha-windows-smoke-test.md" docs/manual-intervention.md
-          grep -q "alpha-release-windows-manual-test-version=v0.1.0-alpha.1" docs/manual-intervention.md
-          grep -q "alpha-release-windows-manual-test-commit=67e86a84388023df77e53537f3f209b5a05c1682" docs/manual-intervention.md
-          grep -q "alpha-release-windows-manual-test-ci-run=28901464670" docs/manual-intervention.md
-          grep -q "alpha-release-windows-manual-test-release-run=28901692913" docs/manual-intervention.md
-          grep -q "alpha-release-windows-manual-test-windows=Windows 11 24H2" docs/manual-intervention.md
-          grep -q "alpha-release-windows-manual-test-arch=x64" docs/manual-intervention.md
-          grep -q "alpha-release-windows-manual-test-ci=github-actions-windows-latest-confirmed-success" docs/manual-intervention.md
-          grep -q "alpha-release-windows-manual-test-artifacts=not-produced-placeholder" docs/manual-intervention.md
-          grep -q "alpha-release-windows-manual-test-local-build-test=not-run" docs/manual-intervention.md
-          grep -q "alpha-release-windows-manual-test-result=passed" docs/manual-intervention.md
-          grep -q "alpha-release-windows-manual-test-confirmed-at=2026-07-07T22:10:50Z" docs/manual-intervention.md
-          grep -q "alpha-release-windows-manual-test-confirmed-by=operator" docs/manual-intervention.md
-          grep -q "alpha-release-windows-manual-test-next-action=rerun-ci-release-workflows-after-marker-update" docs/manual-intervention.md
-          grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
-          grep -q "Linux Package Release CI Gate Activation Validation Contract" docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
-          grep -q "Release CI Gate Execution Validation Contract" docs/architecture/release-ci-gate-execution-validation-contract.md
-          grep -q "release_ci_gate_execution_status" docs/architecture/release-ci-gate-execution-validation-contract.md
-          grep -q "release_ci_gate_execution_required_permission" docs/architecture/release-ci-gate-execution-validation-contract.md
-          grep -q "release_ci_gate_execution_api_status" docs/architecture/release-ci-gate-execution-validation-contract.md
-          grep -q "release_ci_gate_execution_required_fields" docs/architecture/release-ci-gate-execution-validation-contract.md
-          grep -q "Failure Boundary" docs/architecture/release-ci-gate-execution-validation-contract.md
-          grep -q "Release CI Gate API Implementation Plan" docs/architecture/release-ci-gate-api-implementation-plan.md
-          grep -q "release_ci_gate_api_implementation_status" docs/architecture/release-ci-gate-api-implementation-plan.md
-          grep -q "release_ci_gate_api_implementation_runs_endpoint" docs/architecture/release-ci-gate-api-implementation-plan.md
-          grep -q "release_ci_gate_api_implementation_jobs_endpoint" docs/architecture/release-ci-gate-api-implementation-plan.md
-          grep -q "release_ci_gate_api_implementation_query_filters" docs/architecture/release-ci-gate-api-implementation-plan.md
-          grep -q "release_ci_gate_api_implementation_summary_job" docs/architecture/release-ci-gate-api-implementation-plan.md
-          grep -q "Failure And Rollback Boundary" docs/architecture/release-ci-gate-api-implementation-plan.md
-          grep -q "Linux Package Artifact Job Preflight Validation Contract" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
-          grep -q "package_artifact_job_preflight_status" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
-          grep -q "package_artifact_job_preflight_required_needs" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
-          grep -q "package_artifact_job_preflight_failure_mode" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
-          grep -q "Linux Package Artifact Build Command Validation Contract" docs/architecture/linux-package-artifact-build-command-validation-contract.md
-          grep -q "package_artifact_build_command_status" docs/architecture/linux-package-artifact-build-command-validation-contract.md
-          grep -q "package_artifact_build_command_cargo_args" docs/architecture/linux-package-artifact-build-command-validation-contract.md
-          grep -q "package_artifact_build_command_binary_path" docs/architecture/linux-package-artifact-build-command-validation-contract.md
-          grep -q "Linux Package Artifact Staging File Validation Contract" docs/architecture/linux-package-artifact-staging-file-validation-contract.md
-          grep -q "package_artifact_staging_file_status" docs/architecture/linux-package-artifact-staging-file-validation-contract.md
-          grep -q "package_artifact_staging_file_binary_permission" docs/architecture/linux-package-artifact-staging-file-validation-contract.md
-          grep -q "package_artifact_staging_file_archive_creation" docs/architecture/linux-package-artifact-staging-file-validation-contract.md
-          grep -q "Linux Package Artifact Archive Creation Validation Contract" docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
-          grep -q "package_artifact_archive_creation_status" docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
-          grep -q "package_artifact_archive_creation_single_top_level_dir" docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
-          grep -q "package_artifact_archive_creation_archive_path" docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
-          grep -q "Linux Package Artifact Checksum Execution Validation Contract" docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
-          grep -q "package_artifact_checksum_execution_status" docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
-          grep -q "package_artifact_checksum_execution_record_format" docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
-          grep -q "package_artifact_checksum_execution_checksum_path" docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
-          grep -q "Future Checksum Command" docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
-          grep -q "Linux Package Artifact Manifest Generation Validation Contract" docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
-          grep -q "package_artifact_manifest_generation_status" docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
-          grep -q "package_artifact_manifest_generation_required_fields" docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
-          grep -q "package_artifact_manifest_generation_manifest_path" docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
-          grep -q "Future Manifest Generation" docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
-          grep -q "Linux Package Artifact Manifest Checksum Validation Contract" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
-          grep -q "package_artifact_manifest_checksum_status" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
-          grep -q "package_artifact_manifest_checksum_record_format" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
-          grep -q "package_artifact_manifest_checksum_path" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
-          grep -q "Future Manifest Checksum Command" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
-          grep -q "Linux Package Workflow Artifact Bundle Upload Validation Contract" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
-          grep -q "package_workflow_artifact_bundle_upload_status" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
-          grep -q "package_workflow_artifact_bundle_upload_required_files" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
-          grep -q "package_workflow_artifact_bundle_upload_source_dir" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
-          grep -q "Future Workflow Artifact Upload" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
-          grep -q "Linux Package Artifact Attestation Execution Validation Contract" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
-          grep -q "package_artifact_attestation_execution_status" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
-          grep -q "package_artifact_attestation_execution_required_permissions" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
-          grep -q "package_artifact_attestation_execution_subjects" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
-          grep -q "Future Attestation Execution" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
-          grep -q "Linux Package Release Notes Rollback Execution Validation Contract" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
-          grep -q "package_release_notes_rollback_execution_status" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
-          grep -q "package_release_notes_rollback_execution_release_notes_required_fields" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
-          grep -q "package_release_notes_rollback_execution_rollback_required_fields" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
-          grep -q "package_release_notes_rollback_execution_withdrawal_policy" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
-          grep -q "package_release_notes_rollback_execution_replacement_policy" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
-          grep -q "Future Release Notes Rollback Execution" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
-          grep -q "Linux Package Publish Eligibility Execution Validation Contract" docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
-          grep -q "package_publish_eligibility_execution_status" docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
-          grep -q "package_publish_eligibility_execution_required_gates" docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
-          grep -q "package_publish_eligibility_execution_required_fields" docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
-          grep -q "package_publish_eligibility_execution_eligible_status_field" docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
-          grep -q "Future Publish Eligibility Execution" docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
-          grep -q "release-ci-success-source-contract=present" .github/workflows/release.yml
-          stale_actions_read_rejection_prefix="actions: read must stay disabled until release CI gate activation"
-          stale_actions_read_rejection_suffix="is implemented."
-          if grep -q "${stale_actions_read_rejection_prefix} ${stale_actions_read_rejection_suffix}" .github/workflows/release.yml; then
-            echo "::error::release CI gate readiness must not reject actions: read after API activation."
-            exit 1
+          grep -q "Apache License" LICENSE
+          grep -q '^license = "Apache-2.0"$' Cargo.toml
+          grep -q '^name = "networkcore-linux"$' apps/linux-cli/Cargo.toml
+          grep -q '^\[\[bin\]\]$' apps/linux-cli/Cargo.toml
+          grep -q '^name = "networkcore-linux"$' apps/linux-cli/Cargo.toml
+          grep -q '^path = "src/main.rs"$' apps/linux-cli/Cargo.toml
+
+          release_workflow=.github/workflows/release.yml
+          grep -q '^  package-linux:' "${release_workflow}"
+          grep -q '^  attest-linux:' "${release_workflow}"
+          grep -q '^  post-release-summary:' "${release_workflow}"
+          grep -q '^  publish-eligibility-gate:' "${release_workflow}"
+          grep -q '^  publish-github-release:' "${release_workflow}"
+          grep -q 'actions/upload-artifact@v4' "${release_workflow}"
+          grep -q 'actions/download-artifact@v4' "${release_workflow}"
+          grep -q 'actions/attest@v4' "${release_workflow}"
+          grep -q 'id-token: write' "${release_workflow}"
+          grep -q 'attestations: write' "${release_workflow}"
+          grep -q 'gh release create' "${release_workflow}"
+          grep -q 'cargo generate-lockfile' "${release_workflow}"
+          grep -Fq 'cargo build --locked --release --package "${PACKAGE}" --bin "${BINARY}" --target "${TARGET}"' "${release_workflow}"
+          grep -Fq 'top_level_dir="networkcore-linux-${version}-${target}"' "${release_workflow}"
+          grep -Fq 'archive_name="${top_level_dir}.tar.gz"' "${release_workflow}"
+          grep -Fq 'manifest_name="${top_level_dir}.manifest.json"' "${release_workflow}"
+          grep -q 'linux-artifact-license-notice-status=confirmed' "${release_workflow}"
+          grep -q 'package_publish_eligibility_status=eligible' "${release_workflow}"
+          grep -Fq "github.event_name == 'push' && github.ref_type == 'tag'" "${release_workflow}"
+
+          grep -q '^linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md$' docs/manual-intervention.md
+          if grep -q '^linux-artifact-license-notice-status=confirmed$' docs/manual-intervention.md; then
+            if grep -q '^linux-artifact-license-notice-status=pending$' docs/manual-intervention.md; then
+              echo "::error::Linux artifact license/NOTICE cannot be pending and confirmed in the same marker block."
+              exit 1
+            fi
+            grep -q '^linux-artifact-license-notice-transition-contract=docs/architecture/linux-package-license-notice-transition-validation-contract.md$' docs/manual-intervention.md
+            grep -Eq '^linux-artifact-license-notice-confirmed-at=[0-9]{4}-[0-9]{2}-[0-9]{2}$' docs/manual-intervention.md
+            grep -Eq '^linux-artifact-license-notice-confirmed-by=[A-Za-z0-9_.-]+$' docs/manual-intervention.md
+            grep -q '^linux-artifact-license-notice-scope=networkcore-linux$' docs/manual-intervention.md
+            grep -q '^linux-artifact-license-notice-license-source=LICENSE$' docs/manual-intervention.md
+            grep -q '^linux-artifact-license-notice-notice-source=not-required$' docs/manual-intervention.md
+            grep -q '^linux-artifact-license-notice-artifact-files=LICENSE$' docs/manual-intervention.md
+            grep -q '^linux-artifact-license-notice-package-linux=eligible-after-ci-and-release-gates$' docs/manual-intervention.md
+            grep -q '^linux-artifact-license-notice-release-assets=eligible-after-package-signing-checksum-and-rollback-gates$' docs/manual-intervention.md
+          else
+            grep -q '^linux-artifact-license-notice-status=pending$' docs/manual-intervention.md
+            grep -q '^linux-artifact-license-notice-package-linux=blocked$' docs/manual-intervention.md
+            grep -q '^linux-artifact-license-notice-release-assets=blocked$' docs/manual-intervention.md
           fi
-          grep -Eq '^[[:space:]]+actions:[[:space:]]+read$' .github/workflows/release.yml
-          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-contract=present"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-status=active"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-required-permission=actions-read"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-permission-status=enabled"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-api-status=queried"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-package-linux=not-defined"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-artifacts=blocked"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-next-action=license-notice-and-package-linux-preflight-after-ci-gate"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-execution-contract=present"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-execution-status=active"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-execution-required-permission=actions-read"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-execution-permission-status=enabled"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-execution-api-status=queried"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-execution-query-head-sha=same-release-sha"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-execution-required-fields=ci_workflow_name,ci_workflow_file,ci_run_id,ci_run_attempt,ci_run_url,ci_run_status,ci_run_conclusion,ci_head_sha,ci_head_branch,ci_event,ci_repository,ci_checked_at"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-execution-ci-summary=success"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-execution-package-linux=not-defined"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-execution-release-asset=blocked"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-execution-next-action=license-notice-and-package-linux-preflight-after-ci-gate"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-plan=docs/architecture/release-ci-gate-api-implementation-plan.md"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-status=active"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-current-mode=api-read-active"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-required-permission=actions-read"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-permission-status=enabled"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-query-filters=branch=main,status=completed,head_sha=(same-release-sha|[$][{]RELEASE_SHA[}])"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-summary-job=CI summary"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-summary-status=success"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-package-linux=not-defined"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-release-asset=blocked"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-next-action=license-notice-and-package-linux-preflight-after-ci-gate"$' .github/workflows/release.yml)" -ge 4
-          grep -q "Linux Package Artifact Job Preflight Validation Contract" .github/workflows/release.yml
-          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-required-job=package-linux"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-required-needs=release-policy,release-ci-gate,linux-artifact-readiness"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-license-notice=blocked-pending"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-ci-gate=active"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-checkout=blocked-before-gates"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-toolchain=blocked-before-gates"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-build=blocked-before-gates"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-staging=blocked-before-gates"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-upload=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-failure-mode=fail-before-checkout-toolchain-build-staging"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-next-action=license-notice-and-ci-gate-before-package-linux"$' .github/workflows/release.yml)" -ge 3
-          grep -q "Linux Package Artifact Build Command Validation Contract" .github/workflows/release.yml
-          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-required-job=package-linux"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-preflight=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-target-install=blocked-before-preflight"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-cargo-args=build,--locked,--release,--package,networkcore-linux,--bin,networkcore-linux,--target,x86_64-unknown-linux-gnu"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-binary-path=target/x86_64-unknown-linux-gnu/release/networkcore-linux"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-binary-path-check=blocked-before-build"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-build-output=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-upload=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-next-action=license-notice-ci-preflight-before-build"$' .github/workflows/release.yml)" -ge 3
-          grep -q "Linux Package Artifact Staging File Validation Contract" .github/workflows/release.yml
-          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-required-job=package-linux"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-preflight=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-build-command=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-staging-file-binary-source=target/[$][{]target[}]/release/networkcore-linux'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-binary-destination=bin/networkcore-linux"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-binary-permission=0755"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-install-doc=INSTALL.md"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-license-source=license-notice-confirmed"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-changelog-source=CHANGELOG.md"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-archive-creation=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-upload=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-next-action=license-notice-ci-build-before-staging"$' .github/workflows/release.yml)" -ge 3
-          grep -q "Linux Package Artifact Archive Creation Validation Contract" .github/workflows/release.yml
-          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-required-job=package-linux"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-staging-file=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-archive-creation-output-dir=dist/linux/[$][{]target[}]/artifacts'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-archive-creation-top-level-dir=networkcore-linux-[$][{]version[}]-[$][{]target[}]'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-archive-creation-archive-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-archive-creation-archive-path=dist/linux/[$][{]target[}]/artifacts/networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-archive-format=tar.gz"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-single-top-level-dir=required"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-required-files=bin/networkcore-linux,INSTALL.md,LICENSE,CHANGELOG.md"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-checksum=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-manifest=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-upload=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-archive-creation-next-action=checksum-manifest-after-archive"$' .github/workflows/release.yml)" -ge 3
-          grep -q "Linux Package Artifact Checksum Execution Validation Contract" .github/workflows/release.yml
-          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-required-job=package-linux"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-archive-creation=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-algorithm=sha256"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-checksum-execution-archive-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-checksum-execution-archive-path=dist/linux/[$][{]target[}]/artifacts/networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-checksum-execution-checksum-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz.sha256'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-checksum-execution-checksum-path=dist/linux/[$][{]target[}]/artifacts/networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz.sha256'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-record-format=sha256sum-two-space-file-name"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-checksum-value=blocked-before-archive"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-checksum-file-write=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-manifest=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-upload=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-checksum-execution-next-action=manifest-generation-after-checksum"$' .github/workflows/release.yml)" -ge 3
-          grep -q "Linux Package Artifact Manifest Generation Validation Contract" .github/workflows/release.yml
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-required-job=package-linux"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-checksum-execution=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-schema-version=1"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-artifact-kind=linux-cli-tarball"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-package-format=tar.gz"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-generation-manifest-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].manifest.json'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-generation-manifest-path=dist/linux/[$][{]target[}]/artifacts/networkcore-linux-[$][{]version[}]-[$][{]target[}].manifest.json'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-generation-archive-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-generation-archive-path=dist/linux/[$][{]target[}]/artifacts/networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-generation-checksum-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz.sha256'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-generation-checksum-path=dist/linux/[$][{]target[}]/artifacts/networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz.sha256'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-required-fields=schema_version,artifact_kind,package_format,artifact_name,target_triple,version,commit_sha,source_ref,ci_run_url,release_run_url,runner,rust_toolchain,archive,checksum,included_files,install_model,system_mutation_policy,license_notice_status,signing,release_notes,rollback,publish_eligibility"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-archive-file-field=archive.file_name"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-archive-path-field=archive.relative_path"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-checksum-algorithm-field=checksum.algorithm"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-checksum-file-field=checksum.file_name"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-checksum-value-field=checksum.value"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-included-files=bin/networkcore-linux,INSTALL.md,LICENSE,CHANGELOG.md"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-install-model=manual-extract"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-system-mutation-policy=none"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-manifest-checksum=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-upload=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-next-action=manifest-checksum-after-manifest"$' .github/workflows/release.yml)" -ge 3
-          grep -q "Linux Package Artifact Manifest Checksum Validation Contract" .github/workflows/release.yml
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-required-job=package-linux"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-manifest-generation=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-algorithm=sha256"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-checksum-manifest-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].manifest.json'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-checksum-manifest-path=dist/linux/[$][{]target[}]/artifacts/networkcore-linux-[$][{]version[}]-[$][{]target[}].manifest.json'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-checksum-checksum-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].manifest.json.sha256'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-checksum-checksum-path=dist/linux/[$][{]target[}]/artifacts/networkcore-linux-[$][{]version[}]-[$][{]target[}].manifest.json.sha256'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-record-format=sha256sum-two-space-file-name"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-checksum-value=blocked-before-manifest"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-checksum-file-write=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-workflow-artifact=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-upload=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-next-action=workflow-artifact-upload-after-manifest-checksum"$' .github/workflows/release.yml)" -ge 3
-          grep -q "Linux Package Workflow Artifact Bundle Upload Validation Contract" .github/workflows/release.yml
-          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-required-job=package-linux"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-manifest-checksum=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-workflow-artifact-bundle-upload-source-dir=dist/linux/[$][{]target[}]/artifacts'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-workflow-artifact-bundle-upload-name=networkcore-linux-[$][{]version[}]-[$][{]target[}]-release-bundle'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-retention-days=14"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-required-files=archive,archive_sha256,manifest,manifest_sha256"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-workflow-artifact-bundle-upload-archive-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-workflow-artifact-bundle-upload-archive-checksum-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].tar.gz.sha256'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-workflow-artifact-bundle-upload-manifest-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].manifest.json'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-workflow-artifact-bundle-upload-manifest-checksum-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].manifest.json.sha256'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-same-run=required"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-upload-action=actions/upload-artifact"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-upload-action-status=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-publish-job=publish-github-release"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-publish-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-next-action=attestation-after-workflow-artifact-bundle"$' .github/workflows/release.yml)" -ge 3
-          grep -q "Linux Package Artifact Attestation Execution Validation Contract" .github/workflows/release.yml
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-required-job=attest-linux"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-package-job=package-linux"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-workflow-artifact-bundle=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-download-source=same-run-workflow-artifact"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-attestation-execution-bundle-name=networkcore-linux-[$][{]version[}]-[$][{]target[}]-release-bundle'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-subjects=archive,archive_sha256,manifest,manifest_sha256"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-subject-path-mode=explicit-files"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-action=actions/attest"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-action-version=v4"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-action-status=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-required-permissions=contents-read,id-token-write,attestations-write"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-permissions-status=not-enabled"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-attestation-policy=github-artifact-attestation-required"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-attestation-status=blocked-not-attested"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-provenance-policy=github-build-provenance-required"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-provenance-file=github-artifact-attestation"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-provenance-status=blocked-not-generated"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-publish-without-attestation=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-publish-job=publish-github-release"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-publish-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-next-action=release-notes-rollback-execution-after-attestation"$' .github/workflows/release.yml)" -ge 3
-          grep -q "Linux Package Release Notes Rollback Execution Validation Contract" .github/workflows/release.yml
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-required-job=post-release-summary"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-upstream-job=attest-linux"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-upstream-status=not-defined"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-attestation-status=blocked-not-attested"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-provenance-status=blocked-not-generated"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-release-notes-source=CHANGELOG.md-and-release-summary"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-release-notes-status=blocked-not-generated"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-release-notes-required-fields=version,artifact,checksums,ci,release,install,signing,rollback,withdrawal,replacement"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-release-body-status=blocked-not-rendered"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-rollback-policy=manual-extract-version-switch"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-rollback-status=blocked-not-summarized"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-rollback-required-fields=rollback_scope,rollback_trigger,rollback_steps,replacement_version,rollback_owner"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-withdrawal-policy=withdrawal-not-overwrite"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-replacement-policy=new-version-tag-required"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-missing-rollback=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-publish-without-release-notes=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-publish-without-rollback=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-publish-job=publish-github-release"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-publish-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-execution-next-action=publish-eligibility-execution-after-release-notes-rollback"$' .github/workflows/release.yml)" -ge 3
-          if grep -Eq '^[[:space:]]+uses:[[:space:]]+actions/upload-artifact(@|$)' .github/workflows/release.yml; then
-            echo "::error::actions/upload-artifact must stay disabled until workflow artifact bundle upload validation is implemented."
-            exit 1
-          fi
-          if grep -Eq '^[[:space:]]+id-token:[[:space:]]+write$' .github/workflows/release.yml; then
-            echo "::error::id-token: write must stay disabled until artifact attestation execution is implemented."
-            exit 1
-          fi
-          if grep -Eq '^[[:space:]]+attestations:[[:space:]]+write$' .github/workflows/release.yml; then
-            echo "::error::attestations: write must stay disabled until artifact attestation execution is implemented."
-            exit 1
-          fi
-          if grep -Eq '^[[:space:]]+uses:[[:space:]]+actions/attest(@|$)' .github/workflows/release.yml; then
-            echo "::error::actions/attest must stay disabled until artifact attestation execution is implemented."
-            exit 1
-          fi
-          if grep -Eq '^  publish-eligibility-gate:' .github/workflows/release.yml; then
-            echo "::error::publish-eligibility-gate must stay undefined until publish eligibility execution is implemented."
-            exit 1
-          fi
-          if grep -Eq '^[[:space:]]+run:[[:space:]]+gh release create([[:space:]]|$)' .github/workflows/release.yml; then
-            echo "::error::gh release create must stay disabled until release notes/rollback execution and publish eligibility gates are complete."
-            exit 1
-          fi
-          if grep -Eq '^[[:space:]]+uses:[[:space:]]+(softprops/action-gh-release|ncipollo/release-action|actions/create-release|actions/upload-release-asset)(@|$)' .github/workflows/release.yml; then
-            echo "::error::GitHub Release actions must stay disabled until release notes/rollback execution and publish eligibility gates are complete."
-            exit 1
-          fi
-          grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
-          grep -q "linux-package-platform-input-contract=present" .github/workflows/release.yml
-          grep -q "linux-package-required-target=x86_64-unknown-linux-gnu" .github/workflows/release.yml
-          grep -q "Linux Package Archive Staging Contract" docs/architecture/linux-package-archive-staging-contract.md
-          grep -q "linux-package-archive-staging-contract=present" .github/workflows/release.yml
-          grep -Fq 'linux-package-required-staging-root=dist/linux/${target}/staging' .github/workflows/release.yml
-          grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
-          grep -q "linux-package-checksum-manifest-contract=present" .github/workflows/release.yml
-          grep -q "linux-package-checksum-algorithm=sha256" .github/workflows/release.yml
-          grep -Fq 'linux-package-required-archive-checksum-name=networkcore-linux-${version}-${target}.tar.gz.sha256' .github/workflows/release.yml
-          grep -Fq 'linux-package-required-manifest-checksum-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.manifest.json.sha256' .github/workflows/release.yml
-          grep -q "linux-package-manifest-archive-checksum-field=checksum.value" .github/workflows/release.yml
-          grep -q "Linux Package Publish Upload Boundary Contract" docs/architecture/linux-package-publish-upload-boundary-contract.md
-          test "$(grep -Ec '^          echo "linux-package-publish-upload-boundary-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-upload=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-workflow-artifact-name=networkcore-linux-[$][{]version[}]-[$][{]target[}]-release-bundle'$" .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-retention-days=14"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-job-name=publish-github-release"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-download-source=same-run-workflow-artifact"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-asset-overwrite-policy=forbidden"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-asset-upload=blocked"$' .github/workflows/release.yml)" -ge 3
-          grep -q "Linux Package Signing Attestation Policy Binding Contract" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
-          test "$(grep -Ec '^          echo "linux-package-signing-attestation-policy-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-signing-policy=unsigned-no-detached-signature"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-attestation-policy=github-artifact-attestation-required"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-attestation-status=blocked-not-attested"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-provenance-file=github-artifact-attestation"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-without-attestation=blocked"$' .github/workflows/release.yml)" -ge 3
-          grep -q "Linux Package Release Notes Rollback Policy Binding Contract" docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
-          test "$(grep -Ec '^          echo "linux-package-release-notes-rollback-policy-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-policy=required-before-publish"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-release-notes-status=blocked-not-generated"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-rollback-status=blocked-not-summarized"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-withdrawal-policy=withdrawal-not-overwrite"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-without-rollback=blocked"$' .github/workflows/release.yml)" -ge 3
-          grep -q "Linux Package Publish Eligibility Aggregate Contract" docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-aggregate-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-status=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-license-notice=blocked-pending"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-ci=active"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-next-action=license-notice-confirmation-required"$' .github/workflows/release.yml)" -ge 3
-          grep -q "Linux Package Publish Eligibility Execution Validation Contract" .github/workflows/release.yml
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-required-job=publish-eligibility-gate"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-upstream-job=post-release-summary"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-upstream-status=not-defined"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-aggregate-status=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-required-gates=license_notice,ci,runner_toolchain,archive_staging,checksum_manifest,artifact_manifest,publish_upload,signing_attestation,release_notes_rollback"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-required-fields=status,reason,required_gates,license_notice,ci,runner_toolchain,archive_staging,checksum_manifest,artifact_manifest,publish_upload,signing_attestation,release_notes_rollback,package_linux,workflow_artifact,release_asset,publish_github_release,post_release_summary"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-eligible-status-field=package_publish_eligibility_status"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-current-eligible-value=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-missing-gate=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-unknown-gate=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-publish-without-eligible=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-workflow-artifact=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-release-creation=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-publish-job=publish-github-release"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-publish-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-next-action=license-notice-and-artifact-gates-before-publish-eligibility"$' .github/workflows/release.yml)" -ge 3
-          grep -q "Linux Package License Notice Transition Validation Contract" docs/architecture/linux-package-license-notice-transition-validation-contract.md
-          grep -q "linux-artifact-license-notice-transition-commit=independent-manual-confirmation-commit" .github/workflows/release.yml
-          test "$(grep -Ec '^          echo "linux-package-license-notice-transition-contract=present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-license-notice-transition-status=blocked-pending"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-license-notice-transition-required-commit=independent-manual-confirmation-commit"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-license-notice-transition-confirmed-marker=blocked-not-present"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-license-notice-transition-license-file-check=blocked-until-confirmed"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-license-notice-transition-package-linux=not-defined"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-license-notice-transition-next-action=manual-license-notice-confirmation"$' .github/workflows/release.yml)" -ge 3
-          grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
-          grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
-          grep -q "networkcore-linux" apps/linux-cli/README.md
-          grep -q "config-core" crates/config-core/README.md
-          grep -q "CoreSubscriptionService" crates/config-core/README.md
-          grep -q "CoreSubscriptionService" crates/config-core/src/lib.rs
-          grep -q "SubscriptionService for CoreSubscriptionService" crates/config-core/src/lib.rs
-          grep -q "parses_subscription_nodes_and_routes_from_toml" crates/config-core/tests/config_core_contracts.rs
-          grep -q "subscription_port_can_fetch_parse_and_normalize_a_catalog" crates/control-domain/tests/domain_contracts.rs
-          grep -q "Subscription Catalog Runtime Orchestration Design" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "NodeCatalog" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "RuntimeConfigRequest.nodes" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "ConfigSnapshot.nodes" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "ProxyEngineConfig.nodes" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "duplicate id" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "PolicyRoutingService" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "DnsPolicyService" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "Diagnostic" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "no remote subscription fetching" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "no file subscription loading" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "no system DNS/TUN mutation" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "no daemon/control socket" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "GitHub Actions" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "runtime.subscription.node_id_duplicate" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "runtime.subscription.rules_deferred" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "CoreSubscriptionService" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "SubscriptionService" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "engine.native.config.node_id_duplicate" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "RuntimeSubscriptionCatalogGateResult" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "prepare_runtime_request_with_subscription_catalogs" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "start_runtime_with_subscription_catalogs" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "reload_runtime_with_subscription_catalogs" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "runtime.subscription.catalog_ready" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "runtime.subscription.catalog_empty" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "runtime.subscription.source_unsupported" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "networkcore-linux start" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "default subscription path" docs/architecture/subscription-catalog-runtime-orchestration.md
-          grep -q "RuntimeSubscriptionCatalogGateResult" docs/architecture/control-runtime-orchestration.md
-          grep -q "SubscriptionSource" docs/architecture/control-runtime-orchestration.md
-          grep -q "start_runtime_with_subscription_catalogs" docs/architecture/control-runtime-orchestration.md
-          grep -q "reload_runtime_with_subscription_catalogs" docs/architecture/control-runtime-orchestration.md
-          grep -q "runtime.subscription.source_unsupported" docs/architecture/control-runtime-orchestration.md
-          grep -q "RuntimeSubscriptionCatalogGateResult" crates/control-runtime/src/lib.rs
-          grep -q "prepare_runtime_request_with_subscription_catalogs" crates/control-runtime/src/lib.rs
-          grep -q "start_runtime_with_subscription_catalogs" crates/control-runtime/src/lib.rs
-          grep -q "reload_runtime_with_subscription_catalogs" crates/control-runtime/src/lib.rs
-          grep -q "runtime.subscription.node_id_duplicate" crates/control-runtime/src/lib.rs
-          grep -q "runtime.subscription.rules_deferred" crates/control-runtime/src/lib.rs
-          grep -q "runtime.subscription.catalog_ready" crates/control-runtime/src/lib.rs
-          grep -q "runtime.subscription.catalog_empty" crates/control-runtime/src/lib.rs
-          grep -q "runtime.subscription.source_unsupported" crates/control-runtime/src/lib.rs
-          grep -q "subscription_catalog_nodes_enter_runtime_config_request_nodes" crates/control-runtime/tests/runtime_contracts.rs
-          grep -q "subscription_catalog_rejects_config_snapshot_node_id_duplicate" crates/control-runtime/tests/runtime_contracts.rs
-          grep -q "subscription_catalog_rejects_duplicate_node_ids_across_catalogs" crates/control-runtime/tests/runtime_contracts.rs
-          grep -q "subscription_catalog_rejects_duplicate_node_ids_within_catalog" crates/control-runtime/tests/runtime_contracts.rs
-          grep -q "subscription_catalog_rejects_runtime_request_node_id_duplicate" crates/control-runtime/tests/runtime_contracts.rs
-          grep -q "subscription_catalog_empty_reports_warning" crates/control-runtime/tests/runtime_contracts.rs
-          grep -q "subscription_catalog_rules_are_deferred_without_mutating_config_policies" crates/control-runtime/tests/runtime_contracts.rs
-          grep -q "subscription_catalog_rejects_unsupported_remote_source_without_leaking_secret" crates/control-runtime/tests/runtime_contracts.rs
-          grep -q "subscription_catalog_rejects_file_source_without_reading_path" crates/control-runtime/tests/runtime_contracts.rs
-          grep -q "\"crates/config-core\"" Cargo.toml
-          grep -q "control-domain" crates/control-domain/README.md
-          grep -q "control-runtime" crates/control-runtime/README.md
-          grep -q "engine-native" crates/engine-native/README.md
-          grep -q "\"crates/engine-native\"" Cargo.toml
-          grep -q "mitm-anixops-sys" crates/mitm-anixops-sys/README.md
-          grep -q "\"crates/mitm-anixops-sys\"" Cargo.toml
-          grep -q "third_party/mitm_anixops" .gitmodules
-          grep -q "platform-ios" crates/platform-ios/README.md
-          grep -q "\"crates/platform-ios\"" Cargo.toml
-          grep -q "StaticIosPlatformCapabilityService" crates/platform-ios/src/lib.rs
-          grep -q "IosPlatformSnapshot" crates/platform-ios/src/lib.rs
-          grep -q "IosNetworkExtensionProbe" crates/platform-ios/src/lib.rs
-          grep -q "IosEmbeddedRuntimeProbe" crates/platform-ios/src/lib.rs
-          grep -q "IosMitmCertificateProbe" crates/platform-ios/src/lib.rs
-          grep -q "IosSharedStorageProbe" crates/platform-ios/src/lib.rs
-          grep -q "PlatformCapabilityService" crates/platform-ios/src/lib.rs
-          grep -q "OperatingSystem::Ios" crates/platform-ios/src/lib.rs
-          grep -q "platform.ios.network_extension.entitlement_missing" crates/platform-ios/src/lib.rs
-          grep -q "platform.ios.vpn_configuration.authorization_denied" crates/platform-ios/src/lib.rs
-          grep -q "platform.ios.remote_script_execution.disabled_by_policy" crates/platform-ios/src/lib.rs
-          grep -q "platform.ios.mitm_certificate.unknown" crates/platform-ios/src/lib.rs
-          grep -q "remote script execution is disabled on iOS" crates/platform-ios/src/lib.rs
-          test -f crates/platform-ios/tests/platform_ios_contracts.rs
-          grep -q "entitlement_missing_denies_tunnel" crates/platform-ios/tests/platform_ios_contracts.rs
-          grep -q "vpn_configuration_states_deny_tunnel" crates/platform-ios/tests/platform_ios_contracts.rs
-          grep -q "mitm_certificate_state_matrix" crates/platform-ios/tests/platform_ios_contracts.rs
-          grep -q "platform-linux" crates/platform-linux/README.md
-          grep -q "Release Strategy" docs/release-strategy.md
-          grep -q "Control Kernel Domain Specification" docs/architecture/control-kernel-domain.md
-          grep -q "Control Kernel Interface Draft" docs/architecture/control-kernel-interfaces.md
-          grep -q "Proxy Engine Adapter Interface" docs/architecture/proxy-engine-adapter.md
-          grep -q "mitm_anixops Adapter Design" docs/architecture/mitm-anixops-adapter.md
-          grep -q "不得宣称" docs/architecture/mitm-anixops-adapter.md
-          grep -q "全平台 MITM 已可用" docs/architecture/mitm-anixops-adapter.md
-          grep -q "Control Runtime Orchestration Design" docs/architecture/control-runtime-orchestration.md
-          grep -q "iOS Platform Risk Assessment" docs/architecture/ios-platform-risk-assessment.md
-          grep -q "iOS Network Extension Design" docs/architecture/ios-network-extension-design.md
-          grep -q "Packet Tunnel Provider" docs/architecture/ios-network-extension-design.md
-          grep -q "NEPacketTunnelProvider" docs/architecture/ios-network-extension-design.md
-          grep -q "NETunnelProviderManager" docs/architecture/ios-network-extension-design.md
-          grep -q "App Group" docs/architecture/ios-network-extension-design.md
-          grep -q "PlatformCapabilityService" docs/architecture/ios-network-extension-design.md
-          grep -q "PlatformCapabilities" docs/architecture/ios-network-extension-design.md
-          grep -q "MitmCertificateStatus" docs/architecture/ios-network-extension-design.md
-          grep -q "remote_script_execution" docs/architecture/ios-network-extension-design.md
-          grep -q "App Review" docs/architecture/ios-network-extension-design.md
-          grep -q "GitHub Actions" docs/architecture/ios-network-extension-design.md
-          grep -q "macos-26" docs/architecture/ios-network-extension-design.md
-          grep -q "iOS Platform Adapter Source Contract" docs/architecture/ios-platform-adapter-source-contract.md
-          grep -q "iOS Swift Network Extension Bridge Design" docs/architecture/ios-swift-network-extension-bridge-design.md
-          grep -q "NEPacketTunnelProvider" docs/architecture/ios-swift-network-extension-bridge-design.md
-          grep -q "NETunnelProviderManager" docs/architecture/ios-swift-network-extension-bridge-design.md
-          grep -q "App Group" docs/architecture/ios-swift-network-extension-bridge-design.md
-          grep -q "Keychain" docs/architecture/ios-swift-network-extension-bridge-design.md
-          grep -q "IosPlatformSnapshot" docs/architecture/ios-swift-network-extension-bridge-design.md
-          grep -q "IosNetworkExtensionProbe" docs/architecture/ios-swift-network-extension-bridge-design.md
-          grep -q "IosSharedStorageProbe" docs/architecture/ios-swift-network-extension-bridge-design.md
-          grep -q "IosEmbeddedRuntimeProbe" docs/architecture/ios-swift-network-extension-bridge-design.md
-          grep -q "IosMitmCertificateProbe" docs/architecture/ios-swift-network-extension-bridge-design.md
-          grep -q "CertificateTrustState" docs/architecture/ios-swift-network-extension-bridge-design.md
-          grep -q "platform.ios.keychain.access_denied" docs/architecture/ios-swift-network-extension-bridge-design.md
-          grep -q "platform.ios.remote_script_execution.disabled_by_policy" docs/architecture/ios-swift-network-extension-bridge-design.md
-          grep -q "macos-26" docs/architecture/ios-swift-network-extension-bridge-design.md
-          grep -q "iOS Swift Xcode Bridge Source Contract" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "Package.swift" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "NetworkCorePacketTunnel" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "PacketTunnelProvider.swift" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "IosPlatformSnapshotDTO" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "FFI" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "NEPacketTunnelProvider" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "NETunnelProviderManager" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "App Group" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "Keychain" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "IosPlatformSnapshot" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "IosNetworkExtensionProbe" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "IosSharedStorageProbe" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "IosEmbeddedRuntimeProbe" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "IosMitmCertificateProbe" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "CertificateTrustState" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "macos-26" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "swift build" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "swift test" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "xcodebuild" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "signing/provisioning secret" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "no iOS release asset" docs/architecture/ios-swift-xcode-bridge-source-contract.md
-          grep -q "iOS Embedded Runtime FFI Boundary Design" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "staticlib" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "XCFramework" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "C ABI" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "networkcore_ios_abi_version" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "networkcore_ios_runtime_init" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "networkcore_ios_runtime_start_tunnel" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "networkcore_ios_runtime_stop_tunnel" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "networkcore_ios_runtime_free_buffer" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "ABI version negotiation" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "owned string" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "owned buffer" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "panic boundary" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "error mapping" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "IosEmbeddedRuntimeProbe" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "IosEmbeddedRuntimeState" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "platform.ios.embedded_runtime.abi_mismatch" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "platform.ios.embedded_runtime.initialization_failed" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "NetworkCoreRuntimeFFI.swift" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "macos-26" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "cargo build" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "swift build" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "swift test" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "xcodebuild" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "no iOS release asset" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
-          grep -q "iOS MITM Certificate Lifecycle Design" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "CA generation" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "installation prompt" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "user trust confirmation" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "fingerprint_sha256" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "CertificateTrustState mapping" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "NotInstalled" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "InstalledUntrusted" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "Trusted" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "Revoked" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "Unknown" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "IosMitmCertificateProbe" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "MitmCertificateStatus" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "SecTrust" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "expiration" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "revocation" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "platform.ios.mitm_certificate.not_installed" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "platform.ios.mitm_certificate.installed_untrusted" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "platform.ios.mitm_certificate.trusted" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "platform.ios.mitm_certificate.revoked" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "platform.ios.mitm_certificate.unknown" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "macos-26" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "swift test" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "xcodebuild" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "no iOS release asset" docs/architecture/ios-mitm-certificate-lifecycle-design.md
-          grep -q "iOS Entitlement Provisioning Source Contract" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -Fq ".entitlements" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "App ID" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "Network Extension capability" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "Provisioning Profile" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "GitHub Secrets" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "signing asset redaction" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "com.apple.developer.networking.networkextension" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "packet-tunnel-provider" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "NETunnelProviderManager" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "NEPacketTunnelProvider" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "IosNetworkExtensionProbe" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "IosNetworkExtensionEntitlementState" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "platform.ios.network_extension.entitlement_missing" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "platform.ios.vpn_configuration.authorization_required" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "platform.ios.vpn_configuration.authorization_denied" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "TEAM_ID" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "APP_BUNDLE_ID" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "PACKET_TUNNEL_BUNDLE_ID" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "APPLE_CERTIFICATE_P12_BASE64" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "APPLE_PROVISIONING_PROFILE_BASE64" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "APP_STORE_CONNECT_API_KEY_ID" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "macos-26" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "swift build" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "swift test" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "xcodebuild" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "no iOS release asset" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          grep -q "iOS App Review Privacy Release Readiness Design" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "Privacy Manifest" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "PrivacyInfo.xcprivacy" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "NSPrivacyCollectedDataTypes" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "NSPrivacyAccessedAPITypes" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "Required Reason API" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "App Privacy" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "Data Used to Track You" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "Data Linked to You" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "Data Not Linked to You" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "privacy policy" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "App Review Notes" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "VPN compliance" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "App Store Connect" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "TestFlight" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "Packet Tunnel Provider" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "Network Extension" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "MITM default off" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "certificate installation" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "demo account" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "review attachment" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "manual intervention" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "GitHub Actions" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "macos-26" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "no TestFlight upload" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "no iOS release asset" docs/architecture/ios-app-review-privacy-release-readiness-design.md
-          grep -q "iOS Privacy Manifest Source Contract" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "PrivacyInfo.xcprivacy" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "NSPrivacyCollectedDataTypes" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "NSPrivacyCollectedDataType" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "NSPrivacyCollectedDataTypeLinked" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "NSPrivacyCollectedDataTypeTracking" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "NSPrivacyCollectedDataTypePurposes" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "NSPrivacyAccessedAPITypes" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "NSPrivacyAccessedAPITypeReasons" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "NSPrivacyAccessedAPICategoryFileTimestamp" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "NSPrivacyAccessedAPICategorySystemBootTime" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "NSPrivacyAccessedAPICategoryDiskSpace" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "NSPrivacyAccessedAPICategoryActiveKeyboards" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "NSPrivacyAccessedAPICategoryUserDefaults" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "NSPrivacyTracking" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "NSPrivacyTrackingDomains" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "Data Used to Track You" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "Data Linked to You" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "Data Not Linked to You" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "App Privacy answer source" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "third-party SDK privacy manifest" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "SDK signature" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "platform.ios.privacy_manifest.accessed_api_reason_missing" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "platform.ios.privacy_manifest.app_privacy_answers_missing" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "plutil" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "macos-26" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "no PrivacyInfo.xcprivacy" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "no TestFlight upload" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "no iOS release asset" docs/architecture/ios-privacy-manifest-source-contract.md
-          grep -q "iOS App Review Manual Confirmation Source Contract" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "App Review Notes" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "manual confirmation" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "machine-readable marker" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "ios-app-review-manual-confirmation-status" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "ios-app-review-manual-confirmation-source-contract" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "App Privacy answers" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "privacy policy URL" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "demo account" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "demo mode" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "review attachment" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "VPN compliance marker" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "TestFlight group" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "App Store Connect app record" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "export compliance" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "beta app review" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "encryption declaration" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "App Review submission" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "platform.ios.app_review_manual_confirmation.missing" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "platform.ios.app_review_manual_confirmation.pending" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "platform.ios.app_review_manual_confirmation.blocked" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "manual intervention" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "GitHub Actions" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "macos-26" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "no PrivacyInfo.xcprivacy" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "no TestFlight upload" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "no iOS release asset" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
-          grep -q "iOS TestFlight App Store Connect Upload Workflow Source Contract" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "archive/export" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "xcodebuild archive" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "xcodebuild -exportArchive" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "ExportOptions.plist" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q ".ipa" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q ".xcarchive" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q ".xcresult" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "dSYM bundle" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "App Store Connect API" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "TestFlight group" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "manual approval" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "protected environment" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "App Review submission gate" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "build processing status" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "beta app review" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "export compliance" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "encryption declaration" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "platform.ios.upload_workflow.source_contract_missing" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "platform.ios.upload_workflow.manual_confirmation_pending" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "platform.ios.upload_workflow.protected_environment_missing" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "platform.ios.upload_workflow.secret_missing" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "platform.ios.upload_workflow.archive_export_blocked" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "platform.ios.upload_workflow.upload_blocked" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "platform.ios.upload_workflow.build_processing_unknown" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "platform.ios.upload_workflow.app_review_submission_blocked" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "platform.ios.upload_workflow.release_asset_blocked" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "GitHub Actions" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "macos-26" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "no TestFlight upload" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "no App Store upload" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "no App Review submission" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "no iOS release asset" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
-          grep -q "iOS Upload Workflow Activation Validation Contract" docs/architecture/ios-upload-workflow-activation-validation-contract.md
-          grep -q "release workflow placeholder summary" docs/architecture/ios-upload-workflow-activation-validation-contract.md
-          grep -q "ios-upload-workflow" docs/architecture/ios-upload-workflow-activation-validation-contract.md
-          grep -q "protected environment" docs/architecture/ios-upload-workflow-activation-validation-contract.md
-          grep -q "manual approval" docs/architecture/ios-upload-workflow-activation-validation-contract.md
-          grep -q "App Store Connect API secret status" docs/architecture/ios-upload-workflow-activation-validation-contract.md
-          grep -q "archive/export/upload/submission blocked" docs/architecture/ios-upload-workflow-activation-validation-contract.md
-          grep -q "ios-upload-readiness" docs/architecture/ios-upload-workflow-activation-validation-contract.md
-          grep -q "required needs" docs/architecture/ios-upload-workflow-activation-validation-contract.md
-          grep -q "not-read-blocked" docs/architecture/ios-upload-workflow-activation-validation-contract.md
-          grep -q "blocked-placeholder" docs/architecture/ios-upload-workflow-activation-validation-contract.md
-          grep -q "macos-26" docs/architecture/ios-upload-workflow-activation-validation-contract.md
-          grep -q "no iOS release asset" docs/architecture/ios-upload-workflow-activation-validation-contract.md
-          grep -q "iOS Swift Xcode Source Tree Activation Preflight Contract" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
-          grep -q "apps/ios" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
-          grep -q "Package.swift" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
-          grep -q "Xcode project" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
-          grep -q "NetworkCorePacketTunnel" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
-          grep -q "PrivacyInfo.xcprivacy" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
-          grep -q "entitlement/provisioning" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
-          grep -q "macos-26 source scan" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
-          grep -q "upload workflow enabled marker" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
-          grep -q "release/upload blocked" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
-          grep -q "readme-placeholder-no-swift-source" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
-          grep -q "ios-source-tree-preflight" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
-          grep -q "blocked-placeholder" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
-          grep -q "no iOS release asset" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
-          grep -q "iOS Package.swift Source Ownership Activation Preflight Contract" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
-          grep -q "apps/ios/Package.swift" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
-          grep -q "NetworkCoreBridge" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
-          grep -q "NetworkCoreApp" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
-          grep -q "NetworkCorePacketTunnel" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
-          grep -q "NetworkCoreBridgeTests" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
-          grep -q "source directory guard" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
-          grep -q "no Swift source until package gate" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
-          grep -q "macos-26 Swift package validation hook" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
-          grep -q "Xcode project blocked" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
-          grep -q "upload workflow enabled marker blocked" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
-          grep -q "ios-package-swift-ownership" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
-          grep -q "blocked-placeholder" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
-          grep -q "no iOS release asset" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
-          grep -q "iOS Package.swift Manifest-Only Activation Validation Contract" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q "apps/ios/Package.swift" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q "manifest-only activation" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q "manifest-only source scan" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q "target list verification" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q "NetworkCoreBridge" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q "NetworkCoreApp" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q "NetworkCorePacketTunnel" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q "NetworkCoreBridgeTests" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q "source directory guard" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q "no Swift source before source gate" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q "no Swift source until package gate" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q "macos-26" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q "Swift package validation hook" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q "Xcode project blocked" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q "upload workflow enabled marker blocked" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q "release/upload blocked" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q "ios-package-swift-manifest-only" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q "blocked-placeholder" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
-          grep -q "no iOS release asset" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+
+          grep -q '^ios-upload-workflow-status=pending$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-release-assets=blocked$' docs/manual-intervention.md
           grep -q "iOS Source Tree Governance Placeholder" apps/ios/README.md
-          grep -q "readme-placeholder-no-swift-source" apps/ios/README.md
-          grep -q "Future iOS Swift package ownership starts at" apps/ios/README.md
-          grep -q "Future Swift sources may only live under" apps/ios/README.md
-          grep -q "no Package.swift" apps/ios/README.md
-          grep -q "no Swift source" apps/ios/README.md
-          grep -q "no Xcode project" apps/ios/README.md
-          grep -q "macos-26" apps/ios/README.md
-          grep -q "upload workflow enabled marker remains blocked" apps/ios/README.md
-          grep -q "ios-app-review-manual-confirmation-status=pending" docs/manual-intervention.md
-          grep -q "ios-app-review-manual-confirmation-source-contract=docs/architecture/ios-app-review-manual-confirmation-source-contract.md" docs/manual-intervention.md
-          grep -q "ios-app-review-app-privacy-answers=blocked" docs/manual-intervention.md
-          grep -q "ios-app-review-privacy-policy-url=blocked" docs/manual-intervention.md
-          grep -q "ios-app-review-notes=blocked" docs/manual-intervention.md
-          grep -q "ios-app-review-demo-account=blocked" docs/manual-intervention.md
-          grep -q "ios-app-review-review-attachment=blocked" docs/manual-intervention.md
-          grep -q "ios-app-review-vpn-compliance=blocked" docs/manual-intervention.md
-          grep -q "ios-app-review-testflight-group=blocked" docs/manual-intervention.md
-          grep -q "ios-app-review-app-store-connect-app-record=blocked" docs/manual-intervention.md
-          grep -q "ios-app-review-export-compliance=blocked" docs/manual-intervention.md
-          grep -q "ios-app-review-beta-app-review=blocked" docs/manual-intervention.md
-          grep -q "ios-app-review-app-review-submission=blocked" docs/manual-intervention.md
-          grep -q "ios-app-review-testflight-upload=blocked" docs/manual-intervention.md
-          grep -q "ios-app-review-release-assets=blocked" docs/manual-intervention.md
-          grep -q "ios-app-review-confirmed-at=pending" docs/manual-intervention.md
-          grep -q "ios-app-review-confirmed-by=pending" docs/manual-intervention.md
-          grep -q "ios-upload-workflow-status=pending" docs/manual-intervention.md
-          grep -q "ios-upload-workflow-source-contract=docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md" docs/manual-intervention.md
-          grep -q "ios-upload-workflow-archive-export=blocked" docs/manual-intervention.md
-          grep -q "ios-upload-workflow-app-store-connect-api=blocked" docs/manual-intervention.md
-          grep -q "ios-upload-workflow-protected-environment=blocked" docs/manual-intervention.md
-          grep -q "ios-upload-workflow-manual-approval=blocked" docs/manual-intervention.md
-          grep -q "ios-upload-workflow-testflight-upload=blocked" docs/manual-intervention.md
-          grep -q "ios-upload-workflow-app-store-upload=blocked" docs/manual-intervention.md
-          grep -q "ios-upload-workflow-app-review-submission=blocked" docs/manual-intervention.md
-          grep -q "ios-upload-workflow-release-assets=blocked" docs/manual-intervention.md
-          grep -q "ios-upload-workflow-macos-runner=blocked" docs/manual-intervention.md
-          grep -q "ios-upload-workflow-build-processing-check=blocked" docs/manual-intervention.md
-          grep -q "ios-upload-workflow-confirmed-at=pending" docs/manual-intervention.md
-          grep -q "ios-upload-workflow-confirmed-by=pending" docs/manual-intervention.md
           if find . -path ./.git -prune -o \( -type f \( -name "Package.swift" -o -name "*.swift" -o -name "PrivacyInfo.xcprivacy" -o -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" -o -name "ExportOptions.plist" -o -name "*.ipa" \) -o -type d \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "*.xcarchive" -o -name "*.xcresult" -o -name "*.dSYM" \) \) -print -quit | grep -q .; then
-            echo "::error::iOS Swift source tree, Package.swift, Xcode project, PrivacyInfo, entitlement, provisioning, signing, binary embedding, archive/export, or upload material must stay out of the repository until the iOS source contracts allow it."
+            echo "::error::iOS source, signing, archive/export, upload, or release material must stay out of the repository until the iOS contracts allow it."
             exit 1
           fi
-          if grep -Eq '^  (ios-archive-export|ios-upload-testflight|ios-build-processing-gate|ios-app-review-submission-gate|ios-release-summary):' .github/workflows/release.yml; then
-            echo "::error::real iOS upload jobs must stay undefined until activation, protected environment, approval and secrets are complete."
+
+          if find . -path ./.git -prune -o \( -path ./target -o -path ./dist \) -print -quit | grep -q .; then
+            echo "::error::local build or package output directories must not be committed."
             exit 1
           fi
-          grep -q "platform-ios" docs/architecture/ios-platform-adapter-source-contract.md
-          grep -q "StaticIosPlatformCapabilityService" docs/architecture/ios-platform-adapter-source-contract.md
-          grep -q "IosPlatformSnapshot" docs/architecture/ios-platform-adapter-source-contract.md
-          grep -q "PlatformCapabilityService" docs/architecture/ios-platform-adapter-source-contract.md
-          grep -q "PlatformCapabilityStatus" docs/architecture/ios-platform-adapter-source-contract.md
-          grep -q "MitmCertificateStatus" docs/architecture/ios-platform-adapter-source-contract.md
-          grep -q "NEPacketTunnelProvider" docs/architecture/ios-platform-adapter-source-contract.md
-          grep -q "NETunnelProviderManager" docs/architecture/ios-platform-adapter-source-contract.md
-          grep -q "entitlement_missing" docs/architecture/ios-platform-adapter-source-contract.md
-          grep -q "remote_script_execution" docs/architecture/ios-platform-adapter-source-contract.md
-          grep -q "macos-26" docs/architecture/ios-platform-adapter-source-contract.md
-          grep -q "Linux Artifact Pre-Release Design" docs/architecture/linux-artifact-pre-release-design.md
-          grep -q "Linux Platform Adapter Design" docs/architecture/linux-platform-adapter.md
-          grep -q "Linux CLI Entrypoint Design" docs/architecture/linux-cli-entrypoint.md
-          grep -q "Linux CLI Runtime Wiring Design" docs/architecture/linux-cli-runtime-wiring.md
-          grep -q "Native Engine Listener And Node Config Design" docs/architecture/native-engine-listener-node-config.md
-          grep -q "Linux Native Proxy Engine Start Design" docs/architecture/linux-native-proxy-engine-start.md
-          grep -q "Linux CLI Artifact Installation And Rollback Design" docs/architecture/linux-cli-artifact-installation-rollback.md
-          grep -q "Linux Package Artifact Manifest Design" docs/architecture/linux-package-artifact-manifest.md
-          grep -q "Linux Artifact License Notice Confirmation Design" docs/architecture/linux-artifact-license-notice-confirmation.md
-          grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
-          grep -q "Linux Package Release CI Gate Activation Validation Contract" docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
-          grep -q "Release CI Gate Execution Validation Contract" docs/architecture/release-ci-gate-execution-validation-contract.md
-          grep -q "Linux Package Artifact Job Preflight Validation Contract" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
-          grep -q "Linux Package Artifact Build Command Validation Contract" docs/architecture/linux-package-artifact-build-command-validation-contract.md
-          grep -q "Linux Package Artifact Staging File Validation Contract" docs/architecture/linux-package-artifact-staging-file-validation-contract.md
-          grep -q "Linux Package Artifact Archive Creation Validation Contract" docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
-          grep -q "Linux Package Artifact Checksum Execution Validation Contract" docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
-          grep -q "Linux Package Artifact Manifest Generation Validation Contract" docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
-          grep -q "Linux Package Artifact Manifest Checksum Validation Contract" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
-          grep -q "Linux Package Workflow Artifact Bundle Upload Validation Contract" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
-          grep -q "Linux Package Artifact Attestation Execution Validation Contract" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
-          grep -q "Linux Package Release Notes Rollback Execution Validation Contract" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
-          grep -q "Linux Package Publish Eligibility Execution Validation Contract" docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
-          grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
-          grep -q "Linux Package Archive Staging Contract" docs/architecture/linux-package-archive-staging-contract.md
-          grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
-          grep -q "Linux Package Publish Upload Boundary Contract" docs/architecture/linux-package-publish-upload-boundary-contract.md
-          grep -q "Linux Package Signing Attestation Policy Binding Contract" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
-          grep -q "Linux Package Release Notes Rollback Policy Binding Contract" docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
-          grep -q "Linux Package Publish Eligibility Aggregate Contract" docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
-          grep -q "Linux Package License Notice Transition Validation Contract" docs/architecture/linux-package-license-notice-transition-validation-contract.md
-          grep -q "ADR 0001: Initial Core Stack" docs/architecture/adr-0001-initial-core-stack.md
+
+          echo "Repository policy passed."
 
   detect-projects:
     name: Detect project types
@@ -1196,6 +268,7 @@ jobs:
           set -euo pipefail
           test -f README.md
           test -f AGENT.md
+          test -f LICENSE
           find . -maxdepth 3 -type f | sort | sed -n '1,160p'
 
   go-build-test:
