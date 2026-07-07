@@ -2,12 +2,11 @@ use control_domain::{
     CertificateTrustState, ConfigSnapshot, ConfigurationService, Diagnostic, DiagnosticSeverity,
     DomainResult, Endpoint, ListenerBind, ListenerDescriptor, ListenerKind, ListenerNetwork,
     ListenerRoute, MetadataEntry, MitmCertificateStatus, NodeCatalog, NodeDescriptor,
-    OperatingSystem, PlatformCapabilities, Protocol,
-    PlatformCapabilityService, PlatformCapabilityStatus, PlatformFeatureState,
-    ProxyEngineCapability, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
-    ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
-    RawSubscription, RouteAction, RuleSet, SchemaVersion, SubscriptionDocument,
-    SubscriptionService, SubscriptionSource,
+    OperatingSystem, PlatformCapabilities, PlatformCapabilityService, PlatformCapabilityStatus,
+    PlatformFeatureState, Protocol, ProxyEngineCapability, ProxyEngineConfig,
+    ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineKind, ProxyEngineLifecycleState,
+    ProxyEngineService, ProxyEngineStatus, RawSubscription, RouteAction, RuleSet, SchemaVersion,
+    SubscriptionDocument, SubscriptionService, SubscriptionSource,
 };
 
 struct NoopConfigurationService;
