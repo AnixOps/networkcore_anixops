@@ -58,8 +58,9 @@ fn find_mingw_prefix() -> PathBuf {
         candidates.push(PathBuf::from(prefix));
     }
     if let Ok(location) = env::var("MSYS2_LOCATION") {
-        candidates.push(PathBuf::from(location).join("ucrt64"));
-        candidates.push(PathBuf::from(location).join("mingw64"));
+        let location = PathBuf::from(location);
+        candidates.push(location.join("ucrt64"));
+        candidates.push(location.join("mingw64"));
     }
     candidates.push(PathBuf::from("C:/msys64/ucrt64"));
     candidates.push(PathBuf::from("C:/msys64/mingw64"));
