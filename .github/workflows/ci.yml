@@ -212,15 +212,27 @@ jobs:
           grep -q "Alpha Windows Manual Smoke Test" .github/workflows/release.yml
           grep -q "alpha-windows-manual-smoke-source-contract=docs/alpha-windows-smoke-test.md" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-contract=present"$' .github/workflows/release.yml)" -ge 2
-          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-status=pending"$' .github/workflows/release.yml)" -ge 2
-          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-result=blocked-pending-user"$' .github/workflows/release.yml)" -ge 2
+          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-status=confirmed"$' .github/workflows/release.yml)" -ge 2
+          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-result=passed"$' .github/workflows/release.yml)" -ge 2
           test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-artifacts=not-produced-placeholder"$' .github/workflows/release.yml)" -ge 2
-          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-next-action=record-result-and-rerun-ci-release-workflows"$' .github/workflows/release.yml)" -ge 2
-          grep -q "alpha-release-windows-manual-test-status=pending" docs/manual-intervention.md
+          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-local-build-test=not-run"$' .github/workflows/release.yml)" -ge 2
+          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-windows-ci=github-actions-windows-latest-confirmed-success"$' .github/workflows/release.yml)" -ge 2
+          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-next-action=rerun-ci-release-workflows-after-marker-update"$' .github/workflows/release.yml)" -ge 2
+          grep -q "alpha-release-windows-manual-test-status=confirmed" docs/manual-intervention.md
           grep -q "alpha-release-windows-manual-test-source-contract=docs/alpha-windows-smoke-test.md" docs/manual-intervention.md
           grep -q "alpha-release-windows-manual-test-version=v0.1.0-alpha.1" docs/manual-intervention.md
+          grep -q "alpha-release-windows-manual-test-commit=67e86a84388023df77e53537f3f209b5a05c1682" docs/manual-intervention.md
+          grep -q "alpha-release-windows-manual-test-ci-run=28901464670" docs/manual-intervention.md
+          grep -q "alpha-release-windows-manual-test-release-run=28901692913" docs/manual-intervention.md
+          grep -q "alpha-release-windows-manual-test-windows=Windows 11 24H2" docs/manual-intervention.md
+          grep -q "alpha-release-windows-manual-test-arch=x64" docs/manual-intervention.md
+          grep -q "alpha-release-windows-manual-test-ci=github-actions-windows-latest-confirmed-success" docs/manual-intervention.md
           grep -q "alpha-release-windows-manual-test-artifacts=not-produced-placeholder" docs/manual-intervention.md
-          grep -q "alpha-release-windows-manual-test-result=blocked-pending-user" docs/manual-intervention.md
+          grep -q "alpha-release-windows-manual-test-local-build-test=not-run" docs/manual-intervention.md
+          grep -q "alpha-release-windows-manual-test-result=passed" docs/manual-intervention.md
+          grep -q "alpha-release-windows-manual-test-confirmed-at=2026-07-07T22:10:50Z" docs/manual-intervention.md
+          grep -q "alpha-release-windows-manual-test-confirmed-by=operator" docs/manual-intervention.md
+          grep -q "alpha-release-windows-manual-test-next-action=rerun-ci-release-workflows-after-marker-update" docs/manual-intervention.md
           grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
           grep -q "Linux Package Release CI Gate Activation Validation Contract" docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
           grep -q "Release CI Gate Execution Validation Contract" docs/architecture/release-ci-gate-execution-validation-contract.md

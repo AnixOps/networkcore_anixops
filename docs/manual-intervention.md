@@ -11,8 +11,6 @@
 - iOS TestFlight/App Store Connect upload workflow 仍为 pending；完成前不得执行 archive/export、
   TestFlight upload、App Store upload、App Review submission 或 iOS release asset。当前 release workflow 仅允许
   `ios-upload-readiness` blocked placeholder 读取这些 marker，输出 source tree preflight 和 safe summary。
-- Alpha Windows 手工 smoke 测试仍为 pending；完成前不得把用户侧 Windows 结果声明为 alpha 已验证。
-  当前记录流程见 [Alpha Windows Smoke Test](alpha-windows-smoke-test.md)。
 
 ## 已完成的人工/外部事项
 
@@ -20,6 +18,9 @@
 2. 已初始化本地仓库并绑定远端。
 3. 已为 GitHub CLI 授权 `workflow` scope，使其可以推送 GitHub Actions workflow。
 4. 已推送 bootstrap 文件并打通 CI。
+5. 已确认 `v0.1.0-alpha.1` alpha Windows 手工 smoke 测试通过；候选 commit 为
+   `67e86a84388023df77e53537f3f209b5a05c1682`，CI run 为 `28901464670`，release run 为
+   `28901692913`，确认环境为 Windows 11 24H2 x64，且未运行本地构建或测试。
 
 ## 后续 CI 观察命令
 
@@ -73,25 +74,27 @@ linux-artifact-license-notice-release-assets=blocked
 也不能替代 GitHub Actions 的 `windows-latest` CI 矩阵。
 
 ```text
-alpha-release-windows-manual-test-status=pending
+alpha-release-windows-manual-test-status=confirmed
 alpha-release-windows-manual-test-source-contract=docs/alpha-windows-smoke-test.md
 alpha-release-windows-manual-test-source=manual-user-windows-environment
 alpha-release-windows-manual-test-version=v0.1.0-alpha.1
-alpha-release-windows-manual-test-commit=pending-release-run-head-sha
-alpha-release-windows-manual-test-ci-run=pending-release-ci-gate-run
-alpha-release-windows-manual-test-release-run=pending-current-release-run
+alpha-release-windows-manual-test-commit=67e86a84388023df77e53537f3f209b5a05c1682
+alpha-release-windows-manual-test-ci-run=28901464670
+alpha-release-windows-manual-test-release-run=28901692913
 alpha-release-windows-manual-test-scope=windows-local-smoke-user-run
-alpha-release-windows-manual-test-ci=github-actions-windows-latest-still-required
+alpha-release-windows-manual-test-windows=Windows 11 24H2
+alpha-release-windows-manual-test-arch=x64
+alpha-release-windows-manual-test-ci=github-actions-windows-latest-confirmed-success
 alpha-release-windows-manual-test-artifacts=not-produced-placeholder
-alpha-release-windows-manual-test-result=blocked-pending-user
-alpha-release-windows-manual-test-confirmed-at=pending
-alpha-release-windows-manual-test-confirmed-by=pending
-alpha-release-windows-manual-test-next-action=record-result-and-rerun-ci-release-workflows
+alpha-release-windows-manual-test-local-build-test=not-run
+alpha-release-windows-manual-test-result=passed
+alpha-release-windows-manual-test-confirmed-at=2026-07-07T22:10:50Z
+alpha-release-windows-manual-test-confirmed-by=operator
+alpha-release-windows-manual-test-next-action=rerun-ci-release-workflows-after-marker-update
 ```
 
-用户完成 Windows 测试后，需要用独立提交把 status/result/confirmed 字段切换为可审计结果，
-再由 GitHub Actions 重新运行 CI 和 release workflow。若测试失败，应记录失败版本、环境和下一步修复动作，
-不得继续宣称 alpha Windows smoke 已通过。
+该确认仅覆盖上述 alpha placeholder 候选版本和 GitHub Actions Windows 证据；当前仍不生成 Windows artifact、
+installer、service、code signing、store upload 或 release asset。
 
 ## iOS App Review Manual Confirmation
 

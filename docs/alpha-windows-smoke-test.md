@@ -9,12 +9,15 @@
 | Field | Value |
 | --- | --- |
 | Alpha version | `v0.1.0-alpha.1` |
-| Commit | current release run head SHA |
-| CI run | same-commit successful CI selected by `release-ci-gate` |
-| Release run | current `workflow_dispatch` release run |
-| Release mode | `workflow_dispatch` placeholder |
+| Commit | `67e86a84388023df77e53537f3f209b5a05c1682` |
+| CI run | `28901464670` |
+| Release run | `28901692913` |
+| Release mode | tag push placeholder |
 | Windows CI evidence | `Workspace smoke (windows-latest)` and `Rust build and test (windows-latest)` success |
 | Release artifact status | `not-produced-placeholder` |
+| Manual Windows environment | Windows 11 24H2 x64 |
+| Manual local build/test | `not-run` |
+| Manual result | `passed` |
 
 当前 alpha 只证明 release workflow 的 placeholder gate 已启动并通过；它不生成
 Linux、Windows、iOS 或其他平台 release asset。Windows installer、Windows service、
