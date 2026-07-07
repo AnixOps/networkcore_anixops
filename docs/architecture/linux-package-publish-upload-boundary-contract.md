@@ -196,4 +196,4 @@ maintainer 上传文件、旧 run artifact、不同 commit artifact、不同 bra
   [Linux Package Artifact Attestation Execution Validation Contract](linux-package-artifact-attestation-execution-validation-contract.md)、
   [Linux Package Release Notes Rollback Execution Validation Contract](linux-package-release-notes-rollback-execution-validation-contract.md)
   和 [Linux Package Publish Eligibility Execution Validation Contract](linux-package-publish-eligibility-execution-validation-contract.md)
-  已定义；release CI gate execution validation contract 已定义；下一步可以补充 release CI gate API implementation plan，仍不发布 release asset。
+  已定义；release CI gate execution validation contract 和 release CI gate API implementation plan 已定义；下一步可以实现 release CI gate API read，仍不发布 release asset。

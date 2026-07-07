@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 补充 release CI gate API implementation plan，明确启用 `actions: read` 前的最小查询实现、GitHub Actions runs API 选择规则、CI summary job 校验和失败回滚边界，并继续不定义 `package-linux` 或发布 release asset。
+- [ ] 实现 `release-ci-gate` GitHub Actions API read 的首个最小增量，启用 job-level `actions: read`，自动选择同 repository、同 commit、`main` 的成功 CI run 并校验 CI summary job，继续不定义 `package-linux` 或发布 release asset。
 
 ## 已完成
 
+- [x] 补充 release CI gate API implementation plan，明确启用 `actions: read` 前的最小查询实现、GitHub Actions runs/jobs API 选择规则、CI summary job 校验、sanitized output 和失败回滚边界，并继续不定义 `package-linux` 或发布 release asset。
 - [x] 新增 `mitm-anixops-sys` 首个源码接入增量，通过 Git submodule 固定 `mitm_anixops`，在 Rust workspace 中编译 C core，并用一个 version FFI 测试证明 NetworkCore 已链接 `anixops_version()`。
 - [x] 补充 `mitm_anixops` adapter 设计，明确该 C ABI core 在 NetworkCore 中只能先作为 MITM 策略/plugin 兼容后端接入，真实全平台 MITM 仍依赖后续领域 mutation model、HTTP/TLS 数据面、证书/信任 platform adapter 和 GitHub Actions 多平台验证。
 - [x] 完成 release CI gate execution validation contract；新增 release CI gate execution validation contract，固定未来 release workflow 必须自动读取同 repository、同 commit、`main` 成功 CI run 的 API 字段、`actions: read` 权限、CI summary 成功校验、manual input blocked 和失败边界，并让 `release-ci-gate`、`linux-artifact-readiness`、release placeholder 与 release summary 输出 execution blocked 状态，继续不定义 `package-linux` 或发布 release asset。

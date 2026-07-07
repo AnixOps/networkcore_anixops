@@ -42,6 +42,7 @@
 - [docs/architecture/release-ci-success-source-contract.md](docs/architecture/release-ci-success-source-contract.md)
 - [docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md](docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md)
 - [docs/architecture/release-ci-gate-execution-validation-contract.md](docs/architecture/release-ci-gate-execution-validation-contract.md)
+- [docs/architecture/release-ci-gate-api-implementation-plan.md](docs/architecture/release-ci-gate-api-implementation-plan.md)
 - [docs/architecture/linux-package-artifact-job-preflight-validation-contract.md](docs/architecture/linux-package-artifact-job-preflight-validation-contract.md)
 - [docs/architecture/linux-package-artifact-build-command-validation-contract.md](docs/architecture/linux-package-artifact-build-command-validation-contract.md)
 - [docs/architecture/linux-package-artifact-staging-file-validation-contract.md](docs/architecture/linux-package-artifact-staging-file-validation-contract.md)

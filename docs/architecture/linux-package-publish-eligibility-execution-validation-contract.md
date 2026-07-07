@@ -218,4 +218,4 @@ release asset。
   workflow artifact bundle upload、attestation execution、release notes/rollback execution 和 publish
   eligibility execution gates 激活前，继续保持 `package-linux`、`attest-linux`、
   `publish-eligibility-gate`、`publish-github-release` 和 `post-release-summary` 未定义。
-- release CI gate execution validation contract 已定义；下一步可以补充 release CI gate API implementation plan，明确启用 `actions: read` 前的最小查询实现，并继续阻止 `package-linux` 和 GitHub Release asset。
+- release CI gate execution validation contract 和 release CI gate API implementation plan 已定义；下一步可以实现 release CI gate API read，并继续阻止 `package-linux` 和 GitHub Release asset。

@@ -73,6 +73,7 @@ jobs:
           test -f docs/architecture/linux-package-license-notice-transition-validation-contract.md
           test -f docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
           test -f docs/architecture/release-ci-gate-execution-validation-contract.md
+          test -f docs/architecture/release-ci-gate-api-implementation-plan.md
           test -f docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           test -f docs/architecture/linux-package-artifact-build-command-validation-contract.md
           test -f docs/architecture/linux-package-artifact-staging-file-validation-contract.md
@@ -99,11 +100,28 @@ jobs:
           grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
           grep -q "Linux Package Release CI Gate Activation Validation Contract" docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
           grep -q "Release CI Gate Execution Validation Contract" docs/architecture/release-ci-gate-execution-validation-contract.md
+          grep -q "Release CI Gate API Implementation Plan" docs/architecture/release-ci-gate-api-implementation-plan.md
           grep -q "release_ci_gate_execution_status" docs/architecture/release-ci-gate-execution-validation-contract.md
           grep -q "release_ci_gate_execution_required_permission" docs/architecture/release-ci-gate-execution-validation-contract.md
           grep -q "release_ci_gate_execution_api_status" docs/architecture/release-ci-gate-execution-validation-contract.md
           grep -q "release_ci_gate_execution_required_fields" docs/architecture/release-ci-gate-execution-validation-contract.md
           grep -q "Failure Boundary" docs/architecture/release-ci-gate-execution-validation-contract.md
+          grep -q "release_ci_gate_api_plan_status" docs/architecture/release-ci-gate-api-implementation-plan.md
+          grep -q "release_ci_gate_api_plan_required_permission" docs/architecture/release-ci-gate-api-implementation-plan.md
+          grep -q "release_ci_gate_api_plan_workflow_endpoint" docs/architecture/release-ci-gate-api-implementation-plan.md
+          grep -q "release_ci_gate_api_plan_jobs_endpoint" docs/architecture/release-ci-gate-api-implementation-plan.md
+          grep -q "release_ci_gate_api_plan_query_filters" docs/architecture/release-ci-gate-api-implementation-plan.md
+          grep -q "release_ci_gate_api_plan_selection" docs/architecture/release-ci-gate-api-implementation-plan.md
+          grep -q "release_ci_gate_api_plan_ci_summary" docs/architecture/release-ci-gate-api-implementation-plan.md
+          grep -q "release_ci_gate_api_plan_rollback" docs/architecture/release-ci-gate-api-implementation-plan.md
+          grep -q "release_ci_gate_api_plan_package_linux" docs/architecture/release-ci-gate-api-implementation-plan.md
+          grep -q "release_ci_gate_api_plan_release_asset" docs/architecture/release-ci-gate-api-implementation-plan.md
+          grep -q "Release CI gate API implementation plan" docs/ci-cd-policy.md
+          grep -q "release-ci-gate-api-implementation-plan.md" README.md
+          grep -q "release-ci-gate-api-implementation-plan.md" ROADMAP.md
+          grep -q "release-ci-gate-api-implementation-plan.md" docs/release-strategy.md
+          grep -q "Release CI Gate API Implementation Plan" docs/architecture/release-ci-gate-execution-validation-contract.md
+          grep -q "Release CI gate API implementation plan" docs/architecture/release-ci-success-source-contract.md
           grep -q "Linux Package Artifact Job Preflight Validation Contract" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           grep -q "package_artifact_job_preflight_status" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           grep -q "package_artifact_job_preflight_required_needs" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
