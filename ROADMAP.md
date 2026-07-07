@@ -34,6 +34,7 @@
 - [iOS Platform Adapter Source Contract](docs/architecture/ios-platform-adapter-source-contract.md)
 - [iOS Swift Network Extension Bridge Design](docs/architecture/ios-swift-network-extension-bridge-design.md)
 - [iOS Swift Xcode Bridge Source Contract](docs/architecture/ios-swift-xcode-bridge-source-contract.md)
+- [iOS Embedded Runtime FFI Boundary Design](docs/architecture/ios-embedded-runtime-ffi-boundary-design.md)
 - [ADR 0001: Initial Core Stack](docs/architecture/adr-0001-initial-core-stack.md)
 
 ## P2 Core Kernel Skeleton
@@ -98,6 +99,7 @@
 - [iOS Platform Adapter Source Contract](docs/architecture/ios-platform-adapter-source-contract.md)
 - [iOS Swift Network Extension Bridge Design](docs/architecture/ios-swift-network-extension-bridge-design.md)
 - [iOS Swift Xcode Bridge Source Contract](docs/architecture/ios-swift-xcode-bridge-source-contract.md)
+- [iOS Embedded Runtime FFI Boundary Design](docs/architecture/ios-embedded-runtime-ffi-boundary-design.md)
 - [Linux Artifact Pre-Release Design](docs/architecture/linux-artifact-pre-release-design.md)
 - [Linux Platform Adapter Design](docs/architecture/linux-platform-adapter.md)
 - [Linux CLI Entrypoint Design](docs/architecture/linux-cli-entrypoint.md)

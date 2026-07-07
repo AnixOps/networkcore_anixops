@@ -4,6 +4,7 @@
 [iOS Network Extension Design](ios-network-extension-design.md)、
 [iOS Swift Network Extension Bridge Design](ios-swift-network-extension-bridge-design.md)、
 [iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、
+[iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)、
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md) 和
 [Control Runtime Orchestration Design](control-runtime-orchestration.md)，用于约束
 iOS platform adapter 如何把 Apple 平台事实映射为领域层可消费的能力状态。
@@ -142,6 +143,8 @@ iOS 不能 fallback 到外部进程模型。`platform-ios` 必须显式表达 Ex
 
 - runtime 静态库、XCFramework 或 FFI bridge 缺失时，`embedded_runtime` 为 `Unavailable`。
 - ABI version mismatch、symbol missing、初始化失败或 Extension 资源限制必须产生诊断。
+- 后续 Rust staticlib、XCFramework、C ABI、owned buffer、panic/error mapping 和 ABI version negotiation
+  必须遵守 [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)。
 - adapter 不得启动 CLI、daemon、helper process 或外部代理二进制。
 - runtime 可用性只代表可以在 Extension 内加载，不代表 tunnel 已经启动或配置已通过。
 
@@ -223,6 +226,7 @@ TestFlight upload 或 App Store upload job：
 - `crates/platform-ios` 首个源码增量已通过 GitHub Actions。
 - Swift/Network Extension bridge design 已完成并通过 GitHub Actions static governance。
 - Swift/Xcode bridge source contract 已完成并通过 GitHub Actions static governance。
+- iOS embedded runtime FFI boundary design 已完成并通过 GitHub Actions static governance。
 - Apple Developer、App ID、Network Extension entitlement、Provisioning Profile、GitHub Secrets、
   隐私政策、App Review Notes 和目标地区 VPN 合规材料已完成人工确认。
 - MITM 证书生成、安装、信任检测和撤销设计已完成。

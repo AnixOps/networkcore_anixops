@@ -5,6 +5,7 @@
 [iOS Network Extension Design](ios-network-extension-design.md)、
 [iOS Platform Adapter Source Contract](ios-platform-adapter-source-contract.md) 和
 [iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、
+[iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)、
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
 
 当前状态：design-only。仓库仍不包含 Swift package、Xcode project、Network Extension target、
@@ -105,6 +106,8 @@ Bridge 只能传递 secret handle 是否存在、读取是否允许和诊断 cod
 ### Embedded Runtime
 
 Bridge 必须在 Extension 进程内验证嵌入式 runtime，不能 fallback 到外部进程、CLI 或 daemon。
+后续 Rust staticlib、XCFramework、C ABI、owned buffer、panic/error mapping 和 ABI version negotiation
+必须遵守 [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)。
 
 映射规则：
 
@@ -187,6 +190,7 @@ TestFlight upload 或 App Store upload job：
 
 - 本 bridge design 已通过 GitHub Actions static governance。
 - Swift/Xcode source contract 已完成并通过 GitHub Actions static governance。
+- iOS embedded runtime FFI boundary design 已完成并通过 GitHub Actions static governance。
 - Swift bridge、Network Extension target 和 Rust embedded runtime bridge 已在 GitHub Actions `macos-26` runner 验证。
 - Apple Developer、App ID、Network Extension entitlement、Provisioning Profile、GitHub Secrets、隐私政策、
   App Review Notes 和目标地区 VPN 合规材料已完成人工确认。

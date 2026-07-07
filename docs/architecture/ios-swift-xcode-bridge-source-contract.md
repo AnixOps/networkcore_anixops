@@ -5,6 +5,7 @@ GitHub Actions 验证入口的 source contract。它承接
 [iOS Network Extension Design](ios-network-extension-design.md)、
 [iOS Platform Adapter Source Contract](ios-platform-adapter-source-contract.md)、
 [iOS Swift Network Extension Bridge Design](ios-swift-network-extension-bridge-design.md) 和
+[iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)、
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
 
 当前状态：contract-only。仓库仍不包含 `Package.swift`、Xcode project、workspace、Swift source、
@@ -94,7 +95,8 @@ Keychain value、certificate DER/PEM、private key、profile payload、traffic s
 
 ## FFI Boundary
 
-后续 FFI 必须先以独立 Rust embedded runtime/FFI design 固定 ABI，再加入源码。最小要求：
+后续 FFI 必须遵守 [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)
+固定 ABI，再加入源码。最小要求：
 
 - FFI 使用 stable C ABI 或 generated bindings，不能依赖 Swift-only object layout。
 - 每次 handoff 必须携带 ABI version、DTO schema version 和 feature set version。
@@ -173,6 +175,7 @@ Secrets/Apple 官方平台支持，不能在仓库内保存凭据。
 TestFlight upload 或 App Store upload job：
 
 - 本合同和相关 iOS design 已通过 GitHub Actions static governance。
+- iOS embedded runtime FFI boundary design 已完成并通过 GitHub Actions static governance。
 - Swift bridge、Network Extension target、FFI boundary 和 embedded runtime 已在 GitHub Actions `macos-26`
   runner 通过 `swift build`、`swift test` 和必要的 `xcodebuild` 验证。
 - Apple Developer、App ID、Network Extension entitlement、Provisioning Profile、GitHub Secrets、隐私政策、

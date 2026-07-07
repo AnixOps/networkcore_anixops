@@ -42,6 +42,7 @@
 - iOS platform adapter crate README、workspace、源码类型和合同测试检查
 - iOS Swift/Network Extension bridge design 检查
 - iOS Swift/Xcode bridge source contract 检查
+- iOS embedded runtime FFI boundary design 检查
 - Linux artifact 发布前设计文件检查
 - Linux platform adapter 设计文件检查
 - Linux platform adapter crate README 和 Rust workspace 覆盖检查
@@ -122,9 +123,11 @@ iOS 相关验证只允许在 macOS runner 中执行。为优先支持最新 Appl
 iOS Network Extension 当前只允许先做 design、source contract 和 static governance 检查；Swift/Network
 Extension bridge design 只定义 Apple SDK 事实如何去敏后传入 `platform-ios` snapshot，Swift/Xcode bridge
 source contract 只定义后续 Swift package、Network Extension target、FFI/DTO 文件布局、`macos-26` 验证入口
-和 signing/provisioning secret 禁止提交规则，不引入 Swift/Xcode project、Network Extension target、
-entitlement、签名或 release asset。出现 Swift、Xcode project、Network Extension target 或签名验证后，
-相关 `swift build`、`swift test`、`xcodebuild`、签名、TestFlight 或 App Store Connect 验证仍只能在
+和 signing/provisioning secret 禁止提交规则，embedded runtime FFI boundary design 只定义后续 Rust
+staticlib/XCFramework、C ABI symbol、ABI version negotiation、owned string/buffer、panic/error mapping 和
+`macos-26` 验证入口，不引入 Rust FFI crate、Swift/Xcode project、Network Extension target、entitlement、
+签名或 release asset。出现 Swift、Xcode project、Network Extension target、FFI runtime 或签名验证后，
+相关 `cargo build`、`swift build`、`swift test`、`xcodebuild`、签名、TestFlight 或 App Store Connect 验证仍只能在
 GitHub Actions 或 Apple 官方平台执行。
 
 ## 内核与客户端演进
