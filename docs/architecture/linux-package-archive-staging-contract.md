@@ -4,6 +4,7 @@
 archive staging、文件来源和顶层目录组装合同。checksum 文件命名、sha256 计算顺序和
 manifest 交叉校验边界由 [Linux Package Checksum Manifest Contract](linux-package-checksum-manifest-contract.md)
 定义，上传边界由 [Linux Package Publish Upload Boundary Contract](linux-package-publish-upload-boundary-contract.md)
+定义，签名/证明边界由 [Linux Package Signing Attestation Policy Binding Contract](linux-package-signing-attestation-policy-binding-contract.md)
 定义。当前仍为 placeholder 合同，不定义 `package-linux` job、不构建、不打包、不上传 artifact。
 
 评估时间：2026-07-07。
@@ -138,9 +139,9 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、Git
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux package
   manifest 设计、Linux package checksum manifest contract、Linux package publish/upload boundary
-  contract、Linux CLI artifact 安装/回滚设计、Release CI success source contract、Linux package
-  runner/toolchain/target contract、Linux artifact license/NOTICE confirmation source contract 和 CI
-  policy 中可发现。
+  contract、Linux package signing/attestation policy binding contract、Linux CLI artifact 安装/回滚设计、
+  Release CI success source contract、Linux package runner/toolchain/target contract、Linux artifact
+  license/NOTICE confirmation source contract 和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题和
   release placeholder/summary 输出字段。
@@ -153,5 +154,6 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、Git
 ## 后续工作
 
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
-- Linux package checksum manifest contract 和 publish/upload boundary contract 已定义；下一步可以补充
-  Linux package signing/attestation policy binding contract，仍不生成 artifact。
+- Linux package checksum manifest contract、publish/upload boundary contract 和 signing/attestation
+  policy binding contract 已定义；下一步可以补充 Linux package release notes/rollback policy
+  binding contract，仍不生成 artifact。

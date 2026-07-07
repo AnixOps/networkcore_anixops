@@ -152,8 +152,9 @@ checksum 生成后继续修改 manifest。
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux package
   manifest 设计、Linux package publish/upload boundary contract、Linux CLI artifact 安装/回滚设计、
-  Release CI success source contract、Linux package runner/toolchain/target contract、Linux package
-  archive staging contract、Linux artifact license/NOTICE confirmation source contract 和 CI policy 中可发现。
+  Linux package signing/attestation policy binding contract、Release CI success source contract、
+  Linux package runner/toolchain/target contract、Linux package archive staging contract、Linux artifact
+  license/NOTICE confirmation source contract 和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题和
   release placeholder/summary 输出字段。
@@ -165,5 +166,5 @@ checksum 生成后继续修改 manifest。
 ## 后续工作
 
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
-- Linux package publish/upload boundary contract 已定义；下一步可以补充 Linux package
-  signing/attestation policy binding contract，仍不生成 artifact。
+- Linux package publish/upload boundary contract 和 signing/attestation policy binding contract 已定义；
+  下一步可以补充 Linux package release notes/rollback policy binding contract，仍不生成 artifact。

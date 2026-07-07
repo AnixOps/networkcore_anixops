@@ -64,6 +64,7 @@ jobs:
           test -f docs/architecture/linux-package-archive-staging-contract.md
           test -f docs/architecture/linux-package-checksum-manifest-contract.md
           test -f docs/architecture/linux-package-publish-upload-boundary-contract.md
+          test -f docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
           test -f docs/architecture/adr-0001-initial-core-stack.md
           grep -q "本机只负责代码" AGENT.md
           grep -q "GitHub Actions" docs/ci-cd-policy.md
@@ -99,6 +100,13 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-publish-download-source=same-run-workflow-artifact"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-release-asset-overwrite-policy=forbidden"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-release-asset-upload=blocked"$' .github/workflows/release.yml)" -ge 3
+          grep -q "Linux Package Signing Attestation Policy Binding Contract" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
+          test "$(grep -Ec '^          echo "linux-package-signing-attestation-policy-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-signing-policy=unsigned-no-detached-signature"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-attestation-policy=github-artifact-attestation-required"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-attestation-status=blocked-not-attested"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-provenance-file=github-artifact-attestation"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-without-attestation=blocked"$' .github/workflows/release.yml)" -ge 3
           grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
           grep -q "networkcore-linux" apps/linux-cli/README.md
@@ -129,6 +137,7 @@ jobs:
           grep -q "Linux Package Archive Staging Contract" docs/architecture/linux-package-archive-staging-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
           grep -q "Linux Package Publish Upload Boundary Contract" docs/architecture/linux-package-publish-upload-boundary-contract.md
+          grep -q "Linux Package Signing Attestation Policy Binding Contract" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
           grep -q "ADR 0001: Initial Core Stack" docs/architecture/adr-0001-initial-core-stack.md
 
   detect-projects:

@@ -175,12 +175,12 @@ jobs:
             echo "| Current signing mode | not configured |"
             echo "| Required future gate | platform artifacts must declare signing or attestation policy before publish |"
             echo "| Credential handling | GitHub Secrets, Environments, or official platform only |"
-            echo "| Required job outputs | signing_policy, signing_status, attestation_status, provenance_file |"
+            echo "| Required job outputs | signing_policy, signing_status, attestation_policy, attestation_status, provenance_policy, provenance_file |"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "release-signing-contract=placeholder"
           echo "release-signing-required-before-publish=true"
           echo "release-attestation-required-when-supported=true"
-          echo "release-signing-output-fields=signing_policy,signing_status,attestation_status,provenance_file"
+          echo "release-signing-output-fields=signing_policy,signing_status,attestation_policy,attestation_status,provenance_policy,provenance_file"
 
   release-rollback-contract:
     name: Release rollback contract
@@ -240,6 +240,7 @@ jobs:
           test -f docs/architecture/linux-package-archive-staging-contract.md
           test -f docs/architecture/linux-package-checksum-manifest-contract.md
           test -f docs/architecture/linux-package-publish-upload-boundary-contract.md
+          test -f docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
           test -f docs/manual-intervention.md
           grep -q "networkcore-linux" apps/linux-cli/README.md
           grep -q "handle_foreground_lifecycle_with_runtime_stop" apps/linux-cli/src/lib.rs
@@ -263,6 +264,7 @@ jobs:
           grep -q "Linux Package Archive Staging Contract" docs/architecture/linux-package-archive-staging-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
           grep -q "Linux Package Publish Upload Boundary Contract" docs/architecture/linux-package-publish-upload-boundary-contract.md
+          grep -q "Linux Package Signing Attestation Policy Binding Contract" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
           grep -q "artifact_manifest_path" docs/architecture/linux-package-artifact-manifest.md
           grep -q "artifact_manifest_checksum_value" docs/architecture/linux-package-artifact-manifest.md
           grep -q "rust_target_triple" docs/architecture/linux-package-runner-toolchain-target-contract.md
@@ -275,6 +277,9 @@ jobs:
           grep -q "package_workflow_artifact_retention_days" docs/architecture/linux-package-publish-upload-boundary-contract.md
           grep -q "package_release_asset_overwrite_policy" docs/architecture/linux-package-publish-upload-boundary-contract.md
           grep -q "package_publish_download_source" docs/architecture/linux-package-publish-upload-boundary-contract.md
+          grep -q "package_signing_policy" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
+          grep -q "package_attestation_policy" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
+          grep -q "package_provenance_file" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
           grep -q "Linux Artifact Manifest Output Contract" .github/workflows/release.yml
           grep -q "linux-artifact-manifest-output-fields" .github/workflows/release.yml
           grep -q "Linux Artifact License/NOTICE Source Contract" .github/workflows/release.yml
@@ -301,6 +306,13 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-publish-download-source=same-run-workflow-artifact"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-release-asset-overwrite-policy=forbidden"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-release-asset-upload=blocked"$' .github/workflows/release.yml)" -ge 3
+          grep -Eq '^[[:space:]]+echo "### Linux Package Signing Attestation Policy Binding Contract"$' .github/workflows/release.yml
+          test "$(grep -Ec '^          echo "linux-package-signing-attestation-policy-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-signing-policy=unsigned-no-detached-signature"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-attestation-policy=github-artifact-attestation-required"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-attestation-status=blocked-not-attested"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-provenance-file=github-artifact-attestation"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-without-attestation=blocked"$' .github/workflows/release.yml)" -ge 3
           grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-package-linux=blocked" docs/manual-intervention.md
@@ -313,6 +325,10 @@ jobs:
           fi
           if grep -Eq '^  publish-github-release:' .github/workflows/release.yml; then
             echo "::error::publish-github-release must stay undefined until publish/upload gates are complete."
+            exit 1
+          fi
+          if grep -Eq '^  (attest-linux|sign-linux):' .github/workflows/release.yml; then
+            echo "::error::attest-linux and sign-linux must stay undefined until signing/attestation gates are complete."
             exit 1
           fi
           {
@@ -332,6 +348,7 @@ jobs:
             echo "| Package archive staging contract | present |"
             echo "| Package checksum/manifest checksum contract | present |"
             echo "| Package publish/upload boundary contract | present |"
+            echo "| Package signing/attestation policy binding contract | present |"
             echo "| Install and rollback design | present |"
             echo "| License or NOTICE confirmation | pending in docs/manual-intervention.md |"
             echo "| Release asset upload | blocked until package-linux, checksum, signing/attestation, rollback, and license/NOTICE gates are complete |"
@@ -400,6 +417,23 @@ jobs:
           echo "linux-package-release-asset-overwrite-policy=forbidden"
           echo "linux-package-release-asset-delete-policy=withdrawal-not-overwrite"
           echo "linux-package-release-asset-visibility=blocked-placeholder"
+          echo "linux-package-signing-attestation-policy-contract=present"
+          echo "linux-package-signing-attestation-contract=docs/architecture/linux-package-signing-attestation-policy-binding-contract.md"
+          echo "linux-package-signing-policy=unsigned-no-detached-signature"
+          echo "linux-package-signing-status=blocked-not-signed"
+          echo "linux-package-detached-signature-required=false"
+          echo "linux-package-signature-asset=not-included"
+          echo "linux-package-signing-job-name=not-defined-until-detached-signature-policy"
+          echo "linux-package-attestation-policy=github-artifact-attestation-required"
+          echo "linux-package-attestation-status=blocked-not-attested"
+          echo "linux-package-attestation-job-name=attest-linux"
+          echo "linux-package-attestation-download-source=same-run-workflow-artifact"
+          echo "linux-package-attestation-subjects=archive,archive_sha256,manifest,manifest_sha256"
+          echo "linux-package-provenance-policy=github-build-provenance-required"
+          echo "linux-package-provenance-file=github-artifact-attestation"
+          echo "linux-package-provenance-status=blocked-not-generated"
+          echo "linux-package-publish-requires-attestation=true"
+          echo "linux-package-publish-without-attestation=blocked"
           echo "linux-artifact-install-rollback-design=present"
           echo "linux-artifact-license-notice=manual-confirmation-required"
           echo "linux-artifact-release-assets=blocked"
@@ -420,8 +454,10 @@ jobs:
           test -f docs/manual-intervention.md
           test -f docs/architecture/linux-package-checksum-manifest-contract.md
           test -f docs/architecture/linux-package-publish-upload-boundary-contract.md
+          test -f docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
           grep -q "Linux Package Publish Upload Boundary Contract" docs/architecture/linux-package-publish-upload-boundary-contract.md
+          grep -q "Linux Package Signing Attestation Policy Binding Contract" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
           grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-package-linux=blocked" docs/manual-intervention.md
@@ -432,6 +468,10 @@ jobs:
           fi
           if grep -Eq '^  publish-github-release:' .github/workflows/release.yml; then
             echo "::error::publish-github-release must stay undefined until publish/upload gates are complete."
+            exit 1
+          fi
+          if grep -Eq '^  (attest-linux|sign-linux):' .github/workflows/release.yml; then
+            echo "::error::attest-linux and sign-linux must stay undefined until signing/attestation gates are complete."
             exit 1
           fi
           echo "No release artifacts are defined yet."
@@ -531,6 +571,32 @@ jobs:
             echo "| Current package-linux job | not defined |"
             echo "| Current publish-github-release job | not defined |"
             echo
+            echo "### Linux Package Signing Attestation Policy Binding Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | placeholder summary only |"
+            echo "| Source contract | docs/architecture/linux-package-signing-attestation-policy-binding-contract.md |"
+            echo "| Signing policy | unsigned-no-detached-signature |"
+            echo "| Signing status | blocked-not-signed |"
+            echo "| Detached signature required | false |"
+            echo "| Signature asset | not-included |"
+            echo "| Signing job | not-defined-until-detached-signature-policy |"
+            echo "| Attestation policy | github-artifact-attestation-required |"
+            echo "| Attestation status | blocked-not-attested |"
+            echo "| Attestation job | attest-linux |"
+            echo "| Attestation download source | same-run-workflow-artifact |"
+            echo "| Attestation subjects | archive, archive_sha256, manifest, manifest_sha256 |"
+            echo "| Provenance policy | github-build-provenance-required |"
+            echo "| Provenance file | github-artifact-attestation |"
+            echo "| Provenance status | blocked-not-generated |"
+            echo "| Publish requires attestation | true |"
+            echo "| Publish without attestation | blocked |"
+            echo "| Current package-linux job | not defined |"
+            echo "| Current attest-linux job | not defined |"
+            echo "| Current sign-linux job | not defined |"
+            echo "| Current publish-github-release job | not defined |"
+            echo
             echo "### Linux Artifact License/NOTICE Source Contract"
             echo
             echo "| Item | Status |"
@@ -602,6 +668,23 @@ jobs:
           echo "linux-package-release-asset-overwrite-policy=forbidden"
           echo "linux-package-release-asset-delete-policy=withdrawal-not-overwrite"
           echo "linux-package-release-asset-visibility=blocked-placeholder"
+          echo "linux-package-signing-attestation-policy-contract=present"
+          echo "linux-package-signing-attestation-contract=docs/architecture/linux-package-signing-attestation-policy-binding-contract.md"
+          echo "linux-package-signing-policy=unsigned-no-detached-signature"
+          echo "linux-package-signing-status=blocked-not-signed"
+          echo "linux-package-detached-signature-required=false"
+          echo "linux-package-signature-asset=not-included"
+          echo "linux-package-signing-job-name=not-defined-until-detached-signature-policy"
+          echo "linux-package-attestation-policy=github-artifact-attestation-required"
+          echo "linux-package-attestation-status=blocked-not-attested"
+          echo "linux-package-attestation-job-name=attest-linux"
+          echo "linux-package-attestation-download-source=same-run-workflow-artifact"
+          echo "linux-package-attestation-subjects=archive,archive_sha256,manifest,manifest_sha256"
+          echo "linux-package-provenance-policy=github-build-provenance-required"
+          echo "linux-package-provenance-file=github-artifact-attestation"
+          echo "linux-package-provenance-status=blocked-not-generated"
+          echo "linux-package-publish-requires-attestation=true"
+          echo "linux-package-publish-without-attestation=blocked"
           echo "linux-artifact-license-notice-contract=present"
           echo "linux-artifact-license-notice-source=docs/manual-intervention.md"
           echo "linux-artifact-license-notice-status=pending"
@@ -681,6 +764,16 @@ jobs:
             echo "| Linux package release asset required files | archive, archive_sha256, manifest, manifest_sha256 |"
             echo "| Linux package release asset overwrite policy | forbidden |"
             echo "| Linux package release asset upload | blocked |"
+            echo "| Linux package signing/attestation policy binding contract | summarized in release-placeholder |"
+            echo "| Linux package signing policy | unsigned-no-detached-signature |"
+            echo "| Linux package signing status | blocked-not-signed |"
+            echo "| Linux package attestation policy | github-artifact-attestation-required |"
+            echo "| Linux package attestation status | blocked-not-attested |"
+            echo "| Linux package attestation subjects | archive, archive_sha256, manifest, manifest_sha256 |"
+            echo "| Linux package provenance policy | github-build-provenance-required |"
+            echo "| Linux package provenance file | github-artifact-attestation |"
+            echo "| Linux package provenance status | blocked-not-generated |"
+            echo "| Linux package publish without attestation | blocked |"
             echo "| Linux artifact license/NOTICE contract | checked in linux-artifact-readiness |"
             echo "| Linux artifact license/NOTICE status | pending in docs/manual-intervention.md |"
             echo "| Release placeholder | ${{ needs.release-placeholder.result }} |"
@@ -764,6 +857,23 @@ jobs:
           echo "linux-package-release-asset-overwrite-policy=forbidden"
           echo "linux-package-release-asset-delete-policy=withdrawal-not-overwrite"
           echo "linux-package-release-asset-visibility=blocked-placeholder"
+          echo "linux-package-signing-attestation-policy-contract=present"
+          echo "linux-package-signing-attestation-contract=docs/architecture/linux-package-signing-attestation-policy-binding-contract.md"
+          echo "linux-package-signing-policy=unsigned-no-detached-signature"
+          echo "linux-package-signing-status=blocked-not-signed"
+          echo "linux-package-detached-signature-required=false"
+          echo "linux-package-signature-asset=not-included"
+          echo "linux-package-signing-job-name=not-defined-until-detached-signature-policy"
+          echo "linux-package-attestation-policy=github-artifact-attestation-required"
+          echo "linux-package-attestation-status=blocked-not-attested"
+          echo "linux-package-attestation-job-name=attest-linux"
+          echo "linux-package-attestation-download-source=same-run-workflow-artifact"
+          echo "linux-package-attestation-subjects=archive,archive_sha256,manifest,manifest_sha256"
+          echo "linux-package-provenance-policy=github-build-provenance-required"
+          echo "linux-package-provenance-file=github-artifact-attestation"
+          echo "linux-package-provenance-status=blocked-not-generated"
+          echo "linux-package-publish-requires-attestation=true"
+          echo "linux-package-publish-without-attestation=blocked"
           echo "linux-artifact-license-notice-contract=present"
           echo "linux-artifact-license-notice-source=docs/manual-intervention.md"
           echo "linux-artifact-license-notice-status=pending"

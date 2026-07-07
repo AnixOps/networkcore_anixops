@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 补充 Linux package signing/attestation policy binding contract，明确首个 Linux artifact 的签名、attestation、provenance 字段和未启用时的阻断/说明策略，继续保持 placeholder 不生成 artifact。
+- [ ] 补充 Linux package release notes/rollback policy binding contract，明确首个 Linux artifact 的 release notes 字段、rollback summary、withdrawal/replacement 策略和未启用时的 blocked 状态，继续保持 placeholder 不生成 artifact。
 
 ## 已完成
 
+- [x] 完成 Linux package signing/attestation policy binding contract；新增 signing/attestation policy binding contract，固定首个 Linux artifact 的 unsigned-no-detached-signature 策略、GitHub artifact attestation/provenance required 策略、attestation subjects、provenance reference、blocked status 和 publish without attestation 阻断，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出该合同，继续不定义 `package-linux`、`attest-linux`、`sign-linux`、`publish-github-release` 或上传 artifact。
 - [x] 完成 Linux package publish/upload boundary 合同；新增 publish upload boundary contract，固定 future `package-linux` 的 workflow artifact bundle 名称、upload source dir、required files、retention days、publish job/download source、release asset set、禁止覆盖策略和 blocked status，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出该合同，继续不定义 `package-linux`、`publish-github-release` 或上传 artifact。
 - [x] 完成 Linux package checksum/manifest checksum 合同；新增 checksum manifest contract，固定 future `package-linux` 的 archive checksum 文件名/路径、manifest 文件名/路径、manifest checksum 文件名/路径、`sha256` 计算顺序、checksum record 格式和 manifest 交叉校验字段，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出该合同，继续不定义 `package-linux` 或生成 artifact。
 - [x] 完成 Linux package archive staging 合同；新增 archive staging contract，固定 future `package-linux` 的 `dist/linux/${target}`、staging root、`networkcore-linux-${version}-${target}` 顶层目录、archive output/path、`bin/networkcore-linux`、`INSTALL.md`、license/NOTICE confirmed 来源和 `CHANGELOG.md` 文件来源，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出该合同，继续不定义 `package-linux` 或生成 artifact。
