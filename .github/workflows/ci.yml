@@ -62,6 +62,7 @@ jobs:
           test -f docs/architecture/ios-mitm-certificate-lifecycle-design.md
           test -f docs/architecture/ios-entitlement-provisioning-source-contract.md
           test -f docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          test -f docs/architecture/ios-privacy-manifest-source-contract.md
           test -f docs/architecture/linux-artifact-pre-release-design.md
           test -f docs/architecture/linux-platform-adapter.md
           test -f docs/architecture/linux-cli-entrypoint.md
@@ -694,6 +695,35 @@ jobs:
           grep -q "macos-26" docs/architecture/ios-app-review-privacy-release-readiness-design.md
           grep -q "no TestFlight upload" docs/architecture/ios-app-review-privacy-release-readiness-design.md
           grep -q "no iOS release asset" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "iOS Privacy Manifest Source Contract" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "PrivacyInfo.xcprivacy" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "NSPrivacyCollectedDataTypes" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "NSPrivacyCollectedDataType" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "NSPrivacyCollectedDataTypeLinked" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "NSPrivacyCollectedDataTypeTracking" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "NSPrivacyCollectedDataTypePurposes" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "NSPrivacyAccessedAPITypes" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "NSPrivacyAccessedAPITypeReasons" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "NSPrivacyAccessedAPICategoryFileTimestamp" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "NSPrivacyAccessedAPICategorySystemBootTime" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "NSPrivacyAccessedAPICategoryDiskSpace" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "NSPrivacyAccessedAPICategoryActiveKeyboards" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "NSPrivacyAccessedAPICategoryUserDefaults" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "NSPrivacyTracking" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "NSPrivacyTrackingDomains" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "Data Used to Track You" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "Data Linked to You" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "Data Not Linked to You" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "App Privacy answer source" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "third-party SDK privacy manifest" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "SDK signature" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "platform.ios.privacy_manifest.accessed_api_reason_missing" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "platform.ios.privacy_manifest.app_privacy_answers_missing" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "plutil" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "macos-26" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "no PrivacyInfo.xcprivacy" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "no TestFlight upload" docs/architecture/ios-privacy-manifest-source-contract.md
+          grep -q "no iOS release asset" docs/architecture/ios-privacy-manifest-source-contract.md
           if find . -path ./.git -prune -o -type f \( -name "PrivacyInfo.xcprivacy" -o -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" \) -print -quit | grep -q .; then
             echo "::error::iOS PrivacyInfo, entitlement, provisioning, signing, or binary embedding material must stay out of the repository until the iOS source contracts allow it."
             exit 1

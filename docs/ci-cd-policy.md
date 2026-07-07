@@ -46,6 +46,7 @@
 - iOS MITM certificate lifecycle design 检查
 - iOS entitlement/provisioning source contract 检查
 - iOS App Review/privacy release readiness design 检查
+- iOS Privacy Manifest source contract 检查
 - Linux artifact 发布前设计文件检查
 - Linux platform adapter 设计文件检查
 - Linux platform adapter crate README 和 Rust workspace 覆盖检查
@@ -134,10 +135,13 @@ user trust confirmation、fingerprint/expiration/revocation 检测、`Certificat
 Network Extension capability、Provisioning Profile、GitHub Secrets、signing asset redaction 和 `macos-26`
 验证入口，App Review/privacy release readiness design 只定义后续 Privacy Manifest、`PrivacyInfo.xcprivacy`、
 App Privacy disclosure、privacy policy、App Review Notes、VPN compliance、TestFlight/App Store Connect
-manual intervention 和 `macos-26` 静态门禁，不引入 Rust FFI crate、Swift/Xcode project、Network Extension target、
-configuration profile、CA certificate、private key、真实 entitlement、PrivacyInfo.xcprivacy、签名、TestFlight upload、
-App Store upload 或 release asset。出现 Swift、Xcode project、Network Extension target、
-FFI runtime、certificate lifecycle source、entitlement/provisioning source、Privacy Manifest source 或签名验证后，
+manual intervention 和 `macos-26` 静态门禁，Privacy Manifest source contract 只定义后续 `PrivacyInfo.xcprivacy`、
+`NSPrivacyCollectedDataTypes`、`NSPrivacyAccessedAPITypes`、Required Reason API、App Privacy answer source、
+third-party SDK privacy manifest、SDK signature 和 `macos-26` 静态验证入口，不引入 Rust FFI crate、
+Swift/Xcode project、Network Extension target、configuration profile、CA certificate、private key、真实 entitlement、
+PrivacyInfo.xcprivacy、签名、TestFlight upload、App Store upload 或 release asset。出现 Swift、Xcode project、
+Network Extension target、FFI runtime、certificate lifecycle source、entitlement/provisioning source、
+Privacy Manifest source 或签名验证后，
 相关 `cargo build`、`swift build`、`swift test`、`xcodebuild`、签名、TestFlight 或 App Store Connect 验证仍只能在
 GitHub Actions 或 Apple 官方平台执行。
 
@@ -160,7 +164,7 @@ GitHub Actions 或 Apple 官方平台执行。
 - 首次推送 bootstrap 文件
 - GitHub CLI 登录或授权
 - Apple Developer 账号、证书、Provisioning Profile、App Store Connect 配置
-- App Store Connect App Privacy 问卷、隐私政策 URL、App Review Notes、TestFlight group 和 VPN compliance 材料
+- App Store Connect App Privacy 问卷、Privacy Manifest/Required Reason API review、隐私政策 URL、App Review Notes、TestFlight group 和 VPN compliance 材料
 - GitHub Secrets 配置
 - 第一次确认 GitHub Actions 权限
 - Linux artifact license/NOTICE 文本确认

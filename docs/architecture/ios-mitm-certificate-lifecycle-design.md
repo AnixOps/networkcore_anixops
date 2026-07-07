@@ -8,7 +8,8 @@
 [iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、
 [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)、
 [iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)、
-[iOS App Review Privacy Release Readiness Design](ios-app-review-privacy-release-readiness-design.md) 和
+[iOS App Review Privacy Release Readiness Design](ios-app-review-privacy-release-readiness-design.md)、
+[iOS Privacy Manifest Source Contract](ios-privacy-manifest-source-contract.md) 和
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
 
 当前状态：design-only。仓库仍不包含 Swift source、`Package.swift`、Xcode project、Network Extension target、
@@ -249,6 +250,7 @@ TestFlight upload 或 App Store upload job：
 - 本设计和相关 iOS contracts 已通过 GitHub Actions static governance。
 - iOS entitlement/provisioning source contract 已完成并通过 GitHub Actions static governance。
 - iOS App Review/privacy release readiness design 已完成并通过 GitHub Actions static governance。
+- iOS Privacy Manifest source contract 已完成并通过 GitHub Actions static governance。
 - Swift certificate lifecycle source、Swift bridge、Network Extension target、FFI boundary 和 embedded runtime
   已在 GitHub Actions `macos-26` runner 通过验证。
 - Apple Developer、App ID、Network Extension entitlement、Provisioning Profile、GitHub Secrets、App Privacy disclosure、

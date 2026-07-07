@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 补充 iOS Privacy Manifest source contract，定义后续 `PrivacyInfo.xcprivacy` 文件位置、`NSPrivacyCollectedDataTypes`/`NSPrivacyAccessedAPITypes` 字段、Required Reason API 审查、App Store Connect App Privacy 答案来源和 GitHub Actions `macos-26` 静态验证入口；仍不引入 Swift/Xcode project、`PrivacyInfo.xcprivacy`、Network Extension target、真实签名、TestFlight 上传或 iOS release asset。Linux artifact 继续等待 license/NOTICE confirmed marker，期间不得定义 `package-linux` 或发布 release asset。
+- [ ] 补充 iOS App Review Notes/manual confirmation source contract，定义 App Privacy answers、privacy policy URL、demo account、review attachment、VPN compliance marker、TestFlight group 和 App Store Connect 人工确认的机器可读 marker 与 GitHub Actions 静态门禁；仍不引入 Swift/Xcode project、`PrivacyInfo.xcprivacy`、Network Extension target、真实签名、TestFlight 上传或 iOS release asset。Linux artifact 继续等待 license/NOTICE confirmed marker，期间不得定义 `package-linux` 或发布 release asset。
 
 ## 已完成
 
+- [x] 补充 iOS Privacy Manifest source contract，定义后续 `PrivacyInfo.xcprivacy` 文件位置、`NSPrivacyCollectedDataTypes`/`NSPrivacyAccessedAPITypes` 字段、Required Reason API 审查、App Store Connect App Privacy 答案来源和 GitHub Actions `macos-26` 静态验证入口；仍不引入 Swift/Xcode project、`PrivacyInfo.xcprivacy`、Network Extension target、真实签名、TestFlight 上传或 iOS release asset。
 - [x] 补充 iOS App Review/privacy release readiness design，定义后续 Privacy Manifest、隐私政策、App Review Notes、VPN 合规材料、TestFlight/App Store Connect 人工确认和 GitHub Actions 静态门禁；仍不引入 Swift/Xcode project、Network Extension target、真实签名、TestFlight 上传或 iOS release asset。
 - [x] 补充 iOS entitlement/provisioning source contract，定义后续 `.entitlements`、App ID、Network Extension capability、Provisioning Profile、GitHub Secrets、signing asset redaction 和 GitHub Actions `macos-26` 验证入口；仍不引入 Swift/Xcode project、Network Extension target、真实签名、TestFlight 上传或 iOS release asset。
 - [x] 补充 iOS MITM certificate lifecycle design，定义后续 CA 生成、安装提示、用户信任确认、fingerprint 校验、撤销/过期检测、`CertificateTrustState` 映射和 GitHub Actions `macos-26` 验证入口；仍不引入 Swift/Xcode project、Network Extension target、签名、TestFlight 上传或 iOS release asset。

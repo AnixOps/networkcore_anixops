@@ -8,7 +8,8 @@ GitHub Secrets、signing asset redaction 和 GitHub Actions `macos-26` 验证入
 [iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、
 [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)、
 [iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md) 和
-[iOS App Review Privacy Release Readiness Design](ios-app-review-privacy-release-readiness-design.md) 以及
+[iOS App Review Privacy Release Readiness Design](ios-app-review-privacy-release-readiness-design.md)、
+[iOS Privacy Manifest Source Contract](ios-privacy-manifest-source-contract.md) 以及
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
 
 当前状态：contract-only。仓库仍不包含 `.entitlements`、Swift source、`Package.swift`、Xcode project、

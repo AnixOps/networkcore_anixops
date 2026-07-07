@@ -6,7 +6,8 @@
 [iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、
 [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)、
 [iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md) 和
-[iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)。
+[iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)、
+[iOS Privacy Manifest Source Contract](ios-privacy-manifest-source-contract.md)。
 
 当前状态：design-only。仓库仍不包含 Swift source、`Package.swift`、Xcode project、Network Extension target、
 `PrivacyInfo.xcprivacy`、App Store Connect 配置、App Privacy 问卷、privacy policy URL、App Review Notes、
@@ -171,7 +172,8 @@ iOS release workflow 在以下条件满足前不得定义 TestFlight upload、Ap
 release asset：
 
 - 本设计、iOS risk assessment、Network Extension design、Swift/Xcode bridge source contract、embedded runtime FFI
-  boundary、MITM certificate lifecycle design 和 entitlement/provisioning source contract 已通过 CI static governance。
+  boundary、MITM certificate lifecycle design、entitlement/provisioning source contract 和 Privacy Manifest source
+  contract 已通过 CI static governance。
 - 真实 Swift/Xcode bridge、Network Extension target、embedded runtime、certificate lifecycle、entitlement/provisioning
   和 Privacy Manifest source 已通过 GitHub Actions `macos-26` 验证。
 - App Store Connect App Privacy answers、privacy policy URL、App Review Notes、demo account、review attachment、
@@ -188,7 +190,7 @@ Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux`
 - `.github/workflows/ci.yml` 静态检查本文件存在和关键锚点。
 - `docs/manual-intervention.md` 明确 App Privacy、privacy policy、App Review Notes、demo account、review attachment、
   TestFlight/App Store Connect 和 VPN compliance 人工事项。
-- 相关 iOS docs 指向本 readiness design 或把后续工作推进到 Privacy Manifest source contract。
+- 相关 iOS docs 指向本 readiness design 和 Privacy Manifest source contract，后续工作推进到 App Review Notes/manual confirmation source contract。
 - 不新增 Swift source、`Package.swift`、`.xcodeproj`、`.xcworkspace`、Network Extension target、
   `PrivacyInfo.xcprivacy`、Provisioning Profile、signing config、TestFlight upload、App Store upload 或 iOS release asset。
 - Linux artifact 继续等待 license/NOTICE confirmed marker；期间不得定义 `package-linux` 或发布 release asset。
@@ -197,6 +199,8 @@ Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux`
 
 - Apple App Review Guidelines, `https://developer.apple.com/app-store/review/guidelines/`
 - Apple Developer Documentation: Privacy manifest files, `https://developer.apple.com/documentation/bundleresources/privacy_manifest_files`
+- Apple Developer Documentation: Describing use of required reason API,
+  `https://developer.apple.com/documentation/bundleresources/privacy_manifest_files/describing_use_of_required_reason_api`
 - Apple Developer: App privacy details on the App Store, `https://developer.apple.com/app-store/app-privacy-details/`
 - Apple Developer Documentation: Network Extension, `https://developer.apple.com/documentation/networkextension`
 - Apple Developer Documentation: Packet Tunnel Provider, `https://developer.apple.com/documentation/networkextension/packet-tunnel-provider`
