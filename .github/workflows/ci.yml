@@ -73,6 +73,7 @@ jobs:
           test -f docs/architecture/linux-package-license-notice-transition-validation-contract.md
           test -f docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
           test -f docs/architecture/release-ci-gate-execution-validation-contract.md
+          test -f docs/architecture/release-ci-gate-api-implementation-plan.md
           test -f docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           test -f docs/architecture/linux-package-artifact-build-command-validation-contract.md
           test -f docs/architecture/linux-package-artifact-staging-file-validation-contract.md
@@ -104,6 +105,13 @@ jobs:
           grep -q "release_ci_gate_execution_api_status" docs/architecture/release-ci-gate-execution-validation-contract.md
           grep -q "release_ci_gate_execution_required_fields" docs/architecture/release-ci-gate-execution-validation-contract.md
           grep -q "Failure Boundary" docs/architecture/release-ci-gate-execution-validation-contract.md
+          grep -q "Release CI Gate API Implementation Plan" docs/architecture/release-ci-gate-api-implementation-plan.md
+          grep -q "release_ci_gate_api_implementation_status" docs/architecture/release-ci-gate-api-implementation-plan.md
+          grep -q "release_ci_gate_api_implementation_runs_endpoint" docs/architecture/release-ci-gate-api-implementation-plan.md
+          grep -q "release_ci_gate_api_implementation_jobs_endpoint" docs/architecture/release-ci-gate-api-implementation-plan.md
+          grep -q "release_ci_gate_api_implementation_query_filters" docs/architecture/release-ci-gate-api-implementation-plan.md
+          grep -q "release_ci_gate_api_implementation_summary_job" docs/architecture/release-ci-gate-api-implementation-plan.md
+          grep -q "Failure And Rollback Boundary" docs/architecture/release-ci-gate-api-implementation-plan.md
           grep -q "Linux Package Artifact Job Preflight Validation Contract" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           grep -q "package_artifact_job_preflight_status" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           grep -q "package_artifact_job_preflight_required_needs" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
@@ -178,6 +186,17 @@ jobs:
           test "$(grep -Ec '^          echo "release-ci-gate-execution-package-linux=not-defined"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "release-ci-gate-execution-release-asset=blocked"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "release-ci-gate-execution-next-action=ci-api-read-implementation-before-package-linux"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-plan=present"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-status=planned-blocked"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-current-mode=plan-only-no-api-read"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-required-permission=actions-read"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-permission-status=not-enabled"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-query-filters=branch=main,status=completed,head_sha=same-release-sha"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-summary-job=CI summary"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-summary-status=required-success"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-package-linux=not-defined"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-release-asset=blocked"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-next-action=release-ci-gate-api-read-implementation-after-plan"$' .github/workflows/release.yml)" -ge 4
           grep -q "Linux Package Artifact Job Preflight Validation Contract" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-contract=present"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3

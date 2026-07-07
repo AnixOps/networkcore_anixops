@@ -47,6 +47,7 @@ eligible 字段、required gates、失败边界和当前 blocked 状态，不定
 [Linux Package Artifact Job Preflight Validation Contract](linux-package-artifact-job-preflight-validation-contract.md)、
 [Linux Package Release CI Gate Activation Validation Contract](linux-package-release-ci-gate-activation-validation-contract.md)、
 [Release CI Gate Execution Validation Contract](release-ci-gate-execution-validation-contract.md)、
+[Release CI Gate API Implementation Plan](release-ci-gate-api-implementation-plan.md)、
 [Release CI Success Source Contract](release-ci-success-source-contract.md)、
 [Linux Package License Notice Transition Validation Contract](linux-package-license-notice-transition-validation-contract.md)、
 [Linux Package Publish Upload Boundary Contract](linux-package-publish-upload-boundary-contract.md)、
@@ -195,7 +196,7 @@ release asset。
 ## 验收条件
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux package publish eligibility aggregate
-  contract、Linux package release notes/rollback execution validation contract、Linux package
+  contract、release CI gate API implementation plan、Linux package release notes/rollback execution validation contract、Linux package
   artifact attestation execution validation contract、Linux package publish/upload boundary contract、
   Linux package artifact manifest design、Linux CLI artifact 安装/回滚设计和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在、标题、status、required gates、required
@@ -213,9 +214,10 @@ release asset。
 
 ## 后续工作
 
-- 在 license/NOTICE 人工确认、release CI gate activation、artifact job preflight、build command、
+- 在 license/NOTICE 人工确认、release CI gate API read、artifact job preflight、build command、
   staging file、archive creation、checksum execution、manifest generation、manifest checksum、
   workflow artifact bundle upload、attestation execution、release notes/rollback execution 和 publish
   eligibility execution gates 激活前，继续保持 `package-linux`、`attest-linux`、
   `publish-eligibility-gate`、`publish-github-release` 和 `post-release-summary` 未定义。
-- release CI gate execution validation contract 已定义；下一步可以补充 release CI gate API implementation plan，明确启用 `actions: read` 前的最小查询实现，并继续阻止 `package-linux` 和 GitHub Release asset。
+- release CI gate execution validation contract 和 release CI gate API implementation plan 已定义；下一步可以实现
+  `release-ci-gate` API read，并继续阻止 `package-linux` 和 GitHub Release asset。

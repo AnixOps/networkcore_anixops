@@ -203,10 +203,10 @@ release asset。
 
 ## 后续工作
 
-- 在 license/NOTICE 人工确认、release CI gate activation、artifact job preflight、build command、
+- 在 license/NOTICE 人工确认、release CI gate API read、artifact job preflight、build command、
   staging file、archive creation、checksum execution、manifest generation、manifest checksum 和 workflow
   artifact bundle upload gates 激活前，继续保持 `package-linux` 未定义。
 - Linux package artifact attestation execution validation contract、Linux package release notes/rollback execution
-  validation contract 和 Linux package publish eligibility execution validation contract 已定义；下一步可以补充
-  release CI gate execution validation contract，明确 release workflow 如何自动读取同 commit 成功 CI run，
-  并继续阻止 GitHub Release asset。
+  validation contract、Linux package publish eligibility execution validation contract、release CI gate execution
+  validation contract 和 release CI gate API implementation plan 已定义；下一步可以实现 `release-ci-gate`
+  API read，并继续阻止 GitHub Release asset。
