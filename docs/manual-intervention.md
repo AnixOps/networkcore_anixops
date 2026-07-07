@@ -4,7 +4,8 @@
 
 ## 当前待处理
 
-当前 bootstrap 阶段无阻塞项。
+- Linux artifact license/NOTICE 文本确认仍为 pending；完成前不得定义真实 `package-linux` artifact job、
+  上传 workflow artifact 或发布 Linux release asset。
 
 ## 已完成的人工/外部事项
 

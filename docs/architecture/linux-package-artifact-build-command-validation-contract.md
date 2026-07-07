@@ -23,7 +23,6 @@ job、不安装 target、不构建、不打包、不上传 artifact。
   `strip`、archive、checksum、manifest、attestation、release notes 或 upload step。
 - 不修改 Cargo workspace、Cargo.lock、crate metadata 或 release profile。
 - 不完成 license/NOTICE 人工确认。
-- 不启用 release CI gate 的 GitHub API 读取。
 - 不把 runner 本地绝对路径、Cargo cache、target 目录、secret、token、环境变量原文、
   GitHub API response 原文或未公开安全公告细节写入 manifest、release notes 或 Step Summary。
 
@@ -99,7 +98,7 @@ build step 生成。
 manifest、workflow artifact upload 或 release asset upload：
 
 - preflight status 不是 `active`。
-- license/NOTICE 仍为 pending，或 release CI gate 仍为 placeholder。
+- license/NOTICE 仍为 pending，或 release CI gate 不是 active。
 - checkout SHA 与 release SHA 不一致。
 - `apps/linux-cli/Cargo.toml` 不存在，或 package/bin name 不等于 `networkcore-linux`。
 - build command 缺少 `--locked`、`--release`、`--package`、`--bin` 或 `--target`。
@@ -188,4 +187,4 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、sec
 
 - 在 license/NOTICE 人工确认、release CI gate activation 和 artifact job preflight 激活前，
   继续保持 `package-linux` 未定义。
-- Linux package artifact staging file validation contract、Linux package artifact archive creation validation contract 和 Linux package artifact checksum execution validation contract 已定义；Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract、Linux package artifact attestation execution validation contract、Linux package release notes/rollback execution validation contract 和 Linux package publish eligibility execution validation contract 已定义；release CI gate execution validation contract 和 release CI gate API implementation plan 已定义；下一步可以实现 `release-ci-gate` API read，仍不发布 release asset。
+- Linux package artifact staging file validation contract、Linux package artifact archive creation validation contract 和 Linux package artifact checksum execution validation contract 已定义；Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract、Linux package artifact attestation execution validation contract、Linux package release notes/rollback execution validation contract 和 Linux package publish eligibility execution validation contract 已定义；release CI gate execution validation contract 和 release CI gate API implementation 已激活；下一步必须完成 license/NOTICE 和 artifact gates，仍不发布 release asset。

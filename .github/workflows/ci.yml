@@ -168,35 +168,35 @@ jobs:
           grep -q "Future Publish Eligibility Execution" docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
           grep -q "release-ci-success-source-contract=present" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-contract=present"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-status=active"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-required-permission=actions-read"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-permission-status=not-enabled"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-api-status=not-called"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-permission-status=enabled"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-api-status=queried"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-package-linux=not-defined"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-artifacts=blocked"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-next-action=ci-api-read-implementation-before-package-linux"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-next-action=license-notice-and-package-linux-preflight-after-ci-gate"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "release-ci-gate-execution-contract=present"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-execution-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-execution-status=active"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "release-ci-gate-execution-required-permission=actions-read"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-execution-permission-status=not-enabled"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-execution-api-status=not-called"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-execution-permission-status=enabled"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-execution-api-status=queried"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "release-ci-gate-execution-query-head-sha=same-release-sha"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "release-ci-gate-execution-required-fields=ci_workflow_name,ci_workflow_file,ci_run_id,ci_run_attempt,ci_run_url,ci_run_status,ci_run_conclusion,ci_head_sha,ci_head_branch,ci_event,ci_repository,ci_checked_at"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-execution-ci-summary=required-success"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-execution-ci-summary=success"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "release-ci-gate-execution-package-linux=not-defined"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "release-ci-gate-execution-release-asset=blocked"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-execution-next-action=ci-api-read-implementation-before-package-linux"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-plan=present"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-status=planned-blocked"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-current-mode=plan-only-no-api-read"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-execution-next-action=license-notice-and-package-linux-preflight-after-ci-gate"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-plan=docs/architecture/release-ci-gate-api-implementation-plan.md"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-status=active"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-current-mode=api-read-active"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-required-permission=actions-read"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-permission-status=not-enabled"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-query-filters=branch=main,status=completed,head_sha=same-release-sha"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-permission-status=enabled"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-query-filters=branch=main,status=completed,head_sha=(same-release-sha|[$][{]RELEASE_SHA[}])"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-summary-job=CI summary"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-summary-status=required-success"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-summary-status=success"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-package-linux=not-defined"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-release-asset=blocked"$' .github/workflows/release.yml)" -ge 4
-          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-next-action=release-ci-gate-api-read-implementation-after-plan"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "release-ci-gate-api-implementation-next-action=license-notice-and-package-linux-preflight-after-ci-gate"$' .github/workflows/release.yml)" -ge 4
           grep -q "Linux Package Artifact Job Preflight Validation Contract" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-contract=present"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
@@ -204,7 +204,7 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-required-needs=release-policy,release-ci-gate,linux-artifact-readiness"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-license-notice=blocked-pending"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-ci-gate=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-ci-gate=active"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-checkout=blocked-before-gates"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-toolchain=blocked-before-gates"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-build=blocked-before-gates"$' .github/workflows/release.yml)" -ge 3
@@ -452,7 +452,7 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-publish-eligibility-aggregate-contract=present"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-publish-eligibility-status=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-publish-eligibility-license-notice=blocked-pending"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-ci=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-ci=active"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-publish-eligibility-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-publish-eligibility-next-action=license-notice-confirmation-required"$' .github/workflows/release.yml)" -ge 3
           grep -q "Linux Package Publish Eligibility Execution Validation Contract" .github/workflows/release.yml
@@ -475,7 +475,7 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-release-creation=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-publish-job=publish-github-release"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-publish-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-next-action=release-ci-gate-api-implementation-after-execution-contract"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-next-action=license-notice-and-artifact-gates-before-publish-eligibility"$' .github/workflows/release.yml)" -ge 3
           grep -q "Linux Package License Notice Transition Validation Contract" docs/architecture/linux-package-license-notice-transition-validation-contract.md
           grep -q "linux-artifact-license-notice-transition-commit=independent-manual-confirmation-commit" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-license-notice-transition-contract=present"$' .github/workflows/release.yml)" -ge 3

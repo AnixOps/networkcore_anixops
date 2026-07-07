@@ -9,7 +9,7 @@ toolchain、build、staging 前置顺序、失败条件和继续不上传 artifa
 
 ## 目标
 
-- 明确 `package-linux` 在 license/NOTICE 与 release CI gate 未解除前仍不得定义。
+- 明确 `package-linux` 在 license/NOTICE 未确认和 preflight 未定义前仍不得定义；release CI gate 已激活但只是必要前置条件。
 - 固定未来真实 `package-linux` job 的最小 `needs`、preflight 输入和执行顺序。
 - 定义 checkout、toolchain setup、build、archive staging 之前必须验证的阻断条件。
 - 防止 maintainer 用 workflow input、手写 Step Summary、本地构建产物或旧 run artifact 绕过 release gates。
@@ -22,7 +22,6 @@ toolchain、build、staging 前置顺序、失败条件和继续不上传 artifa
 - 不运行 `cargo build`、不安装 Rust target、不创建 staging 目录、不生成 archive、
   checksum、manifest、attestation、release notes、workflow artifact 或 release asset。
 - 不完成 license/NOTICE 人工确认。
-- 不启用 release CI gate 的 GitHub API 读取。
 - 不把 GitHub token、API response 原文、runner 本地绝对路径、Cargo cache、target 目录、
   secret、证书私钥、用户配置、维护者私有身份或未公开安全公告细节写入 manifest、
   release notes 或 Step Summary。
@@ -56,7 +55,7 @@ toolchain、build、staging 前置顺序、失败条件和继续不上传 artifa
 | `package_artifact_job_preflight_job_status` | `not-defined` |
 | `package_artifact_job_preflight_required_needs` | `release-policy,release-ci-gate,linux-artifact-readiness` |
 | `package_artifact_job_preflight_license_notice_status` | `blocked-pending` |
-| `package_artifact_job_preflight_release_ci_gate_status` | `blocked-placeholder` |
+| `package_artifact_job_preflight_release_ci_gate_status` | `active` |
 | `package_artifact_job_preflight_checkout_status` | `blocked-before-gates` |
 | `package_artifact_job_preflight_toolchain_status` | `blocked-before-gates` |
 | `package_artifact_job_preflight_build_status` | `blocked-before-gates` |
@@ -155,7 +154,7 @@ package-linux-preflight-upload=blocked-until-checksum-manifest-attestation-rollb
 manifest、workflow artifact upload 或 release asset upload：
 
 - `release-policy`、`release-ci-gate` 或 `linux-artifact-readiness` 不是 `success`。
-- release CI gate 仍为 `placeholder`、`blocked-placeholder`、`not-called`、manual 或 assumed。
+- release CI gate 不是 `active`，或使用 manual/assumed/skipped 字段绕过 API 查询。
 - `ci_head_sha`、checkout SHA 或 release SHA 不一致。
 - `docs/manual-intervention.md` 仍包含 `linux-artifact-license-notice-status=pending`。
 - license/NOTICE confirmed 字段缺失、不一致或指向不存在的 repo 文件。
@@ -184,7 +183,7 @@ manifest、workflow artifact upload 或 release asset upload：
 - 标记 `linux-package-artifact-job-preflight-job-status=not-defined`。
 - 标记 `linux-package-artifact-job-preflight-required-needs=release-policy,release-ci-gate,linux-artifact-readiness`。
 - 标记 `linux-package-artifact-job-preflight-license-notice=blocked-pending`。
-- 标记 `linux-package-artifact-job-preflight-ci-gate=blocked-placeholder`。
+- 标记 `linux-package-artifact-job-preflight-ci-gate=active`。
 - 标记 `linux-package-artifact-job-preflight-checkout=blocked-before-gates`。
 - 标记 `linux-package-artifact-job-preflight-toolchain=blocked-before-gates`。
 - 标记 `linux-package-artifact-job-preflight-build=blocked-before-gates`。
@@ -243,18 +242,15 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、sec
 - `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、placeholder
   fields、future preflight fields、failure boundary 和 `package-linux` 未定义状态。
 - release placeholder 和 release summary 输出 preflight status、required job、required needs、
-  license/NOTICE blocked、CI gate blocked、checkout/toolchain/build/staging blocked、upload blocked
+  license/NOTICE blocked、CI gate active、checkout/toolchain/build/staging blocked、upload blocked
   和 next action。
 - 当前不生成 artifact、不定义 `package-linux`、不定义 `publish-github-release`、不上传 workflow
   artifact、不上传 release asset、不在本机执行测试、构建、打包或发布。
 
 ## 后续工作
 
-- 在 license/NOTICE 人工确认完成和 release CI gate API read 实现前，继续保持
+- 在 license/NOTICE 人工确认完成并定义真实 `package-linux` preflight 前，继续保持
   `package-linux` 未定义。
-- Linux package artifact build command validation contract、Linux package artifact staging file validation
-  contract、Linux package artifact archive creation validation contract 和 Linux package artifact checksum
-  execution validation contract 已定义；Linux package artifact manifest generation validation contract
-  和 Linux package artifact manifest checksum validation contract 已定义；下一步可以补充 Linux
-  package workflow artifact bundle upload validation contract，明确真实 manifest checksum sidecar 生成后
-  校验 release bundle 文件集、上传同一 release run workflow artifact 和仍不发布 release asset 的边界。
+- Linux package artifact build command、staging file、archive creation、checksum execution、manifest generation、
+  manifest checksum、workflow artifact bundle upload、attestation、release notes/rollback 和 publish eligibility
+  execution validation contracts 已定义；artifact 路径下一步仍受 license/NOTICE confirmed marker 阻断。

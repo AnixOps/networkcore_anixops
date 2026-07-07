@@ -25,7 +25,6 @@ GitHub Release asset。
   不写 manifest、不计算 manifest checksum、不调用 `actions/upload-artifact`。
 - 不生成 attestation/provenance、不生成 release notes、不发布 GitHub Release asset。
 - 不完成 license/NOTICE 人工确认。
-- 不启用 release CI gate 的 GitHub API 读取。
 - 不把 runner 本地绝对路径、Cargo cache、target 目录、临时路径、secret、token、
   用户配置、环境变量原文、GitHub API response 原文或未公开安全公告细节写入 manifest、
   workflow artifact、release notes 或 Step Summary。
@@ -132,7 +131,7 @@ find "${upload_dir}" -maxdepth 1 -type f | wc -l | grep -qx '4'
 真实 workflow artifact bundle upload gate 必须在以下情况失败，并且不得执行 release asset upload：
 
 - manifest checksum validation status 不是 `complete`。
-- license/NOTICE 仍为 pending，或 release CI gate 仍为 placeholder。
+- license/NOTICE 仍为 pending，或 release CI gate 不是 active。
 - `dist/linux/${target}/artifacts` 不存在、为空、不是目录，或来源目录与本文档不一致。
 - 任一 required file 不存在、为空、不是普通文件，或文件名与本文档不一致。
 - source dir 中存在 required files 以外的普通文件。
@@ -203,10 +202,9 @@ release asset。
 
 ## 后续工作
 
-- 在 license/NOTICE 人工确认、release CI gate API read、artifact job preflight、build command、
+- 在 license/NOTICE 人工确认、artifact job preflight、build command、
   staging file、archive creation、checksum execution、manifest generation、manifest checksum 和 workflow
   artifact bundle upload gates 激活前，继续保持 `package-linux` 未定义。
 - Linux package artifact attestation execution validation contract、Linux package release notes/rollback execution
   validation contract、Linux package publish eligibility execution validation contract、release CI gate execution
-  validation contract 和 release CI gate API implementation plan 已定义；下一步可以实现 `release-ci-gate`
-  API read，并继续阻止 GitHub Release asset。
+  validation contract 和 release CI gate API implementation 已激活；下一步必须完成 license/NOTICE 和 artifact gates，并继续阻止 GitHub Release asset。

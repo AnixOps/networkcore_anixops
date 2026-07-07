@@ -26,7 +26,6 @@
 - 不调用 `actions/attest`，不启用 `id-token: write` 或 `attestations: write`。
 - 不生成 GitHub artifact attestation、SBOM attestation、provenance bundle 或 release asset。
 - 不完成 license/NOTICE 人工确认。
-- 不启用 release CI gate 的 GitHub API 读取。
 - 不把 GitHub token、OIDC token、API response 原文、runner 本地绝对路径、secret、证书私钥、
   用户配置或未公开安全公告细节写入 manifest、attestation subject、release notes 或 Step Summary。
 
@@ -136,7 +135,7 @@ attest-linux:
 真实 attestation execution gate 必须在以下情况失败，并且不得执行 release asset upload：
 
 - workflow artifact bundle upload status 不是 `complete`。
-- license/NOTICE 仍为 pending，release CI gate 仍为 placeholder，或 package publish eligibility
+- license/NOTICE 仍为 pending，release CI gate 不是 active，或 package publish eligibility
   仍为 blocked。
 - `attest-linux` 未依赖当前 release run 的 `package-linux`。
 - downloaded artifact name 与 `networkcore-linux-${version}-${target}-release-bundle` 不一致。
@@ -219,7 +218,7 @@ release asset。
 
 ## 后续工作
 
-- 在 license/NOTICE 人工确认、release CI gate activation、artifact job preflight、build command、
+- 在 license/NOTICE 人工确认、artifact job preflight、build command、
   staging file、archive creation、checksum execution、manifest generation、manifest checksum、
   workflow artifact bundle upload、attestation execution 和 release notes/rollback execution gates 激活前，
   继续保持 `package-linux`、`attest-linux` 和 `post-release-summary` 未定义。

@@ -85,7 +85,7 @@ eligibility 来绕过门禁。
 | `package_publish_eligibility_execution_release_creation` | `blocked` |
 | `package_publish_eligibility_execution_publish_job` | `publish-github-release` |
 | `package_publish_eligibility_execution_publish_job_status` | `not-defined` |
-| `package_publish_eligibility_execution_next_action` | `release-ci-gate-api-implementation-after-execution-contract` |
+| `package_publish_eligibility_execution_next_action` | `license-notice-and-artifact-gates-before-publish-eligibility` |
 
 `blocked-placeholder` 表示 release workflow 已记录 future publish eligibility execution 的验证要求，
 但当前 release 仍不得执行 publish eligibility gate、创建 GitHub Release、定义 publish jobs 或上传任何
@@ -187,7 +187,7 @@ release asset。
 - 标记 `linux-package-publish-eligibility-execution-release-creation=blocked`。
 - 标记 `linux-package-publish-eligibility-execution-publish-job=publish-github-release`。
 - 标记 `linux-package-publish-eligibility-execution-publish-job-status=not-defined`。
-- 标记 `linux-package-publish-eligibility-execution-next-action=release-ci-gate-api-implementation-after-execution-contract`。
+- 标记 `linux-package-publish-eligibility-execution-next-action=license-notice-and-artifact-gates-before-publish-eligibility`。
 - 继续不定义 `package-linux`、`attest-linux`、`publish-eligibility-gate`、
   `publish-github-release`、`post-release-summary` 或等价 publish job。
 - 继续不调用 GitHub Releases API、`gh release create`、release action、upload-release-asset API
@@ -214,10 +214,9 @@ release asset。
 
 ## 后续工作
 
-- 在 license/NOTICE 人工确认、release CI gate API read、artifact job preflight、build command、
+- 在 license/NOTICE 人工确认、artifact job preflight、build command、
   staging file、archive creation、checksum execution、manifest generation、manifest checksum、
   workflow artifact bundle upload、attestation execution、release notes/rollback execution 和 publish
   eligibility execution gates 激活前，继续保持 `package-linux`、`attest-linux`、
   `publish-eligibility-gate`、`publish-github-release` 和 `post-release-summary` 未定义。
-- release CI gate execution validation contract 和 release CI gate API implementation plan 已定义；下一步可以实现
-  `release-ci-gate` API read，并继续阻止 `package-linux` 和 GitHub Release asset。
+- release CI gate execution validation contract 和 release CI gate API implementation 已激活；下一步必须完成 license/NOTICE 和 artifact gates，并继续阻止 `package-linux` 和 GitHub Release asset。
