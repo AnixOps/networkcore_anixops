@@ -9,9 +9,9 @@
 | Field | Value |
 | --- | --- |
 | Alpha version | `v0.1.0-alpha.1` |
-| Commit | `e40ab057b28c1d19c519d3e0cdfbc3139859147d` |
-| CI run | `28900145651` |
-| Release run | `28900362686` |
+| Commit | current release run head SHA |
+| CI run | same-commit successful CI selected by `release-ci-gate` |
+| Release run | current `workflow_dispatch` release run |
 | Release mode | `workflow_dispatch` placeholder |
 | Windows CI evidence | `Workspace smoke (windows-latest)` and `Rust build and test (windows-latest)` success |
 | Release artifact status | `not-produced-placeholder` |
@@ -41,9 +41,9 @@ code signing、store upload 和 artifact install/run smoke 当前均为 not appl
 ```text
 alpha-release-windows-manual-test-status=confirmed
 alpha-release-windows-manual-test-version=v0.1.0-alpha.1
-alpha-release-windows-manual-test-commit=e40ab057b28c1d19c519d3e0cdfbc3139859147d
-alpha-release-windows-manual-test-ci-run=28900145651
-alpha-release-windows-manual-test-release-run=28900362686
+alpha-release-windows-manual-test-commit=<release run head SHA>
+alpha-release-windows-manual-test-ci-run=<same-commit CI run id>
+alpha-release-windows-manual-test-release-run=<release run id>
 alpha-release-windows-manual-test-result=passed
 alpha-release-windows-manual-test-confirmed-at=<UTC timestamp>
 alpha-release-windows-manual-test-confirmed-by=<GitHub username or operator>
