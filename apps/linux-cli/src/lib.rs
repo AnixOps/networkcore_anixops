@@ -424,7 +424,10 @@ where
         diagnostics.push(cli_diagnostic(
             DiagnosticSeverity::Warning,
             CLI_START_LIFECYCLE_INTERRUPTED_CODE,
-            format!("linux foreground runtime was interrupted: {}", interruption.reason),
+            format!(
+                "linux foreground runtime was interrupted: {}",
+                interruption.reason
+            ),
             SOURCE_CLI_START,
         ));
 
