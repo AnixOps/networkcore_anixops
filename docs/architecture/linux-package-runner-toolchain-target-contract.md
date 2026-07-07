@@ -121,7 +121,8 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、Git
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux package
   manifest 设计、Linux package archive staging contract、Linux package checksum manifest contract、
   Linux package publish/upload boundary contract、Linux package signing/attestation policy binding
-  contract、Linux package release notes/rollback policy binding contract、Linux CLI artifact 安装/回滚设计、
+  contract、Linux package release notes/rollback policy binding contract、Linux package publish
+  eligibility aggregate contract、Linux CLI artifact 安装/回滚设计、
   Release CI success source contract 和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题和
@@ -137,5 +138,6 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、Git
 
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
 - Linux package archive staging contract、checksum manifest contract、publish/upload boundary contract、
-  signing/attestation policy binding contract 和 release notes/rollback policy binding contract 已定义；
-  下一步可以补充 Linux package publish eligibility aggregate contract，仍不生成 artifact。
+  signing/attestation policy binding contract、release notes/rollback policy binding contract 和
+  publish eligibility aggregate contract 已定义；下一步可以补充 Linux package license/NOTICE
+  confirmed-state transition validation contract，仍不生成 artifact。

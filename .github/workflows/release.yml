@@ -242,6 +242,7 @@ jobs:
           test -f docs/architecture/linux-package-publish-upload-boundary-contract.md
           test -f docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
           test -f docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
+          test -f docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
           test -f docs/manual-intervention.md
           grep -q "networkcore-linux" apps/linux-cli/README.md
           grep -q "handle_foreground_lifecycle_with_runtime_stop" apps/linux-cli/src/lib.rs
@@ -267,6 +268,7 @@ jobs:
           grep -q "Linux Package Publish Upload Boundary Contract" docs/architecture/linux-package-publish-upload-boundary-contract.md
           grep -q "Linux Package Signing Attestation Policy Binding Contract" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
           grep -q "Linux Package Release Notes Rollback Policy Binding Contract" docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
+          grep -q "Linux Package Publish Eligibility Aggregate Contract" docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
           grep -q "artifact_manifest_path" docs/architecture/linux-package-artifact-manifest.md
           grep -q "artifact_manifest_checksum_value" docs/architecture/linux-package-artifact-manifest.md
           grep -q "rust_target_triple" docs/architecture/linux-package-runner-toolchain-target-contract.md
@@ -285,6 +287,9 @@ jobs:
           grep -q "package_release_notes_policy" docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
           grep -q "package_rollback_policy" docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
           grep -q "package_withdrawal_policy" docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
+          grep -q "package_publish_eligibility_status" docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
+          grep -q "package_publish_eligibility_required_gates" docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
+          grep -q "package_publish_eligibility_next_action" docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
           grep -q "Linux Artifact Manifest Output Contract" .github/workflows/release.yml
           grep -q "linux-artifact-manifest-output-fields" .github/workflows/release.yml
           grep -q "Linux Artifact License/NOTICE Source Contract" .github/workflows/release.yml
@@ -325,6 +330,13 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-rollback-status=blocked-not-summarized"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-withdrawal-policy=withdrawal-not-overwrite"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-publish-without-rollback=blocked"$' .github/workflows/release.yml)" -ge 3
+          grep -Eq '^[[:space:]]+echo "### Linux Package Publish Eligibility Aggregate Contract"$' .github/workflows/release.yml
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-aggregate-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-status=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-license-notice=blocked-pending"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-ci=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-next-action=license-notice-confirmation-required"$' .github/workflows/release.yml)" -ge 3
           grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-package-linux=blocked" docs/manual-intervention.md
@@ -366,6 +378,7 @@ jobs:
             echo "| Package publish/upload boundary contract | present |"
             echo "| Package signing/attestation policy binding contract | present |"
             echo "| Package release notes/rollback policy binding contract | present |"
+            echo "| Package publish eligibility aggregate contract | present |"
             echo "| Install and rollback design | present |"
             echo "| License or NOTICE confirmation | pending in docs/manual-intervention.md |"
             echo "| Release asset upload | blocked until package-linux, checksum, signing/attestation, rollback, and license/NOTICE gates are complete |"
@@ -467,6 +480,26 @@ jobs:
           echo "linux-package-withdrawal-policy=withdrawal-not-overwrite"
           echo "linux-package-replacement-policy=new-version-tag-required"
           echo "linux-package-publish-without-rollback=blocked"
+          echo "linux-package-publish-eligibility-aggregate-contract=present"
+          echo "linux-package-publish-eligibility-contract=docs/architecture/linux-package-publish-eligibility-aggregate-contract.md"
+          echo "linux-package-publish-eligibility-status=blocked"
+          echo "linux-package-publish-eligibility-reason=license-notice-pending-and-artifact-jobs-not-defined"
+          echo "linux-package-publish-eligibility-required-gates=license_notice,ci,runner_toolchain,archive_staging,checksum_manifest,artifact_manifest,publish_upload,signing_attestation,release_notes_rollback"
+          echo "linux-package-publish-eligibility-license-notice=blocked-pending"
+          echo "linux-package-publish-eligibility-ci=blocked-placeholder"
+          echo "linux-package-publish-eligibility-runner-toolchain=present"
+          echo "linux-package-publish-eligibility-archive-staging=present"
+          echo "linux-package-publish-eligibility-checksum-manifest=present"
+          echo "linux-package-publish-eligibility-artifact-manifest=present"
+          echo "linux-package-publish-eligibility-publish-upload=blocked-placeholder"
+          echo "linux-package-publish-eligibility-signing-attestation=blocked-not-attested"
+          echo "linux-package-publish-eligibility-release-notes-rollback=blocked-not-generated"
+          echo "linux-package-publish-eligibility-package-linux=not-defined"
+          echo "linux-package-publish-eligibility-workflow-artifact=blocked"
+          echo "linux-package-publish-eligibility-release-asset=blocked"
+          echo "linux-package-publish-eligibility-publish-github-release=not-defined"
+          echo "linux-package-publish-eligibility-post-release-summary=not-defined"
+          echo "linux-package-publish-eligibility-next-action=license-notice-confirmation-required"
           echo "linux-artifact-install-rollback-design=present"
           echo "linux-artifact-license-notice=manual-confirmation-required"
           echo "linux-artifact-release-assets=blocked"
@@ -489,10 +522,12 @@ jobs:
           test -f docs/architecture/linux-package-publish-upload-boundary-contract.md
           test -f docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
           test -f docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
+          test -f docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
           grep -q "Linux Package Publish Upload Boundary Contract" docs/architecture/linux-package-publish-upload-boundary-contract.md
           grep -q "Linux Package Signing Attestation Policy Binding Contract" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
           grep -q "Linux Package Release Notes Rollback Policy Binding Contract" docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
+          grep -q "Linux Package Publish Eligibility Aggregate Contract" docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
           grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-package-linux=blocked" docs/manual-intervention.md
@@ -660,6 +695,31 @@ jobs:
             echo "| Current publish-github-release job | not defined |"
             echo "| Current post-release-summary job | not defined |"
             echo
+            echo "### Linux Package Publish Eligibility Aggregate Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | placeholder summary only |"
+            echo "| Source contract | docs/architecture/linux-package-publish-eligibility-aggregate-contract.md |"
+            echo "| Aggregate status | blocked |"
+            echo "| Blocking reason | license-notice-pending-and-artifact-jobs-not-defined |"
+            echo "| Required gates | license_notice, ci, runner_toolchain, archive_staging, checksum_manifest, artifact_manifest, publish_upload, signing_attestation, release_notes_rollback |"
+            echo "| License/NOTICE gate | blocked-pending |"
+            echo "| CI gate | blocked-placeholder |"
+            echo "| Runner/toolchain gate | present |"
+            echo "| Archive staging gate | present |"
+            echo "| Checksum/manifest gate | present |"
+            echo "| Artifact manifest gate | present |"
+            echo "| Publish/upload gate | blocked-placeholder |"
+            echo "| Signing/attestation gate | blocked-not-attested |"
+            echo "| Release notes/rollback gate | blocked-not-generated |"
+            echo "| Current package-linux job | not defined |"
+            echo "| Current workflow artifact | blocked |"
+            echo "| Current release asset | blocked |"
+            echo "| Current publish-github-release job | not defined |"
+            echo "| Current post-release-summary job | not defined |"
+            echo "| Next action | license-notice-confirmation-required |"
+            echo
             echo "### Linux Artifact License/NOTICE Source Contract"
             echo
             echo "| Item | Status |"
@@ -764,6 +824,26 @@ jobs:
           echo "linux-package-withdrawal-policy=withdrawal-not-overwrite"
           echo "linux-package-replacement-policy=new-version-tag-required"
           echo "linux-package-publish-without-rollback=blocked"
+          echo "linux-package-publish-eligibility-aggregate-contract=present"
+          echo "linux-package-publish-eligibility-contract=docs/architecture/linux-package-publish-eligibility-aggregate-contract.md"
+          echo "linux-package-publish-eligibility-status=blocked"
+          echo "linux-package-publish-eligibility-reason=license-notice-pending-and-artifact-jobs-not-defined"
+          echo "linux-package-publish-eligibility-required-gates=license_notice,ci,runner_toolchain,archive_staging,checksum_manifest,artifact_manifest,publish_upload,signing_attestation,release_notes_rollback"
+          echo "linux-package-publish-eligibility-license-notice=blocked-pending"
+          echo "linux-package-publish-eligibility-ci=blocked-placeholder"
+          echo "linux-package-publish-eligibility-runner-toolchain=present"
+          echo "linux-package-publish-eligibility-archive-staging=present"
+          echo "linux-package-publish-eligibility-checksum-manifest=present"
+          echo "linux-package-publish-eligibility-artifact-manifest=present"
+          echo "linux-package-publish-eligibility-publish-upload=blocked-placeholder"
+          echo "linux-package-publish-eligibility-signing-attestation=blocked-not-attested"
+          echo "linux-package-publish-eligibility-release-notes-rollback=blocked-not-generated"
+          echo "linux-package-publish-eligibility-package-linux=not-defined"
+          echo "linux-package-publish-eligibility-workflow-artifact=blocked"
+          echo "linux-package-publish-eligibility-release-asset=blocked"
+          echo "linux-package-publish-eligibility-publish-github-release=not-defined"
+          echo "linux-package-publish-eligibility-post-release-summary=not-defined"
+          echo "linux-package-publish-eligibility-next-action=license-notice-confirmation-required"
           echo "linux-artifact-license-notice-contract=present"
           echo "linux-artifact-license-notice-source=docs/manual-intervention.md"
           echo "linux-artifact-license-notice-status=pending"
@@ -866,6 +946,25 @@ jobs:
             echo "| Linux package withdrawal policy | withdrawal-not-overwrite |"
             echo "| Linux package replacement policy | new-version-tag-required |"
             echo "| Linux package publish without rollback | blocked |"
+            echo "| Linux package publish eligibility aggregate contract | summarized in release-placeholder |"
+            echo "| Linux package publish eligibility status | blocked |"
+            echo "| Linux package publish eligibility reason | license-notice-pending-and-artifact-jobs-not-defined |"
+            echo "| Linux package publish eligibility required gates | license_notice, ci, runner_toolchain, archive_staging, checksum_manifest, artifact_manifest, publish_upload, signing_attestation, release_notes_rollback |"
+            echo "| Linux package publish eligibility license/NOTICE | blocked-pending |"
+            echo "| Linux package publish eligibility CI | blocked-placeholder |"
+            echo "| Linux package publish eligibility runner/toolchain | present |"
+            echo "| Linux package publish eligibility archive staging | present |"
+            echo "| Linux package publish eligibility checksum/manifest | present |"
+            echo "| Linux package publish eligibility artifact manifest | present |"
+            echo "| Linux package publish eligibility publish/upload | blocked-placeholder |"
+            echo "| Linux package publish eligibility signing/attestation | blocked-not-attested |"
+            echo "| Linux package publish eligibility release notes/rollback | blocked-not-generated |"
+            echo "| Linux package publish eligibility package-linux | not-defined |"
+            echo "| Linux package publish eligibility workflow artifact | blocked |"
+            echo "| Linux package publish eligibility release asset | blocked |"
+            echo "| Linux package publish eligibility publish-github-release | not-defined |"
+            echo "| Linux package publish eligibility post-release-summary | not-defined |"
+            echo "| Linux package publish eligibility next action | license-notice-confirmation-required |"
             echo "| Linux artifact license/NOTICE contract | checked in linux-artifact-readiness |"
             echo "| Linux artifact license/NOTICE status | pending in docs/manual-intervention.md |"
             echo "| Release placeholder | ${{ needs.release-placeholder.result }} |"
@@ -982,6 +1081,26 @@ jobs:
           echo "linux-package-withdrawal-policy=withdrawal-not-overwrite"
           echo "linux-package-replacement-policy=new-version-tag-required"
           echo "linux-package-publish-without-rollback=blocked"
+          echo "linux-package-publish-eligibility-aggregate-contract=present"
+          echo "linux-package-publish-eligibility-contract=docs/architecture/linux-package-publish-eligibility-aggregate-contract.md"
+          echo "linux-package-publish-eligibility-status=blocked"
+          echo "linux-package-publish-eligibility-reason=license-notice-pending-and-artifact-jobs-not-defined"
+          echo "linux-package-publish-eligibility-required-gates=license_notice,ci,runner_toolchain,archive_staging,checksum_manifest,artifact_manifest,publish_upload,signing_attestation,release_notes_rollback"
+          echo "linux-package-publish-eligibility-license-notice=blocked-pending"
+          echo "linux-package-publish-eligibility-ci=blocked-placeholder"
+          echo "linux-package-publish-eligibility-runner-toolchain=present"
+          echo "linux-package-publish-eligibility-archive-staging=present"
+          echo "linux-package-publish-eligibility-checksum-manifest=present"
+          echo "linux-package-publish-eligibility-artifact-manifest=present"
+          echo "linux-package-publish-eligibility-publish-upload=blocked-placeholder"
+          echo "linux-package-publish-eligibility-signing-attestation=blocked-not-attested"
+          echo "linux-package-publish-eligibility-release-notes-rollback=blocked-not-generated"
+          echo "linux-package-publish-eligibility-package-linux=not-defined"
+          echo "linux-package-publish-eligibility-workflow-artifact=blocked"
+          echo "linux-package-publish-eligibility-release-asset=blocked"
+          echo "linux-package-publish-eligibility-publish-github-release=not-defined"
+          echo "linux-package-publish-eligibility-post-release-summary=not-defined"
+          echo "linux-package-publish-eligibility-next-action=license-notice-confirmation-required"
           echo "linux-artifact-license-notice-contract=present"
           echo "linux-artifact-license-notice-source=docs/manual-intervention.md"
           echo "linux-artifact-license-notice-status=pending"

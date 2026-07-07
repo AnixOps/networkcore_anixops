@@ -31,6 +31,7 @@ Release、不上传 workflow artifact 或 GitHub Release asset。
 [Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md)、
 [Linux Package Publish Upload Boundary Contract](linux-package-publish-upload-boundary-contract.md)、
 [Linux Package Signing Attestation Policy Binding Contract](linux-package-signing-attestation-policy-binding-contract.md)、
+[Linux Package Publish Eligibility Aggregate Contract](linux-package-publish-eligibility-aggregate-contract.md)、
 [Release CI Success Source Contract](release-ci-success-source-contract.md)、`CHANGELOG.md` 和
 release workflow 中的显式常量。不得由 maintainer 在 `workflow_dispatch` 中手动输入 rollback
 status、withdrawal status、replacement version 或 release asset eligibility 来绕过门禁。
@@ -186,7 +187,8 @@ GitHub Release 或 upload 步骤。
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux package manifest
   设计、Linux package publish/upload boundary contract、Linux package checksum manifest contract、
   Linux package signing/attestation policy binding contract、Linux CLI artifact 安装/回滚设计、
-  Release CI success source contract、Linux package runner/toolchain/target contract、Linux package
+  Linux package publish eligibility aggregate contract、Release CI success source contract、
+  Linux package runner/toolchain/target contract、Linux package
   archive staging contract、Linux artifact license/NOTICE confirmation source contract 和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题和
@@ -201,6 +203,5 @@ GitHub Release 或 upload 步骤。
 ## 后续工作
 
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
-- 下一步可以补充 Linux package publish eligibility aggregate contract，汇总 license/NOTICE、同
-  commit CI、runner/toolchain、archive/checksum/manifest、publish/upload、signing/attestation、
-  release notes/rollback 的 eligible/blocked 状态，仍不生成 artifact。
+- Linux package publish eligibility aggregate contract 已定义；下一步可以补充 Linux package
+  license/NOTICE confirmed-state transition validation contract，仍不生成 artifact。
