@@ -239,6 +239,7 @@ jobs:
           test -f docs/architecture/linux-package-runner-toolchain-target-contract.md
           test -f docs/architecture/linux-package-archive-staging-contract.md
           test -f docs/architecture/linux-package-checksum-manifest-contract.md
+          test -f docs/architecture/linux-package-publish-upload-boundary-contract.md
           test -f docs/manual-intervention.md
           grep -q "networkcore-linux" apps/linux-cli/README.md
           grep -q "handle_foreground_lifecycle_with_runtime_stop" apps/linux-cli/src/lib.rs
@@ -261,6 +262,7 @@ jobs:
           grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
           grep -q "Linux Package Archive Staging Contract" docs/architecture/linux-package-archive-staging-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
+          grep -q "Linux Package Publish Upload Boundary Contract" docs/architecture/linux-package-publish-upload-boundary-contract.md
           grep -q "artifact_manifest_path" docs/architecture/linux-package-artifact-manifest.md
           grep -q "artifact_manifest_checksum_value" docs/architecture/linux-package-artifact-manifest.md
           grep -q "rust_target_triple" docs/architecture/linux-package-runner-toolchain-target-contract.md
@@ -270,6 +272,9 @@ jobs:
           grep -q "package_archive_checksum_path" docs/architecture/linux-package-checksum-manifest-contract.md
           grep -q "package_manifest_checksum_path" docs/architecture/linux-package-checksum-manifest-contract.md
           grep -q "package_manifest_archive_checksum_field" docs/architecture/linux-package-checksum-manifest-contract.md
+          grep -q "package_workflow_artifact_retention_days" docs/architecture/linux-package-publish-upload-boundary-contract.md
+          grep -q "package_release_asset_overwrite_policy" docs/architecture/linux-package-publish-upload-boundary-contract.md
+          grep -q "package_publish_download_source" docs/architecture/linux-package-publish-upload-boundary-contract.md
           grep -q "Linux Artifact Manifest Output Contract" .github/workflows/release.yml
           grep -q "linux-artifact-manifest-output-fields" .github/workflows/release.yml
           grep -q "Linux Artifact License/NOTICE Source Contract" .github/workflows/release.yml
@@ -288,6 +293,14 @@ jobs:
           grep -Fq 'linux-package-required-archive-checksum-name=networkcore-linux-${version}-${target}.tar.gz.sha256' .github/workflows/release.yml
           grep -Fq 'linux-package-required-manifest-checksum-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.manifest.json.sha256' .github/workflows/release.yml
           grep -q "linux-package-manifest-archive-checksum-field=checksum.value" .github/workflows/release.yml
+          grep -Eq '^[[:space:]]+echo "### Linux Package Publish Upload Boundary Contract"$' .github/workflows/release.yml
+          test "$(grep -Ec '^          echo "linux-package-publish-upload-boundary-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-upload=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-workflow-artifact-name=networkcore-linux-[$][{]version[}]-[$][{]target[}]-release-bundle'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-workflow-artifact-retention-days=14"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-download-source=same-run-workflow-artifact"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-asset-overwrite-policy=forbidden"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-release-asset-upload=blocked"$' .github/workflows/release.yml)" -ge 3
           grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-package-linux=blocked" docs/manual-intervention.md
@@ -296,6 +309,10 @@ jobs:
           grep -q "license 或 artifact 内置许可/NOTICE" docs/manual-intervention.md
           if grep -Eq '^  package-linux:' .github/workflows/release.yml; then
             echo "::error::package-linux must stay undefined until license/NOTICE and artifact gates are complete."
+            exit 1
+          fi
+          if grep -Eq '^  publish-github-release:' .github/workflows/release.yml; then
+            echo "::error::publish-github-release must stay undefined until publish/upload gates are complete."
             exit 1
           fi
           {
@@ -314,6 +331,7 @@ jobs:
             echo "| Package runner/toolchain/target contract | present |"
             echo "| Package archive staging contract | present |"
             echo "| Package checksum/manifest checksum contract | present |"
+            echo "| Package publish/upload boundary contract | present |"
             echo "| Install and rollback design | present |"
             echo "| License or NOTICE confirmation | pending in docs/manual-intervention.md |"
             echo "| Release asset upload | blocked until package-linux, checksum, signing/attestation, rollback, and license/NOTICE gates are complete |"
@@ -367,6 +385,21 @@ jobs:
           echo "linux-package-manifest-archive-file-field=archive.file_name"
           echo "linux-package-manifest-checksum-algorithm-field=checksum.algorithm"
           echo "linux-package-manifest-archive-checksum-field=checksum.value"
+          echo "linux-package-publish-upload-boundary-contract=present"
+          echo "linux-package-publish-upload-contract=docs/architecture/linux-package-publish-upload-boundary-contract.md"
+          echo "linux-package-upload-mode=blocked-placeholder"
+          echo "linux-package-workflow-artifact-upload=blocked"
+          echo "linux-package-release-asset-upload=blocked"
+          echo 'linux-package-upload-source-dir=dist/linux/${target}/artifacts'
+          echo 'linux-package-workflow-artifact-name=networkcore-linux-${version}-${target}-release-bundle'
+          echo "linux-package-workflow-artifact-retention-days=14"
+          echo "linux-package-workflow-artifact-required-files=archive,archive_sha256,manifest,manifest_sha256"
+          echo "linux-package-publish-job-name=publish-github-release"
+          echo "linux-package-publish-download-source=same-run-workflow-artifact"
+          echo "linux-package-release-asset-required-files=archive,archive_sha256,manifest,manifest_sha256"
+          echo "linux-package-release-asset-overwrite-policy=forbidden"
+          echo "linux-package-release-asset-delete-policy=withdrawal-not-overwrite"
+          echo "linux-package-release-asset-visibility=blocked-placeholder"
           echo "linux-artifact-install-rollback-design=present"
           echo "linux-artifact-license-notice=manual-confirmation-required"
           echo "linux-artifact-release-assets=blocked"
@@ -386,13 +419,19 @@ jobs:
           set -euo pipefail
           test -f docs/manual-intervention.md
           test -f docs/architecture/linux-package-checksum-manifest-contract.md
+          test -f docs/architecture/linux-package-publish-upload-boundary-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
+          grep -q "Linux Package Publish Upload Boundary Contract" docs/architecture/linux-package-publish-upload-boundary-contract.md
           grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-package-linux=blocked" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-release-assets=blocked" docs/manual-intervention.md
           if grep -Eq '^  package-linux:' .github/workflows/release.yml; then
             echo "::error::package-linux must stay undefined until license/NOTICE and artifact gates are complete."
+            exit 1
+          fi
+          if grep -Eq '^  publish-github-release:' .github/workflows/release.yml; then
+            echo "::error::publish-github-release must stay undefined until publish/upload gates are complete."
             exit 1
           fi
           echo "No release artifacts are defined yet."
@@ -471,6 +510,27 @@ jobs:
             echo "| Current package-linux job | not defined |"
             echo "| Current release asset upload | blocked |"
             echo
+            echo "### Linux Package Publish Upload Boundary Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | placeholder summary only |"
+            echo "| Source contract | docs/architecture/linux-package-publish-upload-boundary-contract.md |"
+            echo "| Upload mode | blocked-placeholder |"
+            echo '| Required upload source dir | dist/linux/${target}/artifacts |'
+            echo '| Required workflow artifact name | networkcore-linux-${version}-${target}-release-bundle |'
+            echo "| Required workflow artifact retention days | 14 |"
+            echo "| Required workflow artifact files | archive, archive_sha256, manifest, manifest_sha256 |"
+            echo "| Required publish job | publish-github-release |"
+            echo "| Required publish download source | same-run-workflow-artifact |"
+            echo "| Required release asset files | archive, archive_sha256, manifest, manifest_sha256 |"
+            echo "| Release asset overwrite policy | forbidden |"
+            echo "| Release asset delete policy | withdrawal-not-overwrite |"
+            echo "| Workflow artifact upload | blocked |"
+            echo "| Release asset upload | blocked |"
+            echo "| Current package-linux job | not defined |"
+            echo "| Current publish-github-release job | not defined |"
+            echo
             echo "### Linux Artifact License/NOTICE Source Contract"
             echo
             echo "| Item | Status |"
@@ -527,6 +587,21 @@ jobs:
           echo "linux-package-manifest-archive-file-field=archive.file_name"
           echo "linux-package-manifest-checksum-algorithm-field=checksum.algorithm"
           echo "linux-package-manifest-archive-checksum-field=checksum.value"
+          echo "linux-package-publish-upload-boundary-contract=present"
+          echo "linux-package-publish-upload-contract=docs/architecture/linux-package-publish-upload-boundary-contract.md"
+          echo "linux-package-upload-mode=blocked-placeholder"
+          echo "linux-package-workflow-artifact-upload=blocked"
+          echo "linux-package-release-asset-upload=blocked"
+          echo 'linux-package-upload-source-dir=dist/linux/${target}/artifacts'
+          echo 'linux-package-workflow-artifact-name=networkcore-linux-${version}-${target}-release-bundle'
+          echo "linux-package-workflow-artifact-retention-days=14"
+          echo "linux-package-workflow-artifact-required-files=archive,archive_sha256,manifest,manifest_sha256"
+          echo "linux-package-publish-job-name=publish-github-release"
+          echo "linux-package-publish-download-source=same-run-workflow-artifact"
+          echo "linux-package-release-asset-required-files=archive,archive_sha256,manifest,manifest_sha256"
+          echo "linux-package-release-asset-overwrite-policy=forbidden"
+          echo "linux-package-release-asset-delete-policy=withdrawal-not-overwrite"
+          echo "linux-package-release-asset-visibility=blocked-placeholder"
           echo "linux-artifact-license-notice-contract=present"
           echo "linux-artifact-license-notice-source=docs/manual-intervention.md"
           echo "linux-artifact-license-notice-status=pending"
@@ -598,6 +673,14 @@ jobs:
             echo '| Linux package archive checksum name | networkcore-linux-${version}-${target}.tar.gz.sha256 |'
             echo '| Linux package manifest checksum path | dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.manifest.json.sha256 |'
             echo "| Linux package manifest archive checksum field | checksum.value |"
+            echo "| Linux package publish/upload boundary contract | summarized in release-placeholder |"
+            echo '| Linux package workflow artifact name | networkcore-linux-${version}-${target}-release-bundle |'
+            echo "| Linux package workflow artifact retention days | 14 |"
+            echo "| Linux package workflow artifact required files | archive, archive_sha256, manifest, manifest_sha256 |"
+            echo "| Linux package publish download source | same-run-workflow-artifact |"
+            echo "| Linux package release asset required files | archive, archive_sha256, manifest, manifest_sha256 |"
+            echo "| Linux package release asset overwrite policy | forbidden |"
+            echo "| Linux package release asset upload | blocked |"
             echo "| Linux artifact license/NOTICE contract | checked in linux-artifact-readiness |"
             echo "| Linux artifact license/NOTICE status | pending in docs/manual-intervention.md |"
             echo "| Release placeholder | ${{ needs.release-placeholder.result }} |"
@@ -666,6 +749,21 @@ jobs:
           echo "linux-package-manifest-archive-file-field=archive.file_name"
           echo "linux-package-manifest-checksum-algorithm-field=checksum.algorithm"
           echo "linux-package-manifest-archive-checksum-field=checksum.value"
+          echo "linux-package-publish-upload-boundary-contract=present"
+          echo "linux-package-publish-upload-contract=docs/architecture/linux-package-publish-upload-boundary-contract.md"
+          echo "linux-package-upload-mode=blocked-placeholder"
+          echo "linux-package-workflow-artifact-upload=blocked"
+          echo "linux-package-release-asset-upload=blocked"
+          echo 'linux-package-upload-source-dir=dist/linux/${target}/artifacts'
+          echo 'linux-package-workflow-artifact-name=networkcore-linux-${version}-${target}-release-bundle'
+          echo "linux-package-workflow-artifact-retention-days=14"
+          echo "linux-package-workflow-artifact-required-files=archive,archive_sha256,manifest,manifest_sha256"
+          echo "linux-package-publish-job-name=publish-github-release"
+          echo "linux-package-publish-download-source=same-run-workflow-artifact"
+          echo "linux-package-release-asset-required-files=archive,archive_sha256,manifest,manifest_sha256"
+          echo "linux-package-release-asset-overwrite-policy=forbidden"
+          echo "linux-package-release-asset-delete-policy=withdrawal-not-overwrite"
+          echo "linux-package-release-asset-visibility=blocked-placeholder"
           echo "linux-artifact-license-notice-contract=present"
           echo "linux-artifact-license-notice-source=docs/manual-intervention.md"
           echo "linux-artifact-license-notice-status=pending"

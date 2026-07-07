@@ -8,7 +8,8 @@ artifact manifest 和 metadata 输出合同。它承接
 [Release CI Success Source Contract](release-ci-success-source-contract.md)、
 [Linux Package Runner Toolchain Target Contract](linux-package-runner-toolchain-target-contract.md)、
 [Linux Package Archive Staging Contract](linux-package-archive-staging-contract.md)、
-[Linux Package Checksum Manifest Contract](linux-package-checksum-manifest-contract.md) 和
+[Linux Package Checksum Manifest Contract](linux-package-checksum-manifest-contract.md)、
+[Linux Package Publish Upload Boundary Contract](linux-package-publish-upload-boundary-contract.md) 和
 [Release Strategy](../release-strategy.md)。当前仓库仍不生成 Linux artifact；
 本文件只定义后续 packaging job 的可检查字段。
 
@@ -176,7 +177,7 @@ manifest 顶层字段必须稳定、显式、可由自动化读取：
 11. 交叉校验 manifest archive checksum 字段与 archive checksum sidecar 完全一致。
 12. 计算最终 manifest sha256，并在 archive 外写入 manifest checksum sidecar。
 13. 输出 archive、archive checksum、manifest 和 manifest checksum 字段。
-14. release summary 展示字段；后续 publish job 才能上传。
+14. release summary 展示字段；后续 publish job 必须按 [Linux Package Publish Upload Boundary Contract](linux-package-publish-upload-boundary-contract.md) 校验 workflow artifact bundle 和 release asset set 后才能上传。
 
 manifest 不得反向参与 archive checksum。这样用户可以独立校验 archive 和
 manifest，release summary 也能引用两个 checksum。
@@ -224,12 +225,12 @@ Required Archive Contents 保持一致：
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux CLI artifact 安装/回滚设计和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
-- `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、release CI success source contract、package runner/toolchain/target contract、archive staging contract、checksum/manifest checksum contract、license/NOTICE source contract、release placeholder manifest output summary 和 license/NOTICE source contract summary，但继续拒绝定义 `package-linux` job。
-- release CI gate、release placeholder 和 release summary 输出 CI success source contract、package runner/toolchain/target contract、archive staging contract、checksum/manifest checksum contract、manifest output contract 字段清单与 license/NOTICE source contract pending 状态。
+- `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、release CI success source contract、package runner/toolchain/target contract、archive staging contract、checksum/manifest checksum contract、publish/upload boundary contract、license/NOTICE source contract、release placeholder manifest output summary 和 license/NOTICE source contract summary，但继续拒绝定义 `package-linux` job。
+- release CI gate、release placeholder 和 release summary 输出 CI success source contract、package runner/toolchain/target contract、archive staging contract、checksum/manifest checksum contract、publish/upload boundary contract、manifest output contract 字段清单与 license/NOTICE source contract pending 状态。
 - TODO 指向下一步最小 release workflow 或 release governance 增量。
 - 不生成 artifact、不上传 release asset、不在本机执行测试、构建、打包或发布。
 
 ## 后续工作
 
 - 在 license/NOTICE 人工确认完成前，继续不实现 `package-linux`。
-- Linux package checksum manifest contract 已定义；下一步可以补充 `package-linux` publish/upload boundary、workflow artifact retention 和 release asset 阻断合同，仍不生成 artifact。
+- Linux package checksum manifest contract 和 publish/upload boundary contract 已定义；下一步可以补充 Linux package signing/attestation policy binding contract，仍不生成 artifact。

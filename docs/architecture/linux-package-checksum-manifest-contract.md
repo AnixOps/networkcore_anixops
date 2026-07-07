@@ -19,7 +19,7 @@ artifact。
 
 - 不实现 `package-linux` job。
 - 不运行 cargo build、不创建 archive、不计算真实 checksum、不写入 manifest 文件。
-- 不定义签名、attestation、provenance、release asset upload 或 workflow artifact retention 策略。
+- 不定义签名、attestation 或 provenance 策略；该策略必须由单独合同声明。
 - 不把 runner 本地绝对路径、secret、token、证书私钥、API response 原文或用户配置写入
   manifest 或 checksum 文件。
 
@@ -90,7 +90,7 @@ manifest checksum 文件必须只包含一行 POSIX `sha256sum` 风格记录：
 9. 写入 manifest checksum sidecar 文件。
 10. 交叉校验 manifest checksum sidecar 文件名、路径和 digest。
 11. 输出 archive、archive checksum、manifest 和 manifest checksum 字段到 job outputs 与 Step Summary。
-12. 只有后续 signing/attestation、rollback、license/NOTICE 和 upload gates 全部通过后，publish job 才能上传。
+12. 只有后续 signing/attestation、rollback、license/NOTICE 和 publish/upload gates 全部通过后，publish job 才能上传。
 
 manifest 不得反向参与 archive checksum。archive checksum 只覆盖 `.tar.gz` bytes；
 manifest checksum 只覆盖最终 manifest JSON bytes。
@@ -151,9 +151,9 @@ checksum 生成后继续修改 manifest。
 ## 验收条件
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux package
-  manifest 设计、Linux CLI artifact 安装/回滚设计、Release CI success source contract、
-  Linux package runner/toolchain/target contract、Linux package archive staging contract、
-  Linux artifact license/NOTICE confirmation source contract 和 CI policy 中可发现。
+  manifest 设计、Linux package publish/upload boundary contract、Linux CLI artifact 安装/回滚设计、
+  Release CI success source contract、Linux package runner/toolchain/target contract、Linux package
+  archive staging contract、Linux artifact license/NOTICE confirmation source contract 和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题和
   release placeholder/summary 输出字段。
@@ -165,5 +165,5 @@ checksum 生成后继续修改 manifest。
 ## 后续工作
 
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
-- 下一步可以补充 `package-linux` publish/upload boundary、workflow artifact retention 和
-  release asset 阻断合同，仍不生成 artifact。
+- Linux package publish/upload boundary contract 已定义；下一步可以补充 Linux package
+  signing/attestation policy binding contract，仍不生成 artifact。

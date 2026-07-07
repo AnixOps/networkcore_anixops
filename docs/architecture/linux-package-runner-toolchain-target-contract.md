@@ -11,8 +11,8 @@ runner、Rust toolchain 和 target triple 输入合同。当前仍为 placeholde
 - 为首个 Linux CLI artifact 固定可审计的 packaging 平台输入。
 - 明确后续 `package-linux` job 必须在 GitHub Actions 中声明和输出的 runner、
   Rust toolchain、target triple、crate、binary 和 archive naming 字段。
-- 让 release summary、artifact manifest 和后续 publish gate 使用同一组平台输入字段。
-- 让 archive staging 与 checksum/manifest checksum 合同复用同一组 version、target、archive name 和顶层目录字段。
+- 让 release summary、artifact manifest 和后续 publish/upload gate 使用同一组平台输入字段。
+- 让 archive staging、checksum/manifest checksum 与 publish/upload boundary 合同复用同一组 version、target、archive name 和顶层目录字段。
 - 在 license/NOTICE 人工确认、同 commit CI success gate、checksum/manifest checksum、签名/证明、回滚和 upload gate 完成前继续阻止真实 artifact。
 
 ## 非目标
@@ -118,7 +118,8 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、Git
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux package
   manifest 设计、Linux package archive staging contract、Linux package checksum manifest contract、
-  Linux CLI artifact 安装/回滚设计、Release CI success source contract 和 CI policy 中可发现。
+  Linux package publish/upload boundary contract、Linux CLI artifact 安装/回滚设计、Release CI
+  success source contract 和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题和
   release placeholder/summary 输出字段。
@@ -132,5 +133,5 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、Git
 ## 后续工作
 
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
-- Linux package archive staging contract 和 checksum manifest contract 已定义；下一步可以补充
-  `package-linux` publish/upload boundary、workflow artifact retention 和 release asset 阻断合同，仍不生成 artifact。
+- Linux package archive staging contract、checksum manifest contract 和 publish/upload boundary contract
+  已定义；下一步可以补充 Linux package signing/attestation policy binding contract，仍不生成 artifact。

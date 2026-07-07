@@ -100,6 +100,7 @@
 - [Linux Package Runner Toolchain Target Contract](docs/architecture/linux-package-runner-toolchain-target-contract.md)
 - [Linux Package Archive Staging Contract](docs/architecture/linux-package-archive-staging-contract.md)
 - [Linux Package Checksum Manifest Contract](docs/architecture/linux-package-checksum-manifest-contract.md)
+- [Linux Package Publish Upload Boundary Contract](docs/architecture/linux-package-publish-upload-boundary-contract.md)
 
 ## 迭代选择规则
 
