@@ -5,8 +5,8 @@ use control_domain::{
     PlatformCapabilities, PlatformCapabilityService, PlatformCapabilityStatus,
     PlatformFeatureState, PluginInstance, PluginManifest, PluginPackage, PluginPermission,
     PluginResult, Protocol, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
-    ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RawSubscription,
-    RouteAction, RouteRule, RuleSet, SchemaVersion, SubscriptionDocument, SubscriptionService,
+    ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RawSubscription, RouteAction,
+    RouteRule, RuleSet, SchemaVersion, SubscriptionDocument, SubscriptionService,
     SubscriptionSource,
 };
 use control_runtime::{
@@ -893,7 +893,10 @@ fn subscription_catalog_rules_are_deferred_without_mutating_config_policies() {
         )
         .expect("subscription rules should be deferred while catalog nodes start");
 
-    assert_eq!(result.engine_status.state, ProxyEngineLifecycleState::Running);
+    assert_eq!(
+        result.engine_status.state,
+        ProxyEngineLifecycleState::Running
+    );
     assert!(result.diagnostics.iter().any(|diagnostic| {
         diagnostic.code == RUNTIME_SUBSCRIPTION_RULES_DEFERRED_CODE
             && diagnostic.severity == control_domain::DiagnosticSeverity::Info

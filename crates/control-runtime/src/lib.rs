@@ -17,12 +17,9 @@ use control_domain::{
 
 pub const RUNTIME_SUBSCRIPTION_NODE_ID_DUPLICATE_CODE: &str =
     "runtime.subscription.node_id_duplicate";
-pub const RUNTIME_SUBSCRIPTION_CATALOG_EMPTY_CODE: &str =
-    "runtime.subscription.catalog_empty";
-pub const RUNTIME_SUBSCRIPTION_RULES_DEFERRED_CODE: &str =
-    "runtime.subscription.rules_deferred";
-pub const RUNTIME_SUBSCRIPTION_CATALOG_READY_CODE: &str =
-    "runtime.subscription.catalog_ready";
+pub const RUNTIME_SUBSCRIPTION_CATALOG_EMPTY_CODE: &str = "runtime.subscription.catalog_empty";
+pub const RUNTIME_SUBSCRIPTION_RULES_DEFERRED_CODE: &str = "runtime.subscription.rules_deferred";
+pub const RUNTIME_SUBSCRIPTION_CATALOG_READY_CODE: &str = "runtime.subscription.catalog_ready";
 pub const RUNTIME_SUBSCRIPTION_SOURCE_UNSUPPORTED_CODE: &str =
     "runtime.subscription.source_unsupported";
 
