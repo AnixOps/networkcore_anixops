@@ -44,6 +44,7 @@
 - [docs/architecture/ios-upload-workflow-activation-validation-contract.md](docs/architecture/ios-upload-workflow-activation-validation-contract.md)
 - [docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md](docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md)
 - [docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md](docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md)
+- [docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md](docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md)
 - [docs/architecture/linux-artifact-pre-release-design.md](docs/architecture/linux-artifact-pre-release-design.md)
 - [docs/architecture/linux-platform-adapter.md](docs/architecture/linux-platform-adapter.md)
 - [docs/architecture/linux-cli-entrypoint.md](docs/architecture/linux-cli-entrypoint.md)
@@ -98,12 +99,13 @@ FFI boundary design、iOS MITM certificate lifecycle design、iOS entitlement/pr
 iOS App Review/privacy release readiness design、iOS Privacy Manifest source contract 和 iOS App Review manual
 confirmation source contract、iOS TestFlight/App Store Connect upload workflow source contract、iOS upload
 workflow activation validation contract、iOS Swift/Xcode source tree activation preflight contract 和 iOS Package.swift
-source ownership activation preflight contract 已补充；release workflow
+source ownership activation preflight contract、iOS Package.swift manifest-only activation validation contract 已补充；release workflow
 现在只有 `ios-upload-readiness` blocked placeholder，并在 release placeholder/summary 中输出 source tree preflight、
-Package.swift ownership preflight、`apps/ios` README placeholder、`Package.swift`、target ownership、source directory guard、
-Xcode project、Network Extension target、`PrivacyInfo.xcprivacy`、entitlement/provisioning、Swift package validation hook、
-upload enabled marker、marker、protected environment、manual approval、App Store Connect API secret status、archive/export、
-upload、submission 和 release asset blocked 字段；
+Package.swift ownership preflight、Package.swift manifest-only activation、`apps/ios` README placeholder、`Package.swift`、
+target ownership、manifest-only source scan、target list verification、source directory guard、Xcode project、Network Extension
+target、`PrivacyInfo.xcprivacy`、entitlement/provisioning、Swift package validation hook、upload enabled marker、marker、
+protected environment、manual approval、App Store Connect API secret status、archive/export、upload、submission 和 release asset
+blocked 字段；
 `.entitlements`、`PrivacyInfo.xcprivacy`、ExportOptions.plist、`.ipa`、`.xcarchive`、`.xcresult`、dSYM bundle、
 真实 `apps/ios` Swift source tree、`Package.swift`、Swift source、Xcode project、Network Extension target、
 Provisioning Profile、Rust FFI crate、证书安装源码、App Privacy 问卷、
@@ -113,7 +115,7 @@ TestFlight/App Store upload、App Review submission 和 iOS release asset 均未
 后续 Apple SDK bridge、embedded runtime、certificate lifecycle、entitlement/provisioning、Privacy Manifest 源码和
 App Review manual confirmation marker、真实 Swift/Xcode source tree 和 upload workflow enabled marker 必须按 source
 contract、source tree preflight contract、Package.swift ownership preflight contract 与 activation validation contract 通过
-GitHub Actions 验证。
+GitHub Actions 验证。`ios-package-swift-manifest-only-*` 当前只记录 blocked placeholder；真实 `Package.swift` 仍未进入仓库。
 
 ## MITM adapter 接入边界
 
@@ -123,7 +125,7 @@ GitHub Actions 验证。
 
 ## 源码布局
 
-- [apps/ios](apps/ios)：iOS source tree governance placeholder，当前仅包含 README，定义未来 Swift package ownership、Package.swift ownership preflight、source directory guard、`macos-26` source scan hook 和 no `Package.swift`/no Swift source/no Xcode project boundary。
+- [apps/ios](apps/ios)：iOS source tree governance placeholder，当前仅包含 README，定义未来 Swift package ownership、Package.swift ownership preflight、Package.swift manifest-only activation validation、source directory guard、`macos-26` source scan hook 和 no `Package.swift`/no Swift source/no Xcode project boundary。
 - [apps/linux-cli](apps/linux-cli)：`networkcore-linux` CLI 入口的首批命令解析、配置读取边界、只读平台探测接线、`prepare-config` 运行层接线、`start` 原生 engine 前台接线、前台 lifecycle host/interruption source、Unix OS signal source、interruption 后 runtime stop/release 源码合同和诊断输出。
 - [crates/config-core](crates/config-core)：统一控制内核的首批纯配置解析、标准化和 inline subscription parser 服务，当前覆盖 schema/profile、最小 listener/node/route TOML 子集，以及最小 subscription TOML `nodes`/`routes` 子集。
 - [crates/control-domain](crates/control-domain)：统一控制内核的首批领域类型与端口 trait。

@@ -8,6 +8,7 @@ TestFlight upload、App Store upload、App Review submission 或 iOS release ass
 
 本合同承接 [iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、
 [iOS Package.swift Source Ownership Activation Preflight Contract](ios-package-swift-source-ownership-activation-preflight-contract.md)、
+[iOS Package.swift Manifest-Only Activation Validation Contract](ios-package-swift-manifest-only-activation-validation-contract.md)、
 [iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)、
 [iOS Privacy Manifest Source Contract](ios-privacy-manifest-source-contract.md)、
 [iOS TestFlight App Store Connect Upload Workflow Source Contract](ios-testflight-app-store-connect-upload-workflow-source-contract.md) 和
@@ -63,7 +64,8 @@ apps/ios/
 规则：
 
 - `apps/ios/README.md` 是当前唯一允许的 source tree governance placeholder，不能声称 Swift/Xcode source tree 已启用。
-- `Package.swift` 出现前，必须先满足 [iOS Package.swift Source Ownership Activation Preflight Contract](ios-package-swift-source-ownership-activation-preflight-contract.md)。
+- `Package.swift` 出现前，必须先满足 [iOS Package.swift Source Ownership Activation Preflight Contract](ios-package-swift-source-ownership-activation-preflight-contract.md)
+  和 [iOS Package.swift Manifest-Only Activation Validation Contract](ios-package-swift-manifest-only-activation-validation-contract.md)。
 - `Package.swift` 出现时，CI 必须在 GitHub Actions 上启用 Swift package source scan，并只在 Actions 中运行
   `swift build`/`swift test`；manifest-only activation 仍必须保持 Swift source blocked，直到后续 Swift source gate 完成。
 - `.xcodeproj` 或 `.xcworkspace` 出现时，必须引用同一 `apps/ios` source tree，不能成为唯一 source of truth。
@@ -103,6 +105,7 @@ When Swift/Xcode source files are introduced, CI must add an Apple platform stat
 workflow can be enabled. The scan must verify:
 
 - `Package.swift` exists only under `apps/ios/Package.swift`.
+- Manifest-only activation has emitted `ios-package-swift-manifest-only-*` blocked fields before a future manifest-only commit.
 - Swift files exist only under `apps/ios/Sources` or `apps/ios/Tests`.
 - `NetworkCorePacketTunnel/PacketTunnelProvider.swift` exists before any Network Extension target is declared.
 - Xcode project or workspace target membership points to `apps/ios` paths only.
@@ -175,6 +178,8 @@ Current `.github/workflows/ci.yml` must check:
 - This file exists and contains `iOS Swift Xcode Source Tree Activation Preflight Contract`.
 - The Package.swift ownership contract exists and contains `apps/ios/Package.swift`, target ownership, source directory guard,
   no Swift source until package gate, `macos-26` Swift package validation hook and blocked upload/release anchors.
+- The Package.swift manifest-only activation validation contract exists and contains `manifest-only source scan`,
+  `target list verification`, no Swift source before source gate and `ios-package-swift-manifest-only` blocked fields.
 - Required anchors are present: `apps/ios`, `Package.swift`, `Xcode project`, `NetworkCorePacketTunnel`,
   `PrivacyInfo.xcprivacy`, `entitlement/provisioning`, `macos-26 source scan`, `upload workflow enabled marker`,
   `release/upload blocked`, `readme-placeholder-no-swift-source`, `ios-source-tree-preflight`, `blocked-placeholder`
@@ -189,8 +194,8 @@ Current `.github/workflows/ci.yml` must check:
 
 ## Acceptance Criteria
 
-- README, ROADMAP, TODO, CHANGELOG, CI/CD policy, release strategy, Package.swift ownership preflight contract and upstream iOS
-  contracts link this contract.
+- README, ROADMAP, TODO, CHANGELOG, CI/CD policy, release strategy, Package.swift ownership preflight contract,
+  manifest-only activation validation contract and upstream iOS contracts link this contract.
 - CI static governance checks this contract, release workflow fields and forbidden iOS source/artifact material.
 - Release workflow placeholder and summary output source tree preflight blocked fields.
 - `apps/ios/README.md` exists as the only source tree governance placeholder.

@@ -1583,6 +1583,7 @@ jobs:
           test -f docs/architecture/ios-upload-workflow-activation-validation-contract.md
           test -f docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
           test -f docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          test -f docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
           test -f apps/ios/README.md
           grep -q "iOS TestFlight App Store Connect Upload Workflow Source Contract" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
           grep -q "iOS Upload Workflow Activation Validation Contract" docs/architecture/ios-upload-workflow-activation-validation-contract.md
@@ -1613,6 +1614,15 @@ jobs:
           grep -q "ios-package-swift-ownership" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
           grep -q "blocked-placeholder" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
           grep -q "no iOS release asset" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          grep -q "iOS Package.swift Manifest-Only Activation Validation Contract" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "apps/ios/Package.swift" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "manifest-only source scan" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "target list verification" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "no Swift source before source gate" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "Xcode project blocked" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "upload workflow enabled marker blocked" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "ios-package-swift-manifest-only" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "no iOS release asset" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
           grep -q "iOS Source Tree Governance Placeholder" apps/ios/README.md
           grep -q "readme-placeholder-no-swift-source" apps/ios/README.md
           grep -q "Future iOS Swift package ownership starts at" apps/ios/README.md
@@ -1726,6 +1736,31 @@ jobs:
             echo "| Upload workflow enabled marker | blocked |"
             echo "| Release/upload | blocked |"
             echo "| Next action | add-package-swift-only-after-ownership-gate |"
+            echo
+            echo "### iOS Package.swift Manifest-Only Activation Validation Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | readme-placeholder-no-package-swift |"
+            echo "| Contract | docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md |"
+            echo "| Package manifest path | apps/ios/Package.swift |"
+            echo "| Manifest status | blocked |"
+            echo "| Activation scope | future-independent-manifest-only-commit |"
+            echo "| Manifest-only source scan | manifest-only-source-scan-blocked-before-package-swift |"
+            echo "| Target list verification | blocked-before-package-swift |"
+            echo "| Targets | NetworkCoreBridge, NetworkCoreApp, NetworkCorePacketTunnel |"
+            echo "| Test targets | NetworkCoreBridgeTests |"
+            echo "| Source directory guard | apps/ios/Sources, apps/ios/Tests |"
+            echo "| Swift source | blocked-before-source-gate |"
+            echo "| Swift build/test | blocked-until-swift-source-gate |"
+            echo "| Future package validation runner | macos-26 |"
+            echo "| Swift package validation hook | manifest-only-validation-blocked-before-package-swift |"
+            echo "| Xcode project | blocked |"
+            echo "| Network Extension target | blocked |"
+            echo "| Upload workflow enabled marker | blocked |"
+            echo "| Release/upload | blocked |"
+            echo "| Release asset | blocked |"
+            echo "| Next action | add-package-swift-manifest-only-after-contract-gate |"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "ios-source-tree-preflight-contract=present"
           echo "ios-source-tree-preflight-source=ios-upload-readiness"
@@ -1761,6 +1796,29 @@ jobs:
           echo "ios-package-swift-ownership-upload-enabled-marker=blocked"
           echo "ios-package-swift-ownership-release-upload=blocked"
           echo "ios-package-swift-ownership-next-action=add-package-swift-only-after-ownership-gate"
+          echo "ios-package-swift-manifest-only-contract=present"
+          echo "ios-package-swift-manifest-only-source=ios-upload-readiness"
+          echo "ios-package-swift-manifest-only-status=blocked-placeholder"
+          echo "ios-package-swift-manifest-only-current-mode=readme-placeholder-no-package-swift"
+          echo "ios-package-swift-manifest-only-contract-path=docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md"
+          echo "ios-package-swift-manifest-only-package-path=apps/ios/Package.swift"
+          echo "ios-package-swift-manifest-only-manifest-status=blocked"
+          echo "ios-package-swift-manifest-only-activation-scope=future-independent-manifest-only-commit"
+          echo "ios-package-swift-manifest-only-source-scan=manifest-only-source-scan-blocked-before-package-swift"
+          echo "ios-package-swift-manifest-only-target-list-verification=blocked-before-package-swift"
+          echo "ios-package-swift-manifest-only-targets=NetworkCoreBridge,NetworkCoreApp,NetworkCorePacketTunnel"
+          echo "ios-package-swift-manifest-only-test-targets=NetworkCoreBridgeTests"
+          echo "ios-package-swift-manifest-only-source-directory-guard=apps/ios/Sources,apps/ios/Tests"
+          echo "ios-package-swift-manifest-only-swift-source=blocked-before-source-gate"
+          echo "ios-package-swift-manifest-only-swift-build-test=blocked-until-swift-source-gate"
+          echo "ios-package-swift-manifest-only-macos-runner=macos-26"
+          echo "ios-package-swift-manifest-only-validation-hook=manifest-only-validation-blocked-before-package-swift"
+          echo "ios-package-swift-manifest-only-xcode-project=blocked"
+          echo "ios-package-swift-manifest-only-network-extension-target=blocked"
+          echo "ios-package-swift-manifest-only-upload-enabled-marker=blocked"
+          echo "ios-package-swift-manifest-only-release-upload=blocked"
+          echo "ios-package-swift-manifest-only-release-asset=blocked"
+          echo "ios-package-swift-manifest-only-next-action=add-package-swift-manifest-only-after-contract-gate"
           echo "ios-upload-workflow-activation-contract=present"
           echo "ios-upload-workflow-activation-source=ios-upload-readiness"
           echo "ios-upload-workflow-activation-status=blocked-placeholder"
@@ -1806,6 +1864,7 @@ jobs:
           test -f docs/architecture/ios-upload-workflow-activation-validation-contract.md
           test -f docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
           test -f docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          test -f docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
           test -f docs/architecture/linux-package-checksum-manifest-contract.md
           test -f docs/architecture/linux-package-publish-upload-boundary-contract.md
           test -f docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
@@ -1862,6 +1921,15 @@ jobs:
           grep -q "ios-package-swift-ownership" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
           grep -q "blocked-placeholder" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
           grep -q "no iOS release asset" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          grep -q "iOS Package.swift Manifest-Only Activation Validation Contract" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "apps/ios/Package.swift" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "manifest-only source scan" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "target list verification" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "no Swift source before source gate" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "Xcode project blocked" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "upload workflow enabled marker blocked" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "ios-package-swift-manifest-only" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "no iOS release asset" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
           grep -q "iOS Source Tree Governance Placeholder" apps/ios/README.md
           grep -q "readme-placeholder-no-swift-source" apps/ios/README.md
           grep -q "Future iOS Swift package ownership starts at" apps/ios/README.md
@@ -2051,6 +2119,31 @@ jobs:
             echo "| Upload workflow enabled marker | blocked |"
             echo "| Release/upload | blocked |"
             echo "| Next action | add-package-swift-only-after-ownership-gate |"
+            echo
+            echo "### iOS Package.swift Manifest-Only Activation Validation Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | readme-placeholder-no-package-swift |"
+            echo "| Contract | docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md |"
+            echo "| Package manifest path | apps/ios/Package.swift |"
+            echo "| Manifest status | blocked |"
+            echo "| Activation scope | future-independent-manifest-only-commit |"
+            echo "| Manifest-only source scan | manifest-only-source-scan-blocked-before-package-swift |"
+            echo "| Target list verification | blocked-before-package-swift |"
+            echo "| Targets | NetworkCoreBridge, NetworkCoreApp, NetworkCorePacketTunnel |"
+            echo "| Test targets | NetworkCoreBridgeTests |"
+            echo "| Source directory guard | apps/ios/Sources, apps/ios/Tests |"
+            echo "| Swift source | blocked-before-source-gate |"
+            echo "| Swift build/test | blocked-until-swift-source-gate |"
+            echo "| Future package validation runner | macos-26 |"
+            echo "| Swift package validation hook | manifest-only-validation-blocked-before-package-swift |"
+            echo "| Xcode project | blocked |"
+            echo "| Network Extension target | blocked |"
+            echo "| Upload workflow enabled marker | blocked |"
+            echo "| Release/upload | blocked |"
+            echo "| Release asset | blocked |"
+            echo "| Next action | add-package-swift-manifest-only-after-contract-gate |"
             echo
             echo "### Linux Package Release CI Gate Activation Validation Contract"
             echo
@@ -2635,6 +2728,29 @@ jobs:
           echo "ios-package-swift-ownership-upload-enabled-marker=blocked"
           echo "ios-package-swift-ownership-release-upload=blocked"
           echo "ios-package-swift-ownership-next-action=add-package-swift-only-after-ownership-gate"
+          echo "ios-package-swift-manifest-only-contract=present"
+          echo "ios-package-swift-manifest-only-source=ios-upload-readiness"
+          echo "ios-package-swift-manifest-only-status=blocked-placeholder"
+          echo "ios-package-swift-manifest-only-current-mode=readme-placeholder-no-package-swift"
+          echo "ios-package-swift-manifest-only-contract-path=docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md"
+          echo "ios-package-swift-manifest-only-package-path=apps/ios/Package.swift"
+          echo "ios-package-swift-manifest-only-manifest-status=blocked"
+          echo "ios-package-swift-manifest-only-activation-scope=future-independent-manifest-only-commit"
+          echo "ios-package-swift-manifest-only-source-scan=manifest-only-source-scan-blocked-before-package-swift"
+          echo "ios-package-swift-manifest-only-target-list-verification=blocked-before-package-swift"
+          echo "ios-package-swift-manifest-only-targets=NetworkCoreBridge,NetworkCoreApp,NetworkCorePacketTunnel"
+          echo "ios-package-swift-manifest-only-test-targets=NetworkCoreBridgeTests"
+          echo "ios-package-swift-manifest-only-source-directory-guard=apps/ios/Sources,apps/ios/Tests"
+          echo "ios-package-swift-manifest-only-swift-source=blocked-before-source-gate"
+          echo "ios-package-swift-manifest-only-swift-build-test=blocked-until-swift-source-gate"
+          echo "ios-package-swift-manifest-only-macos-runner=macos-26"
+          echo "ios-package-swift-manifest-only-validation-hook=manifest-only-validation-blocked-before-package-swift"
+          echo "ios-package-swift-manifest-only-xcode-project=blocked"
+          echo "ios-package-swift-manifest-only-network-extension-target=blocked"
+          echo "ios-package-swift-manifest-only-upload-enabled-marker=blocked"
+          echo "ios-package-swift-manifest-only-release-upload=blocked"
+          echo "ios-package-swift-manifest-only-release-asset=blocked"
+          echo "ios-package-swift-manifest-only-next-action=add-package-swift-manifest-only-after-contract-gate"
           echo "ios-upload-workflow-activation-contract=present"
           echo "ios-upload-workflow-activation-source=ios-upload-readiness"
           echo "ios-upload-workflow-activation-status=blocked-placeholder"
@@ -3252,6 +3368,28 @@ jobs:
             echo "| iOS Package.swift upload workflow enabled marker | blocked |"
             echo "| iOS Package.swift release/upload | blocked |"
             echo "| iOS Package.swift ownership next action | add-package-swift-only-after-ownership-gate |"
+            echo "| iOS Package.swift manifest-only activation validation contract | checked in ios-upload-readiness |"
+            echo "| iOS Package.swift manifest-only status | blocked-placeholder |"
+            echo "| iOS Package.swift manifest-only current mode | readme-placeholder-no-package-swift |"
+            echo "| iOS Package.swift manifest-only contract path | docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md |"
+            echo "| iOS Package.swift manifest-only package path | apps/ios/Package.swift |"
+            echo "| iOS Package.swift manifest-only manifest status | blocked |"
+            echo "| iOS Package.swift manifest-only activation scope | future-independent-manifest-only-commit |"
+            echo "| iOS Package.swift manifest-only source scan | manifest-only-source-scan-blocked-before-package-swift |"
+            echo "| iOS Package.swift manifest-only target list verification | blocked-before-package-swift |"
+            echo "| iOS Package.swift manifest-only targets | NetworkCoreBridge, NetworkCoreApp, NetworkCorePacketTunnel |"
+            echo "| iOS Package.swift manifest-only test targets | NetworkCoreBridgeTests |"
+            echo "| iOS Package.swift manifest-only source directory guard | apps/ios/Sources, apps/ios/Tests |"
+            echo "| iOS Package.swift manifest-only Swift source | blocked-before-source-gate |"
+            echo "| iOS Package.swift manifest-only Swift build/test | blocked-until-swift-source-gate |"
+            echo "| iOS Package.swift manifest-only future validation runner | macos-26 |"
+            echo "| iOS Package.swift manifest-only validation hook | manifest-only-validation-blocked-before-package-swift |"
+            echo "| iOS Package.swift manifest-only Xcode project | blocked |"
+            echo "| iOS Package.swift manifest-only Network Extension target | blocked |"
+            echo "| iOS Package.swift manifest-only upload workflow enabled marker | blocked |"
+            echo "| iOS Package.swift manifest-only release/upload | blocked |"
+            echo "| iOS Package.swift manifest-only release asset | blocked |"
+            echo "| iOS Package.swift manifest-only next action | add-package-swift-manifest-only-after-contract-gate |"
             echo "| iOS upload workflow activation validation contract | checked in ios-upload-readiness |"
             echo "| iOS upload workflow activation status | blocked-placeholder |"
             echo "| iOS upload workflow activation current mode | contract-only-no-ios-upload |"
@@ -3720,6 +3858,29 @@ jobs:
           echo "ios-package-swift-ownership-upload-enabled-marker=blocked"
           echo "ios-package-swift-ownership-release-upload=blocked"
           echo "ios-package-swift-ownership-next-action=add-package-swift-only-after-ownership-gate"
+          echo "ios-package-swift-manifest-only-contract=present"
+          echo "ios-package-swift-manifest-only-source=ios-upload-readiness"
+          echo "ios-package-swift-manifest-only-status=blocked-placeholder"
+          echo "ios-package-swift-manifest-only-current-mode=readme-placeholder-no-package-swift"
+          echo "ios-package-swift-manifest-only-contract-path=docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md"
+          echo "ios-package-swift-manifest-only-package-path=apps/ios/Package.swift"
+          echo "ios-package-swift-manifest-only-manifest-status=blocked"
+          echo "ios-package-swift-manifest-only-activation-scope=future-independent-manifest-only-commit"
+          echo "ios-package-swift-manifest-only-source-scan=manifest-only-source-scan-blocked-before-package-swift"
+          echo "ios-package-swift-manifest-only-target-list-verification=blocked-before-package-swift"
+          echo "ios-package-swift-manifest-only-targets=NetworkCoreBridge,NetworkCoreApp,NetworkCorePacketTunnel"
+          echo "ios-package-swift-manifest-only-test-targets=NetworkCoreBridgeTests"
+          echo "ios-package-swift-manifest-only-source-directory-guard=apps/ios/Sources,apps/ios/Tests"
+          echo "ios-package-swift-manifest-only-swift-source=blocked-before-source-gate"
+          echo "ios-package-swift-manifest-only-swift-build-test=blocked-until-swift-source-gate"
+          echo "ios-package-swift-manifest-only-macos-runner=macos-26"
+          echo "ios-package-swift-manifest-only-validation-hook=manifest-only-validation-blocked-before-package-swift"
+          echo "ios-package-swift-manifest-only-xcode-project=blocked"
+          echo "ios-package-swift-manifest-only-network-extension-target=blocked"
+          echo "ios-package-swift-manifest-only-upload-enabled-marker=blocked"
+          echo "ios-package-swift-manifest-only-release-upload=blocked"
+          echo "ios-package-swift-manifest-only-release-asset=blocked"
+          echo "ios-package-swift-manifest-only-next-action=add-package-swift-manifest-only-after-contract-gate"
           echo "ios-upload-workflow-activation-contract=present"
           echo "ios-upload-workflow-activation-source=ios-upload-readiness"
           echo "ios-upload-workflow-activation-status=blocked-placeholder"

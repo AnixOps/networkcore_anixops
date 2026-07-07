@@ -7,7 +7,9 @@ archive/export、签名、TestFlight upload、App Store upload、App Review subm
 
 本合同承接 [iOS Swift Xcode Source Tree Activation Preflight Contract](ios-swift-xcode-source-tree-activation-preflight-contract.md)、
 [iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md) 和
-[iOS Upload Workflow Activation Validation Contract](ios-upload-workflow-activation-validation-contract.md)。
+[iOS Upload Workflow Activation Validation Contract](ios-upload-workflow-activation-validation-contract.md)，并由
+[iOS Package.swift Manifest-Only Activation Validation Contract](ios-package-swift-manifest-only-activation-validation-contract.md)
+固定 `Package.swift` 实际进入仓库前的 manifest-only activation gate。
 
 当前状态：blocked-placeholder-before-package-swift。仓库只允许 `apps/ios/README.md` 作为 source tree governance
 placeholder；`apps/ios/Package.swift`、`apps/ios/Sources`、`apps/ios/Tests`、Swift source、Xcode project/workspace、
@@ -56,9 +58,9 @@ apps/ios/Package.swift
 | Xcode project/workspace | not enabled by Package.swift activation | blocked |
 | Upload workflow marker | `ios-upload-workflow-status=pending` | blocked |
 
-`Package.swift` activation must be an independent future commit. That commit may introduce the manifest only after this contract is
-checked by CI, and it must not introduce Swift source in the same change unless a separate Swift source activation gate has already
-been defined and passed.
+`Package.swift` activation must be an independent future commit. That commit may introduce the manifest only after this contract and
+the manifest-only activation validation contract are checked by CI, and it must not introduce Swift source in the same change unless
+a separate Swift source activation gate has already been defined and passed.
 
 ## Source Directory Guard
 
@@ -98,6 +100,9 @@ any upload workflow can be enabled. The hook must:
 If Swift source is still intentionally absent during a manifest-only activation, the validation hook must explicitly report the
 manifest-only state and keep `swift build`/`swift test` blocked until the later Swift source activation gate. Once Swift source is
 introduced, `swift build` and `swift test` must run only in GitHub Actions.
+
+The manifest-only activation validation contract owns the `ios-package-swift-manifest-only-*` release fields. Ownership fields remain
+blocked until that later gate explicitly permits the manifest-only commit.
 
 ## Required Placeholder Output Fields
 
@@ -139,6 +144,8 @@ ios-package-swift-ownership-next-action=add-package-swift-only-after-ownership-g
 Current `.github/workflows/ci.yml` must check:
 
 - This file exists and contains `iOS Package.swift Source Ownership Activation Preflight Contract`.
+- The manifest-only activation validation contract exists and contains `manifest-only source scan`, `target list verification`,
+  no Swift source before source gate, `ios-package-swift-manifest-only` and blocked release anchors.
 - Required anchors are present: `apps/ios/Package.swift`, `NetworkCoreBridge`, `NetworkCoreApp`,
   `NetworkCorePacketTunnel`, `NetworkCoreBridgeTests`, `source directory guard`, `no Swift source until package gate`,
   `macos-26 Swift package validation hook`, `Xcode project blocked`, `upload workflow enabled marker blocked`,
@@ -151,8 +158,8 @@ Current `.github/workflows/ci.yml` must check:
 
 ## Acceptance Criteria
 
-- README, ROADMAP, TODO, CHANGELOG, CI/CD policy, release strategy, manual intervention notes, `apps/ios/README.md` and upstream
-  iOS activation contracts link this contract.
+- README, ROADMAP, TODO, CHANGELOG, CI/CD policy, release strategy, manual intervention notes, `apps/ios/README.md`,
+  manifest-only activation validation contract and upstream iOS activation contracts link this contract.
 - CI static governance checks this contract, release workflow fields and forbidden iOS source/artifact material.
 - Release workflow placeholder and summary output `ios-package-swift-ownership-*` blocked fields.
 - No real `apps/ios/Package.swift`, Swift source, Swift/Xcode project, Network Extension target, Privacy Manifest,

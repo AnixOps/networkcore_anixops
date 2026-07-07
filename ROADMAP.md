@@ -48,6 +48,7 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification 和 P2 Core K
 - [iOS Upload Workflow Activation Validation Contract](docs/architecture/ios-upload-workflow-activation-validation-contract.md)
 - [iOS Swift Xcode Source Tree Activation Preflight Contract](docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md)
 - [iOS Package.swift Source Ownership Activation Preflight Contract](docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md)
+- [iOS Package.swift Manifest-Only Activation Validation Contract](docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md)
 - [ADR 0001: Initial Core Stack](docs/architecture/adr-0001-initial-core-stack.md)
 
 ## P2 Core Kernel Skeleton (Completed)
@@ -126,6 +127,7 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification 和 P2 Core K
 - [iOS Upload Workflow Activation Validation Contract](docs/architecture/ios-upload-workflow-activation-validation-contract.md)
 - [iOS Swift Xcode Source Tree Activation Preflight Contract](docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md)
 - [iOS Package.swift Source Ownership Activation Preflight Contract](docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md)
+- [iOS Package.swift Manifest-Only Activation Validation Contract](docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md)
 - [Linux Artifact Pre-Release Design](docs/architecture/linux-artifact-pre-release-design.md)
 - [Linux Platform Adapter Design](docs/architecture/linux-platform-adapter.md)
 - [Linux CLI Entrypoint Design](docs/architecture/linux-cli-entrypoint.md)

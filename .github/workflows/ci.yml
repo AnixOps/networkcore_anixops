@@ -70,6 +70,7 @@ jobs:
           test -f docs/architecture/ios-upload-workflow-activation-validation-contract.md
           test -f docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
           test -f docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          test -f docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
           test -f docs/architecture/linux-artifact-pre-release-design.md
           test -f docs/architecture/linux-platform-adapter.md
           test -f docs/architecture/linux-cli-entrypoint.md
@@ -114,6 +115,7 @@ jobs:
           grep -q "iOS upload readiness" .github/workflows/release.yml
           grep -q "iOS Upload Workflow Activation Validation Contract" .github/workflows/release.yml
           grep -q "iOS Swift Xcode Source Tree Activation Preflight Contract" .github/workflows/release.yml
+          grep -q "iOS Package.swift Manifest-Only Activation Validation Contract" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "ios-source-tree-preflight-contract=present"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "ios-source-tree-preflight-source=ios-upload-readiness"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "ios-source-tree-preflight-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
@@ -148,6 +150,29 @@ jobs:
           test "$(grep -Ec '^          echo "ios-package-swift-ownership-upload-enabled-marker=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "ios-package-swift-ownership-release-upload=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "ios-package-swift-ownership-next-action=add-package-swift-only-after-ownership-gate"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-source=ios-upload-readiness"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-current-mode=readme-placeholder-no-package-swift"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-contract-path=docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-package-path=apps/ios/Package.swift"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-manifest-status=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-activation-scope=future-independent-manifest-only-commit"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-source-scan=manifest-only-source-scan-blocked-before-package-swift"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-target-list-verification=blocked-before-package-swift"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-targets=NetworkCoreBridge,NetworkCoreApp,NetworkCorePacketTunnel"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-test-targets=NetworkCoreBridgeTests"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-source-directory-guard=apps/ios/Sources,apps/ios/Tests"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-swift-source=blocked-before-source-gate"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-swift-build-test=blocked-until-swift-source-gate"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-macos-runner=macos-26"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-validation-hook=manifest-only-validation-blocked-before-package-swift"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-xcode-project=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-network-extension-target=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-upload-enabled-marker=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-release-upload=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-manifest-only-next-action=add-package-swift-manifest-only-after-contract-gate"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "ios-upload-workflow-activation-contract=present"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "ios-upload-workflow-activation-source=ios-upload-readiness"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "ios-upload-workflow-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
@@ -951,6 +976,26 @@ jobs:
           grep -q "ios-package-swift-ownership" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
           grep -q "blocked-placeholder" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
           grep -q "no iOS release asset" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          grep -q "iOS Package.swift Manifest-Only Activation Validation Contract" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "apps/ios/Package.swift" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "manifest-only activation" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "manifest-only source scan" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "target list verification" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "NetworkCoreBridge" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "NetworkCoreApp" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "NetworkCorePacketTunnel" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "NetworkCoreBridgeTests" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "source directory guard" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "no Swift source before source gate" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "no Swift source until package gate" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "macos-26" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "Swift package validation hook" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "Xcode project blocked" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "upload workflow enabled marker blocked" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "release/upload blocked" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "ios-package-swift-manifest-only" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "blocked-placeholder" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q "no iOS release asset" docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
           grep -q "iOS Source Tree Governance Placeholder" apps/ios/README.md
           grep -q "readme-placeholder-no-swift-source" apps/ios/README.md
           grep -q "Future iOS Swift package ownership starts at" apps/ios/README.md
