@@ -79,6 +79,7 @@ jobs:
           test -f docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
           test -f docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
           test -f docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
+          test -f docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
           test -f docs/architecture/adr-0001-initial-core-stack.md
           grep -q "本机只负责代码" AGENT.md
           grep -q "GitHub Actions" docs/ci-cd-policy.md
@@ -141,6 +142,12 @@ jobs:
           grep -q "package_release_notes_rollback_execution_withdrawal_policy" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
           grep -q "package_release_notes_rollback_execution_replacement_policy" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
           grep -q "Future Release Notes Rollback Execution" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
+          grep -q "Linux Package Publish Eligibility Execution Validation Contract" docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
+          grep -q "package_publish_eligibility_execution_status" docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
+          grep -q "package_publish_eligibility_execution_required_gates" docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
+          grep -q "package_publish_eligibility_execution_required_fields" docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
+          grep -q "package_publish_eligibility_execution_eligible_status_field" docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
+          grep -q "Future Publish Eligibility Execution" docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
           grep -q "release-ci-success-source-contract=present" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-contract=present"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 4
@@ -354,6 +361,10 @@ jobs:
             echo "::error::actions/attest must stay disabled until artifact attestation execution is implemented."
             exit 1
           fi
+          if grep -Eq '^  publish-eligibility-gate:' .github/workflows/release.yml; then
+            echo "::error::publish-eligibility-gate must stay undefined until publish eligibility execution is implemented."
+            exit 1
+          fi
           if grep -Eq '^[[:space:]]+run:[[:space:]]+gh release create([[:space:]]|$)' .github/workflows/release.yml; then
             echo "::error::gh release create must stay disabled until release notes/rollback execution and publish eligibility gates are complete."
             exit 1
@@ -404,6 +415,27 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-publish-eligibility-ci=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-publish-eligibility-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-publish-eligibility-next-action=license-notice-confirmation-required"$' .github/workflows/release.yml)" -ge 3
+          grep -q "Linux Package Publish Eligibility Execution Validation Contract" .github/workflows/release.yml
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-required-job=publish-eligibility-gate"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-upstream-job=post-release-summary"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-upstream-status=not-defined"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-aggregate-status=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-required-gates=license_notice,ci,runner_toolchain,archive_staging,checksum_manifest,artifact_manifest,publish_upload,signing_attestation,release_notes_rollback"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-required-fields=status,reason,required_gates,license_notice,ci,runner_toolchain,archive_staging,checksum_manifest,artifact_manifest,publish_upload,signing_attestation,release_notes_rollback,package_linux,workflow_artifact,release_asset,publish_github_release,post_release_summary"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-eligible-status-field=package_publish_eligibility_status"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-current-eligible-value=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-missing-gate=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-unknown-gate=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-publish-without-eligible=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-workflow-artifact=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-release-creation=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-publish-job=publish-github-release"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-publish-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-publish-eligibility-execution-next-action=release-ci-gate-execution-after-publish-eligibility-contract"$' .github/workflows/release.yml)" -ge 3
           grep -q "Linux Package License Notice Transition Validation Contract" docs/architecture/linux-package-license-notice-transition-validation-contract.md
           grep -q "linux-artifact-license-notice-transition-commit=independent-manual-confirmation-commit" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-license-notice-transition-contract=present"$' .github/workflows/release.yml)" -ge 3
@@ -450,6 +482,7 @@ jobs:
           grep -q "Linux Package Workflow Artifact Bundle Upload Validation Contract" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
           grep -q "Linux Package Artifact Attestation Execution Validation Contract" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
           grep -q "Linux Package Release Notes Rollback Execution Validation Contract" docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md
+          grep -q "Linux Package Publish Eligibility Execution Validation Contract" docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md
           grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
           grep -q "Linux Package Archive Staging Contract" docs/architecture/linux-package-archive-staging-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md

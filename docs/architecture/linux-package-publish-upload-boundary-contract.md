@@ -38,6 +38,7 @@ job、不定义 publish job、不上传 workflow artifact、不发布 GitHub Rel
 [Linux Package Release Notes Rollback Policy Binding Contract](linux-package-release-notes-rollback-policy-binding-contract.md)、
 [Linux Package Release Notes Rollback Execution Validation Contract](linux-package-release-notes-rollback-execution-validation-contract.md)、
 [Linux Package Publish Eligibility Aggregate Contract](linux-package-publish-eligibility-aggregate-contract.md)、
+[Linux Package Publish Eligibility Execution Validation Contract](linux-package-publish-eligibility-execution-validation-contract.md)、
 [Linux Package License Notice Transition Validation Contract](linux-package-license-notice-transition-validation-contract.md)
 和 release workflow
 中的显式常量。不得由 maintainer 在 `workflow_dispatch` 中手动输入上传目录、asset 名称、
@@ -116,12 +117,13 @@ maintainer 上传文件、旧 run artifact、不同 commit artifact、不同 bra
 5. `package-linux` 校验 required files、manifest cross-check 和 release summary output fields。
 6. `package-linux` 上传同一 run 的 workflow artifact bundle，并设置 retention days。
 7. `attest-linux` 按 [Linux Package Artifact Attestation Execution Validation Contract](linux-package-artifact-attestation-execution-validation-contract.md) 和 [Linux Package Signing Attestation Policy Binding Contract](linux-package-signing-attestation-policy-binding-contract.md) 读取同一 run bundle，并输出 GitHub artifact attestation/provenance 状态。
-8. rollback/release notes gate 按 [Linux Package Release Notes Rollback Policy Binding Contract](linux-package-release-notes-rollback-policy-binding-contract.md) 和 [Linux Package Release Notes Rollback Execution Validation Contract](linux-package-release-notes-rollback-execution-validation-contract.md) 输出并校验 rollback 字段、withdrawal policy 和 replacement policy。
-9. `publish-github-release` 从同一 run 下载 workflow artifact bundle。
-10. `publish-github-release` 重新校验 file set、checksum、manifest checksum、CI source、signing/attestation
+8. `post-release-summary`、rollback/release notes gate 或等价 pre-publish gate 按 [Linux Package Release Notes Rollback Policy Binding Contract](linux-package-release-notes-rollback-policy-binding-contract.md) 和 [Linux Package Release Notes Rollback Execution Validation Contract](linux-package-release-notes-rollback-execution-validation-contract.md) 输出并校验 rollback 字段、withdrawal policy 和 replacement policy。
+9. `publish-eligibility-gate` 按 [Linux Package Publish Eligibility Execution Validation Contract](linux-package-publish-eligibility-execution-validation-contract.md) 聚合全部 required gates，只有 `package_publish_eligibility_status=eligible` 时才允许进入 publish。
+10. `publish-github-release` 从同一 run 下载 workflow artifact bundle。
+11. `publish-github-release` 重新校验 file set、checksum、manifest checksum、CI source、signing/attestation
     状态、rollback 字段和 license/NOTICE 状态。
-11. `publish-github-release` 上传 GitHub Release assets。
-12. `post-release-summary` 输出 release asset URL、checksum、manifest、CI run、release run、签名/证明
+12. `publish-github-release` 上传 GitHub Release assets。
+13. `release-summary` 或等价 post-publish summary 输出 release asset URL、checksum、manifest、CI run、release run、签名/证明
     状态和回滚字段。
 
 当前 placeholder release 不执行第 4 步及之后的任何真实上传步骤。
@@ -130,7 +132,7 @@ maintainer 上传文件、旧 run artifact、不同 commit artifact、不同 bra
 
 真实 upload gate 必须拒绝以下情况：
 
-- `package-linux`、`attest-linux`、`publish-github-release` 或等价 upload job 在本文档、signing/attestation policy binding、release notes/rollback policy binding 和 publish eligibility aggregate contract 完成前被定义。
+- `package-linux`、`attest-linux`、`publish-eligibility-gate`、`publish-github-release` 或等价 upload job 在本文档、signing/attestation policy binding、release notes/rollback policy binding、publish eligibility aggregate contract 和 publish eligibility execution validation contract 完成前被定义。
 - workflow artifact name、upload source dir、retention days 或 required file set 与本文档不一致。
 - workflow artifact 包含 required files 以外的文件。
 - publish job 从同一 release run 以外的 artifact、runner 本地文件、外部 URL 或人工上传文件读取。
@@ -139,6 +141,7 @@ maintainer 上传文件、旧 run artifact、不同 commit artifact、不同 bra
 - release asset 试图覆盖同名 tag 或同名 asset。
 - release asset 在 license/NOTICE confirmed、release CI success source、checksum/manifest checksum、
   signing/attestation、rollback 和 release notes gates 完成前上传。
+- release asset 在 `package_publish_eligibility_status` 不是 `eligible` 时上传。
 
 拒绝时 release workflow 必须失败，并且不得上传 workflow artifact 或 GitHub Release asset。
 
@@ -167,6 +170,7 @@ maintainer 上传文件、旧 run artifact、不同 commit artifact、不同 bra
   Linux package release notes/rollback policy binding contract、
   Linux package release notes/rollback execution validation contract、
   Linux package publish eligibility aggregate contract、
+  Linux package publish eligibility execution validation contract、
   Linux CLI artifact 安装/回滚设计、Release CI success source contract、
   Linux package artifact job preflight validation contract、Linux package runner/toolchain/target contract、
   Linux package archive staging contract、Linux artifact license/NOTICE confirmation source contract 和
@@ -188,6 +192,8 @@ maintainer 上传文件、旧 run artifact、不同 commit artifact、不同 bra
   gate activation validation contract、artifact job preflight validation contract、artifact build command
   validation contract、artifact staging file validation contract、artifact archive creation validation contract 和 artifact checksum execution validation contract 已定义；Linux package artifact manifest generation validation contract、
   [Linux Package Artifact Manifest Checksum Validation Contract](linux-package-artifact-manifest-checksum-validation-contract.md)、
-  [Linux Package Workflow Artifact Bundle Upload Validation Contract](linux-package-workflow-artifact-bundle-upload-validation-contract.md)
-  和 [Linux Package Artifact Attestation Execution Validation Contract](linux-package-artifact-attestation-execution-validation-contract.md)
-  已定义；下一步可以补充 Linux package publish eligibility execution validation contract，仍不发布 release asset。
+  [Linux Package Workflow Artifact Bundle Upload Validation Contract](linux-package-workflow-artifact-bundle-upload-validation-contract.md)、
+  [Linux Package Artifact Attestation Execution Validation Contract](linux-package-artifact-attestation-execution-validation-contract.md)、
+  [Linux Package Release Notes Rollback Execution Validation Contract](linux-package-release-notes-rollback-execution-validation-contract.md)
+  和 [Linux Package Publish Eligibility Execution Validation Contract](linux-package-publish-eligibility-execution-validation-contract.md)
+  已定义；下一步可以补充 release CI gate execution validation contract，仍不发布 release asset。

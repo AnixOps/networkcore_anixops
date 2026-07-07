@@ -40,7 +40,9 @@ GitHub Release asset。
 [Linux Package Signing Attestation Policy Binding Contract](linux-package-signing-attestation-policy-binding-contract.md)、
 [Linux Package Artifact Attestation Execution Validation Contract](linux-package-artifact-attestation-execution-validation-contract.md)、
 [Linux Package Release Notes Rollback Policy Binding Contract](linux-package-release-notes-rollback-policy-binding-contract.md)、
+[Linux Package Release Notes Rollback Execution Validation Contract](linux-package-release-notes-rollback-execution-validation-contract.md)、
 [Linux Package Publish Eligibility Aggregate Contract](linux-package-publish-eligibility-aggregate-contract.md)、
+[Linux Package Publish Eligibility Execution Validation Contract](linux-package-publish-eligibility-execution-validation-contract.md)、
 runner/toolchain/target contract、release policy 认可的 version 和 release workflow 中的显式常量。
 
 当前 placeholder 固定为：
@@ -183,7 +185,9 @@ release asset。
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux package artifact manifest checksum
   validation contract、Linux package checksum manifest contract、Linux package publish/upload
   boundary contract、Linux package signing/attestation policy binding contract、Linux package artifact
-  attestation execution validation contract、Linux package publish eligibility aggregate contract、
+  attestation execution validation contract、Linux package release notes/rollback execution validation
+  contract、Linux package publish eligibility aggregate contract、Linux package publish eligibility execution
+  validation contract、
   Linux CLI artifact 安装/回滚设计和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在、标题、source dir、required files、
   future workflow artifact upload 和 release workflow placeholder 输出字段。
@@ -202,4 +206,7 @@ release asset。
 - 在 license/NOTICE 人工确认、release CI gate activation、artifact job preflight、build command、
   staging file、archive creation、checksum execution、manifest generation、manifest checksum 和 workflow
   artifact bundle upload gates 激活前，继续保持 `package-linux` 未定义。
-- Linux package artifact attestation execution validation contract 和 Linux package release notes/rollback execution validation contract 已定义；下一步可以补充 Linux package publish eligibility execution validation contract，明确 release notes/rollback execution 完成后综合 gate 聚合、eligible 字段、失败边界和仍不发布 GitHub Release asset 的边界。
+- Linux package artifact attestation execution validation contract、Linux package release notes/rollback execution
+  validation contract 和 Linux package publish eligibility execution validation contract 已定义；下一步可以补充
+  release CI gate execution validation contract，明确 release workflow 如何自动读取同 commit 成功 CI run，
+  并继续阻止 GitHub Release asset。

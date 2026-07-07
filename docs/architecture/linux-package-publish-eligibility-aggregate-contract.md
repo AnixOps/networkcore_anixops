@@ -40,7 +40,8 @@ archive staging、checksum/manifest、artifact manifest、publish/upload、signi
 [Linux Package Signing Attestation Policy Binding Contract](linux-package-signing-attestation-policy-binding-contract.md)、
 [Linux Package Artifact Attestation Execution Validation Contract](linux-package-artifact-attestation-execution-validation-contract.md)、
 [Linux Package Release Notes Rollback Policy Binding Contract](linux-package-release-notes-rollback-policy-binding-contract.md)、
-[Linux Package Release Notes Rollback Execution Validation Contract](linux-package-release-notes-rollback-execution-validation-contract.md)
+[Linux Package Release Notes Rollback Execution Validation Contract](linux-package-release-notes-rollback-execution-validation-contract.md)、
+[Linux Package Publish Eligibility Execution Validation Contract](linux-package-publish-eligibility-execution-validation-contract.md)
 和 release workflow 中的显式常量。不得由 maintainer 在 `workflow_dispatch` 中手动输入
 eligible 状态、CI URL、artifact path、attestation 状态、rollback 状态或 release asset eligibility
 来绕过门禁。
@@ -154,11 +155,12 @@ outputs 完全一致。首个 Linux artifact 的最小发布前状态为：
 4. `package-linux` 生成 archive、archive checksum、manifest 和 manifest checksum。
 5. `package-linux` 上传同一 release run 的 workflow artifact bundle。
 6. `attest-linux` 按 [Linux Package Artifact Attestation Execution Validation Contract](linux-package-artifact-attestation-execution-validation-contract.md) 对 archive、checksum、manifest 和 manifest checksum 生成 attestation/provenance。
-7. release notes/rollback gate 输出 release notes、rollback、withdrawal 和 replacement 字段。
-8. publish eligibility aggregate gate 读取以上所有 job outputs、manifest、manual marker 和 summary 字段。
+7. `post-release-summary`、release notes/rollback gate 或等价 pre-publish gate 输出 release notes、
+   rollback、withdrawal 和 replacement 字段。
+8. publish eligibility execution gate 读取以上所有 job outputs、manifest、manual marker 和 summary 字段。
 9. 只有 `package_publish_eligibility_status=eligible` 时，`publish-github-release` 才能上传 GitHub Release assets。
-10. `post-release-summary` 输出 release asset URL、checksums、CI run、release run、attestation/provenance、
-    rollback summary 和 aggregate eligibility 结果。
+10. `release-summary` 或等价 post-publish summary 输出 release asset URL、checksums、CI run、
+    release run、attestation/provenance、rollback summary 和 aggregate eligibility 结果。
 
 当前 placeholder release 不执行第 4 步及之后的任何真实 packaging、attestation、release notes、
 aggregate eligibility publish gate 或 upload 步骤。
@@ -167,8 +169,8 @@ aggregate eligibility publish gate 或 upload 步骤。
 
 真实 publish eligibility gate 必须拒绝以下情况：
 
-- `package-linux`、`attest-linux`、`publish-github-release`、`post-release-summary` 或等价 publish job
-  在本文档和相关 release gates 完成前被定义。
+- `package-linux`、`attest-linux`、`publish-eligibility-gate`、`publish-github-release`、
+  `post-release-summary` 或等价 publish job 在本文档和相关 release gates 完成前被定义。
 - 任一 required gate 缺失、状态未知或与 source contract 不一致。
 - release CI source 不是同 repository、同 commit、`main` 分支成功 CI run。
 - license/NOTICE 状态不是 `confirmed`。
@@ -176,7 +178,8 @@ aggregate eligibility publish gate 或 upload 步骤。
   与对应合同不一致。
 - attestation/provenance 未覆盖 required files。
 - release notes/rollback execution gate 未通过，或 rollback、withdrawal、replacement 字段缺失。
-- aggregate status 不是 `eligible` 时仍尝试上传 workflow artifact 或 GitHub Release asset。
+- aggregate status 或 publish eligibility execution status 不是 `eligible` 时仍尝试上传 workflow artifact
+  或 GitHub Release asset。
 - aggregate summary 或 manifest 输出 secret、token、证书私钥、runner 本地绝对路径、API response
   原文、私有人工身份信息或未公开安全公告细节。
 
@@ -189,14 +192,16 @@ aggregate eligibility publish gate 或 upload 步骤。
 - 检查本文档存在和标题。
 - 在 `linux-artifact-readiness`、`release-placeholder` 和 release summary 中输出 publish
   eligibility aggregate 合同。
+- 在 `linux-artifact-readiness`、`release-placeholder` 和 release summary 中输出 publish
+  eligibility execution validation contract，并保持 execution status 为 `blocked-placeholder`。
 - 标记 `linux-package-publish-eligibility-aggregate-contract=present`。
 - 标记 `linux-package-publish-eligibility-status=blocked`。
 - 标记 `linux-package-publish-eligibility-license-notice=blocked-pending`。
 - 标记 `linux-package-publish-eligibility-ci=blocked-placeholder`。
 - 标记 `linux-package-publish-eligibility-release-asset=blocked`。
 - 标记 `linux-package-publish-eligibility-next-action=license-notice-confirmation-required`。
-- 继续不定义 `package-linux`、`attest-linux`、`sign-linux`、`publish-github-release` 或
-  `post-release-summary`。
+- 继续不定义 `package-linux`、`attest-linux`、`sign-linux`、`publish-eligibility-gate`、
+  `publish-github-release` 或 `post-release-summary`。
 
 该 placeholder 只证明 publish eligibility aggregate 已被记录，不证明当前 release 已经可以
 发布 Linux artifact。
@@ -210,16 +215,17 @@ aggregate eligibility publish gate 或 upload 步骤。
   notes/rollback execution validation contract、Linux CLI artifact 安装/回滚设计、Release CI success source contract、
   Linux package release CI gate activation validation contract、Linux package artifact job preflight validation
   contract、Linux package runner/toolchain/target contract、Linux package archive staging contract、Linux artifact
-  license/NOTICE confirmation source contract、Linux package license/NOTICE transition validation contract 和
-  CI policy 中可发现。
+  license/NOTICE confirmation source contract、Linux package license/NOTICE transition validation contract、
+  Linux package publish eligibility execution validation contract 和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题和
   release placeholder/summary 输出字段。
 - release placeholder 和 release summary 输出 aggregate status、blocking reason、required gates、
-  per-gate eligible/blocked 状态、package/publish job not-defined 状态和 next action。
-- 不生成 artifact、不定义 `package-linux`、不定义 `publish-github-release`、不定义
-  `post-release-summary`、不上传 workflow artifact、不上传 release asset、不在本机执行测试、
-  构建、打包或发布。
+  per-gate eligible/blocked 状态、publish eligibility execution blocked 状态、package/publish job
+  not-defined 状态和 next action。
+- 不生成 artifact、不定义 `package-linux`、不定义 `publish-eligibility-gate`、不定义
+  `publish-github-release`、不定义 `post-release-summary`、不上传 workflow artifact、不上传 release
+  asset、不在本机执行测试、构建、打包或发布。
 
 ## 后续工作
 
@@ -228,4 +234,4 @@ aggregate eligibility publish gate 或 upload 步骤。
   validation contract、Linux package artifact job preflight validation contract、Linux package artifact build
   command validation contract、Linux package artifact staging file validation contract、Linux package artifact
   archive creation validation contract 和 Linux package artifact checksum execution validation contract 已定义；
-  Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract、Linux package artifact attestation execution validation contract 和 Linux package release notes/rollback execution validation contract 已定义；下一步可以补充 Linux package publish eligibility execution validation contract，仍不发布 release asset。
+  Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract、Linux package artifact attestation execution validation contract、Linux package release notes/rollback execution validation contract 和 Linux package publish eligibility execution validation contract 已定义；下一步可以补充 release CI gate execution validation contract，仍不发布 release asset。

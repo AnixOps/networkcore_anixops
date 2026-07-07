@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 补充 Linux package publish eligibility execution validation contract，明确 release notes/rollback execution 完成后综合 gate 聚合、eligible 字段、失败边界和仍不发布 release asset 的边界。
+- [ ] 补充 release CI gate execution validation contract，明确 release workflow 如何自动读取同 repository、同 commit、`main` 成功 CI run 的 API 字段、权限、失败边界，并继续不定义 `package-linux` 或发布 release asset。
 
 ## 已完成
 
+- [x] 完成 Linux package publish eligibility execution validation contract；新增 publish eligibility execution validation contract，固定未来 release notes/rollback execution 后必须聚合全部 required gates、校验 eligible 字段、拒绝 missing/unknown/blocked gates、阻断 publish without eligible，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 publish eligibility execution blocked 状态，继续不定义 `publish-eligibility-gate`、`publish-github-release` 或上传 release asset。
 - [x] 完成 Linux package release notes/rollback execution validation contract；新增 release notes/rollback execution validation contract，固定未来 attestation/provenance 完成后必须校验 release notes required fields、rollback required fields、withdrawal-not-overwrite、new-version-tag-required、缺失 rollback summary 阻断和 publish without release notes/rollback 阻断，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 release notes/rollback execution blocked 状态，继续不定义 `post-release-summary`、不创建 GitHub Release 或上传 release asset。
 - [x] 完成 Linux package artifact attestation execution validation contract；新增 artifact attestation execution validation contract，固定未来 `attest-linux` 从同一 release run workflow artifact bundle 下载 archive、archive checksum、manifest、manifest checksum 四文件并使用 GitHub artifact attestation/provenance、显式 subject path、required permissions、blocked action/status 和 release asset upload blocked 边界，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 artifact attestation execution blocked 状态，继续不定义 `attest-linux`、不启用 attestation permissions、不调用 `actions/attest` 或上传 release asset。
 - [x] 完成 Linux package workflow artifact bundle upload validation contract；新增 workflow artifact bundle upload validation contract，固定未来 manifest checksum sidecar 生成后校验 `dist/linux/${target}/artifacts` 中 archive、archive checksum、manifest、manifest checksum 四文件集合、同一 release run workflow artifact bundle 名称、retention days、`actions/upload-artifact` blocked 状态、失败条件和 release asset upload blocked 边界，并让 `linux-artifact-readiness`、release placeholder 与 release summary 输出 workflow artifact bundle upload blocked 状态，继续不上传 workflow artifact 或 release asset。

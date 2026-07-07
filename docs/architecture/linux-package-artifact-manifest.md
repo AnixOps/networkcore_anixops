@@ -15,7 +15,8 @@ artifact manifest 和 metadata 输出合同。它承接
 [Linux Package Signing Attestation Policy Binding Contract](linux-package-signing-attestation-policy-binding-contract.md)、
 [Linux Package Release Notes Rollback Policy Binding Contract](linux-package-release-notes-rollback-policy-binding-contract.md)、
 [Linux Package Release Notes Rollback Execution Validation Contract](linux-package-release-notes-rollback-execution-validation-contract.md)、
-[Linux Package Publish Eligibility Aggregate Contract](linux-package-publish-eligibility-aggregate-contract.md) 和
+[Linux Package Publish Eligibility Aggregate Contract](linux-package-publish-eligibility-aggregate-contract.md)、
+[Linux Package Publish Eligibility Execution Validation Contract](linux-package-publish-eligibility-execution-validation-contract.md) 和
 [Release Strategy](../release-strategy.md)。当前仓库仍不生成 Linux artifact；
 本文件只定义后续 packaging job 的可检查字段。
 
@@ -211,7 +212,8 @@ manifest 顶层字段必须稳定、显式、可由自动化读取：
 14. 按 [Linux Package Signing Attestation Policy Binding Contract](linux-package-signing-attestation-policy-binding-contract.md) 输出 signing/attestation/provenance 状态。
 15. 按 [Linux Package Release Notes Rollback Policy Binding Contract](linux-package-release-notes-rollback-policy-binding-contract.md) 和 [Linux Package Release Notes Rollback Execution Validation Contract](linux-package-release-notes-rollback-execution-validation-contract.md) 输出 release notes/rollback/withdrawal/replacement 状态。
 16. 按 [Linux Package Publish Eligibility Aggregate Contract](linux-package-publish-eligibility-aggregate-contract.md) 输出 publish eligibility aggregate 状态。
-17. release summary 展示字段；后续 publish job 必须按 [Linux Package Publish Upload Boundary Contract](linux-package-publish-upload-boundary-contract.md) 校验 workflow artifact bundle、release asset set、signing/attestation 状态、release notes/rollback 状态和 publish eligibility aggregate 状态后才能上传。
+17. 按 [Linux Package Publish Eligibility Execution Validation Contract](linux-package-publish-eligibility-execution-validation-contract.md) 校验 `package_publish_eligibility_status=eligible` 前 required gates、required fields 和 blocked/missing/unknown gate 边界。
+18. release summary 展示字段；后续 publish job 必须按 [Linux Package Publish Upload Boundary Contract](linux-package-publish-upload-boundary-contract.md) 校验 workflow artifact bundle、release asset set、signing/attestation 状态、release notes/rollback 状态、publish eligibility aggregate 状态和 publish eligibility execution 状态后才能上传。
 
 manifest 不得反向参与 archive checksum。这样用户可以独立校验 archive 和
 manifest，release summary 也能引用两个 checksum。
@@ -248,6 +250,7 @@ Required Archive Contents 保持一致：
 - release notes/withdrawal/replacement policy 状态。
 - rollback 字段。
 - publish eligibility aggregate 状态。
+- publish eligibility execution 状态、required gates、required fields 和 eligible status field。
 - license/NOTICE 确认状态。
 
 缺少任一字段时，release workflow 必须失败，不得上传 Linux artifact。
@@ -263,12 +266,12 @@ Required Archive Contents 保持一致：
   [Linux Package Artifact Manifest Checksum Validation Contract](linux-package-artifact-manifest-checksum-validation-contract.md)
   和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
-- `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、release CI success source contract、release CI gate activation validation contract、artifact job preflight validation contract、artifact build command validation contract、artifact staging file validation contract、package runner/toolchain/target contract、archive staging contract、checksum/manifest checksum contract、publish/upload boundary contract、signing/attestation policy binding contract、release notes/rollback policy binding contract、release notes/rollback execution validation contract、publish eligibility aggregate contract、license/NOTICE transition validation contract、license/NOTICE source contract、release placeholder manifest output summary 和 license/NOTICE source contract summary，但继续拒绝定义 `package-linux` job。
-- release CI gate、release placeholder 和 release summary 输出 CI success source contract、release CI gate activation validation contract、artifact job preflight validation contract、artifact build command validation contract、artifact staging file validation contract、package runner/toolchain/target contract、archive staging contract、checksum/manifest checksum contract、artifact manifest checksum validation contract、publish/upload boundary contract、signing/attestation policy binding contract、release notes/rollback policy binding contract、release notes/rollback execution validation contract、publish eligibility aggregate contract、license/NOTICE transition validation contract、manifest output contract 字段清单与 license/NOTICE source contract pending 状态。
+- `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、release CI success source contract、release CI gate activation validation contract、artifact job preflight validation contract、artifact build command validation contract、artifact staging file validation contract、package runner/toolchain/target contract、archive staging contract、checksum/manifest checksum contract、publish/upload boundary contract、signing/attestation policy binding contract、release notes/rollback policy binding contract、release notes/rollback execution validation contract、publish eligibility aggregate contract、publish eligibility execution validation contract、license/NOTICE transition validation contract、license/NOTICE source contract、release placeholder manifest output summary 和 license/NOTICE source contract summary，但继续拒绝定义 `package-linux` job。
+- release CI gate、release placeholder 和 release summary 输出 CI success source contract、release CI gate activation validation contract、artifact job preflight validation contract、artifact build command validation contract、artifact staging file validation contract、package runner/toolchain/target contract、archive staging contract、checksum/manifest checksum contract、artifact manifest checksum validation contract、publish/upload boundary contract、signing/attestation policy binding contract、release notes/rollback policy binding contract、release notes/rollback execution validation contract、publish eligibility aggregate contract、publish eligibility execution validation contract、license/NOTICE transition validation contract、manifest output contract 字段清单与 license/NOTICE source contract pending 状态。
 - TODO 指向下一步最小 release workflow 或 release governance 增量。
 - 不生成 artifact、不上传 release asset、不在本机执行测试、构建、打包或发布。
 
 ## 后续工作
 
 - 在 license/NOTICE 人工确认完成前，继续不实现 `package-linux`。
-- Linux package checksum manifest contract、publish/upload boundary contract、signing/attestation policy binding contract、release notes/rollback policy binding contract、publish eligibility aggregate contract、license/NOTICE transition validation contract 和 release CI gate activation validation contract 已定义；Linux package artifact job preflight validation contract、Linux package artifact build command validation contract、Linux package artifact staging file validation contract、Linux package artifact archive creation validation contract 和 Linux package artifact checksum execution validation contract 已定义；Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract、Linux package artifact attestation execution validation contract 和 Linux package release notes/rollback execution validation contract 已定义；下一步可以补充 Linux package publish eligibility execution validation contract，仍不发布 release asset。
+- Linux package checksum manifest contract、publish/upload boundary contract、signing/attestation policy binding contract、release notes/rollback policy binding contract、publish eligibility aggregate contract、license/NOTICE transition validation contract 和 release CI gate activation validation contract 已定义；Linux package artifact job preflight validation contract、Linux package artifact build command validation contract、Linux package artifact staging file validation contract、Linux package artifact archive creation validation contract 和 Linux package artifact checksum execution validation contract 已定义；Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract、Linux package artifact attestation execution validation contract、Linux package release notes/rollback execution validation contract 和 Linux package publish eligibility execution validation contract 已定义；下一步可以补充 release CI gate execution validation contract，仍不发布 release asset。
