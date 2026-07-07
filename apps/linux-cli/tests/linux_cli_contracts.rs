@@ -1,27 +1,30 @@
 use config_core::CoreConfigurationService;
 use control_domain::{
     CertificateTrustState, ConfigSnapshot, ConfigurationService, Diagnostic, DiagnosticSeverity,
-    DomainResult, PlatformCapabilities, PlatformFeatureState, ProxyEngineConfig,
+    DomainError, DomainResult, PlatformCapabilities, PlatformFeatureState, ProxyEngineConfig,
     ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineLifecycleState, ProxyEngineService,
     ProxyEngineStatus, SchemaVersion,
 };
 use control_runtime::{RuntimeOperationResult, RuntimeOrchestrator};
 use engine_native::{
     NativeProxyEngineService, ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE,
-    ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE, ENGINE_NATIVE_START_RUNNING_CODE,
+    ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
+    ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE, ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
+    ENGINE_NATIVE_START_RUNNING_CODE,
 };
 use networkcore_linux::{
     handle_capabilities, handle_entrypoint, handle_entrypoint_with_runtime,
     handle_entrypoint_with_runtime_and_lifecycle, handle_foreground_lifecycle,
-    handle_prepare_config, handle_start, handle_status, handle_stop, parse_args, render_response,
-    ConfigReadError, ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
-    ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
-    ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxCliCommand, LinuxCliExitCode,
-    OutputFormat, UnavailableForegroundLifecycleHost, UnavailableProxyEngineService,
-    CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
-    CLI_RUNTIME_UNWIRED_CODE, CLI_START_FOREGROUND_ONLY_CODE, CLI_START_LIFECYCLE_FAILED_CODE,
-    CLI_START_LIFECYCLE_HOST_MISSING_CODE, CLI_START_LIFECYCLE_INTERRUPTED_CODE,
-    CLI_START_PLATFORM_DENIED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
+    handle_foreground_lifecycle_with_runtime_stop, handle_prepare_config, handle_start,
+    handle_status, handle_stop, parse_args, render_response, ConfigReadError, ConfigReader,
+    CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost, ForegroundLifecycleInterruption,
+    ForegroundLifecycleInterruptionSource, ForegroundLifecycleOutcome, ForegroundLifecycleRequest,
+    LinuxCliCommand, LinuxCliExitCode, OutputFormat, UnavailableForegroundLifecycleHost,
+    UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
+    CLI_CONFIG_READ_FAILED_CODE, CLI_RUNTIME_UNWIRED_CODE, CLI_START_FOREGROUND_ONLY_CODE,
+    CLI_START_LIFECYCLE_FAILED_CODE, CLI_START_LIFECYCLE_HOST_MISSING_CODE,
+    CLI_START_LIFECYCLE_INTERRUPTED_CODE, CLI_START_PLATFORM_DENIED_CODE,
+    CLI_START_RUNTIME_STOP_FAILED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
     CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
 };
 #[cfg(unix)]
@@ -478,6 +481,98 @@ fn current_process_lifecycle_host_maps_interruption_to_stable_exit_contract() {
     assert_diagnostic(&response.diagnostics, CLI_START_LIFECYCLE_INTERRUPTED_CODE);
 }
 
+#[test]
+fn foreground_interruption_stops_native_runtime_and_aggregates_release_diagnostics() {
+    let port = unused_loopback_port();
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let engine = NativeProxyEngineService::new();
+    let orchestrator = RuntimeOrchestrator::new(
+        CoreConfigurationService::new(),
+        platform.clone(),
+        engine.clone(),
+    );
+    let reader = MemoryConfigReader::ok(format!(
+        r#"
+schema_version = 1
+profile = "default"
+
+[[nodes]]
+id = "node-1"
+protocol = "socks"
+host = "127.0.0.1"
+port = 1081
+
+[[listeners]]
+id = "loopback-socks"
+enabled = true
+kind = "socks"
+bind_host = "127.0.0.1"
+bind_port = {port}
+network = "tcp"
+route_action = "proxy"
+route_node = "node-1"
+"#
+    ));
+    let host = CurrentProcessForegroundLifecycleHost::with_interruption_source(
+        TestForegroundLifecycleInterruptionSource::new("sigterm"),
+    );
+
+    let response = handle_entrypoint_with_runtime_and_lifecycle(
+        LinuxCliCommand::Start {
+            config_path: Some("networkcore.toml".to_string()),
+            format: OutputFormat::Text,
+        },
+        &platform,
+        &orchestrator,
+        &reader,
+        &host,
+    );
+
+    assert!(!response.ok);
+    assert_eq!(response.command, "start");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Interrupted);
+    assert_diagnostic(&response.diagnostics, ENGINE_NATIVE_START_RUNNING_CODE);
+    assert_diagnostic(&response.diagnostics, CLI_START_FOREGROUND_ONLY_CODE);
+    assert_diagnostic(&response.diagnostics, CLI_START_LIFECYCLE_INTERRUPTED_CODE);
+    assert_diagnostic(
+        &response.diagnostics,
+        ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
+    );
+    assert_diagnostic(&response.diagnostics, ENGINE_NATIVE_RUNTIME_RELEASED_CODE);
+
+    let status = engine
+        .status(DEFAULT_ENGINE_ID)
+        .expect("interruption cleanup should leave native runtime inspectable");
+    assert_eq!(status.state, ProxyEngineLifecycleState::Stopped);
+    let rebound = TcpListener::bind(("127.0.0.1", port))
+        .expect("interruption cleanup should release the loopback tcp port");
+    drop(rebound);
+}
+
+#[test]
+fn foreground_interruption_stop_failure_adds_stable_cli_diagnostic() {
+    let orchestrator = RuntimeOrchestrator::new(
+        TestConfigurationService,
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests()),
+        StopFailingProxyEngineService,
+    );
+    let host = CurrentProcessForegroundLifecycleHost::with_interruption_source(
+        TestForegroundLifecycleInterruptionSource::new("sigint"),
+    );
+
+    let response = handle_foreground_lifecycle_with_runtime_stop(
+        runtime_operation_result(ProxyEngineLifecycleState::Running, Vec::new()),
+        &orchestrator,
+        &host,
+    );
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, LinuxCliExitCode::Interrupted);
+    assert_diagnostic(&response.diagnostics, CLI_START_LIFECYCLE_INTERRUPTED_CODE);
+    assert_diagnostic(&response.diagnostics, CLI_START_RUNTIME_STOP_FAILED_CODE);
+}
+
 #[cfg(unix)]
 #[test]
 fn os_signal_interruption_source_maps_unix_signals_to_stable_diagnostics() {
@@ -690,6 +785,53 @@ impl ProxyEngineService for TestProxyEngineService {
         Ok(ProxyEngineStatus {
             engine_id: engine_id.to_string(),
             state: ProxyEngineLifecycleState::Stopped,
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn events(&self, _engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>> {
+        Ok(Vec::new())
+    }
+}
+
+struct StopFailingProxyEngineService;
+
+impl ProxyEngineService for StopFailingProxyEngineService {
+    fn list_engines(&self) -> Vec<ProxyEngineDescriptor> {
+        Vec::new()
+    }
+
+    fn validate_config(&self, _engine_config: &ProxyEngineConfig) -> Vec<Diagnostic> {
+        Vec::new()
+    }
+
+    fn start(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {
+        Ok(ProxyEngineStatus {
+            engine_id: engine_config.engine_id.clone(),
+            state: ProxyEngineLifecycleState::Running,
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn reload(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {
+        Ok(ProxyEngineStatus {
+            engine_id: engine_config.engine_id.clone(),
+            state: ProxyEngineLifecycleState::Running,
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn stop(&self, _engine_id: &str) -> DomainResult<ProxyEngineStatus> {
+        Err(DomainError::new(
+            "engine.stop.failed",
+            "engine stop failed during foreground interruption cleanup",
+        ))
+    }
+
+    fn status(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
+        Ok(ProxyEngineStatus {
+            engine_id: engine_id.to_string(),
+            state: ProxyEngineLifecycleState::Running,
             diagnostics: Vec::new(),
         })
     }

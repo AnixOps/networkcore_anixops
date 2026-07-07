@@ -109,5 +109,6 @@ diagnostic code。
 ## 后续工作
 
 - `config-core` 已提供最小纯配置服务，`networkcore-linux prepare-config` 已接入二进制入口；后续配置扩展继续保持纯内存解析和 secret 不泄露边界。
-- `networkcore-linux start` 已接入 `NativeProxyEngineService` 和 current-process foreground lifecycle host；前台 lifecycle 已具备可注入 signal/interruption 合同、Unix `SIGINT`/`SIGTERM` OS signal source、`cli.linux.start.signal_received`/`cli.linux.start.lifecycle_interrupted` 诊断和 130 退出码映射，后续需要补充 interruption 后的 runtime stop/release 诊断聚合。
+- `networkcore-linux start` 已接入 `NativeProxyEngineService` 和 current-process foreground lifecycle host；前台 lifecycle 已具备可注入 signal/interruption 合同、Unix `SIGINT`/`SIGTERM` OS signal source、`cli.linux.start.signal_received`/`cli.linux.start.lifecycle_interrupted` 诊断、130 退出码映射，以及 interruption 后通过当前进程内 `RuntimeOrchestrator::stop_runtime` 聚合 native runtime stop/release 诊断的合同。
+- Linux artifact readiness/release gate 后续需要纳入 foreground stop/release 合同检查；license/NOTICE 人工确认完成前继续阻止 `package-linux`。
 - daemon/control socket、service install、DNS/TUN mutation 或 release artifact 进入前，继续先补设计和回滚合同。

@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 为 `networkcore-linux start` 前台 interruption 后的 runtime stop/release 诊断聚合补充显式合同，继续保持无 daemon/control socket 边界。
+- [ ] 在 Linux artifact readiness/release gate 中纳入 `networkcore-linux start` foreground stop/release 合同检查，并继续保持 license/NOTICE 未确认时不生成 `package-linux` artifact。
 
 ## 已完成
 
+- [x] 为 `networkcore-linux start` 前台 interruption 后的 runtime stop/release 诊断聚合补充显式合同；interruption 后通过当前进程内 `RuntimeOrchestrator::stop_runtime` 释放 `NativeProxyEngineService` runtime，聚合 `engine.native.runtime.accept_loop_stopped`/`engine.native.runtime.released` 诊断，并用 `cli.linux.start.runtime_stop_failed` 覆盖 stop 失败路径，继续保持无 daemon/control socket 边界。
 - [x] 为 `CurrentProcessForegroundLifecycleHost` 接入真实 Unix OS signal/interruption source，默认监听 `SIGINT`/`SIGTERM` 并映射为前台 interruption 合同，非 Unix 继续保留 parking fallback，继续保持无 daemon/control socket 边界。
 - [x] 为 `networkcore-linux start` 前台 lifecycle host 补充 signal/interruption 处理合同，新增可注入 interruption source、`cli.linux.start.lifecycle_interrupted` 诊断和 130 退出码映射，继续保持无 daemon/control socket 边界。
 - [x] 将 `networkcore-linux start` binary 接入 `NativeProxyEngineService` 与前台 lifecycle host，继续保持无 daemon/control socket 边界。

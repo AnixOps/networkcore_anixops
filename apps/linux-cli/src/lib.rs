@@ -36,6 +36,7 @@ pub const CLI_START_FOREGROUND_ONLY_CODE: &str = "cli.linux.start.foreground_onl
 pub const CLI_START_LIFECYCLE_HOST_MISSING_CODE: &str = "cli.linux.start.lifecycle_host_missing";
 pub const CLI_START_LIFECYCLE_INTERRUPTED_CODE: &str = "cli.linux.start.lifecycle_interrupted";
 pub const CLI_START_LIFECYCLE_FAILED_CODE: &str = "cli.linux.start.lifecycle_failed";
+pub const CLI_START_RUNTIME_STOP_FAILED_CODE: &str = "cli.linux.start.runtime_stop_failed";
 pub const CLI_START_SIGNAL_RECEIVED_CODE: &str = "cli.linux.start.signal_received";
 pub const CLI_START_SIGNAL_SOURCE_FAILED_CODE: &str = "cli.linux.start.signal_source_failed";
 pub const CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE: &str =
@@ -767,7 +768,9 @@ where
 
     let request = RuntimeConfigRequest::new(DEFAULT_ENGINE_ID, raw_config);
     match orchestrator.start_runtime(request) {
-        Ok(result) => handle_foreground_lifecycle(result, lifecycle_host),
+        Ok(result) => {
+            handle_foreground_lifecycle_with_runtime_stop(result, orchestrator, lifecycle_host)
+        }
         Err(error) => start_error_response(error),
     }
 }
@@ -826,6 +829,39 @@ where
         config_profiles: Vec::new(),
         version: None,
     }
+}
+
+pub fn handle_foreground_lifecycle_with_runtime_stop<C, P, E, H>(
+    operation: RuntimeOperationResult,
+    orchestrator: &RuntimeOrchestrator<C, P, E>,
+    host: &H,
+) -> LinuxCliResponse
+where
+    C: ConfigurationService,
+    P: PlatformCapabilityService,
+    E: ProxyEngineService,
+    H: ForegroundLifecycleHost,
+{
+    let engine_id = operation.engine_status.engine_id.clone();
+    let mut response = handle_foreground_lifecycle(operation, host);
+    if response.exit_code != LinuxCliExitCode::Interrupted {
+        return response;
+    }
+
+    match orchestrator.stop_runtime(&engine_id) {
+        Ok(stop_status) => response.diagnostics.extend(stop_status.diagnostics),
+        Err(error) => response.diagnostics.push(cli_diagnostic(
+            DiagnosticSeverity::Error,
+            CLI_START_RUNTIME_STOP_FAILED_CODE,
+            format!(
+                "failed to stop linux runtime after foreground interruption: {}",
+                error.message
+            ),
+            SOURCE_CLI_START,
+        )),
+    }
+
+    response
 }
 
 pub fn handle_stop() -> LinuxCliResponse {

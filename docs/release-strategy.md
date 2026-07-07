@@ -96,7 +96,7 @@
 ## 下一步
 
 - 真实平台产物进入 release workflow 前，先为目标平台补齐 adapter 设计文档；Linux 首个产物必须先满足 [Linux artifact pre-release design](architecture/linux-artifact-pre-release-design.md)、[Linux platform adapter design](architecture/linux-platform-adapter.md)、[Linux CLI entrypoint design](architecture/linux-cli-entrypoint.md)、[Linux CLI runtime wiring design](architecture/linux-cli-runtime-wiring.md)、[Native engine listener and node config design](architecture/native-engine-listener-node-config.md)、[Linux native proxy engine start design](architecture/linux-native-proxy-engine-start.md) 和 [Linux CLI artifact installation and rollback design](architecture/linux-cli-artifact-installation-rollback.md)。
-- 引入第一个 artifact job 时，同步加入 checksum、安装/卸载边界、release summary 和回滚说明；Linux 在 `linux-artifact-readiness` 通过且 license/NOTICE 人工确认完成前不得进入 `package-linux`。
+- 引入第一个 artifact job 时，同步加入 checksum、安装/卸载边界、release summary、foreground stop/release 合同检查和回滚说明；Linux 在 `linux-artifact-readiness` 通过且 license/NOTICE 人工确认完成前不得进入 `package-linux`。
 - iOS 发布前必须先完成 `docs/architecture/ios-network-extension-design.md`。
 
 ## 参考
