@@ -121,5 +121,6 @@ placeholder 阶段的 `linux-artifact-readiness` 必须：
   package archive staging contract、Linux package checksum manifest contract、Linux package
   publish/upload boundary contract、Linux package signing/attestation policy binding contract、
   Linux package release notes/rollback policy binding contract 和 Linux package publish eligibility
-  aggregate contract、Linux package license/NOTICE transition validation contract 已定义；下一步可以补充
-  Linux package release CI gate activation validation contract，仍不生成 artifact。
+  aggregate contract、Linux package license/NOTICE transition validation contract、Linux package release
+  CI gate activation validation contract 已定义；下一步可以补充 Linux package artifact job preflight
+  validation contract，仍不生成 artifact。

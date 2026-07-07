@@ -174,6 +174,6 @@ release workflow 必须拒绝以下情况：
 ## 后续工作
 
 - 在人工确认完成前，继续保持 `linux-artifact-license-notice-status=pending`。
-- 下一步可以补充 Linux package release CI gate activation validation contract，明确 `release-ci-gate`
-  从 placeholder 字段合同切换到同 commit 成功 CI 自动读取前的权限、API 字段、失败条件和仍不生成
-  artifact 的边界。
+- Linux package release CI gate activation validation contract 已定义；下一步可以补充 Linux package
+  artifact job preflight validation contract，明确 `package-linux` 在 license/NOTICE 与 release CI gate
+  未解除前仍不定义，未来真实 job 的前置顺序、失败条件和仍不上传 artifact 的边界。

@@ -68,6 +68,7 @@ jobs:
           test -f docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md
           test -f docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
           test -f docs/architecture/linux-package-license-notice-transition-validation-contract.md
+          test -f docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
           test -f docs/architecture/adr-0001-initial-core-stack.md
           grep -q "本机只负责代码" AGENT.md
           grep -q "GitHub Actions" docs/ci-cd-policy.md
@@ -81,7 +82,16 @@ jobs:
           grep -q "Linux Artifact License/NOTICE Source Contract" .github/workflows/release.yml
           grep -q "linux-artifact-license-notice-source=docs/manual-intervention.md" .github/workflows/release.yml
           grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
+          grep -q "Linux Package Release CI Gate Activation Validation Contract" docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
           grep -q "release-ci-success-source-contract=present" .github/workflows/release.yml
+          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-contract=present"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-required-permission=actions-read"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-permission-status=not-enabled"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-api-status=not-called"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-package-linux=not-defined"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-artifacts=blocked"$' .github/workflows/release.yml)" -ge 4
+          test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-next-action=ci-api-read-implementation-before-package-linux"$' .github/workflows/release.yml)" -ge 4
           grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
           grep -q "linux-package-platform-input-contract=present" .github/workflows/release.yml
           grep -q "linux-package-required-target=x86_64-unknown-linux-gnu" .github/workflows/release.yml
@@ -159,6 +169,7 @@ jobs:
           grep -q "Linux Package Artifact Manifest Design" docs/architecture/linux-package-artifact-manifest.md
           grep -q "Linux Artifact License Notice Confirmation Design" docs/architecture/linux-artifact-license-notice-confirmation.md
           grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
+          grep -q "Linux Package Release CI Gate Activation Validation Contract" docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
           grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
           grep -q "Linux Package Archive Staging Contract" docs/architecture/linux-package-archive-staging-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md

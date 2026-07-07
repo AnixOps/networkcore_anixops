@@ -204,5 +204,6 @@ GitHub Release 或 upload 步骤。
 ## 后续工作
 
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
-- Linux package publish eligibility aggregate contract 和 license/NOTICE transition validation contract 已定义；
-  下一步可以补充 Linux package release CI gate activation validation contract，仍不生成 artifact。
+- Linux package publish eligibility aggregate contract、license/NOTICE transition validation contract 和 release
+  CI gate activation validation contract 已定义；下一步可以补充 Linux package artifact job preflight
+  validation contract，仍不生成 artifact。

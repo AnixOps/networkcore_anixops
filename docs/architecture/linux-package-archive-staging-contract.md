@@ -158,6 +158,6 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、Git
 
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
 - Linux package checksum manifest contract、publish/upload boundary contract、signing/attestation
-  policy binding contract、release notes/rollback policy binding contract 和 publish eligibility
-  aggregate contract、license/NOTICE transition validation contract 已定义；下一步可以补充 Linux package
-  release CI gate activation validation contract，仍不生成 artifact。
+  policy binding contract、release notes/rollback policy binding contract、publish eligibility
+  aggregate contract、license/NOTICE transition validation contract 和 release CI gate activation validation
+  contract 已定义；下一步可以补充 Linux package artifact job preflight validation contract，仍不生成 artifact。

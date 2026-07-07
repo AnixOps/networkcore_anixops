@@ -169,5 +169,5 @@ checksum 生成后继续修改 manifest。
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
 - Linux package publish/upload boundary contract、signing/attestation policy binding contract、
   release notes/rollback policy binding contract、publish eligibility aggregate contract 和
-  license/NOTICE transition validation contract 已定义；下一步可以补充 Linux package release CI gate
-  activation validation contract，仍不生成 artifact。
+  license/NOTICE transition validation contract、release CI gate activation validation contract 已定义；
+  下一步可以补充 Linux package artifact job preflight validation contract，仍不生成 artifact。
