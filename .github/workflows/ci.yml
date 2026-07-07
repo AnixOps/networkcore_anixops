@@ -48,6 +48,7 @@ jobs:
           test -f docs/architecture/control-kernel-domain.md
           test -f docs/architecture/control-kernel-interfaces.md
           test -f docs/architecture/proxy-engine-adapter.md
+          test -f docs/architecture/mitm-anixops-adapter.md
           test -f docs/architecture/control-runtime-orchestration.md
           test -f docs/architecture/ios-platform-risk-assessment.md
           test -f docs/architecture/linux-artifact-pre-release-design.md
@@ -459,6 +460,9 @@ jobs:
           grep -q "Control Kernel Domain Specification" docs/architecture/control-kernel-domain.md
           grep -q "Control Kernel Interface Draft" docs/architecture/control-kernel-interfaces.md
           grep -q "Proxy Engine Adapter Interface" docs/architecture/proxy-engine-adapter.md
+          grep -q "mitm_anixops Adapter Design" docs/architecture/mitm-anixops-adapter.md
+          grep -q "不得宣称" docs/architecture/mitm-anixops-adapter.md
+          grep -q "全平台 MITM 已可用" docs/architecture/mitm-anixops-adapter.md
           grep -q "Control Runtime Orchestration Design" docs/architecture/control-runtime-orchestration.md
           grep -q "iOS Platform Risk Assessment" docs/architecture/ios-platform-risk-assessment.md
           grep -q "Linux Artifact Pre-Release Design" docs/architecture/linux-artifact-pre-release-design.md
