@@ -48,6 +48,7 @@
 - iOS App Review/privacy release readiness design 检查
 - iOS Privacy Manifest source contract 检查
 - iOS App Review manual confirmation source contract 检查
+- iOS TestFlight/App Store Connect upload workflow source contract 检查
 - Linux artifact 发布前设计文件检查
 - Linux platform adapter 设计文件检查
 - Linux platform adapter crate README 和 Rust workspace 覆盖检查
@@ -141,13 +142,16 @@ manual intervention 和 `macos-26` 静态门禁，Privacy Manifest source contra
 third-party SDK privacy manifest、SDK signature 和 `macos-26` 静态验证入口，App Review manual confirmation
 source contract 只定义 App Privacy answers、privacy policy URL、App Review Notes、demo account、review attachment、
 VPN compliance marker、TestFlight group、App Store Connect app record、export compliance、beta app review、
-App Review submission、manual confirmation marker 和 `macos-26` 静态门禁，不引入 Rust FFI crate、
+App Review submission、manual confirmation marker 和 `macos-26` 静态门禁，TestFlight/App Store Connect upload
+workflow source contract 只定义 archive/export、App Store Connect API、TestFlight group、manual approval、
+App Review submission gate、protected environment、build processing status 和 `macos-26` 静态门禁，不引入 Rust FFI crate、
 Swift/Xcode project、Network Extension target、configuration profile、CA certificate、private key、真实 entitlement、
-PrivacyInfo.xcprivacy、签名、TestFlight upload、App Store upload 或 release asset。出现 Swift、Xcode project、
+PrivacyInfo.xcprivacy、ExportOptions.plist、`.ipa`、`.xcarchive`、`.xcresult`、dSYM bundle、签名、
+TestFlight upload、App Store upload、App Review submission 或 release asset。出现 Swift、Xcode project、
 Network Extension target、FFI runtime、certificate lifecycle source、entitlement/provisioning source、
-Privacy Manifest source、App Review manual confirmation source 或签名验证后，
-相关 `cargo build`、`swift build`、`swift test`、`xcodebuild`、签名、TestFlight 或 App Store Connect 验证仍只能在
-GitHub Actions 或 Apple 官方平台执行。
+Privacy Manifest source、App Review manual confirmation source、iOS upload workflow activation source 或签名验证后，
+相关 `cargo build`、`swift build`、`swift test`、`xcodebuild`、archive/export、签名、TestFlight、App Store Connect
+或 App Review submission 验证仍只能在 GitHub Actions 或 Apple 官方平台执行。
 
 ## 内核与客户端演进
 
@@ -169,6 +173,7 @@ GitHub Actions 或 Apple 官方平台执行。
 - GitHub CLI 登录或授权
 - Apple Developer 账号、证书、Provisioning Profile、App Store Connect 配置
 - App Store Connect App Privacy 问卷、Privacy Manifest/Required Reason API review、隐私政策 URL、App Review Notes、TestFlight group 和 VPN compliance 材料
+- iOS archive/export、App Store Connect API、protected environment、manual approval、build processing 和 App Review submission gate 确认
 - GitHub Secrets 配置
 - 第一次确认 GitHub Actions 权限
 - Linux artifact license/NOTICE 文本确认

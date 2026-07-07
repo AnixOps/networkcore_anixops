@@ -64,6 +64,7 @@ jobs:
           test -f docs/architecture/ios-app-review-privacy-release-readiness-design.md
           test -f docs/architecture/ios-privacy-manifest-source-contract.md
           test -f docs/architecture/ios-app-review-manual-confirmation-source-contract.md
+          test -f docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
           test -f docs/architecture/linux-artifact-pre-release-design.md
           test -f docs/architecture/linux-platform-adapter.md
           test -f docs/architecture/linux-cli-entrypoint.md
@@ -752,6 +753,39 @@ jobs:
           grep -q "no PrivacyInfo.xcprivacy" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
           grep -q "no TestFlight upload" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
           grep -q "no iOS release asset" docs/architecture/ios-app-review-manual-confirmation-source-contract.md
+          grep -q "iOS TestFlight App Store Connect Upload Workflow Source Contract" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "archive/export" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "xcodebuild archive" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "xcodebuild -exportArchive" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "ExportOptions.plist" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q ".ipa" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q ".xcarchive" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q ".xcresult" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "dSYM bundle" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "App Store Connect API" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "TestFlight group" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "manual approval" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "protected environment" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "App Review submission gate" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "build processing status" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "beta app review" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "export compliance" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "encryption declaration" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "platform.ios.upload_workflow.source_contract_missing" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "platform.ios.upload_workflow.manual_confirmation_pending" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "platform.ios.upload_workflow.protected_environment_missing" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "platform.ios.upload_workflow.secret_missing" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "platform.ios.upload_workflow.archive_export_blocked" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "platform.ios.upload_workflow.upload_blocked" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "platform.ios.upload_workflow.build_processing_unknown" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "platform.ios.upload_workflow.app_review_submission_blocked" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "platform.ios.upload_workflow.release_asset_blocked" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "GitHub Actions" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "macos-26" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "no TestFlight upload" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "no App Store upload" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "no App Review submission" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "no iOS release asset" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
           grep -q "ios-app-review-manual-confirmation-status=pending" docs/manual-intervention.md
           grep -q "ios-app-review-manual-confirmation-source-contract=docs/architecture/ios-app-review-manual-confirmation-source-contract.md" docs/manual-intervention.md
           grep -q "ios-app-review-app-privacy-answers=blocked" docs/manual-intervention.md
@@ -769,8 +803,22 @@ jobs:
           grep -q "ios-app-review-release-assets=blocked" docs/manual-intervention.md
           grep -q "ios-app-review-confirmed-at=pending" docs/manual-intervention.md
           grep -q "ios-app-review-confirmed-by=pending" docs/manual-intervention.md
-          if find . -path ./.git -prune -o -type f \( -name "PrivacyInfo.xcprivacy" -o -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" \) -print -quit | grep -q .; then
-            echo "::error::iOS PrivacyInfo, entitlement, provisioning, signing, or binary embedding material must stay out of the repository until the iOS source contracts allow it."
+          grep -q "ios-upload-workflow-status=pending" docs/manual-intervention.md
+          grep -q "ios-upload-workflow-source-contract=docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md" docs/manual-intervention.md
+          grep -q "ios-upload-workflow-archive-export=blocked" docs/manual-intervention.md
+          grep -q "ios-upload-workflow-app-store-connect-api=blocked" docs/manual-intervention.md
+          grep -q "ios-upload-workflow-protected-environment=blocked" docs/manual-intervention.md
+          grep -q "ios-upload-workflow-manual-approval=blocked" docs/manual-intervention.md
+          grep -q "ios-upload-workflow-testflight-upload=blocked" docs/manual-intervention.md
+          grep -q "ios-upload-workflow-app-store-upload=blocked" docs/manual-intervention.md
+          grep -q "ios-upload-workflow-app-review-submission=blocked" docs/manual-intervention.md
+          grep -q "ios-upload-workflow-release-assets=blocked" docs/manual-intervention.md
+          grep -q "ios-upload-workflow-macos-runner=blocked" docs/manual-intervention.md
+          grep -q "ios-upload-workflow-build-processing-check=blocked" docs/manual-intervention.md
+          grep -q "ios-upload-workflow-confirmed-at=pending" docs/manual-intervention.md
+          grep -q "ios-upload-workflow-confirmed-by=pending" docs/manual-intervention.md
+          if find . -path ./.git -prune -o \( -type f \( -name "PrivacyInfo.xcprivacy" -o -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" -o -name "ExportOptions.plist" -o -name "*.ipa" \) -o -type d \( -name "*.xcarchive" -o -name "*.xcresult" -o -name "*.dSYM" \) \) -print -quit | grep -q .; then
+            echo "::error::iOS PrivacyInfo, entitlement, provisioning, signing, binary embedding, archive/export, or upload material must stay out of the repository until the iOS source contracts allow it."
             exit 1
           fi
           grep -q "platform-ios" docs/architecture/ios-platform-adapter-source-contract.md

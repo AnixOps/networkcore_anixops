@@ -6,8 +6,9 @@
 [iOS App Review Privacy Release Readiness Design](ios-app-review-privacy-release-readiness-design.md)、
 [iOS Network Extension Design](ios-network-extension-design.md)、
 [iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、
-[iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md) 和
-[iOS App Review Manual Confirmation Source Contract](ios-app-review-manual-confirmation-source-contract.md) 以及
+[iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)、
+[iOS App Review Manual Confirmation Source Contract](ios-app-review-manual-confirmation-source-contract.md)、
+[iOS TestFlight App Store Connect Upload Workflow Source Contract](ios-testflight-app-store-connect-upload-workflow-source-contract.md) 和
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
 
 当前状态：contract-only。仓库仍不包含 `PrivacyInfo.xcprivacy`、Swift source、`Package.swift`、
@@ -241,6 +242,8 @@ upload、App Review submission 或 iOS release asset：
 - App Privacy answer source、privacy policy URL、App Review Notes、demo account、review attachment、TestFlight group、
   App Store Connect app record、export compliance、beta app review、App Review submission 和 VPN compliance materials
   已按 App Review manual confirmation source contract 完成人工确认。
+- iOS TestFlight/App Store Connect upload workflow source contract、protected environment、manual approval 和
+  activation validation contract 已完成，且 archive/export、upload、submission 和 release asset gate 已解除。
 - third-party SDK privacy manifest、SDK signature、Required Reason API inventory、tracking policy 和 secret redaction
   已有源码合同测试或 CI static gate。
 

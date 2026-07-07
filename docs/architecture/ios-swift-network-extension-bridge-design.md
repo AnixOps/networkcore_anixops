@@ -9,8 +9,9 @@
 [iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md)、
 [iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)、
 [iOS App Review Privacy Release Readiness Design](ios-app-review-privacy-release-readiness-design.md)、
-[iOS Privacy Manifest Source Contract](ios-privacy-manifest-source-contract.md) 和
-[iOS App Review Manual Confirmation Source Contract](ios-app-review-manual-confirmation-source-contract.md) 以及
+[iOS Privacy Manifest Source Contract](ios-privacy-manifest-source-contract.md)、
+[iOS App Review Manual Confirmation Source Contract](ios-app-review-manual-confirmation-source-contract.md)、
+[iOS TestFlight App Store Connect Upload Workflow Source Contract](ios-testflight-app-store-connect-upload-workflow-source-contract.md) 和
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
 
 当前状态：design-only。仓库仍不包含 Swift package、Xcode project、Network Extension target、
@@ -207,6 +208,7 @@ TestFlight upload 或 App Store upload job：
 - iOS App Review/privacy release readiness design 已完成并通过 GitHub Actions static governance。
 - iOS Privacy Manifest source contract 已完成并通过 GitHub Actions static governance。
 - iOS App Review manual confirmation source contract 已完成并通过 GitHub Actions static governance。
+- iOS TestFlight/App Store Connect upload workflow source contract 已完成并通过 GitHub Actions static governance。
 - Swift bridge、Network Extension target 和 Rust embedded runtime bridge 已在 GitHub Actions `macos-26` runner 验证。
 - Apple Developer、App ID、Network Extension entitlement、Provisioning Profile、GitHub Secrets、App Privacy disclosure、
   隐私政策、App Review Notes、demo account、review attachment、TestFlight/App Store Connect 人工确认 marker、

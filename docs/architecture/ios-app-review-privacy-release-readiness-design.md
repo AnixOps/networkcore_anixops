@@ -8,7 +8,8 @@
 [iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md) 和
 [iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)、
 [iOS Privacy Manifest Source Contract](ios-privacy-manifest-source-contract.md) 以及
-[iOS App Review Manual Confirmation Source Contract](ios-app-review-manual-confirmation-source-contract.md)。
+[iOS App Review Manual Confirmation Source Contract](ios-app-review-manual-confirmation-source-contract.md) 和
+[iOS TestFlight App Store Connect Upload Workflow Source Contract](ios-testflight-app-store-connect-upload-workflow-source-contract.md)。
 
 当前状态：design-only。仓库仍不包含 Swift source、`Package.swift`、Xcode project、Network Extension target、
 `PrivacyInfo.xcprivacy`、App Store Connect 配置、App Privacy 问卷、privacy policy URL、App Review Notes、
@@ -180,7 +181,8 @@ release asset：
 - App Store Connect App Privacy answers、privacy policy URL、App Review Notes、demo account、review attachment、
   TestFlight group、App Store Connect app record、export compliance、beta app review、App Review submission 和
   VPN compliance materials 已完成人工确认。
-- GitHub Secrets、signing asset redaction、App Store Connect API key 和 upload workflow source contract 已完成。
+- GitHub Secrets、signing asset redaction、App Store Connect API key、upload workflow source contract 和 upload
+  workflow activation validation contract 已完成。
 
 Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux` preflight 和后续 artifact gates 阻断；本设计不得被解释为允许发布 Linux 或 iOS release asset。
 
@@ -192,8 +194,8 @@ Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux`
 - `.github/workflows/ci.yml` 静态检查本文件存在和关键锚点。
 - `docs/manual-intervention.md` 明确 App Privacy、privacy policy、App Review Notes、demo account、review attachment、
   TestFlight/App Store Connect 和 VPN compliance 人工事项。
-- 相关 iOS docs 指向本 readiness design、Privacy Manifest source contract 和 App Review manual confirmation source contract，
-  后续工作推进到 TestFlight/App Store Connect upload workflow source contract。
+- 相关 iOS docs 指向本 readiness design、Privacy Manifest source contract、App Review manual confirmation source contract
+  和 upload workflow source contract，后续工作推进到 iOS upload workflow activation validation contract。
 - 不新增 Swift source、`Package.swift`、`.xcodeproj`、`.xcworkspace`、Network Extension target、
   `PrivacyInfo.xcprivacy`、Provisioning Profile、signing config、TestFlight upload、App Store upload 或 iOS release asset。
 - Linux artifact 继续等待 license/NOTICE confirmed marker；期间不得定义 `package-linux` 或发布 release asset。

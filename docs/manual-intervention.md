@@ -8,6 +8,8 @@
   上传 workflow artifact 或发布 Linux release asset。
 - iOS App Review manual confirmation 仍为 pending；完成前不得启用 TestFlight upload、App Store upload、
   App Review submission 或 iOS release asset。
+- iOS TestFlight/App Store Connect upload workflow 仍为 pending；完成前不得执行 archive/export、
+  TestFlight upload、App Store upload、App Review submission 或 iOS release asset。
 
 ## 已完成的人工/外部事项
 
@@ -94,3 +96,30 @@ ios-app-review-confirmed-by=pending
 未来从 pending 切换到 confirmed 时，必须遵守
 `docs/architecture/ios-app-review-manual-confirmation-source-contract.md` 中的独立人工确认提交、
 字段、脱敏和 upload/release 阻断规则。
+
+## iOS TestFlight/App Store Connect Upload Workflow
+
+以下字段是后续 iOS release readiness 读取的机器状态。当前没有真实 Swift/Xcode source、signing、
+archive/export、App Store Connect API、protected environment 或 manual approval，因此 upload/release 保持阻断。
+
+```text
+ios-upload-workflow-status=pending
+ios-upload-workflow-source-contract=docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+ios-upload-workflow-archive-export=blocked
+ios-upload-workflow-app-store-connect-api=blocked
+ios-upload-workflow-protected-environment=blocked
+ios-upload-workflow-manual-approval=blocked
+ios-upload-workflow-testflight-upload=blocked
+ios-upload-workflow-app-store-upload=blocked
+ios-upload-workflow-app-review-submission=blocked
+ios-upload-workflow-release-assets=blocked
+ios-upload-workflow-macos-runner=blocked
+ios-upload-workflow-build-processing-check=blocked
+ios-upload-workflow-confirmed-at=pending
+ios-upload-workflow-confirmed-by=pending
+```
+
+人工确认和 workflow activation 完成前，不得定义 archive/export、TestFlight upload、App Store upload、
+App Review submission 或 iOS release asset。未来从 pending 切换到 enabled 时，必须遵守
+`docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md` 中的独立启用提交、
+protected environment、manual approval、secret redaction 和 upload/release 阻断规则。

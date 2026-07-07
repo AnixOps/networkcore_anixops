@@ -6,7 +6,9 @@
 [iOS Privacy Manifest Source Contract](ios-privacy-manifest-source-contract.md)、
 [iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)、
 [iOS Network Extension Design](ios-network-extension-design.md) 和
-[iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
+[iOS Platform Risk Assessment](ios-platform-risk-assessment.md)，并由
+[iOS TestFlight App Store Connect Upload Workflow Source Contract](ios-testflight-app-store-connect-upload-workflow-source-contract.md)
+消费其 marker。
 
 当前状态：contract-only。仓库仍不包含 Swift source、`Package.swift`、Xcode project、Network Extension
 target、`PrivacyInfo.xcprivacy`、App Store Connect 配置导出、App Privacy answers、privacy policy URL、
@@ -209,7 +211,7 @@ upload、App Review submission 或 iOS release asset：
   TestFlight group、App Store Connect app record、export compliance、beta app review、App Review submission 和
   VPN compliance materials 已完成人工确认。
 - GitHub Secrets、signing asset redaction、App Store Connect API key、protected environment、manual approval 和
-  upload workflow source contract 已完成。
+  upload workflow source contract、upload workflow activation validation contract 已完成。
 
 Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux` preflight 和后续 artifact gates 阻断；本合同不得被解释为允许发布 Linux 或 iOS release asset。
 
@@ -220,8 +222,8 @@ Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux`
 - README、ROADMAP、TODO、CHANGELOG、CI/CD policy 和 release strategy 同步记录本文件。
 - `.github/workflows/ci.yml` 检查本文件存在、关键锚点和 `docs/manual-intervention.md` marker。
 - `docs/manual-intervention.md` 明确 iOS App Review manual confirmation pending/blocked marker。
-- 相关 iOS readiness/design/source contract 指向本 manual confirmation source contract，后续工作推进到
-  TestFlight/App Store Connect upload workflow source contract。
+- 相关 iOS readiness/design/source contract 指向本 manual confirmation source contract 和 upload workflow source contract，
+  后续工作推进到 iOS upload workflow activation validation contract。
 - 不新增 Swift source、`Package.swift`、`.xcodeproj`、`.xcworkspace`、Network Extension target、
   `PrivacyInfo.xcprivacy`、Provisioning Profile、signing config、TestFlight upload、App Store upload 或 iOS release asset。
 - Linux artifact 继续等待 license/NOTICE confirmed marker；期间不得定义 `package-linux` 或发布 release asset。

@@ -10,6 +10,7 @@
 [iOS App Review Privacy Release Readiness Design](ios-app-review-privacy-release-readiness-design.md)、
 [iOS Privacy Manifest Source Contract](ios-privacy-manifest-source-contract.md)、
 [iOS App Review Manual Confirmation Source Contract](ios-app-review-manual-confirmation-source-contract.md)、
+[iOS TestFlight App Store Connect Upload Workflow Source Contract](ios-testflight-app-store-connect-upload-workflow-source-contract.md)、
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md) 和
 [Control Runtime Orchestration Design](control-runtime-orchestration.md)，用于约束
 iOS platform adapter 如何把 Apple 平台事实映射为领域层可消费的能力状态。
@@ -243,6 +244,7 @@ TestFlight upload 或 App Store upload job：
 - iOS App Review/privacy release readiness design 已完成并通过 GitHub Actions static governance。
 - iOS Privacy Manifest source contract 已完成并通过 GitHub Actions static governance。
 - iOS App Review manual confirmation source contract 已完成并通过 GitHub Actions static governance。
+- iOS TestFlight/App Store Connect upload workflow source contract 已完成并通过 GitHub Actions static governance。
 - Apple Developer、App ID、Network Extension entitlement、Provisioning Profile、GitHub Secrets、
   App Privacy disclosure、隐私政策、App Review Notes、demo account、review attachment、TestFlight/App Store Connect
   人工确认 marker、export compliance、beta app review 和目标地区 VPN compliance 已完成。
