@@ -600,6 +600,38 @@ jobs:
           grep -q "CoreSubscriptionService" docs/architecture/subscription-catalog-runtime-orchestration.md
           grep -q "SubscriptionService" docs/architecture/subscription-catalog-runtime-orchestration.md
           grep -q "engine.native.config.node_id_duplicate" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "RuntimeSubscriptionCatalogGateResult" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "prepare_runtime_request_with_subscription_catalogs" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "start_runtime_with_subscription_catalogs" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "reload_runtime_with_subscription_catalogs" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "runtime.subscription.catalog_ready" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "runtime.subscription.catalog_empty" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "runtime.subscription.source_unsupported" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "networkcore-linux start" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "default subscription path" docs/architecture/subscription-catalog-runtime-orchestration.md
+          grep -q "RuntimeSubscriptionCatalogGateResult" docs/architecture/control-runtime-orchestration.md
+          grep -q "SubscriptionSource" docs/architecture/control-runtime-orchestration.md
+          grep -q "start_runtime_with_subscription_catalogs" docs/architecture/control-runtime-orchestration.md
+          grep -q "reload_runtime_with_subscription_catalogs" docs/architecture/control-runtime-orchestration.md
+          grep -q "runtime.subscription.source_unsupported" docs/architecture/control-runtime-orchestration.md
+          grep -q "RuntimeSubscriptionCatalogGateResult" crates/control-runtime/src/lib.rs
+          grep -q "prepare_runtime_request_with_subscription_catalogs" crates/control-runtime/src/lib.rs
+          grep -q "start_runtime_with_subscription_catalogs" crates/control-runtime/src/lib.rs
+          grep -q "reload_runtime_with_subscription_catalogs" crates/control-runtime/src/lib.rs
+          grep -q "runtime.subscription.node_id_duplicate" crates/control-runtime/src/lib.rs
+          grep -q "runtime.subscription.rules_deferred" crates/control-runtime/src/lib.rs
+          grep -q "runtime.subscription.catalog_ready" crates/control-runtime/src/lib.rs
+          grep -q "runtime.subscription.catalog_empty" crates/control-runtime/src/lib.rs
+          grep -q "runtime.subscription.source_unsupported" crates/control-runtime/src/lib.rs
+          grep -q "subscription_catalog_nodes_enter_runtime_config_request_nodes" crates/control-runtime/tests/runtime_contracts.rs
+          grep -q "subscription_catalog_rejects_config_snapshot_node_id_duplicate" crates/control-runtime/tests/runtime_contracts.rs
+          grep -q "subscription_catalog_rejects_duplicate_node_ids_across_catalogs" crates/control-runtime/tests/runtime_contracts.rs
+          grep -q "subscription_catalog_rejects_duplicate_node_ids_within_catalog" crates/control-runtime/tests/runtime_contracts.rs
+          grep -q "subscription_catalog_rejects_runtime_request_node_id_duplicate" crates/control-runtime/tests/runtime_contracts.rs
+          grep -q "subscription_catalog_empty_reports_warning" crates/control-runtime/tests/runtime_contracts.rs
+          grep -q "subscription_catalog_rules_are_deferred_without_mutating_config_policies" crates/control-runtime/tests/runtime_contracts.rs
+          grep -q "subscription_catalog_rejects_unsupported_remote_source_without_leaking_secret" crates/control-runtime/tests/runtime_contracts.rs
+          grep -q "subscription_catalog_rejects_file_source_without_reading_path" crates/control-runtime/tests/runtime_contracts.rs
           grep -q "\"crates/config-core\"" Cargo.toml
           grep -q "control-domain" crates/control-domain/README.md
           grep -q "control-runtime" crates/control-runtime/README.md

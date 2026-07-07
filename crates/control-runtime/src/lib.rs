@@ -4,13 +4,27 @@
 //! does not perform platform probing, process management, file I/O, networking,
 //! UI work, or transport-specific control API behavior.
 
+use std::collections::BTreeSet;
+
 use control_domain::{
     AuditDecision, AuditEvent, ConfigSnapshot, ConfigurationService, Diagnostic,
     DiagnosticSeverity, DomainError, DomainResult, GrantedPermissions, HttpEvent, Metadata,
-    MitmPluginService, NodeDescriptor, PlatformCapabilities, PlatformCapabilityService,
-    PlatformCapabilityStatus, PlatformFeatureState, PluginPackage, PluginPermission, PluginResult,
-    ProxyEngineConfig, ProxyEngineEvent, ProxyEngineService, ProxyEngineStatus,
+    MitmPluginService, NodeCatalog, NodeDescriptor, PlatformCapabilities,
+    PlatformCapabilityService, PlatformCapabilityStatus, PlatformFeatureState, PluginPackage,
+    PluginPermission, PluginResult, ProxyEngineConfig, ProxyEngineEvent, ProxyEngineService,
+    ProxyEngineStatus, SubscriptionService, SubscriptionSource,
 };
+
+pub const RUNTIME_SUBSCRIPTION_NODE_ID_DUPLICATE_CODE: &str =
+    "runtime.subscription.node_id_duplicate";
+pub const RUNTIME_SUBSCRIPTION_CATALOG_EMPTY_CODE: &str =
+    "runtime.subscription.catalog_empty";
+pub const RUNTIME_SUBSCRIPTION_RULES_DEFERRED_CODE: &str =
+    "runtime.subscription.rules_deferred";
+pub const RUNTIME_SUBSCRIPTION_CATALOG_READY_CODE: &str =
+    "runtime.subscription.catalog_ready";
+pub const RUNTIME_SUBSCRIPTION_SOURCE_UNSUPPORTED_CODE: &str =
+    "runtime.subscription.source_unsupported";
 
 /// Prepared configuration and platform context ready for runtime use.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +54,13 @@ impl RuntimeConfigRequest {
             metadata: Vec::new(),
         }
     }
+}
+
+/// Result of applying subscription catalogs to a runtime config request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeSubscriptionCatalogGateResult {
+    pub request: RuntimeConfigRequest,
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 /// Runtime operation result with aggregated diagnostics.
@@ -152,6 +173,28 @@ where
         })
     }
 
+    /// Applies explicit subscription catalogs to runtime request nodes.
+    pub fn prepare_runtime_request_with_subscription_catalogs<S>(
+        &self,
+        request: RuntimeConfigRequest,
+        subscription: &S,
+        sources: &[SubscriptionSource],
+    ) -> DomainResult<RuntimeSubscriptionCatalogGateResult>
+    where
+        S: SubscriptionService,
+    {
+        let prepared = self.prepare_config(&request.raw_config)?;
+        let gate =
+            prepare_subscription_catalog_request(request, &prepared.config, subscription, sources)?;
+        let mut diagnostics = prepared.diagnostics;
+        diagnostics.extend(gate.diagnostics);
+
+        Ok(RuntimeSubscriptionCatalogGateResult {
+            request: gate.request,
+            diagnostics,
+        })
+    }
+
     /// Starts a runtime engine after platform and engine configuration gates pass.
     pub fn start_runtime(
         &self,
@@ -174,6 +217,35 @@ where
         })
     }
 
+    /// Starts a runtime engine with explicit subscription catalog node handoff.
+    pub fn start_runtime_with_subscription_catalogs<S>(
+        &self,
+        request: RuntimeConfigRequest,
+        subscription: &S,
+        sources: &[SubscriptionSource],
+    ) -> DomainResult<RuntimeOperationResult>
+    where
+        S: SubscriptionService,
+    {
+        let (prepared, engine_config, subscription_diagnostics) =
+            self.prepare_engine_config_with_subscription_catalogs(&request, subscription, sources)?;
+
+        ensure_start_capabilities(&prepared.platform)?;
+        let mut diagnostics = prepared.diagnostics.clone();
+        diagnostics.extend(subscription_diagnostics);
+        diagnostics.extend(self.validate_engine_config(&engine_config)?);
+
+        let engine_status = self.engine.start(&engine_config)?;
+        diagnostics.extend(engine_status.diagnostics.clone());
+
+        Ok(RuntimeOperationResult {
+            platform: prepared.platform,
+            capabilities: prepared.capabilities,
+            engine_status,
+            diagnostics,
+        })
+    }
+
     /// Reloads a runtime engine after platform and engine configuration gates pass.
     pub fn reload_runtime(
         &self,
@@ -183,6 +255,35 @@ where
 
         ensure_start_capabilities(&prepared.platform)?;
         let mut diagnostics = prepared.diagnostics.clone();
+        diagnostics.extend(self.validate_engine_config(&engine_config)?);
+
+        let engine_status = self.engine.reload(&engine_config)?;
+        diagnostics.extend(engine_status.diagnostics.clone());
+
+        Ok(RuntimeOperationResult {
+            platform: prepared.platform,
+            capabilities: prepared.capabilities,
+            engine_status,
+            diagnostics,
+        })
+    }
+
+    /// Reloads a runtime engine with explicit subscription catalog node handoff.
+    pub fn reload_runtime_with_subscription_catalogs<S>(
+        &self,
+        request: RuntimeConfigRequest,
+        subscription: &S,
+        sources: &[SubscriptionSource],
+    ) -> DomainResult<RuntimeOperationResult>
+    where
+        S: SubscriptionService,
+    {
+        let (prepared, engine_config, subscription_diagnostics) =
+            self.prepare_engine_config_with_subscription_catalogs(&request, subscription, sources)?;
+
+        ensure_start_capabilities(&prepared.platform)?;
+        let mut diagnostics = prepared.diagnostics.clone();
+        diagnostics.extend(subscription_diagnostics);
         diagnostics.extend(self.validate_engine_config(&engine_config)?);
 
         let engine_status = self.engine.reload(&engine_config)?;
@@ -238,6 +339,32 @@ where
         Ok((prepared, engine_config))
     }
 
+    fn prepare_engine_config_with_subscription_catalogs<S>(
+        &self,
+        request: &RuntimeConfigRequest,
+        subscription: &S,
+        sources: &[SubscriptionSource],
+    ) -> DomainResult<(PreparedRuntimeConfig, ProxyEngineConfig, Vec<Diagnostic>)>
+    where
+        S: SubscriptionService,
+    {
+        let prepared = self.prepare_config(&request.raw_config)?;
+        let gate = prepare_subscription_catalog_request(
+            request.clone(),
+            &prepared.config,
+            subscription,
+            sources,
+        )?;
+        let engine_config = ProxyEngineConfig {
+            engine_id: gate.request.engine_id,
+            config: prepared.config.clone(),
+            nodes: gate.request.nodes,
+            metadata: gate.request.metadata,
+        };
+
+        Ok((prepared, engine_config, gate.diagnostics))
+    }
+
     fn validate_engine_config(
         &self,
         engine_config: &ProxyEngineConfig,
@@ -249,6 +376,118 @@ where
             "engine configuration validation failed",
         )?;
         Ok(diagnostics)
+    }
+}
+
+fn prepare_subscription_catalog_request<S>(
+    mut request: RuntimeConfigRequest,
+    config: &ConfigSnapshot,
+    subscription: &S,
+    sources: &[SubscriptionSource],
+) -> DomainResult<RuntimeSubscriptionCatalogGateResult>
+where
+    S: SubscriptionService,
+{
+    let mut known_node_ids = existing_runtime_node_ids(config, &request.nodes);
+    let mut diagnostics = Vec::new();
+
+    for source in sources {
+        ensure_subscription_source_supported(source)?;
+        let raw_subscription = subscription.fetch(source)?;
+        let document = subscription.parse(&raw_subscription)?;
+        diagnostics.extend(document.diagnostics.clone());
+        let catalog = subscription.normalize(&document)?;
+        append_subscription_catalog_nodes(
+            &mut request.nodes,
+            &catalog,
+            &mut known_node_ids,
+            source,
+            &mut diagnostics,
+        )?;
+    }
+
+    Ok(RuntimeSubscriptionCatalogGateResult {
+        request,
+        diagnostics,
+    })
+}
+
+fn existing_runtime_node_ids(
+    config: &ConfigSnapshot,
+    request_nodes: &[NodeDescriptor],
+) -> BTreeSet<String> {
+    let mut node_ids = BTreeSet::new();
+    node_ids.extend(config.nodes.iter().map(|node| node.id.clone()));
+    node_ids.extend(request_nodes.iter().map(|node| node.id.clone()));
+    node_ids
+}
+
+fn ensure_subscription_source_supported(source: &SubscriptionSource) -> DomainResult<()> {
+    if source.location.trim().starts_with("inline:") {
+        return Ok(());
+    }
+
+    Err(DomainError::new(
+        RUNTIME_SUBSCRIPTION_SOURCE_UNSUPPORTED_CODE,
+        "subscription source kind is unsupported by the runtime catalog gate",
+    ))
+}
+
+fn append_subscription_catalog_nodes(
+    request_nodes: &mut Vec<NodeDescriptor>,
+    catalog: &NodeCatalog,
+    known_node_ids: &mut BTreeSet<String>,
+    source: &SubscriptionSource,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> DomainResult<()> {
+    let source_scope = subscription_source_scope(source);
+
+    if catalog.nodes.is_empty() {
+        diagnostics.push(Diagnostic::new(
+            DiagnosticSeverity::Warning,
+            RUNTIME_SUBSCRIPTION_CATALOG_EMPTY_CODE,
+            "subscription catalog contains no runtime nodes",
+            source_scope.clone(),
+        ));
+    }
+
+    if !catalog.rules.is_empty() {
+        diagnostics.push(Diagnostic::new(
+            DiagnosticSeverity::Info,
+            RUNTIME_SUBSCRIPTION_RULES_DEFERRED_CODE,
+            "subscription catalog rules are deferred until policy routing is wired",
+            source_scope.clone(),
+        ));
+    }
+
+    for node in &catalog.nodes {
+        if !known_node_ids.insert(node.id.clone()) {
+            return Err(DomainError::new(
+                RUNTIME_SUBSCRIPTION_NODE_ID_DUPLICATE_CODE,
+                "subscription catalog node ids must be unique across config and runtime request nodes",
+            ));
+        }
+    }
+
+    if !catalog.nodes.is_empty() {
+        request_nodes.extend(catalog.nodes.clone());
+        diagnostics.push(Diagnostic::new(
+            DiagnosticSeverity::Info,
+            RUNTIME_SUBSCRIPTION_CATALOG_READY_CODE,
+            "subscription catalog nodes are ready for RuntimeConfigRequest.nodes",
+            source_scope,
+        ));
+    }
+
+    Ok(())
+}
+
+fn subscription_source_scope(source: &SubscriptionSource) -> Option<String> {
+    let source_id = source.id.trim();
+    if source_id.is_empty() {
+        None
+    } else {
+        Some(source_id.to_string())
     }
 }
 

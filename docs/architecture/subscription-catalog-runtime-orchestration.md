@@ -34,10 +34,11 @@
 - `config-core::CoreSubscriptionService`，当前只接受显式 `inline:` source，把最小 subscription TOML `nodes`/`routes` 子集解析为 `SubscriptionDocument` 并归一化为 `NodeCatalog`。
 - `control-runtime::RuntimeConfigRequest`，当前显式携带 `engine_id`、`raw_config`、`nodes` 和 `metadata`。
 - `control-runtime::RuntimeOrchestrator::prepare_engine_config`，当前把 `RuntimeConfigRequest.nodes` 直接传给 `ProxyEngineConfig.nodes`。
+- `control-runtime::RuntimeSubscriptionCatalogGateResult` 以及 `RuntimeOrchestrator::prepare_runtime_request_with_subscription_catalogs`、`start_runtime_with_subscription_catalogs` 和 `reload_runtime_with_subscription_catalogs`，当前基于调用方显式传入的 `SubscriptionService`/`SubscriptionSource` 把 inline `NodeCatalog.nodes` 编排进 `RuntimeConfigRequest.nodes`，并在运行层拒绝重复 node id、记录 rules deferred 诊断和 unsupported source 拒绝。
 - `engine-native::NativeProxyEngineService`，当前把 `ConfigSnapshot.nodes` 与 `ProxyEngineConfig.nodes` 合并为 effective node catalog，并用 `engine.native.config.node_id_duplicate` 拒绝重复 node id。
 - `engine-native` 合同测试已覆盖 `validate_config_uses_config_snapshot_nodes_for_route_targets` 和 `validate_config_uses_runtime_request_nodes_for_route_targets`，证明本地配置 nodes 与运行请求 nodes 都能作为 route target。
 
-因此，P3 当前缺口不是 node 数据面是否能被 adapter 消费，而是订阅 catalog 进入 `RuntimeConfigRequest.nodes` 前的运行层所有权、重复 id 处理、诊断和 source 边界。
+因此，P3 当前源码 gate 已覆盖订阅 catalog 进入 `RuntimeConfigRequest.nodes` 前的运行层所有权、重复 id 处理、诊断和 source 边界；后续缺口是把该 gate 暴露到具体应用层或 CLI 输入，同时继续禁止默认路径扫描、远程拉取和系统 mutation。
 
 ## 所有权模型
 
@@ -51,14 +52,14 @@
 
 ## 编排数据流
 
-未来 P3 源码接入应按以下顺序推进：
+当前 P3 源码接入按以下顺序执行：
 
 1. 应用层或 CLI 明确提供订阅 source；在当前阶段只允许 `inline:` source。
 2. `SubscriptionService::fetch` 返回 `RawSubscription`；unsupported source 必须返回稳定 `DomainError`，不得泄漏 URL token、header、credential 或 payload secret。
 3. `SubscriptionService::parse` 返回 `SubscriptionDocument`；解析失败诊断不得包含原始 secret。
 4. `SubscriptionService::normalize` 返回 `NodeCatalog`。
 5. 运行层对 `NodeCatalog.nodes` 做最小 catalog gate，生成可传给 `RuntimeConfigRequest.nodes` 的 typed nodes。
-6. `RuntimeOrchestrator::start_runtime` 或 `reload_runtime` 继续把 `RuntimeConfigRequest.nodes` 传给 `ProxyEngineConfig.nodes`。
+6. `RuntimeOrchestrator::start_runtime_with_subscription_catalogs` 或 `reload_runtime_with_subscription_catalogs` 继续把 gated `RuntimeConfigRequest.nodes` 传给 `ProxyEngineConfig.nodes`。
 7. `engine-native` 对 `ConfigSnapshot.nodes` 和 `ProxyEngineConfig.nodes` 做最终图校验与 native runtime assembly。
 
 当前不允许把 subscription rules 写入 `ConfigSnapshot.policies`。`NodeCatalog.rules` 在策略路由设计完成前只能作为 deferred facts 保留或产生 info 诊断，不参与 route target 决策。
@@ -72,6 +73,7 @@ no system DNS/TUN mutation, no daemon/control socket.
 节点 id 是策略引用的唯一键。订阅 catalog 接入不得静默覆盖本地配置或其他订阅节点：
 
 - `ConfigSnapshot.nodes` 与 subscription catalog nodes 出现相同 `id` 时，运行层必须拒绝启动或重载。
+- 已有 `RuntimeConfigRequest.nodes` 与 subscription catalog nodes 出现相同 `id` 时，运行层必须拒绝启动或重载。
 - 同一 `NodeCatalog.nodes` 内重复 `id` 时，运行层必须拒绝。
 - 多个 subscription catalog 合并时出现重复 `id`，运行层必须拒绝。
 - 不得使用最后写入覆盖、按 source 优先级覆盖或自动改名。
@@ -81,16 +83,19 @@ no system DNS/TUN mutation, no daemon/control socket.
 
 | code | severity | 含义 |
 | --- | --- | --- |
-| `runtime.subscription.node_id_duplicate` | Error | 本地配置、同一 catalog 或多个 catalog 之间出现重复 node id |
+| `runtime.subscription.node_id_duplicate` | Error | 本地配置、已有运行请求节点、同一 catalog 或多个 catalog 之间出现重复 node id |
 | `runtime.subscription.catalog_empty` | Warning | 订阅 catalog 没有可运行 node；是否阻断由启动配置图决定 |
 | `runtime.subscription.rules_deferred` | Info | subscription rules 已解析但策略路由接入前不参与运行 |
 | `runtime.subscription.catalog_ready` | Info | 订阅 catalog nodes 已准备进入 `RuntimeConfigRequest.nodes` |
 | `runtime.subscription.source_unsupported` | Error | 当前运行层拒绝远程或文件订阅 source |
-| `runtime.subscription.secret_redacted` | Info | 订阅诊断已隐藏 source 或 payload 中的敏感值 |
 
 如果 runtime gate 漏掉重复 id，`engine-native` 仍会用
 `engine.native.config.node_id_duplicate` 作为 adapter 侧最后防线；但 P3 订阅接入源码应优先在运行层返回
 `runtime.subscription.node_id_duplicate`，以便上层知道冲突来自 catalog merge。
+
+当前 runtime gate 不单独输出 secret redaction 诊断；secret 边界通过在
+`runtime.subscription.source_unsupported`、parse/fetch error 和 catalog diagnostics 中不包含完整 source
+location、payload、URL token、文件路径或 credential 来实现。
 
 ## 诊断和 secret 边界
 
@@ -113,7 +118,7 @@ P3 subscription catalog 接入只解决 outbound node catalog。策略路由和 
 
 ## 首个源码增量验收条件
 
-后续源码实现订阅 catalog runtime gate 时必须满足：
+当前源码实现订阅 catalog runtime gate 已按以下条件验收：
 
 - `control-runtime` 新增纯用例或 request helper，组合 `SubscriptionService`、`ConfigurationService`、`PlatformCapabilityService` 和 `ProxyEngineService` 时仍不依赖 adapter crate。
 - 覆盖 inline subscription nodes 进入 `RuntimeConfigRequest.nodes` 的成功路径。
@@ -126,5 +131,4 @@ P3 subscription catalog 接入只解决 outbound node catalog。策略路由和 
 
 ## 当前阶段结论
 
-P3 当前仅完成 subscription catalog runtime orchestration design。源码仍未把
-`CoreSubscriptionService` 接入 `RuntimeOrchestrator` 或 `networkcore-linux start`。后续接线必须按本文先做运行层 catalog gate，再进入 engine-native 现有 `ProxyEngineConfig.nodes` 消费路径。
+P3 当前已完成 subscription catalog runtime orchestration design 和 `control-runtime` 源码 gate。`RuntimeOrchestrator` 现在可通过显式 `SubscriptionService`/`SubscriptionSource` 把 inline `NodeCatalog.nodes` 接入 `RuntimeConfigRequest.nodes`，并在进入 engine-native 现有 `ProxyEngineConfig.nodes` 消费路径前拒绝重复 id、保留 rules deferred 诊断。`networkcore-linux start` 仍未暴露 subscription source，也不会扫描默认订阅路径；当前 CLI 边界是 no default subscription path。远程/文件订阅、系统 DNS/TUN mutation、daemon/control socket 和 release artifact 继续 blocked。

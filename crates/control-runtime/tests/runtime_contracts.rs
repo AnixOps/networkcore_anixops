@@ -1,14 +1,19 @@
 use control_domain::{
     AuditDecision, AuditEvent, CertificateTrustState, ConfigSnapshot, ConfigurationService,
-    Diagnostic, DomainError, DomainResult, GrantedPermissions, HookPoint, HttpEvent,
-    MitmCertificateStatus, MitmPluginService, OperatingSystem, PlatformCapabilities,
-    PlatformCapabilityService, PlatformCapabilityStatus, PlatformFeatureState, PluginInstance,
-    PluginManifest, PluginPackage, PluginPermission, PluginResult, ProxyEngineConfig,
-    ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineLifecycleState, ProxyEngineService,
-    ProxyEngineStatus, SchemaVersion,
+    Diagnostic, DomainError, DomainResult, Endpoint, GrantedPermissions, HookPoint, HttpEvent,
+    MitmCertificateStatus, MitmPluginService, NodeCatalog, NodeDescriptor, OperatingSystem,
+    PlatformCapabilities, PlatformCapabilityService, PlatformCapabilityStatus,
+    PlatformFeatureState, PluginInstance, PluginManifest, PluginPackage, PluginPermission,
+    PluginResult, Protocol, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
+    ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RawSubscription,
+    RouteAction, RouteRule, RuleSet, SchemaVersion, SubscriptionDocument, SubscriptionService,
+    SubscriptionSource,
 };
 use control_runtime::{
     MitmGateOrchestrator, MitmGateRequest, RuntimeConfigRequest, RuntimeOrchestrator,
+    RUNTIME_SUBSCRIPTION_CATALOG_EMPTY_CODE, RUNTIME_SUBSCRIPTION_CATALOG_READY_CODE,
+    RUNTIME_SUBSCRIPTION_NODE_ID_DUPLICATE_CODE, RUNTIME_SUBSCRIPTION_RULES_DEFERRED_CODE,
+    RUNTIME_SUBSCRIPTION_SOURCE_UNSUPPORTED_CODE,
 };
 
 struct NoopConfigurationService;
@@ -38,6 +43,51 @@ impl ConfigurationService for NoopConfigurationService {
             listeners: Vec::new(),
             nodes: Vec::new(),
             policies: Vec::new(),
+            dns: Vec::new(),
+            plugins: Vec::new(),
+        })
+    }
+
+    fn migrate(
+        &self,
+        raw_config: &str,
+        _from_version: SchemaVersion,
+        _to_version: SchemaVersion,
+    ) -> DomainResult<String> {
+        Ok(raw_config.to_string())
+    }
+}
+
+struct StaticConfigurationService {
+    nodes: Vec<NodeDescriptor>,
+    policies: Vec<RuleSet>,
+}
+
+impl ConfigurationService for StaticConfigurationService {
+    fn validate(&self, raw_config: &str, _capabilities: &PlatformCapabilities) -> Vec<Diagnostic> {
+        if raw_config.trim().is_empty() {
+            vec![Diagnostic::new(
+                control_domain::DiagnosticSeverity::Error,
+                "config.empty",
+                "configuration is empty",
+                None,
+            )]
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn normalize(
+        &self,
+        _raw_config: &str,
+        _capabilities: &PlatformCapabilities,
+    ) -> DomainResult<ConfigSnapshot> {
+        Ok(ConfigSnapshot {
+            version: SchemaVersion::new(1),
+            profiles: vec!["default".to_string()],
+            listeners: Vec::new(),
+            nodes: self.nodes.clone(),
+            policies: self.policies.clone(),
             dns: Vec::new(),
             plugins: Vec::new(),
         })
@@ -117,6 +167,129 @@ impl ProxyEngineService for FakeProxyEngineService {
 
     fn events(&self, _engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>> {
         Ok(Vec::new())
+    }
+}
+
+struct AssertingProxyEngineService {
+    expected_node_ids: Vec<String>,
+    expected_policy_ids: Vec<String>,
+}
+
+impl AssertingProxyEngineService {
+    fn assert_engine_config(&self, engine_config: &ProxyEngineConfig) {
+        let node_ids = engine_config
+            .nodes
+            .iter()
+            .map(|node| node.id.clone())
+            .collect::<Vec<_>>();
+        let policy_ids = engine_config
+            .config
+            .policies
+            .iter()
+            .map(|policy| policy.id.clone())
+            .collect::<Vec<_>>();
+
+        assert_eq!(node_ids, self.expected_node_ids);
+        assert_eq!(policy_ids, self.expected_policy_ids);
+    }
+}
+
+impl ProxyEngineService for AssertingProxyEngineService {
+    fn list_engines(&self) -> Vec<ProxyEngineDescriptor> {
+        Vec::new()
+    }
+
+    fn validate_config(&self, engine_config: &ProxyEngineConfig) -> Vec<Diagnostic> {
+        self.assert_engine_config(engine_config);
+        Vec::new()
+    }
+
+    fn start(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {
+        self.assert_engine_config(engine_config);
+        Ok(ProxyEngineStatus {
+            engine_id: engine_config.engine_id.clone(),
+            state: ProxyEngineLifecycleState::Running,
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn reload(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {
+        self.assert_engine_config(engine_config);
+        Ok(ProxyEngineStatus {
+            engine_id: engine_config.engine_id.clone(),
+            state: ProxyEngineLifecycleState::Reloading,
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn stop(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
+        Ok(ProxyEngineStatus {
+            engine_id: engine_id.to_string(),
+            state: ProxyEngineLifecycleState::Stopped,
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn status(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
+        Ok(ProxyEngineStatus {
+            engine_id: engine_id.to_string(),
+            state: ProxyEngineLifecycleState::Running,
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn events(&self, _engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>> {
+        Ok(Vec::new())
+    }
+}
+
+struct StaticSubscriptionService {
+    catalogs: Vec<(String, NodeCatalog)>,
+}
+
+impl StaticSubscriptionService {
+    fn new(catalogs: Vec<(&str, NodeCatalog)>) -> Self {
+        Self {
+            catalogs: catalogs
+                .into_iter()
+                .map(|(source_id, catalog)| (source_id.to_string(), catalog))
+                .collect(),
+        }
+    }
+}
+
+impl SubscriptionService for StaticSubscriptionService {
+    fn fetch(&self, source: &SubscriptionSource) -> DomainResult<RawSubscription> {
+        Ok(RawSubscription {
+            source_id: source.id.clone(),
+            content: "inline subscription payload is provided by the test service".to_string(),
+        })
+    }
+
+    fn parse(&self, raw_subscription: &RawSubscription) -> DomainResult<SubscriptionDocument> {
+        let Some((_, catalog)) = self
+            .catalogs
+            .iter()
+            .find(|(source_id, _)| source_id == &raw_subscription.source_id)
+        else {
+            return Err(DomainError::new(
+                "subscription.test.source_missing",
+                "subscription test catalog source is missing",
+            ));
+        };
+
+        Ok(SubscriptionDocument {
+            nodes: catalog.nodes.clone(),
+            rules: catalog.rules.clone(),
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn normalize(&self, document: &SubscriptionDocument) -> DomainResult<NodeCatalog> {
+        Ok(NodeCatalog {
+            nodes: document.nodes.clone(),
+            rules: document.rules.clone(),
+        })
     }
 }
 
@@ -509,6 +682,282 @@ fn start_runtime_propagates_engine_start_error() {
         .expect_err("engine start error should propagate");
 
     assert_eq!(error.code, "engine.start_failed");
+}
+
+#[test]
+fn subscription_catalog_nodes_enter_runtime_config_request_nodes() {
+    let orchestrator = RuntimeOrchestrator::new(
+        NoopConfigurationService,
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeProxyEngineService { fail_start: false },
+    );
+    let subscription = StaticSubscriptionService::new(vec![(
+        "inline-dev",
+        subscription_catalog(vec![subscription_node("catalog-node")], Vec::new()),
+    )]);
+
+    let gate = orchestrator
+        .prepare_runtime_request_with_subscription_catalogs(
+            RuntimeConfigRequest::new("native", "profile = default"),
+            &subscription,
+            &[inline_subscription_source("inline-dev")],
+        )
+        .expect("subscription catalog should be applied to runtime request");
+
+    assert_eq!(gate.request.nodes, vec![subscription_node("catalog-node")]);
+    assert!(gate.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == RUNTIME_SUBSCRIPTION_CATALOG_READY_CODE
+            && diagnostic.severity == control_domain::DiagnosticSeverity::Info
+    }));
+}
+
+#[test]
+fn subscription_catalog_rejects_config_snapshot_node_id_duplicate() {
+    let orchestrator = RuntimeOrchestrator::new(
+        StaticConfigurationService {
+            nodes: vec![subscription_node("shared-node")],
+            policies: Vec::new(),
+        },
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeProxyEngineService { fail_start: false },
+    );
+    let subscription = StaticSubscriptionService::new(vec![(
+        "inline-dev",
+        subscription_catalog(vec![subscription_node("shared-node")], Vec::new()),
+    )]);
+
+    let error = orchestrator
+        .prepare_runtime_request_with_subscription_catalogs(
+            RuntimeConfigRequest::new("native", "profile = default"),
+            &subscription,
+            &[inline_subscription_source("inline-dev")],
+        )
+        .expect_err("subscription catalog must not override local config nodes");
+
+    assert_eq!(error.code, RUNTIME_SUBSCRIPTION_NODE_ID_DUPLICATE_CODE);
+}
+
+#[test]
+fn subscription_catalog_rejects_duplicate_node_ids_across_catalogs() {
+    let orchestrator = RuntimeOrchestrator::new(
+        NoopConfigurationService,
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeProxyEngineService { fail_start: false },
+    );
+    let subscription = StaticSubscriptionService::new(vec![
+        (
+            "catalog-a",
+            subscription_catalog(vec![subscription_node("shared-node")], Vec::new()),
+        ),
+        (
+            "catalog-b",
+            subscription_catalog(vec![subscription_node("shared-node")], Vec::new()),
+        ),
+    ]);
+
+    let error = orchestrator
+        .reload_runtime_with_subscription_catalogs(
+            RuntimeConfigRequest::new("native", "profile = default"),
+            &subscription,
+            &[
+                inline_subscription_source("catalog-a"),
+                inline_subscription_source("catalog-b"),
+            ],
+        )
+        .expect_err("duplicate catalog nodes must reject reload before engine validation");
+
+    assert_eq!(error.code, RUNTIME_SUBSCRIPTION_NODE_ID_DUPLICATE_CODE);
+}
+
+#[test]
+fn subscription_catalog_rejects_duplicate_node_ids_within_catalog() {
+    let orchestrator = RuntimeOrchestrator::new(
+        NoopConfigurationService,
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeProxyEngineService { fail_start: false },
+    );
+    let subscription = StaticSubscriptionService::new(vec![(
+        "inline-dev",
+        subscription_catalog(
+            vec![
+                subscription_node("shared-node"),
+                subscription_node("shared-node"),
+            ],
+            Vec::new(),
+        ),
+    )]);
+
+    let error = orchestrator
+        .prepare_runtime_request_with_subscription_catalogs(
+            RuntimeConfigRequest::new("native", "profile = default"),
+            &subscription,
+            &[inline_subscription_source("inline-dev")],
+        )
+        .expect_err("duplicate nodes inside one catalog must reject before engine validation");
+
+    assert_eq!(error.code, RUNTIME_SUBSCRIPTION_NODE_ID_DUPLICATE_CODE);
+}
+
+#[test]
+fn subscription_catalog_rejects_runtime_request_node_id_duplicate() {
+    let orchestrator = RuntimeOrchestrator::new(
+        NoopConfigurationService,
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeProxyEngineService { fail_start: false },
+    );
+    let subscription = StaticSubscriptionService::new(vec![(
+        "inline-dev",
+        subscription_catalog(vec![subscription_node("request-node")], Vec::new()),
+    )]);
+    let mut request = RuntimeConfigRequest::new("native", "profile = default");
+    request.nodes = vec![subscription_node("request-node")];
+
+    let error = orchestrator
+        .prepare_runtime_request_with_subscription_catalogs(
+            request,
+            &subscription,
+            &[inline_subscription_source("inline-dev")],
+        )
+        .expect_err("subscription catalog must not override runtime request nodes");
+
+    assert_eq!(error.code, RUNTIME_SUBSCRIPTION_NODE_ID_DUPLICATE_CODE);
+}
+
+#[test]
+fn subscription_catalog_empty_reports_warning() {
+    let orchestrator = RuntimeOrchestrator::new(
+        NoopConfigurationService,
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeProxyEngineService { fail_start: false },
+    );
+    let subscription = StaticSubscriptionService::new(vec![(
+        "inline-empty",
+        subscription_catalog(Vec::new(), Vec::new()),
+    )]);
+
+    let gate = orchestrator
+        .prepare_runtime_request_with_subscription_catalogs(
+            RuntimeConfigRequest::new("native", "profile = default"),
+            &subscription,
+            &[inline_subscription_source("inline-empty")],
+        )
+        .expect("empty subscription catalog should report a warning without adding nodes");
+
+    assert!(gate.request.nodes.is_empty());
+    assert!(gate.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == RUNTIME_SUBSCRIPTION_CATALOG_EMPTY_CODE
+            && diagnostic.severity == control_domain::DiagnosticSeverity::Warning
+    }));
+}
+
+#[test]
+fn subscription_catalog_rules_are_deferred_without_mutating_config_policies() {
+    let orchestrator = RuntimeOrchestrator::new(
+        StaticConfigurationService {
+            nodes: vec![subscription_node("local-node")],
+            policies: vec![subscription_rule_set("local-policy", "local-node")],
+        },
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        AssertingProxyEngineService {
+            expected_node_ids: vec!["catalog-node".to_string()],
+            expected_policy_ids: vec!["local-policy".to_string()],
+        },
+    );
+    let subscription = StaticSubscriptionService::new(vec![(
+        "inline-dev",
+        subscription_catalog(
+            vec![subscription_node("catalog-node")],
+            vec![subscription_rule_set("subscription-policy", "catalog-node")],
+        ),
+    )]);
+
+    let result = orchestrator
+        .start_runtime_with_subscription_catalogs(
+            RuntimeConfigRequest::new("native", "profile = default"),
+            &subscription,
+            &[inline_subscription_source("inline-dev")],
+        )
+        .expect("subscription rules should be deferred while catalog nodes start");
+
+    assert_eq!(result.engine_status.state, ProxyEngineLifecycleState::Running);
+    assert!(result.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == RUNTIME_SUBSCRIPTION_RULES_DEFERRED_CODE
+            && diagnostic.severity == control_domain::DiagnosticSeverity::Info
+    }));
+    assert!(result.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == RUNTIME_SUBSCRIPTION_CATALOG_READY_CODE
+            && diagnostic.severity == control_domain::DiagnosticSeverity::Info
+    }));
+}
+
+#[test]
+fn subscription_catalog_rejects_unsupported_remote_source_without_leaking_secret() {
+    let orchestrator = RuntimeOrchestrator::new(
+        NoopConfigurationService,
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeProxyEngineService { fail_start: false },
+    );
+    let subscription = StaticSubscriptionService::new(Vec::new());
+    let secret_location = "https://subscriptions.example.invalid/list?token=super-secret-token";
+
+    let error = orchestrator
+        .prepare_runtime_request_with_subscription_catalogs(
+            RuntimeConfigRequest::new("native", "profile = default"),
+            &subscription,
+            &[SubscriptionSource {
+                id: "remote-prod".to_string(),
+                location: secret_location.to_string(),
+            }],
+        )
+        .expect_err("remote subscription sources must stay blocked in the runtime gate");
+
+    assert_eq!(error.code, RUNTIME_SUBSCRIPTION_SOURCE_UNSUPPORTED_CODE);
+    assert!(!error.to_string().contains("super-secret-token"));
+    assert!(!error.to_string().contains("subscriptions.example.invalid"));
+}
+
+#[test]
+fn subscription_catalog_rejects_file_source_without_reading_path() {
+    let orchestrator = RuntimeOrchestrator::new(
+        NoopConfigurationService,
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeProxyEngineService { fail_start: false },
+    );
+    let subscription = StaticSubscriptionService::new(Vec::new());
+    let private_path = "file:///Users/example/Library/Application Support/secret-subscription.toml";
+
+    let error = orchestrator
+        .prepare_runtime_request_with_subscription_catalogs(
+            RuntimeConfigRequest::new("native", "profile = default"),
+            &subscription,
+            &[SubscriptionSource {
+                id: "file-prod".to_string(),
+                location: private_path.to_string(),
+            }],
+        )
+        .expect_err("file subscription sources must stay blocked in the runtime gate");
+
+    assert_eq!(error.code, RUNTIME_SUBSCRIPTION_SOURCE_UNSUPPORTED_CODE);
+    assert!(!error.to_string().contains("secret-subscription.toml"));
+    assert!(!error.to_string().contains("/Users/example"));
 }
 
 #[test]
@@ -1490,6 +1939,45 @@ fn mitm_gate_propagates_plugin_handle_error() {
         .expect_err("plugin event errors should propagate");
 
     assert_eq!(error.code, "plugin.handle_failed");
+}
+
+fn inline_subscription_source(id: &str) -> SubscriptionSource {
+    SubscriptionSource {
+        id: id.to_string(),
+        location: "inline:[[nodes]]".to_string(),
+    }
+}
+
+fn subscription_catalog(nodes: Vec<NodeDescriptor>, rules: Vec<RuleSet>) -> NodeCatalog {
+    NodeCatalog { nodes, rules }
+}
+
+fn subscription_node(id: &str) -> NodeDescriptor {
+    NodeDescriptor {
+        id: id.to_string(),
+        name: format!("Node {id}"),
+        protocol: Protocol::Socks,
+        endpoint: Endpoint {
+            host: "127.0.0.1".to_string(),
+            port: 1080,
+        },
+        tags: Vec::new(),
+    }
+}
+
+fn subscription_rule_set(id: &str, node_id: &str) -> RuleSet {
+    RuleSet {
+        id: id.to_string(),
+        rules: vec![RouteRule {
+            id: format!("{id}-proxy"),
+            priority: 10,
+            action: RouteAction::Proxy {
+                node_id: node_id.to_string(),
+            },
+            metadata: Vec::new(),
+        }],
+        default_action: RouteAction::Reject,
+    }
 }
 
 fn available_platform_status() -> PlatformCapabilityStatus {

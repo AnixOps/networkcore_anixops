@@ -38,7 +38,7 @@ listener、node、route 和 DNS 配置模型边界。它承接
 - `control-domain::ProxyEngineConfig`，组合标准化 `ConfigSnapshot`、运行请求提供的 `nodes` 和 adapter `metadata`。
 - `control-runtime::RuntimeConfigRequest`，把 `engine_id`、原始配置、`nodes` 和 `metadata` 传给运行层。
 - `config-core::CoreConfigurationService`，当前解析 schema/profile 和最小 listener/node/route TOML 子集。
-- `config-core::CoreSubscriptionService`，当前只接受显式 `inline:` source，并把最小 subscription TOML `nodes`/`routes` 子集解析为 `SubscriptionDocument` 和 `NodeCatalog`；P3 subscription catalog runtime orchestration design 已定义 `NodeCatalog` 进入 `RuntimeConfigRequest.nodes` 前的运行层 gate，远程拉取、文件读取、认证、secret、重复 id 和 listener/node 图校验仍未进入 config-core。
+- `config-core::CoreSubscriptionService`，当前只接受显式 `inline:` source，并把最小 subscription TOML `nodes`/`routes` 子集解析为 `SubscriptionDocument` 和 `NodeCatalog`；P3 subscription catalog runtime gate 已在 `control-runtime` 定义并实现 `NodeCatalog.nodes` 进入 `RuntimeConfigRequest.nodes` 前的运行层 gate，远程拉取、文件读取、认证、secret 和 listener/node 图校验仍未进入 config-core。
 - `engine-native::NativeProxyEngineService`，当前对 listener、node 和 route 做结构化图校验，合并 `ConfigSnapshot.nodes` 与运行请求 nodes 作为 typed node catalog，并在缺少 listener/node、重复 id、route target 缺失和超出当前 plan 合同的 handler/protocol 时返回稳定诊断。
 - `engine-native` 已补充首个 native runtime handle 源码合同，覆盖 loopback listener handle、SOCKS outbound handler handoff、启动失败释放报告、runtime events 和 foreground lifecycle handoff status。
 - `engine-native` 已补充真实 loopback TCP listener 绑定/释放实现，runtime assembly 可持有当前进程内的 `TcpListener` resource 并在 release 或失败报告中释放。

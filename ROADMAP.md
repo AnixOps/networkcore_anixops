@@ -96,6 +96,8 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification 和 P2 Core K
 - [Native Engine Listener And Node Config Design](docs/architecture/native-engine-listener-node-config.md)
 - [Linux Native Proxy Engine Start Design](docs/architecture/linux-native-proxy-engine-start.md)
 
+当前源码状态：`control-runtime` 已具备显式 inline subscription catalog runtime gate，可把 `NodeCatalog.nodes` 编排进 `RuntimeConfigRequest.nodes`，拒绝重复 node id，并保持 `NodeCatalog.rules` deferred；`networkcore-linux start` 仍不消费 subscription catalog。
+
 ## P4 Client And Platform Integration
 
 目标是在不破坏内核边界的前提下推进全平台客户端。
