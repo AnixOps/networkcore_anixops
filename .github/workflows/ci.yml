@@ -57,6 +57,7 @@ jobs:
           test -f docs/architecture/native-engine-listener-node-config.md
           test -f docs/architecture/linux-native-proxy-engine-start.md
           test -f docs/architecture/linux-cli-artifact-installation-rollback.md
+          test -f docs/architecture/linux-package-artifact-manifest.md
           test -f docs/architecture/adr-0001-initial-core-stack.md
           grep -q "本机只负责代码" AGENT.md
           grep -q "GitHub Actions" docs/ci-cd-policy.md
@@ -86,6 +87,7 @@ jobs:
           grep -q "Native Engine Listener And Node Config Design" docs/architecture/native-engine-listener-node-config.md
           grep -q "Linux Native Proxy Engine Start Design" docs/architecture/linux-native-proxy-engine-start.md
           grep -q "Linux CLI Artifact Installation And Rollback Design" docs/architecture/linux-cli-artifact-installation-rollback.md
+          grep -q "Linux Package Artifact Manifest Design" docs/architecture/linux-package-artifact-manifest.md
           grep -q "ADR 0001: Initial Core Stack" docs/architecture/adr-0001-initial-core-stack.md
 
   detect-projects:

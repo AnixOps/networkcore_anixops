@@ -249,7 +249,8 @@ DNS 配置进入前应继续保守：
 34. 已为 `CurrentProcessForegroundLifecycleHost` 接入真实 Unix OS signal/interruption source。
 35. 已为前台 lifecycle interruption 后的 runtime stop/release 诊断聚合补充显式合同。
 36. 已在 Linux artifact readiness/release gate 中纳入 foreground stop/release 合同检查，并继续保持 license/NOTICE 未确认时不生成 `package-linux` artifact。
-37. 下一步在不生成 artifact 的前提下，补充首个 Linux `package-linux` artifact manifest/metadata 输出合同设计。
+37. 已在不生成 artifact 的前提下补充首个 Linux `package-linux` artifact manifest/metadata 输出合同设计。
+38. 下一步在 release placeholder summary 中补充 manifest output contract 摘要，仍不生成 artifact。
 
 每个阶段都必须同步 README、TODO、CHANGELOG、设计文档和合同测试，并只通过 GitHub Actions 验证。
 
@@ -285,4 +286,4 @@ DNS 配置进入前应继续保守：
 ## 后续工作
 
 - Linux artifact readiness/release gate 已纳入 foreground stop/release 合同检查，并继续保持 license/NOTICE 未确认时不生成 `package-linux` artifact。
-- 下一步在不生成 artifact 的前提下，补充首个 Linux `package-linux` artifact manifest/metadata 输出合同设计。
+- Linux package artifact manifest/metadata 输出合同设计已完成；下一步在 release placeholder summary 中补充 manifest output contract 摘要，仍不生成 artifact。

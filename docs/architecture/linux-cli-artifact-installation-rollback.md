@@ -1,6 +1,6 @@
 # Linux CLI Artifact Installation And Rollback Design
 
-本文件定义首个 `networkcore-linux` CLI 压缩包进入 release workflow 前必须满足的安装、卸载和回滚边界。它承接 [Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md)、[Linux CLI Entrypoint Design](linux-cli-entrypoint.md) 和 [Release Strategy](../release-strategy.md)，不是当前可下载产物说明。
+本文件定义首个 `networkcore-linux` CLI 压缩包进入 release workflow 前必须满足的安装、卸载和回滚边界。它承接 [Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md)、[Linux CLI Entrypoint Design](linux-cli-entrypoint.md)、[Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md) 和 [Release Strategy](../release-strategy.md)，不是当前可下载产物说明。
 
 评估时间：2026-07-06。
 
@@ -37,7 +37,7 @@
 | `LICENSE` | 仓库 license 或等价许可说明 |
 | `CHANGELOG.md` | 对应版本变更摘要或链接 |
 
-checksum 文件必须由 release job 单独输出，算法默认为 `sha256`。压缩包内不得包含预生成配置、私钥、证书私钥、systemd unit、shell installer、包管理器脚本或自动修改系统状态的脚本。
+checksum 文件和 sidecar manifest 必须由 release job 单独输出，算法默认为 `sha256`。manifest 形态和字段遵守 [Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md)。压缩包内不得包含预生成配置、私钥、证书私钥、systemd unit、shell installer、包管理器脚本或自动修改系统状态的脚本。
 
 ## 安装边界
 
@@ -118,12 +118,13 @@ release notes 和 release summary 必须输出：
 真实 `package-linux` job 加入 `.github/workflows/release.yml` 前必须满足：
 
 - `apps/linux-cli` 源码存在，并在 `main` 同 commit 上通过 CI 的 Rust format、lint、test、build 和 dependency audit。
-- [Linux Platform Adapter Design](linux-platform-adapter.md)、[Linux CLI Entrypoint Design](linux-cli-entrypoint.md)、[Linux CLI Runtime Wiring Design](linux-cli-runtime-wiring.md)、[Native Engine Listener And Node Config Design](native-engine-listener-node-config.md)、[Linux Native Proxy Engine Start Design](linux-native-proxy-engine-start.md)、[Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md) 和本文档均通过 CI governance 检查。
-- `linux-artifact-readiness` release job 检查 CLI 源码、platform adapter、native listener/node 配置设计、foreground stop/release 源码与合同测试、安装/回滚设计和 license/NOTICE 人工确认记录，并继续阻止 release asset 上传。
+- [Linux Platform Adapter Design](linux-platform-adapter.md)、[Linux CLI Entrypoint Design](linux-cli-entrypoint.md)、[Linux CLI Runtime Wiring Design](linux-cli-runtime-wiring.md)、[Native Engine Listener And Node Config Design](native-engine-listener-node-config.md)、[Linux Native Proxy Engine Start Design](linux-native-proxy-engine-start.md)、[Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md)、[Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md) 和本文档均通过 CI governance 检查。
+- `linux-artifact-readiness` release job 检查 CLI 源码、platform adapter、native listener/node 配置设计、foreground stop/release 源码与合同测试、artifact manifest 合同设计、安装/回滚设计和 license/NOTICE 人工确认记录，并继续阻止 release asset 上传。
 - release job 明确 runner、Rust toolchain、target triple、artifact 文件名、顶层目录和上传路径。
 - release job 输出 `artifact_name`、`artifact_path`、`checksum_algorithm`、`checksum_file`、`checksum_value`。
+- release job 输出 `artifact_manifest_name`、`artifact_manifest_path`、`artifact_manifest_checksum_file`、`artifact_manifest_checksum_value`。
 - release job 输出 `signing_policy`、`signing_status`、`attestation_status`、`provenance_file`。
-- release summary 输出安装模型、卸载边界、回滚字段和 GitHub Actions 验证链接。
+- release summary 输出安装模型、卸载边界、archive checksum、manifest checksum、回滚字段和 GitHub Actions 验证链接。
 - 发布说明链接本文档、CHANGELOG、CI run 和 release run。
 
 缺少任一前置条件时，release workflow 必须继续保持 placeholder 或 readiness-gate 状态，不得上传 Linux artifact。

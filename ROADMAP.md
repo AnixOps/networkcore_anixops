@@ -94,6 +94,7 @@
 - [Native Engine Listener And Node Config Design](docs/architecture/native-engine-listener-node-config.md)
 - [Linux Native Proxy Engine Start Design](docs/architecture/linux-native-proxy-engine-start.md)
 - [Linux CLI Artifact Installation And Rollback Design](docs/architecture/linux-cli-artifact-installation-rollback.md)
+- [Linux Package Artifact Manifest Design](docs/architecture/linux-package-artifact-manifest.md)
 
 ## 迭代选择规则
 
