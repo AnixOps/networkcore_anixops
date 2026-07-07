@@ -60,6 +60,7 @@ jobs:
           test -f docs/architecture/ios-swift-xcode-bridge-source-contract.md
           test -f docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
           test -f docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          test -f docs/architecture/ios-entitlement-provisioning-source-contract.md
           test -f docs/architecture/linux-artifact-pre-release-design.md
           test -f docs/architecture/linux-platform-adapter.md
           test -f docs/architecture/linux-cli-entrypoint.md
@@ -639,6 +640,37 @@ jobs:
           grep -q "swift test" docs/architecture/ios-mitm-certificate-lifecycle-design.md
           grep -q "xcodebuild" docs/architecture/ios-mitm-certificate-lifecycle-design.md
           grep -q "no iOS release asset" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "iOS Entitlement Provisioning Source Contract" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -Fq ".entitlements" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "App ID" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "Network Extension capability" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "Provisioning Profile" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "GitHub Secrets" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "signing asset redaction" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "com.apple.developer.networking.networkextension" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "packet-tunnel-provider" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "NETunnelProviderManager" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "NEPacketTunnelProvider" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "IosNetworkExtensionProbe" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "IosNetworkExtensionEntitlementState" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "platform.ios.network_extension.entitlement_missing" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "platform.ios.vpn_configuration.authorization_required" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "platform.ios.vpn_configuration.authorization_denied" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "TEAM_ID" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "APP_BUNDLE_ID" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "PACKET_TUNNEL_BUNDLE_ID" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "APPLE_CERTIFICATE_P12_BASE64" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "APPLE_PROVISIONING_PROFILE_BASE64" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "APP_STORE_CONNECT_API_KEY_ID" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "macos-26" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "swift build" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "swift test" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "xcodebuild" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          grep -q "no iOS release asset" docs/architecture/ios-entitlement-provisioning-source-contract.md
+          if find . -path ./.git -prune -o -type f \( -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" \) -print -quit | grep -q .; then
+            echo "::error::iOS entitlement, provisioning, signing, or binary embedding material must stay out of the repository until the iOS source contracts allow it."
+            exit 1
+          fi
           grep -q "platform-ios" docs/architecture/ios-platform-adapter-source-contract.md
           grep -q "StaticIosPlatformCapabilityService" docs/architecture/ios-platform-adapter-source-contract.md
           grep -q "IosPlatformSnapshot" docs/architecture/ios-platform-adapter-source-contract.md

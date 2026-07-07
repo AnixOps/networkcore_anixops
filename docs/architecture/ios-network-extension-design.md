@@ -20,7 +20,8 @@ GitHub Actions 或 Apple 官方平台。
 - 为当前 `platform-ios` adapter、[iOS Swift Network Extension Bridge Design](ios-swift-network-extension-bridge-design.md)、
   [iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、
   [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)、
-  [iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md)、后续 Swift/iOS target、
+  [iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md)、
+  [iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)、后续 Swift/iOS target、
   Rust embedded runtime 和 certificate lifecycle GitHub Actions macOS 验证提供入口。
 
 ## 非目标
@@ -38,6 +39,8 @@ iOS 首版采用 Apple Network Extension 的 Packet Tunnel Provider 形态：
 - Containing App 使用 `NETunnelProviderManager` 创建、保存、启用和停止 VPN 配置。
 - Network Extension 使用 `NEPacketTunnelProvider` 作为 `Packet Tunnel Provider`，承载实际 tunnel lifecycle 和流量入口。
 - Extension 通过 Apple 允许的 App Group 或 Keychain sharing 读取最小配置快照和必要凭据。
+- App ID、Network Extension capability、`.entitlements`、Provisioning Profile、GitHub Secrets 和 signing asset
+  redaction 必须遵守 [iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)。
 - 代理执行内核必须嵌入 Extension 进程内运行，不能假设 iOS 上存在外部 daemon、CLI 或长期后台进程。
 - Rust core 后续只能以静态库、XCFramework 或 Apple 允许的等价嵌入形式进入 Extension；该嵌入形态必须遵守
   [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)，并通过 GitHub Actions 验证。
@@ -133,6 +136,8 @@ iOS 上的插件能力必须拆分为数据和执行：
 - 目标销售地区的 VPN 合规材料；不能确认的地区默认不发布。
 - GitHub Secrets 或 Apple 官方凭据存储策略，仓库不得提交证书、私钥、Provisioning Profile 或 App Store Connect API key。
 
+App ID、Bundle ID、Network Extension capability、Provisioning Profile、GitHub Secrets 和 signing asset redaction
+的源码边界由 [iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md) 约束。
 这些事项属于 `docs/manual-intervention.md` 管理的人工介入边界。未完成前，CI 可以做静态检查，但不得启用真实签名、上传 TestFlight 或创建 iOS release asset。
 
 ## GitHub Actions Validation Entry
@@ -164,6 +169,9 @@ iOS release workflow 在满足以下条件前不得定义真实 artifact、TestF
   GitHub Actions 的 macOS runner 验证。
 - [iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md) 已完成；后续证书生成、安装提示、
   信任确认、fingerprint 校验、过期/撤销检测和 mapping 源码必须再通过 GitHub Actions 的 macOS runner 验证。
+- [iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md) 已完成；后续
+  `.entitlements`、App ID、Network Extension capability、Provisioning Profile、GitHub Secrets 和 signing
+  asset redaction 源码必须再通过 GitHub Actions 的 macOS runner 验证。
 - Apple Developer、Network Extension entitlement、Provisioning Profile、GitHub Secrets、隐私政策和 App Review Notes 已完成人工确认。
 - MITM 证书设计、插件执行边界和地区 VPN 合规材料已完成。
 
@@ -175,7 +183,7 @@ Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux`
 
 - README、ROADMAP、TODO、CHANGELOG 和 CI/CD policy 链接或记录本文件。
 - `.github/workflows/ci.yml` 静态检查本文件存在和关键锚点。
-- `docs/architecture/ios-platform-risk-assessment.md` 的后续工作记录 MITM certificate lifecycle design 已完成，并指向后续 entitlement/provisioning source contract。
+- `docs/architecture/ios-platform-risk-assessment.md` 的后续工作记录 entitlement/provisioning source contract 已完成，并指向后续 App Review/privacy release readiness design。
 - `docs/manual-intervention.md` 保留 Apple Developer、entitlement、Provisioning Profile、GitHub Secrets、App Review 和 VPN 合规人工事项。
 - 本地只执行静态文本检查和 git 操作；所有正式验证通过 GitHub Actions 完成。
 

@@ -6,6 +6,7 @@
 [iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、
 [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)、
 [iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md)、
+[iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)、
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md) 和
 [Control Runtime Orchestration Design](control-runtime-orchestration.md)，用于约束
 iOS platform adapter 如何把 Apple 平台事实映射为领域层可消费的能力状态。
@@ -97,6 +98,9 @@ crates/platform-ios/
 ## Network Extension And Entitlement Diagnostics
 
 iOS adapter 必须把 entitlement、Provisioning Profile 和 VPN 配置问题表达为诊断，而不是 panic 或隐藏失败。
+后续 `.entitlements`、App ID、Network Extension capability、Provisioning Profile、GitHub Secrets 和 signing
+asset redaction 的源码与 workflow 边界必须遵守
+[iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)。
 
 推荐诊断 code：
 
@@ -232,6 +236,7 @@ TestFlight upload 或 App Store upload job：
 - Swift/Xcode bridge source contract 已完成并通过 GitHub Actions static governance。
 - iOS embedded runtime FFI boundary design 已完成并通过 GitHub Actions static governance。
 - iOS MITM certificate lifecycle design 已完成并通过 GitHub Actions static governance。
+- iOS entitlement/provisioning source contract 已完成并通过 GitHub Actions static governance。
 - Apple Developer、App ID、Network Extension entitlement、Provisioning Profile、GitHub Secrets、
   隐私政策、App Review Notes 和目标地区 VPN 合规材料已完成人工确认。
 - MITM 证书生成、安装提示、信任确认、fingerprint 校验、过期/撤销检测和 source contract tests 已完成。

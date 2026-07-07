@@ -6,7 +6,8 @@
 [iOS Platform Adapter Source Contract](ios-platform-adapter-source-contract.md)、
 [iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、
 [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)、
-[iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md) 和
+[iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md)、
+[iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md) 和
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
 
 当前状态：design-only。仓库仍不包含 Swift package、Xcode project、Network Extension target、
@@ -83,6 +84,9 @@ Swift bridge 必须把 Network Extension 状态拆成三个独立事实：
 
 Bridge 不得把 `NEPacketTunnelProvider` 实例、manager 对象、provider configuration dictionary 或 bundle
 identifier 传给 Rust；只传入枚举状态和安全诊断。
+App ID、Bundle ID、Network Extension capability、`.entitlements`、Provisioning Profile、GitHub Secrets 和
+signing asset redaction 必须遵守
+[iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)。
 
 ### App Group
 
@@ -196,6 +200,7 @@ TestFlight upload 或 App Store upload job：
 - Swift/Xcode source contract 已完成并通过 GitHub Actions static governance。
 - iOS embedded runtime FFI boundary design 已完成并通过 GitHub Actions static governance。
 - iOS MITM certificate lifecycle design 已完成并通过 GitHub Actions static governance。
+- iOS entitlement/provisioning source contract 已完成并通过 GitHub Actions static governance。
 - Swift bridge、Network Extension target 和 Rust embedded runtime bridge 已在 GitHub Actions `macos-26` runner 验证。
 - Apple Developer、App ID、Network Extension entitlement、Provisioning Profile、GitHub Secrets、隐私政策、
   App Review Notes 和目标地区 VPN 合规材料已完成人工确认。

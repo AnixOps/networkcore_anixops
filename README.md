@@ -35,6 +35,7 @@
 - [docs/architecture/ios-swift-xcode-bridge-source-contract.md](docs/architecture/ios-swift-xcode-bridge-source-contract.md)
 - [docs/architecture/ios-embedded-runtime-ffi-boundary-design.md](docs/architecture/ios-embedded-runtime-ffi-boundary-design.md)
 - [docs/architecture/ios-mitm-certificate-lifecycle-design.md](docs/architecture/ios-mitm-certificate-lifecycle-design.md)
+- [docs/architecture/ios-entitlement-provisioning-source-contract.md](docs/architecture/ios-entitlement-provisioning-source-contract.md)
 - [docs/architecture/linux-artifact-pre-release-design.md](docs/architecture/linux-artifact-pre-release-design.md)
 - [docs/architecture/linux-platform-adapter.md](docs/architecture/linux-platform-adapter.md)
 - [docs/architecture/linux-cli-entrypoint.md](docs/architecture/linux-cli-entrypoint.md)
@@ -81,9 +82,10 @@
 
 iOS Network Extension design、iOS platform adapter source contract、首个纯 Rust `platform-ios` 映射骨架和
 iOS Swift/Network Extension bridge design、iOS Swift/Xcode bridge source contract、iOS embedded runtime
-FFI boundary design 和 iOS MITM certificate lifecycle design 已补充；Swift/Xcode project、Network Extension target、
-Rust FFI crate、证书安装源码、签名、TestFlight/App Store 上传和 iOS release asset 均未启用，后续 Apple SDK
-bridge、embedded runtime 与 certificate lifecycle 源码必须按 source contract 通过 GitHub Actions 验证。
+FFI boundary design、iOS MITM certificate lifecycle design 和 iOS entitlement/provisioning source contract 已补充；
+`.entitlements`、Swift/Xcode project、Network Extension target、Provisioning Profile、Rust FFI crate、证书安装源码、
+签名、TestFlight/App Store 上传和 iOS release asset 均未启用，后续 Apple SDK bridge、embedded runtime、
+certificate lifecycle 与 entitlement/provisioning 源码必须按 source contract 通过 GitHub Actions 验证。
 
 ## MITM adapter 接入边界
 

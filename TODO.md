@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 补充 iOS entitlement/provisioning source contract，定义后续 `.entitlements`、App ID、Network Extension capability、Provisioning Profile、GitHub Secrets、signing asset redaction 和 GitHub Actions `macos-26` 验证入口；仍不引入 Swift/Xcode project、Network Extension target、真实签名、TestFlight 上传或 iOS release asset。Linux artifact 继续等待 license/NOTICE confirmed marker，期间不得定义 `package-linux` 或发布 release asset。
+- [ ] 补充 iOS App Review/privacy release readiness design，定义后续 Privacy Manifest、隐私政策、App Review Notes、VPN 合规材料、TestFlight/App Store Connect 人工确认和 GitHub Actions 静态门禁；仍不引入 Swift/Xcode project、Network Extension target、真实签名、TestFlight 上传或 iOS release asset。Linux artifact 继续等待 license/NOTICE confirmed marker，期间不得定义 `package-linux` 或发布 release asset。
 
 ## 已完成
 
+- [x] 补充 iOS entitlement/provisioning source contract，定义后续 `.entitlements`、App ID、Network Extension capability、Provisioning Profile、GitHub Secrets、signing asset redaction 和 GitHub Actions `macos-26` 验证入口；仍不引入 Swift/Xcode project、Network Extension target、真实签名、TestFlight 上传或 iOS release asset。
 - [x] 补充 iOS MITM certificate lifecycle design，定义后续 CA 生成、安装提示、用户信任确认、fingerprint 校验、撤销/过期检测、`CertificateTrustState` 映射和 GitHub Actions `macos-26` 验证入口；仍不引入 Swift/Xcode project、Network Extension target、签名、TestFlight 上传或 iOS release asset。
 - [x] 补充 iOS embedded runtime FFI boundary design，定义后续 Rust staticlib/XCFramework、C ABI symbol、ABI version negotiation、owned string/buffer、panic/error mapping 和 GitHub Actions `macos-26` 验证入口；仍不引入 Swift/Xcode project、Network Extension target、签名、TestFlight 上传或 iOS release asset。
 - [x] 补充 iOS Swift/Xcode bridge source contract，定义后续 Swift package、Network Extension target、FFI/DTO 文件布局、GitHub Actions `macos-26` 验证入口和禁止提交 signing/provisioning secret 的源码验收条件；仍不引入 Swift/Xcode project、Network Extension target、签名、TestFlight 上传或 iOS release asset。
