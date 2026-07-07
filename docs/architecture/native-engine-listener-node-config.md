@@ -251,7 +251,8 @@ DNS 配置进入前应继续保守：
 36. 已在 Linux artifact readiness/release gate 中纳入 foreground stop/release 合同检查，并继续保持 license/NOTICE 未确认时不生成 `package-linux` artifact。
 37. 已在不生成 artifact 的前提下补充首个 Linux `package-linux` artifact manifest/metadata 输出合同设计。
 38. 已补充 Linux artifact license/NOTICE confirmation source contract 和 pending marker，继续不生成 artifact。
-39. 下一步在 release placeholder summary 中补充 license/NOTICE source contract 状态，仍不生成 artifact。
+39. 已在 release placeholder summary 中补充 license/NOTICE source contract 状态，继续不生成 artifact。
+40. 下一步补充真实 `package-linux` 前同 commit CI 成功结果读取合同，仍不生成 artifact。
 
 每个阶段都必须同步 README、TODO、CHANGELOG、设计文档和合同测试，并只通过 GitHub Actions 验证。
 
@@ -286,5 +287,5 @@ DNS 配置进入前应继续保守：
 
 ## 后续工作
 
-- Linux artifact readiness/release gate 已纳入 foreground stop/release 合同检查、artifact manifest 输出合同和 license/NOTICE confirmation source contract，并继续保持 pending marker 未确认时不生成 `package-linux` artifact。
-- 下一步在 release placeholder summary 中补充 license/NOTICE source contract 状态，仍不生成 artifact。
+- Linux artifact readiness/release gate 已纳入 foreground stop/release 合同检查、artifact manifest 输出合同、license/NOTICE confirmation source contract 和 release placeholder license/NOTICE pending 状态 summary，并继续保持 pending marker 未确认时不生成 `package-linux` artifact。
+- 下一步补充真实 `package-linux` 前同 commit CI 成功结果读取合同，仍不生成 artifact。

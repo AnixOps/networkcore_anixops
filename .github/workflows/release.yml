@@ -238,6 +238,8 @@ jobs:
           grep -q "artifact_manifest_checksum_value" docs/architecture/linux-package-artifact-manifest.md
           grep -q "Linux Artifact Manifest Output Contract" .github/workflows/release.yml
           grep -q "linux-artifact-manifest-output-fields" .github/workflows/release.yml
+          grep -q "Linux Artifact License/NOTICE Source Contract" .github/workflows/release.yml
+          grep -q "linux-artifact-license-notice-source=docs/manual-intervention.md" .github/workflows/release.yml
           grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-package-linux=blocked" docs/manual-intervention.md
@@ -286,10 +288,22 @@ jobs:
     needs:
       - linux-artifact-readiness
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
       - name: Explain current release state
         shell: bash
         run: |
           set -euo pipefail
+          test -f docs/manual-intervention.md
+          grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
+          grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
+          grep -q "linux-artifact-license-notice-package-linux=blocked" docs/manual-intervention.md
+          grep -q "linux-artifact-license-notice-release-assets=blocked" docs/manual-intervention.md
+          if grep -Eq '^  package-linux:' .github/workflows/release.yml; then
+            echo "::error::package-linux must stay undefined until license/NOTICE and artifact gates are complete."
+            exit 1
+          fi
           echo "No release artifacts are defined yet."
           echo "Linux artifact readiness is checked, but package-linux is not defined yet."
           echo "Add platform-specific packaging jobs only after all artifact gates are complete."
@@ -306,11 +320,30 @@ jobs:
             echo "| License or NOTICE confirmation | manual confirmation required before real artifact packaging |"
             echo "| Current package-linux job | not defined |"
             echo "| Current release asset upload | blocked |"
+            echo
+            echo "### Linux Artifact License/NOTICE Source Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | placeholder summary only |"
+            echo "| Source contract | docs/architecture/linux-artifact-license-notice-confirmation.md |"
+            echo "| Source of truth | docs/manual-intervention.md |"
+            echo "| Current marker | linux-artifact-license-notice-status=pending |"
+            echo "| Package job gate | linux-artifact-license-notice-package-linux=blocked |"
+            echo "| Release asset gate | linux-artifact-license-notice-release-assets=blocked |"
+            echo "| Required future marker | linux-artifact-license-notice-status=confirmed |"
+            echo "| Current package-linux job | not defined |"
+            echo "| Current release asset upload | blocked |"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "linux-artifact-manifest-output-contract=placeholder"
           echo "linux-artifact-manifest-output-fields=artifact_manifest_name,artifact_manifest_path,artifact_manifest_checksum_file,artifact_manifest_checksum_value"
           echo "linux-artifact-manifest-checksum-algorithm=sha256"
           echo "linux-artifact-manifest-upload=blocked"
+          echo "linux-artifact-license-notice-contract=present"
+          echo "linux-artifact-license-notice-source=docs/manual-intervention.md"
+          echo "linux-artifact-license-notice-status=pending"
+          echo "linux-artifact-license-notice-package-linux=blocked"
+          echo "linux-artifact-license-notice-release-assets=blocked"
 
   release-summary:
     name: Release summary

@@ -69,6 +69,8 @@ jobs:
           grep -q "Linux artifact readiness" .github/workflows/release.yml
           grep -q "Linux Artifact Manifest Output Contract" .github/workflows/release.yml
           grep -q "linux-artifact-manifest-output-fields" .github/workflows/release.yml
+          grep -q "Linux Artifact License/NOTICE Source Contract" .github/workflows/release.yml
+          grep -q "linux-artifact-license-notice-source=docs/manual-intervention.md" .github/workflows/release.yml
           grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
           grep -q "networkcore-linux" apps/linux-cli/README.md

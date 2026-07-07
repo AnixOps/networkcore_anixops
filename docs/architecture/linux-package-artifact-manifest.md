@@ -212,12 +212,12 @@ manifest，release summary 也能引用两个 checksum。
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux CLI artifact 安装/回滚设计和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
-- `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、license/NOTICE source contract 和 release placeholder manifest output summary，但继续拒绝定义 `package-linux` job。
-- release placeholder 和 release summary 输出 manifest output contract 字段清单。
+- `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、license/NOTICE source contract、release placeholder manifest output summary 和 license/NOTICE source contract summary，但继续拒绝定义 `package-linux` job。
+- release placeholder 和 release summary 输出 manifest output contract 字段清单与 license/NOTICE source contract pending 状态。
 - TODO 指向下一步最小 release workflow 或 release governance 增量。
 - 不生成 artifact、不上传 release asset、不在本机执行测试、构建、打包或发布。
 
 ## 后续工作
 
 - 在 license/NOTICE 人工确认完成前，继续不实现 `package-linux`。
-- license/NOTICE confirmation source contract 已定义 pending marker；下一步可以让 release placeholder summary 输出该状态，仍不生成 artifact。
+- 下一步可以补充真实 `package-linux` 前同 commit CI 成功结果的读取合同，仍不生成 artifact。

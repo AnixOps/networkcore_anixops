@@ -15,10 +15,10 @@
 - `release-signing-contract` job 记录真实平台 artifact 发布前必须声明签名或 attestation 策略，并要求后续 job 输出 `signing_policy`、`signing_status`、`attestation_status` 和 `provenance_file`。
 - `release-rollback-contract` job 记录真实 artifact 发布说明必须输出 `rollback_scope`、`rollback_trigger`、`rollback_steps`、`replacement_version` 和 `rollback_owner`。
 - `linux-artifact-readiness` job 检查 Linux CLI 源码、platform adapter、native listener/node 配置设计、foreground stop/release 源码与合同测试、artifact manifest 合同设计、license/NOTICE confirmation source contract、安装/回滚设计和 license/NOTICE pending marker，但不构建、不打包、不上传 artifact。
-- `release-placeholder` job 在 GitHub Step Summary 中列出 Linux artifact manifest output contract，明确后续 `package-linux` 至少必须输出 `artifact_manifest_name`、`artifact_manifest_path`、`artifact_manifest_checksum_file` 和 `artifact_manifest_checksum_value`。
+- `release-placeholder` job 在 GitHub Step Summary 中列出 Linux artifact manifest output contract，明确后续 `package-linux` 至少必须输出 `artifact_manifest_name`、`artifact_manifest_path`、`artifact_manifest_checksum_file` 和 `artifact_manifest_checksum_value`；同一 placeholder 也读取 `docs/manual-intervention.md` 的 license/NOTICE pending marker，并输出 license/NOTICE source contract、source of truth、pending 状态、`package-linux` blocked 和 release asset blocked 状态。
 - 不生成 release artifact。
 - 不在本机打包、签名、测试或发布。
-- 通过 release summary job 输出发布来源、policy、release-ci-gate、release-artifact-contract、release-signing-contract、release-rollback-contract、linux-artifact-readiness、Linux foreground stop/release contract、Linux artifact manifest contract、Linux artifact manifest output fields、Linux artifact license/NOTICE status、placeholder、artifact 状态和后续 artifact 门禁。
+- 通过 release summary job 输出发布来源、policy、release-ci-gate、release-artifact-contract、release-signing-contract、release-rollback-contract、linux-artifact-readiness、Linux foreground stop/release contract、Linux artifact manifest contract、Linux artifact manifest output fields、Linux artifact license/NOTICE source contract 与 status、placeholder、artifact 状态和后续 artifact 门禁。
 - 任何真实产物必须先有对应源码、平台设计、GitHub Actions 验证和本文件定义的门禁。
 
 ## 发布原则
@@ -73,7 +73,7 @@
 10. `publish-github-release`：上传 release assets、checksums、release notes 和 provenance/attestation 信息。
 11. `post-release-summary`：输出产物清单、验证链接、人工事项和回滚说明。
 
-真实产物加入前，`release-placeholder` 必须保留或替换为等价的显式说明，并继续输出 Linux artifact manifest output contract，避免误认为 release 已经可用。
+真实产物加入前，`release-placeholder` 必须保留或替换为等价的显式说明，并继续输出 Linux artifact manifest output contract 与 license/NOTICE source contract 状态，避免误认为 release 已经可用。
 
 ## 版本与回滚
 

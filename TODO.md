@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 在 release placeholder summary 中补充 Linux artifact license/NOTICE source contract 状态，继续读取 `docs/manual-intervention.md` 的 pending marker，不生成 `package-linux` artifact。
+- [ ] 补充真实 `package-linux` 前同 commit CI 成功结果读取合同，明确 release workflow 后续从 GitHub Actions 读取的 run/source 字段，继续保持 placeholder 不打包。
 
 ## 已完成
 
+- [x] 在 release placeholder summary 中补充 Linux artifact license/NOTICE source contract 状态；`release-placeholder` 现在 checkout 仓库、读取 `docs/manual-intervention.md` 的 pending/blocked marker，输出 source contract、source of truth、pending 状态、`package-linux` blocked 和 release asset blocked 状态，并继续不生成 `package-linux` artifact。
 - [x] 补充 Linux artifact license/NOTICE confirmation source contract，定义 `docs/manual-intervention.md` 中 pending/confirmed 机器字段、当前 `linux-artifact-license-notice-status=pending` marker、confirmed 后的最小人工确认字段和 manifest 映射边界；CI governance 与 `linux-artifact-readiness` 现在检查该合同和 pending marker，继续不生成 `package-linux` artifact。
 - [x] 在 release placeholder summary 中补充 Linux artifact manifest output contract 摘要；`release-placeholder` 和 `release-summary` 现在显式列出 `artifact_manifest_name`、`artifact_manifest_path`、`artifact_manifest_checksum_file` 和 `artifact_manifest_checksum_value`，CI governance 与 `linux-artifact-readiness` 静态检查该 summary 标识，继续不生成 `package-linux` artifact，并保持 license/NOTICE 未确认时阻止 release asset。
 - [x] 在不生成 artifact 的前提下，补充首个 Linux `package-linux` artifact manifest/metadata 输出合同设计；新增 sidecar `networkcore-linux-${version}-${target}.manifest.json`、manifest checksum、必需 JSON 字段、生成顺序、文件清单、release summary 门禁和禁止写入 secret/runner 本地绝对路径的边界，并纳入 CI governance 与 release readiness 静态检查。

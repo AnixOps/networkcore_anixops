@@ -83,7 +83,7 @@ placeholder 阶段的 `linux-artifact-readiness` 必须：
 - 检查 `docs/manual-intervention.md` 包含 pending 或未来 confirmed 的机器字段。
 - 在 pending 状态下继续输出 `manual-confirmation-required`。
 - 在 pending 状态下继续拒绝定义 `package-linux`。
-- 在 release summary 中输出 license/NOTICE source contract 与当前状态。
+- 在 release placeholder 和 release summary 中输出 license/NOTICE source contract 与当前状态。
 
 未来添加 `package-linux` 前，release workflow 必须先把 pending 检查替换为 confirmed
 检查；如果字段缺失、状态非法、license 文件不存在、NOTICE 状态不明确或 artifact
@@ -105,12 +105,12 @@ placeholder 阶段的 `linux-artifact-readiness` 必须：
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题和
   `docs/manual-intervention.md` 的 pending marker。
-- release summary 输出 license/NOTICE source contract 与 pending 状态。
+- release placeholder 和 release summary 输出 license/NOTICE source contract 与 pending 状态。
 - 不生成 artifact、不定义 `package-linux`、不上传 release asset、不在本机执行测试、
   构建、打包或发布。
 
 ## 后续工作
 
 - 在人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
-- 下一步可以让 release placeholder summary 输出 license/NOTICE source contract 状态，
-  仍不生成 artifact。
+- 下一步可以补充真实 `package-linux` 前同 commit CI 成功结果的读取合同，仍不生成
+  artifact。
