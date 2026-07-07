@@ -41,3 +41,17 @@ gh run list --workflow ci.yml --limit 5
 - GitHub Environments、protected tags、branch protection 和 release approval policy 配置
 - Windows 代码签名证书、时间戳服务和商店账号确认
 - 第三方发布渠道账号、API token、税务或合规材料确认
+
+## Linux Artifact License/NOTICE Confirmation
+
+以下字段是 release readiness 读取的机器状态。当前仍未完成 license/NOTICE 人工确认，
+因此 Linux artifact 发布保持阻断。
+
+```text
+linux-artifact-license-notice-status=pending
+linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md
+linux-artifact-license-notice-package-linux=blocked
+linux-artifact-license-notice-release-assets=blocked
+```
+
+人工确认完成前，不得实现真实 `package-linux` artifact job 或发布 Linux release asset。

@@ -3,7 +3,8 @@
 本文定义首个 Linux `package-linux` job 在真实生成 artifact 前必须遵守的
 artifact manifest 和 metadata 输出合同。它承接
 [Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md)、
-[Linux CLI Artifact Installation And Rollback Design](linux-cli-artifact-installation-rollback.md)
+[Linux CLI Artifact Installation And Rollback Design](linux-cli-artifact-installation-rollback.md)、
+[Linux Artifact License Notice Confirmation Design](linux-artifact-license-notice-confirmation.md)
 和 [Release Strategy](../release-strategy.md)。当前仓库仍不生成 Linux artifact；
 本文件只定义后续 packaging job 的可检查字段。
 
@@ -156,7 +157,7 @@ manifest 顶层字段必须稳定、显式、可由自动化读取：
 
 真实 `package-linux` job 后续必须按以下顺序生成 metadata：
 
-1. 确认 license/NOTICE 人工事项已完成。
+1. 确认 `docs/manual-intervention.md` 中的 license/NOTICE 状态为 `confirmed`。
 2. 确认同 commit 的 CI run 成功。
 3. 在 GitHub Actions runner 中构建 `networkcore-linux`。
 4. 组装只含允许文件的顶层目录。
@@ -211,7 +212,7 @@ manifest，release summary 也能引用两个 checksum。
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux CLI artifact 安装/回滚设计和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
-- `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题和 release placeholder manifest output summary，但继续拒绝定义 `package-linux` job。
+- `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、license/NOTICE source contract 和 release placeholder manifest output summary，但继续拒绝定义 `package-linux` job。
 - release placeholder 和 release summary 输出 manifest output contract 字段清单。
 - TODO 指向下一步最小 release workflow 或 release governance 增量。
 - 不生成 artifact、不上传 release asset、不在本机执行测试、构建、打包或发布。
@@ -219,4 +220,4 @@ manifest，release summary 也能引用两个 checksum。
 ## 后续工作
 
 - 在 license/NOTICE 人工确认完成前，继续不实现 `package-linux`。
-- 下一步可以补充 Linux artifact license/NOTICE confirmation source contract，仍不生成 artifact。
+- license/NOTICE confirmation source contract 已定义 pending marker；下一步可以让 release placeholder summary 输出该状态，仍不生成 artifact。

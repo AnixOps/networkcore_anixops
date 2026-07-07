@@ -1,6 +1,6 @@
 # Linux CLI Artifact Installation And Rollback Design
 
-本文件定义首个 `networkcore-linux` CLI 压缩包进入 release workflow 前必须满足的安装、卸载和回滚边界。它承接 [Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md)、[Linux CLI Entrypoint Design](linux-cli-entrypoint.md)、[Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md) 和 [Release Strategy](../release-strategy.md)，不是当前可下载产物说明。
+本文件定义首个 `networkcore-linux` CLI 压缩包进入 release workflow 前必须满足的安装、卸载和回滚边界。它承接 [Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md)、[Linux CLI Entrypoint Design](linux-cli-entrypoint.md)、[Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md)、[Linux Artifact License Notice Confirmation Design](linux-artifact-license-notice-confirmation.md) 和 [Release Strategy](../release-strategy.md)，不是当前可下载产物说明。
 
 评估时间：2026-07-06。
 
@@ -118,8 +118,9 @@ release notes 和 release summary 必须输出：
 真实 `package-linux` job 加入 `.github/workflows/release.yml` 前必须满足：
 
 - `apps/linux-cli` 源码存在，并在 `main` 同 commit 上通过 CI 的 Rust format、lint、test、build 和 dependency audit。
-- [Linux Platform Adapter Design](linux-platform-adapter.md)、[Linux CLI Entrypoint Design](linux-cli-entrypoint.md)、[Linux CLI Runtime Wiring Design](linux-cli-runtime-wiring.md)、[Native Engine Listener And Node Config Design](native-engine-listener-node-config.md)、[Linux Native Proxy Engine Start Design](linux-native-proxy-engine-start.md)、[Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md)、[Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md) 和本文档均通过 CI governance 检查。
-- `linux-artifact-readiness` release job 检查 CLI 源码、platform adapter、native listener/node 配置设计、foreground stop/release 源码与合同测试、artifact manifest 合同设计、安装/回滚设计和 license/NOTICE 人工确认记录，并继续阻止 release asset 上传。
+- [Linux Platform Adapter Design](linux-platform-adapter.md)、[Linux CLI Entrypoint Design](linux-cli-entrypoint.md)、[Linux CLI Runtime Wiring Design](linux-cli-runtime-wiring.md)、[Native Engine Listener And Node Config Design](native-engine-listener-node-config.md)、[Linux Native Proxy Engine Start Design](linux-native-proxy-engine-start.md)、[Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md)、[Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md)、[Linux Artifact License Notice Confirmation Design](linux-artifact-license-notice-confirmation.md) 和本文档均通过 CI governance 检查。
+- `linux-artifact-readiness` release job 检查 CLI 源码、platform adapter、native listener/node 配置设计、foreground stop/release 源码与合同测试、artifact manifest 合同设计、license/NOTICE confirmation source contract、安装/回滚设计和 license/NOTICE pending marker，并继续阻止 release asset 上传。
+- `docs/manual-intervention.md` 中的 `linux-artifact-license-notice-status` 必须从 `pending` 切换到 `confirmed` 后，真实 `package-linux` 才能进入后续 CI、checksum、manifest、签名/证明和回滚门禁。
 - release job 明确 runner、Rust toolchain、target triple、artifact 文件名、顶层目录和上传路径。
 - release job 输出 `artifact_name`、`artifact_path`、`checksum_algorithm`、`checksum_file`、`checksum_value`。
 - release job 输出 `artifact_manifest_name`、`artifact_manifest_path`、`artifact_manifest_checksum_file`、`artifact_manifest_checksum_value`。
