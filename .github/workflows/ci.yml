@@ -59,6 +59,7 @@ jobs:
           test -f docs/architecture/ios-swift-network-extension-bridge-design.md
           test -f docs/architecture/ios-swift-xcode-bridge-source-contract.md
           test -f docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
+          test -f docs/architecture/ios-mitm-certificate-lifecycle-design.md
           test -f docs/architecture/linux-artifact-pre-release-design.md
           test -f docs/architecture/linux-platform-adapter.md
           test -f docs/architecture/linux-cli-entrypoint.md
@@ -613,6 +614,31 @@ jobs:
           grep -q "swift test" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
           grep -q "xcodebuild" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
           grep -q "no iOS release asset" docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
+          grep -q "iOS MITM Certificate Lifecycle Design" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "CA generation" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "installation prompt" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "user trust confirmation" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "fingerprint_sha256" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "CertificateTrustState mapping" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "NotInstalled" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "InstalledUntrusted" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "Trusted" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "Revoked" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "Unknown" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "IosMitmCertificateProbe" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "MitmCertificateStatus" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "SecTrust" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "expiration" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "revocation" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "platform.ios.mitm_certificate.not_installed" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "platform.ios.mitm_certificate.installed_untrusted" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "platform.ios.mitm_certificate.trusted" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "platform.ios.mitm_certificate.revoked" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "platform.ios.mitm_certificate.unknown" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "macos-26" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "swift test" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "xcodebuild" docs/architecture/ios-mitm-certificate-lifecycle-design.md
+          grep -q "no iOS release asset" docs/architecture/ios-mitm-certificate-lifecycle-design.md
           grep -q "platform-ios" docs/architecture/ios-platform-adapter-source-contract.md
           grep -q "StaticIosPlatformCapabilityService" docs/architecture/ios-platform-adapter-source-contract.md
           grep -q "IosPlatformSnapshot" docs/architecture/ios-platform-adapter-source-contract.md

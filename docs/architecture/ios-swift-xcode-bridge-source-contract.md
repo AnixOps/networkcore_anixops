@@ -4,8 +4,9 @@
 GitHub Actions 验证入口的 source contract。它承接
 [iOS Network Extension Design](ios-network-extension-design.md)、
 [iOS Platform Adapter Source Contract](ios-platform-adapter-source-contract.md)、
-[iOS Swift Network Extension Bridge Design](ios-swift-network-extension-bridge-design.md) 和
+[iOS Swift Network Extension Bridge Design](ios-swift-network-extension-bridge-design.md)、
 [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)、
+[iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md) 和
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
 
 当前状态：contract-only。仓库仍不包含 `Package.swift`、Xcode project、workspace、Swift source、
@@ -93,6 +94,10 @@ DTO 不得携带 secret、absolute path、Bundle ID、Team ID、Provisioning Pro
 Keychain value、certificate DER/PEM、private key、profile payload、traffic sample、完整 subscription URL
 或可反推出用户账号的标识。
 
+`IosMitmCertificateFacts` 的 CA generation、installation prompt、user trust confirmation、fingerprint 校验、
+expiration/revocation 检测和 `CertificateTrustState` mapping 必须遵守
+[iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md)。
+
 ## FFI Boundary
 
 后续 FFI 必须遵守 [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)
@@ -176,11 +181,12 @@ TestFlight upload 或 App Store upload job：
 
 - 本合同和相关 iOS design 已通过 GitHub Actions static governance。
 - iOS embedded runtime FFI boundary design 已完成并通过 GitHub Actions static governance。
+- iOS MITM certificate lifecycle design 已完成并通过 GitHub Actions static governance。
 - Swift bridge、Network Extension target、FFI boundary 和 embedded runtime 已在 GitHub Actions `macos-26`
   runner 通过 `swift build`、`swift test` 和必要的 `xcodebuild` 验证。
 - Apple Developer、App ID、Network Extension entitlement、Provisioning Profile、GitHub Secrets、隐私政策、
   App Review Notes 和目标地区 VPN 合规材料已完成人工确认。
-- MITM 证书生成、安装、信任检测和撤销设计已完成。
+- MITM 证书生成、安装提示、信任确认、fingerprint 校验、过期/撤销检测和 source contract tests 已完成。
 
 Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux` preflight 和后续 artifact gates 阻断。
 

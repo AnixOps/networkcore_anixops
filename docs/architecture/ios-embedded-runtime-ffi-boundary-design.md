@@ -4,7 +4,8 @@
 [iOS Network Extension Design](ios-network-extension-design.md)、
 [iOS Platform Adapter Source Contract](ios-platform-adapter-source-contract.md)、
 [iOS Swift Network Extension Bridge Design](ios-swift-network-extension-bridge-design.md)、
-[iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md) 和
+[iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、
+[iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md)、
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
 
 当前状态：design-only。仓库仍不包含 iOS runtime FFI crate、C header、generated bindings、Swift source、
@@ -175,8 +176,9 @@ Extension 内 runtime lifecycle 必须显式可重入：
 7. 重复 stop/free 必须幂等，不能 double free、panic 或泄露 resource。
 
 Runtime 可用性只表示 Extension 进程内 embedded runtime 可加载且 ABI/schema 兼容，不代表 Network Extension entitlement、
-VPN authorization、MITM certificate 或 remote script policy 已通过；这些仍由 `IosPlatformSnapshot` 和
-`control-runtime` gate 独立判断。
+VPN authorization、MITM certificate 或 remote script policy 已通过；MITM certificate lifecycle 必须遵守
+[iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md)，这些状态仍由 `IosPlatformSnapshot`
+和 `control-runtime` gate 独立判断。
 
 ## GitHub Actions Validation Entry
 
@@ -223,7 +225,8 @@ TestFlight upload 或 App Store upload job：
   `macos-26` runner 通过验证。
 - Apple Developer、App ID、Network Extension entitlement、Provisioning Profile、GitHub Secrets、隐私政策、
   App Review Notes 和目标地区 VPN 合规材料已完成人工确认。
-- MITM 证书生成、安装、信任检测和撤销设计已完成。
+- MITM certificate lifecycle design 已完成；对应 CA generation、installation prompt、trust confirmation、
+  fingerprint validation、expiration/revocation handling 和 source contract tests 已通过 GitHub Actions。
 
 Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux` preflight 和后续 artifact gates 阻断。
 

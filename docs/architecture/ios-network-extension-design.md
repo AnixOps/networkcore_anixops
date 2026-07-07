@@ -19,8 +19,9 @@ GitHub Actions 或 Apple 官方平台。
 - 定义 MITM、证书信任、插件脚本和 App Review 风险的拒绝路径。
 - 为当前 `platform-ios` adapter、[iOS Swift Network Extension Bridge Design](ios-swift-network-extension-bridge-design.md)、
   [iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、
-  [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)、后续 Swift/iOS target
-  和 Rust embedded runtime GitHub Actions macOS 验证提供入口。
+  [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)、
+  [iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md)、后续 Swift/iOS target、
+  Rust embedded runtime 和 certificate lifecycle GitHub Actions macOS 验证提供入口。
 
 ## 非目标
 
@@ -105,7 +106,9 @@ iOS MITM 默认关闭，且只能在用户明确启用后进入检查路径：
 - 证书撤销或信任状态未知时，`mitm_gate` 必须拒绝插件执行，并保留平台诊断和审计事件。
 - MITM 只允许按用户选择、域名、规则集和插件权限最小化启用。
 
-证书生成、安装、信任检测和撤销检测需要单独设计；在该设计完成前，不得加入 iOS MITM 源码路径。
+证书生成、安装提示、用户信任确认、fingerprint 校验、过期/撤销检测和 `CertificateTrustState` 映射已由
+[iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md) 约束；在对应源码合同和
+GitHub Actions 验证完成前，不得加入 iOS MITM 源码路径。
 
 ## Plugin And Script Boundary
 
@@ -159,6 +162,8 @@ iOS release workflow 在满足以下条件前不得定义真实 artifact、TestF
   [iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、
   [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md) 已完成；后续项目源码必须再通过
   GitHub Actions 的 macOS runner 验证。
+- [iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md) 已完成；后续证书生成、安装提示、
+  信任确认、fingerprint 校验、过期/撤销检测和 mapping 源码必须再通过 GitHub Actions 的 macOS runner 验证。
 - Apple Developer、Network Extension entitlement、Provisioning Profile、GitHub Secrets、隐私政策和 App Review Notes 已完成人工确认。
 - MITM 证书设计、插件执行边界和地区 VPN 合规材料已完成。
 
@@ -170,7 +175,7 @@ Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux`
 
 - README、ROADMAP、TODO、CHANGELOG 和 CI/CD policy 链接或记录本文件。
 - `.github/workflows/ci.yml` 静态检查本文件存在和关键锚点。
-- `docs/architecture/ios-platform-risk-assessment.md` 的后续工作指向后续 MITM certificate lifecycle design。
+- `docs/architecture/ios-platform-risk-assessment.md` 的后续工作记录 MITM certificate lifecycle design 已完成，并指向后续 entitlement/provisioning source contract。
 - `docs/manual-intervention.md` 保留 Apple Developer、entitlement、Provisioning Profile、GitHub Secrets、App Review 和 VPN 合规人工事项。
 - 本地只执行静态文本检查和 git 操作；所有正式验证通过 GitHub Actions 完成。
 

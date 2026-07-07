@@ -43,6 +43,7 @@
 - iOS Swift/Network Extension bridge design 检查
 - iOS Swift/Xcode bridge source contract 检查
 - iOS embedded runtime FFI boundary design 检查
+- iOS MITM certificate lifecycle design 检查
 - Linux artifact 发布前设计文件检查
 - Linux platform adapter 设计文件检查
 - Linux platform adapter crate README 和 Rust workspace 覆盖检查
@@ -125,8 +126,11 @@ Extension bridge design 只定义 Apple SDK 事实如何去敏后传入 `platfor
 source contract 只定义后续 Swift package、Network Extension target、FFI/DTO 文件布局、`macos-26` 验证入口
 和 signing/provisioning secret 禁止提交规则，embedded runtime FFI boundary design 只定义后续 Rust
 staticlib/XCFramework、C ABI symbol、ABI version negotiation、owned string/buffer、panic/error mapping 和
-`macos-26` 验证入口，不引入 Rust FFI crate、Swift/Xcode project、Network Extension target、entitlement、
-签名或 release asset。出现 Swift、Xcode project、Network Extension target、FFI runtime 或签名验证后，
+`macos-26` 验证入口，MITM certificate lifecycle design 只定义后续 CA generation、installation prompt、
+user trust confirmation、fingerprint/expiration/revocation 检测、`CertificateTrustState` 映射和
+`macos-26` 验证入口，不引入 Rust FFI crate、Swift/Xcode project、Network Extension target、configuration profile、
+CA certificate、private key、entitlement、签名或 release asset。出现 Swift、Xcode project、Network Extension target、
+FFI runtime、certificate lifecycle source 或签名验证后，
 相关 `cargo build`、`swift build`、`swift test`、`xcodebuild`、签名、TestFlight 或 App Store Connect 验证仍只能在
 GitHub Actions 或 Apple 官方平台执行。
 
