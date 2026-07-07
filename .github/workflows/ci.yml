@@ -62,6 +62,7 @@ jobs:
           test -f docs/architecture/release-ci-success-source-contract.md
           test -f docs/architecture/linux-package-runner-toolchain-target-contract.md
           test -f docs/architecture/linux-package-archive-staging-contract.md
+          test -f docs/architecture/linux-package-checksum-manifest-contract.md
           test -f docs/architecture/adr-0001-initial-core-stack.md
           grep -q "本机只负责代码" AGENT.md
           grep -q "GitHub Actions" docs/ci-cd-policy.md
@@ -82,6 +83,12 @@ jobs:
           grep -q "Linux Package Archive Staging Contract" docs/architecture/linux-package-archive-staging-contract.md
           grep -q "linux-package-archive-staging-contract=present" .github/workflows/release.yml
           grep -Fq 'linux-package-required-staging-root=dist/linux/${target}/staging' .github/workflows/release.yml
+          grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
+          grep -q "linux-package-checksum-manifest-contract=present" .github/workflows/release.yml
+          grep -q "linux-package-checksum-algorithm=sha256" .github/workflows/release.yml
+          grep -Fq 'linux-package-required-archive-checksum-name=networkcore-linux-${version}-${target}.tar.gz.sha256' .github/workflows/release.yml
+          grep -Fq 'linux-package-required-manifest-checksum-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.manifest.json.sha256' .github/workflows/release.yml
+          grep -q "linux-package-manifest-archive-checksum-field=checksum.value" .github/workflows/release.yml
           grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
           grep -q "networkcore-linux" apps/linux-cli/README.md
@@ -110,6 +117,7 @@ jobs:
           grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
           grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
           grep -q "Linux Package Archive Staging Contract" docs/architecture/linux-package-archive-staging-contract.md
+          grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
           grep -q "ADR 0001: Initial Core Stack" docs/architecture/adr-0001-initial-core-stack.md
 
   detect-projects:

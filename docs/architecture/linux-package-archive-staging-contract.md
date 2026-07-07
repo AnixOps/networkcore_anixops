@@ -1,8 +1,10 @@
 # Linux Package Archive Staging Contract
 
 本文定义首个真实 `package-linux` job 加入 `.github/workflows/release.yml` 前必须遵守的
-archive staging、文件来源和顶层目录组装合同。当前仍为 placeholder 合同，不定义
-`package-linux` job、不构建、不打包、不上传 artifact。
+archive staging、文件来源和顶层目录组装合同。checksum 文件命名、sha256 计算顺序和
+manifest 交叉校验边界由 [Linux Package Checksum Manifest Contract](linux-package-checksum-manifest-contract.md)
+定义。当前仍为 placeholder 合同，不定义 `package-linux` job、不构建、不打包、不上传
+artifact。
 
 评估时间：2026-07-07。
 
@@ -11,7 +13,7 @@ archive staging、文件来源和顶层目录组装合同。当前仍为 placeho
 - 固定首个 Linux CLI 压缩包的 staging 目录、输出目录、archive 路径和顶层目录。
 - 明确 future `package-linux` job 允许放入压缩包的文件来源和 archive 内路径。
 - 确保 manifest `included_files` 能追溯到同一组 staging 输入字段。
-- 在 license/NOTICE 人工确认、同 commit CI success gate、checksum、manifest、签名/证明和回滚门禁完成前继续阻止真实 artifact。
+- 在 license/NOTICE 人工确认、同 commit CI success gate、checksum/manifest checksum、签名/证明、回滚和 upload gate 完成前继续阻止真实 artifact。
 
 ## 非目标
 
@@ -135,9 +137,9 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、Git
 ## 验收条件
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux package
-  manifest 设计、Linux CLI artifact 安装/回滚设计、Release CI success source contract、
-  Linux package runner/toolchain/target contract、Linux artifact license/NOTICE confirmation
-  source contract 和 CI policy 中可发现。
+  manifest 设计、Linux package checksum manifest contract、Linux CLI artifact 安装/回滚设计、
+  Release CI success source contract、Linux package runner/toolchain/target contract、Linux artifact
+  license/NOTICE confirmation source contract 和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题和
   release placeholder/summary 输出字段。
@@ -150,5 +152,5 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、Git
 ## 后续工作
 
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
-- 下一步可以补充 `package-linux` checksum 文件命名、sha256 计算顺序和 manifest checksum
-  交叉校验合同，仍不生成 artifact。
+- Linux package checksum manifest contract 已定义；下一步可以补充 `package-linux`
+  publish/upload boundary、workflow artifact retention 和 release asset 阻断合同，仍不生成 artifact。

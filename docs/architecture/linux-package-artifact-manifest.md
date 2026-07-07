@@ -7,7 +7,8 @@ artifact manifest 和 metadata 输出合同。它承接
 [Linux Artifact License Notice Confirmation Design](linux-artifact-license-notice-confirmation.md)、
 [Release CI Success Source Contract](release-ci-success-source-contract.md)、
 [Linux Package Runner Toolchain Target Contract](linux-package-runner-toolchain-target-contract.md)、
-[Linux Package Archive Staging Contract](linux-package-archive-staging-contract.md) 和
+[Linux Package Archive Staging Contract](linux-package-archive-staging-contract.md)、
+[Linux Package Checksum Manifest Contract](linux-package-checksum-manifest-contract.md) 和
 [Release Strategy](../release-strategy.md)。当前仓库仍不生成 Linux artifact；
 本文件只定义后续 packaging job 的可检查字段。
 
@@ -33,9 +34,11 @@ artifact manifest 和 metadata 输出合同。它承接
 
 `networkcore-linux-${version}-${target}.manifest.json`
 
-manifest 必须在 archive 和 checksum 生成之后创建，原因是 manifest 要记录
-archive 文件名、checksum 文件名和 checksum 值。manifest 自身必须另外生成
-sha256，输出为：
+manifest 必须在 archive 和 archive checksum sidecar 生成之后创建，原因是 manifest 要记录
+archive 文件名、checksum 文件名和 checksum 值。archive checksum、manifest 文件名、
+manifest checksum 文件名、sha256 计算顺序和交叉校验字段遵守
+[Linux Package Checksum Manifest Contract](linux-package-checksum-manifest-contract.md)。
+manifest 自身必须另外生成 sha256，输出为：
 
 `networkcore-linux-${version}-${target}.manifest.json.sha256`
 
@@ -164,14 +167,16 @@ manifest 顶层字段必须稳定、显式、可由自动化读取：
 2. 确认 `release-ci-gate` 已按 [Release CI Success Source Contract](release-ci-success-source-contract.md) 读取同 commit 成功 CI run 字段。
 3. 确认 `package-linux` 已按 [Linux Package Runner Toolchain Target Contract](linux-package-runner-toolchain-target-contract.md) 声明 runner、Rust toolchain、target triple、crate、binary 和 archive naming 输入。
 4. 确认 `package-linux` 已按 [Linux Package Archive Staging Contract](linux-package-archive-staging-contract.md) 声明 staging/output/top-level directory、archive path 和允许文件来源。
-5. 在 GitHub Actions runner 中构建 `networkcore-linux`。
-6. 按 archive staging contract 组装只含允许文件的顶层目录。
-7. 创建 `.tar.gz` archive。
-8. 计算 archive sha256。
-9. 创建 manifest JSON。
-10. 计算 manifest sha256。
-11. 输出 archive、archive checksum、manifest 和 manifest checksum 字段。
-12. release summary 展示字段；后续 publish job 才能上传。
+5. 确认 `package-linux` 已按 [Linux Package Checksum Manifest Contract](linux-package-checksum-manifest-contract.md) 声明 archive checksum、manifest 和 manifest checksum sidecar 文件命名、路径、record format 和交叉校验字段。
+6. 在 GitHub Actions runner 中构建 `networkcore-linux`。
+7. 按 archive staging contract 组装只含允许文件的顶层目录。
+8. 创建 `.tar.gz` archive。
+9. 计算 archive sha256，并在 archive 外写入 archive checksum sidecar。
+10. 创建 manifest JSON，写入 `archive.file_name`、`archive.relative_path`、`checksum.algorithm`、`checksum.file_name` 和 `checksum.value`。
+11. 交叉校验 manifest archive checksum 字段与 archive checksum sidecar 完全一致。
+12. 计算最终 manifest sha256，并在 archive 外写入 manifest checksum sidecar。
+13. 输出 archive、archive checksum、manifest 和 manifest checksum 字段。
+14. release summary 展示字段；后续 publish job 才能上传。
 
 manifest 不得反向参与 archive checksum。这样用户可以独立校验 archive 和
 manifest，release summary 也能引用两个 checksum。
@@ -219,12 +224,12 @@ Required Archive Contents 保持一致：
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux CLI artifact 安装/回滚设计和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
-- `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、release CI success source contract、package runner/toolchain/target contract、archive staging contract、license/NOTICE source contract、release placeholder manifest output summary 和 license/NOTICE source contract summary，但继续拒绝定义 `package-linux` job。
-- release CI gate、release placeholder 和 release summary 输出 CI success source contract、package runner/toolchain/target contract、archive staging contract、manifest output contract 字段清单与 license/NOTICE source contract pending 状态。
+- `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、release CI success source contract、package runner/toolchain/target contract、archive staging contract、checksum/manifest checksum contract、license/NOTICE source contract、release placeholder manifest output summary 和 license/NOTICE source contract summary，但继续拒绝定义 `package-linux` job。
+- release CI gate、release placeholder 和 release summary 输出 CI success source contract、package runner/toolchain/target contract、archive staging contract、checksum/manifest checksum contract、manifest output contract 字段清单与 license/NOTICE source contract pending 状态。
 - TODO 指向下一步最小 release workflow 或 release governance 增量。
 - 不生成 artifact、不上传 release asset、不在本机执行测试、构建、打包或发布。
 
 ## 后续工作
 
 - 在 license/NOTICE 人工确认完成前，继续不实现 `package-linux`。
-- 下一步可以补充 `package-linux` checksum 文件命名、sha256 计算顺序和 manifest checksum 交叉校验合同，仍不生成 artifact。
+- Linux package checksum manifest contract 已定义；下一步可以补充 `package-linux` publish/upload boundary、workflow artifact retention 和 release asset 阻断合同，仍不生成 artifact。
