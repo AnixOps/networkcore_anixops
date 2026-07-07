@@ -39,6 +39,7 @@
 - 运行层编排设计文件检查
 - iOS Network Extension design 检查
 - iOS platform adapter source contract 检查
+- iOS platform adapter crate README、workspace、源码类型和合同测试检查
 - Linux artifact 发布前设计文件检查
 - Linux platform adapter 设计文件检查
 - Linux platform adapter crate README 和 Rust workspace 覆盖检查

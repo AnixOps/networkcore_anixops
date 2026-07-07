@@ -1,19 +1,19 @@
 # iOS Platform Adapter Source Contract
 
-本文件定义后续创建 `platform-ios` 源码前必须满足的 source contract。它承接
+本文件定义 `platform-ios` 源码必须满足的 source contract。它承接
 [iOS Network Extension Design](ios-network-extension-design.md)、
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md) 和
 [Control Runtime Orchestration Design](control-runtime-orchestration.md)，用于约束
 iOS platform adapter 如何把 Apple 平台事实映射为领域层可消费的能力状态。
 
-当前状态：source-contract-only。仓库尚未包含 `crates/platform-ios`、Swift package、
+当前状态：首个纯 Rust `crates/platform-ios` 映射骨架已落地。仓库仍尚未包含 Swift package、
 Xcode project、Network Extension target、entitlement、Provisioning Profile、签名凭据或
 TestFlight/App Store Connect 发布配置。本地仍不得运行 `swift build`、`swift test`、
 `xcodebuild`、签名、打包或发布验证。
 
 ## Goals
 
-- 定义 future `platform-ios` crate 或等价模块的职责、依赖方向和源码进入条件。
+- 定义 `platform-ios` crate 或等价模块的职责、依赖方向和源码进入条件。
 - 固定 `PlatformCapabilityService`、`PlatformCapabilityStatus`、`PlatformCapabilities` 和
   `MitmCertificateStatus` 的 iOS 映射规则。
 - 定义 Network Extension entitlement、VPN 配置、App Group、Keychain、embedded runtime、
@@ -40,12 +40,12 @@ iOS adapter 必须位于 platform adapter 层。依赖方向必须保持：
    `NEPacketTunnelProvider`、`NETunnelProviderManager`、Keychain、App Group 和证书状态事实。
 5. Swift/Apple SDK 层只能向 `platform-ios` 传入去敏后的 snapshot；领域层不能直接接触 Apple SDK 类型。
 
-首个 `platform-ios` crate 应类似 `platform-linux` 的早期形态：提供静态测试替身、snapshot 类型、
+首个 `platform-ios` crate 类似 `platform-linux` 的早期形态：提供静态测试替身、snapshot 类型、
 诊断 code 常量和纯映射函数，先证明领域边界稳定，再引入真实 iOS app/extension bridge。
 
 ## Proposed Source Layout
 
-未来首个源码增量应采用以下最小布局：
+当前首个源码增量采用以下最小布局：
 
 ```text
 crates/platform-ios/
@@ -58,7 +58,7 @@ crates/platform-ios/
 `Cargo.toml` 必须加入 workspace，但 `platform-ios` 首个版本只依赖 `control-domain`。如果后续需要
 Swift bridge、C ABI、XCFramework 或 generated bindings，必须先补充独立 bridge design。
 
-推荐公开类型：
+当前公开类型：
 
 - `StaticIosPlatformCapabilityService`：实现 `PlatformCapabilityService` 的测试替身。
 - `IosPlatformSnapshot`：保存 iOS 能力快照。
@@ -162,9 +162,27 @@ iOS 首版必须固定拒绝任意远程脚本执行：
 
 推荐诊断 code：`platform.ios.remote_script_execution.disabled_by_policy`。
 
+## Current Source Mapping
+
+当前 `crates/platform-ios` 已提供首批纯 Rust source contract 实现：
+
+- `StaticIosPlatformCapabilityService` 作为 `PlatformCapabilityService` 测试替身。
+- `IosPlatformSnapshot` 把去敏的 iOS 平台事实映射为 `PlatformCapabilityStatus`，并固定
+  `OperatingSystem::Ios`。
+- `IosNetworkExtensionProbe` 表达 entitlement、provider 和 VPN 配置授权状态。
+- `IosEmbeddedRuntimeProbe` 表达 Extension 内嵌 runtime 可加载、缺失、ABI mismatch 和初始化失败。
+- `IosMitmCertificateProbe` 保守映射 `MitmCertificateStatus`，保留 subject/fingerprint 展示元数据和证书诊断。
+- `IosSharedStorageProbe` 表达 App Group 与 Keychain sharing 可用性。
+- 稳定 `platform.ios.*` 诊断 code 常量和 `ios_diagnostic` helper。
+- 合同测试覆盖 entitlement missing、VPN configuration not saved、authorization required/denied、embedded runtime
+  missing、remote script disabled、shared storage failure 和 certificate not installed/installed untrusted/trusted/revoked/unknown。
+
+该 crate 当前不读取 Apple SDK 类型、不启动 Network Extension、不申请 entitlement、不读取或安装证书、不生成 iOS artifact。
+后续 Swift、Xcode 或 Network Extension bridge 必须先补充独立设计，再由 GitHub Actions `macos-26` runner 验证。
+
 ## First Source Increment Acceptance
 
-创建 `crates/platform-ios` 的首个源码增量必须满足：
+`crates/platform-ios` 的首个源码增量必须满足：
 
 - 新增 `crates/platform-ios` workspace member 和 README。
 - 只依赖 `control-domain`，不依赖 `control-runtime`、Apple SDK、Swift、Xcode project 或 UI framework。
@@ -177,16 +195,18 @@ iOS 首版必须固定拒绝任意远程脚本执行：
 
 ## GitHub Actions Validation Entry
 
-当前本合同只通过 Repository policy 做静态检查：
+当前本合同和 `crates/platform-ios` 通过 Repository policy 做静态检查：
 
-- 文件存在。
+- 合同文件存在。
 - 标题为 `iOS Platform Adapter Source Contract`。
 - 包含 `platform-ios`、`StaticIosPlatformCapabilityService`、`IosPlatformSnapshot`、
   `PlatformCapabilityService`、`PlatformCapabilityStatus`、`MitmCertificateStatus`、
   `NEPacketTunnelProvider`、`NETunnelProviderManager`、`entitlement_missing`、
   `remote_script_execution` 和 `macos-26`。
+- `crates/platform-ios/README.md`、workspace member、核心源码类型、稳定 `platform.ios.*`
+  诊断 code 和 `platform_ios_contracts.rs` 合同测试存在。
 
-后续出现 `crates/platform-ios` 后，Rust 验证进入现有 GitHub Actions Rust matrix。后续出现 Swift、
+当前 `crates/platform-ios` 的 Rust 验证进入现有 GitHub Actions Rust matrix。后续出现 Swift、
 Xcode project 或 Network Extension target 后，只能在 GitHub Actions `macos-26` runner 中执行
 `swift build`、`swift test`、`xcodebuild` 或签名相关验证。
 

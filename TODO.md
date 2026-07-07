@@ -4,11 +4,12 @@
 
 ## 当前
 
-- [ ] 新增最小 `platform-ios` crate 纯 Rust 映射骨架，提供 `StaticIosPlatformCapabilityService`、`IosPlatformSnapshot`、Network Extension/embedded runtime/certificate/shared storage probe、稳定 `platform.ios.*` 诊断 code 和合同测试；仍不引入 Swift/Xcode project、Network Extension target、签名、TestFlight 上传或 iOS release asset。Linux artifact 继续等待 license/NOTICE confirmed marker，期间不得定义 `package-linux` 或发布 release asset。
+- [ ] 补充 iOS Swift/Network Extension bridge design，定义后续 Apple SDK 层如何采集 `NEPacketTunnelProvider`、`NETunnelProviderManager`、App Group、Keychain 和证书状态事实并传入 `platform-ios` 的去敏 snapshot；仍不引入 Swift/Xcode project、Network Extension target、签名、TestFlight 上传或 iOS release asset。Linux artifact 继续等待 license/NOTICE confirmed marker，期间不得定义 `package-linux` 或发布 release asset。
 
 ## 已完成
 
-- [x] 补充 iOS platform adapter source contract，定义 future `platform-ios` crate、`PlatformCapabilityService`/`PlatformCapabilityStatus` 映射、证书状态读取边界、Network Extension entitlement 诊断、remote script 禁用、`macos-26` GitHub Actions 验证入口和 iOS release 阻断边界。
+- [x] 新增最小 `platform-ios` crate 纯 Rust 映射骨架，提供 `StaticIosPlatformCapabilityService`、`IosPlatformSnapshot`、Network Extension/embedded runtime/certificate/shared storage probe、稳定 `platform.ios.*` 诊断 code 和合同测试；仍不引入 Swift/Xcode project、Network Extension target、签名、TestFlight 上传或 iOS release asset。
+- [x] 补充 iOS platform adapter source contract，定义 `platform-ios` crate、`PlatformCapabilityService`/`PlatformCapabilityStatus` 映射、证书状态读取边界、Network Extension entitlement 诊断、remote script 禁用、`macos-26` GitHub Actions 验证入口和 iOS release 阻断边界。
 - [x] 补充 iOS Network Extension design，定义 `NEPacketTunnelProvider`/`NETunnelProviderManager` 拓扑、配置下发、App Group/Keychain 边界、MITM 证书状态、远程脚本禁用、App Review 风险、`macos-26` GitHub Actions 验证入口和继续不在本机运行 iOS build/test 的规则。
 - [x] 新增 `mitm-anixops-sys` 首个源码接入增量，通过 Git submodule 固定 `mitm_anixops`，在 Rust workspace 中编译 C core，并用一个 version FFI 测试证明 NetworkCore 已链接 `anixops_version()`。
 - [x] 补充 `mitm_anixops` adapter 设计，明确该 C ABI core 在 NetworkCore 中只能先作为 MITM 策略/plugin 兼容后端接入，真实全平台 MITM 仍依赖后续领域 mutation model、HTTP/TLS 数据面、证书/信任 platform adapter 和 GitHub Actions 多平台验证。

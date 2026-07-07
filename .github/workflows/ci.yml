@@ -45,6 +45,7 @@ jobs:
           test -f crates/control-runtime/README.md
           test -f crates/engine-native/README.md
           test -f crates/mitm-anixops-sys/README.md
+          test -f crates/platform-ios/README.md
           test -f crates/platform-linux/README.md
           test -f .gitmodules
           test -f docs/architecture/control-kernel-domain.md
@@ -506,6 +507,25 @@ jobs:
           grep -q "mitm-anixops-sys" crates/mitm-anixops-sys/README.md
           grep -q "\"crates/mitm-anixops-sys\"" Cargo.toml
           grep -q "third_party/mitm_anixops" .gitmodules
+          grep -q "platform-ios" crates/platform-ios/README.md
+          grep -q "\"crates/platform-ios\"" Cargo.toml
+          grep -q "StaticIosPlatformCapabilityService" crates/platform-ios/src/lib.rs
+          grep -q "IosPlatformSnapshot" crates/platform-ios/src/lib.rs
+          grep -q "IosNetworkExtensionProbe" crates/platform-ios/src/lib.rs
+          grep -q "IosEmbeddedRuntimeProbe" crates/platform-ios/src/lib.rs
+          grep -q "IosMitmCertificateProbe" crates/platform-ios/src/lib.rs
+          grep -q "IosSharedStorageProbe" crates/platform-ios/src/lib.rs
+          grep -q "PlatformCapabilityService" crates/platform-ios/src/lib.rs
+          grep -q "OperatingSystem::Ios" crates/platform-ios/src/lib.rs
+          grep -q "platform.ios.network_extension.entitlement_missing" crates/platform-ios/src/lib.rs
+          grep -q "platform.ios.vpn_configuration.authorization_denied" crates/platform-ios/src/lib.rs
+          grep -q "platform.ios.remote_script_execution.disabled_by_policy" crates/platform-ios/src/lib.rs
+          grep -q "platform.ios.mitm_certificate.unknown" crates/platform-ios/src/lib.rs
+          grep -q "remote script execution is disabled on iOS" crates/platform-ios/src/lib.rs
+          test -f crates/platform-ios/tests/platform_ios_contracts.rs
+          grep -q "entitlement_missing_denies_tunnel" crates/platform-ios/tests/platform_ios_contracts.rs
+          grep -q "vpn_configuration_states_deny_tunnel" crates/platform-ios/tests/platform_ios_contracts.rs
+          grep -q "mitm_certificate_state_matrix" crates/platform-ios/tests/platform_ios_contracts.rs
           grep -q "platform-linux" crates/platform-linux/README.md
           grep -q "Release Strategy" docs/release-strategy.md
           grep -q "Control Kernel Domain Specification" docs/architecture/control-kernel-domain.md

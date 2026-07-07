@@ -6,6 +6,7 @@ members = [
     "crates/control-runtime",
     "crates/engine-native",
     "crates/mitm-anixops-sys",
+    "crates/platform-ios",
     "crates/platform-linux",
 ]
 resolver = "2"

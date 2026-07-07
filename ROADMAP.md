@@ -53,6 +53,7 @@
 - [control-runtime](crates/control-runtime)
 - [engine-native](crates/engine-native)
 - [mitm-anixops-sys](crates/mitm-anixops-sys)
+- [platform-ios](crates/platform-ios)
 - [platform-linux](crates/platform-linux)
 
 当前规格：

@@ -17,7 +17,7 @@ GitHub Actions 或 Apple 官方平台。
 - 保持领域层只依赖 `PlatformCapabilityService`、`PlatformCapabilities`、
   `MitmCertificateStatus`、诊断和审计事件，不依赖 Apple SDK。
 - 定义 MITM、证书信任、插件脚本和 App Review 风险的拒绝路径。
-- 为后续 `platform-ios` adapter、Swift/iOS target 和 GitHub Actions macOS 验证提供入口。
+- 为当前 `platform-ios` adapter、后续 Swift/iOS target 和 GitHub Actions macOS 验证提供入口。
 
 ## 非目标
 
@@ -37,7 +37,7 @@ iOS 首版采用 Apple Network Extension 的 Packet Tunnel Provider 形态：
 - 代理执行内核必须嵌入 Extension 进程内运行，不能假设 iOS 上存在外部 daemon、CLI 或长期后台进程。
 - Rust core 后续只能以静态库、XCFramework 或 Apple 允许的等价嵌入形式进入 Extension；该嵌入形态必须先有单独设计和 GitHub Actions 验证。
 
-领域层不得出现 `NetworkExtension` framework 类型。后续 `platform-ios` 或 Swift adapter 负责把 Apple SDK 状态映射成领域状态。
+领域层不得出现 `NetworkExtension` framework 类型。当前 `platform-ios` adapter 接收去敏 snapshot；后续 Swift adapter 负责把 Apple SDK 状态映射成该 snapshot。
 
 ## Configuration Handoff
 
@@ -74,7 +74,7 @@ Extension 必须假设系统可随时终止进程。`startTunnel`、`stopTunnel`
 
 ## Capability Mapping
 
-`platform-ios` adapter 后续必须实现 `PlatformCapabilityService`，并把 iOS 状态映射到领域能力：
+`platform-ios` adapter 已以纯 Rust 形式实现首个 `PlatformCapabilityService` 映射，后续 Swift bridge 必须继续把 iOS 状态映射到这些领域能力：
 
 | 领域字段 | iOS 来源 | 映射规则 |
 | --- | --- | --- |
@@ -149,8 +149,8 @@ iOS 上的插件能力必须拆分为数据和执行：
 iOS release workflow 在满足以下条件前不得定义真实 artifact、TestFlight upload 或 App Store upload job：
 
 - 本设计和 iOS Platform Risk Assessment 已纳入 CI governance。
-- [iOS Platform Adapter Source Contract](ios-platform-adapter-source-contract.md) 已定义；后续 `platform-ios` 源码必须按该合同映射 `PlatformCapabilityService`、`PlatformCapabilities` 和 `MitmCertificateStatus`。
-- Swift/Xcode project 已通过 GitHub Actions 的 macOS runner 验证。
+- [iOS Platform Adapter Source Contract](ios-platform-adapter-source-contract.md) 已定义，且 `crates/platform-ios` 首个纯 Rust 映射骨架已落地。
+- Swift/Xcode bridge design 已完成，且 Swift/Xcode project 已通过 GitHub Actions 的 macOS runner 验证。
 - Apple Developer、Network Extension entitlement、Provisioning Profile、GitHub Secrets、隐私政策和 App Review Notes 已完成人工确认。
 - MITM 证书设计、插件执行边界和地区 VPN 合规材料已完成。
 
@@ -162,7 +162,7 @@ Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux`
 
 - README、ROADMAP、TODO、CHANGELOG 和 CI/CD policy 链接或记录本文件。
 - `.github/workflows/ci.yml` 静态检查本文件存在和关键锚点。
-- `docs/architecture/ios-platform-risk-assessment.md` 的后续工作指向 `platform-ios` 首个源码骨架。
+- `docs/architecture/ios-platform-risk-assessment.md` 的后续工作指向 Swift/Network Extension bridge design。
 - `docs/manual-intervention.md` 保留 Apple Developer、entitlement、Provisioning Profile、GitHub Secrets、App Review 和 VPN 合规人工事项。
 - 本地只执行静态文本检查和 git 操作；所有正式验证通过 GitHub Actions 完成。
 
