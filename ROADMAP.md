@@ -70,6 +70,7 @@
 当前规格：
 
 - [Proxy Engine Adapter Interface](docs/architecture/proxy-engine-adapter.md)
+- [mitm_anixops Adapter Design](docs/architecture/mitm-anixops-adapter.md)
 - [Native Engine Listener And Node Config Design](docs/architecture/native-engine-listener-node-config.md)
 - [Linux Native Proxy Engine Start Design](docs/architecture/linux-native-proxy-engine-start.md)
 

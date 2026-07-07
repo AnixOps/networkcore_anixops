@@ -1,0 +1,224 @@
+# mitm_anixops Adapter Design
+
+本文件定义 `networkcore_AnixOps` 接入
+`https://github.com/AnixOps/mitm_anixops` 的首版 adapter 边界。
+
+评估时间：2026-07-07。
+
+参考 `mitm_anixops` 版本：`fec8877 Add MITM ABI diagnostics and integration docs`。
+
+## 结论
+
+`mitm_anixops` 可以作为 NetworkCore 的可移植 MITM 策略和插件兼容核心接入，但不能被描述为完整全平台网络引擎。
+
+它当前提供的是 C ABI：
+
+- 解析 AnixOps/Loon 风格 MITM、rewrite、script、argument 子集。
+- 返回 MITM allow/deny/QUIC reject 决策。
+- 返回 URL rewrite、header rewrite、body rewrite 和 script dispatch 结构化结果。
+- 返回稳定 status message 和 last-error diagnostic。
+- 保持 TLS、证书安装、HTTP 解析、压缩/chunk/body framing、JavaScript runtime 在 embedding adapter 之外。
+
+因此 NetworkCore 的接入目标分两层：
+
+- 短期：把 `mitm_anixops` 作为 `MitmPluginService` 的后端，验证插件配置、规则命中和诊断。
+- 中期：等 `engine-native` 具备 HTTP/TLS MITM 数据面后，把 rewrite/script 结果接入真实请求/响应处理。
+
+## 当前 NetworkCore 边界
+
+当前可直接复用的 NetworkCore 边界：
+
+- `control_domain::MitmPluginService`
+- `control_runtime::MitmGateOrchestrator`
+- `PlatformCapabilityStatus`
+- `MitmCertificateStatus`
+- `Diagnostic`
+- `AuditEvent`
+
+当前不能直接承载完整 rewrite 的边界：
+
+- `PluginResult` 只有 `audits` 和 `diagnostics`，没有 request/response mutation 输出。
+- `HttpEvent` 只有 `request_id`、`headers` 和 `body`，缺少 URL、method、phase、status、host、scheme 等 MITM rule matching 所需字段。
+- `engine-native` runtime 当前 listener 只支持 `LocalTcp` 和 `Socks`。
+- `engine-native` runtime 当前 outbound 只支持 `Protocol::Socks`。
+- `platform-linux` 当前是只读探测服务，不安装或信任 MITM CA。
+- macOS、Windows、iOS platform adapter 尚未落地。
+
+## 仓库接入形态
+
+源码接入前，应先固定 vendoring 策略。推荐路径：
+
+```text
+third_party/mitm_anixops
+```
+
+可选来源：
+
+- git submodule，适合早期 review 和升级。
+- git subtree，适合希望 CI 不依赖 submodule checkout 的阶段。
+- release source archive，适合发布链路稳定后复现构建。
+
+初期推荐 git submodule，但 CI 必须显式 checkout submodule。若不想修改 checkout 策略，应使用 subtree 或 source archive。
+
+## Rust Crate 规划
+
+后续源码增量应新增两个 crate：
+
+```text
+crates/mitm-anixops-sys
+crates/mitm-policy
+```
+
+`crates/mitm-anixops-sys` 负责：
+
+- 用 `cc` crate 编译 `third_party/mitm_anixops/src/mitm_anixops.c`。
+- include `third_party/mitm_anixops/include`。
+- 定义 `ANIXOPS_STATIC`。
+- 暴露 unsafe `extern "C"` 绑定。
+- 对照 `third_party/mitm_anixops/ci/abi_exports.txt` 维护 ABI allowlist 验证。
+
+`crates/mitm-policy` 负责：
+
+- 用 RAII wrapper 持有 opaque `anixops_engine_t`。
+- 将 `anixops_status_t`、last error、line diagnostic 映射为 `DomainError` 和 `Diagnostic`。
+- 将 certificate state 映射到 `MitmCertificateStatus`。
+- 将 MITM、rewrite、header、body 和 script result 映射到 NetworkCore 领域类型。
+- 实现 NetworkCore 的 MITM plugin adapter。
+
+`Engine` wrapper 不得实现 `Sync`。`mitm_anixops` engine 内部不加锁，运行时共享必须由 adapter 通过 `Mutex`、per-worker engine 或 immutable snapshot 控制。
+
+## Domain Model 变更门槛
+
+在真实 rewrite 接入前，`control-domain` 需要新增 mutation 输出模型。
+
+建议新增或扩展类型：
+
+- `HttpMitmPhase`
+- `HttpRequestContext`
+- `HttpResponseContext`
+- `MitmMutation`
+- `UrlRewriteMutation`
+- `HeaderMutation`
+- `BodyMutation`
+- `ScriptDispatch`
+- `MitmPluginOutcome`
+
+最低字段要求：
+
+- URL、scheme、host、path、method。
+- request/response phase。
+- response status。
+- headers。
+- buffered body。
+- body 是否已解压、是否可改写、是否截断。
+- script tag、script path、argument、requires body。
+
+`PluginResult` 继续保留 audit/diagnostics，但真实处理结果不能只靠 audit/diagnostics 表达。
+
+## Runtime 接线阶段
+
+### Phase 1: 领域 adapter 验证
+
+目标：证明 `mitm_anixops` 能被 NetworkCore 作为插件策略服务调用。
+
+范围：
+
+- 新增 `mitm-anixops-sys` 和 `mitm-policy` crate。
+- 从 `PluginPackage.source` 加载插件文本。
+- 通过 `anixops_engine_load_config` 校验支持的规则子集。
+- 用 `anixops_engine_copy_last_error` 生成稳定 diagnostic。
+- 在 `MitmPluginService` adapter 中返回 audit/diagnostics。
+
+不做：
+
+- 不接入真实网络流量。
+- 不执行 JavaScript。
+- 不改写 HTTP request/response。
+- 不声明全平台 MITM 可用。
+
+### Phase 2: mutation model
+
+目标：让领域模型能表达 request/response 改写。
+
+范围：
+
+- 扩展 `HttpEvent` 或新增 HTTP MITM context。
+- 扩展 `PluginResult` 或新增 `MitmPluginOutcome`。
+- 覆盖 URL redirect/reject、header add/replace/delete、body replace、script dispatch。
+
+### Phase 3: engine-native HTTP/TLS 数据面
+
+目标：把策略 adapter 放进真实流量路径。
+
+范围：
+
+- 在 SNI 或 HTTP host 进入时调用 `anixops_mitm_evaluate`。
+- 对 `ANIXOPS_MITM_REJECT_QUIC` 返回显式诊断，并由 platform/engine 拒绝或降级 QUIC。
+- 在 HTTP request 解析后调用 URL/header/request-script 评估。
+- 在 response headers/body buffering 和 decompression 后调用 response-header/body/script 评估。
+
+仍由 NetworkCore 负责：
+
+- TLS handshake。
+- 动态 leaf certificate。
+- CA install/trust detection。
+- HTTP/1.1 parser。
+- HTTP/2 frame parser。
+- compression/chunk/body framing。
+- JavaScript runtime。
+- stream backpressure 和 body size limit。
+
+### Phase 4: 平台 adapter
+
+Linux：
+
+- 证书安装和 trust 状态探测。
+- 显式用户授权。
+- system trust store 变更的回滚设计。
+
+macOS：
+
+- Keychain trust 集成。
+- 签名和 notarization。
+
+Windows：
+
+- CurrentUser/LocalMachine certificate store 策略。
+- signed binary 和安装/卸载回滚。
+
+iOS：
+
+- Network Extension 内嵌运行。
+- 用户显式安装并信任 CA。
+- 默认拒绝远程任意脚本执行。
+- 遵守 App Review 风险评估。
+
+## CI/CD 验证要求
+
+源码接入后，必须由 GitHub Actions 证明：
+
+- Rust workspace 包含 `mitm-anixops-sys` 和 `mitm-policy`。
+- Linux runner 能编译 C static library 并跑 wrapper tests。
+- macOS runner 能编译 C static library 并跑 wrapper tests。
+- Windows runner 能编译 C static library 并跑 wrapper tests。
+- ABI allowlist 与 `mitm_anixops/ci/abi_exports.txt` 一致。
+- wrapper tests 覆盖 config diagnostic、MITM decision、URL rewrite、header rewrite、body rewrite、script dispatch。
+- CI summary 显式输出 `mitm_anixops` adapter 检测状态。
+
+iOS 只能在 iOS platform crate 和 Network Extension 设计出现后，通过 macOS runner 增加 Swift/Xcode 或 cargo check 验证。
+
+## 不得宣称的能力
+
+在 Phase 3 和对应平台 adapter 通过 CI/CD 之前，不得宣称：
+
+- 全平台 MITM 已可用。
+- iOS MITM 已可用。
+- `engine-native` 已支持 HTTP/TLS MITM。
+- `mitm_anixops` 负责 TLS、证书、HTTP parser 或 JavaScript runtime。
+- `PluginResult` 已能表达完整 rewrite。
+
+可以宣称：
+
+- `mitm_anixops` 是 NetworkCore 可接入的 MITM 策略/plugin 兼容 C ABI core。
+- NetworkCore 当前具备接入该 core 的领域端口雏形。
+- 完整流量接入需要后续领域 mutation model、HTTP/TLS 数据面和平台 adapter。
