@@ -4,7 +4,7 @@
 
 ## 当前
 
-- [ ] ALPHA 发布前停止点：P3 runtime gate 和 P4 manifest-only activation validation contract 完成后，继续保持 `package-linux`、真实 `Package.swift`、Swift source、Swift/Xcode project、iOS upload jobs、TestFlight/App Store upload、App Review submission 和 release asset blocked；等待明确下一轮 alpha 发布范围、license/NOTICE confirmed marker 与 Apple/manual gates 后再推进。
+- [ ] ALPHA placeholder 发布启动：release policy 接受 `vMAJOR.MINOR.PATCH-alpha.N`，本轮只允许从 `main` 触发 `workflow_dispatch` placeholder release；继续保持 `package-linux`、真实 `Package.swift`、Swift source、Swift/Xcode project、iOS upload jobs、TestFlight/App Store upload、App Review submission 和 release asset blocked；Windows 手工 smoke 测试由用户执行并记录 pending/confirmed marker，license/NOTICE confirmed marker 与 Apple/manual gates 完成前不得发布真实 artifact。
 
 ## 已完成
 

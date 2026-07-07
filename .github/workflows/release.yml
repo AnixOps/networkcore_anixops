@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Release version, for example v0.1.0
+        description: Release version, for example v0.1.0-alpha.1
         required: true
         type: string
 
@@ -41,9 +41,9 @@ jobs:
           grep -q "发布验证都必须在 GitHub Actions" AGENT.md
           grep -q "Release Strategy" docs/release-strategy.md
 
-          version_pattern='^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$'
+          version_pattern='^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|rc)\.[0-9]+)?$'
           if [[ ! "${RELEASE_VERSION}" =~ ${version_pattern} ]]; then
-            echo "::error::Release version must match vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-rc.N."
+            echo "::error::Release version must match vMAJOR.MINOR.PATCH, vMAJOR.MINOR.PATCH-alpha.N, or vMAJOR.MINOR.PATCH-rc.N."
             exit 1
           fi
 

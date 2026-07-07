@@ -9,7 +9,7 @@
 当前 release workflow 只保留 policy、release-ci-gate、release-artifact-contract、release-signing-contract、release-rollback-contract、linux-artifact-readiness、ios-upload-readiness 与 placeholder job：
 
 - 允许 tag `v*` 和 `workflow_dispatch` 触发。
-- release policy job 检查版本格式和触发来源一致性；手动 placeholder release 必须从 `main` 分支发起，tag release 必须使用同名 tag 版本。
+- release policy job 检查版本格式和触发来源一致性；手动 placeholder release 必须从 `main` 分支发起，tag release 必须使用同名 tag 版本，版本可为稳定版、`alpha.N` 或 `rc.N` 预发布版。
 - `release-ci-gate` job 已在 job 级启用 `actions: read`，自动读取 `main` 上同 commit 的成功 CI 结果，校验 `CI summary` job，并输出 [Release CI success source contract](architecture/release-ci-success-source-contract.md) 中定义的 CI run/source 字段，以及 [Linux package release CI gate activation validation contract](architecture/linux-package-release-ci-gate-activation-validation-contract.md)、[Release CI gate execution validation contract](architecture/release-ci-gate-execution-validation-contract.md) 和 [Release CI gate API implementation plan](architecture/release-ci-gate-api-implementation-plan.md) 中定义的 active API read 状态；artifact packaging 仍被 license/NOTICE 和后续 artifact gates 阻断。
 - `release-artifact-contract` job 记录首个真实 artifact job 必须输出 `artifact_name`、`artifact_path`、`checksum_algorithm`、`checksum_file` 和 `checksum_value`，且 checksum 算法默认为 `sha256`。
 - `release-signing-contract` job 记录真实平台 artifact 发布前必须声明签名或 attestation 策略，并要求后续 job 输出 `signing_policy`、`signing_status`、`attestation_policy`、`attestation_status`、`provenance_policy` 和 `provenance_file`。
@@ -90,7 +90,7 @@ Linux 矩阵前置条件还包括 [Linux package artifact manifest generation va
 
 ## 版本与回滚
 
-- 版本号采用 `vMAJOR.MINOR.PATCH` tag 形式，预发布版本使用 `vMAJOR.MINOR.PATCH-rc.N`；当前 release policy gate 已按该格式检查手动版本输入与 tag 名。
+- 版本号采用 `vMAJOR.MINOR.PATCH` tag 形式，alpha 预发布版本使用 `vMAJOR.MINOR.PATCH-alpha.N`，rc 预发布版本使用 `vMAJOR.MINOR.PATCH-rc.N`；当前 release policy gate 已按该格式检查手动版本输入与 tag 名。
 - 任何 release 修复都通过新 tag 发布，不覆盖已发布 tag。
 - 如果 release 失败在发布前发生，删除 draft 或 failed run artifact 即可；如果 release asset 已公开，必须发布撤回说明并以新版本替换。
 - iOS 和商店渠道回滚依赖 App Store Connect 或对应商店能力，必须在发布说明中记录可用路径。

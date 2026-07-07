@@ -77,7 +77,7 @@ manifest 顶层字段必须稳定、显式、可由自动化读取：
 | `package_format` | 固定为 `tar.gz`，除非先更新设计 |
 | `artifact_name` | 与 job output `artifact_name` 完全一致 |
 | `target_triple` | Rust target triple，首个 artifact 必须来自 package runner/toolchain/target contract |
-| `version` | release 版本，例如 `v0.1.0` 或 `v0.1.0-rc.1` |
+| `version` | release 版本，例如 `v0.1.0`、`v0.1.0-alpha.1` 或 `v0.1.0-rc.1` |
 | `commit_sha` | release run 的 Git commit SHA |
 | `source_ref` | release run 的 Git ref |
 | `ci_run_url` | 同 commit 的成功 CI run URL，必须来自 release CI success source contract |

@@ -11,6 +11,7 @@
 - iOS TestFlight/App Store Connect upload workflow 仍为 pending；完成前不得执行 archive/export、
   TestFlight upload、App Store upload、App Review submission 或 iOS release asset。当前 release workflow 仅允许
   `ios-upload-readiness` blocked placeholder 读取这些 marker，输出 source tree preflight 和 safe summary。
+- Alpha Windows 手工 smoke 测试仍为 pending；完成前不得把用户侧 Windows 结果声明为 alpha 已验证。
 
 ## 已完成的人工/外部事项
 
@@ -64,6 +65,27 @@ linux-artifact-license-notice-release-assets=blocked
 未来从 pending 切换到 confirmed 时，必须遵守
 `docs/architecture/linux-package-license-notice-transition-validation-contract.md` 中的独立提交、
 字段和 LICENSE/NOTICE 文件存在性检查规则。
+
+## Alpha Windows Manual Smoke Test
+
+以下字段记录 alpha 启动期间由用户在外部 Windows 环境执行的手工 smoke 测试状态。该测试不能在本机自动完成，
+也不能替代 GitHub Actions 的 `windows-latest` CI 矩阵。
+
+```text
+alpha-release-windows-manual-test-status=pending
+alpha-release-windows-manual-test-source=manual-user-windows-environment
+alpha-release-windows-manual-test-version=pending
+alpha-release-windows-manual-test-scope=windows-local-smoke-user-run
+alpha-release-windows-manual-test-ci=github-actions-windows-latest-still-required
+alpha-release-windows-manual-test-result=blocked-pending-user
+alpha-release-windows-manual-test-confirmed-at=pending
+alpha-release-windows-manual-test-confirmed-by=pending
+alpha-release-windows-manual-test-next-action=record-result-and-rerun-ci-release-workflows
+```
+
+用户完成 Windows 测试后，需要用独立提交把 status/result/confirmed 字段切换为可审计结果，
+再由 GitHub Actions 重新运行 CI 和 release workflow。若测试失败，应记录失败版本、环境和下一步修复动作，
+不得继续宣称 alpha Windows smoke 已通过。
 
 ## iOS App Review Manual Confirmation
 

@@ -202,6 +202,10 @@ jobs:
           grep -q "linux-artifact-manifest-output-fields" .github/workflows/release.yml
           grep -q "Linux Artifact License/NOTICE Source Contract" .github/workflows/release.yml
           grep -q "linux-artifact-license-notice-source=docs/manual-intervention.md" .github/workflows/release.yml
+          grep -q "vMAJOR.MINOR.PATCH-alpha.N" .github/workflows/release.yml
+          grep -q "vMAJOR.MINOR.PATCH-alpha.N" docs/release-strategy.md
+          grep -q "alpha-release-windows-manual-test-status=pending" docs/manual-intervention.md
+          grep -q "alpha-release-windows-manual-test-result=blocked-pending-user" docs/manual-intervention.md
           grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
           grep -q "Linux Package Release CI Gate Activation Validation Contract" docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
           grep -q "Release CI Gate Execution Validation Contract" docs/architecture/release-ci-gate-execution-validation-contract.md
