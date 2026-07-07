@@ -10,6 +10,7 @@ GitHub Secrets、signing asset redaction 和 GitHub Actions `macos-26` 验证入
 [iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md) 和
 [iOS App Review Privacy Release Readiness Design](ios-app-review-privacy-release-readiness-design.md)、
 [iOS Privacy Manifest Source Contract](ios-privacy-manifest-source-contract.md) 以及
+[iOS App Review Manual Confirmation Source Contract](ios-app-review-manual-confirmation-source-contract.md) 和
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
 
 当前状态：contract-only。仓库仍不包含 `.entitlements`、Swift source、`Package.swift`、Xcode project、
@@ -219,7 +220,8 @@ TestFlight upload 或 App Store upload job：
 - Swift/Xcode bridge、Network Extension target、entitlement plist、Provisioning Profile validation、FFI boundary、
   embedded runtime、certificate lifecycle source 和 Privacy Manifest source 已在 GitHub Actions `macos-26` runner 通过验证。
 - Apple Developer、App ID、Network Extension capability、Provisioning Profile、GitHub Secrets、隐私政策、
-  App Privacy disclosure、App Review Notes、TestFlight/App Store Connect 人工确认和目标地区 VPN 合规材料已完成人工确认。
+  App Privacy disclosure、App Review Notes、demo account、review attachment、TestFlight/App Store Connect 人工确认 marker、
+  export compliance、beta app review 和目标地区 VPN 合规材料已完成人工确认。
 - signing asset redaction、secret cleanup、profile expiration handling 和 diagnostic redaction 已有源码合同测试。
 
 Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux` preflight 和后续 artifact gates 阻断。

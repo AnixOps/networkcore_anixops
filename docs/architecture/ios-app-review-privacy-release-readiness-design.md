@@ -7,13 +7,14 @@
 [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)、
 [iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md) 和
 [iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)、
-[iOS Privacy Manifest Source Contract](ios-privacy-manifest-source-contract.md)。
+[iOS Privacy Manifest Source Contract](ios-privacy-manifest-source-contract.md) 以及
+[iOS App Review Manual Confirmation Source Contract](ios-app-review-manual-confirmation-source-contract.md)。
 
 当前状态：design-only。仓库仍不包含 Swift source、`Package.swift`、Xcode project、Network Extension target、
 `PrivacyInfo.xcprivacy`、App Store Connect 配置、App Privacy 问卷、privacy policy URL、App Review Notes、
-TestFlight upload job、App Store upload job、真实签名、Provisioning Profile 或 iOS release asset；当前状态明确为
-no TestFlight upload 和 no iOS release asset。本地仍不得运行 `swift build`、`swift test`、`xcodebuild`、签名、
-打包、上传或发布验证。
+demo account、review attachment、TestFlight upload job、App Store upload job、真实签名、Provisioning Profile 或
+iOS release asset；当前状态明确为 no TestFlight upload 和 no iOS release asset。本地仍不得运行 `swift build`、
+`swift test`、`xcodebuild`、签名、打包、上传或发布验证。
 
 ## Goals
 
@@ -173,11 +174,12 @@ release asset：
 
 - 本设计、iOS risk assessment、Network Extension design、Swift/Xcode bridge source contract、embedded runtime FFI
   boundary、MITM certificate lifecycle design、entitlement/provisioning source contract 和 Privacy Manifest source
-  contract 已通过 CI static governance。
+  contract、App Review manual confirmation source contract 已通过 CI static governance。
 - 真实 Swift/Xcode bridge、Network Extension target、embedded runtime、certificate lifecycle、entitlement/provisioning
   和 Privacy Manifest source 已通过 GitHub Actions `macos-26` 验证。
 - App Store Connect App Privacy answers、privacy policy URL、App Review Notes、demo account、review attachment、
-  TestFlight group 和 VPN compliance materials 已完成人工确认。
+  TestFlight group、App Store Connect app record、export compliance、beta app review、App Review submission 和
+  VPN compliance materials 已完成人工确认。
 - GitHub Secrets、signing asset redaction、App Store Connect API key 和 upload workflow source contract 已完成。
 
 Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux` preflight 和后续 artifact gates 阻断；本设计不得被解释为允许发布 Linux 或 iOS release asset。
@@ -190,7 +192,8 @@ Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux`
 - `.github/workflows/ci.yml` 静态检查本文件存在和关键锚点。
 - `docs/manual-intervention.md` 明确 App Privacy、privacy policy、App Review Notes、demo account、review attachment、
   TestFlight/App Store Connect 和 VPN compliance 人工事项。
-- 相关 iOS docs 指向本 readiness design 和 Privacy Manifest source contract，后续工作推进到 App Review Notes/manual confirmation source contract。
+- 相关 iOS docs 指向本 readiness design、Privacy Manifest source contract 和 App Review manual confirmation source contract，
+  后续工作推进到 TestFlight/App Store Connect upload workflow source contract。
 - 不新增 Swift source、`Package.swift`、`.xcodeproj`、`.xcworkspace`、Network Extension target、
   `PrivacyInfo.xcprivacy`、Provisioning Profile、signing config、TestFlight upload、App Store upload 或 iOS release asset。
 - Linux artifact 继续等待 license/NOTICE confirmed marker；期间不得定义 `package-linux` 或发布 release asset。

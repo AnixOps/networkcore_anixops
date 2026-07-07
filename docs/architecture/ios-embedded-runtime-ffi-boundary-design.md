@@ -9,6 +9,7 @@
 [iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)、
 [iOS App Review Privacy Release Readiness Design](ios-app-review-privacy-release-readiness-design.md)、
 [iOS Privacy Manifest Source Contract](ios-privacy-manifest-source-contract.md) 和
+[iOS App Review Manual Confirmation Source Contract](ios-app-review-manual-confirmation-source-contract.md) 以及
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
 
 当前状态：design-only。仓库仍不包含 iOS runtime FFI crate、C header、generated bindings、Swift source、
@@ -228,10 +229,12 @@ TestFlight upload 或 App Store upload job：
 - iOS entitlement/provisioning source contract 已完成并通过 GitHub Actions static governance。
 - iOS App Review/privacy release readiness design 已完成并通过 GitHub Actions static governance。
 - iOS Privacy Manifest source contract 已完成并通过 GitHub Actions static governance。
+- iOS App Review manual confirmation source contract 已完成并通过 GitHub Actions static governance。
 - Rust staticlib、XCFramework、Swift bridge、Network Extension target 和 FFI contract tests 已在 GitHub Actions
   `macos-26` runner 通过验证。
 - Apple Developer、App ID、Network Extension entitlement、Provisioning Profile、GitHub Secrets、App Privacy disclosure、
-  隐私政策、App Review Notes、TestFlight/App Store Connect 人工确认和目标地区 VPN compliance 已完成。
+  隐私政策、App Review Notes、demo account、review attachment、TestFlight/App Store Connect 人工确认 marker、
+  export compliance、beta app review 和目标地区 VPN compliance 已完成。
 - MITM certificate lifecycle design 已完成；对应 CA generation、installation prompt、trust confirmation、
   fingerprint validation、expiration/revocation handling 和 source contract tests 已通过 GitHub Actions。
 

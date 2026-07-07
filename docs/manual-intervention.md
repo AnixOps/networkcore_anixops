@@ -6,6 +6,8 @@
 
 - Linux artifact license/NOTICE 文本确认仍为 pending；完成前不得定义真实 `package-linux` artifact job、
   上传 workflow artifact 或发布 Linux release asset。
+- iOS App Review manual confirmation 仍为 pending；完成前不得启用 TestFlight upload、App Store upload、
+  App Review submission 或 iOS release asset。
 
 ## 已完成的人工/外部事项
 
@@ -59,3 +61,36 @@ linux-artifact-license-notice-release-assets=blocked
 未来从 pending 切换到 confirmed 时，必须遵守
 `docs/architecture/linux-package-license-notice-transition-validation-contract.md` 中的独立提交、
 字段和 LICENSE/NOTICE 文件存在性检查规则。
+
+## iOS App Review Manual Confirmation
+
+以下字段是后续 iOS upload/release readiness 读取的机器状态。当前仍未完成 App Privacy answers、
+privacy policy URL、App Review Notes、demo account、review attachment、VPN compliance、TestFlight group、
+App Store Connect app record、export compliance、beta app review 和 App Review submission 人工确认，
+因此 iOS upload 和 release asset 发布保持阻断。
+
+```text
+ios-app-review-manual-confirmation-status=pending
+ios-app-review-manual-confirmation-source-contract=docs/architecture/ios-app-review-manual-confirmation-source-contract.md
+ios-app-review-app-privacy-answers=blocked
+ios-app-review-privacy-policy-url=blocked
+ios-app-review-notes=blocked
+ios-app-review-demo-account=blocked
+ios-app-review-demo-mode=blocked
+ios-app-review-review-attachment=blocked
+ios-app-review-vpn-compliance=blocked
+ios-app-review-testflight-group=blocked
+ios-app-review-app-store-connect-app-record=blocked
+ios-app-review-export-compliance=blocked
+ios-app-review-beta-app-review=blocked
+ios-app-review-app-review-submission=blocked
+ios-app-review-testflight-upload=blocked
+ios-app-review-release-assets=blocked
+ios-app-review-confirmed-at=pending
+ios-app-review-confirmed-by=pending
+```
+
+人工确认完成前，不得定义 TestFlight upload、App Store upload、App Review submission 或 iOS release asset。
+未来从 pending 切换到 confirmed 时，必须遵守
+`docs/architecture/ios-app-review-manual-confirmation-source-contract.md` 中的独立人工确认提交、
+字段、脱敏和 upload/release 阻断规则。

@@ -10,6 +10,7 @@
 [iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)、
 [iOS App Review Privacy Release Readiness Design](ios-app-review-privacy-release-readiness-design.md)、
 [iOS Privacy Manifest Source Contract](ios-privacy-manifest-source-contract.md) 和
+[iOS App Review Manual Confirmation Source Contract](ios-app-review-manual-confirmation-source-contract.md) 以及
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
 
 当前状态：design-only。仓库仍不包含 Swift package、Xcode project、Network Extension target、
@@ -205,9 +206,11 @@ TestFlight upload 或 App Store upload job：
 - iOS entitlement/provisioning source contract 已完成并通过 GitHub Actions static governance。
 - iOS App Review/privacy release readiness design 已完成并通过 GitHub Actions static governance。
 - iOS Privacy Manifest source contract 已完成并通过 GitHub Actions static governance。
+- iOS App Review manual confirmation source contract 已完成并通过 GitHub Actions static governance。
 - Swift bridge、Network Extension target 和 Rust embedded runtime bridge 已在 GitHub Actions `macos-26` runner 验证。
 - Apple Developer、App ID、Network Extension entitlement、Provisioning Profile、GitHub Secrets、App Privacy disclosure、
-  隐私政策、App Review Notes、TestFlight/App Store Connect 人工确认和目标地区 VPN compliance 已完成。
+  隐私政策、App Review Notes、demo account、review attachment、TestFlight/App Store Connect 人工确认 marker、
+  export compliance、beta app review 和目标地区 VPN compliance 已完成。
 - MITM 证书生成、安装提示、信任确认、fingerprint 校验、过期/撤销检测和 source contract tests 已完成。
 
 Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux` preflight 和后续 artifact gates 阻断。

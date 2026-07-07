@@ -7,13 +7,14 @@
 [iOS Network Extension Design](ios-network-extension-design.md)、
 [iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、
 [iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md) 和
+[iOS App Review Manual Confirmation Source Contract](ios-app-review-manual-confirmation-source-contract.md) 以及
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
 
 当前状态：contract-only。仓库仍不包含 `PrivacyInfo.xcprivacy`、Swift source、`Package.swift`、
 Xcode project、workspace、Network Extension target、App Store Connect App Privacy answers、privacy policy URL、
-TestFlight upload job、App Store upload job、真实签名、Provisioning Profile 或 iOS release asset；当前状态明确为
-no PrivacyInfo.xcprivacy、no TestFlight upload 和 no iOS release asset。本地仍不得运行 `swift build`、
-`swift test`、`xcodebuild`、`plutil`、签名、打包、上传或发布验证。
+App Review manual confirmation marker、TestFlight upload job、App Store upload job、真实签名、Provisioning Profile
+或 iOS release asset；当前状态明确为 no PrivacyInfo.xcprivacy、no TestFlight upload 和 no iOS release asset。
+本地仍不得运行 `swift build`、`swift test`、`xcodebuild`、`plutil`、签名、打包、上传或发布验证。
 
 ## Goals
 
@@ -145,7 +146,9 @@ ios-app-privacy-answers-confirmed-at=YYYY-MM-DD|pending
 
 规则：
 
-- App Store Connect App Privacy answers 仍由人工填写；仓库只能提供 answer source 和 safe marker。
+- App Store Connect App Privacy answers 仍由人工填写；仓库只能提供 answer source 和
+  [iOS App Review Manual Confirmation Source Contract](ios-app-review-manual-confirmation-source-contract.md)
+  定义的 safe marker。
 - `confirmed` 前不得启用 TestFlight external testing、App Store submission 或 iOS release asset。
 - `Data Linked to You` 和 `Data Not Linked to You` 必须能追溯到 manifest inventory、privacy policy 和 source owner。
 - 缺失 answer source 或 marker 时必须输出 `platform.ios.privacy_manifest.app_privacy_answers_missing`。
@@ -235,8 +238,9 @@ upload、App Review submission 或 iOS release asset：
 - 本合同和相关 iOS contracts 已通过 GitHub Actions static governance。
 - 真实 Swift/Xcode bridge、Network Extension target、embedded runtime、certificate lifecycle、entitlement/provisioning
   和 `PrivacyInfo.xcprivacy` source 已在 GitHub Actions `macos-26` runner 通过验证。
-- App Privacy answer source、privacy policy URL、App Review Notes、demo account、review attachment、TestFlight group
-  和 VPN compliance materials 已完成人工确认。
+- App Privacy answer source、privacy policy URL、App Review Notes、demo account、review attachment、TestFlight group、
+  App Store Connect app record、export compliance、beta app review、App Review submission 和 VPN compliance materials
+  已按 App Review manual confirmation source contract 完成人工确认。
 - third-party SDK privacy manifest、SDK signature、Required Reason API inventory、tracking policy 和 secret redaction
   已有源码合同测试或 CI static gate。
 

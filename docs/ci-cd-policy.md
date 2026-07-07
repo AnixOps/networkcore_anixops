@@ -47,6 +47,7 @@
 - iOS entitlement/provisioning source contract 检查
 - iOS App Review/privacy release readiness design 检查
 - iOS Privacy Manifest source contract 检查
+- iOS App Review manual confirmation source contract 检查
 - Linux artifact 发布前设计文件检查
 - Linux platform adapter 设计文件检查
 - Linux platform adapter crate README 和 Rust workspace 覆盖检查
@@ -137,11 +138,14 @@ Network Extension capability、Provisioning Profile、GitHub Secrets、signing a
 App Privacy disclosure、privacy policy、App Review Notes、VPN compliance、TestFlight/App Store Connect
 manual intervention 和 `macos-26` 静态门禁，Privacy Manifest source contract 只定义后续 `PrivacyInfo.xcprivacy`、
 `NSPrivacyCollectedDataTypes`、`NSPrivacyAccessedAPITypes`、Required Reason API、App Privacy answer source、
-third-party SDK privacy manifest、SDK signature 和 `macos-26` 静态验证入口，不引入 Rust FFI crate、
+third-party SDK privacy manifest、SDK signature 和 `macos-26` 静态验证入口，App Review manual confirmation
+source contract 只定义 App Privacy answers、privacy policy URL、App Review Notes、demo account、review attachment、
+VPN compliance marker、TestFlight group、App Store Connect app record、export compliance、beta app review、
+App Review submission、manual confirmation marker 和 `macos-26` 静态门禁，不引入 Rust FFI crate、
 Swift/Xcode project、Network Extension target、configuration profile、CA certificate、private key、真实 entitlement、
 PrivacyInfo.xcprivacy、签名、TestFlight upload、App Store upload 或 release asset。出现 Swift、Xcode project、
 Network Extension target、FFI runtime、certificate lifecycle source、entitlement/provisioning source、
-Privacy Manifest source 或签名验证后，
+Privacy Manifest source、App Review manual confirmation source 或签名验证后，
 相关 `cargo build`、`swift build`、`swift test`、`xcodebuild`、签名、TestFlight 或 App Store Connect 验证仍只能在
 GitHub Actions 或 Apple 官方平台执行。
 
