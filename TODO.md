@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 补充 iOS Swift/Network Extension bridge design，定义后续 Apple SDK 层如何采集 `NEPacketTunnelProvider`、`NETunnelProviderManager`、App Group、Keychain 和证书状态事实并传入 `platform-ios` 的去敏 snapshot；仍不引入 Swift/Xcode project、Network Extension target、签名、TestFlight 上传或 iOS release asset。Linux artifact 继续等待 license/NOTICE confirmed marker，期间不得定义 `package-linux` 或发布 release asset。
+- [ ] 补充 iOS Swift/Xcode bridge source contract，定义后续 Swift package、Network Extension target、FFI/DTO 文件布局、GitHub Actions `macos-26` 验证入口和禁止提交 signing/provisioning secret 的源码验收条件；仍不引入 Swift/Xcode project、Network Extension target、签名、TestFlight 上传或 iOS release asset。Linux artifact 继续等待 license/NOTICE confirmed marker，期间不得定义 `package-linux` 或发布 release asset。
 
 ## 已完成
 
+- [x] 补充 iOS Swift/Network Extension bridge design，定义后续 Apple SDK 层如何采集 `NEPacketTunnelProvider`、`NETunnelProviderManager`、App Group、Keychain、embedded runtime 和证书状态事实并传入 `platform-ios` 的去敏 `IosPlatformSnapshot`；CI governance 静态检查该设计，仍不引入 Swift/Xcode project、Network Extension target、签名、TestFlight 上传或 iOS release asset。
 - [x] 新增最小 `platform-ios` crate 纯 Rust 映射骨架，提供 `StaticIosPlatformCapabilityService`、`IosPlatformSnapshot`、Network Extension/embedded runtime/certificate/shared storage probe、稳定 `platform.ios.*` 诊断 code 和合同测试；仍不引入 Swift/Xcode project、Network Extension target、签名、TestFlight 上传或 iOS release asset。
 - [x] 补充 iOS platform adapter source contract，定义 `platform-ios` crate、`PlatformCapabilityService`/`PlatformCapabilityStatus` 映射、证书状态读取边界、Network Extension entitlement 诊断、remote script 禁用、`macos-26` GitHub Actions 验证入口和 iOS release 阻断边界。
 - [x] 补充 iOS Network Extension design，定义 `NEPacketTunnelProvider`/`NETunnelProviderManager` 拓扑、配置下发、App Group/Keychain 边界、MITM 证书状态、远程脚本禁用、App Review 风险、`macos-26` GitHub Actions 验证入口和继续不在本机运行 iOS build/test 的规则。
