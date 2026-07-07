@@ -5,7 +5,8 @@ artifact manifest 和 metadata 输出合同。它承接
 [Linux Artifact Pre-Release Design](linux-artifact-pre-release-design.md)、
 [Linux CLI Artifact Installation And Rollback Design](linux-cli-artifact-installation-rollback.md)、
 [Linux Artifact License Notice Confirmation Design](linux-artifact-license-notice-confirmation.md)、
-[Release CI Success Source Contract](release-ci-success-source-contract.md) 和
+[Release CI Success Source Contract](release-ci-success-source-contract.md)、
+[Linux Package Runner Toolchain Target Contract](linux-package-runner-toolchain-target-contract.md) 和
 [Release Strategy](../release-strategy.md)。当前仓库仍不生成 Linux artifact；
 本文件只定义后续 packaging job 的可检查字段。
 
@@ -63,14 +64,14 @@ manifest 顶层字段必须稳定、显式、可由自动化读取：
 | `artifact_kind` | 固定为 `linux-cli-tarball` |
 | `package_format` | 固定为 `tar.gz`，除非先更新设计 |
 | `artifact_name` | 与 job output `artifact_name` 完全一致 |
-| `target_triple` | Rust target triple，例如 `x86_64-unknown-linux-gnu` |
+| `target_triple` | Rust target triple，首个 artifact 必须来自 package runner/toolchain/target contract |
 | `version` | release 版本，例如 `v0.1.0` 或 `v0.1.0-rc.1` |
 | `commit_sha` | release run 的 Git commit SHA |
 | `source_ref` | release run 的 Git ref |
 | `ci_run_url` | 同 commit 的成功 CI run URL，必须来自 release CI success source contract |
 | `release_run_url` | 当前 release run URL |
-| `runner` | runner 标签，例如 `ubuntu-latest` |
-| `rust_toolchain` | packaging job 使用的 Rust toolchain |
+| `runner` | runner 标签，首个 artifact 固定来自 package runner/toolchain/target contract 的 `ubuntu-latest` |
+| `rust_toolchain` | packaging job 使用的 Rust toolchain，首个 artifact 固定为 `stable` |
 | `archive` | archive 文件名、相对路径和 size bytes |
 | `checksum` | archive checksum 算法、文件名和值 |
 | `included_files` | 压缩包内文件清单和来源 |
@@ -160,14 +161,15 @@ manifest 顶层字段必须稳定、显式、可由自动化读取：
 
 1. 确认 `docs/manual-intervention.md` 中的 license/NOTICE 状态为 `confirmed`。
 2. 确认 `release-ci-gate` 已按 [Release CI Success Source Contract](release-ci-success-source-contract.md) 读取同 commit 成功 CI run 字段。
-3. 在 GitHub Actions runner 中构建 `networkcore-linux`。
-4. 组装只含允许文件的顶层目录。
-5. 创建 `.tar.gz` archive。
-6. 计算 archive sha256。
-7. 创建 manifest JSON。
-8. 计算 manifest sha256。
-9. 输出 archive、archive checksum、manifest 和 manifest checksum 字段。
-10. release summary 展示字段；后续 publish job 才能上传。
+3. 确认 `package-linux` 已按 [Linux Package Runner Toolchain Target Contract](linux-package-runner-toolchain-target-contract.md) 声明 runner、Rust toolchain、target triple、crate、binary 和 archive naming 输入。
+4. 在 GitHub Actions runner 中构建 `networkcore-linux`。
+5. 组装只含允许文件的顶层目录。
+6. 创建 `.tar.gz` archive。
+7. 计算 archive sha256。
+8. 创建 manifest JSON。
+9. 计算 manifest sha256。
+10. 输出 archive、archive checksum、manifest 和 manifest checksum 字段。
+11. release summary 展示字段；后续 publish job 才能上传。
 
 manifest 不得反向参与 archive checksum。这样用户可以独立校验 archive 和
 manifest，release summary 也能引用两个 checksum。
@@ -213,12 +215,12 @@ manifest，release summary 也能引用两个 checksum。
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux CLI artifact 安装/回滚设计和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
-- `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、release CI success source contract、license/NOTICE source contract、release placeholder manifest output summary 和 license/NOTICE source contract summary，但继续拒绝定义 `package-linux` job。
-- release CI gate、release placeholder 和 release summary 输出 CI success source contract、manifest output contract 字段清单与 license/NOTICE source contract pending 状态。
+- `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、release CI success source contract、package runner/toolchain/target contract、license/NOTICE source contract、release placeholder manifest output summary 和 license/NOTICE source contract summary，但继续拒绝定义 `package-linux` job。
+- release CI gate、release placeholder 和 release summary 输出 CI success source contract、package runner/toolchain/target contract、manifest output contract 字段清单与 license/NOTICE source contract pending 状态。
 - TODO 指向下一步最小 release workflow 或 release governance 增量。
 - 不生成 artifact、不上传 release asset、不在本机执行测试、构建、打包或发布。
 
 ## 后续工作
 
 - 在 license/NOTICE 人工确认完成前，继续不实现 `package-linux`。
-- 下一步可以补充 `package-linux` job 的 runner、toolchain 和 target triple 合同，仍不生成 artifact。
+- 下一步可以补充 `package-linux` archive staging、文件来源和顶层目录组装合同，仍不生成 artifact。

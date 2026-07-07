@@ -180,6 +180,6 @@ CLI 首个源码增量必须满足：
 
 ## 后续工作
 
-- Linux artifact readiness/release gate 已纳入 foreground stop/release 合同检查、artifact manifest 输出合同、license/NOTICE confirmation source contract、release placeholder license/NOTICE pending 状态 summary 和 release CI success source contract；当前 pending marker 继续阻止 `package-linux` 和 release asset。
-- 下一步补充 `package-linux` job 的 runner、toolchain 和 target triple 合同，仍不生成 artifact。
+- Linux artifact readiness/release gate 已纳入 foreground stop/release 合同检查、artifact manifest 输出合同、license/NOTICE confirmation source contract、release placeholder license/NOTICE pending 状态 summary、release CI success source contract 和 package runner/toolchain/target contract；当前 pending marker 继续阻止 `package-linux` 和 release asset。
+- 下一步补充 `package-linux` archive staging、文件来源和顶层目录组装合同，仍不生成 artifact。
 - daemon/control socket、packaging 或任何会修改系统状态的 Linux probing 进入 CLI 前，先补充对应设计并通过 CI。

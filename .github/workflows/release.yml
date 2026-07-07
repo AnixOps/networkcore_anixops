@@ -236,6 +236,7 @@ jobs:
           test -f docs/architecture/linux-package-artifact-manifest.md
           test -f docs/architecture/linux-artifact-license-notice-confirmation.md
           test -f docs/architecture/release-ci-success-source-contract.md
+          test -f docs/architecture/linux-package-runner-toolchain-target-contract.md
           test -f docs/manual-intervention.md
           grep -q "networkcore-linux" apps/linux-cli/README.md
           grep -q "handle_foreground_lifecycle_with_runtime_stop" apps/linux-cli/src/lib.rs
@@ -255,14 +256,20 @@ jobs:
           grep -q "Linux Package Artifact Manifest Design" docs/architecture/linux-package-artifact-manifest.md
           grep -q "Linux Artifact License Notice Confirmation Design" docs/architecture/linux-artifact-license-notice-confirmation.md
           grep -q "Release CI Success Source Contract" docs/architecture/release-ci-success-source-contract.md
+          grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
           grep -q "artifact_manifest_path" docs/architecture/linux-package-artifact-manifest.md
           grep -q "artifact_manifest_checksum_value" docs/architecture/linux-package-artifact-manifest.md
+          grep -q "rust_target_triple" docs/architecture/linux-package-runner-toolchain-target-contract.md
+          grep -q "x86_64-unknown-linux-gnu" docs/architecture/linux-package-runner-toolchain-target-contract.md
           grep -q "Linux Artifact Manifest Output Contract" .github/workflows/release.yml
           grep -q "linux-artifact-manifest-output-fields" .github/workflows/release.yml
           grep -q "Linux Artifact License/NOTICE Source Contract" .github/workflows/release.yml
           grep -q "linux-artifact-license-notice-source=docs/manual-intervention.md" .github/workflows/release.yml
           grep -q "release-ci-success-source-contract=present" .github/workflows/release.yml
           grep -q "release-ci-required-fields" .github/workflows/release.yml
+          grep -q "Linux Package Platform Input Contract" .github/workflows/release.yml
+          grep -q "linux-package-platform-input-contract=present" .github/workflows/release.yml
+          grep -q "linux-package-required-target=x86_64-unknown-linux-gnu" .github/workflows/release.yml
           grep -q "linux-artifact-license-notice-status=pending" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md" docs/manual-intervention.md
           grep -q "linux-artifact-license-notice-package-linux=blocked" docs/manual-intervention.md
@@ -286,6 +293,7 @@ jobs:
             echo "| Foreground stop/release contract tests | checked |"
             echo "| Artifact manifest contract design | present |"
             echo "| License/NOTICE confirmation source contract | present |"
+            echo "| Package runner/toolchain/target contract | present |"
             echo "| Install and rollback design | present |"
             echo "| License or NOTICE confirmation | pending in docs/manual-intervention.md |"
             echo "| Release asset upload | blocked until package-linux, checksum, signing/attestation, rollback, and license/NOTICE gates are complete |"
@@ -301,6 +309,18 @@ jobs:
           echo "linux-artifact-license-notice-source=docs/manual-intervention.md"
           echo "linux-artifact-license-notice-status=pending"
           echo "linux-artifact-license-notice-package-linux=blocked"
+          echo "linux-package-platform-input-contract=present"
+          echo "linux-package-platform-contract=docs/architecture/linux-package-runner-toolchain-target-contract.md"
+          echo "linux-package-required-runner=ubuntu-latest"
+          echo "linux-package-required-runner-kind=github-hosted"
+          echo "linux-package-required-rust-toolchain=stable"
+          echo "linux-package-required-rust-profile=minimal"
+          echo "linux-package-required-target=x86_64-unknown-linux-gnu"
+          echo "linux-package-required-crate=apps/linux-cli"
+          echo "linux-package-required-binary=networkcore-linux"
+          echo "linux-package-required-format=tar.gz"
+          echo "linux-package-required-install-model=manual-extract"
+          echo "linux-package-required-system-mutation-policy=none"
           echo "linux-artifact-install-rollback-design=present"
           echo "linux-artifact-license-notice=manual-confirmation-required"
           echo "linux-artifact-release-assets=blocked"
@@ -344,6 +364,25 @@ jobs:
             echo "| Current package-linux job | not defined |"
             echo "| Current release asset upload | blocked |"
             echo
+            echo "### Linux Package Platform Input Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | placeholder summary only |"
+            echo "| Source contract | docs/architecture/linux-package-runner-toolchain-target-contract.md |"
+            echo "| Required runner | ubuntu-latest |"
+            echo "| Required runner kind | github-hosted |"
+            echo "| Required Rust toolchain | stable |"
+            echo "| Required Rust profile | minimal |"
+            echo "| Required target triple | x86_64-unknown-linux-gnu |"
+            echo "| Required crate | apps/linux-cli |"
+            echo "| Required binary | networkcore-linux |"
+            echo "| Required package format | tar.gz |"
+            echo "| Required install model | manual-extract |"
+            echo "| System mutation policy | none |"
+            echo "| Current package-linux job | not defined |"
+            echo "| Current release asset upload | blocked |"
+            echo
             echo "### Linux Artifact License/NOTICE Source Contract"
             echo
             echo "| Item | Status |"
@@ -362,6 +401,18 @@ jobs:
           echo "linux-artifact-manifest-output-fields=artifact_manifest_name,artifact_manifest_path,artifact_manifest_checksum_file,artifact_manifest_checksum_value"
           echo "linux-artifact-manifest-checksum-algorithm=sha256"
           echo "linux-artifact-manifest-upload=blocked"
+          echo "linux-package-platform-input-contract=present"
+          echo "linux-package-platform-contract=docs/architecture/linux-package-runner-toolchain-target-contract.md"
+          echo "linux-package-required-runner=ubuntu-latest"
+          echo "linux-package-required-runner-kind=github-hosted"
+          echo "linux-package-required-rust-toolchain=stable"
+          echo "linux-package-required-rust-profile=minimal"
+          echo "linux-package-required-target=x86_64-unknown-linux-gnu"
+          echo "linux-package-required-crate=apps/linux-cli"
+          echo "linux-package-required-binary=networkcore-linux"
+          echo "linux-package-required-format=tar.gz"
+          echo "linux-package-required-install-model=manual-extract"
+          echo "linux-package-required-system-mutation-policy=none"
           echo "linux-artifact-license-notice-contract=present"
           echo "linux-artifact-license-notice-source=docs/manual-intervention.md"
           echo "linux-artifact-license-notice-status=pending"
@@ -419,6 +470,12 @@ jobs:
             echo "| Linux artifact manifest contract | checked in linux-artifact-readiness |"
             echo "| Linux artifact manifest output contract | summarized in release-placeholder |"
             echo "| Linux artifact manifest output fields | artifact_manifest_name, artifact_manifest_path, artifact_manifest_checksum_file, artifact_manifest_checksum_value |"
+            echo "| Linux package platform input contract | summarized in release-placeholder |"
+            echo "| Linux package required runner | ubuntu-latest |"
+            echo "| Linux package required Rust toolchain | stable |"
+            echo "| Linux package required target | x86_64-unknown-linux-gnu |"
+            echo "| Linux package required crate | apps/linux-cli |"
+            echo "| Linux package required binary | networkcore-linux |"
             echo "| Linux artifact license/NOTICE contract | checked in linux-artifact-readiness |"
             echo "| Linux artifact license/NOTICE status | pending in docs/manual-intervention.md |"
             echo "| Release placeholder | ${{ needs.release-placeholder.result }} |"
@@ -449,6 +506,18 @@ jobs:
           echo "linux-artifact-manifest-contract=present"
           echo "linux-artifact-manifest-output-contract=placeholder"
           echo "linux-artifact-manifest-output-fields=artifact_manifest_name,artifact_manifest_path,artifact_manifest_checksum_file,artifact_manifest_checksum_value"
+          echo "linux-package-platform-input-contract=present"
+          echo "linux-package-platform-contract=docs/architecture/linux-package-runner-toolchain-target-contract.md"
+          echo "linux-package-required-runner=ubuntu-latest"
+          echo "linux-package-required-runner-kind=github-hosted"
+          echo "linux-package-required-rust-toolchain=stable"
+          echo "linux-package-required-rust-profile=minimal"
+          echo "linux-package-required-target=x86_64-unknown-linux-gnu"
+          echo "linux-package-required-crate=apps/linux-cli"
+          echo "linux-package-required-binary=networkcore-linux"
+          echo "linux-package-required-format=tar.gz"
+          echo "linux-package-required-install-model=manual-extract"
+          echo "linux-package-required-system-mutation-policy=none"
           echo "linux-artifact-license-notice-contract=present"
           echo "linux-artifact-license-notice-source=docs/manual-intervention.md"
           echo "linux-artifact-license-notice-status=pending"
