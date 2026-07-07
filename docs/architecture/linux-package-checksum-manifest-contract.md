@@ -171,4 +171,4 @@ checksum 生成后继续修改 manifest。
 - Linux package publish/upload boundary contract、signing/attestation policy binding contract、
   release notes/rollback policy binding contract、publish eligibility aggregate contract 和
   license/NOTICE transition validation contract、release CI gate activation validation contract 已定义；
-  Linux package artifact job preflight validation contract 已定义；下一步可以补充 Linux package artifact build command validation contract，仍不生成 artifact。
+  Linux package artifact job preflight validation contract 和 Linux package artifact build command validation contract 已定义；下一步可以补充 Linux package artifact staging file validation contract，仍不生成 artifact。

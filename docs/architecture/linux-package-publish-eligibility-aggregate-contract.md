@@ -222,5 +222,6 @@ aggregate eligibility publish gate 或 upload 步骤。
 
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
 - Linux package license/NOTICE transition validation contract、Linux package release CI gate activation
-  validation contract 和 Linux package artifact job preflight validation contract 已定义；下一步可以补充
-  Linux package artifact build command validation contract，仍不生成 artifact。
+  validation contract、Linux package artifact job preflight validation contract 和 Linux package artifact build
+  command validation contract 已定义；下一步可以补充
+  Linux package artifact staging file validation contract，仍不生成 artifact。

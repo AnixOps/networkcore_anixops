@@ -33,6 +33,7 @@ toolchain、build、staging 前置顺序、失败条件和继续不上传 artifa
 [Linux Package License Notice Transition Validation Contract](linux-package-license-notice-transition-validation-contract.md)、
 [Linux Package Release CI Gate Activation Validation Contract](linux-package-release-ci-gate-activation-validation-contract.md)、
 [Release CI Success Source Contract](release-ci-success-source-contract.md)、
+[Linux Package Artifact Build Command Validation Contract](linux-package-artifact-build-command-validation-contract.md)、
 [Linux Package Runner Toolchain Target Contract](linux-package-runner-toolchain-target-contract.md)、
 [Linux Package Archive Staging Contract](linux-package-archive-staging-contract.md)、
 [Linux Package Checksum Manifest Contract](linux-package-checksum-manifest-contract.md)、
@@ -90,7 +91,8 @@ job 内必须按以下顺序处理：
 5. 检查本文档、runner/toolchain、archive staging、checksum/manifest、manifest、publish/upload
    和 publish eligibility 合同仍存在并与 release workflow 常量一致。
 6. 设置 Rust `stable`/`minimal` toolchain，并确认 target 为 `x86_64-unknown-linux-gnu`。
-7. 构建 `apps/linux-cli` 的 `networkcore-linux` release binary。
+7. 按 [Linux Package Artifact Build Command Validation Contract](linux-package-artifact-build-command-validation-contract.md)
+   构建 `apps/linux-cli` 的 `networkcore-linux` release binary。
 8. 验证 build output 只作为本 job staging 输入，不从本地开发机、旧 run artifact 或 runner cache 读取。
 9. 创建干净的 staging/output 目录。
 10. 按 archive staging contract 复制 binary、INSTALL、LICENSE/NOTICE 和 CHANGELOG。
@@ -233,7 +235,7 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、sec
   runner/toolchain/target contract、Linux package archive staging contract、Linux package checksum
   manifest contract、Linux package publish/upload boundary contract、Linux package license/NOTICE
   transition validation contract、release CI success source contract、Linux package release CI gate activation
-  validation contract 和 CI policy 中可发现。
+  validation contract、Linux package artifact build command validation contract 和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在、标题和 release workflow placeholder 输出字段。
 - `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、placeholder
   fields、future preflight fields、failure boundary 和 `package-linux` 未定义状态。
@@ -247,6 +249,6 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、sec
 
 - 在 license/NOTICE 人工确认完成和 release CI gate activation 实现前，继续保持
   `package-linux` 未定义。
-- 下一步可以补充 Linux package artifact build command validation contract，明确真实
-  `package-linux` 解锁后可使用的 GitHub Actions build command、target 安装策略、binary path
-  校验和仍不发布 artifact 的边界。
+- Linux package artifact build command validation contract 已定义；下一步可以补充 Linux package
+  artifact staging file validation contract，明确真实 build output、INSTALL、LICENSE/NOTICE 和
+  CHANGELOG 进入 staging 前的文件复制、权限、路径和仍不创建 archive 的边界。

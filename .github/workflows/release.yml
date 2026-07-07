@@ -285,6 +285,7 @@ jobs:
           test -f docs/architecture/release-ci-success-source-contract.md
           test -f docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
           test -f docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
+          test -f docs/architecture/linux-package-artifact-build-command-validation-contract.md
           test -f docs/architecture/linux-package-runner-toolchain-target-contract.md
           test -f docs/architecture/linux-package-archive-staging-contract.md
           test -f docs/architecture/linux-package-checksum-manifest-contract.md
@@ -317,6 +318,13 @@ jobs:
           grep -q "package_artifact_job_preflight_status" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           grep -q "package_artifact_job_preflight_required_needs" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           grep -q "package_artifact_job_preflight_failure_mode" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
+          grep -q "Linux Package Artifact Build Command Validation Contract" docs/architecture/linux-package-artifact-build-command-validation-contract.md
+          grep -q "package_artifact_build_command_status" docs/architecture/linux-package-artifact-build-command-validation-contract.md
+          grep -q "package_artifact_build_command_cargo_args" docs/architecture/linux-package-artifact-build-command-validation-contract.md
+          grep -q "package_artifact_build_command_binary_path" docs/architecture/linux-package-artifact-build-command-validation-contract.md
+          grep -q '^name = "networkcore-linux"$' apps/linux-cli/Cargo.toml
+          grep -q '^\[\[bin\]\]$' apps/linux-cli/Cargo.toml
+          grep -q '^path = "src/main.rs"$' apps/linux-cli/Cargo.toml
           if grep -Eq '^[[:space:]]+actions:[[:space:]]+read$' .github/workflows/release.yml; then
             echo "::error::actions: read must stay disabled until release CI gate activation is implemented."
             exit 1
@@ -365,6 +373,7 @@ jobs:
           grep -q "release-ci-required-fields" .github/workflows/release.yml
           grep -q "Linux Package Release CI Gate Activation Validation Contract" .github/workflows/release.yml
           grep -q "Linux Package Artifact Job Preflight Validation Contract" .github/workflows/release.yml
+          grep -q "Linux Package Artifact Build Command Validation Contract" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-contract=present"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-required-permission=actions-read"$' .github/workflows/release.yml)" -ge 4
@@ -387,6 +396,17 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-upload=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-failure-mode=fail-before-checkout-toolchain-build-staging"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-job-preflight-next-action=license-notice-and-ci-gate-before-package-linux"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-required-job=package-linux"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-preflight=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-target-install=blocked-before-preflight"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-cargo-args=build,--locked,--release,--package,networkcore-linux,--bin,networkcore-linux,--target,x86_64-unknown-linux-gnu"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-binary-path=target/x86_64-unknown-linux-gnu/release/networkcore-linux"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-binary-path-check=blocked-before-build"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-build-output=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-upload=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-build-command-next-action=license-notice-ci-preflight-before-build"$' .github/workflows/release.yml)" -ge 3
           grep -q "Linux Package Platform Input Contract" .github/workflows/release.yml
           grep -q "linux-package-platform-input-contract=present" .github/workflows/release.yml
           grep -q "linux-package-required-target=x86_64-unknown-linux-gnu" .github/workflows/release.yml
@@ -517,6 +537,7 @@ jobs:
             echo "| License/NOTICE confirmation source contract | present |"
             echo "| Release CI gate activation validation contract | present |"
             echo "| Package artifact job preflight validation contract | present |"
+            echo "| Package artifact build command validation contract | present |"
             echo "| Package runner/toolchain/target contract | present |"
             echo "| Package archive staging contract | present |"
             echo "| Package checksum/manifest checksum contract | present |"
@@ -577,6 +598,25 @@ jobs:
           echo "linux-package-artifact-job-preflight-release-asset=blocked"
           echo "linux-package-artifact-job-preflight-failure-mode=fail-before-checkout-toolchain-build-staging"
           echo "linux-package-artifact-job-preflight-next-action=license-notice-and-ci-gate-before-package-linux"
+          echo "linux-package-artifact-build-command-contract=present"
+          echo "linux-package-artifact-build-command-source=linux-artifact-readiness"
+          echo "linux-package-artifact-build-command-status=blocked-placeholder"
+          echo "linux-package-artifact-build-command-current-mode=contract-only-no-build"
+          echo "linux-package-artifact-build-command-required-job=package-linux"
+          echo "linux-package-artifact-build-command-job-status=not-defined"
+          echo "linux-package-artifact-build-command-preflight=blocked-placeholder"
+          echo "linux-package-artifact-build-command-target-install=blocked-before-preflight"
+          echo "linux-package-artifact-build-command-rust-toolchain=stable"
+          echo "linux-package-artifact-build-command-rust-profile=minimal"
+          echo "linux-package-artifact-build-command-target=x86_64-unknown-linux-gnu"
+          echo "linux-package-artifact-build-command-package=networkcore-linux"
+          echo "linux-package-artifact-build-command-binary=networkcore-linux"
+          echo "linux-package-artifact-build-command-cargo-args=build,--locked,--release,--package,networkcore-linux,--bin,networkcore-linux,--target,x86_64-unknown-linux-gnu"
+          echo "linux-package-artifact-build-command-binary-path=target/x86_64-unknown-linux-gnu/release/networkcore-linux"
+          echo "linux-package-artifact-build-command-binary-path-check=blocked-before-build"
+          echo "linux-package-artifact-build-command-build-output=blocked"
+          echo "linux-package-artifact-build-command-upload=blocked"
+          echo "linux-package-artifact-build-command-next-action=license-notice-ci-preflight-before-build"
           echo "linux-package-license-notice-transition-contract=present"
           echo "linux-package-license-notice-transition-source=docs/manual-intervention.md"
           echo "linux-package-license-notice-transition-status=blocked-pending"
@@ -722,6 +762,7 @@ jobs:
           test -f docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
           test -f docs/architecture/linux-package-license-notice-transition-validation-contract.md
           test -f docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
+          test -f docs/architecture/linux-package-artifact-build-command-validation-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
           grep -q "Linux Package Publish Upload Boundary Contract" docs/architecture/linux-package-publish-upload-boundary-contract.md
           grep -q "Linux Package Signing Attestation Policy Binding Contract" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
@@ -729,6 +770,7 @@ jobs:
           grep -q "Linux Package Publish Eligibility Aggregate Contract" docs/architecture/linux-package-publish-eligibility-aggregate-contract.md
           grep -q "Linux Package License Notice Transition Validation Contract" docs/architecture/linux-package-license-notice-transition-validation-contract.md
           grep -q "Linux Package Artifact Job Preflight Validation Contract" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
+          grep -q "Linux Package Artifact Build Command Validation Contract" docs/architecture/linux-package-artifact-build-command-validation-contract.md
           require_license_notice_repo_file() {
             case "$1" in
               ""|/*|*..*|http://*|https://*)
@@ -852,6 +894,29 @@ jobs:
             echo "| Current release asset | blocked |"
             echo "| Failure mode | fail-before-checkout-toolchain-build-staging |"
             echo "| Next action | license-notice-and-ci-gate-before-package-linux |"
+            echo
+            echo "### Linux Package Artifact Build Command Validation Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | contract-only-no-build |"
+            echo "| Source contract | docs/architecture/linux-package-artifact-build-command-validation-contract.md |"
+            echo "| Build command status | blocked-placeholder |"
+            echo "| Required job | package-linux |"
+            echo "| Current package-linux job | not defined |"
+            echo "| Preflight status | blocked-placeholder |"
+            echo "| Target install | blocked-before-preflight |"
+            echo "| Rust toolchain | stable |"
+            echo "| Rust profile | minimal |"
+            echo "| Target triple | x86_64-unknown-linux-gnu |"
+            echo "| Package | networkcore-linux |"
+            echo "| Binary | networkcore-linux |"
+            echo "| Cargo args | build,--locked,--release,--package,networkcore-linux,--bin,networkcore-linux,--target,x86_64-unknown-linux-gnu |"
+            echo "| Binary path | target/x86_64-unknown-linux-gnu/release/networkcore-linux |"
+            echo "| Binary path check | blocked-before-build |"
+            echo "| Build output | blocked |"
+            echo "| Upload | blocked |"
+            echo "| Next action | license-notice-ci-preflight-before-build |"
             echo
             echo "### Linux Package Platform Input Contract"
             echo
@@ -1083,6 +1148,25 @@ jobs:
           echo "linux-package-artifact-job-preflight-release-asset=blocked"
           echo "linux-package-artifact-job-preflight-failure-mode=fail-before-checkout-toolchain-build-staging"
           echo "linux-package-artifact-job-preflight-next-action=license-notice-and-ci-gate-before-package-linux"
+          echo "linux-package-artifact-build-command-contract=present"
+          echo "linux-package-artifact-build-command-source=linux-artifact-readiness"
+          echo "linux-package-artifact-build-command-status=blocked-placeholder"
+          echo "linux-package-artifact-build-command-current-mode=contract-only-no-build"
+          echo "linux-package-artifact-build-command-required-job=package-linux"
+          echo "linux-package-artifact-build-command-job-status=not-defined"
+          echo "linux-package-artifact-build-command-preflight=blocked-placeholder"
+          echo "linux-package-artifact-build-command-target-install=blocked-before-preflight"
+          echo "linux-package-artifact-build-command-rust-toolchain=stable"
+          echo "linux-package-artifact-build-command-rust-profile=minimal"
+          echo "linux-package-artifact-build-command-target=x86_64-unknown-linux-gnu"
+          echo "linux-package-artifact-build-command-package=networkcore-linux"
+          echo "linux-package-artifact-build-command-binary=networkcore-linux"
+          echo "linux-package-artifact-build-command-cargo-args=build,--locked,--release,--package,networkcore-linux,--bin,networkcore-linux,--target,x86_64-unknown-linux-gnu"
+          echo "linux-package-artifact-build-command-binary-path=target/x86_64-unknown-linux-gnu/release/networkcore-linux"
+          echo "linux-package-artifact-build-command-binary-path-check=blocked-before-build"
+          echo "linux-package-artifact-build-command-build-output=blocked"
+          echo "linux-package-artifact-build-command-upload=blocked"
+          echo "linux-package-artifact-build-command-next-action=license-notice-ci-preflight-before-build"
           echo "linux-package-platform-input-contract=present"
           echo "linux-package-platform-contract=docs/architecture/linux-package-runner-toolchain-target-contract.md"
           echo "linux-package-required-runner=ubuntu-latest"
@@ -1283,6 +1367,17 @@ jobs:
             echo "| Linux package artifact job preflight staging | blocked-before-gates |"
             echo "| Linux package artifact job preflight upload | blocked |"
             echo "| Linux package artifact job preflight next action | license-notice-and-ci-gate-before-package-linux |"
+            echo "| Linux package artifact build command validation contract | checked in linux-artifact-readiness |"
+            echo "| Linux package artifact build command status | blocked-placeholder |"
+            echo "| Linux package artifact build command required job | package-linux |"
+            echo "| Linux package artifact build command preflight | blocked-placeholder |"
+            echo "| Linux package artifact build command target install | blocked-before-preflight |"
+            echo "| Linux package artifact build command cargo args | build,--locked,--release,--package,networkcore-linux,--bin,networkcore-linux,--target,x86_64-unknown-linux-gnu |"
+            echo "| Linux package artifact build command binary path | target/x86_64-unknown-linux-gnu/release/networkcore-linux |"
+            echo "| Linux package artifact build command binary path check | blocked-before-build |"
+            echo "| Linux package artifact build command build output | blocked |"
+            echo "| Linux package artifact build command upload | blocked |"
+            echo "| Linux package artifact build command next action | license-notice-ci-preflight-before-build |"
             echo "| Release artifact contract | ${RELEASE_ARTIFACT_CONTRACT_RESULT} |"
             echo "| Release signing contract | ${RELEASE_SIGNING_CONTRACT_RESULT} |"
             echo "| Release rollback contract | ${RELEASE_ROLLBACK_CONTRACT_RESULT} |"
@@ -1444,6 +1539,25 @@ jobs:
           echo "linux-package-artifact-job-preflight-release-asset=blocked"
           echo "linux-package-artifact-job-preflight-failure-mode=fail-before-checkout-toolchain-build-staging"
           echo "linux-package-artifact-job-preflight-next-action=license-notice-and-ci-gate-before-package-linux"
+          echo "linux-package-artifact-build-command-contract=present"
+          echo "linux-package-artifact-build-command-source=linux-artifact-readiness"
+          echo "linux-package-artifact-build-command-status=blocked-placeholder"
+          echo "linux-package-artifact-build-command-current-mode=contract-only-no-build"
+          echo "linux-package-artifact-build-command-required-job=package-linux"
+          echo "linux-package-artifact-build-command-job-status=not-defined"
+          echo "linux-package-artifact-build-command-preflight=blocked-placeholder"
+          echo "linux-package-artifact-build-command-target-install=blocked-before-preflight"
+          echo "linux-package-artifact-build-command-rust-toolchain=stable"
+          echo "linux-package-artifact-build-command-rust-profile=minimal"
+          echo "linux-package-artifact-build-command-target=x86_64-unknown-linux-gnu"
+          echo "linux-package-artifact-build-command-package=networkcore-linux"
+          echo "linux-package-artifact-build-command-binary=networkcore-linux"
+          echo "linux-package-artifact-build-command-cargo-args=build,--locked,--release,--package,networkcore-linux,--bin,networkcore-linux,--target,x86_64-unknown-linux-gnu"
+          echo "linux-package-artifact-build-command-binary-path=target/x86_64-unknown-linux-gnu/release/networkcore-linux"
+          echo "linux-package-artifact-build-command-binary-path-check=blocked-before-build"
+          echo "linux-package-artifact-build-command-build-output=blocked"
+          echo "linux-package-artifact-build-command-upload=blocked"
+          echo "linux-package-artifact-build-command-next-action=license-notice-ci-preflight-before-build"
           echo "release-artifact-contract=${RELEASE_ARTIFACT_CONTRACT_RESULT}"
           echo "release-signing-contract=${RELEASE_SIGNING_CONTRACT_RESULT}"
           echo "release-rollback-contract=${RELEASE_ROLLBACK_CONTRACT_RESULT}"

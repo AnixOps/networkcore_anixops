@@ -119,8 +119,8 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、Git
 ## 验收条件
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux package
-  manifest 设计、Linux package artifact job preflight validation contract、Linux package archive
-  staging contract、Linux package checksum manifest contract、Linux package publish/upload boundary
+  manifest 设计、Linux package artifact job preflight validation contract、Linux package artifact build
+  command validation contract、Linux package archive staging contract、Linux package checksum manifest contract、Linux package publish/upload boundary
   contract、Linux package signing/attestation policy binding contract、Linux package release notes/rollback
   policy binding contract、Linux package publish eligibility aggregate contract、Linux package license/NOTICE
   transition validation contract、Linux CLI artifact 安装/回滚设计、Release CI success source contract 和
@@ -141,5 +141,6 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、Git
 - Linux package archive staging contract、checksum manifest contract、publish/upload boundary contract、
   signing/attestation policy binding contract、release notes/rollback policy binding contract、
   publish eligibility aggregate contract、license/NOTICE transition validation contract、release CI gate
-  activation validation contract 和 artifact job preflight validation contract 已定义；下一步可以补充
-  Linux package artifact build command validation contract，仍不生成 artifact。
+  activation validation contract、artifact job preflight validation contract 和 artifact build command
+  validation contract 已定义；下一步可以补充
+  Linux package artifact staging file validation contract，仍不生成 artifact。

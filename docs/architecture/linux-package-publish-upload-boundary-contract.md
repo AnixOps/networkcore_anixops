@@ -179,5 +179,6 @@ maintainer 上传文件、旧 run artifact、不同 commit artifact、不同 bra
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
 - Linux package signing/attestation policy binding contract、release notes/rollback policy binding
   contract、publish eligibility aggregate contract、license/NOTICE transition validation contract、release CI
-  gate activation validation contract 和 artifact job preflight validation contract 已定义；下一步可以补充
-  Linux package artifact build command validation contract，仍不生成 artifact。
+  gate activation validation contract、artifact job preflight validation contract 和 artifact build command
+  validation contract 已定义；下一步可以补充
+  Linux package artifact staging file validation contract，仍不生成 artifact。
