@@ -177,4 +177,4 @@ release workflow 必须拒绝以下情况：
 - Linux package release CI gate activation validation contract、Linux package artifact job preflight
   validation contract、Linux package artifact build command validation contract、Linux package artifact
   staging file validation contract 和 Linux package artifact archive creation validation contract 已定义；
-  Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract 和 Linux package workflow artifact bundle upload validation contract 已定义；下一步可以补充 Linux package artifact attestation execution validation contract，仍不发布 release asset。
+  Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract 和 Linux package artifact attestation execution validation contract 已定义；下一步可以补充 Linux package release notes/rollback execution validation contract，仍不发布 release asset。

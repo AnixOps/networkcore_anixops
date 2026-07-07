@@ -292,6 +292,7 @@ jobs:
           test -f docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
           test -f docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
           test -f docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
+          test -f docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
           test -f docs/architecture/linux-package-runner-toolchain-target-contract.md
           test -f docs/architecture/linux-package-archive-staging-contract.md
           test -f docs/architecture/linux-package-checksum-manifest-contract.md
@@ -358,6 +359,11 @@ jobs:
           grep -q "package_workflow_artifact_bundle_upload_required_files" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
           grep -q "package_workflow_artifact_bundle_upload_source_dir" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
           grep -q "Future Workflow Artifact Upload" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
+          grep -q "Linux Package Artifact Attestation Execution Validation Contract" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
+          grep -q "package_artifact_attestation_execution_status" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
+          grep -q "package_artifact_attestation_execution_required_permissions" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
+          grep -q "package_artifact_attestation_execution_subjects" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
+          grep -q "Future Attestation Execution" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
           grep -q '^name = "networkcore-linux"$' apps/linux-cli/Cargo.toml
           grep -q '^\[\[bin\]\]$' apps/linux-cli/Cargo.toml
           grep -q '^path = "src/main.rs"$' apps/linux-cli/Cargo.toml
@@ -416,6 +422,7 @@ jobs:
           grep -q "Linux Package Artifact Manifest Generation Validation Contract" .github/workflows/release.yml
           grep -q "Linux Package Artifact Manifest Checksum Validation Contract" .github/workflows/release.yml
           grep -q "Linux Package Workflow Artifact Bundle Upload Validation Contract" .github/workflows/release.yml
+          grep -q "Linux Package Artifact Attestation Execution Validation Contract" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-contract=present"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-required-permission=actions-read"$' .github/workflows/release.yml)" -ge 4
@@ -554,6 +561,32 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-publish-job=publish-github-release"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-publish-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-next-action=attestation-after-workflow-artifact-bundle"$' .github/workflows/release.yml)" -ge 3
+          grep -Eq '^[[:space:]]+echo "### Linux Package Artifact Attestation Execution Validation Contract"$' .github/workflows/release.yml
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-required-job=attest-linux"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-package-job=package-linux"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-workflow-artifact-bundle=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-download-source=same-run-workflow-artifact"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-attestation-execution-bundle-name=networkcore-linux-[$][{]version[}]-[$][{]target[}]-release-bundle'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-subjects=archive,archive_sha256,manifest,manifest_sha256"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-subject-path-mode=explicit-files"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-action=actions/attest"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-action-version=v4"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-action-status=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-required-permissions=contents-read,id-token-write,attestations-write"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-permissions-status=not-enabled"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-attestation-policy=github-artifact-attestation-required"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-attestation-status=blocked-not-attested"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-provenance-policy=github-build-provenance-required"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-provenance-file=github-artifact-attestation"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-provenance-status=blocked-not-generated"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-publish-without-attestation=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-publish-job=publish-github-release"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-publish-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-next-action=release-notes-rollback-execution-after-attestation"$' .github/workflows/release.yml)" -ge 3
           grep -q "Linux Package Platform Input Contract" .github/workflows/release.yml
           grep -q "linux-package-platform-input-contract=present" .github/workflows/release.yml
           grep -q "linux-package-required-target=x86_64-unknown-linux-gnu" .github/workflows/release.yml
@@ -673,6 +706,18 @@ jobs:
             echo "::error::actions/upload-artifact must stay disabled until workflow artifact bundle upload validation is implemented."
             exit 1
           fi
+          if grep -Eq '^[[:space:]]+id-token:[[:space:]]+write$' .github/workflows/release.yml; then
+            echo "::error::id-token: write must stay disabled until artifact attestation execution is implemented."
+            exit 1
+          fi
+          if grep -Eq '^[[:space:]]+attestations:[[:space:]]+write$' .github/workflows/release.yml; then
+            echo "::error::attestations: write must stay disabled until artifact attestation execution is implemented."
+            exit 1
+          fi
+          if grep -Eq '^[[:space:]]+uses:[[:space:]]+actions/attest(@|$)' .github/workflows/release.yml; then
+            echo "::error::actions/attest must stay disabled until artifact attestation execution is implemented."
+            exit 1
+          fi
           {
             echo "### Linux Artifact Readiness"
             echo
@@ -695,6 +740,7 @@ jobs:
             echo "| Package artifact manifest generation validation contract | present |"
             echo "| Package artifact manifest checksum validation contract | present |"
             echo "| Package workflow artifact bundle upload validation contract | present |"
+            echo "| Package artifact attestation execution validation contract | present |"
             echo "| Package runner/toolchain/target contract | present |"
             echo "| Package archive staging contract | present |"
             echo "| Package checksum/manifest checksum contract | present |"
@@ -906,6 +952,34 @@ jobs:
           echo "linux-package-workflow-artifact-bundle-upload-publish-job=publish-github-release"
           echo "linux-package-workflow-artifact-bundle-upload-publish-job-status=not-defined"
           echo "linux-package-workflow-artifact-bundle-upload-next-action=attestation-after-workflow-artifact-bundle"
+          echo "linux-package-artifact-attestation-execution-contract=present"
+          echo "linux-package-artifact-attestation-execution-source=linux-artifact-readiness"
+          echo "linux-package-artifact-attestation-execution-status=blocked-placeholder"
+          echo "linux-package-artifact-attestation-execution-current-mode=contract-only-no-attestation"
+          echo "linux-package-artifact-attestation-execution-required-job=attest-linux"
+          echo "linux-package-artifact-attestation-execution-job-status=not-defined"
+          echo "linux-package-artifact-attestation-execution-package-job=package-linux"
+          echo "linux-package-artifact-attestation-execution-package-job-status=not-defined"
+          echo "linux-package-artifact-attestation-execution-workflow-artifact-bundle=blocked-placeholder"
+          echo "linux-package-artifact-attestation-execution-download-source=same-run-workflow-artifact"
+          echo 'linux-package-artifact-attestation-execution-bundle-name=networkcore-linux-${version}-${target}-release-bundle'
+          echo "linux-package-artifact-attestation-execution-subjects=archive,archive_sha256,manifest,manifest_sha256"
+          echo "linux-package-artifact-attestation-execution-subject-path-mode=explicit-files"
+          echo "linux-package-artifact-attestation-execution-action=actions/attest"
+          echo "linux-package-artifact-attestation-execution-action-version=v4"
+          echo "linux-package-artifact-attestation-execution-action-status=blocked"
+          echo "linux-package-artifact-attestation-execution-required-permissions=contents-read,id-token-write,attestations-write"
+          echo "linux-package-artifact-attestation-execution-permissions-status=not-enabled"
+          echo "linux-package-artifact-attestation-execution-attestation-policy=github-artifact-attestation-required"
+          echo "linux-package-artifact-attestation-execution-attestation-status=blocked-not-attested"
+          echo "linux-package-artifact-attestation-execution-provenance-policy=github-build-provenance-required"
+          echo "linux-package-artifact-attestation-execution-provenance-file=github-artifact-attestation"
+          echo "linux-package-artifact-attestation-execution-provenance-status=blocked-not-generated"
+          echo "linux-package-artifact-attestation-execution-publish-without-attestation=blocked"
+          echo "linux-package-artifact-attestation-execution-release-asset=blocked"
+          echo "linux-package-artifact-attestation-execution-publish-job=publish-github-release"
+          echo "linux-package-artifact-attestation-execution-publish-job-status=not-defined"
+          echo "linux-package-artifact-attestation-execution-next-action=release-notes-rollback-execution-after-attestation"
           echo "linux-package-license-notice-transition-contract=present"
           echo "linux-package-license-notice-transition-source=docs/manual-intervention.md"
           echo "linux-package-license-notice-transition-status=blocked-pending"
@@ -1058,6 +1132,7 @@ jobs:
           test -f docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
           test -f docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
           test -f docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
+          test -f docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
           grep -q "Linux Package Publish Upload Boundary Contract" docs/architecture/linux-package-publish-upload-boundary-contract.md
           grep -q "Linux Package Signing Attestation Policy Binding Contract" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
@@ -1072,6 +1147,7 @@ jobs:
           grep -q "Linux Package Artifact Manifest Generation Validation Contract" docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
           grep -q "Linux Package Artifact Manifest Checksum Validation Contract" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
           grep -q "Linux Package Workflow Artifact Bundle Upload Validation Contract" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
+          grep -q "Linux Package Artifact Attestation Execution Validation Contract" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
           require_license_notice_repo_file() {
             case "$1" in
               ""|/*|*..*|http://*|https://*)
@@ -1367,6 +1443,38 @@ jobs:
             echo "| Publish job | publish-github-release |"
             echo "| Publish job status | not-defined |"
             echo "| Next action | attestation-after-workflow-artifact-bundle |"
+            echo
+            echo "### Linux Package Artifact Attestation Execution Validation Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | contract-only-no-attestation |"
+            echo "| Source contract | docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md |"
+            echo "| Attestation execution status | blocked-placeholder |"
+            echo "| Required job | attest-linux |"
+            echo "| Current attest-linux job | not defined |"
+            echo "| Package job | package-linux |"
+            echo "| Current package-linux job | not defined |"
+            echo "| Workflow artifact bundle | blocked-placeholder |"
+            echo "| Download source | same-run-workflow-artifact |"
+            echo '| Bundle name | networkcore-linux-${version}-${target}-release-bundle |'
+            echo "| Subjects | archive,archive_sha256,manifest,manifest_sha256 |"
+            echo "| Subject path mode | explicit-files |"
+            echo "| Action | actions/attest |"
+            echo "| Action version | v4 |"
+            echo "| Action status | blocked |"
+            echo "| Required permissions | contents-read,id-token-write,attestations-write |"
+            echo "| Permissions status | not-enabled |"
+            echo "| Attestation policy | github-artifact-attestation-required |"
+            echo "| Attestation status | blocked-not-attested |"
+            echo "| Provenance policy | github-build-provenance-required |"
+            echo "| Provenance file | github-artifact-attestation |"
+            echo "| Provenance status | blocked-not-generated |"
+            echo "| Publish without attestation | blocked |"
+            echo "| Release asset | blocked |"
+            echo "| Publish job | publish-github-release |"
+            echo "| Publish job status | not-defined |"
+            echo "| Next action | release-notes-rollback-execution-after-attestation |"
             echo
             echo "### Linux Package Platform Input Contract"
             echo
@@ -1749,6 +1857,34 @@ jobs:
           echo "linux-package-workflow-artifact-bundle-upload-publish-job=publish-github-release"
           echo "linux-package-workflow-artifact-bundle-upload-publish-job-status=not-defined"
           echo "linux-package-workflow-artifact-bundle-upload-next-action=attestation-after-workflow-artifact-bundle"
+          echo "linux-package-artifact-attestation-execution-contract=present"
+          echo "linux-package-artifact-attestation-execution-source=linux-artifact-readiness"
+          echo "linux-package-artifact-attestation-execution-status=blocked-placeholder"
+          echo "linux-package-artifact-attestation-execution-current-mode=contract-only-no-attestation"
+          echo "linux-package-artifact-attestation-execution-required-job=attest-linux"
+          echo "linux-package-artifact-attestation-execution-job-status=not-defined"
+          echo "linux-package-artifact-attestation-execution-package-job=package-linux"
+          echo "linux-package-artifact-attestation-execution-package-job-status=not-defined"
+          echo "linux-package-artifact-attestation-execution-workflow-artifact-bundle=blocked-placeholder"
+          echo "linux-package-artifact-attestation-execution-download-source=same-run-workflow-artifact"
+          echo 'linux-package-artifact-attestation-execution-bundle-name=networkcore-linux-${version}-${target}-release-bundle'
+          echo "linux-package-artifact-attestation-execution-subjects=archive,archive_sha256,manifest,manifest_sha256"
+          echo "linux-package-artifact-attestation-execution-subject-path-mode=explicit-files"
+          echo "linux-package-artifact-attestation-execution-action=actions/attest"
+          echo "linux-package-artifact-attestation-execution-action-version=v4"
+          echo "linux-package-artifact-attestation-execution-action-status=blocked"
+          echo "linux-package-artifact-attestation-execution-required-permissions=contents-read,id-token-write,attestations-write"
+          echo "linux-package-artifact-attestation-execution-permissions-status=not-enabled"
+          echo "linux-package-artifact-attestation-execution-attestation-policy=github-artifact-attestation-required"
+          echo "linux-package-artifact-attestation-execution-attestation-status=blocked-not-attested"
+          echo "linux-package-artifact-attestation-execution-provenance-policy=github-build-provenance-required"
+          echo "linux-package-artifact-attestation-execution-provenance-file=github-artifact-attestation"
+          echo "linux-package-artifact-attestation-execution-provenance-status=blocked-not-generated"
+          echo "linux-package-artifact-attestation-execution-publish-without-attestation=blocked"
+          echo "linux-package-artifact-attestation-execution-release-asset=blocked"
+          echo "linux-package-artifact-attestation-execution-publish-job=publish-github-release"
+          echo "linux-package-artifact-attestation-execution-publish-job-status=not-defined"
+          echo "linux-package-artifact-attestation-execution-next-action=release-notes-rollback-execution-after-attestation"
           echo "linux-package-platform-input-contract=present"
           echo "linux-package-platform-contract=docs/architecture/linux-package-runner-toolchain-target-contract.md"
           echo "linux-package-required-runner=ubuntu-latest"
@@ -2064,6 +2200,31 @@ jobs:
             echo "| Linux package workflow artifact bundle upload publish job | publish-github-release |"
             echo "| Linux package workflow artifact bundle upload publish job status | not-defined |"
             echo "| Linux package workflow artifact bundle upload next action | attestation-after-workflow-artifact-bundle |"
+            echo "| Linux package artifact attestation execution validation contract | checked in linux-artifact-readiness |"
+            echo "| Linux package artifact attestation execution status | blocked-placeholder |"
+            echo "| Linux package artifact attestation execution required job | attest-linux |"
+            echo "| Linux package artifact attestation execution job status | not-defined |"
+            echo "| Linux package artifact attestation execution package job | package-linux |"
+            echo "| Linux package artifact attestation execution workflow artifact bundle | blocked-placeholder |"
+            echo "| Linux package artifact attestation execution download source | same-run-workflow-artifact |"
+            echo '| Linux package artifact attestation execution bundle name | networkcore-linux-${version}-${target}-release-bundle |'
+            echo "| Linux package artifact attestation execution subjects | archive,archive_sha256,manifest,manifest_sha256 |"
+            echo "| Linux package artifact attestation execution subject path mode | explicit-files |"
+            echo "| Linux package artifact attestation execution action | actions/attest |"
+            echo "| Linux package artifact attestation execution action version | v4 |"
+            echo "| Linux package artifact attestation execution action status | blocked |"
+            echo "| Linux package artifact attestation execution required permissions | contents-read,id-token-write,attestations-write |"
+            echo "| Linux package artifact attestation execution permissions status | not-enabled |"
+            echo "| Linux package artifact attestation execution attestation policy | github-artifact-attestation-required |"
+            echo "| Linux package artifact attestation execution attestation status | blocked-not-attested |"
+            echo "| Linux package artifact attestation execution provenance policy | github-build-provenance-required |"
+            echo "| Linux package artifact attestation execution provenance file | github-artifact-attestation |"
+            echo "| Linux package artifact attestation execution provenance status | blocked-not-generated |"
+            echo "| Linux package artifact attestation execution publish without attestation | blocked |"
+            echo "| Linux package artifact attestation execution release asset | blocked |"
+            echo "| Linux package artifact attestation execution publish job | publish-github-release |"
+            echo "| Linux package artifact attestation execution publish job status | not-defined |"
+            echo "| Linux package artifact attestation execution next action | release-notes-rollback-execution-after-attestation |"
             echo "| Release artifact contract | ${RELEASE_ARTIFACT_CONTRACT_RESULT} |"
             echo "| Release signing contract | ${RELEASE_SIGNING_CONTRACT_RESULT} |"
             echo "| Release rollback contract | ${RELEASE_ROLLBACK_CONTRACT_RESULT} |"
@@ -2376,6 +2537,34 @@ jobs:
           echo "linux-package-workflow-artifact-bundle-upload-publish-job=publish-github-release"
           echo "linux-package-workflow-artifact-bundle-upload-publish-job-status=not-defined"
           echo "linux-package-workflow-artifact-bundle-upload-next-action=attestation-after-workflow-artifact-bundle"
+          echo "linux-package-artifact-attestation-execution-contract=present"
+          echo "linux-package-artifact-attestation-execution-source=linux-artifact-readiness"
+          echo "linux-package-artifact-attestation-execution-status=blocked-placeholder"
+          echo "linux-package-artifact-attestation-execution-current-mode=contract-only-no-attestation"
+          echo "linux-package-artifact-attestation-execution-required-job=attest-linux"
+          echo "linux-package-artifact-attestation-execution-job-status=not-defined"
+          echo "linux-package-artifact-attestation-execution-package-job=package-linux"
+          echo "linux-package-artifact-attestation-execution-package-job-status=not-defined"
+          echo "linux-package-artifact-attestation-execution-workflow-artifact-bundle=blocked-placeholder"
+          echo "linux-package-artifact-attestation-execution-download-source=same-run-workflow-artifact"
+          echo 'linux-package-artifact-attestation-execution-bundle-name=networkcore-linux-${version}-${target}-release-bundle'
+          echo "linux-package-artifact-attestation-execution-subjects=archive,archive_sha256,manifest,manifest_sha256"
+          echo "linux-package-artifact-attestation-execution-subject-path-mode=explicit-files"
+          echo "linux-package-artifact-attestation-execution-action=actions/attest"
+          echo "linux-package-artifact-attestation-execution-action-version=v4"
+          echo "linux-package-artifact-attestation-execution-action-status=blocked"
+          echo "linux-package-artifact-attestation-execution-required-permissions=contents-read,id-token-write,attestations-write"
+          echo "linux-package-artifact-attestation-execution-permissions-status=not-enabled"
+          echo "linux-package-artifact-attestation-execution-attestation-policy=github-artifact-attestation-required"
+          echo "linux-package-artifact-attestation-execution-attestation-status=blocked-not-attested"
+          echo "linux-package-artifact-attestation-execution-provenance-policy=github-build-provenance-required"
+          echo "linux-package-artifact-attestation-execution-provenance-file=github-artifact-attestation"
+          echo "linux-package-artifact-attestation-execution-provenance-status=blocked-not-generated"
+          echo "linux-package-artifact-attestation-execution-publish-without-attestation=blocked"
+          echo "linux-package-artifact-attestation-execution-release-asset=blocked"
+          echo "linux-package-artifact-attestation-execution-publish-job=publish-github-release"
+          echo "linux-package-artifact-attestation-execution-publish-job-status=not-defined"
+          echo "linux-package-artifact-attestation-execution-next-action=release-notes-rollback-execution-after-attestation"
           echo "release-artifact-contract=${RELEASE_ARTIFACT_CONTRACT_RESULT}"
           echo "release-signing-contract=${RELEASE_SIGNING_CONTRACT_RESULT}"
           echo "release-rollback-contract=${RELEASE_ROLLBACK_CONTRACT_RESULT}"

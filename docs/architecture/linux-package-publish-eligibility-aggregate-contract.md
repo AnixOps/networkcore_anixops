@@ -38,6 +38,7 @@ archive staging、checksum/manifest、artifact manifest、publish/upload、signi
 [Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md)、
 [Linux Package Publish Upload Boundary Contract](linux-package-publish-upload-boundary-contract.md)、
 [Linux Package Signing Attestation Policy Binding Contract](linux-package-signing-attestation-policy-binding-contract.md)、
+[Linux Package Artifact Attestation Execution Validation Contract](linux-package-artifact-attestation-execution-validation-contract.md)、
 [Linux Package Release Notes Rollback Policy Binding Contract](linux-package-release-notes-rollback-policy-binding-contract.md)
 和 release workflow 中的显式常量。不得由 maintainer 在 `workflow_dispatch` 中手动输入
 eligible 状态、CI URL、artifact path、attestation 状态、rollback 状态或 release asset eligibility
@@ -151,7 +152,7 @@ outputs 完全一致。首个 Linux artifact 的最小发布前状态为：
 3. `linux-artifact-readiness` 确认源码、设计和人工事项状态。
 4. `package-linux` 生成 archive、archive checksum、manifest 和 manifest checksum。
 5. `package-linux` 上传同一 release run 的 workflow artifact bundle。
-6. `attest-linux` 对 archive、checksum、manifest 和 manifest checksum 生成 attestation/provenance。
+6. `attest-linux` 按 [Linux Package Artifact Attestation Execution Validation Contract](linux-package-artifact-attestation-execution-validation-contract.md) 对 archive、checksum、manifest 和 manifest checksum 生成 attestation/provenance。
 7. release notes/rollback gate 输出 release notes、rollback、withdrawal 和 replacement 字段。
 8. publish eligibility aggregate gate 读取以上所有 job outputs、manifest、manual marker 和 summary 字段。
 9. 只有 `package_publish_eligibility_status=eligible` 时，`publish-github-release` 才能上传 GitHub Release assets。
@@ -203,7 +204,8 @@ aggregate eligibility publish gate 或 upload 步骤。
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux artifact 设计、Linux package manifest
   设计、Linux package publish/upload boundary contract、Linux package checksum manifest contract、
-  Linux package signing/attestation policy binding contract、Linux package release notes/rollback
+  Linux package signing/attestation policy binding contract、Linux package artifact attestation execution
+  validation contract、Linux package release notes/rollback
   policy binding contract、Linux CLI artifact 安装/回滚设计、Release CI success source contract、
   Linux package release CI gate activation validation contract、Linux package artifact job preflight validation
   contract、Linux package runner/toolchain/target contract、Linux package archive staging contract、Linux artifact
@@ -225,4 +227,4 @@ aggregate eligibility publish gate 或 upload 步骤。
   validation contract、Linux package artifact job preflight validation contract、Linux package artifact build
   command validation contract、Linux package artifact staging file validation contract、Linux package artifact
   archive creation validation contract 和 Linux package artifact checksum execution validation contract 已定义；
-  Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract 和 Linux package workflow artifact bundle upload validation contract 已定义；下一步可以补充 Linux package artifact attestation execution validation contract，仍不发布 release asset。
+  Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract 和 Linux package artifact attestation execution validation contract 已定义；下一步可以补充 Linux package release notes/rollback execution validation contract，仍不发布 release asset。

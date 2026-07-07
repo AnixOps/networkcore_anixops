@@ -77,6 +77,7 @@ jobs:
           test -f docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
           test -f docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
           test -f docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
+          test -f docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
           test -f docs/architecture/adr-0001-initial-core-stack.md
           grep -q "本机只负责代码" AGENT.md
           grep -q "GitHub Actions" docs/ci-cd-policy.md
@@ -127,6 +128,11 @@ jobs:
           grep -q "package_workflow_artifact_bundle_upload_required_files" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
           grep -q "package_workflow_artifact_bundle_upload_source_dir" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
           grep -q "Future Workflow Artifact Upload" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
+          grep -q "Linux Package Artifact Attestation Execution Validation Contract" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
+          grep -q "package_artifact_attestation_execution_status" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
+          grep -q "package_artifact_attestation_execution_required_permissions" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
+          grep -q "package_artifact_attestation_execution_subjects" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
+          grep -q "Future Attestation Execution" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
           grep -q "release-ci-success-source-contract=present" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-contract=present"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 4
@@ -273,8 +279,46 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-publish-job=publish-github-release"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-publish-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-workflow-artifact-bundle-upload-next-action=attestation-after-workflow-artifact-bundle"$' .github/workflows/release.yml)" -ge 3
+          grep -q "Linux Package Artifact Attestation Execution Validation Contract" .github/workflows/release.yml
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-required-job=attest-linux"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-package-job=package-linux"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-workflow-artifact-bundle=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-download-source=same-run-workflow-artifact"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-attestation-execution-bundle-name=networkcore-linux-[$][{]version[}]-[$][{]target[}]-release-bundle'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-subjects=archive,archive_sha256,manifest,manifest_sha256"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-subject-path-mode=explicit-files"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-action=actions/attest"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-action-version=v4"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-action-status=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-required-permissions=contents-read,id-token-write,attestations-write"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-permissions-status=not-enabled"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-attestation-policy=github-artifact-attestation-required"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-attestation-status=blocked-not-attested"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-provenance-policy=github-build-provenance-required"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-provenance-file=github-artifact-attestation"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-provenance-status=blocked-not-generated"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-publish-without-attestation=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-publish-job=publish-github-release"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-publish-job-status=not-defined"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-attestation-execution-next-action=release-notes-rollback-execution-after-attestation"$' .github/workflows/release.yml)" -ge 3
           if grep -Eq '^[[:space:]]+uses:[[:space:]]+actions/upload-artifact(@|$)' .github/workflows/release.yml; then
             echo "::error::actions/upload-artifact must stay disabled until workflow artifact bundle upload validation is implemented."
+            exit 1
+          fi
+          if grep -Eq '^[[:space:]]+id-token:[[:space:]]+write$' .github/workflows/release.yml; then
+            echo "::error::id-token: write must stay disabled until artifact attestation execution is implemented."
+            exit 1
+          fi
+          if grep -Eq '^[[:space:]]+attestations:[[:space:]]+write$' .github/workflows/release.yml; then
+            echo "::error::attestations: write must stay disabled until artifact attestation execution is implemented."
+            exit 1
+          fi
+          if grep -Eq '^[[:space:]]+uses:[[:space:]]+actions/attest(@|$)' .github/workflows/release.yml; then
+            echo "::error::actions/attest must stay disabled until artifact attestation execution is implemented."
             exit 1
           fi
           grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
@@ -363,6 +407,7 @@ jobs:
           grep -q "Linux Package Artifact Manifest Generation Validation Contract" docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
           grep -q "Linux Package Artifact Manifest Checksum Validation Contract" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
           grep -q "Linux Package Workflow Artifact Bundle Upload Validation Contract" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
+          grep -q "Linux Package Artifact Attestation Execution Validation Contract" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
           grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
           grep -q "Linux Package Archive Staging Contract" docs/architecture/linux-package-archive-staging-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
