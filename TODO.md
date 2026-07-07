@@ -4,10 +4,11 @@
 
 ## 当前
 
-- [ ] 补充 iOS Network Extension design，定义 iOS tunnel provider、配置下发、证书/权限、MITM 插件边界、App Review 风险和 GitHub Actions 可验证入口；Linux artifact 继续等待 license/NOTICE confirmed marker，期间不得定义 `package-linux` 或发布 release asset。
+- [ ] 补充 iOS platform adapter source contract，定义 future `platform-ios` crate、`PlatformCapabilityService` 映射、证书状态读取边界、Network Extension entitlement 诊断和 macOS GitHub Actions 验证入口；Linux artifact 继续等待 license/NOTICE confirmed marker，期间不得定义 `package-linux` 或发布 release asset。
 
 ## 已完成
 
+- [x] 补充 iOS Network Extension design，定义 `NEPacketTunnelProvider`/`NETunnelProviderManager` 拓扑、配置下发、App Group/Keychain 边界、MITM 证书状态、远程脚本禁用、App Review 风险、`macos-26` GitHub Actions 验证入口和继续不在本机运行 iOS build/test 的规则。
 - [x] 新增 `mitm-anixops-sys` 首个源码接入增量，通过 Git submodule 固定 `mitm_anixops`，在 Rust workspace 中编译 C core，并用一个 version FFI 测试证明 NetworkCore 已链接 `anixops_version()`。
 - [x] 补充 `mitm_anixops` adapter 设计，明确该 C ABI core 在 NetworkCore 中只能先作为 MITM 策略/plugin 兼容后端接入，真实全平台 MITM 仍依赖后续领域 mutation model、HTTP/TLS 数据面、证书/信任 platform adapter 和 GitHub Actions 多平台验证。
 - [x] 实现 `release-ci-gate` API read；release workflow 现在在 `release-ci-gate` job 级启用 `actions: read`，查询同 repository、同 commit、`main` completed/success CI run，校验 `CI summary` job，输出 CI source fields，并继续不定义 `package-linux`、workflow artifact 或 release asset。

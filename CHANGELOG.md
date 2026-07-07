@@ -10,6 +10,7 @@
 
 ### Added
 
+- 新增 iOS Network Extension design，定义 `NEPacketTunnelProvider`/`NETunnelProviderManager` 拓扑、配置下发、App Group/Keychain secret 边界、`PlatformCapabilityService`/`MitmCertificateStatus` 映射、MITM 证书信任、远程脚本禁用、App Review 风险和 `macos-26` GitHub Actions 验证入口；CI governance 现在静态检查该设计，仍不引入 Swift/Xcode project、iOS 签名、TestFlight 上传或 release asset。
 - 新增 `mitm-anixops-sys` crate 和 `third_party/mitm_anixops` submodule，Rust CI 现在在 Linux/macOS/Windows Rust build/test 矩阵中编译 vendored `mitm_anixops` C core，并通过 `linked_c_core_reports_pinned_version` 测试调用 `anixops_version()` 验证 NetworkCore 已链接该 C ABI；Windows Rust CI 切换到 GNU target 并安装 MSYS2 MINGW64 `libsystre` 以满足 POSIX regex 依赖。
 - 新增 `mitm_anixops` adapter 设计，定义该 C ABI core 在 NetworkCore 中的接入边界、`mitm-anixops-sys`/`mitm-policy` crate 规划、`MitmPluginService` adapter 阶段、真实 rewrite 前的领域 mutation model 门槛、`engine-native` HTTP/TLS 数据面门槛和 Linux/macOS/Windows/iOS platform adapter 责任，明确在 CI/CD 证明前不得宣称完整全平台 MITM 可用。
 - 新增 Release CI gate API implementation plan，定义 `release-ci-gate` 启用 `actions: read` 后的 workflow runs API endpoint、workflow jobs API endpoint、same-sha/main/success run 选择规则、`CI summary` job 校验、输出字段和失败回滚边界；该计划现在由 active API read 实现消费，继续不定义 `package-linux` 或上传 Linux release asset。

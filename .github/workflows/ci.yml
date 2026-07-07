@@ -53,6 +53,7 @@ jobs:
           test -f docs/architecture/mitm-anixops-adapter.md
           test -f docs/architecture/control-runtime-orchestration.md
           test -f docs/architecture/ios-platform-risk-assessment.md
+          test -f docs/architecture/ios-network-extension-design.md
           test -f docs/architecture/linux-artifact-pre-release-design.md
           test -f docs/architecture/linux-platform-adapter.md
           test -f docs/architecture/linux-cli-entrypoint.md
@@ -514,6 +515,18 @@ jobs:
           grep -q "全平台 MITM 已可用" docs/architecture/mitm-anixops-adapter.md
           grep -q "Control Runtime Orchestration Design" docs/architecture/control-runtime-orchestration.md
           grep -q "iOS Platform Risk Assessment" docs/architecture/ios-platform-risk-assessment.md
+          grep -q "iOS Network Extension Design" docs/architecture/ios-network-extension-design.md
+          grep -q "Packet Tunnel Provider" docs/architecture/ios-network-extension-design.md
+          grep -q "NEPacketTunnelProvider" docs/architecture/ios-network-extension-design.md
+          grep -q "NETunnelProviderManager" docs/architecture/ios-network-extension-design.md
+          grep -q "App Group" docs/architecture/ios-network-extension-design.md
+          grep -q "PlatformCapabilityService" docs/architecture/ios-network-extension-design.md
+          grep -q "PlatformCapabilities" docs/architecture/ios-network-extension-design.md
+          grep -q "MitmCertificateStatus" docs/architecture/ios-network-extension-design.md
+          grep -q "remote_script_execution" docs/architecture/ios-network-extension-design.md
+          grep -q "App Review" docs/architecture/ios-network-extension-design.md
+          grep -q "GitHub Actions" docs/architecture/ios-network-extension-design.md
+          grep -q "macos-26" docs/architecture/ios-network-extension-design.md
           grep -q "Linux Artifact Pre-Release Design" docs/architecture/linux-artifact-pre-release-design.md
           grep -q "Linux Platform Adapter Design" docs/architecture/linux-platform-adapter.md
           grep -q "Linux CLI Entrypoint Design" docs/architecture/linux-cli-entrypoint.md

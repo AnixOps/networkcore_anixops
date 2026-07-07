@@ -110,7 +110,7 @@ iOS 插件策略：
 
 ## 后续工作
 
-- 在实现 iOS adapter 前，新增 `docs/architecture/ios-network-extension-design.md`。
+- 已新增 [iOS Network Extension Design](ios-network-extension-design.md)，后续实现 iOS adapter 前必须补充 `platform-ios` source contract。
 - 发布真实平台产物必须遵守 `docs/release-strategy.md` 中的签名、产物矩阵和回滚门禁。
 - 后续平台 adapter 必须通过 `PlatformCapabilityService` 提供 iOS 能力和证书信任状态。
 
