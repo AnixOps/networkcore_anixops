@@ -32,8 +32,7 @@ pub const APP_GROUP_UNAVAILABLE_CODE: &str = "platform.ios.app_group.unavailable
 pub const KEYCHAIN_ACCESS_DENIED_CODE: &str = "platform.ios.keychain.access_denied";
 pub const EMBEDDED_RUNTIME_AVAILABLE_CODE: &str = "platform.ios.embedded_runtime.available";
 pub const EMBEDDED_RUNTIME_MISSING_CODE: &str = "platform.ios.embedded_runtime.missing";
-pub const EMBEDDED_RUNTIME_ABI_MISMATCH_CODE: &str =
-    "platform.ios.embedded_runtime.abi_mismatch";
+pub const EMBEDDED_RUNTIME_ABI_MISMATCH_CODE: &str = "platform.ios.embedded_runtime.abi_mismatch";
 pub const EMBEDDED_RUNTIME_INITIALIZATION_FAILED_CODE: &str =
     "platform.ios.embedded_runtime.initialization_failed";
 pub const REMOTE_SCRIPT_EXECUTION_DISABLED_CODE: &str =
@@ -465,14 +464,14 @@ fn map_network_extension(probe: IosNetworkExtensionProbe) -> IosFeatureProbe {
 
 fn map_embedded_runtime(probe: IosEmbeddedRuntimeProbe) -> IosFeatureProbe {
     match probe.state {
-        IosEmbeddedRuntimeState::Available => IosFeatureProbe::available().with_diagnostic(
-            ios_diagnostic(
+        IosEmbeddedRuntimeState::Available => {
+            IosFeatureProbe::available().with_diagnostic(ios_diagnostic(
                 DiagnosticSeverity::Info,
                 EMBEDDED_RUNTIME_AVAILABLE_CODE,
                 "iOS embedded runtime is available",
                 SOURCE_EMBEDDED_RUNTIME,
-            ),
-        ),
+            ))
+        }
         IosEmbeddedRuntimeState::Missing => IosFeatureProbe::unavailable(
             "iOS embedded runtime is missing",
             ios_diagnostic(

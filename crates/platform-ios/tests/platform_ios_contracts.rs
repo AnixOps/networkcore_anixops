@@ -4,12 +4,11 @@ use control_domain::{
 };
 use platform_ios::{
     certificate_severity, IosEmbeddedRuntimeProbe, IosMitmCertificateProbe,
-    IosNetworkExtensionProbe, IosPlatformSnapshot, IosSharedStorageProbe,
-    IosVpnConfigurationState, StaticIosPlatformCapabilityService, APP_GROUP_UNAVAILABLE_CODE,
-    EMBEDDED_RUNTIME_AVAILABLE_CODE, EMBEDDED_RUNTIME_MISSING_CODE,
-    KEYCHAIN_ACCESS_DENIED_CODE, MITM_CERTIFICATE_INSTALLED_UNTRUSTED_CODE,
-    MITM_CERTIFICATE_NOT_INSTALLED_CODE, MITM_CERTIFICATE_REVOKED_CODE,
-    MITM_CERTIFICATE_TRUSTED_CODE, MITM_CERTIFICATE_UNKNOWN_CODE,
+    IosNetworkExtensionProbe, IosPlatformSnapshot, IosSharedStorageProbe, IosVpnConfigurationState,
+    StaticIosPlatformCapabilityService, APP_GROUP_UNAVAILABLE_CODE,
+    EMBEDDED_RUNTIME_AVAILABLE_CODE, EMBEDDED_RUNTIME_MISSING_CODE, KEYCHAIN_ACCESS_DENIED_CODE,
+    MITM_CERTIFICATE_INSTALLED_UNTRUSTED_CODE, MITM_CERTIFICATE_NOT_INSTALLED_CODE,
+    MITM_CERTIFICATE_REVOKED_CODE, MITM_CERTIFICATE_TRUSTED_CODE, MITM_CERTIFICATE_UNKNOWN_CODE,
     NETWORK_EXTENSION_ENTITLEMENT_MISSING_CODE, REMOTE_SCRIPT_EXECUTION_DISABLED_CODE,
     REMOTE_SCRIPT_EXECUTION_DISABLED_REASON, SOURCE_APP_GROUP, SOURCE_EMBEDDED_RUNTIME,
     SOURCE_KEYCHAIN, SOURCE_MITM_CERTIFICATE, SOURCE_NETWORK_EXTENSION,
@@ -108,7 +107,12 @@ fn vpn_configuration_states_deny_tunnel_with_stable_diagnostics() {
 
         assert!(!status.tunnel.is_available());
         assert_eq!(status.tunnel.denial_reason(), Some(reason));
-        assert_diagnostic(&status.diagnostics, severity, code, SOURCE_VPN_CONFIGURATION);
+        assert_diagnostic(
+            &status.diagnostics,
+            severity,
+            code,
+            SOURCE_VPN_CONFIGURATION,
+        );
     }
 }
 
