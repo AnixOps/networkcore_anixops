@@ -290,6 +290,7 @@ jobs:
           test -f docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
           test -f docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
           test -f docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
+          test -f docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
           test -f docs/architecture/linux-package-runner-toolchain-target-contract.md
           test -f docs/architecture/linux-package-archive-staging-contract.md
           test -f docs/architecture/linux-package-checksum-manifest-contract.md
@@ -346,6 +347,11 @@ jobs:
           grep -q "package_artifact_manifest_generation_required_fields" docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
           grep -q "package_artifact_manifest_generation_manifest_path" docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
           grep -q "Future Manifest Generation" docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
+          grep -q "Linux Package Artifact Manifest Checksum Validation Contract" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
+          grep -q "package_artifact_manifest_checksum_status" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
+          grep -q "package_artifact_manifest_checksum_record_format" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
+          grep -q "package_artifact_manifest_checksum_path" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
+          grep -q "Future Manifest Checksum Command" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
           grep -q '^name = "networkcore-linux"$' apps/linux-cli/Cargo.toml
           grep -q '^\[\[bin\]\]$' apps/linux-cli/Cargo.toml
           grep -q '^path = "src/main.rs"$' apps/linux-cli/Cargo.toml
@@ -402,6 +408,7 @@ jobs:
           grep -q "Linux Package Artifact Archive Creation Validation Contract" .github/workflows/release.yml
           grep -q "Linux Package Artifact Checksum Execution Validation Contract" .github/workflows/release.yml
           grep -q "Linux Package Artifact Manifest Generation Validation Contract" .github/workflows/release.yml
+          grep -q "Linux Package Artifact Manifest Checksum Validation Contract" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-contract=present"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-required-permission=actions-read"$' .github/workflows/release.yml)" -ge 4
@@ -504,6 +511,22 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-manifest-checksum=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-upload=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-manifest-generation-next-action=manifest-checksum-after-manifest"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-required-job=package-linux"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-manifest-generation=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-algorithm=sha256"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-checksum-manifest-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].manifest.json'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-checksum-manifest-path=dist/linux/[$][{]target[}]/artifacts/networkcore-linux-[$][{]version[}]-[$][{]target[}].manifest.json'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-checksum-checksum-name=networkcore-linux-[$][{]version[}]-[$][{]target[}].manifest.json.sha256'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-manifest-checksum-checksum-path=dist/linux/[$][{]target[}]/artifacts/networkcore-linux-[$][{]version[}]-[$][{]target[}].manifest.json.sha256'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-record-format=sha256sum-two-space-file-name"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-checksum-value=blocked-before-manifest"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-checksum-file-write=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-workflow-artifact=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-upload=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-manifest-checksum-next-action=workflow-artifact-upload-after-manifest-checksum"$' .github/workflows/release.yml)" -ge 3
           grep -q "Linux Package Platform Input Contract" .github/workflows/release.yml
           grep -q "linux-package-platform-input-contract=present" .github/workflows/release.yml
           grep -q "linux-package-required-target=x86_64-unknown-linux-gnu" .github/workflows/release.yml
@@ -639,6 +662,7 @@ jobs:
             echo "| Package artifact archive creation validation contract | present |"
             echo "| Package artifact checksum execution validation contract | present |"
             echo "| Package artifact manifest generation validation contract | present |"
+            echo "| Package artifact manifest checksum validation contract | present |"
             echo "| Package runner/toolchain/target contract | present |"
             echo "| Package archive staging contract | present |"
             echo "| Package checksum/manifest checksum contract | present |"
@@ -809,6 +833,25 @@ jobs:
           echo "linux-package-artifact-manifest-generation-manifest-checksum=blocked"
           echo "linux-package-artifact-manifest-generation-upload=blocked"
           echo "linux-package-artifact-manifest-generation-next-action=manifest-checksum-after-manifest"
+          echo "linux-package-artifact-manifest-checksum-contract=present"
+          echo "linux-package-artifact-manifest-checksum-source=linux-artifact-readiness"
+          echo "linux-package-artifact-manifest-checksum-status=blocked-placeholder"
+          echo "linux-package-artifact-manifest-checksum-current-mode=contract-only-no-manifest-checksum"
+          echo "linux-package-artifact-manifest-checksum-required-job=package-linux"
+          echo "linux-package-artifact-manifest-checksum-job-status=not-defined"
+          echo "linux-package-artifact-manifest-checksum-manifest-generation=blocked-placeholder"
+          echo "linux-package-artifact-manifest-checksum-algorithm=sha256"
+          echo 'linux-package-artifact-manifest-checksum-manifest-name=networkcore-linux-${version}-${target}.manifest.json'
+          echo 'linux-package-artifact-manifest-checksum-manifest-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.manifest.json'
+          echo 'linux-package-artifact-manifest-checksum-checksum-name=networkcore-linux-${version}-${target}.manifest.json.sha256'
+          echo 'linux-package-artifact-manifest-checksum-checksum-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.manifest.json.sha256'
+          echo "linux-package-artifact-manifest-checksum-record-format=sha256sum-two-space-file-name"
+          echo "linux-package-artifact-manifest-checksum-checksum-value=blocked-before-manifest"
+          echo "linux-package-artifact-manifest-checksum-checksum-file-write=blocked"
+          echo "linux-package-artifact-manifest-checksum-workflow-artifact=blocked"
+          echo "linux-package-artifact-manifest-checksum-release-asset=blocked"
+          echo "linux-package-artifact-manifest-checksum-upload=blocked"
+          echo "linux-package-artifact-manifest-checksum-next-action=workflow-artifact-upload-after-manifest-checksum"
           echo "linux-package-license-notice-transition-contract=present"
           echo "linux-package-license-notice-transition-source=docs/manual-intervention.md"
           echo "linux-package-license-notice-transition-status=blocked-pending"
@@ -959,6 +1002,7 @@ jobs:
           test -f docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
           test -f docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
           test -f docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
+          test -f docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
           grep -q "Linux Package Publish Upload Boundary Contract" docs/architecture/linux-package-publish-upload-boundary-contract.md
           grep -q "Linux Package Signing Attestation Policy Binding Contract" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
@@ -971,6 +1015,7 @@ jobs:
           grep -q "Linux Package Artifact Archive Creation Validation Contract" docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
           grep -q "Linux Package Artifact Checksum Execution Validation Contract" docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md
           grep -q "Linux Package Artifact Manifest Generation Validation Contract" docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md
+          grep -q "Linux Package Artifact Manifest Checksum Validation Contract" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
           require_license_notice_repo_file() {
             case "$1" in
               ""|/*|*..*|http://*|https://*)
@@ -1217,6 +1262,29 @@ jobs:
             echo "| Manifest checksum | blocked |"
             echo "| Upload | blocked |"
             echo "| Next action | manifest-checksum-after-manifest |"
+            echo
+            echo "### Linux Package Artifact Manifest Checksum Validation Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | contract-only-no-manifest-checksum |"
+            echo "| Source contract | docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md |"
+            echo "| Manifest checksum status | blocked-placeholder |"
+            echo "| Required job | package-linux |"
+            echo "| Current package-linux job | not defined |"
+            echo "| Manifest generation status | blocked-placeholder |"
+            echo "| Algorithm | sha256 |"
+            echo '| Manifest name | networkcore-linux-${version}-${target}.manifest.json |'
+            echo '| Manifest path | dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.manifest.json |'
+            echo '| Checksum name | networkcore-linux-${version}-${target}.manifest.json.sha256 |'
+            echo '| Checksum path | dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.manifest.json.sha256 |'
+            echo "| Record format | sha256sum-two-space-file-name |"
+            echo "| Checksum value | blocked-before-manifest |"
+            echo "| Checksum file write | blocked |"
+            echo "| Workflow artifact | blocked |"
+            echo "| Release asset | blocked |"
+            echo "| Upload | blocked |"
+            echo "| Next action | workflow-artifact-upload-after-manifest-checksum |"
             echo
             echo "### Linux Package Platform Input Contract"
             echo
@@ -1558,6 +1626,25 @@ jobs:
           echo "linux-package-artifact-manifest-generation-manifest-checksum=blocked"
           echo "linux-package-artifact-manifest-generation-upload=blocked"
           echo "linux-package-artifact-manifest-generation-next-action=manifest-checksum-after-manifest"
+          echo "linux-package-artifact-manifest-checksum-contract=present"
+          echo "linux-package-artifact-manifest-checksum-source=linux-artifact-readiness"
+          echo "linux-package-artifact-manifest-checksum-status=blocked-placeholder"
+          echo "linux-package-artifact-manifest-checksum-current-mode=contract-only-no-manifest-checksum"
+          echo "linux-package-artifact-manifest-checksum-required-job=package-linux"
+          echo "linux-package-artifact-manifest-checksum-job-status=not-defined"
+          echo "linux-package-artifact-manifest-checksum-manifest-generation=blocked-placeholder"
+          echo "linux-package-artifact-manifest-checksum-algorithm=sha256"
+          echo 'linux-package-artifact-manifest-checksum-manifest-name=networkcore-linux-${version}-${target}.manifest.json'
+          echo 'linux-package-artifact-manifest-checksum-manifest-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.manifest.json'
+          echo 'linux-package-artifact-manifest-checksum-checksum-name=networkcore-linux-${version}-${target}.manifest.json.sha256'
+          echo 'linux-package-artifact-manifest-checksum-checksum-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.manifest.json.sha256'
+          echo "linux-package-artifact-manifest-checksum-record-format=sha256sum-two-space-file-name"
+          echo "linux-package-artifact-manifest-checksum-checksum-value=blocked-before-manifest"
+          echo "linux-package-artifact-manifest-checksum-checksum-file-write=blocked"
+          echo "linux-package-artifact-manifest-checksum-workflow-artifact=blocked"
+          echo "linux-package-artifact-manifest-checksum-release-asset=blocked"
+          echo "linux-package-artifact-manifest-checksum-upload=blocked"
+          echo "linux-package-artifact-manifest-checksum-next-action=workflow-artifact-upload-after-manifest-checksum"
           echo "linux-package-platform-input-contract=present"
           echo "linux-package-platform-contract=docs/architecture/linux-package-runner-toolchain-target-contract.md"
           echo "linux-package-required-runner=ubuntu-latest"
@@ -1838,6 +1925,22 @@ jobs:
             echo "| Linux package artifact manifest generation manifest checksum | blocked |"
             echo "| Linux package artifact manifest generation upload | blocked |"
             echo "| Linux package artifact manifest generation next action | manifest-checksum-after-manifest |"
+            echo "| Linux package artifact manifest checksum validation contract | checked in linux-artifact-readiness |"
+            echo "| Linux package artifact manifest checksum status | blocked-placeholder |"
+            echo "| Linux package artifact manifest checksum required job | package-linux |"
+            echo "| Linux package artifact manifest checksum manifest generation | blocked-placeholder |"
+            echo "| Linux package artifact manifest checksum algorithm | sha256 |"
+            echo '| Linux package artifact manifest checksum manifest name | networkcore-linux-${version}-${target}.manifest.json |'
+            echo '| Linux package artifact manifest checksum manifest path | dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.manifest.json |'
+            echo '| Linux package artifact manifest checksum checksum name | networkcore-linux-${version}-${target}.manifest.json.sha256 |'
+            echo '| Linux package artifact manifest checksum checksum path | dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.manifest.json.sha256 |'
+            echo "| Linux package artifact manifest checksum record format | sha256sum-two-space-file-name |"
+            echo "| Linux package artifact manifest checksum checksum value | blocked-before-manifest |"
+            echo "| Linux package artifact manifest checksum checksum file write | blocked |"
+            echo "| Linux package artifact manifest checksum workflow artifact | blocked |"
+            echo "| Linux package artifact manifest checksum release asset | blocked |"
+            echo "| Linux package artifact manifest checksum upload | blocked |"
+            echo "| Linux package artifact manifest checksum next action | workflow-artifact-upload-after-manifest-checksum |"
             echo "| Release artifact contract | ${RELEASE_ARTIFACT_CONTRACT_RESULT} |"
             echo "| Release signing contract | ${RELEASE_SIGNING_CONTRACT_RESULT} |"
             echo "| Release rollback contract | ${RELEASE_ROLLBACK_CONTRACT_RESULT} |"
@@ -2109,6 +2212,25 @@ jobs:
           echo "linux-package-artifact-manifest-generation-manifest-checksum=blocked"
           echo "linux-package-artifact-manifest-generation-upload=blocked"
           echo "linux-package-artifact-manifest-generation-next-action=manifest-checksum-after-manifest"
+          echo "linux-package-artifact-manifest-checksum-contract=present"
+          echo "linux-package-artifact-manifest-checksum-source=linux-artifact-readiness"
+          echo "linux-package-artifact-manifest-checksum-status=blocked-placeholder"
+          echo "linux-package-artifact-manifest-checksum-current-mode=contract-only-no-manifest-checksum"
+          echo "linux-package-artifact-manifest-checksum-required-job=package-linux"
+          echo "linux-package-artifact-manifest-checksum-job-status=not-defined"
+          echo "linux-package-artifact-manifest-checksum-manifest-generation=blocked-placeholder"
+          echo "linux-package-artifact-manifest-checksum-algorithm=sha256"
+          echo 'linux-package-artifact-manifest-checksum-manifest-name=networkcore-linux-${version}-${target}.manifest.json'
+          echo 'linux-package-artifact-manifest-checksum-manifest-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.manifest.json'
+          echo 'linux-package-artifact-manifest-checksum-checksum-name=networkcore-linux-${version}-${target}.manifest.json.sha256'
+          echo 'linux-package-artifact-manifest-checksum-checksum-path=dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.manifest.json.sha256'
+          echo "linux-package-artifact-manifest-checksum-record-format=sha256sum-two-space-file-name"
+          echo "linux-package-artifact-manifest-checksum-checksum-value=blocked-before-manifest"
+          echo "linux-package-artifact-manifest-checksum-checksum-file-write=blocked"
+          echo "linux-package-artifact-manifest-checksum-workflow-artifact=blocked"
+          echo "linux-package-artifact-manifest-checksum-release-asset=blocked"
+          echo "linux-package-artifact-manifest-checksum-upload=blocked"
+          echo "linux-package-artifact-manifest-checksum-next-action=workflow-artifact-upload-after-manifest-checksum"
           echo "release-artifact-contract=${RELEASE_ARTIFACT_CONTRACT_RESULT}"
           echo "release-signing-contract=${RELEASE_SIGNING_CONTRACT_RESULT}"
           echo "release-rollback-contract=${RELEASE_ROLLBACK_CONTRACT_RESULT}"

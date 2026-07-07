@@ -155,8 +155,9 @@ checksum 生成后继续修改 manifest。
   Linux package signing/attestation policy binding contract、Linux package release notes/rollback
   policy binding contract、Linux package publish eligibility aggregate contract、Release CI success source contract、
   Linux package artifact job preflight validation contract、Linux package runner/toolchain/target contract、
-  Linux package archive staging contract、Linux artifact license/NOTICE confirmation source contract 和
-  CI policy 中可发现。
+  Linux package archive staging contract、Linux artifact license/NOTICE confirmation source contract、
+  [Linux Package Artifact Manifest Checksum Validation Contract](linux-package-artifact-manifest-checksum-validation-contract.md)
+  和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
 - `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题和
   release placeholder/summary 输出字段。
@@ -171,4 +172,4 @@ checksum 生成后继续修改 manifest。
 - Linux package publish/upload boundary contract、signing/attestation policy binding contract、
   release notes/rollback policy binding contract、publish eligibility aggregate contract 和
   license/NOTICE transition validation contract、release CI gate activation validation contract 已定义；
-  Linux package artifact job preflight validation contract、Linux package artifact build command validation contract、Linux package artifact staging file validation contract、Linux package artifact archive creation validation contract 和 Linux package artifact checksum execution validation contract 已定义；Linux package artifact manifest generation validation contract 已定义；下一步补充 Linux package artifact manifest checksum validation contract，仍不生成 artifact。
+  Linux package artifact job preflight validation contract、Linux package artifact build command validation contract、Linux package artifact staging file validation contract、Linux package artifact archive creation validation contract 和 Linux package artifact checksum execution validation contract 已定义；Linux package artifact manifest generation validation contract 和 Linux package artifact manifest checksum validation contract 已定义；下一步补充 Linux package workflow artifact bundle upload validation contract，仍不发布 release asset。

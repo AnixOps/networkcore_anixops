@@ -206,4 +206,4 @@ GitHub Release 或 upload 步骤。
 - 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
 - Linux package publish eligibility aggregate contract、license/NOTICE transition validation contract、release
   CI gate activation validation contract、artifact job preflight validation contract、artifact build command
-  validation contract、artifact staging file validation contract、artifact archive creation validation contract 和 artifact checksum execution validation contract 已定义；Linux package artifact manifest generation validation contract 已定义；下一步可以补充 Linux package artifact manifest checksum validation contract，仍不生成 artifact。
+  validation contract、artifact staging file validation contract、artifact archive creation validation contract 和 artifact checksum execution validation contract 已定义；Linux package artifact manifest generation validation contract 和 Linux package artifact manifest checksum validation contract 已定义；下一步可以补充 Linux package workflow artifact bundle upload validation contract，仍不发布 release asset。

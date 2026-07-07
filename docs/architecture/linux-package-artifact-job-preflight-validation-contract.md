@@ -253,5 +253,6 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、sec
 - Linux package artifact build command validation contract、Linux package artifact staging file validation
   contract、Linux package artifact archive creation validation contract 和 Linux package artifact checksum
   execution validation contract 已定义；Linux package artifact manifest generation validation contract
-  已定义；下一步可以补充 Linux package artifact manifest checksum validation contract，明确真实
-  manifest JSON 生成后计算 manifest sha256、写 manifest checksum sidecar 和仍不 upload 的边界。
+  和 Linux package artifact manifest checksum validation contract 已定义；下一步可以补充 Linux
+  package workflow artifact bundle upload validation contract，明确真实 manifest checksum sidecar 生成后
+  校验 release bundle 文件集、上传同一 release run workflow artifact 和仍不发布 release asset 的边界。

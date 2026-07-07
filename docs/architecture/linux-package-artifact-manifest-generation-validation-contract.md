@@ -217,5 +217,6 @@ artifact upload 或 release asset upload：
 
 - 在 license/NOTICE 人工确认、release CI gate activation、artifact job preflight、build command、
   staging file、archive creation 和 checksum execution gates 激活前，继续保持 `package-linux` 未定义。
-- 下一步可以补充 Linux package artifact manifest checksum validation contract，明确真实 manifest
-  JSON 生成后计算 manifest sha256、写 manifest checksum sidecar 和仍不 upload 的边界。
+- Linux package artifact manifest checksum validation contract 已定义；下一步可以补充 Linux package
+  workflow artifact bundle upload validation contract，明确真实 manifest checksum sidecar 生成后校验
+  release bundle 文件集、上传同一 release run workflow artifact 和仍不发布 release asset 的边界。

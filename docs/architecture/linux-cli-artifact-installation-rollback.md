@@ -40,7 +40,9 @@
 checksum 文件和 sidecar manifest 必须由 release job 单独输出，算法默认为 `sha256`。
 checksum 文件命名、sha256 计算顺序和 manifest checksum 交叉校验遵守
 [Linux Package Checksum Manifest Contract](linux-package-checksum-manifest-contract.md)，manifest
-形态和字段遵守 [Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md)。
+形态和字段遵守 [Linux Package Artifact Manifest Design](linux-package-artifact-manifest.md)，manifest
+checksum sidecar 生成前置验证遵守
+[Linux Package Artifact Manifest Checksum Validation Contract](linux-package-artifact-manifest-checksum-validation-contract.md)。
 压缩包内不得包含预生成配置、私钥、证书私钥、systemd unit、shell installer、包管理器脚本或自动修改系统状态的脚本。
 
 ## 安装边界
