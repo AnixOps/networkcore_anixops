@@ -68,6 +68,7 @@ jobs:
           test -f docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
           test -f docs/architecture/ios-upload-workflow-activation-validation-contract.md
           test -f docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
+          test -f docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
           test -f docs/architecture/linux-artifact-pre-release-design.md
           test -f docs/architecture/linux-platform-adapter.md
           test -f docs/architecture/linux-cli-entrypoint.md
@@ -129,7 +130,23 @@ jobs:
           test "$(grep -Ec '^          echo "ios-source-tree-preflight-source-scan=blocked-before-source"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "ios-source-tree-preflight-upload-enabled-marker=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "ios-source-tree-preflight-release-upload=blocked"$' .github/workflows/release.yml)" -ge 3
-          test "$(grep -Ec '^          echo "ios-source-tree-preflight-next-action=package-swift-source-ownership-before-package-swift"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-source-tree-preflight-next-action=add-package-swift-only-after-ownership-gate"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-ownership-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-ownership-source=ios-upload-readiness"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-ownership-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-ownership-current-mode=readme-placeholder-no-package-swift"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-ownership-contract-path=docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-ownership-package-path=apps/ios/Package.swift"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-ownership-targets=NetworkCoreBridge,NetworkCoreApp,NetworkCorePacketTunnel"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-ownership-test-targets=NetworkCoreBridgeTests"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-ownership-source-directory-guard=apps/ios/Sources,apps/ios/Tests"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-ownership-swift-source=blocked-until-package-gate"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-ownership-macos-runner=macos-26"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-ownership-validation-hook=swift-package-validation-blocked-before-package-swift"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-ownership-xcode-project=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-ownership-upload-enabled-marker=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-ownership-release-upload=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-package-swift-ownership-next-action=add-package-swift-only-after-ownership-gate"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "ios-upload-workflow-activation-contract=present"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "ios-upload-workflow-activation-source=ios-upload-readiness"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "ios-upload-workflow-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
@@ -863,6 +880,20 @@ jobs:
           grep -q "ios-source-tree-preflight" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
           grep -q "blocked-placeholder" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
           grep -q "no iOS release asset" docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
+          grep -q "iOS Package.swift Source Ownership Activation Preflight Contract" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          grep -q "apps/ios/Package.swift" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          grep -q "NetworkCoreBridge" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          grep -q "NetworkCoreApp" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          grep -q "NetworkCorePacketTunnel" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          grep -q "NetworkCoreBridgeTests" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          grep -q "source directory guard" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          grep -q "no Swift source until package gate" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          grep -q "macos-26 Swift package validation hook" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          grep -q "Xcode project blocked" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          grep -q "upload workflow enabled marker blocked" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          grep -q "ios-package-swift-ownership" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          grep -q "blocked-placeholder" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          grep -q "no iOS release asset" docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
           grep -q "iOS Source Tree Governance Placeholder" apps/ios/README.md
           grep -q "readme-placeholder-no-swift-source" apps/ios/README.md
           grep -q "Future iOS Swift package ownership starts at" apps/ios/README.md

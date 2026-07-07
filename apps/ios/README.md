@@ -9,6 +9,10 @@ allows this README as a governance placeholder. It does not enable Swift, Xcode,
 
 - Future iOS Swift package ownership starts at `apps/ios`.
 - Future `Package.swift` may only live at `apps/ios/Package.swift`.
+- Future `Package.swift` ownership activation is governed by
+  `docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md`.
+- Future Swift package targets are reserved for `NetworkCoreBridge`, `NetworkCoreApp` and `NetworkCorePacketTunnel`, with
+  `NetworkCoreBridgeTests` as the first approved test target.
 - Future Swift sources may only live under `apps/ios/Sources` or `apps/ios/Tests`.
 - Future Xcode project or workspace files must reference this source tree and must not become the only source of truth.
 - `NetworkCorePacketTunnel` remains the only approved Network Extension target name.
@@ -31,6 +35,10 @@ These files and directories must stay absent until their own activation gates ar
 - `ExportOptions.plist`
 - `.ipa`, `.xcarchive`, `.xcresult` or dSYM bundles
 - Provisioning Profile, certificate, private key, temporary keychain or App Store Connect API material
+
+The Package.swift ownership gate is still blocked-placeholder. It defines target ownership, source directory guard, no Swift
+source until package gate, the future `macos-26` Swift package validation hook, Xcode project blocked and upload workflow enabled
+marker blocked status; it does not enable a real `Package.swift`.
 
 ## CI Hook
 

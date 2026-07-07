@@ -13,7 +13,8 @@ GitHub Actions 验证入口的 source contract。它承接
 [iOS App Review Manual Confirmation Source Contract](ios-app-review-manual-confirmation-source-contract.md)、
 [iOS TestFlight App Store Connect Upload Workflow Source Contract](ios-testflight-app-store-connect-upload-workflow-source-contract.md)、
 [iOS Upload Workflow Activation Validation Contract](ios-upload-workflow-activation-validation-contract.md)、
-[iOS Swift Xcode Source Tree Activation Preflight Contract](ios-swift-xcode-source-tree-activation-preflight-contract.md) 和
+[iOS Swift Xcode Source Tree Activation Preflight Contract](ios-swift-xcode-source-tree-activation-preflight-contract.md)、
+[iOS Package.swift Source Ownership Activation Preflight Contract](ios-package-swift-source-ownership-activation-preflight-contract.md) 和
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
 
 当前状态：contract-only。仓库只允许 `apps/ios/README.md` 作为 source tree governance placeholder，仍不包含真实
@@ -24,6 +25,7 @@ entitlement、Provisioning Profile、签名配置、TestFlight/App Store 上传 
 ## Goals
 
 - 固定后续 Swift package、Xcode source tree 和 Network Extension target 的最小源码布局。
+- 固定 `Package.swift` source ownership 必须先通过 activation preflight，且 Swift source 不得早于 package gate 引入。
 - 定义 Swift DTO、FFI handoff 和 `platform-ios` Rust snapshot 之间的边界。
 - 约束 `NEPacketTunnelProvider`、`NETunnelProviderManager`、App Group、Keychain 和 embedded runtime
   事实只能以去敏 DTO 进入 Rust。
