@@ -65,6 +65,7 @@ jobs:
           test -f docs/architecture/ios-privacy-manifest-source-contract.md
           test -f docs/architecture/ios-app-review-manual-confirmation-source-contract.md
           test -f docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          test -f docs/architecture/ios-upload-workflow-activation-validation-contract.md
           test -f docs/architecture/linux-artifact-pre-release-design.md
           test -f docs/architecture/linux-platform-adapter.md
           test -f docs/architecture/linux-cli-entrypoint.md
@@ -105,6 +106,34 @@ jobs:
           grep -q "Changelog" CHANGELOG.md
           grep -q "linux-artifact-readiness" .github/workflows/release.yml
           grep -q "Linux artifact readiness" .github/workflows/release.yml
+          grep -q "ios-upload-readiness" .github/workflows/release.yml
+          grep -q "iOS upload readiness" .github/workflows/release.yml
+          grep -q "iOS Upload Workflow Activation Validation Contract" .github/workflows/release.yml
+          test "$(grep -Ec '^          echo "ios-upload-workflow-activation-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-activation-source=ios-upload-readiness"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-activation-current-mode=contract-only-no-ios-upload"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-source-contract=docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-activation-contract-path=docs/architecture/ios-upload-workflow-activation-validation-contract.md"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-manual-source=docs/manual-intervention.md"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-marker-status=pending"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-required-needs=release-policy,release-ci-gate,ios-upload-readiness"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-required-runner=macos-26"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-current-runner=ubuntu-latest-static-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-protected-environment-name=ios-app-store-connect"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-protected-environment=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-manual-approval=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-app-store-connect-api-secret-status=not-read-blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-signing-secret-status=not-read-blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-archive-export=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-testflight-upload=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-app-store-upload=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-app-review-submission=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-build-processing-check=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-release-assets=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-upload-jobs=not-defined"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-release-asset=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "ios-upload-workflow-next-action=swift-xcode-source-and-manual-confirmation-before-activation"$' .github/workflows/release.yml)" -ge 3
           grep -q "Linux Artifact Manifest Output Contract" .github/workflows/release.yml
           grep -q "linux-artifact-manifest-output-fields" .github/workflows/release.yml
           grep -q "Linux Artifact License/NOTICE Source Contract" .github/workflows/release.yml
@@ -786,6 +815,19 @@ jobs:
           grep -q "no App Store upload" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
           grep -q "no App Review submission" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
           grep -q "no iOS release asset" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "iOS Upload Workflow Activation Validation Contract" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "release workflow placeholder summary" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "ios-upload-workflow" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "protected environment" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "manual approval" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "App Store Connect API secret status" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "archive/export/upload/submission blocked" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "ios-upload-readiness" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "required needs" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "not-read-blocked" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "blocked-placeholder" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "macos-26" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "no iOS release asset" docs/architecture/ios-upload-workflow-activation-validation-contract.md
           grep -q "ios-app-review-manual-confirmation-status=pending" docs/manual-intervention.md
           grep -q "ios-app-review-manual-confirmation-source-contract=docs/architecture/ios-app-review-manual-confirmation-source-contract.md" docs/manual-intervention.md
           grep -q "ios-app-review-app-privacy-answers=blocked" docs/manual-intervention.md
@@ -819,6 +861,10 @@ jobs:
           grep -q "ios-upload-workflow-confirmed-by=pending" docs/manual-intervention.md
           if find . -path ./.git -prune -o \( -type f \( -name "PrivacyInfo.xcprivacy" -o -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" -o -name "ExportOptions.plist" -o -name "*.ipa" \) -o -type d \( -name "*.xcarchive" -o -name "*.xcresult" -o -name "*.dSYM" \) \) -print -quit | grep -q .; then
             echo "::error::iOS PrivacyInfo, entitlement, provisioning, signing, binary embedding, archive/export, or upload material must stay out of the repository until the iOS source contracts allow it."
+            exit 1
+          fi
+          if grep -Eq '^  (ios-archive-export|ios-upload-testflight|ios-build-processing-gate|ios-app-review-submission-gate|ios-release-summary):' .github/workflows/release.yml; then
+            echo "::error::real iOS upload jobs must stay undefined until activation, protected environment, approval and secrets are complete."
             exit 1
           fi
           grep -q "platform-ios" docs/architecture/ios-platform-adapter-source-contract.md

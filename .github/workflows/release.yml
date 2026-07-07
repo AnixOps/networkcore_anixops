@@ -1565,11 +1565,123 @@ jobs:
           echo "linux-artifact-license-notice=manual-confirmation-required"
           echo "linux-artifact-release-assets=blocked"
 
+  ios-upload-readiness:
+    name: iOS upload readiness
+    runs-on: ubuntu-latest
+    needs:
+      - release-rollback-contract
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Validate iOS upload activation placeholder
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f docs/manual-intervention.md
+          test -f docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          test -f docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "iOS TestFlight App Store Connect Upload Workflow Source Contract" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "iOS Upload Workflow Activation Validation Contract" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "release workflow placeholder summary" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "ios-upload-workflow" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "protected environment" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "manual approval" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "App Store Connect API secret status" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "archive/export/upload/submission blocked" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "ios-upload-readiness" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "required needs" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "not-read-blocked" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "blocked-placeholder" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "macos-26" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "no iOS release asset" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q '^ios-upload-workflow-status=pending$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-source-contract=docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-archive-export=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-app-store-connect-api=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-protected-environment=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-manual-approval=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-testflight-upload=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-app-store-upload=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-app-review-submission=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-release-assets=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-macos-runner=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-build-processing-check=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-confirmed-at=pending$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-confirmed-by=pending$' docs/manual-intervention.md
+          if grep -q '^ios-upload-workflow-status=enabled$' docs/manual-intervention.md; then
+            echo "::error::ios-upload-workflow cannot be pending and enabled in the same manual record."
+            exit 1
+          fi
+          if grep -Eq '^  (ios-archive-export|ios-upload-testflight|ios-build-processing-gate|ios-app-review-submission-gate|ios-release-summary):' .github/workflows/release.yml; then
+            echo "::error::real iOS upload jobs must stay undefined until source, protected environment, approval and secrets are complete."
+            exit 1
+          fi
+          if grep -Eq '^[[:space:]]+uses:[[:space:]]+(apple-actions/upload-testflight-build|Apple-Actions/upload-testflight-build)(@|$)' .github/workflows/release.yml; then
+            echo "::error::TestFlight upload actions must stay disabled until iOS upload activation is enabled."
+            exit 1
+          fi
+          if find . -path ./.git -prune -o \( -type f \( -name "PrivacyInfo.xcprivacy" -o -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" -o -name "ExportOptions.plist" -o -name "*.ipa" \) -o -type d \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "*.xcarchive" -o -name "*.xcresult" -o -name "*.dSYM" \) \) -print -quit | grep -q .; then
+            echo "::error::iOS source, signing, archive/export, upload, or release material must stay out of the repository until the source contracts allow it."
+            exit 1
+          fi
+          {
+            echo "### iOS Upload Workflow Activation Validation Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | contract-only-no-ios-upload |"
+            echo "| Source contract | docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md |"
+            echo "| Activation contract | docs/architecture/ios-upload-workflow-activation-validation-contract.md |"
+            echo "| Manual marker source | docs/manual-intervention.md |"
+            echo "| Marker status | pending |"
+            echo "| Future runner | macos-26 |"
+            echo "| Current runner | ubuntu-latest-static-placeholder |"
+            echo "| Protected environment | blocked |"
+            echo "| Protected environment name | ios-app-store-connect |"
+            echo "| Manual approval | blocked |"
+            echo "| App Store Connect API secret status | not-read-blocked |"
+            echo "| Signing secret status | not-read-blocked |"
+            echo "| Archive/export | blocked |"
+            echo "| TestFlight upload | blocked |"
+            echo "| App Store upload | blocked |"
+            echo "| App Review submission | blocked |"
+            echo "| Build processing check | blocked |"
+            echo "| Upload jobs | not-defined |"
+            echo "| iOS release asset | blocked |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "ios-upload-workflow-activation-contract=present"
+          echo "ios-upload-workflow-activation-source=ios-upload-readiness"
+          echo "ios-upload-workflow-activation-status=blocked-placeholder"
+          echo "ios-upload-workflow-activation-current-mode=contract-only-no-ios-upload"
+          echo "ios-upload-workflow-source-contract=docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md"
+          echo "ios-upload-workflow-activation-contract-path=docs/architecture/ios-upload-workflow-activation-validation-contract.md"
+          echo "ios-upload-workflow-manual-source=docs/manual-intervention.md"
+          echo "ios-upload-workflow-marker-status=pending"
+          echo "ios-upload-workflow-required-needs=release-policy,release-ci-gate,ios-upload-readiness"
+          echo "ios-upload-workflow-required-runner=macos-26"
+          echo "ios-upload-workflow-current-runner=ubuntu-latest-static-placeholder"
+          echo "ios-upload-workflow-protected-environment-name=ios-app-store-connect"
+          echo "ios-upload-workflow-protected-environment=blocked"
+          echo "ios-upload-workflow-manual-approval=blocked"
+          echo "ios-upload-workflow-app-store-connect-api-secret-status=not-read-blocked"
+          echo "ios-upload-workflow-signing-secret-status=not-read-blocked"
+          echo "ios-upload-workflow-archive-export=blocked"
+          echo "ios-upload-workflow-testflight-upload=blocked"
+          echo "ios-upload-workflow-app-store-upload=blocked"
+          echo "ios-upload-workflow-app-review-submission=blocked"
+          echo "ios-upload-workflow-build-processing-check=blocked"
+          echo "ios-upload-workflow-release-assets=blocked"
+          echo "ios-upload-workflow-upload-jobs=not-defined"
+          echo "ios-upload-workflow-release-asset=blocked"
+          echo "ios-upload-workflow-next-action=swift-xcode-source-and-manual-confirmation-before-activation"
+
   release-placeholder:
     name: Release placeholder
     runs-on: ubuntu-latest
     needs:
       - linux-artifact-readiness
+      - ios-upload-readiness
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -1579,6 +1691,8 @@ jobs:
         run: |
           set -euo pipefail
           test -f docs/manual-intervention.md
+          test -f docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          test -f docs/architecture/ios-upload-workflow-activation-validation-contract.md
           test -f docs/architecture/linux-package-checksum-manifest-contract.md
           test -f docs/architecture/linux-package-publish-upload-boundary-contract.md
           test -f docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
@@ -1611,6 +1725,26 @@ jobs:
           grep -q "Linux Package Artifact Manifest Checksum Validation Contract" docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
           grep -q "Linux Package Workflow Artifact Bundle Upload Validation Contract" docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
           grep -q "Linux Package Artifact Attestation Execution Validation Contract" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
+          grep -q "iOS TestFlight App Store Connect Upload Workflow Source Contract" docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
+          grep -q "iOS Upload Workflow Activation Validation Contract" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "release workflow placeholder summary" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "ios-upload-workflow" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "App Store Connect API secret status" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q "archive/export/upload/submission blocked" docs/architecture/ios-upload-workflow-activation-validation-contract.md
+          grep -q '^ios-upload-workflow-status=pending$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-source-contract=docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-archive-export=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-app-store-connect-api=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-protected-environment=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-manual-approval=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-testflight-upload=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-app-store-upload=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-app-review-submission=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-release-assets=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-macos-runner=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-build-processing-check=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-confirmed-at=pending$' docs/manual-intervention.md
+          grep -q '^ios-upload-workflow-confirmed-by=pending$' docs/manual-intervention.md
           require_license_notice_repo_file() {
             case "$1" in
               ""|/*|*..*|http://*|https://*)
@@ -1678,6 +1812,10 @@ jobs:
             echo "::error::publish-eligibility-gate must stay undefined until publish eligibility execution is implemented."
             exit 1
           fi
+          if grep -Eq '^  (ios-archive-export|ios-upload-testflight|ios-build-processing-gate|ios-app-review-submission-gate|ios-release-summary):' .github/workflows/release.yml; then
+            echo "::error::real iOS upload jobs must stay undefined until activation, protected environment, approval and secrets are complete."
+            exit 1
+          fi
           if grep -Eq '^[[:space:]]+run:[[:space:]]+gh release create([[:space:]]|$)' .github/workflows/release.yml; then
             echo "::error::gh release create must stay disabled until release notes/rollback execution and publish eligibility gates are complete."
             exit 1
@@ -1702,6 +1840,31 @@ jobs:
             echo "| License or NOTICE confirmation | manual confirmation required before real artifact packaging |"
             echo "| Current package-linux job | not defined |"
             echo "| Current release asset upload | blocked |"
+            echo
+            echo "### iOS Upload Workflow Activation Validation Contract"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Current mode | contract-only-no-ios-upload |"
+            echo "| Source contract | docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md |"
+            echo "| Activation contract | docs/architecture/ios-upload-workflow-activation-validation-contract.md |"
+            echo "| Manual marker source | docs/manual-intervention.md |"
+            echo "| Marker status | pending |"
+            echo "| Required needs | release-policy, release-ci-gate, ios-upload-readiness |"
+            echo "| Future runner | macos-26 |"
+            echo "| Current runner | ubuntu-latest-static-placeholder |"
+            echo "| Protected environment name | ios-app-store-connect |"
+            echo "| Protected environment | blocked |"
+            echo "| Manual approval | blocked |"
+            echo "| App Store Connect API secret status | not-read-blocked |"
+            echo "| Signing secret status | not-read-blocked |"
+            echo "| Archive/export | blocked |"
+            echo "| TestFlight upload | blocked |"
+            echo "| App Store upload | blocked |"
+            echo "| App Review submission | blocked |"
+            echo "| Build processing check | blocked |"
+            echo "| Upload jobs | not-defined |"
+            echo "| iOS release asset | blocked |"
             echo
             echo "### Linux Package Release CI Gate Activation Validation Contract"
             echo
@@ -2252,6 +2415,31 @@ jobs:
           echo "linux-artifact-manifest-output-fields=artifact_manifest_name,artifact_manifest_path,artifact_manifest_checksum_file,artifact_manifest_checksum_value"
           echo "linux-artifact-manifest-checksum-algorithm=sha256"
           echo "linux-artifact-manifest-upload=blocked"
+          echo "ios-upload-workflow-activation-contract=present"
+          echo "ios-upload-workflow-activation-source=ios-upload-readiness"
+          echo "ios-upload-workflow-activation-status=blocked-placeholder"
+          echo "ios-upload-workflow-activation-current-mode=contract-only-no-ios-upload"
+          echo "ios-upload-workflow-source-contract=docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md"
+          echo "ios-upload-workflow-activation-contract-path=docs/architecture/ios-upload-workflow-activation-validation-contract.md"
+          echo "ios-upload-workflow-manual-source=docs/manual-intervention.md"
+          echo "ios-upload-workflow-marker-status=pending"
+          echo "ios-upload-workflow-required-needs=release-policy,release-ci-gate,ios-upload-readiness"
+          echo "ios-upload-workflow-required-runner=macos-26"
+          echo "ios-upload-workflow-current-runner=ubuntu-latest-static-placeholder"
+          echo "ios-upload-workflow-protected-environment-name=ios-app-store-connect"
+          echo "ios-upload-workflow-protected-environment=blocked"
+          echo "ios-upload-workflow-manual-approval=blocked"
+          echo "ios-upload-workflow-app-store-connect-api-secret-status=not-read-blocked"
+          echo "ios-upload-workflow-signing-secret-status=not-read-blocked"
+          echo "ios-upload-workflow-archive-export=blocked"
+          echo "ios-upload-workflow-testflight-upload=blocked"
+          echo "ios-upload-workflow-app-store-upload=blocked"
+          echo "ios-upload-workflow-app-review-submission=blocked"
+          echo "ios-upload-workflow-build-processing-check=blocked"
+          echo "ios-upload-workflow-release-assets=blocked"
+          echo "ios-upload-workflow-upload-jobs=not-defined"
+          echo "ios-upload-workflow-release-asset=blocked"
+          echo "ios-upload-workflow-next-action=swift-xcode-source-and-manual-confirmation-before-activation"
           echo "linux-package-release-ci-gate-activation-contract=present"
           echo "linux-package-release-ci-gate-activation-source=release-ci-gate"
           echo "linux-package-release-ci-gate-activation-status=active"
@@ -2698,6 +2886,7 @@ jobs:
       - release-signing-contract
       - release-rollback-contract
       - linux-artifact-readiness
+      - ios-upload-readiness
       - release-placeholder
     steps:
       - name: Summarize release state
@@ -2715,6 +2904,7 @@ jobs:
           RELEASE_SIGNING_CONTRACT_RESULT: ${{ needs.release-signing-contract.result }}
           RELEASE_ROLLBACK_CONTRACT_RESULT: ${{ needs.release-rollback-contract.result }}
           LINUX_ARTIFACT_READINESS_RESULT: ${{ needs.linux-artifact-readiness.result }}
+          IOS_UPLOAD_READINESS_RESULT: ${{ needs.ios-upload-readiness.result }}
           RELEASE_PLACEHOLDER_RESULT: ${{ needs.release-placeholder.result }}
           CI_WORKFLOW_NAME: ${{ needs.release-ci-gate.outputs.ci_workflow_name }}
           CI_WORKFLOW_FILE: ${{ needs.release-ci-gate.outputs.ci_workflow_file }}
@@ -2809,6 +2999,31 @@ jobs:
             echo "| Release CI gate API implementation workflow artifact | blocked |"
             echo "| Release CI gate API implementation release asset | blocked |"
             echo "| Release CI gate API implementation next action | license-notice-and-package-linux-preflight-after-ci-gate |"
+            echo "| iOS upload readiness | ${IOS_UPLOAD_READINESS_RESULT} |"
+            echo "| iOS upload workflow activation validation contract | checked in ios-upload-readiness |"
+            echo "| iOS upload workflow activation status | blocked-placeholder |"
+            echo "| iOS upload workflow activation current mode | contract-only-no-ios-upload |"
+            echo "| iOS upload workflow source contract | docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md |"
+            echo "| iOS upload workflow activation contract path | docs/architecture/ios-upload-workflow-activation-validation-contract.md |"
+            echo "| iOS upload workflow manual source | docs/manual-intervention.md |"
+            echo "| iOS upload workflow marker status | pending |"
+            echo "| iOS upload workflow required needs | release-policy, release-ci-gate, ios-upload-readiness |"
+            echo "| iOS upload workflow required runner | macos-26 |"
+            echo "| iOS upload workflow current runner | ubuntu-latest-static-placeholder |"
+            echo "| iOS upload workflow protected environment name | ios-app-store-connect |"
+            echo "| iOS upload workflow protected environment | blocked |"
+            echo "| iOS upload workflow manual approval | blocked |"
+            echo "| iOS upload workflow App Store Connect API secret status | not-read-blocked |"
+            echo "| iOS upload workflow signing secret status | not-read-blocked |"
+            echo "| iOS upload workflow archive/export | blocked |"
+            echo "| iOS upload workflow TestFlight upload | blocked |"
+            echo "| iOS upload workflow App Store upload | blocked |"
+            echo "| iOS upload workflow App Review submission | blocked |"
+            echo "| iOS upload workflow build processing check | blocked |"
+            echo "| iOS upload workflow release assets | blocked |"
+            echo "| iOS upload workflow upload jobs | not-defined |"
+            echo "| iOS upload workflow release asset | blocked |"
+            echo "| iOS upload workflow next action | swift-xcode-source-and-manual-confirmation-before-activation |"
             echo "| Linux package artifact job preflight validation contract | checked in linux-artifact-readiness |"
             echo "| Linux package artifact job preflight status | blocked-placeholder |"
             echo "| Linux package artifact job preflight required job | package-linux |"
@@ -3117,6 +3332,7 @@ jobs:
           RELEASE_SIGNING_CONTRACT_RESULT: ${{ needs.release-signing-contract.result }}
           RELEASE_ROLLBACK_CONTRACT_RESULT: ${{ needs.release-rollback-contract.result }}
           LINUX_ARTIFACT_READINESS_RESULT: ${{ needs.linux-artifact-readiness.result }}
+          IOS_UPLOAD_READINESS_RESULT: ${{ needs.ios-upload-readiness.result }}
           RELEASE_PLACEHOLDER_RESULT: ${{ needs.release-placeholder.result }}
           CI_WORKFLOW_NAME: ${{ needs.release-ci-gate.outputs.ci_workflow_name }}
           CI_WORKFLOW_FILE: ${{ needs.release-ci-gate.outputs.ci_workflow_file }}
@@ -3217,6 +3433,32 @@ jobs:
           echo "release-ci-gate-api-implementation-workflow-artifact=blocked"
           echo "release-ci-gate-api-implementation-release-asset=blocked"
           echo "release-ci-gate-api-implementation-next-action=license-notice-and-package-linux-preflight-after-ci-gate"
+          echo "ios-upload-readiness=${IOS_UPLOAD_READINESS_RESULT}"
+          echo "ios-upload-workflow-activation-contract=present"
+          echo "ios-upload-workflow-activation-source=ios-upload-readiness"
+          echo "ios-upload-workflow-activation-status=blocked-placeholder"
+          echo "ios-upload-workflow-activation-current-mode=contract-only-no-ios-upload"
+          echo "ios-upload-workflow-source-contract=docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md"
+          echo "ios-upload-workflow-activation-contract-path=docs/architecture/ios-upload-workflow-activation-validation-contract.md"
+          echo "ios-upload-workflow-manual-source=docs/manual-intervention.md"
+          echo "ios-upload-workflow-marker-status=pending"
+          echo "ios-upload-workflow-required-needs=release-policy,release-ci-gate,ios-upload-readiness"
+          echo "ios-upload-workflow-required-runner=macos-26"
+          echo "ios-upload-workflow-current-runner=ubuntu-latest-static-placeholder"
+          echo "ios-upload-workflow-protected-environment-name=ios-app-store-connect"
+          echo "ios-upload-workflow-protected-environment=blocked"
+          echo "ios-upload-workflow-manual-approval=blocked"
+          echo "ios-upload-workflow-app-store-connect-api-secret-status=not-read-blocked"
+          echo "ios-upload-workflow-signing-secret-status=not-read-blocked"
+          echo "ios-upload-workflow-archive-export=blocked"
+          echo "ios-upload-workflow-testflight-upload=blocked"
+          echo "ios-upload-workflow-app-store-upload=blocked"
+          echo "ios-upload-workflow-app-review-submission=blocked"
+          echo "ios-upload-workflow-build-processing-check=blocked"
+          echo "ios-upload-workflow-release-assets=blocked"
+          echo "ios-upload-workflow-upload-jobs=not-defined"
+          echo "ios-upload-workflow-release-asset=blocked"
+          echo "ios-upload-workflow-next-action=swift-xcode-source-and-manual-confirmation-before-activation"
           echo "linux-package-artifact-job-preflight-contract=present"
           echo "linux-package-artifact-job-preflight-source=linux-artifact-readiness"
           echo "linux-package-artifact-job-preflight-status=blocked-placeholder"
@@ -3614,6 +3856,7 @@ jobs:
           RELEASE_SIGNING_CONTRACT_RESULT: ${{ needs.release-signing-contract.result }}
           RELEASE_ROLLBACK_CONTRACT_RESULT: ${{ needs.release-rollback-contract.result }}
           LINUX_ARTIFACT_READINESS_RESULT: ${{ needs.linux-artifact-readiness.result }}
+          IOS_UPLOAD_READINESS_RESULT: ${{ needs.ios-upload-readiness.result }}
           RELEASE_PLACEHOLDER_RESULT: ${{ needs.release-placeholder.result }}
         run: |
           set -euo pipefail
@@ -3623,4 +3866,5 @@ jobs:
           test "${RELEASE_SIGNING_CONTRACT_RESULT}" = "success"
           test "${RELEASE_ROLLBACK_CONTRACT_RESULT}" = "success"
           test "${LINUX_ARTIFACT_READINESS_RESULT}" = "success"
+          test "${IOS_UPLOAD_READINESS_RESULT}" = "success"
           test "${RELEASE_PLACEHOLDER_RESULT}" = "success"
