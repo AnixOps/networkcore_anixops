@@ -7,7 +7,8 @@
 [iOS Swift Network Extension Bridge Design](ios-swift-network-extension-bridge-design.md)、
 [iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、
 [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)、
-[iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md) 和
+[iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)、
+[iOS App Review Privacy Release Readiness Design](ios-app-review-privacy-release-readiness-design.md) 和
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
 
 当前状态：design-only。仓库仍不包含 Swift source、`Package.swift`、Xcode project、Network Extension target、
@@ -247,10 +248,11 @@ TestFlight upload 或 App Store upload job：
 
 - 本设计和相关 iOS contracts 已通过 GitHub Actions static governance。
 - iOS entitlement/provisioning source contract 已完成并通过 GitHub Actions static governance。
+- iOS App Review/privacy release readiness design 已完成并通过 GitHub Actions static governance。
 - Swift certificate lifecycle source、Swift bridge、Network Extension target、FFI boundary 和 embedded runtime
   已在 GitHub Actions `macos-26` runner 通过验证。
-- Apple Developer、App ID、Network Extension entitlement、Provisioning Profile、GitHub Secrets、隐私政策、
-  App Review Notes 和目标地区 VPN 合规材料已完成人工确认。
+- Apple Developer、App ID、Network Extension entitlement、Provisioning Profile、GitHub Secrets、App Privacy disclosure、
+  隐私政策、App Review Notes、TestFlight/App Store Connect 人工确认和目标地区 VPN compliance 已完成。
 - MITM certificate lifecycle 的 CA generation、installation prompt、user trust confirmation、fingerprint validation、
   expiration/revocation handling 和 `CertificateTrustState` mapping 已有源码合同测试。
 

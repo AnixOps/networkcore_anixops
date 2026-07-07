@@ -93,8 +93,8 @@ iOS 插件策略：
 
 1. 确认 Apple Developer Program 账号类型满足 VPN App 发布要求。
 2. 为主 App 和 Network Extension 准备明确 App ID、Bundle ID、entitlement 和 Provisioning Profile 策略。
-3. 准备隐私政策，明确 VPN 相关数据是否采集、为何采集、保留多久、是否第三方共享。
-4. 准备 App Review Notes，说明 Network Extension 用途、VPN 数据处理、证书安装路径、MITM 默认关闭策略和测试账号或 demo 模式。
+3. 准备 Privacy Manifest、App Privacy disclosure 和隐私政策，明确 VPN 相关数据是否采集、为何采集、保留多久、是否第三方共享。
+4. 准备 App Review Notes，说明 Network Extension 用途、VPN 数据处理、证书安装路径、MITM 默认关闭策略、测试账号或 demo 模式和 review attachment。
 5. 确认目标销售地区是否需要 VPN 牌照或额外合规材料；不能确认的地区默认不发布。
 6. 在 GitHub Actions 中增加 macOS runner 的 iOS 项目检查后，才能引入 Xcode project 或 Swift package。
 
@@ -104,13 +104,13 @@ iOS 插件策略：
 
 - Apple Developer Program 组织账号或账号角色确认。
 - App ID、Network Extension capability、entitlement 和 Provisioning Profile 配置。
-- App Store Connect、TestFlight、App Review Notes 和隐私政策配置。
+- App Store Connect、TestFlight、App Privacy 问卷、App Review Notes、demo account、review attachment 和隐私政策配置。
 - 证书、签名密钥和 Apple API 凭据写入 GitHub Secrets。
 - 特定国家/地区 VPN 牌照和法律合规确认。
 
 ## 后续工作
 
-- 已新增 [iOS Network Extension Design](ios-network-extension-design.md)、[iOS Platform Adapter Source Contract](ios-platform-adapter-source-contract.md)、[iOS Swift Network Extension Bridge Design](ios-swift-network-extension-bridge-design.md)、[iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、[iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)、[iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md)、[iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md) 和最小 `platform-ios` 纯 Rust 映射骨架，后续 iOS 工作应先补充 App Review/privacy release readiness design。
+- 已新增 [iOS Network Extension Design](ios-network-extension-design.md)、[iOS Platform Adapter Source Contract](ios-platform-adapter-source-contract.md)、[iOS Swift Network Extension Bridge Design](ios-swift-network-extension-bridge-design.md)、[iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、[iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)、[iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md)、[iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)、[iOS App Review Privacy Release Readiness Design](ios-app-review-privacy-release-readiness-design.md) 和最小 `platform-ios` 纯 Rust 映射骨架，后续 iOS 工作应先补充 Privacy Manifest source contract。
 - 发布真实平台产物必须遵守 `docs/release-strategy.md` 中的签名、产物矩阵和回滚门禁。
 - 后续平台 adapter 必须通过 `PlatformCapabilityService` 提供 iOS 能力和证书信任状态。
 

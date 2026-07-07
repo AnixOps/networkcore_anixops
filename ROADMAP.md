@@ -37,6 +37,7 @@
 - [iOS Embedded Runtime FFI Boundary Design](docs/architecture/ios-embedded-runtime-ffi-boundary-design.md)
 - [iOS MITM Certificate Lifecycle Design](docs/architecture/ios-mitm-certificate-lifecycle-design.md)
 - [iOS Entitlement Provisioning Source Contract](docs/architecture/ios-entitlement-provisioning-source-contract.md)
+- [iOS App Review Privacy Release Readiness Design](docs/architecture/ios-app-review-privacy-release-readiness-design.md)
 - [ADR 0001: Initial Core Stack](docs/architecture/adr-0001-initial-core-stack.md)
 
 ## P2 Core Kernel Skeleton
@@ -104,6 +105,7 @@
 - [iOS Embedded Runtime FFI Boundary Design](docs/architecture/ios-embedded-runtime-ffi-boundary-design.md)
 - [iOS MITM Certificate Lifecycle Design](docs/architecture/ios-mitm-certificate-lifecycle-design.md)
 - [iOS Entitlement Provisioning Source Contract](docs/architecture/ios-entitlement-provisioning-source-contract.md)
+- [iOS App Review Privacy Release Readiness Design](docs/architecture/ios-app-review-privacy-release-readiness-design.md)
 - [Linux Artifact Pre-Release Design](docs/architecture/linux-artifact-pre-release-design.md)
 - [Linux Platform Adapter Design](docs/architecture/linux-platform-adapter.md)
 - [Linux CLI Entrypoint Design](docs/architecture/linux-cli-entrypoint.md)

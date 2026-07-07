@@ -61,6 +61,7 @@ jobs:
           test -f docs/architecture/ios-embedded-runtime-ffi-boundary-design.md
           test -f docs/architecture/ios-mitm-certificate-lifecycle-design.md
           test -f docs/architecture/ios-entitlement-provisioning-source-contract.md
+          test -f docs/architecture/ios-app-review-privacy-release-readiness-design.md
           test -f docs/architecture/linux-artifact-pre-release-design.md
           test -f docs/architecture/linux-platform-adapter.md
           test -f docs/architecture/linux-cli-entrypoint.md
@@ -667,8 +668,34 @@ jobs:
           grep -q "swift test" docs/architecture/ios-entitlement-provisioning-source-contract.md
           grep -q "xcodebuild" docs/architecture/ios-entitlement-provisioning-source-contract.md
           grep -q "no iOS release asset" docs/architecture/ios-entitlement-provisioning-source-contract.md
-          if find . -path ./.git -prune -o -type f \( -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" \) -print -quit | grep -q .; then
-            echo "::error::iOS entitlement, provisioning, signing, or binary embedding material must stay out of the repository until the iOS source contracts allow it."
+          grep -q "iOS App Review Privacy Release Readiness Design" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "Privacy Manifest" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "PrivacyInfo.xcprivacy" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "NSPrivacyCollectedDataTypes" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "NSPrivacyAccessedAPITypes" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "Required Reason API" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "App Privacy" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "Data Used to Track You" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "Data Linked to You" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "Data Not Linked to You" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "privacy policy" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "App Review Notes" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "VPN compliance" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "App Store Connect" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "TestFlight" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "Packet Tunnel Provider" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "Network Extension" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "MITM default off" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "certificate installation" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "demo account" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "review attachment" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "manual intervention" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "GitHub Actions" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "macos-26" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "no TestFlight upload" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          grep -q "no iOS release asset" docs/architecture/ios-app-review-privacy-release-readiness-design.md
+          if find . -path ./.git -prune -o -type f \( -name "PrivacyInfo.xcprivacy" -o -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" \) -print -quit | grep -q .; then
+            echo "::error::iOS PrivacyInfo, entitlement, provisioning, signing, or binary embedding material must stay out of the repository until the iOS source contracts allow it."
             exit 1
           fi
           grep -q "platform-ios" docs/architecture/ios-platform-adapter-source-contract.md

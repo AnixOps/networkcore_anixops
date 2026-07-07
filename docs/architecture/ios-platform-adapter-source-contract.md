@@ -7,6 +7,7 @@
 [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)、
 [iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md)、
 [iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)、
+[iOS App Review Privacy Release Readiness Design](ios-app-review-privacy-release-readiness-design.md)、
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md) 和
 [Control Runtime Orchestration Design](control-runtime-orchestration.md)，用于约束
 iOS platform adapter 如何把 Apple 平台事实映射为领域层可消费的能力状态。
@@ -237,8 +238,9 @@ TestFlight upload 或 App Store upload job：
 - iOS embedded runtime FFI boundary design 已完成并通过 GitHub Actions static governance。
 - iOS MITM certificate lifecycle design 已完成并通过 GitHub Actions static governance。
 - iOS entitlement/provisioning source contract 已完成并通过 GitHub Actions static governance。
+- iOS App Review/privacy release readiness design 已完成并通过 GitHub Actions static governance。
 - Apple Developer、App ID、Network Extension entitlement、Provisioning Profile、GitHub Secrets、
-  隐私政策、App Review Notes 和目标地区 VPN 合规材料已完成人工确认。
+  App Privacy disclosure、隐私政策、App Review Notes、TestFlight/App Store Connect 人工确认和目标地区 VPN compliance 已完成。
 - MITM 证书生成、安装提示、信任确认、fingerprint 校验、过期/撤销检测和 source contract tests 已完成。
 
 Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux` preflight 和后续 artifact gates 阻断。

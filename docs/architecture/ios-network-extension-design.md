@@ -21,7 +21,8 @@ GitHub Actions 或 Apple 官方平台。
   [iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、
   [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)、
   [iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md)、
-  [iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)、后续 Swift/iOS target、
+  [iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md)、
+  [iOS App Review Privacy Release Readiness Design](ios-app-review-privacy-release-readiness-design.md)、后续 Swift/iOS target、
   Rust embedded runtime 和 certificate lifecycle GitHub Actions macOS 验证提供入口。
 
 ## 非目标
@@ -138,6 +139,9 @@ iOS 上的插件能力必须拆分为数据和执行：
 
 App ID、Bundle ID、Network Extension capability、Provisioning Profile、GitHub Secrets 和 signing asset redaction
 的源码边界由 [iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md) 约束。
+Privacy Manifest、App Privacy disclosure、privacy policy、App Review Notes、VPN compliance、demo account、
+review attachment 和 TestFlight/App Store Connect 人工确认由
+[iOS App Review Privacy Release Readiness Design](ios-app-review-privacy-release-readiness-design.md) 约束。
 这些事项属于 `docs/manual-intervention.md` 管理的人工介入边界。未完成前，CI 可以做静态检查，但不得启用真实签名、上传 TestFlight 或创建 iOS release asset。
 
 ## GitHub Actions Validation Entry
@@ -172,7 +176,11 @@ iOS release workflow 在满足以下条件前不得定义真实 artifact、TestF
 - [iOS Entitlement Provisioning Source Contract](ios-entitlement-provisioning-source-contract.md) 已完成；后续
   `.entitlements`、App ID、Network Extension capability、Provisioning Profile、GitHub Secrets 和 signing
   asset redaction 源码必须再通过 GitHub Actions 的 macOS runner 验证。
-- Apple Developer、Network Extension entitlement、Provisioning Profile、GitHub Secrets、隐私政策和 App Review Notes 已完成人工确认。
+- [iOS App Review Privacy Release Readiness Design](ios-app-review-privacy-release-readiness-design.md) 已完成；后续
+  `PrivacyInfo.xcprivacy`、App Privacy disclosure、privacy policy、App Review Notes、TestFlight/App Store Connect
+  manual confirmation 和 VPN compliance 必须再通过 source contract、manual intervention marker 和 GitHub Actions
+  macOS runner 验证。
+- Apple Developer、Network Extension entitlement、Provisioning Profile、GitHub Secrets、隐私政策、App Review Notes 和 App Privacy disclosure 已完成人工确认。
 - MITM 证书设计、插件执行边界和地区 VPN 合规材料已完成。
 
 Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux` preflight 和后续 artifact gates 阻断；本设计不得被解释为允许发布 Linux 或 iOS release asset。
@@ -183,7 +191,7 @@ Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux`
 
 - README、ROADMAP、TODO、CHANGELOG 和 CI/CD policy 链接或记录本文件。
 - `.github/workflows/ci.yml` 静态检查本文件存在和关键锚点。
-- `docs/architecture/ios-platform-risk-assessment.md` 的后续工作记录 entitlement/provisioning source contract 已完成，并指向后续 App Review/privacy release readiness design。
+- `docs/architecture/ios-platform-risk-assessment.md` 的后续工作记录 App Review/privacy release readiness design 已完成，并指向后续 Privacy Manifest source contract。
 - `docs/manual-intervention.md` 保留 Apple Developer、entitlement、Provisioning Profile、GitHub Secrets、App Review 和 VPN 合规人工事项。
 - 本地只执行静态文本检查和 git 操作；所有正式验证通过 GitHub Actions 完成。
 

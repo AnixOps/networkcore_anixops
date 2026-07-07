@@ -8,6 +8,7 @@ GitHub Secrets、signing asset redaction 和 GitHub Actions `macos-26` 验证入
 [iOS Swift Xcode Bridge Source Contract](ios-swift-xcode-bridge-source-contract.md)、
 [iOS Embedded Runtime FFI Boundary Design](ios-embedded-runtime-ffi-boundary-design.md)、
 [iOS MITM Certificate Lifecycle Design](ios-mitm-certificate-lifecycle-design.md) 和
+[iOS App Review Privacy Release Readiness Design](ios-app-review-privacy-release-readiness-design.md) 以及
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
 
 当前状态：contract-only。仓库仍不包含 `.entitlements`、Swift source、`Package.swift`、Xcode project、
@@ -215,9 +216,9 @@ TestFlight upload 或 App Store upload job：
 
 - 本合同和相关 iOS contracts 已通过 GitHub Actions static governance。
 - Swift/Xcode bridge、Network Extension target、entitlement plist、Provisioning Profile validation、FFI boundary、
-  embedded runtime 和 certificate lifecycle source 已在 GitHub Actions `macos-26` runner 通过验证。
+  embedded runtime、certificate lifecycle source 和 Privacy Manifest source 已在 GitHub Actions `macos-26` runner 通过验证。
 - Apple Developer、App ID、Network Extension capability、Provisioning Profile、GitHub Secrets、隐私政策、
-  App Review Notes 和目标地区 VPN 合规材料已完成人工确认。
+  App Privacy disclosure、App Review Notes、TestFlight/App Store Connect 人工确认和目标地区 VPN 合规材料已完成人工确认。
 - signing asset redaction、secret cleanup、profile expiration handling 和 diagnostic redaction 已有源码合同测试。
 
 Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux` preflight 和后续 artifact gates 阻断。
@@ -233,5 +234,7 @@ Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux`
   `https://developer.apple.com/help/account/reference/provisioning-with-managed-capabilities/`
 - Apple Developer Account Help: Supported capabilities for iOS,
   `https://developer.apple.com/help/account/reference/supported-capabilities-ios/`
+- Apple Developer Documentation: Privacy manifest files,
+  `https://developer.apple.com/documentation/bundleresources/privacy_manifest_files`
 - GitHub Docs: Using secrets in GitHub Actions,
   `https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions`
