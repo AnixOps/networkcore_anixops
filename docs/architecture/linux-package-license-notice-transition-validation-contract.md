@@ -174,6 +174,7 @@ release workflow 必须拒绝以下情况：
 ## 后续工作
 
 - 在人工确认完成前，继续保持 `linux-artifact-license-notice-status=pending`。
-- Linux package release CI gate activation validation contract 和 Linux package artifact job preflight
-  validation contract 已定义；下一步可以补充 Linux package artifact staging file validation contract，
-  仍不生成 artifact。
+- Linux package release CI gate activation validation contract、Linux package artifact job preflight
+  validation contract、Linux package artifact build command validation contract 和 Linux package artifact
+  staging file validation contract 已定义；下一步可以补充 Linux package artifact archive creation
+  validation contract，仍不生成 artifact。

@@ -71,6 +71,7 @@ jobs:
           test -f docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
           test -f docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           test -f docs/architecture/linux-package-artifact-build-command-validation-contract.md
+          test -f docs/architecture/linux-package-artifact-staging-file-validation-contract.md
           test -f docs/architecture/adr-0001-initial-core-stack.md
           grep -q "本机只负责代码" AGENT.md
           grep -q "GitHub Actions" docs/ci-cd-policy.md
@@ -93,6 +94,10 @@ jobs:
           grep -q "package_artifact_build_command_status" docs/architecture/linux-package-artifact-build-command-validation-contract.md
           grep -q "package_artifact_build_command_cargo_args" docs/architecture/linux-package-artifact-build-command-validation-contract.md
           grep -q "package_artifact_build_command_binary_path" docs/architecture/linux-package-artifact-build-command-validation-contract.md
+          grep -q "Linux Package Artifact Staging File Validation Contract" docs/architecture/linux-package-artifact-staging-file-validation-contract.md
+          grep -q "package_artifact_staging_file_status" docs/architecture/linux-package-artifact-staging-file-validation-contract.md
+          grep -q "package_artifact_staging_file_binary_permission" docs/architecture/linux-package-artifact-staging-file-validation-contract.md
+          grep -q "package_artifact_staging_file_archive_creation" docs/architecture/linux-package-artifact-staging-file-validation-contract.md
           grep -q "release-ci-success-source-contract=present" .github/workflows/release.yml
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-contract=present"$' .github/workflows/release.yml)" -ge 4
           test "$(grep -Ec '^          echo "linux-package-release-ci-gate-activation-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 4
@@ -129,6 +134,21 @@ jobs:
           test "$(grep -Ec '^          echo "linux-package-artifact-build-command-build-output=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-build-command-upload=blocked"$' .github/workflows/release.yml)" -ge 3
           test "$(grep -Ec '^          echo "linux-package-artifact-build-command-next-action=license-notice-ci-preflight-before-build"$' .github/workflows/release.yml)" -ge 3
+          grep -q "Linux Package Artifact Staging File Validation Contract" .github/workflows/release.yml
+          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-contract=present"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-status=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-required-job=package-linux"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-preflight=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-build-command=blocked-placeholder"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec "^[[:space:]]+echo 'linux-package-artifact-staging-file-binary-source=target/[$][{]target[}]/release/networkcore-linux'$" .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-binary-destination=bin/networkcore-linux"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-binary-permission=0755"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-install-doc=INSTALL.md"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-license-source=license-notice-confirmed"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-changelog-source=CHANGELOG.md"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-archive-creation=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-upload=blocked"$' .github/workflows/release.yml)" -ge 3
+          test "$(grep -Ec '^          echo "linux-package-artifact-staging-file-next-action=license-notice-ci-build-before-staging"$' .github/workflows/release.yml)" -ge 3
           grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
           grep -q "linux-package-platform-input-contract=present" .github/workflows/release.yml
           grep -q "linux-package-required-target=x86_64-unknown-linux-gnu" .github/workflows/release.yml
@@ -209,6 +229,7 @@ jobs:
           grep -q "Linux Package Release CI Gate Activation Validation Contract" docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md
           grep -q "Linux Package Artifact Job Preflight Validation Contract" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           grep -q "Linux Package Artifact Build Command Validation Contract" docs/architecture/linux-package-artifact-build-command-validation-contract.md
+          grep -q "Linux Package Artifact Staging File Validation Contract" docs/architecture/linux-package-artifact-staging-file-validation-contract.md
           grep -q "Linux Package Runner Toolchain Target Contract" docs/architecture/linux-package-runner-toolchain-target-contract.md
           grep -q "Linux Package Archive Staging Contract" docs/architecture/linux-package-archive-staging-contract.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md

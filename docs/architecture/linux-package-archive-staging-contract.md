@@ -144,7 +144,8 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、Git
   manifest 设计、Linux package checksum manifest contract、Linux package publish/upload boundary
   contract、Linux package signing/attestation policy binding contract、Linux package release notes/rollback
   policy binding contract、Linux package publish eligibility aggregate contract、Linux package artifact job
-  preflight validation contract、Linux package artifact build command validation contract、Linux CLI artifact 安装/回滚设计、Release CI success source contract、
+  preflight validation contract、Linux package artifact build command validation contract、Linux package
+  artifact staging file validation contract、Linux CLI artifact 安装/回滚设计、Release CI success source contract、
   Linux package runner/toolchain/target contract、Linux artifact license/NOTICE confirmation source contract
   和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在和标题。
@@ -162,4 +163,6 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、Git
 - Linux package checksum manifest contract、publish/upload boundary contract、signing/attestation
   policy binding contract、release notes/rollback policy binding contract、publish eligibility
   aggregate contract、license/NOTICE transition validation contract 和 release CI gate activation validation
-  contract 已定义；Linux package artifact job preflight validation contract 和 Linux package artifact build command validation contract 已定义；下一步可以补充 Linux package artifact staging file validation contract，仍不生成 artifact。
+  contract 已定义；Linux package artifact job preflight validation contract、Linux package artifact build
+  command validation contract 和 Linux package artifact staging file validation contract 已定义；下一步可以补充
+  Linux package artifact archive creation validation contract，仍不生成 artifact。

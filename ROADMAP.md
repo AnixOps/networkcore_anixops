@@ -101,6 +101,7 @@
 - [Linux Package Release CI Gate Activation Validation Contract](docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md)
 - [Linux Package Artifact Job Preflight Validation Contract](docs/architecture/linux-package-artifact-job-preflight-validation-contract.md)
 - [Linux Package Artifact Build Command Validation Contract](docs/architecture/linux-package-artifact-build-command-validation-contract.md)
+- [Linux Package Artifact Staging File Validation Contract](docs/architecture/linux-package-artifact-staging-file-validation-contract.md)
 - [Linux Package Runner Toolchain Target Contract](docs/architecture/linux-package-runner-toolchain-target-contract.md)
 - [Linux Package Archive Staging Contract](docs/architecture/linux-package-archive-staging-contract.md)
 - [Linux Package Checksum Manifest Contract](docs/architecture/linux-package-checksum-manifest-contract.md)

@@ -172,7 +172,8 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、sec
 
 - 本文档保持在 README、ROADMAP、Release Strategy、Linux package artifact job preflight
   validation contract、Linux package runner/toolchain/target contract、Linux package archive staging
-  contract、Linux package manifest 设计、Linux CLI artifact 安装/回滚设计和 CI policy 中可发现。
+  contract、Linux package artifact staging file validation contract、Linux package manifest 设计、
+  Linux CLI artifact 安装/回滚设计和 CI policy 中可发现。
 - `.github/workflows/ci.yml` governance 检查本文档存在、标题和 release workflow placeholder 输出字段。
 - `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、placeholder
   fields、future build command、binary path、failure boundary、Cargo package/bin name 和
@@ -187,5 +188,6 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、sec
 
 - 在 license/NOTICE 人工确认、release CI gate activation 和 artifact job preflight 激活前，
   继续保持 `package-linux` 未定义。
-- 下一步可以补充 Linux package artifact staging file validation contract，明确真实 build output、
-  INSTALL、LICENSE/NOTICE 和 CHANGELOG 进入 staging 前的文件复制、权限、路径和仍不创建 archive 的边界。
+- Linux package artifact staging file validation contract 已定义；下一步可以补充 Linux package
+  artifact archive creation validation contract，明确真实 staging file 校验通过后创建 `.tar.gz`
+  的单顶层目录、路径、禁止额外文件和仍不生成 checksum/upload 的边界。

@@ -141,6 +141,6 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、Git
 - Linux package archive staging contract、checksum manifest contract、publish/upload boundary contract、
   signing/attestation policy binding contract、release notes/rollback policy binding contract、
   publish eligibility aggregate contract、license/NOTICE transition validation contract、release CI gate
-  activation validation contract、artifact job preflight validation contract 和 artifact build command
-  validation contract 已定义；下一步可以补充
-  Linux package artifact staging file validation contract，仍不生成 artifact。
+  activation validation contract、artifact job preflight validation contract、artifact build command
+  validation contract 和 artifact staging file validation contract 已定义；下一步可以补充
+  Linux package artifact archive creation validation contract，仍不生成 artifact。

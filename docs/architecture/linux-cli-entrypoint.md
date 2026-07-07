@@ -181,5 +181,5 @@ CLI 首个源码增量必须满足：
 ## 后续工作
 
 - Linux artifact readiness/release gate 已纳入 foreground stop/release 合同检查、artifact manifest 输出合同、license/NOTICE confirmation source contract、license/NOTICE transition validation contract、release placeholder license/NOTICE pending 状态 summary、release CI success source contract、release CI gate activation validation contract、package runner/toolchain/target contract、archive staging contract、checksum/manifest checksum contract、publish/upload boundary contract、signing/attestation policy binding contract、release notes/rollback policy binding contract 和 publish eligibility aggregate contract；当前 pending marker 与 CI activation placeholder 继续阻止 `package-linux` 和 release asset。
-- Linux package artifact job preflight validation contract 和 Linux package artifact build command validation contract 已定义；下一步补充 Linux package artifact staging file validation contract，仍不生成 artifact。
+- Linux package artifact job preflight validation contract、Linux package artifact build command validation contract 和 Linux package artifact staging file validation contract 已定义；下一步补充 Linux package artifact archive creation validation contract，仍不生成 artifact。
 - daemon/control socket、packaging 或任何会修改系统状态的 Linux probing 进入 CLI 前，先补充对应设计并通过 CI。
