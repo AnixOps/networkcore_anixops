@@ -1857,9 +1857,14 @@ jobs:
 
       - name: Explain current release state
         shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          RELEASE_SHA: ${{ github.sha }}
+          ALPHA_WINDOWS_SMOKE_VERSION: v0.1.0-alpha.1
         run: |
           set -euo pipefail
           test -f docs/manual-intervention.md
+          test -f docs/alpha-windows-smoke-test.md
           test -f docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
           test -f docs/architecture/ios-upload-workflow-activation-validation-contract.md
           test -f docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
@@ -1880,6 +1885,24 @@ jobs:
           test -f docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md
           test -f docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
           test -f docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md
+          grep -q "Alpha Windows Smoke Test" docs/alpha-windows-smoke-test.md
+          grep -q "${ALPHA_WINDOWS_SMOKE_VERSION}" docs/alpha-windows-smoke-test.md
+          grep -q "not-produced-placeholder" docs/alpha-windows-smoke-test.md
+          grep -q "rerun-ci-release-workflows-after-marker-update" docs/alpha-windows-smoke-test.md
+          grep -q '^alpha-release-windows-manual-test-status=pending$' docs/manual-intervention.md
+          grep -q '^alpha-release-windows-manual-test-source-contract=docs/alpha-windows-smoke-test.md$' docs/manual-intervention.md
+          grep -q '^alpha-release-windows-manual-test-source=manual-user-windows-environment$' docs/manual-intervention.md
+          grep -q "^alpha-release-windows-manual-test-version=${ALPHA_WINDOWS_SMOKE_VERSION}$" docs/manual-intervention.md
+          grep -q '^alpha-release-windows-manual-test-commit=pending-release-run-head-sha$' docs/manual-intervention.md
+          grep -q '^alpha-release-windows-manual-test-ci-run=pending-release-ci-gate-run$' docs/manual-intervention.md
+          grep -q '^alpha-release-windows-manual-test-release-run=pending-current-release-run$' docs/manual-intervention.md
+          grep -q '^alpha-release-windows-manual-test-scope=windows-local-smoke-user-run$' docs/manual-intervention.md
+          grep -q '^alpha-release-windows-manual-test-ci=github-actions-windows-latest-still-required$' docs/manual-intervention.md
+          grep -q '^alpha-release-windows-manual-test-artifacts=not-produced-placeholder$' docs/manual-intervention.md
+          grep -q '^alpha-release-windows-manual-test-result=blocked-pending-user$' docs/manual-intervention.md
+          grep -q '^alpha-release-windows-manual-test-confirmed-at=pending$' docs/manual-intervention.md
+          grep -q '^alpha-release-windows-manual-test-confirmed-by=pending$' docs/manual-intervention.md
+          grep -q '^alpha-release-windows-manual-test-next-action=record-result-and-rerun-ci-release-workflows$' docs/manual-intervention.md
           grep -q "Linux Package Checksum Manifest Contract" docs/architecture/linux-package-checksum-manifest-contract.md
           grep -q "Linux Package Publish Upload Boundary Contract" docs/architecture/linux-package-publish-upload-boundary-contract.md
           grep -q "Linux Package Signing Attestation Policy Binding Contract" docs/architecture/linux-package-signing-attestation-policy-binding-contract.md
@@ -2056,6 +2079,27 @@ jobs:
             echo "| License or NOTICE confirmation | manual confirmation required before real artifact packaging |"
             echo "| Current package-linux job | not defined |"
             echo "| Current release asset upload | blocked |"
+            echo
+            echo "### Alpha Windows Manual Smoke Test"
+            echo
+            echo "| Item | Status |"
+            echo "| --- | --- |"
+            echo "| Release version | ${RELEASE_VERSION} |"
+            echo "| Release commit | ${RELEASE_SHA} |"
+            echo "| Alpha candidate version | ${ALPHA_WINDOWS_SMOKE_VERSION} |"
+            echo "| Source contract | docs/alpha-windows-smoke-test.md |"
+            echo "| Manual marker source | docs/manual-intervention.md |"
+            echo "| Manual source | manual-user-windows-environment |"
+            echo "| Marker status | pending |"
+            echo "| Commit marker | pending-release-run-head-sha |"
+            echo "| CI run marker | pending-release-ci-gate-run |"
+            echo "| Release run marker | pending-current-release-run |"
+            echo "| Windows CI evidence | github-actions-windows-latest-still-required |"
+            echo "| Artifact status | not-produced-placeholder |"
+            echo "| Result | blocked-pending-user |"
+            echo "| Confirmed at | pending |"
+            echo "| Confirmed by | pending |"
+            echo "| Next action | record-result-and-rerun-ci-release-workflows |"
             echo
             echo "### iOS Upload Workflow Activation Validation Contract"
             echo
@@ -3210,6 +3254,18 @@ jobs:
           echo "linux-artifact-license-notice-status=pending"
           echo "linux-artifact-license-notice-package-linux=blocked"
           echo "linux-artifact-license-notice-release-assets=blocked"
+          echo "alpha-windows-manual-smoke-contract=present"
+          echo "alpha-windows-manual-smoke-source-contract=docs/alpha-windows-smoke-test.md"
+          echo "alpha-windows-manual-smoke-source=docs/manual-intervention.md"
+          echo "alpha-windows-manual-smoke-manual-source=manual-user-windows-environment"
+          echo "alpha-windows-manual-smoke-version=${ALPHA_WINDOWS_SMOKE_VERSION}"
+          echo "alpha-windows-manual-smoke-release-version=${RELEASE_VERSION}"
+          echo "alpha-windows-manual-smoke-release-commit=${RELEASE_SHA}"
+          echo "alpha-windows-manual-smoke-status=pending"
+          echo "alpha-windows-manual-smoke-result=blocked-pending-user"
+          echo "alpha-windows-manual-smoke-artifacts=not-produced-placeholder"
+          echo "alpha-windows-manual-smoke-windows-ci=github-actions-windows-latest-still-required"
+          echo "alpha-windows-manual-smoke-next-action=record-result-and-rerun-ci-release-workflows"
 
   release-summary:
     name: Release summary
@@ -3698,6 +3754,14 @@ jobs:
             echo "| Linux package license/NOTICE transition next action | manual-license-notice-confirmation |"
             echo "| Linux artifact license/NOTICE contract | checked in linux-artifact-readiness |"
             echo "| Linux artifact license/NOTICE status | pending in docs/manual-intervention.md |"
+            echo "| Alpha Windows manual smoke contract | docs/alpha-windows-smoke-test.md |"
+            echo "| Alpha Windows manual smoke source | docs/manual-intervention.md |"
+            echo "| Alpha Windows manual smoke version | v0.1.0-alpha.1 |"
+            echo "| Alpha Windows manual smoke status | pending |"
+            echo "| Alpha Windows manual smoke result | blocked-pending-user |"
+            echo "| Alpha Windows manual smoke artifacts | not-produced-placeholder |"
+            echo "| Alpha Windows manual smoke Windows CI | github-actions-windows-latest-still-required |"
+            echo "| Alpha Windows manual smoke next action | record-result-and-rerun-ci-release-workflows |"
             echo "| Release placeholder | ${RELEASE_PLACEHOLDER_RESULT} |"
             echo "| Release artifacts | not defined |"
             echo "| Artifact checksum | sha256 required before upload or publish |"
@@ -4285,6 +4349,16 @@ jobs:
           echo "linux-artifact-license-notice-contract=present"
           echo "linux-artifact-license-notice-source=docs/manual-intervention.md"
           echo "linux-artifact-license-notice-status=pending"
+          echo "alpha-windows-manual-smoke-contract=present"
+          echo "alpha-windows-manual-smoke-source-contract=docs/alpha-windows-smoke-test.md"
+          echo "alpha-windows-manual-smoke-source=docs/manual-intervention.md"
+          echo "alpha-windows-manual-smoke-manual-source=manual-user-windows-environment"
+          echo "alpha-windows-manual-smoke-version=v0.1.0-alpha.1"
+          echo "alpha-windows-manual-smoke-status=pending"
+          echo "alpha-windows-manual-smoke-result=blocked-pending-user"
+          echo "alpha-windows-manual-smoke-artifacts=not-produced-placeholder"
+          echo "alpha-windows-manual-smoke-windows-ci=github-actions-windows-latest-still-required"
+          echo "alpha-windows-manual-smoke-next-action=record-result-and-rerun-ci-release-workflows"
           echo "release-placeholder=${RELEASE_PLACEHOLDER_RESULT}"
           echo "release-artifacts=not-defined"
           echo "linux-artifact-release-assets=blocked"

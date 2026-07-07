@@ -8,6 +8,7 @@
 
 - ROADMAP、README 和 TODO 现在将 P2 Core Kernel Skeleton 标记为 completed，并把当前阶段推进到 P3 Runtime Capabilities；P4 iOS `Package.swift` manifest-only activation validation contract 已作为 alpha 发布前停止边界补齐。
 - Release policy 现在允许 `vMAJOR.MINOR.PATCH-alpha.N` 作为手动 placeholder release 版本；本轮 alpha 启动仍不生成 `package-linux`、iOS upload job、GitHub Release 或 release asset。
+- Release placeholder 与 release summary 现在显式输出 alpha Windows 手工 smoke 测试清单、`docs/manual-intervention.md` pending marker、`blocked-pending-user` 结果和 `not-produced-placeholder` artifact 状态；该输出只记录用户侧 Windows 测试仍待确认，不替代 GitHub Actions Windows 矩阵。
 - `release-ci-gate` 现在在 job 级启用 `actions: read`，通过 GitHub Actions workflow runs API 查询同 repository、同 commit、`main` 分支 completed CI run，并通过 workflow jobs API 校验 `CI summary` job 成功；release summary 输出被选中的 `ci_workflow_name`、`ci_run_id`、`ci_run_url`、`ci_head_sha`、`ci_checked_at` 等字段，activation/execution/API implementation 状态切换为 active，`package-linux`、workflow artifact、attestation、GitHub Release 和 release asset 仍保持未定义或 blocked。
 
 ### Added

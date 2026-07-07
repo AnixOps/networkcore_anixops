@@ -209,6 +209,13 @@ jobs:
           grep -q "v0.1.0-alpha.1" docs/alpha-windows-smoke-test.md
           grep -q "not-produced-placeholder" docs/alpha-windows-smoke-test.md
           grep -q "rerun-ci-release-workflows-after-marker-update" docs/alpha-windows-smoke-test.md
+          grep -q "Alpha Windows Manual Smoke Test" .github/workflows/release.yml
+          grep -q "alpha-windows-manual-smoke-source-contract=docs/alpha-windows-smoke-test.md" .github/workflows/release.yml
+          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-contract=present"$' .github/workflows/release.yml)" -ge 2
+          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-status=pending"$' .github/workflows/release.yml)" -ge 2
+          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-result=blocked-pending-user"$' .github/workflows/release.yml)" -ge 2
+          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-artifacts=not-produced-placeholder"$' .github/workflows/release.yml)" -ge 2
+          test "$(grep -Ec '^          echo "alpha-windows-manual-smoke-next-action=record-result-and-rerun-ci-release-workflows"$' .github/workflows/release.yml)" -ge 2
           grep -q "alpha-release-windows-manual-test-status=pending" docs/manual-intervention.md
           grep -q "alpha-release-windows-manual-test-source-contract=docs/alpha-windows-smoke-test.md" docs/manual-intervention.md
           grep -q "alpha-release-windows-manual-test-version=v0.1.0-alpha.1" docs/manual-intervention.md
