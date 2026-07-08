@@ -27,8 +27,7 @@ use networkcore_linux::{
     handle_mitm_browser_capture_verify, handle_mitm_browser_plan, handle_mitm_certificate_plan,
     handle_mitm_status, handle_parse_error, handle_prepare_config, handle_run_url_with_sing_box,
     handle_start, handle_status, handle_stop, parse_args, render_response, ConfigReadError,
-    ConfigReader,
-    CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
+    ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxCliCommand, LinuxCliExitCode,
     OutputFormat, UnavailableForegroundLifecycleHost, UnavailableProxyEngineService,
@@ -106,9 +105,7 @@ fn parses_help_command_and_renders_command_table() {
     assert!(rendered.contains("install-sing-box"));
     assert!(rendered.contains("run-url"));
     assert!(rendered.contains("mitm [status|diagnostics|certificate-plan|browser-plan]"));
-    assert!(rendered.contains(
-        "mitm browser-capture [plan|launch-plan|apply|rollback|verify]"
-    ));
+    assert!(rendered.contains("mitm browser-capture [plan|launch-plan|apply|rollback|verify]"));
     assert!(rendered.contains("sing-box install"));
 }
 
@@ -737,7 +734,10 @@ fn mitm_browser_capture_launch_plan_outputs_manual_browser_commands_without_muta
         .as_ref()
         .expect("launch-plan response should include browser capture report");
     assert_eq!(capture.action, "launch-plan");
-    assert_eq!(capture.plan.manual_launch.status, "manual-launch-plan-ready");
+    assert_eq!(
+        capture.plan.manual_launch.status,
+        "manual-launch-plan-ready"
+    );
     assert_eq!(
         capture.plan.manual_launch.proxy_url,
         "http://127.0.0.1:7890"
@@ -752,7 +752,9 @@ fn mitm_browser_capture_launch_plan_outputs_manual_browser_commands_without_muta
         .browser_commands
         .iter()
         .any(|command| command.browser == "chromium"
-            && command.command.contains("--proxy-server=http://127.0.0.1:7890")));
+            && command
+                .command
+                .contains("--proxy-server=http://127.0.0.1:7890")));
     assert!(capture.apply_report.is_none());
     assert!(capture.rollback_report.is_none());
     assert!(capture.verify_report.is_none());
