@@ -259,7 +259,7 @@ outbound。该状态只代表命令面、策略诊断入口、证书生命周期
 
 - `networkcore-linux mitm browser-plan` 已输出 `mitm_status.browser_plan`。
 - `networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` 已输出
-  `browser_capture` manual launch-plan、session-plan、dedicated-profile launch report、`proxy_scheme`、本地代理端点 verify report、proof-log-token traffic proof report、PAC/browser policy artifact apply/rollback report 和 blocked report。
+  `browser_capture` manual launch-plan、session-plan、dedicated-profile launch report、`proxy_scheme`、本地代理端点 verify report、proof-log-token traffic proof report、PAC/browser policy/profile prefs artifact apply/rollback report 和 blocked report。
 - 默认计划为显式代理 `127.0.0.1:7890`，仅用于机器可读计划和后续 UI/CLI 提示。
 - `launch-plan` 只输出 dedicated-profile 浏览器启动命令模板、计划代理 URL 和 `networkcore.adblock`
   插件元数据，不启动浏览器、不写 profile、不写系统状态。
@@ -267,15 +267,15 @@ outbound。该状态只代表命令面、策略诊断入口、证书生命周期
 - `launch --confirm` 只启动 dedicated browser process，可把 `--target-url` 作为浏览器参数打开，不安装 browser policy、不写 system proxy、system PAC、TUN、DNS、firewall 或 CA。
 - `verify --confirm --target-url <url>` 只输出 target route verify report，不证明浏览器真实流量或 HTTPS MITM。
 - `traffic-proof --confirm [--target-url <url>] [--proof-token <token>] [--proof-log <path>]` 只检查 operator-provided proof log 中是否出现 token，不证明 HTTPS MITM 或 rewrite 应用。
-- `apply --confirm --pac-file <path> [--policy-file <path>] --snapshot <path>` 只写 operator-provided NetworkCore PAC artifact、可选 browser policy artifact 和 rollback snapshot；`rollback --snapshot <path>` 只删除 snapshot 记录的 PAC/policy artifact。
+- `apply --confirm --pac-file <path> [--policy-file <path>] [--profile-prefs-file <path>] --snapshot <path>` 只写 operator-provided NetworkCore PAC artifact、可选 browser policy artifact、可选 Firefox dedicated profile prefs、`profile_prefs_file_path`/`profile_prefs_content` 和 rollback snapshot；`rollback --snapshot <path>` 只删除 snapshot 记录的 PAC/policy artifact，并在 profile prefs 未被外部修改时恢复或删除对应 `user.js`。
 - `--proxy-scheme socks5` 只把授权 dedicated browser/PAC/probe 计划绑定到 native SOCKS5 CONNECT hook，不代表系统代理 mutation 或 HTTPS MITM。
 - 当前 gate 为 pac-policy-profile-prefs-active/system-mutation-blocked，不安装 browser policy、system proxy、system PAC、TUN、DNS 或 firewall。
 - [Linux MITM Browser Capture Source Contract](linux-mitm-browser-capture-source-contract.md)
   已固定 `mitm-browser-capture-source-contract-status=active`、
   `LinuxBrowserCaptureManualLaunch`、`LinuxBrowserCaptureSessionPlanRequest`、`LinuxBrowserCaptureSessionPlanReport`、`LinuxBrowserCaptureLaunchRequest`、`LinuxBrowserCaptureLaunchReport`、
   `LinuxBrowserCaptureVerifyRequest`、`LinuxBrowserCaptureVerifyReport`、`LinuxBrowserCaptureTrafficProofRequest`、`LinuxBrowserCaptureTrafficProofReport`、`LinuxBrowserCapturePacRequest`、`BrowserCaptureProcessRunner`、`BrowserCaptureEndpointProbe`、`BrowserCaptureTrafficProofProbe`、`BrowserCapturePacFileStore`、`BrowserCaptureAuthorization`、`BrowserCaptureRollbackSnapshot`、
-  launch-plan、session-plan、可选 `--target-url`、`--proxy-scheme socks5`、launch、PAC/browser policy artifact apply/rollback、verify/traffic-proof、显式授权、snapshot 和 rollback 边界。
-- live browser capture probe、browser/system proxy mutation 和 system PAC 安装尚未实现；当前 PAC apply/rollback 只读取或写入 caller-selected NetworkCore artifact 文件。
+  launch-plan、session-plan、可选 `--target-url`、`--proxy-scheme socks5`、launch、PAC/browser policy/profile prefs artifact apply/rollback、verify/traffic-proof、显式授权、snapshot 和 rollback 边界。
+- live browser capture probe、browser/system proxy mutation 和 system PAC 安装尚未实现；当前 PAC apply/rollback 只读取或写入 caller-selected NetworkCore artifact 文件和显式指定的 Firefox dedicated profile prefs 文件。
 
 ### Phase 4: 平台 adapter
 

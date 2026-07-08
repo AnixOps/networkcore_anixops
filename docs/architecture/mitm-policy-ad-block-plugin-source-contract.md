@@ -179,7 +179,7 @@ Blocked until later phases:
 - `MITM_BROWSER_CAPTURE_GATE`: currently pac-policy-profile-prefs-active/system-mutation-blocked through
   `mitm_status.browser_plan`, manual launch-plan output, redacted session-plan
   output, optional target URL, `--proxy-scheme socks5` native plugin proxy mode, explicit dedicated-profile launch output, explicit local proxy endpoint verify output, target route verify output, proof-log-token traffic proof output, and
-  NetworkCore PAC/browser policy artifact apply/rollback plus mutation-blocked `browser_capture` reports;
+  NetworkCore PAC/browser policy/profile prefs artifact apply/rollback plus `--profile-prefs-file`, `profile_prefs_file_path`, `profile_prefs_content`, and mutation-blocked `browser_capture` reports;
   later increments must add explicit browser/system proxy configuration, system PAC or
   other capture strategy, live capture verification, and rollback boundaries.
   The Linux source contract is

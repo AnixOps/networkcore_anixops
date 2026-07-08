@@ -53,9 +53,10 @@ plans to live traffic. Current `main` also adds
 `BrowserCaptureTrafficProofProbe` with `probe=proof-log-token` to inspect an
 operator-provided proof log for a token, can default omitted proof token/log to the
 same session proof binding, and emits `LinuxBrowserCaptureTrafficProofReport`;
-and `apply --confirm --pac-file <path> [--policy-file <path>] --snapshot <path>`, which uses
+and `apply --confirm --pac-file <path> [--policy-file <path>] [--profile-prefs-file <path>] --snapshot <path>`, which uses
 `BrowserCapturePacFileStore` to write only a caller-selected NetworkCore PAC
-artifact, optional Chromium/Chrome managed proxy policy artifact, and rollback snapshot. Those proof and artifact paths still do not prove
+artifact, optional Chromium/Chrome managed proxy policy artifact, optional Firefox
+dedicated profile prefs, `profile_prefs_file_path`/`profile_prefs_content`, and rollback snapshot. Those proof and artifact paths still do not prove
 HTTPS MITM decryption, browser/system proxy mutation, system PAC installation,
 or live rewrite application. Current `main` also binds browser proof evidence
 into session/launch reports: `proof_target_url` appends `networkcore_proof_token`
@@ -95,7 +96,7 @@ Required gates before user-facing MITM:
   redacted session-plan output, optional target URL, explicit dedicated-profile
   launch output, local proxy endpoint verify output, target route verify output,
   proof-log-token traffic proof output, `--proxy-scheme socks5` native plugin
-  proxy mode, and NetworkCore PAC/browser policy artifact
+  proxy mode, and NetworkCore PAC/browser policy/profile prefs artifact
   apply/rollback; later increments must implement explicit browser/system proxy
   configuration, system PAC or other capture strategy, live capture verification,
   and rollback boundaries. The Linux
