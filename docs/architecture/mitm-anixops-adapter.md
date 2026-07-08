@@ -166,9 +166,22 @@ audit/diagnostics，真实 request/response mutation 继续等待领域 mutation
 
 目标：提供用户可见但受门禁约束的 MITM 命令入口。
 
+当前状态：
+
+```text
+mitm-cli-command-gate-status=partial-active
+```
+
+`networkcore-linux mitm status` 和 `networkcore-linux mitm diagnostics`
+已接入 Linux CLI。它们通过 `mitm-policy` 加载内置 `networkcore.adblock`
+policy，输出 `mitm_status` JSON 机器字段，并显式报告 browser hijack 为
+deferred、`MITM_CERTIFICATE_LIFECYCLE_GATE` blocked 和
+`MITM_HTTP_TLS_DATA_PLANE_GATE` blocked。该状态只代表命令面和策略诊断入口
+已存在，不代表 HTTPS MITM、证书安装或真实流量改写已可用。
+
 范围：
 
-- 新增 `networkcore-linux mitm` 命令族，至少能输出 status、diagnostics 和 unavailable/deferred 状态。
+- 新增并继续扩展 `networkcore-linux mitm` 命令族，至少能输出 status、diagnostics 和 unavailable/deferred 状态。
 - 明确区分 policy-only、certificate-not-ready、data-plane-not-ready 和 ready 状态。
 - 命令不得在 CA 和 HTTP/TLS 数据面未完成前宣称真实 HTTPS MITM 可用。
 - JSON 输出必须包含稳定机器字段，便于后续客户端复用。

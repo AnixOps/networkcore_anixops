@@ -120,6 +120,12 @@ artifact。`networkcore-linux run-url <ss://url>` 现在走 `CoreSubscriptionSer
 `sing_box_run` 机器字段。daemon/control socket、持久订阅、节点选择、VLESS/VMess/Trojan/Clash 等格式、
 status/events/logs、reload、TUN/DNS mutation 和 MITM 真实流量处理仍是后续工作。
 
+`MITM_CLI_COMMAND_GATE` 已进入 status/diagnostics-only 部分激活状态：
+`mitm-cli-command-gate-status=partial-active`。`networkcore-linux mitm status` 和
+`networkcore-linux mitm diagnostics` 会通过 `mitm-policy` 加载内置 `networkcore.adblock`
+策略包，输出 `mitm_status` JSON 机器字段，并明确报告 browser hijack 为 `deferred`。
+该入口不生成或安装 CA，不解密 HTTPS，不修改浏览器/系统代理，也不把 rewrite plan 应用到真实流量。
+
 说明：下方历史清单中保留了 placeholder 阶段的字段名称；当前可执行状态以上面段落和 [ROADMAP.md](ROADMAP.md) 为准。
 
 补充说明：`networkcore-linux start` binary 已接入 `NativeProxyEngineService` 与前台 lifecycle host；有效 listener/node 配置可让二进制入口在当前进程内启动 loopback TCP accept loop runtime 并进入前台持有路径。前台 lifecycle 已具备可注入 interruption source、Unix `SIGINT`/`SIGTERM` OS signal source、`cli.linux.start.signal_received`/`cli.linux.start.lifecycle_interrupted` 诊断、130 退出码和 interruption 后 runtime stop/release 诊断聚合合同。`stop` 与后台 `status` 继续保持无 daemon/control socket 边界；`engine-native` 当前仅作为原生 SOCKS skeleton，不承担 VLESS、Shadowsocks、Trojan、VMess、Hysteria 等私有协议兼容目标。
@@ -170,22 +176,24 @@ JQ max-input guard 和 aggregated rewrite plan 合同；当前插件路径仍只
 和 `mitm.policy.http_event.mutation_deferred`，真实 URL/header/body 改写仍等待 mutation model
 与 HTTP/TLS 数据面。
 
-当前发布版还没有用户可直接启用的 MITM 功能：`networkcore-linux` 没有 `mitm` 命令，
-不会生成或安装 CA，不会解密 HTTPS，也不会把 `mitm-policy` 的 rewrite plan 应用到真实流量。
-后续必须先补齐三个门禁：`MITM_CLI_COMMAND_GATE` 定义并接入 `networkcore-linux mitm`
-命令入口；`MITM_CERTIFICATE_LIFECYCLE_GATE` 完成 CA 生成、安装、信任检测、撤销和回滚；
+当前发布版已有用户可见的 MITM 状态/诊断入口，但没有用户可启用的 live MITM 功能：
+`networkcore-linux mitm status` 和 `networkcore-linux mitm diagnostics` 只输出 policy-only 状态、
+`mitm_status` 机器字段和 deferred gate 诊断；不会生成或安装 CA，不会解密 HTTPS，也不会把
+`mitm-policy` 的 rewrite plan 应用到真实流量。后续必须继续补齐三个门禁：
+`MITM_CLI_COMMAND_GATE` 从 partial-active 扩展到可操作命令面；
+`MITM_CERTIFICATE_LIFECYCLE_GATE` 完成 CA 生成、安装、信任检测、撤销和回滚；
 `MITM_HTTP_TLS_DATA_PLANE_GATE` 在 HTTP/TLS 数据面中应用 URL/header/body/script rewrite plan。
 
 ## 源码布局
 
 - [apps/ios](apps/ios)：iOS source tree governance placeholder，当前仅包含 README，定义未来 Swift package ownership、Package.swift ownership preflight、Package.swift manifest-only activation validation、source directory guard、`macos-26` source scan hook 和 no `Package.swift`/no Swift source/no Xcode project boundary。
-- [apps/linux-cli](apps/linux-cli)：`networkcore-linux` CLI 入口的首批命令解析、`help` 命令表、配置读取边界、只读平台探测接线、`prepare-config` 运行层接线、`start` 原生 engine 前台接线、`install-sing-box` latest public engine 下载接线、`run-url` Shadowsocks URL 到 sing-box foreground local proxy 接线、前台 lifecycle host/interruption source、Unix OS signal source、interruption 后 runtime stop/release 源码合同和诊断输出。
+- [apps/linux-cli](apps/linux-cli)：`networkcore-linux` CLI 入口的首批命令解析、`help` 命令表、配置读取边界、只读平台探测接线、`prepare-config` 运行层接线、`start` 原生 engine 前台接线、`install-sing-box` latest public engine 下载接线、`run-url` Shadowsocks URL 到 sing-box foreground local proxy 接线、`mitm status/diagnostics` policy-only 状态输出、前台 lifecycle host/interruption source、Unix OS signal source、interruption 后 runtime stop/release 源码合同和诊断输出。
 - [crates/config-core](crates/config-core)：统一控制内核的首批纯配置解析、标准化和 subscription parser 服务，当前覆盖 schema/profile、最小 listener/node/route TOML 子集、subscription TOML `nodes`/`routes` 子集、单条 `ss://`、明文 `ss://` 链接列表和 base64 链接列表。
 - [crates/control-domain](crates/control-domain)：统一控制内核的首批领域类型与端口 trait。
 - [crates/control-runtime](crates/control-runtime)：组合领域端口的首批纯运行层编排用例；subscription catalog runtime gate 已支持显式 inline `SubscriptionSource` 的 `NodeCatalog.nodes` 到 `RuntimeConfigRequest.nodes` handoff、重复 id 拒绝和 rules deferred 诊断，仍不执行远程/文件订阅或平台 mutation。
 - [crates/engine-native](crates/engine-native)：原生代理执行内核的首批 adapter 合同、listener/node/route 图校验、native runtime handle 源码合同、loopback TCP listener 绑定/释放、runtime assembly plan、loopback TCP accept loop 受控关闭合同、service-owned runtime state 与 foreground lifecycle handoff 源码合同、accepted TCP connection 协议前置关闭诊断合同、SOCKS5 greeting 版本/认证方法读取诊断合同、SOCKS5 no-auth 方法选择/unsupported auth 方法拒绝诊断合同、SOCKS5 认证方法响应写入诊断合同、SOCKS5 命令头读取/unsupported command 拒绝诊断合同、SOCKS5 CONNECT 目标地址读取、route/outbound 行为选择、SOCKS outbound CONNECT request frame 生成、SOCKS outbound TCP connection plan、SOCKS outbound TCP connection attempt、SOCKS outbound CONNECT request write、SOCKS outbound CONNECT response read、SOCKS outbound CONNECT response decision、SOCKS outbound CONNECT relay readiness、SOCKS outbound CONNECT data relay plan、SOCKS outbound CONNECT data relay execution、SOCKS outbound CONNECT client success response readiness、SOCKS outbound CONNECT client success response write plan、SOCKS outbound CONNECT client success response write、accept loop client success response 与有限 data relay 接线、未接入拒绝与 CONNECT failure response 写入诊断合同、配置拒绝和生命周期诊断。
 - [crates/engine-singbox](crates/engine-singbox)：`sing-box` public engine adapter 的首个 source contract，当前覆盖 descriptor identity、官方 GitHub latest release metadata 解析、目标资产选择、`sha256:` digest 校验、`.tar.gz` 中只提取 `sing-box` 可执行文件、缓存路径、Shadowsocks node 到本地 `mixed` inbound JSON 渲染、foreground process runner 和稳定诊断；仍不提供 daemon/control socket、managed status/events/logs 或 reload。
 - [crates/mitm-anixops-sys](crates/mitm-anixops-sys)：`mitm_anixops` v0.45.10-alpha C ABI 的 unsafe Rust FFI crate，当前编译 vendored C core 并验证 pinned version。
-- [crates/mitm-policy](crates/mitm-policy)：`mitm_anixops` 的 safe wrapper 和 NetworkCore MITM plugin adapter，当前提供内置 `networkcore.adblock` 去广告插件包、manifest/permission gate、MITM decision、URL reject、rewrite plan、header/body/script/JQ guard 合同测试和 deferred mutation 诊断；不直接改写真实流量，也不提供用户可启用的 MITM CLI、CA 安装或 HTTPS 解密路径。
+- [crates/mitm-policy](crates/mitm-policy)：`mitm_anixops` 的 safe wrapper 和 NetworkCore MITM plugin adapter，当前提供内置 `networkcore.adblock` 去广告插件包、manifest/permission gate、MITM decision、URL reject、rewrite plan、header/body/script/JQ guard 合同测试和 deferred mutation 诊断；Linux CLI 只通过 `mitm status/diagnostics` 暴露 policy-only 状态，不直接改写真实流量，也不提供 CA 安装或 HTTPS 解密路径。
 - [crates/platform-ios](crates/platform-ios)：iOS 平台能力 adapter 的首批纯 Rust source contract 实现，当前提供静态 snapshot 映射、Network Extension/VPN/embedded runtime/MITM certificate/shared storage probe、稳定 `platform.ios.*` 诊断 code 和合同测试，不包含 Swift/Xcode/Network Extension target 或签名配置。
 - [crates/platform-linux](crates/platform-linux)：Linux 平台能力 adapter 的首批只读诊断映射、测试替身和 host probe 服务。

@@ -51,9 +51,17 @@ guard state. These are policy/runtime plans, not proof that live traffic
 mutation is already wired.
 
 Current user-facing status: MITM is policy-only. There is no
-`networkcore-linux mitm` command, no CA generation/install/trust workflow, no
-HTTPS decryption path, and no live URL/header/body/script mutation path in the
-published CLI.
+live URL/header/body/script mutation path in the published CLI. The Linux CLI
+now exposes `networkcore-linux mitm status` and
+`networkcore-linux mitm diagnostics` as a status/diagnostics-only command
+surface. It reports:
+
+```text
+mitm-cli-command-gate-status=partial-active
+```
+
+There is still no CA generation/install/trust workflow, no HTTPS decryption
+path, and no browser hijack path.
 
 ## Multi-Client Boundary
 
@@ -88,8 +96,10 @@ The current plugin service does not mutate live request or response data.
 
 Blocked until later phases:
 
-- `MITM_CLI_COMMAND_GATE`: user-facing `networkcore-linux mitm` command
-  surface, status output, diagnostics, and explicit unavailable/deferred states.
+- `MITM_CLI_COMMAND_GATE`: currently partial-active for user-facing
+  `networkcore-linux mitm status` and `networkcore-linux mitm diagnostics`;
+  later increments must add actionable controls without claiming live MITM
+  before the remaining gates are active.
 - `MITM_CERTIFICATE_LIFECYCLE_GATE`: CA generation, user-approved install,
   trust detection, fingerprint/expiration/revocation checks, uninstall, and
   rollback boundaries.
@@ -120,6 +130,9 @@ CI must prove:
 - `mitm-policy` exposes the built-in ad-block package and adapter service;
 - `mitm-policy` exposes 0.45.10 rewrite plan, header, body chain, script, and
   JQ max-input wrapper contracts;
+- Linux CLI exposes `mitm_status` JSON for `networkcore-linux mitm
+  status/diagnostics`, keeps `mitm-cli-command-gate-status=partial-active`, and
+  reports browser hijack as deferred;
 - docs keep `MITM_CLI_COMMAND_GATE`, `MITM_CERTIFICATE_LIFECYCLE_GATE`, and
   `MITM_HTTP_TLS_DATA_PLANE_GATE` visible while user-facing MITM is deferred;
 - Rust CI builds and tests the workspace on Linux, macOS, and Windows;

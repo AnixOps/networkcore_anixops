@@ -7,16 +7,20 @@
 use config_core::CoreSubscriptionService;
 use control_domain::{
     CertificateTrustState, ConfigurationService, Diagnostic, DiagnosticSeverity, DomainError,
-    DomainResult, OperatingSystem, PlatformCapabilityService, PlatformCapabilityStatus,
-    PlatformFeatureState, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
-    ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RawSubscription,
-    SubscriptionService,
+    DomainResult, GrantedPermissions, MitmPluginService, OperatingSystem,
+    PlatformCapabilityService, PlatformCapabilityStatus, PlatformFeatureState, ProxyEngineConfig,
+    ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineLifecycleState, ProxyEngineService,
+    ProxyEngineStatus, RawSubscription, SubscriptionService,
 };
 use control_runtime::{RuntimeConfigRequest, RuntimeOperationResult, RuntimeOrchestrator};
 use engine_singbox::{
     default_sing_box_install_root, render_sing_box_local_proxy_config, SingBoxInstallReport,
     SingBoxInstallRequest, SingBoxLocalProxyConfigRequest, SingBoxProcessRunRequest,
     SingBoxProcessRunner, SingBoxReleaseInstaller, SingBoxTarget,
+};
+use mitm_policy::{
+    builtin_ad_block_plugin_package, AnixOpsMitmPluginService, AnixOpsMitmPolicyEngine,
+    MITM_POLICY_AD_BLOCK_PLUGIN_ID,
 };
 use serde::Serialize;
 #[cfg(unix)]
@@ -56,10 +60,27 @@ pub const CLI_RUN_URL_PARSE_FAILED_CODE: &str = "cli.linux.run_url.parse_failed"
 pub const CLI_RUN_URL_CONFIG_FAILED_CODE: &str = "cli.linux.run_url.config_failed";
 pub const CLI_RUN_URL_CONFIG_WRITE_FAILED_CODE: &str = "cli.linux.run_url.config_write_failed";
 pub const CLI_RUN_URL_PROCESS_FAILED_CODE: &str = "cli.linux.run_url.process_failed";
+pub const CLI_MITM_POLICY_READY_CODE: &str = "cli.linux.mitm.policy_ready";
+pub const CLI_MITM_CLI_GATE_PARTIAL_CODE: &str = "cli.linux.mitm.cli_gate.partial";
+pub const CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE: &str =
+    "cli.linux.mitm.certificate_gate.deferred";
+pub const CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE: &str = "cli.linux.mitm.data_plane_gate.deferred";
+pub const CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE: &str = "cli.linux.mitm.browser_hijack.deferred";
+
+pub const MITM_CLI_COMMAND_GATE: &str = "MITM_CLI_COMMAND_GATE";
+pub const MITM_CERTIFICATE_LIFECYCLE_GATE: &str = "MITM_CERTIFICATE_LIFECYCLE_GATE";
+pub const MITM_HTTP_TLS_DATA_PLANE_GATE: &str = "MITM_HTTP_TLS_DATA_PLANE_GATE";
+pub const MITM_CLI_COMMAND_GATE_STATUS: &str = "partial-active";
+pub const MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS: &str = "blocked";
+pub const MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS: &str = "blocked";
+pub const MITM_BROWSER_HIJACK_STATUS: &str = "deferred";
+pub const MITM_USER_FACING_STAGE: &str = "policy-only";
+pub const MITM_USER_FACING_READY: bool = false;
 
 pub const SOURCE_CLI_ARGUMENT: &str = "cli.argument";
 pub const SOURCE_CLI_CONFIG: &str = "cli.config";
 pub const SOURCE_CLI_HELP: &str = "cli.help";
+pub const SOURCE_CLI_MITM: &str = "cli.mitm";
 pub const SOURCE_CLI_SING_BOX: &str = "cli.sing_box";
 pub const SOURCE_CLI_START: &str = "cli.start";
 pub const SOURCE_CLI_STOP: &str = "cli.stop";
@@ -137,6 +158,12 @@ pub enum LinuxCliCommand {
     Diagnostics {
         format: OutputFormat,
     },
+    MitmStatus {
+        format: OutputFormat,
+    },
+    MitmDiagnostics {
+        format: OutputFormat,
+    },
     InstallSingBox {
         install_dir: Option<String>,
         force: bool,
@@ -163,6 +190,8 @@ impl LinuxCliCommand {
             Self::Stop { .. } => "stop",
             Self::Status { .. } => "status",
             Self::Diagnostics { .. } => "diagnostics",
+            Self::MitmStatus { .. } => "mitm status",
+            Self::MitmDiagnostics { .. } => "mitm diagnostics",
             Self::InstallSingBox { .. } => "install-sing-box",
             Self::RunUrl { .. } => "run-url",
         }
@@ -178,6 +207,8 @@ impl LinuxCliCommand {
             | Self::Stop { format }
             | Self::Status { format }
             | Self::Diagnostics { format }
+            | Self::MitmStatus { format }
+            | Self::MitmDiagnostics { format }
             | Self::InstallSingBox { format, .. }
             | Self::RunUrl { format, .. } => *format,
         }
@@ -217,6 +248,7 @@ pub struct LinuxCliResponse {
     pub help: Option<String>,
     pub sing_box_install: Option<LinuxSingBoxInstallStatus>,
     pub sing_box_run: Option<LinuxSingBoxRunStatus>,
+    pub mitm_status: Option<LinuxMitmStatus>,
 }
 
 impl LinuxCliResponse {
@@ -232,6 +264,7 @@ impl LinuxCliResponse {
             help: None,
             sing_box_install: None,
             sing_box_run: None,
+            mitm_status: None,
         }
     }
 
@@ -251,6 +284,7 @@ impl LinuxCliResponse {
             help: None,
             sing_box_install: None,
             sing_box_run: None,
+            mitm_status: None,
         }
     }
 
@@ -281,6 +315,11 @@ impl LinuxCliResponse {
 
     pub fn with_sing_box_run(mut self, run: LinuxSingBoxRunStatus) -> Self {
         self.sing_box_run = Some(run);
+        self
+    }
+
+    pub fn with_mitm_status(mut self, status: LinuxMitmStatus) -> Self {
+        self.mitm_status = Some(status);
         self
     }
 
@@ -326,6 +365,37 @@ pub struct LinuxSingBoxRunStatus {
     pub executable_path: String,
     pub config_path: String,
     pub process_exit_code: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxMitmStatus {
+    pub stage: String,
+    pub user_facing_ready: bool,
+    pub browser_hijack: String,
+    pub platform_mitm_available: bool,
+    pub certificate_state: String,
+    pub policy: LinuxMitmPolicyStatus,
+    pub gates: Vec<LinuxMitmGateStatus>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxMitmPolicyStatus {
+    pub engine: String,
+    pub engine_version: String,
+    pub plugin_id: String,
+    pub plugin_version: String,
+    pub plugin_loaded: bool,
+    pub mitm_pattern_count: usize,
+    pub rewrite_rule_count: usize,
+    pub script_rule_count: usize,
+    pub argument_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxMitmGateStatus {
+    pub gate: String,
+    pub status: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -699,6 +769,7 @@ where
                 format: options.format,
             })
         }
+        "mitm" => parse_mitm_command(&rest),
         "install-sing-box" | "install-singbox" => {
             let options = parse_options(&rest)?;
             Ok(LinuxCliCommand::InstallSingBox {
@@ -748,6 +819,8 @@ where
         LinuxCliCommand::Capabilities { .. } => handle_capabilities(platform),
         LinuxCliCommand::Status { .. } => handle_status(platform),
         LinuxCliCommand::Diagnostics { .. } => handle_diagnostics(platform),
+        LinuxCliCommand::MitmStatus { .. } => handle_mitm_status(platform),
+        LinuxCliCommand::MitmDiagnostics { .. } => handle_mitm_diagnostics(platform),
         LinuxCliCommand::Stop { .. } => handle_stop(),
         other => handle_unwired_command(other.name()),
     }
@@ -996,6 +1069,7 @@ where
             help: None,
             sing_box_install: None,
             sing_box_run: None,
+            mitm_status: None,
         };
     }
 
@@ -1015,6 +1089,7 @@ where
         help: None,
         sing_box_install: None,
         sing_box_run: None,
+        mitm_status: None,
     }
 }
 
@@ -1112,6 +1187,139 @@ where
             SOURCE_CLI_RUNTIME,
         ),
     }
+}
+
+pub fn handle_mitm_status<P>(platform: &P) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+{
+    handle_mitm_status_inner("mitm status", platform)
+}
+
+pub fn handle_mitm_diagnostics<P>(platform: &P) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+{
+    handle_mitm_status_inner("mitm diagnostics", platform)
+}
+
+fn handle_mitm_status_inner<P>(command: &'static str, platform: &P) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+{
+    let platform_status = match platform.status() {
+        Ok(status) => status,
+        Err(error) => {
+            return domain_error_response(
+                command,
+                LinuxCliExitCode::GeneralFailure,
+                error,
+                SOURCE_CLI_MITM,
+            );
+        }
+    };
+
+    match build_linux_mitm_status(&platform_status) {
+        Ok((status, diagnostics)) => LinuxCliResponse::success(command)
+            .with_platform(platform_status)
+            .with_mitm_status(status)
+            .with_diagnostics(diagnostics),
+        Err(error) => domain_error_response(
+            command,
+            LinuxCliExitCode::GeneralFailure,
+            error,
+            SOURCE_CLI_MITM,
+        ),
+    }
+}
+
+fn build_linux_mitm_status(
+    platform_status: &PlatformCapabilityStatus,
+) -> DomainResult<(LinuxMitmStatus, Vec<Diagnostic>)> {
+    let package = builtin_ad_block_plugin_package();
+    let mut engine = AnixOpsMitmPolicyEngine::new()?;
+    let report = engine.load_config(&package.source)?;
+    let service = AnixOpsMitmPluginService::new();
+    let instance = service.load(
+        &package,
+        &GrantedPermissions {
+            permissions: package.manifest.permissions.clone(),
+        },
+    )?;
+
+    let mut diagnostics = platform_diagnostics(platform_status);
+    diagnostics.extend(report.diagnostics.clone());
+    diagnostics.push(cli_diagnostic(
+        DiagnosticSeverity::Info,
+        CLI_MITM_POLICY_READY_CODE,
+        "mitm policy engine loaded built-in networkcore.adblock plugin",
+        SOURCE_CLI_MITM,
+    ));
+    diagnostics.push(cli_diagnostic(
+        DiagnosticSeverity::Info,
+        CLI_MITM_CLI_GATE_PARTIAL_CODE,
+        "MITM_CLI_COMMAND_GATE is partially active for status and diagnostics only",
+        SOURCE_CLI_MITM,
+    ));
+    diagnostics.push(cli_diagnostic(
+        DiagnosticSeverity::Warning,
+        CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE,
+        "MITM_CERTIFICATE_LIFECYCLE_GATE is blocked; no CA generation, install, trust, revocation, or rollback path is active",
+        SOURCE_CLI_MITM,
+    ));
+    diagnostics.push(cli_diagnostic(
+        DiagnosticSeverity::Warning,
+        CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE,
+        "MITM_HTTP_TLS_DATA_PLANE_GATE is blocked; rewrite plans are not applied to live HTTP/TLS traffic",
+        SOURCE_CLI_MITM,
+    ));
+    diagnostics.push(cli_diagnostic(
+        DiagnosticSeverity::Warning,
+        CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE,
+        "browser hijack is deferred until certificate lifecycle and HTTP/TLS data plane gates are active",
+        SOURCE_CLI_MITM,
+    ));
+
+    let status = LinuxMitmStatus {
+        stage: MITM_USER_FACING_STAGE.to_string(),
+        user_facing_ready: MITM_USER_FACING_READY,
+        browser_hijack: MITM_BROWSER_HIJACK_STATUS.to_string(),
+        platform_mitm_available: platform_status.mitm_available(),
+        certificate_state: certificate_state_name(platform_status.mitm_certificate.state)
+            .to_string(),
+        policy: LinuxMitmPolicyStatus {
+            engine: "mitm_anixops".to_string(),
+            engine_version: report.version,
+            plugin_id: instance.manifest.id,
+            plugin_version: instance.manifest.version,
+            plugin_loaded: true,
+            mitm_pattern_count: report.mitm_pattern_count,
+            rewrite_rule_count: report.rewrite_rule_count,
+            script_rule_count: report.script_rule_count,
+            argument_count: report.argument_count,
+        },
+        gates: vec![
+            LinuxMitmGateStatus {
+                gate: MITM_CLI_COMMAND_GATE.to_string(),
+                status: MITM_CLI_COMMAND_GATE_STATUS.to_string(),
+                reason: "status and diagnostics command surface is active".to_string(),
+            },
+            LinuxMitmGateStatus {
+                gate: MITM_CERTIFICATE_LIFECYCLE_GATE.to_string(),
+                status: MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS.to_string(),
+                reason: "CA lifecycle is not implemented in the Linux CLI".to_string(),
+            },
+            LinuxMitmGateStatus {
+                gate: MITM_HTTP_TLS_DATA_PLANE_GATE.to_string(),
+                status: MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS.to_string(),
+                reason: "live HTTP/TLS interception and mutation are not wired".to_string(),
+            },
+        ],
+    };
+
+    debug_assert_eq!(status.policy.plugin_id, MITM_POLICY_AD_BLOCK_PLUGIN_ID);
+
+    Ok((status, diagnostics))
 }
 
 pub fn handle_install_sing_box<I>(
@@ -1436,6 +1644,41 @@ fn parse_run_url_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliPar
     })
 }
 
+fn parse_mitm_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(subcommand) = args.first() else {
+        let options = parse_options(args)?;
+        return Ok(LinuxCliCommand::MitmStatus {
+            format: options.format,
+        });
+    };
+
+    if subcommand.starts_with("--") {
+        let options = parse_options(args)?;
+        return Ok(LinuxCliCommand::MitmStatus {
+            format: options.format,
+        });
+    }
+
+    match subcommand.as_str() {
+        "status" => {
+            let options = parse_options(&args[1..])?;
+            Ok(LinuxCliCommand::MitmStatus {
+                format: options.format,
+            })
+        }
+        "diagnostics" => {
+            let options = parse_options(&args[1..])?;
+            Ok(LinuxCliCommand::MitmDiagnostics {
+                format: options.format,
+            })
+        }
+        unknown => Err(parse_error(
+            CLI_ARGUMENT_UNKNOWN_CODE,
+            format!("unknown mitm subcommand: {unknown}; run networkcore-linux help"),
+        )),
+    }
+}
+
 fn parse_sing_box_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
     let Some(subcommand) = args.first() else {
         return Err(parse_error(
@@ -1490,6 +1733,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux stop [--format text|json]\n",
         "  networkcore-linux status [--format text|json]\n",
         "  networkcore-linux diagnostics [--format text|json]\n",
+        "  networkcore-linux mitm [status|diagnostics] [--format text|json]\n",
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux run-url <ss://url> [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux sing-box install [--install-dir <dir>] [--force] [--format text|json]\n",
@@ -1503,6 +1747,7 @@ pub const fn cli_help_text() -> &'static str {
         "  stop              Report that daemon stop is unavailable in this build.\n",
         "  status            Report platform-only status without a daemon context.\n",
         "  diagnostics       Print platform diagnostics.\n",
+        "  mitm              Report MITM plugin policy status and deferred browser hijack gates.\n",
         "  install-sing-box  Download the latest official sing-box archive and cache its executable.\n",
         "  run-url           Parse a proxy URL, render sing-box config, and run a local foreground proxy.\n",
         "\n",
@@ -1743,6 +1988,41 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
         lines.push(format!("process exit code: {:?}", run.process_exit_code));
     }
 
+    if let Some(mitm) = &response.mitm_status {
+        lines.push(format!("mitm stage: {}", mitm.stage));
+        lines.push(format!(
+            "user-facing mitm ready: {}",
+            mitm.user_facing_ready
+        ));
+        lines.push(format!("browser hijack: {}", mitm.browser_hijack));
+        lines.push(format!(
+            "platform mitm available: {}",
+            mitm.platform_mitm_available
+        ));
+        lines.push(format!("certificate state: {}", mitm.certificate_state));
+        lines.push(format!(
+            "policy engine: {} {}",
+            mitm.policy.engine, mitm.policy.engine_version
+        ));
+        lines.push(format!(
+            "plugin: {} {} loaded={}",
+            mitm.policy.plugin_id, mitm.policy.plugin_version, mitm.policy.plugin_loaded
+        ));
+        lines.push(format!(
+            "rules: mitm={} rewrite={} script={} arguments={}",
+            mitm.policy.mitm_pattern_count,
+            mitm.policy.rewrite_rule_count,
+            mitm.policy.script_rule_count,
+            mitm.policy.argument_count
+        ));
+        for gate in &mitm.gates {
+            lines.push(format!(
+                "gate {}: {} ({})",
+                gate.gate, gate.status, gate.reason
+            ));
+        }
+    }
+
     for diagnostic in &response.diagnostics {
         lines.push(format!(
             "{} {}: {}",
@@ -1805,6 +2085,7 @@ struct JsonCliResponse {
     help: Option<String>,
     sing_box_install: Option<JsonSingBoxInstallStatus>,
     sing_box_run: Option<JsonSingBoxRunStatus>,
+    mitm_status: Option<JsonMitmStatus>,
 }
 
 impl From<&LinuxCliResponse> for JsonCliResponse {
@@ -1830,6 +2111,7 @@ impl From<&LinuxCliResponse> for JsonCliResponse {
                 .sing_box_run
                 .as_ref()
                 .map(JsonSingBoxRunStatus::from),
+            mitm_status: response.mitm_status.as_ref().map(JsonMitmStatus::from),
         }
     }
 }
@@ -1882,6 +2164,77 @@ impl From<&LinuxSingBoxRunStatus> for JsonSingBoxRunStatus {
             executable_path: status.executable_path.clone(),
             config_path: status.config_path.clone(),
             process_exit_code: status.process_exit_code,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonMitmStatus {
+    stage: String,
+    user_facing_ready: bool,
+    browser_hijack: String,
+    platform_mitm_available: bool,
+    certificate_state: String,
+    policy: JsonMitmPolicyStatus,
+    gates: Vec<JsonMitmGateStatus>,
+}
+
+impl From<&LinuxMitmStatus> for JsonMitmStatus {
+    fn from(status: &LinuxMitmStatus) -> Self {
+        Self {
+            stage: status.stage.clone(),
+            user_facing_ready: status.user_facing_ready,
+            browser_hijack: status.browser_hijack.clone(),
+            platform_mitm_available: status.platform_mitm_available,
+            certificate_state: status.certificate_state.clone(),
+            policy: JsonMitmPolicyStatus::from(&status.policy),
+            gates: status.gates.iter().map(JsonMitmGateStatus::from).collect(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonMitmPolicyStatus {
+    engine: String,
+    engine_version: String,
+    plugin_id: String,
+    plugin_version: String,
+    plugin_loaded: bool,
+    mitm_pattern_count: usize,
+    rewrite_rule_count: usize,
+    script_rule_count: usize,
+    argument_count: usize,
+}
+
+impl From<&LinuxMitmPolicyStatus> for JsonMitmPolicyStatus {
+    fn from(status: &LinuxMitmPolicyStatus) -> Self {
+        Self {
+            engine: status.engine.clone(),
+            engine_version: status.engine_version.clone(),
+            plugin_id: status.plugin_id.clone(),
+            plugin_version: status.plugin_version.clone(),
+            plugin_loaded: status.plugin_loaded,
+            mitm_pattern_count: status.mitm_pattern_count,
+            rewrite_rule_count: status.rewrite_rule_count,
+            script_rule_count: status.script_rule_count,
+            argument_count: status.argument_count,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonMitmGateStatus {
+    gate: String,
+    status: String,
+    reason: String,
+}
+
+impl From<&LinuxMitmGateStatus> for JsonMitmGateStatus {
+    fn from(status: &LinuxMitmGateStatus) -> Self {
+        Self {
+            gate: status.gate.clone(),
+            status: status.status.clone(),
+            reason: status.reason.clone(),
         }
     }
 }

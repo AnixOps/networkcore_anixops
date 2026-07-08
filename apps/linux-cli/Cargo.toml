@@ -12,6 +12,7 @@ control-domain = { path = "../../crates/control-domain" }
 control-runtime = { path = "../../crates/control-runtime" }
 engine-native = { path = "../../crates/engine-native" }
 engine-singbox = { path = "../../crates/engine-singbox" }
+mitm-policy = { path = "../../crates/mitm-policy" }
 platform-linux = { path = "../../crates/platform-linux" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

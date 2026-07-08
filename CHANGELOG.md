@@ -7,9 +7,10 @@
 ### Changed
 
 - Linux artifact release 状态现在统一为 `linux-artifact-release-state=confirmed-release-path`：Release Strategy、Linux license/NOTICE confirmation contract、transition validation contract、pre-release design、manual intervention marker、README、ROADMAP 和 TODO 都记录 license/NOTICE 已 confirmed，但 Linux tag release 仍必须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates。
+- README、ROADMAP、TODO、`mitm-policy` README 和 MITM source contract 现在把 MITM 用户入口状态更新为 `mitm-cli-command-gate-status=partial-active`：Linux CLI 已有 status/diagnostics-only 命令面，但 live MITM、CA lifecycle、HTTP/TLS data plane 和 browser hijack 仍 deferred。
 - ROADMAP、README 和 TODO 现在把当前阶段统一为 P4 Client And Platform Integration。
 - P3 Runtime Capability Baseline 作为已完成 baseline 保留，后续订阅格式、managed lifecycle 和 MITM 真实流量能力作为 P4 集成阶段 backlog 继续推进。
-- README、ROADMAP、TODO、`mitm-policy` README 和 MITM source contract 现在明确记录当前发布版没有用户可启用的 MITM：没有 `networkcore-linux mitm` 命令、没有 CA 生成/安装/信任路径、没有 HTTP/TLS 解密改写数据面；后续工作固定为 `MITM_CLI_COMMAND_GATE`、`MITM_CERTIFICATE_LIFECYCLE_GATE` 和 `MITM_HTTP_TLS_DATA_PLANE_GATE` 三个门禁。
+- README、ROADMAP、TODO、`mitm-policy` README 和 MITM source contract 现在明确记录当前发布版没有用户可启用的 live MITM：`networkcore-linux mitm status/diagnostics` 只输出 policy-only 状态，没有 CA 生成/安装/信任路径，没有 HTTP/TLS 解密改写数据面；后续工作固定为 `MITM_CLI_COMMAND_GATE`、`MITM_CERTIFICATE_LIFECYCLE_GATE` 和 `MITM_HTTP_TLS_DATA_PLANE_GATE` 三个门禁。
 - P3 runtime strategy 现在固化为 public engine adapter first：NetworkCore 维护控制层，`engine-*` 维护 adapter 层，`sing-box` 等公有执行内核先承担 VLESS、Shadowsocks、Trojan、VMess、Hysteria 等协议数据面；`engine-native` 保留为自研执行内核实验线，但私有协议实现暂缓。
 - Release workflow 已完成首个 Linux CLI 二进制发布路径：`v0.1.0-alpha.2` 通过 GitHub Actions 生成 lockfile、执行 locked release build、组装 tarball、sha256、manifest 与 manifest sha256，`attest-linux` 生成 GitHub artifact attestation，`publish-eligibility-gate` 聚合发布门禁，tag 触发的 `publish-github-release` 创建 GitHub Release 并上传 Linux assets。
 - CI governance 改为检查真实 Linux release job、artifact/attestation/publish gates、iOS upload 阻断、license marker 和本地产物禁止提交，不再要求 `package-linux` 永久保持未定义。
@@ -21,6 +22,7 @@
 ### Added
 
 - 新增 Linux artifact release-state consistency CI/release gate，防止文档或 workflow 回退到 license/NOTICE pending placeholder 描述，并要求 release readiness 读取同一 confirmed release path marker。
+- 新增 `networkcore-linux mitm status` 和 `networkcore-linux mitm diagnostics` 最小 CLI 入口：Linux CLI 通过 `mitm-policy` 加载内置 `networkcore.adblock` policy，输出 `mitm_status` JSON 字段、`MITM_CLI_COMMAND_GATE`/`MITM_CERTIFICATE_LIFECYCLE_GATE`/`MITM_HTTP_TLS_DATA_PLANE_GATE` gate 状态和 browser hijack deferred 诊断；当前 marker 为 `mitm-cli-command-gate-status=partial-active`，真实 CA lifecycle 和 HTTP/TLS mutation 仍未启用。
 - 新增 Third-Party Plugin Onboarding Process，并把它纳入 CI governance：后续第三方 plugin、plugin parser、script runtime 或兼容核心必须先有 source contract、pinned source、license/NOTICE gate、permission gate、safe wrapper gate、CI governance gate 和 upgrade procedure；现有 `networkcore.adblock` source contract 已挂接该流程。
 - 新增 `mitm-policy` safe wrapper 和 NetworkCore MITM plugin adapter：`mitm_anixops` 子模块固定到 `v0.45.10-alpha` (`a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0`)，`mitm-anixops-sys` 扩展 config/rule diagnostic/MITM/URL rewrite/rewrite plan/header/body chain/script/JQ guard FFI，`mitm-policy` 提供 `AnixOpsMitmPolicyEngine`、`AnixOpsMitmPluginService`、manifest/permission gate、内置 `networkcore.adblock` alpha 去广告插件包、0.45.10 rewrite plan/header/body/script 合同测试和 `mitm.policy.http_event.mutation_deferred` 诊断；真实 HTTP/TLS request/response mutation 仍等待领域 mutation model 和数据面。
 - 新增 `networkcore-linux run-url <ss://url>` 最小可用代理闭环：CLI 通过 `CoreSubscriptionService` 解析单条 Shadowsocks URL、明文 `ss://` 链接列表或 base64 链接列表，归一化为 `NodeCatalog`，由 `engine-singbox` 渲染本地 `mixed` inbound + Shadowsocks outbound JSON，写入 engine runtime cache，并以前台 `sing-box run -c <config>` 启动默认 `127.0.0.1:7890` 本地代理；JSON 输出新增 `sing_box_run`，文本输出显示 node、local proxy、config 和 process exit code。
