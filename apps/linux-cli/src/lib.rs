@@ -312,9 +312,7 @@ impl LinuxCliCommand {
             Self::MitmBrowserCaptureApply { .. } => "mitm browser-capture apply",
             Self::MitmBrowserCaptureRollback { .. } => "mitm browser-capture rollback",
             Self::MitmBrowserCaptureVerify { .. } => "mitm browser-capture verify",
-            Self::MitmBrowserCaptureTrafficProof { .. } => {
-                "mitm browser-capture traffic-proof"
-            }
+            Self::MitmBrowserCaptureTrafficProof { .. } => "mitm browser-capture traffic-proof",
             Self::InstallSingBox { .. } => "install-sing-box",
             Self::RunUrl { .. } => "run-url",
         }

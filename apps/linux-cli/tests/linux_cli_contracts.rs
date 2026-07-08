@@ -19,9 +19,9 @@ use engine_singbox::{
 };
 use networkcore_linux::{
     cli_help_text, handle_capabilities, handle_entrypoint,
-    handle_entrypoint_with_browser_capture_all_io,
-    handle_entrypoint_with_browser_capture_io, handle_entrypoint_with_browser_capture_runner,
-    handle_entrypoint_with_runtime, handle_entrypoint_with_runtime_and_lifecycle,
+    handle_entrypoint_with_browser_capture_all_io, handle_entrypoint_with_browser_capture_io,
+    handle_entrypoint_with_browser_capture_runner, handle_entrypoint_with_runtime,
+    handle_entrypoint_with_runtime_and_lifecycle,
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
     handle_foreground_lifecycle_with_runtime_stop, handle_install_sing_box,
     handle_mitm_browser_capture_apply, handle_mitm_browser_capture_launch,
@@ -34,8 +34,7 @@ use networkcore_linux::{
     handle_run_url_with_sing_box, handle_start, handle_status, handle_stop, parse_args,
     render_response, BrowserCaptureEndpointProbe, BrowserCaptureProcessRunner,
     BrowserCaptureTrafficProofProbe, CommandBrowserCaptureEndpointProbe, ConfigReadError,
-    ConfigReader,
-    CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
+    ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
     LinuxBrowserCaptureLaunchRequest, LinuxBrowserCaptureTrafficProofOutcome,
@@ -1347,10 +1346,7 @@ fn mitm_browser_capture_traffic_proof_uses_injected_probe_for_observed_token() {
     assert_eq!(proof.request.proxy_port, MITM_BROWSER_CAPTURE_PROXY_PORT);
     assert_eq!(proof.request.proxy_url, "http://127.0.0.1:7890");
     assert_eq!(proof.request.probe, "proof-log-token");
-    assert_eq!(
-        proof.plugin_id,
-        mitm_policy::MITM_POLICY_AD_BLOCK_PLUGIN_ID
-    );
+    assert_eq!(proof.plugin_id, mitm_policy::MITM_POLICY_AD_BLOCK_PLUGIN_ID);
 
     let rendered = render_response(&response, OutputFormat::Text);
     assert!(rendered.contains(
