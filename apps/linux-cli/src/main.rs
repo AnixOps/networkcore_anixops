@@ -45,6 +45,11 @@ fn main() {
             ) {
                 match engine_singbox::GithubSingBoxReleaseInstaller::new() {
                     Ok(sing_box_installer) => {
+                        let orchestrator = control_runtime::RuntimeOrchestrator::new(
+                            config_core::CoreConfigurationService::new(),
+                            platform.clone(),
+                            networkcore_linux::UnavailableProxyEngineService,
+                        );
                         let sing_box_runner = engine_singbox::CommandSingBoxProcessRunner::new();
                         networkcore_linux::handle_entrypoint_with_runtime_lifecycle_and_sing_box(
                             command,
