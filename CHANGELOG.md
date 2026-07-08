@@ -7,14 +7,14 @@
 ### Changed
 
 - README、ROADMAP、TODO 和相关架构文档现在把阶段入口进一步固定为 P4 Client And Platform Integration；P3 只作为 completed baseline 或历史条目保留，不再作为当前仓库阶段描述。
-- README 和 TODO 现在把最新已发布 Linux artifact 同步为 `v0.1.0-alpha.6`，并明确 `mitm browser-capture launch --confirm` 是晚于该 release 的当前源码增量。
+- README 和 TODO 现在把最新已发布 Linux artifact 同步为 `v0.1.0-alpha.7`，并明确 `mitm browser-capture launch --confirm` 已进入当前 Linux CLI artifact 边界，但只启动 dedicated browser profile，不启用 live MITM 或系统代理 mutation。
 - Linux artifact release 状态现在统一为 `linux-artifact-release-state=confirmed-release-path`：Release Strategy、Linux license/NOTICE confirmation contract、transition validation contract、pre-release design、manual intervention marker、README、ROADMAP 和 TODO 都记录 license/NOTICE 已 confirmed，但 Linux tag release 仍必须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates。
 - README、ROADMAP、TODO、`mitm-policy` README 和 MITM source contract 现在把 MITM 用户入口状态更新为 `mitm-cli-command-gate-status=partial-active`：Linux CLI 已有 status/diagnostics/certificate-plan/browser-plan 和 browser-capture blocked report 命令面，但 live MITM、CA mutation lifecycle、HTTP/TLS data plane 和 browser capture mutation 仍 deferred/blocked。
 - ROADMAP、README 和 TODO 现在把当前阶段统一为 P4 Client And Platform Integration。
 - P3 Runtime Capability Baseline 作为已完成 baseline 保留，后续订阅格式、managed lifecycle 和 MITM 真实流量能力作为 P4 集成阶段 backlog 继续推进。
 - README、ROADMAP、TODO、`mitm-policy` README 和 MITM source contract 现在明确记录当前仓库源码没有用户可启用的 live MITM：`networkcore-linux mitm status/diagnostics/certificate-plan/browser-plan` 只输出 policy-only 状态、证书计划和浏览器捕获计划，`networkcore-linux mitm browser-capture plan/launch-plan/launch/apply/rollback/verify` 只输出 `browser_capture` manual launch-plan、dedicated-profile launch report 和 blocked report，没有 CA 生成/安装/信任 mutation 路径，没有 HTTP/TLS 解密改写数据面，也没有浏览器/系统代理 mutation；后续工作固定为 `MITM_CLI_COMMAND_GATE`、`MITM_CERTIFICATE_LIFECYCLE_GATE`、`MITM_HTTP_TLS_DATA_PLANE_GATE` 和 `MITM_BROWSER_CAPTURE_GATE` 四个门禁。
 - 已完成 runtime baseline 的策略现在固化为 public engine adapter first：NetworkCore 维护控制层，`engine-*` 维护 adapter 层，`sing-box` 等公有执行内核先承担 VLESS、Shadowsocks、Trojan、VMess、Hysteria 等协议数据面；`engine-native` 保留为自研执行内核实验线，但私有协议实现暂缓。
-- Release workflow 已完成 Linux CLI 二进制发布路径：首个真实发布路径从 `v0.1.0-alpha.2` 打通，当前最新 GitHub Release 是 `v0.1.0-alpha.6`；对应 tag release 通过 GitHub Actions 生成 lockfile、执行 locked release build、组装 tarball、sha256、manifest 与 manifest sha256，`attest-linux` 生成 GitHub artifact attestation，`publish-eligibility-gate` 聚合发布门禁，tag 触发的 `publish-github-release` 创建 GitHub Release 并上传 Linux assets。
+- Release workflow 已完成 Linux CLI 二进制发布路径：首个真实发布路径从 `v0.1.0-alpha.2` 打通，当前最新 GitHub Release 是 `v0.1.0-alpha.7`；对应 tag release 通过 GitHub Actions 生成 lockfile、执行 locked release build、组装 tarball、sha256、manifest 与 manifest sha256，`attest-linux` 生成 GitHub artifact attestation，`publish-eligibility-gate` 聚合发布门禁，tag 触发的 `publish-github-release` 创建 GitHub Release 并上传 Linux assets。
 - CI governance 改为检查真实 Linux release job、artifact/attestation/publish gates、iOS upload 阻断、license marker 和本地产物禁止提交，不再要求 `package-linux` 永久保持未定义。
 - ROADMAP、README 和 TODO 将 P2 Core Kernel Skeleton 标记为 completed；iOS `Package.swift` manifest-only activation validation contract 已作为 alpha 发布前停止边界补齐。
 - Release policy 现在允许 `vMAJOR.MINOR.PATCH-alpha.N` 作为 release 版本；手动 `workflow_dispatch` 只做验证，真实 GitHub Release asset 上传只允许 tag 触发，iOS upload job 仍保持 blocked。
