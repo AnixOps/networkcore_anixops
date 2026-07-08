@@ -2067,8 +2067,16 @@ fn mitm_browser_capture_apply_can_restore_firefox_profile_prefs_file() {
         &networkcore_linux::CommandBrowserCapturePacFileStore::new(),
         Some(pac_path.to_str().expect("PAC path should be UTF-8")),
         None,
-        Some(prefs_path.to_str().expect("profile prefs path should be UTF-8")),
-        Some(snapshot_path.to_str().expect("snapshot path should be UTF-8")),
+        Some(
+            prefs_path
+                .to_str()
+                .expect("profile prefs path should be UTF-8"),
+        ),
+        Some(
+            snapshot_path
+                .to_str()
+                .expect("snapshot path should be UTF-8"),
+        ),
         MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME,
         true,
     );
@@ -2089,7 +2097,11 @@ fn mitm_browser_capture_apply_can_restore_firefox_profile_prefs_file() {
         .expect("apply response should include PAC request");
     assert_eq!(
         pac.profile_prefs_file_path.as_deref(),
-        Some(prefs_path.to_str().expect("profile prefs path should be UTF-8"))
+        Some(
+            prefs_path
+                .to_str()
+                .expect("profile prefs path should be UTF-8")
+        )
     );
     let profile_prefs_content = pac
         .profile_prefs_content
@@ -2107,7 +2119,11 @@ fn mitm_browser_capture_apply_can_restore_firefox_profile_prefs_file() {
         .expect("apply response should include apply report");
     assert_eq!(
         apply.profile_prefs_file_path.as_deref(),
-        Some(prefs_path.to_str().expect("profile prefs path should be UTF-8"))
+        Some(
+            prefs_path
+                .to_str()
+                .expect("profile prefs path should be UTF-8")
+        )
     );
 
     let rollback = handle_mitm_browser_capture_rollback_with_store(
