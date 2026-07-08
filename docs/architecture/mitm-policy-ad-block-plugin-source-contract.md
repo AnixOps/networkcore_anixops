@@ -8,7 +8,8 @@ pinned `mitm_anixops` C ABI.
 The built-in ad-block plugin is intentionally a policy package, not a complete
 traffic mutation feature. It proves that NetworkCore can load an AnixOps/Loon
 style rule set through `mitm_anixops` and surface stable audit/diagnostics
-through `MitmPluginService`.
+through `MitmPluginService`; current `main` also exposes structured
+`HttpMitmOutcome` plans for future HTTP/TLS data-plane consumption.
 
 ## Current Source Boundary
 
@@ -29,6 +30,14 @@ Required source anchors:
 - `MitmPolicyBodyRewriteChain`
 - `MitmPolicyHeaderField`
 - `MitmPolicyScriptKind`
+- `HttpMitmEvent`
+- `HttpMitmOutcome`
+- `HttpMitmAction`
+- `HttpHeaderMutation`
+- `HttpBodyMutation`
+- `HttpMitmScriptDispatch`
+- `MitmPluginService::handle_http_mitm_event`
+- `MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_CODE`
 - `MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE`
 - `MITM_CLI_COMMAND_GATE`
 - `MITM_CERTIFICATE_LIFECYCLE_GATE`
@@ -97,6 +106,17 @@ artifact plus rollback snapshot; it does not install system PAC or browser
 policy. There is still no CA generation/install/trust mutation workflow, no
 HTTPS decryption path, and no browser/system proxy mutation path.
 
+Current `main` source also has a policy-plan-only mutation model:
+`control-domain` defines `HttpMitmEvent`, `HttpMitmOutcome`, `HttpMitmAction`,
+`HttpHeaderMutation`, `HttpBodyMutation`, and `HttpMitmScriptDispatch`.
+`MitmPluginService::handle_http_mitm_event` defaults to the legacy
+`handle_http_event` path for older adapters, while `AnixOpsMitmPluginService`
+overrides it by reloading the retained `PluginInstance.loaded_source` through
+`mitm_anixops` and mapping 0.45.10 URL reject/redirect, header mutation, body
+mutation, and script dispatch into a stable domain outcome. This proves plugin
+policy execution can produce a NetworkCore-owned plan, but the plan is not
+applied to live traffic until `MITM_HTTP_TLS_DATA_PLANE_GATE` is implemented.
+
 ## Multi-Client Boundary
 
 Platform clients must not maintain their own ad-block parser. Linux, macOS,
@@ -106,9 +126,10 @@ boundary:
 - client imports or enables a plugin package;
 - NetworkCore validates `PluginManifest` and permissions;
 - `mitm-policy` loads `PluginPackage.source` through `mitm_anixops`;
-- `MitmPluginService` returns audit/diagnostics;
-- a later HTTP/TLS data plane applies structured mutations after the domain
-  mutation model exists.
+- `MitmPluginService` returns legacy audit/diagnostics and, on rich
+  `HttpMitmEvent` input, a structured `HttpMitmOutcome` mutation plan;
+- a later HTTP/TLS data plane applies structured mutations after the data-plane
+  gate exists.
 
 This keeps client behavior consistent and keeps platform UI code out of parser
 ownership.
@@ -162,16 +183,16 @@ Blocked until later phases:
   routing, HTTP/1.1 and HTTP/2 parsing, body buffering/limits, compression
   handling, and application of `mitm-policy` URL/header/body/script rewrite
   plans to live traffic.
-- URL/header/body mutation output in `control-domain`.
-- HTTP request and response context with URL, method, phase, host, scheme, and
-  response status.
+- Full HTTP request and response data-plane context with parsed host/scheme,
+  decompression, streaming/backpressure, and response framing.
 - HTTP/TLS MITM data plane in `engine-native` or another execution adapter.
 - Platform certificate install/trust workflow.
 - JavaScript runtime and persistent storage.
 
-The required current diagnostic is:
+The current policy-plan diagnostics are:
 
 ```text
+mitm.policy.http_event.mutation_planned
 mitm.policy.http_event.mutation_deferred
 ```
 
@@ -185,6 +206,12 @@ CI must prove:
 - `mitm-policy` exposes the built-in ad-block package and adapter service;
 - `mitm-policy` exposes 0.45.10 rewrite plan, header, body chain, script, and
   JQ max-input wrapper contracts;
+- `control-domain` exposes `HttpMitmEvent`, `HttpMitmOutcome`,
+  `HttpMitmAction`, `HttpHeaderMutation`, `HttpBodyMutation`,
+  `HttpMitmScriptDispatch`, and `MitmPluginService::handle_http_mitm_event`;
+- `mitm-policy` contract tests cover `networkcore.adblock` rich reject outcome,
+  0.45.10 header/body/script outcome mapping, and missing loaded source
+  deferral;
 - Linux CLI exposes `mitm_status` JSON, `mitm_status.certificate_plan`,
   `mitm_status.browser_plan`, and `browser_capture` for
   `networkcore-linux mitm status/diagnostics/certificate-plan/browser-plan`

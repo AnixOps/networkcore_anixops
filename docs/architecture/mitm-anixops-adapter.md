@@ -95,37 +95,42 @@ crates/mitm-policy
 `networkcore.adblock` alpha 去广告插件包，并把 0.45.10 的 URL rewrite、
 named header rewrite、bounded header-list application、body rewrite chain、
 script dispatch、JQ max-input guard 和 aggregated rewrite plan 映射为
-NetworkCore stable Rust 类型。当前 `MitmPluginService` 仍只返回
-audit/diagnostics，真实 request/response mutation 继续等待领域 mutation model
-和 HTTP/TLS 数据面。
+NetworkCore stable Rust 类型。当前 `control-domain` 已新增
+`HttpMitmEvent`、`HttpMitmOutcome`、`HttpMitmAction`、`HttpHeaderMutation`、
+`HttpBodyMutation` 和 `HttpMitmScriptDispatch`；`MitmPluginService` 保留旧的
+`handle_http_event` audit/diagnostics 路径，并新增
+`handle_http_mitm_event` rich plan 路径。`AnixOpsMitmPluginService` 会把
+0.45.10 的 URL reject/redirect、header mutation、body mutation 和 script
+dispatch 映射为 NetworkCore-owned mutation plan。真实 request/response
+mutation 继续等待 HTTP/TLS 数据面。
 
 ## Domain Model 变更门槛
 
-在真实 rewrite 接入前，`control-domain` 需要新增 mutation 输出模型。
+在真实 rewrite 接入前，`control-domain` 已具备首版 mutation 输出模型。
 
-建议新增或扩展类型：
+当前已新增类型：
 
 - `HttpMitmPhase`
-- `HttpRequestContext`
-- `HttpResponseContext`
-- `MitmMutation`
-- `UrlRewriteMutation`
-- `HeaderMutation`
-- `BodyMutation`
-- `ScriptDispatch`
-- `MitmPluginOutcome`
+- `HttpMitmEvent`
+- `HttpMitmOutcome`
+- `HttpMitmAction`
+- `HttpHeaderMutation`
+- `HttpBodyMutation`
+- `HttpMitmScriptDispatch`
 
-最低字段要求：
+当前模型覆盖：
 
-- URL、scheme、host、path、method。
-- request/response phase。
-- response status。
+- URL、method、request/response phase、response status。
 - headers。
 - buffered body。
-- body 是否已解压、是否可改写、是否截断。
-- script tag、script path、argument、requires body。
+- body mutation truncation marker。
+- script tag、script path、argument、requires body、timeout 和 max size。
 
-`PluginResult` 继续保留 audit/diagnostics，但真实处理结果不能只靠 audit/diagnostics 表达。
+仍需由 HTTP/TLS 数据面补齐：scheme/host/path 的解析权威来源、TLS/SNI
+上下文、HTTP/1.1 与 HTTP/2 framing、压缩/解压、chunk/body buffering、
+backpressure、streaming body 上限、script runtime 执行、以及 plan 的真实应用。
+`PluginResult` 继续保留 audit/diagnostics；真实处理结果不得只靠
+audit/diagnostics 表达。
 
 ## Runtime 接线阶段
 
@@ -145,23 +150,28 @@ P4 Client And Platform Integration；P3 Runtime Capability Baseline 已完成。
 - 在 `MitmPluginService` adapter 中返回 audit/diagnostics。
 - 内置 `networkcore.adblock` 插件包通过 `mitm_anixops` 规则加载、MITM host
   decision 和 URL reject rewrite 合同测试。
+- 在 `MitmPluginService::handle_http_mitm_event` 中返回 rich
+  `HttpMitmOutcome` policy plan，覆盖 URL reject/redirect、header、body 和
+  script dispatch 映射。
 
 不做：
 
 - 不接入真实网络流量。
 - 不执行 JavaScript。
-- 不改写 HTTP request/response。
+- 不把 `HttpMitmOutcome` 应用到 HTTP request/response。
 - 不声明全平台 MITM 可用。
 
 ### Phase 2: mutation model
 
 目标：让领域模型能表达 request/response 改写。
 
-范围：
+当前状态：
 
-- 扩展 `HttpEvent` 或新增 HTTP MITM context。
-- 扩展 `PluginResult` 或新增 `MitmPluginOutcome`。
-- 覆盖 URL redirect/reject、header add/replace/delete、body replace、script dispatch。
+- 首版已完成：`HttpMitmEvent` 和 `HttpMitmOutcome` 与
+  `MitmPluginService::handle_http_mitm_event` 已存在。
+- 已覆盖 URL redirect/reject、header add/replace/delete、body replace 和
+  script dispatch 的 domain outcome 映射。
+- 仍未接入 engine-native HTTP/TLS 数据面，因此只是 policy plan。
 
 ### Phase 2B: Linux CLI MITM command gate
 
@@ -292,8 +302,9 @@ iOS：
 
 - Phase 1A：Rust workspace 包含 `mitm-anixops-sys`，Linux/macOS/Windows runner 能编译 vendored C core，并用 version FFI test 调用 `anixops_version()`。
 - Phase 1B：新增 `mitm-policy`，用 safe wrapper tests 覆盖 config diagnostic、MITM decision、URL reject rewrite、内置 ad-block plugin package、manifest/permission gate 和 `MitmPluginService` deferred mutation diagnostic。
-- Phase 1C：扩展 safe wrapper tests 覆盖 header rewrite、bounded header-list application、body rewrite chain、script dispatch、JQ max-input guard 和 aggregated rewrite plan；这些结果作为 safe wrapper 合同暴露，真实 traffic mutation 仍等待 Phase 2 mutation model。
-- Phase 1D：ABI allowlist 与 `mitm_anixops/ci/abi_exports.txt` 一致，CI summary 显式输出 `mitm_anixops` adapter 检测状态。
+- Phase 1C：扩展 safe wrapper tests 覆盖 header rewrite、bounded header-list application、body rewrite chain、script dispatch、JQ max-input guard 和 aggregated rewrite plan；这些结果作为 safe wrapper 合同暴露。
+- Phase 1D：扩展 `control-domain` 和 `mitm-policy`，覆盖 `HttpMitmEvent`、`HttpMitmOutcome`、`MitmPluginService::handle_http_mitm_event`、`networkcore.adblock` rich reject outcome、0.45.10 header/body/script outcome mapping 和 missing loaded source deferral；这些结果仍只是 policy plan，真实 traffic mutation 等待 HTTP/TLS 数据面。
+- Phase 1E：ABI allowlist 与 `mitm_anixops/ci/abi_exports.txt` 一致，CI summary 显式输出 `mitm_anixops` adapter 检测状态。
 
 iOS 只能在 iOS platform crate 和 Network Extension 设计出现后，通过 macOS runner 增加 Swift/Xcode 或 cargo check 验证。
 
@@ -313,8 +324,8 @@ iOS 只能在 iOS platform crate 和 Network Extension 设计出现后，通过 
    NetworkCore-owned Rust 类型和稳定 diagnostic/error code；不得把 upstream demo
    proxy shim 当作 NetworkCore production data plane。
 5. 合同测试只验证 wrapper 能加载策略、生成 rewrite plan/header/body/script/JQ
-   guard 结果和 deferred mutation 诊断；真实 HTTP/TLS mutation 仍必须等
-   domain mutation model、engine data plane 和 platform certificate gate 通过。
+   guard 结果、deferred mutation 诊断和 `HttpMitmOutcome` source-only plan；
+   真实 HTTP/TLS mutation 仍必须等 engine data plane 和 platform certificate gate 通过。
 6. 提交并推送后只用 GitHub Actions 的 policy、Rust format/lint/test/build 和
    dependency audit 结果判断是否通过；本机不得运行 build/test/package/release 验证。
 
@@ -327,9 +338,11 @@ iOS 只能在 iOS platform crate 和 Network Extension 设计出现后，通过 
 - `engine-native` 已支持 HTTP/TLS MITM。
 - `mitm_anixops` 负责 TLS、证书、HTTP parser 或 JavaScript runtime。
 - `PluginResult` 已能表达完整 rewrite。
+- `HttpMitmOutcome` 已被 HTTP/TLS 数据面应用到真实流量。
 
 可以宣称：
 
 - `mitm_anixops` 是 NetworkCore 可接入的 MITM 策略/plugin 兼容 C ABI core。
-- NetworkCore 当前具备接入该 core 的领域端口雏形。
-- 完整流量接入需要后续领域 mutation model、HTTP/TLS 数据面和平台 adapter。
+- NetworkCore 当前具备接入该 core 的领域端口和 source-only
+  `HttpMitmOutcome` mutation plan。
+- 完整流量接入需要后续 HTTP/TLS 数据面和平台 adapter。

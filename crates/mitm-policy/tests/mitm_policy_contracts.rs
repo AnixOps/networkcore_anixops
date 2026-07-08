@@ -1,12 +1,16 @@
 use control_domain::{
     CertificateTrustState, DiagnosticSeverity, GrantedPermissions, HookPoint, HttpEvent,
-    MetadataEntry, MitmPluginService, PluginManifest, PluginPackage, PluginPermission,
+    HttpHeaderMutationOperation, HttpMitmAction, HttpMitmEvent, HttpMitmPhase,
+    HttpMitmScriptKind, MetadataEntry, MitmPluginService, PluginManifest, PluginPackage,
+    PluginPermission,
 };
 use mitm_policy::{
     builtin_ad_block_plugin_package, AnixOpsMitmPluginService, AnixOpsMitmPolicyEngine,
-    MitmPolicyHeaderField, MitmPolicyMitmDecisionType, MitmPolicyPhase, MitmPolicyRewriteAction,
-    MitmPolicyScriptKind, MITM_POLICY_AD_BLOCK_PLUGIN_ID, MITM_POLICY_CONFIG_LOADED_CODE,
+    MitmPolicyHeaderField, MitmPolicyHeaderOperation, MitmPolicyMitmDecisionType,
+    MitmPolicyPhase, MitmPolicyRewriteAction, MitmPolicyScriptKind,
+    MITM_POLICY_AD_BLOCK_PLUGIN_ID, MITM_POLICY_CONFIG_LOADED_CODE,
     MITM_POLICY_CONFIG_PARSE_FAILED_CODE, MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE,
+    MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_CODE, MITM_POLICY_HTTP_EVENT_SOURCE_MISSING_CODE,
     MITM_POLICY_MANIFEST_HOOK_MISSING_CODE,
 };
 
@@ -87,6 +91,7 @@ http-response ^https:\/\/api\.networkcore\.example\/v1 requires-body=1, timeout=
         )
         .expect("named header rewrite should evaluate");
     assert_eq!(header.action, MitmPolicyRewriteAction::HeaderMutation);
+    assert_eq!(header.operation, MitmPolicyHeaderOperation::Add);
     assert_eq!(header.header_name, "X-NetworkCore");
     assert_eq!(header.value, "rust-plan");
 
@@ -235,6 +240,151 @@ fn adapter_loads_builtin_ad_block_plugin_and_reports_deferred_mutation() {
         &result.diagnostics,
         MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE,
     );
+}
+
+#[test]
+fn adapter_plans_builtin_ad_block_reject_for_rich_http_mitm_event() {
+    let package = builtin_ad_block_plugin_package();
+    let service = AnixOpsMitmPluginService::new();
+    let instance = service
+        .load(
+            &package,
+            &GrantedPermissions {
+                permissions: package.manifest.permissions.clone(),
+            },
+        )
+        .expect("built-in ad block plugin should load");
+
+    let outcome = service
+        .handle_http_mitm_event(
+            &instance,
+            &HttpMitmEvent {
+                request_id: "req-rich-1".to_string(),
+                url: "https://pubads.g.doubleclick.net/pagead/id".to_string(),
+                method: Some("GET".to_string()),
+                phase: HttpMitmPhase::Request,
+                status_code: None,
+                headers: Vec::new(),
+                body: Vec::new(),
+            },
+        )
+        .expect("rich HTTP MITM event should produce a policy plan");
+
+    assert_eq!(outcome.action, HttpMitmAction::Reject { status_code: 403 });
+    assert!(outcome.header_mutations.is_empty());
+    assert!(outcome.body_mutation.is_none());
+    assert!(outcome.script_dispatch.is_none());
+    assert_diagnostic(&outcome.diagnostics, MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_CODE);
+    assert_eq!(outcome.audits[0].action, "mitm.policy.plan_http_mitm_event");
+}
+
+#[test]
+fn adapter_maps_v04510_header_body_and_script_plan_to_domain_outcome() {
+    let service = AnixOpsMitmPluginService::new();
+    let package = PluginPackage {
+        manifest: PluginManifest {
+            id: "rich-plan-plugin".to_string(),
+            version: "0.1.0".to_string(),
+            permissions: vec![
+                PluginPermission::ReadResponse,
+                PluginPermission::ModifyResponse,
+            ],
+            hooks: vec![HookPoint::Response],
+        },
+        source: r#"
+[Argument]
+Mode = select,rust
+
+[Rewrite]
+^https:\/\/api\.networkcore\.example\/v1 response-header-add X-NetworkCore rich-plan
+^https:\/\/api\.networkcore\.example\/v1 response-body-replace-regex from to
+
+[Script]
+http-response ^https:\/\/api\.networkcore\.example\/v1 requires-body=1, timeout=4, max-size=2048, script-path=https://scripts.example/networkcore-response.js, tag=networkcore.response, argument=[{Mode}]
+"#
+        .to_string(),
+    };
+    let instance = service
+        .load(
+            &package,
+            &GrantedPermissions {
+                permissions: package.manifest.permissions.clone(),
+            },
+        )
+        .expect("rich plan plugin should load");
+
+    let outcome = service
+        .handle_http_mitm_event(
+            &instance,
+            &HttpMitmEvent {
+                request_id: "req-rich-2".to_string(),
+                url: "https://api.networkcore.example/v1".to_string(),
+                method: None,
+                phase: HttpMitmPhase::Response,
+                status_code: Some(200),
+                headers: Vec::new(),
+                body: b"from=1".to_vec(),
+            },
+        )
+        .expect("rich HTTP MITM event should produce a policy plan");
+
+    assert_eq!(outcome.action, HttpMitmAction::Continue);
+    assert_eq!(outcome.header_mutations.len(), 1);
+    assert_eq!(
+        outcome.header_mutations[0].operation,
+        HttpHeaderMutationOperation::Add
+    );
+    assert_eq!(outcome.header_mutations[0].name, "X-NetworkCore");
+    assert_eq!(
+        outcome.header_mutations[0].value.as_deref(),
+        Some("rich-plan")
+    );
+    assert_eq!(
+        outcome
+            .body_mutation
+            .expect("body mutation should be planned")
+            .body,
+        b"to=1".to_vec()
+    );
+    let script = outcome
+        .script_dispatch
+        .expect("script dispatch should be planned");
+    assert_eq!(script.kind, HttpMitmScriptKind::Response);
+    assert_eq!(script.phase, HttpMitmPhase::Response);
+    assert!(script.requires_body);
+    assert_eq!(script.argument, "Mode=rust");
+}
+
+#[test]
+fn adapter_defers_rich_http_mitm_event_when_loaded_source_is_missing() {
+    let service = AnixOpsMitmPluginService::new();
+    let instance = control_domain::PluginInstance {
+        manifest: PluginManifest {
+            id: "source-missing".to_string(),
+            version: "0.1.0".to_string(),
+            permissions: vec![PluginPermission::ReadRequest],
+            hooks: vec![HookPoint::Request],
+        },
+        loaded_source: None,
+    };
+
+    let outcome = service
+        .handle_http_mitm_event(
+            &instance,
+            &HttpMitmEvent {
+                request_id: "req-rich-3".to_string(),
+                url: "https://example.test/".to_string(),
+                method: Some("GET".to_string()),
+                phase: HttpMitmPhase::Request,
+                status_code: None,
+                headers: Vec::new(),
+                body: Vec::new(),
+            },
+        )
+        .expect("missing loaded source should defer without failing");
+
+    assert_eq!(outcome.action, HttpMitmAction::Continue);
+    assert_diagnostic(&outcome.diagnostics, MITM_POLICY_HTTP_EVENT_SOURCE_MISSING_CODE);
 }
 
 #[test]

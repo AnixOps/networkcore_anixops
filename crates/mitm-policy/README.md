@@ -10,12 +10,15 @@ It owns the first NetworkCore MITM policy boundary:
 - MITM decision, URL rewrite, named header, bounded header-list application,
   body rewrite chain, script dispatch, JQ max-input guard, and aggregated
   rewrite plan helpers for contract tests.
-- `MitmPluginService` implementation returning audit/diagnostics only.
+- `MitmPluginService` implementation with legacy deferred audit/diagnostics and
+  rich `handle_http_mitm_event` mutation-plan output for future data-plane use.
 - A built-in alpha ad-block plugin package.
 
-Current limitation: this crate does not mutate real HTTP traffic. NetworkCore
-still needs a domain mutation model and HTTP/TLS data plane before URL/header/body
-rewrite results can be applied to live requests or responses.
+Current limitation: this crate does not mutate real HTTP traffic. It now maps
+`mitm_anixops` URL reject/redirect, header mutation, body mutation, and script
+dispatch results into `control-domain` `HttpMitmOutcome` plans, but NetworkCore
+still needs an HTTP/TLS data plane before those plans can be applied to live
+requests or responses.
 
 P4 current stage source of truth: MITM work is now part of P4 Client And
 Platform Integration. P3 Runtime Capability Baseline is completed history. The
@@ -49,7 +52,11 @@ and `apply --confirm --pac-file <path> --snapshot <path>`, which uses
 `BrowserCapturePacFileStore` to write only a caller-selected NetworkCore PAC
 artifact plus rollback snapshot. Those proof and PAC paths still do not prove
 HTTPS MITM decryption, browser/system proxy mutation, system PAC installation,
-or live rewrite application.
+or live rewrite application. Current `main` also adds source-only rich
+`MitmPluginService::handle_http_mitm_event` planning: loaded plugin source is
+retained in `PluginInstance`, and `networkcore.adblock` can produce a
+`HttpMitmOutcome` reject plan for matching ad URLs. This is still a policy plan,
+not a live traffic mutation.
 
 Release/source split: `v0.1.0-alpha.8` is the latest published Linux artifact,
 while this README describes current `main` source. That artifact includes
@@ -88,7 +95,7 @@ Required gates before user-facing MITM:
   `BrowserCaptureRollbackSnapshot`, optional target URL, and proof-log-token
   evidence before mutation.
 - `MITM_HTTP_TLS_DATA_PLANE_GATE`: wire HTTP/TLS interception to
-  `mitm-policy` rewrite plans.
+  `mitm-policy` `HttpMitmOutcome` rewrite plans.
 
 Current CLI gate marker:
 

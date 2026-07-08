@@ -340,6 +340,7 @@ impl MitmPluginService for FakeMitmPluginService {
 
         Ok(PluginInstance {
             manifest: plugin_package.manifest.clone(),
+            loaded_source: None,
         })
     }
 
@@ -502,6 +503,7 @@ impl MitmPluginService for NonErrorManifestMitmPluginService {
     ) -> DomainResult<PluginInstance> {
         Ok(PluginInstance {
             manifest: plugin_package.manifest.clone(),
+            loaded_source: None,
         })
     }
 
@@ -540,6 +542,7 @@ impl MitmPluginService for DiagnosticResultMitmPluginService {
     ) -> DomainResult<PluginInstance> {
         Ok(PluginInstance {
             manifest: plugin_package.manifest.clone(),
+            loaded_source: None,
         })
     }
 
@@ -591,6 +594,7 @@ impl MitmPluginService for AuditingMitmPluginService {
     ) -> DomainResult<PluginInstance> {
         Ok(PluginInstance {
             manifest: plugin_package.manifest.clone(),
+            loaded_source: None,
         })
     }
 

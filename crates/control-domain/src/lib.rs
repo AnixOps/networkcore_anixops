@@ -622,6 +622,11 @@ pub struct GrantedPermissions {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginInstance {
     pub manifest: PluginManifest,
+    /// Optional loaded source snapshot for stateless adapters.
+    ///
+    /// This field is owned by the plugin service boundary and must not be
+    /// surfaced in client status, diagnostics, release notes, or logs.
+    pub loaded_source: Option<String>,
 }
 
 /// HTTP event visible to plugin logic.
@@ -630,6 +635,99 @@ pub struct HttpEvent {
     pub request_id: String,
     pub headers: Metadata,
     pub body: Vec<u8>,
+}
+
+/// HTTP MITM phase used by plugin mutation planning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HttpMitmPhase {
+    Request,
+    Response,
+}
+
+/// Rich HTTP MITM event visible to mutation-capable plugin logic.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HttpMitmEvent {
+    pub request_id: String,
+    pub url: String,
+    pub method: Option<String>,
+    pub phase: HttpMitmPhase,
+    pub status_code: Option<u16>,
+    pub headers: Metadata,
+    pub body: Vec<u8>,
+}
+
+impl HttpMitmEvent {
+    /// Converts this rich MITM event to the legacy read-only HTTP event shape.
+    pub fn legacy_event(&self) -> HttpEvent {
+        HttpEvent {
+            request_id: self.request_id.clone(),
+            headers: self.headers.clone(),
+            body: self.body.clone(),
+        }
+    }
+}
+
+/// Terminal action selected by MITM plugin policy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HttpMitmAction {
+    Continue,
+    Redirect { status_code: u16, location: String },
+    Reject { status_code: u16 },
+}
+
+/// Header mutation operation selected by plugin policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HttpHeaderMutationOperation {
+    Add,
+    Replace,
+    Delete,
+    Set,
+}
+
+/// Header mutation planned by plugin policy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HttpHeaderMutation {
+    pub operation: HttpHeaderMutationOperation,
+    pub name: String,
+    pub value: Option<String>,
+}
+
+/// Body mutation planned by plugin policy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HttpBodyMutation {
+    pub body: Vec<u8>,
+    pub truncated: bool,
+}
+
+/// Script dispatch phase planned by plugin policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HttpMitmScriptKind {
+    Request,
+    Response,
+}
+
+/// Script dispatch planned by plugin policy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HttpMitmScriptDispatch {
+    pub kind: HttpMitmScriptKind,
+    pub phase: HttpMitmPhase,
+    pub requires_body: bool,
+    pub timeout_ms: usize,
+    pub max_size: usize,
+    pub script_path: String,
+    pub tag: String,
+    pub argument: String,
+}
+
+/// MITM plugin mutation plan consumed by a future HTTP/TLS data plane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HttpMitmOutcome {
+    pub action: HttpMitmAction,
+    pub header_mutations: Vec<HttpHeaderMutation>,
+    pub body_mutation: Option<HttpBodyMutation>,
+    pub script_dispatch: Option<HttpMitmScriptDispatch>,
+    pub audits: Vec<AuditEvent>,
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 /// Security audit decision.
@@ -798,6 +896,22 @@ pub trait MitmPluginService {
         plugin_instance: &PluginInstance,
         http_event: &HttpEvent,
     ) -> DomainResult<PluginResult>;
+
+    fn handle_http_mitm_event(
+        &self,
+        plugin_instance: &PluginInstance,
+        http_event: &HttpMitmEvent,
+    ) -> DomainResult<HttpMitmOutcome> {
+        let result = self.handle_http_event(plugin_instance, &http_event.legacy_event())?;
+        Ok(HttpMitmOutcome {
+            action: HttpMitmAction::Continue,
+            header_mutations: Vec::new(),
+            body_mutation: None,
+            script_dispatch: None,
+            audits: result.audits,
+            diagnostics: result.diagnostics,
+        })
+    }
 
     fn audit(&self, plugin_result: &PluginResult) -> Vec<AuditEvent>;
 }
@@ -999,5 +1113,93 @@ mod tests {
             status.mitm_denied_reason(),
             Some("mitm certificate is installed but not trusted")
         );
+    }
+
+    struct LegacyOnlyMitmService;
+
+    impl MitmPluginService for LegacyOnlyMitmService {
+        fn validate_manifest(&self, _plugin_manifest: &PluginManifest) -> Vec<Diagnostic> {
+            Vec::new()
+        }
+
+        fn load(
+            &self,
+            plugin_package: &PluginPackage,
+            _granted_permissions: &GrantedPermissions,
+        ) -> DomainResult<PluginInstance> {
+            Ok(PluginInstance {
+                manifest: plugin_package.manifest.clone(),
+                loaded_source: None,
+            })
+        }
+
+        fn handle_http_event(
+            &self,
+            plugin_instance: &PluginInstance,
+            http_event: &HttpEvent,
+        ) -> DomainResult<PluginResult> {
+            Ok(PluginResult {
+                audits: vec![AuditEvent {
+                    actor: plugin_instance.manifest.id.clone(),
+                    action: format!("legacy-http-event:{}", http_event.request_id),
+                    decision: AuditDecision::Allowed,
+                    reason: None,
+                }],
+                diagnostics: vec![Diagnostic::new(
+                    DiagnosticSeverity::Info,
+                    "plugin.legacy_handled",
+                    "legacy handler processed the HTTP event",
+                    None,
+                )],
+            })
+        }
+
+        fn audit(&self, plugin_result: &PluginResult) -> Vec<AuditEvent> {
+            plugin_result.audits.clone()
+        }
+    }
+
+    #[test]
+    fn mitm_plugin_service_rich_event_defaults_to_legacy_result_without_mutation() {
+        let service = LegacyOnlyMitmService;
+        let package = PluginPackage {
+            manifest: PluginManifest {
+                id: "legacy-only".to_string(),
+                version: "0.1.0".to_string(),
+                permissions: vec![PluginPermission::ReadRequest],
+                hooks: vec![HookPoint::Request],
+            },
+            source: "legacy-source".to_string(),
+        };
+        let instance = service
+            .load(
+                &package,
+                &GrantedPermissions {
+                    permissions: vec![PluginPermission::ReadRequest],
+                },
+            )
+            .expect("legacy service should load plugin");
+
+        let outcome = service
+            .handle_http_mitm_event(
+                &instance,
+                &HttpMitmEvent {
+                    request_id: "request-rich".to_string(),
+                    url: "https://example.test/".to_string(),
+                    method: Some("GET".to_string()),
+                    phase: HttpMitmPhase::Request,
+                    status_code: None,
+                    headers: Vec::new(),
+                    body: Vec::new(),
+                },
+            )
+            .expect("default rich handler should delegate to legacy handler");
+
+        assert_eq!(outcome.action, HttpMitmAction::Continue);
+        assert!(outcome.header_mutations.is_empty());
+        assert!(outcome.body_mutation.is_none());
+        assert!(outcome.script_dispatch.is_none());
+        assert_eq!(outcome.audits[0].action, "legacy-http-event:request-rich");
+        assert_eq!(outcome.diagnostics[0].code, "plugin.legacy_handled");
     }
 }

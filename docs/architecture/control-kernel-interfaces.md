@@ -172,19 +172,23 @@
 
 ## MITM 插件接口
 
-`MitmPluginService` 负责管理受控插件生命周期、权限和 HTTP 事件处理。
+`MitmPluginService` 负责管理受控插件生命周期、权限、旧 HTTP 事件处理和
+rich HTTP MITM mutation plan。
 
 输入：
 
 - `PluginManifest`
 - 插件包内容。
 - 用户授权状态。
-- HTTP 请求或响应事件。
+- 旧 `HttpEvent` 请求或响应事件。
+- rich `HttpMitmEvent`，包含 URL、method、phase、status、headers 和 body。
 
 输出：
 
 - 插件加载结果。
-- 请求/响应改写结果。
+- 旧 `PluginResult` audit/diagnostics。
+- rich `HttpMitmOutcome`，包含 URL reject/redirect action、header mutation、
+  body mutation、script dispatch、audit 和 diagnostics。
 - `AuditEvent` 列表。
 
 错误边界：
@@ -199,6 +203,7 @@
 - `validate_manifest(plugin_manifest) -> diagnostics`
 - `load(plugin_package, granted_permissions) -> plugin_instance`
 - `handle_http_event(plugin_instance, http_event) -> plugin_result`
+- `handle_http_mitm_event(plugin_instance, http_mitm_event) -> http_mitm_outcome`
 - `audit(plugin_result) -> audit_events`
 
 ## 控制 API 接口

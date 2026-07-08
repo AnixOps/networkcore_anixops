@@ -7,8 +7,11 @@
 
 use control_domain::{
     AuditDecision, AuditEvent, CertificateTrustState, Diagnostic, DiagnosticSeverity, DomainError,
-    DomainResult, GrantedPermissions, HookPoint, HttpEvent, MitmPluginService, PluginInstance,
-    PluginManifest, PluginPackage, PluginPermission, PluginResult,
+    DomainResult, GrantedPermissions, HookPoint, HttpBodyMutation, HttpEvent,
+    HttpHeaderMutation, HttpHeaderMutationOperation, HttpMitmAction, HttpMitmEvent,
+    HttpMitmOutcome, HttpMitmPhase, HttpMitmScriptDispatch, HttpMitmScriptKind,
+    MitmPluginService, PluginInstance, PluginManifest, PluginPackage, PluginPermission,
+    PluginResult,
 };
 use mitm_anixops_sys as sys;
 use std::cell::Cell;
@@ -35,8 +38,16 @@ pub const MITM_POLICY_MANIFEST_HOOK_MISSING_CODE: &str = "mitm.policy.manifest.h
 pub const MITM_POLICY_MANIFEST_PERMISSION_MISSING_CODE: &str =
     "mitm.policy.manifest.permission_missing";
 pub const MITM_POLICY_PERMISSION_DENIED_CODE: &str = "mitm.policy.permission.denied";
+pub const MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_CODE: &str =
+    "mitm.policy.http_event.mutation_planned";
 pub const MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE: &str =
     "mitm.policy.http_event.mutation_deferred";
+pub const MITM_POLICY_HTTP_EVENT_SOURCE_MISSING_CODE: &str =
+    "mitm.policy.http_event.source_missing";
+pub const MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_MESSAGE: &str = concat!(
+    "mitm_anixops policy produced an HTTP mutation plan; applying it still requires ",
+    "NetworkCore HTTP/TLS data plane integration",
+);
 pub const MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_MESSAGE: &str = concat!(
     "mitm_anixops policy loaded, but request/response mutation is deferred until ",
     "NetworkCore has a MITM mutation model and HTTP/TLS data plane",
@@ -118,6 +129,14 @@ pub enum MitmPolicyRewriteAction {
     Other,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MitmPolicyHeaderOperation {
+    Add,
+    Replace,
+    Delete,
+    Set,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MitmPolicyRewriteResult {
     pub action: MitmPolicyRewriteAction,
@@ -138,6 +157,7 @@ pub struct MitmPolicyBodyRewriteChain {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MitmPolicyHeaderRewriteResult {
     pub action: MitmPolicyRewriteAction,
+    pub operation: MitmPolicyHeaderOperation,
     pub phase: MitmPolicyPhase,
     pub rule_index: i32,
     pub matched_pattern: String,
@@ -721,6 +741,7 @@ impl MitmPluginService for AnixOpsMitmPluginService {
 
         Ok(PluginInstance {
             manifest: plugin_package.manifest.clone(),
+            loaded_source: Some(plugin_package.source.clone()),
         })
     }
 
@@ -743,6 +764,80 @@ impl MitmPluginService for AnixOpsMitmPluginService {
                 DiagnosticSeverity::Warning,
                 MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE,
                 MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_MESSAGE,
+            )],
+        })
+    }
+
+    fn handle_http_mitm_event(
+        &self,
+        plugin_instance: &PluginInstance,
+        http_event: &HttpMitmEvent,
+    ) -> DomainResult<HttpMitmOutcome> {
+        let Some(source) = plugin_instance.loaded_source.as_deref() else {
+            return Ok(HttpMitmOutcome {
+                action: HttpMitmAction::Continue,
+                header_mutations: Vec::new(),
+                body_mutation: None,
+                script_dispatch: None,
+                audits: vec![AuditEvent {
+                    actor: plugin_instance.manifest.id.clone(),
+                    action: "mitm.policy.plan_http_mitm_event".to_string(),
+                    decision: AuditDecision::Allowed,
+                    reason: Some(format!(
+                        "request {} accepted by policy adapter; loaded plugin source is unavailable",
+                        http_event.request_id
+                    )),
+                }],
+                diagnostics: vec![mitm_policy_diagnostic(
+                    DiagnosticSeverity::Warning,
+                    MITM_POLICY_HTTP_EVENT_SOURCE_MISSING_CODE,
+                    "loaded plugin source is unavailable, so HTTP mutation planning is deferred",
+                )],
+            });
+        };
+
+        let mut engine = AnixOpsMitmPolicyEngine::new()?;
+        engine.load_config(source)?;
+        let phase = policy_phase_from_domain(http_event.phase);
+        let body = String::from_utf8_lossy(&http_event.body);
+        let (plan, planned_body) = engine.build_rewrite_plan(&http_event.url, phase, &body)?;
+
+        let action = domain_action_from_policy_rewrite(&plan.rewrite);
+        let header_mutations = plan
+            .header_rewrites
+            .iter()
+            .map(domain_header_mutation_from_policy)
+            .collect();
+        let body_mutation = if plan.rewrite.action == MitmPolicyRewriteAction::BodyMutation
+            && planned_body.as_bytes() != http_event.body.as_slice()
+        {
+            Some(HttpBodyMutation {
+                body: planned_body.into_bytes(),
+                truncated: false,
+            })
+        } else {
+            None
+        };
+        let script_dispatch = domain_script_dispatch_from_policy(&plan.script);
+
+        Ok(HttpMitmOutcome {
+            action,
+            header_mutations,
+            body_mutation,
+            script_dispatch,
+            audits: vec![AuditEvent {
+                actor: plugin_instance.manifest.id.clone(),
+                action: "mitm.policy.plan_http_mitm_event".to_string(),
+                decision: AuditDecision::Allowed,
+                reason: Some(format!(
+                    "request {} produced a policy mutation plan; data-plane application is deferred",
+                    http_event.request_id
+                )),
+            }],
+            diagnostics: vec![mitm_policy_diagnostic(
+                DiagnosticSeverity::Info,
+                MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_CODE,
+                MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_MESSAGE,
             )],
         })
     }
@@ -803,6 +898,81 @@ fn permission_granted(
         .any(|granted| granted == permission)
 }
 
+fn policy_phase_from_domain(phase: HttpMitmPhase) -> MitmPolicyPhase {
+    match phase {
+        HttpMitmPhase::Request => MitmPolicyPhase::Request,
+        HttpMitmPhase::Response => MitmPolicyPhase::Response,
+    }
+}
+
+fn domain_phase_from_policy(phase: MitmPolicyPhase) -> HttpMitmPhase {
+    match phase {
+        MitmPolicyPhase::Request => HttpMitmPhase::Request,
+        MitmPolicyPhase::Response => HttpMitmPhase::Response,
+    }
+}
+
+fn domain_action_from_policy_rewrite(rewrite: &MitmPolicyRewriteResult) -> HttpMitmAction {
+    match rewrite.action {
+        MitmPolicyRewriteAction::Redirect => HttpMitmAction::Redirect {
+            status_code: http_status_or(rewrite.status_code, 302),
+            location: rewrite.value.clone(),
+        },
+        MitmPolicyRewriteAction::Reject => HttpMitmAction::Reject {
+            status_code: http_status_or(rewrite.status_code, 403),
+        },
+        _ => HttpMitmAction::Continue,
+    }
+}
+
+fn http_status_or(status_code: i32, default: u16) -> u16 {
+    if status_code <= 0 {
+        return default;
+    }
+
+    status_code.try_into().unwrap_or(default)
+}
+
+fn domain_header_mutation_from_policy(
+    rewrite: &MitmPolicyHeaderRewriteResult,
+) -> HttpHeaderMutation {
+    HttpHeaderMutation {
+        operation: match rewrite.operation {
+            MitmPolicyHeaderOperation::Add => HttpHeaderMutationOperation::Add,
+            MitmPolicyHeaderOperation::Replace => HttpHeaderMutationOperation::Replace,
+            MitmPolicyHeaderOperation::Delete => HttpHeaderMutationOperation::Delete,
+            MitmPolicyHeaderOperation::Set => HttpHeaderMutationOperation::Set,
+        },
+        name: rewrite.header_name.clone(),
+        value: if rewrite.operation == MitmPolicyHeaderOperation::Delete {
+            None
+        } else {
+            Some(rewrite.value.clone())
+        },
+    }
+}
+
+fn domain_script_dispatch_from_policy(
+    script: &MitmPolicyScriptDispatch,
+) -> Option<HttpMitmScriptDispatch> {
+    let kind = match script.kind {
+        MitmPolicyScriptKind::None => return None,
+        MitmPolicyScriptKind::HttpRequest => HttpMitmScriptKind::Request,
+        MitmPolicyScriptKind::HttpResponse => HttpMitmScriptKind::Response,
+    };
+
+    Some(HttpMitmScriptDispatch {
+        kind,
+        phase: domain_phase_from_policy(script.phase),
+        requires_body: script.requires_body,
+        timeout_ms: script.timeout_ms,
+        max_size: script.max_size,
+        script_path: script.script_path.clone(),
+        tag: script.tag.clone(),
+        argument: script.argument.clone(),
+    })
+}
+
 fn c_string(value: &str, message: &'static str) -> DomainResult<CString> {
     CString::new(value).map_err(|_| DomainError::new(MITM_POLICY_INPUT_NUL_BYTE_CODE, message))
 }
@@ -839,12 +1009,31 @@ fn header_rewrite_result_from_sys(
 ) -> MitmPolicyHeaderRewriteResult {
     MitmPolicyHeaderRewriteResult {
         action: result.action.into(),
+        operation: header_operation_from_sys(result.action),
         phase: result.phase.into(),
         rule_index: result.rule_index,
         matched_pattern: ffi_string(&result.matched_pattern),
         header_name: ffi_string(&result.header_name),
         value: ffi_string(&result.value),
         message: ffi_string(&result.message),
+    }
+}
+
+fn header_operation_from_sys(action: sys::AnixOpsRewriteAction) -> MitmPolicyHeaderOperation {
+    match action {
+        sys::AnixOpsRewriteAction::HeaderAdd | sys::AnixOpsRewriteAction::ResponseHeaderAdd => {
+            MitmPolicyHeaderOperation::Add
+        }
+        sys::AnixOpsRewriteAction::HeaderReplace
+        | sys::AnixOpsRewriteAction::HeaderReplaceRegex
+        | sys::AnixOpsRewriteAction::ResponseHeaderReplace
+        | sys::AnixOpsRewriteAction::ResponseHeaderReplaceRegex => {
+            MitmPolicyHeaderOperation::Replace
+        }
+        sys::AnixOpsRewriteAction::HeaderDel | sys::AnixOpsRewriteAction::ResponseHeaderDel => {
+            MitmPolicyHeaderOperation::Delete
+        }
+        _ => MitmPolicyHeaderOperation::Set,
     }
 }
 

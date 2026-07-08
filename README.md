@@ -98,15 +98,15 @@ P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成，当前阶
 - 当前阶段源：P4 Client And Platform Integration。
 - P3 是已完成历史基线，不再作为当前仓库阶段描述；后续迭代、TODO、release 说明和架构合同都按 P4 backlog 推进。
 - 当前最新已发布 artifact：`v0.1.0-alpha.8` GitHub Release 中的 Linux CLI tarball、sha256、manifest 和 manifest sha256；该二进制可用 `help` 命令表、`install-sing-box`、`run-url <ss://url>` foreground local proxy，以及 `mitm browser-capture launch-plan`、`session-plan <ss://url>`、`launch --confirm`、`verify --confirm` 和 `verify --confirm --target-url <url>`。
-- 当前 main 源码状态：`v0.1.0-alpha.8` artifact 边界已包含 MITM status/diagnostics/certificate-plan/browser-plan policy-only 命令面，以及 `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify` 的 manual launch-plan、订阅到本地代理/浏览器/verify 会话计划、显式授权 dedicated-profile launch、可选 `--target-url` dedicated profile 打开页面、本地代理端点/target route verify 与 blocked report 命令面；该 tag 之后的 main 源码新增 `mitm browser-capture traffic-proof --confirm --proof-token <token> --proof-log <path>` proof-log-token 验证入口，并新增 `mitm browser-capture apply --confirm --pac-file <path> --snapshot <path>` / `rollback --snapshot <path>` 的 NetworkCore-owned PAC 文件 artifact 写入和回滚源码路径。后续 main 新增能力仍需要新的 tag release 重新经过 GitHub Actions 后才会进入用户可下载 artifact。
-- 当前未启用：live MITM、browser hijack、浏览器/系统代理配置 mutation、CA 生成/安装/信任 mutation、HTTP/TLS 解密改写数据面、daemon/service、TUN/DNS/firewall mutation。当前 main 只允许写 operator-provided NetworkCore PAC artifact 和 rollback snapshot，不写系统 PAC 或浏览器 policy。
+- 当前 main 源码状态：`v0.1.0-alpha.8` artifact 边界已包含 MITM status/diagnostics/certificate-plan/browser-plan policy-only 命令面，以及 `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify` 的 manual launch-plan、订阅到本地代理/浏览器/verify 会话计划、显式授权 dedicated-profile launch、可选 `--target-url` dedicated profile 打开页面、本地代理端点/target route verify 与 blocked report 命令面；该 tag 之后的 main 源码新增 `mitm browser-capture traffic-proof --confirm --proof-token <token> --proof-log <path>` proof-log-token 验证入口，并新增 `mitm browser-capture apply --confirm --pac-file <path> --snapshot <path>` / `rollback --snapshot <path>` 的 NetworkCore-owned PAC 文件 artifact 写入和回滚源码路径。当前 main 还新增 source-only rich MITM mutation plan：`control-domain` 定义 `HttpMitmEvent`/`HttpMitmOutcome`，`mitm-policy` 可通过 `MitmPluginService::handle_http_mitm_event` 把 `mitm_anixops v0.45.10-alpha` 的 URL reject/redirect、header/body rewrite 和 script dispatch 映射为 NetworkCore-owned plan。后续 main 新增能力仍需要新的 tag release 重新经过 GitHub Actions 后才会进入用户可下载 artifact。
+- 当前未启用：live MITM、browser hijack、浏览器/系统代理配置 mutation、CA 生成/安装/信任 mutation、HTTP/TLS 解密改写数据面、daemon/service、TUN/DNS/firewall mutation。当前 main 只允许写 operator-provided NetworkCore PAC artifact 和 rollback snapshot，不写系统 PAC 或浏览器 policy；rich MITM outcome 只是策略计划，不会改写真实流量。
 
 当前文档判定规则：如果后续章节、TODO 已完成项或 CHANGELOG 中出现 P3，只表示当时完成的 runtime baseline 或历史源码合同；不得把这些历史条目解释为当前阶段、当前发布状态或当前开发优先级。
 
 P4 backlog buckets：
 
 - 订阅和客户端兼容：在 `run-url <ss://url>` foreground 闭环上继续补 VLESS/VMess/Trojan、Clash YAML、sing-box JSON、Surge/Loon/Quantumult X 高频子集、节点选择、持久订阅和 managed lifecycle。
-- MITM 数据面和证书生命周期：补齐 CA 生成/安装/信任/撤销/回滚，以及把 `mitm-policy` rewrite plan 接入 HTTP/TLS 数据面；当前只输出 policy-only 状态和计划。
+- MITM 数据面和证书生命周期：补齐 CA 生成/安装/信任/撤销/回滚，以及把 `mitm-policy` `HttpMitmOutcome` rewrite plan 接入 HTTP/TLS 数据面；当前只输出 policy-only 状态、证书/浏览器计划和 source-only mutation plan。
 - 浏览器捕获用户闭环：在 dedicated-profile launch、local proxy endpoint verify、target route verify、proof-log-token traffic proof 和 PAC artifact apply/rollback 之后，继续补完整 live browser traffic proof 自动化、显式 browser/system proxy 配置、系统 PAC 或其他捕获策略，以及安全授权和回滚边界。
 
 Linux CLI 二进制发布路径已打通：首个真实发布路径从 `v0.1.0-alpha.2` 开始，当前最新 GitHub Release 是
@@ -199,7 +199,7 @@ GitHub Actions 验证。`ios-package-swift-manifest-only-*` 当前只记录 bloc
 
 ## MITM adapter 接入边界
 
-`mitm_anixops` 接入已先以 adapter 设计形式记录：该库可作为 MITM 策略/plugin 兼容 C ABI core，但完整全平台 MITM 仍需要 NetworkCore 后续补齐领域 mutation model、HTTP/TLS 数据面和各平台证书/运行时 adapter。
+`mitm_anixops` 接入已先以 adapter 设计形式记录：该库可作为 MITM 策略/plugin 兼容 C ABI core；当前 main 已补齐首版领域 mutation plan，但完整全平台 MITM 仍需要 NetworkCore 后续补齐 HTTP/TLS 数据面和各平台证书/运行时 adapter。
 
 后续第三方 plugin、plugin parser、script runtime 或兼容核心必须先走
 [Third-Party Plugin Onboarding Process](docs/architecture/third-party-plugin-onboarding-process.md)：
@@ -211,9 +211,10 @@ safe wrapper、runtime/domain integration、CI governance 和 release gate。
 并暴露低层 FFI，`mitm-policy` 提供 safe wrapper、`AnixOpsMitmPluginService` 和
 内置 `networkcore.adblock` alpha 去广告插件包。safe wrapper 现在覆盖 URL rewrite、
 named header rewrite、bounded header-list application、body rewrite chain、script dispatch、
-JQ max-input guard 和 aggregated rewrite plan 合同；当前插件路径仍只返回 audit/diagnostics
-和 `mitm.policy.http_event.mutation_deferred`，真实 URL/header/body 改写仍等待 mutation model
-与 HTTP/TLS 数据面。
+JQ max-input guard 和 aggregated rewrite plan 合同；当前插件路径保留旧
+`handle_http_event` audit/diagnostics 和 `mitm.policy.http_event.mutation_deferred`，
+同时新增 rich `handle_http_mitm_event`，可输出 `HttpMitmOutcome` URL/header/body/script
+policy plan。真实 URL/header/body 改写仍等待 HTTP/TLS 数据面应用该 plan。
 
 当前仓库源码已有用户可见的 MITM 状态、诊断、证书计划、浏览器捕获计划、PAC artifact apply/rollback 和 browser-capture blocked report 入口，但没有用户可启用的 live MITM 功能：
 `networkcore-linux mitm status`、`networkcore-linux mitm diagnostics` 和

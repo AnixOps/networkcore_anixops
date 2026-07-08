@@ -238,12 +238,23 @@ jobs:
           grep -q "MitmPolicyBodyRewriteChain" crates/mitm-policy/src/lib.rs
           grep -q "MitmPolicyHeaderField" crates/mitm-policy/src/lib.rs
           grep -q "MitmPolicyScriptKind" crates/mitm-policy/src/lib.rs
+          grep -q "HttpMitmEvent" crates/control-domain/src/lib.rs
+          grep -q "HttpMitmOutcome" crates/control-domain/src/lib.rs
+          grep -q "HttpMitmAction" crates/control-domain/src/lib.rs
+          grep -q "HttpHeaderMutation" crates/control-domain/src/lib.rs
+          grep -q "HttpBodyMutation" crates/control-domain/src/lib.rs
+          grep -q "HttpMitmScriptDispatch" crates/control-domain/src/lib.rs
+          grep -q "handle_http_mitm_event" crates/control-domain/src/lib.rs
           grep -q "build_rewrite_plan" crates/mitm-policy/src/lib.rs
           grep -q "apply_body_chain" crates/mitm-policy/src/lib.rs
           grep -q "evaluate_named_header" crates/mitm-policy/src/lib.rs
           grep -q "ANIXOPS_JQ_MAX_INPUT_BYTES_DEFAULT" crates/mitm-anixops-sys/src/lib.rs
           grep -q "AnixOpsMitmPluginService" crates/mitm-policy/src/lib.rs
+          grep -q "MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_CODE" crates/mitm-policy/src/lib.rs
           grep -q "MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE" crates/mitm-policy/src/lib.rs
+          grep -q "adapter_plans_builtin_ad_block_reject_for_rich_http_mitm_event" crates/mitm-policy/tests/mitm_policy_contracts.rs
+          grep -q "adapter_maps_v04510_header_body_and_script_plan_to_domain_outcome" crates/mitm-policy/tests/mitm_policy_contracts.rs
+          grep -q "mitm_plugin_service_rich_event_defaults_to_legacy_result_without_mutation" crates/control-domain/src/lib.rs
           grep -q "MITM_POLICY_CONFIG_PARSE_FAILED_CODE" crates/mitm-policy/tests/mitm_policy_contracts.rs
           grep -q 'mitm-policy = { path = "../../crates/mitm-policy" }' apps/linux-cli/Cargo.toml
           grep -q "networkcore-linux mitm" apps/linux-cli/src/lib.rs
