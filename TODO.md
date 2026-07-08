@@ -9,18 +9,20 @@ P3 runtime baseline 已完成并保留后续 runtime backlog。
 Linux artifact release-state consistency 已固定为 `linux-artifact-release-state=confirmed-release-path`；
 license/NOTICE 已 confirmed，但后续 tag release 仍必须经过同 commit CI、checksum、manifest、
 attestation、release notes、rollback 和 publish eligibility gates。
-MITM CLI command gate 已进入状态/诊断/证书计划/浏览器捕获计划部分激活：
+MITM CLI command gate 已进入状态/诊断/证书计划/浏览器捕获计划和 browser-capture blocked report 部分激活：
 `mitm-cli-command-gate-status=partial-active`；browser hijack 仍为 deferred，浏览器捕获 mutation 仍 blocked。
-Linux MITM browser capture source contract 已激活，但只固定后续授权、快照、apply/rollback/verify 和 CI 边界，
+Linux MITM browser capture source contract 已激活，当前源码已有 `mitm browser-capture plan/apply/rollback/verify`
+blocked report 命令面和 `browser_capture` 机器字段，但只记录授权、快照、apply/rollback/verify 和 CI 边界，
 不代表当前已有 live browser capture。
 
 - [ ] 扩展订阅格式和 managed lifecycle：在 `run-url` foreground 闭环基础上，继续接入 VLESS/VMess/Trojan、Clash YAML、sing-box JSON、Surge/Loon/Quantumult X 高频子集、节点选择、持久订阅、managed status/events/logs/reload/rollback，并为后续真实 MITM 数据面接入补充独立 source contract。
-- [ ] 补齐用户可用 MITM 后续门禁：`MITM_CLI_COMMAND_GATE` 已有 `networkcore-linux mitm status/diagnostics/certificate-plan/browser-plan`、`mitm_status` JSON 字段、`certificate_plan` 和 `browser_plan` 机器字段，但仍需扩展到真正可执行的用户操作；`MITM_CERTIFICATE_LIFECYCLE_GATE` 当前为 plan-only，后续必须实现 CA 生成、安装、信任检测、撤销和回滚；`MITM_BROWSER_CAPTURE_GATE` 当前为 plan-only/mutation-blocked，且已有 [Linux MITM Browser Capture Source Contract](docs/architecture/linux-mitm-browser-capture-source-contract.md) 固定 `BrowserCaptureAuthorization`、`BrowserCaptureRollbackSnapshot`、apply/rollback/verify、授权和 snapshot 边界，后续必须实现显式授权的浏览器/系统代理配置、PAC 或其他捕获策略、验证和回滚；`MITM_HTTP_TLS_DATA_PLANE_GATE` 在 HTTP/TLS 数据面中应用 `mitm-policy` URL/header/body/script rewrite plan。当前 `mitm-policy` 和 Linux CLI 只做策略状态、证书计划、浏览器捕获计划、deferred mutation 诊断和 browser hijack deferred 输出，不能直接拦截或改写真实流量。
+- [ ] 补齐用户可用 MITM 后续门禁：`MITM_CLI_COMMAND_GATE` 已有 `networkcore-linux mitm status/diagnostics/certificate-plan/browser-plan`、`networkcore-linux mitm browser-capture plan/apply/rollback/verify`、`mitm_status` JSON 字段、`certificate_plan`、`browser_plan` 和 `browser_capture` 机器字段，但仍需扩展到真正可执行的用户操作；`MITM_CERTIFICATE_LIFECYCLE_GATE` 当前为 plan-only，后续必须实现 CA 生成、安装、信任检测、撤销和回滚；`MITM_BROWSER_CAPTURE_GATE` 当前为 plan-only/mutation-blocked，且已有 [Linux MITM Browser Capture Source Contract](docs/architecture/linux-mitm-browser-capture-source-contract.md) 固定 `BrowserCaptureAuthorization`、`BrowserCaptureRollbackSnapshot`、apply/rollback/verify、授权和 snapshot 边界，后续必须实现显式授权的浏览器/系统代理配置、PAC 或其他捕获策略、验证和回滚；`MITM_HTTP_TLS_DATA_PLANE_GATE` 在 HTTP/TLS 数据面中应用 `mitm-policy` URL/header/body/script rewrite plan。当前 `mitm-policy` 和 Linux CLI 只做策略状态、证书计划、浏览器捕获计划、browser-capture blocked report、deferred mutation 诊断和 browser hijack deferred 输出，不能直接拦截或改写真实流量。
 
 说明：已完成条目保留当时的阶段状态；当前 runtime 方向以 [ROADMAP.md](ROADMAP.md) 和 [docs/architecture/adr-0002-public-engine-adapter-first.md](docs/architecture/adr-0002-public-engine-adapter-first.md) 为准。
 
 ## 已完成
 
+- [x] 扩展 Linux MITM browser capture blocked report 命令面：`networkcore-linux mitm browser-capture plan/apply/rollback/verify` 已输出 `browser_capture` 机器字段；`apply --confirm` 只记录 `BrowserCaptureAuthorization` 并返回 `cli.linux.mitm.browser_capture.apply.blocked`，`rollback --snapshot <path>` 只保留 `BrowserCaptureRollbackSnapshot` 路径并返回 rollback blocked，`verify` 返回 live capture probe blocked；浏览器/系统代理、PAC、TUN、DNS、firewall、CA 和 HTTP/TLS 数据面仍不执行 mutation。验证仍只通过 GitHub Actions。
 - [x] 补充 Linux MITM browser capture source contract：新增 `docs/architecture/linux-mitm-browser-capture-source-contract.md`，固定 `mitm-browser-capture-source-contract-status=active`、`MITM_BROWSER_CAPTURE_GATE=plan-only/mutation-blocked`、`BrowserCaptureAuthorization`、`BrowserCaptureRollbackSnapshot`、apply/rollback/verify 命令面、显式授权、snapshot、rollback、诊断 code 和 CI governance；当前仍不执行 browser/system proxy、PAC、TUN、DNS、firewall 或 CA mutation。验证仍只通过 GitHub Actions。
 - [x] 扩展 `MITM_CLI_COMMAND_GATE` 的浏览器捕获计划入口：`networkcore-linux mitm browser-plan` 已输出 `mitm_status.browser_plan` 机器字段、默认显式代理计划 `127.0.0.1:7890`、计划步骤、blocked operations、`cli.linux.mitm.browser_plan.ready` 和 `cli.linux.mitm.browser_capture_mutation.blocked` 诊断；浏览器/系统代理、PAC、TUN、DNS、firewall 写入和 live browser capture 验证仍不执行 mutation，HTTP/TLS data plane 和 browser hijack 仍 blocked/deferred。验证仍只通过 GitHub Actions。
 - [x] 扩展 `MITM_CLI_COMMAND_GATE` 的证书计划入口：`networkcore-linux mitm certificate-plan` 已输出 `mitm_status.certificate_plan` 机器字段、当前证书状态、计划步骤、blocked operations、`cli.linux.mitm.certificate_plan.ready` 和 `cli.linux.mitm.certificate_mutation.blocked` 诊断；CA 生成/安装/信任/撤销/回滚仍不执行 mutation，HTTP/TLS data plane 和 browser hijack 仍 blocked/deferred。验证仍只通过 GitHub Actions。

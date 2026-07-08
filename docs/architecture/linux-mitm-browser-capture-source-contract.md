@@ -12,18 +12,25 @@ MITM_BROWSER_CAPTURE_GATE=plan-only/mutation-blocked
 ## Purpose
 
 本文固定 Linux 浏览器流量捕获从 plan-only 进入真实源码 mutation 前必须遵守的合同。当前仓库已经有
-`networkcore-linux mitm browser-plan` 和 `mitm_status.browser_plan`，但还没有用户可启用的 live browser
-capture，也没有浏览器/系统代理写入、PAC 写入、TUN/DNS/firewall mutation 或回滚实现。
+`networkcore-linux mitm browser-plan`、`networkcore-linux mitm browser-capture plan/apply/rollback/verify`、
+`mitm_status.browser_plan` 和 `browser_capture` 机器字段，但还没有用户可启用的 live browser capture，
+也没有浏览器/系统代理写入、PAC 写入、TUN/DNS/firewall mutation 或回滚实现。
 
 本合同的目标是先把后续源码边界固定下来，避免浏览器劫持功能直接写入用户系统状态而缺少显式授权、
 快照、回滚和 CI governance。
 
 ## Current Boundary
 
-当前发布版只允许 plan-only 行为：
+当前仓库源码只允许 plan-only/mutation-blocked 行为：
 
 - `networkcore-linux mitm browser-plan` 输出默认显式代理计划 `127.0.0.1:7890`。
+- `networkcore-linux mitm browser-capture plan` 输出同一 capture plan 和 source contract report。
+- `networkcore-linux mitm browser-capture apply --confirm` 接受显式授权信号，但仍返回 blocked report，不写入系统状态。
+- `networkcore-linux mitm browser-capture rollback --snapshot <path>` 保留 snapshot path 到 report，但仍返回 blocked report，不读取或写入该路径。
+- `networkcore-linux mitm browser-capture verify` 返回 live capture probe blocked report。
 - `mitm_status.browser_plan` 输出计划步骤、blocked operations 和 `mutation_ready=false`。
+- `browser_capture` 输出 action、gate、`BrowserCaptureAuthorization`、`BrowserCaptureRollbackSnapshot`、
+  `LinuxBrowserCaptureApplyReport`、`LinuxBrowserCaptureRollbackReport` 和 verify report。
 - `MITM_BROWSER_CAPTURE_GATE` 保持 `plan-only/mutation-blocked`。
 - `cli.linux.mitm.browser_plan.ready` 表示计划可见。
 - `cli.linux.mitm.browser_capture_mutation.blocked` 表示真实 mutation 仍被阻断。
@@ -38,7 +45,8 @@ capture，也没有浏览器/系统代理写入、PAC 写入、TUN/DNS/firewall 
 
 ## Future Source Anchors
 
-启用真实浏览器捕获前，源码必须先提供以下 NetworkCore-owned 类型或等价稳定边界：
+当前源码已经提供以下 NetworkCore-owned 类型；启用真实浏览器捕获前，这些类型必须继续保持稳定或经过
+CI governance 显式迁移：
 
 - `LinuxBrowserCaptureRequest`
 - `LinuxBrowserCapturePlan`
@@ -47,7 +55,7 @@ capture，也没有浏览器/系统代理写入、PAC 写入、TUN/DNS/firewall 
 - `BrowserCaptureAuthorization`
 - `BrowserCaptureRollbackSnapshot`
 
-未来 CLI 命令必须显式区分 plan、apply、rollback 和 verify。建议命令面：
+当前 CLI 命令已经显式区分 plan、apply、rollback 和 verify：
 
 ```text
 networkcore-linux mitm browser-capture plan
@@ -56,7 +64,7 @@ networkcore-linux mitm browser-capture rollback --snapshot <path>
 networkcore-linux mitm browser-capture verify
 ```
 
-`networkcore-linux mitm browser-plan` 可以保留为兼容 alias，但真实 mutation 入口不得复用只读 plan 命令。
+`networkcore-linux mitm browser-plan` 保留为兼容 plan-only 入口；真实 mutation 入口不得复用只读 plan 命令。
 
 ## Authorization And Snapshot
 
@@ -81,11 +89,13 @@ networkcore-linux mitm browser-capture verify
 | `cli.linux.mitm.browser_capture.authorization_required` | Error | 缺少显式授权，拒绝写入浏览器或系统状态 |
 | `cli.linux.mitm.browser_capture.apply.blocked` | Error | gate、证书、数据面或平台边界未满足，拒绝 apply |
 | `cli.linux.mitm.browser_capture.rollback.blocked` | Error | 缺少 snapshot、snapshot 不匹配或 rollback gate 未满足 |
+| `cli.linux.mitm.browser_capture.verify.blocked` | Error | live capture probe 尚未实现，拒绝宣称捕获已验证 |
 | `cli.linux.mitm.browser_capture.apply.ready` | Info | apply 前置条件通过，准备写入受控目标 |
 | `cli.linux.mitm.browser_capture.rollback.ready` | Info | rollback 前置条件通过，准备恢复 snapshot |
 
-当前源码只允许继续输出 `cli.linux.mitm.browser_capture_mutation.blocked`，直到 apply/rollback 源码实现并通过
-GitHub Actions。
+当前源码已经提供 `handle_mitm_browser_capture_apply`、`handle_mitm_browser_capture_rollback` 和
+`handle_mitm_browser_capture_verify`，但它们只输出 blocked reports 和上表诊断，直到真实 apply/rollback
+源码实现并通过 GitHub Actions。
 
 ## Plugin And Data Plane Boundary
 

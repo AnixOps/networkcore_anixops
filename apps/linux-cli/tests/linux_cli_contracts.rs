@@ -22,16 +22,22 @@ use networkcore_linux::{
     handle_entrypoint_with_runtime_and_lifecycle,
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
     handle_foreground_lifecycle_with_runtime_stop, handle_install_sing_box,
-    handle_mitm_browser_plan, handle_mitm_certificate_plan, handle_mitm_status, handle_parse_error,
-    handle_prepare_config, handle_run_url_with_sing_box, handle_start, handle_status, handle_stop,
-    parse_args, render_response, ConfigReadError, ConfigReader,
+    handle_mitm_browser_capture_apply, handle_mitm_browser_capture_plan,
+    handle_mitm_browser_capture_rollback, handle_mitm_browser_capture_verify,
+    handle_mitm_browser_plan, handle_mitm_certificate_plan, handle_mitm_status,
+    handle_parse_error, handle_prepare_config, handle_run_url_with_sing_box, handle_start,
+    handle_status, handle_stop, parse_args, render_response, ConfigReadError, ConfigReader,
     CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxCliCommand, LinuxCliExitCode,
     OutputFormat, UnavailableForegroundLifecycleHost, UnavailableProxyEngineService,
     CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE, CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE,
-    CLI_MITM_BROWSER_PLAN_READY_CODE, CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_ROLLBACK_BLOCKED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_VERIFY_BLOCKED_CODE, CLI_MITM_BROWSER_PLAN_READY_CODE,
+    CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE,
     CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE, CLI_MITM_CERTIFICATE_PLAN_READY_CODE,
     CLI_MITM_CLI_GATE_PARTIAL_CODE, CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE,
     CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE, CLI_START_FOREGROUND_ONLY_CODE,
@@ -41,8 +47,9 @@ use networkcore_linux::{
     CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
     MITM_BROWSER_CAPTURE_GATE, MITM_BROWSER_CAPTURE_GATE_STATUS, MITM_BROWSER_CAPTURE_MODE,
     MITM_BROWSER_CAPTURE_MUTATION_READY, MITM_BROWSER_CAPTURE_PROXY_HOST,
-    MITM_BROWSER_CAPTURE_PROXY_PORT, MITM_BROWSER_HIJACK_STATUS, MITM_BROWSER_PLAN_STATUS,
-    MITM_CERTIFICATE_LIFECYCLE_GATE, MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS,
+    MITM_BROWSER_CAPTURE_PROXY_PORT, MITM_BROWSER_CAPTURE_SOURCE_CONTRACT_STATUS,
+    MITM_BROWSER_HIJACK_STATUS, MITM_BROWSER_PLAN_STATUS, MITM_CERTIFICATE_LIFECYCLE_GATE,
+    MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS,
     MITM_CERTIFICATE_MUTATION_READY, MITM_CERTIFICATE_PLAN_STATUS, MITM_CLI_COMMAND_GATE,
     MITM_CLI_COMMAND_GATE_STATUS, MITM_HTTP_TLS_DATA_PLANE_GATE,
     MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS, MITM_USER_FACING_STAGE,
@@ -99,6 +106,7 @@ fn parses_help_command_and_renders_command_table() {
     assert!(rendered.contains("install-sing-box"));
     assert!(rendered.contains("run-url"));
     assert!(rendered.contains("mitm [status|diagnostics|certificate-plan|browser-plan]"));
+    assert!(rendered.contains("mitm browser-capture [plan|apply|rollback|verify]"));
     assert!(rendered.contains("sing-box install"));
 }
 
@@ -120,6 +128,22 @@ fn parses_mitm_status_and_diagnostics_commands() {
         .expect("mitm browser-capture-plan alias should parse");
     let hijack_plan_alias =
         parse_args(["mitm", "hijack-plan"]).expect("mitm hijack-plan alias should parse");
+    let browser_capture_default =
+        parse_args(["mitm", "browser-capture"]).expect("mitm browser-capture should parse");
+    let browser_capture_plan = parse_args(["mitm", "browser-capture", "plan", "--format", "json"])
+        .expect("mitm browser-capture plan should parse");
+    let browser_capture_apply = parse_args(["mitm", "browser-capture", "apply", "--confirm"])
+        .expect("mitm browser-capture apply should parse");
+    let browser_capture_rollback = parse_args([
+        "mitm",
+        "browser-capture",
+        "rollback",
+        "--snapshot",
+        "/tmp/networkcore-browser-capture.snapshot.json",
+    ])
+    .expect("mitm browser-capture rollback should parse");
+    let browser_capture_verify = parse_args(["mitm", "browser-capture", "verify"])
+        .expect("mitm browser-capture verify should parse");
 
     assert_eq!(
         default_status,
@@ -172,6 +196,38 @@ fn parses_mitm_status_and_diagnostics_commands() {
     assert_eq!(
         hijack_plan_alias,
         LinuxCliCommand::MitmBrowserPlan {
+            format: OutputFormat::Text
+        }
+    );
+    assert_eq!(
+        browser_capture_default,
+        LinuxCliCommand::MitmBrowserCapturePlan {
+            format: OutputFormat::Text
+        }
+    );
+    assert_eq!(
+        browser_capture_plan,
+        LinuxCliCommand::MitmBrowserCapturePlan {
+            format: OutputFormat::Json
+        }
+    );
+    assert_eq!(
+        browser_capture_apply,
+        LinuxCliCommand::MitmBrowserCaptureApply {
+            confirm: true,
+            format: OutputFormat::Text
+        }
+    );
+    assert_eq!(
+        browser_capture_rollback,
+        LinuxCliCommand::MitmBrowserCaptureRollback {
+            snapshot_path: Some("/tmp/networkcore-browser-capture.snapshot.json".to_string()),
+            format: OutputFormat::Text
+        }
+    );
+    assert_eq!(
+        browser_capture_verify,
+        LinuxCliCommand::MitmBrowserCaptureVerify {
             format: OutputFormat::Text
         }
     );
@@ -602,6 +658,155 @@ fn mitm_browser_plan_reports_capture_plan_without_mutation() {
 }
 
 #[test]
+fn mitm_browser_capture_plan_outputs_source_contract_report_without_mutation() {
+    let platform = StaticLinuxPlatformCapabilityService::new(
+        LinuxPlatformSnapshot::available_for_tests(),
+    );
+
+    let response = handle_mitm_browser_capture_plan(&platform);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "mitm browser-capture plan");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Success);
+    assert_diagnostic(&response.diagnostics, CLI_MITM_BROWSER_PLAN_READY_CODE);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE,
+    );
+
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("browser capture plan should include a report");
+    assert_eq!(capture.action, "plan");
+    assert_eq!(
+        capture.source_contract_status,
+        MITM_BROWSER_CAPTURE_SOURCE_CONTRACT_STATUS
+    );
+    assert_eq!(capture.gate, MITM_BROWSER_CAPTURE_GATE);
+    assert_eq!(capture.gate_status, "plan-only/mutation-blocked");
+    assert!(!capture.mutation_ready);
+    assert_eq!(capture.plan.planned_proxy_host, MITM_BROWSER_CAPTURE_PROXY_HOST);
+    assert_eq!(capture.plan.planned_proxy_port, MITM_BROWSER_CAPTURE_PROXY_PORT);
+    assert!(capture.apply_report.is_none());
+    assert!(capture.rollback_report.is_none());
+    assert!(capture.verify_report.is_none());
+
+    let rendered = render_response(&response, OutputFormat::Text);
+    assert!(rendered.contains("browser capture plan: plan-only/mutation-blocked"));
+    assert!(rendered.contains("browser capture source contract: active"));
+}
+
+#[test]
+fn mitm_browser_capture_apply_requires_authorization_and_stays_blocked() {
+    let platform = StaticLinuxPlatformCapabilityService::new(
+        LinuxPlatformSnapshot::available_for_tests(),
+    );
+
+    let missing_confirm = handle_mitm_browser_capture_apply(&platform, false);
+
+    assert!(!missing_confirm.ok);
+    assert_eq!(missing_confirm.exit_code, LinuxCliExitCode::Unavailable);
+    assert_diagnostic(
+        &missing_confirm.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
+    );
+    assert_diagnostic(
+        &missing_confirm.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+    );
+    let capture = missing_confirm
+        .browser_capture
+        .as_ref()
+        .expect("apply response should include browser capture report");
+    let apply = capture
+        .apply_report
+        .as_ref()
+        .expect("apply response should include apply report");
+    assert_eq!(capture.action, "apply");
+    assert_eq!(apply.status, "authorization_required");
+    assert!(!apply.applied);
+    assert!(!apply.authorization.confirmed);
+
+    let confirmed = handle_mitm_browser_capture_apply(&platform, true);
+
+    assert!(!confirmed.ok);
+    assert_eq!(confirmed.exit_code, LinuxCliExitCode::Unavailable);
+    assert_diagnostic(
+        &confirmed.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+    );
+    let confirmed_capture = confirmed
+        .browser_capture
+        .as_ref()
+        .expect("confirmed apply response should include browser capture report");
+    let confirmed_apply = confirmed_capture
+        .apply_report
+        .as_ref()
+        .expect("confirmed apply response should include apply report");
+    assert_eq!(confirmed_apply.status, "blocked");
+    assert!(!confirmed_apply.applied);
+    assert!(confirmed_apply.authorization.confirmed);
+    assert!(confirmed_apply.rollback_snapshot.is_none());
+}
+
+#[test]
+fn mitm_browser_capture_rollback_and_verify_stay_blocked_without_mutation() {
+    let platform = StaticLinuxPlatformCapabilityService::new(
+        LinuxPlatformSnapshot::available_for_tests(),
+    );
+
+    let rollback = handle_mitm_browser_capture_rollback(
+        &platform,
+        Some("/tmp/networkcore-browser-capture.snapshot.json".to_string()),
+    );
+
+    assert!(!rollback.ok);
+    assert_eq!(rollback.exit_code, LinuxCliExitCode::Unavailable);
+    assert_diagnostic(
+        &rollback.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_ROLLBACK_BLOCKED_CODE,
+    );
+    let rollback_capture = rollback
+        .browser_capture
+        .as_ref()
+        .expect("rollback response should include browser capture report");
+    let rollback_report = rollback_capture
+        .rollback_report
+        .as_ref()
+        .expect("rollback response should include rollback report");
+    assert_eq!(rollback_capture.action, "rollback");
+    assert!(!rollback_report.rolled_back);
+    assert_eq!(
+        rollback_report
+            .rollback_snapshot
+            .as_ref()
+            .expect("rollback snapshot should be preserved")
+            .path,
+        "/tmp/networkcore-browser-capture.snapshot.json"
+    );
+
+    let verify = handle_mitm_browser_capture_verify(&platform);
+
+    assert!(!verify.ok);
+    assert_eq!(verify.exit_code, LinuxCliExitCode::Unavailable);
+    assert_diagnostic(
+        &verify.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_VERIFY_BLOCKED_CODE,
+    );
+    let verify_capture = verify
+        .browser_capture
+        .as_ref()
+        .expect("verify response should include browser capture report");
+    let verify_report = verify_capture
+        .verify_report
+        .as_ref()
+        .expect("verify response should include verify report");
+    assert_eq!(verify_capture.action, "verify");
+    assert!(!verify_report.verified);
+}
+
+#[test]
 fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
     let platform = StaticLinuxPlatformCapabilityService::new(
         LinuxPlatformSnapshot::available_for_tests().with_diagnostic(linux_diagnostic(
@@ -648,6 +853,32 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
         },
         &platform,
     );
+    let browser_capture_plan = handle_entrypoint(
+        LinuxCliCommand::MitmBrowserCapturePlan {
+            format: OutputFormat::Text,
+        },
+        &platform,
+    );
+    let browser_capture_apply = handle_entrypoint(
+        LinuxCliCommand::MitmBrowserCaptureApply {
+            confirm: true,
+            format: OutputFormat::Text,
+        },
+        &platform,
+    );
+    let browser_capture_rollback = handle_entrypoint(
+        LinuxCliCommand::MitmBrowserCaptureRollback {
+            snapshot_path: Some("/tmp/networkcore-browser-capture.snapshot.json".to_string()),
+            format: OutputFormat::Text,
+        },
+        &platform,
+    );
+    let browser_capture_verify = handle_entrypoint(
+        LinuxCliCommand::MitmBrowserCaptureVerify {
+            format: OutputFormat::Text,
+        },
+        &platform,
+    );
 
     assert!(capabilities.ok);
     assert!(status.ok);
@@ -655,18 +886,33 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
     assert!(mitm.ok);
     assert!(certificate_plan.ok);
     assert!(browser_plan.ok);
+    assert!(browser_capture_plan.ok);
+    assert!(!browser_capture_apply.ok);
+    assert!(!browser_capture_rollback.ok);
+    assert!(!browser_capture_verify.ok);
     assert_eq!(capabilities.command, "capabilities");
     assert_eq!(status.command, "status");
     assert_eq!(diagnostics.command, "diagnostics");
     assert_eq!(mitm.command, "mitm status");
     assert_eq!(certificate_plan.command, "mitm certificate-plan");
     assert_eq!(browser_plan.command, "mitm browser-plan");
+    assert_eq!(browser_capture_plan.command, "mitm browser-capture plan");
+    assert_eq!(browser_capture_apply.command, "mitm browser-capture apply");
+    assert_eq!(
+        browser_capture_rollback.command,
+        "mitm browser-capture rollback"
+    );
+    assert_eq!(browser_capture_verify.command, "mitm browser-capture verify");
     assert_diagnostic(&capabilities.diagnostics, DNS_MANAGER_UNKNOWN_CODE);
     assert_diagnostic(&status.diagnostics, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE);
     assert_diagnostic(&diagnostics.diagnostics, DNS_MANAGER_UNKNOWN_CODE);
     assert!(mitm.mitm_status.is_some());
     assert!(certificate_plan.mitm_status.is_some());
     assert!(browser_plan.mitm_status.is_some());
+    assert!(browser_capture_plan.browser_capture.is_some());
+    assert!(browser_capture_apply.browser_capture.is_some());
+    assert!(browser_capture_rollback.browser_capture.is_some());
+    assert!(browser_capture_verify.browser_capture.is_some());
 }
 
 #[test]
@@ -1294,6 +1540,56 @@ fn mitm_status_json_output_contains_machine_fields() {
         json["mitm_status"]["gates"][2]["gate"],
         MITM_HTTP_TLS_DATA_PLANE_GATE
     );
+}
+
+#[test]
+fn browser_capture_json_output_contains_machine_report_fields() {
+    let platform = StaticLinuxPlatformCapabilityService::new(
+        LinuxPlatformSnapshot::available_for_tests(),
+    );
+    let response = handle_mitm_browser_capture_apply(&platform, true);
+
+    let rendered = render_response(&response, OutputFormat::Json);
+    let json: serde_json::Value =
+        serde_json::from_str(&rendered).expect("browser capture response should be valid JSON");
+
+    assert_eq!(json["ok"].as_bool(), Some(false));
+    assert_eq!(json["command"], "mitm browser-capture apply");
+    assert_eq!(json["browser_capture"]["action"], "apply");
+    assert_eq!(
+        json["browser_capture"]["source_contract_status"],
+        MITM_BROWSER_CAPTURE_SOURCE_CONTRACT_STATUS
+    );
+    assert_eq!(json["browser_capture"]["gate"], MITM_BROWSER_CAPTURE_GATE);
+    assert_eq!(
+        json["browser_capture"]["gate_status"],
+        "plan-only/mutation-blocked"
+    );
+    assert_eq!(
+        json["browser_capture"]["mutation_ready"].as_bool(),
+        Some(MITM_BROWSER_CAPTURE_MUTATION_READY)
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["authorization"]["confirmed"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        json["browser_capture"]["plan"]["planned_proxy_host"],
+        MITM_BROWSER_CAPTURE_PROXY_HOST
+    );
+    assert_eq!(
+        json["browser_capture"]["apply_report"]["status"],
+        "blocked"
+    );
+    assert_eq!(
+        json["browser_capture"]["apply_report"]["applied"].as_bool(),
+        Some(false)
+    );
+    assert!(json["browser_capture"]["apply_report"]["blocked_operations"]
+        .as_array()
+        .expect("blocked operations should be an array")
+        .iter()
+        .any(|operation| operation.as_str() == Some("write-system-proxy")));
 }
 
 fn available_orchestrator() -> RuntimeOrchestrator<

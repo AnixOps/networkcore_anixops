@@ -176,7 +176,8 @@ mitm-cli-command-gate-status=partial-active
 ```
 
 `networkcore-linux mitm status`、`networkcore-linux mitm diagnostics`、
-`networkcore-linux mitm certificate-plan` 和 `networkcore-linux mitm browser-plan`
+`networkcore-linux mitm certificate-plan`、`networkcore-linux mitm browser-plan` 和
+`networkcore-linux mitm browser-capture plan/apply/rollback/verify`
 已接入 Linux CLI。它们通过
 `mitm-policy` 加载内置 `networkcore.adblock` policy，输出 `mitm_status`
 JSON 机器字段，并显式报告 browser hijack 为 deferred、
@@ -187,7 +188,11 @@ JSON 机器字段，并显式报告 browser hijack 为 deferred、
 operations 和 `mutation_ready=false`；`browser-plan` 额外输出
 `mitm_status.browser_plan`，包含当前捕获状态、默认显式代理计划
 `127.0.0.1:7890`、计划步骤、blocked operations 和 `mutation_ready=false`。
-该状态只代表命令面、策略诊断入口、证书生命周期计划和浏览器捕获计划已存在，
+`browser-capture` 额外输出 `browser_capture` 机器字段；`apply --confirm`
+只记录 `BrowserCaptureAuthorization` 并返回 apply blocked，`rollback --snapshot <path>`
+只保留 `BrowserCaptureRollbackSnapshot` 路径并返回 rollback blocked，`verify`
+返回 live capture probe blocked。
+该状态只代表命令面、策略诊断入口、证书生命周期计划、浏览器捕获计划和 browser-capture blocked report 已存在，
 不代表 HTTPS MITM、证书安装、浏览器/系统代理写入或真实流量改写已可用。
 
 范围：
@@ -230,13 +235,16 @@ operations 和 `mutation_ready=false`；`browser-plan` 额外输出
 当前状态：
 
 - `networkcore-linux mitm browser-plan` 已输出 `mitm_status.browser_plan`。
+- `networkcore-linux mitm browser-capture plan/apply/rollback/verify` 已输出
+  `browser_capture` blocked report。
 - 默认计划为显式代理 `127.0.0.1:7890`，仅用于机器可读计划和后续 UI/CLI 提示。
 - 当前 gate 为 plan-only/mutation-blocked，不写入 browser policy、system proxy、PAC、TUN、DNS 或 firewall。
 - [Linux MITM Browser Capture Source Contract](linux-mitm-browser-capture-source-contract.md)
   已固定 `mitm-browser-capture-source-contract-status=active`、
   `BrowserCaptureAuthorization`、`BrowserCaptureRollbackSnapshot`、apply/rollback/verify、
   显式授权、snapshot 和 rollback 边界。
-- live browser capture probe、验证命令和 rollback 命令尚未实现。
+- live browser capture probe、真实 apply 和真实 rollback 尚未实现；当前 verify/rollback
+  命令只返回 blocked report，不读取或写入系统状态。
 
 ### Phase 4: 平台 adapter
 
