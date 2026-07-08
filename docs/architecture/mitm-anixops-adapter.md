@@ -129,6 +129,9 @@ audit/diagnostics，真实 request/response mutation 继续等待领域 mutation
 
 ## Runtime 接线阶段
 
+说明：以下 Phase 1/2/3 是 MITM 接线内部阶段，不是 ROADMAP 的当前项目阶段。ROADMAP 当前阶段是
+P4 Client And Platform Integration；P3 Runtime Capability Baseline 已完成。
+
 ### Phase 1: 领域 adapter 验证
 
 目标：证明 `mitm_anixops` 能被 NetworkCore 作为插件策略服务调用。
@@ -229,6 +232,10 @@ operations 和 `mutation_ready=false`；`browser-plan` 额外输出
 - `networkcore-linux mitm browser-plan` 已输出 `mitm_status.browser_plan`。
 - 默认计划为显式代理 `127.0.0.1:7890`，仅用于机器可读计划和后续 UI/CLI 提示。
 - 当前 gate 为 plan-only/mutation-blocked，不写入 browser policy、system proxy、PAC、TUN、DNS 或 firewall。
+- [Linux MITM Browser Capture Source Contract](linux-mitm-browser-capture-source-contract.md)
+  已固定 `mitm-browser-capture-source-contract-status=active`、
+  `BrowserCaptureAuthorization`、`BrowserCaptureRollbackSnapshot`、apply/rollback/verify、
+  显式授权、snapshot 和 rollback 边界。
 - live browser capture probe、验证命令和 rollback 命令尚未实现。
 
 ### Phase 4: 平台 adapter

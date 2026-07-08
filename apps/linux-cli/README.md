@@ -15,4 +15,10 @@ The crate currently provides:
 
 `networkcore-linux mitm status`, `networkcore-linux mitm diagnostics`, `networkcore-linux mitm certificate-plan`, and `networkcore-linux mitm browser-plan` implement the first partial `MITM_CLI_COMMAND_GATE` surface. They load the built-in `networkcore.adblock` policy through `mitm-policy`, emit `mitm_status` JSON fields, and report `mitm-cli-command-gate-status=partial-active`. `certificate-plan` exposes `mitm_status.certificate_plan` with current certificate state, plan steps, blocked operations, and `mutation_ready=false`; `browser-plan` exposes `mitm_status.browser_plan` with the planned explicit proxy `127.0.0.1:7890`, required steps, blocked operations, and `mutation_ready=false`. The browser hijack path remains `deferred`; CA mutation, browser capture mutation, and HTTP/TLS data-plane gates stay blocked.
 
+The future browser capture mutation path is governed by
+`docs/architecture/linux-mitm-browser-capture-source-contract.md`. It requires
+`BrowserCaptureAuthorization`, `BrowserCaptureRollbackSnapshot`, explicit
+apply/rollback/verify commands, and rollback-safe snapshots before any
+browser/system proxy state can be written.
+
 This crate does not modify TUN, DNS, routing, firewall, certificates, service managers, or daemon state. `start` is foreground-only, maps Unix `SIGINT`/`SIGTERM` and injected lifecycle interruption to `cli.linux.start.lifecycle_interrupted` with exit code 130, then stops the current in-process runtime and aggregates native release diagnostics such as `engine.native.runtime.accept_loop_stopped` and `engine.native.runtime.released`. `run-url` is also foreground-only and does not imply daemon, control socket, cross-process `stop`, background `status`, managed logs, packaging, or service installation support. All validation runs in GitHub Actions according to `docs/ci-cd-policy.md`.

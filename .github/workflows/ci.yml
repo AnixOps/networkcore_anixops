@@ -100,6 +100,7 @@ jobs:
             docs/architecture/linux-artifact-pre-release-design.md
             docs/architecture/linux-cli-artifact-installation-rollback.md
             docs/architecture/linux-cli-entrypoint.md
+            docs/architecture/linux-mitm-browser-capture-source-contract.md
             docs/architecture/linux-cli-runtime-wiring.md
             docs/architecture/linux-native-proxy-engine-start.md
             docs/architecture/linux-package-archive-staging-contract.md
@@ -148,6 +149,9 @@ jobs:
           grep -q "当前阶段：P4 Client And Platform Integration" ROADMAP.md
           grep -q "P3 Runtime Capability Baseline (Completed)" ROADMAP.md
           grep -q "当前阶段进入 P4 Client And Platform Integration" README.md
+          grep -q "当前阶段源：P4 Client And Platform Integration" README.md
+          grep -q "P3 是已完成历史基线" README.md
+          grep -q "当前仓库不再处于 P3" ROADMAP.md
           grep -q "当前阶段是 P4 Client And Platform Integration" TODO.md
           grep -Fq "linux-artifact-release-state=confirmed-release-path" README.md
           grep -Fq "linux-artifact-release-state=confirmed-release-path" ROADMAP.md
@@ -263,6 +267,7 @@ jobs:
           grep -q "MITM_CLI_COMMAND_GATE.*partial-active" docs/ci-cd-policy.md
           grep -q "MITM_CERTIFICATE_LIFECYCLE_GATE.*plan-only" docs/ci-cd-policy.md
           grep -q "MITM_BROWSER_CAPTURE_GATE.*plan-only" docs/ci-cd-policy.md
+          grep -q "Linux MITM browser capture source contract" docs/ci-cd-policy.md
           grep -q "certificate-plan" README.md
           grep -q "certificate-plan" apps/linux-cli/README.md
           grep -q "certificate-plan" crates/mitm-policy/README.md
@@ -286,6 +291,23 @@ jobs:
           grep -q "127.0.0.1:7890" docs/architecture/mitm-anixops-adapter.md
           grep -q "browser hijack" README.md
           grep -q "browser hijack" apps/linux-cli/README.md
+          grep -q "Linux MITM Browser Capture Source Contract" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -Fq "mitm-browser-capture-source-contract-status=active" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -Fq "MITM_BROWSER_CAPTURE_GATE=plan-only/mutation-blocked" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "networkcore-linux mitm browser-plan" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "mitm_status.browser_plan" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "BrowserCaptureAuthorization" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "BrowserCaptureRollbackSnapshot" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "cli.linux.mitm.browser_capture.authorization_required" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "cli.linux.mitm.browser_capture.apply.blocked" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "cli.linux.mitm.browser_capture.rollback.blocked" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "linux-mitm-browser-capture-source-contract.md" README.md
+          grep -q "linux-mitm-browser-capture-source-contract.md" ROADMAP.md
+          grep -q "linux-mitm-browser-capture-source-contract.md" TODO.md
+          grep -q "linux-mitm-browser-capture-source-contract.md" apps/linux-cli/README.md
+          grep -q "linux-mitm-browser-capture-source-contract.md" crates/mitm-policy/README.md
+          grep -q "linux-mitm-browser-capture-source-contract.md" docs/architecture/mitm-anixops-adapter.md
+          grep -q "linux-mitm-browser-capture-source-contract.md" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           if grep -Fq '没有 `networkcore-linux mitm` 命令' README.md ROADMAP.md TODO.md CHANGELOG.md docs/architecture/mitm-anixops-adapter.md docs/architecture/mitm-policy-ad-block-plugin-source-contract.md; then
             echo "::error::MITM docs must not say the Linux CLI has no networkcore-linux mitm command after the status/diagnostics/certificate-plan/browser-plan gate landed."
             exit 1

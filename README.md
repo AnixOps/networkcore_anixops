@@ -48,6 +48,7 @@
 - [docs/architecture/linux-artifact-pre-release-design.md](docs/architecture/linux-artifact-pre-release-design.md)
 - [docs/architecture/linux-platform-adapter.md](docs/architecture/linux-platform-adapter.md)
 - [docs/architecture/linux-cli-entrypoint.md](docs/architecture/linux-cli-entrypoint.md)
+- [docs/architecture/linux-mitm-browser-capture-source-contract.md](docs/architecture/linux-mitm-browser-capture-source-contract.md)
 - [docs/architecture/linux-cli-runtime-wiring.md](docs/architecture/linux-cli-runtime-wiring.md)
 - [docs/architecture/native-engine-listener-node-config.md](docs/architecture/native-engine-listener-node-config.md)
 - [docs/architecture/linux-native-proxy-engine-start.md](docs/architecture/linux-native-proxy-engine-start.md)
@@ -92,6 +93,13 @@
 
 P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成，当前阶段进入 P4 Client And Platform Integration。本节后续内容是已完成源码、合同和 release gate 的详细清单；阶段判断以本段和 [ROADMAP.md](ROADMAP.md) 为准。
 
+阶段状态速查：
+
+- 当前阶段源：P4 Client And Platform Integration。
+- P3 是已完成历史基线，不再作为当前仓库阶段描述。
+- 当前可用：GitHub Actions 发布的 Linux CLI artifact、`help` 命令表、`install-sing-box`、`run-url <ss://url>` foreground local proxy、MITM status/diagnostics/certificate-plan/browser-plan policy-only 命令面。
+- 当前未启用：live MITM、browser hijack、browser capture mutation、CA 生成/安装/信任 mutation、HTTP/TLS 解密改写数据面、daemon/service、TUN/DNS/firewall mutation。
+
 Linux CLI 二进制发布路径已打通：`v0.1.0-alpha.2` 由 GitHub Actions 构建并发布
 `networkcore-linux` Linux tarball、sha256、manifest 和 manifest sha256，release workflow 同时完成同 commit CI gate、
 artifact checksum、manifest、GitHub artifact attestation、publish eligibility 和 GitHub Release asset 上传。
@@ -109,6 +117,11 @@ P3 runtime baseline 已固化为公有执行内核 adapter 优先：NetworkCore 
 Linux 仍是手动解压和 foreground 运行模型，不安装 daemon/service，不修改 TUN/DNS/firewall/certificate trust store。
 iOS 仍只允许 `apps/ios/README.md` source tree governance placeholder 和 upload blocked gates，
 不包含 Swift/Xcode/Network Extension target、签名、TestFlight/App Store upload 或 iOS release asset。
+Linux MITM browser capture 已新增
+[Linux MITM Browser Capture Source Contract](docs/architecture/linux-mitm-browser-capture-source-contract.md)，
+用于固定后续 `BrowserCaptureAuthorization`、`BrowserCaptureRollbackSnapshot`、apply/rollback/verify 命令面、
+授权、快照和回滚边界；当前该合同只约束后续源码，`MITM_BROWSER_CAPTURE_GATE` 仍是
+plan-only/mutation-blocked。
 
 `engine-singbox` 已作为首个 public engine adapter source contract 进入 workspace；`networkcore-linux help`
 现在输出命令表，`networkcore-linux install-sing-box`/`networkcore-linux sing-box install` 会从官方 GitHub latest

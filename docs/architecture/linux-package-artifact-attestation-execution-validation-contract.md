@@ -1,5 +1,8 @@
 # Linux Package Artifact Attestation Execution Validation Contract
 
+> Current activation note: Linux artifact release path is now `linux-artifact-release-state=confirmed-release-path`. `package-linux`, attestation, publish eligibility, and GitHub Release upload are owned by GitHub Actions; any older blocked, not-defined, or current-placeholder wording below describes the historical pre-activation boundary unless a section explicitly states the post-activation state.
+
+
 本文定义首个 Linux workflow artifact bundle 上传完成后，未来 `attest-linux` job
 生成 GitHub artifact attestation/provenance 前必须满足的验证合同。当前仍是 placeholder；
 本文只固定 attestation 输入来源、subject 文件集合、权限要求、action 边界、provenance

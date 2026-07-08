@@ -36,7 +36,10 @@ Required gates before user-facing MITM:
 - `MITM_BROWSER_CAPTURE_GATE`: currently plan-only through
   `mitm_status.browser_plan`; later increments must implement explicit
   browser/system proxy configuration, PAC or other capture strategy, live
-  capture verification, and rollback boundaries.
+  capture verification, and rollback boundaries. The Linux source boundary is
+  fixed by `docs/architecture/linux-mitm-browser-capture-source-contract.md`
+  and requires `BrowserCaptureAuthorization` plus
+  `BrowserCaptureRollbackSnapshot` before mutation.
 - `MITM_HTTP_TLS_DATA_PLANE_GATE`: wire HTTP/TLS interception to
   `mitm-policy` rewrite plans.
 

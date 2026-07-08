@@ -1,5 +1,8 @@
 # Linux Package Artifact Manifest Generation Validation Contract
 
+> Current activation note: Linux artifact release path is now `linux-artifact-release-state=confirmed-release-path`. `package-linux`, attestation, publish eligibility, and GitHub Release upload are owned by GitHub Actions; any older blocked, not-defined, or current-placeholder wording below describes the historical pre-activation boundary unless a section explicitly states the post-activation state.
+
+
 本文定义首个 Linux `package-linux` job 在未来 archive checksum sidecar 写入完成后生成
 artifact manifest JSON 前必须满足的 manifest generation 验证合同。当前仍是 placeholder；
 本文只固定 manifest 文件名、路径、必需 JSON 字段、archive/checksum 交叉引用和继续不计算

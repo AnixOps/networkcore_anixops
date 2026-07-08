@@ -1,5 +1,8 @@
 # Linux Package Artifact Job Preflight Validation Contract
 
+> Current activation note: Linux artifact release path is now `linux-artifact-release-state=confirmed-release-path`. `package-linux`, attestation, publish eligibility, and GitHub Release upload are owned by GitHub Actions; any older blocked, not-defined, or current-placeholder wording below describes the historical pre-activation boundary unless a section explicitly states the post-activation state.
+
+
 本文定义首个 Linux `package-linux` job 在未来真实加入 release workflow 前必须满足的
 preflight 验证合同。当前仍是 placeholder；本文只固定未来 job 的依赖、checkout、
 toolchain、build、staging 前置顺序、失败条件和继续不上传 artifact 的边界，不定义

@@ -1,5 +1,8 @@
 # Linux Package Release CI Gate Activation Validation Contract
 
+> Current activation note: Linux artifact release path is now `linux-artifact-release-state=confirmed-release-path`. `package-linux`, attestation, publish eligibility, and GitHub Release upload are owned by GitHub Actions; any older blocked, not-defined, or current-placeholder wording below describes the historical pre-activation boundary unless a section explicitly states the post-activation state.
+
+
 本文定义首个 Linux `package-linux` artifact 在启用真实 packaging 前，`release-ci-gate`
 从 placeholder 字段合同切换到自动读取同 commit 成功 CI run 时必须满足的验证合同。当前
 `release-ci-gate` API read 已激活；本文继续固定权限、API 读取字段、失败条件和继续不生成 artifact 的边界，

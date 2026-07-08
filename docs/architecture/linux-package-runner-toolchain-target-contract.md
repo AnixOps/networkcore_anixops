@@ -1,5 +1,8 @@
 # Linux Package Runner Toolchain Target Contract
 
+> Current activation note: Linux artifact release path is now `linux-artifact-release-state=confirmed-release-path`. `package-linux`, attestation, publish eligibility, and GitHub Release upload are owned by GitHub Actions; any older blocked, not-defined, or current-placeholder wording below describes the historical pre-activation boundary unless a section explicitly states the post-activation state.
+
+
 本文定义首个真实 `package-linux` job 加入 `.github/workflows/release.yml` 前必须遵守的
 runner、Rust toolchain 和 target triple 输入合同。当前仍为 placeholder 合同，不定义
 `package-linux` job、不构建、不打包、不上传 artifact。
@@ -137,9 +140,9 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、Git
 
 ## 后续工作
 
-- 在 license/NOTICE 人工确认完成前，继续保持 pending marker 并阻止 Linux artifact。
+- 当前 Linux artifact release state 为 `linux-artifact-release-state=confirmed-release-path`；后续 tag release 继续通过 release workflow 门禁。
 - Linux package archive staging contract、checksum manifest contract、publish/upload boundary contract、
   signing/attestation policy binding contract、release notes/rollback policy binding contract、
   publish eligibility aggregate contract、license/NOTICE transition validation contract、release CI gate
   activation validation contract、artifact job preflight validation contract、artifact build command
-  validation contract、artifact staging file validation contract、artifact archive creation validation contract 和 artifact checksum execution validation contract 已定义；Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract、Linux package artifact attestation execution validation contract、Linux package release notes/rollback execution validation contract 和 Linux package publish eligibility execution validation contract 已定义；release CI gate execution validation contract 和 release CI gate API implementation 已激活；下一步必须完成 license/NOTICE 和 artifact gates，仍不发布 release asset。
+  validation contract、artifact staging file validation contract、artifact archive creation validation contract 和 artifact checksum execution validation contract 已定义；Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract、Linux package artifact attestation execution validation contract、Linux package release notes/rollback execution validation contract 和 Linux package publish eligibility execution validation contract 已定义；release CI gate execution validation contract 和 release CI gate API implementation 已激活；当前 license/NOTICE 和 artifact gates 已进入 confirmed release path；后续 tag release 继续通过 release workflow、同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates 生成和发布 Linux assets。

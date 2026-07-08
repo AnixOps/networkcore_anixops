@@ -1,6 +1,7 @@
 # Subscription Catalog Runtime Orchestration Design
 
-本文定义 P3 阶段把订阅 catalog 接入运行层前必须遵守的编排边界。它承接
+本文记录已完成的 P3 baseline 中，订阅 catalog 接入运行层前必须遵守的编排边界。当前仓库阶段是
+P4 Client And Platform Integration；本文中的 P3 表述只指已完成历史基线。它承接
 [Control Kernel Interface Draft](control-kernel-interfaces.md)、
 [Control Runtime Orchestration Design](control-runtime-orchestration.md)、
 [Native Engine Listener And Node Config Design](native-engine-listener-node-config.md) 和

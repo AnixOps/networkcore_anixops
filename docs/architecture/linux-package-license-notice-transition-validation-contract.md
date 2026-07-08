@@ -1,5 +1,8 @@
 # Linux Package License Notice Transition Validation Contract
 
+> Current activation note: Linux artifact release path is now `linux-artifact-release-state=confirmed-release-path`. `package-linux`, attestation, publish eligibility, and GitHub Release upload are owned by GitHub Actions; any older blocked, not-defined, or current-placeholder wording below describes the historical pre-activation boundary unless a section explicitly states the post-activation state.
+
+
 本文定义首个 Linux `package-linux` artifact 的 license/NOTICE 状态从 `pending`
 切换为 `confirmed` 时必须满足的验证合同。当前 transition 已完成，本文继续固定
 confirmed 字段、文件存在性检查、release workflow 阻断规则和防回退规则；它不重新确认

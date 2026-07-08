@@ -1,5 +1,8 @@
 # Linux Package Workflow Artifact Bundle Upload Validation Contract
 
+> Current activation note: Linux artifact release path is now `linux-artifact-release-state=confirmed-release-path`. `package-linux`, attestation, publish eligibility, and GitHub Release upload are owned by GitHub Actions; any older blocked, not-defined, or current-placeholder wording below describes the historical pre-activation boundary unless a section explicitly states the post-activation state.
+
+
 本文定义首个 Linux `package-linux` job 在未来 manifest checksum sidecar 生成后，
 上传同一 release run workflow artifact bundle 前必须满足的验证合同。当前仍是 placeholder；
 本文只固定 bundle 文件集、来源目录、artifact 名称、retention、同一 run 边界和 release asset
@@ -207,4 +210,4 @@ release asset。
   artifact bundle upload gates 激活前，继续保持 `package-linux` 未定义。
 - Linux package artifact attestation execution validation contract、Linux package release notes/rollback execution
   validation contract、Linux package publish eligibility execution validation contract、release CI gate execution
-  validation contract 和 release CI gate API implementation 已激活；下一步必须完成 license/NOTICE 和 artifact gates，并继续阻止 GitHub Release asset。
+  validation contract 和 release CI gate API implementation 已激活；当前 license/NOTICE 和 artifact gates 已进入 confirmed release path；后续 tag release 继续通过 release workflow、同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates 生成和发布 Linux assets。

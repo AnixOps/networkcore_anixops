@@ -115,7 +115,11 @@ Blocked until later phases:
 - `MITM_BROWSER_CAPTURE_GATE`: currently plan-only through
   `mitm_status.browser_plan`; later increments must add explicit browser/system
   proxy configuration, PAC or other capture strategy, live capture verification,
-  and rollback boundaries.
+  and rollback boundaries. The Linux source contract is
+  [Linux MITM Browser Capture Source Contract](linux-mitm-browser-capture-source-contract.md),
+  which fixes `BrowserCaptureAuthorization`, `BrowserCaptureRollbackSnapshot`,
+  apply/rollback/verify, explicit authorization, snapshot, and rollback
+  boundaries before any browser/system proxy mutation.
 - `MITM_HTTP_TLS_DATA_PLANE_GATE`: HTTP CONNECT/TLS interception, SNI/host
   routing, HTTP/1.1 and HTTP/2 parsing, body buffering/limits, compression
   handling, and application of `mitm-policy` URL/header/body/script rewrite
@@ -151,5 +155,7 @@ CI must prove:
 - docs keep `MITM_CLI_COMMAND_GATE`, `MITM_CERTIFICATE_LIFECYCLE_GATE`,
   `MITM_BROWSER_CAPTURE_GATE`, and `MITM_HTTP_TLS_DATA_PLANE_GATE` visible
   while user-facing MITM is deferred;
+- docs keep the Linux MITM browser capture source contract discoverable while
+  `MITM_BROWSER_CAPTURE_GATE` remains plan-only/mutation-blocked;
 - Rust CI builds and tests the workspace on Linux, macOS, and Windows;
 - local machines do not run build, test, package, or release verification.

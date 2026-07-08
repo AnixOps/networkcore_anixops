@@ -147,4 +147,4 @@ Current `.github/workflows/ci.yml` must check:
 - No `apps/ios/Package.swift`, Swift source, Xcode project/workspace, Network Extension target, `PrivacyInfo.xcprivacy`,
   `.entitlements`, ExportOptions.plist, `.ipa`, `.xcarchive`, `.xcresult`, dSYM bundle, signing config, TestFlight upload,
   App Store upload, App Review submission or iOS release asset is added.
-- Linux artifact remains blocked on license/NOTICE confirmed marker; `package-linux` and release asset remain undefined/blocked.
+- Linux artifact release path is confirmed; iOS release asset remains undefined/blocked.

@@ -1,5 +1,8 @@
 # Release CI Gate API Implementation Plan
 
+> Current activation note: Linux artifact release path is now `linux-artifact-release-state=confirmed-release-path`. `package-linux`, attestation, publish eligibility, and GitHub Release upload are owned by GitHub Actions; any older blocked, not-defined, or current-placeholder wording below describes the historical pre-activation boundary unless a section explicitly states the post-activation state.
+
+
 本文定义并记录 `release-ci-gate` 从 placeholder 进入真实 GitHub Actions API 读取的最小实现。当前 release
 workflow 已在 `release-ci-gate` job 级启用 `actions: read`，调用 GitHub Actions workflow runs API 与 workflow
 jobs API，自动校验同 repository、同 commit、`main` 分支的成功 `CI` run 和 `CI summary` job；但仍不定义

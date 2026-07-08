@@ -230,4 +230,4 @@ ios-upload-workflow-next-action=swift-xcode-source-and-manual-confirmation-befor
   Xcode project, Network Extension target, `PrivacyInfo.xcprivacy`, ExportOptions.plist,
   `.ipa`, `.xcarchive`, `.xcresult`, dSYM bundle, Provisioning Profile, signing config, TestFlight upload, App Store upload,
   App Review submission or iOS release asset is added.
-- Linux artifact continues waiting for license/NOTICE confirmed marker; `package-linux` and release asset remain undefined/blocked.
+- Linux artifact release path is confirmed; iOS release asset remains undefined/blocked.

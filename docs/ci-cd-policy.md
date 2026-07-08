@@ -40,6 +40,7 @@
 - subscription catalog runtime gate source contract 检查
 - `mitm-anixops-sys` crate、submodule 固定和 Rust FFI version 测试检查
 - `mitm-policy` safe wrapper、`networkcore.adblock` 内置去广告插件、Linux CLI `mitm_status`、`certificate_plan` 与 `browser_plan` 机器字段、deferred mutation 诊断、当前用户可用性边界、`MITM_CLI_COMMAND_GATE` partial-active、`MITM_CERTIFICATE_LIFECYCLE_GATE` plan-only/mutation-blocked、`MITM_BROWSER_CAPTURE_GATE` plan-only/mutation-blocked、`MITM_HTTP_TLS_DATA_PLANE_GATE` blocked 和 Rust 合同测试检查
+- Linux MITM browser capture source contract、`BrowserCaptureAuthorization`、`BrowserCaptureRollbackSnapshot`、显式授权、snapshot、rollback、apply/rollback blocked diagnostics 和 `MITM_BROWSER_CAPTURE_GATE` plan-only/mutation-blocked 检查
 - third-party plugin onboarding process、source contract、pinned source、license/NOTICE、permission、safe wrapper、CI governance 和 upgrade procedure 检查
 - 运行层编排设计文件检查
 - iOS Network Extension design 检查

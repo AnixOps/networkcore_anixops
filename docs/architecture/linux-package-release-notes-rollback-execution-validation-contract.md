@@ -1,5 +1,8 @@
 # Linux Package Release Notes Rollback Execution Validation Contract
 
+> Current activation note: Linux artifact release path is now `linux-artifact-release-state=confirmed-release-path`. `package-linux`, attestation, publish eligibility, and GitHub Release upload are owned by GitHub Actions; any older blocked, not-defined, or current-placeholder wording below describes the historical pre-activation boundary unless a section explicitly states the post-activation state.
+
+
 本文定义首个 Linux artifact 在 attestation/provenance 完成后，未来 release
 notes、rollback summary、withdrawal policy 和 replacement policy 进入 publish gate 前必须满足的
 执行验证合同。当前仍是 placeholder；本文只固定输入来源、required fields、失败边界和当前 blocked

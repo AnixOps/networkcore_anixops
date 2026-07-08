@@ -6,6 +6,7 @@
 
 ### Changed
 
+- README、ROADMAP、TODO 和相关架构文档现在把阶段入口进一步固定为 P4 Client And Platform Integration；P3 只作为 completed baseline 或历史条目保留，不再作为当前仓库阶段描述。
 - Linux artifact release 状态现在统一为 `linux-artifact-release-state=confirmed-release-path`：Release Strategy、Linux license/NOTICE confirmation contract、transition validation contract、pre-release design、manual intervention marker、README、ROADMAP 和 TODO 都记录 license/NOTICE 已 confirmed，但 Linux tag release 仍必须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates。
 - README、ROADMAP、TODO、`mitm-policy` README 和 MITM source contract 现在把 MITM 用户入口状态更新为 `mitm-cli-command-gate-status=partial-active`：Linux CLI 已有 status/diagnostics/certificate-plan/browser-plan 命令面，但 live MITM、CA mutation lifecycle、HTTP/TLS data plane 和 browser capture mutation 仍 deferred/blocked。
 - ROADMAP、README 和 TODO 现在把当前阶段统一为 P4 Client And Platform Integration。
@@ -21,6 +22,7 @@
 
 ### Added
 
+- 新增 Linux MITM Browser Capture Source Contract：固定 `mitm-browser-capture-source-contract-status=active`、当前 `MITM_BROWSER_CAPTURE_GATE=plan-only/mutation-blocked`、`BrowserCaptureAuthorization`、`BrowserCaptureRollbackSnapshot`、apply/rollback/verify 命令面、显式授权、snapshot、rollback、诊断 code 和 CI governance；该合同只约束后续源码，当前仍不写入 browser/system proxy、PAC、TUN、DNS、firewall 或 CA 状态，也不启用 live browser capture。
 - 新增 `networkcore-linux mitm browser-plan` 入口：Linux CLI 在现有 `mitm_status` JSON 下输出 `browser_plan` 机器字段、默认显式代理计划 `127.0.0.1:7890`、计划步骤、blocked operations、`mutation_ready=false`、`cli.linux.mitm.browser_plan.ready` 和 `cli.linux.mitm.browser_capture_mutation.blocked` 诊断；`MITM_BROWSER_CAPTURE_GATE` 当前为 plan-only，仍不写入浏览器策略、系统代理、PAC、TUN、DNS 或 firewall 状态，也不验证 live browser capture 或执行回滚。
 - 新增 Linux artifact release-state consistency CI/release gate，防止文档或 workflow 回退到 license/NOTICE pending placeholder 描述，并要求 release readiness 读取同一 confirmed release path marker。
 - 新增 `networkcore-linux mitm certificate-plan` 入口：Linux CLI 在现有 `mitm_status` JSON 下输出 `certificate_plan` 机器字段、当前证书状态、计划步骤、blocked operations、`mutation_ready=false`、`cli.linux.mitm.certificate_plan.ready` 和 `cli.linux.mitm.certificate_mutation.blocked` 诊断；`MITM_CERTIFICATE_LIFECYCLE_GATE` 当前为 plan-only，仍不生成私钥/CA、不安装或信任证书、不撤销或回滚 trust store。

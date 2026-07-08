@@ -6,6 +6,8 @@
 
 P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成。当前工作进入客户端、平台和发布集成阶段：Linux CLI 已有 GitHub Actions 生成的预发布二进制，iOS 仍处于 source-tree/upload gates，运行层继续通过 public engine adapter 和后续 MITM gates 增量补齐能力。
 
+阶段判断以本节为准：P3 是已完成 baseline，当前仓库不再处于 P3。
+
 ## P0 Bootstrap Governance (Completed)
 
 目标是建立后续代码落地前必须稳定存在的协作、CI/CD 和规划基线。
@@ -122,7 +124,7 @@ P3 baseline 源码状态：`control-runtime` 已具备显式 inline subscription
 - 证书安装、权限提示、插件脚本边界和 App Review 风险治理。
 - 发布 workflow 的平台产物矩阵。
 
-当前 P4 状态：Linux CLI artifact 已通过 tag release workflow 发布到 GitHub Release，并包含 tarball、sha256、manifest 和 manifest sha256；Linux artifact release-state consistency marker 为 `linux-artifact-release-state=confirmed-release-path`，license/NOTICE 已 confirmed，但后续 tag release 仍必须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates。Linux 仍是手动解压和 foreground 运行模型，不安装 daemon/service，不修改 TUN/DNS/firewall/certificate trust store。iOS 仍只允许 `apps/ios/README.md` source tree governance placeholder 和 upload blocked gates，不包含 Swift/Xcode/Network Extension target、签名、TestFlight/App Store upload 或 iOS release asset。用户可用 live MITM 尚未启用；`MITM_CLI_COMMAND_GATE` 目前做到 status/diagnostics/certificate-plan/browser-plan partial-active，`MITM_CERTIFICATE_LIFECYCLE_GATE` 当前为 plan-only/mutation-blocked，`MITM_BROWSER_CAPTURE_GATE` 当前为 plan-only/mutation-blocked，`MITM_HTTP_TLS_DATA_PLANE_GATE` 仍 blocked，browser hijack 仍 deferred。
+当前 P4 状态：Linux CLI artifact 已通过 tag release workflow 发布到 GitHub Release，并包含 tarball、sha256、manifest 和 manifest sha256；Linux artifact release-state consistency marker 为 `linux-artifact-release-state=confirmed-release-path`，license/NOTICE 已 confirmed，但后续 tag release 仍必须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates。Linux 仍是手动解压和 foreground 运行模型，不安装 daemon/service，不修改 TUN/DNS/firewall/certificate trust store。iOS 仍只允许 `apps/ios/README.md` source tree governance placeholder 和 upload blocked gates，不包含 Swift/Xcode/Network Extension target、签名、TestFlight/App Store upload 或 iOS release asset。用户可用 live MITM 尚未启用；`MITM_CLI_COMMAND_GATE` 目前做到 status/diagnostics/certificate-plan/browser-plan partial-active，`MITM_CERTIFICATE_LIFECYCLE_GATE` 当前为 plan-only/mutation-blocked，`MITM_BROWSER_CAPTURE_GATE` 当前为 plan-only/mutation-blocked，`MITM_HTTP_TLS_DATA_PLANE_GATE` 仍 blocked，browser hijack 仍 deferred。Linux MITM browser capture 已有 source contract 固定 `BrowserCaptureAuthorization`、`BrowserCaptureRollbackSnapshot`、apply/rollback/verify 命令面、授权、快照和回滚边界，但真实浏览器/系统代理 mutation 仍未实现。
 
 当前发布规划：
 
@@ -145,6 +147,7 @@ P3 baseline 源码状态：`control-runtime` 已具备显式 inline subscription
 - [Linux Artifact Pre-Release Design](docs/architecture/linux-artifact-pre-release-design.md)
 - [Linux Platform Adapter Design](docs/architecture/linux-platform-adapter.md)
 - [Linux CLI Entrypoint Design](docs/architecture/linux-cli-entrypoint.md)
+- [Linux MITM Browser Capture Source Contract](docs/architecture/linux-mitm-browser-capture-source-contract.md)
 - [Linux CLI Runtime Wiring Design](docs/architecture/linux-cli-runtime-wiring.md)
 - [Native Engine Listener And Node Config Design](docs/architecture/native-engine-listener-node-config.md)
 - [Linux Native Proxy Engine Start Design](docs/architecture/linux-native-proxy-engine-start.md)

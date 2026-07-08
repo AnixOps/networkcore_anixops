@@ -13,7 +13,7 @@
 
 ## 非目标
 
-- 不在本阶段实现会修改系统状态的 Linux 探测、daemon 控制、服务安装、packaging 或 release asset。
+- CLI 入口本身不实现会修改系统状态的 Linux 探测、daemon 控制、服务安装或 release packaging；release artifact 只能由 GitHub Actions release workflow 生成。
 - 不在本机运行、构建、测试、打包或试用 CLI。
 - 不定义 daemon、systemd unit、installer、shell completion、TUI、GUI 或 release asset。
 - 不自动修改 TUN、路由、DNS、防火墙、证书信任或服务管理配置。
@@ -158,16 +158,16 @@ CLI 源码出现时，验证必须只在 GitHub Actions 中执行：
 - `handle_entrypoint` 将 `capabilities`、`status`、`diagnostics` 和 `mitm status/diagnostics/certificate-plan/browser-plan` 路由到注入的 `PlatformCapabilityService`；二进制入口使用 `ReadOnlyLinuxPlatformCapabilityService<HostLinuxReadOnlyProbe>`。
 - `handle_entrypoint_with_runtime` 继续将 `prepare-config` 路由到 `RuntimeOrchestrator`；`handle_entrypoint_with_runtime_and_lifecycle` 将 `start` 路由到 `RuntimeOrchestrator::start_runtime`、`NativeProxyEngineService` 和前台 lifecycle host。
 
-该 crate 当前执行只读 Linux 能力探测、只读配置准备和前台 native runtime 启动，不修改系统状态、不安装 daemon，也不代表 Linux artifact 已可发布。Unix 默认前台 host 会监听 `SIGINT`/`SIGTERM` 并映射为 `cli.linux.start.signal_received`、`cli.linux.start.lifecycle_interrupted` 和 130 退出码；interruption 后会通过当前进程内 `RuntimeOrchestrator::stop_runtime` 释放 native runtime 并聚合 `engine.native.runtime.accept_loop_stopped`/`engine.native.runtime.released` 诊断，stop 失败时追加 `cli.linux.start.runtime_stop_failed`；`stop` 与后台 `status` 在没有 daemon/control socket 前继续保持稳定 unavailable 诊断。
+该 crate 当前执行只读 Linux 能力探测、只读配置准备和前台 native runtime 启动，不修改系统状态、不安装 daemon。Linux artifact 发布路径已由 GitHub Actions release workflow 打通，CLI crate 仍不在本机打包或发布。Unix 默认前台 host 会监听 `SIGINT`/`SIGTERM` 并映射为 `cli.linux.start.signal_received`、`cli.linux.start.lifecycle_interrupted` 和 130 退出码；interruption 后会通过当前进程内 `RuntimeOrchestrator::stop_runtime` 释放 native runtime 并聚合 `engine.native.runtime.accept_loop_stopped`/`engine.native.runtime.released` 诊断，stop 失败时追加 `cli.linux.start.runtime_stop_failed`；`stop` 与后台 `status` 在没有 daemon/control socket 前继续保持稳定 unavailable 诊断。
 
 ## Release 边界
 
-CLI 设计完成不代表可以发布 Linux artifact。进入 `.github/workflows/release.yml` 前仍必须满足：
+当前 Linux CLI artifact 已通过 `.github/workflows/release.yml` 发布路径生成和上传。后续 tag release 仍必须满足：
 
-- Linux CLI 源码和 GitHub Actions 验证存在。
-- Linux platform adapter 源码或测试替身能提供 `PlatformCapabilityService`。
-- Linux CLI artifact 安装、卸载和回滚设计完成。
-- 首个 artifact packaging job 输出 checksum、manifest、manifest checksum、签名/证明状态和回滚字段。
+- 同 commit CI 成功，且 `CI summary` job 通过 release CI gate 校验。
+- Linux CLI 源码、platform adapter、artifact manifest、安装/回滚设计和 license/NOTICE confirmed marker 均通过 repository governance。
+- `package-linux` 只能在 GitHub Actions 中构建，输出 tarball、sha256、manifest 和 manifest sha256。
+- `attest-linux`、release notes、rollback、publish eligibility 和 GitHub Release upload gates 均通过。
 - 不上传空壳二进制、未验证二进制或本地构建产物。
 
 ## 验收条件
@@ -181,6 +181,6 @@ CLI 首个源码增量必须满足：
 
 ## 后续工作
 
-- Linux artifact readiness/release gate 已纳入 foreground stop/release 合同检查、artifact manifest 输出合同、license/NOTICE confirmation source contract、license/NOTICE transition validation contract、release placeholder license/NOTICE pending 状态 summary、release CI success source contract、release CI gate activation validation contract、package runner/toolchain/target contract、archive staging contract、checksum/manifest checksum contract、publish/upload boundary contract、signing/attestation policy binding contract、release notes/rollback policy binding contract 和 publish eligibility aggregate contract；当前 license/NOTICE pending marker 与 artifact gates 继续阻止 `package-linux` 和 release asset。
-- Linux package artifact job preflight validation contract、Linux package artifact build command validation contract、Linux package artifact staging file validation contract、Linux package artifact archive creation validation contract 和 Linux package artifact checksum execution validation contract 已定义；Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract、Linux package artifact attestation execution validation contract、Linux package release notes/rollback execution validation contract 和 Linux package publish eligibility execution validation contract 已定义；release CI gate execution validation contract 和 release CI gate API implementation 已激活；下一步必须完成 license/NOTICE 和 artifact gates，仍不发布 release asset。
+- Linux artifact readiness/release gate 已纳入 foreground stop/release 合同检查、artifact manifest 输出合同、license/NOTICE confirmation source contract、license/NOTICE transition validation contract、release CI success source contract、release CI gate activation validation contract、package runner/toolchain/target contract、archive staging contract、checksum/manifest checksum contract、publish/upload boundary contract、signing/attestation policy binding contract、release notes/rollback policy binding contract 和 publish eligibility aggregate contract；当前 marker 为 `linux-artifact-release-state=confirmed-release-path`，后续 tag release 继续通过这些 gates 生成和发布 Linux assets。
+- Linux package artifact job preflight validation contract、Linux package artifact build command validation contract、Linux package artifact staging file validation contract、Linux package artifact archive creation validation contract、Linux package artifact checksum execution validation contract、Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract、Linux package artifact attestation execution validation contract、Linux package release notes/rollback execution validation contract 和 Linux package publish eligibility execution validation contract 已进入 release workflow；release CI gate execution validation contract 和 release CI gate API implementation 已激活。
 - daemon/control socket、packaging 或任何会修改系统状态的 Linux probing 进入 CLI 前，先补充对应设计并通过 CI。
