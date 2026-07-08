@@ -1,17 +1,15 @@
 use control_domain::{
     CertificateTrustState, DiagnosticSeverity, GrantedPermissions, HookPoint, HttpEvent,
-    HttpHeaderMutationOperation, HttpMitmAction, HttpMitmEvent, HttpMitmPhase,
-    HttpMitmScriptKind, MetadataEntry, MitmPluginService, PluginManifest, PluginPackage,
-    PluginPermission,
+    HttpHeaderMutationOperation, HttpMitmAction, HttpMitmEvent, HttpMitmPhase, HttpMitmScriptKind,
+    MetadataEntry, MitmPluginService, PluginManifest, PluginPackage, PluginPermission,
 };
 use mitm_policy::{
     builtin_ad_block_plugin_package, AnixOpsMitmPluginService, AnixOpsMitmPolicyEngine,
-    MitmPolicyHeaderField, MitmPolicyHeaderOperation, MitmPolicyMitmDecisionType,
-    MitmPolicyPhase, MitmPolicyRewriteAction, MitmPolicyScriptKind,
-    MITM_POLICY_AD_BLOCK_PLUGIN_ID, MITM_POLICY_CONFIG_LOADED_CODE,
-    MITM_POLICY_CONFIG_PARSE_FAILED_CODE, MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE,
-    MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_CODE, MITM_POLICY_HTTP_EVENT_SOURCE_MISSING_CODE,
-    MITM_POLICY_MANIFEST_HOOK_MISSING_CODE,
+    MitmPolicyHeaderField, MitmPolicyHeaderOperation, MitmPolicyMitmDecisionType, MitmPolicyPhase,
+    MitmPolicyRewriteAction, MitmPolicyScriptKind, MITM_POLICY_AD_BLOCK_PLUGIN_ID,
+    MITM_POLICY_CONFIG_LOADED_CODE, MITM_POLICY_CONFIG_PARSE_FAILED_CODE,
+    MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE, MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_CODE,
+    MITM_POLICY_HTTP_EVENT_SOURCE_MISSING_CODE, MITM_POLICY_MANIFEST_HOOK_MISSING_CODE,
 };
 
 #[test]
@@ -274,7 +272,10 @@ fn adapter_plans_builtin_ad_block_reject_for_rich_http_mitm_event() {
     assert!(outcome.header_mutations.is_empty());
     assert!(outcome.body_mutation.is_none());
     assert!(outcome.script_dispatch.is_none());
-    assert_diagnostic(&outcome.diagnostics, MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_CODE);
+    assert_diagnostic(
+        &outcome.diagnostics,
+        MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_CODE,
+    );
     assert_eq!(outcome.audits[0].action, "mitm.policy.plan_http_mitm_event");
 }
 
@@ -384,7 +385,10 @@ fn adapter_defers_rich_http_mitm_event_when_loaded_source_is_missing() {
         .expect("missing loaded source should defer without failing");
 
     assert_eq!(outcome.action, HttpMitmAction::Continue);
-    assert_diagnostic(&outcome.diagnostics, MITM_POLICY_HTTP_EVENT_SOURCE_MISSING_CODE);
+    assert_diagnostic(
+        &outcome.diagnostics,
+        MITM_POLICY_HTTP_EVENT_SOURCE_MISSING_CODE,
+    );
 }
 
 #[test]

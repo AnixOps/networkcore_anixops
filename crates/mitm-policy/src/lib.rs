@@ -7,11 +7,10 @@
 
 use control_domain::{
     AuditDecision, AuditEvent, CertificateTrustState, Diagnostic, DiagnosticSeverity, DomainError,
-    DomainResult, GrantedPermissions, HookPoint, HttpBodyMutation, HttpEvent,
-    HttpHeaderMutation, HttpHeaderMutationOperation, HttpMitmAction, HttpMitmEvent,
-    HttpMitmOutcome, HttpMitmPhase, HttpMitmScriptDispatch, HttpMitmScriptKind,
-    MitmPluginService, PluginInstance, PluginManifest, PluginPackage, PluginPermission,
-    PluginResult,
+    DomainResult, GrantedPermissions, HookPoint, HttpBodyMutation, HttpEvent, HttpHeaderMutation,
+    HttpHeaderMutationOperation, HttpMitmAction, HttpMitmEvent, HttpMitmOutcome, HttpMitmPhase,
+    HttpMitmScriptDispatch, HttpMitmScriptKind, MitmPluginService, PluginInstance, PluginManifest,
+    PluginPackage, PluginPermission, PluginResult,
 };
 use mitm_anixops_sys as sys;
 use std::cell::Cell;
@@ -50,7 +49,7 @@ pub const MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_MESSAGE: &str = concat!(
 );
 pub const MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_MESSAGE: &str = concat!(
     "mitm_anixops policy loaded, but request/response mutation is deferred until ",
-    "NetworkCore has a MITM mutation model and HTTP/TLS data plane",
+    "NetworkCore HTTP/TLS data plane can apply the mutation plan",
 );
 
 pub const BUILTIN_AD_BLOCK_PLUGIN_SOURCE: &str = concat!(
