@@ -171,9 +171,9 @@ jobs:
           grep -q "SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE" crates/config-core/src/lib.rs
           grep -q "Subscription URL To sing-box Run Source Contract" docs/architecture/subscription-url-to-sing-box-run-source-contract.md
           grep -q "handle_entrypoint_with_runtime_lifecycle_and_sing_box" apps/linux-cli/src/main.rs
-          git submodule status third_party/mitm_anixops | grep -q "92285204ff07e4dcc4712af30d0b4c76a0deb4d5"
-          grep -q "v0.41.0-alpha" docs/architecture/mitm-anixops-adapter.md
-          grep -q "92285204ff07e4dcc4712af30d0b4c76a0deb4d5" docs/architecture/mitm-anixops-adapter.md
+          git submodule status third_party/mitm_anixops | grep -q "a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0"
+          grep -q "v0.45.10-alpha" docs/architecture/mitm-anixops-adapter.md
+          grep -q "a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0" docs/architecture/mitm-anixops-adapter.md
           grep -q '"crates/mitm-policy"' Cargo.toml
           grep -q '^name = "mitm-policy"$' crates/mitm-policy/Cargo.toml
           grep -q "MITM Policy Ad Block Plugin Source Contract" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
@@ -181,6 +181,14 @@ jobs:
           grep -q "networkcore.adblock" crates/mitm-policy/src/lib.rs
           grep -q "builtin_ad_block_plugin_package" crates/mitm-policy/src/lib.rs
           grep -q "AnixOpsMitmPolicyEngine" crates/mitm-policy/src/lib.rs
+          grep -q "MitmPolicyRewritePlan" crates/mitm-policy/src/lib.rs
+          grep -q "MitmPolicyBodyRewriteChain" crates/mitm-policy/src/lib.rs
+          grep -q "MitmPolicyHeaderField" crates/mitm-policy/src/lib.rs
+          grep -q "MitmPolicyScriptKind" crates/mitm-policy/src/lib.rs
+          grep -q "build_rewrite_plan" crates/mitm-policy/src/lib.rs
+          grep -q "apply_body_chain" crates/mitm-policy/src/lib.rs
+          grep -q "evaluate_named_header" crates/mitm-policy/src/lib.rs
+          grep -q "ANIXOPS_JQ_MAX_INPUT_BYTES_DEFAULT" crates/mitm-anixops-sys/src/lib.rs
           grep -q "AnixOpsMitmPluginService" crates/mitm-policy/src/lib.rs
           grep -q "MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE" crates/mitm-policy/src/lib.rs
           grep -q "MITM_POLICY_CONFIG_PARSE_FAILED_CODE" crates/mitm-policy/tests/mitm_policy_contracts.rs

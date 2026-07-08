@@ -4,7 +4,8 @@ use control_domain::{
 };
 use mitm_policy::{
     builtin_ad_block_plugin_package, AnixOpsMitmPluginService, AnixOpsMitmPolicyEngine,
-    MitmPolicyMitmDecisionType, MitmPolicyPhase, MitmPolicyRewriteAction,
+    MitmPolicyHeaderField, MitmPolicyMitmDecisionType, MitmPolicyPhase, MitmPolicyRewriteAction,
+    MitmPolicyScriptKind,
     MITM_POLICY_AD_BLOCK_PLUGIN_ID, MITM_POLICY_CONFIG_LOADED_CODE,
     MITM_POLICY_CONFIG_PARSE_FAILED_CODE, MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE,
     MITM_POLICY_MANIFEST_HOOK_MISSING_CODE,
@@ -19,10 +20,18 @@ fn builtin_ad_block_plugin_package_loads_through_mitm_anixops_core() {
         .load_config(&package.source)
         .expect("built-in ad block policy should load");
 
-    assert_eq!(report.version, "0.41.0");
+    assert_eq!(report.version, "0.45.10");
     assert!(report.rewrite_rule_count >= 5);
     assert!(report.mitm_pattern_count >= 5);
     assert_diagnostic(&report.diagnostics, MITM_POLICY_CONFIG_LOADED_CODE);
+    assert_eq!(
+        engine.jq_max_input_bytes(),
+        mitm_anixops_sys::ANIXOPS_JQ_MAX_INPUT_BYTES_DEFAULT
+    );
+    engine
+        .set_jq_max_input_bytes(4096)
+        .expect("JQ max input guard should be configurable");
+    assert_eq!(engine.jq_max_input_bytes(), 4096);
 
     let rewrite = engine
         .evaluate_url_rewrite(
@@ -37,6 +46,158 @@ fn builtin_ad_block_plugin_package_loads_through_mitm_anixops_core() {
         .evaluate_mitm("stats.doubleclick.net", false)
         .expect("MITM host decision should evaluate");
     assert_eq!(decision.decision, MitmPolicyMitmDecisionType::Intercept);
+}
+
+#[test]
+fn v04510_policy_wrapper_exposes_plan_header_body_and_script_contracts() {
+    let mut engine = AnixOpsMitmPolicyEngine::new().expect("policy engine should allocate");
+    engine
+        .load_config(
+            r#"
+[Argument]
+Mode = select,rust
+
+[Rewrite]
+^http:\/\/old\.networkcore\.example\/(.*) https://api.networkcore.example/$1 302
+^https:\/\/api\.networkcore\.example\/v1 response-header-add X-NetworkCore rust-plan
+^https:\/\/api\.networkcore\.example\/v1 response-body-replace-regex from to
+
+[Script]
+http-response ^https:\/\/api\.networkcore\.example\/v1 requires-body=1, timeout=4, max-size=2048, script-path=https://scripts.example/networkcore-response.js, tag=networkcore.response, argument=[{Mode}]
+"#,
+        )
+        .expect("0.45.10 fixture should load");
+
+    let redirect = engine
+        .evaluate_url_rewrite(
+            "http://old.networkcore.example/v1",
+            MitmPolicyPhase::Request,
+        )
+        .expect("redirect rewrite should evaluate");
+    assert_eq!(redirect.action, MitmPolicyRewriteAction::Redirect);
+    assert_eq!(redirect.status_code, 302);
+    assert_eq!(redirect.value, "https://api.networkcore.example/v1");
+
+    let header = engine
+        .evaluate_named_header(
+            "https://api.networkcore.example/v1",
+            MitmPolicyPhase::Response,
+            0,
+            "x-networkcore",
+            "",
+        )
+        .expect("named header rewrite should evaluate");
+    assert_eq!(header.action, MitmPolicyRewriteAction::HeaderMutation);
+    assert_eq!(header.header_name, "X-NetworkCore");
+    assert_eq!(header.value, "rust-plan");
+
+    let (body, chain) = engine
+        .apply_body_chain(
+            "https://api.networkcore.example/v1",
+            MitmPolicyPhase::Response,
+            "from=1",
+        )
+        .expect("body chain should evaluate");
+    assert_eq!(body, "to=1");
+    assert!(chain.rewritten);
+    assert_eq!(chain.rewrites.len(), 1);
+    assert_eq!(chain.rewrites[0].action, MitmPolicyRewriteAction::BodyMutation);
+
+    let script = engine
+        .evaluate_script(
+            "https://api.networkcore.example/v1",
+            MitmPolicyPhase::Response,
+        )
+        .expect("script dispatch should evaluate");
+    assert_eq!(script.kind, MitmPolicyScriptKind::HttpResponse);
+    assert!(script.requires_body);
+    assert_eq!(
+        script.script_path,
+        "https://scripts.example/networkcore-response.js"
+    );
+    assert_eq!(script.tag, "networkcore.response");
+    assert_eq!(script.argument, "Mode=rust");
+    assert_eq!(script.timeout_ms, 4000);
+    assert_eq!(script.max_size, 2048);
+
+    let (plan, plan_body) = engine
+        .build_rewrite_plan(
+            "https://api.networkcore.example/v1",
+            MitmPolicyPhase::Response,
+            "from=1",
+        )
+        .expect("rewrite plan should build");
+    assert_eq!(plan.phase, MitmPolicyPhase::Response);
+    assert!(plan.body_available);
+    assert!(plan.requires_body);
+    assert_eq!(plan_body, "to=1");
+    assert_eq!(plan.rewrite.action, MitmPolicyRewriteAction::BodyMutation);
+    assert_eq!(plan.header_rewrites.len(), 1);
+    assert_eq!(
+        plan.header_rewrites[0].action,
+        MitmPolicyRewriteAction::HeaderMutation
+    );
+    assert_eq!(plan.script.kind, MitmPolicyScriptKind::HttpResponse);
+}
+
+#[test]
+fn v04510_policy_wrapper_applies_bounded_header_list_contract() {
+    let mut engine = AnixOpsMitmPolicyEngine::new().expect("policy engine should allocate");
+    engine
+        .load_config(
+            r#"
+[Rewrite]
+^https:\/\/api\.networkcore\.example\/cookies response-header-add Set-Cookie "c=1; Path=/"
+^https:\/\/api\.networkcore\.example\/cookies response-header-replace-regex Set-Cookie "a=1" "a=2"
+^https:\/\/api\.networkcore\.example\/cookies response-header-del X-Remove
+"#,
+        )
+        .expect("header fixture should load");
+
+    let (headers, plan) = engine
+        .apply_headers(
+            "https://api.networkcore.example/cookies",
+            MitmPolicyPhase::Response,
+            &[
+                MitmPolicyHeaderField {
+                    name: "Set-Cookie".to_string(),
+                    value: "a=1; Path=/".to_string(),
+                },
+                MitmPolicyHeaderField {
+                    name: "set-cookie".to_string(),
+                    value: "b=1; Path=/".to_string(),
+                },
+                MitmPolicyHeaderField {
+                    name: "X-Remove".to_string(),
+                    value: "yes".to_string(),
+                },
+            ],
+        )
+        .expect("header list should apply");
+
+    assert!(!headers.truncated);
+    assert_eq!(
+        headers.fields,
+        vec![
+            MitmPolicyHeaderField {
+                name: "Set-Cookie".to_string(),
+                value: "a=2; Path=/".to_string(),
+            },
+            MitmPolicyHeaderField {
+                name: "set-cookie".to_string(),
+                value: "b=1; Path=/".to_string(),
+            },
+            MitmPolicyHeaderField {
+                name: "Set-Cookie".to_string(),
+                value: "c=1; Path=/".to_string(),
+            },
+        ]
+    );
+    assert_eq!(plan.header_rewrites.len(), 3);
+    assert!(plan
+        .header_rewrites
+        .iter()
+        .all(|rewrite| rewrite.action == MitmPolicyRewriteAction::HeaderMutation));
 }
 
 #[test]

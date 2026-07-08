@@ -1,13 +1,15 @@
 # mitm-policy
 
 `mitm-policy` is the safe Rust adapter over the vendored `mitm_anixops`
-v0.41.0-alpha C ABI.
+v0.45.10-alpha C ABI.
 
 It owns the first NetworkCore MITM policy boundary:
 
 - RAII ownership for the opaque `mitm_anixops` engine.
 - Config loading and rule diagnostics mapped to `control-domain` errors.
-- Minimal MITM decision and URL rewrite evaluation helpers for contract tests.
+- MITM decision, URL rewrite, named header, bounded header-list application,
+  body rewrite chain, script dispatch, JQ max-input guard, and aggregated
+  rewrite plan helpers for contract tests.
 - `MitmPluginService` implementation returning audit/diagnostics only.
 - A built-in alpha ad-block plugin package.
 

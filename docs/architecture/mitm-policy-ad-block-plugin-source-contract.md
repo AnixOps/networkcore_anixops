@@ -20,6 +20,10 @@ Required source anchors:
 - `BUILTIN_AD_BLOCK_PLUGIN_SOURCE`
 - `AnixOpsMitmPolicyEngine`
 - `AnixOpsMitmPluginService`
+- `MitmPolicyRewritePlan`
+- `MitmPolicyBodyRewriteChain`
+- `MitmPolicyHeaderField`
+- `MitmPolicyScriptKind`
 - `MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE`
 
 The package id is fixed as:
@@ -29,8 +33,14 @@ networkcore.adblock
 ```
 
 The plugin source must load through `anixops_engine_load_config` from the
-vendored `mitm_anixops` `v0.41.0-alpha` submodule pinned at commit
-`92285204ff07e4dcc4712af30d0b4c76a0deb4d5`.
+vendored `mitm_anixops` `v0.45.10-alpha` submodule pinned at commit
+`a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0`.
+
+The safe wrapper may expose 0.45.10 policy results as NetworkCore-owned Rust
+types, including aggregated rewrite plan, named header rewrite, bounded
+header-list application, body rewrite chain, script dispatch, and JQ max-input
+guard state. These are policy/runtime plans, not proof that live traffic
+mutation is already wired.
 
 ## Multi-Client Boundary
 
@@ -83,8 +93,10 @@ mitm.policy.http_event.mutation_deferred
 CI must prove:
 
 - workspace contains `crates/mitm-policy`;
-- `mitm_anixops` submodule is pinned to `v0.41.0-alpha` commit
-  `92285204ff07e4dcc4712af30d0b4c76a0deb4d5`;
+- `mitm_anixops` submodule is pinned to `v0.45.10-alpha` commit
+  `a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0`;
 - `mitm-policy` exposes the built-in ad-block package and adapter service;
+- `mitm-policy` exposes 0.45.10 rewrite plan, header, body chain, script, and
+  JQ max-input wrapper contracts;
 - Rust CI builds and tests the workspace on Linux, macOS, and Windows;
 - local machines do not run build, test, package, or release verification.

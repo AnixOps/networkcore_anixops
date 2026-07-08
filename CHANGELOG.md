@@ -16,7 +16,7 @@
 
 ### Added
 
-- 新增 `mitm-policy` safe wrapper 和 NetworkCore MITM plugin adapter：`mitm_anixops` 子模块固定到 `v0.41.0-alpha` (`92285204ff07e4dcc4712af30d0b4c76a0deb4d5`)，`mitm-anixops-sys` 扩展 config/rule diagnostic/MITM/URL rewrite FFI，`mitm-policy` 提供 `AnixOpsMitmPolicyEngine`、`AnixOpsMitmPluginService`、manifest/permission gate、内置 `networkcore.adblock` alpha 去广告插件包和 `mitm.policy.http_event.mutation_deferred` 诊断；真实 HTTP/TLS request/response mutation 仍等待领域 mutation model 和数据面。
+- 新增 `mitm-policy` safe wrapper 和 NetworkCore MITM plugin adapter：`mitm_anixops` 子模块固定到 `v0.45.10-alpha` (`a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0`)，`mitm-anixops-sys` 扩展 config/rule diagnostic/MITM/URL rewrite/rewrite plan/header/body chain/script/JQ guard FFI，`mitm-policy` 提供 `AnixOpsMitmPolicyEngine`、`AnixOpsMitmPluginService`、manifest/permission gate、内置 `networkcore.adblock` alpha 去广告插件包、0.45.10 rewrite plan/header/body/script 合同测试和 `mitm.policy.http_event.mutation_deferred` 诊断；真实 HTTP/TLS request/response mutation 仍等待领域 mutation model 和数据面。
 - 新增 `networkcore-linux run-url <ss://url>` 最小可用代理闭环：CLI 通过 `CoreSubscriptionService` 解析单条 Shadowsocks URL、明文 `ss://` 链接列表或 base64 链接列表，归一化为 `NodeCatalog`，由 `engine-singbox` 渲染本地 `mixed` inbound + Shadowsocks outbound JSON，写入 engine runtime cache，并以前台 `sing-box run -c <config>` 启动默认 `127.0.0.1:7890` 本地代理；JSON 输出新增 `sing_box_run`，文本输出显示 node、local proxy、config 和 process exit code。
 - `control-domain::NodeDescriptor` 新增通用 `metadata`，并固定 `NODE_METADATA_SHADOWSOCKS_METHOD`、`NODE_METADATA_SHADOWSOCKS_PASSWORD` 和 `NODE_METADATA_SOURCE_FORMAT`，作为多订阅格式进入统一模型后的协议参数承载边界。
 - 新增 Subscription URL To sing-box Run source contract，固定多客户端/多订阅格式路线：各种订阅输入先进入 `SubscriptionService`/`NodeCatalog`，再由 engine adapter 生成执行内核配置，平台客户端不直接维护各格式解析器。

@@ -29,6 +29,7 @@ pub const MITM_POLICY_RULE_ACCEPTED_CODE: &str = "mitm.policy.rule.accepted";
 pub const MITM_POLICY_RULE_IGNORED_CODE: &str = "mitm.policy.rule.ignored";
 pub const MITM_POLICY_RULE_REJECTED_CODE: &str = "mitm.policy.rule.rejected";
 pub const MITM_POLICY_EVALUATION_FAILED_CODE: &str = "mitm.policy.evaluation.failed";
+pub const MITM_POLICY_HEADER_LIST_CAPACITY_CODE: &str = "mitm.policy.header_list.capacity";
 pub const MITM_POLICY_MANIFEST_ID_EMPTY_CODE: &str = "mitm.policy.manifest.id_empty";
 pub const MITM_POLICY_MANIFEST_HOOK_MISSING_CODE: &str = "mitm.policy.manifest.hook_missing";
 pub const MITM_POLICY_MANIFEST_PERMISSION_MISSING_CODE: &str =
@@ -128,6 +129,69 @@ pub struct MitmPolicyRewriteResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MitmPolicyBodyRewriteChain {
+    pub rewrites: Vec<MitmPolicyRewriteResult>,
+    pub rewritten: bool,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MitmPolicyHeaderRewriteResult {
+    pub action: MitmPolicyRewriteAction,
+    pub phase: MitmPolicyPhase,
+    pub rule_index: i32,
+    pub matched_pattern: String,
+    pub header_name: String,
+    pub value: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MitmPolicyHeaderField {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MitmPolicyHeaderList {
+    pub fields: Vec<MitmPolicyHeaderField>,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MitmPolicyScriptKind {
+    None,
+    HttpRequest,
+    HttpResponse,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MitmPolicyScriptDispatch {
+    pub kind: MitmPolicyScriptKind,
+    pub phase: MitmPolicyPhase,
+    pub requires_body: bool,
+    pub timeout_ms: usize,
+    pub max_size: usize,
+    pub rule_index: i32,
+    pub matched_pattern: String,
+    pub script_path: String,
+    pub tag: String,
+    pub argument: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MitmPolicyRewritePlan {
+    pub phase: MitmPolicyPhase,
+    pub body_available: bool,
+    pub requires_body: bool,
+    pub rewrite: MitmPolicyRewriteResult,
+    pub header_rewrites: Vec<MitmPolicyHeaderRewriteResult>,
+    pub header_rewrite_truncated: bool,
+    pub script: MitmPolicyScriptDispatch,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct MitmPolicyLastError {
     status: c_int,
     line: usize,
@@ -210,6 +274,21 @@ impl AnixOpsMitmPolicyEngine {
         })
     }
 
+    pub fn set_jq_max_input_bytes(&mut self, max_input_bytes: usize) -> DomainResult<()> {
+        let status = unsafe {
+            sys::anixops_engine_set_jq_max_input_bytes(self.raw.as_ptr(), max_input_bytes)
+        };
+        if status != sys::ANIXOPS_OK {
+            return Err(evaluation_error(status));
+        }
+
+        Ok(())
+    }
+
+    pub fn jq_max_input_bytes(&self) -> usize {
+        unsafe { sys::anixops_engine_jq_max_input_bytes(self.raw.as_ptr()) }
+    }
+
     pub fn set_certificate_trust_state(&mut self, state: CertificateTrustState) {
         let state = match state {
             CertificateTrustState::NotInstalled => sys::AnixOpsCertState::NotInstalled,
@@ -284,14 +363,157 @@ impl AnixOpsMitmPolicyEngine {
         }
 
         let out = unsafe { out.assume_init() };
-        Ok(MitmPolicyRewriteResult {
-            action: out.action.into(),
-            status_code: out.status_code,
-            rule_index: out.rule_index,
-            matched_pattern: ffi_string(&out.matched_pattern),
-            value: ffi_string(&out.value),
-            message: ffi_string(&out.message),
-        })
+        Ok(rewrite_result_from_sys(&out))
+    }
+
+    pub fn apply_body_chain(
+        &self,
+        url: &str,
+        phase: MitmPolicyPhase,
+        body: &str,
+    ) -> DomainResult<(String, MitmPolicyBodyRewriteChain)> {
+        let url = c_string(url, "mitm URL contains an unsupported nul byte")?;
+        let body = c_string(body, "mitm body contains an unsupported nul byte")?;
+        let mut out_body = vec![0 as c_char; body.as_bytes().len() + sys::ANIXOPS_VALUE_CAP];
+        let mut out_chain = empty_body_rewrite_chain();
+        let status = unsafe {
+            sys::anixops_rewrite_apply_body_chain(
+                self.raw.as_ptr(),
+                url.as_ptr(),
+                phase.into(),
+                body.as_ptr(),
+                out_body.as_mut_ptr(),
+                out_body.len(),
+                &mut out_chain,
+            )
+        };
+        if status != sys::ANIXOPS_OK {
+            return Err(evaluation_error(status));
+        }
+
+        Ok((
+            ffi_string(&out_body),
+            body_rewrite_chain_from_sys(&out_chain),
+        ))
+    }
+
+    pub fn evaluate_named_header(
+        &self,
+        url: &str,
+        phase: MitmPolicyPhase,
+        start_index: usize,
+        header_name: &str,
+        current_header_value: &str,
+    ) -> DomainResult<MitmPolicyHeaderRewriteResult> {
+        let url = c_string(url, "mitm URL contains an unsupported nul byte")?;
+        let header_name = c_string(
+            header_name,
+            "mitm header name contains an unsupported nul byte",
+        )?;
+        let current_header_value = c_string(
+            current_header_value,
+            "mitm header value contains an unsupported nul byte",
+        )?;
+        let mut out = MaybeUninit::<sys::AnixOpsHeaderRewriteResult>::uninit();
+        let status = unsafe {
+            sys::anixops_rewrite_evaluate_named_header(
+                self.raw.as_ptr(),
+                url.as_ptr(),
+                phase.into(),
+                start_index,
+                header_name.as_ptr(),
+                current_header_value.as_ptr(),
+                out.as_mut_ptr(),
+            )
+        };
+        if status != sys::ANIXOPS_OK {
+            return Err(evaluation_error(status));
+        }
+
+        let out = unsafe { out.assume_init() };
+        Ok(header_rewrite_result_from_sys(&out))
+    }
+
+    pub fn apply_headers(
+        &self,
+        url: &str,
+        phase: MitmPolicyPhase,
+        headers: &[MitmPolicyHeaderField],
+    ) -> DomainResult<(MitmPolicyHeaderList, MitmPolicyRewritePlan)> {
+        let url = c_string(url, "mitm URL contains an unsupported nul byte")?;
+        let headers = header_list_to_sys(headers)?;
+        let mut out_headers = empty_header_list();
+        let mut out_plan = empty_rewrite_plan();
+        let status = unsafe {
+            sys::anixops_rewrite_apply_headers(
+                self.raw.as_ptr(),
+                url.as_ptr(),
+                phase.into(),
+                &headers,
+                &mut out_headers,
+                &mut out_plan,
+            )
+        };
+        if status != sys::ANIXOPS_OK {
+            return Err(evaluation_error(status));
+        }
+
+        Ok((
+            header_list_from_sys(&out_headers),
+            rewrite_plan_from_sys(&out_plan),
+        ))
+    }
+
+    pub fn evaluate_script(
+        &self,
+        url: &str,
+        phase: MitmPolicyPhase,
+    ) -> DomainResult<MitmPolicyScriptDispatch> {
+        let url = c_string(url, "mitm URL contains an unsupported nul byte")?;
+        let mut out = MaybeUninit::<sys::AnixOpsScriptResult>::uninit();
+        let status = unsafe {
+            sys::anixops_script_evaluate_url(
+                self.raw.as_ptr(),
+                url.as_ptr(),
+                phase.into(),
+                out.as_mut_ptr(),
+            )
+        };
+        if status != sys::ANIXOPS_OK {
+            return Err(evaluation_error(status));
+        }
+
+        let out = unsafe { out.assume_init() };
+        Ok(script_dispatch_from_sys(&out))
+    }
+
+    pub fn build_rewrite_plan(
+        &self,
+        url: &str,
+        phase: MitmPolicyPhase,
+        body: &str,
+    ) -> DomainResult<(MitmPolicyRewritePlan, String)> {
+        let url = c_string(url, "mitm URL contains an unsupported nul byte")?;
+        let body = c_string(body, "mitm body contains an unsupported nul byte")?;
+        let mut out_body = vec![0 as c_char; body.as_bytes().len() + sys::ANIXOPS_VALUE_CAP];
+        let mut out_plan = empty_rewrite_plan();
+        let status = unsafe {
+            sys::anixops_rewrite_build_plan(
+                self.raw.as_ptr(),
+                url.as_ptr(),
+                phase.into(),
+                body.as_ptr(),
+                out_body.as_mut_ptr(),
+                out_body.len(),
+                std::ptr::null(),
+                &mut out_plan,
+            )
+        };
+        if status != sys::ANIXOPS_OK {
+            return Err(evaluation_error(status));
+        }
+
+        Ok((rewrite_plan_from_sys(&out_plan), ffi_string(&out_body)))
     }
 
     fn rule_diagnostics(&self) -> Vec<MitmPolicyRuleDiagnostic> {
@@ -375,6 +597,15 @@ impl From<MitmPolicyPhase> for sys::AnixOpsPhase {
     }
 }
 
+impl From<sys::AnixOpsPhase> for MitmPolicyPhase {
+    fn from(value: sys::AnixOpsPhase) -> Self {
+        match value {
+            sys::AnixOpsPhase::Request => Self::Request,
+            sys::AnixOpsPhase::Response => Self::Response,
+        }
+    }
+}
+
 impl From<sys::AnixOpsRewriteAction> for MitmPolicyRewriteAction {
     fn from(value: sys::AnixOpsRewriteAction) -> Self {
         match value {
@@ -406,6 +637,16 @@ impl From<sys::AnixOpsRewriteAction> for MitmPolicyRewriteAction {
             | sys::AnixOpsRewriteAction::ResponseHeaderAdd
             | sys::AnixOpsRewriteAction::ResponseHeaderReplaceRegex
             | sys::AnixOpsRewriteAction::HeaderDel => Self::HeaderMutation,
+        }
+    }
+}
+
+impl From<sys::AnixOpsScriptKind> for MitmPolicyScriptKind {
+    fn from(value: sys::AnixOpsScriptKind) -> Self {
+        match value {
+            sys::AnixOpsScriptKind::None => Self::None,
+            sys::AnixOpsScriptKind::HttpRequest => Self::HttpRequest,
+            sys::AnixOpsScriptKind::HttpResponse => Self::HttpResponse,
         }
     }
 }
@@ -562,6 +803,131 @@ fn permission_granted(
         .any(|granted| granted == permission)
 }
 
+fn c_string(value: &str, message: &'static str) -> DomainResult<CString> {
+    CString::new(value).map_err(|_| DomainError::new(MITM_POLICY_INPUT_NUL_BYTE_CODE, message))
+}
+
+fn rewrite_result_from_sys(result: &sys::AnixOpsRewriteResult) -> MitmPolicyRewriteResult {
+    MitmPolicyRewriteResult {
+        action: result.action.into(),
+        status_code: result.status_code,
+        rule_index: result.rule_index,
+        matched_pattern: ffi_string(&result.matched_pattern),
+        value: ffi_string(&result.value),
+        message: ffi_string(&result.message),
+    }
+}
+
+fn body_rewrite_chain_from_sys(
+    chain: &sys::AnixOpsBodyRewriteChain,
+) -> MitmPolicyBodyRewriteChain {
+    let count = chain.rewrite_count.min(sys::ANIXOPS_BODY_CHAIN_CAP);
+    let rewrites = chain
+        .rewrites
+        .iter()
+        .take(count)
+        .map(rewrite_result_from_sys)
+        .collect();
+
+    MitmPolicyBodyRewriteChain {
+        rewrites,
+        rewritten: chain.rewritten != 0,
+        truncated: chain.truncated != 0,
+    }
+}
+
+fn header_rewrite_result_from_sys(
+    result: &sys::AnixOpsHeaderRewriteResult,
+) -> MitmPolicyHeaderRewriteResult {
+    MitmPolicyHeaderRewriteResult {
+        action: result.action.into(),
+        phase: result.phase.into(),
+        rule_index: result.rule_index,
+        matched_pattern: ffi_string(&result.matched_pattern),
+        header_name: ffi_string(&result.header_name),
+        value: ffi_string(&result.value),
+        message: ffi_string(&result.message),
+    }
+}
+
+fn header_list_to_sys(
+    headers: &[MitmPolicyHeaderField],
+) -> DomainResult<sys::AnixOpsHeaderList> {
+    if headers.len() > sys::ANIXOPS_HEADER_LIST_CAP {
+        return Err(DomainError::new(
+            MITM_POLICY_HEADER_LIST_CAPACITY_CODE,
+            "mitm header list exceeds the C ABI capacity",
+        ));
+    }
+
+    let mut out = empty_header_list();
+    out.count = headers.len();
+    for (index, field) in headers.iter().enumerate() {
+        if write_str_to_buf(&mut out.fields[index].name, &field.name) {
+            out.truncated = 1;
+        }
+        if write_str_to_buf(&mut out.fields[index].value, &field.value) {
+            out.truncated = 1;
+        }
+    }
+
+    Ok(out)
+}
+
+fn header_list_from_sys(headers: &sys::AnixOpsHeaderList) -> MitmPolicyHeaderList {
+    let count = headers.count.min(sys::ANIXOPS_HEADER_LIST_CAP);
+    let fields = headers
+        .fields
+        .iter()
+        .take(count)
+        .map(|field| MitmPolicyHeaderField {
+            name: ffi_string(&field.name),
+            value: ffi_string(&field.value),
+        })
+        .collect();
+
+    MitmPolicyHeaderList {
+        fields,
+        truncated: headers.truncated != 0,
+    }
+}
+
+fn script_dispatch_from_sys(result: &sys::AnixOpsScriptResult) -> MitmPolicyScriptDispatch {
+    MitmPolicyScriptDispatch {
+        kind: result.kind.into(),
+        phase: result.phase.into(),
+        requires_body: result.requires_body != 0,
+        timeout_ms: result.timeout_ms,
+        max_size: result.max_size,
+        rule_index: result.rule_index,
+        matched_pattern: ffi_string(&result.matched_pattern),
+        script_path: ffi_string(&result.script_path),
+        tag: ffi_string(&result.tag),
+        argument: ffi_string(&result.argument),
+        message: ffi_string(&result.message),
+    }
+}
+
+fn rewrite_plan_from_sys(plan: &sys::AnixOpsRewritePlan) -> MitmPolicyRewritePlan {
+    let count = plan.header_rewrite_count.min(sys::ANIXOPS_PLAN_HEADER_CAP);
+    let header_rewrites = plan
+        .header_rewrites
+        .iter()
+        .take(count)
+        .map(header_rewrite_result_from_sys)
+        .collect();
+
+    MitmPolicyRewritePlan {
+        phase: plan.phase.into(),
+        body_available: plan.body_available != 0,
+        requires_body: plan.requires_body != 0,
+        rewrite: rewrite_result_from_sys(&plan.rewrite),
+        header_rewrites,
+        header_rewrite_truncated: plan.header_rewrite_truncated != 0,
+        script: script_dispatch_from_sys(&plan.script),
+    }
+}
+
 fn rule_diagnostic_to_domain(diagnostic: &MitmPolicyRuleDiagnostic) -> Diagnostic {
     let (severity, code) = match diagnostic.status {
         MitmPolicyRuleDiagnosticStatus::Accepted => {
@@ -607,4 +973,97 @@ fn status_message(status: c_int) -> String {
 fn ffi_string(buffer: &[c_char]) -> String {
     let value = unsafe { CStr::from_ptr(buffer.as_ptr()) };
     value.to_string_lossy().into_owned()
+}
+
+fn write_str_to_buf(buffer: &mut [c_char], value: &str) -> bool {
+    for slot in buffer.iter_mut() {
+        *slot = 0;
+    }
+    if buffer.is_empty() {
+        return !value.is_empty();
+    }
+
+    let bytes = value.as_bytes();
+    let copy_len = bytes.len().min(buffer.len() - 1);
+    for (index, byte) in bytes.iter().take(copy_len).enumerate() {
+        buffer[index] = *byte as c_char;
+    }
+
+    bytes.len() >= buffer.len()
+}
+
+fn empty_rewrite_result() -> sys::AnixOpsRewriteResult {
+    sys::AnixOpsRewriteResult {
+        action: sys::AnixOpsRewriteAction::None,
+        status_code: 0,
+        rule_index: 0,
+        matched_pattern: [0 as c_char; sys::ANIXOPS_PATTERN_CAP],
+        value: [0 as c_char; sys::ANIXOPS_VALUE_CAP],
+        message: [0 as c_char; sys::ANIXOPS_MESSAGE_CAP],
+    }
+}
+
+fn empty_body_rewrite_chain() -> sys::AnixOpsBodyRewriteChain {
+    sys::AnixOpsBodyRewriteChain {
+        rewrite_count: 0,
+        rewritten: 0,
+        truncated: 0,
+        rewrites: [empty_rewrite_result(); sys::ANIXOPS_BODY_CHAIN_CAP],
+    }
+}
+
+fn empty_header_rewrite_result() -> sys::AnixOpsHeaderRewriteResult {
+    sys::AnixOpsHeaderRewriteResult {
+        action: sys::AnixOpsRewriteAction::None,
+        phase: sys::AnixOpsPhase::Request,
+        rule_index: 0,
+        matched_pattern: [0 as c_char; sys::ANIXOPS_PATTERN_CAP],
+        header_name: [0 as c_char; sys::ANIXOPS_PATTERN_CAP],
+        value: [0 as c_char; sys::ANIXOPS_VALUE_CAP],
+        message: [0 as c_char; sys::ANIXOPS_MESSAGE_CAP],
+    }
+}
+
+fn empty_header_field() -> sys::AnixOpsHeaderField {
+    sys::AnixOpsHeaderField {
+        name: [0 as c_char; sys::ANIXOPS_PATTERN_CAP],
+        value: [0 as c_char; sys::ANIXOPS_VALUE_CAP],
+    }
+}
+
+fn empty_header_list() -> sys::AnixOpsHeaderList {
+    sys::AnixOpsHeaderList {
+        count: 0,
+        truncated: 0,
+        fields: [empty_header_field(); sys::ANIXOPS_HEADER_LIST_CAP],
+    }
+}
+
+fn empty_script_result() -> sys::AnixOpsScriptResult {
+    sys::AnixOpsScriptResult {
+        kind: sys::AnixOpsScriptKind::None,
+        phase: sys::AnixOpsPhase::Request,
+        requires_body: 0,
+        timeout_ms: 0,
+        max_size: 0,
+        rule_index: 0,
+        matched_pattern: [0 as c_char; sys::ANIXOPS_PATTERN_CAP],
+        script_path: [0 as c_char; sys::ANIXOPS_VALUE_CAP],
+        tag: [0 as c_char; sys::ANIXOPS_VALUE_CAP],
+        argument: [0 as c_char; sys::ANIXOPS_ARGUMENT_CAP],
+        message: [0 as c_char; sys::ANIXOPS_MESSAGE_CAP],
+    }
+}
+
+fn empty_rewrite_plan() -> sys::AnixOpsRewritePlan {
+    sys::AnixOpsRewritePlan {
+        phase: sys::AnixOpsPhase::Request,
+        body_available: 0,
+        requires_body: 0,
+        rewrite: empty_rewrite_result(),
+        header_rewrite_count: 0,
+        header_rewrite_truncated: 0,
+        header_rewrites: [empty_header_rewrite_result(); sys::ANIXOPS_PLAN_HEADER_CAP],
+        script: empty_script_result(),
+    }
 }

@@ -5,8 +5,8 @@
 
 评估时间：2026-07-08。
 
-参考 `mitm_anixops` 版本：`v0.41.0-alpha`
-(`92285204ff07e4dcc4712af30d0b4c76a0deb4d5`)。
+参考 `mitm_anixops` 版本：`v0.45.10-alpha`
+(`a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0`)。
 
 ## 结论
 
@@ -89,10 +89,13 @@ crates/mitm-policy
 `Engine` wrapper 不得实现 `Sync`。`mitm_anixops` engine 内部不加锁，运行时共享必须由 adapter 通过 `Mutex`、per-worker engine 或 immutable snapshot 控制。
 
 当前源码增量已新增 `crates/mitm-anixops-sys` 和 `crates/mitm-policy`：
-前者通过 Git submodule 固定 `third_party/mitm_anixops` 到 `v0.41.0-alpha`
+前者通过 Git submodule 固定 `third_party/mitm_anixops` 到 `v0.45.10-alpha`
 并暴露低层 C ABI；后者用 RAII wrapper 加载 `PluginPackage.source`，
-实现 `AnixOpsMitmPluginService`，并提供内置
-`networkcore.adblock` alpha 去广告插件包。当前 `MitmPluginService` 仍只返回
+实现 `AnixOpsMitmPluginService`，提供内置
+`networkcore.adblock` alpha 去广告插件包，并把 0.45.10 的 URL rewrite、
+named header rewrite、bounded header-list application、body rewrite chain、
+script dispatch、JQ max-input guard 和 aggregated rewrite plan 映射为
+NetworkCore stable Rust 类型。当前 `MitmPluginService` 仍只返回
 audit/diagnostics，真实 request/response mutation 继续等待领域 mutation model
 和 HTTP/TLS 数据面。
 
@@ -210,10 +213,31 @@ iOS：
 
 - Phase 1A：Rust workspace 包含 `mitm-anixops-sys`，Linux/macOS/Windows runner 能编译 vendored C core，并用 version FFI test 调用 `anixops_version()`。
 - Phase 1B：新增 `mitm-policy`，用 safe wrapper tests 覆盖 config diagnostic、MITM decision、URL reject rewrite、内置 ad-block plugin package、manifest/permission gate 和 `MitmPluginService` deferred mutation diagnostic。
-- Phase 1C：扩展 safe wrapper tests 覆盖 header rewrite、body rewrite、script dispatch 和 ABI allowlist。该阶段必须先决定这些结果进入现有 diagnostics，还是等待 Phase 2 mutation model。
+- Phase 1C：扩展 safe wrapper tests 覆盖 header rewrite、bounded header-list application、body rewrite chain、script dispatch、JQ max-input guard 和 aggregated rewrite plan；这些结果作为 safe wrapper 合同暴露，真实 traffic mutation 仍等待 Phase 2 mutation model。
 - Phase 1D：ABI allowlist 与 `mitm_anixops/ci/abi_exports.txt` 一致，CI summary 显式输出 `mitm_anixops` adapter 检测状态。
 
 iOS 只能在 iOS platform crate 和 Network Extension 设计出现后，通过 macOS runner 增加 Swift/Xcode 或 cargo check 验证。
+
+## Upstream Upgrade Procedure
+
+后续 `mitm_anixops` 发布新版时，NetworkCore 按以下顺序升级：
+
+1. 读取 upstream release notes、`include/mitm_anixops.h` 和
+   `ci/abi_exports.txt`，确认 tag、commit、ABI 新增/删除和默认依赖变化。
+2. 移动 `third_party/mitm_anixops` submodule 到目标 tag，并在
+   `.github/workflows/ci.yml`、本文件、source contract、README、TODO、ROADMAP
+   和 CHANGELOG 中同步 tag/commit。
+3. 先更新 `crates/mitm-anixops-sys` 的 unsafe ABI，使 Rust struct/function
+   声明与 header 对齐；新增常量、enum、struct 和 extern function 必须能在
+   CI 中由 version/contract test 触达。
+4. 再更新 `crates/mitm-policy` safe wrapper，把新增 C ABI 映射为
+   NetworkCore-owned Rust 类型和稳定 diagnostic/error code；不得把 upstream demo
+   proxy shim 当作 NetworkCore production data plane。
+5. 合同测试只验证 wrapper 能加载策略、生成 rewrite plan/header/body/script/JQ
+   guard 结果和 deferred mutation 诊断；真实 HTTP/TLS mutation 仍必须等
+   domain mutation model、engine data plane 和 platform certificate gate 通过。
+6. 提交并推送后只用 GitHub Actions 的 policy、Rust format/lint/test/build 和
+   dependency audit 结果判断是否通过；本机不得运行 build/test/package/release 验证。
 
 ## 不得宣称的能力
 
