@@ -12,7 +12,7 @@ MITM_BROWSER_CAPTURE_GATE=plan-only/mutation-blocked
 ## Purpose
 
 本文固定 Linux 浏览器流量捕获从 plan-only 进入真实源码 mutation 前必须遵守的合同。当前仓库已经有
-`networkcore-linux mitm browser-plan`、`networkcore-linux mitm browser-capture plan/launch-plan/apply/rollback/verify`、
+`networkcore-linux mitm browser-plan`、`networkcore-linux mitm browser-capture plan/launch-plan/launch/apply/rollback/verify`、
 `mitm_status.browser_plan` 和 `browser_capture` 机器字段，但还没有用户可启用的 live browser capture，
 也没有浏览器/系统代理写入、PAC 写入、TUN/DNS/firewall mutation 或回滚实现。
 
@@ -26,12 +26,15 @@ MITM_BROWSER_CAPTURE_GATE=plan-only/mutation-blocked
 - `networkcore-linux mitm browser-plan` 输出默认显式代理计划 `127.0.0.1:7890`。
 - `networkcore-linux mitm browser-capture plan` 输出同一 capture plan 和 source contract report。
 - `networkcore-linux mitm browser-capture launch-plan` 输出手动 dedicated-profile 浏览器启动命令模板、计划代理 URL 和已加载插件元数据；该命令不启动浏览器、不写 profile、不写系统状态。
+- `networkcore-linux mitm browser-capture launch --confirm [--browser <executable>] [--profile-dir <dir>]` 通过注入的 `BrowserCaptureProcessRunner` 启动 dedicated browser profile，传入显式 `--proxy-server=http://127.0.0.1:7890` 和 `--user-data-dir=<dir>` 参数，并输出 `LinuxBrowserCaptureLaunchReport`；该命令不写系统代理、浏览器 policy、PAC、TUN、DNS、firewall 或 CA 状态，也不验证 live browser capture。
+- `networkcore-linux mitm browser-capture launch` 缺少 `--confirm` 时返回 authorization required，不调用 process runner。
 - `networkcore-linux mitm browser-capture apply --confirm` 接受显式授权信号，但仍返回 blocked report，不写入系统状态。
 - `networkcore-linux mitm browser-capture rollback --snapshot <path>` 保留 snapshot path 到 report，但仍返回 blocked report，不读取或写入该路径。
 - `networkcore-linux mitm browser-capture verify` 返回 live capture probe blocked report。
 - `mitm_status.browser_plan` 输出计划步骤、blocked operations 和 `mutation_ready=false`。
 - `browser_capture` 输出 action、gate、`BrowserCaptureAuthorization`、`BrowserCaptureRollbackSnapshot`、
-  `LinuxBrowserCaptureManualLaunch`、`LinuxBrowserCaptureApplyReport`、`LinuxBrowserCaptureRollbackReport` 和 verify report。
+  `LinuxBrowserCaptureManualLaunch`、`LinuxBrowserCaptureLaunchRequest`、`LinuxBrowserCaptureLaunchReport`、
+  `LinuxBrowserCaptureApplyReport`、`LinuxBrowserCaptureRollbackReport` 和 verify report。
 - `MITM_BROWSER_CAPTURE_GATE` 保持 `plan-only/mutation-blocked`。
 - `cli.linux.mitm.browser_plan.ready` 表示计划可见。
 - `cli.linux.mitm.browser_capture_mutation.blocked` 表示真实 mutation 仍被阻断。
@@ -40,6 +43,7 @@ MITM_BROWSER_CAPTURE_GATE=plan-only/mutation-blocked
 
 - 写入浏览器 policy、profile、proxy setting 或 extension state。
 - 通过 `launch-plan` 自动启动浏览器或修改浏览器 profile。
+- 通过 `launch` 写入系统代理、浏览器 policy、PAC、TUN、DNS、firewall、CA 或 NetworkCore-owned profile 配置；浏览器进程自身创建 dedicated profile 文件不代表 NetworkCore 已获得 profile mutation 权限。
 - 写入系统 proxy、PAC、TUN、DNS、route 或 firewall 状态。
 - 生成、安装、信任或撤销 MITM CA。
 - 解密 HTTPS、解析 HTTP/TLS 数据面或应用 rewrite plan 到真实流量。
@@ -54,16 +58,21 @@ CI governance 显式迁移：
 - `LinuxBrowserCapturePlan`
 - `LinuxBrowserCaptureManualLaunch`
 - `LinuxBrowserCaptureLaunchCommand`
+- `LinuxBrowserCaptureLaunchRequest`
+- `LinuxBrowserCaptureLaunchReport`
+- `BrowserCaptureProcessRunner`
+- `CommandBrowserCaptureProcessRunner`
 - `LinuxBrowserCaptureApplyReport`
 - `LinuxBrowserCaptureRollbackReport`
 - `BrowserCaptureAuthorization`
 - `BrowserCaptureRollbackSnapshot`
 
-当前 CLI 命令已经显式区分 plan、launch-plan、apply、rollback 和 verify：
+当前 CLI 命令已经显式区分 plan、launch-plan、launch、apply、rollback 和 verify：
 
 ```text
 networkcore-linux mitm browser-capture plan
 networkcore-linux mitm browser-capture launch-plan
+networkcore-linux mitm browser-capture launch --confirm --browser chromium --profile-dir /tmp/networkcore-browser-capture-profile
 networkcore-linux mitm browser-capture apply --confirm
 networkcore-linux mitm browser-capture rollback --snapshot <path>
 networkcore-linux mitm browser-capture verify
@@ -93,16 +102,20 @@ networkcore-linux mitm browser-capture verify
 | --- | --- | --- |
 | `cli.linux.mitm.browser_capture.authorization_required` | Error | 缺少显式授权，拒绝写入浏览器或系统状态 |
 | `cli.linux.mitm.browser_capture.launch_plan.ready` | Info | 手动 dedicated-profile 浏览器启动计划可见，但不写系统或浏览器状态 |
+| `cli.linux.mitm.browser_capture.launch.authorization_required` | Error | 缺少显式授权，拒绝启动 dedicated browser profile |
+| `cli.linux.mitm.browser_capture.launch.started` | Info | dedicated browser profile 已用显式代理参数启动 |
+| `cli.linux.mitm.browser_capture.launch.failed` | Error | dedicated browser profile 启动失败或 runner 未接线 |
 | `cli.linux.mitm.browser_capture.apply.blocked` | Error | gate、证书、数据面或平台边界未满足，拒绝 apply |
 | `cli.linux.mitm.browser_capture.rollback.blocked` | Error | 缺少 snapshot、snapshot 不匹配或 rollback gate 未满足 |
 | `cli.linux.mitm.browser_capture.verify.blocked` | Error | live capture probe 尚未实现，拒绝宣称捕获已验证 |
 | `cli.linux.mitm.browser_capture.apply.ready` | Info | apply 前置条件通过，准备写入受控目标 |
 | `cli.linux.mitm.browser_capture.rollback.ready` | Info | rollback 前置条件通过，准备恢复 snapshot |
 
-当前源码已经提供 `handle_mitm_browser_capture_launch_plan`、`handle_mitm_browser_capture_apply`、
-`handle_mitm_browser_capture_rollback` 和 `handle_mitm_browser_capture_verify`。`launch-plan` 只输出
-manual launch report，apply/rollback/verify 只输出 blocked reports 和上表诊断，直到真实 apply/rollback
-源码实现并通过 GitHub Actions。
+当前源码已经提供 `handle_mitm_browser_capture_launch_plan`、`handle_mitm_browser_capture_launch`、
+`handle_mitm_browser_capture_apply`、`handle_mitm_browser_capture_rollback` 和
+`handle_mitm_browser_capture_verify`。`launch-plan` 只输出 manual launch report，`launch --confirm`
+只启动 dedicated browser process 并输出 `launch_report`，apply/rollback/verify 只输出 blocked reports
+和上表诊断，直到真实 apply/rollback 源码实现并通过 GitHub Actions。
 
 ## Plugin And Data Plane Boundary
 
@@ -127,6 +140,7 @@ GitHub Actions 必须静态检查：
 - `networkcore-linux mitm browser-plan` 和 `mitm_status.browser_plan` 仍保持 plan-only 机器字段。
 - `BrowserCaptureAuthorization` 和 `BrowserCaptureRollbackSnapshot` 作为后续源码 anchor 可发现。
 - 当前源码不得实现无授权 browser/system proxy mutation。
+- `launch --confirm` 必须通过 `BrowserCaptureProcessRunner` 注入执行，并由合同测试覆盖缺少授权、runner 成功、runner 未接线和 JSON `launch_report`。
 - 本机不得运行测试、构建、打包或发布验证。
 
 如果某个浏览器或系统设置必须人工操作才能验证，必须先写入 `docs/manual-intervention.md`，并说明人工动作完成后下一步

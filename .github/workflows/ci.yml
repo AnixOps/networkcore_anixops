@@ -238,6 +238,10 @@ jobs:
           grep -q "LinuxBrowserCapturePlan" apps/linux-cli/src/lib.rs
           grep -q "LinuxBrowserCaptureManualLaunch" apps/linux-cli/src/lib.rs
           grep -q "LinuxBrowserCaptureLaunchCommand" apps/linux-cli/src/lib.rs
+          grep -q "LinuxBrowserCaptureLaunchRequest" apps/linux-cli/src/lib.rs
+          grep -q "LinuxBrowserCaptureLaunchReport" apps/linux-cli/src/lib.rs
+          grep -q "BrowserCaptureProcessRunner" apps/linux-cli/src/lib.rs
+          grep -q "CommandBrowserCaptureProcessRunner" apps/linux-cli/src/lib.rs
           grep -q "LinuxBrowserCaptureApplyReport" apps/linux-cli/src/lib.rs
           grep -q "LinuxBrowserCaptureRollbackReport" apps/linux-cli/src/lib.rs
           grep -q "BrowserCaptureAuthorization" apps/linux-cli/src/lib.rs
@@ -250,6 +254,7 @@ jobs:
           grep -q "handle_mitm_certificate_plan" apps/linux-cli/src/lib.rs
           grep -q "handle_mitm_browser_plan" apps/linux-cli/src/lib.rs
           grep -q "handle_mitm_browser_capture_launch_plan" apps/linux-cli/src/lib.rs
+          grep -q "handle_mitm_browser_capture_launch" apps/linux-cli/src/lib.rs
           grep -q "handle_mitm_browser_capture_apply" apps/linux-cli/src/lib.rs
           grep -q "handle_mitm_browser_capture_rollback" apps/linux-cli/src/lib.rs
           grep -q "handle_mitm_browser_capture_verify" apps/linux-cli/src/lib.rs
@@ -259,6 +264,9 @@ jobs:
           grep -q "CLI_MITM_BROWSER_PLAN_READY_CODE" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_BROWSER_CAPTURE_LAUNCH_PLAN_READY_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_BROWSER_CAPTURE_LAUNCH_STARTED_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_BROWSER_CAPTURE_LAUNCH_FAILED_CODE" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_BROWSER_CAPTURE_ROLLBACK_BLOCKED_CODE" apps/linux-cli/src/lib.rs
@@ -273,6 +281,10 @@ jobs:
           grep -q "mitm_certificate_plan_reports_plan_only_lifecycle_without_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_browser_plan_reports_capture_plan_without_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_browser_capture_launch_plan_outputs_manual_browser_commands_without_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_browser_capture_launch_requires_confirmation_before_starting_browser" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_browser_capture_launch_uses_injected_runner_with_dedicated_profile" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "browser_capture_entrypoint_routes_launch_to_injected_runner" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "browser_capture_launch_json_output_contains_process_report_fields" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_browser_capture_apply_requires_authorization_and_stays_blocked" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_browser_capture_rollback_and_verify_stay_blocked_without_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "browser_capture_json_output_contains_machine_report_fields" apps/linux-cli/tests/linux_cli_contracts.rs
@@ -332,10 +344,17 @@ jobs:
           grep -q "mitm_status.browser_plan" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "LinuxBrowserCaptureManualLaunch" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "LinuxBrowserCaptureLaunchCommand" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "LinuxBrowserCaptureLaunchRequest" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "LinuxBrowserCaptureLaunchReport" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "BrowserCaptureProcessRunner" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureAuthorization" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureRollbackSnapshot" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "handle_mitm_browser_capture_launch_plan" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "handle_mitm_browser_capture_launch" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "cli.linux.mitm.browser_capture.launch_plan.ready" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "cli.linux.mitm.browser_capture.launch.authorization_required" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "cli.linux.mitm.browser_capture.launch.started" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "cli.linux.mitm.browser_capture.launch.failed" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "handle_mitm_browser_capture_apply" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "cli.linux.mitm.browser_capture.authorization_required" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "cli.linux.mitm.browser_capture.apply.blocked" docs/architecture/linux-mitm-browser-capture-source-contract.md

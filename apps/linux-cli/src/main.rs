@@ -42,6 +42,16 @@ fn main() {
                         ),
                     ),
                 }
+            } else if matches!(
+                &command,
+                networkcore_linux::LinuxCliCommand::MitmBrowserCaptureLaunch { .. }
+            ) {
+                let browser_runner = networkcore_linux::CommandBrowserCaptureProcessRunner::new();
+                networkcore_linux::handle_entrypoint_with_browser_capture_runner(
+                    command,
+                    &platform,
+                    &browser_runner,
+                )
             } else {
                 networkcore_linux::handle_entrypoint_with_runtime_and_lifecycle(
                     command,

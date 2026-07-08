@@ -18,34 +18,40 @@ use engine_singbox::{
     ENGINE_SINGBOX_PROCESS_EXITED_CODE,
 };
 use networkcore_linux::{
-    cli_help_text, handle_capabilities, handle_entrypoint, handle_entrypoint_with_runtime,
+    cli_help_text, handle_capabilities, handle_entrypoint,
+    handle_entrypoint_with_browser_capture_runner, handle_entrypoint_with_runtime,
     handle_entrypoint_with_runtime_and_lifecycle,
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
     handle_foreground_lifecycle_with_runtime_stop, handle_install_sing_box,
-    handle_mitm_browser_capture_apply, handle_mitm_browser_capture_launch_plan,
-    handle_mitm_browser_capture_plan, handle_mitm_browser_capture_rollback,
-    handle_mitm_browser_capture_verify, handle_mitm_browser_plan, handle_mitm_certificate_plan,
-    handle_mitm_status, handle_parse_error, handle_prepare_config, handle_run_url_with_sing_box,
-    handle_start, handle_status, handle_stop, parse_args, render_response, ConfigReadError,
-    ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
+    handle_mitm_browser_capture_apply, handle_mitm_browser_capture_launch,
+    handle_mitm_browser_capture_launch_plan, handle_mitm_browser_capture_plan,
+    handle_mitm_browser_capture_rollback, handle_mitm_browser_capture_verify,
+    handle_mitm_browser_plan, handle_mitm_certificate_plan, handle_mitm_status, handle_parse_error,
+    handle_prepare_config, handle_run_url_with_sing_box, handle_start, handle_status, handle_stop,
+    parse_args, render_response, BrowserCaptureProcessRunner, ConfigReadError, ConfigReader,
+    CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
-    ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxCliCommand, LinuxCliExitCode,
-    OutputFormat, UnavailableForegroundLifecycleHost, UnavailableProxyEngineService,
-    CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
+    ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
+    LinuxBrowserCaptureLaunchRequest, LinuxCliCommand, LinuxCliExitCode, OutputFormat,
+    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
+    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
-    CLI_MITM_BROWSER_CAPTURE_LAUNCH_PLAN_READY_CODE,
-    CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE, CLI_MITM_BROWSER_CAPTURE_ROLLBACK_BLOCKED_CODE,
-    CLI_MITM_BROWSER_CAPTURE_VERIFY_BLOCKED_CODE, CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE,
-    CLI_MITM_BROWSER_PLAN_READY_CODE, CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE,
-    CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE, CLI_MITM_CERTIFICATE_PLAN_READY_CODE,
-    CLI_MITM_CLI_GATE_PARTIAL_CODE, CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE,
-    CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE, CLI_START_FOREGROUND_ONLY_CODE,
-    CLI_START_LIFECYCLE_FAILED_CODE, CLI_START_LIFECYCLE_HOST_MISSING_CODE,
-    CLI_START_LIFECYCLE_INTERRUPTED_CODE, CLI_START_PLATFORM_DENIED_CODE,
-    CLI_START_RUNTIME_STOP_FAILED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
-    CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
-    MITM_BROWSER_CAPTURE_GATE, MITM_BROWSER_CAPTURE_GATE_STATUS, MITM_BROWSER_CAPTURE_MODE,
+    CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_LAUNCH_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_LAUNCH_PLAN_READY_CODE,
+    CLI_MITM_BROWSER_CAPTURE_LAUNCH_STARTED_CODE, CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_ROLLBACK_BLOCKED_CODE, CLI_MITM_BROWSER_CAPTURE_VERIFY_BLOCKED_CODE,
+    CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE, CLI_MITM_BROWSER_PLAN_READY_CODE,
+    CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE, CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE,
+    CLI_MITM_CERTIFICATE_PLAN_READY_CODE, CLI_MITM_CLI_GATE_PARTIAL_CODE,
+    CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE, CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE,
+    CLI_START_FOREGROUND_ONLY_CODE, CLI_START_LIFECYCLE_FAILED_CODE,
+    CLI_START_LIFECYCLE_HOST_MISSING_CODE, CLI_START_LIFECYCLE_INTERRUPTED_CODE,
+    CLI_START_PLATFORM_DENIED_CODE, CLI_START_RUNTIME_STOP_FAILED_CODE,
+    CLI_STATUS_NO_RUNTIME_CONTEXT_CODE, CLI_STATUS_PLATFORM_ONLY_CODE,
+    CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
+    MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR, MITM_BROWSER_CAPTURE_GATE,
+    MITM_BROWSER_CAPTURE_GATE_STATUS, MITM_BROWSER_CAPTURE_MODE,
     MITM_BROWSER_CAPTURE_MUTATION_READY, MITM_BROWSER_CAPTURE_PROXY_HOST,
     MITM_BROWSER_CAPTURE_PROXY_PORT, MITM_BROWSER_CAPTURE_SOURCE_CONTRACT_STATUS,
     MITM_BROWSER_HIJACK_STATUS, MITM_BROWSER_PLAN_STATUS, MITM_CERTIFICATE_LIFECYCLE_GATE,
@@ -105,7 +111,9 @@ fn parses_help_command_and_renders_command_table() {
     assert!(rendered.contains("install-sing-box"));
     assert!(rendered.contains("run-url"));
     assert!(rendered.contains("mitm [status|diagnostics|certificate-plan|browser-plan]"));
-    assert!(rendered.contains("mitm browser-capture [plan|launch-plan|apply|rollback|verify]"));
+    assert!(
+        rendered.contains("mitm browser-capture [plan|launch-plan|launch|apply|rollback|verify]")
+    );
     assert!(rendered.contains("sing-box install"));
 }
 
@@ -134,6 +142,19 @@ fn parses_mitm_status_and_diagnostics_commands() {
     let browser_capture_launch_plan =
         parse_args(["mitm", "browser-capture", "launch-plan", "--format", "json"])
             .expect("mitm browser-capture launch-plan should parse");
+    let browser_capture_launch = parse_args([
+        "mitm",
+        "browser-capture",
+        "launch",
+        "--browser",
+        "google-chrome",
+        "--profile-dir",
+        "/tmp/networkcore-browser-capture-profile",
+        "--confirm",
+        "--format",
+        "json",
+    ])
+    .expect("mitm browser-capture launch should parse");
     let browser_capture_apply = parse_args(["mitm", "browser-capture", "apply", "--confirm"])
         .expect("mitm browser-capture apply should parse");
     let browser_capture_rollback = parse_args([
@@ -216,6 +237,15 @@ fn parses_mitm_status_and_diagnostics_commands() {
     assert_eq!(
         browser_capture_launch_plan,
         LinuxCliCommand::MitmBrowserCaptureLaunchPlan {
+            format: OutputFormat::Json
+        }
+    );
+    assert_eq!(
+        browser_capture_launch,
+        LinuxCliCommand::MitmBrowserCaptureLaunch {
+            browser: "google-chrome".to_string(),
+            profile_dir: "/tmp/networkcore-browser-capture-profile".to_string(),
+            confirm: true,
             format: OutputFormat::Json
         }
     );
@@ -765,6 +795,106 @@ fn mitm_browser_capture_launch_plan_outputs_manual_browser_commands_without_muta
 }
 
 #[test]
+fn mitm_browser_capture_launch_requires_confirmation_before_starting_browser() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let runner = TestBrowserCaptureRunner;
+
+    let response = handle_mitm_browser_capture_launch(
+        &platform,
+        &runner,
+        "chromium",
+        MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR,
+        false,
+    );
+
+    assert!(!response.ok);
+    assert_eq!(response.command, "mitm browser-capture launch");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Unavailable);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE,
+    );
+    assert_no_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_LAUNCH_STARTED_CODE,
+    );
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("launch response should include browser capture report");
+    assert_eq!(capture.action, "launch");
+    let launch = capture
+        .launch_report
+        .as_ref()
+        .expect("launch response should include a launch report");
+    assert_eq!(launch.status, "authorization_required");
+    assert!(!launch.launched);
+    assert_eq!(launch.request.browser, "chromium");
+    assert_eq!(
+        launch.request.profile_dir,
+        MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR
+    );
+}
+
+#[test]
+fn mitm_browser_capture_launch_uses_injected_runner_with_dedicated_profile() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let runner = TestBrowserCaptureRunner;
+
+    let response = handle_mitm_browser_capture_launch(
+        &platform,
+        &runner,
+        "google-chrome",
+        "/tmp/networkcore-browser-capture-contract-profile",
+        true,
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "mitm browser-capture launch");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Success);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_LAUNCH_STARTED_CODE,
+    );
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE,
+    );
+
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("launch response should include browser capture report");
+    assert_eq!(capture.action, "launch");
+    let launch = capture
+        .launch_report
+        .as_ref()
+        .expect("launch response should include a launch report");
+    assert_eq!(launch.status, "started");
+    assert!(launch.launched);
+    assert_eq!(launch.pid, Some(4242));
+    assert_eq!(launch.request.command.executable, "google-chrome");
+    assert!(launch.request.command.args.contains(
+        &"--user-data-dir=/tmp/networkcore-browser-capture-contract-profile".to_string()
+    ));
+    assert!(launch
+        .request
+        .command
+        .args
+        .contains(&"--proxy-server=http://127.0.0.1:7890".to_string()));
+    assert_eq!(
+        launch.plugin_id,
+        mitm_policy::MITM_POLICY_AD_BLOCK_PLUGIN_ID
+    );
+
+    let rendered = render_response(&response, OutputFormat::Text);
+    assert!(rendered.contains("browser capture launch: started launched=true pid=4242"));
+    assert!(rendered.contains("browser capture launch command: google-chrome"));
+}
+
+#[test]
 fn mitm_browser_capture_apply_requires_authorization_and_stays_blocked() {
     let platform =
         StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
@@ -1236,6 +1366,63 @@ fn runtime_lifecycle_entrypoint_routes_sing_box_install_to_injected_installer() 
 }
 
 #[test]
+fn browser_capture_entrypoint_routes_launch_to_injected_runner() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+
+    let response = handle_entrypoint_with_browser_capture_runner(
+        LinuxCliCommand::MitmBrowserCaptureLaunch {
+            browser: "chromium".to_string(),
+            profile_dir: MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR.to_string(),
+            confirm: true,
+            format: OutputFormat::Json,
+        },
+        &platform,
+        &TestBrowserCaptureRunner,
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "mitm browser-capture launch");
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_LAUNCH_STARTED_CODE,
+    );
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("launch response should include browser capture report");
+    let launch = capture
+        .launch_report
+        .as_ref()
+        .expect("launch response should include launch report");
+    assert_eq!(launch.pid, Some(4242));
+}
+
+#[test]
+fn read_only_entrypoint_does_not_launch_browser_without_runner() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+
+    let response = handle_entrypoint(
+        LinuxCliCommand::MitmBrowserCaptureLaunch {
+            browser: "chromium".to_string(),
+            profile_dir: MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR.to_string(),
+            confirm: true,
+            format: OutputFormat::Text,
+        },
+        &platform,
+    );
+
+    assert!(!response.ok);
+    assert_eq!(response.command, "mitm browser-capture launch");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Unavailable);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_LAUNCH_FAILED_CODE,
+    );
+}
+
+#[test]
 fn run_url_handler_parses_ss_url_writes_sing_box_config_and_uses_runner() {
     let install_dir = std::env::temp_dir().join(format!(
         "networkcore-linux-run-url-contract-{}",
@@ -1693,6 +1880,62 @@ fn browser_capture_json_output_contains_machine_report_fields() {
     );
 }
 
+#[test]
+fn browser_capture_launch_json_output_contains_process_report_fields() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let response = handle_mitm_browser_capture_launch(
+        &platform,
+        &TestBrowserCaptureRunner,
+        "chromium",
+        MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR,
+        true,
+    );
+
+    let rendered = render_response(&response, OutputFormat::Json);
+    let json: serde_json::Value =
+        serde_json::from_str(&rendered).expect("browser launch response should be valid JSON");
+
+    assert_eq!(json["ok"].as_bool(), Some(true));
+    assert_eq!(json["command"], "mitm browser-capture launch");
+    assert_eq!(json["browser_capture"]["action"], "launch");
+    assert_eq!(
+        json["browser_capture"]["request"]["launch"]["browser"],
+        "chromium"
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["launch"]["profile_dir"],
+        MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR
+    );
+    assert_eq!(
+        json["browser_capture"]["launch_report"]["status"],
+        "started"
+    );
+    assert_eq!(
+        json["browser_capture"]["launch_report"]["launched"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        json["browser_capture"]["launch_report"]["pid"].as_u64(),
+        Some(4242)
+    );
+    assert_eq!(
+        json["browser_capture"]["launch_report"]["request"]["command"]["executable"],
+        "chromium"
+    );
+    assert!(
+        json["browser_capture"]["launch_report"]["request"]["command"]["args"]
+            .as_array()
+            .expect("launch args should be an array")
+            .iter()
+            .any(|arg| arg.as_str() == Some("--proxy-server=http://127.0.0.1:7890"))
+    );
+    assert_eq!(
+        json["browser_capture"]["launch_report"]["plugin_id"],
+        mitm_policy::MITM_POLICY_AD_BLOCK_PLUGIN_ID
+    );
+}
+
 fn available_orchestrator() -> RuntimeOrchestrator<
     TestConfigurationService,
     StaticLinuxPlatformCapabilityService,
@@ -1859,6 +2102,37 @@ impl SingBoxProcessRunner for TestSingBoxRunner {
                 ENGINE_SINGBOX_PROCESS_EXITED_CODE,
                 "sing-box test runner exited",
                 Some("engine.singbox.lifecycle".to_string()),
+            )],
+        })
+    }
+}
+
+struct TestBrowserCaptureRunner;
+
+impl BrowserCaptureProcessRunner for TestBrowserCaptureRunner {
+    fn launch(
+        &self,
+        request: &LinuxBrowserCaptureLaunchRequest,
+    ) -> DomainResult<LinuxBrowserCaptureLaunchOutcome> {
+        assert_eq!(request.proxy_url, "http://127.0.0.1:7890");
+        assert!(request
+            .command
+            .args
+            .iter()
+            .any(|arg| arg.starts_with("--user-data-dir=")));
+        assert!(request
+            .command
+            .args
+            .iter()
+            .any(|arg| arg == "--proxy-server=http://127.0.0.1:7890"));
+
+        Ok(LinuxBrowserCaptureLaunchOutcome {
+            pid: 4242,
+            diagnostics: vec![Diagnostic::new(
+                DiagnosticSeverity::Info,
+                CLI_MITM_BROWSER_CAPTURE_LAUNCH_STARTED_CODE,
+                "browser capture test runner started",
+                Some("cli.mitm".to_string()),
             )],
         })
     }

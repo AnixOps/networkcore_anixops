@@ -6,7 +6,7 @@ Accepted.
 
 ## Context
 
-`networkcore-linux v0.1.0-alpha.5` is the latest published Linux CLI artifact
+`networkcore-linux v0.1.0-alpha.6` is the latest published Linux CLI artifact
 at the time of this ADR status refresh. The release path proves that the
 repository can publish a Linux CLI artifact through GitHub Actions. It does not
 provide native support for VLESS, Shadowsocks,
@@ -88,8 +88,8 @@ parts that differentiate NetworkCore:
 
 ## Consequences
 
-- P3 runtime work should move next to a `sing-box` adapter design/source
-  contract and then a minimal source adapter.
+- The completed runtime baseline should keep `sing-box` as the first public
+  adapter and move remaining runtime gaps into the P4 integration backlog.
 - Roadmap and TODO entries must treat private protocol implementation as
   deferred unless a specific adapter limitation is documented.
 - Release artifacts must not include public engine binaries until third-party

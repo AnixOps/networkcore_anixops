@@ -110,7 +110,7 @@ location、payload、URL token、文件路径或 credential 来实现。
 
 ## 与策略路由和 DNS 的边界
 
-P3 subscription catalog 接入只解决 outbound node catalog。策略路由和 DNS 仍保持后续增量：
+已完成 baseline 的 subscription catalog 接入只解决 outbound node catalog。策略路由和 DNS 仍保持后续增量：
 
 - `NodeCatalog.rules` 不写入 `ConfigSnapshot.policies`。
 - subscription rule 与本地 rule 的冲突策略必须等 policy routing design 决定。
