@@ -2666,6 +2666,7 @@ where
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn handle_mitm_browser_capture_session_plan<P>(
     platform: &P,
     url: &str,
@@ -2694,6 +2695,7 @@ where
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn handle_mitm_browser_capture_session_plan_with_proxy_scheme<P>(
     platform: &P,
     url: &str,
@@ -2872,6 +2874,7 @@ where
         .with_diagnostics(diagnostics)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn handle_mitm_browser_capture_launch<P, B>(
     platform: &P,
     browser_runner: &B,
@@ -2899,6 +2902,7 @@ where
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn handle_mitm_browser_capture_launch_with_proxy_scheme<P, B>(
     platform: &P,
     browser_runner: &B,
@@ -3883,6 +3887,7 @@ where
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_mitm_browser_capture_inner<P>(
     command: &'static str,
     platform: &P,
@@ -4254,6 +4259,7 @@ fn build_linux_mitm_browser_plan(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_linux_browser_capture_report(
     action: LinuxBrowserCaptureAction,
     platform_status: &PlatformCapabilityStatus,
@@ -4277,6 +4283,7 @@ fn build_linux_browser_capture_report(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_linux_browser_capture_report_with_proxy_scheme(
     action: LinuxBrowserCaptureAction,
     platform_status: &PlatformCapabilityStatus,
@@ -4399,33 +4406,6 @@ fn build_linux_browser_capture_report_with_proxy_scheme(
         verify_report,
         traffic_proof_report,
     }
-}
-
-fn build_linux_browser_capture_plan(
-    platform_status: &PlatformCapabilityStatus,
-    policy: &LinuxMitmPolicyStatus,
-) -> LinuxBrowserCapturePlan {
-    build_linux_browser_capture_plan_with_proxy(
-        platform_status,
-        policy,
-        MITM_BROWSER_CAPTURE_PROXY_HOST,
-        MITM_BROWSER_CAPTURE_PROXY_PORT,
-    )
-}
-
-fn build_linux_browser_capture_plan_with_proxy(
-    platform_status: &PlatformCapabilityStatus,
-    policy: &LinuxMitmPolicyStatus,
-    proxy_host: &str,
-    proxy_port: u16,
-) -> LinuxBrowserCapturePlan {
-    build_linux_browser_capture_plan_with_proxy_scheme(
-        platform_status,
-        policy,
-        proxy_host,
-        proxy_port,
-        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME,
-    )
 }
 
 fn build_linux_browser_capture_plan_with_proxy_scheme(
@@ -4903,6 +4883,7 @@ fn build_linux_browser_capture_traffic_proof_report(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_linux_browser_capture_session_plan_report(
     request: LinuxBrowserCaptureSessionPlanRequest,
     node_id: String,
