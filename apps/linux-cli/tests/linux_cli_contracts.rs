@@ -25,6 +25,7 @@ use networkcore_linux::{
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
     handle_foreground_lifecycle_with_runtime_stop, handle_install_sing_box,
     handle_mitm_browser_capture_apply, handle_mitm_browser_capture_apply_with_store,
+    handle_mitm_browser_capture_apply_with_store_and_profile_prefs_and_proxy_scheme,
     handle_mitm_browser_capture_apply_with_store_and_proxy_scheme,
     handle_mitm_browser_capture_launch, handle_mitm_browser_capture_launch_plan,
     handle_mitm_browser_capture_launch_with_proxy_scheme, handle_mitm_browser_capture_plan,
@@ -240,6 +241,8 @@ fn parses_mitm_status_and_diagnostics_commands() {
         "/tmp/networkcore-browser-capture.pac",
         "--policy-file",
         "/tmp/networkcore-browser-capture-policy.json",
+        "--profile-prefs-file",
+        "/tmp/networkcore-browser-capture-profile/user.js",
         "--snapshot",
         "/tmp/networkcore-browser-capture.snapshot.json",
         "--format",
@@ -398,6 +401,7 @@ fn parses_mitm_status_and_diagnostics_commands() {
         LinuxCliCommand::MitmBrowserCaptureApply {
             pac_file_path: None,
             policy_file_path: None,
+            profile_prefs_file_path: None,
             snapshot_path: None,
             proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             confirm: true,
@@ -409,6 +413,9 @@ fn parses_mitm_status_and_diagnostics_commands() {
         LinuxCliCommand::MitmBrowserCaptureApply {
             pac_file_path: Some("/tmp/networkcore-browser-capture.pac".to_string()),
             policy_file_path: Some("/tmp/networkcore-browser-capture-policy.json".to_string()),
+            profile_prefs_file_path: Some(
+                "/tmp/networkcore-browser-capture-profile/user.js".to_string()
+            ),
             snapshot_path: Some("/tmp/networkcore-browser-capture.snapshot.json".to_string()),
             proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             confirm: true,
@@ -2036,6 +2043,97 @@ fn mitm_browser_capture_apply_can_write_socks5_pac_artifact() {
 }
 
 #[test]
+fn mitm_browser_capture_apply_can_restore_firefox_profile_prefs_file() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock should be after Unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-browser-capture-profile-prefs-{unique}"
+    ));
+    let profile_dir = root.join("firefox-profile");
+    let prefs_path = profile_dir.join("user.js");
+    let pac_path = root.join("capture.pac");
+    let snapshot_path = root.join("capture.snapshot.json");
+    let original_prefs = "user_pref(\"browser.startup.homepage\", \"about:blank\");\n";
+
+    std::fs::create_dir_all(&profile_dir).expect("test profile dir should be created");
+    std::fs::write(&prefs_path, original_prefs).expect("test profile prefs should be seeded");
+
+    let response = handle_mitm_browser_capture_apply_with_store_and_profile_prefs_and_proxy_scheme(
+        &platform,
+        &networkcore_linux::CommandBrowserCapturePacFileStore::new(),
+        Some(pac_path.to_str().expect("PAC path should be UTF-8")),
+        None,
+        Some(prefs_path.to_str().expect("profile prefs path should be UTF-8")),
+        Some(snapshot_path.to_str().expect("snapshot path should be UTF-8")),
+        MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME,
+        true,
+    );
+
+    assert!(response.ok);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
+    );
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("apply response should include browser capture report");
+    let pac = capture
+        .request
+        .pac
+        .as_ref()
+        .expect("apply response should include PAC request");
+    assert_eq!(
+        pac.profile_prefs_file_path.as_deref(),
+        Some(prefs_path.to_str().expect("profile prefs path should be UTF-8"))
+    );
+    let profile_prefs_content = pac
+        .profile_prefs_content
+        .as_ref()
+        .expect("profile prefs content should be present");
+    assert!(profile_prefs_content.contains("network.proxy.socks"));
+    assert!(profile_prefs_content.contains("network.proxy.socks_remote_dns"));
+
+    let written_prefs =
+        std::fs::read_to_string(&prefs_path).expect("profile prefs should be written");
+    assert_eq!(written_prefs, profile_prefs_content.as_str());
+    let apply = capture
+        .apply_report
+        .as_ref()
+        .expect("apply response should include apply report");
+    assert_eq!(
+        apply.profile_prefs_file_path.as_deref(),
+        Some(prefs_path.to_str().expect("profile prefs path should be UTF-8"))
+    );
+
+    let rollback = handle_mitm_browser_capture_rollback_with_store(
+        &platform,
+        &networkcore_linux::CommandBrowserCapturePacFileStore::new(),
+        Some(
+            snapshot_path
+                .to_str()
+                .expect("snapshot path should be UTF-8")
+                .to_string(),
+        ),
+    );
+
+    assert!(rollback.ok);
+    assert_diagnostic(
+        &rollback.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_ROLLBACK_READY_CODE,
+    );
+    let restored_prefs =
+        std::fs::read_to_string(&prefs_path).expect("profile prefs should be restored");
+    assert_eq!(restored_prefs, original_prefs);
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn mitm_browser_capture_rollback_with_store_restores_pac_file_artifact() {
     let platform =
         StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
@@ -2211,6 +2309,7 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
         LinuxCliCommand::MitmBrowserCaptureApply {
             pac_file_path: None,
             policy_file_path: None,
+            profile_prefs_file_path: None,
             snapshot_path: None,
             proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             confirm: true,
@@ -2681,6 +2780,7 @@ fn browser_capture_entrypoint_routes_apply_and_rollback_to_pac_store() {
         LinuxCliCommand::MitmBrowserCaptureApply {
             pac_file_path: Some("/tmp/networkcore-browser-capture.pac".to_string()),
             policy_file_path: None,
+            profile_prefs_file_path: None,
             snapshot_path: Some("/tmp/networkcore-browser-capture.snapshot.json".to_string()),
             proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             confirm: true,
@@ -4012,6 +4112,7 @@ impl BrowserCapturePacFileStore for TestBrowserCapturePacFileStore {
         Ok(LinuxBrowserCapturePacRollbackOutcome {
             pac_file_path: "/tmp/networkcore-browser-capture.pac".to_string(),
             policy_file_path: None,
+            profile_prefs_file_path: None,
             diagnostics: vec![Diagnostic::new(
                 DiagnosticSeverity::Info,
                 CLI_MITM_BROWSER_CAPTURE_ROLLBACK_READY_CODE,
@@ -4076,6 +4177,7 @@ impl BrowserCapturePacFileStore for TestBrowserCapturePolicyFileStore {
         Ok(LinuxBrowserCapturePacRollbackOutcome {
             pac_file_path: "/tmp/networkcore-browser-capture.pac".to_string(),
             policy_file_path: Some("/tmp/networkcore-browser-capture-policy.json".to_string()),
+            profile_prefs_file_path: None,
             diagnostics: Vec::new(),
         })
     }
@@ -4122,6 +4224,7 @@ impl BrowserCapturePacFileStore for TestSocks5BrowserCapturePacFileStore {
         Ok(LinuxBrowserCapturePacRollbackOutcome {
             pac_file_path: "/tmp/networkcore-browser-capture.pac".to_string(),
             policy_file_path: None,
+            profile_prefs_file_path: None,
             diagnostics: Vec::new(),
         })
     }

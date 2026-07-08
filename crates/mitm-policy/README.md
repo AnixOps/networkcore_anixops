@@ -72,7 +72,7 @@ loads that built-in plugin into `engine-native` through
 before outbound selection. This blocks the CONNECT tunnel, but it is not HTTPS
 decryption and does not apply redirect/header/body/script rewrite plans.
 
-Release/source split: `v0.1.0-alpha.9` is the latest published Linux artifact,
+Release/source split: `v0.1.0-alpha.10` is the latest published Linux artifact,
 while this README describes current `main` source. That artifact includes
 `verify --confirm`, `verify --confirm --target-url <url>`, `session-plan`,
 browser capture `--target-url`, `traffic-proof`, PAC/browser policy artifact
@@ -90,7 +90,7 @@ Required gates before user-facing MITM:
 - `MITM_CERTIFICATE_LIFECYCLE_GATE`: currently plan-only through
   `mitm_status.certificate_plan`; later increments must implement CA
   generation, install, trust detection, revocation, and rollback boundaries.
-- `MITM_BROWSER_CAPTURE_GATE`: currently pac-policy-artifact-active/system-mutation-blocked through
+- `MITM_BROWSER_CAPTURE_GATE`: currently pac-policy-profile-prefs-active/system-mutation-blocked through
   `mitm_status.browser_plan`, `browser_capture`, manual launch-plan output,
   redacted session-plan output, optional target URL, explicit dedicated-profile
   launch output, local proxy endpoint verify output, target route verify output,

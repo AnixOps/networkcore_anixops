@@ -164,7 +164,7 @@ jobs:
           grep -q "P4 backlog buckets" docs/ci-cd-policy.md
           grep -q "当前 main 源码状态" README.md
           grep -q "注意区分 release 与 main 源码" TODO.md
-          grep -Fq '当前最新已发布 Linux artifact 是 `v0.1.0-alpha.9`' docs/release-strategy.md
+          grep -Fq '当前最新已发布 Linux artifact 是 `v0.1.0-alpha.10`' docs/release-strategy.md
           grep -Fq "Alpha Release Feature Matrix" docs/ci-cd-policy.md
           grep -Fq "# Alpha Release Feature Matrix" docs/alpha-release-feature-matrix.md
           grep -Fq "v0.1.0-alpha.1" docs/alpha-release-feature-matrix.md
@@ -176,8 +176,9 @@ jobs:
           grep -Fq "v0.1.0-alpha.7" docs/alpha-release-feature-matrix.md
           grep -Fq "v0.1.0-alpha.8" docs/alpha-release-feature-matrix.md
           grep -Fq "v0.1.0-alpha.9" docs/alpha-release-feature-matrix.md
-          grep -Fq "v0.1.0-alpha.10+" docs/alpha-release-feature-matrix.md
-          grep -Fq "v0.1.0-alpha.11+" docs/alpha-release-feature-matrix.md
+          grep -Fq "v0.1.0-alpha.10" docs/alpha-release-feature-matrix.md
+          grep -Fq "v0.1.0-alpha.11" docs/alpha-release-feature-matrix.md
+          grep -Fq "v0.1.0-alpha.12" docs/alpha-release-feature-matrix.md
           grep -Fq "docs/alpha-release-feature-matrix.md" README.md
           grep -Fq "docs/alpha-release-feature-matrix.md" ROADMAP.md
           grep -Fq "docs/alpha-release-feature-matrix.md" TODO.md
@@ -445,7 +446,7 @@ jobs:
           grep -q "mitm-cli-command-gate-status=partial-active" docs/architecture/linux-cli-entrypoint.md
           grep -q "MITM_CLI_COMMAND_GATE.*partial-active" docs/ci-cd-policy.md
           grep -q "MITM_CERTIFICATE_LIFECYCLE_GATE.*plan-only" docs/ci-cd-policy.md
-          grep -q "MITM_BROWSER_CAPTURE_GATE.*pac-policy-artifact-active/system-mutation-blocked" docs/ci-cd-policy.md
+          grep -q "MITM_BROWSER_CAPTURE_GATE.*pac-policy-profile-prefs-active/system-mutation-blocked" docs/ci-cd-policy.md
           grep -q "Linux MITM browser capture source contract" docs/ci-cd-policy.md
           grep -q "certificate-plan" README.md
           grep -q "certificate-plan" apps/linux-cli/README.md
@@ -465,6 +466,8 @@ jobs:
           grep -q "PAC/browser policy artifact apply/rollback" README.md
           grep -q -- "--pac-file" README.md
           grep -q -- "--policy-file" README.md
+          grep -q -- "--profile-prefs-file" README.md
+          grep -q "profile_prefs_file_path" README.md
           grep -q -- "--target-url" README.md
           grep -q "target route verify" README.md
           grep -q "browser-plan" apps/linux-cli/README.md
@@ -478,6 +481,8 @@ jobs:
           grep -q "socks5://127.0.0.1:7890" apps/linux-cli/README.md
           grep -q -- "--pac-file" apps/linux-cli/README.md
           grep -q -- "--policy-file" apps/linux-cli/README.md
+          grep -q -- "--profile-prefs-file" apps/linux-cli/README.md
+          grep -q "profile_prefs_file_path" apps/linux-cli/README.md
           grep -q -- "--target-url" apps/linux-cli/README.md
           grep -q "target route verify" apps/linux-cli/README.md
           grep -q "browser-plan" crates/mitm-policy/README.md
@@ -489,8 +494,9 @@ jobs:
           grep -q "BrowserCapturePacFileStore" crates/mitm-policy/README.md
           grep -q -- "--proxy-scheme" crates/mitm-policy/README.md
           grep -q -- "--policy-file" crates/mitm-policy/README.md
+          grep -q -- "--profile-prefs-file" crates/mitm-policy/README.md
           grep -q "proxy_scheme" crates/mitm-policy/README.md
-          grep -q "pac-policy-artifact-active/system-mutation-blocked" crates/mitm-policy/README.md
+          grep -q "pac-policy-profile-prefs-active/system-mutation-blocked" crates/mitm-policy/README.md
           grep -q "browser-plan" docs/architecture/mitm-anixops-adapter.md
           grep -q "browser-capture" docs/architecture/mitm-anixops-adapter.md
           grep -q "launch-plan" docs/architecture/mitm-anixops-adapter.md
@@ -499,6 +505,7 @@ jobs:
           grep -q "traffic_proof_report" docs/architecture/mitm-anixops-adapter.md
           grep -q -- "--proxy-scheme" docs/architecture/mitm-anixops-adapter.md
           grep -q -- "--policy-file" docs/architecture/mitm-anixops-adapter.md
+          grep -q -- "--profile-prefs-file" docs/architecture/mitm-anixops-adapter.md
           grep -q "proxy_scheme" docs/architecture/mitm-anixops-adapter.md
           grep -q "browser-plan" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "browser-capture" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
@@ -508,6 +515,7 @@ jobs:
           grep -q "traffic_proof_report" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q -- "--proxy-scheme" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q -- "--policy-file" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
+          grep -q -- "--profile-prefs-file" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "proxy_scheme" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "browser-plan" docs/architecture/linux-cli-entrypoint.md
           grep -q "browser-capture" docs/architecture/linux-cli-entrypoint.md
@@ -518,8 +526,9 @@ jobs:
           grep -q "BrowserCapturePacFileStore" docs/architecture/linux-cli-entrypoint.md
           grep -q -- "--proxy-scheme" docs/architecture/linux-cli-entrypoint.md
           grep -q -- "--policy-file" docs/architecture/linux-cli-entrypoint.md
+          grep -q -- "--profile-prefs-file" docs/architecture/linux-cli-entrypoint.md
           grep -q "proxy_scheme" docs/architecture/linux-cli-entrypoint.md
-          grep -q "pac-policy-artifact-active/system-mutation-blocked" docs/architecture/linux-cli-entrypoint.md
+          grep -q "pac-policy-profile-prefs-active/system-mutation-blocked" docs/architecture/linux-cli-entrypoint.md
           grep -q "certificate_plan" README.md
           grep -q "certificate_plan" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "browser_plan" README.md
@@ -533,7 +542,7 @@ jobs:
           grep -q "browser hijack" apps/linux-cli/README.md
           grep -q "Linux MITM Browser Capture Source Contract" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -Fq "mitm-browser-capture-source-contract-status=active" docs/architecture/linux-mitm-browser-capture-source-contract.md
-          grep -Fq "MITM_BROWSER_CAPTURE_GATE=pac-policy-artifact-active/system-mutation-blocked" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -Fq "MITM_BROWSER_CAPTURE_GATE=pac-policy-profile-prefs-active/system-mutation-blocked" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "networkcore-linux mitm browser-plan" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "mitm_status.browser_plan" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "LinuxBrowserCaptureManualLaunch" docs/architecture/linux-mitm-browser-capture-source-contract.md
@@ -554,10 +563,14 @@ jobs:
           grep -q "LinuxBrowserCapturePacApplyOutcome" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "LinuxBrowserCapturePacRollbackOutcome" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q -- "--policy-file" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q -- "--profile-prefs-file" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "policy_file_path" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "policy_url" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "policy_content" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "profile_prefs_file_path" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "profile_prefs_content" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "cli.linux.mitm.browser_capture.policy.write_failed" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "cli.linux.mitm.browser_capture.profile_prefs.write_failed" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "MITM_BROWSER_CAPTURE_PROOF_QUERY_PARAM" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME" docs/architecture/linux-mitm-browser-capture-source-contract.md
@@ -575,14 +588,20 @@ jobs:
           grep -q "MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME" apps/linux-cli/src/lib.rs
           grep -q "MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_BROWSER_CAPTURE_POLICY_WRITE_FAILED_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_BROWSER_CAPTURE_PROFILE_PREFS_WRITE_FAILED_CODE" apps/linux-cli/src/lib.rs
           grep -q "policy_file_path" apps/linux-cli/src/lib.rs
           grep -q "policy_content" apps/linux-cli/src/lib.rs
+          grep -q "profile_prefs_file_path" apps/linux-cli/src/lib.rs
+          grep -q "profile_prefs_content" apps/linux-cli/src/lib.rs
+          grep -q -- "--profile-prefs-file" apps/linux-cli/src/lib.rs
           grep -q "proof_target_url" apps/linux-cli/src/lib.rs
           grep -q "traffic_proof_command" apps/linux-cli/src/lib.rs
           grep -q "networkcore_proof_token" apps/linux-cli/src/lib.rs
           grep -q "proof_target_url" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_browser_capture_apply_can_restore_firefox_profile_prefs_file" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "profile_prefs_file_path" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "proxy_scheme" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "traffic_proof_command" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "BrowserCaptureProcessRunner" docs/architecture/linux-mitm-browser-capture-source-contract.md

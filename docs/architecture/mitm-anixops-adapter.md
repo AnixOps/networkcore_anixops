@@ -195,7 +195,7 @@ mitm-cli-command-gate-status=partial-active
 `mitm-policy` 加载内置 `networkcore.adblock` policy，输出 `mitm_status`
 JSON 机器字段，并显式报告 browser hijack 为 deferred、
 `MITM_CERTIFICATE_LIFECYCLE_GATE` plan-only、
-`MITM_BROWSER_CAPTURE_GATE` pac-policy-artifact-active/system-mutation-blocked 和
+`MITM_BROWSER_CAPTURE_GATE` pac-policy-profile-prefs-active/system-mutation-blocked 和
 `MITM_HTTP_TLS_DATA_PLANE_GATE` blocked。`certificate-plan` 额外输出
 `mitm_status.certificate_plan`，包含当前证书状态、计划步骤、blocked
 operations 和 `mutation_ready=false`；`browser-plan` 额外输出
@@ -269,7 +269,7 @@ outbound。该状态只代表命令面、策略诊断入口、证书生命周期
 - `traffic-proof --confirm [--target-url <url>] [--proof-token <token>] [--proof-log <path>]` 只检查 operator-provided proof log 中是否出现 token，不证明 HTTPS MITM 或 rewrite 应用。
 - `apply --confirm --pac-file <path> [--policy-file <path>] --snapshot <path>` 只写 operator-provided NetworkCore PAC artifact、可选 browser policy artifact 和 rollback snapshot；`rollback --snapshot <path>` 只删除 snapshot 记录的 PAC/policy artifact。
 - `--proxy-scheme socks5` 只把授权 dedicated browser/PAC/probe 计划绑定到 native SOCKS5 CONNECT hook，不代表系统代理 mutation 或 HTTPS MITM。
-- 当前 gate 为 pac-policy-artifact-active/system-mutation-blocked，不安装 browser policy、system proxy、system PAC、TUN、DNS 或 firewall。
+- 当前 gate 为 pac-policy-profile-prefs-active/system-mutation-blocked，不安装 browser policy、system proxy、system PAC、TUN、DNS 或 firewall。
 - [Linux MITM Browser Capture Source Contract](linux-mitm-browser-capture-source-contract.md)
   已固定 `mitm-browser-capture-source-contract-status=active`、
   `LinuxBrowserCaptureManualLaunch`、`LinuxBrowserCaptureSessionPlanRequest`、`LinuxBrowserCaptureSessionPlanReport`、`LinuxBrowserCaptureLaunchRequest`、`LinuxBrowserCaptureLaunchReport`、

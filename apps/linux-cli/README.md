@@ -11,8 +11,8 @@ The crate currently provides:
 - JSON response rendering for automation-facing output contracts.
 - A minimal binary that wires `capabilities`, `status`, `diagnostics`, `mitm status/diagnostics/certificate-plan/browser-plan`, and `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` to `HostLinuxReadOnlyProbe`, wires `mitm browser-capture launch --confirm` to an injected `BrowserCaptureProcessRunner`, wires `mitm browser-capture verify --confirm` to an injected `BrowserCaptureEndpointProbe`, wires `mitm browser-capture traffic-proof --confirm` to an injected `BrowserCaptureTrafficProofProbe`, wires `prepare-config` to the pure `config-core` service, wires `start` to `engine-native::NativeProxyEngineService` through `RuntimeOrchestrator` with the built-in `networkcore.adblock` MITM plugin hook, wires `install-sing-box` to the `engine-singbox` latest release installer, and wires `run-url` to the `config-core` URL parser plus `sing-box` config renderer and foreground process runner.
 
-Release/source split: the latest published Linux artifact is `v0.1.0-alpha.9`.
-This README describes current `main` source. The `v0.1.0-alpha.9` artifact
+Release/source split: the latest published Linux artifact is `v0.1.0-alpha.10`.
+This README describes current `main` source. The `v0.1.0-alpha.10` artifact
 includes `mitm browser-capture verify --confirm`,
 `mitm browser-capture verify --confirm --target-url <url>`,
 `mitm browser-capture session-plan`, browser capture target route verify, the browser capture `--target-url`
@@ -40,7 +40,7 @@ policy; the native MITM hook only writes SOCKS5 CONNECT
 failure for plugin `Reject`, emits
 `engine.native.runtime.http_mitm_connect_browser_proof_observed` with the same
 default proof token, and does not decrypt HTTPS. These alpha.9 increments are not included in
-older artifacts before `v0.1.0-alpha.9`.
+older artifacts before `v0.1.0-alpha.10`.
 The per-alpha feature and boundary index is
 `docs/alpha-release-feature-matrix.md`.
 

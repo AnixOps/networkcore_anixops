@@ -101,6 +101,8 @@ pub const CLI_MITM_BROWSER_CAPTURE_PAC_WRITE_FAILED_CODE: &str =
     "cli.linux.mitm.browser_capture.pac.write_failed";
 pub const CLI_MITM_BROWSER_CAPTURE_POLICY_WRITE_FAILED_CODE: &str =
     "cli.linux.mitm.browser_capture.policy.write_failed";
+pub const CLI_MITM_BROWSER_CAPTURE_PROFILE_PREFS_WRITE_FAILED_CODE: &str =
+    "cli.linux.mitm.browser_capture.profile_prefs.write_failed";
 pub const CLI_MITM_BROWSER_CAPTURE_SNAPSHOT_WRITE_FAILED_CODE: &str =
     "cli.linux.mitm.browser_capture.snapshot.write_failed";
 pub const CLI_MITM_BROWSER_CAPTURE_SNAPSHOT_READ_FAILED_CODE: &str =
@@ -143,7 +145,7 @@ pub const MITM_CLI_COMMAND_GATE_STATUS: &str = "partial-active";
 pub const MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS: &str = "plan-only";
 pub const MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS: &str = "blocked";
 pub const MITM_BROWSER_CAPTURE_GATE_STATUS: &str =
-    "pac-policy-artifact-active/system-mutation-blocked";
+    "pac-policy-profile-prefs-active/system-mutation-blocked";
 pub const MITM_BROWSER_HIJACK_STATUS: &str = "deferred";
 pub const MITM_CERTIFICATE_PLAN_STATUS: &str = "plan-only";
 pub const MITM_CERTIFICATE_MUTATION_READY: bool = false;
@@ -290,6 +292,7 @@ pub enum LinuxCliCommand {
     MitmBrowserCaptureApply {
         pac_file_path: Option<String>,
         policy_file_path: Option<String>,
+        profile_prefs_file_path: Option<String>,
         snapshot_path: Option<String>,
         proxy_scheme: String,
         confirm: bool,
@@ -729,6 +732,8 @@ pub struct LinuxBrowserCapturePacRequest {
     pub policy_file_path: Option<String>,
     pub policy_url: Option<String>,
     pub policy_content: Option<String>,
+    pub profile_prefs_file_path: Option<String>,
+    pub profile_prefs_content: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -741,6 +746,7 @@ pub struct LinuxBrowserCapturePacApplyOutcome {
 pub struct LinuxBrowserCapturePacRollbackOutcome {
     pub pac_file_path: String,
     pub policy_file_path: Option<String>,
+    pub profile_prefs_file_path: Option<String>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -797,6 +803,7 @@ pub struct LinuxBrowserCaptureApplyReport {
     pub pac_url: Option<String>,
     pub policy_file_path: Option<String>,
     pub policy_url: Option<String>,
+    pub profile_prefs_file_path: Option<String>,
     pub rollback_snapshot: Option<BrowserCaptureRollbackSnapshot>,
     pub blocked_operations: Vec<String>,
 }
@@ -807,6 +814,7 @@ pub struct LinuxBrowserCaptureRollbackReport {
     pub rolled_back: bool,
     pub pac_file_path: Option<String>,
     pub policy_file_path: Option<String>,
+    pub profile_prefs_file_path: Option<String>,
     pub rollback_snapshot: Option<BrowserCaptureRollbackSnapshot>,
     pub blocked_operations: Vec<String>,
 }
@@ -1328,6 +1336,19 @@ impl BrowserCapturePacFileStore for CommandBrowserCapturePacFileStore {
                 ));
             }
         }
+        let profile_prefs_previous_content = request
+            .profile_prefs_file_path
+            .as_ref()
+            .map(|path| match std::fs::read_to_string(path) {
+                Ok(contents) => Ok(Some(contents)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(error) => Err(DomainError::new(
+                    CLI_MITM_BROWSER_CAPTURE_PROFILE_PREFS_WRITE_FAILED_CODE,
+                    format!("failed to read browser capture profile prefs file {path}: {error}"),
+                )),
+            })
+            .transpose()?
+            .flatten();
 
         let snapshot = BrowserCapturePacSnapshotFile {
             version: 1,
@@ -1338,6 +1359,11 @@ impl BrowserCapturePacFileStore for CommandBrowserCapturePacFileStore {
             policy_file_path: request.policy_file_path.clone(),
             policy_url: request.policy_url.clone(),
             created_policy_file: request.policy_file_path.is_some(),
+            profile_prefs_file_path: request.profile_prefs_file_path.clone(),
+            created_profile_prefs_file: request.profile_prefs_file_path.is_some()
+                && profile_prefs_previous_content.is_none(),
+            previous_profile_prefs_content: profile_prefs_previous_content,
+            applied_profile_prefs_content: request.profile_prefs_content.clone(),
         };
 
         let snapshot_json = serde_json::to_string_pretty(&snapshot).map_err(|error| {
@@ -1372,11 +1398,27 @@ impl BrowserCapturePacFileStore for CommandBrowserCapturePacFileStore {
                 "browser capture browser policy file",
             )?;
         }
+        if let (Some(profile_prefs_file_path), Some(profile_prefs_content)) = (
+            &request.profile_prefs_file_path,
+            &request.profile_prefs_content,
+        ) {
+            write_replace_file(
+                profile_prefs_file_path,
+                profile_prefs_content.as_bytes(),
+                CLI_MITM_BROWSER_CAPTURE_PROFILE_PREFS_WRITE_FAILED_CODE,
+                "browser capture Firefox profile prefs file",
+            )?;
+        }
 
         let policy_message = request
             .policy_file_path
             .as_ref()
             .map(|path| format!(" and browser policy file {path}"))
+            .unwrap_or_default();
+        let profile_prefs_message = request
+            .profile_prefs_file_path
+            .as_ref()
+            .map(|path| format!(" and Firefox profile prefs file {path}"))
             .unwrap_or_default();
         Ok(LinuxBrowserCapturePacApplyOutcome {
             rollback_snapshot: BrowserCaptureRollbackSnapshot {
@@ -1387,8 +1429,8 @@ impl BrowserCapturePacFileStore for CommandBrowserCapturePacFileStore {
                 DiagnosticSeverity::Info,
                 CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
                 format!(
-                    "browser capture PAC file {}{} was written with planned proxy {}",
-                    request.pac_file_path, policy_message, request.proxy_url
+                    "browser capture PAC file {}{}{} was written with planned proxy {}",
+                    request.pac_file_path, policy_message, profile_prefs_message, request.proxy_url
                 ),
                 SOURCE_CLI_MITM,
             )],
@@ -1458,15 +1500,58 @@ impl BrowserCapturePacFileStore for CommandBrowserCapturePacFileStore {
                 }
             }
         }
+        if let Some(profile_prefs_file_path) = snapshot_file.profile_prefs_file_path.as_ref() {
+            let Some(applied_content) = snapshot_file.applied_profile_prefs_content.as_ref() else {
+                return Err(DomainError::new(
+                    CLI_MITM_BROWSER_CAPTURE_SNAPSHOT_READ_FAILED_CODE,
+                    "browser capture rollback snapshot is missing applied profile prefs content",
+                ));
+            };
+            match std::fs::read_to_string(profile_prefs_file_path) {
+                Ok(current_content) if current_content != *applied_content => {
+                    return Err(DomainError::new(
+                        CLI_MITM_BROWSER_CAPTURE_ROLLBACK_FAILED_CODE,
+                        format!(
+                            "refusing to rollback browser capture profile prefs file {profile_prefs_file_path} because it changed after apply"
+                        ),
+                    ));
+                }
+                Ok(_) => {
+                    rollback_profile_prefs_file(
+                        profile_prefs_file_path,
+                        snapshot_file.created_profile_prefs_file,
+                        snapshot_file.previous_profile_prefs_content.as_deref(),
+                    )?;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    if !snapshot_file.created_profile_prefs_file {
+                        rollback_profile_prefs_file(
+                            profile_prefs_file_path,
+                            false,
+                            snapshot_file.previous_profile_prefs_content.as_deref(),
+                        )?;
+                    }
+                }
+                Err(error) => {
+                    return Err(DomainError::new(
+                        CLI_MITM_BROWSER_CAPTURE_ROLLBACK_FAILED_CODE,
+                        format!(
+                            "failed to read browser capture profile prefs file {profile_prefs_file_path}: {error}"
+                        ),
+                    ));
+                }
+            }
+        }
 
         Ok(LinuxBrowserCapturePacRollbackOutcome {
             pac_file_path: snapshot_file.pac_file_path.clone(),
             policy_file_path: snapshot_file.policy_file_path.clone(),
+            profile_prefs_file_path: snapshot_file.profile_prefs_file_path.clone(),
             diagnostics: vec![cli_diagnostic(
                 DiagnosticSeverity::Info,
                 CLI_MITM_BROWSER_CAPTURE_ROLLBACK_READY_CODE,
                 format!(
-                    "browser capture PAC file {} and optional policy artifact were removed from snapshot {}",
+                    "browser capture PAC file {}, optional policy artifact, and optional profile prefs were restored from snapshot {}",
                     snapshot_file.pac_file_path, snapshot.path
                 ),
                 SOURCE_CLI_MITM,
@@ -1521,6 +1606,14 @@ struct BrowserCapturePacSnapshotFile {
     policy_url: Option<String>,
     #[serde(default)]
     created_policy_file: bool,
+    #[serde(default)]
+    profile_prefs_file_path: Option<String>,
+    #[serde(default)]
+    created_profile_prefs_file: bool,
+    #[serde(default)]
+    previous_profile_prefs_content: Option<String>,
+    #[serde(default)]
+    applied_profile_prefs_content: Option<String>,
 }
 
 fn write_parent_dir(path: &str, error_code: &'static str) -> DomainResult<()> {
@@ -1561,6 +1654,64 @@ fn write_new_file(
             format!("failed to write {description} {path}: {error}"),
         )
     })
+}
+
+fn write_replace_file(
+    path: &str,
+    contents: &[u8],
+    error_code: &'static str,
+    description: &str,
+) -> DomainResult<()> {
+    write_parent_dir(path, error_code)?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)
+        .map_err(|error| {
+            DomainError::new(
+                error_code,
+                format!("failed to open {description} {path}: {error}"),
+            )
+        })?;
+    file.write_all(contents).map_err(|error| {
+        DomainError::new(
+            error_code,
+            format!("failed to write {description} {path}: {error}"),
+        )
+    })
+}
+
+fn rollback_profile_prefs_file(
+    path: &str,
+    created_by_networkcore: bool,
+    previous_content: Option<&str>,
+) -> DomainResult<()> {
+    if created_by_networkcore {
+        match std::fs::remove_file(path) {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => {
+                return Err(DomainError::new(
+                    CLI_MITM_BROWSER_CAPTURE_ROLLBACK_FAILED_CODE,
+                    format!("failed to remove browser capture profile prefs file {path}: {error}"),
+                ));
+            }
+        }
+    }
+
+    let Some(previous_content) = previous_content else {
+        return Err(DomainError::new(
+            CLI_MITM_BROWSER_CAPTURE_SNAPSHOT_READ_FAILED_CODE,
+            "browser capture rollback snapshot is missing previous profile prefs content",
+        ));
+    };
+    write_replace_file(
+        path,
+        previous_content.as_bytes(),
+        CLI_MITM_BROWSER_CAPTURE_ROLLBACK_FAILED_CODE,
+        "browser capture Firefox profile prefs file",
+    )
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -1864,6 +2015,7 @@ struct ParsedOptions {
     browser: Option<String>,
     config_path: Option<String>,
     profile_dir: Option<String>,
+    profile_prefs_file_path: Option<String>,
     target_url: Option<String>,
     pac_file_path: Option<String>,
     policy_file_path: Option<String>,
@@ -2193,15 +2345,17 @@ where
         LinuxCliCommand::MitmBrowserCaptureApply {
             pac_file_path,
             policy_file_path,
+            profile_prefs_file_path,
             snapshot_path,
             proxy_scheme,
             confirm,
             ..
-        } => handle_mitm_browser_capture_apply_with_store_and_proxy_scheme(
+        } => handle_mitm_browser_capture_apply_with_store_and_profile_prefs_and_proxy_scheme(
             platform,
             pac_store,
             pac_file_path.as_deref(),
             policy_file_path.as_deref(),
+            profile_prefs_file_path.as_deref(),
             snapshot_path.as_deref(),
             &proxy_scheme,
             confirm,
@@ -3110,11 +3264,12 @@ where
     P: PlatformCapabilityService,
     S: BrowserCapturePacFileStore,
 {
-    handle_mitm_browser_capture_apply_with_store_and_proxy_scheme(
+    handle_mitm_browser_capture_apply_with_store_and_profile_prefs_and_proxy_scheme(
         platform,
         pac_store,
         pac_file_path,
         policy_file_path,
+        None,
         snapshot_path,
         MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME,
         confirm,
@@ -3126,6 +3281,33 @@ pub fn handle_mitm_browser_capture_apply_with_store_and_proxy_scheme<P, S>(
     pac_store: &S,
     pac_file_path: Option<&str>,
     policy_file_path: Option<&str>,
+    snapshot_path: Option<&str>,
+    proxy_scheme: &str,
+    confirm: bool,
+) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+    S: BrowserCapturePacFileStore,
+{
+    handle_mitm_browser_capture_apply_with_store_and_profile_prefs_and_proxy_scheme(
+        platform,
+        pac_store,
+        pac_file_path,
+        policy_file_path,
+        None,
+        snapshot_path,
+        proxy_scheme,
+        confirm,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_mitm_browser_capture_apply_with_store_and_profile_prefs_and_proxy_scheme<P, S>(
+    platform: &P,
+    pac_store: &S,
+    pac_file_path: Option<&str>,
+    policy_file_path: Option<&str>,
+    profile_prefs_file_path: Option<&str>,
     snapshot_path: Option<&str>,
     proxy_scheme: &str,
     confirm: bool,
@@ -3196,6 +3378,7 @@ where
             pac_url: pac_file_path.map(browser_capture_pac_file_url),
             policy_file_path: policy_file_path.map(ToString::to_string),
             policy_url: policy_file_path.map(browser_capture_pac_file_url),
+            profile_prefs_file_path: profile_prefs_file_path.map(ToString::to_string),
             rollback_snapshot: snapshot_path.map(|path| BrowserCaptureRollbackSnapshot {
                 path: path.to_string(),
                 status: "operator-provided".to_string(),
@@ -3228,6 +3411,7 @@ where
             pac_url: pac_file_path.map(browser_capture_pac_file_url),
             policy_file_path: policy_file_path.map(ToString::to_string),
             policy_url: policy_file_path.map(browser_capture_pac_file_url),
+            profile_prefs_file_path: profile_prefs_file_path.map(ToString::to_string),
             rollback_snapshot: snapshot_path.map(|path| BrowserCaptureRollbackSnapshot {
                 path: path.to_string(),
                 status: "operator-provided".to_string(),
@@ -3249,6 +3433,7 @@ where
         &report.plan,
         pac_file_path,
         policy_file_path,
+        profile_prefs_file_path,
         snapshot_path,
     );
     report.request.pac = Some(pac_request.clone());
@@ -3264,6 +3449,7 @@ where
                 pac_url: Some(pac_request.pac_url.clone()),
                 policy_file_path: pac_request.policy_file_path.clone(),
                 policy_url: pac_request.policy_url.clone(),
+                profile_prefs_file_path: pac_request.profile_prefs_file_path.clone(),
                 rollback_snapshot: Some(outcome.rollback_snapshot),
                 blocked_operations: report.plan.blocked_operations.clone(),
             });
@@ -3288,6 +3474,7 @@ where
                 pac_url: Some(pac_request.pac_url.clone()),
                 policy_file_path: pac_request.policy_file_path.clone(),
                 policy_url: pac_request.policy_url.clone(),
+                profile_prefs_file_path: pac_request.profile_prefs_file_path.clone(),
                 rollback_snapshot: Some(BrowserCaptureRollbackSnapshot {
                     path: pac_request.snapshot_path,
                     status: "operator-provided".to_string(),
@@ -3412,6 +3599,7 @@ where
                 rolled_back: true,
                 pac_file_path: Some(outcome.pac_file_path),
                 policy_file_path: outcome.policy_file_path,
+                profile_prefs_file_path: outcome.profile_prefs_file_path,
                 rollback_snapshot: Some(BrowserCaptureRollbackSnapshot {
                     status: "networkcore-restored".to_string(),
                     ..rollback_snapshot
@@ -3436,6 +3624,7 @@ where
                 rolled_back: false,
                 pac_file_path: None,
                 policy_file_path: None,
+                profile_prefs_file_path: None,
                 rollback_snapshot: Some(rollback_snapshot),
                 blocked_operations: report.plan.blocked_operations.clone(),
             });
@@ -4345,6 +4534,7 @@ fn build_linux_browser_capture_report_with_proxy_scheme(
                 pac_url: None,
                 policy_file_path: None,
                 policy_url: None,
+                profile_prefs_file_path: None,
                 rollback_snapshot: None,
                 blocked_operations: blocked_operations.clone(),
             }
@@ -4358,6 +4548,7 @@ fn build_linux_browser_capture_report_with_proxy_scheme(
             rolled_back: false,
             pac_file_path: None,
             policy_file_path: None,
+            profile_prefs_file_path: None,
             rollback_snapshot: rollback_snapshot.clone(),
             blocked_operations: blocked_operations.clone(),
         })
@@ -4560,6 +4751,7 @@ fn build_linux_browser_capture_pac_request(
     plan: &LinuxBrowserCapturePlan,
     pac_file_path: &str,
     policy_file_path: Option<&str>,
+    profile_prefs_file_path: Option<&str>,
     snapshot_path: &str,
 ) -> LinuxBrowserCapturePacRequest {
     let proxy_url = browser_capture_proxy_url(
@@ -4570,6 +4762,13 @@ fn build_linux_browser_capture_pac_request(
     let policy_url = policy_file_path.map(browser_capture_pac_file_url);
     let policy_content = policy_file_path.map(|_| {
         browser_capture_chromium_policy_content(
+            &plan.planned_proxy_scheme,
+            &plan.planned_proxy_host,
+            plan.planned_proxy_port,
+        )
+    });
+    let profile_prefs_content = profile_prefs_file_path.map(|_| {
+        browser_capture_firefox_user_js_content(
             &plan.planned_proxy_scheme,
             &plan.planned_proxy_host,
             plan.planned_proxy_port,
@@ -4591,6 +4790,8 @@ fn build_linux_browser_capture_pac_request(
         policy_file_path: policy_file_path.map(ToString::to_string),
         policy_url,
         policy_content,
+        profile_prefs_file_path: profile_prefs_file_path.map(ToString::to_string),
+        profile_prefs_content,
     }
 }
 
@@ -4633,6 +4834,38 @@ fn browser_capture_chromium_policy_content(
         .expect("browser capture chromium policy serialization should be infallible");
     json.push('\n');
     json
+}
+
+fn browser_capture_firefox_user_js_content(
+    proxy_scheme: &str,
+    proxy_host: &str,
+    proxy_port: u16,
+) -> String {
+    if proxy_scheme == MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME {
+        return format!(
+            "// NetworkCore browser capture managed proxy settings.\n\
+             user_pref(\"network.proxy.type\", 1);\n\
+             user_pref(\"network.proxy.socks\", \"{proxy_host}\");\n\
+             user_pref(\"network.proxy.socks_port\", {proxy_port});\n\
+             user_pref(\"network.proxy.socks_version\", 5);\n\
+             user_pref(\"network.proxy.socks_remote_dns\", true);\n\
+             user_pref(\"network.proxy.http\", \"\");\n\
+             user_pref(\"network.proxy.http_port\", 0);\n\
+             user_pref(\"network.proxy.ssl\", \"\");\n\
+             user_pref(\"network.proxy.ssl_port\", 0);\n"
+        );
+    }
+
+    format!(
+        "// NetworkCore browser capture managed proxy settings.\n\
+         user_pref(\"network.proxy.type\", 1);\n\
+         user_pref(\"network.proxy.http\", \"{proxy_host}\");\n\
+         user_pref(\"network.proxy.http_port\", {proxy_port});\n\
+         user_pref(\"network.proxy.ssl\", \"{proxy_host}\");\n\
+         user_pref(\"network.proxy.ssl_port\", {proxy_port});\n\
+         user_pref(\"network.proxy.share_proxy_settings\", true);\n\
+         user_pref(\"network.proxy.no_proxies_on\", \"\");\n"
+    )
 }
 
 fn build_linux_browser_capture_verify_command(
@@ -5321,6 +5554,16 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.policy_file_path = Some(value.clone());
             }
+            "--profile-prefs-file" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--profile-prefs-file requires a Firefox dedicated profile user.js path",
+                    ));
+                };
+                options.profile_prefs_file_path = Some(value.clone());
+            }
             "--proof-token" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -5599,6 +5842,7 @@ fn parse_mitm_browser_capture_command(
             Ok(LinuxCliCommand::MitmBrowserCaptureApply {
                 pac_file_path: options.pac_file_path,
                 policy_file_path: options.policy_file_path,
+                profile_prefs_file_path: options.profile_prefs_file_path,
                 snapshot_path: options.snapshot_path,
                 proxy_scheme: options
                     .proxy_scheme
@@ -5722,7 +5966,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux status [--format text|json]\n",
         "  networkcore-linux diagnostics [--format text|json]\n",
         "  networkcore-linux mitm [status|diagnostics|certificate-plan|browser-plan] [--format text|json]\n",
-        "  networkcore-linux mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify|traffic-proof] [<ss://url>] [--browser <executable>] [--profile-dir <dir>] [--target-url <url>] [--proxy-scheme http|socks5] [--listen-host <host>] [--listen-port <port>] [--pac-file <path>] [--policy-file <path>] [--proof-token <token>] [--proof-log <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
+        "  networkcore-linux mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify|traffic-proof] [<ss://url>] [--browser <executable>] [--profile-dir <dir>] [--target-url <url>] [--proxy-scheme http|socks5] [--listen-host <host>] [--listen-port <port>] [--pac-file <path>] [--policy-file <path>] [--profile-prefs-file <path>] [--proof-token <token>] [--proof-log <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux run-url <ss://url> [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux sing-box install [--install-dir <dir>] [--force] [--format text|json]\n",
@@ -5748,6 +5992,7 @@ pub const fn cli_help_text() -> &'static str {
         "  --proxy-scheme <mode> Browser explicit proxy scheme for browser-capture. Defaults to http; socks5 targets the native SOCKS5 CONNECT MITM hook.\n",
         "  --pac-file <path>     PAC file path for mitm browser-capture apply.\n",
         "  --policy-file <path>  Chromium/Chrome managed proxy policy file artifact for mitm browser-capture apply.\n",
+        "  --profile-prefs-file <path> Firefox dedicated profile user.js path for reversible browser-capture apply.\n",
         "  --proof-token <token> Browser traffic proof token expected in a proof log.\n",
         "  --proof-log <path>    Browser traffic proof log path to inspect after an operator-driven visit.\n",
         "  --install-dir <dir>   Engine cache root for install-sing-box.\n",
@@ -6225,6 +6470,11 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             if let Some(policy_url) = &report.policy_url {
                 lines.push(format!("browser capture browser policy URL: {policy_url}"));
             }
+            if let Some(profile_prefs_file_path) = &report.profile_prefs_file_path {
+                lines.push(format!(
+                    "browser capture Firefox profile prefs file: {profile_prefs_file_path}"
+                ));
+            }
             if let Some(snapshot) = &report.rollback_snapshot {
                 lines.push(format!(
                     "browser capture apply rollback snapshot: {} ({})",
@@ -6245,6 +6495,11 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             if let Some(policy_file_path) = &report.policy_file_path {
                 lines.push(format!(
                     "browser capture rollback browser policy file: {policy_file_path}"
+                ));
+            }
+            if let Some(profile_prefs_file_path) = &report.profile_prefs_file_path {
+                lines.push(format!(
+                    "browser capture rollback Firefox profile prefs file: {profile_prefs_file_path}"
                 ));
             }
             if let Some(snapshot) = &report.rollback_snapshot {
@@ -6629,6 +6884,8 @@ struct JsonBrowserCapturePacRequest {
     policy_file_path: Option<String>,
     policy_url: Option<String>,
     policy_content: Option<String>,
+    profile_prefs_file_path: Option<String>,
+    profile_prefs_content: Option<String>,
 }
 
 impl From<&LinuxBrowserCapturePacRequest> for JsonBrowserCapturePacRequest {
@@ -6645,6 +6902,8 @@ impl From<&LinuxBrowserCapturePacRequest> for JsonBrowserCapturePacRequest {
             policy_file_path: request.policy_file_path.clone(),
             policy_url: request.policy_url.clone(),
             policy_content: request.policy_content.clone(),
+            profile_prefs_file_path: request.profile_prefs_file_path.clone(),
+            profile_prefs_content: request.profile_prefs_content.clone(),
         }
     }
 }
@@ -6971,6 +7230,7 @@ struct JsonBrowserCaptureApplyReport {
     pac_url: Option<String>,
     policy_file_path: Option<String>,
     policy_url: Option<String>,
+    profile_prefs_file_path: Option<String>,
     rollback_snapshot: Option<JsonBrowserCaptureRollbackSnapshot>,
     blocked_operations: Vec<String>,
 }
@@ -6985,6 +7245,7 @@ impl From<&LinuxBrowserCaptureApplyReport> for JsonBrowserCaptureApplyReport {
             pac_url: report.pac_url.clone(),
             policy_file_path: report.policy_file_path.clone(),
             policy_url: report.policy_url.clone(),
+            profile_prefs_file_path: report.profile_prefs_file_path.clone(),
             rollback_snapshot: report
                 .rollback_snapshot
                 .as_ref()
@@ -7000,6 +7261,7 @@ struct JsonBrowserCaptureRollbackReport {
     rolled_back: bool,
     pac_file_path: Option<String>,
     policy_file_path: Option<String>,
+    profile_prefs_file_path: Option<String>,
     rollback_snapshot: Option<JsonBrowserCaptureRollbackSnapshot>,
     blocked_operations: Vec<String>,
 }
@@ -7011,6 +7273,7 @@ impl From<&LinuxBrowserCaptureRollbackReport> for JsonBrowserCaptureRollbackRepo
             rolled_back: report.rolled_back,
             pac_file_path: report.pac_file_path.clone(),
             policy_file_path: report.policy_file_path.clone(),
+            profile_prefs_file_path: report.profile_prefs_file_path.clone(),
             rollback_snapshot: report
                 .rollback_snapshot
                 .as_ref()

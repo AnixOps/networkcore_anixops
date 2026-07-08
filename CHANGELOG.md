@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+## v0.1.0-alpha.10 - 2026-07-09
+
+### Added
+
+- 新增授权 dedicated Firefox profile prefs apply/rollback：`networkcore-linux mitm browser-capture apply --confirm --pac-file <path> [--policy-file <path>] [--profile-prefs-file <path>] --snapshot <path>` 现在可写入用户指定 Firefox profile `user.js` 的显式代理设置；`--proxy-scheme socks5` 会写 SOCKS5 proxy 和 remote DNS prefs，rollback 会在未被外部修改时恢复原内容或删除 NetworkCore 新建文件。该增量仍不修改系统代理、system PAC、TUN、DNS、firewall 或 CA，也不承诺静默/全自动 browser hijack、HTTPS 解密或 HTTP/TLS rewrite。
+- 固定后续 alpha 切片：`v0.1.0-alpha.11` 只推进 CA artifact lifecycle foundation，不做 HTTPS rewrite；`v0.1.0-alpha.12` 再作为 HTTP/TLS rewrite 候选切片。CI governance 同步恢复对 `v0.1.0-alpha.9`、`v0.1.0-alpha.10`、`v0.1.0-alpha.11` 和 `v0.1.0-alpha.12` 的逐版本矩阵检查。
+
 ## v0.1.0-alpha.9 - 2026-07-09
 
 说明：本节顶部的 `Changed` 条目描述当前仓库状态；下方较早的 `Added` 条目保留了当时增量的
@@ -12,9 +19,9 @@ placeholder/blocked 语境时，以 README、ROADMAP、TODO 和对应 source con
 ### Changed
 
 - `mitm browser-capture traffic-proof --confirm` 现在支持可选 `--target-url <url>`，并在省略 `--proof-token`/`--proof-log` 时使用与 `session-plan`/`launch --confirm` 一致的默认 proof token、`proof_target_url` 和 `MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH`；默认 token 改为由 CONNECT endpoint 和计划 proxy URL 派生，可与 native SOCKS5 CONNECT 诊断对齐，让 dedicated browser proof 会话和后续 proof log 检查更容易关联；该增量仍只读取 operator-provided proof log，不写系统代理、不安装浏览器 policy、system PAC、TUN、DNS、firewall 或 CA。
-- 新增 [Alpha Release Feature Matrix](docs/alpha-release-feature-matrix.md)，逐版本记录 `v0.1.0-alpha.1` 到 `v0.1.0-alpha.8` 的已发布能力边界，并把 `v0.1.0-alpha.9`、`v0.1.0-alpha.10+`、`v0.1.0-alpha.11+` 的规划切片写入 README、ROADMAP、TODO、Release Strategy、Linux CLI README、`mitm-policy` README、Linux MITM browser capture source contract、CI policy 和 workflow 静态门禁。
+- 新增 [Alpha Release Feature Matrix](docs/alpha-release-feature-matrix.md)，逐版本记录 `v0.1.0-alpha.1` 到 `v0.1.0-alpha.8` 的已发布能力边界，并把 `v0.1.0-alpha.9`、`v0.1.0-alpha.10`、`v0.1.0-alpha.11` 和 `v0.1.0-alpha.12` 的规划切片写入 README、ROADMAP、TODO、Release Strategy、Linux CLI README、`mitm-policy` README、Linux MITM browser capture source contract、CI policy 和 workflow 静态门禁。
 - `networkcore-linux start` 现在通过 `native_proxy_engine_service_with_builtin_mitm_plugin` 注入内置 `networkcore.adblock` MITM hook；`engine-native` 在 SOCKS5 CONNECT 进入 outbound 前调用 `NativeHttpMitmPluginHook`，插件返回 `Reject` 时写 SOCKS5 general failure response 并记录 `engine.native.runtime.http_mitm_connect_reject_applied`，同时输出 `engine.native.runtime.http_mitm_connect_browser_proof_observed` 记录默认 browser proof token、CONNECT target 和本地 socks5 proxy URL。该增量只覆盖 explicit proxy CONNECT 阻断和 proof 诊断，不解密 HTTPS，不安装 CA，不写 browser/system proxy，也不应用 redirect/header/body/script rewrite 到真实 HTTP 请求/响应。
-- README、TODO、Linux CLI README、`mitm-policy` README、Linux CLI entrypoint 设计、Linux MITM browser capture source contract、CI policy 和 workflow 现在把当前源码状态同步为 `MITM_BROWSER_CAPTURE_GATE=pac-policy-artifact-active/system-mutation-blocked`：current main 可写 operator-provided NetworkCore PAC artifact、可选 Chromium/Chrome managed proxy policy artifact 和 rollback snapshot，但仍不安装 browser policy、系统代理、system PAC、TUN、DNS、firewall 或 CA 状态。
+- README、TODO、Linux CLI README、`mitm-policy` README、Linux CLI entrypoint 设计、Linux MITM browser capture source contract、CI policy 和 workflow 现在把当前源码状态同步为 `MITM_BROWSER_CAPTURE_GATE=pac-policy-profile-prefs-active/system-mutation-blocked`：current main 可写 operator-provided NetworkCore PAC artifact、可选 Chromium/Chrome managed proxy policy artifact 和 rollback snapshot，但仍不安装 browser policy、系统代理、system PAC、TUN、DNS、firewall 或 CA 状态。
 - README、ROADMAP、TODO、Linux CLI README、`mitm-policy` README 和 Linux CLI entrypoint 设计进一步明确当前仓库阶段只能判定为 P4 Client And Platform Integration；P3 只保留为 completed baseline、历史 TODO 或 CHANGELOG 审计语境，不能再作为当前开发、发布或 source contract 阶段。
 - README、ROADMAP、TODO、Linux CLI README、`mitm-policy` README、Linux CLI entrypoint 设计、Linux MITM browser capture source contract 和 CI policy 现在固定 `P4 backlog buckets`：订阅/客户端兼容、MITM 数据面和证书生命周期、浏览器捕获用户闭环；P3 只保留为 completed baseline 或历史条目。
 - README、ROADMAP、TODO、Release Strategy 和 Linux artifact 合同文档进一步拆清当前 P4 状态、`v0.1.0-alpha.8` artifact 边界、`mitm browser-capture verify --confirm`/`session-plan`/`--target-url` 已进入可下载 Linux CLI artifact 的语境，以及历史 placeholder 合同字段的审计语境；P3 仅保留为 completed baseline。

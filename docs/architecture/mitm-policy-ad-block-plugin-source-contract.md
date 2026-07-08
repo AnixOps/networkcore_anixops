@@ -176,7 +176,7 @@ Blocked until later phases:
   `mitm_status.certificate_plan`; later increments must add CA generation,
   user-approved install, trust detection, fingerprint/expiration/revocation
   checks, uninstall, and rollback boundaries.
-- `MITM_BROWSER_CAPTURE_GATE`: currently pac-policy-artifact-active/system-mutation-blocked through
+- `MITM_BROWSER_CAPTURE_GATE`: currently pac-policy-profile-prefs-active/system-mutation-blocked through
   `mitm_status.browser_plan`, manual launch-plan output, redacted session-plan
   output, optional target URL, `--proxy-scheme socks5` native plugin proxy mode, explicit dedicated-profile launch output, explicit local proxy endpoint verify output, target route verify output, proof-log-token traffic proof output, and
   NetworkCore PAC/browser policy artifact apply/rollback plus mutation-blocked `browser_capture` reports;
@@ -245,6 +245,6 @@ CI must prove:
   `MITM_BROWSER_CAPTURE_GATE`, and `MITM_HTTP_TLS_DATA_PLANE_GATE` visible
   while user-facing MITM is deferred;
 - docs keep the Linux MITM browser capture source contract discoverable while
-  `MITM_BROWSER_CAPTURE_GATE` remains pac-policy-artifact-active/system-mutation-blocked;
+  `MITM_BROWSER_CAPTURE_GATE` remains pac-policy-profile-prefs-active/system-mutation-blocked;
 - Rust CI builds and tests the workspace on Linux, macOS, and Windows;
 - local machines do not run build, test, package, or release verification.
