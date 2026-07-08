@@ -228,11 +228,19 @@ jobs:
           grep -q 'mitm-policy = { path = "../../crates/mitm-policy" }' apps/linux-cli/Cargo.toml
           grep -q "networkcore-linux mitm" apps/linux-cli/src/lib.rs
           grep -q "LinuxMitmStatus" apps/linux-cli/src/lib.rs
+          grep -q "LinuxMitmCertificatePlan" apps/linux-cli/src/lib.rs
           grep -q "mitm_status" apps/linux-cli/src/lib.rs
+          grep -q "certificate_plan" apps/linux-cli/src/lib.rs
           grep -q "handle_mitm_status" apps/linux-cli/src/lib.rs
+          grep -q "handle_mitm_certificate_plan" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_POLICY_READY_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_CERTIFICATE_PLAN_READY_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE" apps/linux-cli/src/lib.rs
+          grep -q "MITM_CERTIFICATE_PLAN_STATUS" apps/linux-cli/src/lib.rs
+          grep -q "MITM_CERTIFICATE_MUTATION_READY" apps/linux-cli/src/lib.rs
           grep -q "parses_mitm_status_and_diagnostics_commands" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_certificate_plan_reports_plan_only_lifecycle_without_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_status_json_output_contains_machine_fields" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm-cli-command-gate-status=partial-active" README.md
           grep -q "mitm-cli-command-gate-status=partial-active" ROADMAP.md
@@ -244,14 +252,25 @@ jobs:
           grep -q "mitm-cli-command-gate-status=partial-active" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "mitm-cli-command-gate-status=partial-active" docs/architecture/linux-cli-entrypoint.md
           grep -q "MITM_CLI_COMMAND_GATE.*partial-active" docs/ci-cd-policy.md
+          grep -q "MITM_CERTIFICATE_LIFECYCLE_GATE.*plan-only" docs/ci-cd-policy.md
+          grep -q "certificate-plan" README.md
+          grep -q "certificate-plan" apps/linux-cli/README.md
+          grep -q "certificate-plan" crates/mitm-policy/README.md
+          grep -q "certificate-plan" docs/architecture/mitm-anixops-adapter.md
+          grep -q "certificate-plan" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
+          grep -q "certificate-plan" docs/architecture/linux-cli-entrypoint.md
+          grep -q "certificate_plan" README.md
+          grep -q "certificate_plan" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
+          grep -q "mutation_ready=false" README.md
+          grep -q "mutation_ready=false" docs/architecture/mitm-anixops-adapter.md
           grep -q "browser hijack" README.md
           grep -q "browser hijack" apps/linux-cli/README.md
           if grep -Fq '没有 `networkcore-linux mitm` 命令' README.md ROADMAP.md TODO.md CHANGELOG.md docs/architecture/mitm-anixops-adapter.md docs/architecture/mitm-policy-ad-block-plugin-source-contract.md; then
-            echo "::error::MITM docs must not say the Linux CLI has no networkcore-linux mitm command after the status/diagnostics gate landed."
+            echo "::error::MITM docs must not say the Linux CLI has no networkcore-linux mitm command after the status/diagnostics/certificate-plan gate landed."
             exit 1
           fi
           if grep -Fq 'no `networkcore-linux mitm` command' README.md ROADMAP.md TODO.md CHANGELOG.md apps/linux-cli/README.md crates/mitm-policy/README.md docs/architecture/mitm-policy-ad-block-plugin-source-contract.md; then
-            echo "::error::MITM docs must describe the current status/diagnostics-only networkcore-linux mitm command surface."
+            echo "::error::MITM docs must describe the current status/diagnostics/certificate-plan networkcore-linux mitm command surface."
             exit 1
           fi
           grep -q "MITM_CLI_COMMAND_GATE" README.md

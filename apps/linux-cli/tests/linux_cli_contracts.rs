@@ -21,24 +21,27 @@ use networkcore_linux::{
     cli_help_text, handle_capabilities, handle_entrypoint, handle_entrypoint_with_runtime,
     handle_entrypoint_with_runtime_and_lifecycle,
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
-    handle_foreground_lifecycle_with_runtime_stop, handle_install_sing_box, handle_mitm_status,
-    handle_parse_error, handle_prepare_config, handle_run_url_with_sing_box, handle_start,
-    handle_status, handle_stop, parse_args, render_response, ConfigReadError, ConfigReader,
-    CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
-    ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
-    ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxCliCommand, LinuxCliExitCode,
-    OutputFormat, UnavailableForegroundLifecycleHost, UnavailableProxyEngineService,
-    CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
-    CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE, CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE,
-    CLI_MITM_CLI_GATE_PARTIAL_CODE, CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE,
-    CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE, CLI_START_FOREGROUND_ONLY_CODE,
-    CLI_START_LIFECYCLE_FAILED_CODE, CLI_START_LIFECYCLE_HOST_MISSING_CODE,
-    CLI_START_LIFECYCLE_INTERRUPTED_CODE, CLI_START_PLATFORM_DENIED_CODE,
-    CLI_START_RUNTIME_STOP_FAILED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
-    CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
-    MITM_BROWSER_HIJACK_STATUS, MITM_CERTIFICATE_LIFECYCLE_GATE,
-    MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS, MITM_CLI_COMMAND_GATE, MITM_CLI_COMMAND_GATE_STATUS,
-    MITM_HTTP_TLS_DATA_PLANE_GATE, MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS, MITM_USER_FACING_STAGE,
+    handle_foreground_lifecycle_with_runtime_stop, handle_install_sing_box,
+    handle_mitm_certificate_plan, handle_mitm_status, handle_parse_error, handle_prepare_config,
+    handle_run_url_with_sing_box, handle_start, handle_status, handle_stop, parse_args,
+    render_response, ConfigReadError, ConfigReader, CurrentProcessForegroundLifecycleHost,
+    ForegroundLifecycleHost, ForegroundLifecycleInterruption,
+    ForegroundLifecycleInterruptionSource, ForegroundLifecycleOutcome, ForegroundLifecycleRequest,
+    LinuxCliCommand, LinuxCliExitCode, OutputFormat, UnavailableForegroundLifecycleHost,
+    UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
+    CLI_CONFIG_READ_FAILED_CODE, CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE,
+    CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE, CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE,
+    CLI_MITM_CERTIFICATE_PLAN_READY_CODE, CLI_MITM_CLI_GATE_PARTIAL_CODE,
+    CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE, CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE,
+    CLI_START_FOREGROUND_ONLY_CODE, CLI_START_LIFECYCLE_FAILED_CODE,
+    CLI_START_LIFECYCLE_HOST_MISSING_CODE, CLI_START_LIFECYCLE_INTERRUPTED_CODE,
+    CLI_START_PLATFORM_DENIED_CODE, CLI_START_RUNTIME_STOP_FAILED_CODE,
+    CLI_STATUS_NO_RUNTIME_CONTEXT_CODE, CLI_STATUS_PLATFORM_ONLY_CODE,
+    CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID, MITM_BROWSER_HIJACK_STATUS,
+    MITM_CERTIFICATE_LIFECYCLE_GATE, MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS,
+    MITM_CERTIFICATE_MUTATION_READY, MITM_CERTIFICATE_PLAN_STATUS, MITM_CLI_COMMAND_GATE,
+    MITM_CLI_COMMAND_GATE_STATUS, MITM_HTTP_TLS_DATA_PLANE_GATE,
+    MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS, MITM_USER_FACING_STAGE,
 };
 #[cfg(unix)]
 use networkcore_linux::{
@@ -91,7 +94,7 @@ fn parses_help_command_and_renders_command_table() {
     assert!(rendered.contains("NetworkCore Linux CLI"));
     assert!(rendered.contains("install-sing-box"));
     assert!(rendered.contains("run-url"));
-    assert!(rendered.contains("mitm [status|diagnostics]"));
+    assert!(rendered.contains("mitm [status|diagnostics|certificate-plan]"));
     assert!(rendered.contains("sing-box install"));
 }
 
@@ -103,6 +106,10 @@ fn parses_mitm_status_and_diagnostics_commands() {
     let status_options =
         parse_args(["mitm", "--format", "json"]).expect("mitm options should imply status");
     let diagnostics = parse_args(["mitm", "diagnostics"]).expect("mitm diagnostics should parse");
+    let certificate_plan = parse_args(["mitm", "certificate-plan", "--format", "json"])
+        .expect("mitm certificate plan should parse");
+    let cert_plan_alias =
+        parse_args(["mitm", "cert-plan"]).expect("mitm cert-plan alias should parse");
 
     assert_eq!(
         default_status,
@@ -125,6 +132,18 @@ fn parses_mitm_status_and_diagnostics_commands() {
     assert_eq!(
         diagnostics,
         LinuxCliCommand::MitmDiagnostics {
+            format: OutputFormat::Text
+        }
+    );
+    assert_eq!(
+        certificate_plan,
+        LinuxCliCommand::MitmCertificatePlan {
+            format: OutputFormat::Json
+        }
+    );
+    assert_eq!(
+        cert_plan_alias,
+        LinuxCliCommand::MitmCertificatePlan {
             format: OutputFormat::Text
         }
     );
@@ -329,9 +348,14 @@ fn mitm_status_loads_builtin_policy_and_reports_deferred_gates() {
     assert!(response.platform.is_some());
     assert_diagnostic(&response.diagnostics, CLI_MITM_POLICY_READY_CODE);
     assert_diagnostic(&response.diagnostics, CLI_MITM_CLI_GATE_PARTIAL_CODE);
+    assert_diagnostic(&response.diagnostics, CLI_MITM_CERTIFICATE_PLAN_READY_CODE);
     assert_diagnostic(
         &response.diagnostics,
         CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE,
+    );
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE,
     );
     assert_diagnostic(
         &response.diagnostics,
@@ -348,6 +372,22 @@ fn mitm_status_loads_builtin_policy_and_reports_deferred_gates() {
     assert_eq!(mitm.browser_hijack, MITM_BROWSER_HIJACK_STATUS);
     assert!(!mitm.platform_mitm_available);
     assert_eq!(mitm.certificate_state, "not_installed");
+    assert_eq!(mitm.certificate_plan.status, MITM_CERTIFICATE_PLAN_STATUS);
+    assert_eq!(
+        mitm.certificate_plan.mutation_ready,
+        MITM_CERTIFICATE_MUTATION_READY
+    );
+    assert_eq!(mitm.certificate_plan.current_state, "not_installed");
+    assert!(mitm
+        .certificate_plan
+        .required_steps
+        .iter()
+        .any(|step| step.id == "generate-local-ca" && step.status == "blocked"));
+    assert!(mitm
+        .certificate_plan
+        .blocked_operations
+        .iter()
+        .any(|operation| operation == "configure-browser-proxy"));
     assert_eq!(
         mitm.policy.plugin_id,
         mitm_policy::MITM_POLICY_AD_BLOCK_PLUGIN_ID
@@ -374,7 +414,66 @@ fn mitm_status_loads_builtin_policy_and_reports_deferred_gates() {
     let rendered = render_response(&response, OutputFormat::Text);
     assert!(rendered.contains("mitm stage: policy-only"));
     assert!(rendered.contains("browser hijack: deferred"));
+    assert!(rendered.contains("certificate plan: plan-only mutation_ready=false"));
+    assert!(rendered.contains("certificate step generate-local-ca: blocked"));
     assert!(rendered.contains("gate MITM_CLI_COMMAND_GATE: partial-active"));
+}
+
+#[test]
+fn mitm_certificate_plan_reports_plan_only_lifecycle_without_mutation() {
+    let platform = StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot {
+        mitm_certificate: LinuxCertificateProbe::new(CertificateTrustState::InstalledUntrusted)
+            .with_subject("NetworkCore Test CA")
+            .with_fingerprint_sha256(
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            ),
+        ..LinuxPlatformSnapshot::available_for_tests()
+    });
+
+    let response = handle_mitm_certificate_plan(&platform);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "mitm certificate-plan");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Success);
+    assert_diagnostic(&response.diagnostics, CLI_MITM_CERTIFICATE_PLAN_READY_CODE);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE,
+    );
+    let mitm = response
+        .mitm_status
+        .as_ref()
+        .expect("certificate plan response should include mitm status");
+    assert_eq!(mitm.certificate_state, "installed_untrusted");
+    assert_eq!(mitm.certificate_plan.status, MITM_CERTIFICATE_PLAN_STATUS);
+    assert!(!mitm.certificate_plan.mutation_ready);
+    assert_eq!(
+        mitm.certificate_plan.subject.as_deref(),
+        Some("NetworkCore Test CA")
+    );
+    assert_eq!(
+        mitm.certificate_plan.fingerprint_sha256.as_deref(),
+        Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+    );
+    assert!(mitm
+        .certificate_plan
+        .required_steps
+        .iter()
+        .any(|step| step.id == "probe-certificate-state" && step.status == "active"));
+    assert!(mitm
+        .certificate_plan
+        .required_steps
+        .iter()
+        .any(|step| step.id == "install-user-trust" && step.status == "blocked"));
+    assert!(mitm
+        .certificate_plan
+        .blocked_operations
+        .iter()
+        .any(|operation| operation == "trust-ca"));
+
+    let rendered = render_response(&response, OutputFormat::Text);
+    assert!(rendered.contains("certificate subject: NetworkCore Test CA"));
+    assert!(rendered.contains("certificate blocked operation: trust-ca"));
 }
 
 #[test]
@@ -412,19 +511,28 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
         },
         &platform,
     );
+    let certificate_plan = handle_entrypoint(
+        LinuxCliCommand::MitmCertificatePlan {
+            format: OutputFormat::Text,
+        },
+        &platform,
+    );
 
     assert!(capabilities.ok);
     assert!(status.ok);
     assert!(diagnostics.ok);
     assert!(mitm.ok);
+    assert!(certificate_plan.ok);
     assert_eq!(capabilities.command, "capabilities");
     assert_eq!(status.command, "status");
     assert_eq!(diagnostics.command, "diagnostics");
     assert_eq!(mitm.command, "mitm status");
+    assert_eq!(certificate_plan.command, "mitm certificate-plan");
     assert_diagnostic(&capabilities.diagnostics, DNS_MANAGER_UNKNOWN_CODE);
     assert_diagnostic(&status.diagnostics, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE);
     assert_diagnostic(&diagnostics.diagnostics, DNS_MANAGER_UNKNOWN_CODE);
     assert!(mitm.mitm_status.is_some());
+    assert!(certificate_plan.mitm_status.is_some());
 }
 
 #[test]
@@ -967,6 +1075,37 @@ fn mitm_status_json_output_contains_machine_fields() {
     assert_eq!(
         json["mitm_status"]["browser_hijack"],
         MITM_BROWSER_HIJACK_STATUS
+    );
+    assert_eq!(
+        json["mitm_status"]["certificate_plan"]["status"],
+        MITM_CERTIFICATE_PLAN_STATUS
+    );
+    assert_eq!(
+        json["mitm_status"]["certificate_plan"]["mutation_ready"].as_bool(),
+        Some(MITM_CERTIFICATE_MUTATION_READY)
+    );
+    assert_eq!(
+        json["mitm_status"]["certificate_plan"]["current_state"],
+        "trusted"
+    );
+    assert_eq!(
+        json["mitm_status"]["certificate_plan"]["subject"],
+        "NetworkCore Test CA"
+    );
+    assert_eq!(
+        json["mitm_status"]["certificate_plan"]["fingerprint_sha256"],
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    );
+    assert_eq!(
+        json["mitm_status"]["certificate_plan"]["required_steps"][0]["id"],
+        "probe-certificate-state"
+    );
+    assert!(
+        json["mitm_status"]["certificate_plan"]["blocked_operations"]
+            .as_array()
+            .expect("blocked operations should be an array")
+            .iter()
+            .any(|operation| operation.as_str() == Some("decrypt-https"))
     );
     assert_eq!(
         json["mitm_status"]["policy"]["plugin_id"],

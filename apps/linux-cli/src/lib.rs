@@ -62,8 +62,11 @@ pub const CLI_RUN_URL_CONFIG_WRITE_FAILED_CODE: &str = "cli.linux.run_url.config
 pub const CLI_RUN_URL_PROCESS_FAILED_CODE: &str = "cli.linux.run_url.process_failed";
 pub const CLI_MITM_POLICY_READY_CODE: &str = "cli.linux.mitm.policy_ready";
 pub const CLI_MITM_CLI_GATE_PARTIAL_CODE: &str = "cli.linux.mitm.cli_gate.partial";
+pub const CLI_MITM_CERTIFICATE_PLAN_READY_CODE: &str = "cli.linux.mitm.certificate_plan.ready";
 pub const CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE: &str =
     "cli.linux.mitm.certificate_gate.deferred";
+pub const CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE: &str =
+    "cli.linux.mitm.certificate_mutation.blocked";
 pub const CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE: &str = "cli.linux.mitm.data_plane_gate.deferred";
 pub const CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE: &str = "cli.linux.mitm.browser_hijack.deferred";
 
@@ -71,9 +74,11 @@ pub const MITM_CLI_COMMAND_GATE: &str = "MITM_CLI_COMMAND_GATE";
 pub const MITM_CERTIFICATE_LIFECYCLE_GATE: &str = "MITM_CERTIFICATE_LIFECYCLE_GATE";
 pub const MITM_HTTP_TLS_DATA_PLANE_GATE: &str = "MITM_HTTP_TLS_DATA_PLANE_GATE";
 pub const MITM_CLI_COMMAND_GATE_STATUS: &str = "partial-active";
-pub const MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS: &str = "blocked";
+pub const MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS: &str = "plan-only";
 pub const MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS: &str = "blocked";
 pub const MITM_BROWSER_HIJACK_STATUS: &str = "deferred";
+pub const MITM_CERTIFICATE_PLAN_STATUS: &str = "plan-only";
+pub const MITM_CERTIFICATE_MUTATION_READY: bool = false;
 pub const MITM_USER_FACING_STAGE: &str = "policy-only";
 pub const MITM_USER_FACING_READY: bool = false;
 
@@ -164,6 +169,9 @@ pub enum LinuxCliCommand {
     MitmDiagnostics {
         format: OutputFormat,
     },
+    MitmCertificatePlan {
+        format: OutputFormat,
+    },
     InstallSingBox {
         install_dir: Option<String>,
         force: bool,
@@ -192,6 +200,7 @@ impl LinuxCliCommand {
             Self::Diagnostics { .. } => "diagnostics",
             Self::MitmStatus { .. } => "mitm status",
             Self::MitmDiagnostics { .. } => "mitm diagnostics",
+            Self::MitmCertificatePlan { .. } => "mitm certificate-plan",
             Self::InstallSingBox { .. } => "install-sing-box",
             Self::RunUrl { .. } => "run-url",
         }
@@ -209,6 +218,7 @@ impl LinuxCliCommand {
             | Self::Diagnostics { format }
             | Self::MitmStatus { format }
             | Self::MitmDiagnostics { format }
+            | Self::MitmCertificatePlan { format }
             | Self::InstallSingBox { format, .. }
             | Self::RunUrl { format, .. } => *format,
         }
@@ -374,8 +384,27 @@ pub struct LinuxMitmStatus {
     pub browser_hijack: String,
     pub platform_mitm_available: bool,
     pub certificate_state: String,
+    pub certificate_plan: LinuxMitmCertificatePlan,
     pub policy: LinuxMitmPolicyStatus,
     pub gates: Vec<LinuxMitmGateStatus>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxMitmCertificatePlan {
+    pub status: String,
+    pub mutation_ready: bool,
+    pub current_state: String,
+    pub subject: Option<String>,
+    pub fingerprint_sha256: Option<String>,
+    pub required_steps: Vec<LinuxMitmCertificatePlanStep>,
+    pub blocked_operations: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxMitmCertificatePlanStep {
+    pub id: String,
+    pub status: String,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -821,6 +850,7 @@ where
         LinuxCliCommand::Diagnostics { .. } => handle_diagnostics(platform),
         LinuxCliCommand::MitmStatus { .. } => handle_mitm_status(platform),
         LinuxCliCommand::MitmDiagnostics { .. } => handle_mitm_diagnostics(platform),
+        LinuxCliCommand::MitmCertificatePlan { .. } => handle_mitm_certificate_plan(platform),
         LinuxCliCommand::Stop { .. } => handle_stop(),
         other => handle_unwired_command(other.name()),
     }
@@ -1203,6 +1233,13 @@ where
     handle_mitm_status_inner("mitm diagnostics", platform)
 }
 
+pub fn handle_mitm_certificate_plan<P>(platform: &P) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+{
+    handle_mitm_status_inner("mitm certificate-plan", platform)
+}
+
 fn handle_mitm_status_inner<P>(command: &'static str, platform: &P) -> LinuxCliResponse
 where
     P: PlatformCapabilityService,
@@ -1258,13 +1295,25 @@ fn build_linux_mitm_status(
     diagnostics.push(cli_diagnostic(
         DiagnosticSeverity::Info,
         CLI_MITM_CLI_GATE_PARTIAL_CODE,
-        "MITM_CLI_COMMAND_GATE is partially active for status and diagnostics only",
+        "MITM_CLI_COMMAND_GATE is partially active for status, diagnostics, and certificate plan only",
+        SOURCE_CLI_MITM,
+    ));
+    diagnostics.push(cli_diagnostic(
+        DiagnosticSeverity::Info,
+        CLI_MITM_CERTIFICATE_PLAN_READY_CODE,
+        "MITM certificate lifecycle plan is available for CLI inspection",
         SOURCE_CLI_MITM,
     ));
     diagnostics.push(cli_diagnostic(
         DiagnosticSeverity::Warning,
         CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE,
-        "MITM_CERTIFICATE_LIFECYCLE_GATE is blocked; no CA generation, install, trust, revocation, or rollback path is active",
+        "MITM_CERTIFICATE_LIFECYCLE_GATE is plan-only; no CA generation, install, trust, revocation, or rollback path mutates the host",
+        SOURCE_CLI_MITM,
+    ));
+    diagnostics.push(cli_diagnostic(
+        DiagnosticSeverity::Warning,
+        CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE,
+        "MITM certificate mutation is blocked; the CLI does not write private keys, CA certificates, or trust store state",
         SOURCE_CLI_MITM,
     ));
     diagnostics.push(cli_diagnostic(
@@ -1287,6 +1336,7 @@ fn build_linux_mitm_status(
         platform_mitm_available: platform_status.mitm_available(),
         certificate_state: certificate_state_name(platform_status.mitm_certificate.state)
             .to_string(),
+        certificate_plan: build_linux_mitm_certificate_plan(platform_status),
         policy: LinuxMitmPolicyStatus {
             engine: "mitm_anixops".to_string(),
             engine_version: report.version,
@@ -1307,7 +1357,8 @@ fn build_linux_mitm_status(
             LinuxMitmGateStatus {
                 gate: MITM_CERTIFICATE_LIFECYCLE_GATE.to_string(),
                 status: MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS.to_string(),
-                reason: "CA lifecycle is not implemented in the Linux CLI".to_string(),
+                reason: "certificate lifecycle plan is exposed; CA mutation remains blocked"
+                    .to_string(),
             },
             LinuxMitmGateStatus {
                 gate: MITM_HTTP_TLS_DATA_PLANE_GATE.to_string(),
@@ -1320,6 +1371,99 @@ fn build_linux_mitm_status(
     debug_assert_eq!(status.policy.plugin_id, MITM_POLICY_AD_BLOCK_PLUGIN_ID);
 
     Ok((status, diagnostics))
+}
+
+fn build_linux_mitm_certificate_plan(
+    platform_status: &PlatformCapabilityStatus,
+) -> LinuxMitmCertificatePlan {
+    let current_state = certificate_state_name(platform_status.mitm_certificate.state);
+    let trust_satisfied = platform_status.mitm_certificate.is_trusted();
+
+    LinuxMitmCertificatePlan {
+        status: MITM_CERTIFICATE_PLAN_STATUS.to_string(),
+        mutation_ready: MITM_CERTIFICATE_MUTATION_READY,
+        current_state: current_state.to_string(),
+        subject: platform_status.mitm_certificate.subject.clone(),
+        fingerprint_sha256: platform_status.mitm_certificate.fingerprint_sha256.clone(),
+        required_steps: vec![
+            LinuxMitmCertificatePlanStep {
+                id: "probe-certificate-state".to_string(),
+                status: "active".to_string(),
+                reason: "read-only platform certificate state is available".to_string(),
+            },
+            LinuxMitmCertificatePlanStep {
+                id: "generate-local-ca".to_string(),
+                status: "blocked".to_string(),
+                reason: "local CA key and certificate generation command is not implemented"
+                    .to_string(),
+            },
+            LinuxMitmCertificatePlanStep {
+                id: "install-user-trust".to_string(),
+                status: certificate_trust_step_status(trust_satisfied).to_string(),
+                reason: certificate_trust_step_reason(platform_status.mitm_certificate.state)
+                    .to_string(),
+            },
+            LinuxMitmCertificatePlanStep {
+                id: "verify-trust".to_string(),
+                status: certificate_trust_step_status(trust_satisfied).to_string(),
+                reason: certificate_verify_step_reason(platform_status.mitm_certificate.state)
+                    .to_string(),
+            },
+            LinuxMitmCertificatePlanStep {
+                id: "rollback-trust".to_string(),
+                status: "blocked".to_string(),
+                reason:
+                    "certificate revocation and trust store rollback command is not implemented"
+                        .to_string(),
+            },
+            LinuxMitmCertificatePlanStep {
+                id: "connect-http-tls-data-plane".to_string(),
+                status: "blocked".to_string(),
+                reason: "HTTP/TLS interception data plane is not wired to the MITM policy engine"
+                    .to_string(),
+            },
+        ],
+        blocked_operations: vec![
+            "generate-ca".to_string(),
+            "install-ca".to_string(),
+            "trust-ca".to_string(),
+            "revoke-ca".to_string(),
+            "rollback-ca".to_string(),
+            "decrypt-https".to_string(),
+            "mutate-live-http".to_string(),
+            "configure-browser-proxy".to_string(),
+        ],
+    }
+}
+
+fn certificate_trust_step_status(trust_satisfied: bool) -> &'static str {
+    if trust_satisfied {
+        "satisfied"
+    } else {
+        "blocked"
+    }
+}
+
+fn certificate_trust_step_reason(state: CertificateTrustState) -> &'static str {
+    match state {
+        CertificateTrustState::Trusted => "platform reports a trusted MITM certificate",
+        CertificateTrustState::InstalledUntrusted => {
+            "certificate is installed but the Linux trust path is not active"
+        }
+        CertificateTrustState::NotInstalled => "certificate is not installed",
+        CertificateTrustState::Revoked => "certificate is revoked",
+        CertificateTrustState::Unknown => "certificate trust state is unknown",
+    }
+}
+
+fn certificate_verify_step_reason(state: CertificateTrustState) -> &'static str {
+    match state {
+        CertificateTrustState::Trusted => "read-only platform probe reports trusted state",
+        CertificateTrustState::InstalledUntrusted => "trusted state cannot be verified yet",
+        CertificateTrustState::NotInstalled => "no installed certificate is available to verify",
+        CertificateTrustState::Revoked => "revoked certificate cannot be verified for MITM use",
+        CertificateTrustState::Unknown => "certificate trust state probe is inconclusive",
+    }
 }
 
 pub fn handle_install_sing_box<I>(
@@ -1672,6 +1816,12 @@ fn parse_mitm_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseE
                 format: options.format,
             })
         }
+        "certificate-plan" | "cert-plan" => {
+            let options = parse_options(&args[1..])?;
+            Ok(LinuxCliCommand::MitmCertificatePlan {
+                format: options.format,
+            })
+        }
         unknown => Err(parse_error(
             CLI_ARGUMENT_UNKNOWN_CODE,
             format!("unknown mitm subcommand: {unknown}; run networkcore-linux help"),
@@ -1733,7 +1883,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux stop [--format text|json]\n",
         "  networkcore-linux status [--format text|json]\n",
         "  networkcore-linux diagnostics [--format text|json]\n",
-        "  networkcore-linux mitm [status|diagnostics] [--format text|json]\n",
+        "  networkcore-linux mitm [status|diagnostics|certificate-plan] [--format text|json]\n",
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux run-url <ss://url> [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux sing-box install [--install-dir <dir>] [--force] [--format text|json]\n",
@@ -1747,7 +1897,7 @@ pub const fn cli_help_text() -> &'static str {
         "  stop              Report that daemon stop is unavailable in this build.\n",
         "  status            Report platform-only status without a daemon context.\n",
         "  diagnostics       Print platform diagnostics.\n",
-        "  mitm              Report MITM plugin policy status and deferred browser hijack gates.\n",
+        "  mitm              Report MITM plugin policy status, certificate plan, and deferred browser hijack gates.\n",
         "  install-sing-box  Download the latest official sing-box archive and cache its executable.\n",
         "  run-url           Parse a proxy URL, render sing-box config, and run a local foreground proxy.\n",
         "\n",
@@ -2001,6 +2151,31 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
         ));
         lines.push(format!("certificate state: {}", mitm.certificate_state));
         lines.push(format!(
+            "certificate plan: {} mutation_ready={}",
+            mitm.certificate_plan.status, mitm.certificate_plan.mutation_ready
+        ));
+        lines.push(format!(
+            "certificate plan current state: {}",
+            mitm.certificate_plan.current_state
+        ));
+        if let Some(subject) = &mitm.certificate_plan.subject {
+            lines.push(format!("certificate subject: {subject}"));
+        }
+        if let Some(fingerprint_sha256) = &mitm.certificate_plan.fingerprint_sha256 {
+            lines.push(format!(
+                "certificate fingerprint sha256: {fingerprint_sha256}"
+            ));
+        }
+        for step in &mitm.certificate_plan.required_steps {
+            lines.push(format!(
+                "certificate step {}: {} ({})",
+                step.id, step.status, step.reason
+            ));
+        }
+        for operation in &mitm.certificate_plan.blocked_operations {
+            lines.push(format!("certificate blocked operation: {operation}"));
+        }
+        lines.push(format!(
             "policy engine: {} {}",
             mitm.policy.engine, mitm.policy.engine_version
         ));
@@ -2175,6 +2350,7 @@ struct JsonMitmStatus {
     browser_hijack: String,
     platform_mitm_available: bool,
     certificate_state: String,
+    certificate_plan: JsonMitmCertificatePlan,
     policy: JsonMitmPolicyStatus,
     gates: Vec<JsonMitmGateStatus>,
 }
@@ -2187,8 +2363,55 @@ impl From<&LinuxMitmStatus> for JsonMitmStatus {
             browser_hijack: status.browser_hijack.clone(),
             platform_mitm_available: status.platform_mitm_available,
             certificate_state: status.certificate_state.clone(),
+            certificate_plan: JsonMitmCertificatePlan::from(&status.certificate_plan),
             policy: JsonMitmPolicyStatus::from(&status.policy),
             gates: status.gates.iter().map(JsonMitmGateStatus::from).collect(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonMitmCertificatePlan {
+    status: String,
+    mutation_ready: bool,
+    current_state: String,
+    subject: Option<String>,
+    fingerprint_sha256: Option<String>,
+    required_steps: Vec<JsonMitmCertificatePlanStep>,
+    blocked_operations: Vec<String>,
+}
+
+impl From<&LinuxMitmCertificatePlan> for JsonMitmCertificatePlan {
+    fn from(plan: &LinuxMitmCertificatePlan) -> Self {
+        Self {
+            status: plan.status.clone(),
+            mutation_ready: plan.mutation_ready,
+            current_state: plan.current_state.clone(),
+            subject: plan.subject.clone(),
+            fingerprint_sha256: plan.fingerprint_sha256.clone(),
+            required_steps: plan
+                .required_steps
+                .iter()
+                .map(JsonMitmCertificatePlanStep::from)
+                .collect(),
+            blocked_operations: plan.blocked_operations.clone(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonMitmCertificatePlanStep {
+    id: String,
+    status: String,
+    reason: String,
+}
+
+impl From<&LinuxMitmCertificatePlanStep> for JsonMitmCertificatePlanStep {
+    fn from(step: &LinuxMitmCertificatePlanStep) -> Self {
+        Self {
+            id: step.id.clone(),
+            status: step.status.clone(),
+            reason: step.reason.clone(),
         }
     }
 }

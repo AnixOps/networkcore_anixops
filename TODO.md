@@ -9,17 +9,18 @@ P3 runtime baseline 已完成并保留后续 runtime backlog。
 Linux artifact release-state consistency 已固定为 `linux-artifact-release-state=confirmed-release-path`；
 license/NOTICE 已 confirmed，但后续 tag release 仍必须经过同 commit CI、checksum、manifest、
 attestation、release notes、rollback 和 publish eligibility gates。
-MITM CLI command gate 已进入状态/诊断部分激活：
+MITM CLI command gate 已进入状态/诊断/证书计划部分激活：
 `mitm-cli-command-gate-status=partial-active`；browser hijack 仍为 deferred。
 
 - [ ] 扩展订阅格式和 managed lifecycle：在 `run-url` foreground 闭环基础上，继续接入 VLESS/VMess/Trojan、Clash YAML、sing-box JSON、Surge/Loon/Quantumult X 高频子集、节点选择、持久订阅、managed status/events/logs/reload/rollback，并为后续真实 MITM 数据面接入补充独立 source contract。
-- [ ] 补齐用户可用 MITM 后续门禁：`MITM_CLI_COMMAND_GATE` 已有 `networkcore-linux mitm status/diagnostics` 和 `mitm_status` JSON 字段，但仍需扩展到可操作命令面；`MITM_CERTIFICATE_LIFECYCLE_GATE` 实现 CA 生成、安装、信任检测、撤销和回滚；`MITM_HTTP_TLS_DATA_PLANE_GATE` 在 HTTP/TLS 数据面中应用 `mitm-policy` URL/header/body/script rewrite plan。当前 `mitm-policy` 和 Linux CLI 只做策略状态、deferred mutation 诊断和 browser hijack deferred 输出，不能直接拦截或改写真实流量。
+- [ ] 补齐用户可用 MITM 后续门禁：`MITM_CLI_COMMAND_GATE` 已有 `networkcore-linux mitm status/diagnostics/certificate-plan`、`mitm_status` JSON 字段和 `certificate_plan` 机器字段，但仍需扩展到真正可执行的用户操作；`MITM_CERTIFICATE_LIFECYCLE_GATE` 当前为 plan-only，后续必须实现 CA 生成、安装、信任检测、撤销和回滚；`MITM_HTTP_TLS_DATA_PLANE_GATE` 在 HTTP/TLS 数据面中应用 `mitm-policy` URL/header/body/script rewrite plan。当前 `mitm-policy` 和 Linux CLI 只做策略状态、证书计划、deferred mutation 诊断和 browser hijack deferred 输出，不能直接拦截或改写真实流量。
 
 说明：已完成条目保留当时的阶段状态；当前 runtime 方向以 [ROADMAP.md](ROADMAP.md) 和 [docs/architecture/adr-0002-public-engine-adapter-first.md](docs/architecture/adr-0002-public-engine-adapter-first.md) 为准。
 
 ## 已完成
 
-- [x] 激活 `MITM_CLI_COMMAND_GATE` 的 status/diagnostics 最小入口：`networkcore-linux mitm status`、`networkcore-linux mitm diagnostics`、`mitm_status` JSON 机器字段、内置 `networkcore.adblock` policy load 诊断和 `mitm-cli-command-gate-status=partial-active` marker 已进入 Linux CLI；CA lifecycle、HTTP/TLS data plane 和 browser hijack 仍 blocked/deferred。验证仍只通过 GitHub Actions。
+- [x] 扩展 `MITM_CLI_COMMAND_GATE` 的证书计划入口：`networkcore-linux mitm certificate-plan` 已输出 `mitm_status.certificate_plan` 机器字段、当前证书状态、计划步骤、blocked operations、`cli.linux.mitm.certificate_plan.ready` 和 `cli.linux.mitm.certificate_mutation.blocked` 诊断；CA 生成/安装/信任/撤销/回滚仍不执行 mutation，HTTP/TLS data plane 和 browser hijack 仍 blocked/deferred。验证仍只通过 GitHub Actions。
+- [x] 激活 `MITM_CLI_COMMAND_GATE` 的 status/diagnostics 最小入口：`networkcore-linux mitm status`、`networkcore-linux mitm diagnostics`、`mitm_status` JSON 机器字段、内置 `networkcore.adblock` policy load 诊断和 `mitm-cli-command-gate-status=partial-active` marker 已进入 Linux CLI；该条目已由后续 `certificate-plan` 增量扩展，真实 HTTP/TLS data plane 和 browser hijack 仍 blocked/deferred。验证仍只通过 GitHub Actions。
 - [x] 固化 Linux artifact release-state consistency gate：README、ROADMAP、TODO、CHANGELOG、Release Strategy、Linux license/NOTICE confirmation contract、transition validation contract、pre-release design、manual intervention marker、CI governance 和 release readiness 现在统一使用 `linux-artifact-release-state=confirmed-release-path`；license/NOTICE confirmed 只解除人工门禁，Linux tag release 仍必须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates。
 - [x] 固化第三方插件接入流程：新增 Third-Party Plugin Onboarding Process，要求后续 plugin、plugin parser、script runtime 或兼容核心先建立 source contract、固定 upstream source、确认 license/NOTICE、定义 permission/safe wrapper/CI governance 和 upgrade procedure；CI governance 已纳入该流程和现有 `networkcore.adblock` source contract anchor。验证仍只通过 GitHub Actions。
 - [x] 接入 `mitm_anixops v0.45.10-alpha` 并新增 `mitm-policy`：子模块固定到 `a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0`，`mitm-anixops-sys` 扩展低层 FFI，`mitm-policy` 提供 safe wrapper、`AnixOpsMitmPluginService`、manifest/permission gate、内置 `networkcore.adblock` alpha 去广告插件包、rewrite plan/header/body chain/script/JQ guard wrapper 合同和 deferred mutation 诊断；真实 HTTP/TLS 改写仍等待 mutation model 与数据面。验证仍只通过 GitHub Actions。
