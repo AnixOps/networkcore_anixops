@@ -18,19 +18,25 @@ still needs a domain mutation model and HTTP/TLS data plane before URL/header/bo
 rewrite results can be applied to live requests or responses.
 
 User-facing live MITM is not available yet. The current Linux CLI exposes
-`networkcore-linux mitm status`, `networkcore-linux mitm diagnostics`, and
-`networkcore-linux mitm certificate-plan`; the command surface reports
-policy-only status, a certificate lifecycle plan, and deferred browser hijack
-gates. It does not generate or install a CA, decrypt HTTPS traffic, or apply
-rewrite plans to live traffic.
+`networkcore-linux mitm status`, `networkcore-linux mitm diagnostics`,
+`networkcore-linux mitm certificate-plan`, and
+`networkcore-linux mitm browser-plan`; the command surface reports
+policy-only status, a certificate lifecycle plan, a browser capture plan, and
+deferred browser hijack gates. It does not generate or install a CA, decrypt
+HTTPS traffic, write browser/system proxy state, or apply rewrite plans to
+live traffic.
 
 Required gates before user-facing MITM:
 
-- `MITM_CLI_COMMAND_GATE`: partially active for status, diagnostics, and
-  certificate-plan only.
+- `MITM_CLI_COMMAND_GATE`: partially active for status, diagnostics,
+  certificate-plan, and browser-plan only.
 - `MITM_CERTIFICATE_LIFECYCLE_GATE`: currently plan-only through
   `mitm_status.certificate_plan`; later increments must implement CA
   generation, install, trust detection, revocation, and rollback boundaries.
+- `MITM_BROWSER_CAPTURE_GATE`: currently plan-only through
+  `mitm_status.browser_plan`; later increments must implement explicit
+  browser/system proxy configuration, PAC or other capture strategy, live
+  capture verification, and rollback boundaries.
 - `MITM_HTTP_TLS_DATA_PLANE_GATE`: wire HTTP/TLS interception to
   `mitm-policy` rewrite plans.
 

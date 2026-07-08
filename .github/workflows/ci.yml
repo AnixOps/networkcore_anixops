@@ -229,18 +229,27 @@ jobs:
           grep -q "networkcore-linux mitm" apps/linux-cli/src/lib.rs
           grep -q "LinuxMitmStatus" apps/linux-cli/src/lib.rs
           grep -q "LinuxMitmCertificatePlan" apps/linux-cli/src/lib.rs
+          grep -q "LinuxMitmBrowserPlan" apps/linux-cli/src/lib.rs
           grep -q "mitm_status" apps/linux-cli/src/lib.rs
           grep -q "certificate_plan" apps/linux-cli/src/lib.rs
+          grep -q "browser_plan" apps/linux-cli/src/lib.rs
           grep -q "handle_mitm_status" apps/linux-cli/src/lib.rs
           grep -q "handle_mitm_certificate_plan" apps/linux-cli/src/lib.rs
+          grep -q "handle_mitm_browser_plan" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_POLICY_READY_CODE" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_CERTIFICATE_PLAN_READY_CODE" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_BROWSER_PLAN_READY_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE" apps/linux-cli/src/lib.rs
           grep -q "MITM_CERTIFICATE_PLAN_STATUS" apps/linux-cli/src/lib.rs
           grep -q "MITM_CERTIFICATE_MUTATION_READY" apps/linux-cli/src/lib.rs
+          grep -q "MITM_BROWSER_CAPTURE_GATE" apps/linux-cli/src/lib.rs
+          grep -q "MITM_BROWSER_PLAN_STATUS" apps/linux-cli/src/lib.rs
+          grep -q "MITM_BROWSER_CAPTURE_MUTATION_READY" apps/linux-cli/src/lib.rs
           grep -q "parses_mitm_status_and_diagnostics_commands" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_certificate_plan_reports_plan_only_lifecycle_without_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_browser_plan_reports_capture_plan_without_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_status_json_output_contains_machine_fields" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm-cli-command-gate-status=partial-active" README.md
           grep -q "mitm-cli-command-gate-status=partial-active" ROADMAP.md
@@ -253,39 +262,55 @@ jobs:
           grep -q "mitm-cli-command-gate-status=partial-active" docs/architecture/linux-cli-entrypoint.md
           grep -q "MITM_CLI_COMMAND_GATE.*partial-active" docs/ci-cd-policy.md
           grep -q "MITM_CERTIFICATE_LIFECYCLE_GATE.*plan-only" docs/ci-cd-policy.md
+          grep -q "MITM_BROWSER_CAPTURE_GATE.*plan-only" docs/ci-cd-policy.md
           grep -q "certificate-plan" README.md
           grep -q "certificate-plan" apps/linux-cli/README.md
           grep -q "certificate-plan" crates/mitm-policy/README.md
           grep -q "certificate-plan" docs/architecture/mitm-anixops-adapter.md
           grep -q "certificate-plan" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "certificate-plan" docs/architecture/linux-cli-entrypoint.md
+          grep -q "browser-plan" README.md
+          grep -q "browser-plan" apps/linux-cli/README.md
+          grep -q "browser-plan" crates/mitm-policy/README.md
+          grep -q "browser-plan" docs/architecture/mitm-anixops-adapter.md
+          grep -q "browser-plan" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
+          grep -q "browser-plan" docs/architecture/linux-cli-entrypoint.md
           grep -q "certificate_plan" README.md
           grep -q "certificate_plan" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
+          grep -q "browser_plan" README.md
+          grep -q "browser_plan" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "mutation_ready=false" README.md
           grep -q "mutation_ready=false" docs/architecture/mitm-anixops-adapter.md
+          grep -q "127.0.0.1:7890" README.md
+          grep -q "127.0.0.1:7890" apps/linux-cli/README.md
+          grep -q "127.0.0.1:7890" docs/architecture/mitm-anixops-adapter.md
           grep -q "browser hijack" README.md
           grep -q "browser hijack" apps/linux-cli/README.md
           if grep -Fq '没有 `networkcore-linux mitm` 命令' README.md ROADMAP.md TODO.md CHANGELOG.md docs/architecture/mitm-anixops-adapter.md docs/architecture/mitm-policy-ad-block-plugin-source-contract.md; then
-            echo "::error::MITM docs must not say the Linux CLI has no networkcore-linux mitm command after the status/diagnostics/certificate-plan gate landed."
+            echo "::error::MITM docs must not say the Linux CLI has no networkcore-linux mitm command after the status/diagnostics/certificate-plan/browser-plan gate landed."
             exit 1
           fi
           if grep -Fq 'no `networkcore-linux mitm` command' README.md ROADMAP.md TODO.md CHANGELOG.md apps/linux-cli/README.md crates/mitm-policy/README.md docs/architecture/mitm-policy-ad-block-plugin-source-contract.md; then
-            echo "::error::MITM docs must describe the current status/diagnostics/certificate-plan networkcore-linux mitm command surface."
+            echo "::error::MITM docs must describe the current status/diagnostics/certificate-plan/browser-plan networkcore-linux mitm command surface."
             exit 1
           fi
           grep -q "MITM_CLI_COMMAND_GATE" README.md
           grep -q "MITM_CERTIFICATE_LIFECYCLE_GATE" README.md
           grep -q "MITM_HTTP_TLS_DATA_PLANE_GATE" README.md
+          grep -q "MITM_BROWSER_CAPTURE_GATE" README.md
           grep -q "networkcore-linux mitm" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "MITM_CLI_COMMAND_GATE" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "MITM_CERTIFICATE_LIFECYCLE_GATE" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "MITM_HTTP_TLS_DATA_PLANE_GATE" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
+          grep -q "MITM_BROWSER_CAPTURE_GATE" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "MITM_CLI_COMMAND_GATE" docs/architecture/mitm-anixops-adapter.md
           grep -q "MITM_CERTIFICATE_LIFECYCLE_GATE" docs/architecture/mitm-anixops-adapter.md
           grep -q "MITM_HTTP_TLS_DATA_PLANE_GATE" docs/architecture/mitm-anixops-adapter.md
+          grep -q "MITM_BROWSER_CAPTURE_GATE" docs/architecture/mitm-anixops-adapter.md
           grep -q "MITM_CLI_COMMAND_GATE" TODO.md
           grep -q "MITM_CERTIFICATE_LIFECYCLE_GATE" TODO.md
           grep -q "MITM_HTTP_TLS_DATA_PLANE_GATE" TODO.md
+          grep -q "MITM_BROWSER_CAPTURE_GATE" TODO.md
           grep -q "Third-Party Plugin Onboarding Process" docs/architecture/third-party-plugin-onboarding-process.md
           grep -q "third-party-plugin-onboarding-status=active" docs/architecture/third-party-plugin-onboarding-process.md
           grep -q "THIRD_PARTY_PLUGIN_SOURCE_CONTRACT" docs/architecture/third-party-plugin-onboarding-process.md

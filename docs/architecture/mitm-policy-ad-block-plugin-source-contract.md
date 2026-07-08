@@ -33,6 +33,7 @@ Required source anchors:
 - `MITM_CLI_COMMAND_GATE`
 - `MITM_CERTIFICATE_LIFECYCLE_GATE`
 - `MITM_HTTP_TLS_DATA_PLANE_GATE`
+- `MITM_BROWSER_CAPTURE_GATE`
 
 The package id is fixed as:
 
@@ -54,17 +55,20 @@ Current user-facing status: MITM is policy-only. There is no
 live URL/header/body/script mutation path in the published CLI. The Linux CLI
 now exposes `networkcore-linux mitm status`,
 `networkcore-linux mitm diagnostics`, and
-`networkcore-linux mitm certificate-plan` as a
-status/diagnostics/certificate-plan command surface. It reports:
+`networkcore-linux mitm certificate-plan`, and
+`networkcore-linux mitm browser-plan` as a
+status/diagnostics/certificate-plan/browser-plan command surface. It reports:
 
 ```text
 mitm-cli-command-gate-status=partial-active
 ```
 
 `certificate-plan` adds `mitm_status.certificate_plan` with current certificate
-state, plan steps, blocked operations, and `mutation_ready=false`. There is
-still no CA generation/install/trust mutation workflow, no HTTPS decryption
-path, and no browser hijack path.
+state, plan steps, blocked operations, and `mutation_ready=false`.
+`browser-plan` adds `mitm_status.browser_plan` with current capture state, the
+planned explicit proxy `127.0.0.1:7890`, plan steps, blocked operations, and
+`mutation_ready=false`. There is still no CA generation/install/trust mutation
+workflow, no HTTPS decryption path, and no browser/system proxy mutation path.
 
 ## Multi-Client Boundary
 
@@ -108,6 +112,10 @@ Blocked until later phases:
   `mitm_status.certificate_plan`; later increments must add CA generation,
   user-approved install, trust detection, fingerprint/expiration/revocation
   checks, uninstall, and rollback boundaries.
+- `MITM_BROWSER_CAPTURE_GATE`: currently plan-only through
+  `mitm_status.browser_plan`; later increments must add explicit browser/system
+  proxy configuration, PAC or other capture strategy, live capture verification,
+  and rollback boundaries.
 - `MITM_HTTP_TLS_DATA_PLANE_GATE`: HTTP CONNECT/TLS interception, SNI/host
   routing, HTTP/1.1 and HTTP/2 parsing, body buffering/limits, compression
   handling, and application of `mitm-policy` URL/header/body/script rewrite
@@ -135,11 +143,13 @@ CI must prove:
 - `mitm-policy` exposes the built-in ad-block package and adapter service;
 - `mitm-policy` exposes 0.45.10 rewrite plan, header, body chain, script, and
   JQ max-input wrapper contracts;
-- Linux CLI exposes `mitm_status` JSON and `mitm_status.certificate_plan` for
-  `networkcore-linux mitm status/diagnostics/certificate-plan`, keeps
-  `mitm-cli-command-gate-status=partial-active`, and reports browser hijack as
-  deferred;
-- docs keep `MITM_CLI_COMMAND_GATE`, `MITM_CERTIFICATE_LIFECYCLE_GATE`, and
-  `MITM_HTTP_TLS_DATA_PLANE_GATE` visible while user-facing MITM is deferred;
+- Linux CLI exposes `mitm_status` JSON, `mitm_status.certificate_plan`, and
+  `mitm_status.browser_plan` for
+  `networkcore-linux mitm status/diagnostics/certificate-plan/browser-plan`,
+  keeps `mitm-cli-command-gate-status=partial-active`, and reports browser
+  hijack as deferred;
+- docs keep `MITM_CLI_COMMAND_GATE`, `MITM_CERTIFICATE_LIFECYCLE_GATE`,
+  `MITM_BROWSER_CAPTURE_GATE`, and `MITM_HTTP_TLS_DATA_PLANE_GATE` visible
+  while user-facing MITM is deferred;
 - Rust CI builds and tests the workspace on Linux, macOS, and Windows;
 - local machines do not run build, test, package, or release verification.

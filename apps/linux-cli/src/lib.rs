@@ -68,17 +68,27 @@ pub const CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE: &str =
 pub const CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE: &str =
     "cli.linux.mitm.certificate_mutation.blocked";
 pub const CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE: &str = "cli.linux.mitm.data_plane_gate.deferred";
+pub const CLI_MITM_BROWSER_PLAN_READY_CODE: &str = "cli.linux.mitm.browser_plan.ready";
+pub const CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE: &str =
+    "cli.linux.mitm.browser_capture_mutation.blocked";
 pub const CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE: &str = "cli.linux.mitm.browser_hijack.deferred";
 
 pub const MITM_CLI_COMMAND_GATE: &str = "MITM_CLI_COMMAND_GATE";
 pub const MITM_CERTIFICATE_LIFECYCLE_GATE: &str = "MITM_CERTIFICATE_LIFECYCLE_GATE";
 pub const MITM_HTTP_TLS_DATA_PLANE_GATE: &str = "MITM_HTTP_TLS_DATA_PLANE_GATE";
+pub const MITM_BROWSER_CAPTURE_GATE: &str = "MITM_BROWSER_CAPTURE_GATE";
 pub const MITM_CLI_COMMAND_GATE_STATUS: &str = "partial-active";
 pub const MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS: &str = "plan-only";
 pub const MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS: &str = "blocked";
+pub const MITM_BROWSER_CAPTURE_GATE_STATUS: &str = "plan-only";
 pub const MITM_BROWSER_HIJACK_STATUS: &str = "deferred";
 pub const MITM_CERTIFICATE_PLAN_STATUS: &str = "plan-only";
 pub const MITM_CERTIFICATE_MUTATION_READY: bool = false;
+pub const MITM_BROWSER_PLAN_STATUS: &str = "plan-only";
+pub const MITM_BROWSER_CAPTURE_MUTATION_READY: bool = false;
+pub const MITM_BROWSER_CAPTURE_PROXY_HOST: &str = "127.0.0.1";
+pub const MITM_BROWSER_CAPTURE_PROXY_PORT: u16 = 7890;
+pub const MITM_BROWSER_CAPTURE_MODE: &str = "explicit-proxy";
 pub const MITM_USER_FACING_STAGE: &str = "policy-only";
 pub const MITM_USER_FACING_READY: bool = false;
 
@@ -172,6 +182,9 @@ pub enum LinuxCliCommand {
     MitmCertificatePlan {
         format: OutputFormat,
     },
+    MitmBrowserPlan {
+        format: OutputFormat,
+    },
     InstallSingBox {
         install_dir: Option<String>,
         force: bool,
@@ -201,6 +214,7 @@ impl LinuxCliCommand {
             Self::MitmStatus { .. } => "mitm status",
             Self::MitmDiagnostics { .. } => "mitm diagnostics",
             Self::MitmCertificatePlan { .. } => "mitm certificate-plan",
+            Self::MitmBrowserPlan { .. } => "mitm browser-plan",
             Self::InstallSingBox { .. } => "install-sing-box",
             Self::RunUrl { .. } => "run-url",
         }
@@ -219,6 +233,7 @@ impl LinuxCliCommand {
             | Self::MitmStatus { format }
             | Self::MitmDiagnostics { format }
             | Self::MitmCertificatePlan { format }
+            | Self::MitmBrowserPlan { format }
             | Self::InstallSingBox { format, .. }
             | Self::RunUrl { format, .. } => *format,
         }
@@ -385,6 +400,7 @@ pub struct LinuxMitmStatus {
     pub platform_mitm_available: bool,
     pub certificate_state: String,
     pub certificate_plan: LinuxMitmCertificatePlan,
+    pub browser_plan: LinuxMitmBrowserPlan,
     pub policy: LinuxMitmPolicyStatus,
     pub gates: Vec<LinuxMitmGateStatus>,
 }
@@ -402,6 +418,25 @@ pub struct LinuxMitmCertificatePlan {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinuxMitmCertificatePlanStep {
+    pub id: String,
+    pub status: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxMitmBrowserPlan {
+    pub status: String,
+    pub mutation_ready: bool,
+    pub current_capture: String,
+    pub planned_capture_mode: String,
+    pub planned_proxy_host: String,
+    pub planned_proxy_port: u16,
+    pub required_steps: Vec<LinuxMitmBrowserPlanStep>,
+    pub blocked_operations: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxMitmBrowserPlanStep {
     pub id: String,
     pub status: String,
     pub reason: String,
@@ -851,6 +886,7 @@ where
         LinuxCliCommand::MitmStatus { .. } => handle_mitm_status(platform),
         LinuxCliCommand::MitmDiagnostics { .. } => handle_mitm_diagnostics(platform),
         LinuxCliCommand::MitmCertificatePlan { .. } => handle_mitm_certificate_plan(platform),
+        LinuxCliCommand::MitmBrowserPlan { .. } => handle_mitm_browser_plan(platform),
         LinuxCliCommand::Stop { .. } => handle_stop(),
         other => handle_unwired_command(other.name()),
     }
@@ -1240,6 +1276,13 @@ where
     handle_mitm_status_inner("mitm certificate-plan", platform)
 }
 
+pub fn handle_mitm_browser_plan<P>(platform: &P) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+{
+    handle_mitm_status_inner("mitm browser-plan", platform)
+}
+
 fn handle_mitm_status_inner<P>(command: &'static str, platform: &P) -> LinuxCliResponse
 where
     P: PlatformCapabilityService,
@@ -1295,7 +1338,7 @@ fn build_linux_mitm_status(
     diagnostics.push(cli_diagnostic(
         DiagnosticSeverity::Info,
         CLI_MITM_CLI_GATE_PARTIAL_CODE,
-        "MITM_CLI_COMMAND_GATE is partially active for status, diagnostics, and certificate plan only",
+        "MITM_CLI_COMMAND_GATE is partially active for status, diagnostics, certificate plan, and browser plan only",
         SOURCE_CLI_MITM,
     ));
     diagnostics.push(cli_diagnostic(
@@ -1323,9 +1366,21 @@ fn build_linux_mitm_status(
         SOURCE_CLI_MITM,
     ));
     diagnostics.push(cli_diagnostic(
+        DiagnosticSeverity::Info,
+        CLI_MITM_BROWSER_PLAN_READY_CODE,
+        "MITM browser capture plan is available for CLI inspection",
+        SOURCE_CLI_MITM,
+    ));
+    diagnostics.push(cli_diagnostic(
+        DiagnosticSeverity::Warning,
+        CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE,
+        "MITM browser capture mutation is blocked; the CLI does not write browser policy, system proxy, PAC, TUN, DNS, or firewall state",
+        SOURCE_CLI_MITM,
+    ));
+    diagnostics.push(cli_diagnostic(
         DiagnosticSeverity::Warning,
         CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE,
-        "browser hijack is deferred until certificate lifecycle and HTTP/TLS data plane gates are active",
+        "browser hijack is deferred until certificate lifecycle, HTTP/TLS data plane, and browser capture gates are active",
         SOURCE_CLI_MITM,
     ));
 
@@ -1337,6 +1392,7 @@ fn build_linux_mitm_status(
         certificate_state: certificate_state_name(platform_status.mitm_certificate.state)
             .to_string(),
         certificate_plan: build_linux_mitm_certificate_plan(platform_status),
+        browser_plan: build_linux_mitm_browser_plan(platform_status),
         policy: LinuxMitmPolicyStatus {
             engine: "mitm_anixops".to_string(),
             engine_version: report.version,
@@ -1352,7 +1408,7 @@ fn build_linux_mitm_status(
             LinuxMitmGateStatus {
                 gate: MITM_CLI_COMMAND_GATE.to_string(),
                 status: MITM_CLI_COMMAND_GATE_STATUS.to_string(),
-                reason: "status and diagnostics command surface is active".to_string(),
+                reason: "MITM planning command surface is active".to_string(),
             },
             LinuxMitmGateStatus {
                 gate: MITM_CERTIFICATE_LIFECYCLE_GATE.to_string(),
@@ -1365,12 +1421,77 @@ fn build_linux_mitm_status(
                 status: MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS.to_string(),
                 reason: "live HTTP/TLS interception and mutation are not wired".to_string(),
             },
+            LinuxMitmGateStatus {
+                gate: MITM_BROWSER_CAPTURE_GATE.to_string(),
+                status: MITM_BROWSER_CAPTURE_GATE_STATUS.to_string(),
+                reason: "browser capture plan is exposed; proxy/browser mutation remains blocked"
+                    .to_string(),
+            },
         ],
     };
 
     debug_assert_eq!(status.policy.plugin_id, MITM_POLICY_AD_BLOCK_PLUGIN_ID);
 
     Ok((status, diagnostics))
+}
+
+fn build_linux_mitm_browser_plan(
+    platform_status: &PlatformCapabilityStatus,
+) -> LinuxMitmBrowserPlan {
+    let trust_satisfied = platform_status.mitm_certificate.is_trusted();
+
+    LinuxMitmBrowserPlan {
+        status: MITM_BROWSER_PLAN_STATUS.to_string(),
+        mutation_ready: MITM_BROWSER_CAPTURE_MUTATION_READY,
+        current_capture: "not_configured".to_string(),
+        planned_capture_mode: MITM_BROWSER_CAPTURE_MODE.to_string(),
+        planned_proxy_host: MITM_BROWSER_CAPTURE_PROXY_HOST.to_string(),
+        planned_proxy_port: MITM_BROWSER_CAPTURE_PROXY_PORT,
+        required_steps: vec![
+            LinuxMitmBrowserPlanStep {
+                id: "load-mitm-policy".to_string(),
+                status: "active".to_string(),
+                reason: "built-in networkcore.adblock policy can be loaded".to_string(),
+            },
+            LinuxMitmBrowserPlanStep {
+                id: "verify-certificate-trust".to_string(),
+                status: certificate_trust_step_status(trust_satisfied).to_string(),
+                reason: certificate_verify_step_reason(platform_status.mitm_certificate.state)
+                    .to_string(),
+            },
+            LinuxMitmBrowserPlanStep {
+                id: "start-http-tls-mitm-proxy".to_string(),
+                status: "blocked".to_string(),
+                reason: "HTTP/TLS MITM proxy data plane is not wired".to_string(),
+            },
+            LinuxMitmBrowserPlanStep {
+                id: "configure-browser-explicit-proxy".to_string(),
+                status: "blocked".to_string(),
+                reason: "browser proxy configuration mutation is not implemented".to_string(),
+            },
+            LinuxMitmBrowserPlanStep {
+                id: "verify-browser-traffic-capture".to_string(),
+                status: "blocked".to_string(),
+                reason: "no live browser traffic capture probe is available".to_string(),
+            },
+            LinuxMitmBrowserPlanStep {
+                id: "rollback-browser-capture".to_string(),
+                status: "blocked".to_string(),
+                reason: "browser/system proxy rollback command is not implemented".to_string(),
+            },
+        ],
+        blocked_operations: vec![
+            "start-mitm-proxy".to_string(),
+            "write-system-proxy".to_string(),
+            "write-browser-policy".to_string(),
+            "install-pac".to_string(),
+            "configure-tun-capture".to_string(),
+            "configure-dns-capture".to_string(),
+            "configure-firewall-capture".to_string(),
+            "verify-live-browser-capture".to_string(),
+            "rollback-browser-capture".to_string(),
+        ],
+    }
 }
 
 fn build_linux_mitm_certificate_plan(
@@ -1822,6 +1943,12 @@ fn parse_mitm_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseE
                 format: options.format,
             })
         }
+        "browser-plan" | "browser-capture-plan" | "hijack-plan" => {
+            let options = parse_options(&args[1..])?;
+            Ok(LinuxCliCommand::MitmBrowserPlan {
+                format: options.format,
+            })
+        }
         unknown => Err(parse_error(
             CLI_ARGUMENT_UNKNOWN_CODE,
             format!("unknown mitm subcommand: {unknown}; run networkcore-linux help"),
@@ -1883,7 +2010,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux stop [--format text|json]\n",
         "  networkcore-linux status [--format text|json]\n",
         "  networkcore-linux diagnostics [--format text|json]\n",
-        "  networkcore-linux mitm [status|diagnostics|certificate-plan] [--format text|json]\n",
+        "  networkcore-linux mitm [status|diagnostics|certificate-plan|browser-plan] [--format text|json]\n",
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux run-url <ss://url> [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux sing-box install [--install-dir <dir>] [--force] [--format text|json]\n",
@@ -1897,7 +2024,7 @@ pub const fn cli_help_text() -> &'static str {
         "  stop              Report that daemon stop is unavailable in this build.\n",
         "  status            Report platform-only status without a daemon context.\n",
         "  diagnostics       Print platform diagnostics.\n",
-        "  mitm              Report MITM plugin policy status, certificate plan, and deferred browser hijack gates.\n",
+        "  mitm              Report MITM plugin policy status, certificate/browser plans, and deferred browser hijack gates.\n",
         "  install-sing-box  Download the latest official sing-box archive and cache its executable.\n",
         "  run-url           Parse a proxy URL, render sing-box config, and run a local foreground proxy.\n",
         "\n",
@@ -2176,6 +2303,31 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             lines.push(format!("certificate blocked operation: {operation}"));
         }
         lines.push(format!(
+            "browser plan: {} mutation_ready={}",
+            mitm.browser_plan.status, mitm.browser_plan.mutation_ready
+        ));
+        lines.push(format!(
+            "browser capture: {}",
+            mitm.browser_plan.current_capture
+        ));
+        lines.push(format!(
+            "browser planned mode: {}",
+            mitm.browser_plan.planned_capture_mode
+        ));
+        lines.push(format!(
+            "browser planned proxy: {}:{}",
+            mitm.browser_plan.planned_proxy_host, mitm.browser_plan.planned_proxy_port
+        ));
+        for step in &mitm.browser_plan.required_steps {
+            lines.push(format!(
+                "browser step {}: {} ({})",
+                step.id, step.status, step.reason
+            ));
+        }
+        for operation in &mitm.browser_plan.blocked_operations {
+            lines.push(format!("browser blocked operation: {operation}"));
+        }
+        lines.push(format!(
             "policy engine: {} {}",
             mitm.policy.engine, mitm.policy.engine_version
         ));
@@ -2351,6 +2503,7 @@ struct JsonMitmStatus {
     platform_mitm_available: bool,
     certificate_state: String,
     certificate_plan: JsonMitmCertificatePlan,
+    browser_plan: JsonMitmBrowserPlan,
     policy: JsonMitmPolicyStatus,
     gates: Vec<JsonMitmGateStatus>,
 }
@@ -2364,8 +2517,57 @@ impl From<&LinuxMitmStatus> for JsonMitmStatus {
             platform_mitm_available: status.platform_mitm_available,
             certificate_state: status.certificate_state.clone(),
             certificate_plan: JsonMitmCertificatePlan::from(&status.certificate_plan),
+            browser_plan: JsonMitmBrowserPlan::from(&status.browser_plan),
             policy: JsonMitmPolicyStatus::from(&status.policy),
             gates: status.gates.iter().map(JsonMitmGateStatus::from).collect(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonMitmBrowserPlan {
+    status: String,
+    mutation_ready: bool,
+    current_capture: String,
+    planned_capture_mode: String,
+    planned_proxy_host: String,
+    planned_proxy_port: u16,
+    required_steps: Vec<JsonMitmBrowserPlanStep>,
+    blocked_operations: Vec<String>,
+}
+
+impl From<&LinuxMitmBrowserPlan> for JsonMitmBrowserPlan {
+    fn from(plan: &LinuxMitmBrowserPlan) -> Self {
+        Self {
+            status: plan.status.clone(),
+            mutation_ready: plan.mutation_ready,
+            current_capture: plan.current_capture.clone(),
+            planned_capture_mode: plan.planned_capture_mode.clone(),
+            planned_proxy_host: plan.planned_proxy_host.clone(),
+            planned_proxy_port: plan.planned_proxy_port,
+            required_steps: plan
+                .required_steps
+                .iter()
+                .map(JsonMitmBrowserPlanStep::from)
+                .collect(),
+            blocked_operations: plan.blocked_operations.clone(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonMitmBrowserPlanStep {
+    id: String,
+    status: String,
+    reason: String,
+}
+
+impl From<&LinuxMitmBrowserPlanStep> for JsonMitmBrowserPlanStep {
+    fn from(step: &LinuxMitmBrowserPlanStep) -> Self {
+        Self {
+            id: step.id.clone(),
+            status: step.status.clone(),
+            reason: step.reason.clone(),
         }
     }
 }
