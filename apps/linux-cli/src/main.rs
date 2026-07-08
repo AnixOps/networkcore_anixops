@@ -8,8 +8,7 @@ fn main() {
             );
             let reader = networkcore_linux::FsConfigReader;
             let lifecycle_host = networkcore_linux::CurrentProcessForegroundLifecycleHost::new();
-            let response = if matches!(&command, networkcore_linux::LinuxCliCommand::Start { .. })
-            {
+            let response = if matches!(&command, networkcore_linux::LinuxCliCommand::Start { .. }) {
                 match networkcore_linux::native_proxy_engine_service_with_builtin_mitm_plugin() {
                     Ok(native_engine) => {
                         let orchestrator = control_runtime::RuntimeOrchestrator::new(

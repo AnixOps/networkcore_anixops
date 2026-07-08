@@ -2034,11 +2034,7 @@ where
             proxy_scheme,
             confirm,
             ..
-        } => handle_mitm_browser_capture_apply_with_proxy_scheme(
-            platform,
-            &proxy_scheme,
-            confirm,
-        ),
+        } => handle_mitm_browser_capture_apply_with_proxy_scheme(platform, &proxy_scheme, confirm),
         LinuxCliCommand::MitmBrowserCaptureRollback { snapshot_path, .. } => {
             handle_mitm_browser_capture_rollback(platform, snapshot_path)
         }
@@ -4623,12 +4619,11 @@ fn browser_capture_pac_file_url(path: &str) -> String {
 }
 
 fn browser_capture_pac_content(proxy_scheme: &str, proxy_host: &str, proxy_port: u16) -> String {
-    let pac_proxy_type =
-        if proxy_scheme == MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME {
-            "SOCKS5"
-        } else {
-            "PROXY"
-        };
+    let pac_proxy_type = if proxy_scheme == MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME {
+        "SOCKS5"
+    } else {
+        "PROXY"
+    };
     format!(
         "function FindProxyForURL(url, host) {{\n  return \"{pac_proxy_type} {proxy_host}:{proxy_port}; DIRECT\";\n}}\n"
     )
@@ -4713,8 +4708,7 @@ fn build_linux_browser_capture_traffic_proof_command(
         "--proof-log".to_string(),
         proof_log_path.to_string(),
     ]);
-    args
-        .into_iter()
+    args.into_iter()
         .map(|arg| shell_display_arg(&arg))
         .collect::<Vec<_>>()
         .join(" ")
@@ -6251,9 +6245,7 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
                 ));
             }
             if let Some(policy_url) = &report.policy_url {
-                lines.push(format!(
-                    "browser capture browser policy URL: {policy_url}"
-                ));
+                lines.push(format!("browser capture browser policy URL: {policy_url}"));
             }
             if let Some(snapshot) = &report.rollback_snapshot {
                 lines.push(format!(

@@ -27,9 +27,9 @@ use networkcore_linux::{
     handle_mitm_browser_capture_apply, handle_mitm_browser_capture_apply_with_store,
     handle_mitm_browser_capture_apply_with_store_and_proxy_scheme,
     handle_mitm_browser_capture_launch, handle_mitm_browser_capture_launch_plan,
-    handle_mitm_browser_capture_launch_with_proxy_scheme,
-    handle_mitm_browser_capture_plan, handle_mitm_browser_capture_rollback,
-    handle_mitm_browser_capture_rollback_with_store, handle_mitm_browser_capture_session_plan,
+    handle_mitm_browser_capture_launch_with_proxy_scheme, handle_mitm_browser_capture_plan,
+    handle_mitm_browser_capture_rollback, handle_mitm_browser_capture_rollback_with_store,
+    handle_mitm_browser_capture_session_plan,
     handle_mitm_browser_capture_session_plan_with_proxy_scheme,
     handle_mitm_browser_capture_traffic_proof,
     handle_mitm_browser_capture_traffic_proof_with_probe, handle_mitm_browser_capture_verify,
@@ -38,9 +38,8 @@ use networkcore_linux::{
     handle_run_url_with_sing_box, handle_start, handle_status, handle_stop,
     native_proxy_engine_service_with_builtin_mitm_plugin, parse_args, render_response,
     BrowserCaptureEndpointProbe, BrowserCapturePacFileStore, BrowserCaptureProcessRunner,
-    BrowserCaptureTrafficProofProbe,
-    CommandBrowserCaptureEndpointProbe, ConfigReadError, ConfigReader,
-    CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
+    BrowserCaptureTrafficProofProbe, CommandBrowserCaptureEndpointProbe, ConfigReadError,
+    ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
     LinuxBrowserCaptureLaunchRequest, LinuxBrowserCapturePacApplyOutcome,
@@ -75,11 +74,10 @@ use networkcore_linux::{
     CLI_START_LIFECYCLE_INTERRUPTED_CODE, CLI_START_PLATFORM_DENIED_CODE,
     CLI_START_RUNTIME_STOP_FAILED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
     CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
-    MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR, MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME,
-    MITM_BROWSER_CAPTURE_GATE,
-    MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH, MITM_BROWSER_CAPTURE_GATE_STATUS,
-    MITM_BROWSER_CAPTURE_MODE, MITM_BROWSER_CAPTURE_MUTATION_READY,
-    MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME,
+    MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR, MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH,
+    MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME, MITM_BROWSER_CAPTURE_GATE,
+    MITM_BROWSER_CAPTURE_GATE_STATUS, MITM_BROWSER_CAPTURE_MODE,
+    MITM_BROWSER_CAPTURE_MUTATION_READY, MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME,
     MITM_BROWSER_CAPTURE_PROOF_QUERY_PARAM, MITM_BROWSER_CAPTURE_PROXY_HOST,
     MITM_BROWSER_CAPTURE_PROXY_PORT, MITM_BROWSER_CAPTURE_SOURCE_CONTRACT_STATUS,
     MITM_BROWSER_HIJACK_STATUS, MITM_BROWSER_PLAN_STATUS, MITM_CERTIFICATE_LIFECYCLE_GATE,
@@ -925,9 +923,8 @@ fn mitm_browser_capture_plan_outputs_source_contract_report_without_mutation() {
     assert!(capture.verify_report.is_none());
 
     let rendered = render_response(&response, OutputFormat::Text);
-    assert!(
-        rendered.contains("browser capture plan: pac-policy-artifact-active/system-mutation-blocked")
-    );
+    assert!(rendered
+        .contains("browser capture plan: pac-policy-artifact-active/system-mutation-blocked"));
     assert!(rendered.contains("browser capture source contract: active"));
 }
 
@@ -1164,9 +1161,7 @@ fn mitm_browser_capture_session_plan_can_target_native_socks5_mitm_hook() {
         .browser_command
         .args
         .contains(&"--proxy-server=socks5://127.0.0.1:7890".to_string()));
-    assert!(session
-        .verify_command
-        .contains("--proxy-scheme socks5"));
+    assert!(session.verify_command.contains("--proxy-scheme socks5"));
     assert!(session
         .traffic_proof_command
         .contains("--proxy-scheme socks5"));
@@ -1672,8 +1667,9 @@ fn mitm_browser_capture_traffic_proof_defaults_to_session_proof_binding() {
     );
 
     let rendered = render_response(&response, OutputFormat::Text);
-    assert!(rendered
-        .contains("browser capture traffic proof target URL: https://example.com/capture"));
+    assert!(
+        rendered.contains("browser capture traffic proof target URL: https://example.com/capture")
+    );
     assert!(rendered.contains(&format!(
         "browser capture traffic proof target proof URL: {expected_proof_url}"
     )));
@@ -2001,10 +1997,12 @@ fn mitm_browser_capture_apply_with_store_can_write_browser_policy_artifact() {
     );
 
     let rendered = render_response(&response, OutputFormat::Text);
-    assert!(rendered
-        .contains("browser capture browser policy file: /tmp/networkcore-browser-capture-policy.json"));
-    assert!(rendered
-        .contains("browser capture browser policy URL: file:///tmp/networkcore-browser-capture-policy.json"));
+    assert!(rendered.contains(
+        "browser capture browser policy file: /tmp/networkcore-browser-capture-policy.json"
+    ));
+    assert!(rendered.contains(
+        "browser capture browser policy URL: file:///tmp/networkcore-browser-capture-policy.json"
+    ));
 }
 
 #[test]
@@ -4099,7 +4097,9 @@ impl BrowserCapturePacFileStore for TestSocks5BrowserCapturePacFileStore {
             MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME
         );
         assert_eq!(request.proxy_url, "socks5://127.0.0.1:7890");
-        assert!(request.pac_content.contains("SOCKS5 127.0.0.1:7890; DIRECT"));
+        assert!(request
+            .pac_content
+            .contains("SOCKS5 127.0.0.1:7890; DIRECT"));
         if let Some(policy_content) = &request.policy_content {
             assert!(policy_content.contains("\"ProxyMode\": \"fixed_servers\""));
             assert!(policy_content.contains("\"ProxyServer\": \"socks5://127.0.0.1:7890\""));

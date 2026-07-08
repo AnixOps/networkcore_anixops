@@ -2317,9 +2317,9 @@ impl ProxyEngineService for NativeProxyEngineService {
         }
 
         let plan = NativeRuntimeAssemblyPlan::from_config(engine_config)?;
-        let assembly = match plan.start_loopback_accept_loop_with_http_mitm_hook(
-            self.http_mitm_hook.clone(),
-        ) {
+        let assembly = match plan
+            .start_loopback_accept_loop_with_http_mitm_hook(self.http_mitm_hook.clone())
+        {
             Ok(assembly) => assembly,
             Err(failure) => {
                 let NativeRuntimeStartupFailure { error, release } = *failure;
@@ -2734,7 +2734,10 @@ fn socks5_connect_target_valid(target: &NativeSocks5ConnectTarget) -> bool {
 fn socks5_target_host(target: &NativeSocks5ConnectTarget) -> String {
     match &target.address {
         NativeSocks5Address::Ipv4(address) => {
-            format!("{}.{}.{}.{}", address[0], address[1], address[2], address[3])
+            format!(
+                "{}.{}.{}.{}",
+                address[0], address[1], address[2], address[3]
+            )
         }
         NativeSocks5Address::DomainName(domain_name) => domain_name.clone(),
         NativeSocks5Address::Ipv6(address) => Ipv6Addr::from(*address).to_string(),
@@ -3138,10 +3141,7 @@ fn read_socks5_greeting_and_close_accepted_connection(
                             );
                             let browser_capture_proof_token =
                                 native_socks5_connect_browser_capture_proof_token(
-                                    target,
-                                    "socks5",
-                                    local_host,
-                                    local_port,
+                                    target, "socks5", local_host, local_port,
                                 );
                             rejected_by_http_mitm = mitm_plan_report
                                 .outcome
@@ -3217,10 +3217,9 @@ fn read_socks5_greeting_and_close_accepted_connection(
                                                 OUTBOUND_CONNECT_RESPONSE_READ_TIMEOUT_MS,
                                             ),
                                         ));
-                                        let read_report =
-                                            read_socks5_outbound_connect_response(
-                                                &mut outbound_stream,
-                                            );
+                                        let read_report = read_socks5_outbound_connect_response(
+                                            &mut outbound_stream,
+                                        );
                                         let response = read_report.response;
                                         diagnostics.extend(read_report.diagnostics);
                                         if let Some(response) = response.as_ref() {
@@ -3237,8 +3236,7 @@ fn read_socks5_greeting_and_close_accepted_connection(
                                             let data_relay_plan_report =
                                                 plan_socks5_outbound_connect_data_relay(readiness);
                                             let data_relay_plan = data_relay_plan_report.decision;
-                                            diagnostics
-                                                .extend(data_relay_plan_report.diagnostics);
+                                            diagnostics.extend(data_relay_plan_report.diagnostics);
                                             let client_success_readiness_report =
                                                 assess_socks5_outbound_connect_client_success_response_readiness(
                                                     data_relay_plan,

@@ -11,28 +11,28 @@ use engine_native::{
     assess_native_proxy_engine_start_readiness,
     assess_socks5_outbound_connect_client_success_response_readiness,
     assess_socks5_outbound_connect_relay_readiness, attempt_socks5_outbound_tcp_connection,
+    browser_capture_proof_token_from_connect_authority,
     build_socks5_outbound_connect_request_frame, decide_socks5_outbound_connect_response,
+    native_socks5_connect_browser_capture_proof_token, plan_socks5_connect_http_mitm,
     plan_socks5_outbound_connect_client_success_response_write,
     plan_socks5_outbound_connect_data_relay, plan_socks5_outbound_tcp_connection,
-    plan_socks5_connect_http_mitm, read_socks5_command_header, read_socks5_connect_target,
-    read_socks5_greeting, read_socks5_outbound_connect_response, reject_unsupported_socks5_command,
+    read_socks5_command_header, read_socks5_connect_target, read_socks5_greeting,
+    read_socks5_outbound_connect_response, reject_unsupported_socks5_command,
     reject_unwired_socks5_route_outbound, relay_socks5_outbound_connect_data,
     select_socks5_auth_method, select_socks5_route_outbound_behavior,
     write_socks5_auth_method_response, write_socks5_outbound_connect_client_success_response,
     write_socks5_outbound_connect_request, write_unwired_socks5_connect_failure_response,
-    BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle,
-    NativeHttpMitmPluginHook, NativeOutboundHandlerHandle, NativeProxyEngineService,
+    BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeHttpMitmPluginHook,
+    NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle, NativeProxyEngineService,
     NativeProxyEngineStartReadiness, NativeRuntimeAssembly, NativeRuntimeAssemblyPlan,
-    NativeSocks5Address,
-    NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision, NativeSocks5CommandHeader,
-    NativeSocks5ConnectTarget, NativeSocks5Greeting,
+    NativeSocks5Address, NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision,
+    NativeSocks5CommandHeader, NativeSocks5ConnectTarget, NativeSocks5Greeting,
     NativeSocks5OutboundConnectClientSuccessResponseReadiness,
     NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision,
     NativeSocks5OutboundConnectDataRelayPlanDecision, NativeSocks5OutboundConnectRelayReadiness,
     NativeSocks5OutboundConnectResponse, NativeSocks5OutboundConnectResponseDecision,
     NativeSocks5OutboundTcpConnectionPlan, NativeSocks5RouteOutboundBehavior,
     NativeSocks5RouteOutboundDecision, DEFAULT_NATIVE_ENGINE_ID,
-    browser_capture_proof_token_from_connect_authority,
     ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_ID_DUPLICATE_CODE,
@@ -44,6 +44,12 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
     ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE,
     ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_BROWSER_PROOF_OBSERVED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_EVENT_PLANNED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_PLAN_NOT_APPLIED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_PLAN_READY_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_REJECT_APPLIED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_REJECT_RESPONSE_WRITTEN_CODE,
     ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE, ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE, ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
@@ -92,18 +98,11 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_ATTEMPT_SUCCEEDED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_PLANNED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_PLAN_INVALID_CODE,
-    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_EVENT_PLANNED_CODE,
-    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_BROWSER_PROOF_OBSERVED_CODE,
-    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_PLAN_NOT_APPLIED_CODE,
-    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_PLAN_READY_CODE,
-    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_REJECT_APPLIED_CODE,
-    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_REJECT_RESPONSE_WRITTEN_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_SELECTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE, ENGINE_NATIVE_START_BIND_FAILED_CODE,
     ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE, ENGINE_NATIVE_START_RUNNING_CODE,
     ENGINE_NATIVE_START_RUNTIME_ASSEMBLY_READY_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
     ENGINE_NATIVE_START_SERVICE_RUNTIME_OWNER_MISSING_CODE,
-    native_socks5_connect_browser_capture_proof_token,
 };
 use std::io::{self, Cursor, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
@@ -1165,19 +1164,18 @@ fn socks5_connect_http_mitm_plan_contract_maps_connect_target_to_plugin_plan_wit
         manifest: PluginManifest {
             id: "networkcore.adblock".to_string(),
             version: "0.1.0".to_string(),
-            permissions: vec![PluginPermission::ReadRequest, PluginPermission::ModifyRequest],
+            permissions: vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ],
             hooks: vec![HookPoint::Request],
         },
         loaded_source: None,
     };
     let plugin_service = RejectingMitmPluginService;
 
-    let report = plan_socks5_connect_http_mitm(
-        "connect-req-1",
-        &target,
-        &plugin_instance,
-        &plugin_service,
-    );
+    let report =
+        plan_socks5_connect_http_mitm("connect-req-1", &target, &plugin_instance, &plugin_service);
 
     assert_eq!(report.request_id, "connect-req-1");
     assert_eq!(report.target_host, "pubads.g.doubleclick.net");
@@ -1225,12 +1223,8 @@ fn socks5_connect_browser_capture_proof_token_uses_connect_authority_and_proxy_u
         port: 443,
     };
 
-    let token = native_socks5_connect_browser_capture_proof_token(
-        &target,
-        "socks5",
-        "127.0.0.1",
-        7890,
-    );
+    let token =
+        native_socks5_connect_browser_capture_proof_token(&target, "socks5", "127.0.0.1", 7890);
 
     assert!(token.starts_with("networkcore-browser-proof-"));
     assert_eq!(
@@ -1268,7 +1262,10 @@ fn runtime_accept_loop_contract_applies_mitm_connect_reject_before_outbound() {
         manifest: PluginManifest {
             id: "networkcore.adblock".to_string(),
             version: "0.1.0".to_string(),
-            permissions: vec![PluginPermission::ReadRequest, PluginPermission::ModifyRequest],
+            permissions: vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ],
             hooks: vec![HookPoint::Request],
         },
         loaded_source: None,
@@ -1312,10 +1309,7 @@ fn runtime_accept_loop_contract_applies_mitm_connect_reject_before_outbound() {
     let report = accept_loop.shutdown();
 
     assert_eq!(method_response, [0x05, 0x00]);
-    assert_eq!(
-        failure_response,
-        [0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0]
-    );
+    assert_eq!(failure_response, [0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_EVENT_PLANNED_CODE,
@@ -1334,12 +1328,8 @@ fn runtime_accept_loop_contract_applies_mitm_connect_reject_before_outbound() {
     );
     assert!(report.diagnostics.iter().any(|diagnostic| {
         diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_BROWSER_PROOF_OBSERVED_CODE
-            && diagnostic
-                .message
-                .contains("networkcore-browser-proof-")
-            && diagnostic
-                .message
-                .contains("pubads.g.doubleclick.net:443")
+            && diagnostic.message.contains("networkcore-browser-proof-")
+            && diagnostic.message.contains("pubads.g.doubleclick.net:443")
     }));
     assert_diagnostic(
         &report.diagnostics,
