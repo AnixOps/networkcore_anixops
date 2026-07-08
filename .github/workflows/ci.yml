@@ -134,6 +134,7 @@ jobs:
             docs/architecture/sing-box-public-engine-adapter-source-contract.md
             docs/architecture/subscription-url-to-sing-box-run-source-contract.md
             docs/architecture/subscription-catalog-runtime-orchestration.md
+            docs/architecture/third-party-plugin-onboarding-process.md
           )
 
           for file in "${required_architecture_files[@]}"; do
@@ -192,6 +193,18 @@ jobs:
           grep -q "AnixOpsMitmPluginService" crates/mitm-policy/src/lib.rs
           grep -q "MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE" crates/mitm-policy/src/lib.rs
           grep -q "MITM_POLICY_CONFIG_PARSE_FAILED_CODE" crates/mitm-policy/tests/mitm_policy_contracts.rs
+          grep -q "Third-Party Plugin Onboarding Process" docs/architecture/third-party-plugin-onboarding-process.md
+          grep -q "third-party-plugin-onboarding-status=active" docs/architecture/third-party-plugin-onboarding-process.md
+          grep -q "THIRD_PARTY_PLUGIN_SOURCE_CONTRACT" docs/architecture/third-party-plugin-onboarding-process.md
+          grep -q "THIRD_PARTY_PLUGIN_PINNED_SOURCE" docs/architecture/third-party-plugin-onboarding-process.md
+          grep -q "THIRD_PARTY_PLUGIN_LICENSE_NOTICE_GATE" docs/architecture/third-party-plugin-onboarding-process.md
+          grep -q "THIRD_PARTY_PLUGIN_PERMISSION_GATE" docs/architecture/third-party-plugin-onboarding-process.md
+          grep -q "THIRD_PARTY_PLUGIN_SAFE_WRAPPER_GATE" docs/architecture/third-party-plugin-onboarding-process.md
+          grep -q "THIRD_PARTY_PLUGIN_CI_GOVERNANCE_GATE" docs/architecture/third-party-plugin-onboarding-process.md
+          grep -q "THIRD_PARTY_PLUGIN_UPGRADE_PROCEDURE" docs/architecture/third-party-plugin-onboarding-process.md
+          grep -q "third-party-plugin-onboarding-process.md" README.md
+          grep -q "third-party plugin onboarding process" docs/ci-cd-policy.md
+          grep -q "THIRD_PARTY_PLUGIN_SOURCE_CONTRACT" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
 
           release_workflow=.github/workflows/release.yml
           grep -q '^  package-linux:' "${release_workflow}"

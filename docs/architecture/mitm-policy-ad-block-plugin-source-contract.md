@@ -12,6 +12,11 @@ through `MitmPluginService`.
 
 ## Current Source Boundary
 
+This contract is governed by
+[Third-Party Plugin Onboarding Process](third-party-plugin-onboarding-process.md)
+and satisfies `THIRD_PARTY_PLUGIN_SOURCE_CONTRACT` for the first built-in
+NetworkCore MITM policy plugin.
+
 Required source anchors:
 
 - `crates/mitm-policy`

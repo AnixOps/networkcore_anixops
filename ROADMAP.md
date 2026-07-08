@@ -104,11 +104,12 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification 和 P2 Core K
 - [Subscription URL To sing-box Run Source Contract](docs/architecture/subscription-url-to-sing-box-run-source-contract.md)
 - [mitm_anixops Adapter Design](docs/architecture/mitm-anixops-adapter.md)
 - [MITM Policy Ad Block Plugin Source Contract](docs/architecture/mitm-policy-ad-block-plugin-source-contract.md)
+- [Third-Party Plugin Onboarding Process](docs/architecture/third-party-plugin-onboarding-process.md)
 - [Subscription Catalog Runtime Orchestration Design](docs/architecture/subscription-catalog-runtime-orchestration.md)
 - [Native Engine Listener And Node Config Design](docs/architecture/native-engine-listener-node-config.md)
 - [Linux Native Proxy Engine Start Design](docs/architecture/linux-native-proxy-engine-start.md)
 
-当前源码状态：`control-runtime` 已具备显式 inline subscription catalog runtime gate，可把 `NodeCatalog.nodes` 编排进 `RuntimeConfigRequest.nodes`，拒绝重复 node id，并保持 `NodeCatalog.rules` deferred；`networkcore-linux run-url` 现在可消费单条 Shadowsocks URL、明文 `ss://` 链接列表或 base64 链接列表，经 `NodeCatalog` 渲染 sing-box 本地 `mixed` inbound 配置，并以前台 `sing-box run -c <config>` 暴露默认 `127.0.0.1:7890` 本地代理。`mitm_anixops` 已固定到 `v0.45.10-alpha`，`mitm-policy` 已提供 safe wrapper、`AnixOpsMitmPluginService`、内置 `networkcore.adblock` alpha 去广告插件包以及 rewrite plan/header/body chain/script/JQ guard wrapper 合同，但真实 request/response mutation 仍 deferred。`networkcore-linux start` 仍不消费持久 subscription catalog。下一步 runtime 重点是 VLESS/VMess/Trojan/Clash/sing-box JSON 等订阅格式、节点选择、持久订阅、managed status/events/logs/reload/rollback 和后续 MITM 真实流量支持，而不是扩展私有协议实现。
+当前源码状态：`control-runtime` 已具备显式 inline subscription catalog runtime gate，可把 `NodeCatalog.nodes` 编排进 `RuntimeConfigRequest.nodes`，拒绝重复 node id，并保持 `NodeCatalog.rules` deferred；`networkcore-linux run-url` 现在可消费单条 Shadowsocks URL、明文 `ss://` 链接列表或 base64 链接列表，经 `NodeCatalog` 渲染 sing-box 本地 `mixed` inbound 配置，并以前台 `sing-box run -c <config>` 暴露默认 `127.0.0.1:7890` 本地代理。`mitm_anixops` 已固定到 `v0.45.10-alpha`，`mitm-policy` 已提供 safe wrapper、`AnixOpsMitmPluginService`、内置 `networkcore.adblock` alpha 去广告插件包以及 rewrite plan/header/body chain/script/JQ guard wrapper 合同，但真实 request/response mutation 仍 deferred。第三方 plugin/parser/runtime 后续必须先经过 source contract、pinned source、license/NOTICE、permission、safe wrapper、CI governance 和 upgrade procedure 的固定接入流程。`networkcore-linux start` 仍不消费持久 subscription catalog。下一步 runtime 重点是 VLESS/VMess/Trojan/Clash/sing-box JSON 等订阅格式、节点选择、持久订阅、managed status/events/logs/reload/rollback 和后续 MITM 真实流量支持，而不是扩展私有协议实现。
 
 ## P4 Client And Platform Integration
 

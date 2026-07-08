@@ -10,6 +10,7 @@
 
 ## 已完成
 
+- [x] 固化第三方插件接入流程：新增 Third-Party Plugin Onboarding Process，要求后续 plugin、plugin parser、script runtime 或兼容核心先建立 source contract、固定 upstream source、确认 license/NOTICE、定义 permission/safe wrapper/CI governance 和 upgrade procedure；CI governance 已纳入该流程和现有 `networkcore.adblock` source contract anchor。验证仍只通过 GitHub Actions。
 - [x] 接入 `mitm_anixops v0.45.10-alpha` 并新增 `mitm-policy`：子模块固定到 `a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0`，`mitm-anixops-sys` 扩展低层 FFI，`mitm-policy` 提供 safe wrapper、`AnixOpsMitmPluginService`、manifest/permission gate、内置 `networkcore.adblock` alpha 去广告插件包、rewrite plan/header/body chain/script/JQ guard wrapper 合同和 deferred mutation 诊断；真实 HTTP/TLS 改写仍等待 mutation model 与数据面。验证仍只通过 GitHub Actions。
 - [x] 新增 `run-url` Shadowsocks foreground 闭环：`CoreSubscriptionService` 支持单条 `ss://`、明文 `ss://` 链接列表、base64 链接列表和既有 subscription TOML，`NodeDescriptor.metadata` 承载 Shadowsocks method/password，`engine-singbox` 渲染本地 `mixed` inbound + Shadowsocks outbound JSON，并由 `networkcore-linux run-url <ss://url>` 安装/复用 latest `sing-box`、写入 runtime config、前台执行 `sing-box run -c <config>`，JSON 输出 `sing_box_run`。
 - [x] 新增 `engine-singbox` public engine adapter source contract 和 CLI 下载入口：`networkcore-linux help` 输出命令表，`install-sing-box`/`sing-box install` 从官方 GitHub latest release 动态选择当前目标资产、校验 `sha256:` digest、解压缓存 `sing-box` 可执行文件，并输出 `sing_box_install` JSON 字段；仍不把 `sing-box` binary 打进 NetworkCore release artifact，managed daemon/status/logs/reload 继续留给后续 lifecycle 增量。

@@ -82,6 +82,7 @@
 - [docs/architecture/sing-box-public-engine-adapter-source-contract.md](docs/architecture/sing-box-public-engine-adapter-source-contract.md)
 - [docs/architecture/subscription-url-to-sing-box-run-source-contract.md](docs/architecture/subscription-url-to-sing-box-run-source-contract.md)
 - [docs/architecture/mitm-policy-ad-block-plugin-source-contract.md](docs/architecture/mitm-policy-ad-block-plugin-source-contract.md)
+- [docs/architecture/third-party-plugin-onboarding-process.md](docs/architecture/third-party-plugin-onboarding-process.md)
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - [ROADMAP.md](ROADMAP.md)
 - [TODO.md](TODO.md)
@@ -145,6 +146,11 @@ GitHub Actions 验证。`ios-package-swift-manifest-only-*` 当前只记录 bloc
 ## MITM adapter 接入边界
 
 `mitm_anixops` 接入已先以 adapter 设计形式记录：该库可作为 MITM 策略/plugin 兼容 C ABI core，但完整全平台 MITM 仍需要 NetworkCore 后续补齐领域 mutation model、HTTP/TLS 数据面和各平台证书/运行时 adapter。
+
+后续第三方 plugin、plugin parser、script runtime 或兼容核心必须先走
+[Third-Party Plugin Onboarding Process](docs/architecture/third-party-plugin-onboarding-process.md)：
+先建立 source contract、固定 upstream source、明确 license/NOTICE 和 permission gate，再进入 raw binding、
+safe wrapper、runtime/domain integration、CI governance 和 release gate。
 
 当前源码接入增量已把 `mitm_anixops` Git submodule 固定到 `v0.45.10-alpha`
 (`a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0`)；`mitm-anixops-sys` 编译 C core
