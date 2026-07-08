@@ -329,21 +329,18 @@ fn parses_mitm_status_and_diagnostics_commands() {
     assert_eq!(
         browser_plan,
         LinuxCliCommand::MitmBrowserPlan {
-            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             format: OutputFormat::Json
         }
     );
     assert_eq!(
         browser_capture_plan_alias,
         LinuxCliCommand::MitmBrowserPlan {
-            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             format: OutputFormat::Text
         }
     );
     assert_eq!(
         hijack_plan_alias,
         LinuxCliCommand::MitmBrowserPlan {
-            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             format: OutputFormat::Text
         }
     );
@@ -2177,7 +2174,6 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
     );
     let browser_plan = handle_entrypoint(
         LinuxCliCommand::MitmBrowserPlan {
-            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             format: OutputFormat::Text,
         },
         &platform,

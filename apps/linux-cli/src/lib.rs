@@ -5504,9 +5504,6 @@ fn parse_mitm_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseE
         "browser-plan" | "browser-capture-plan" | "hijack-plan" => {
             let options = parse_options(&args[1..])?;
             Ok(LinuxCliCommand::MitmBrowserPlan {
-                proxy_scheme: options
-                    .proxy_scheme
-                    .unwrap_or_else(default_browser_capture_proxy_scheme),
                 format: options.format,
             })
         }
