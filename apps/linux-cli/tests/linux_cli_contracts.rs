@@ -27,11 +27,10 @@ use networkcore_linux::{
     handle_mitm_browser_capture_launch_plan, handle_mitm_browser_capture_plan,
     handle_mitm_browser_capture_rollback, handle_mitm_browser_capture_session_plan,
     handle_mitm_browser_capture_verify, handle_mitm_browser_capture_verify_with_probe,
-    handle_mitm_browser_plan,
-    handle_mitm_certificate_plan, handle_mitm_status, handle_parse_error, handle_prepare_config,
-    handle_run_url_with_sing_box, handle_start, handle_status, handle_stop, parse_args,
-    render_response, BrowserCaptureEndpointProbe, BrowserCaptureProcessRunner, ConfigReadError,
-    ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
+    handle_mitm_browser_plan, handle_mitm_certificate_plan, handle_mitm_status, handle_parse_error,
+    handle_prepare_config, handle_run_url_with_sing_box, handle_start, handle_status, handle_stop,
+    parse_args, render_response, BrowserCaptureEndpointProbe, BrowserCaptureProcessRunner,
+    ConfigReadError, ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
     LinuxBrowserCaptureLaunchRequest, LinuxBrowserCaptureVerifyOutcome,
@@ -118,11 +117,9 @@ fn parses_help_command_and_renders_command_table() {
     assert!(rendered.contains("install-sing-box"));
     assert!(rendered.contains("run-url"));
     assert!(rendered.contains("mitm [status|diagnostics|certificate-plan|browser-plan]"));
-    assert!(
-        rendered.contains(
-            "mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify]"
-        )
-    );
+    assert!(rendered.contains(
+        "mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify]"
+    ));
     assert!(rendered.contains("sing-box install"));
 }
 
@@ -2313,16 +2310,14 @@ fn browser_capture_session_plan_json_output_contains_session_fields() {
         json["browser_capture"]["session_plan"]["plugin_id"],
         mitm_policy::MITM_POLICY_AD_BLOCK_PLUGIN_ID
     );
-    assert!(
-        json["browser_capture"]["session_plan"]["required_steps"]
-            .as_array()
-            .expect("required steps should be an array")
-            .iter()
-            .any(|step| step
-                .as_str()
-                .expect("step should be a string")
-                .contains("launch the dedicated browser profile"))
-    );
+    assert!(json["browser_capture"]["session_plan"]["required_steps"]
+        .as_array()
+        .expect("required steps should be an array")
+        .iter()
+        .any(|step| step
+            .as_str()
+            .expect("step should be a string")
+            .contains("launch the dedicated browser profile")));
 }
 
 fn available_orchestrator() -> RuntimeOrchestrator<
