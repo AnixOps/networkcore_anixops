@@ -22,7 +22,7 @@ use mitm_policy::{
     builtin_ad_block_plugin_package, AnixOpsMitmPluginService, AnixOpsMitmPolicyEngine,
     MITM_POLICY_AD_BLOCK_PLUGIN_ID,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 #[cfg(unix)]
 use signal_hook::{
     consts::signal::{SIGINT, SIGTERM},
@@ -92,8 +92,22 @@ pub const CLI_MITM_BROWSER_CAPTURE_SESSION_PLAN_CONFIG_FAILED_CODE: &str =
     "cli.linux.mitm.browser_capture.session_plan.config_failed";
 pub const CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE: &str =
     "cli.linux.mitm.browser_capture.apply.blocked";
+pub const CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE: &str =
+    "cli.linux.mitm.browser_capture.apply.ready";
+pub const CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE: &str =
+    "cli.linux.mitm.browser_capture.apply.config_missing";
+pub const CLI_MITM_BROWSER_CAPTURE_PAC_WRITE_FAILED_CODE: &str =
+    "cli.linux.mitm.browser_capture.pac.write_failed";
+pub const CLI_MITM_BROWSER_CAPTURE_SNAPSHOT_WRITE_FAILED_CODE: &str =
+    "cli.linux.mitm.browser_capture.snapshot.write_failed";
+pub const CLI_MITM_BROWSER_CAPTURE_SNAPSHOT_READ_FAILED_CODE: &str =
+    "cli.linux.mitm.browser_capture.snapshot.read_failed";
 pub const CLI_MITM_BROWSER_CAPTURE_ROLLBACK_BLOCKED_CODE: &str =
     "cli.linux.mitm.browser_capture.rollback.blocked";
+pub const CLI_MITM_BROWSER_CAPTURE_ROLLBACK_READY_CODE: &str =
+    "cli.linux.mitm.browser_capture.rollback.ready";
+pub const CLI_MITM_BROWSER_CAPTURE_ROLLBACK_FAILED_CODE: &str =
+    "cli.linux.mitm.browser_capture.rollback.failed";
 pub const CLI_MITM_BROWSER_CAPTURE_VERIFY_BLOCKED_CODE: &str =
     "cli.linux.mitm.browser_capture.verify.blocked";
 pub const CLI_MITM_BROWSER_CAPTURE_VERIFY_AUTHORIZATION_REQUIRED_CODE: &str =
@@ -125,7 +139,8 @@ pub const MITM_BROWSER_CAPTURE_GATE: &str = "MITM_BROWSER_CAPTURE_GATE";
 pub const MITM_CLI_COMMAND_GATE_STATUS: &str = "partial-active";
 pub const MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS: &str = "plan-only";
 pub const MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS: &str = "blocked";
-pub const MITM_BROWSER_CAPTURE_GATE_STATUS: &str = "plan-only";
+pub const MITM_BROWSER_CAPTURE_GATE_STATUS: &str =
+    "pac-artifact-active/system-mutation-blocked";
 pub const MITM_BROWSER_HIJACK_STATUS: &str = "deferred";
 pub const MITM_CERTIFICATE_PLAN_STATUS: &str = "plan-only";
 pub const MITM_CERTIFICATE_MUTATION_READY: bool = false;
@@ -257,6 +272,8 @@ pub enum LinuxCliCommand {
         format: OutputFormat,
     },
     MitmBrowserCaptureApply {
+        pac_file_path: Option<String>,
+        snapshot_path: Option<String>,
         confirm: bool,
         format: OutputFormat,
     },
@@ -588,6 +605,7 @@ pub struct LinuxBrowserCaptureRequest {
     pub action: LinuxBrowserCaptureAction,
     pub session: Option<LinuxBrowserCaptureSessionPlanRequest>,
     pub launch: Option<LinuxBrowserCaptureLaunchRequest>,
+    pub pac: Option<LinuxBrowserCapturePacRequest>,
     pub verify: Option<LinuxBrowserCaptureVerifyRequest>,
     pub traffic_proof: Option<LinuxBrowserCaptureTrafficProofRequest>,
     pub authorization: Option<BrowserCaptureAuthorization>,
@@ -667,6 +685,29 @@ pub struct LinuxBrowserCaptureLaunchOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxBrowserCapturePacRequest {
+    pub proxy_host: String,
+    pub proxy_port: u16,
+    pub proxy_url: String,
+    pub pac_file_path: String,
+    pub snapshot_path: String,
+    pub pac_url: String,
+    pub pac_content: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxBrowserCapturePacApplyOutcome {
+    pub rollback_snapshot: BrowserCaptureRollbackSnapshot,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxBrowserCapturePacRollbackOutcome {
+    pub pac_file_path: String,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinuxBrowserCaptureVerifyRequest {
     pub proxy_host: String,
     pub proxy_port: u16,
@@ -711,6 +752,8 @@ pub struct LinuxBrowserCaptureApplyReport {
     pub status: String,
     pub applied: bool,
     pub authorization: BrowserCaptureAuthorization,
+    pub pac_file_path: Option<String>,
+    pub pac_url: Option<String>,
     pub rollback_snapshot: Option<BrowserCaptureRollbackSnapshot>,
     pub blocked_operations: Vec<String>,
 }
@@ -719,6 +762,7 @@ pub struct LinuxBrowserCaptureApplyReport {
 pub struct LinuxBrowserCaptureRollbackReport {
     pub status: String,
     pub rolled_back: bool,
+    pub pac_file_path: Option<String>,
     pub rollback_snapshot: Option<BrowserCaptureRollbackSnapshot>,
     pub blocked_operations: Vec<String>,
 }
@@ -951,6 +995,18 @@ pub trait BrowserCaptureTrafficProofProbe {
     ) -> DomainResult<LinuxBrowserCaptureTrafficProofOutcome>;
 }
 
+pub trait BrowserCapturePacFileStore {
+    fn apply_pac_file(
+        &self,
+        request: &LinuxBrowserCapturePacRequest,
+    ) -> DomainResult<LinuxBrowserCapturePacApplyOutcome>;
+
+    fn rollback_pac_file(
+        &self,
+        snapshot: &BrowserCaptureRollbackSnapshot,
+    ) -> DomainResult<LinuxBrowserCapturePacRollbackOutcome>;
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CommandBrowserCaptureProcessRunner;
 
@@ -1164,6 +1220,228 @@ impl BrowserCaptureTrafficProofProbe for CommandBrowserCaptureTrafficProofProbe 
             )],
         })
     }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CommandBrowserCapturePacFileStore;
+
+impl CommandBrowserCapturePacFileStore {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl BrowserCapturePacFileStore for CommandBrowserCapturePacFileStore {
+    fn apply_pac_file(
+        &self,
+        request: &LinuxBrowserCapturePacRequest,
+    ) -> DomainResult<LinuxBrowserCapturePacApplyOutcome> {
+        if std::path::Path::new(&request.pac_file_path).exists() {
+            return Err(DomainError::new(
+                CLI_MITM_BROWSER_CAPTURE_PAC_WRITE_FAILED_CODE,
+                format!(
+                    "refusing to overwrite existing browser capture PAC file {}",
+                    request.pac_file_path
+                ),
+            ));
+        }
+        if std::path::Path::new(&request.snapshot_path).exists() {
+            return Err(DomainError::new(
+                CLI_MITM_BROWSER_CAPTURE_SNAPSHOT_WRITE_FAILED_CODE,
+                format!(
+                    "refusing to overwrite existing browser capture rollback snapshot {}",
+                    request.snapshot_path
+                ),
+            ));
+        }
+
+        let snapshot = BrowserCapturePacSnapshotFile {
+            version: 1,
+            kind: BROWSER_CAPTURE_PAC_SNAPSHOT_KIND.to_string(),
+            pac_file_path: request.pac_file_path.clone(),
+            pac_url: request.pac_url.clone(),
+            created_file: true,
+        };
+
+        let snapshot_json = serde_json::to_string_pretty(&snapshot).map_err(|error| {
+            DomainError::new(
+                CLI_MITM_BROWSER_CAPTURE_SNAPSHOT_WRITE_FAILED_CODE,
+                format!(
+                    "failed to render browser capture PAC snapshot {}: {error}",
+                    request.snapshot_path
+                ),
+            )
+        })?;
+        write_new_file(
+            &request.snapshot_path,
+            snapshot_json.as_bytes(),
+            CLI_MITM_BROWSER_CAPTURE_SNAPSHOT_WRITE_FAILED_CODE,
+            "browser capture PAC snapshot",
+        )?;
+
+        write_new_file(
+            &request.pac_file_path,
+            request.pac_content.as_bytes(),
+            CLI_MITM_BROWSER_CAPTURE_PAC_WRITE_FAILED_CODE,
+            "browser capture PAC file",
+        )?;
+
+        Ok(LinuxBrowserCapturePacApplyOutcome {
+            rollback_snapshot: BrowserCaptureRollbackSnapshot {
+                path: request.snapshot_path.clone(),
+                status: "networkcore-created".to_string(),
+            },
+            diagnostics: vec![cli_diagnostic(
+                DiagnosticSeverity::Info,
+                CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
+                format!(
+                    "browser capture PAC file {} was written with planned proxy {}",
+                    request.pac_file_path, request.proxy_url
+                ),
+                SOURCE_CLI_MITM,
+            )],
+        })
+    }
+
+    fn rollback_pac_file(
+        &self,
+        snapshot: &BrowserCaptureRollbackSnapshot,
+    ) -> DomainResult<LinuxBrowserCapturePacRollbackOutcome> {
+        let snapshot_json = std::fs::read_to_string(&snapshot.path).map_err(|error| {
+            DomainError::new(
+                CLI_MITM_BROWSER_CAPTURE_SNAPSHOT_READ_FAILED_CODE,
+                format!(
+                    "failed to read browser capture PAC snapshot {}: {error}",
+                    snapshot.path
+                ),
+            )
+        })?;
+        let snapshot_file: BrowserCapturePacSnapshotFile =
+            serde_json::from_str(&snapshot_json).map_err(|error| {
+                DomainError::new(
+                    CLI_MITM_BROWSER_CAPTURE_SNAPSHOT_READ_FAILED_CODE,
+                    format!(
+                        "failed to parse browser capture PAC snapshot {}: {error}",
+                        snapshot.path
+                    ),
+                )
+            })?;
+        if snapshot_file.kind != BROWSER_CAPTURE_PAC_SNAPSHOT_KIND || !snapshot_file.created_file {
+            return Err(DomainError::new(
+                CLI_MITM_BROWSER_CAPTURE_SNAPSHOT_READ_FAILED_CODE,
+                "browser capture rollback snapshot is not a NetworkCore PAC snapshot",
+            ));
+        }
+
+        match std::fs::remove_file(&snapshot_file.pac_file_path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(DomainError::new(
+                    CLI_MITM_BROWSER_CAPTURE_ROLLBACK_FAILED_CODE,
+                    format!(
+                        "failed to remove browser capture PAC file {}: {error}",
+                        snapshot_file.pac_file_path
+                    ),
+                ));
+            }
+        }
+
+        Ok(LinuxBrowserCapturePacRollbackOutcome {
+            pac_file_path: snapshot_file.pac_file_path.clone(),
+            diagnostics: vec![cli_diagnostic(
+                DiagnosticSeverity::Info,
+                CLI_MITM_BROWSER_CAPTURE_ROLLBACK_READY_CODE,
+                format!(
+                    "browser capture PAC file {} was removed from snapshot {}",
+                    snapshot_file.pac_file_path, snapshot.path
+                ),
+                SOURCE_CLI_MITM,
+            )],
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UnavailableBrowserCapturePacFileStore;
+
+impl UnavailableBrowserCapturePacFileStore {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl BrowserCapturePacFileStore for UnavailableBrowserCapturePacFileStore {
+    fn apply_pac_file(
+        &self,
+        _request: &LinuxBrowserCapturePacRequest,
+    ) -> DomainResult<LinuxBrowserCapturePacApplyOutcome> {
+        Err(DomainError::new(
+            CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+            "browser capture PAC file store is not wired",
+        ))
+    }
+
+    fn rollback_pac_file(
+        &self,
+        _snapshot: &BrowserCaptureRollbackSnapshot,
+    ) -> DomainResult<LinuxBrowserCapturePacRollbackOutcome> {
+        Err(DomainError::new(
+            CLI_MITM_BROWSER_CAPTURE_ROLLBACK_BLOCKED_CODE,
+            "browser capture PAC file store is not wired",
+        ))
+    }
+}
+
+const BROWSER_CAPTURE_PAC_SNAPSHOT_KIND: &str = "networkcore-linux-browser-capture-pac";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BrowserCapturePacSnapshotFile {
+    version: u8,
+    kind: String,
+    pac_file_path: String,
+    pac_url: String,
+    created_file: bool,
+}
+
+fn write_parent_dir(path: &str, error_code: &'static str) -> DomainResult<()> {
+    let parent = std::path::Path::new(path)
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty());
+    if let Some(parent) = parent {
+        std::fs::create_dir_all(parent).map_err(|error| {
+            DomainError::new(
+                error_code,
+                format!("failed to create parent directory for {path}: {error}"),
+            )
+        })?;
+    }
+    Ok(())
+}
+
+fn write_new_file(
+    path: &str,
+    contents: &[u8],
+    error_code: &'static str,
+    description: &str,
+) -> DomainResult<()> {
+    write_parent_dir(path, error_code)?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|error| {
+            DomainError::new(
+                error_code,
+                format!("failed to create {description} {path}: {error}"),
+            )
+        })?;
+    file.write_all(contents).map_err(|error| {
+        DomainError::new(
+            error_code,
+            format!("failed to write {description} {path}: {error}"),
+        )
+    })
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -1468,6 +1746,7 @@ struct ParsedOptions {
     config_path: Option<String>,
     profile_dir: Option<String>,
     target_url: Option<String>,
+    pac_file_path: Option<String>,
     proof_token: Option<String>,
     proof_log_path: Option<String>,
     install_dir: Option<String>,
@@ -1691,27 +1970,31 @@ where
     V: BrowserCaptureEndpointProbe,
 {
     let traffic_proof_probe = UnavailableBrowserCaptureTrafficProofProbe::new();
+    let pac_store = UnavailableBrowserCapturePacFileStore::new();
     handle_entrypoint_with_browser_capture_all_io(
         command,
         platform,
         browser_runner,
         endpoint_probe,
         &traffic_proof_probe,
+        &pac_store,
     )
 }
 
-pub fn handle_entrypoint_with_browser_capture_all_io<P, B, V, T>(
+pub fn handle_entrypoint_with_browser_capture_all_io<P, B, V, T, S>(
     command: LinuxCliCommand,
     platform: &P,
     browser_runner: &B,
     endpoint_probe: &V,
     traffic_proof_probe: &T,
+    pac_store: &S,
 ) -> LinuxCliResponse
 where
     P: PlatformCapabilityService,
     B: BrowserCaptureProcessRunner,
     V: BrowserCaptureEndpointProbe,
     T: BrowserCaptureTrafficProofProbe,
+    S: BrowserCapturePacFileStore,
 {
     match command {
         LinuxCliCommand::MitmBrowserCaptureLaunch {
@@ -1750,6 +2033,21 @@ where
             &proof_log_path,
             confirm,
         ),
+        LinuxCliCommand::MitmBrowserCaptureApply {
+            pac_file_path,
+            snapshot_path,
+            confirm,
+            ..
+        } => handle_mitm_browser_capture_apply_with_store(
+            platform,
+            pac_store,
+            pac_file_path.as_deref(),
+            snapshot_path.as_deref(),
+            confirm,
+        ),
+        LinuxCliCommand::MitmBrowserCaptureRollback { snapshot_path, .. } => {
+            handle_mitm_browser_capture_rollback_with_store(platform, pac_store, snapshot_path)
+        }
         other => handle_entrypoint(other, platform),
     }
 }
@@ -2307,6 +2605,7 @@ where
         action: LinuxBrowserCaptureAction::SessionPlan,
         session: Some(session_request),
         launch: Some(launch_request),
+        pac: None,
         verify: Some(verify_request),
         traffic_proof: None,
         authorization: None,
@@ -2492,6 +2791,176 @@ where
     )
 }
 
+pub fn handle_mitm_browser_capture_apply_with_store<P, S>(
+    platform: &P,
+    pac_store: &S,
+    pac_file_path: Option<&str>,
+    snapshot_path: Option<&str>,
+    confirm: bool,
+) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+    S: BrowserCapturePacFileStore,
+{
+    let command = "mitm browser-capture apply";
+    let platform_status = match platform.status() {
+        Ok(status) => status,
+        Err(error) => {
+            return domain_error_response(
+                command,
+                LinuxCliExitCode::GeneralFailure,
+                error,
+                SOURCE_CLI_MITM,
+            );
+        }
+    };
+
+    let (mitm_status, mut diagnostics) = match build_linux_mitm_status(&platform_status) {
+        Ok(status) => status,
+        Err(error) => {
+            return domain_error_response(
+                command,
+                LinuxCliExitCode::GeneralFailure,
+                error,
+                SOURCE_CLI_MITM,
+            );
+        }
+    };
+
+    let authorization = BrowserCaptureAuthorization {
+        confirmed: confirm,
+        source: if confirm {
+            "cli --confirm".to_string()
+        } else {
+            "missing --confirm".to_string()
+        },
+        scope: "linux browser capture PAC file artifact".to_string(),
+        gate: MITM_BROWSER_CAPTURE_GATE.to_string(),
+    };
+    let mut report = build_linux_browser_capture_report(
+        LinuxBrowserCaptureAction::Apply,
+        &platform_status,
+        &mitm_status.policy,
+        Some(authorization.clone()),
+        None,
+        None,
+        None,
+    );
+
+    if !confirm {
+        diagnostics.push(cli_diagnostic(
+            DiagnosticSeverity::Error,
+            CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
+            "browser capture apply requires --confirm; no browser capture PAC file was written",
+            SOURCE_CLI_MITM,
+        ));
+        report.apply_report = Some(LinuxBrowserCaptureApplyReport {
+            status: "authorization_required".to_string(),
+            applied: false,
+            authorization,
+            pac_file_path: pac_file_path.map(ToString::to_string),
+            pac_url: pac_file_path.map(browser_capture_pac_file_url),
+            rollback_snapshot: snapshot_path.map(|path| BrowserCaptureRollbackSnapshot {
+                path: path.to_string(),
+                status: "operator-provided".to_string(),
+            }),
+            blocked_operations: report.plan.blocked_operations.clone(),
+        });
+        return LinuxCliResponse {
+            ok: false,
+            exit_code: LinuxCliExitCode::Unavailable,
+            ..LinuxCliResponse::success(command)
+                .with_platform(platform_status)
+                .with_mitm_status(mitm_status)
+                .with_browser_capture(report)
+                .with_diagnostics(diagnostics)
+        };
+    }
+
+    let (Some(pac_file_path), Some(snapshot_path)) = (pac_file_path, snapshot_path) else {
+        diagnostics.push(cli_diagnostic(
+            DiagnosticSeverity::Error,
+            CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE,
+            "browser capture apply requires --pac-file <path> and --snapshot <path>",
+            SOURCE_CLI_MITM,
+        ));
+        report.apply_report = Some(LinuxBrowserCaptureApplyReport {
+            status: "config_missing".to_string(),
+            applied: false,
+            authorization,
+            pac_file_path: pac_file_path.map(ToString::to_string),
+            pac_url: pac_file_path.map(browser_capture_pac_file_url),
+            rollback_snapshot: snapshot_path.map(|path| BrowserCaptureRollbackSnapshot {
+                path: path.to_string(),
+                status: "operator-provided".to_string(),
+            }),
+            blocked_operations: report.plan.blocked_operations.clone(),
+        });
+        return LinuxCliResponse {
+            ok: false,
+            exit_code: LinuxCliExitCode::ArgumentOrConfig,
+            ..LinuxCliResponse::success(command)
+                .with_platform(platform_status)
+                .with_mitm_status(mitm_status)
+                .with_browser_capture(report)
+                .with_diagnostics(diagnostics)
+        };
+    };
+
+    let pac_request =
+        build_linux_browser_capture_pac_request(&report.plan, pac_file_path, snapshot_path);
+    report.request.pac = Some(pac_request.clone());
+
+    match pac_store.apply_pac_file(&pac_request) {
+        Ok(outcome) => {
+            diagnostics.extend(outcome.diagnostics);
+            report.apply_report = Some(LinuxBrowserCaptureApplyReport {
+                status: "applied".to_string(),
+                applied: true,
+                authorization,
+                pac_file_path: Some(pac_request.pac_file_path),
+                pac_url: Some(pac_request.pac_url),
+                rollback_snapshot: Some(outcome.rollback_snapshot),
+                blocked_operations: report.plan.blocked_operations.clone(),
+            });
+            LinuxCliResponse::success(command)
+                .with_platform(platform_status)
+                .with_mitm_status(mitm_status)
+                .with_browser_capture(report)
+                .with_diagnostics(diagnostics)
+        }
+        Err(error) => {
+            diagnostics.push(cli_diagnostic(
+                DiagnosticSeverity::Error,
+                error.code,
+                error.message,
+                SOURCE_CLI_MITM,
+            ));
+            report.apply_report = Some(LinuxBrowserCaptureApplyReport {
+                status: "failed".to_string(),
+                applied: false,
+                authorization,
+                pac_file_path: Some(pac_request.pac_file_path),
+                pac_url: Some(pac_request.pac_url),
+                rollback_snapshot: Some(BrowserCaptureRollbackSnapshot {
+                    path: pac_request.snapshot_path,
+                    status: "operator-provided".to_string(),
+                }),
+                blocked_operations: report.plan.blocked_operations.clone(),
+            });
+            LinuxCliResponse {
+                ok: false,
+                exit_code: LinuxCliExitCode::Unavailable,
+                ..LinuxCliResponse::success(command)
+                    .with_platform(platform_status)
+                    .with_mitm_status(mitm_status)
+                    .with_browser_capture(report)
+                    .with_diagnostics(diagnostics)
+            }
+        }
+    }
+}
+
 pub fn handle_mitm_browser_capture_rollback<P>(
     platform: &P,
     snapshot_path: Option<String>,
@@ -2508,6 +2977,127 @@ where
         None,
         None,
     )
+}
+
+pub fn handle_mitm_browser_capture_rollback_with_store<P, S>(
+    platform: &P,
+    pac_store: &S,
+    snapshot_path: Option<String>,
+) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+    S: BrowserCapturePacFileStore,
+{
+    let command = "mitm browser-capture rollback";
+    let platform_status = match platform.status() {
+        Ok(status) => status,
+        Err(error) => {
+            return domain_error_response(
+                command,
+                LinuxCliExitCode::GeneralFailure,
+                error,
+                SOURCE_CLI_MITM,
+            );
+        }
+    };
+
+    let (mitm_status, mut diagnostics) = match build_linux_mitm_status(&platform_status) {
+        Ok(status) => status,
+        Err(error) => {
+            return domain_error_response(
+                command,
+                LinuxCliExitCode::GeneralFailure,
+                error,
+                SOURCE_CLI_MITM,
+            );
+        }
+    };
+
+    let Some(snapshot_path) = snapshot_path else {
+        diagnostics.push(cli_diagnostic(
+            DiagnosticSeverity::Error,
+            CLI_MITM_BROWSER_CAPTURE_ROLLBACK_BLOCKED_CODE,
+            "browser capture rollback requires --snapshot <path>",
+            SOURCE_CLI_MITM,
+        ));
+        let report = build_linux_browser_capture_report(
+            LinuxBrowserCaptureAction::Rollback,
+            &platform_status,
+            &mitm_status.policy,
+            None,
+            None,
+            None,
+            None,
+        );
+        return LinuxCliResponse {
+            ok: false,
+            exit_code: LinuxCliExitCode::ArgumentOrConfig,
+            ..LinuxCliResponse::success(command)
+                .with_platform(platform_status)
+                .with_mitm_status(mitm_status)
+                .with_browser_capture(report)
+                .with_diagnostics(diagnostics)
+        };
+    };
+
+    let rollback_snapshot = BrowserCaptureRollbackSnapshot {
+        path: snapshot_path,
+        status: "operator-provided".to_string(),
+    };
+    let mut report = build_linux_browser_capture_report(
+        LinuxBrowserCaptureAction::Rollback,
+        &platform_status,
+        &mitm_status.policy,
+        None,
+        Some(rollback_snapshot.clone()),
+        None,
+        None,
+    );
+
+    match pac_store.rollback_pac_file(&rollback_snapshot) {
+        Ok(outcome) => {
+            diagnostics.extend(outcome.diagnostics);
+            report.rollback_report = Some(LinuxBrowserCaptureRollbackReport {
+                status: "rolled_back".to_string(),
+                rolled_back: true,
+                pac_file_path: Some(outcome.pac_file_path),
+                rollback_snapshot: Some(BrowserCaptureRollbackSnapshot {
+                    status: "networkcore-restored".to_string(),
+                    ..rollback_snapshot
+                }),
+                blocked_operations: report.plan.blocked_operations.clone(),
+            });
+            LinuxCliResponse::success(command)
+                .with_platform(platform_status)
+                .with_mitm_status(mitm_status)
+                .with_browser_capture(report)
+                .with_diagnostics(diagnostics)
+        }
+        Err(error) => {
+            diagnostics.push(cli_diagnostic(
+                DiagnosticSeverity::Error,
+                error.code,
+                error.message,
+                SOURCE_CLI_MITM,
+            ));
+            report.rollback_report = Some(LinuxBrowserCaptureRollbackReport {
+                status: "failed".to_string(),
+                rolled_back: false,
+                pac_file_path: None,
+                rollback_snapshot: Some(rollback_snapshot),
+                blocked_operations: report.plan.blocked_operations.clone(),
+            });
+            LinuxCliResponse {
+                ok: false,
+                exit_code: LinuxCliExitCode::Unavailable,
+                ..LinuxCliResponse::success(command)
+                    .with_platform(platform_status)
+                    .with_mitm_status(mitm_status)
+                    .with_browser_capture(report)
+                    .with_diagnostics(diagnostics)
+            }
+        }
+    }
 }
 
 pub fn handle_mitm_browser_capture_verify<P>(
@@ -3091,7 +3681,7 @@ fn build_linux_mitm_status(
     diagnostics.push(cli_diagnostic(
         DiagnosticSeverity::Warning,
         CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE,
-        "MITM browser capture mutation is blocked; the CLI does not write browser policy, system proxy, PAC, TUN, DNS, or firewall state",
+        "MITM browser capture system mutation is blocked; the CLI only writes operator-provided NetworkCore PAC artifacts and does not write browser policy, system proxy, system PAC, TUN, DNS, or firewall state",
         SOURCE_CLI_MITM,
     ));
     diagnostics.push(cli_diagnostic(
@@ -3141,8 +3731,7 @@ fn build_linux_mitm_status(
             LinuxMitmGateStatus {
                 gate: MITM_BROWSER_CAPTURE_GATE.to_string(),
                 status: MITM_BROWSER_CAPTURE_GATE_STATUS.to_string(),
-                reason: "browser capture plan is exposed; proxy/browser mutation remains blocked"
-                    .to_string(),
+                reason: "browser capture PAC artifact apply is available; proxy/browser/system mutation remains blocked".to_string(),
             },
         ],
     };
@@ -3182,6 +3771,11 @@ fn build_linux_mitm_browser_plan(
                 reason: "HTTP/TLS MITM proxy data plane is not wired".to_string(),
             },
             LinuxMitmBrowserPlanStep {
+                id: "write-networkcore-pac-artifact".to_string(),
+                status: "active".to_string(),
+                reason: "browser-capture apply can write an operator-provided PAC file and rollback snapshot".to_string(),
+            },
+            LinuxMitmBrowserPlanStep {
                 id: "configure-browser-explicit-proxy".to_string(),
                 status: "blocked".to_string(),
                 reason: "browser proxy configuration mutation is not implemented".to_string(),
@@ -3201,7 +3795,7 @@ fn build_linux_mitm_browser_plan(
             "start-mitm-proxy".to_string(),
             "write-system-proxy".to_string(),
             "write-browser-policy".to_string(),
-            "install-pac".to_string(),
+            "install-system-pac".to_string(),
             "configure-tun-capture".to_string(),
             "configure-dns-capture".to_string(),
             "configure-firewall-capture".to_string(),
@@ -3244,6 +3838,7 @@ fn build_linux_browser_capture_report(
         action,
         session: None,
         launch: None,
+        pac: None,
         verify: verify_request.clone(),
         traffic_proof: traffic_proof_request.clone(),
         authorization: authorization.clone(),
@@ -3261,6 +3856,8 @@ fn build_linux_browser_capture_report(
                 status: status.to_string(),
                 applied: false,
                 authorization,
+                pac_file_path: None,
+                pac_url: None,
                 rollback_snapshot: None,
                 blocked_operations: blocked_operations.clone(),
             }
@@ -3272,6 +3869,7 @@ fn build_linux_browser_capture_report(
         Some(LinuxBrowserCaptureRollbackReport {
             status: "blocked".to_string(),
             rolled_back: false,
+            pac_file_path: None,
             rollback_snapshot: rollback_snapshot.clone(),
             blocked_operations: blocked_operations.clone(),
         })
@@ -3309,7 +3907,7 @@ fn build_linux_browser_capture_report(
         action: action.as_str().to_string(),
         source_contract_status: MITM_BROWSER_CAPTURE_SOURCE_CONTRACT_STATUS.to_string(),
         gate: MITM_BROWSER_CAPTURE_GATE.to_string(),
-        gate_status: "plan-only/mutation-blocked".to_string(),
+        gate_status: MITM_BROWSER_CAPTURE_GATE_STATUS.to_string(),
         mutation_ready: MITM_BROWSER_CAPTURE_MUTATION_READY,
         request,
         plan,
@@ -3448,6 +4046,39 @@ fn build_linux_browser_capture_verify_request(
         }
         .to_string(),
     }
+}
+
+fn build_linux_browser_capture_pac_request(
+    plan: &LinuxBrowserCapturePlan,
+    pac_file_path: &str,
+    snapshot_path: &str,
+) -> LinuxBrowserCapturePacRequest {
+    let proxy_url = format!(
+        "http://{}:{}",
+        plan.planned_proxy_host, plan.planned_proxy_port
+    );
+    LinuxBrowserCapturePacRequest {
+        proxy_host: plan.planned_proxy_host.clone(),
+        proxy_port: plan.planned_proxy_port,
+        proxy_url,
+        pac_file_path: pac_file_path.to_string(),
+        snapshot_path: snapshot_path.to_string(),
+        pac_url: browser_capture_pac_file_url(pac_file_path),
+        pac_content: browser_capture_pac_content(
+            &plan.planned_proxy_host,
+            plan.planned_proxy_port,
+        ),
+    }
+}
+
+fn browser_capture_pac_file_url(path: &str) -> String {
+    format!("file://{path}")
+}
+
+fn browser_capture_pac_content(proxy_host: &str, proxy_port: u16) -> String {
+    format!(
+        "function FindProxyForURL(url, host) {{\n  return \"PROXY {proxy_host}:{proxy_port}; DIRECT\";\n}}\n"
+    )
 }
 
 fn build_linux_browser_capture_verify_command(target_url: Option<&str>) -> String {
@@ -3982,6 +4613,16 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.target_url = Some(value.clone());
             }
+            "--pac-file" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--pac-file requires a browser capture PAC file path",
+                    ));
+                };
+                options.pac_file_path = Some(value.clone());
+            }
             "--proof-token" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -4226,6 +4867,8 @@ fn parse_mitm_browser_capture_command(
         "apply" => {
             let options = parse_options(&args[1..])?;
             Ok(LinuxCliCommand::MitmBrowserCaptureApply {
+                pac_file_path: options.pac_file_path,
+                snapshot_path: options.snapshot_path,
                 confirm: options.confirm,
                 format: options.format,
             })
@@ -4330,7 +4973,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux status [--format text|json]\n",
         "  networkcore-linux diagnostics [--format text|json]\n",
         "  networkcore-linux mitm [status|diagnostics|certificate-plan|browser-plan] [--format text|json]\n",
-        "  networkcore-linux mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify|traffic-proof] [<ss://url>] [--browser <executable>] [--profile-dir <dir>] [--target-url <url>] [--listen-host <host>] [--listen-port <port>] [--proof-token <token>] [--proof-log <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
+        "  networkcore-linux mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify|traffic-proof] [<ss://url>] [--browser <executable>] [--profile-dir <dir>] [--target-url <url>] [--listen-host <host>] [--listen-port <port>] [--pac-file <path>] [--proof-token <token>] [--proof-log <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux run-url <ss://url> [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux sing-box install [--install-dir <dir>] [--force] [--format text|json]\n",
@@ -4353,6 +4996,7 @@ pub const fn cli_help_text() -> &'static str {
         "  --browser <exe>       Browser executable for mitm browser-capture session-plan/launch. Defaults to chromium.\n",
         "  --profile-dir <dir>   Dedicated browser profile directory for mitm browser-capture session-plan/launch.\n",
         "  --target-url <url>    Optional page URL to open in the dedicated browser capture profile.\n",
+        "  --pac-file <path>     PAC file path for mitm browser-capture apply.\n",
         "  --proof-token <token> Browser traffic proof token expected in a proof log.\n",
         "  --proof-log <path>    Browser traffic proof log path to inspect after an operator-driven visit.\n",
         "  --install-dir <dir>   Engine cache root for install-sing-box.\n",
@@ -4774,12 +5418,33 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
                 "browser capture apply: {} applied={}",
                 report.status, report.applied
             ));
+            if let Some(pac_file_path) = &report.pac_file_path {
+                lines.push(format!("browser capture PAC file: {pac_file_path}"));
+            }
+            if let Some(pac_url) = &report.pac_url {
+                lines.push(format!("browser capture PAC URL: {pac_url}"));
+            }
+            if let Some(snapshot) = &report.rollback_snapshot {
+                lines.push(format!(
+                    "browser capture apply rollback snapshot: {} ({})",
+                    snapshot.path, snapshot.status
+                ));
+            }
         }
         if let Some(report) = &capture.rollback_report {
             lines.push(format!(
                 "browser capture rollback: {} rolled_back={}",
                 report.status, report.rolled_back
             ));
+            if let Some(pac_file_path) = &report.pac_file_path {
+                lines.push(format!("browser capture rollback PAC file: {pac_file_path}"));
+            }
+            if let Some(snapshot) = &report.rollback_snapshot {
+                lines.push(format!(
+                    "browser capture rollback snapshot: {} ({})",
+                    snapshot.path, snapshot.status
+                ));
+            }
         }
         if let Some(report) = &capture.verify_report {
             lines.push(format!(
@@ -5089,6 +5754,7 @@ struct JsonBrowserCaptureRequest {
     action: String,
     session: Option<JsonBrowserCaptureSessionPlanRequest>,
     launch: Option<JsonBrowserCaptureLaunchRequest>,
+    pac: Option<JsonBrowserCapturePacRequest>,
     verify: Option<JsonBrowserCaptureVerifyRequest>,
     traffic_proof: Option<JsonBrowserCaptureTrafficProofRequest>,
     authorization: Option<JsonBrowserCaptureAuthorization>,
@@ -5107,6 +5773,7 @@ impl From<&LinuxBrowserCaptureRequest> for JsonBrowserCaptureRequest {
                 .launch
                 .as_ref()
                 .map(JsonBrowserCaptureLaunchRequest::from),
+            pac: request.pac.as_ref().map(JsonBrowserCapturePacRequest::from),
             verify: request
                 .verify
                 .as_ref()
@@ -5123,6 +5790,31 @@ impl From<&LinuxBrowserCaptureRequest> for JsonBrowserCaptureRequest {
                 .rollback_snapshot
                 .as_ref()
                 .map(JsonBrowserCaptureRollbackSnapshot::from),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonBrowserCapturePacRequest {
+    proxy_host: String,
+    proxy_port: u16,
+    proxy_url: String,
+    pac_file_path: String,
+    snapshot_path: String,
+    pac_url: String,
+    pac_content: String,
+}
+
+impl From<&LinuxBrowserCapturePacRequest> for JsonBrowserCapturePacRequest {
+    fn from(request: &LinuxBrowserCapturePacRequest) -> Self {
+        Self {
+            proxy_host: request.proxy_host.clone(),
+            proxy_port: request.proxy_port,
+            proxy_url: request.proxy_url.clone(),
+            pac_file_path: request.pac_file_path.clone(),
+            snapshot_path: request.snapshot_path.clone(),
+            pac_url: request.pac_url.clone(),
+            pac_content: request.pac_content.clone(),
         }
     }
 }
@@ -5405,6 +6097,8 @@ struct JsonBrowserCaptureApplyReport {
     status: String,
     applied: bool,
     authorization: JsonBrowserCaptureAuthorization,
+    pac_file_path: Option<String>,
+    pac_url: Option<String>,
     rollback_snapshot: Option<JsonBrowserCaptureRollbackSnapshot>,
     blocked_operations: Vec<String>,
 }
@@ -5415,6 +6109,8 @@ impl From<&LinuxBrowserCaptureApplyReport> for JsonBrowserCaptureApplyReport {
             status: report.status.clone(),
             applied: report.applied,
             authorization: JsonBrowserCaptureAuthorization::from(&report.authorization),
+            pac_file_path: report.pac_file_path.clone(),
+            pac_url: report.pac_url.clone(),
             rollback_snapshot: report
                 .rollback_snapshot
                 .as_ref()
@@ -5428,6 +6124,7 @@ impl From<&LinuxBrowserCaptureApplyReport> for JsonBrowserCaptureApplyReport {
 struct JsonBrowserCaptureRollbackReport {
     status: String,
     rolled_back: bool,
+    pac_file_path: Option<String>,
     rollback_snapshot: Option<JsonBrowserCaptureRollbackSnapshot>,
     blocked_operations: Vec<String>,
 }
@@ -5437,6 +6134,7 @@ impl From<&LinuxBrowserCaptureRollbackReport> for JsonBrowserCaptureRollbackRepo
         Self {
             status: report.status.clone(),
             rolled_back: report.rolled_back,
+            pac_file_path: report.pac_file_path.clone(),
             rollback_snapshot: report
                 .rollback_snapshot
                 .as_ref()

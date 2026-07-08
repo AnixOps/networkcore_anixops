@@ -98,8 +98,8 @@ P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成，当前阶
 - 当前阶段源：P4 Client And Platform Integration。
 - P3 是已完成历史基线，不再作为当前仓库阶段描述；后续迭代、TODO、release 说明和架构合同都按 P4 backlog 推进。
 - 当前最新已发布 artifact：`v0.1.0-alpha.8` GitHub Release 中的 Linux CLI tarball、sha256、manifest 和 manifest sha256；该二进制可用 `help` 命令表、`install-sing-box`、`run-url <ss://url>` foreground local proxy，以及 `mitm browser-capture launch-plan`、`session-plan <ss://url>`、`launch --confirm`、`verify --confirm` 和 `verify --confirm --target-url <url>`。
-- 当前 main 源码状态：`v0.1.0-alpha.8` artifact 边界已包含 MITM status/diagnostics/certificate-plan/browser-plan policy-only 命令面，以及 `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify` 的 manual launch-plan、订阅到本地代理/浏览器/verify 会话计划、显式授权 dedicated-profile launch、可选 `--target-url` dedicated profile 打开页面、本地代理端点/target route verify 与 blocked report 命令面；该 tag 之后的 main 源码新增 `mitm browser-capture traffic-proof --confirm --proof-token <token> --proof-log <path>` proof-log-token 验证入口，用于检查 operator-provided proof log 中是否出现浏览器访问 token。后续 main 新增能力仍需要新的 tag release 重新经过 GitHub Actions 后才会进入用户可下载 artifact。
-- 当前未启用：live MITM、browser hijack、browser capture mutation、CA 生成/安装/信任 mutation、HTTP/TLS 解密改写数据面、daemon/service、TUN/DNS/firewall mutation。
+- 当前 main 源码状态：`v0.1.0-alpha.8` artifact 边界已包含 MITM status/diagnostics/certificate-plan/browser-plan policy-only 命令面，以及 `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify` 的 manual launch-plan、订阅到本地代理/浏览器/verify 会话计划、显式授权 dedicated-profile launch、可选 `--target-url` dedicated profile 打开页面、本地代理端点/target route verify 与 blocked report 命令面；该 tag 之后的 main 源码新增 `mitm browser-capture traffic-proof --confirm --proof-token <token> --proof-log <path>` proof-log-token 验证入口，并新增 `mitm browser-capture apply --confirm --pac-file <path> --snapshot <path>` / `rollback --snapshot <path>` 的 NetworkCore-owned PAC 文件 artifact 写入和回滚源码路径。后续 main 新增能力仍需要新的 tag release 重新经过 GitHub Actions 后才会进入用户可下载 artifact。
+- 当前未启用：live MITM、browser hijack、浏览器/系统代理配置 mutation、CA 生成/安装/信任 mutation、HTTP/TLS 解密改写数据面、daemon/service、TUN/DNS/firewall mutation。当前 main 只允许写 operator-provided NetworkCore PAC artifact 和 rollback snapshot，不写系统 PAC 或浏览器 policy。
 
 当前文档判定规则：如果后续章节、TODO 已完成项或 CHANGELOG 中出现 P3，只表示当时完成的 runtime baseline 或历史源码合同；不得把这些历史条目解释为当前阶段、当前发布状态或当前开发优先级。
 
@@ -107,7 +107,7 @@ P4 backlog buckets：
 
 - 订阅和客户端兼容：在 `run-url <ss://url>` foreground 闭环上继续补 VLESS/VMess/Trojan、Clash YAML、sing-box JSON、Surge/Loon/Quantumult X 高频子集、节点选择、持久订阅和 managed lifecycle。
 - MITM 数据面和证书生命周期：补齐 CA 生成/安装/信任/撤销/回滚，以及把 `mitm-policy` rewrite plan 接入 HTTP/TLS 数据面；当前只输出 policy-only 状态和计划。
-- 浏览器捕获用户闭环：在 dedicated-profile launch、local proxy endpoint verify 和 target route verify 之后，继续补 live browser traffic proof、显式 browser/system proxy 或 PAC mutation、snapshot/rollback 和安全授权边界。
+- 浏览器捕获用户闭环：在 dedicated-profile launch、local proxy endpoint verify、target route verify、proof-log-token traffic proof 和 PAC artifact apply/rollback 之后，继续补完整 live browser traffic proof 自动化、显式 browser/system proxy 配置、系统 PAC 或其他捕获策略，以及安全授权和回滚边界。
 
 Linux CLI 二进制发布路径已打通：首个真实发布路径从 `v0.1.0-alpha.2` 开始，当前最新 GitHub Release 是
 `v0.1.0-alpha.8`，由 GitHub Actions 构建并发布 `networkcore-linux` Linux tarball、sha256、manifest
@@ -131,10 +131,10 @@ iOS 仍只允许 `apps/ios/README.md` source tree governance placeholder 和 upl
 Linux MITM browser capture 已新增
 [Linux MITM Browser Capture Source Contract](docs/architecture/linux-mitm-browser-capture-source-contract.md)，
 用于固定后续 `BrowserCaptureAuthorization`、`BrowserCaptureRollbackSnapshot`、apply/rollback/verify 命令面、
-manual dedicated-profile launch-plan、脱敏 session-plan、可选 target URL、显式授权 launch、授权、快照和回滚边界；当前 Linux CLI artifact 已提供
+manual dedicated-profile launch-plan、脱敏 session-plan、可选 target URL、显式授权 launch、授权、PAC artifact、快照和回滚边界；当前 Linux CLI artifact 已提供
 `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify` 的 manual launch-plan、订阅到本地代理/浏览器/verify 会话计划、可选 `--target-url` 目标页面、dedicated-profile launch、本地代理端点/target route verify、blocked report
-命令面和 `browser_capture` 机器字段，但 `MITM_BROWSER_CAPTURE_GATE` 仍是
-plan-only/mutation-blocked，不执行真实系统代理或浏览器配置 mutation。
+命令面和 `browser_capture` 机器字段；当前 main 源码进一步加入 `traffic-proof` 和 `apply --confirm --pac-file <path> --snapshot <path>` 的 NetworkCore PAC artifact 写入/回滚路径。`MITM_BROWSER_CAPTURE_GATE` 现在是
+pac-artifact-active/system-mutation-blocked，仍不执行真实系统代理或浏览器配置 mutation。
 
 `engine-singbox` 已作为首个 public engine adapter source contract 进入 workspace；`networkcore-linux help`
 现在输出命令表，`networkcore-linux install-sing-box`/`networkcore-linux sing-box install` 会从官方 GitHub latest
@@ -154,17 +154,16 @@ status/events/logs、reload、TUN/DNS mutation 和 MITM 真实流量处理仍是
 其中 `certificate_plan` 固定当前证书状态、计划步骤、blocked operations 和
 `mutation_ready=false`，`browser_plan` 固定浏览器捕获计划、默认显式代理目标
 `127.0.0.1:7890`、blocked operations 和 `mutation_ready=false`。`MITM_BROWSER_CAPTURE_GATE`
-当前为 plan-only/mutation-blocked，并明确报告 browser hijack 为 `deferred`。该入口不生成或安装 CA，
-不解密 HTTPS，不修改浏览器/系统代理/PAC/TUN/DNS/firewall，也不把 rewrite plan 应用到真实流量。
+当前为 pac-artifact-active/system-mutation-blocked，并明确报告 browser hijack 为 `deferred`。该入口不生成或安装 CA，
+不解密 HTTPS，不修改浏览器/系统代理、系统 PAC、TUN、DNS 或 firewall，也不把 rewrite plan 应用到真实流量。
 `networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` 现在输出 `browser_capture` 机器字段；
 `launch-plan` 输出绑定已加载 `networkcore.adblock` 插件元数据和计划代理 URL 的手动 dedicated-profile 浏览器启动命令模板，但不启动浏览器、不写 profile 或系统状态；
-`session-plan <ss://url>` 解析单条订阅链接，输出脱敏 URL 来源、选中节点、本地代理地址、`run-url <subscription-url>` 启动命令模板、dedicated 浏览器命令、可选 `--target-url <url>` 目标页面、继承 target URL 的 `verify --confirm` 命令和 `networkcore.adblock` 插件元数据；该路径不下载或启动 `sing-box`，不启动浏览器，不写系统代理、浏览器 policy、PAC、TUN、DNS、firewall 或 CA 状态；
-`launch --confirm` 通过注入的 `BrowserCaptureProcessRunner` 启动一个带显式代理参数的 dedicated browser profile；传入 `--target-url <url>` 时会把目标页面作为浏览器参数打开，并输出 `launch_report`、pid、profile、proxy、target URL、命令参数和插件元数据；该路径不写系统代理、浏览器 policy、PAC、TUN、DNS、firewall 或 CA 状态，也不验证 live MITM；
-`apply --confirm` 只记录 `BrowserCaptureAuthorization` 并返回 apply blocked，
-`rollback --snapshot <path>` 只保留 `BrowserCaptureRollbackSnapshot` 路径并返回 rollback blocked，
+`session-plan <ss://url>` 解析单条订阅链接，输出脱敏 URL 来源、选中节点、本地代理地址、`run-url <subscription-url>` 启动命令模板、dedicated 浏览器命令、可选 `--target-url <url>` 目标页面、继承 target URL 的 `verify --confirm` 命令和 `networkcore.adblock` 插件元数据；该路径不下载或启动 `sing-box`，不启动浏览器，不写系统代理、浏览器 policy、system PAC、TUN、DNS、firewall 或 CA 状态；
+`launch --confirm` 通过注入的 `BrowserCaptureProcessRunner` 启动一个带显式代理参数的 dedicated browser profile；传入 `--target-url <url>` 时会把目标页面作为浏览器参数打开，并输出 `launch_report`、pid、profile、proxy、target URL、命令参数和插件元数据；该路径不写系统代理、浏览器 policy、system PAC、TUN、DNS、firewall 或 CA 状态，也不验证 live MITM；
+`apply --confirm --pac-file <path> --snapshot <path>` 在 current main 中写入 operator-provided NetworkCore PAC 文件和 rollback snapshot，PAC 内容只指向计划本地代理 `127.0.0.1:7890`，不会安装系统 PAC 或修改浏览器 policy；缺少 `--pac-file` 或 `--snapshot` 时返回 config missing；`rollback --snapshot <path>` 读取 NetworkCore PAC snapshot 并删除对应 PAC 文件，
 `verify --confirm` 通过注入的 `BrowserCaptureEndpointProbe` 检查计划本地代理端点 `http://127.0.0.1:7890` 是否可达；传入 `--target-url <url>` 时会对目标 host:port 发起 HTTP CONNECT 探测，并输出 `verify_report`、proxy URL、target URL、probe 类型和插件元数据；该路径只验证本地代理端点或目标代理通路，不验证浏览器真实流量、HTTPS MITM 或 rewrite 应用。
-`traffic-proof --confirm --proof-token <token> --proof-log <path>` 通过注入的 `BrowserCaptureTrafficProofProbe` 读取 operator-provided proof log，输出 `traffic_proof_report`、`proof-log-token`、proxy URL、proof token、proof log path 和插件元数据；该路径只证明 proof log 中观察到 token，不写系统代理、浏览器 policy、PAC、TUN、DNS、firewall 或 CA 状态，也不证明 HTTPS MITM 解密或 rewrite 已应用。
-上述 `launch --confirm`、`verify --confirm`、`traffic-proof --confirm` 和后续 browser-capture blocked report 已纳入当前 Linux CLI 源码边界；它们只启动 dedicated browser profile、探测本地代理端点、检查 proof log token 或返回 blocked report，不代表已启用 live MITM。
+`traffic-proof --confirm --proof-token <token> --proof-log <path>` 通过注入的 `BrowserCaptureTrafficProofProbe` 读取 operator-provided proof log，输出 `traffic_proof_report`、`proof-log-token`、proxy URL、proof token、proof log path 和插件元数据；该路径只证明 proof log 中观察到 token，不写系统代理、浏览器 policy、system PAC、TUN、DNS、firewall 或 CA 状态，也不证明 HTTPS MITM 解密或 rewrite 已应用。
+上述 `launch --confirm`、`verify --confirm`、`traffic-proof --confirm`、PAC artifact apply/rollback 和后续 browser-capture blocked report 已纳入当前 Linux CLI 源码边界；它们只启动 dedicated browser profile、探测本地代理端点、检查 proof log token、写入可回滚 PAC artifact 或返回 blocked report，不代表已启用 live MITM。
 
 说明：下方历史清单中保留了 placeholder 阶段的字段名称；当前可执行状态以上面段落和 [ROADMAP.md](ROADMAP.md) 为准。
 
@@ -216,17 +215,17 @@ JQ max-input guard 和 aggregated rewrite plan 合同；当前插件路径仍只
 和 `mitm.policy.http_event.mutation_deferred`，真实 URL/header/body 改写仍等待 mutation model
 与 HTTP/TLS 数据面。
 
-当前仓库源码已有用户可见的 MITM 状态、诊断、证书计划、浏览器捕获计划和 browser-capture blocked report 入口，但没有用户可启用的 live MITM 功能：
+当前仓库源码已有用户可见的 MITM 状态、诊断、证书计划、浏览器捕获计划、PAC artifact apply/rollback 和 browser-capture blocked report 入口，但没有用户可启用的 live MITM 功能：
 `networkcore-linux mitm status`、`networkcore-linux mitm diagnostics` 和
 `networkcore-linux mitm certificate-plan`、`networkcore-linux mitm browser-plan` 只输出 policy-only 状态、
 `mitm_status` 机器字段、`certificate_plan` 和 `browser_plan` 计划字段以及 deferred/blocked gate 诊断；
-`networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` 额外输出 `browser_capture` manual launch-plan、脱敏 session-plan、可选 target URL、dedicated-profile launch report、本地代理端点 verify report、traffic proof report 和 blocked report；
-不会生成或安装 CA，不会解密 HTTPS，不会修改浏览器/系统代理/PAC/TUN/DNS/firewall，也不会把 `mitm-policy`
+`networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` 额外输出 `browser_capture` manual launch-plan、脱敏 session-plan、可选 target URL、dedicated-profile launch report、本地代理端点 verify report、traffic proof report、PAC artifact report 和 blocked report；
+不会生成或安装 CA，不会解密 HTTPS，不会修改浏览器/系统代理、system PAC、TUN/DNS/firewall，也不会把 `mitm-policy`
 的 rewrite plan 应用到真实流量。后续必须继续补齐四个门禁：
 `MITM_CLI_COMMAND_GATE` 从 partial-active 扩展到可操作命令面；
 `MITM_CERTIFICATE_LIFECYCLE_GATE` 从 plan-only 扩展到 CA 生成、安装、信任检测、撤销和回滚；
 `MITM_HTTP_TLS_DATA_PLANE_GATE` 在 HTTP/TLS 数据面中应用 URL/header/body/script rewrite plan；
-`MITM_BROWSER_CAPTURE_GATE` 从 plan-only 扩展到显式授权的浏览器/系统代理配置、验证和回滚。
+`MITM_BROWSER_CAPTURE_GATE` 从 pac-artifact-active/system-mutation-blocked 扩展到显式授权的浏览器/系统代理配置、验证和回滚。
 
 ## 源码布局
 

@@ -47,17 +47,21 @@ fn main() {
                 networkcore_linux::LinuxCliCommand::MitmBrowserCaptureLaunch { .. }
                     | networkcore_linux::LinuxCliCommand::MitmBrowserCaptureVerify { .. }
                     | networkcore_linux::LinuxCliCommand::MitmBrowserCaptureTrafficProof { .. }
+                    | networkcore_linux::LinuxCliCommand::MitmBrowserCaptureApply { .. }
+                    | networkcore_linux::LinuxCliCommand::MitmBrowserCaptureRollback { .. }
             ) {
                 let browser_runner = networkcore_linux::CommandBrowserCaptureProcessRunner::new();
                 let endpoint_probe = networkcore_linux::CommandBrowserCaptureEndpointProbe::new();
                 let traffic_proof_probe =
                     networkcore_linux::CommandBrowserCaptureTrafficProofProbe::new();
+                let pac_store = networkcore_linux::CommandBrowserCapturePacFileStore::new();
                 networkcore_linux::handle_entrypoint_with_browser_capture_all_io(
                     command,
                     &platform,
                     &browser_runner,
                     &endpoint_probe,
                     &traffic_proof_probe,
+                    &pac_store,
                 )
             } else {
                 networkcore_linux::handle_entrypoint_with_runtime_and_lifecycle(

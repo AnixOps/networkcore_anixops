@@ -72,7 +72,9 @@ planned explicit proxy `127.0.0.1:7890`, plan steps, blocked operations, and
 `mutation_ready=false`. `browser-capture` adds a top-level `browser_capture`
 machine report with source contract status, action, `LinuxBrowserCaptureManualLaunch`,
 `LinuxBrowserCaptureSessionPlanReport`, optional target URL, `LinuxBrowserCaptureLaunchReport`, `LinuxBrowserCaptureVerifyReport`,
-`LinuxBrowserCaptureTrafficProofReport`, authorization, snapshot, apply/rollback/verify/traffic-proof reports, and blocked operations.
+`LinuxBrowserCaptureTrafficProofReport`, `LinuxBrowserCapturePacRequest`,
+authorization, snapshot, apply/rollback/verify/traffic-proof reports, PAC
+artifact fields, and blocked operations.
 `launch-plan` only returns manual dedicated-profile browser command templates,
 the planned proxy URL, and loaded `networkcore.adblock` plugin metadata. There
 is also a redacted `session-plan <ss://url>` path that returns selected node,
@@ -89,9 +91,11 @@ traffic capture or HTTPS MITM. `traffic-proof --confirm --proof-token <token> --
 uses `BrowserCaptureTrafficProofProbe` with `probe=proof-log-token` to inspect
 an operator-provided proof log for the token and reports `traffic_proof_report`;
 that evidence source still does not prove HTTPS MITM decryption or rewrite
-application. There is still no CA generation/install/trust
-mutation workflow, no HTTPS decryption path, and no browser/system proxy
-mutation path.
+application. `apply --confirm --pac-file <path> --snapshot <path>` uses
+`BrowserCapturePacFileStore` to write only a caller-selected NetworkCore PAC
+artifact plus rollback snapshot; it does not install system PAC or browser
+policy. There is still no CA generation/install/trust mutation workflow, no
+HTTPS decryption path, and no browser/system proxy mutation path.
 
 ## Multi-Client Boundary
 
@@ -136,11 +140,11 @@ Blocked until later phases:
   `mitm_status.certificate_plan`; later increments must add CA generation,
   user-approved install, trust detection, fingerprint/expiration/revocation
   checks, uninstall, and rollback boundaries.
-- `MITM_BROWSER_CAPTURE_GATE`: currently plan-only through
+- `MITM_BROWSER_CAPTURE_GATE`: currently pac-artifact-active/system-mutation-blocked through
   `mitm_status.browser_plan`, manual launch-plan output, redacted session-plan
   output, optional target URL, explicit dedicated-profile launch output, explicit local proxy endpoint verify output, target route verify output, proof-log-token traffic proof output, and
-  mutation-blocked `browser_capture` reports;
-  later increments must add explicit browser/system proxy configuration, PAC or
+  NetworkCore PAC artifact apply/rollback plus mutation-blocked `browser_capture` reports;
+  later increments must add explicit browser/system proxy configuration, system PAC or
   other capture strategy, live capture verification, and rollback boundaries.
   The Linux source contract is
   [Linux MITM Browser Capture Source Contract](linux-mitm-browser-capture-source-contract.md),
@@ -149,7 +153,8 @@ Blocked until later phases:
   `LinuxBrowserCaptureLaunchReport`, `LinuxBrowserCaptureVerifyRequest`,
   `LinuxBrowserCaptureVerifyReport`, `BrowserCaptureProcessRunner`,
   `LinuxBrowserCaptureTrafficProofRequest`, `LinuxBrowserCaptureTrafficProofReport`,
-  `BrowserCaptureEndpointProbe`, `BrowserCaptureTrafficProofProbe`, `BrowserCaptureAuthorization`,
+  `BrowserCaptureEndpointProbe`, `BrowserCaptureTrafficProofProbe`, `BrowserCapturePacFileStore`,
+  `LinuxBrowserCapturePacRequest`, `BrowserCaptureAuthorization`,
   `BrowserCaptureRollbackSnapshot`, launch-plan, session-plan, optional `--target-url`, launch, apply/rollback/verify/traffic-proof,
   explicit authorization, snapshot, and rollback
   boundaries before any browser/system proxy mutation.
@@ -184,13 +189,14 @@ CI must prove:
   `mitm_status.browser_plan`, and `browser_capture` for
   `networkcore-linux mitm status/diagnostics/certificate-plan/browser-plan`
   and `networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof`,
-  exposes `traffic_proof_report` for proof-log-token evidence,
+  exposes `traffic_proof_report` for proof-log-token evidence and PAC artifact
+  fields for `--pac-file` apply/rollback,
   keeps `mitm-cli-command-gate-status=partial-active`, and reports browser
   hijack as deferred;
 - docs keep `MITM_CLI_COMMAND_GATE`, `MITM_CERTIFICATE_LIFECYCLE_GATE`,
   `MITM_BROWSER_CAPTURE_GATE`, and `MITM_HTTP_TLS_DATA_PLANE_GATE` visible
   while user-facing MITM is deferred;
 - docs keep the Linux MITM browser capture source contract discoverable while
-  `MITM_BROWSER_CAPTURE_GATE` remains plan-only/mutation-blocked;
+  `MITM_BROWSER_CAPTURE_GATE` remains pac-artifact-active/system-mutation-blocked;
 - Rust CI builds and tests the workspace on Linux, macOS, and Windows;
 - local machines do not run build, test, package, or release verification.
