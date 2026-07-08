@@ -4,6 +4,12 @@
 
 评估时间：2026-07-06。
 
+P4 current stage source of truth: Linux CLI work is now P4 Client And Platform
+Integration. P3 Runtime Capability Baseline is completed history. The CLI must
+keep the current P4 backlog buckets visible: subscription/client compatibility,
+MITM data plane plus certificate lifecycle, and browser capture user flow
+completion.
+
 ## 目标
 
 - 定义未来 `networkcore-linux` CLI 的首批命令语义和输出契约。

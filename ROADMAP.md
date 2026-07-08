@@ -126,6 +126,12 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Ker
 
 当前 P4 状态：Linux CLI artifact 已通过 tag release workflow 发布到 GitHub Release，最新已发布版本为 `v0.1.0-alpha.8`，并包含 tarball、sha256、manifest 和 manifest sha256；Linux artifact release-state consistency marker 为 `linux-artifact-release-state=confirmed-release-path`，license/NOTICE 已 confirmed，但后续 tag release 仍必须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates。Linux 仍是手动解压和 foreground 运行模型，不安装 daemon/service，不修改 TUN/DNS/firewall/certificate trust store。iOS 仍只允许 `apps/ios/README.md` source tree governance placeholder 和 upload blocked gates，不包含 Swift/Xcode/Network Extension target、签名、TestFlight/App Store upload 或 iOS release asset。用户可用 live MITM 尚未启用；`MITM_CLI_COMMAND_GATE` 当前做到 status/diagnostics/certificate-plan/browser-plan partial-active，并已在 Linux CLI artifact 中包含 `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify` manual launch-plan、订阅到本地代理/浏览器/verify 会话计划、显式授权 dedicated-profile launch、可选 `--target-url` dedicated profile 打开页面、本地代理端点/target route verify 与 blocked report 命令面；`launch --confirm` 只启动 dedicated browser profile，不写系统或浏览器代理状态；`verify --confirm`、`verify --confirm --target-url <url>`、`session-plan` 和 `--target-url` 分别只探测计划本地代理端点、验证目标 URL 代理通路、输出脱敏会话计划并把目标页面传给 dedicated browser command，不证明浏览器真实流量或 HTTPS MITM。`MITM_CERTIFICATE_LIFECYCLE_GATE` 当前为 plan-only/mutation-blocked，`MITM_BROWSER_CAPTURE_GATE` 当前为 plan-only/mutation-blocked，`MITM_HTTP_TLS_DATA_PLANE_GATE` 仍 blocked，browser hijack 仍 deferred。Linux MITM browser capture 已有 source contract 固定 `LinuxBrowserCaptureSessionPlanRequest`、`LinuxBrowserCaptureSessionPlanReport`、`BrowserCaptureProcessRunner`、`BrowserCaptureEndpointProbe`、`LinuxBrowserCaptureLaunchRequest`、`LinuxBrowserCaptureLaunchReport`、`LinuxBrowserCaptureVerifyRequest`、`BrowserCaptureAuthorization`、`BrowserCaptureRollbackSnapshot`、launch-plan、session-plan、target URL、target route verify、launch、apply/rollback/verify 命令面、授权、快照和回滚边界，但真实浏览器/系统代理 mutation 仍未实现；后续新增能力仍需新的 tag release 才会进入用户可下载 artifact。
 
+P4 backlog buckets：
+
+- 订阅和客户端兼容：继续把多客户端订阅格式、节点选择、持久订阅和 managed lifecycle 接入 public engine adapter 路线。
+- MITM 数据面和证书生命周期：把证书 lifecycle 从 plan-only 推进到受控 mutation，并把 `mitm-policy` rewrite plan 接到 HTTP/TLS 数据面。
+- 浏览器捕获用户闭环：从 dedicated-profile launch 和 proxy route verify 推进到 live browser traffic proof、显式代理/PAC 或系统 mutation、snapshot 和 rollback。
+
 当前发布规划：
 
 - [Release Strategy](docs/release-strategy.md)

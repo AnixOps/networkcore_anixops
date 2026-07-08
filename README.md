@@ -101,6 +101,12 @@ P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成，当前阶
 - 当前 main 源码状态：`v0.1.0-alpha.8` artifact 边界已包含 MITM status/diagnostics/certificate-plan/browser-plan policy-only 命令面，以及 `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify` 的 manual launch-plan、订阅到本地代理/浏览器/verify 会话计划、显式授权 dedicated-profile launch、可选 `--target-url` dedicated profile 打开页面、本地代理端点/target route verify 与 blocked report 命令面。后续 main 新增能力仍需要新的 tag release 重新经过 GitHub Actions 后才会进入用户可下载 artifact。
 - 当前未启用：live MITM、browser hijack、browser capture mutation、CA 生成/安装/信任 mutation、HTTP/TLS 解密改写数据面、daemon/service、TUN/DNS/firewall mutation。
 
+P4 backlog buckets：
+
+- 订阅和客户端兼容：在 `run-url <ss://url>` foreground 闭环上继续补 VLESS/VMess/Trojan、Clash YAML、sing-box JSON、Surge/Loon/Quantumult X 高频子集、节点选择、持久订阅和 managed lifecycle。
+- MITM 数据面和证书生命周期：补齐 CA 生成/安装/信任/撤销/回滚，以及把 `mitm-policy` rewrite plan 接入 HTTP/TLS 数据面；当前只输出 policy-only 状态和计划。
+- 浏览器捕获用户闭环：在 dedicated-profile launch、local proxy endpoint verify 和 target route verify 之后，继续补 live browser traffic proof、显式 browser/system proxy 或 PAC mutation、snapshot/rollback 和安全授权边界。
+
 Linux CLI 二进制发布路径已打通：首个真实发布路径从 `v0.1.0-alpha.2` 开始，当前最新 GitHub Release 是
 `v0.1.0-alpha.8`，由 GitHub Actions 构建并发布 `networkcore-linux` Linux tarball、sha256、manifest
 和 manifest sha256，release workflow 同时完成同 commit CI gate、artifact checksum、manifest、

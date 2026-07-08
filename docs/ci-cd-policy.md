@@ -32,6 +32,8 @@
 
 - 治理文件存在性检查
 - Roadmap、TODO、CHANGELOG 等规划治理文件检查
+- 当前阶段 source of truth 检查，确保 README、ROADMAP、TODO 和架构文档把当前阶段固定为 P4 Client And Platform Integration，且 P3 只作为 completed baseline 或历史条目保留
+- P4 backlog buckets 检查，确保订阅/客户端兼容、MITM 数据面和证书生命周期、浏览器捕获用户闭环三块待补能力在 README、ROADMAP、TODO、Linux CLI README、`mitm-policy` README 和相关 source contract 中保持同步
 - 关键架构规格与接口草案文件检查
 - 可插拔代理执行内核适配接口检查
 - 公有执行内核优先与三层维护框架 ADR 检查

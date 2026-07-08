@@ -153,6 +153,15 @@ jobs:
           grep -q "P3 是已完成历史基线" README.md
           grep -q "当前仓库不再处于 P3" ROADMAP.md
           grep -q "当前阶段是 P4 Client And Platform Integration" TODO.md
+          grep -q "P4 backlog buckets" README.md
+          grep -q "P4 backlog buckets" ROADMAP.md
+          grep -q "P4 backlog buckets" TODO.md
+          grep -q "P4 backlog buckets" CHANGELOG.md
+          grep -q "P4 current stage source of truth" apps/linux-cli/README.md
+          grep -q "P4 current stage source of truth" crates/mitm-policy/README.md
+          grep -q "P4 current stage source of truth" docs/architecture/linux-cli-entrypoint.md
+          grep -q "P4 current stage source of truth" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "P4 backlog buckets" docs/ci-cd-policy.md
           grep -q "当前 main 源码状态" README.md
           grep -q "注意区分 release 与 main 源码" TODO.md
           grep -Fq '当前最新已发布 Linux artifact 是 `v0.1.0-alpha.8`' docs/release-strategy.md

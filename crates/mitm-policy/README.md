@@ -17,6 +17,12 @@ Current limitation: this crate does not mutate real HTTP traffic. NetworkCore
 still needs a domain mutation model and HTTP/TLS data plane before URL/header/body
 rewrite results can be applied to live requests or responses.
 
+P4 current stage source of truth: MITM work is now part of P4 Client And
+Platform Integration. P3 Runtime Capability Baseline is completed history. The
+remaining P4 backlog buckets for this crate are the certificate lifecycle gate,
+the HTTP/TLS data plane gate, and the browser capture user flow that proves and
+routes real browser traffic before rewrite plans can affect live requests.
+
 User-facing live MITM is not available yet. The current Linux CLI exposes
 `networkcore-linux mitm status`, `networkcore-linux mitm diagnostics`,
 `networkcore-linux mitm certificate-plan`, and

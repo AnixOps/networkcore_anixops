@@ -9,6 +9,12 @@ mitm-browser-capture-source-contract-status=active
 MITM_BROWSER_CAPTURE_GATE=plan-only/mutation-blocked
 ```
 
+P4 current stage source of truth: browser capture is now P4 Client And Platform
+Integration work. P3 Runtime Capability Baseline is completed history; any P3
+wording in older completed entries is historical, not the current stage.
+The browser-capture slice of the P4 backlog buckets is live browser traffic
+proof, explicit browser/system proxy or PAC mutation, snapshot, and rollback.
+
 ## Purpose
 
 本文固定 Linux 浏览器流量捕获从 plan-only 进入真实源码 mutation 前必须遵守的合同。当前仓库已经有
