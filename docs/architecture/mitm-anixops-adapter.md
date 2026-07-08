@@ -194,7 +194,7 @@ dedicated-profile 浏览器启动命令模板、计划代理 URL 和已加载插
 并输出 `LinuxBrowserCaptureLaunchReport`、pid、profile、proxy、命令参数和插件元数据；
 `apply --confirm` 只记录 `BrowserCaptureAuthorization` 并返回 apply blocked，
 `rollback --snapshot <path>` 只保留 `BrowserCaptureRollbackSnapshot` 路径并返回 rollback blocked，
-`verify` 返回 live capture probe blocked。
+`verify --confirm` 只探测计划本地代理端点 `http://127.0.0.1:7890` 是否可达；它不证明浏览器真实流量捕获、HTTPS MITM 或 rewrite 应用。未接线 endpoint probe 或更强 live capture probe 时仍返回 blocked。
 该状态只代表命令面、策略诊断入口、证书生命周期计划、浏览器捕获计划、manual launch-plan、dedicated-profile process launch 和 browser-capture blocked report 已存在，
 不代表 HTTPS MITM、证书安装、系统代理/浏览器 policy 写入或真实流量改写已可用。
 

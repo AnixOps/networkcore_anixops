@@ -45,12 +45,15 @@ fn main() {
             } else if matches!(
                 &command,
                 networkcore_linux::LinuxCliCommand::MitmBrowserCaptureLaunch { .. }
+                    | networkcore_linux::LinuxCliCommand::MitmBrowserCaptureVerify { .. }
             ) {
                 let browser_runner = networkcore_linux::CommandBrowserCaptureProcessRunner::new();
-                networkcore_linux::handle_entrypoint_with_browser_capture_runner(
+                let endpoint_probe = networkcore_linux::CommandBrowserCaptureEndpointProbe::new();
+                networkcore_linux::handle_entrypoint_with_browser_capture_io(
                     command,
                     &platform,
                     &browser_runner,
+                    &endpoint_probe,
                 )
             } else {
                 networkcore_linux::handle_entrypoint_with_runtime_and_lifecycle(

@@ -19,20 +19,22 @@ use engine_singbox::{
 };
 use networkcore_linux::{
     cli_help_text, handle_capabilities, handle_entrypoint,
-    handle_entrypoint_with_browser_capture_runner, handle_entrypoint_with_runtime,
-    handle_entrypoint_with_runtime_and_lifecycle,
+    handle_entrypoint_with_browser_capture_io, handle_entrypoint_with_browser_capture_runner,
+    handle_entrypoint_with_runtime, handle_entrypoint_with_runtime_and_lifecycle,
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
     handle_foreground_lifecycle_with_runtime_stop, handle_install_sing_box,
     handle_mitm_browser_capture_apply, handle_mitm_browser_capture_launch,
     handle_mitm_browser_capture_launch_plan, handle_mitm_browser_capture_plan,
     handle_mitm_browser_capture_rollback, handle_mitm_browser_capture_verify,
-    handle_mitm_browser_plan, handle_mitm_certificate_plan, handle_mitm_status, handle_parse_error,
-    handle_prepare_config, handle_run_url_with_sing_box, handle_start, handle_status, handle_stop,
-    parse_args, render_response, BrowserCaptureProcessRunner, ConfigReadError, ConfigReader,
-    CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
+    handle_mitm_browser_capture_verify_with_probe, handle_mitm_browser_plan,
+    handle_mitm_certificate_plan, handle_mitm_status, handle_parse_error, handle_prepare_config,
+    handle_run_url_with_sing_box, handle_start, handle_status, handle_stop, parse_args,
+    render_response, BrowserCaptureEndpointProbe, BrowserCaptureProcessRunner, ConfigReadError,
+    ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
-    LinuxBrowserCaptureLaunchRequest, LinuxCliCommand, LinuxCliExitCode, OutputFormat,
+    LinuxBrowserCaptureLaunchRequest, LinuxBrowserCaptureVerifyOutcome,
+    LinuxBrowserCaptureVerifyRequest, LinuxCliCommand, LinuxCliExitCode, OutputFormat,
     UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
     CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
@@ -40,7 +42,11 @@ use networkcore_linux::{
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_LAUNCH_PLAN_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_STARTED_CODE, CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE,
-    CLI_MITM_BROWSER_CAPTURE_ROLLBACK_BLOCKED_CODE, CLI_MITM_BROWSER_CAPTURE_VERIFY_BLOCKED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_ROLLBACK_BLOCKED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_VERIFY_AUTHORIZATION_REQUIRED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_VERIFY_BLOCKED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_REACHABLE_CODE,
+    CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_UNREACHABLE_CODE,
     CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE, CLI_MITM_BROWSER_PLAN_READY_CODE,
     CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE, CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE,
     CLI_MITM_CERTIFICATE_PLAN_READY_CODE, CLI_MITM_CLI_GATE_PARTIAL_CODE,
@@ -165,7 +171,7 @@ fn parses_mitm_status_and_diagnostics_commands() {
         "/tmp/networkcore-browser-capture.snapshot.json",
     ])
     .expect("mitm browser-capture rollback should parse");
-    let browser_capture_verify = parse_args(["mitm", "browser-capture", "verify"])
+    let browser_capture_verify = parse_args(["mitm", "browser-capture", "verify", "--confirm"])
         .expect("mitm browser-capture verify should parse");
 
     assert_eq!(
@@ -266,6 +272,7 @@ fn parses_mitm_status_and_diagnostics_commands() {
     assert_eq!(
         browser_capture_verify,
         LinuxCliCommand::MitmBrowserCaptureVerify {
+            confirm: true,
             format: OutputFormat::Text
         }
     );
@@ -895,6 +902,111 @@ fn mitm_browser_capture_launch_uses_injected_runner_with_dedicated_profile() {
 }
 
 #[test]
+fn mitm_browser_capture_verify_requires_confirmation_before_probe() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let probe = TestBrowserCaptureEndpointProbe { reachable: true };
+
+    let response = handle_mitm_browser_capture_verify_with_probe(&platform, &probe, false);
+
+    assert!(!response.ok);
+    assert_eq!(response.command, "mitm browser-capture verify");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Unavailable);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_VERIFY_AUTHORIZATION_REQUIRED_CODE,
+    );
+    assert_no_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_REACHABLE_CODE,
+    );
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("verify response should include browser capture report");
+    let verify = capture
+        .verify_report
+        .as_ref()
+        .expect("verify response should include verify report");
+    assert_eq!(capture.action, "verify");
+    assert_eq!(verify.status, "authorization_required");
+    assert!(!verify.verified);
+    assert_eq!(verify.request.proxy_url, "http://127.0.0.1:7890");
+    assert_eq!(
+        verify.plugin_id,
+        mitm_policy::MITM_POLICY_AD_BLOCK_PLUGIN_ID
+    );
+}
+
+#[test]
+fn mitm_browser_capture_verify_uses_injected_endpoint_probe() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let probe = TestBrowserCaptureEndpointProbe { reachable: true };
+
+    let response = handle_mitm_browser_capture_verify_with_probe(&platform, &probe, true);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "mitm browser-capture verify");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Success);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_REACHABLE_CODE,
+    );
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE,
+    );
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("verify response should include browser capture report");
+    let verify = capture
+        .verify_report
+        .as_ref()
+        .expect("verify response should include verify report");
+    assert_eq!(capture.action, "verify");
+    assert_eq!(verify.status, "proxy_reachable");
+    assert!(verify.verified);
+    assert_eq!(verify.request.proxy_host, MITM_BROWSER_CAPTURE_PROXY_HOST);
+    assert_eq!(verify.request.proxy_port, MITM_BROWSER_CAPTURE_PROXY_PORT);
+    assert_eq!(verify.request.probe, "tcp-connect-timeout");
+
+    let rendered = render_response(&response, OutputFormat::Text);
+    assert!(rendered.contains(
+        "browser capture verify: proxy_reachable verified=true proxy=http://127.0.0.1:7890"
+    ));
+}
+
+#[test]
+fn mitm_browser_capture_verify_reports_unreachable_proxy_endpoint() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let probe = TestBrowserCaptureEndpointProbe { reachable: false };
+
+    let response = handle_mitm_browser_capture_verify_with_probe(&platform, &probe, true);
+
+    assert!(!response.ok);
+    assert_eq!(response.command, "mitm browser-capture verify");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Unavailable);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_UNREACHABLE_CODE,
+    );
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("verify response should include browser capture report");
+    let verify = capture
+        .verify_report
+        .as_ref()
+        .expect("verify response should include verify report");
+    assert_eq!(verify.status, "proxy_unreachable");
+    assert!(!verify.verified);
+    assert_eq!(verify.request.proxy_url, "http://127.0.0.1:7890");
+}
+
+#[test]
 fn mitm_browser_capture_apply_requires_authorization_and_stays_blocked() {
     let platform =
         StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
@@ -981,7 +1093,7 @@ fn mitm_browser_capture_rollback_and_verify_stay_blocked_without_mutation() {
         "/tmp/networkcore-browser-capture.snapshot.json"
     );
 
-    let verify = handle_mitm_browser_capture_verify(&platform);
+    let verify = handle_mitm_browser_capture_verify(&platform, true);
 
     assert!(!verify.ok);
     assert_eq!(verify.exit_code, LinuxCliExitCode::Unavailable);
@@ -1076,6 +1188,7 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
     );
     let browser_capture_verify = handle_entrypoint(
         LinuxCliCommand::MitmBrowserCaptureVerify {
+            confirm: true,
             format: OutputFormat::Text,
         },
         &platform,
@@ -1396,6 +1509,40 @@ fn browser_capture_entrypoint_routes_launch_to_injected_runner() {
         .as_ref()
         .expect("launch response should include launch report");
     assert_eq!(launch.pid, Some(4242));
+}
+
+#[test]
+fn browser_capture_entrypoint_routes_verify_to_injected_endpoint_probe() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let probe = TestBrowserCaptureEndpointProbe { reachable: true };
+
+    let response = handle_entrypoint_with_browser_capture_io(
+        LinuxCliCommand::MitmBrowserCaptureVerify {
+            confirm: true,
+            format: OutputFormat::Json,
+        },
+        &platform,
+        &TestBrowserCaptureRunner,
+        &probe,
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "mitm browser-capture verify");
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_REACHABLE_CODE,
+    );
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("verify response should include browser capture report");
+    let verify = capture
+        .verify_report
+        .as_ref()
+        .expect("verify response should include verify report");
+    assert!(verify.verified);
+    assert_eq!(verify.request.proxy_url, "http://127.0.0.1:7890");
 }
 
 #[test]
@@ -1936,6 +2083,46 @@ fn browser_capture_launch_json_output_contains_process_report_fields() {
     );
 }
 
+#[test]
+fn browser_capture_verify_json_output_contains_endpoint_probe_fields() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let probe = TestBrowserCaptureEndpointProbe { reachable: true };
+    let response = handle_mitm_browser_capture_verify_with_probe(&platform, &probe, true);
+
+    let rendered = render_response(&response, OutputFormat::Json);
+    let json: serde_json::Value =
+        serde_json::from_str(&rendered).expect("browser verify response should be valid JSON");
+
+    assert_eq!(json["ok"].as_bool(), Some(true));
+    assert_eq!(json["command"], "mitm browser-capture verify");
+    assert_eq!(json["browser_capture"]["action"], "verify");
+    assert_eq!(
+        json["browser_capture"]["request"]["authorization"]["confirmed"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["verify"]["proxy_url"],
+        "http://127.0.0.1:7890"
+    );
+    assert_eq!(
+        json["browser_capture"]["verify_report"]["status"],
+        "proxy_reachable"
+    );
+    assert_eq!(
+        json["browser_capture"]["verify_report"]["verified"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        json["browser_capture"]["verify_report"]["request"]["probe"],
+        "tcp-connect-timeout"
+    );
+    assert_eq!(
+        json["browser_capture"]["verify_report"]["plugin_id"],
+        mitm_policy::MITM_POLICY_AD_BLOCK_PLUGIN_ID
+    );
+}
+
 fn available_orchestrator() -> RuntimeOrchestrator<
     TestConfigurationService,
     StaticLinuxPlatformCapabilityService,
@@ -2135,6 +2322,38 @@ impl BrowserCaptureProcessRunner for TestBrowserCaptureRunner {
                 Some("cli.mitm".to_string()),
             )],
         })
+    }
+}
+
+struct TestBrowserCaptureEndpointProbe {
+    reachable: bool,
+}
+
+impl BrowserCaptureEndpointProbe for TestBrowserCaptureEndpointProbe {
+    fn verify_proxy_endpoint(
+        &self,
+        request: &LinuxBrowserCaptureVerifyRequest,
+    ) -> DomainResult<LinuxBrowserCaptureVerifyOutcome> {
+        assert_eq!(request.proxy_host, "127.0.0.1");
+        assert_eq!(request.proxy_port, 7890);
+        assert_eq!(request.proxy_url, "http://127.0.0.1:7890");
+        assert_eq!(request.probe, "tcp-connect-timeout");
+
+        if self.reachable {
+            Ok(LinuxBrowserCaptureVerifyOutcome {
+                diagnostics: vec![Diagnostic::new(
+                    DiagnosticSeverity::Info,
+                    CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_REACHABLE_CODE,
+                    "browser capture test proxy endpoint is reachable",
+                    Some("cli.mitm".to_string()),
+                )],
+            })
+        } else {
+            Err(DomainError::new(
+                CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_UNREACHABLE_CODE,
+                "browser capture test proxy endpoint is unreachable",
+            ))
+        }
     }
 }
 

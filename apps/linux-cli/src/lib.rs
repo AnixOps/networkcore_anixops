@@ -28,7 +28,9 @@ use signal_hook::{
     consts::signal::{SIGINT, SIGTERM},
     iterator::Signals,
 };
+use std::net::{TcpStream, ToSocketAddrs};
 use std::thread;
+use std::time::Duration;
 
 pub const COMMAND_NAME: &str = "networkcore-linux";
 pub const DEFAULT_ENGINE_ID: &str = "native";
@@ -87,6 +89,12 @@ pub const CLI_MITM_BROWSER_CAPTURE_ROLLBACK_BLOCKED_CODE: &str =
     "cli.linux.mitm.browser_capture.rollback.blocked";
 pub const CLI_MITM_BROWSER_CAPTURE_VERIFY_BLOCKED_CODE: &str =
     "cli.linux.mitm.browser_capture.verify.blocked";
+pub const CLI_MITM_BROWSER_CAPTURE_VERIFY_AUTHORIZATION_REQUIRED_CODE: &str =
+    "cli.linux.mitm.browser_capture.verify.authorization_required";
+pub const CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_REACHABLE_CODE: &str =
+    "cli.linux.mitm.browser_capture.verify.proxy_reachable";
+pub const CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_UNREACHABLE_CODE: &str =
+    "cli.linux.mitm.browser_capture.verify.proxy_unreachable";
 pub const CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE: &str = "cli.linux.mitm.browser_hijack.deferred";
 
 pub const MITM_CLI_COMMAND_GATE: &str = "MITM_CLI_COMMAND_GATE";
@@ -226,6 +234,7 @@ pub enum LinuxCliCommand {
         format: OutputFormat,
     },
     MitmBrowserCaptureVerify {
+        confirm: bool,
         format: OutputFormat,
     },
     InstallSingBox {
@@ -288,7 +297,7 @@ impl LinuxCliCommand {
             | Self::MitmBrowserCaptureLaunch { format, .. }
             | Self::MitmBrowserCaptureApply { format, .. }
             | Self::MitmBrowserCaptureRollback { format, .. }
-            | Self::MitmBrowserCaptureVerify { format }
+            | Self::MitmBrowserCaptureVerify { format, .. }
             | Self::InstallSingBox { format, .. }
             | Self::RunUrl { format, .. } => *format,
         }
@@ -532,6 +541,7 @@ impl LinuxBrowserCaptureAction {
 pub struct LinuxBrowserCaptureRequest {
     pub action: LinuxBrowserCaptureAction,
     pub launch: Option<LinuxBrowserCaptureLaunchRequest>,
+    pub verify: Option<LinuxBrowserCaptureVerifyRequest>,
     pub authorization: Option<BrowserCaptureAuthorization>,
     pub rollback_snapshot: Option<BrowserCaptureRollbackSnapshot>,
 }
@@ -598,6 +608,19 @@ pub struct LinuxBrowserCaptureLaunchOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxBrowserCaptureVerifyRequest {
+    pub proxy_host: String,
+    pub proxy_port: u16,
+    pub proxy_url: String,
+    pub probe: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxBrowserCaptureVerifyOutcome {
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinuxBrowserCaptureLaunchReport {
     pub status: String,
     pub launched: bool,
@@ -629,6 +652,10 @@ pub struct LinuxBrowserCaptureRollbackReport {
 pub struct LinuxBrowserCaptureVerifyReport {
     pub status: String,
     pub verified: bool,
+    pub request: LinuxBrowserCaptureVerifyRequest,
+    pub plugin_engine: String,
+    pub plugin_id: String,
+    pub plugin_version: String,
     pub blocked_operations: Vec<String>,
 }
 
@@ -802,6 +829,13 @@ pub trait BrowserCaptureProcessRunner {
     ) -> DomainResult<LinuxBrowserCaptureLaunchOutcome>;
 }
 
+pub trait BrowserCaptureEndpointProbe {
+    fn verify_proxy_endpoint(
+        &self,
+        request: &LinuxBrowserCaptureVerifyRequest,
+    ) -> DomainResult<LinuxBrowserCaptureVerifyOutcome>;
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CommandBrowserCaptureProcessRunner;
 
@@ -838,6 +872,58 @@ impl BrowserCaptureProcessRunner for CommandBrowserCaptureProcessRunner {
                 DiagnosticSeverity::Info,
                 CLI_MITM_BROWSER_CAPTURE_LAUNCH_STARTED_CODE,
                 "browser capture dedicated profile process was started with an explicit proxy argument",
+                SOURCE_CLI_MITM,
+            )],
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CommandBrowserCaptureEndpointProbe;
+
+impl CommandBrowserCaptureEndpointProbe {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl BrowserCaptureEndpointProbe for CommandBrowserCaptureEndpointProbe {
+    fn verify_proxy_endpoint(
+        &self,
+        request: &LinuxBrowserCaptureVerifyRequest,
+    ) -> DomainResult<LinuxBrowserCaptureVerifyOutcome> {
+        let address = format!("{}:{}", request.proxy_host, request.proxy_port);
+        let mut addrs = address.as_str().to_socket_addrs().map_err(|error| {
+            DomainError::new(
+                CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_UNREACHABLE_CODE,
+                format!("failed to resolve browser capture proxy endpoint {address}: {error}"),
+            )
+        })?;
+        let socket_addr = addrs.next().ok_or_else(|| {
+            DomainError::new(
+                CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_UNREACHABLE_CODE,
+                format!("browser capture proxy endpoint {address} did not resolve"),
+            )
+        })?;
+
+        TcpStream::connect_timeout(&socket_addr, Duration::from_secs(2)).map_err(|error| {
+            DomainError::new(
+                CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_UNREACHABLE_CODE,
+                format!(
+                    "browser capture planned proxy endpoint {} is not reachable: {error}",
+                    request.proxy_url
+                ),
+            )
+        })?;
+
+        Ok(LinuxBrowserCaptureVerifyOutcome {
+            diagnostics: vec![cli_diagnostic(
+                DiagnosticSeverity::Info,
+                CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_REACHABLE_CODE,
+                format!(
+                    "browser capture planned proxy endpoint {} is reachable",
+                    request.proxy_url
+                ),
                 SOURCE_CLI_MITM,
             )],
         })
@@ -1160,8 +1246,8 @@ where
         LinuxCliCommand::MitmBrowserCaptureRollback { snapshot_path, .. } => {
             handle_mitm_browser_capture_rollback(platform, snapshot_path)
         }
-        LinuxCliCommand::MitmBrowserCaptureVerify { .. } => {
-            handle_mitm_browser_capture_verify(platform)
+        LinuxCliCommand::MitmBrowserCaptureVerify { confirm, .. } => {
+            handle_mitm_browser_capture_verify(platform, confirm)
         }
         LinuxCliCommand::Stop { .. } => handle_stop(),
         other => handle_unwired_command(other.name()),
@@ -1190,6 +1276,37 @@ where
             &profile_dir,
             confirm,
         ),
+        other => handle_entrypoint(other, platform),
+    }
+}
+
+pub fn handle_entrypoint_with_browser_capture_io<P, B, V>(
+    command: LinuxCliCommand,
+    platform: &P,
+    browser_runner: &B,
+    endpoint_probe: &V,
+) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+    B: BrowserCaptureProcessRunner,
+    V: BrowserCaptureEndpointProbe,
+{
+    match command {
+        LinuxCliCommand::MitmBrowserCaptureLaunch {
+            browser,
+            profile_dir,
+            confirm,
+            ..
+        } => handle_mitm_browser_capture_launch(
+            platform,
+            browser_runner,
+            &browser,
+            &profile_dir,
+            confirm,
+        ),
+        LinuxCliCommand::MitmBrowserCaptureVerify { confirm, .. } => {
+            handle_mitm_browser_capture_verify_with_probe(platform, endpoint_probe, confirm)
+        }
         other => handle_entrypoint(other, platform),
     }
 }
@@ -1784,7 +1901,7 @@ where
     )
 }
 
-pub fn handle_mitm_browser_capture_verify<P>(platform: &P) -> LinuxCliResponse
+pub fn handle_mitm_browser_capture_verify<P>(platform: &P, confirm: bool) -> LinuxCliResponse
 where
     P: PlatformCapabilityService,
 {
@@ -1792,9 +1909,134 @@ where
         "mitm browser-capture verify",
         platform,
         LinuxBrowserCaptureAction::Verify,
-        false,
+        confirm,
         None,
     )
+}
+
+pub fn handle_mitm_browser_capture_verify_with_probe<P, V>(
+    platform: &P,
+    endpoint_probe: &V,
+    confirm: bool,
+) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+    V: BrowserCaptureEndpointProbe,
+{
+    let command = "mitm browser-capture verify";
+    let platform_status = match platform.status() {
+        Ok(status) => status,
+        Err(error) => {
+            return domain_error_response(
+                command,
+                LinuxCliExitCode::GeneralFailure,
+                error,
+                SOURCE_CLI_MITM,
+            );
+        }
+    };
+
+    let (mitm_status, mut diagnostics) = match build_linux_mitm_status(&platform_status) {
+        Ok(status) => status,
+        Err(error) => {
+            return domain_error_response(
+                command,
+                LinuxCliExitCode::GeneralFailure,
+                error,
+                SOURCE_CLI_MITM,
+            );
+        }
+    };
+
+    let authorization = BrowserCaptureAuthorization {
+        confirmed: confirm,
+        source: if confirm {
+            "cli --confirm".to_string()
+        } else {
+            "missing --confirm".to_string()
+        },
+        scope: "linux browser capture local proxy endpoint verify".to_string(),
+        gate: MITM_BROWSER_CAPTURE_GATE.to_string(),
+    };
+    let mut report = build_linux_browser_capture_report(
+        LinuxBrowserCaptureAction::Verify,
+        &platform_status,
+        &mitm_status.policy,
+        Some(authorization),
+        None,
+    );
+    let verify_request = report
+        .request
+        .verify
+        .clone()
+        .expect("verify action should build a verify request");
+
+    if !confirm {
+        diagnostics.push(cli_diagnostic(
+            DiagnosticSeverity::Error,
+            CLI_MITM_BROWSER_CAPTURE_VERIFY_AUTHORIZATION_REQUIRED_CODE,
+            "browser capture verify requires --confirm before probing the planned local proxy endpoint",
+            SOURCE_CLI_MITM,
+        ));
+        report.verify_report = Some(build_linux_browser_capture_verify_report(
+            "authorization_required",
+            false,
+            verify_request,
+            &mitm_status.policy,
+            report.plan.blocked_operations.clone(),
+        ));
+        return LinuxCliResponse {
+            ok: false,
+            exit_code: LinuxCliExitCode::Unavailable,
+            ..LinuxCliResponse::success(command)
+                .with_platform(platform_status)
+                .with_mitm_status(mitm_status)
+                .with_browser_capture(report)
+                .with_diagnostics(diagnostics)
+        };
+    }
+
+    match endpoint_probe.verify_proxy_endpoint(&verify_request) {
+        Ok(outcome) => {
+            diagnostics.extend(outcome.diagnostics);
+            report.verify_report = Some(build_linux_browser_capture_verify_report(
+                "proxy_reachable",
+                true,
+                verify_request,
+                &mitm_status.policy,
+                report.plan.blocked_operations.clone(),
+            ));
+            LinuxCliResponse::success(command)
+                .with_platform(platform_status)
+                .with_mitm_status(mitm_status)
+                .with_browser_capture(report)
+                .with_diagnostics(diagnostics)
+        }
+        Err(error) => {
+            diagnostics.push(cli_diagnostic(
+                DiagnosticSeverity::Error,
+                error.code,
+                error.message,
+                SOURCE_CLI_MITM,
+            ));
+            report.verify_report = Some(build_linux_browser_capture_verify_report(
+                "proxy_unreachable",
+                false,
+                verify_request,
+                &mitm_status.policy,
+                report.plan.blocked_operations.clone(),
+            ));
+            LinuxCliResponse {
+                ok: false,
+                exit_code: LinuxCliExitCode::Unavailable,
+                ..LinuxCliResponse::success(command)
+                    .with_platform(platform_status)
+                    .with_mitm_status(mitm_status)
+                    .with_browser_capture(report)
+                    .with_diagnostics(diagnostics)
+            }
+        }
+    }
 }
 
 fn handle_mitm_status_inner<P>(command: &'static str, platform: &P) -> LinuxCliResponse
@@ -1872,6 +2114,16 @@ where
             scope: "linux explicit browser proxy capture".to_string(),
             gate: MITM_BROWSER_CAPTURE_GATE.to_string(),
         }),
+        LinuxBrowserCaptureAction::Verify => Some(BrowserCaptureAuthorization {
+            confirmed: confirm,
+            source: if confirm {
+                "cli --confirm".to_string()
+            } else {
+                "missing --confirm".to_string()
+            },
+            scope: "linux browser capture local proxy endpoint verify".to_string(),
+            gate: MITM_BROWSER_CAPTURE_GATE.to_string(),
+        }),
         _ => None,
     };
     let rollback_snapshot = snapshot_path.map(|path| BrowserCaptureRollbackSnapshot {
@@ -1915,10 +2167,18 @@ where
             ));
         }
         LinuxBrowserCaptureAction::Verify => {
+            if !confirm {
+                diagnostics.push(cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_MITM_BROWSER_CAPTURE_VERIFY_AUTHORIZATION_REQUIRED_CODE,
+                    "browser capture verify requires --confirm before probing the planned local proxy endpoint",
+                    SOURCE_CLI_MITM,
+                ));
+            }
             diagnostics.push(cli_diagnostic(
                 DiagnosticSeverity::Error,
                 CLI_MITM_BROWSER_CAPTURE_VERIFY_BLOCKED_CODE,
-                "browser capture verify is blocked until live browser capture probing is implemented",
+                "browser capture verify endpoint probing is blocked because no BrowserCaptureEndpointProbe is wired",
                 SOURCE_CLI_MITM,
             ));
         }
@@ -2137,9 +2397,15 @@ fn build_linux_browser_capture_report(
     rollback_snapshot: Option<BrowserCaptureRollbackSnapshot>,
 ) -> LinuxBrowserCaptureReport {
     let plan = build_linux_browser_capture_plan(platform_status, policy);
+    let verify_request = if action == LinuxBrowserCaptureAction::Verify {
+        Some(build_linux_browser_capture_verify_request(&plan))
+    } else {
+        None
+    };
     let request = LinuxBrowserCaptureRequest {
         action,
         launch: None,
+        verify: verify_request.clone(),
         authorization: authorization.clone(),
         rollback_snapshot: rollback_snapshot.clone(),
     };
@@ -2173,10 +2439,14 @@ fn build_linux_browser_capture_report(
         None
     };
     let verify_report = if action == LinuxBrowserCaptureAction::Verify {
-        Some(LinuxBrowserCaptureVerifyReport {
-            status: "blocked".to_string(),
-            verified: false,
-            blocked_operations: blocked_operations.clone(),
+        verify_request.map(|request| {
+            build_linux_browser_capture_verify_report(
+                "blocked",
+                false,
+                request,
+                policy,
+                blocked_operations.clone(),
+            )
         })
     } else {
         None
@@ -2277,6 +2547,20 @@ fn build_linux_browser_capture_launch_request(
     }
 }
 
+fn build_linux_browser_capture_verify_request(
+    plan: &LinuxBrowserCapturePlan,
+) -> LinuxBrowserCaptureVerifyRequest {
+    LinuxBrowserCaptureVerifyRequest {
+        proxy_host: plan.planned_proxy_host.clone(),
+        proxy_port: plan.planned_proxy_port,
+        proxy_url: format!(
+            "http://{}:{}",
+            plan.planned_proxy_host, plan.planned_proxy_port
+        ),
+        probe: "tcp-connect-timeout".to_string(),
+    }
+}
+
 fn build_linux_browser_capture_launch_command(
     browser: &str,
     executable: &str,
@@ -2315,6 +2599,24 @@ fn build_linux_browser_capture_launch_report(
         plugin_engine: policy.engine.clone(),
         plugin_id: policy.plugin_id.clone(),
         plugin_version: policy.plugin_version.clone(),
+    }
+}
+
+fn build_linux_browser_capture_verify_report(
+    status: &str,
+    verified: bool,
+    request: LinuxBrowserCaptureVerifyRequest,
+    policy: &LinuxMitmPolicyStatus,
+    blocked_operations: Vec<String>,
+) -> LinuxBrowserCaptureVerifyReport {
+    LinuxBrowserCaptureVerifyReport {
+        status: status.to_string(),
+        verified,
+        request,
+        plugin_engine: policy.engine.clone(),
+        plugin_id: policy.plugin_id.clone(),
+        plugin_version: policy.plugin_version.clone(),
+        blocked_operations,
     }
 }
 
@@ -2874,6 +3176,7 @@ fn parse_mitm_browser_capture_command(
         "verify" => {
             let options = parse_options(&args[1..])?;
             Ok(LinuxCliCommand::MitmBrowserCaptureVerify {
+                confirm: options.confirm,
                 format: options.format,
             })
         }
@@ -3360,8 +3663,8 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
         }
         if let Some(report) = &capture.verify_report {
             lines.push(format!(
-                "browser capture verify: {} verified={}",
-                report.status, report.verified
+                "browser capture verify: {} verified={} proxy={} probe={}",
+                report.status, report.verified, report.request.proxy_url, report.request.probe
             ));
         }
     }
@@ -3642,6 +3945,7 @@ impl From<&LinuxBrowserCaptureReport> for JsonBrowserCaptureReport {
 struct JsonBrowserCaptureRequest {
     action: String,
     launch: Option<JsonBrowserCaptureLaunchRequest>,
+    verify: Option<JsonBrowserCaptureVerifyRequest>,
     authorization: Option<JsonBrowserCaptureAuthorization>,
     rollback_snapshot: Option<JsonBrowserCaptureRollbackSnapshot>,
 }
@@ -3654,6 +3958,10 @@ impl From<&LinuxBrowserCaptureRequest> for JsonBrowserCaptureRequest {
                 .launch
                 .as_ref()
                 .map(JsonBrowserCaptureLaunchRequest::from),
+            verify: request
+                .verify
+                .as_ref()
+                .map(JsonBrowserCaptureVerifyRequest::from),
             authorization: request
                 .authorization
                 .as_ref()
@@ -3662,6 +3970,25 @@ impl From<&LinuxBrowserCaptureRequest> for JsonBrowserCaptureRequest {
                 .rollback_snapshot
                 .as_ref()
                 .map(JsonBrowserCaptureRollbackSnapshot::from),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonBrowserCaptureVerifyRequest {
+    proxy_host: String,
+    proxy_port: u16,
+    proxy_url: String,
+    probe: String,
+}
+
+impl From<&LinuxBrowserCaptureVerifyRequest> for JsonBrowserCaptureVerifyRequest {
+    fn from(request: &LinuxBrowserCaptureVerifyRequest) -> Self {
+        Self {
+            proxy_host: request.proxy_host.clone(),
+            proxy_port: request.proxy_port,
+            proxy_url: request.proxy_url.clone(),
+            probe: request.probe.clone(),
         }
     }
 }
@@ -3877,6 +4204,10 @@ impl From<&LinuxBrowserCaptureRollbackReport> for JsonBrowserCaptureRollbackRepo
 struct JsonBrowserCaptureVerifyReport {
     status: String,
     verified: bool,
+    request: JsonBrowserCaptureVerifyRequest,
+    plugin_engine: String,
+    plugin_id: String,
+    plugin_version: String,
     blocked_operations: Vec<String>,
 }
 
@@ -3885,6 +4216,10 @@ impl From<&LinuxBrowserCaptureVerifyReport> for JsonBrowserCaptureVerifyReport {
         Self {
             status: report.status.clone(),
             verified: report.verified,
+            request: JsonBrowserCaptureVerifyRequest::from(&report.request),
+            plugin_engine: report.plugin_engine.clone(),
+            plugin_id: report.plugin_id.clone(),
+            plugin_version: report.plugin_version.clone(),
             blocked_operations: report.blocked_operations.clone(),
         }
     }

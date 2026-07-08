@@ -24,11 +24,13 @@ User-facing live MITM is not available yet. The current Linux CLI exposes
 `networkcore-linux mitm browser-capture plan/launch-plan/launch/apply/rollback/verify`;
 the command surface reports policy-only status, a certificate lifecycle plan, a
 browser capture plan, manual dedicated-profile launch templates, a
-dedicated-profile `launch_report`, `browser_capture` blocked reports, and
-deferred browser hijack gates. The launch templates and `launch --confirm` report
-carry the loaded `networkcore.adblock` plugin metadata and planned proxy URL, but
-they do not generate or install a CA, decrypt HTTPS traffic, write
-browser/system proxy state, or apply rewrite plans to live traffic.
+dedicated-profile `launch_report`, local proxy endpoint `verify_report`,
+`browser_capture` blocked reports, and deferred browser hijack gates. The launch
+templates, `launch --confirm` report, and `verify --confirm` report carry the
+loaded `networkcore.adblock` plugin metadata and planned proxy URL, but they do
+not generate or install a CA, decrypt HTTPS traffic, write browser/system proxy
+state, prove live browser traffic capture, or apply rewrite plans to live
+traffic.
 
 Required gates before user-facing MITM:
 

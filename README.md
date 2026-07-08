@@ -98,7 +98,7 @@ P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成，当前阶
 - 当前阶段源：P4 Client And Platform Integration。
 - P3 是已完成历史基线，不再作为当前仓库阶段描述。
 - 当前最新已发布 artifact：`v0.1.0-alpha.7` GitHub Release 中的 Linux CLI tarball、sha256、manifest 和 manifest sha256；该二进制可用 `help` 命令表、`install-sing-box`、`run-url <ss://url>` foreground local proxy，以及 `mitm browser-capture launch-plan` 和 `mitm browser-capture launch --confirm` dedicated-profile browser launch。
-- 当前仓库源码状态：MITM status/diagnostics/certificate-plan/browser-plan policy-only 命令面，以及 `mitm browser-capture plan/launch-plan/launch/apply/rollback/verify` 的 manual launch-plan、显式授权 dedicated-profile launch 与 blocked report 命令面已经进入 P4 源码边界；live MITM、系统/浏览器代理 mutation 和 HTTP/TLS 数据面仍未启用。
+- 当前仓库源码状态：MITM status/diagnostics/certificate-plan/browser-plan policy-only 命令面，以及 `mitm browser-capture plan/launch-plan/launch/apply/rollback/verify` 的 manual launch-plan、显式授权 dedicated-profile launch、本地代理端点 verify 与 blocked report 命令面已经进入 P4 源码边界；live MITM、系统/浏览器代理 mutation 和 HTTP/TLS 数据面仍未启用。
 - 当前未启用：live MITM、browser hijack、browser capture mutation、CA 生成/安装/信任 mutation、HTTP/TLS 解密改写数据面、daemon/service、TUN/DNS/firewall mutation。
 
 Linux CLI 二进制发布路径已打通：首个真实发布路径从 `v0.1.0-alpha.2` 开始，当前最新 GitHub Release 是
@@ -124,7 +124,7 @@ Linux MITM browser capture 已新增
 [Linux MITM Browser Capture Source Contract](docs/architecture/linux-mitm-browser-capture-source-contract.md)，
 用于固定后续 `BrowserCaptureAuthorization`、`BrowserCaptureRollbackSnapshot`、apply/rollback/verify 命令面、
 manual dedicated-profile launch-plan、显式授权 launch、授权、快照和回滚边界；当前源码已提供
-`mitm browser-capture plan/launch-plan/launch/apply/rollback/verify` 的 manual launch-plan、dedicated-profile launch、blocked report
+`mitm browser-capture plan/launch-plan/launch/apply/rollback/verify` 的 manual launch-plan、dedicated-profile launch、本地代理端点 verify、blocked report
 命令面和 `browser_capture` 机器字段，但 `MITM_BROWSER_CAPTURE_GATE` 仍是
 plan-only/mutation-blocked，不执行真实系统代理或浏览器配置 mutation。
 
@@ -153,8 +153,8 @@ status/events/logs、reload、TUN/DNS mutation 和 MITM 真实流量处理仍是
 `launch --confirm` 通过注入的 `BrowserCaptureProcessRunner` 启动一个带显式代理参数的 dedicated browser profile，并输出 `launch_report`、pid、profile、proxy、命令参数和插件元数据；该路径不写系统代理、浏览器 policy、PAC、TUN、DNS、firewall 或 CA 状态，也不验证 live MITM；
 `apply --confirm` 只记录 `BrowserCaptureAuthorization` 并返回 apply blocked，
 `rollback --snapshot <path>` 只保留 `BrowserCaptureRollbackSnapshot` 路径并返回 rollback blocked，
-`verify` 返回 live capture probe blocked，全部都不写入系统或浏览器状态。
-上述 `launch --confirm` 和后续 browser-capture blocked report 已纳入当前 Linux CLI artifact 边界；它们只启动 dedicated browser profile 或返回 blocked report，不代表已启用 live MITM。
+`verify --confirm` 通过注入的 `BrowserCaptureEndpointProbe` 检查计划本地代理端点 `http://127.0.0.1:7890` 是否可达，并输出 `verify_report`、proxy URL、probe 类型和插件元数据；该路径只验证本地代理端点，不验证浏览器真实流量、HTTPS MITM 或 rewrite 应用。
+上述 `launch --confirm`、`verify --confirm` 和后续 browser-capture blocked report 已纳入当前 Linux CLI 源码边界；它们只启动 dedicated browser profile、探测本地代理端点或返回 blocked report，不代表已启用 live MITM。
 
 说明：下方历史清单中保留了 placeholder 阶段的字段名称；当前可执行状态以上面段落和 [ROADMAP.md](ROADMAP.md) 为准。
 
@@ -210,7 +210,7 @@ JQ max-input guard 和 aggregated rewrite plan 合同；当前插件路径仍只
 `networkcore-linux mitm status`、`networkcore-linux mitm diagnostics` 和
 `networkcore-linux mitm certificate-plan`、`networkcore-linux mitm browser-plan` 只输出 policy-only 状态、
 `mitm_status` 机器字段、`certificate_plan` 和 `browser_plan` 计划字段以及 deferred/blocked gate 诊断；
-`networkcore-linux mitm browser-capture plan/launch-plan/launch/apply/rollback/verify` 额外输出 `browser_capture` manual launch-plan、dedicated-profile launch report 和 blocked report；
+`networkcore-linux mitm browser-capture plan/launch-plan/launch/apply/rollback/verify` 额外输出 `browser_capture` manual launch-plan、dedicated-profile launch report、本地代理端点 verify report 和 blocked report；
 不会生成或安装 CA，不会解密 HTTPS，不会修改浏览器/系统代理/PAC/TUN/DNS/firewall，也不会把 `mitm-policy`
 的 rewrite plan 应用到真实流量。后续必须继续补齐四个门禁：
 `MITM_CLI_COMMAND_GATE` 从 partial-active 扩展到可操作命令面；
@@ -221,7 +221,7 @@ JQ max-input guard 和 aggregated rewrite plan 合同；当前插件路径仍只
 ## 源码布局
 
 - [apps/ios](apps/ios)：iOS source tree governance placeholder，当前仅包含 README，定义未来 Swift package ownership、Package.swift ownership preflight、Package.swift manifest-only activation validation、source directory guard、`macos-26` source scan hook 和 no `Package.swift`/no Swift source/no Xcode project boundary。
-- [apps/linux-cli](apps/linux-cli)：`networkcore-linux` CLI 入口的首批命令解析、`help` 命令表、配置读取边界、只读平台探测接线、`prepare-config` 运行层接线、`start` 原生 engine 前台接线、`install-sing-box` latest public engine 下载接线、`run-url` Shadowsocks URL 到 sing-box foreground local proxy 接线、`mitm status/diagnostics/certificate-plan/browser-plan` policy-only 状态、证书计划和浏览器捕获计划输出、`mitm browser-capture plan/launch-plan/launch/apply/rollback/verify` manual launch-plan、dedicated-profile launch 与 blocked report、前台 lifecycle host/interruption source、Unix OS signal source、interruption 后 runtime stop/release 源码合同和诊断输出。
+- [apps/linux-cli](apps/linux-cli)：`networkcore-linux` CLI 入口的首批命令解析、`help` 命令表、配置读取边界、只读平台探测接线、`prepare-config` 运行层接线、`start` 原生 engine 前台接线、`install-sing-box` latest public engine 下载接线、`run-url` Shadowsocks URL 到 sing-box foreground local proxy 接线、`mitm status/diagnostics/certificate-plan/browser-plan` policy-only 状态、证书计划和浏览器捕获计划输出、`mitm browser-capture plan/launch-plan/launch/apply/rollback/verify` manual launch-plan、dedicated-profile launch、本地代理端点 verify 与 blocked report、前台 lifecycle host/interruption source、Unix OS signal source、interruption 后 runtime stop/release 源码合同和诊断输出。
 - [crates/config-core](crates/config-core)：统一控制内核的首批纯配置解析、标准化和 subscription parser 服务，当前覆盖 schema/profile、最小 listener/node/route TOML 子集、subscription TOML `nodes`/`routes` 子集、单条 `ss://`、明文 `ss://` 链接列表和 base64 链接列表。
 - [crates/control-domain](crates/control-domain)：统一控制内核的首批领域类型与端口 trait。
 - [crates/control-runtime](crates/control-runtime)：组合领域端口的首批纯运行层编排用例；subscription catalog runtime gate 已支持显式 inline `SubscriptionSource` 的 `NodeCatalog.nodes` 到 `RuntimeConfigRequest.nodes` handoff、重复 id 拒绝和 rules deferred 诊断，仍不执行远程/文件订阅或平台 mutation。

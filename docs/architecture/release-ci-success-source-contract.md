@@ -1,22 +1,24 @@
 # Release CI Success Source Contract
 
-本文定义真实 `package-linux` 或其他平台 artifact job 加入前，release workflow
+本文定义 `package-linux` 或其他平台 artifact job 在 release workflow 中运行前，release workflow
 如何证明当前 release commit 已经在 `main` 上通过 CI。当前 `release-ci-gate` 已通过
-GitHub Actions API 自动读取同 repository、同 commit、`main` 分支成功 CI run；但仍不构建、不打包、不发布 artifact。
+GitHub Actions API 自动读取同 repository、同 commit、`main` 分支成功 CI run，并作为
+Linux CLI artifact 的 `package-linux`、attestation、publish eligibility 和 GitHub Release
+asset 上传前置门禁。
 
-评估时间：2026-07-07。
+评估时间：2026-07-08。
 
 ## 目标
 
 - 为真实 artifact packaging 前的同 commit CI 成功门禁定义稳定 source contract。
 - 明确后续 release workflow 必须从 GitHub Actions 读取的 run/source 字段。
 - 避免 `package-linux` 只依赖人工判断、聊天记录、本地命令或不相关 CI run。
-- 保持当前 placeholder release 不生成 artifact。
+- 约束当前 Linux CLI artifact release path 和后续平台 artifact 都只能消费自动化 CI gate 结果。
 
 ## 非目标
 
-- 不实现真实 `package-linux` job。
-- 不在 placeholder 阶段调用 GitHub API 强制查询 CI run。
+- 不在本文实现 `package-linux`、attestation、publish eligibility 或 publish job。
+- 不用本文替代 release workflow 中已激活的 GitHub API 查询实现。
 - 不在本机构建、测试、打包或发布。
 - 不接受本地测试输出、未完成 run、PR-only run、失败 run、不同 commit run 或不同分支 run
   作为 packaging 依据。
