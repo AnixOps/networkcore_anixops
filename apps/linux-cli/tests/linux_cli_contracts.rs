@@ -38,23 +38,20 @@ use networkcore_linux::{
     CommandBrowserCaptureEndpointProbe, ConfigReadError, ConfigReader,
     CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
-    ForegroundLifecycleOutcome, ForegroundLifecycleRequest,
-    LinuxBrowserCaptureLaunchOutcome, LinuxBrowserCaptureLaunchRequest,
-    LinuxBrowserCapturePacApplyOutcome, LinuxBrowserCapturePacRequest,
-    LinuxBrowserCapturePacRollbackOutcome, LinuxBrowserCaptureTrafficProofOutcome,
-    LinuxBrowserCaptureTrafficProofRequest, LinuxBrowserCaptureVerifyOutcome,
-    LinuxBrowserCaptureVerifyRequest, LinuxCliCommand, LinuxCliExitCode, OutputFormat,
-    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
-    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
-    CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
-    CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE,
-    CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
+    ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
+    LinuxBrowserCaptureLaunchRequest, LinuxBrowserCapturePacApplyOutcome,
+    LinuxBrowserCapturePacRequest, LinuxBrowserCapturePacRollbackOutcome,
+    LinuxBrowserCaptureTrafficProofOutcome, LinuxBrowserCaptureTrafficProofRequest,
+    LinuxBrowserCaptureVerifyOutcome, LinuxBrowserCaptureVerifyRequest, LinuxCliCommand,
+    LinuxCliExitCode, OutputFormat, UnavailableForegroundLifecycleHost,
+    UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
+    CLI_CONFIG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_LAUNCH_PLAN_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_STARTED_CODE, CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE,
-    CLI_MITM_BROWSER_CAPTURE_ROLLBACK_BLOCKED_CODE,
-    CLI_MITM_BROWSER_CAPTURE_ROLLBACK_READY_CODE,
+    CLI_MITM_BROWSER_CAPTURE_ROLLBACK_BLOCKED_CODE, CLI_MITM_BROWSER_CAPTURE_ROLLBACK_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_SESSION_PLAN_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_BLOCKED_CODE,
@@ -851,9 +848,7 @@ fn mitm_browser_capture_plan_outputs_source_contract_report_without_mutation() {
     assert!(capture.verify_report.is_none());
 
     let rendered = render_response(&response, OutputFormat::Text);
-    assert!(rendered.contains(
-        "browser capture plan: pac-artifact-active/system-mutation-blocked"
-    ));
+    assert!(rendered.contains("browser capture plan: pac-artifact-active/system-mutation-blocked"));
     assert!(rendered.contains("browser capture source contract: active"));
 }
 
@@ -3361,15 +3356,19 @@ impl BrowserCapturePacFileStore for TestBrowserCapturePacFileStore {
         assert_eq!(request.proxy_host, "127.0.0.1");
         assert_eq!(request.proxy_port, 7890);
         assert_eq!(request.proxy_url, "http://127.0.0.1:7890");
-        assert_eq!(request.pac_file_path, "/tmp/networkcore-browser-capture.pac");
+        assert_eq!(
+            request.pac_file_path,
+            "/tmp/networkcore-browser-capture.pac"
+        );
         assert_eq!(
             request.snapshot_path,
             "/tmp/networkcore-browser-capture.snapshot.json"
         );
-        assert_eq!(request.pac_url, "file:///tmp/networkcore-browser-capture.pac");
-        assert!(request
-            .pac_content
-            .contains("PROXY 127.0.0.1:7890; DIRECT"));
+        assert_eq!(
+            request.pac_url,
+            "file:///tmp/networkcore-browser-capture.pac"
+        );
+        assert!(request.pac_content.contains("PROXY 127.0.0.1:7890; DIRECT"));
 
         Ok(LinuxBrowserCapturePacApplyOutcome {
             rollback_snapshot: networkcore_linux::BrowserCaptureRollbackSnapshot {

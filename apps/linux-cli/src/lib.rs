@@ -139,8 +139,7 @@ pub const MITM_BROWSER_CAPTURE_GATE: &str = "MITM_BROWSER_CAPTURE_GATE";
 pub const MITM_CLI_COMMAND_GATE_STATUS: &str = "partial-active";
 pub const MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS: &str = "plan-only";
 pub const MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS: &str = "blocked";
-pub const MITM_BROWSER_CAPTURE_GATE_STATUS: &str =
-    "pac-artifact-active/system-mutation-blocked";
+pub const MITM_BROWSER_CAPTURE_GATE_STATUS: &str = "pac-artifact-active/system-mutation-blocked";
 pub const MITM_BROWSER_HIJACK_STATUS: &str = "deferred";
 pub const MITM_CERTIFICATE_PLAN_STATUS: &str = "plan-only";
 pub const MITM_CERTIFICATE_MUTATION_READY: bool = false;
@@ -1316,8 +1315,8 @@ impl BrowserCapturePacFileStore for CommandBrowserCapturePacFileStore {
                 ),
             )
         })?;
-        let snapshot_file: BrowserCapturePacSnapshotFile =
-            serde_json::from_str(&snapshot_json).map_err(|error| {
+        let snapshot_file: BrowserCapturePacSnapshotFile = serde_json::from_str(&snapshot_json)
+            .map_err(|error| {
                 DomainError::new(
                     CLI_MITM_BROWSER_CAPTURE_SNAPSHOT_READ_FAILED_CODE,
                     format!(
@@ -4064,10 +4063,7 @@ fn build_linux_browser_capture_pac_request(
         pac_file_path: pac_file_path.to_string(),
         snapshot_path: snapshot_path.to_string(),
         pac_url: browser_capture_pac_file_url(pac_file_path),
-        pac_content: browser_capture_pac_content(
-            &plan.planned_proxy_host,
-            plan.planned_proxy_port,
-        ),
+        pac_content: browser_capture_pac_content(&plan.planned_proxy_host, plan.planned_proxy_port),
     }
 }
 
@@ -5437,7 +5433,9 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
                 report.status, report.rolled_back
             ));
             if let Some(pac_file_path) = &report.pac_file_path {
-                lines.push(format!("browser capture rollback PAC file: {pac_file_path}"));
+                lines.push(format!(
+                    "browser capture rollback PAC file: {pac_file_path}"
+                ));
             }
             if let Some(snapshot) = &report.rollback_snapshot {
                 lines.push(format!(
