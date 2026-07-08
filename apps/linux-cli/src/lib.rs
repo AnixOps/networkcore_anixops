@@ -11,6 +11,10 @@ use control_domain::{
     ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
 };
 use control_runtime::{RuntimeConfigRequest, RuntimeOperationResult, RuntimeOrchestrator};
+use engine_singbox::{
+    default_sing_box_install_root, SingBoxInstallReport, SingBoxInstallRequest,
+    SingBoxReleaseInstaller, SingBoxTarget,
+};
 use serde::Serialize;
 #[cfg(unix)]
 use signal_hook::{
@@ -44,9 +48,12 @@ pub const CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE: &str =
 pub const CLI_STATUS_NO_RUNTIME_CONTEXT_CODE: &str = "cli.linux.status.no_runtime_context";
 pub const CLI_STATUS_PLATFORM_ONLY_CODE: &str = "cli.linux.status.platform_only";
 pub const CLI_RUNTIME_UNWIRED_CODE: &str = "cli.linux.runtime.unwired";
+pub const CLI_SING_BOX_INSTALL_FAILED_CODE: &str = "cli.linux.sing_box.install_failed";
 
 pub const SOURCE_CLI_ARGUMENT: &str = "cli.argument";
 pub const SOURCE_CLI_CONFIG: &str = "cli.config";
+pub const SOURCE_CLI_HELP: &str = "cli.help";
+pub const SOURCE_CLI_SING_BOX: &str = "cli.sing_box";
 pub const SOURCE_CLI_START: &str = "cli.start";
 pub const SOURCE_CLI_STOP: &str = "cli.stop";
 pub const SOURCE_CLI_STATUS: &str = "cli.status";
@@ -97,6 +104,9 @@ impl LinuxCliExitCode {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinuxCliCommand {
+    Help {
+        format: OutputFormat,
+    },
     Version {
         format: OutputFormat,
     },
@@ -120,11 +130,17 @@ pub enum LinuxCliCommand {
     Diagnostics {
         format: OutputFormat,
     },
+    InstallSingBox {
+        install_dir: Option<String>,
+        force: bool,
+        format: OutputFormat,
+    },
 }
 
 impl LinuxCliCommand {
     pub const fn name(&self) -> &'static str {
         match self {
+            Self::Help { .. } => "help",
             Self::Version { .. } => "version",
             Self::Capabilities { .. } => "capabilities",
             Self::PrepareConfig { .. } => "prepare-config",
@@ -132,18 +148,21 @@ impl LinuxCliCommand {
             Self::Stop { .. } => "stop",
             Self::Status { .. } => "status",
             Self::Diagnostics { .. } => "diagnostics",
+            Self::InstallSingBox { .. } => "install-sing-box",
         }
     }
 
     pub const fn format(&self) -> OutputFormat {
         match self {
-            Self::Version { format }
+            Self::Help { format }
+            | Self::Version { format }
             | Self::Capabilities { format }
             | Self::PrepareConfig { format, .. }
             | Self::Start { format, .. }
             | Self::Stop { format }
             | Self::Status { format }
-            | Self::Diagnostics { format } => *format,
+            | Self::Diagnostics { format }
+            | Self::InstallSingBox { format, .. } => *format,
         }
     }
 }
@@ -178,6 +197,8 @@ pub struct LinuxCliResponse {
     pub platform: Option<PlatformCapabilityStatus>,
     pub config_profiles: Vec<String>,
     pub version: Option<String>,
+    pub help: Option<String>,
+    pub sing_box_install: Option<LinuxSingBoxInstallStatus>,
 }
 
 impl LinuxCliResponse {
@@ -190,6 +211,8 @@ impl LinuxCliResponse {
             platform: None,
             config_profiles: Vec::new(),
             version: None,
+            help: None,
+            sing_box_install: None,
         }
     }
 
@@ -206,6 +229,8 @@ impl LinuxCliResponse {
             platform: None,
             config_profiles: Vec::new(),
             version: None,
+            help: None,
+            sing_box_install: None,
         }
     }
 
@@ -224,9 +249,46 @@ impl LinuxCliResponse {
         self
     }
 
+    pub fn with_help(mut self, help: impl Into<String>) -> Self {
+        self.help = Some(help.into());
+        self
+    }
+
+    pub fn with_sing_box_install(mut self, install: LinuxSingBoxInstallStatus) -> Self {
+        self.sing_box_install = Some(install);
+        self
+    }
+
     pub fn with_diagnostics(mut self, diagnostics: Vec<Diagnostic>) -> Self {
         self.diagnostics = diagnostics;
         self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxSingBoxInstallStatus {
+    pub version: String,
+    pub target: String,
+    pub asset_name: String,
+    pub asset_url: String,
+    pub asset_sha256: Option<String>,
+    pub archive_path: String,
+    pub executable_path: String,
+    pub downloaded: bool,
+}
+
+impl From<SingBoxInstallReport> for LinuxSingBoxInstallStatus {
+    fn from(report: SingBoxInstallReport) -> Self {
+        Self {
+            version: report.version,
+            target: report.target.directory_name(),
+            asset_name: report.asset_name,
+            asset_url: report.asset_url,
+            asset_sha256: report.asset_sha256,
+            archive_path: report.archive_path.display().to_string(),
+            executable_path: report.executable_path.display().to_string(),
+            downloaded: report.downloaded,
+        }
     }
 }
 
@@ -529,6 +591,8 @@ fn foreground_os_signal_name(signal: i32) -> String {
 #[derive(Debug, Default)]
 struct ParsedOptions {
     config_path: Option<String>,
+    install_dir: Option<String>,
+    force: bool,
     format: OutputFormat,
 }
 
@@ -541,12 +605,18 @@ where
     let Some(command) = args.next() else {
         return Err(parse_error(
             CLI_COMMAND_MISSING_CODE,
-            "missing linux CLI command",
+            "missing linux CLI command; run networkcore-linux help",
         ));
     };
     let rest = args.collect::<Vec<_>>();
 
     match command.as_str() {
+        "help" | "--help" | "-h" => {
+            let options = parse_options(&rest)?;
+            Ok(LinuxCliCommand::Help {
+                format: options.format,
+            })
+        }
         "version" => {
             let options = parse_options(&rest)?;
             Ok(LinuxCliCommand::Version {
@@ -591,19 +661,38 @@ where
                 format: options.format,
             })
         }
+        "install-sing-box" | "install-singbox" => {
+            let options = parse_options(&rest)?;
+            Ok(LinuxCliCommand::InstallSingBox {
+                install_dir: options.install_dir,
+                force: options.force,
+                format: options.format,
+            })
+        }
+        "sing-box" => parse_sing_box_command(&rest),
         _ => Err(parse_error(
             CLI_ARGUMENT_UNKNOWN_CODE,
-            format!("unknown linux CLI command: {command}"),
+            format!("unknown linux CLI command: {command}; run networkcore-linux help"),
         )),
     }
 }
 
 pub fn handle_parse_error(diagnostic: Diagnostic) -> LinuxCliResponse {
-    LinuxCliResponse::failure("parse", LinuxCliExitCode::ArgumentOrConfig, diagnostic)
+    let show_help = diagnostic.code == CLI_COMMAND_MISSING_CODE
+        || diagnostic.code == CLI_ARGUMENT_UNKNOWN_CODE
+        || diagnostic.code == CLI_OUTPUT_FORMAT_UNSUPPORTED_CODE;
+    let response =
+        LinuxCliResponse::failure("parse", LinuxCliExitCode::ArgumentOrConfig, diagnostic);
+    if show_help {
+        response.with_help(cli_help_text())
+    } else {
+        response
+    }
 }
 
 pub fn handle_entrypoint_skeleton(command: LinuxCliCommand) -> LinuxCliResponse {
     match command {
+        LinuxCliCommand::Help { .. } => handle_help(),
         LinuxCliCommand::Version { .. } => handle_version(),
         LinuxCliCommand::Stop { .. } => handle_stop(),
         other => handle_unwired_command(other.name()),
@@ -615,6 +704,7 @@ where
     P: PlatformCapabilityService,
 {
     match command {
+        LinuxCliCommand::Help { .. } => handle_help(),
         LinuxCliCommand::Version { .. } => handle_version(),
         LinuxCliCommand::Capabilities { .. } => handle_capabilities(platform),
         LinuxCliCommand::Status { .. } => handle_status(platform),
@@ -667,6 +757,40 @@ where
         }
         other => handle_entrypoint(other, platform),
     }
+}
+
+pub fn handle_entrypoint_with_runtime_lifecycle_and_sing_box<C, P, E, R, H, I>(
+    command: LinuxCliCommand,
+    platform: &P,
+    orchestrator: &RuntimeOrchestrator<C, P, E>,
+    reader: &R,
+    lifecycle_host: &H,
+    sing_box_installer: &I,
+) -> LinuxCliResponse
+where
+    C: ConfigurationService,
+    P: PlatformCapabilityService,
+    E: ProxyEngineService,
+    R: ConfigReader,
+    H: ForegroundLifecycleHost,
+    I: SingBoxReleaseInstaller,
+{
+    match command {
+        LinuxCliCommand::InstallSingBox {
+            install_dir, force, ..
+        } => handle_install_sing_box(sing_box_installer, install_dir.as_deref(), force),
+        other => handle_entrypoint_with_runtime_and_lifecycle(
+            other,
+            platform,
+            orchestrator,
+            reader,
+            lifecycle_host,
+        ),
+    }
+}
+
+pub fn handle_help() -> LinuxCliResponse {
+    LinuxCliResponse::success("help").with_help(cli_help_text())
 }
 
 pub fn handle_version() -> LinuxCliResponse {
@@ -812,6 +936,8 @@ where
             platform: Some(platform),
             config_profiles: Vec::new(),
             version: None,
+            help: None,
+            sing_box_install: None,
         };
     }
 
@@ -828,6 +954,8 @@ where
         platform: Some(platform),
         config_profiles: Vec::new(),
         version: None,
+        help: None,
+        sing_box_install: None,
     }
 }
 
@@ -927,6 +1055,54 @@ where
     }
 }
 
+pub fn handle_install_sing_box<I>(
+    installer: &I,
+    install_dir: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+{
+    let target = match SingBoxTarget::current() {
+        Ok(target) => target,
+        Err(error) => {
+            return domain_error_response(
+                "install-sing-box",
+                LinuxCliExitCode::Unavailable,
+                error,
+                SOURCE_CLI_SING_BOX,
+            );
+        }
+    };
+    let install_root = install_dir
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(default_sing_box_install_root);
+    let request = SingBoxInstallRequest {
+        install_root,
+        target,
+        force,
+    };
+
+    match installer.install_latest(&request) {
+        Ok(report) => {
+            let diagnostics = report.diagnostics.clone();
+            LinuxCliResponse::success("install-sing-box")
+                .with_diagnostics(diagnostics)
+                .with_sing_box_install(LinuxSingBoxInstallStatus::from(report))
+        }
+        Err(error) => LinuxCliResponse::failure(
+            "install-sing-box",
+            LinuxCliExitCode::GeneralFailure,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_SING_BOX_INSTALL_FAILED_CODE,
+                error.message,
+                SOURCE_CLI_SING_BOX,
+            ),
+        ),
+    }
+}
+
 pub fn render_response(response: &LinuxCliResponse, format: OutputFormat) -> String {
     match format {
         OutputFormat::Text => render_text_response(response),
@@ -959,6 +1135,19 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.config_path = Some(value.clone());
             }
+            "--install-dir" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--install-dir requires a directory path value",
+                    ));
+                };
+                options.install_dir = Some(value.clone());
+            }
+            "--force" => {
+                options.force = true;
+            }
             "--format" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -981,6 +1170,65 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
     }
 
     Ok(options)
+}
+
+fn parse_sing_box_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(subcommand) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "sing-box requires a subcommand; run networkcore-linux help",
+        ));
+    };
+
+    match subcommand.as_str() {
+        "install" => {
+            let options = parse_options(&args[1..])?;
+            Ok(LinuxCliCommand::InstallSingBox {
+                install_dir: options.install_dir,
+                force: options.force,
+                format: options.format,
+            })
+        }
+        unknown => Err(parse_error(
+            CLI_ARGUMENT_UNKNOWN_CODE,
+            format!("unknown sing-box subcommand: {unknown}; run networkcore-linux help"),
+        )),
+    }
+}
+
+pub const fn cli_help_text() -> &'static str {
+    concat!(
+        "NetworkCore Linux CLI\n",
+        "\n",
+        "Usage:\n",
+        "  networkcore-linux help [--format text|json]\n",
+        "  networkcore-linux version [--format text|json]\n",
+        "  networkcore-linux capabilities [--format text|json]\n",
+        "  networkcore-linux prepare-config --config <path> [--format text|json]\n",
+        "  networkcore-linux start --config <path> [--format text|json]\n",
+        "  networkcore-linux stop [--format text|json]\n",
+        "  networkcore-linux status [--format text|json]\n",
+        "  networkcore-linux diagnostics [--format text|json]\n",
+        "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
+        "  networkcore-linux sing-box install [--install-dir <dir>] [--force] [--format text|json]\n",
+        "\n",
+        "Commands:\n",
+        "  help              Show this command table.\n",
+        "  version           Print the networkcore-linux version.\n",
+        "  capabilities      Report read-only Linux platform capabilities.\n",
+        "  prepare-config    Read and normalize a NetworkCore TOML config.\n",
+        "  start             Start the current foreground runtime from a config.\n",
+        "  stop              Report that daemon stop is unavailable in this build.\n",
+        "  status            Report platform-only status without a daemon context.\n",
+        "  diagnostics       Print platform diagnostics.\n",
+        "  install-sing-box  Download the latest official sing-box archive and cache its executable.\n",
+        "\n",
+        "Options:\n",
+        "  --config <path>       Config file for prepare-config and start.\n",
+        "  --install-dir <dir>   Engine cache root for install-sing-box.\n",
+        "  --force               Redownload and replace an existing cached sing-box executable.\n",
+        "  --format text|json    Output format. Defaults to text.\n",
+    )
 }
 
 fn parse_output_format(value: &str) -> Result<OutputFormat, LinuxCliParseError> {
@@ -1144,8 +1392,24 @@ fn platform_diagnostics(status: &PlatformCapabilityStatus) -> Vec<Diagnostic> {
 }
 
 fn render_text_response(response: &LinuxCliResponse) -> String {
+    if response.ok && response.command == "help" {
+        return response.help.clone().unwrap_or_else(|| cli_help_text().to_string());
+    }
+
     let state = if response.ok { "ok" } else { "error" };
     let mut lines = vec![format!("{}: {state}", response.command)];
+
+    if let Some(install) = &response.sing_box_install {
+        lines.push(format!("sing-box version: {}", install.version));
+        lines.push(format!("target: {}", install.target));
+        lines.push(format!("asset: {}", install.asset_name));
+        if let Some(sha256) = &install.asset_sha256 {
+            lines.push(format!("sha256: {sha256}"));
+        }
+        lines.push(format!("archive: {}", install.archive_path));
+        lines.push(format!("executable: {}", install.executable_path));
+        lines.push(format!("downloaded: {}", install.downloaded));
+    }
 
     for diagnostic in &response.diagnostics {
         lines.push(format!(
@@ -1154,6 +1418,11 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             diagnostic.code,
             diagnostic.message
         ));
+    }
+
+    if let Some(help) = &response.help {
+        lines.push(String::new());
+        lines.push(help.clone());
     }
 
     lines.join("\n")
@@ -1201,6 +1470,8 @@ struct JsonCliResponse {
     platform: Option<JsonPlatform>,
     config_profiles: Vec<String>,
     version: Option<String>,
+    help: Option<String>,
+    sing_box_install: Option<JsonSingBoxInstallStatus>,
 }
 
 impl From<&LinuxCliResponse> for JsonCliResponse {
@@ -1217,6 +1488,38 @@ impl From<&LinuxCliResponse> for JsonCliResponse {
             platform: response.platform.as_ref().map(JsonPlatform::from),
             config_profiles: response.config_profiles.clone(),
             version: response.version.clone(),
+            help: response.help.clone(),
+            sing_box_install: response
+                .sing_box_install
+                .as_ref()
+                .map(JsonSingBoxInstallStatus::from),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonSingBoxInstallStatus {
+    version: String,
+    target: String,
+    asset_name: String,
+    asset_url: String,
+    asset_sha256: Option<String>,
+    archive_path: String,
+    executable_path: String,
+    downloaded: bool,
+}
+
+impl From<&LinuxSingBoxInstallStatus> for JsonSingBoxInstallStatus {
+    fn from(status: &LinuxSingBoxInstallStatus) -> Self {
+        Self {
+            version: status.version.clone(),
+            target: status.target.clone(),
+            asset_name: status.asset_name.clone(),
+            asset_url: status.asset_url.clone(),
+            asset_sha256: status.asset_sha256.clone(),
+            archive_path: status.archive_path.clone(),
+            executable_path: status.executable_path.clone(),
+            downloaded: status.downloaded,
         }
     }
 }

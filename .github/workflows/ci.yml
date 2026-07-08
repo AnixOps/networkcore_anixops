@@ -53,6 +53,10 @@ jobs:
             crates/control-domain/README.md
             crates/control-runtime/README.md
             crates/engine-native/README.md
+            crates/engine-singbox/Cargo.toml
+            crates/engine-singbox/README.md
+            crates/engine-singbox/src/lib.rs
+            crates/engine-singbox/tests/engine_singbox_contracts.rs
             crates/mitm-anixops-sys/README.md
             crates/platform-ios/README.md
             crates/platform-linux/README.md
@@ -119,6 +123,7 @@ jobs:
             docs/architecture/release-ci-gate-api-implementation-plan.md
             docs/architecture/release-ci-gate-execution-validation-contract.md
             docs/architecture/release-ci-success-source-contract.md
+            docs/architecture/sing-box-public-engine-adapter-source-contract.md
             docs/architecture/subscription-catalog-runtime-orchestration.md
           )
 
@@ -138,6 +143,15 @@ jobs:
           grep -q "three-layer operating model" docs/architecture/adr-0002-public-engine-adapter-first.md
           grep -q "private protocol implementation is deferred" docs/architecture/adr-0002-public-engine-adapter-first.md
           grep -q "sing-box" docs/architecture/adr-0002-public-engine-adapter-first.md
+          grep -q '"crates/engine-singbox"' Cargo.toml
+          grep -q '^name = "engine-singbox"$' crates/engine-singbox/Cargo.toml
+          grep -q "sing-box public engine adapter source contract" docs/architecture/sing-box-public-engine-adapter-source-contract.md
+          grep -q "SING_BOX_LATEST_RELEASE_API_URL" crates/engine-singbox/src/lib.rs
+          grep -q "ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE" crates/engine-singbox/src/lib.rs
+          grep -q "GithubSingBoxReleaseInstaller" crates/engine-singbox/src/lib.rs
+          grep -q "install-sing-box" apps/linux-cli/src/lib.rs
+          grep -q "sing_box_install" apps/linux-cli/src/lib.rs
+          grep -q "handle_entrypoint_with_runtime_lifecycle_and_sing_box" apps/linux-cli/src/main.rs
 
           release_workflow=.github/workflows/release.yml
           grep -q '^  package-linux:' "${release_workflow}"

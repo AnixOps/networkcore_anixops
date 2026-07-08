@@ -13,13 +13,41 @@ fn main() {
             );
             let reader = networkcore_linux::FsConfigReader;
             let lifecycle_host = networkcore_linux::CurrentProcessForegroundLifecycleHost::new();
-            let response = networkcore_linux::handle_entrypoint_with_runtime_and_lifecycle(
-                command,
-                &platform,
-                &orchestrator,
-                &reader,
-                &lifecycle_host,
-            );
+            let response = if matches!(
+                &command,
+                networkcore_linux::LinuxCliCommand::InstallSingBox { .. }
+            ) {
+                match engine_singbox::GithubSingBoxReleaseInstaller::new() {
+                    Ok(sing_box_installer) => {
+                        networkcore_linux::handle_entrypoint_with_runtime_lifecycle_and_sing_box(
+                            command,
+                            &platform,
+                            &orchestrator,
+                            &reader,
+                            &lifecycle_host,
+                            &sing_box_installer,
+                        )
+                    }
+                    Err(error) => networkcore_linux::LinuxCliResponse::failure(
+                        "install-sing-box",
+                        networkcore_linux::LinuxCliExitCode::GeneralFailure,
+                        control_domain::Diagnostic::new(
+                            control_domain::DiagnosticSeverity::Error,
+                            networkcore_linux::CLI_SING_BOX_INSTALL_FAILED_CODE,
+                            error.message,
+                            Some(networkcore_linux::SOURCE_CLI_SING_BOX.to_string()),
+                        ),
+                    ),
+                }
+            } else {
+                networkcore_linux::handle_entrypoint_with_runtime_and_lifecycle(
+                    command,
+                    &platform,
+                    &orchestrator,
+                    &reader,
+                    &lifecycle_host,
+                )
+            };
             (format, response)
         }
         Err(error) => (

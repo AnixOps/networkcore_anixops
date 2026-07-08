@@ -5,6 +5,7 @@ members = [
     "crates/control-domain",
     "crates/control-runtime",
     "crates/engine-native",
+    "crates/engine-singbox",
     "crates/mitm-anixops-sys",
     "crates/platform-ios",
     "crates/platform-linux",

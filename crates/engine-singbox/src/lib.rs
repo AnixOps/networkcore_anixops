@@ -1,0 +1,777 @@
+//! sing-box public proxy engine adapter contracts for NetworkCore.
+//!
+//! This crate owns public engine release metadata parsing, target asset
+//! selection, download provenance, checksum verification, and extraction into a
+//! runtime cache. It does not bundle third-party binaries into NetworkCore
+//! release artifacts.
+
+use control_domain::{
+    Diagnostic, DiagnosticSeverity, DomainError, DomainResult, ProxyEngineCapability,
+    ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineKind,
+    ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
+};
+use flate2::read::GzDecoder;
+use reqwest::blocking::Client;
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
+use std::fs::{self, File};
+use std::io::Cursor;
+use std::path::{Path, PathBuf};
+use tar::Archive;
+
+pub const DEFAULT_SING_BOX_ENGINE_ID: &str = "sing-box";
+pub const SING_BOX_REPOSITORY: &str = "SagerNet/sing-box";
+pub const SING_BOX_LATEST_RELEASE_API_URL: &str =
+    "https://api.github.com/repos/SagerNet/sing-box/releases/latest";
+pub const NETWORKCORE_SING_BOX_USER_AGENT: &str = "networkcore-anixops-singbox-installer";
+
+pub const SOURCE_ENGINE_SINGBOX_CONFIG: &str = "engine.singbox.config";
+pub const SOURCE_ENGINE_SINGBOX_DOWNLOAD: &str = "engine.singbox.download";
+pub const SOURCE_ENGINE_SINGBOX_LIFECYCLE: &str = "engine.singbox.lifecycle";
+
+pub const ENGINE_SINGBOX_CONFIG_ENGINE_ID_UNSUPPORTED_CODE: &str =
+    "engine.singbox.config.engine_id_unsupported";
+pub const ENGINE_SINGBOX_CONFIG_TRANSLATION_DEFERRED_CODE: &str =
+    "engine.singbox.config.translation_deferred";
+pub const ENGINE_SINGBOX_DOWNLOAD_TARGET_UNSUPPORTED_CODE: &str =
+    "engine.singbox.download.target_unsupported";
+pub const ENGINE_SINGBOX_DOWNLOAD_RELEASE_FETCH_FAILED_CODE: &str =
+    "engine.singbox.download.release_fetch_failed";
+pub const ENGINE_SINGBOX_DOWNLOAD_RELEASE_PARSE_FAILED_CODE: &str =
+    "engine.singbox.download.release_parse_failed";
+pub const ENGINE_SINGBOX_DOWNLOAD_LATEST_VERSION_RESOLVED_CODE: &str =
+    "engine.singbox.download.latest_version_resolved";
+pub const ENGINE_SINGBOX_DOWNLOAD_ASSET_SELECTED_CODE: &str =
+    "engine.singbox.download.asset_selected";
+pub const ENGINE_SINGBOX_DOWNLOAD_ASSET_MISSING_CODE: &str =
+    "engine.singbox.download.asset_missing";
+pub const ENGINE_SINGBOX_DOWNLOAD_ASSET_FETCH_FAILED_CODE: &str =
+    "engine.singbox.download.asset_fetch_failed";
+pub const ENGINE_SINGBOX_DOWNLOAD_ARCHIVE_UNSUPPORTED_CODE: &str =
+    "engine.singbox.download.archive_unsupported";
+pub const ENGINE_SINGBOX_DOWNLOAD_ARCHIVE_WRITTEN_CODE: &str =
+    "engine.singbox.download.archive_written";
+pub const ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE: &str =
+    "engine.singbox.download.checksum_verified";
+pub const ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_MISMATCH_CODE: &str =
+    "engine.singbox.download.checksum_mismatch";
+pub const ENGINE_SINGBOX_DOWNLOAD_EXTRACT_FAILED_CODE: &str =
+    "engine.singbox.download.extract_failed";
+pub const ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE: &str =
+    "engine.singbox.download.binary_ready";
+pub const ENGINE_SINGBOX_DOWNLOAD_BINARY_ALREADY_PRESENT_CODE: &str =
+    "engine.singbox.download.binary_already_present";
+pub const ENGINE_SINGBOX_DOWNLOAD_BINARY_PERMISSION_FAILED_CODE: &str =
+    "engine.singbox.download.binary_permission_failed";
+pub const ENGINE_SINGBOX_RUNTIME_UNWIRED_CODE: &str = "engine.singbox.runtime.unwired";
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SingBoxProxyEngineService;
+
+impl SingBoxProxyEngineService {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl ProxyEngineService for SingBoxProxyEngineService {
+    fn list_engines(&self) -> Vec<ProxyEngineDescriptor> {
+        vec![ProxyEngineDescriptor {
+            id: DEFAULT_SING_BOX_ENGINE_ID.to_string(),
+            kind: ProxyEngineKind::SingBox,
+            version: Some("latest-managed-by-adapter".to_string()),
+            capabilities: vec![
+                ProxyEngineCapability::TcpProxy,
+                ProxyEngineCapability::UdpProxy,
+                ProxyEngineCapability::Tun,
+                ProxyEngineCapability::Dns,
+                ProxyEngineCapability::HotReload,
+                ProxyEngineCapability::HealthCheck,
+            ],
+        }]
+    }
+
+    fn validate_config(&self, engine_config: &ProxyEngineConfig) -> Vec<Diagnostic> {
+        let mut diagnostics = Vec::new();
+
+        if engine_config.engine_id != DEFAULT_SING_BOX_ENGINE_ID {
+            diagnostics.push(sing_box_diagnostic(
+                DiagnosticSeverity::Error,
+                ENGINE_SINGBOX_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
+                "sing-box adapter only supports the sing-box engine id",
+                SOURCE_ENGINE_SINGBOX_CONFIG,
+            ));
+        }
+
+        diagnostics.push(sing_box_diagnostic(
+            DiagnosticSeverity::Info,
+            ENGINE_SINGBOX_CONFIG_TRANSLATION_DEFERRED_CODE,
+            "sing-box runtime config translation is deferred until the adapter lifecycle source contract is wired",
+            SOURCE_ENGINE_SINGBOX_CONFIG,
+        ));
+
+        diagnostics
+    }
+
+    fn start(&self, _engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {
+        Err(unwired_runtime_error())
+    }
+
+    fn reload(&self, _engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {
+        Err(unwired_runtime_error())
+    }
+
+    fn stop(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
+        Ok(ProxyEngineStatus {
+            engine_id: engine_id.to_string(),
+            state: ProxyEngineLifecycleState::Stopped,
+            diagnostics: vec![sing_box_diagnostic(
+                DiagnosticSeverity::Warning,
+                ENGINE_SINGBOX_RUNTIME_UNWIRED_CODE,
+                "sing-box lifecycle is not wired to a managed process yet",
+                SOURCE_ENGINE_SINGBOX_LIFECYCLE,
+            )],
+        })
+    }
+
+    fn status(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
+        Ok(ProxyEngineStatus {
+            engine_id: engine_id.to_string(),
+            state: ProxyEngineLifecycleState::Stopped,
+            diagnostics: vec![sing_box_diagnostic(
+                DiagnosticSeverity::Warning,
+                ENGINE_SINGBOX_RUNTIME_UNWIRED_CODE,
+                "sing-box lifecycle is not wired to a managed process yet",
+                SOURCE_ENGINE_SINGBOX_LIFECYCLE,
+            )],
+        })
+    }
+
+    fn events(&self, _engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>> {
+        Ok(Vec::new())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SingBoxTargetOs {
+    Linux,
+    Macos,
+    Windows,
+}
+
+impl SingBoxTargetOs {
+    pub const fn asset_name(self) -> &'static str {
+        match self {
+            Self::Linux => "linux",
+            Self::Macos => "darwin",
+            Self::Windows => "windows",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SingBoxTargetArch {
+    Amd64,
+    Arm64,
+    X86,
+    Armv7,
+}
+
+impl SingBoxTargetArch {
+    pub const fn asset_name(self) -> &'static str {
+        match self {
+            Self::Amd64 => "amd64",
+            Self::Arm64 => "arm64",
+            Self::X86 => "386",
+            Self::Armv7 => "armv7",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SingBoxArchiveKind {
+    TarGz,
+    Zip,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SingBoxTarget {
+    pub os: SingBoxTargetOs,
+    pub arch: SingBoxTargetArch,
+}
+
+impl SingBoxTarget {
+    pub const fn new(os: SingBoxTargetOs, arch: SingBoxTargetArch) -> Self {
+        Self { os, arch }
+    }
+
+    pub fn current() -> DomainResult<Self> {
+        let os = match std::env::consts::OS {
+            "linux" => SingBoxTargetOs::Linux,
+            "macos" => SingBoxTargetOs::Macos,
+            "windows" => SingBoxTargetOs::Windows,
+            other => {
+                return Err(DomainError::new(
+                    ENGINE_SINGBOX_DOWNLOAD_TARGET_UNSUPPORTED_CODE,
+                    format!("unsupported sing-box host os: {other}"),
+                ));
+            }
+        };
+
+        let arch = match std::env::consts::ARCH {
+            "x86_64" => SingBoxTargetArch::Amd64,
+            "aarch64" => SingBoxTargetArch::Arm64,
+            "x86" | "i686" => SingBoxTargetArch::X86,
+            "arm" => SingBoxTargetArch::Armv7,
+            other => {
+                return Err(DomainError::new(
+                    ENGINE_SINGBOX_DOWNLOAD_TARGET_UNSUPPORTED_CODE,
+                    format!("unsupported sing-box host arch: {other}"),
+                ));
+            }
+        };
+
+        Ok(Self { os, arch })
+    }
+
+    pub fn directory_name(self) -> String {
+        format!("{}-{}", self.os.asset_name(), self.arch.asset_name())
+    }
+
+    pub const fn executable_name(self) -> &'static str {
+        match self.os {
+            SingBoxTargetOs::Windows => "sing-box.exe",
+            SingBoxTargetOs::Linux | SingBoxTargetOs::Macos => "sing-box",
+        }
+    }
+
+    pub const fn archive_kind(self) -> SingBoxArchiveKind {
+        match self.os {
+            SingBoxTargetOs::Windows => SingBoxArchiveKind::Zip,
+            SingBoxTargetOs::Linux | SingBoxTargetOs::Macos => SingBoxArchiveKind::TarGz,
+        }
+    }
+
+    pub fn preferred_asset_names(self, version: &str) -> Vec<String> {
+        let platform = self.os.asset_name();
+        let arch = self.arch.asset_name();
+        let base = format!("sing-box-{version}-{platform}-{arch}");
+
+        match self.os {
+            SingBoxTargetOs::Linux => vec![
+                format!("{base}.tar.gz"),
+                format!("{base}-glibc.tar.gz"),
+                format!("{base}-musl.tar.gz"),
+            ],
+            SingBoxTargetOs::Macos => vec![format!("{base}.tar.gz")],
+            SingBoxTargetOs::Windows => vec![format!("{base}.zip")],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct SingBoxRelease {
+    pub tag_name: String,
+    pub assets: Vec<SingBoxReleaseAsset>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct SingBoxReleaseAsset {
+    pub name: String,
+    pub browser_download_url: String,
+    pub size: u64,
+    pub digest: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingBoxAssetPlan {
+    pub version: String,
+    pub target: SingBoxTarget,
+    pub asset_name: String,
+    pub download_url: String,
+    pub archive_kind: SingBoxArchiveKind,
+    pub sha256_digest: Option<String>,
+    pub size: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingBoxInstallRequest {
+    pub install_root: PathBuf,
+    pub target: SingBoxTarget,
+    pub force: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingBoxInstallReport {
+    pub version: String,
+    pub target: SingBoxTarget,
+    pub asset_name: String,
+    pub asset_url: String,
+    pub asset_sha256: Option<String>,
+    pub archive_path: PathBuf,
+    pub executable_path: PathBuf,
+    pub downloaded: bool,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+pub trait SingBoxHttpClient {
+    fn get_text(&self, url: &str) -> DomainResult<String>;
+
+    fn get_bytes(&self, url: &str) -> DomainResult<Vec<u8>>;
+}
+
+pub trait SingBoxReleaseInstaller {
+    fn install_latest(
+        &self,
+        request: &SingBoxInstallRequest,
+    ) -> DomainResult<SingBoxInstallReport>;
+}
+
+#[derive(Debug, Clone)]
+pub struct ReqwestSingBoxHttpClient {
+    client: Client,
+}
+
+impl ReqwestSingBoxHttpClient {
+    pub fn new() -> DomainResult<Self> {
+        let client = Client::builder()
+            .user_agent(NETWORKCORE_SING_BOX_USER_AGENT)
+            .build()
+            .map_err(|error| {
+                DomainError::new(
+                    ENGINE_SINGBOX_DOWNLOAD_RELEASE_FETCH_FAILED_CODE,
+                    format!("failed to create sing-box release HTTP client: {error}"),
+                )
+            })?;
+
+        Ok(Self { client })
+    }
+}
+
+impl SingBoxHttpClient for ReqwestSingBoxHttpClient {
+    fn get_text(&self, url: &str) -> DomainResult<String> {
+        self.client
+            .get(url)
+            .header("Accept", "application/vnd.github+json")
+            .send()
+            .and_then(|response| response.error_for_status())
+            .and_then(|response| response.text())
+            .map_err(|error| {
+                DomainError::new(
+                    ENGINE_SINGBOX_DOWNLOAD_RELEASE_FETCH_FAILED_CODE,
+                    format!("failed to fetch sing-box latest release metadata: {error}"),
+                )
+            })
+    }
+
+    fn get_bytes(&self, url: &str) -> DomainResult<Vec<u8>> {
+        self.client
+            .get(url)
+            .send()
+            .and_then(|response| response.error_for_status())
+            .and_then(|mut response| {
+                let mut bytes = Vec::new();
+                response.copy_to(&mut bytes)?;
+                Ok(bytes)
+            })
+            .map_err(|error| {
+                DomainError::new(
+                    ENGINE_SINGBOX_DOWNLOAD_ASSET_FETCH_FAILED_CODE,
+                    format!("failed to download sing-box release asset: {error}"),
+                )
+            })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GithubSingBoxReleaseInstaller<C = ReqwestSingBoxHttpClient> {
+    http: C,
+    latest_release_url: String,
+}
+
+impl GithubSingBoxReleaseInstaller<ReqwestSingBoxHttpClient> {
+    pub fn new() -> DomainResult<Self> {
+        Ok(Self {
+            http: ReqwestSingBoxHttpClient::new()?,
+            latest_release_url: SING_BOX_LATEST_RELEASE_API_URL.to_string(),
+        })
+    }
+}
+
+impl<C> GithubSingBoxReleaseInstaller<C> {
+    pub fn with_http_client(http: C) -> Self {
+        Self {
+            http,
+            latest_release_url: SING_BOX_LATEST_RELEASE_API_URL.to_string(),
+        }
+    }
+}
+
+impl<C> SingBoxReleaseInstaller for GithubSingBoxReleaseInstaller<C>
+where
+    C: SingBoxHttpClient,
+{
+    fn install_latest(
+        &self,
+        request: &SingBoxInstallRequest,
+    ) -> DomainResult<SingBoxInstallReport> {
+        let release_json = self.http.get_text(&self.latest_release_url)?;
+        let release = parse_sing_box_release(&release_json)?;
+        let plan = select_sing_box_asset(&release, request.target)?;
+        install_sing_box_asset(&self.http, request, &plan)
+    }
+}
+
+pub fn parse_sing_box_release(raw_json: &str) -> DomainResult<SingBoxRelease> {
+    serde_json::from_str(raw_json).map_err(|error| {
+        DomainError::new(
+            ENGINE_SINGBOX_DOWNLOAD_RELEASE_PARSE_FAILED_CODE,
+            format!("failed to parse sing-box latest release metadata: {error}"),
+        )
+    })
+}
+
+pub fn select_sing_box_asset(
+    release: &SingBoxRelease,
+    target: SingBoxTarget,
+) -> DomainResult<SingBoxAssetPlan> {
+    let version = release.tag_name.trim_start_matches('v').to_string();
+    if version.is_empty() {
+        return Err(DomainError::new(
+            ENGINE_SINGBOX_DOWNLOAD_RELEASE_PARSE_FAILED_CODE,
+            "sing-box latest release tag is empty",
+        ));
+    }
+
+    let preferred_names = target.preferred_asset_names(&version);
+    let asset = preferred_names.iter().find_map(|name| {
+        release
+            .assets
+            .iter()
+            .find(|asset| asset.name.as_str() == name.as_str())
+    });
+
+    let Some(asset) = asset else {
+        return Err(DomainError::new(
+            ENGINE_SINGBOX_DOWNLOAD_ASSET_MISSING_CODE,
+            format!(
+                "sing-box release {} has no supported asset for {}",
+                release.tag_name,
+                target.directory_name()
+            ),
+        ));
+    };
+
+    Ok(SingBoxAssetPlan {
+        version,
+        target,
+        asset_name: asset.name.clone(),
+        download_url: asset.browser_download_url.clone(),
+        archive_kind: target.archive_kind(),
+        sha256_digest: normalize_sha256_digest(asset.digest.as_deref()),
+        size: asset.size,
+    })
+}
+
+pub fn default_sing_box_install_root() -> PathBuf {
+    if let Some(path) = non_empty_env_path("NETWORKCORE_ENGINE_DIR") {
+        return path.join(DEFAULT_SING_BOX_ENGINE_ID);
+    }
+
+    match std::env::consts::OS {
+        "windows" => non_empty_env_path("LOCALAPPDATA")
+            .unwrap_or_else(|| PathBuf::from(".networkcore"))
+            .join("NetworkCore")
+            .join("engines")
+            .join(DEFAULT_SING_BOX_ENGINE_ID),
+        "macos" => non_empty_env_path("HOME")
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("Library")
+            .join("Application Support")
+            .join("NetworkCore")
+            .join("engines")
+            .join(DEFAULT_SING_BOX_ENGINE_ID),
+        _ => non_empty_env_path("XDG_DATA_HOME")
+            .or_else(|| non_empty_env_path("HOME").map(|home| home.join(".local").join("share")))
+            .unwrap_or_else(|| PathBuf::from(".networkcore"))
+            .join("networkcore")
+            .join("engines")
+            .join(DEFAULT_SING_BOX_ENGINE_ID),
+    }
+}
+
+pub fn sing_box_diagnostic(
+    severity: DiagnosticSeverity,
+    code: impl Into<String>,
+    message: impl Into<String>,
+    source: impl Into<String>,
+) -> Diagnostic {
+    Diagnostic::new(severity, code, message, Some(source.into()))
+}
+
+fn install_sing_box_asset<C>(
+    http: &C,
+    request: &SingBoxInstallRequest,
+    plan: &SingBoxAssetPlan,
+) -> DomainResult<SingBoxInstallReport>
+where
+    C: SingBoxHttpClient,
+{
+    let version_dir = request
+        .install_root
+        .join(&plan.version)
+        .join(plan.target.directory_name());
+    let archive_path = version_dir.join("downloads").join(&plan.asset_name);
+    let executable_path = version_dir.join("bin").join(plan.target.executable_name());
+    let mut diagnostics = vec![
+        sing_box_diagnostic(
+            DiagnosticSeverity::Info,
+            ENGINE_SINGBOX_DOWNLOAD_LATEST_VERSION_RESOLVED_CODE,
+            format!("resolved latest sing-box release {}", plan.version),
+            SOURCE_ENGINE_SINGBOX_DOWNLOAD,
+        ),
+        sing_box_diagnostic(
+            DiagnosticSeverity::Info,
+            ENGINE_SINGBOX_DOWNLOAD_ASSET_SELECTED_CODE,
+            format!("selected sing-box release asset {}", plan.asset_name),
+            SOURCE_ENGINE_SINGBOX_DOWNLOAD,
+        ),
+    ];
+
+    if executable_path.exists() && !request.force {
+        diagnostics.push(sing_box_diagnostic(
+            DiagnosticSeverity::Info,
+            ENGINE_SINGBOX_DOWNLOAD_BINARY_ALREADY_PRESENT_CODE,
+            "sing-box latest executable is already present",
+            SOURCE_ENGINE_SINGBOX_DOWNLOAD,
+        ));
+        diagnostics.push(sing_box_diagnostic(
+            DiagnosticSeverity::Info,
+            ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE,
+            "sing-box executable is ready",
+            SOURCE_ENGINE_SINGBOX_DOWNLOAD,
+        ));
+
+        return Ok(SingBoxInstallReport {
+            version: plan.version.clone(),
+            target: plan.target,
+            asset_name: plan.asset_name.clone(),
+            asset_url: plan.download_url.clone(),
+            asset_sha256: plan.sha256_digest.clone(),
+            archive_path,
+            executable_path,
+            downloaded: false,
+            diagnostics,
+        });
+    }
+
+    if plan.archive_kind != SingBoxArchiveKind::TarGz {
+        return Err(DomainError::new(
+            ENGINE_SINGBOX_DOWNLOAD_ARCHIVE_UNSUPPORTED_CODE,
+            "sing-box installer currently supports official .tar.gz assets only",
+        ));
+    }
+
+    let archive_parent = archive_path.parent().ok_or_else(|| {
+        DomainError::new(
+            ENGINE_SINGBOX_DOWNLOAD_ASSET_FETCH_FAILED_CODE,
+            "sing-box archive path has no parent directory",
+        )
+    })?;
+    let executable_parent = executable_path.parent().ok_or_else(|| {
+        DomainError::new(
+            ENGINE_SINGBOX_DOWNLOAD_ASSET_FETCH_FAILED_CODE,
+            "sing-box executable path has no parent directory",
+        )
+    })?;
+
+    fs::create_dir_all(archive_parent).map_err(|error| {
+        DomainError::new(
+            ENGINE_SINGBOX_DOWNLOAD_ASSET_FETCH_FAILED_CODE,
+            format!("failed to create sing-box download directory: {error}"),
+        )
+    })?;
+    fs::create_dir_all(executable_parent).map_err(|error| {
+        DomainError::new(
+            ENGINE_SINGBOX_DOWNLOAD_ASSET_FETCH_FAILED_CODE,
+            format!("failed to create sing-box binary directory: {error}"),
+        )
+    })?;
+
+    let archive_bytes = http.get_bytes(&plan.download_url)?;
+    verify_sha256_digest(&archive_bytes, plan.sha256_digest.as_deref(), &mut diagnostics)?;
+    fs::write(&archive_path, &archive_bytes).map_err(|error| {
+        DomainError::new(
+            ENGINE_SINGBOX_DOWNLOAD_ASSET_FETCH_FAILED_CODE,
+            format!("failed to write sing-box archive: {error}"),
+        )
+    })?;
+    diagnostics.push(sing_box_diagnostic(
+        DiagnosticSeverity::Info,
+        ENGINE_SINGBOX_DOWNLOAD_ARCHIVE_WRITTEN_CODE,
+        "sing-box release archive was written to the engine cache",
+        SOURCE_ENGINE_SINGBOX_DOWNLOAD,
+    ));
+
+    extract_sing_box_tar_gz(&archive_bytes, plan.target.executable_name(), &executable_path)?;
+    mark_executable(&executable_path)?;
+    diagnostics.push(sing_box_diagnostic(
+        DiagnosticSeverity::Info,
+        ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE,
+        "sing-box executable is ready",
+        SOURCE_ENGINE_SINGBOX_DOWNLOAD,
+    ));
+
+    Ok(SingBoxInstallReport {
+        version: plan.version.clone(),
+        target: plan.target,
+        asset_name: plan.asset_name.clone(),
+        asset_url: plan.download_url.clone(),
+        asset_sha256: plan.sha256_digest.clone(),
+        archive_path,
+        executable_path,
+        downloaded: true,
+        diagnostics,
+    })
+}
+
+fn extract_sing_box_tar_gz(
+    archive_bytes: &[u8],
+    executable_name: &str,
+    executable_path: &Path,
+) -> DomainResult<()> {
+    let decoder = GzDecoder::new(Cursor::new(archive_bytes));
+    let mut archive = Archive::new(decoder);
+    let entries = archive.entries().map_err(|error| {
+        DomainError::new(
+            ENGINE_SINGBOX_DOWNLOAD_EXTRACT_FAILED_CODE,
+            format!("failed to read sing-box archive entries: {error}"),
+        )
+    })?;
+
+    for entry in entries {
+        let mut entry = entry.map_err(|error| {
+            DomainError::new(
+                ENGINE_SINGBOX_DOWNLOAD_EXTRACT_FAILED_CODE,
+                format!("failed to inspect sing-box archive entry: {error}"),
+            )
+        })?;
+        let is_executable = {
+            let path = entry.path().map_err(|error| {
+                DomainError::new(
+                    ENGINE_SINGBOX_DOWNLOAD_EXTRACT_FAILED_CODE,
+                    format!("failed to inspect sing-box archive path: {error}"),
+                )
+            })?;
+            path.file_name().and_then(|name| name.to_str()) == Some(executable_name)
+        };
+
+        if !is_executable {
+            continue;
+        }
+
+        let mut output = File::create(executable_path).map_err(|error| {
+            DomainError::new(
+                ENGINE_SINGBOX_DOWNLOAD_EXTRACT_FAILED_CODE,
+                format!("failed to create sing-box executable: {error}"),
+            )
+        })?;
+        std::io::copy(&mut entry, &mut output).map_err(|error| {
+            DomainError::new(
+                ENGINE_SINGBOX_DOWNLOAD_EXTRACT_FAILED_CODE,
+                format!("failed to extract sing-box executable: {error}"),
+            )
+        })?;
+        return Ok(());
+    }
+
+    Err(DomainError::new(
+        ENGINE_SINGBOX_DOWNLOAD_EXTRACT_FAILED_CODE,
+        "sing-box executable was not found in the release archive",
+    ))
+}
+
+fn verify_sha256_digest(
+    bytes: &[u8],
+    expected: Option<&str>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> DomainResult<()> {
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+
+    let actual = sha256_hex(bytes);
+    if actual != expected {
+        return Err(DomainError::new(
+            ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_MISMATCH_CODE,
+            "sing-box release asset sha256 digest did not match GitHub metadata",
+        ));
+    }
+
+    diagnostics.push(sing_box_diagnostic(
+        DiagnosticSeverity::Info,
+        ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE,
+        "sing-box release asset sha256 digest was verified",
+        SOURCE_ENGINE_SINGBOX_DOWNLOAD,
+    ));
+    Ok(())
+}
+
+fn normalize_sha256_digest(digest: Option<&str>) -> Option<String> {
+    digest
+        .and_then(|value| value.strip_prefix("sha256:"))
+        .map(|value| value.to_ascii_lowercase())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let alphabet = b"0123456789abcdef";
+    let mut output = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        output.push(alphabet[(byte >> 4) as usize] as char);
+        output.push(alphabet[(byte & 0x0f) as usize] as char);
+    }
+    output
+}
+
+fn mark_executable(executable_path: &Path) -> DomainResult<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut permissions = fs::metadata(executable_path)
+            .map_err(|error| {
+                DomainError::new(
+                    ENGINE_SINGBOX_DOWNLOAD_BINARY_PERMISSION_FAILED_CODE,
+                    format!("failed to inspect sing-box executable permissions: {error}"),
+                )
+            })?
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(executable_path, permissions).map_err(|error| {
+            DomainError::new(
+                ENGINE_SINGBOX_DOWNLOAD_BINARY_PERMISSION_FAILED_CODE,
+                format!("failed to mark sing-box executable as runnable: {error}"),
+            )
+        })?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = executable_path;
+    }
+
+    Ok(())
+}
+
+fn non_empty_env_path(name: &str) -> Option<PathBuf> {
+    std::env::var_os(name)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
+fn unwired_runtime_error() -> DomainError {
+    DomainError::new(
+        ENGINE_SINGBOX_RUNTIME_UNWIRED_CODE,
+        "sing-box process lifecycle is not wired yet",
+    )
+}

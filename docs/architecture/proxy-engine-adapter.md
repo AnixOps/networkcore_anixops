@@ -12,7 +12,7 @@
 ## 非目标
 
 - 不在本阶段实现任何真实代理协议。
-- 不启动、管理或打包 `sing-box`、`xray-core`、`mihomo` 二进制。
+- 领域层不启动、管理或打包 `sing-box`、`xray-core`、`mihomo` 二进制；runtime 下载/cache、配置转换和进程生命周期必须留在 `engine-*` adapter 或平台入口。
 - 不定义外部内核的原生配置文件格式。
 - 不绕过平台权限、Network Extension、签名或 App Review 约束。
 
@@ -26,7 +26,7 @@ P3 Runtime Capabilities 采用 [ADR 0002: Public Engine Adapter First](adr-0002-
 3. 公有执行内核层优先由 `sing-box` 承担成熟协议数据面，后续再评估 `xray-core` 和 `mihomo`。
 
 因此，`engine-native` 当前只保留为自研执行内核实验线；VLESS、Shadowsocks、Trojan、VMess、Hysteria 等私有协议实现不作为当前 P3 首要目标。
-下一步应先定义 `sing-box` adapter 设计/source contract，再进入最小源码接线。
+当前已定义 `sing-box` latest release download/cache source contract，并进入最小源码接线；下一步应推进 `sing-box` config translation、process lifecycle、status/events/logs 和 rollback source contract。
 
 ## 领域端口
 
@@ -77,6 +77,6 @@ P3 Runtime Capabilities 采用 [ADR 0002: Public Engine Adapter First](adr-0002-
 ## 后续实现要求
 
 - 先在 `control-domain` 中维护纯领域类型和 trait。
-- 真实 adapter 必须放在 `engine-*` crate 中；当前 `engine-native` 首批源码提供配置拒绝、listener/node/route 图校验、native runtime handle 源码合同、有效配置图到 runtime assembly plan、真实 loopback TCP listener 绑定/释放、loopback TCP accept loop 受控关闭、service-owned runtime state 与 foreground lifecycle handoff、accepted connection 协议前置关闭诊断、SOCKS5 greeting 版本/认证方法读取诊断、SOCKS5 no-auth 方法选择/unsupported auth 方法拒绝诊断、SOCKS5 认证方法响应写入诊断、SOCKS5 命令头读取/unsupported command 拒绝诊断、SOCKS5 CONNECT 目标地址读取、route/outbound 行为选择、SOCKS outbound CONNECT request frame 生成、SOCKS outbound TCP connection plan、SOCKS outbound TCP connection attempt、SOCKS outbound CONNECT request write、SOCKS outbound CONNECT response read、SOCKS outbound CONNECT response decision、SOCKS outbound CONNECT relay readiness、SOCKS outbound CONNECT data relay plan、SOCKS outbound CONNECT data relay execution、SOCKS outbound CONNECT client success response readiness、SOCKS outbound CONNECT client success response write plan、SOCKS outbound CONNECT client success response write、accept loop client success response 与有限 data relay 接线、service start readiness gate、route/outbound 未接入拒绝、CONNECT failure response 写入诊断和生命周期诊断合同，route/outbound 数据面进入前必须遵守 [Native Engine Listener And Node Config Design](native-engine-listener-node-config.md)，`networkcore-linux start` 接线仍必须遵守 [Linux Native Proxy Engine Start Design](linux-native-proxy-engine-start.md)。
+- 真实 adapter 必须放在 `engine-*` crate 中；当前 `engine-native` 首批源码提供配置拒绝、listener/node/route 图校验、native runtime handle 源码合同、有效配置图到 runtime assembly plan、真实 loopback TCP listener 绑定/释放、loopback TCP accept loop 受控关闭、service-owned runtime state 与 foreground lifecycle handoff、accepted connection 协议前置关闭诊断、SOCKS5 greeting 版本/认证方法读取诊断、SOCKS5 no-auth 方法选择/unsupported auth 方法拒绝诊断、SOCKS5 认证方法响应写入诊断、SOCKS5 命令头读取/unsupported command 拒绝诊断、SOCKS5 CONNECT 目标地址读取、route/outbound 行为选择、SOCKS outbound CONNECT request frame 生成、SOCKS outbound TCP connection plan、SOCKS outbound TCP connection attempt、SOCKS outbound CONNECT request write、SOCKS outbound CONNECT response read、SOCKS outbound CONNECT response decision、SOCKS outbound CONNECT relay readiness、SOCKS outbound CONNECT data relay plan、SOCKS outbound CONNECT data relay execution、SOCKS outbound CONNECT client success response readiness、SOCKS outbound CONNECT client success response write plan、SOCKS outbound CONNECT client success response write、accept loop client success response 与有限 data relay 接线、service start readiness gate、route/outbound 未接入拒绝、CONNECT failure response 写入诊断和生命周期诊断合同，route/outbound 数据面进入前必须遵守 [Native Engine Listener And Node Config Design](native-engine-listener-node-config.md)，`networkcore-linux start` 接线仍必须遵守 [Linux Native Proxy Engine Start Design](linux-native-proxy-engine-start.md)。`engine-singbox` 当前提供 public engine descriptor、official latest release metadata parsing、asset selection、runtime cache download、`sha256:` digest verification 和 `.tar.gz` executable extraction source contract；process lifecycle 仍未接线。
 - 每个 adapter 必须有测试替身或集成测试覆盖配置校验、生命周期和错误路径。
 - GitHub Actions 必须继续执行 Rust format、lint、test、build。

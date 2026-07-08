@@ -12,12 +12,18 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE, ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
     ENGINE_NATIVE_START_RUNNING_CODE,
 };
+use engine_singbox::{
+    SingBoxInstallReport, SingBoxInstallRequest, SingBoxReleaseInstaller,
+    ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE,
+};
 use networkcore_linux::{
+    cli_help_text,
     handle_capabilities, handle_entrypoint, handle_entrypoint_with_runtime,
-    handle_entrypoint_with_runtime_and_lifecycle, handle_foreground_lifecycle,
-    handle_foreground_lifecycle_with_runtime_stop, handle_prepare_config, handle_start,
-    handle_status, handle_stop, parse_args, render_response, ConfigReadError, ConfigReader,
-    CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
+    handle_entrypoint_with_runtime_and_lifecycle,
+    handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
+    handle_foreground_lifecycle_with_runtime_stop, handle_install_sing_box, handle_parse_error,
+    handle_prepare_config, handle_start, handle_status, handle_stop, parse_args, render_response,
+    ConfigReadError, ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxCliCommand, LinuxCliExitCode,
     OutputFormat, UnavailableForegroundLifecycleHost, UnavailableProxyEngineService,
@@ -60,6 +66,75 @@ fn parses_prepare_config_with_explicit_path_and_json_format() {
         LinuxCliCommand::PrepareConfig {
             config_path: Some("/tmp/networkcore.toml".to_string()),
             format: OutputFormat::Json
+        }
+    );
+}
+
+#[test]
+fn parses_help_command_and_renders_command_table() {
+    let command = parse_args(["help"]).expect("help should parse");
+
+    assert_eq!(
+        command,
+        LinuxCliCommand::Help {
+            format: OutputFormat::Text
+        }
+    );
+
+    let rendered = render_response(&networkcore_linux::handle_help(), OutputFormat::Text);
+    assert!(rendered.contains("NetworkCore Linux CLI"));
+    assert!(rendered.contains("install-sing-box"));
+    assert!(rendered.contains("sing-box install"));
+}
+
+#[test]
+fn missing_command_response_includes_help_table() {
+    let diagnostic = parse_args(Vec::<&str>::new())
+        .expect_err("missing command should stay a parse error")
+        .into_diagnostic();
+
+    let response = handle_parse_error(diagnostic);
+    let rendered = render_response(&response, OutputFormat::Text);
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, LinuxCliExitCode::ArgumentOrConfig);
+    assert!(rendered.contains("missing linux CLI command"));
+    assert!(rendered.contains(cli_help_text()));
+}
+
+#[test]
+fn parses_install_sing_box_command_and_alias() {
+    let command = parse_args([
+        "install-sing-box",
+        "--install-dir",
+        "/tmp/networkcore-engines",
+        "--force",
+        "--format",
+        "json",
+    ])
+    .expect("install-sing-box should parse");
+    let alias = parse_args([
+        "sing-box",
+        "install",
+        "--install-dir",
+        "/tmp/networkcore-engines",
+    ])
+    .expect("sing-box install alias should parse");
+
+    assert_eq!(
+        command,
+        LinuxCliCommand::InstallSingBox {
+            install_dir: Some("/tmp/networkcore-engines".to_string()),
+            force: true,
+            format: OutputFormat::Json
+        }
+    );
+    assert_eq!(
+        alias,
+        LinuxCliCommand::InstallSingBox {
+            install_dir: Some("/tmp/networkcore-engines".to_string()),
+            force: false,
+            format: OutputFormat::Text
         }
     );
 }
@@ -391,6 +466,60 @@ route_node = "node-1"
 }
 
 #[test]
+fn install_sing_box_handler_uses_injected_latest_installer() {
+    let response = handle_install_sing_box(
+        &TestSingBoxInstaller,
+        Some("/tmp/networkcore-engines"),
+        true,
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "install-sing-box");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Success);
+    assert_diagnostic(&response.diagnostics, ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE);
+    let install = response
+        .sing_box_install
+        .as_ref()
+        .expect("install response should include sing-box status");
+    assert_eq!(install.version, "1.2.3");
+    assert_eq!(install.asset_name, "sing-box-1.2.3-linux-amd64.tar.gz");
+    assert!(install.downloaded);
+
+    let rendered = render_response(&response, OutputFormat::Text);
+    assert!(rendered.contains("sing-box version: 1.2.3"));
+    assert!(rendered.contains("executable:"));
+}
+
+#[test]
+fn runtime_lifecycle_entrypoint_routes_sing_box_install_to_injected_installer() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let orchestrator = RuntimeOrchestrator::new(
+        CoreConfigurationService::new(),
+        platform.clone(),
+        UnavailableProxyEngineService::new(),
+    );
+    let reader = MemoryConfigReader::ok("profile = default");
+
+    let response = handle_entrypoint_with_runtime_lifecycle_and_sing_box(
+        LinuxCliCommand::InstallSingBox {
+            install_dir: Some("/tmp/networkcore-engines".to_string()),
+            force: false,
+            format: OutputFormat::Json,
+        },
+        &platform,
+        &orchestrator,
+        &reader,
+        &UnavailableForegroundLifecycleHost::new(),
+        &TestSingBoxInstaller,
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "install-sing-box");
+    assert!(response.sing_box_install.is_some());
+}
+
+#[test]
 fn foreground_lifecycle_contract_reports_missing_host_without_start_wiring() {
     let response = handle_foreground_lifecycle(
         runtime_operation_result(
@@ -604,6 +733,25 @@ fn json_output_contains_required_top_level_fields() {
     assert_eq!(json["platform"]["tunnel"]["state"], "available");
 }
 
+#[test]
+fn install_sing_box_json_output_contains_machine_fields() {
+    let response = handle_install_sing_box(
+        &TestSingBoxInstaller,
+        Some("/tmp/networkcore-engines"),
+        false,
+    );
+
+    let rendered = render_response(&response, OutputFormat::Json);
+    let json: serde_json::Value =
+        serde_json::from_str(&rendered).expect("install response should be valid JSON");
+
+    assert_eq!(json["ok"].as_bool(), Some(true));
+    assert_eq!(json["command"], "install-sing-box");
+    assert_eq!(json["sing_box_install"]["version"], "1.2.3");
+    assert!(json["sing_box_install"]["target"].as_str().is_some());
+    assert_eq!(json["sing_box_install"]["downloaded"].as_bool(), Some(true));
+}
+
 fn available_orchestrator() -> RuntimeOrchestrator<
     TestConfigurationService,
     StaticLinuxPlatformCapabilityService,
@@ -678,6 +826,46 @@ impl ForegroundLifecycleHost for TestForegroundLifecycleHost {
 struct TestForegroundLifecycleInterruptionSource {
     reason: String,
     diagnostics: Vec<Diagnostic>,
+}
+
+struct TestSingBoxInstaller;
+
+impl SingBoxReleaseInstaller for TestSingBoxInstaller {
+    fn install_latest(
+        &self,
+        request: &SingBoxInstallRequest,
+    ) -> DomainResult<SingBoxInstallReport> {
+        assert!(request.install_root.ends_with("networkcore-engines"));
+        Ok(SingBoxInstallReport {
+            version: "1.2.3".to_string(),
+            target: request.target,
+            asset_name: "sing-box-1.2.3-linux-amd64.tar.gz".to_string(),
+            asset_url: "https://example.invalid/sing-box.tar.gz".to_string(),
+            asset_sha256: Some(
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                    .to_string(),
+            ),
+            archive_path: request
+                .install_root
+                .join("1.2.3")
+                .join(request.target.directory_name())
+                .join("downloads")
+                .join("sing-box-1.2.3-linux-amd64.tar.gz"),
+            executable_path: request
+                .install_root
+                .join("1.2.3")
+                .join(request.target.directory_name())
+                .join("bin")
+                .join(request.target.executable_name()),
+            downloaded: true,
+            diagnostics: vec![Diagnostic::new(
+                DiagnosticSeverity::Info,
+                ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE,
+                "sing-box executable is ready",
+                Some("engine.singbox.download".to_string()),
+            )],
+        })
+    }
 }
 
 impl TestForegroundLifecycleInterruptionSource {

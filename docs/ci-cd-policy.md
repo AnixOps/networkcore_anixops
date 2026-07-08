@@ -65,6 +65,7 @@
 - Linux native proxy engine start 设计文件检查
 - config-core crate README、subscription parser source contract 和 Rust workspace 覆盖检查
 - engine-native crate README 和 Rust workspace 覆盖检查
+- engine-singbox crate README、latest release download source contract、checksum/extraction diagnostics 和 Linux CLI `install-sing-box`/`help` 覆盖检查
 - Linux CLI crate README 和 Rust workspace 覆盖检查
 - Linux CLI artifact 安装、卸载与回滚设计文件检查
 - Linux package artifact manifest 设计文件检查
