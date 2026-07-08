@@ -3,7 +3,7 @@
 本文件定义真实平台产物进入 `.github/workflows/release.yml` 前必须满足的发布策略。它是发布 workflow 的设计约束；当前 Linux CLI
 已有受 CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates 约束的预发布产物路径，其他平台仍保持 blocked 或未定义状态。
 
-评估时间：2026-07-08。
+评估时间：2026-07-09。
 
 ## 当前发布状态
 
@@ -21,7 +21,7 @@ linux-artifact-license-notice-status=confirmed
 linux-artifact-publish-scope=tag-release-after-all-gates
 ```
 
-当前最新已发布 Linux artifact 是 `v0.1.0-alpha.7`。`main` 分支在该 tag 之后可能包含更多
+当前最新已发布 Linux artifact 是 `v0.1.0-alpha.8`。`main` 分支在该 tag 之后可能包含更多
 P4 源码增量；这些增量只有在后续新 tag release 完整通过 GitHub Actions 的 CI、package、
 attestation、publish eligibility 和 publish jobs 后，才会进入用户可下载的 GitHub Release asset。
 

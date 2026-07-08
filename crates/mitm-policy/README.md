@@ -35,11 +35,11 @@ can open a CONNECT tunnel to the target host:port, but these paths do not genera
 browser/system proxy state, prove live browser traffic capture, or apply rewrite
 plans to live traffic.
 
-Release/source split: `v0.1.0-alpha.7` is the latest published Linux artifact,
-while this README describes current `main` source. Source-only MITM CLI
-increments after that tag, including `verify --confirm`, `session-plan`, and
-browser capture `--target-url`, require a later tag release before users can
-download them from GitHub Releases.
+Release/source split: `v0.1.0-alpha.8` is the latest published Linux artifact,
+while this README describes current `main` source. That artifact includes
+`verify --confirm`, `verify --confirm --target-url <url>`, `session-plan`, and
+browser capture `--target-url`; source-only MITM CLI increments after this tag
+require a later tag release before users can download them from GitHub Releases.
 
 Required gates before user-facing MITM:
 

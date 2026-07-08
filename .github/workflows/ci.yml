@@ -155,7 +155,7 @@ jobs:
           grep -q "当前阶段是 P4 Client And Platform Integration" TODO.md
           grep -q "当前 main 源码状态" README.md
           grep -q "注意区分 release 与 main 源码" TODO.md
-          grep -Fq '当前最新已发布 Linux artifact 是 `v0.1.0-alpha.7`' docs/release-strategy.md
+          grep -Fq '当前最新已发布 Linux artifact 是 `v0.1.0-alpha.8`' docs/release-strategy.md
           grep -q "pre-activation" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           grep -q "pre-activation" docs/architecture/linux-package-artifact-build-command-validation-contract.md
           grep -q "pre-activation" docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md

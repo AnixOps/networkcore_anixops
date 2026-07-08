@@ -11,12 +11,13 @@ The crate currently provides:
 - JSON response rendering for automation-facing output contracts.
 - A minimal binary that wires `capabilities`, `status`, `diagnostics`, `mitm status/diagnostics/certificate-plan/browser-plan`, and `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify` to `HostLinuxReadOnlyProbe`, wires `mitm browser-capture launch --confirm` to an injected `BrowserCaptureProcessRunner`, wires `mitm browser-capture verify --confirm` to an injected `BrowserCaptureEndpointProbe`, wires `prepare-config` to the pure `config-core` service, wires `start` to `engine-native::NativeProxyEngineService` through `RuntimeOrchestrator`, wires `install-sing-box` to the `engine-singbox` latest release installer, and wires `run-url` to the `config-core` URL parser plus `sing-box` config renderer and foreground process runner.
 
-Release/source split: the latest published Linux artifact is `v0.1.0-alpha.7`.
-This README describes current `main` source. Source-only increments after that
-tag, including `mitm browser-capture verify --confirm`,
+Release/source split: the latest published Linux artifact is `v0.1.0-alpha.8`.
+This README describes current `main` source. The `v0.1.0-alpha.8` artifact
+includes `mitm browser-capture verify --confirm`,
+`mitm browser-capture verify --confirm --target-url <url>`,
 `mitm browser-capture session-plan`, browser capture target route verify, and the browser capture `--target-url`
-option, require a later tag
-release before they are present in a downloadable GitHub Release asset.
+option. Source-only increments after this tag require a later tag release before
+they are present in a downloadable GitHub Release asset.
 
 `install-sing-box` downloads the latest official `sing-box` release asset into an operator-visible cache and reports the cached executable path; it does not bundle `sing-box` into NetworkCore release artifacts. `run-url <ss://url>` parses a Shadowsocks URL through the subscription model, renders a local `mixed` inbound config for `sing-box`, writes it under the engine cache, and starts `sing-box run -c <config>` in the foreground. The default local proxy is `127.0.0.1:7890`.
 
