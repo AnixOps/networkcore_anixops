@@ -1279,6 +1279,7 @@ where
             sing_box_install: None,
             sing_box_run: None,
             mitm_status: None,
+            browser_capture: None,
         };
     }
 
@@ -1299,6 +1300,7 @@ where
         sing_box_install: None,
         sing_box_run: None,
         mitm_status: None,
+        browser_capture: None,
     }
 }
 
