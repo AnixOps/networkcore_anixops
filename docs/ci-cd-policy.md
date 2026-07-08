@@ -39,6 +39,7 @@
 - subscription catalog runtime orchestration design 检查
 - subscription catalog runtime gate source contract 检查
 - `mitm-anixops-sys` crate、submodule 固定和 Rust FFI version 测试检查
+- `mitm-policy` safe wrapper、`networkcore.adblock` 内置去广告插件、deferred mutation 诊断和 Rust 合同测试检查
 - 运行层编排设计文件检查
 - iOS Network Extension design 检查
 - iOS platform adapter source contract 检查

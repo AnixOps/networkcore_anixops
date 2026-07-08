@@ -57,7 +57,14 @@ jobs:
             crates/engine-singbox/README.md
             crates/engine-singbox/src/lib.rs
             crates/engine-singbox/tests/engine_singbox_contracts.rs
+            crates/mitm-anixops-sys/Cargo.toml
             crates/mitm-anixops-sys/README.md
+            crates/mitm-anixops-sys/build.rs
+            crates/mitm-anixops-sys/src/lib.rs
+            crates/mitm-policy/Cargo.toml
+            crates/mitm-policy/README.md
+            crates/mitm-policy/src/lib.rs
+            crates/mitm-policy/tests/mitm_policy_contracts.rs
             crates/platform-ios/README.md
             crates/platform-linux/README.md
             apps/ios/README.md
@@ -118,6 +125,7 @@ jobs:
             docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md
             docs/architecture/linux-platform-adapter.md
             docs/architecture/mitm-anixops-adapter.md
+            docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
             docs/architecture/native-engine-listener-node-config.md
             docs/architecture/proxy-engine-adapter.md
             docs/architecture/release-ci-gate-api-implementation-plan.md
@@ -163,6 +171,19 @@ jobs:
           grep -q "SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE" crates/config-core/src/lib.rs
           grep -q "Subscription URL To sing-box Run Source Contract" docs/architecture/subscription-url-to-sing-box-run-source-contract.md
           grep -q "handle_entrypoint_with_runtime_lifecycle_and_sing_box" apps/linux-cli/src/main.rs
+          git submodule status third_party/mitm_anixops | grep -q "92285204ff07e4dcc4712af30d0b4c76a0deb4d5"
+          grep -q "v0.41.0-alpha" docs/architecture/mitm-anixops-adapter.md
+          grep -q "92285204ff07e4dcc4712af30d0b4c76a0deb4d5" docs/architecture/mitm-anixops-adapter.md
+          grep -q '"crates/mitm-policy"' Cargo.toml
+          grep -q '^name = "mitm-policy"$' crates/mitm-policy/Cargo.toml
+          grep -q "MITM Policy Ad Block Plugin Source Contract" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
+          grep -q "MITM_POLICY_AD_BLOCK_PLUGIN_ID" crates/mitm-policy/src/lib.rs
+          grep -q "networkcore.adblock" crates/mitm-policy/src/lib.rs
+          grep -q "builtin_ad_block_plugin_package" crates/mitm-policy/src/lib.rs
+          grep -q "AnixOpsMitmPolicyEngine" crates/mitm-policy/src/lib.rs
+          grep -q "AnixOpsMitmPluginService" crates/mitm-policy/src/lib.rs
+          grep -q "MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE" crates/mitm-policy/src/lib.rs
+          grep -q "MITM_POLICY_CONFIG_PARSE_FAILED_CODE" crates/mitm-policy/tests/mitm_policy_contracts.rs
 
           release_workflow=.github/workflows/release.yml
           grep -q '^  package-linux:' "${release_workflow}"

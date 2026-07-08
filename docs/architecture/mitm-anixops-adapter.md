@@ -3,9 +3,10 @@
 本文件定义 `networkcore_AnixOps` 接入
 `https://github.com/AnixOps/mitm_anixops` 的首版 adapter 边界。
 
-评估时间：2026-07-07。
+评估时间：2026-07-08。
 
-参考 `mitm_anixops` 版本：`fec8877 Add MITM ABI diagnostics and integration docs`。
+参考 `mitm_anixops` 版本：`v0.41.0-alpha`
+(`92285204ff07e4dcc4712af30d0b4c76a0deb4d5`)。
 
 ## 结论
 
@@ -87,7 +88,13 @@ crates/mitm-policy
 
 `Engine` wrapper 不得实现 `Sync`。`mitm_anixops` engine 内部不加锁，运行时共享必须由 adapter 通过 `Mutex`、per-worker engine 或 immutable snapshot 控制。
 
-当前首个源码增量已新增 `crates/mitm-anixops-sys`，用 Git submodule 固定 `third_party/mitm_anixops` 并通过 `anixops_version()` FFI 测试证明 Rust workspace 已链接 C core。后续仍需新增 `mitm-policy` 和领域 adapter，才能进入 `MitmPluginService`。
+当前源码增量已新增 `crates/mitm-anixops-sys` 和 `crates/mitm-policy`：
+前者通过 Git submodule 固定 `third_party/mitm_anixops` 到 `v0.41.0-alpha`
+并暴露低层 C ABI；后者用 RAII wrapper 加载 `PluginPackage.source`，
+实现 `AnixOpsMitmPluginService`，并提供内置
+`networkcore.adblock` alpha 去广告插件包。当前 `MitmPluginService` 仍只返回
+audit/diagnostics，真实 request/response mutation 继续等待领域 mutation model
+和 HTTP/TLS 数据面。
 
 ## Domain Model 变更门槛
 
@@ -130,6 +137,8 @@ crates/mitm-policy
 - 通过 `anixops_engine_load_config` 校验支持的规则子集。
 - 用 `anixops_engine_copy_last_error` 生成稳定 diagnostic。
 - 在 `MitmPluginService` adapter 中返回 audit/diagnostics。
+- 内置 `networkcore.adblock` 插件包通过 `mitm_anixops` 规则加载、MITM host
+  decision 和 URL reject rewrite 合同测试。
 
 不做：
 
@@ -200,8 +209,9 @@ iOS：
 源码接入必须按阶段由 GitHub Actions 证明：
 
 - Phase 1A：Rust workspace 包含 `mitm-anixops-sys`，Linux/macOS/Windows runner 能编译 vendored C core，并用 version FFI test 调用 `anixops_version()`。
-- Phase 1B：新增 `mitm-policy`，用 safe wrapper tests 覆盖 config diagnostic、MITM decision、URL rewrite、header rewrite、body rewrite、script dispatch。
-- Phase 1C：ABI allowlist 与 `mitm_anixops/ci/abi_exports.txt` 一致，CI summary 显式输出 `mitm_anixops` adapter 检测状态。
+- Phase 1B：新增 `mitm-policy`，用 safe wrapper tests 覆盖 config diagnostic、MITM decision、URL reject rewrite、内置 ad-block plugin package、manifest/permission gate 和 `MitmPluginService` deferred mutation diagnostic。
+- Phase 1C：扩展 safe wrapper tests 覆盖 header rewrite、body rewrite、script dispatch 和 ABI allowlist。该阶段必须先决定这些结果进入现有 diagnostics，还是等待 Phase 2 mutation model。
+- Phase 1D：ABI allowlist 与 `mitm_anixops/ci/abi_exports.txt` 一致，CI summary 显式输出 `mitm_anixops` adapter 检测状态。
 
 iOS 只能在 iOS platform crate 和 Network Extension 设计出现后，通过 macOS runner 增加 Swift/Xcode 或 cargo check 验证。
 

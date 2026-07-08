@@ -81,6 +81,7 @@
 - [docs/architecture/adr-0002-public-engine-adapter-first.md](docs/architecture/adr-0002-public-engine-adapter-first.md)
 - [docs/architecture/sing-box-public-engine-adapter-source-contract.md](docs/architecture/sing-box-public-engine-adapter-source-contract.md)
 - [docs/architecture/subscription-url-to-sing-box-run-source-contract.md](docs/architecture/subscription-url-to-sing-box-run-source-contract.md)
+- [docs/architecture/mitm-policy-ad-block-plugin-source-contract.md](docs/architecture/mitm-policy-ad-block-plugin-source-contract.md)
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - [ROADMAP.md](ROADMAP.md)
 - [TODO.md](TODO.md)
@@ -145,7 +146,12 @@ GitHub Actions 验证。`ios-package-swift-manifest-only-*` 当前只记录 bloc
 
 `mitm_anixops` 接入已先以 adapter 设计形式记录：该库可作为 MITM 策略/plugin 兼容 C ABI core，但完整全平台 MITM 仍需要 NetworkCore 后续补齐领域 mutation model、HTTP/TLS 数据面和各平台证书/运行时 adapter。
 
-当前首个源码接入增量已新增 `mitm-anixops-sys` crate，通过 Git submodule 固定 `mitm_anixops` 并在 Rust CI 中编译 C core，测试 `anixops_version()` 以证明 NetworkCore 已链接该 C ABI。
+当前源码接入增量已把 `mitm_anixops` Git submodule 固定到 `v0.41.0-alpha`
+(`92285204ff07e4dcc4712af30d0b4c76a0deb4d5`)；`mitm-anixops-sys` 编译 C core
+并暴露低层 FFI，`mitm-policy` 提供 safe wrapper、`AnixOpsMitmPluginService` 和
+内置 `networkcore.adblock` alpha 去广告插件包。当前插件路径只返回 audit/diagnostics
+和 `mitm.policy.http_event.mutation_deferred`，真实 URL/header/body 改写仍等待 mutation model
+与 HTTP/TLS 数据面。
 
 ## 源码布局
 
@@ -156,6 +162,7 @@ GitHub Actions 验证。`ios-package-swift-manifest-only-*` 当前只记录 bloc
 - [crates/control-runtime](crates/control-runtime)：组合领域端口的首批纯运行层编排用例；P3 subscription catalog runtime gate 已支持显式 inline `SubscriptionSource` 的 `NodeCatalog.nodes` 到 `RuntimeConfigRequest.nodes` handoff、重复 id 拒绝和 rules deferred 诊断，仍不执行远程/文件订阅或平台 mutation。
 - [crates/engine-native](crates/engine-native)：原生代理执行内核的首批 adapter 合同、listener/node/route 图校验、native runtime handle 源码合同、loopback TCP listener 绑定/释放、runtime assembly plan、loopback TCP accept loop 受控关闭合同、service-owned runtime state 与 foreground lifecycle handoff 源码合同、accepted TCP connection 协议前置关闭诊断合同、SOCKS5 greeting 版本/认证方法读取诊断合同、SOCKS5 no-auth 方法选择/unsupported auth 方法拒绝诊断合同、SOCKS5 认证方法响应写入诊断合同、SOCKS5 命令头读取/unsupported command 拒绝诊断合同、SOCKS5 CONNECT 目标地址读取、route/outbound 行为选择、SOCKS outbound CONNECT request frame 生成、SOCKS outbound TCP connection plan、SOCKS outbound TCP connection attempt、SOCKS outbound CONNECT request write、SOCKS outbound CONNECT response read、SOCKS outbound CONNECT response decision、SOCKS outbound CONNECT relay readiness、SOCKS outbound CONNECT data relay plan、SOCKS outbound CONNECT data relay execution、SOCKS outbound CONNECT client success response readiness、SOCKS outbound CONNECT client success response write plan、SOCKS outbound CONNECT client success response write、accept loop client success response 与有限 data relay 接线、未接入拒绝与 CONNECT failure response 写入诊断合同、配置拒绝和生命周期诊断。
 - [crates/engine-singbox](crates/engine-singbox)：`sing-box` public engine adapter 的首个 source contract，当前覆盖 descriptor identity、官方 GitHub latest release metadata 解析、目标资产选择、`sha256:` digest 校验、`.tar.gz` 中只提取 `sing-box` 可执行文件、缓存路径、Shadowsocks node 到本地 `mixed` inbound JSON 渲染、foreground process runner 和稳定诊断；仍不提供 daemon/control socket、managed status/events/logs 或 reload。
-- [crates/mitm-anixops-sys](crates/mitm-anixops-sys)：`mitm_anixops` C ABI 的首个 unsafe Rust FFI crate，当前编译 vendored C core 并验证 pinned version。
+- [crates/mitm-anixops-sys](crates/mitm-anixops-sys)：`mitm_anixops` v0.41.0-alpha C ABI 的 unsafe Rust FFI crate，当前编译 vendored C core 并验证 pinned version。
+- [crates/mitm-policy](crates/mitm-policy)：`mitm_anixops` 的 safe wrapper 和 NetworkCore MITM plugin adapter，当前提供内置 `networkcore.adblock` 去广告插件包、manifest/permission gate、MITM decision/URL reject 合同测试和 deferred mutation 诊断；不直接改写真实流量。
 - [crates/platform-ios](crates/platform-ios)：iOS 平台能力 adapter 的首批纯 Rust source contract 实现，当前提供静态 snapshot 映射、Network Extension/VPN/embedded runtime/MITM certificate/shared storage probe、稳定 `platform.ios.*` 诊断 code 和合同测试，不包含 Swift/Xcode/Network Extension target 或签名配置。
 - [crates/platform-linux](crates/platform-linux)：Linux 平台能力 adapter 的首批只读诊断映射、测试替身和 host probe 服务。
