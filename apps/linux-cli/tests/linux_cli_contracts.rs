@@ -19,6 +19,7 @@ use engine_singbox::{
 };
 use networkcore_linux::{
     cli_help_text, handle_capabilities, handle_entrypoint,
+    handle_entrypoint_with_browser_capture_all_io,
     handle_entrypoint_with_browser_capture_io, handle_entrypoint_with_browser_capture_runner,
     handle_entrypoint_with_runtime, handle_entrypoint_with_runtime_and_lifecycle,
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
@@ -26,15 +27,19 @@ use networkcore_linux::{
     handle_mitm_browser_capture_apply, handle_mitm_browser_capture_launch,
     handle_mitm_browser_capture_launch_plan, handle_mitm_browser_capture_plan,
     handle_mitm_browser_capture_rollback, handle_mitm_browser_capture_session_plan,
-    handle_mitm_browser_capture_verify, handle_mitm_browser_capture_verify_with_probe,
-    handle_mitm_browser_plan, handle_mitm_certificate_plan, handle_mitm_status, handle_parse_error,
-    handle_prepare_config, handle_run_url_with_sing_box, handle_start, handle_status, handle_stop,
-    parse_args, render_response, BrowserCaptureEndpointProbe, BrowserCaptureProcessRunner,
-    CommandBrowserCaptureEndpointProbe, ConfigReadError, ConfigReader,
+    handle_mitm_browser_capture_traffic_proof,
+    handle_mitm_browser_capture_traffic_proof_with_probe, handle_mitm_browser_capture_verify,
+    handle_mitm_browser_capture_verify_with_probe, handle_mitm_browser_plan,
+    handle_mitm_certificate_plan, handle_mitm_status, handle_parse_error, handle_prepare_config,
+    handle_run_url_with_sing_box, handle_start, handle_status, handle_stop, parse_args,
+    render_response, BrowserCaptureEndpointProbe, BrowserCaptureProcessRunner,
+    BrowserCaptureTrafficProofProbe, CommandBrowserCaptureEndpointProbe, ConfigReadError,
+    ConfigReader,
     CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
-    LinuxBrowserCaptureLaunchRequest, LinuxBrowserCaptureVerifyOutcome,
+    LinuxBrowserCaptureLaunchRequest, LinuxBrowserCaptureTrafficProofOutcome,
+    LinuxBrowserCaptureTrafficProofRequest, LinuxBrowserCaptureVerifyOutcome,
     LinuxBrowserCaptureVerifyRequest, LinuxCliCommand, LinuxCliExitCode, OutputFormat,
     UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
     CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
@@ -45,6 +50,10 @@ use networkcore_linux::{
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_STARTED_CODE, CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_ROLLBACK_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_SESSION_PLAN_READY_CODE,
+    CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_AUTHORIZATION_REQUIRED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_BLOCKED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_MISSING_CODE,
+    CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_OBSERVED_CODE,
     CLI_MITM_BROWSER_CAPTURE_VERIFY_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_VERIFY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_REACHABLE_CODE,
@@ -121,8 +130,10 @@ fn parses_help_command_and_renders_command_table() {
     assert!(rendered.contains("run-url"));
     assert!(rendered.contains("mitm [status|diagnostics|certificate-plan|browser-plan]"));
     assert!(rendered.contains(
-        "mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify]"
+        "mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify|traffic-proof]"
     ));
+    assert!(rendered.contains("--proof-token <token>"));
+    assert!(rendered.contains("--proof-log <path>"));
     assert!(rendered.contains("sing-box install"));
 }
 
@@ -204,6 +215,19 @@ fn parses_mitm_status_and_diagnostics_commands() {
         "https://example.com/capture",
     ])
     .expect("mitm browser-capture verify should parse");
+    let browser_capture_traffic_proof = parse_args([
+        "mitm",
+        "browser-capture",
+        "traffic-proof",
+        "--confirm",
+        "--proof-token",
+        "browser-proof-123",
+        "--proof-log",
+        "/tmp/networkcore-browser-proof.log",
+        "--format",
+        "json",
+    ])
+    .expect("mitm browser-capture traffic-proof should parse");
 
     assert_eq!(
         default_status,
@@ -319,6 +343,15 @@ fn parses_mitm_status_and_diagnostics_commands() {
             target_url: Some("https://example.com/capture".to_string()),
             confirm: true,
             format: OutputFormat::Text
+        }
+    );
+    assert_eq!(
+        browser_capture_traffic_proof,
+        LinuxCliCommand::MitmBrowserCaptureTrafficProof {
+            proof_token: "browser-proof-123".to_string(),
+            proof_log_path: "/tmp/networkcore-browser-proof.log".to_string(),
+            confirm: true,
+            format: OutputFormat::Json
         }
     );
 }
@@ -1230,6 +1263,175 @@ fn mitm_browser_capture_verify_reports_unreachable_proxy_endpoint() {
 }
 
 #[test]
+fn mitm_browser_capture_traffic_proof_requires_confirmation_before_reading_evidence() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let probe = TestBrowserCaptureTrafficProofProbe { observed: true };
+
+    let response = handle_mitm_browser_capture_traffic_proof_with_probe(
+        &platform,
+        &probe,
+        "browser-proof-123",
+        "/tmp/networkcore-browser-proof.log",
+        false,
+    );
+
+    assert!(!response.ok);
+    assert_eq!(response.command, "mitm browser-capture traffic-proof");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Unavailable);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_AUTHORIZATION_REQUIRED_CODE,
+    );
+    assert_no_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_OBSERVED_CODE,
+    );
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("traffic-proof response should include browser capture report");
+    assert_eq!(capture.action, "traffic-proof");
+    let proof = capture
+        .traffic_proof_report
+        .as_ref()
+        .expect("traffic-proof response should include proof report");
+    assert_eq!(proof.status, "authorization_required");
+    assert!(!proof.proven);
+    assert_eq!(proof.request.proxy_url, "http://127.0.0.1:7890");
+    assert_eq!(proof.request.proof_token, "browser-proof-123");
+    assert_eq!(
+        proof.request.proof_log_path,
+        "/tmp/networkcore-browser-proof.log"
+    );
+    assert_eq!(proof.request.probe, "proof-log-token");
+}
+
+#[test]
+fn mitm_browser_capture_traffic_proof_uses_injected_probe_for_observed_token() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let probe = TestBrowserCaptureTrafficProofProbe { observed: true };
+
+    let response = handle_mitm_browser_capture_traffic_proof_with_probe(
+        &platform,
+        &probe,
+        "browser-proof-123",
+        "/tmp/networkcore-browser-proof.log",
+        true,
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "mitm browser-capture traffic-proof");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Success);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_OBSERVED_CODE,
+    );
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE,
+    );
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("traffic-proof response should include browser capture report");
+    let proof = capture
+        .traffic_proof_report
+        .as_ref()
+        .expect("traffic-proof response should include proof report");
+    assert_eq!(capture.action, "traffic-proof");
+    assert_eq!(proof.status, "observed");
+    assert!(proof.proven);
+    assert_eq!(proof.request.proxy_host, MITM_BROWSER_CAPTURE_PROXY_HOST);
+    assert_eq!(proof.request.proxy_port, MITM_BROWSER_CAPTURE_PROXY_PORT);
+    assert_eq!(proof.request.proxy_url, "http://127.0.0.1:7890");
+    assert_eq!(proof.request.probe, "proof-log-token");
+    assert_eq!(
+        proof.plugin_id,
+        mitm_policy::MITM_POLICY_AD_BLOCK_PLUGIN_ID
+    );
+
+    let rendered = render_response(&response, OutputFormat::Text);
+    assert!(rendered.contains(
+        "browser capture traffic proof: observed proven=true proxy=http://127.0.0.1:7890"
+    ));
+    assert!(rendered.contains("proof_log=/tmp/networkcore-browser-proof.log"));
+}
+
+#[test]
+fn mitm_browser_capture_traffic_proof_reports_missing_token_without_live_mitm_claim() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let probe = TestBrowserCaptureTrafficProofProbe { observed: false };
+
+    let response = handle_mitm_browser_capture_traffic_proof_with_probe(
+        &platform,
+        &probe,
+        "browser-proof-123",
+        "/tmp/networkcore-browser-proof.log",
+        true,
+    );
+
+    assert!(!response.ok);
+    assert_eq!(response.command, "mitm browser-capture traffic-proof");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Unavailable);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_MISSING_CODE,
+    );
+    assert_no_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_OBSERVED_CODE,
+    );
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("traffic-proof response should include browser capture report");
+    let proof = capture
+        .traffic_proof_report
+        .as_ref()
+        .expect("traffic-proof response should include proof report");
+    assert_eq!(proof.status, "missing");
+    assert!(!proof.proven);
+    assert!(proof
+        .blocked_operations
+        .iter()
+        .any(|operation| operation == "verify-live-browser-capture"));
+}
+
+#[test]
+fn mitm_browser_capture_traffic_proof_stays_blocked_without_probe_wiring() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+
+    let response = handle_mitm_browser_capture_traffic_proof(
+        &platform,
+        "browser-proof-123",
+        "/tmp/networkcore-browser-proof.log",
+        true,
+    );
+
+    assert!(!response.ok);
+    assert_eq!(response.command, "mitm browser-capture traffic-proof");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Unavailable);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_BLOCKED_CODE,
+    );
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("traffic-proof response should include browser capture report");
+    let proof = capture
+        .traffic_proof_report
+        .as_ref()
+        .expect("traffic-proof response should include proof report");
+    assert_eq!(proof.status, "blocked");
+    assert!(!proof.proven);
+}
+
+#[test]
 fn mitm_browser_capture_apply_requires_authorization_and_stays_blocked() {
     let platform =
         StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
@@ -1429,6 +1631,15 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
         },
         &platform,
     );
+    let browser_capture_traffic_proof = handle_entrypoint(
+        LinuxCliCommand::MitmBrowserCaptureTrafficProof {
+            proof_token: "browser-proof-123".to_string(),
+            proof_log_path: "/tmp/networkcore-browser-proof.log".to_string(),
+            confirm: true,
+            format: OutputFormat::Text,
+        },
+        &platform,
+    );
 
     assert!(capabilities.ok);
     assert!(status.ok);
@@ -1442,6 +1653,7 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
     assert!(!browser_capture_apply.ok);
     assert!(!browser_capture_rollback.ok);
     assert!(!browser_capture_verify.ok);
+    assert!(!browser_capture_traffic_proof.ok);
     assert_eq!(capabilities.command, "capabilities");
     assert_eq!(status.command, "status");
     assert_eq!(diagnostics.command, "diagnostics");
@@ -1466,6 +1678,10 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
         browser_capture_verify.command,
         "mitm browser-capture verify"
     );
+    assert_eq!(
+        browser_capture_traffic_proof.command,
+        "mitm browser-capture traffic-proof"
+    );
     assert_diagnostic(&capabilities.diagnostics, DNS_MANAGER_UNKNOWN_CODE);
     assert_diagnostic(&status.diagnostics, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE);
     assert_diagnostic(&diagnostics.diagnostics, DNS_MANAGER_UNKNOWN_CODE);
@@ -1478,6 +1694,7 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
     assert!(browser_capture_apply.browser_capture.is_some());
     assert!(browser_capture_rollback.browser_capture.is_some());
     assert!(browser_capture_verify.browser_capture.is_some());
+    assert!(browser_capture_traffic_proof.browser_capture.is_some());
 }
 
 #[test]
@@ -1795,6 +2012,44 @@ fn browser_capture_entrypoint_routes_verify_to_injected_endpoint_probe() {
         verify.request.target_url.as_deref(),
         Some("https://example.com/capture")
     );
+}
+
+#[test]
+fn browser_capture_entrypoint_routes_traffic_proof_to_injected_probe() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let endpoint_probe = TestBrowserCaptureEndpointProbe { reachable: true };
+    let traffic_proof_probe = TestBrowserCaptureTrafficProofProbe { observed: true };
+
+    let response = handle_entrypoint_with_browser_capture_all_io(
+        LinuxCliCommand::MitmBrowserCaptureTrafficProof {
+            proof_token: "browser-proof-123".to_string(),
+            proof_log_path: "/tmp/networkcore-browser-proof.log".to_string(),
+            confirm: true,
+            format: OutputFormat::Json,
+        },
+        &platform,
+        &TestBrowserCaptureRunner,
+        &endpoint_probe,
+        &traffic_proof_probe,
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "mitm browser-capture traffic-proof");
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_OBSERVED_CODE,
+    );
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("traffic-proof response should include browser capture report");
+    let proof = capture
+        .traffic_proof_report
+        .as_ref()
+        .expect("traffic-proof response should include proof report");
+    assert!(proof.proven);
+    assert_eq!(proof.request.probe, "proof-log-token");
 }
 
 #[test]
@@ -2402,6 +2657,64 @@ fn browser_capture_verify_json_output_contains_endpoint_probe_fields() {
 }
 
 #[test]
+fn browser_capture_traffic_proof_json_output_contains_proof_fields() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let probe = TestBrowserCaptureTrafficProofProbe { observed: true };
+    let response = handle_mitm_browser_capture_traffic_proof_with_probe(
+        &platform,
+        &probe,
+        "browser-proof-123",
+        "/tmp/networkcore-browser-proof.log",
+        true,
+    );
+
+    let rendered = render_response(&response, OutputFormat::Json);
+    let json: serde_json::Value = serde_json::from_str(&rendered)
+        .expect("browser traffic-proof response should be valid JSON");
+
+    assert_eq!(json["ok"].as_bool(), Some(true));
+    assert_eq!(json["command"], "mitm browser-capture traffic-proof");
+    assert_eq!(json["browser_capture"]["action"], "traffic-proof");
+    assert_eq!(
+        json["browser_capture"]["request"]["authorization"]["confirmed"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["traffic_proof"]["proxy_url"],
+        "http://127.0.0.1:7890"
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["traffic_proof"]["proof_token"],
+        "browser-proof-123"
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["traffic_proof"]["proof_log_path"],
+        "/tmp/networkcore-browser-proof.log"
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["traffic_proof"]["probe"],
+        "proof-log-token"
+    );
+    assert_eq!(
+        json["browser_capture"]["traffic_proof_report"]["status"],
+        "observed"
+    );
+    assert_eq!(
+        json["browser_capture"]["traffic_proof_report"]["proven"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        json["browser_capture"]["traffic_proof_report"]["request"]["proof_log_path"],
+        "/tmp/networkcore-browser-proof.log"
+    );
+    assert_eq!(
+        json["browser_capture"]["traffic_proof_report"]["plugin_id"],
+        mitm_policy::MITM_POLICY_AD_BLOCK_PLUGIN_ID
+    );
+}
+
+#[test]
 fn browser_capture_session_plan_json_output_contains_session_fields() {
     let platform =
         StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
@@ -2728,6 +3041,40 @@ impl BrowserCaptureEndpointProbe for TestBrowserCaptureEndpointProbe {
             Err(DomainError::new(
                 CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_UNREACHABLE_CODE,
                 "browser capture test proxy endpoint is unreachable",
+            ))
+        }
+    }
+}
+
+struct TestBrowserCaptureTrafficProofProbe {
+    observed: bool,
+}
+
+impl BrowserCaptureTrafficProofProbe for TestBrowserCaptureTrafficProofProbe {
+    fn verify_traffic_proof(
+        &self,
+        request: &LinuxBrowserCaptureTrafficProofRequest,
+    ) -> DomainResult<LinuxBrowserCaptureTrafficProofOutcome> {
+        assert_eq!(request.proxy_host, "127.0.0.1");
+        assert_eq!(request.proxy_port, 7890);
+        assert_eq!(request.proxy_url, "http://127.0.0.1:7890");
+        assert_eq!(request.proof_token, "browser-proof-123");
+        assert_eq!(request.proof_log_path, "/tmp/networkcore-browser-proof.log");
+        assert_eq!(request.probe, "proof-log-token");
+
+        if self.observed {
+            Ok(LinuxBrowserCaptureTrafficProofOutcome {
+                diagnostics: vec![Diagnostic::new(
+                    DiagnosticSeverity::Info,
+                    CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_OBSERVED_CODE,
+                    "browser capture proof token was observed by the test probe",
+                    Some("cli.mitm".to_string()),
+                )],
+            })
+        } else {
+            Err(DomainError::new(
+                CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_MISSING_CODE,
+                "browser capture proof token was not observed by the test probe",
             ))
         }
     }

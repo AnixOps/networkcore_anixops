@@ -267,6 +267,11 @@ jobs:
           grep -q "CommandBrowserCaptureProcessRunner" apps/linux-cli/src/lib.rs
           grep -q "BrowserCaptureEndpointProbe" apps/linux-cli/src/lib.rs
           grep -q "CommandBrowserCaptureEndpointProbe" apps/linux-cli/src/lib.rs
+          grep -q "LinuxBrowserCaptureTrafficProofRequest" apps/linux-cli/src/lib.rs
+          grep -q "LinuxBrowserCaptureTrafficProofOutcome" apps/linux-cli/src/lib.rs
+          grep -q "LinuxBrowserCaptureTrafficProofReport" apps/linux-cli/src/lib.rs
+          grep -q "BrowserCaptureTrafficProofProbe" apps/linux-cli/src/lib.rs
+          grep -q "CommandBrowserCaptureTrafficProofProbe" apps/linux-cli/src/lib.rs
           grep -q "LinuxBrowserCaptureApplyReport" apps/linux-cli/src/lib.rs
           grep -q "LinuxBrowserCaptureRollbackReport" apps/linux-cli/src/lib.rs
           grep -q "BrowserCaptureAuthorization" apps/linux-cli/src/lib.rs
@@ -284,6 +289,9 @@ jobs:
           grep -q "handle_mitm_browser_capture_apply" apps/linux-cli/src/lib.rs
           grep -q "handle_mitm_browser_capture_rollback" apps/linux-cli/src/lib.rs
           grep -q "handle_mitm_browser_capture_verify" apps/linux-cli/src/lib.rs
+          grep -q "handle_mitm_browser_capture_traffic_proof" apps/linux-cli/src/lib.rs
+          grep -q "handle_entrypoint_with_browser_capture_all_io" apps/linux-cli/src/lib.rs
+          grep -q "CommandBrowserCaptureTrafficProofProbe" apps/linux-cli/src/main.rs
           grep -q "CLI_MITM_POLICY_READY_CODE" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_CERTIFICATE_PLAN_READY_CODE" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE" apps/linux-cli/src/lib.rs
@@ -306,6 +314,13 @@ jobs:
           grep -q "CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_REACHABLE_CODE" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_INVALID_CODE" apps/linux-cli/src/lib.rs
           grep -q "http-connect-target" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_BLOCKED_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_AUTHORIZATION_REQUIRED_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_OBSERVED_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_MISSING_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_LOG_UNREADABLE_CODE" apps/linux-cli/src/lib.rs
+          grep -q "traffic_proof_report" apps/linux-cli/src/lib.rs
+          grep -q "proof-log-token" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE" apps/linux-cli/src/lib.rs
           grep -q "MITM_CERTIFICATE_PLAN_STATUS" apps/linux-cli/src/lib.rs
           grep -q "MITM_CERTIFICATE_MUTATION_READY" apps/linux-cli/src/lib.rs
@@ -332,6 +347,14 @@ jobs:
           grep -q "browser_capture_launch_json_output_contains_process_report_fields" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "browser_capture_verify_json_output_contains_endpoint_probe_fields" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "browser_capture_session_plan_json_output_contains_session_fields" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_browser_capture_traffic_proof_requires_confirmation_before_reading_evidence" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_browser_capture_traffic_proof_uses_injected_probe_for_observed_token" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_browser_capture_traffic_proof_reports_missing_token_without_live_mitm_claim" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_browser_capture_traffic_proof_stays_blocked_without_probe_wiring" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "browser_capture_entrypoint_routes_traffic_proof_to_injected_probe" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "browser_capture_traffic_proof_json_output_contains_proof_fields" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "traffic_proof_report" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "proof-log-token" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_browser_capture_apply_requires_authorization_and_stays_blocked" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_browser_capture_rollback_and_verify_stay_blocked_without_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "browser_capture_json_output_contains_machine_report_fields" apps/linux-cli/tests/linux_cli_contracts.rs
@@ -359,30 +382,42 @@ jobs:
           grep -q "browser-capture" README.md
           grep -q "launch-plan" README.md
           grep -q "session-plan" README.md
+          grep -q "traffic-proof" README.md
+          grep -q "traffic_proof_report" README.md
           grep -q -- "--target-url" README.md
           grep -q "target route verify" README.md
           grep -q "browser-plan" apps/linux-cli/README.md
           grep -q "browser-capture" apps/linux-cli/README.md
           grep -q "launch-plan" apps/linux-cli/README.md
           grep -q "session-plan" apps/linux-cli/README.md
+          grep -q "traffic-proof" apps/linux-cli/README.md
+          grep -q "BrowserCaptureTrafficProofProbe" apps/linux-cli/README.md
           grep -q -- "--target-url" apps/linux-cli/README.md
           grep -q "target route verify" apps/linux-cli/README.md
           grep -q "browser-plan" crates/mitm-policy/README.md
           grep -q "browser-capture" crates/mitm-policy/README.md
           grep -q "launch-plan" crates/mitm-policy/README.md
           grep -q "session-plan" crates/mitm-policy/README.md
+          grep -q "traffic-proof" crates/mitm-policy/README.md
+          grep -q "proof-log-token" crates/mitm-policy/README.md
           grep -q "browser-plan" docs/architecture/mitm-anixops-adapter.md
           grep -q "browser-capture" docs/architecture/mitm-anixops-adapter.md
           grep -q "launch-plan" docs/architecture/mitm-anixops-adapter.md
           grep -q "session-plan" docs/architecture/mitm-anixops-adapter.md
+          grep -q "traffic-proof" docs/architecture/mitm-anixops-adapter.md
+          grep -q "traffic_proof_report" docs/architecture/mitm-anixops-adapter.md
           grep -q "browser-plan" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "browser-capture" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "launch-plan" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "session-plan" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
+          grep -q "traffic-proof" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
+          grep -q "traffic_proof_report" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "browser-plan" docs/architecture/linux-cli-entrypoint.md
           grep -q "browser-capture" docs/architecture/linux-cli-entrypoint.md
           grep -q "launch-plan" docs/architecture/linux-cli-entrypoint.md
           grep -q "session-plan" docs/architecture/linux-cli-entrypoint.md
+          grep -q "traffic-proof" docs/architecture/linux-cli-entrypoint.md
+          grep -q "CommandBrowserCaptureTrafficProofProbe" docs/architecture/linux-cli-entrypoint.md
           grep -q "certificate_plan" README.md
           grep -q "certificate_plan" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "browser_plan" README.md
@@ -411,8 +446,13 @@ jobs:
           grep -q "http-connect-target" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "LinuxBrowserCaptureVerifyRequest" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "LinuxBrowserCaptureVerifyReport" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "LinuxBrowserCaptureTrafficProofRequest" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "LinuxBrowserCaptureTrafficProofReport" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureProcessRunner" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureEndpointProbe" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "BrowserCaptureTrafficProofProbe" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "proof-log-token" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "traffic_proof_report" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureAuthorization" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureRollbackSnapshot" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "handle_mitm_browser_capture_launch_plan" docs/architecture/linux-mitm-browser-capture-source-contract.md
@@ -433,6 +473,12 @@ jobs:
           grep -q "cli.linux.mitm.browser_capture.verify.proxy_reachable" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "cli.linux.mitm.browser_capture.verify.proxy_unreachable" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "cli.linux.mitm.browser_capture.verify.blocked" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "cli.linux.mitm.browser_capture.traffic_proof.authorization_required" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "cli.linux.mitm.browser_capture.traffic_proof.observed" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "cli.linux.mitm.browser_capture.traffic_proof.missing" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "cli.linux.mitm.browser_capture.traffic_proof.log_unreadable" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "cli.linux.mitm.browser_capture.traffic_proof.blocked" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "handle_mitm_browser_capture_traffic_proof" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "linux-mitm-browser-capture-source-contract.md" README.md
           grep -q "linux-mitm-browser-capture-source-contract.md" ROADMAP.md
           grep -q "linux-mitm-browser-capture-source-contract.md" TODO.md

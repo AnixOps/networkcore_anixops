@@ -106,6 +106,16 @@ pub const CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_REACHABLE_CODE: &str =
     "cli.linux.mitm.browser_capture.verify.target_reachable";
 pub const CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_INVALID_CODE: &str =
     "cli.linux.mitm.browser_capture.verify.target_invalid";
+pub const CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_BLOCKED_CODE: &str =
+    "cli.linux.mitm.browser_capture.traffic_proof.blocked";
+pub const CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_AUTHORIZATION_REQUIRED_CODE: &str =
+    "cli.linux.mitm.browser_capture.traffic_proof.authorization_required";
+pub const CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_OBSERVED_CODE: &str =
+    "cli.linux.mitm.browser_capture.traffic_proof.observed";
+pub const CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_MISSING_CODE: &str =
+    "cli.linux.mitm.browser_capture.traffic_proof.missing";
+pub const CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_LOG_UNREADABLE_CODE: &str =
+    "cli.linux.mitm.browser_capture.traffic_proof.log_unreadable";
 pub const CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE: &str = "cli.linux.mitm.browser_hijack.deferred";
 
 pub const MITM_CLI_COMMAND_GATE: &str = "MITM_CLI_COMMAND_GATE";
@@ -259,6 +269,12 @@ pub enum LinuxCliCommand {
         confirm: bool,
         format: OutputFormat,
     },
+    MitmBrowserCaptureTrafficProof {
+        proof_token: String,
+        proof_log_path: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
     InstallSingBox {
         install_dir: Option<String>,
         force: bool,
@@ -296,6 +312,9 @@ impl LinuxCliCommand {
             Self::MitmBrowserCaptureApply { .. } => "mitm browser-capture apply",
             Self::MitmBrowserCaptureRollback { .. } => "mitm browser-capture rollback",
             Self::MitmBrowserCaptureVerify { .. } => "mitm browser-capture verify",
+            Self::MitmBrowserCaptureTrafficProof { .. } => {
+                "mitm browser-capture traffic-proof"
+            }
             Self::InstallSingBox { .. } => "install-sing-box",
             Self::RunUrl { .. } => "run-url",
         }
@@ -322,6 +341,7 @@ impl LinuxCliCommand {
             | Self::MitmBrowserCaptureApply { format, .. }
             | Self::MitmBrowserCaptureRollback { format, .. }
             | Self::MitmBrowserCaptureVerify { format, .. }
+            | Self::MitmBrowserCaptureTrafficProof { format, .. }
             | Self::InstallSingBox { format, .. }
             | Self::RunUrl { format, .. } => *format,
         }
@@ -547,6 +567,7 @@ pub enum LinuxBrowserCaptureAction {
     Apply,
     Rollback,
     Verify,
+    TrafficProof,
 }
 
 impl LinuxBrowserCaptureAction {
@@ -559,6 +580,7 @@ impl LinuxBrowserCaptureAction {
             Self::Apply => "apply",
             Self::Rollback => "rollback",
             Self::Verify => "verify",
+            Self::TrafficProof => "traffic-proof",
         }
     }
 }
@@ -569,6 +591,7 @@ pub struct LinuxBrowserCaptureRequest {
     pub session: Option<LinuxBrowserCaptureSessionPlanRequest>,
     pub launch: Option<LinuxBrowserCaptureLaunchRequest>,
     pub verify: Option<LinuxBrowserCaptureVerifyRequest>,
+    pub traffic_proof: Option<LinuxBrowserCaptureTrafficProofRequest>,
     pub authorization: Option<BrowserCaptureAuthorization>,
     pub rollback_snapshot: Option<BrowserCaptureRollbackSnapshot>,
 }
@@ -660,6 +683,21 @@ pub struct LinuxBrowserCaptureVerifyOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxBrowserCaptureTrafficProofRequest {
+    pub proxy_host: String,
+    pub proxy_port: u16,
+    pub proxy_url: String,
+    pub proof_token: String,
+    pub proof_log_path: String,
+    pub probe: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxBrowserCaptureTrafficProofOutcome {
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinuxBrowserCaptureLaunchReport {
     pub status: String,
     pub launched: bool,
@@ -692,6 +730,17 @@ pub struct LinuxBrowserCaptureVerifyReport {
     pub status: String,
     pub verified: bool,
     pub request: LinuxBrowserCaptureVerifyRequest,
+    pub plugin_engine: String,
+    pub plugin_id: String,
+    pub plugin_version: String,
+    pub blocked_operations: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxBrowserCaptureTrafficProofReport {
+    pub status: String,
+    pub proven: bool,
+    pub request: LinuxBrowserCaptureTrafficProofRequest,
     pub plugin_engine: String,
     pub plugin_id: String,
     pub plugin_version: String,
@@ -732,6 +781,7 @@ pub struct LinuxBrowserCaptureReport {
     pub apply_report: Option<LinuxBrowserCaptureApplyReport>,
     pub rollback_report: Option<LinuxBrowserCaptureRollbackReport>,
     pub verify_report: Option<LinuxBrowserCaptureVerifyReport>,
+    pub traffic_proof_report: Option<LinuxBrowserCaptureTrafficProofReport>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -894,6 +944,13 @@ pub trait BrowserCaptureEndpointProbe {
         &self,
         request: &LinuxBrowserCaptureVerifyRequest,
     ) -> DomainResult<LinuxBrowserCaptureVerifyOutcome>;
+}
+
+pub trait BrowserCaptureTrafficProofProbe {
+    fn verify_traffic_proof(
+        &self,
+        request: &LinuxBrowserCaptureTrafficProofRequest,
+    ) -> DomainResult<LinuxBrowserCaptureTrafficProofOutcome>;
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -1066,6 +1123,69 @@ impl BrowserCaptureEndpointProbe for CommandBrowserCaptureEndpointProbe {
                 SOURCE_CLI_MITM,
             )],
         })
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CommandBrowserCaptureTrafficProofProbe;
+
+impl CommandBrowserCaptureTrafficProofProbe {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl BrowserCaptureTrafficProofProbe for CommandBrowserCaptureTrafficProofProbe {
+    fn verify_traffic_proof(
+        &self,
+        request: &LinuxBrowserCaptureTrafficProofRequest,
+    ) -> DomainResult<LinuxBrowserCaptureTrafficProofOutcome> {
+        let proof_log = std::fs::read_to_string(&request.proof_log_path).map_err(|error| {
+            DomainError::new(
+                CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_LOG_UNREADABLE_CODE,
+                format!(
+                    "failed to read browser capture traffic proof log {}: {error}",
+                    request.proof_log_path
+                ),
+            )
+        })?;
+
+        if !proof_log.contains(&request.proof_token) {
+            return Err(DomainError::new(
+                CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_MISSING_CODE,
+                "browser capture traffic proof token was not observed in the proof log",
+            ));
+        }
+
+        Ok(LinuxBrowserCaptureTrafficProofOutcome {
+            diagnostics: vec![cli_diagnostic(
+                DiagnosticSeverity::Info,
+                CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_OBSERVED_CODE,
+                "browser capture proof token was observed in the proof log",
+                SOURCE_CLI_MITM,
+            )],
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UnavailableBrowserCaptureTrafficProofProbe;
+
+impl UnavailableBrowserCaptureTrafficProofProbe {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl BrowserCaptureTrafficProofProbe for UnavailableBrowserCaptureTrafficProofProbe {
+    fn verify_traffic_proof(
+        &self,
+        _request: &LinuxBrowserCaptureTrafficProofRequest,
+    ) -> DomainResult<LinuxBrowserCaptureTrafficProofOutcome> {
+        Err(DomainError::new(
+            CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_BLOCKED_CODE,
+            "browser capture traffic proof probe is not wired",
+        ))
     }
 }
 
@@ -1350,6 +1470,8 @@ struct ParsedOptions {
     config_path: Option<String>,
     profile_dir: Option<String>,
     target_url: Option<String>,
+    proof_token: Option<String>,
+    proof_log_path: Option<String>,
     install_dir: Option<String>,
     listen_host: Option<String>,
     listen_port: Option<u16>,
@@ -1515,6 +1637,17 @@ where
             confirm,
             ..
         } => handle_mitm_browser_capture_verify(platform, target_url.as_deref(), confirm),
+        LinuxCliCommand::MitmBrowserCaptureTrafficProof {
+            proof_token,
+            proof_log_path,
+            confirm,
+            ..
+        } => handle_mitm_browser_capture_traffic_proof(
+            platform,
+            &proof_token,
+            &proof_log_path,
+            confirm,
+        ),
         LinuxCliCommand::Stop { .. } => handle_stop(),
         other => handle_unwired_command(other.name()),
     }
@@ -1559,6 +1692,29 @@ where
     B: BrowserCaptureProcessRunner,
     V: BrowserCaptureEndpointProbe,
 {
+    let traffic_proof_probe = UnavailableBrowserCaptureTrafficProofProbe::new();
+    handle_entrypoint_with_browser_capture_all_io(
+        command,
+        platform,
+        browser_runner,
+        endpoint_probe,
+        &traffic_proof_probe,
+    )
+}
+
+pub fn handle_entrypoint_with_browser_capture_all_io<P, B, V, T>(
+    command: LinuxCliCommand,
+    platform: &P,
+    browser_runner: &B,
+    endpoint_probe: &V,
+    traffic_proof_probe: &T,
+) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+    B: BrowserCaptureProcessRunner,
+    V: BrowserCaptureEndpointProbe,
+    T: BrowserCaptureTrafficProofProbe,
+{
     match command {
         LinuxCliCommand::MitmBrowserCaptureLaunch {
             browser,
@@ -1582,6 +1738,18 @@ where
             platform,
             endpoint_probe,
             target_url.as_deref(),
+            confirm,
+        ),
+        LinuxCliCommand::MitmBrowserCaptureTrafficProof {
+            proof_token,
+            proof_log_path,
+            confirm,
+            ..
+        } => handle_mitm_browser_capture_traffic_proof_with_probe(
+            platform,
+            traffic_proof_probe,
+            &proof_token,
+            &proof_log_path,
             confirm,
         ),
         other => handle_entrypoint(other, platform),
@@ -1992,6 +2160,7 @@ where
         false,
         None,
         None,
+        None,
     )
 }
 
@@ -2004,6 +2173,7 @@ where
         platform,
         LinuxBrowserCaptureAction::LaunchPlan,
         false,
+        None,
         None,
         None,
     )
@@ -2140,6 +2310,7 @@ where
         session: Some(session_request),
         launch: Some(launch_request),
         verify: Some(verify_request),
+        traffic_proof: None,
         authorization: None,
         rollback_snapshot: None,
     };
@@ -2317,6 +2488,7 @@ where
         confirm,
         None,
         None,
+        None,
     )
 }
 
@@ -2333,6 +2505,7 @@ where
         LinuxBrowserCaptureAction::Rollback,
         false,
         snapshot_path,
+        None,
         None,
     )
 }
@@ -2352,6 +2525,7 @@ where
         confirm,
         None,
         target_url,
+        None,
     )
 }
 
@@ -2492,6 +2666,162 @@ where
     }
 }
 
+pub fn handle_mitm_browser_capture_traffic_proof<P>(
+    platform: &P,
+    proof_token: &str,
+    proof_log_path: &str,
+    confirm: bool,
+) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+{
+    handle_mitm_browser_capture_inner(
+        "mitm browser-capture traffic-proof",
+        platform,
+        LinuxBrowserCaptureAction::TrafficProof,
+        confirm,
+        None,
+        None,
+        Some((proof_token, proof_log_path)),
+    )
+}
+
+pub fn handle_mitm_browser_capture_traffic_proof_with_probe<P, T>(
+    platform: &P,
+    traffic_proof_probe: &T,
+    proof_token: &str,
+    proof_log_path: &str,
+    confirm: bool,
+) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+    T: BrowserCaptureTrafficProofProbe,
+{
+    let command = "mitm browser-capture traffic-proof";
+    let platform_status = match platform.status() {
+        Ok(status) => status,
+        Err(error) => {
+            return domain_error_response(
+                command,
+                LinuxCliExitCode::GeneralFailure,
+                error,
+                SOURCE_CLI_MITM,
+            );
+        }
+    };
+
+    let (mitm_status, mut diagnostics) = match build_linux_mitm_status(&platform_status) {
+        Ok(status) => status,
+        Err(error) => {
+            return domain_error_response(
+                command,
+                LinuxCliExitCode::GeneralFailure,
+                error,
+                SOURCE_CLI_MITM,
+            );
+        }
+    };
+
+    let authorization = BrowserCaptureAuthorization {
+        confirmed: confirm,
+        source: if confirm {
+            "cli --confirm".to_string()
+        } else {
+            "missing --confirm".to_string()
+        },
+        scope: "linux browser capture traffic proof".to_string(),
+        gate: MITM_BROWSER_CAPTURE_GATE.to_string(),
+    };
+    let mut report = build_linux_browser_capture_report(
+        LinuxBrowserCaptureAction::TrafficProof,
+        &platform_status,
+        &mitm_status.policy,
+        Some(authorization),
+        None,
+        None,
+        Some((proof_token, proof_log_path)),
+    );
+    let proof_request = report
+        .request
+        .traffic_proof
+        .clone()
+        .expect("traffic-proof action should build a traffic proof request");
+
+    if !confirm {
+        diagnostics.push(cli_diagnostic(
+            DiagnosticSeverity::Error,
+            CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_AUTHORIZATION_REQUIRED_CODE,
+            "browser capture traffic proof requires --confirm before reading proof evidence",
+            SOURCE_CLI_MITM,
+        ));
+        report.traffic_proof_report = Some(build_linux_browser_capture_traffic_proof_report(
+            "authorization_required",
+            false,
+            proof_request,
+            &mitm_status.policy,
+            report.plan.blocked_operations.clone(),
+        ));
+        return LinuxCliResponse {
+            ok: false,
+            exit_code: LinuxCliExitCode::Unavailable,
+            ..LinuxCliResponse::success(command)
+                .with_platform(platform_status)
+                .with_mitm_status(mitm_status)
+                .with_browser_capture(report)
+                .with_diagnostics(diagnostics)
+        };
+    }
+
+    match traffic_proof_probe.verify_traffic_proof(&proof_request) {
+        Ok(outcome) => {
+            diagnostics.extend(outcome.diagnostics);
+            report.traffic_proof_report = Some(build_linux_browser_capture_traffic_proof_report(
+                "observed",
+                true,
+                proof_request,
+                &mitm_status.policy,
+                report.plan.blocked_operations.clone(),
+            ));
+            LinuxCliResponse::success(command)
+                .with_platform(platform_status)
+                .with_mitm_status(mitm_status)
+                .with_browser_capture(report)
+                .with_diagnostics(diagnostics)
+        }
+        Err(error) => {
+            let status = if error.code == CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_MISSING_CODE {
+                "missing"
+            } else if error.code == CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_LOG_UNREADABLE_CODE {
+                "log_unreadable"
+            } else {
+                "blocked"
+            };
+            diagnostics.push(cli_diagnostic(
+                DiagnosticSeverity::Error,
+                error.code,
+                error.message,
+                SOURCE_CLI_MITM,
+            ));
+            report.traffic_proof_report = Some(build_linux_browser_capture_traffic_proof_report(
+                status,
+                false,
+                proof_request,
+                &mitm_status.policy,
+                report.plan.blocked_operations.clone(),
+            ));
+            LinuxCliResponse {
+                ok: false,
+                exit_code: LinuxCliExitCode::Unavailable,
+                ..LinuxCliResponse::success(command)
+                    .with_platform(platform_status)
+                    .with_mitm_status(mitm_status)
+                    .with_browser_capture(report)
+                    .with_diagnostics(diagnostics)
+            }
+        }
+    }
+}
+
 fn handle_mitm_status_inner<P>(command: &'static str, platform: &P) -> LinuxCliResponse
 where
     P: PlatformCapabilityService,
@@ -2529,6 +2859,7 @@ fn handle_mitm_browser_capture_inner<P>(
     confirm: bool,
     snapshot_path: Option<String>,
     target_url: Option<&str>,
+    traffic_proof: Option<(&str, &str)>,
 ) -> LinuxCliResponse
 where
     P: PlatformCapabilityService,
@@ -2576,6 +2907,16 @@ where
                 "missing --confirm".to_string()
             },
             scope: "linux browser capture local proxy endpoint verify".to_string(),
+            gate: MITM_BROWSER_CAPTURE_GATE.to_string(),
+        }),
+        LinuxBrowserCaptureAction::TrafficProof => Some(BrowserCaptureAuthorization {
+            confirmed: confirm,
+            source: if confirm {
+                "cli --confirm".to_string()
+            } else {
+                "missing --confirm".to_string()
+            },
+            scope: "linux browser capture traffic proof".to_string(),
             gate: MITM_BROWSER_CAPTURE_GATE.to_string(),
         }),
         _ => None,
@@ -2644,6 +2985,22 @@ where
                 SOURCE_CLI_MITM,
             ));
         }
+        LinuxBrowserCaptureAction::TrafficProof => {
+            if !confirm {
+                diagnostics.push(cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_AUTHORIZATION_REQUIRED_CODE,
+                    "browser capture traffic proof requires --confirm before reading proof evidence",
+                    SOURCE_CLI_MITM,
+                ));
+            }
+            diagnostics.push(cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_BLOCKED_CODE,
+                "browser capture traffic proof is blocked because no BrowserCaptureTrafficProofProbe is wired",
+                SOURCE_CLI_MITM,
+            ));
+        }
     }
 
     let report = build_linux_browser_capture_report(
@@ -2653,6 +3010,7 @@ where
         authorization,
         rollback_snapshot,
         target_url,
+        traffic_proof,
     );
     let mut response = LinuxCliResponse::success(command)
         .with_platform(platform_status)
@@ -2696,7 +3054,7 @@ fn build_linux_mitm_status(
     diagnostics.push(cli_diagnostic(
         DiagnosticSeverity::Info,
         CLI_MITM_CLI_GATE_PARTIAL_CODE,
-        "MITM_CLI_COMMAND_GATE is partially active for status, diagnostics, certificate plan, and browser plan only",
+        "MITM_CLI_COMMAND_GATE is partially active for status, diagnostics, certificate plan, browser plan, and browser capture reports",
         SOURCE_CLI_MITM,
     ));
     diagnostics.push(cli_diagnostic(
@@ -2859,6 +3217,7 @@ fn build_linux_browser_capture_report(
     authorization: Option<BrowserCaptureAuthorization>,
     rollback_snapshot: Option<BrowserCaptureRollbackSnapshot>,
     target_url: Option<&str>,
+    traffic_proof: Option<(&str, &str)>,
 ) -> LinuxBrowserCaptureReport {
     let plan = build_linux_browser_capture_plan(platform_status, policy);
     let verify_request = if action == LinuxBrowserCaptureAction::Verify {
@@ -2868,11 +3227,24 @@ fn build_linux_browser_capture_report(
     } else {
         None
     };
+    let traffic_proof_request =
+        if let (LinuxBrowserCaptureAction::TrafficProof, Some((proof_token, proof_log_path))) =
+            (action, traffic_proof)
+        {
+            Some(build_linux_browser_capture_traffic_proof_request(
+                &plan,
+                proof_token,
+                proof_log_path,
+            ))
+        } else {
+            None
+        };
     let request = LinuxBrowserCaptureRequest {
         action,
         session: None,
         launch: None,
         verify: verify_request.clone(),
+        traffic_proof: traffic_proof_request.clone(),
         authorization: authorization.clone(),
         rollback_snapshot: rollback_snapshot.clone(),
     };
@@ -2918,6 +3290,19 @@ fn build_linux_browser_capture_report(
     } else {
         None
     };
+    let traffic_proof_report = if action == LinuxBrowserCaptureAction::TrafficProof {
+        traffic_proof_request.map(|request| {
+            build_linux_browser_capture_traffic_proof_report(
+                "blocked",
+                false,
+                request,
+                policy,
+                blocked_operations.clone(),
+            )
+        })
+    } else {
+        None
+    };
 
     LinuxBrowserCaptureReport {
         action: action.as_str().to_string(),
@@ -2932,6 +3317,7 @@ fn build_linux_browser_capture_report(
         apply_report,
         rollback_report,
         verify_report,
+        traffic_proof_report,
     }
 }
 
@@ -3149,6 +3535,42 @@ fn build_linux_browser_capture_verify_report(
     LinuxBrowserCaptureVerifyReport {
         status: status.to_string(),
         verified,
+        request,
+        plugin_engine: policy.engine.clone(),
+        plugin_id: policy.plugin_id.clone(),
+        plugin_version: policy.plugin_version.clone(),
+        blocked_operations,
+    }
+}
+
+fn build_linux_browser_capture_traffic_proof_request(
+    plan: &LinuxBrowserCapturePlan,
+    proof_token: &str,
+    proof_log_path: &str,
+) -> LinuxBrowserCaptureTrafficProofRequest {
+    LinuxBrowserCaptureTrafficProofRequest {
+        proxy_host: plan.planned_proxy_host.clone(),
+        proxy_port: plan.planned_proxy_port,
+        proxy_url: format!(
+            "http://{}:{}",
+            plan.planned_proxy_host, plan.planned_proxy_port
+        ),
+        proof_token: proof_token.to_string(),
+        proof_log_path: proof_log_path.to_string(),
+        probe: "proof-log-token".to_string(),
+    }
+}
+
+fn build_linux_browser_capture_traffic_proof_report(
+    status: &str,
+    proven: bool,
+    request: LinuxBrowserCaptureTrafficProofRequest,
+    policy: &LinuxMitmPolicyStatus,
+    blocked_operations: Vec<String>,
+) -> LinuxBrowserCaptureTrafficProofReport {
+    LinuxBrowserCaptureTrafficProofReport {
+        status: status.to_string(),
+        proven,
         request,
         plugin_engine: policy.engine.clone(),
         plugin_id: policy.plugin_id.clone(),
@@ -3559,6 +3981,26 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.target_url = Some(value.clone());
             }
+            "--proof-token" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--proof-token requires a browser traffic proof token value",
+                    ));
+                };
+                options.proof_token = Some(value.clone());
+            }
+            "--proof-log" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--proof-log requires a browser traffic proof log path",
+                    ));
+                };
+                options.proof_log_path = Some(value.clone());
+            }
             "--install-dir" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -3802,6 +4244,27 @@ fn parse_mitm_browser_capture_command(
                 format: options.format,
             })
         }
+        "traffic-proof" | "proof" | "verify-traffic" => {
+            let options = parse_options(&args[1..])?;
+            let Some(proof_token) = options.proof_token else {
+                return Err(parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "mitm browser-capture traffic-proof requires --proof-token <token>",
+                ));
+            };
+            let Some(proof_log_path) = options.proof_log_path else {
+                return Err(parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "mitm browser-capture traffic-proof requires --proof-log <path>",
+                ));
+            };
+            Ok(LinuxCliCommand::MitmBrowserCaptureTrafficProof {
+                proof_token,
+                proof_log_path,
+                confirm: options.confirm,
+                format: options.format,
+            })
+        }
         unknown => Err(parse_error(
             CLI_ARGUMENT_UNKNOWN_CODE,
             format!(
@@ -3866,7 +4329,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux status [--format text|json]\n",
         "  networkcore-linux diagnostics [--format text|json]\n",
         "  networkcore-linux mitm [status|diagnostics|certificate-plan|browser-plan] [--format text|json]\n",
-        "  networkcore-linux mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify] [<ss://url>] [--browser <executable>] [--profile-dir <dir>] [--target-url <url>] [--listen-host <host>] [--listen-port <port>] [--confirm] [--snapshot <path>] [--format text|json]\n",
+        "  networkcore-linux mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify|traffic-proof] [<ss://url>] [--browser <executable>] [--profile-dir <dir>] [--target-url <url>] [--listen-host <host>] [--listen-port <port>] [--proof-token <token>] [--proof-log <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux run-url <ss://url> [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux sing-box install [--install-dir <dir>] [--force] [--format text|json]\n",
@@ -3889,6 +4352,8 @@ pub const fn cli_help_text() -> &'static str {
         "  --browser <exe>       Browser executable for mitm browser-capture session-plan/launch. Defaults to chromium.\n",
         "  --profile-dir <dir>   Dedicated browser profile directory for mitm browser-capture session-plan/launch.\n",
         "  --target-url <url>    Optional page URL to open in the dedicated browser capture profile.\n",
+        "  --proof-token <token> Browser traffic proof token expected in a proof log.\n",
+        "  --proof-log <path>    Browser traffic proof log path to inspect after an operator-driven visit.\n",
         "  --install-dir <dir>   Engine cache root for install-sing-box.\n",
         "  --listen-host <host>  Local proxy listen address for run-url. Defaults to 127.0.0.1.\n",
         "  --listen-port <port>  Local proxy listen port for run-url. Defaults to 7890.\n",
@@ -4324,6 +4789,16 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
                 lines.push(format!("browser capture verify target URL: {target_url}"));
             }
         }
+        if let Some(report) = &capture.traffic_proof_report {
+            lines.push(format!(
+                "browser capture traffic proof: {} proven={} proxy={} proof_log={} probe={}",
+                report.status,
+                report.proven,
+                report.request.proxy_url,
+                report.request.proof_log_path,
+                report.request.probe
+            ));
+        }
     }
 
     for diagnostic in &response.diagnostics {
@@ -4567,6 +5042,7 @@ struct JsonBrowserCaptureReport {
     apply_report: Option<JsonBrowserCaptureApplyReport>,
     rollback_report: Option<JsonBrowserCaptureRollbackReport>,
     verify_report: Option<JsonBrowserCaptureVerifyReport>,
+    traffic_proof_report: Option<JsonBrowserCaptureTrafficProofReport>,
 }
 
 impl From<&LinuxBrowserCaptureReport> for JsonBrowserCaptureReport {
@@ -4599,6 +5075,10 @@ impl From<&LinuxBrowserCaptureReport> for JsonBrowserCaptureReport {
                 .verify_report
                 .as_ref()
                 .map(JsonBrowserCaptureVerifyReport::from),
+            traffic_proof_report: report
+                .traffic_proof_report
+                .as_ref()
+                .map(JsonBrowserCaptureTrafficProofReport::from),
         }
     }
 }
@@ -4609,6 +5089,7 @@ struct JsonBrowserCaptureRequest {
     session: Option<JsonBrowserCaptureSessionPlanRequest>,
     launch: Option<JsonBrowserCaptureLaunchRequest>,
     verify: Option<JsonBrowserCaptureVerifyRequest>,
+    traffic_proof: Option<JsonBrowserCaptureTrafficProofRequest>,
     authorization: Option<JsonBrowserCaptureAuthorization>,
     rollback_snapshot: Option<JsonBrowserCaptureRollbackSnapshot>,
 }
@@ -4629,6 +5110,10 @@ impl From<&LinuxBrowserCaptureRequest> for JsonBrowserCaptureRequest {
                 .verify
                 .as_ref()
                 .map(JsonBrowserCaptureVerifyRequest::from),
+            traffic_proof: request
+                .traffic_proof
+                .as_ref()
+                .map(JsonBrowserCaptureTrafficProofRequest::from),
             authorization: request
                 .authorization
                 .as_ref()
@@ -4723,6 +5208,29 @@ impl From<&LinuxBrowserCaptureVerifyRequest> for JsonBrowserCaptureVerifyRequest
             proxy_port: request.proxy_port,
             proxy_url: request.proxy_url.clone(),
             target_url: request.target_url.clone(),
+            probe: request.probe.clone(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonBrowserCaptureTrafficProofRequest {
+    proxy_host: String,
+    proxy_port: u16,
+    proxy_url: String,
+    proof_token: String,
+    proof_log_path: String,
+    probe: String,
+}
+
+impl From<&LinuxBrowserCaptureTrafficProofRequest> for JsonBrowserCaptureTrafficProofRequest {
+    fn from(request: &LinuxBrowserCaptureTrafficProofRequest) -> Self {
+        Self {
+            proxy_host: request.proxy_host.clone(),
+            proxy_port: request.proxy_port,
+            proxy_url: request.proxy_url.clone(),
+            proof_token: request.proof_token.clone(),
+            proof_log_path: request.proof_log_path.clone(),
             probe: request.probe.clone(),
         }
     }
@@ -4954,6 +5462,31 @@ impl From<&LinuxBrowserCaptureVerifyReport> for JsonBrowserCaptureVerifyReport {
             status: report.status.clone(),
             verified: report.verified,
             request: JsonBrowserCaptureVerifyRequest::from(&report.request),
+            plugin_engine: report.plugin_engine.clone(),
+            plugin_id: report.plugin_id.clone(),
+            plugin_version: report.plugin_version.clone(),
+            blocked_operations: report.blocked_operations.clone(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonBrowserCaptureTrafficProofReport {
+    status: String,
+    proven: bool,
+    request: JsonBrowserCaptureTrafficProofRequest,
+    plugin_engine: String,
+    plugin_id: String,
+    plugin_version: String,
+    blocked_operations: Vec<String>,
+}
+
+impl From<&LinuxBrowserCaptureTrafficProofReport> for JsonBrowserCaptureTrafficProofReport {
+    fn from(report: &LinuxBrowserCaptureTrafficProofReport) -> Self {
+        Self {
+            status: report.status.clone(),
+            proven: report.proven,
+            request: JsonBrowserCaptureTrafficProofRequest::from(&report.request),
             plugin_engine: report.plugin_engine.clone(),
             plugin_id: report.plugin_id.clone(),
             plugin_version: report.plugin_version.clone(),

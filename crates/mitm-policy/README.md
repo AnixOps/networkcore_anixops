@@ -27,25 +27,32 @@ User-facing live MITM is not available yet. The current Linux CLI exposes
 `networkcore-linux mitm status`, `networkcore-linux mitm diagnostics`,
 `networkcore-linux mitm certificate-plan`, and
 `networkcore-linux mitm browser-plan`, plus
-`networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify`;
+`networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof`;
 the command surface reports policy-only status, a certificate lifecycle plan, a
 browser capture plan, manual dedicated-profile launch templates, a
 redacted subscription-to-local-proxy/browser/verify `session_plan`, an optional
 dedicated profile target URL, a dedicated-profile `launch_report`, local proxy endpoint `verify_report`,
-`browser_capture` blocked reports, and deferred browser hijack gates. The launch
+`traffic_proof_report`, `browser_capture` blocked reports, and deferred browser hijack gates. The launch
 templates, `session-plan`, `launch --confirm` report, and `verify --confirm`
 report carry the loaded `networkcore.adblock` plugin metadata, planned proxy
 URL, and optional target URL; `verify --confirm --target-url <url>` additionally
 records `probe=http-connect-target` and `target_reachable` when the planned proxy
 can open a CONNECT tunnel to the target host:port, but these paths do not generate or install a CA, decrypt HTTPS traffic, write
 browser/system proxy state, prove live browser traffic capture, or apply rewrite
-plans to live traffic.
+plans to live traffic. Current `main` also adds
+`traffic-proof --confirm --proof-token <token> --proof-log <path>`, which uses a
+`BrowserCaptureTrafficProofProbe` with `probe=proof-log-token` to inspect an
+operator-provided proof log for a token and emit `LinuxBrowserCaptureTrafficProofReport`;
+that proof source still does not prove HTTPS MITM decryption or live rewrite
+application.
 
 Release/source split: `v0.1.0-alpha.8` is the latest published Linux artifact,
 while this README describes current `main` source. That artifact includes
 `verify --confirm`, `verify --confirm --target-url <url>`, `session-plan`, and
 browser capture `--target-url`; source-only MITM CLI increments after this tag
 require a later tag release before users can download them from GitHub Releases.
+The current `main` `traffic-proof` command is one of those source-only
+increments and is not present in `v0.1.0-alpha.8`.
 
 Required gates before user-facing MITM:
 
@@ -58,7 +65,8 @@ Required gates before user-facing MITM:
 - `MITM_BROWSER_CAPTURE_GATE`: currently plan-only/mutation-blocked through
   `mitm_status.browser_plan`, `browser_capture`, manual launch-plan output,
   redacted session-plan output, optional target URL, explicit dedicated-profile
-  launch output, local proxy endpoint verify output, and target route verify output; later increments must
+  launch output, local proxy endpoint verify output, target route verify output,
+  and proof-log-token traffic proof output; later increments must
   implement explicit browser/system proxy configuration, PAC or other capture
   strategy, live capture verification, and rollback boundaries. The Linux
   source boundary is
@@ -68,7 +76,10 @@ Required gates before user-facing MITM:
   `LinuxBrowserCaptureLaunchRequest`, `LinuxBrowserCaptureLaunchReport`,
   `LinuxBrowserCaptureVerifyRequest`, `LinuxBrowserCaptureVerifyReport`,
   `BrowserCaptureEndpointProbe`, `BrowserCaptureAuthorization`,
-  `BrowserCaptureRollbackSnapshot`, and optional target URL before mutation.
+  `LinuxBrowserCaptureTrafficProofRequest`,
+  `LinuxBrowserCaptureTrafficProofReport`, `BrowserCaptureTrafficProofProbe`,
+  `BrowserCaptureRollbackSnapshot`, optional target URL, and proof-log-token
+  evidence before mutation.
 - `MITM_HTTP_TLS_DATA_PLANE_GATE`: wire HTTP/TLS interception to
   `mitm-policy` rewrite plans.
 

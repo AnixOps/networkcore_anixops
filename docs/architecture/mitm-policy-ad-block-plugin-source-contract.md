@@ -57,7 +57,7 @@ now exposes `networkcore-linux mitm status`,
 `networkcore-linux mitm diagnostics`, and
 `networkcore-linux mitm certificate-plan`, and
 `networkcore-linux mitm browser-plan`, plus
-`networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify` as a
+`networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` as a
 status/diagnostics/certificate-plan/browser-plan/browser-capture command
 surface. It reports:
 
@@ -72,7 +72,7 @@ planned explicit proxy `127.0.0.1:7890`, plan steps, blocked operations, and
 `mutation_ready=false`. `browser-capture` adds a top-level `browser_capture`
 machine report with source contract status, action, `LinuxBrowserCaptureManualLaunch`,
 `LinuxBrowserCaptureSessionPlanReport`, optional target URL, `LinuxBrowserCaptureLaunchReport`, `LinuxBrowserCaptureVerifyReport`,
-authorization, snapshot, apply/rollback/verify reports, and blocked operations.
+`LinuxBrowserCaptureTrafficProofReport`, authorization, snapshot, apply/rollback/verify/traffic-proof reports, and blocked operations.
 `launch-plan` only returns manual dedicated-profile browser command templates,
 the planned proxy URL, and loaded `networkcore.adblock` plugin metadata. There
 is also a redacted `session-plan <ss://url>` path that returns selected node,
@@ -85,7 +85,11 @@ planned local proxy endpoint through `BrowserCaptureEndpointProbe`; `verify --co
 uses `probe=http-connect-target` to test whether the planned proxy can open a
 CONNECT tunnel to the target host:port and reports `target_reachable` plus
 plugin metadata, but does not prove live browser
-traffic capture or HTTPS MITM. There is still no CA generation/install/trust
+traffic capture or HTTPS MITM. `traffic-proof --confirm --proof-token <token> --proof-log <path>`
+uses `BrowserCaptureTrafficProofProbe` with `probe=proof-log-token` to inspect
+an operator-provided proof log for the token and reports `traffic_proof_report`;
+that evidence source still does not prove HTTPS MITM decryption or rewrite
+application. There is still no CA generation/install/trust
 mutation workflow, no HTTPS decryption path, and no browser/system proxy
 mutation path.
 
@@ -125,7 +129,7 @@ Blocked until later phases:
 - `MITM_CLI_COMMAND_GATE`: currently partial-active for user-facing
   `networkcore-linux mitm status`, `networkcore-linux mitm diagnostics`, and
   `networkcore-linux mitm certificate-plan`, `networkcore-linux mitm browser-plan`,
-  and `networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify`; later
+  and `networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof`; later
   increments must turn blocked reports into actionable controls without claiming
   live MITM before the remaining gates are active.
 - `MITM_CERTIFICATE_LIFECYCLE_GATE`: currently plan-only through
@@ -134,7 +138,7 @@ Blocked until later phases:
   checks, uninstall, and rollback boundaries.
 - `MITM_BROWSER_CAPTURE_GATE`: currently plan-only through
   `mitm_status.browser_plan`, manual launch-plan output, redacted session-plan
-  output, optional target URL, explicit dedicated-profile launch output, explicit local proxy endpoint verify output, target route verify output, and
+  output, optional target URL, explicit dedicated-profile launch output, explicit local proxy endpoint verify output, target route verify output, proof-log-token traffic proof output, and
   mutation-blocked `browser_capture` reports;
   later increments must add explicit browser/system proxy configuration, PAC or
   other capture strategy, live capture verification, and rollback boundaries.
@@ -144,8 +148,9 @@ Blocked until later phases:
   `LinuxBrowserCaptureSessionPlanReport`, `LinuxBrowserCaptureLaunchRequest`,
   `LinuxBrowserCaptureLaunchReport`, `LinuxBrowserCaptureVerifyRequest`,
   `LinuxBrowserCaptureVerifyReport`, `BrowserCaptureProcessRunner`,
-  `BrowserCaptureEndpointProbe`, `BrowserCaptureAuthorization`,
-  `BrowserCaptureRollbackSnapshot`, launch-plan, session-plan, optional `--target-url`, launch, apply/rollback/verify,
+  `LinuxBrowserCaptureTrafficProofRequest`, `LinuxBrowserCaptureTrafficProofReport`,
+  `BrowserCaptureEndpointProbe`, `BrowserCaptureTrafficProofProbe`, `BrowserCaptureAuthorization`,
+  `BrowserCaptureRollbackSnapshot`, launch-plan, session-plan, optional `--target-url`, launch, apply/rollback/verify/traffic-proof,
   explicit authorization, snapshot, and rollback
   boundaries before any browser/system proxy mutation.
 - `MITM_HTTP_TLS_DATA_PLANE_GATE`: HTTP CONNECT/TLS interception, SNI/host
@@ -178,7 +183,8 @@ CI must prove:
 - Linux CLI exposes `mitm_status` JSON, `mitm_status.certificate_plan`,
   `mitm_status.browser_plan`, and `browser_capture` for
   `networkcore-linux mitm status/diagnostics/certificate-plan/browser-plan`
-  and `networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify`,
+  and `networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof`,
+  exposes `traffic_proof_report` for proof-log-token evidence,
   keeps `mitm-cli-command-gate-status=partial-active`, and reports browser
   hijack as deferred;
 - docs keep `MITM_CLI_COMMAND_GATE`, `MITM_CERTIFICATE_LIFECYCLE_GATE`,
