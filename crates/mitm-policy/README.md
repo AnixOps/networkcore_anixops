@@ -14,11 +14,12 @@ It owns the first NetworkCore MITM policy boundary:
   rich `handle_http_mitm_event` mutation-plan output for future data-plane use.
 - A built-in alpha ad-block plugin package.
 
-Current limitation: this crate does not mutate real HTTP traffic. It now maps
-`mitm_anixops` URL reject/redirect, header mutation, body mutation, and script
-dispatch results into `control-domain` `HttpMitmOutcome` plans, but NetworkCore
-still needs an HTTP/TLS data plane before those plans can be applied to live
-requests or responses.
+Current limitation: this crate does not mutate real HTTP traffic by itself. It
+maps `mitm_anixops` URL reject/redirect, header mutation, body mutation, and
+script dispatch results into `control-domain` `HttpMitmOutcome` plans. The
+native explicit-proxy path can consume a `Reject` plan at SOCKS5 CONNECT time,
+but NetworkCore still needs an HTTP/TLS data plane before redirect/header/body
+or script plans can be applied to live HTTP requests or responses.
 
 P4 current stage source of truth: MITM work is now part of P4 Client And
 Platform Integration. P3 Runtime Capability Baseline is completed history. The
@@ -28,7 +29,7 @@ routes real browser traffic before rewrite plans can affect live requests. P3
 mentions in completed entries describe the finished baseline only; current MITM
 work should be planned and documented as P4.
 
-User-facing live MITM is not available yet. The current Linux CLI exposes
+Full user-facing live MITM is not available yet. The current Linux CLI exposes
 `networkcore-linux mitm status`, `networkcore-linux mitm diagnostics`,
 `networkcore-linux mitm certificate-plan`, and
 `networkcore-linux mitm browser-plan`, plus
@@ -37,34 +38,49 @@ the command surface reports policy-only status, a certificate lifecycle plan, a
 browser capture plan, manual dedicated-profile launch templates, a
 redacted subscription-to-local-proxy/browser/verify `session_plan`, an optional
 dedicated profile target URL, a dedicated-profile `launch_report`, local proxy endpoint `verify_report`,
-`traffic_proof_report`, PAC artifact apply/rollback reports, `browser_capture` blocked reports, and deferred browser hijack gates. The launch
+`traffic_proof_report`, PAC/browser policy artifact apply/rollback reports, `browser_capture` blocked reports, and deferred browser hijack gates. The launch
 templates, `session-plan`, `launch --confirm` report, and `verify --confirm`
 report carry the loaded `networkcore.adblock` plugin metadata, planned proxy
-URL, and optional target URL; `verify --confirm --target-url <url>` additionally
+URL, `proxy_scheme`, and optional target URL; `--proxy-scheme socks5` binds
+session-plan, launch, PAC/browser policy artifact, verify, and traffic-proof requests to
+`socks5://127.0.0.1:7890` so an authorized dedicated browser can target the
+native SOCKS5 CONNECT hook; `verify --confirm --target-url <url>` additionally
 records `probe=http-connect-target` and `target_reachable` when the planned proxy
 can open a CONNECT tunnel to the target host:port, but these paths do not generate or install a CA, decrypt HTTPS traffic, write
 browser/system proxy state, prove live browser traffic capture, or apply rewrite
 plans to live traffic. Current `main` also adds
-`traffic-proof --confirm --proof-token <token> --proof-log <path>`, which uses a
+`traffic-proof --confirm [--target-url <url>] [--proof-token <token>] [--proof-log <path>]`, which uses a
 `BrowserCaptureTrafficProofProbe` with `probe=proof-log-token` to inspect an
-operator-provided proof log for a token and emit `LinuxBrowserCaptureTrafficProofReport`;
-and `apply --confirm --pac-file <path> --snapshot <path>`, which uses
+operator-provided proof log for a token, can default omitted proof token/log to the
+same session proof binding, and emits `LinuxBrowserCaptureTrafficProofReport`;
+and `apply --confirm --pac-file <path> [--policy-file <path>] --snapshot <path>`, which uses
 `BrowserCapturePacFileStore` to write only a caller-selected NetworkCore PAC
-artifact plus rollback snapshot. Those proof and PAC paths still do not prove
+artifact, optional Chromium/Chrome managed proxy policy artifact, and rollback snapshot. Those proof and artifact paths still do not prove
 HTTPS MITM decryption, browser/system proxy mutation, system PAC installation,
-or live rewrite application. Current `main` also adds source-only rich
+or live rewrite application. Current `main` also binds browser proof evidence
+into session/launch reports: `proof_target_url` appends `networkcore_proof_token`
+to the dedicated browser target URL, and `traffic_proof_command` points at the
+matching proof log inspection command. This still only helps correlate an
+operator-provided proof log with the launched dedicated browser session; it does
+not prove HTTPS MITM decryption or rewrite application. Current `main` also adds rich
 `MitmPluginService::handle_http_mitm_event` planning: loaded plugin source is
 retained in `PluginInstance`, and `networkcore.adblock` can produce a
-`HttpMitmOutcome` reject plan for matching ad URLs. This is still a policy plan,
-not a live traffic mutation.
+`HttpMitmOutcome` reject plan for matching ad URLs. `networkcore-linux start`
+loads that built-in plugin into `engine-native` through
+`NativeHttpMitmPluginHook`; when an explicit SOCKS5 CONNECT target matches a
+`Reject` plan, the native accept loop writes a SOCKS5 general failure response
+before outbound selection. This blocks the CONNECT tunnel, but it is not HTTPS
+decryption and does not apply redirect/header/body/script rewrite plans.
 
-Release/source split: `v0.1.0-alpha.8` is the latest published Linux artifact,
+Release/source split: `v0.1.0-alpha.9` is the latest published Linux artifact,
 while this README describes current `main` source. That artifact includes
-`verify --confirm`, `verify --confirm --target-url <url>`, `session-plan`, and
-browser capture `--target-url`; source-only MITM CLI increments after this tag
-require a later tag release before users can download them from GitHub Releases.
-The current `main` `traffic-proof` command and PAC artifact apply/rollback are
-source-only increments and are not present in `v0.1.0-alpha.8`.
+`verify --confirm`, `verify --confirm --target-url <url>`, `session-plan`,
+browser capture `--target-url`, `traffic-proof`, PAC/browser policy artifact
+apply/rollback, native SOCKS5 CONNECT plugin reject, and the
+`--proxy-scheme socks5` native plugin proxy mode. Later MITM CLI increments
+after this tag require a later tag release before users can download them from
+GitHub Releases. The full alpha
+feature and boundary index is `docs/alpha-release-feature-matrix.md`.
 
 Required gates before user-facing MITM:
 
@@ -74,11 +90,12 @@ Required gates before user-facing MITM:
 - `MITM_CERTIFICATE_LIFECYCLE_GATE`: currently plan-only through
   `mitm_status.certificate_plan`; later increments must implement CA
   generation, install, trust detection, revocation, and rollback boundaries.
-- `MITM_BROWSER_CAPTURE_GATE`: currently pac-artifact-active/system-mutation-blocked through
+- `MITM_BROWSER_CAPTURE_GATE`: currently pac-policy-artifact-active/system-mutation-blocked through
   `mitm_status.browser_plan`, `browser_capture`, manual launch-plan output,
   redacted session-plan output, optional target URL, explicit dedicated-profile
   launch output, local proxy endpoint verify output, target route verify output,
-  proof-log-token traffic proof output, and NetworkCore PAC artifact
+  proof-log-token traffic proof output, `--proxy-scheme socks5` native plugin
+  proxy mode, and NetworkCore PAC/browser policy artifact
   apply/rollback; later increments must implement explicit browser/system proxy
   configuration, system PAC or other capture strategy, live capture verification,
   and rollback boundaries. The Linux
@@ -95,7 +112,7 @@ Required gates before user-facing MITM:
   `BrowserCaptureRollbackSnapshot`, optional target URL, and proof-log-token
   evidence before mutation.
 - `MITM_HTTP_TLS_DATA_PLANE_GATE`: wire HTTP/TLS interception to
-  `mitm-policy` `HttpMitmOutcome` rewrite plans.
+  `mitm-policy` `HttpMitmOutcome` redirect/header/body/script rewrite plans.
 
 Current CLI gate marker:
 

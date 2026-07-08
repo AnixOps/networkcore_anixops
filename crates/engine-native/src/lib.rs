@@ -5,14 +5,17 @@
 //! current-process foreground runtime path.
 
 use control_domain::{
-    Diagnostic, DiagnosticSeverity, DomainError, DomainResult, Endpoint, ListenerDescriptor,
-    ListenerKind, ListenerNetwork, ListenerRoute, NodeDescriptor, Protocol, ProxyEngineConfig,
-    ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineEventKind, ProxyEngineKind,
-    ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RouteAction, RuleSet,
+    AuditEvent, Diagnostic, DiagnosticSeverity, DomainError, DomainResult, Endpoint,
+    HttpMitmAction, HttpMitmEvent, HttpMitmOutcome, HttpMitmPhase, ListenerDescriptor,
+    ListenerKind, ListenerNetwork, ListenerRoute, MetadataEntry, MitmPluginService, NodeDescriptor,
+    PluginInstance, Protocol, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
+    ProxyEngineEventKind, ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService,
+    ProxyEngineStatus, RouteAction, RuleSet,
 };
 use std::collections::BTreeSet;
+use std::fmt;
 use std::io::{ErrorKind, Read, Write};
-use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -22,6 +25,7 @@ pub const DEFAULT_NATIVE_ENGINE_ID: &str = "native";
 
 pub const SOURCE_ENGINE_NATIVE_CONFIG: &str = "engine.native.config";
 pub const SOURCE_ENGINE_NATIVE_LIFECYCLE: &str = "engine.native.lifecycle";
+pub const SOURCE_ENGINE_NATIVE_MITM: &str = "engine.native.mitm";
 pub const SOURCE_ENGINE_NATIVE_RUNTIME: &str = "engine.native.runtime";
 
 pub const ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE: &str =
@@ -168,6 +172,22 @@ pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITTEN_CODE: &s
     "engine.native.runtime.socks5_connect_failure_response_written";
 pub const ENGINE_NATIVE_RUNTIME_SOCKS5_CONNECT_FAILURE_RESPONSE_WRITE_FAILED_CODE: &str =
     "engine.native.runtime.socks5_connect_failure_response_write_failed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_EVENT_PLANNED_CODE: &str =
+    "engine.native.runtime.http_mitm_connect_event_planned";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_PLAN_READY_CODE: &str =
+    "engine.native.runtime.http_mitm_connect_plan_ready";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_PLAN_FAILED_CODE: &str =
+    "engine.native.runtime.http_mitm_connect_plan_failed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_PLAN_NOT_APPLIED_CODE: &str =
+    "engine.native.runtime.http_mitm_connect_plan_not_applied";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_REJECT_APPLIED_CODE: &str =
+    "engine.native.runtime.http_mitm_connect_reject_applied";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_REJECT_RESPONSE_WRITTEN_CODE: &str =
+    "engine.native.runtime.http_mitm_connect_reject_response_written";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_REJECT_RESPONSE_WRITE_FAILED_CODE: &str =
+    "engine.native.runtime.http_mitm_connect_reject_response_write_failed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_BROWSER_PROOF_OBSERVED_CODE: &str =
+    "engine.native.runtime.http_mitm_connect_browser_proof_observed";
 
 const SOCKS5_VERSION: u8 = 0x05;
 const SOCKS5_AUTH_METHOD_NO_AUTHENTICATION_REQUIRED: u8 = 0x00;
@@ -373,6 +393,14 @@ impl NativeLoopbackTcpAcceptLoopHandle {
         listener: BoundLoopbackTcpListenerHandle,
         outbound_handler: NativeOutboundHandlerHandle,
     ) -> DomainResult<Self> {
+        Self::start_with_http_mitm_hook(listener, outbound_handler, None)
+    }
+
+    pub fn start_with_http_mitm_hook(
+        listener: BoundLoopbackTcpListenerHandle,
+        outbound_handler: NativeOutboundHandlerHandle,
+        http_mitm_hook: Option<NativeHttpMitmPluginHook>,
+    ) -> DomainResult<Self> {
         let BoundLoopbackTcpListenerHandle {
             listener,
             contract,
@@ -412,6 +440,7 @@ impl NativeLoopbackTcpAcceptLoopHandle {
                     listener_id: worker_listener_id,
                     outbound_handler_id: worker_outbound_handler_id,
                     outbound_handler,
+                    http_mitm_hook,
                     local_host: worker_local_host,
                     local_port,
                 },
@@ -525,11 +554,57 @@ pub struct NativeLoopbackTcpAcceptLoopShutdownReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Clone)]
+pub struct NativeHttpMitmPluginHook {
+    plugin_instance: PluginInstance,
+    plugin_service: Arc<dyn MitmPluginService + Send + Sync>,
+}
+
+impl NativeHttpMitmPluginHook {
+    pub fn new(
+        plugin_instance: PluginInstance,
+        plugin_service: Arc<dyn MitmPluginService + Send + Sync>,
+    ) -> Self {
+        Self {
+            plugin_instance,
+            plugin_service,
+        }
+    }
+
+    pub fn plugin_instance(&self) -> &PluginInstance {
+        &self.plugin_instance
+    }
+
+    pub fn plan_socks5_connect(
+        &self,
+        request_id: impl Into<String>,
+        target: &NativeSocks5ConnectTarget,
+    ) -> NativeSocks5ConnectHttpMitmPlanReport {
+        plan_socks5_connect_http_mitm(
+            request_id,
+            target,
+            &self.plugin_instance,
+            self.plugin_service.as_ref(),
+        )
+    }
+}
+
+impl fmt::Debug for NativeHttpMitmPluginHook {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("NativeHttpMitmPluginHook")
+            .field("plugin_id", &self.plugin_instance.manifest.id)
+            .field("plugin_version", &self.plugin_instance.manifest.version)
+            .finish_non_exhaustive()
+    }
+}
+
 #[derive(Debug, Clone)]
 struct NativeLoopbackTcpAcceptLoopIdentity {
     listener_id: String,
     outbound_handler_id: String,
     outbound_handler: NativeOutboundHandlerHandle,
+    http_mitm_hook: Option<NativeHttpMitmPluginHook>,
     local_host: String,
     local_port: u16,
 }
@@ -615,6 +690,19 @@ pub struct NativeSocks5ConnectTarget {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeSocks5ConnectTargetReadReport {
     pub target: Option<NativeSocks5ConnectTarget>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSocks5ConnectHttpMitmPlanReport {
+    pub request_id: String,
+    pub target_host: String,
+    pub target_port: u16,
+    pub url: String,
+    pub event: HttpMitmEvent,
+    pub outcome: Option<HttpMitmOutcome>,
+    pub applied: bool,
+    pub audits: Vec<AuditEvent>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -1063,6 +1151,101 @@ where
     NativeSocks5ConnectTargetReadReport {
         target: Some(target),
         diagnostics: vec![diagnostic],
+    }
+}
+
+pub fn plan_socks5_connect_http_mitm(
+    request_id: impl Into<String>,
+    target: &NativeSocks5ConnectTarget,
+    plugin_instance: &PluginInstance,
+    plugin_service: &dyn MitmPluginService,
+) -> NativeSocks5ConnectHttpMitmPlanReport {
+    let request_id = request_id.into();
+    let target_host = socks5_target_host(target);
+    let target_port = target.port;
+    let url = socks5_connect_http_mitm_url(target);
+    let host_header = socks5_target_header_authority(target);
+    let event = HttpMitmEvent {
+        request_id: request_id.clone(),
+        url: url.clone(),
+        method: Some("CONNECT".to_string()),
+        phase: HttpMitmPhase::Request,
+        status_code: None,
+        headers: vec![
+            MetadataEntry {
+                key: "host".to_string(),
+                value: host_header,
+            },
+            MetadataEntry {
+                key: "networkcore.connect_target_host".to_string(),
+                value: target_host.clone(),
+            },
+            MetadataEntry {
+                key: "networkcore.connect_target_port".to_string(),
+                value: target_port.to_string(),
+            },
+        ],
+        body: Vec::new(),
+    };
+    let mut diagnostics = vec![engine_diagnostic(
+        DiagnosticSeverity::Info,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_EVENT_PLANNED_CODE,
+        "native SOCKS5 CONNECT target was mapped to a rich HTTP MITM event",
+        SOURCE_ENGINE_NATIVE_MITM,
+    )];
+
+    match plugin_service.handle_http_mitm_event(plugin_instance, &event) {
+        Ok(outcome) => {
+            let audits = outcome.audits.clone();
+            let plan_requires_application = http_mitm_outcome_requires_application(&outcome);
+            diagnostics.extend(outcome.diagnostics.clone());
+            diagnostics.push(engine_diagnostic(
+                DiagnosticSeverity::Info,
+                ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_PLAN_READY_CODE,
+                "native SOCKS5 CONNECT MITM plugin plan was produced",
+                SOURCE_ENGINE_NATIVE_MITM,
+            ));
+            if plan_requires_application {
+                diagnostics.push(engine_diagnostic(
+                    DiagnosticSeverity::Warning,
+                    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_PLAN_NOT_APPLIED_CODE,
+                    "native HTTP/TLS data plane has not applied the MITM plugin plan yet",
+                    SOURCE_ENGINE_NATIVE_MITM,
+                ));
+            }
+
+            NativeSocks5ConnectHttpMitmPlanReport {
+                request_id,
+                target_host,
+                target_port,
+                url,
+                event,
+                outcome: Some(outcome),
+                applied: false,
+                audits,
+                diagnostics,
+            }
+        }
+        Err(_error) => {
+            diagnostics.push(engine_diagnostic(
+                DiagnosticSeverity::Error,
+                ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_PLAN_FAILED_CODE,
+                "native SOCKS5 CONNECT MITM plugin plan failed",
+                SOURCE_ENGINE_NATIVE_MITM,
+            ));
+
+            NativeSocks5ConnectHttpMitmPlanReport {
+                request_id,
+                target_host,
+                target_port,
+                url,
+                event,
+                outcome: None,
+                applied: false,
+                audits: Vec::new(),
+                diagnostics,
+            }
+        }
     }
 }
 
@@ -1583,6 +1766,35 @@ where
     }
 }
 
+pub fn write_http_mitm_rejected_socks5_connect_failure_response<W>(
+    writer: &mut W,
+) -> NativeSocks5ConnectFailureResponseWriteReport
+where
+    W: Write,
+{
+    let response = SOCKS5_CONNECT_FAILURE_RESPONSE;
+    let diagnostic = if writer.write_all(&response).is_ok() {
+        engine_diagnostic(
+            DiagnosticSeverity::Info,
+            ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_REJECT_RESPONSE_WRITTEN_CODE,
+            "native SOCKS5 CONNECT failure response was written for MITM plugin rejection",
+            SOURCE_ENGINE_NATIVE_MITM,
+        )
+    } else {
+        engine_diagnostic(
+            DiagnosticSeverity::Warning,
+            ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_REJECT_RESPONSE_WRITE_FAILED_CODE,
+            "native SOCKS5 CONNECT failure response could not be written for MITM plugin rejection",
+            SOURCE_ENGINE_NATIVE_MITM,
+        )
+    };
+
+    NativeSocks5ConnectFailureResponseWriteReport {
+        response,
+        diagnostics: vec![diagnostic],
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeOutboundHandlerHandle {
     pub node_id: String,
@@ -1709,6 +1921,13 @@ impl NativeRuntimeAssemblyPlan {
     pub fn start_loopback_accept_loop(
         self,
     ) -> Result<NativeRuntimeAssembly, Box<NativeRuntimeStartupFailure>> {
+        self.start_loopback_accept_loop_with_http_mitm_hook(None)
+    }
+
+    pub fn start_loopback_accept_loop_with_http_mitm_hook(
+        self,
+        http_mitm_hook: Option<NativeHttpMitmPluginHook>,
+    ) -> Result<NativeRuntimeAssembly, Box<NativeRuntimeStartupFailure>> {
         let Self {
             engine_id,
             listener,
@@ -1729,7 +1948,11 @@ impl NativeRuntimeAssemblyPlan {
             }
         };
 
-        match NativeLoopbackTcpAcceptLoopHandle::start(bound_listener, outbound_handler) {
+        match NativeLoopbackTcpAcceptLoopHandle::start_with_http_mitm_hook(
+            bound_listener,
+            outbound_handler,
+            http_mitm_hook,
+        ) {
             Ok(accept_loop) => {
                 Ok(NativeRuntimeAssembly::new(engine_id).with_accept_loop(accept_loop))
             }
@@ -1954,11 +2177,21 @@ impl NativeRuntimeAssembly {
 pub struct NativeProxyEngineService {
     runtime: Arc<Mutex<Option<NativeRuntimeHandle>>>,
     lifecycle_events: Arc<Mutex<Vec<ProxyEngineEvent>>>,
+    http_mitm_hook: Option<NativeHttpMitmPluginHook>,
 }
 
 impl NativeProxyEngineService {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_http_mitm_hook(mut self, hook: NativeHttpMitmPluginHook) -> Self {
+        self.http_mitm_hook = Some(hook);
+        self
+    }
+
+    pub fn http_mitm_hook_enabled(&self) -> bool {
+        self.http_mitm_hook.is_some()
     }
 
     fn runtime_state(
@@ -2084,7 +2317,9 @@ impl ProxyEngineService for NativeProxyEngineService {
         }
 
         let plan = NativeRuntimeAssemblyPlan::from_config(engine_config)?;
-        let assembly = match plan.start_loopback_accept_loop() {
+        let assembly = match plan.start_loopback_accept_loop_with_http_mitm_hook(
+            self.http_mitm_hook.clone(),
+        ) {
             Ok(assembly) => assembly,
             Err(failure) => {
                 let NativeRuntimeStartupFailure { error, release } = *failure;
@@ -2496,6 +2731,96 @@ fn socks5_connect_target_valid(target: &NativeSocks5ConnectTarget) -> bool {
         }
 }
 
+fn socks5_target_host(target: &NativeSocks5ConnectTarget) -> String {
+    match &target.address {
+        NativeSocks5Address::Ipv4(address) => {
+            format!("{}.{}.{}.{}", address[0], address[1], address[2], address[3])
+        }
+        NativeSocks5Address::DomainName(domain_name) => domain_name.clone(),
+        NativeSocks5Address::Ipv6(address) => Ipv6Addr::from(*address).to_string(),
+    }
+}
+
+fn socks5_target_url_authority(target: &NativeSocks5ConnectTarget) -> String {
+    let default_port = target.port == 80 || target.port == 443;
+    match &target.address {
+        NativeSocks5Address::Ipv6(address) => {
+            let host = Ipv6Addr::from(*address);
+            if default_port {
+                format!("[{host}]")
+            } else {
+                format!("[{host}]:{}", target.port)
+            }
+        }
+        _ if default_port => socks5_target_host(target),
+        _ => format!("{}:{}", socks5_target_host(target), target.port),
+    }
+}
+
+fn socks5_target_header_authority(target: &NativeSocks5ConnectTarget) -> String {
+    match &target.address {
+        NativeSocks5Address::Ipv6(address) => {
+            format!("[{}]:{}", Ipv6Addr::from(*address), target.port)
+        }
+        _ => format!("{}:{}", socks5_target_host(target), target.port),
+    }
+}
+
+pub fn native_socks5_connect_browser_capture_proof_token(
+    target: &NativeSocks5ConnectTarget,
+    proxy_scheme: &str,
+    proxy_host: &str,
+    proxy_port: u16,
+) -> String {
+    let proxy_url = format!("{proxy_scheme}://{proxy_host}:{proxy_port}");
+    browser_capture_proof_token_from_connect_authority(
+        &socks5_target_header_authority(target),
+        &proxy_url,
+    )
+}
+
+pub fn browser_capture_proof_token_from_connect_authority(
+    connect_authority: &str,
+    proxy_url: &str,
+) -> String {
+    browser_capture_proof_token_from_source(&format!(
+        "connect:{connect_authority}|proxy:{proxy_url}"
+    ))
+}
+
+fn browser_capture_proof_token_from_source(source: &str) -> String {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in source.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("networkcore-browser-proof-{hash:016x}")
+}
+
+fn socks5_connect_http_mitm_url(target: &NativeSocks5ConnectTarget) -> String {
+    let scheme = if target.port == 443 { "https" } else { "http" };
+    format!("{scheme}://{}/", socks5_target_url_authority(target))
+}
+
+fn socks5_connect_http_mitm_request_id(target: &NativeSocks5ConnectTarget) -> String {
+    format!(
+        "native-socks5-connect:{}:{}",
+        socks5_target_host(target),
+        target.port
+    )
+}
+
+fn http_mitm_outcome_requires_application(outcome: &HttpMitmOutcome) -> bool {
+    outcome.action != HttpMitmAction::Continue
+        || !outcome.header_mutations.is_empty()
+        || outcome.body_mutation.is_some()
+        || outcome.script_dispatch.is_some()
+}
+
+fn http_mitm_outcome_rejects(outcome: &HttpMitmOutcome) -> bool {
+    matches!(&outcome.action, HttpMitmAction::Reject { .. })
+}
+
 fn socks5_outbound_connect_response_valid(response: &NativeSocks5OutboundConnectResponse) -> bool {
     response.version == SOCKS5_VERSION
         && response.reply == SOCKS5_REPLY_SUCCEEDED
@@ -2720,6 +3045,9 @@ fn run_loopback_tcp_accept_loop(
                     &pre_protocol_closed_connections,
                     &relayed_connections,
                     &identity.outbound_handler,
+                    identity.http_mitm_hook.as_ref(),
+                    &identity.local_host,
+                    identity.local_port,
                 ));
             }
             Err(error) if error.kind() == ErrorKind::WouldBlock => {
@@ -2759,6 +3087,9 @@ fn read_socks5_greeting_and_close_accepted_connection(
     pre_protocol_closed_connections: &AtomicUsize,
     relayed_connections: &AtomicUsize,
     outbound_handler: &NativeOutboundHandlerHandle,
+    http_mitm_hook: Option<&NativeHttpMitmPluginHook>,
+    local_host: &str,
+    local_port: u16,
 ) -> Vec<Diagnostic> {
     let mut connection_relayed = false;
     let _ = stream.set_nonblocking(false);
@@ -2799,123 +3130,177 @@ fn read_socks5_greeting_and_close_accepted_connection(
                         .as_ref()
                         .filter(|target| socks5_connect_target_valid(target))
                     {
-                        let mut failure_response_required = true;
-                        let route_selection_report =
-                            select_socks5_route_outbound_behavior(target, outbound_handler);
-                        diagnostics.extend(route_selection_report.diagnostics);
-                        let frame_report = build_socks5_outbound_connect_request_frame(
-                            &route_selection_report.behavior,
-                        );
-                        diagnostics.extend(frame_report.diagnostics);
-                        let plan_report = plan_socks5_outbound_tcp_connection(
-                            &route_selection_report.behavior,
-                            &frame_report.frame,
-                        );
-                        diagnostics.extend(plan_report.diagnostics);
-                        if let Some(plan) = plan_report.plan.as_ref() {
-                            let NativeSocks5OutboundTcpConnectionAttemptReport {
-                                stream: outbound_stream,
-                                diagnostics: attempt_diagnostics,
-                            } = attempt_socks5_outbound_tcp_connection(plan);
-                            diagnostics.extend(attempt_diagnostics);
-                            if let Some(mut outbound_stream) = outbound_stream {
-                                let _ =
-                                    outbound_stream.set_write_timeout(Some(Duration::from_millis(
-                                        OUTBOUND_CONNECT_REQUEST_WRITE_TIMEOUT_MS,
-                                    )));
-                                let write_report = write_socks5_outbound_connect_request(
-                                    &mut outbound_stream,
-                                    plan,
+                        let mut rejected_by_http_mitm = false;
+                        if let Some(hook) = http_mitm_hook {
+                            let mitm_plan_report = hook.plan_socks5_connect(
+                                socks5_connect_http_mitm_request_id(target),
+                                target,
+                            );
+                            let browser_capture_proof_token =
+                                native_socks5_connect_browser_capture_proof_token(
+                                    target,
+                                    "socks5",
+                                    local_host,
+                                    local_port,
                                 );
-                                let connect_request_written =
-                                    write_report.diagnostics.iter().any(|diagnostic| {
-                                        diagnostic.code
-                                            == ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITTEN_CODE
-                                    });
-                                diagnostics.extend(write_report.diagnostics);
-                                if connect_request_written {
-                                    let _ = outbound_stream.set_read_timeout(Some(
+                            rejected_by_http_mitm = mitm_plan_report
+                                .outcome
+                                .as_ref()
+                                .map(http_mitm_outcome_rejects)
+                                .unwrap_or(false);
+                            diagnostics.extend(mitm_plan_report.diagnostics);
+                            diagnostics.push(engine_diagnostic(
+                                DiagnosticSeverity::Info,
+                                ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_BROWSER_PROOF_OBSERVED_CODE,
+                                format!(
+                                    "native SOCKS5 CONNECT browser capture proof token {browser_capture_proof_token} observed for target {} via socks5://{}:{}",
+                                    socks5_target_header_authority(target),
+                                    local_host,
+                                    local_port
+                                ),
+                                SOURCE_ENGINE_NATIVE_MITM,
+                            ));
+                            if rejected_by_http_mitm {
+                                diagnostics.push(engine_diagnostic(
+                                    DiagnosticSeverity::Info,
+                                    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_REJECT_APPLIED_CODE,
+                                    "native SOCKS5 CONNECT was rejected by the MITM plugin plan",
+                                    SOURCE_ENGINE_NATIVE_MITM,
+                                ));
+                                let failure_response_report =
+                                    write_http_mitm_rejected_socks5_connect_failure_response(
+                                        &mut stream,
+                                    );
+                                diagnostics.extend(failure_response_report.diagnostics);
+                            }
+                        }
+
+                        if !rejected_by_http_mitm {
+                            let mut failure_response_required = true;
+                            let route_selection_report =
+                                select_socks5_route_outbound_behavior(target, outbound_handler);
+                            diagnostics.extend(route_selection_report.diagnostics);
+                            let frame_report = build_socks5_outbound_connect_request_frame(
+                                &route_selection_report.behavior,
+                            );
+                            diagnostics.extend(frame_report.diagnostics);
+                            let plan_report = plan_socks5_outbound_tcp_connection(
+                                &route_selection_report.behavior,
+                                &frame_report.frame,
+                            );
+                            diagnostics.extend(plan_report.diagnostics);
+                            if let Some(plan) = plan_report.plan.as_ref() {
+                                let NativeSocks5OutboundTcpConnectionAttemptReport {
+                                    stream: outbound_stream,
+                                    diagnostics: attempt_diagnostics,
+                                } = attempt_socks5_outbound_tcp_connection(plan);
+                                diagnostics.extend(attempt_diagnostics);
+                                if let Some(mut outbound_stream) = outbound_stream {
+                                    let _ = outbound_stream.set_write_timeout(Some(
                                         Duration::from_millis(
-                                            OUTBOUND_CONNECT_RESPONSE_READ_TIMEOUT_MS,
+                                            OUTBOUND_CONNECT_REQUEST_WRITE_TIMEOUT_MS,
                                         ),
                                     ));
-                                    let read_report =
-                                        read_socks5_outbound_connect_response(&mut outbound_stream);
-                                    let response = read_report.response;
-                                    diagnostics.extend(read_report.diagnostics);
-                                    if let Some(response) = response.as_ref() {
-                                        let decision_report =
-                                            decide_socks5_outbound_connect_response(response);
-                                        let decision = decision_report.decision;
-                                        diagnostics.extend(decision_report.diagnostics);
-                                        let readiness_report =
-                                            assess_socks5_outbound_connect_relay_readiness(
-                                                decision,
+                                    let write_report = write_socks5_outbound_connect_request(
+                                        &mut outbound_stream,
+                                        plan,
+                                    );
+                                    let connect_request_written =
+                                        write_report.diagnostics.iter().any(|diagnostic| {
+                                            diagnostic.code
+                                                == ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITTEN_CODE
+                                        });
+                                    diagnostics.extend(write_report.diagnostics);
+                                    if connect_request_written {
+                                        let _ = outbound_stream.set_read_timeout(Some(
+                                            Duration::from_millis(
+                                                OUTBOUND_CONNECT_RESPONSE_READ_TIMEOUT_MS,
+                                            ),
+                                        ));
+                                        let read_report =
+                                            read_socks5_outbound_connect_response(
+                                                &mut outbound_stream,
                                             );
-                                        let readiness = readiness_report.readiness;
-                                        diagnostics.extend(readiness_report.diagnostics);
-                                        let data_relay_plan_report =
-                                            plan_socks5_outbound_connect_data_relay(readiness);
-                                        let data_relay_plan = data_relay_plan_report.decision;
-                                        diagnostics.extend(data_relay_plan_report.diagnostics);
-                                        let client_success_readiness_report =
-                                            assess_socks5_outbound_connect_client_success_response_readiness(
-                                                data_relay_plan,
-                                            );
-                                        let client_success_readiness =
-                                            client_success_readiness_report.readiness;
-                                        diagnostics
-                                            .extend(client_success_readiness_report.diagnostics);
-                                        let write_plan_report =
-                                            plan_socks5_outbound_connect_client_success_response_write(
-                                                client_success_readiness,
-                                            );
-                                        let write_plan = write_plan_report.decision;
-                                        diagnostics.extend(write_plan_report.diagnostics);
-                                        let write_plan_ready = matches!(
-                                            write_plan,
-                                            NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision::Ready
-                                        );
-                                        if write_plan_ready {
-                                            failure_response_required = false;
-                                            let client_success_write_report =
-                                                write_socks5_outbound_connect_client_success_response(
-                                                    &mut stream,
-                                                    response,
+                                        let response = read_report.response;
+                                        diagnostics.extend(read_report.diagnostics);
+                                        if let Some(response) = response.as_ref() {
+                                            let decision_report =
+                                                decide_socks5_outbound_connect_response(response);
+                                            let decision = decision_report.decision;
+                                            diagnostics.extend(decision_report.diagnostics);
+                                            let readiness_report =
+                                                assess_socks5_outbound_connect_relay_readiness(
+                                                    decision,
                                                 );
-                                            let client_success_write_diagnostics =
-                                                client_success_write_report.diagnostics;
-                                            let client_success_response_written =
-                                                diagnostics_contain_client_success_written(
-                                                    &client_success_write_diagnostics,
+                                            let readiness = readiness_report.readiness;
+                                            diagnostics.extend(readiness_report.diagnostics);
+                                            let data_relay_plan_report =
+                                                plan_socks5_outbound_connect_data_relay(readiness);
+                                            let data_relay_plan = data_relay_plan_report.decision;
+                                            diagnostics
+                                                .extend(data_relay_plan_report.diagnostics);
+                                            let client_success_readiness_report =
+                                                assess_socks5_outbound_connect_client_success_response_readiness(
+                                                    data_relay_plan,
                                                 );
-                                            diagnostics.extend(client_success_write_diagnostics);
-                                            if client_success_response_written {
-                                                let data_relay_report =
-                                                    relay_socks5_outbound_connect_tcp_streams(
-                                                        &stream,
-                                                        &outbound_stream,
+                                            let client_success_readiness =
+                                                client_success_readiness_report.readiness;
+                                            diagnostics.extend(
+                                                client_success_readiness_report.diagnostics,
+                                            );
+                                            let write_plan_report =
+                                                plan_socks5_outbound_connect_client_success_response_write(
+                                                    client_success_readiness,
+                                                );
+                                            let write_plan = write_plan_report.decision;
+                                            diagnostics.extend(write_plan_report.diagnostics);
+                                            let write_plan_ready = matches!(
+                                                write_plan,
+                                                NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision::Ready
+                                            );
+                                            if write_plan_ready {
+                                                failure_response_required = false;
+                                                let client_success_write_report =
+                                                    write_socks5_outbound_connect_client_success_response(
+                                                        &mut stream,
+                                                        response,
                                                     );
-                                                let data_relay_diagnostics =
-                                                    data_relay_report.diagnostics;
-                                                connection_relayed =
-                                                    diagnostics_contain_data_relay_completed(
-                                                        &data_relay_diagnostics,
+                                                let client_success_write_diagnostics =
+                                                    client_success_write_report.diagnostics;
+                                                let client_success_response_written =
+                                                    diagnostics_contain_client_success_written(
+                                                        &client_success_write_diagnostics,
                                                     );
-                                                diagnostics.extend(data_relay_diagnostics);
+                                                diagnostics
+                                                    .extend(client_success_write_diagnostics);
+                                                if client_success_response_written {
+                                                    let data_relay_report =
+                                                        relay_socks5_outbound_connect_tcp_streams(
+                                                            &stream,
+                                                            &outbound_stream,
+                                                        );
+                                                    let data_relay_diagnostics =
+                                                        data_relay_report.diagnostics;
+                                                    connection_relayed =
+                                                        diagnostics_contain_data_relay_completed(
+                                                            &data_relay_diagnostics,
+                                                        );
+                                                    diagnostics.extend(data_relay_diagnostics);
+                                                }
                                             }
                                         }
                                     }
+                                    let _ = outbound_stream.shutdown(Shutdown::Both);
                                 }
-                                let _ = outbound_stream.shutdown(Shutdown::Both);
                             }
-                        }
-                        if failure_response_required {
-                            diagnostics
-                                .extend(reject_unwired_socks5_route_outbound(target).diagnostics);
-                            let failure_response_report =
-                                write_unwired_socks5_connect_failure_response(&mut stream);
-                            diagnostics.extend(failure_response_report.diagnostics);
+                            if failure_response_required {
+                                diagnostics.extend(
+                                    reject_unwired_socks5_route_outbound(target).diagnostics,
+                                );
+                                let failure_response_report =
+                                    write_unwired_socks5_connect_failure_response(&mut stream);
+                                diagnostics.extend(failure_response_report.diagnostics);
+                            }
                         }
                     }
                 }

@@ -20,7 +20,7 @@ listener、node、route 和 DNS 配置模型边界。它承接
 
 ## 非目标
 
-- 不在本文实现 TCP、UDP、SOCKS、HTTP、TUN、DNS、MITM 或透明代理协议。
+- 不在本文实现 UDP、HTTP/TLS MITM、TUN、DNS 或透明代理协议。
 - 不选择 async runtime、socket 库、packet parser、DNS resolver 或 netlink 依赖。
 - 不定义订阅格式、外部代理内核原生配置格式、daemon/control socket 或 packaging。
 - 不把 listener、node、DNS 或平台文件系统细节放入 `control-runtime`。
@@ -50,8 +50,9 @@ listener、node、route 和 DNS 配置模型边界。它承接
 - `engine-native` 已补充 SOCKS5 认证方法响应写入诊断合同，可写入 `[0x05, method]` 响应并记录 `engine.native.runtime.socks5_auth_method_response_written` 或 `engine.native.runtime.socks5_auth_method_response_write_failed` 诊断。
 - `engine-native` 已补充 SOCKS5 命令头读取与 unsupported command 拒绝诊断合同，可在 no-auth 响应后读取 `[VER, CMD, RSV, ATYP]` 并记录 `engine.native.runtime.socks5_command_header_read`、`engine.native.runtime.socks5_command_header_invalid` 或 `engine.native.runtime.socks5_command_header_read_failed` 诊断，对非 CONNECT 命令记录 `engine.native.runtime.socks5_command_unsupported`。
 - `engine-native` 已补充 SOCKS5 CONNECT 目标地址读取、route/outbound 行为选择、SOCKS outbound CONNECT request frame 生成、SOCKS outbound TCP connection plan、SOCKS outbound TCP connection attempt、SOCKS outbound CONNECT request write、SOCKS outbound CONNECT response read、SOCKS outbound CONNECT response decision、SOCKS outbound CONNECT relay readiness、SOCKS outbound CONNECT data relay plan、SOCKS outbound CONNECT data relay execution、SOCKS outbound CONNECT client success response readiness、SOCKS outbound CONNECT client success response write plan、SOCKS outbound CONNECT client success response write、accept loop client success response 与有限 data relay 接线、未接入拒绝与 CONNECT failure response 写入诊断合同。accept loop 在上游 CONNECT accepted 后记录 `engine.native.runtime.socks5_outbound_connect_relay_ready`、`engine.native.runtime.socks5_outbound_connect_data_relay_plan_ready`、`engine.native.runtime.socks5_outbound_connect_client_success_response_ready` 和 `engine.native.runtime.socks5_outbound_connect_client_success_response_write_plan_ready`，写入 client success response frame，再对有限 client/outbound TCP stream 执行双向复制并记录 `engine.native.runtime.socks5_outbound_connect_data_relay_completed` 或 `engine.native.runtime.socks5_outbound_connect_data_relay_failed`；上游 rejected、连接失败或 plan 不完整路径继续记录 rejected/unwired 诊断，写入 SOCKS5 general failure response 并关闭连接。
+- `engine-native` 已补充 native SOCKS5 CONNECT MITM plugin hook 合同；`NativeHttpMitmPluginHook` 可把 CONNECT target 映射为 `HttpMitmEvent` 并调用 `MitmPluginService`，插件返回 `Reject` 时 accept loop 会写 SOCKS5 general failure response 并跳过 outbound。该能力不解密 HTTPS，不应用 redirect/header/body/script rewrite。
 - `engine-native` 已补充 service-owned runtime state 与 foreground lifecycle handoff 源码合同；有效配置可让 `NativeProxyEngineService::start` 启动并持有 loopback TCP accept loop runtime，返回 `Running`、`engine.native.start.running`、`engine.native.runtime.foreground_handoff_ready` 和 `engine.native.runtime.accept_loop_ready`，`status`/`events`/`stop` 可观察和释放 runtime。
-- `networkcore-linux start` binary 已接入 `NativeProxyEngineService` 与 current-process foreground lifecycle host；foreground interruption 后会调用当前进程内 `RuntimeOrchestrator::stop_runtime` 并聚合 native runtime stop/release 诊断，继续保持无 daemon/control socket 边界。
+- `networkcore-linux start` binary 已接入带内置 `networkcore.adblock` MITM hook 的 `NativeProxyEngineService` 与 current-process foreground lifecycle host；foreground interruption 后会调用当前进程内 `RuntimeOrchestrator::stop_runtime` 并聚合 native runtime stop/release 诊断，继续保持无 daemon/control socket 边界。
 
 因此，`engine-native` service 层现在可以在源码合同和 Linux CLI 前台入口中启动当前进程内 runtime；但不得声称支持 daemon、control socket 或跨进程 stop/status。
 
@@ -174,6 +175,14 @@ DNS 配置进入前应继续保守：
 | `engine.native.runtime.socks5_connect_target_read` | Info | accepted TCP connection 的 SOCKS5 CONNECT 目标地址和端口已读取 |
 | `engine.native.runtime.socks5_connect_target_invalid` | Warning | accepted TCP connection 的 SOCKS5 CONNECT 目标地址或端口边界非法 |
 | `engine.native.runtime.socks5_connect_target_read_failed` | Warning | accepted TCP connection 在关闭或超时前未能完整读取 SOCKS5 CONNECT 目标地址或端口 |
+| `engine.native.runtime.http_mitm_connect_event_planned` | Info | accepted TCP connection 的 SOCKS5 CONNECT target 已映射为 rich HTTP MITM event |
+| `engine.native.runtime.http_mitm_connect_plan_ready` | Info | native SOCKS5 CONNECT MITM plugin plan 已生成 |
+| `engine.native.runtime.http_mitm_connect_plan_failed` | Error | native SOCKS5 CONNECT MITM plugin plan 生成失败 |
+| `engine.native.runtime.http_mitm_connect_plan_not_applied` | Warning | HTTP/TLS 数据面尚未应用 redirect/header/body/script MITM plan |
+| `engine.native.runtime.http_mitm_connect_browser_proof_observed` | Info | native SOCKS5 CONNECT hook 已输出 browser capture 默认 proof token、CONNECT target 和本地 socks5 proxy URL |
+| `engine.native.runtime.http_mitm_connect_reject_applied` | Info | native SOCKS5 CONNECT 已按 MITM plugin `Reject` plan 阻断 |
+| `engine.native.runtime.http_mitm_connect_reject_response_written` | Info | MITM plugin rejection 的 SOCKS5 CONNECT failure response 已写入 |
+| `engine.native.runtime.http_mitm_connect_reject_response_write_failed` | Warning | MITM plugin rejection 的 SOCKS5 CONNECT failure response 写入失败 |
 | `engine.native.runtime.socks5_route_outbound_selected` | Info | accepted TCP connection 的 CONNECT 目标已选择当前配置的 SOCKS outbound handler |
 | `engine.native.runtime.socks5_outbound_connect_request_frame_generated` | Info | accepted TCP connection 的上游 SOCKS5 CONNECT request frame 已在内存中生成 |
 | `engine.native.runtime.socks5_outbound_connect_request_frame_invalid` | Warning | accepted TCP connection 的上游 SOCKS5 CONNECT request frame 目标边界非法 |
@@ -250,6 +259,7 @@ DNS 配置进入前应继续保守：
 33. 已为 `networkcore-linux start` 前台 lifecycle host 补充 signal/interruption 处理合同。
 34. 已为 `CurrentProcessForegroundLifecycleHost` 接入真实 Unix OS signal/interruption source。
 35. 已为前台 lifecycle interruption 后的 runtime stop/release 诊断聚合补充显式合同。
+36. 已补充 native SOCKS5 CONNECT MITM plugin hook，`networkcore-linux start` 注入内置 `networkcore.adblock`，插件 `Reject` 可在 outbound 前应用为 SOCKS5 failure response，并可输出 browser capture 默认 proof token 诊断。
     以下 36-49 保留当时 Linux artifact placeholder 阶段的历史记录；当前状态以第 50 条、
     README、ROADMAP、TODO 和 Release Strategy 的 `linux-artifact-release-state=confirmed-release-path`
     为准。
@@ -278,7 +288,7 @@ DNS 配置进入前应继续保守：
 - listener 配置图已通过校验。
 - outbound node/direct route 图已通过校验。
 - 平台能力已由 `RuntimeOrchestrator` 确认可启动。
-- adapter 已创建当前进程拥有的真实 listener/runtime handle，并具备 accept loop、受控关闭、SOCKS5 认证方法响应、命令头读取、CONNECT 目标地址解析、route/outbound 行为选择、SOCKS outbound request frame 生成、SOCKS outbound connection plan、SOCKS outbound connection attempt、outbound request write、outbound response read、outbound response decision、relay readiness、data relay plan、client success response readiness、client success response write plan、accept loop client success response 写入、data relay 和 failure response 写入合同，而不仅是源码合同结构或 assembly plan。
+- adapter 已创建当前进程拥有的真实 listener/runtime handle，并具备 accept loop、受控关闭、SOCKS5 认证方法响应、命令头读取、CONNECT 目标地址解析、MITM plugin hook plan、CONNECT-level reject 应用、route/outbound 行为选择、SOCKS outbound request frame 生成、SOCKS outbound connection plan、SOCKS outbound connection attempt、outbound request write、outbound response read、outbound response decision、relay readiness、data relay plan、client success response readiness、client success response write plan、accept loop client success response 写入、data relay 和 failure response 写入合同，而不仅是源码合同结构或 assembly plan。
 - 失败路径能释放已创建的句柄，并返回稳定 `DomainError` 或 `Diagnostic`。
 - `events()` 至少能返回启动失败或运行状态变化的内存事件合同，或者在设计中明确首版事件为空的边界。
 

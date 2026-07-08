@@ -1,6 +1,9 @@
 use control_domain::{
-    ConfigSnapshot, Diagnostic, Endpoint, ListenerBind, ListenerDescriptor, ListenerKind,
-    ListenerNetwork, ListenerRoute, MetadataEntry, NodeDescriptor, Protocol, ProxyEngineConfig,
+    AuditDecision, AuditEvent, ConfigSnapshot, Diagnostic, DiagnosticSeverity, DomainResult,
+    Endpoint, GrantedPermissions, HookPoint, HttpEvent, HttpMitmAction, HttpMitmEvent,
+    HttpMitmOutcome, ListenerBind, ListenerDescriptor, ListenerKind, ListenerNetwork,
+    ListenerRoute, MetadataEntry, MitmPluginService, NodeDescriptor, PluginInstance,
+    PluginManifest, PluginPackage, PluginPermission, PluginResult, Protocol, ProxyEngineConfig,
     ProxyEngineEventKind, ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService,
     RouteAction, RuleSet, SchemaVersion,
 };
@@ -11,15 +14,16 @@ use engine_native::{
     build_socks5_outbound_connect_request_frame, decide_socks5_outbound_connect_response,
     plan_socks5_outbound_connect_client_success_response_write,
     plan_socks5_outbound_connect_data_relay, plan_socks5_outbound_tcp_connection,
-    read_socks5_command_header, read_socks5_connect_target, read_socks5_greeting,
-    read_socks5_outbound_connect_response, reject_unsupported_socks5_command,
+    plan_socks5_connect_http_mitm, read_socks5_command_header, read_socks5_connect_target,
+    read_socks5_greeting, read_socks5_outbound_connect_response, reject_unsupported_socks5_command,
     reject_unwired_socks5_route_outbound, relay_socks5_outbound_connect_data,
     select_socks5_auth_method, select_socks5_route_outbound_behavior,
     write_socks5_auth_method_response, write_socks5_outbound_connect_client_success_response,
     write_socks5_outbound_connect_request, write_unwired_socks5_connect_failure_response,
     BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeLoopbackTcpAcceptLoopHandle,
-    NativeOutboundHandlerHandle, NativeProxyEngineService, NativeProxyEngineStartReadiness,
-    NativeRuntimeAssembly, NativeRuntimeAssemblyPlan, NativeSocks5Address,
+    NativeHttpMitmPluginHook, NativeOutboundHandlerHandle, NativeProxyEngineService,
+    NativeProxyEngineStartReadiness, NativeRuntimeAssembly, NativeRuntimeAssemblyPlan,
+    NativeSocks5Address,
     NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision, NativeSocks5CommandHeader,
     NativeSocks5ConnectTarget, NativeSocks5Greeting,
     NativeSocks5OutboundConnectClientSuccessResponseReadiness,
@@ -28,6 +32,7 @@ use engine_native::{
     NativeSocks5OutboundConnectResponse, NativeSocks5OutboundConnectResponseDecision,
     NativeSocks5OutboundTcpConnectionPlan, NativeSocks5RouteOutboundBehavior,
     NativeSocks5RouteOutboundDecision, DEFAULT_NATIVE_ENGINE_ID,
+    browser_capture_proof_token_from_connect_authority,
     ENGINE_NATIVE_CONFIG_ENGINE_ID_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_BIND_INVALID_CODE,
     ENGINE_NATIVE_CONFIG_LISTENER_ID_DUPLICATE_CODE,
@@ -87,15 +92,22 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_ATTEMPT_SUCCEEDED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_PLANNED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_PLAN_INVALID_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_EVENT_PLANNED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_BROWSER_PROOF_OBSERVED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_PLAN_NOT_APPLIED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_PLAN_READY_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_REJECT_APPLIED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_REJECT_RESPONSE_WRITTEN_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_SELECTED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE, ENGINE_NATIVE_START_BIND_FAILED_CODE,
     ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE, ENGINE_NATIVE_START_RUNNING_CODE,
     ENGINE_NATIVE_START_RUNTIME_ASSEMBLY_READY_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
     ENGINE_NATIVE_START_SERVICE_RUNTIME_OWNER_MISSING_CODE,
+    native_socks5_connect_browser_capture_proof_token,
 };
 use std::io::{self, Cursor, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::Duration;
 
@@ -1139,6 +1151,214 @@ fn socks5_connect_target_contract_reads_domain_target_and_rejects_unwired_route_
     );
     assert_diagnostic(
         &route_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE,
+    );
+}
+
+#[test]
+fn socks5_connect_http_mitm_plan_contract_maps_connect_target_to_plugin_plan_without_applying() {
+    let target = NativeSocks5ConnectTarget {
+        address: NativeSocks5Address::DomainName("pubads.g.doubleclick.net".to_string()),
+        port: 443,
+    };
+    let plugin_instance = PluginInstance {
+        manifest: PluginManifest {
+            id: "networkcore.adblock".to_string(),
+            version: "0.1.0".to_string(),
+            permissions: vec![PluginPermission::ReadRequest, PluginPermission::ModifyRequest],
+            hooks: vec![HookPoint::Request],
+        },
+        loaded_source: None,
+    };
+    let plugin_service = RejectingMitmPluginService;
+
+    let report = plan_socks5_connect_http_mitm(
+        "connect-req-1",
+        &target,
+        &plugin_instance,
+        &plugin_service,
+    );
+
+    assert_eq!(report.request_id, "connect-req-1");
+    assert_eq!(report.target_host, "pubads.g.doubleclick.net");
+    assert_eq!(report.target_port, 443);
+    assert_eq!(report.url, "https://pubads.g.doubleclick.net/");
+    assert_eq!(report.event.request_id, "connect-req-1");
+    assert_eq!(report.event.method.as_deref(), Some("CONNECT"));
+    assert_eq!(report.event.url, "https://pubads.g.doubleclick.net/");
+    assert_eq!(
+        report
+            .event
+            .headers
+            .iter()
+            .find(|header| header.key == "host")
+            .map(|header| header.value.as_str()),
+        Some("pubads.g.doubleclick.net:443")
+    );
+    assert_eq!(
+        report
+            .outcome
+            .expect("plugin plan should be present")
+            .action,
+        HttpMitmAction::Reject { status_code: 403 }
+    );
+    assert!(!report.applied);
+    assert_eq!(report.audits.len(), 1);
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_EVENT_PLANNED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_PLAN_READY_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_PLAN_NOT_APPLIED_CODE,
+    );
+}
+
+#[test]
+fn socks5_connect_browser_capture_proof_token_uses_connect_authority_and_proxy_url() {
+    let target = NativeSocks5ConnectTarget {
+        address: NativeSocks5Address::DomainName("example.com".to_string()),
+        port: 443,
+    };
+
+    let token = native_socks5_connect_browser_capture_proof_token(
+        &target,
+        "socks5",
+        "127.0.0.1",
+        7890,
+    );
+
+    assert!(token.starts_with("networkcore-browser-proof-"));
+    assert_eq!(
+        token,
+        browser_capture_proof_token_from_connect_authority(
+            "example.com:443",
+            "socks5://127.0.0.1:7890"
+        )
+    );
+}
+
+#[test]
+fn runtime_accept_loop_contract_applies_mitm_connect_reject_before_outbound() {
+    let port = unused_loopback_port();
+    let listener = LoopbackListenerHandle::from_descriptor(&local_tcp_listener_with_bind(
+        "mitm-reject-accept-loopback-local-tcp",
+        "127.0.0.1",
+        port,
+        ListenerRoute::DefaultAction(RouteAction::Proxy {
+            node_id: "node-1".to_string(),
+        }),
+    ))
+    .expect("loopback tcp listener handle should be representable");
+    let bound_listener = BoundLoopbackTcpListenerHandle::bind(listener)
+        .expect("loopback tcp listener should bind on an available port");
+    let outbound = NativeOutboundHandlerHandle::from_node(&NodeDescriptor {
+        endpoint: Endpoint {
+            host: "127.0.0.1".to_string(),
+            port: unused_loopback_port(),
+        },
+        ..node()
+    })
+    .expect("socks outbound handler handle should be representable");
+    let plugin_instance = PluginInstance {
+        manifest: PluginManifest {
+            id: "networkcore.adblock".to_string(),
+            version: "0.1.0".to_string(),
+            permissions: vec![PluginPermission::ReadRequest, PluginPermission::ModifyRequest],
+            hooks: vec![HookPoint::Request],
+        },
+        loaded_source: None,
+    };
+    let http_mitm_hook =
+        NativeHttpMitmPluginHook::new(plugin_instance, Arc::new(RejectingMitmPluginService));
+
+    let accept_loop = NativeLoopbackTcpAcceptLoopHandle::start_with_http_mitm_hook(
+        bound_listener,
+        outbound,
+        Some(http_mitm_hook),
+    )
+    .expect("loopback tcp accept loop should start with a MITM plugin hook");
+
+    let mut request = vec![0x05, 0x01, 0x00, 0x05, 0x01, 0x00, 0x03];
+    request.push("pubads.g.doubleclick.net".len() as u8);
+    request.extend_from_slice(b"pubads.g.doubleclick.net");
+    request.extend_from_slice(&[0x01, 0xbb]);
+
+    let mut stream = TcpStream::connect(("127.0.0.1", port))
+        .expect("loopback tcp accept loop should accept local connections");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .expect("test client should support a read timeout");
+    stream
+        .write_all(&request)
+        .expect("test client should send a SOCKS5 CONNECT request to an ad domain");
+
+    let mut method_response = [0_u8; 2];
+    stream
+        .read_exact(&mut method_response)
+        .expect("test client should read the SOCKS5 no-auth method response");
+    let mut failure_response = [0_u8; 10];
+    stream
+        .read_exact(&mut failure_response)
+        .expect("test client should read the MITM reject SOCKS5 failure response");
+    wait_until_accept_count(&accept_loop, 1);
+    wait_until_pre_protocol_closed_count(&accept_loop, 1);
+    drop(stream);
+
+    let report = accept_loop.shutdown();
+
+    assert_eq!(method_response, [0x05, 0x00]);
+    assert_eq!(
+        failure_response,
+        [0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0]
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_EVENT_PLANNED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_PLAN_READY_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_PLAN_NOT_APPLIED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_BROWSER_PROOF_OBSERVED_CODE,
+    );
+    assert!(report.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_BROWSER_PROOF_OBSERVED_CODE
+            && diagnostic
+                .message
+                .contains("networkcore-browser-proof-")
+            && diagnostic
+                .message
+                .contains("pubads.g.doubleclick.net:443")
+    }));
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_REJECT_APPLIED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_REJECT_RESPONSE_WRITTEN_CODE,
+    );
+    assert_no_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_SELECTED_CODE,
+    );
+    assert_no_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_PLANNED_CODE,
+    );
+    assert_no_diagnostic(
+        &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE,
     );
 }
@@ -2611,6 +2831,69 @@ impl Write for FailingWriter {
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+struct RejectingMitmPluginService;
+
+impl MitmPluginService for RejectingMitmPluginService {
+    fn validate_manifest(&self, _plugin_manifest: &PluginManifest) -> Vec<Diagnostic> {
+        Vec::new()
+    }
+
+    fn load(
+        &self,
+        plugin_package: &PluginPackage,
+        _granted_permissions: &GrantedPermissions,
+    ) -> DomainResult<PluginInstance> {
+        Ok(PluginInstance {
+            manifest: plugin_package.manifest.clone(),
+            loaded_source: None,
+        })
+    }
+
+    fn handle_http_event(
+        &self,
+        _plugin_instance: &PluginInstance,
+        _http_event: &HttpEvent,
+    ) -> DomainResult<PluginResult> {
+        Ok(PluginResult {
+            audits: Vec::new(),
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn handle_http_mitm_event(
+        &self,
+        plugin_instance: &PluginInstance,
+        http_event: &HttpMitmEvent,
+    ) -> DomainResult<HttpMitmOutcome> {
+        assert_eq!(plugin_instance.manifest.id, "networkcore.adblock");
+        assert_eq!(http_event.method.as_deref(), Some("CONNECT"));
+        assert_eq!(http_event.url, "https://pubads.g.doubleclick.net/");
+
+        Ok(HttpMitmOutcome {
+            action: HttpMitmAction::Reject { status_code: 403 },
+            header_mutations: Vec::new(),
+            body_mutation: None,
+            script_dispatch: None,
+            audits: vec![AuditEvent {
+                actor: "networkcore.adblock".to_string(),
+                action: "mitm.policy.plan_http_mitm_event".to_string(),
+                decision: AuditDecision::Allowed,
+                reason: Some("test reject plan".to_string()),
+            }],
+            diagnostics: vec![Diagnostic::new(
+                DiagnosticSeverity::Info,
+                "test.mitm.plan.ready",
+                "test MITM plan ready",
+                Some("test.mitm".to_string()),
+            )],
+        })
+    }
+
+    fn audit(&self, plugin_result: &PluginResult) -> Vec<AuditEvent> {
+        plugin_result.audits.clone()
     }
 }
 

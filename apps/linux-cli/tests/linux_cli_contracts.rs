@@ -25,16 +25,20 @@ use networkcore_linux::{
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
     handle_foreground_lifecycle_with_runtime_stop, handle_install_sing_box,
     handle_mitm_browser_capture_apply, handle_mitm_browser_capture_apply_with_store,
+    handle_mitm_browser_capture_apply_with_store_and_proxy_scheme,
     handle_mitm_browser_capture_launch, handle_mitm_browser_capture_launch_plan,
+    handle_mitm_browser_capture_launch_with_proxy_scheme,
     handle_mitm_browser_capture_plan, handle_mitm_browser_capture_rollback,
     handle_mitm_browser_capture_rollback_with_store, handle_mitm_browser_capture_session_plan,
+    handle_mitm_browser_capture_session_plan_with_proxy_scheme,
     handle_mitm_browser_capture_traffic_proof,
     handle_mitm_browser_capture_traffic_proof_with_probe, handle_mitm_browser_capture_verify,
     handle_mitm_browser_capture_verify_with_probe, handle_mitm_browser_plan,
     handle_mitm_certificate_plan, handle_mitm_status, handle_parse_error, handle_prepare_config,
-    handle_run_url_with_sing_box, handle_start, handle_status, handle_stop, parse_args,
-    render_response, BrowserCaptureEndpointProbe, BrowserCapturePacFileStore,
-    BrowserCaptureProcessRunner, BrowserCaptureTrafficProofProbe,
+    handle_run_url_with_sing_box, handle_start, handle_status, handle_stop,
+    native_proxy_engine_service_with_builtin_mitm_plugin, parse_args, render_response,
+    BrowserCaptureEndpointProbe, BrowserCapturePacFileStore, BrowserCaptureProcessRunner,
+    BrowserCaptureTrafficProofProbe,
     CommandBrowserCaptureEndpointProbe, ConfigReadError, ConfigReader,
     CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
@@ -71,9 +75,12 @@ use networkcore_linux::{
     CLI_START_LIFECYCLE_INTERRUPTED_CODE, CLI_START_PLATFORM_DENIED_CODE,
     CLI_START_RUNTIME_STOP_FAILED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
     CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
-    MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR, MITM_BROWSER_CAPTURE_GATE,
-    MITM_BROWSER_CAPTURE_GATE_STATUS, MITM_BROWSER_CAPTURE_MODE,
-    MITM_BROWSER_CAPTURE_MUTATION_READY, MITM_BROWSER_CAPTURE_PROXY_HOST,
+    MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR, MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME,
+    MITM_BROWSER_CAPTURE_GATE,
+    MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH, MITM_BROWSER_CAPTURE_GATE_STATUS,
+    MITM_BROWSER_CAPTURE_MODE, MITM_BROWSER_CAPTURE_MUTATION_READY,
+    MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME,
+    MITM_BROWSER_CAPTURE_PROOF_QUERY_PARAM, MITM_BROWSER_CAPTURE_PROXY_HOST,
     MITM_BROWSER_CAPTURE_PROXY_PORT, MITM_BROWSER_CAPTURE_SOURCE_CONTRACT_STATUS,
     MITM_BROWSER_HIJACK_STATUS, MITM_BROWSER_PLAN_STATUS, MITM_CERTIFICATE_LIFECYCLE_GATE,
     MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS, MITM_CERTIFICATE_MUTATION_READY,
@@ -141,6 +148,14 @@ fn parses_help_command_and_renders_command_table() {
 }
 
 #[test]
+fn native_engine_factory_enables_builtin_mitm_plugin_hook_for_start_path() {
+    let service = native_proxy_engine_service_with_builtin_mitm_plugin()
+        .expect("built-in MITM plugin hook should load for native start path");
+
+    assert!(service.http_mitm_hook_enabled());
+}
+
+#[test]
 fn parses_mitm_status_and_diagnostics_commands() {
     let default_status = parse_args(["mitm"]).expect("mitm should default to status");
     let status =
@@ -162,9 +177,16 @@ fn parses_mitm_status_and_diagnostics_commands() {
         parse_args(["mitm", "browser-capture"]).expect("mitm browser-capture should parse");
     let browser_capture_plan = parse_args(["mitm", "browser-capture", "plan", "--format", "json"])
         .expect("mitm browser-capture plan should parse");
-    let browser_capture_launch_plan =
-        parse_args(["mitm", "browser-capture", "launch-plan", "--format", "json"])
-            .expect("mitm browser-capture launch-plan should parse");
+    let browser_capture_launch_plan = parse_args([
+        "mitm",
+        "browser-capture",
+        "launch-plan",
+        "--proxy-scheme",
+        "socks5",
+        "--format",
+        "json",
+    ])
+    .expect("mitm browser-capture launch-plan should parse");
     let browser_capture_session_plan = parse_args([
         "mitm",
         "browser-capture",
@@ -176,6 +198,12 @@ fn parses_mitm_status_and_diagnostics_commands() {
         "/tmp/networkcore-browser-capture-profile",
         "--target-url",
         "https://example.com/capture",
+        "--proof-token",
+        "browser-proof-123",
+        "--proof-log",
+        "/tmp/networkcore-browser-proof.log",
+        "--proxy-scheme",
+        "socks5",
         "--listen-host",
         "127.0.0.1",
         "--listen-port",
@@ -194,6 +222,10 @@ fn parses_mitm_status_and_diagnostics_commands() {
         "/tmp/networkcore-browser-capture-profile",
         "--target-url",
         "https://example.com/capture",
+        "--proof-token",
+        "browser-proof-123",
+        "--proof-log",
+        "/tmp/networkcore-browser-proof.log",
         "--confirm",
         "--format",
         "json",
@@ -208,6 +240,8 @@ fn parses_mitm_status_and_diagnostics_commands() {
         "--confirm",
         "--pac-file",
         "/tmp/networkcore-browser-capture.pac",
+        "--policy-file",
+        "/tmp/networkcore-browser-capture-policy.json",
         "--snapshot",
         "/tmp/networkcore-browser-capture.snapshot.json",
         "--format",
@@ -236,14 +270,27 @@ fn parses_mitm_status_and_diagnostics_commands() {
         "browser-capture",
         "traffic-proof",
         "--confirm",
+        "--target-url",
+        "https://example.com/capture",
         "--proof-token",
         "browser-proof-123",
         "--proof-log",
         "/tmp/networkcore-browser-proof.log",
+        "--proxy-scheme",
+        "socks5",
         "--format",
         "json",
     ])
     .expect("mitm browser-capture traffic-proof should parse");
+    let browser_capture_traffic_proof_defaults = parse_args([
+        "mitm",
+        "browser-capture",
+        "traffic-proof",
+        "--confirm",
+        "--target-url",
+        "https://example.com/capture",
+    ])
+    .expect("mitm browser-capture traffic-proof default proof binding should parse");
 
     assert_eq!(
         default_status,
@@ -284,36 +331,42 @@ fn parses_mitm_status_and_diagnostics_commands() {
     assert_eq!(
         browser_plan,
         LinuxCliCommand::MitmBrowserPlan {
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             format: OutputFormat::Json
         }
     );
     assert_eq!(
         browser_capture_plan_alias,
         LinuxCliCommand::MitmBrowserPlan {
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             format: OutputFormat::Text
         }
     );
     assert_eq!(
         hijack_plan_alias,
         LinuxCliCommand::MitmBrowserPlan {
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             format: OutputFormat::Text
         }
     );
     assert_eq!(
         browser_capture_default,
         LinuxCliCommand::MitmBrowserCapturePlan {
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             format: OutputFormat::Text
         }
     );
     assert_eq!(
         browser_capture_plan,
         LinuxCliCommand::MitmBrowserCapturePlan {
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             format: OutputFormat::Json
         }
     );
     assert_eq!(
         browser_capture_launch_plan,
         LinuxCliCommand::MitmBrowserCaptureLaunchPlan {
+            proxy_scheme: MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME.to_string(),
             format: OutputFormat::Json
         }
     );
@@ -324,6 +377,9 @@ fn parses_mitm_status_and_diagnostics_commands() {
             browser: "google-chrome".to_string(),
             profile_dir: "/tmp/networkcore-browser-capture-profile".to_string(),
             target_url: Some("https://example.com/capture".to_string()),
+            proof_token: Some("browser-proof-123".to_string()),
+            proof_log_path: Some("/tmp/networkcore-browser-proof.log".to_string()),
+            proxy_scheme: MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME.to_string(),
             listen_host: "127.0.0.1".to_string(),
             listen_port: 7891,
             format: OutputFormat::Json
@@ -335,6 +391,9 @@ fn parses_mitm_status_and_diagnostics_commands() {
             browser: "google-chrome".to_string(),
             profile_dir: "/tmp/networkcore-browser-capture-profile".to_string(),
             target_url: Some("https://example.com/capture".to_string()),
+            proof_token: Some("browser-proof-123".to_string()),
+            proof_log_path: Some("/tmp/networkcore-browser-proof.log".to_string()),
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             confirm: true,
             format: OutputFormat::Json
         }
@@ -343,7 +402,9 @@ fn parses_mitm_status_and_diagnostics_commands() {
         browser_capture_apply,
         LinuxCliCommand::MitmBrowserCaptureApply {
             pac_file_path: None,
+            policy_file_path: None,
             snapshot_path: None,
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             confirm: true,
             format: OutputFormat::Text
         }
@@ -352,7 +413,9 @@ fn parses_mitm_status_and_diagnostics_commands() {
         browser_capture_apply_pac,
         LinuxCliCommand::MitmBrowserCaptureApply {
             pac_file_path: Some("/tmp/networkcore-browser-capture.pac".to_string()),
+            policy_file_path: Some("/tmp/networkcore-browser-capture-policy.json".to_string()),
             snapshot_path: Some("/tmp/networkcore-browser-capture.snapshot.json".to_string()),
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             confirm: true,
             format: OutputFormat::Json
         }
@@ -368,6 +431,7 @@ fn parses_mitm_status_and_diagnostics_commands() {
         browser_capture_verify,
         LinuxCliCommand::MitmBrowserCaptureVerify {
             target_url: Some("https://example.com/capture".to_string()),
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             confirm: true,
             format: OutputFormat::Text
         }
@@ -375,10 +439,23 @@ fn parses_mitm_status_and_diagnostics_commands() {
     assert_eq!(
         browser_capture_traffic_proof,
         LinuxCliCommand::MitmBrowserCaptureTrafficProof {
-            proof_token: "browser-proof-123".to_string(),
-            proof_log_path: "/tmp/networkcore-browser-proof.log".to_string(),
+            target_url: Some("https://example.com/capture".to_string()),
+            proof_token: Some("browser-proof-123".to_string()),
+            proof_log_path: Some("/tmp/networkcore-browser-proof.log".to_string()),
+            proxy_scheme: MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME.to_string(),
             confirm: true,
             format: OutputFormat::Json
+        }
+    );
+    assert_eq!(
+        browser_capture_traffic_proof_defaults,
+        LinuxCliCommand::MitmBrowserCaptureTrafficProof {
+            target_url: Some("https://example.com/capture".to_string()),
+            proof_token: None,
+            proof_log_path: None,
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
+            confirm: true,
+            format: OutputFormat::Text
         }
     );
 }
@@ -654,7 +731,7 @@ fn mitm_status_loads_builtin_policy_and_reports_deferred_gates() {
         .browser_plan
         .blocked_operations
         .iter()
-        .any(|operation| operation == "write-browser-policy"));
+        .any(|operation| operation == "install-browser-policy"));
     assert_eq!(
         mitm.policy.plugin_id,
         mitm_policy::MITM_POLICY_AD_BLOCK_PLUGIN_ID
@@ -848,7 +925,9 @@ fn mitm_browser_capture_plan_outputs_source_contract_report_without_mutation() {
     assert!(capture.verify_report.is_none());
 
     let rendered = render_response(&response, OutputFormat::Text);
-    assert!(rendered.contains("browser capture plan: pac-artifact-active/system-mutation-blocked"));
+    assert!(
+        rendered.contains("browser capture plan: pac-policy-artifact-active/system-mutation-blocked")
+    );
     assert!(rendered.contains("browser capture source contract: active"));
 }
 
@@ -917,6 +996,8 @@ fn mitm_browser_capture_session_plan_links_proxy_browser_and_plugin_without_muta
         "google-chrome",
         "/tmp/networkcore-browser-capture-contract-profile",
         Some("https://example.com/capture"),
+        Some("browser-proof-123"),
+        Some("/tmp/networkcore-browser-proof.log"),
         "127.0.0.1",
         7891,
     );
@@ -959,9 +1040,16 @@ fn mitm_browser_capture_session_plan_links_proxy_browser_and_plugin_without_muta
         request.target_url.as_deref(),
         Some("https://example.com/capture")
     );
+    assert_eq!(
+        request.proof_target_url.as_deref(),
+        Some("https://example.com/capture?networkcore_proof_token=browser-proof-123")
+    );
+    assert_eq!(request.proof_token, "browser-proof-123");
+    assert_eq!(request.proof_log_path, "/tmp/networkcore-browser-proof.log");
     assert_eq!(request.listen_port, 7891);
     assert!(capture.request.launch.is_some());
     assert!(capture.request.verify.is_some());
+    assert!(capture.request.traffic_proof.is_some());
 
     let session = capture
         .session_plan
@@ -980,17 +1068,28 @@ fn mitm_browser_capture_session_plan_links_proxy_browser_and_plugin_without_muta
         session.target_url.as_deref(),
         Some("https://example.com/capture")
     );
+    assert_eq!(
+        session.proof_target_url.as_deref(),
+        Some("https://example.com/capture?networkcore_proof_token=browser-proof-123")
+    );
+    assert_eq!(session.proof_token, "browser-proof-123");
+    assert_eq!(session.proof_log_path, "/tmp/networkcore-browser-proof.log");
     assert!(session
         .browser_command
         .args
         .contains(&"--proxy-server=http://127.0.0.1:7891".to_string()));
-    assert!(session
-        .browser_command
-        .args
-        .contains(&"https://example.com/capture".to_string()));
+    assert!(session.browser_command.args.contains(
+        &"https://example.com/capture?networkcore_proof_token=browser-proof-123".to_string()
+    ));
     assert!(session
         .verify_command
         .contains("--target-url https://example.com/capture"));
+    assert!(session
+        .traffic_proof_command
+        .contains("--proof-token browser-proof-123"));
+    assert!(session
+        .traffic_proof_command
+        .contains("--proof-log /tmp/networkcore-browser-proof.log"));
     assert_eq!(
         capture
             .request
@@ -1018,7 +1117,64 @@ fn mitm_browser_capture_session_plan_links_proxy_browser_and_plugin_without_muta
     assert!(rendered.contains("browser capture session plan: ready node=香港"));
     assert!(rendered.contains("browser capture session local proxy: 127.0.0.1:7891"));
     assert!(rendered.contains("browser capture session target URL: https://example.com/capture"));
+    assert!(rendered.contains(
+        "browser capture session proof target URL: https://example.com/capture?networkcore_proof_token=browser-proof-123"
+    ));
+    assert!(rendered.contains("browser capture session traffic-proof command:"));
     assert!(rendered.contains("browser capture session browser command: google-chrome"));
+}
+
+#[test]
+fn mitm_browser_capture_session_plan_can_target_native_socks5_mitm_hook() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+
+    let response = handle_mitm_browser_capture_session_plan_with_proxy_scheme(
+        &platform,
+        "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF",
+        "chromium",
+        MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR,
+        Some("https://example.com/capture"),
+        Some("browser-proof-123"),
+        Some("/tmp/networkcore-browser-proof.log"),
+        MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME,
+        "127.0.0.1",
+        7890,
+    );
+
+    assert!(response.ok);
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("session-plan response should include browser capture report");
+    assert_eq!(
+        capture.plan.planned_proxy_scheme,
+        MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME
+    );
+    let session = capture
+        .session_plan
+        .as_ref()
+        .expect("session-plan report should be present");
+    assert_eq!(
+        session.proxy_scheme,
+        MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME
+    );
+    assert_eq!(session.proxy_url, "socks5://127.0.0.1:7890");
+    assert!(session
+        .browser_command
+        .args
+        .contains(&"--proxy-server=socks5://127.0.0.1:7890".to_string()));
+    assert!(session
+        .verify_command
+        .contains("--proxy-scheme socks5"));
+    assert!(session
+        .traffic_proof_command
+        .contains("--proxy-scheme socks5"));
+
+    let rendered = render_response(&response, OutputFormat::Text);
+    assert!(rendered.contains("browser capture planned proxy scheme: socks5"));
+    assert!(rendered.contains("browser capture session proxy scheme: socks5"));
+    assert!(rendered.contains("--proxy-server=socks5://127.0.0.1:7890"));
 }
 
 #[test]
@@ -1032,6 +1188,8 @@ fn mitm_browser_capture_launch_requires_confirmation_before_starting_browser() {
         &runner,
         "chromium",
         MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR,
+        None,
+        None,
         None,
         false,
     );
@@ -1077,6 +1235,8 @@ fn mitm_browser_capture_launch_uses_injected_runner_with_dedicated_profile() {
         "google-chrome",
         "/tmp/networkcore-browser-capture-contract-profile",
         Some("https://example.com/capture"),
+        Some("browser-proof-123"),
+        Some("/tmp/networkcore-browser-proof.log"),
         true,
     );
 
@@ -1109,6 +1269,19 @@ fn mitm_browser_capture_launch_uses_injected_runner_with_dedicated_profile() {
         launch.request.target_url.as_deref(),
         Some("https://example.com/capture")
     );
+    assert_eq!(
+        launch.request.proof_target_url.as_deref(),
+        Some("https://example.com/capture?networkcore_proof_token=browser-proof-123")
+    );
+    assert_eq!(launch.request.proof_token, "browser-proof-123");
+    assert_eq!(
+        launch.request.proof_log_path,
+        "/tmp/networkcore-browser-proof.log"
+    );
+    assert!(launch
+        .request
+        .traffic_proof_command
+        .contains("--proof-token browser-proof-123"));
     assert!(launch.request.command.args.contains(
         &"--user-data-dir=/tmp/networkcore-browser-capture-contract-profile".to_string()
     ));
@@ -1117,11 +1290,18 @@ fn mitm_browser_capture_launch_uses_injected_runner_with_dedicated_profile() {
         .command
         .args
         .contains(&"--proxy-server=http://127.0.0.1:7890".to_string()));
-    assert!(launch
-        .request
-        .command
-        .args
-        .contains(&"https://example.com/capture".to_string()));
+    assert!(launch.request.command.args.contains(
+        &"https://example.com/capture?networkcore_proof_token=browser-proof-123".to_string()
+    ));
+    assert_eq!(
+        capture
+            .request
+            .traffic_proof
+            .as_ref()
+            .expect("launch response should include a traffic proof request")
+            .proof_token,
+        "browser-proof-123"
+    );
     assert_eq!(
         launch.plugin_id,
         mitm_policy::MITM_POLICY_AD_BLOCK_PLUGIN_ID
@@ -1130,7 +1310,59 @@ fn mitm_browser_capture_launch_uses_injected_runner_with_dedicated_profile() {
     let rendered = render_response(&response, OutputFormat::Text);
     assert!(rendered.contains("browser capture launch: started launched=true pid=4242"));
     assert!(rendered.contains("browser capture launch target URL: https://example.com/capture"));
+    assert!(rendered.contains(
+        "browser capture launch proof target URL: https://example.com/capture?networkcore_proof_token=browser-proof-123"
+    ));
+    assert!(rendered.contains("browser capture launch traffic-proof command:"));
     assert!(rendered.contains("browser capture launch command: google-chrome"));
+}
+
+#[test]
+fn mitm_browser_capture_launch_can_use_native_socks5_proxy_scheme() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let runner = TestSocks5BrowserCaptureRunner;
+
+    let response = handle_mitm_browser_capture_launch_with_proxy_scheme(
+        &platform,
+        &runner,
+        "chromium",
+        MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR,
+        Some("https://example.com/capture"),
+        Some("browser-proof-123"),
+        Some("/tmp/networkcore-browser-proof.log"),
+        MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME,
+        true,
+    );
+
+    assert!(response.ok);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_LAUNCH_STARTED_CODE,
+    );
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("launch response should include browser capture report");
+    let launch = capture
+        .launch_report
+        .as_ref()
+        .expect("launch response should include a launch report");
+    assert_eq!(launch.pid, Some(5252));
+    assert_eq!(
+        launch.request.proxy_scheme,
+        MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME
+    );
+    assert_eq!(launch.request.proxy_url, "socks5://127.0.0.1:7890");
+    assert!(launch
+        .request
+        .command
+        .args
+        .contains(&"--proxy-server=socks5://127.0.0.1:7890".to_string()));
+    assert!(launch
+        .request
+        .traffic_proof_command
+        .contains("--proxy-scheme socks5"));
 }
 
 #[test]
@@ -1298,8 +1530,9 @@ fn mitm_browser_capture_traffic_proof_requires_confirmation_before_reading_evide
     let response = handle_mitm_browser_capture_traffic_proof_with_probe(
         &platform,
         &probe,
-        "browser-proof-123",
-        "/tmp/networkcore-browser-proof.log",
+        None,
+        Some("browser-proof-123"),
+        Some("/tmp/networkcore-browser-proof.log"),
         false,
     );
 
@@ -1343,8 +1576,9 @@ fn mitm_browser_capture_traffic_proof_uses_injected_probe_for_observed_token() {
     let response = handle_mitm_browser_capture_traffic_proof_with_probe(
         &platform,
         &probe,
-        "browser-proof-123",
-        "/tmp/networkcore-browser-proof.log",
+        None,
+        Some("browser-proof-123"),
+        Some("/tmp/networkcore-browser-proof.log"),
         true,
     );
 
@@ -1373,6 +1607,8 @@ fn mitm_browser_capture_traffic_proof_uses_injected_probe_for_observed_token() {
     assert_eq!(proof.request.proxy_host, MITM_BROWSER_CAPTURE_PROXY_HOST);
     assert_eq!(proof.request.proxy_port, MITM_BROWSER_CAPTURE_PROXY_PORT);
     assert_eq!(proof.request.proxy_url, "http://127.0.0.1:7890");
+    assert!(proof.request.target_url.is_none());
+    assert!(proof.request.proof_target_url.is_none());
     assert_eq!(proof.request.probe, "proof-log-token");
     assert_eq!(proof.plugin_id, mitm_policy::MITM_POLICY_AD_BLOCK_PLUGIN_ID);
 
@@ -1384,6 +1620,103 @@ fn mitm_browser_capture_traffic_proof_uses_injected_probe_for_observed_token() {
 }
 
 #[test]
+fn mitm_browser_capture_traffic_proof_defaults_to_session_proof_binding() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let probe = TestBrowserCaptureTrafficProofProbe { observed: true };
+
+    let response = handle_mitm_browser_capture_traffic_proof_with_probe(
+        &platform,
+        &probe,
+        Some("https://example.com/capture"),
+        None,
+        None,
+        true,
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "mitm browser-capture traffic-proof");
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_OBSERVED_CODE,
+    );
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("traffic-proof response should include browser capture report");
+    let proof = capture
+        .traffic_proof_report
+        .as_ref()
+        .expect("traffic-proof response should include proof report");
+    assert_eq!(proof.status, "observed");
+    assert!(proof.proven);
+    assert_eq!(
+        proof.request.target_url.as_deref(),
+        Some("https://example.com/capture")
+    );
+    assert!(proof
+        .request
+        .proof_token
+        .starts_with("networkcore-browser-proof-"));
+    let expected_proof_url = format!(
+        "https://example.com/capture?{}={}",
+        MITM_BROWSER_CAPTURE_PROOF_QUERY_PARAM, proof.request.proof_token
+    );
+    assert_eq!(
+        proof.request.proof_target_url.as_deref(),
+        Some(expected_proof_url.as_str())
+    );
+    assert_eq!(
+        proof.request.proof_log_path,
+        MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH
+    );
+
+    let rendered = render_response(&response, OutputFormat::Text);
+    assert!(rendered
+        .contains("browser capture traffic proof target URL: https://example.com/capture"));
+    assert!(rendered.contains(&format!(
+        "browser capture traffic proof target proof URL: {expected_proof_url}"
+    )));
+    assert!(rendered.contains("browser capture traffic proof token: networkcore-browser-proof-"));
+}
+
+#[test]
+fn mitm_browser_capture_default_proof_token_tracks_connect_endpoint_not_url_path() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let probe = TestBrowserCaptureTrafficProofProbe { observed: true };
+
+    let token_for_path = |target_url: &str| {
+        let response = handle_mitm_browser_capture_traffic_proof_with_probe(
+            &platform,
+            &probe,
+            Some(target_url),
+            None,
+            None,
+            true,
+        );
+        response
+            .browser_capture
+            .as_ref()
+            .expect("traffic-proof response should include browser capture report")
+            .traffic_proof_report
+            .as_ref()
+            .expect("traffic-proof response should include proof report")
+            .request
+            .proof_token
+            .clone()
+    };
+
+    let first_token = token_for_path("https://example.com/capture");
+    let second_token = token_for_path("https://example.com/another-path");
+    let different_endpoint_token = token_for_path("https://example.org/capture");
+
+    assert!(first_token.starts_with("networkcore-browser-proof-"));
+    assert_eq!(first_token, second_token);
+    assert_ne!(first_token, different_endpoint_token);
+}
+
+#[test]
 fn mitm_browser_capture_traffic_proof_reports_missing_token_without_live_mitm_claim() {
     let platform =
         StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
@@ -1392,8 +1725,9 @@ fn mitm_browser_capture_traffic_proof_reports_missing_token_without_live_mitm_cl
     let response = handle_mitm_browser_capture_traffic_proof_with_probe(
         &platform,
         &probe,
-        "browser-proof-123",
-        "/tmp/networkcore-browser-proof.log",
+        None,
+        Some("browser-proof-123"),
+        Some("/tmp/networkcore-browser-proof.log"),
         true,
     );
 
@@ -1431,8 +1765,9 @@ fn mitm_browser_capture_traffic_proof_stays_blocked_without_probe_wiring() {
 
     let response = handle_mitm_browser_capture_traffic_proof(
         &platform,
-        "browser-proof-123",
-        "/tmp/networkcore-browser-proof.log",
+        None,
+        Some("browser-proof-123"),
+        Some("/tmp/networkcore-browser-proof.log"),
         true,
     );
 
@@ -1519,6 +1854,7 @@ fn mitm_browser_capture_apply_with_store_requires_pac_file_and_snapshot() {
         &TestBrowserCapturePacFileStore,
         None,
         None,
+        None,
         true,
     );
 
@@ -1551,6 +1887,7 @@ fn mitm_browser_capture_apply_with_store_writes_pac_file_artifact() {
         &platform,
         &TestBrowserCapturePacFileStore,
         Some("/tmp/networkcore-browser-capture.pac"),
+        None,
         Some("/tmp/networkcore-browser-capture.snapshot.json"),
         true,
     );
@@ -1601,6 +1938,106 @@ fn mitm_browser_capture_apply_with_store_writes_pac_file_artifact() {
             .status,
         "networkcore-created"
     );
+}
+
+#[test]
+fn mitm_browser_capture_apply_with_store_can_write_browser_policy_artifact() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+
+    let response = handle_mitm_browser_capture_apply_with_store(
+        &platform,
+        &TestBrowserCapturePolicyFileStore,
+        Some("/tmp/networkcore-browser-capture.pac"),
+        Some("/tmp/networkcore-browser-capture-policy.json"),
+        Some("/tmp/networkcore-browser-capture.snapshot.json"),
+        true,
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "mitm browser-capture apply");
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
+    );
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("apply response should include browser capture report");
+    let pac = capture
+        .request
+        .pac
+        .as_ref()
+        .expect("apply response should include PAC request");
+    assert_eq!(
+        pac.policy_file_path.as_deref(),
+        Some("/tmp/networkcore-browser-capture-policy.json")
+    );
+    assert_eq!(
+        pac.policy_url.as_deref(),
+        Some("file:///tmp/networkcore-browser-capture-policy.json")
+    );
+    let policy_content = pac
+        .policy_content
+        .as_ref()
+        .expect("policy content should be present");
+    assert!(policy_content.contains("\"ProxyMode\": \"fixed_servers\""));
+    assert!(policy_content.contains("\"ProxyServer\": \"http://127.0.0.1:7890\""));
+    assert!(policy_content.contains("\"ProxyBypassList\": \"<-loopback>\""));
+
+    let apply = capture
+        .apply_report
+        .as_ref()
+        .expect("apply response should include apply report");
+    assert_eq!(apply.status, "applied");
+    assert!(apply.applied);
+    assert_eq!(
+        apply.policy_file_path.as_deref(),
+        Some("/tmp/networkcore-browser-capture-policy.json")
+    );
+    assert_eq!(
+        apply.policy_url.as_deref(),
+        Some("file:///tmp/networkcore-browser-capture-policy.json")
+    );
+
+    let rendered = render_response(&response, OutputFormat::Text);
+    assert!(rendered
+        .contains("browser capture browser policy file: /tmp/networkcore-browser-capture-policy.json"));
+    assert!(rendered
+        .contains("browser capture browser policy URL: file:///tmp/networkcore-browser-capture-policy.json"));
+}
+
+#[test]
+fn mitm_browser_capture_apply_can_write_socks5_pac_artifact() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+
+    let response = handle_mitm_browser_capture_apply_with_store_and_proxy_scheme(
+        &platform,
+        &TestSocks5BrowserCapturePacFileStore,
+        Some("/tmp/networkcore-browser-capture.pac"),
+        None,
+        Some("/tmp/networkcore-browser-capture.snapshot.json"),
+        MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME,
+        true,
+    );
+
+    assert!(response.ok);
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("apply response should include browser capture report");
+    let pac = capture
+        .request
+        .pac
+        .as_ref()
+        .expect("apply response should include PAC request");
+    assert_eq!(
+        pac.proxy_scheme,
+        MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME
+    );
+    assert_eq!(pac.proxy_url, "socks5://127.0.0.1:7890");
+    assert!(pac.pac_content.contains("SOCKS5 127.0.0.1:7890; DIRECT"));
 }
 
 #[test]
@@ -1742,18 +2179,21 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
     );
     let browser_plan = handle_entrypoint(
         LinuxCliCommand::MitmBrowserPlan {
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             format: OutputFormat::Text,
         },
         &platform,
     );
     let browser_capture_plan = handle_entrypoint(
         LinuxCliCommand::MitmBrowserCapturePlan {
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             format: OutputFormat::Text,
         },
         &platform,
     );
     let browser_capture_launch_plan = handle_entrypoint(
         LinuxCliCommand::MitmBrowserCaptureLaunchPlan {
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             format: OutputFormat::Text,
         },
         &platform,
@@ -1764,6 +2204,9 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
             browser: "chromium".to_string(),
             profile_dir: MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR.to_string(),
             target_url: None,
+            proof_token: None,
+            proof_log_path: None,
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             listen_host: MITM_BROWSER_CAPTURE_PROXY_HOST.to_string(),
             listen_port: MITM_BROWSER_CAPTURE_PROXY_PORT,
             format: OutputFormat::Text,
@@ -1773,7 +2216,9 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
     let browser_capture_apply = handle_entrypoint(
         LinuxCliCommand::MitmBrowserCaptureApply {
             pac_file_path: None,
+            policy_file_path: None,
             snapshot_path: None,
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             confirm: true,
             format: OutputFormat::Text,
         },
@@ -1789,6 +2234,7 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
     let browser_capture_verify = handle_entrypoint(
         LinuxCliCommand::MitmBrowserCaptureVerify {
             target_url: None,
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             confirm: true,
             format: OutputFormat::Text,
         },
@@ -1796,8 +2242,10 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
     );
     let browser_capture_traffic_proof = handle_entrypoint(
         LinuxCliCommand::MitmBrowserCaptureTrafficProof {
-            proof_token: "browser-proof-123".to_string(),
-            proof_log_path: "/tmp/networkcore-browser-proof.log".to_string(),
+            target_url: None,
+            proof_token: Some("browser-proof-123".to_string()),
+            proof_log_path: Some("/tmp/networkcore-browser-proof.log".to_string()),
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             confirm: true,
             format: OutputFormat::Text,
         },
@@ -2110,6 +2558,9 @@ fn browser_capture_entrypoint_routes_launch_to_injected_runner() {
             browser: "chromium".to_string(),
             profile_dir: MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR.to_string(),
             target_url: Some("https://example.com/capture".to_string()),
+            proof_token: Some("browser-proof-123".to_string()),
+            proof_log_path: Some("/tmp/networkcore-browser-proof.log".to_string()),
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             confirm: true,
             format: OutputFormat::Json,
         },
@@ -2136,6 +2587,10 @@ fn browser_capture_entrypoint_routes_launch_to_injected_runner() {
         launch.request.target_url.as_deref(),
         Some("https://example.com/capture")
     );
+    assert_eq!(
+        launch.request.proof_target_url.as_deref(),
+        Some("https://example.com/capture?networkcore_proof_token=browser-proof-123")
+    );
 }
 
 #[test]
@@ -2147,6 +2602,7 @@ fn browser_capture_entrypoint_routes_verify_to_injected_endpoint_probe() {
     let response = handle_entrypoint_with_browser_capture_io(
         LinuxCliCommand::MitmBrowserCaptureVerify {
             target_url: Some("https://example.com/capture".to_string()),
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             confirm: true,
             format: OutputFormat::Json,
         },
@@ -2187,8 +2643,10 @@ fn browser_capture_entrypoint_routes_traffic_proof_to_injected_probe() {
 
     let response = handle_entrypoint_with_browser_capture_all_io(
         LinuxCliCommand::MitmBrowserCaptureTrafficProof {
-            proof_token: "browser-proof-123".to_string(),
-            proof_log_path: "/tmp/networkcore-browser-proof.log".to_string(),
+            target_url: Some("https://example.com/capture".to_string()),
+            proof_token: Some("browser-proof-123".to_string()),
+            proof_log_path: Some("/tmp/networkcore-browser-proof.log".to_string()),
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             confirm: true,
             format: OutputFormat::Json,
         },
@@ -2228,7 +2686,9 @@ fn browser_capture_entrypoint_routes_apply_and_rollback_to_pac_store() {
     let apply = handle_entrypoint_with_browser_capture_all_io(
         LinuxCliCommand::MitmBrowserCaptureApply {
             pac_file_path: Some("/tmp/networkcore-browser-capture.pac".to_string()),
+            policy_file_path: None,
             snapshot_path: Some("/tmp/networkcore-browser-capture.snapshot.json".to_string()),
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             confirm: true,
             format: OutputFormat::Json,
         },
@@ -2274,6 +2734,9 @@ fn read_only_entrypoint_does_not_launch_browser_without_runner() {
             browser: "chromium".to_string(),
             profile_dir: MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR.to_string(),
             target_url: None,
+            proof_token: None,
+            proof_log_path: None,
+            proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             confirm: true,
             format: OutputFormat::Text,
         },
@@ -2653,7 +3116,7 @@ fn mitm_status_json_output_contains_machine_fields() {
         .as_array()
         .expect("browser blocked operations should be an array")
         .iter()
-        .any(|operation| operation.as_str() == Some("write-browser-policy")));
+        .any(|operation| operation.as_str() == Some("install-browser-policy")));
     assert_eq!(
         json["mitm_status"]["policy"]["plugin_id"],
         mitm_policy::MITM_POLICY_AD_BLOCK_PLUGIN_ID
@@ -2711,6 +3174,10 @@ fn browser_capture_json_output_contains_machine_report_fields() {
         MITM_BROWSER_CAPTURE_PROXY_HOST
     );
     assert_eq!(
+        json["browser_capture"]["plan"]["planned_proxy_scheme"],
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME
+    );
+    assert_eq!(
         json["browser_capture"]["plan"]["manual_launch"]["status"],
         "manual-launch-plan-ready"
     );
@@ -2755,6 +3222,7 @@ fn browser_capture_pac_apply_json_output_contains_artifact_fields() {
         &platform,
         &TestBrowserCapturePacFileStore,
         Some("/tmp/networkcore-browser-capture.pac"),
+        None,
         Some("/tmp/networkcore-browser-capture.snapshot.json"),
         true,
     );
@@ -2771,6 +3239,10 @@ fn browser_capture_pac_apply_json_output_contains_artifact_fields() {
         "http://127.0.0.1:7890"
     );
     assert_eq!(
+        json["browser_capture"]["request"]["pac"]["proxy_scheme"],
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME
+    );
+    assert_eq!(
         json["browser_capture"]["request"]["pac"]["pac_file_path"],
         "/tmp/networkcore-browser-capture.pac"
     );
@@ -2782,6 +3254,9 @@ fn browser_capture_pac_apply_json_output_contains_artifact_fields() {
         json["browser_capture"]["request"]["pac"]["pac_url"],
         "file:///tmp/networkcore-browser-capture.pac"
     );
+    assert!(json["browser_capture"]["request"]["pac"]["policy_file_path"].is_null());
+    assert!(json["browser_capture"]["request"]["pac"]["policy_url"].is_null());
+    assert!(json["browser_capture"]["request"]["pac"]["policy_content"].is_null());
     assert_eq!(json["browser_capture"]["apply_report"]["status"], "applied");
     assert_eq!(
         json["browser_capture"]["apply_report"]["applied"].as_bool(),
@@ -2795,6 +3270,8 @@ fn browser_capture_pac_apply_json_output_contains_artifact_fields() {
         json["browser_capture"]["apply_report"]["pac_url"],
         "file:///tmp/networkcore-browser-capture.pac"
     );
+    assert!(json["browser_capture"]["apply_report"]["policy_file_path"].is_null());
+    assert!(json["browser_capture"]["apply_report"]["policy_url"].is_null());
     assert_eq!(
         json["browser_capture"]["apply_report"]["rollback_snapshot"]["status"],
         "networkcore-created"
@@ -2811,6 +3288,8 @@ fn browser_capture_launch_json_output_contains_process_report_fields() {
         "chromium",
         MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR,
         Some("https://example.com/capture"),
+        Some("browser-proof-123"),
+        Some("/tmp/networkcore-browser-proof.log"),
         true,
     );
 
@@ -2832,6 +3311,28 @@ fn browser_capture_launch_json_output_contains_process_report_fields() {
     assert_eq!(
         json["browser_capture"]["request"]["launch"]["target_url"],
         "https://example.com/capture"
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["launch"]["proof_target_url"],
+        "https://example.com/capture?networkcore_proof_token=browser-proof-123"
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["launch"]["proof_token"],
+        "browser-proof-123"
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["launch"]["proof_log_path"],
+        "/tmp/networkcore-browser-proof.log"
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["launch"]["proxy_scheme"],
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME
+    );
+    assert!(
+        json["browser_capture"]["request"]["launch"]["traffic_proof_command"]
+            .as_str()
+            .expect("traffic proof command should be a string")
+            .contains("--proof-token browser-proof-123")
     );
     assert_eq!(
         json["browser_capture"]["launch_report"]["status"],
@@ -2861,7 +3362,8 @@ fn browser_capture_launch_json_output_contains_process_report_fields() {
             .as_array()
             .expect("launch args should be an array")
             .iter()
-            .any(|arg| arg.as_str() == Some("https://example.com/capture"))
+            .any(|arg| arg.as_str()
+                == Some("https://example.com/capture?networkcore_proof_token=browser-proof-123"))
     );
     assert_eq!(
         json["browser_capture"]["launch_report"]["plugin_id"],
@@ -2897,6 +3399,10 @@ fn browser_capture_verify_json_output_contains_endpoint_probe_fields() {
         "http://127.0.0.1:7890"
     );
     assert_eq!(
+        json["browser_capture"]["request"]["verify"]["proxy_scheme"],
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME
+    );
+    assert_eq!(
         json["browser_capture"]["request"]["verify"]["target_url"],
         "https://example.com/capture"
     );
@@ -2930,8 +3436,9 @@ fn browser_capture_traffic_proof_json_output_contains_proof_fields() {
     let response = handle_mitm_browser_capture_traffic_proof_with_probe(
         &platform,
         &probe,
-        "browser-proof-123",
-        "/tmp/networkcore-browser-proof.log",
+        Some("https://example.com/capture"),
+        Some("browser-proof-123"),
+        Some("/tmp/networkcore-browser-proof.log"),
         true,
     );
 
@@ -2949,6 +3456,18 @@ fn browser_capture_traffic_proof_json_output_contains_proof_fields() {
     assert_eq!(
         json["browser_capture"]["request"]["traffic_proof"]["proxy_url"],
         "http://127.0.0.1:7890"
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["traffic_proof"]["proxy_scheme"],
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["traffic_proof"]["target_url"],
+        "https://example.com/capture"
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["traffic_proof"]["proof_target_url"],
+        "https://example.com/capture?networkcore_proof_token=browser-proof-123"
     );
     assert_eq!(
         json["browser_capture"]["request"]["traffic_proof"]["proof_token"],
@@ -2990,6 +3509,8 @@ fn browser_capture_session_plan_json_output_contains_session_fields() {
         "chromium",
         MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR,
         Some("https://example.com/capture"),
+        Some("browser-proof-123"),
+        Some("/tmp/networkcore-browser-proof.log"),
         "127.0.0.1",
         7890,
     );
@@ -3014,16 +3535,40 @@ fn browser_capture_session_plan_json_output_contains_session_fields() {
         "https://example.com/capture"
     );
     assert_eq!(
+        json["browser_capture"]["request"]["session"]["proof_target_url"],
+        "https://example.com/capture?networkcore_proof_token=browser-proof-123"
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["session"]["proof_token"],
+        "browser-proof-123"
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["session"]["proof_log_path"],
+        "/tmp/networkcore-browser-proof.log"
+    );
+    assert_eq!(
         json["browser_capture"]["request"]["launch"]["target_url"],
         "https://example.com/capture"
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["launch"]["proof_target_url"],
+        "https://example.com/capture?networkcore_proof_token=browser-proof-123"
     );
     assert_eq!(
         json["browser_capture"]["request"]["launch"]["proxy_url"],
         "http://127.0.0.1:7890"
     );
     assert_eq!(
+        json["browser_capture"]["request"]["launch"]["proxy_scheme"],
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME
+    );
+    assert_eq!(
         json["browser_capture"]["request"]["verify"]["proxy_url"],
         "http://127.0.0.1:7890"
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["verify"]["proxy_scheme"],
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME
     );
     assert_eq!(
         json["browser_capture"]["request"]["verify"]["target_url"],
@@ -3040,12 +3585,34 @@ fn browser_capture_session_plan_json_output_contains_session_fields() {
         "https://example.com/capture"
     );
     assert_eq!(
+        json["browser_capture"]["session_plan"]["proof_target_url"],
+        "https://example.com/capture?networkcore_proof_token=browser-proof-123"
+    );
+    assert_eq!(
+        json["browser_capture"]["session_plan"]["proof_token"],
+        "browser-proof-123"
+    );
+    assert_eq!(
+        json["browser_capture"]["session_plan"]["proof_log_path"],
+        "/tmp/networkcore-browser-proof.log"
+    );
+    assert_eq!(
         json["browser_capture"]["session_plan"]["proxy_url"],
         "http://127.0.0.1:7890"
     );
     assert_eq!(
+        json["browser_capture"]["session_plan"]["proxy_scheme"],
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME
+    );
+    assert_eq!(
         json["browser_capture"]["session_plan"]["verify_command"],
         "networkcore-linux mitm browser-capture verify --confirm --target-url https://example.com/capture"
+    );
+    assert!(
+        json["browser_capture"]["session_plan"]["traffic_proof_command"]
+            .as_str()
+            .expect("traffic proof command should be a string")
+            .contains("--proof-token browser-proof-123")
     );
     assert_eq!(
         json["browser_capture"]["session_plan"]["browser_command"]["executable"],
@@ -3243,6 +3810,10 @@ impl BrowserCaptureProcessRunner for TestBrowserCaptureRunner {
         &self,
         request: &LinuxBrowserCaptureLaunchRequest,
     ) -> DomainResult<LinuxBrowserCaptureLaunchOutcome> {
+        assert_eq!(
+            request.proxy_scheme,
+            MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME
+        );
         assert_eq!(request.proxy_url, "http://127.0.0.1:7890");
         assert!(request
             .command
@@ -3267,6 +3838,36 @@ impl BrowserCaptureProcessRunner for TestBrowserCaptureRunner {
     }
 }
 
+struct TestSocks5BrowserCaptureRunner;
+
+impl BrowserCaptureProcessRunner for TestSocks5BrowserCaptureRunner {
+    fn launch(
+        &self,
+        request: &LinuxBrowserCaptureLaunchRequest,
+    ) -> DomainResult<LinuxBrowserCaptureLaunchOutcome> {
+        assert_eq!(
+            request.proxy_scheme,
+            MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME
+        );
+        assert_eq!(request.proxy_url, "socks5://127.0.0.1:7890");
+        assert!(request
+            .command
+            .args
+            .iter()
+            .any(|arg| arg == "--proxy-server=socks5://127.0.0.1:7890"));
+
+        Ok(LinuxBrowserCaptureLaunchOutcome {
+            pid: 5252,
+            diagnostics: vec![Diagnostic::new(
+                DiagnosticSeverity::Info,
+                CLI_MITM_BROWSER_CAPTURE_LAUNCH_STARTED_CODE,
+                "browser capture socks5 test runner started",
+                Some("cli.mitm".to_string()),
+            )],
+        })
+    }
+}
+
 struct TestBrowserCaptureEndpointProbe {
     reachable: bool,
 }
@@ -3278,6 +3879,10 @@ impl BrowserCaptureEndpointProbe for TestBrowserCaptureEndpointProbe {
     ) -> DomainResult<LinuxBrowserCaptureVerifyOutcome> {
         assert_eq!(request.proxy_host, "127.0.0.1");
         assert_eq!(request.proxy_port, 7890);
+        assert_eq!(
+            request.proxy_scheme,
+            MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME
+        );
         assert_eq!(request.proxy_url, "http://127.0.0.1:7890");
         if request.target_url.is_some() {
             assert_eq!(
@@ -3323,9 +3928,19 @@ impl BrowserCaptureTrafficProofProbe for TestBrowserCaptureTrafficProofProbe {
     ) -> DomainResult<LinuxBrowserCaptureTrafficProofOutcome> {
         assert_eq!(request.proxy_host, "127.0.0.1");
         assert_eq!(request.proxy_port, 7890);
+        assert_eq!(
+            request.proxy_scheme,
+            MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME
+        );
         assert_eq!(request.proxy_url, "http://127.0.0.1:7890");
-        assert_eq!(request.proof_token, "browser-proof-123");
-        assert_eq!(request.proof_log_path, "/tmp/networkcore-browser-proof.log");
+        if request.proof_log_path == MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH {
+            assert!(request
+                .proof_token
+                .starts_with("networkcore-browser-proof-"));
+        } else {
+            assert_eq!(request.proof_token, "browser-proof-123");
+            assert_eq!(request.proof_log_path, "/tmp/networkcore-browser-proof.log");
+        }
         assert_eq!(request.probe, "proof-log-token");
 
         if self.observed {
@@ -3355,6 +3970,10 @@ impl BrowserCapturePacFileStore for TestBrowserCapturePacFileStore {
     ) -> DomainResult<LinuxBrowserCapturePacApplyOutcome> {
         assert_eq!(request.proxy_host, "127.0.0.1");
         assert_eq!(request.proxy_port, 7890);
+        assert_eq!(
+            request.proxy_scheme,
+            MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME
+        );
         assert_eq!(request.proxy_url, "http://127.0.0.1:7890");
         assert_eq!(
             request.pac_file_path,
@@ -3369,6 +3988,9 @@ impl BrowserCapturePacFileStore for TestBrowserCapturePacFileStore {
             "file:///tmp/networkcore-browser-capture.pac"
         );
         assert!(request.pac_content.contains("PROXY 127.0.0.1:7890; DIRECT"));
+        assert!(request.policy_file_path.is_none());
+        assert!(request.policy_url.is_none());
+        assert!(request.policy_content.is_none());
 
         Ok(LinuxBrowserCapturePacApplyOutcome {
             rollback_snapshot: networkcore_linux::BrowserCaptureRollbackSnapshot {
@@ -3395,12 +4017,116 @@ impl BrowserCapturePacFileStore for TestBrowserCapturePacFileStore {
 
         Ok(LinuxBrowserCapturePacRollbackOutcome {
             pac_file_path: "/tmp/networkcore-browser-capture.pac".to_string(),
+            policy_file_path: None,
             diagnostics: vec![Diagnostic::new(
                 DiagnosticSeverity::Info,
                 CLI_MITM_BROWSER_CAPTURE_ROLLBACK_READY_CODE,
                 "browser capture PAC file was removed by the test store",
                 Some("cli.mitm".to_string()),
             )],
+        })
+    }
+}
+
+struct TestBrowserCapturePolicyFileStore;
+
+impl BrowserCapturePacFileStore for TestBrowserCapturePolicyFileStore {
+    fn apply_pac_file(
+        &self,
+        request: &LinuxBrowserCapturePacRequest,
+    ) -> DomainResult<LinuxBrowserCapturePacApplyOutcome> {
+        assert_eq!(request.proxy_url, "http://127.0.0.1:7890");
+        assert_eq!(
+            request.pac_file_path,
+            "/tmp/networkcore-browser-capture.pac"
+        );
+        assert_eq!(
+            request.policy_file_path.as_deref(),
+            Some("/tmp/networkcore-browser-capture-policy.json")
+        );
+        assert_eq!(
+            request.policy_url.as_deref(),
+            Some("file:///tmp/networkcore-browser-capture-policy.json")
+        );
+        let policy_content = request
+            .policy_content
+            .as_ref()
+            .expect("policy content should be present for policy file apply");
+        assert!(policy_content.contains("\"ProxyMode\": \"fixed_servers\""));
+        assert!(policy_content.contains("\"ProxyServer\": \"http://127.0.0.1:7890\""));
+        assert!(policy_content.contains("\"ProxyBypassList\": \"<-loopback>\""));
+
+        Ok(LinuxBrowserCapturePacApplyOutcome {
+            rollback_snapshot: networkcore_linux::BrowserCaptureRollbackSnapshot {
+                path: request.snapshot_path.clone(),
+                status: "networkcore-created".to_string(),
+            },
+            diagnostics: vec![Diagnostic::new(
+                DiagnosticSeverity::Info,
+                CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
+                "browser capture PAC and policy files were written by the test store",
+                Some("cli.mitm".to_string()),
+            )],
+        })
+    }
+
+    fn rollback_pac_file(
+        &self,
+        snapshot: &networkcore_linux::BrowserCaptureRollbackSnapshot,
+    ) -> DomainResult<LinuxBrowserCapturePacRollbackOutcome> {
+        assert_eq!(
+            snapshot.path,
+            "/tmp/networkcore-browser-capture.snapshot.json"
+        );
+
+        Ok(LinuxBrowserCapturePacRollbackOutcome {
+            pac_file_path: "/tmp/networkcore-browser-capture.pac".to_string(),
+            policy_file_path: Some("/tmp/networkcore-browser-capture-policy.json".to_string()),
+            diagnostics: Vec::new(),
+        })
+    }
+}
+
+struct TestSocks5BrowserCapturePacFileStore;
+
+impl BrowserCapturePacFileStore for TestSocks5BrowserCapturePacFileStore {
+    fn apply_pac_file(
+        &self,
+        request: &LinuxBrowserCapturePacRequest,
+    ) -> DomainResult<LinuxBrowserCapturePacApplyOutcome> {
+        assert_eq!(
+            request.proxy_scheme,
+            MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME
+        );
+        assert_eq!(request.proxy_url, "socks5://127.0.0.1:7890");
+        assert!(request.pac_content.contains("SOCKS5 127.0.0.1:7890; DIRECT"));
+        if let Some(policy_content) = &request.policy_content {
+            assert!(policy_content.contains("\"ProxyMode\": \"fixed_servers\""));
+            assert!(policy_content.contains("\"ProxyServer\": \"socks5://127.0.0.1:7890\""));
+        }
+
+        Ok(LinuxBrowserCapturePacApplyOutcome {
+            rollback_snapshot: networkcore_linux::BrowserCaptureRollbackSnapshot {
+                path: request.snapshot_path.clone(),
+                status: "networkcore-created".to_string(),
+            },
+            diagnostics: vec![Diagnostic::new(
+                DiagnosticSeverity::Info,
+                CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
+                "browser capture SOCKS5 PAC file was written by the test store",
+                Some("cli.mitm".to_string()),
+            )],
+        })
+    }
+
+    fn rollback_pac_file(
+        &self,
+        _snapshot: &networkcore_linux::BrowserCaptureRollbackSnapshot,
+    ) -> DomainResult<LinuxBrowserCapturePacRollbackOutcome> {
+        Ok(LinuxBrowserCapturePacRollbackOutcome {
+            pac_file_path: "/tmp/networkcore-browser-capture.pac".to_string(),
+            policy_file_path: None,
+            diagnostics: Vec::new(),
         })
     }
 }

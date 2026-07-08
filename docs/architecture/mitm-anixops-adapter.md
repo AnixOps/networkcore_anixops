@@ -101,8 +101,10 @@ NetworkCore stable Rust 类型。当前 `control-domain` 已新增
 `handle_http_event` audit/diagnostics 路径，并新增
 `handle_http_mitm_event` rich plan 路径。`AnixOpsMitmPluginService` 会把
 0.45.10 的 URL reject/redirect、header mutation、body mutation 和 script
-dispatch 映射为 NetworkCore-owned mutation plan。真实 request/response
-mutation 继续等待 HTTP/TLS 数据面。
+dispatch 映射为 NetworkCore-owned mutation plan。`engine-native` 当前可通过
+`NativeHttpMitmPluginHook` 在 SOCKS5 CONNECT 层消费 `Reject` plan 并写
+CONNECT failure response；真实 request/response mutation 继续等待 HTTP/TLS
+数据面。
 
 ## Domain Model 变更门槛
 
@@ -156,7 +158,8 @@ P4 Client And Platform Integration；P3 Runtime Capability Baseline 已完成。
 
 不做：
 
-- 不接入真实网络流量。
+- 不接入 HTTP/TLS request/response 数据面；native explicit SOCKS5 CONNECT
+  reject 可作为独立连接级 gate 接入。
 - 不执行 JavaScript。
 - 不把 `HttpMitmOutcome` 应用到 HTTP request/response。
 - 不声明全平台 MITM 可用。
@@ -192,7 +195,7 @@ mitm-cli-command-gate-status=partial-active
 `mitm-policy` 加载内置 `networkcore.adblock` policy，输出 `mitm_status`
 JSON 机器字段，并显式报告 browser hijack 为 deferred、
 `MITM_CERTIFICATE_LIFECYCLE_GATE` plan-only、
-`MITM_BROWSER_CAPTURE_GATE` pac-artifact-active/system-mutation-blocked 和
+`MITM_BROWSER_CAPTURE_GATE` pac-policy-artifact-active/system-mutation-blocked 和
 `MITM_HTTP_TLS_DATA_PLANE_GATE` blocked。`certificate-plan` 额外输出
 `mitm_status.certificate_plan`，包含当前证书状态、计划步骤、blocked
 operations 和 `mutation_ready=false`；`browser-plan` 额外输出
@@ -204,12 +207,16 @@ dedicated-profile 浏览器启动命令模板、计划代理 URL 和已加载插
 dedicated 浏览器命令、可选 `--target-url`、`verify --confirm` 命令和已加载插件元数据，不启动 `sing-box`、不启动浏览器或写入系统状态；
 `launch --confirm` 通过 `BrowserCaptureProcessRunner` 启动带显式代理参数的 dedicated browser profile，
 并输出 `LinuxBrowserCaptureLaunchReport`、pid、profile、proxy、target URL、命令参数和插件元数据；
-`apply --confirm --pac-file <path> --snapshot <path>` 只写 operator-provided NetworkCore PAC artifact 和 rollback snapshot，不安装 system PAC、不写 browser policy 或 system proxy，
+`apply --confirm --pac-file <path> [--policy-file <path>] --snapshot <path>` 只写 operator-provided NetworkCore PAC artifact、可选 Chromium/Chrome managed proxy policy artifact 和 rollback snapshot，不安装 system PAC、不安装 browser policy 或 system proxy，
 `rollback --snapshot <path>` 只读取 NetworkCore PAC snapshot 并删除对应 PAC 文件，
 `verify --confirm` 只探测计划本地代理端点 `http://127.0.0.1:7890` 是否可达；传入 `--target-url <url>` 时只通过 `probe=http-connect-target` 检查计划代理能否对目标 host:port 打开 HTTP CONNECT 通路；它不证明浏览器真实流量捕获、HTTPS MITM 或 rewrite 应用。
-`traffic-proof --confirm --proof-token <token> --proof-log <path>` 通过 `BrowserCaptureTrafficProofProbe` 读取 operator-provided proof log，输出 `traffic_proof_report` 和 `probe=proof-log-token`，但只证明该证据文件中出现 token，不证明 HTTPS MITM 或 rewrite 应用。未接线 endpoint/proof probe 或更强 live capture probe 时仍返回 blocked。
-该状态只代表命令面、策略诊断入口、证书生命周期计划、浏览器捕获计划、manual launch-plan、session-plan、dedicated-profile process launch、endpoint verify、proof-log-token traffic proof、PAC artifact apply/rollback 和 browser-capture blocked report 已存在，
-不代表 HTTPS MITM、证书安装、系统代理/system PAC/浏览器 policy 写入或真实流量改写已可用。
+`traffic-proof --confirm [--target-url <url>] [--proof-token <token>] [--proof-log <path>]` 通过 `BrowserCaptureTrafficProofProbe` 读取 operator-provided proof log，输出 `traffic_proof_report` 和 `probe=proof-log-token`，并可在 token/log 省略时复用默认 proof 绑定；它只证明该证据文件中出现 token，不证明 HTTPS MITM 或 rewrite 应用。未接线 endpoint/proof probe 或更强 live capture probe 时仍返回 blocked。
+`--proxy-scheme socks5` 只把 session-plan、launch、PAC/policy artifact、verify 和 traffic-proof 的 `proxy_scheme`/proxy URL 绑定到 `socks5://127.0.0.1:7890`，用于让显式授权 dedicated 浏览器会话走 native SOCKS5 CONNECT hook；它不写系统代理或安装浏览器 policy。
+`networkcore-linux start` 会通过 `native_proxy_engine_service_with_builtin_mitm_plugin`
+加载内置 `networkcore.adblock` 到 `engine-native`；匹配 `Reject` plan 的
+explicit SOCKS5 CONNECT 会被写入 SOCKS5 general failure response 并跳过
+outbound。该状态只代表命令面、策略诊断入口、证书生命周期计划、浏览器捕获计划、manual launch-plan、session-plan、dedicated-profile process launch、endpoint verify、proof-log-token traffic proof、PAC/browser policy artifact apply/rollback、native CONNECT reject 和 browser-capture blocked report 已存在，
+不代表 HTTPS MITM、证书安装、系统代理/system PAC/浏览器 policy 写入或真实 HTTP request/response 改写已可用。
 
 范围：
 
@@ -252,21 +259,22 @@ dedicated 浏览器命令、可选 `--target-url`、`verify --confirm` 命令和
 
 - `networkcore-linux mitm browser-plan` 已输出 `mitm_status.browser_plan`。
 - `networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` 已输出
-  `browser_capture` manual launch-plan、session-plan、dedicated-profile launch report、本地代理端点 verify report、proof-log-token traffic proof report、PAC artifact apply/rollback report 和 blocked report。
+  `browser_capture` manual launch-plan、session-plan、dedicated-profile launch report、`proxy_scheme`、本地代理端点 verify report、proof-log-token traffic proof report、PAC/browser policy artifact apply/rollback report 和 blocked report。
 - 默认计划为显式代理 `127.0.0.1:7890`，仅用于机器可读计划和后续 UI/CLI 提示。
 - `launch-plan` 只输出 dedicated-profile 浏览器启动命令模板、计划代理 URL 和 `networkcore.adblock`
   插件元数据，不启动浏览器、不写 profile、不写系统状态。
 - `session-plan` 只输出脱敏订阅到本地代理、dedicated 浏览器、可选 target URL 和 verify 的命令计划，不启动 `sing-box`、不启动浏览器、不写 profile、不写系统状态。
-- `launch --confirm` 只启动 dedicated browser process，可把 `--target-url` 作为浏览器参数打开，不写 browser policy、system proxy、system PAC、TUN、DNS、firewall 或 CA。
+- `launch --confirm` 只启动 dedicated browser process，可把 `--target-url` 作为浏览器参数打开，不安装 browser policy、不写 system proxy、system PAC、TUN、DNS、firewall 或 CA。
 - `verify --confirm --target-url <url>` 只输出 target route verify report，不证明浏览器真实流量或 HTTPS MITM。
-- `traffic-proof --confirm --proof-token <token> --proof-log <path>` 只检查 operator-provided proof log 中是否出现 token，不证明 HTTPS MITM 或 rewrite 应用。
-- `apply --confirm --pac-file <path> --snapshot <path>` 只写 operator-provided NetworkCore PAC artifact 和 rollback snapshot；`rollback --snapshot <path>` 只删除 snapshot 记录的 PAC 文件。
-- 当前 gate 为 pac-artifact-active/system-mutation-blocked，不写入 browser policy、system proxy、system PAC、TUN、DNS 或 firewall。
+- `traffic-proof --confirm [--target-url <url>] [--proof-token <token>] [--proof-log <path>]` 只检查 operator-provided proof log 中是否出现 token，不证明 HTTPS MITM 或 rewrite 应用。
+- `apply --confirm --pac-file <path> [--policy-file <path>] --snapshot <path>` 只写 operator-provided NetworkCore PAC artifact、可选 browser policy artifact 和 rollback snapshot；`rollback --snapshot <path>` 只删除 snapshot 记录的 PAC/policy artifact。
+- `--proxy-scheme socks5` 只把授权 dedicated browser/PAC/probe 计划绑定到 native SOCKS5 CONNECT hook，不代表系统代理 mutation 或 HTTPS MITM。
+- 当前 gate 为 pac-policy-artifact-active/system-mutation-blocked，不安装 browser policy、system proxy、system PAC、TUN、DNS 或 firewall。
 - [Linux MITM Browser Capture Source Contract](linux-mitm-browser-capture-source-contract.md)
   已固定 `mitm-browser-capture-source-contract-status=active`、
   `LinuxBrowserCaptureManualLaunch`、`LinuxBrowserCaptureSessionPlanRequest`、`LinuxBrowserCaptureSessionPlanReport`、`LinuxBrowserCaptureLaunchRequest`、`LinuxBrowserCaptureLaunchReport`、
   `LinuxBrowserCaptureVerifyRequest`、`LinuxBrowserCaptureVerifyReport`、`LinuxBrowserCaptureTrafficProofRequest`、`LinuxBrowserCaptureTrafficProofReport`、`LinuxBrowserCapturePacRequest`、`BrowserCaptureProcessRunner`、`BrowserCaptureEndpointProbe`、`BrowserCaptureTrafficProofProbe`、`BrowserCapturePacFileStore`、`BrowserCaptureAuthorization`、`BrowserCaptureRollbackSnapshot`、
-  launch-plan、session-plan、可选 `--target-url`、launch、PAC artifact apply/rollback、verify/traffic-proof、显式授权、snapshot 和 rollback 边界。
+  launch-plan、session-plan、可选 `--target-url`、`--proxy-scheme socks5`、launch、PAC/browser policy artifact apply/rollback、verify/traffic-proof、显式授权、snapshot 和 rollback 边界。
 - live browser capture probe、browser/system proxy mutation 和 system PAC 安装尚未实现；当前 PAC apply/rollback 只读取或写入 caller-selected NetworkCore artifact 文件。
 
 ### Phase 4: 平台 adapter
@@ -304,7 +312,8 @@ iOS：
 - Phase 1B：新增 `mitm-policy`，用 safe wrapper tests 覆盖 config diagnostic、MITM decision、URL reject rewrite、内置 ad-block plugin package、manifest/permission gate 和 `MitmPluginService` deferred mutation diagnostic。
 - Phase 1C：扩展 safe wrapper tests 覆盖 header rewrite、bounded header-list application、body rewrite chain、script dispatch、JQ max-input guard 和 aggregated rewrite plan；这些结果作为 safe wrapper 合同暴露。
 - Phase 1D：扩展 `control-domain` 和 `mitm-policy`，覆盖 `HttpMitmEvent`、`HttpMitmOutcome`、`MitmPluginService::handle_http_mitm_event`、`networkcore.adblock` rich reject outcome、0.45.10 header/body/script outcome mapping 和 missing loaded source deferral；这些结果仍只是 policy plan，真实 traffic mutation 等待 HTTP/TLS 数据面。
-- Phase 1E：ABI allowlist 与 `mitm_anixops/ci/abi_exports.txt` 一致，CI summary 显式输出 `mitm_anixops` adapter 检测状态。
+- Phase 1E：扩展 `engine-native` 和 Linux CLI，覆盖 `NativeHttpMitmPluginHook`、`plan_socks5_connect_http_mitm`、native CONNECT-level `Reject` 应用、`native_proxy_engine_service_with_builtin_mitm_plugin` 和 `networkcore-linux start` 内置插件 hook 接线；这些结果只阻断 explicit SOCKS5 CONNECT，不代表 HTTPS 解密或 HTTP request/response rewrite。
+- Phase 1F：ABI allowlist 与 `mitm_anixops/ci/abi_exports.txt` 一致，CI summary 显式输出 `mitm_anixops` adapter 检测状态。
 
 iOS 只能在 iOS platform crate 和 Network Extension 设计出现后，通过 macOS runner 增加 Swift/Xcode 或 cargo check 验证。
 
@@ -324,8 +333,9 @@ iOS 只能在 iOS platform crate 和 Network Extension 设计出现后，通过 
    NetworkCore-owned Rust 类型和稳定 diagnostic/error code；不得把 upstream demo
    proxy shim 当作 NetworkCore production data plane。
 5. 合同测试只验证 wrapper 能加载策略、生成 rewrite plan/header/body/script/JQ
-   guard 结果、deferred mutation 诊断和 `HttpMitmOutcome` source-only plan；
-   真实 HTTP/TLS mutation 仍必须等 engine data plane 和 platform certificate gate 通过。
+   guard 结果、deferred mutation 诊断、`HttpMitmOutcome` plan 和 native
+   CONNECT-level `Reject` 应用；真实 HTTP/TLS request/response mutation 仍必须等
+   engine data plane 和 platform certificate gate 通过。
 6. 提交并推送后只用 GitHub Actions 的 policy、Rust format/lint/test/build 和
    dependency audit 结果判断是否通过；本机不得运行 build/test/package/release 验证。
 
@@ -343,6 +353,6 @@ iOS 只能在 iOS platform crate 和 Network Extension 设计出现后，通过 
 可以宣称：
 
 - `mitm_anixops` 是 NetworkCore 可接入的 MITM 策略/plugin 兼容 C ABI core。
-- NetworkCore 当前具备接入该 core 的领域端口和 source-only
-  `HttpMitmOutcome` mutation plan。
+- NetworkCore 当前具备接入该 core 的领域端口、`HttpMitmOutcome` mutation
+  plan 和 native explicit SOCKS5 CONNECT `Reject` 应用。
 - 完整流量接入需要后续 HTTP/TLS 数据面和平台 adapter。

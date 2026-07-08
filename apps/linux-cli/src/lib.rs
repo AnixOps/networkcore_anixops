@@ -30,6 +30,7 @@ use signal_hook::{
 };
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
@@ -98,6 +99,8 @@ pub const CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE: &str =
     "cli.linux.mitm.browser_capture.apply.config_missing";
 pub const CLI_MITM_BROWSER_CAPTURE_PAC_WRITE_FAILED_CODE: &str =
     "cli.linux.mitm.browser_capture.pac.write_failed";
+pub const CLI_MITM_BROWSER_CAPTURE_POLICY_WRITE_FAILED_CODE: &str =
+    "cli.linux.mitm.browser_capture.policy.write_failed";
 pub const CLI_MITM_BROWSER_CAPTURE_SNAPSHOT_WRITE_FAILED_CODE: &str =
     "cli.linux.mitm.browser_capture.snapshot.write_failed";
 pub const CLI_MITM_BROWSER_CAPTURE_SNAPSHOT_READ_FAILED_CODE: &str =
@@ -139,7 +142,8 @@ pub const MITM_BROWSER_CAPTURE_GATE: &str = "MITM_BROWSER_CAPTURE_GATE";
 pub const MITM_CLI_COMMAND_GATE_STATUS: &str = "partial-active";
 pub const MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS: &str = "plan-only";
 pub const MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS: &str = "blocked";
-pub const MITM_BROWSER_CAPTURE_GATE_STATUS: &str = "pac-artifact-active/system-mutation-blocked";
+pub const MITM_BROWSER_CAPTURE_GATE_STATUS: &str =
+    "pac-policy-artifact-active/system-mutation-blocked";
 pub const MITM_BROWSER_HIJACK_STATUS: &str = "deferred";
 pub const MITM_CERTIFICATE_PLAN_STATUS: &str = "plan-only";
 pub const MITM_CERTIFICATE_MUTATION_READY: bool = false;
@@ -147,11 +151,16 @@ pub const MITM_BROWSER_PLAN_STATUS: &str = "plan-only";
 pub const MITM_BROWSER_CAPTURE_MUTATION_READY: bool = false;
 pub const MITM_BROWSER_CAPTURE_PROXY_HOST: &str = "127.0.0.1";
 pub const MITM_BROWSER_CAPTURE_PROXY_PORT: u16 = 7890;
+pub const MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME: &str = "http";
+pub const MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME: &str = "socks5";
 pub const MITM_BROWSER_CAPTURE_MODE: &str = "explicit-proxy";
 pub const MITM_BROWSER_CAPTURE_SOURCE_CONTRACT_STATUS: &str = "active";
 pub const MITM_BROWSER_CAPTURE_DEFAULT_BROWSER: &str = "chromium";
 pub const MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR: &str =
     "/tmp/networkcore-browser-capture-profile";
+pub const MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH: &str =
+    "/tmp/networkcore-browser-capture-proof.log";
+pub const MITM_BROWSER_CAPTURE_PROOF_QUERY_PARAM: &str = "networkcore_proof_token";
 pub const MITM_USER_FACING_STAGE: &str = "policy-only";
 pub const MITM_USER_FACING_READY: bool = false;
 
@@ -249,9 +258,11 @@ pub enum LinuxCliCommand {
         format: OutputFormat,
     },
     MitmBrowserCapturePlan {
+        proxy_scheme: String,
         format: OutputFormat,
     },
     MitmBrowserCaptureLaunchPlan {
+        proxy_scheme: String,
         format: OutputFormat,
     },
     MitmBrowserCaptureSessionPlan {
@@ -259,6 +270,9 @@ pub enum LinuxCliCommand {
         browser: String,
         profile_dir: String,
         target_url: Option<String>,
+        proof_token: Option<String>,
+        proof_log_path: Option<String>,
+        proxy_scheme: String,
         listen_host: String,
         listen_port: u16,
         format: OutputFormat,
@@ -267,12 +281,17 @@ pub enum LinuxCliCommand {
         browser: String,
         profile_dir: String,
         target_url: Option<String>,
+        proof_token: Option<String>,
+        proof_log_path: Option<String>,
+        proxy_scheme: String,
         confirm: bool,
         format: OutputFormat,
     },
     MitmBrowserCaptureApply {
         pac_file_path: Option<String>,
+        policy_file_path: Option<String>,
         snapshot_path: Option<String>,
+        proxy_scheme: String,
         confirm: bool,
         format: OutputFormat,
     },
@@ -282,12 +301,15 @@ pub enum LinuxCliCommand {
     },
     MitmBrowserCaptureVerify {
         target_url: Option<String>,
+        proxy_scheme: String,
         confirm: bool,
         format: OutputFormat,
     },
     MitmBrowserCaptureTrafficProof {
-        proof_token: String,
-        proof_log_path: String,
+        target_url: Option<String>,
+        proof_token: Option<String>,
+        proof_log_path: Option<String>,
+        proxy_scheme: String,
         confirm: bool,
         format: OutputFormat,
     },
@@ -347,9 +369,9 @@ impl LinuxCliCommand {
             | Self::MitmStatus { format }
             | Self::MitmDiagnostics { format }
             | Self::MitmCertificatePlan { format }
-            | Self::MitmBrowserPlan { format }
-            | Self::MitmBrowserCapturePlan { format }
-            | Self::MitmBrowserCaptureLaunchPlan { format }
+            | Self::MitmBrowserPlan { format, .. }
+            | Self::MitmBrowserCapturePlan { format, .. }
+            | Self::MitmBrowserCaptureLaunchPlan { format, .. }
             | Self::MitmBrowserCaptureSessionPlan { format, .. }
             | Self::MitmBrowserCaptureLaunch { format, .. }
             | Self::MitmBrowserCaptureApply { format, .. }
@@ -617,6 +639,10 @@ pub struct LinuxBrowserCaptureSessionPlanRequest {
     pub browser: String,
     pub profile_dir: String,
     pub target_url: Option<String>,
+    pub proof_target_url: Option<String>,
+    pub proof_token: String,
+    pub proof_log_path: String,
+    pub proxy_scheme: String,
     pub listen_host: String,
     pub listen_port: u16,
 }
@@ -641,6 +667,7 @@ pub struct LinuxBrowserCapturePlan {
     pub mutation_ready: bool,
     pub current_capture: String,
     pub planned_capture_mode: String,
+    pub planned_proxy_scheme: String,
     pub planned_proxy_host: String,
     pub planned_proxy_port: u16,
     pub manual_launch: LinuxBrowserCaptureManualLaunch,
@@ -651,6 +678,7 @@ pub struct LinuxBrowserCapturePlan {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinuxBrowserCaptureManualLaunch {
     pub status: String,
+    pub proxy_scheme: String,
     pub proxy_url: String,
     pub profile_strategy: String,
     pub plugin_engine: String,
@@ -673,6 +701,11 @@ pub struct LinuxBrowserCaptureLaunchRequest {
     pub browser: String,
     pub profile_dir: String,
     pub target_url: Option<String>,
+    pub proof_target_url: Option<String>,
+    pub proof_token: String,
+    pub proof_log_path: String,
+    pub traffic_proof_command: String,
+    pub proxy_scheme: String,
     pub proxy_url: String,
     pub command: LinuxBrowserCaptureLaunchCommand,
 }
@@ -687,11 +720,15 @@ pub struct LinuxBrowserCaptureLaunchOutcome {
 pub struct LinuxBrowserCapturePacRequest {
     pub proxy_host: String,
     pub proxy_port: u16,
+    pub proxy_scheme: String,
     pub proxy_url: String,
     pub pac_file_path: String,
     pub snapshot_path: String,
     pub pac_url: String,
     pub pac_content: String,
+    pub policy_file_path: Option<String>,
+    pub policy_url: Option<String>,
+    pub policy_content: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -703,6 +740,7 @@ pub struct LinuxBrowserCapturePacApplyOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinuxBrowserCapturePacRollbackOutcome {
     pub pac_file_path: String,
+    pub policy_file_path: Option<String>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -710,6 +748,7 @@ pub struct LinuxBrowserCapturePacRollbackOutcome {
 pub struct LinuxBrowserCaptureVerifyRequest {
     pub proxy_host: String,
     pub proxy_port: u16,
+    pub proxy_scheme: String,
     pub proxy_url: String,
     pub target_url: Option<String>,
     pub probe: String,
@@ -724,7 +763,10 @@ pub struct LinuxBrowserCaptureVerifyOutcome {
 pub struct LinuxBrowserCaptureTrafficProofRequest {
     pub proxy_host: String,
     pub proxy_port: u16,
+    pub proxy_scheme: String,
     pub proxy_url: String,
+    pub target_url: Option<String>,
+    pub proof_target_url: Option<String>,
     pub proof_token: String,
     pub proof_log_path: String,
     pub probe: String,
@@ -753,6 +795,8 @@ pub struct LinuxBrowserCaptureApplyReport {
     pub authorization: BrowserCaptureAuthorization,
     pub pac_file_path: Option<String>,
     pub pac_url: Option<String>,
+    pub policy_file_path: Option<String>,
+    pub policy_url: Option<String>,
     pub rollback_snapshot: Option<BrowserCaptureRollbackSnapshot>,
     pub blocked_operations: Vec<String>,
 }
@@ -762,6 +806,7 @@ pub struct LinuxBrowserCaptureRollbackReport {
     pub status: String,
     pub rolled_back: bool,
     pub pac_file_path: Option<String>,
+    pub policy_file_path: Option<String>,
     pub rollback_snapshot: Option<BrowserCaptureRollbackSnapshot>,
     pub blocked_operations: Vec<String>,
 }
@@ -795,12 +840,17 @@ pub struct LinuxBrowserCaptureSessionPlanReport {
     pub node_id: String,
     pub node_name: String,
     pub target_url: Option<String>,
+    pub proof_target_url: Option<String>,
+    pub proof_token: String,
+    pub proof_log_path: String,
     pub listen_host: String,
     pub listen_port: u16,
+    pub proxy_scheme: String,
     pub proxy_url: String,
     pub run_command: String,
     pub browser_command: LinuxBrowserCaptureLaunchCommand,
     pub verify_command: String,
+    pub traffic_proof_command: String,
     pub plugin_engine: String,
     pub plugin_id: String,
     pub plugin_version: String,
@@ -843,6 +893,21 @@ pub struct LinuxMitmGateStatus {
     pub gate: String,
     pub status: String,
     pub reason: String,
+}
+
+pub fn native_proxy_engine_service_with_builtin_mitm_plugin(
+) -> DomainResult<engine_native::NativeProxyEngineService> {
+    let package = builtin_ad_block_plugin_package();
+    let service = AnixOpsMitmPluginService::new();
+    let instance = service.load(
+        &package,
+        &GrantedPermissions {
+            permissions: package.manifest.permissions.clone(),
+        },
+    )?;
+    let hook = engine_native::NativeHttpMitmPluginHook::new(instance, Arc::new(service));
+
+    Ok(engine_native::NativeProxyEngineService::new().with_http_mitm_hook(hook))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1253,6 +1318,16 @@ impl BrowserCapturePacFileStore for CommandBrowserCapturePacFileStore {
                 ),
             ));
         }
+        if let Some(policy_file_path) = &request.policy_file_path {
+            if std::path::Path::new(policy_file_path).exists() {
+                return Err(DomainError::new(
+                    CLI_MITM_BROWSER_CAPTURE_POLICY_WRITE_FAILED_CODE,
+                    format!(
+                        "refusing to overwrite existing browser capture policy file {policy_file_path}"
+                    ),
+                ));
+            }
+        }
 
         let snapshot = BrowserCapturePacSnapshotFile {
             version: 1,
@@ -1260,6 +1335,9 @@ impl BrowserCapturePacFileStore for CommandBrowserCapturePacFileStore {
             pac_file_path: request.pac_file_path.clone(),
             pac_url: request.pac_url.clone(),
             created_file: true,
+            policy_file_path: request.policy_file_path.clone(),
+            policy_url: request.policy_url.clone(),
+            created_policy_file: request.policy_file_path.is_some(),
         };
 
         let snapshot_json = serde_json::to_string_pretty(&snapshot).map_err(|error| {
@@ -1284,7 +1362,22 @@ impl BrowserCapturePacFileStore for CommandBrowserCapturePacFileStore {
             CLI_MITM_BROWSER_CAPTURE_PAC_WRITE_FAILED_CODE,
             "browser capture PAC file",
         )?;
+        if let (Some(policy_file_path), Some(policy_content)) =
+            (&request.policy_file_path, &request.policy_content)
+        {
+            write_new_file(
+                policy_file_path,
+                policy_content.as_bytes(),
+                CLI_MITM_BROWSER_CAPTURE_POLICY_WRITE_FAILED_CODE,
+                "browser capture browser policy file",
+            )?;
+        }
 
+        let policy_message = request
+            .policy_file_path
+            .as_ref()
+            .map(|path| format!(" and browser policy file {path}"))
+            .unwrap_or_default();
         Ok(LinuxBrowserCapturePacApplyOutcome {
             rollback_snapshot: BrowserCaptureRollbackSnapshot {
                 path: request.snapshot_path.clone(),
@@ -1294,8 +1387,8 @@ impl BrowserCapturePacFileStore for CommandBrowserCapturePacFileStore {
                 DiagnosticSeverity::Info,
                 CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
                 format!(
-                    "browser capture PAC file {} was written with planned proxy {}",
-                    request.pac_file_path, request.proxy_url
+                    "browser capture PAC file {}{} was written with planned proxy {}",
+                    request.pac_file_path, policy_message, request.proxy_url
                 ),
                 SOURCE_CLI_MITM,
             )],
@@ -1345,14 +1438,35 @@ impl BrowserCapturePacFileStore for CommandBrowserCapturePacFileStore {
                 ));
             }
         }
+        if snapshot_file.created_policy_file {
+            let Some(policy_file_path) = snapshot_file.policy_file_path.as_ref() else {
+                return Err(DomainError::new(
+                    CLI_MITM_BROWSER_CAPTURE_SNAPSHOT_READ_FAILED_CODE,
+                    "browser capture rollback snapshot is missing the policy file path",
+                ));
+            };
+            match std::fs::remove_file(policy_file_path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(DomainError::new(
+                        CLI_MITM_BROWSER_CAPTURE_ROLLBACK_FAILED_CODE,
+                        format!(
+                            "failed to remove browser capture policy file {policy_file_path}: {error}"
+                        ),
+                    ));
+                }
+            }
+        }
 
         Ok(LinuxBrowserCapturePacRollbackOutcome {
             pac_file_path: snapshot_file.pac_file_path.clone(),
+            policy_file_path: snapshot_file.policy_file_path.clone(),
             diagnostics: vec![cli_diagnostic(
                 DiagnosticSeverity::Info,
                 CLI_MITM_BROWSER_CAPTURE_ROLLBACK_READY_CODE,
                 format!(
-                    "browser capture PAC file {} was removed from snapshot {}",
+                    "browser capture PAC file {} and optional policy artifact were removed from snapshot {}",
                     snapshot_file.pac_file_path, snapshot.path
                 ),
                 SOURCE_CLI_MITM,
@@ -1401,6 +1515,12 @@ struct BrowserCapturePacSnapshotFile {
     pac_file_path: String,
     pac_url: String,
     created_file: bool,
+    #[serde(default)]
+    policy_file_path: Option<String>,
+    #[serde(default)]
+    policy_url: Option<String>,
+    #[serde(default)]
+    created_policy_file: bool,
 }
 
 fn write_parent_dir(path: &str, error_code: &'static str) -> DomainResult<()> {
@@ -1746,8 +1866,10 @@ struct ParsedOptions {
     profile_dir: Option<String>,
     target_url: Option<String>,
     pac_file_path: Option<String>,
+    policy_file_path: Option<String>,
     proof_token: Option<String>,
     proof_log_path: Option<String>,
+    proxy_scheme: Option<String>,
     install_dir: Option<String>,
     listen_host: Option<String>,
     listen_port: Option<u16>,
@@ -1876,52 +1998,74 @@ where
         LinuxCliCommand::MitmDiagnostics { .. } => handle_mitm_diagnostics(platform),
         LinuxCliCommand::MitmCertificatePlan { .. } => handle_mitm_certificate_plan(platform),
         LinuxCliCommand::MitmBrowserPlan { .. } => handle_mitm_browser_plan(platform),
-        LinuxCliCommand::MitmBrowserCapturePlan { .. } => {
-            handle_mitm_browser_capture_plan(platform)
+        LinuxCliCommand::MitmBrowserCapturePlan { proxy_scheme, .. } => {
+            handle_mitm_browser_capture_plan_with_proxy_scheme(platform, &proxy_scheme)
         }
-        LinuxCliCommand::MitmBrowserCaptureLaunchPlan { .. } => {
-            handle_mitm_browser_capture_launch_plan(platform)
+        LinuxCliCommand::MitmBrowserCaptureLaunchPlan { proxy_scheme, .. } => {
+            handle_mitm_browser_capture_launch_plan_with_proxy_scheme(platform, &proxy_scheme)
         }
         LinuxCliCommand::MitmBrowserCaptureSessionPlan {
             url,
             browser,
             profile_dir,
             target_url,
+            proof_token,
+            proof_log_path,
+            proxy_scheme,
             listen_host,
             listen_port,
             ..
-        } => handle_mitm_browser_capture_session_plan(
+        } => handle_mitm_browser_capture_session_plan_with_proxy_scheme(
             platform,
             &url,
             &browser,
             &profile_dir,
             target_url.as_deref(),
+            proof_token.as_deref(),
+            proof_log_path.as_deref(),
+            &proxy_scheme,
             &listen_host,
             listen_port,
         ),
         LinuxCliCommand::MitmBrowserCaptureLaunch { .. } => {
             handle_mitm_browser_capture_launch_unwired()
         }
-        LinuxCliCommand::MitmBrowserCaptureApply { confirm, .. } => {
-            handle_mitm_browser_capture_apply(platform, confirm)
-        }
+        LinuxCliCommand::MitmBrowserCaptureApply {
+            proxy_scheme,
+            confirm,
+            ..
+        } => handle_mitm_browser_capture_apply_with_proxy_scheme(
+            platform,
+            &proxy_scheme,
+            confirm,
+        ),
         LinuxCliCommand::MitmBrowserCaptureRollback { snapshot_path, .. } => {
             handle_mitm_browser_capture_rollback(platform, snapshot_path)
         }
         LinuxCliCommand::MitmBrowserCaptureVerify {
             target_url,
+            proxy_scheme,
             confirm,
             ..
-        } => handle_mitm_browser_capture_verify(platform, target_url.as_deref(), confirm),
+        } => handle_mitm_browser_capture_verify_with_proxy_scheme(
+            platform,
+            target_url.as_deref(),
+            &proxy_scheme,
+            confirm,
+        ),
         LinuxCliCommand::MitmBrowserCaptureTrafficProof {
+            target_url,
             proof_token,
             proof_log_path,
+            proxy_scheme,
             confirm,
             ..
-        } => handle_mitm_browser_capture_traffic_proof(
+        } => handle_mitm_browser_capture_traffic_proof_with_proxy_scheme(
             platform,
-            &proof_token,
-            &proof_log_path,
+            target_url.as_deref(),
+            proof_token.as_deref(),
+            proof_log_path.as_deref(),
+            &proxy_scheme,
             confirm,
         ),
         LinuxCliCommand::Stop { .. } => handle_stop(),
@@ -1943,14 +2087,20 @@ where
             browser,
             profile_dir,
             target_url,
+            proof_token,
+            proof_log_path,
+            proxy_scheme,
             confirm,
             ..
-        } => handle_mitm_browser_capture_launch(
+        } => handle_mitm_browser_capture_launch_with_proxy_scheme(
             platform,
             browser_runner,
             &browser,
             &profile_dir,
             target_url.as_deref(),
+            proof_token.as_deref(),
+            proof_log_path.as_deref(),
+            &proxy_scheme,
             confirm,
         ),
         other => handle_entrypoint(other, platform),
@@ -2000,48 +2150,64 @@ where
             browser,
             profile_dir,
             target_url,
+            proof_token,
+            proof_log_path,
+            proxy_scheme,
             confirm,
             ..
-        } => handle_mitm_browser_capture_launch(
+        } => handle_mitm_browser_capture_launch_with_proxy_scheme(
             platform,
             browser_runner,
             &browser,
             &profile_dir,
             target_url.as_deref(),
+            proof_token.as_deref(),
+            proof_log_path.as_deref(),
+            &proxy_scheme,
             confirm,
         ),
         LinuxCliCommand::MitmBrowserCaptureVerify {
             target_url,
+            proxy_scheme,
             confirm,
             ..
-        } => handle_mitm_browser_capture_verify_with_probe(
+        } => handle_mitm_browser_capture_verify_with_probe_and_proxy_scheme(
             platform,
             endpoint_probe,
             target_url.as_deref(),
+            &proxy_scheme,
             confirm,
         ),
         LinuxCliCommand::MitmBrowserCaptureTrafficProof {
+            target_url,
             proof_token,
             proof_log_path,
+            proxy_scheme,
             confirm,
             ..
-        } => handle_mitm_browser_capture_traffic_proof_with_probe(
+        } => handle_mitm_browser_capture_traffic_proof_with_probe_and_proxy_scheme(
             platform,
             traffic_proof_probe,
-            &proof_token,
-            &proof_log_path,
+            target_url.as_deref(),
+            proof_token.as_deref(),
+            proof_log_path.as_deref(),
+            &proxy_scheme,
             confirm,
         ),
         LinuxCliCommand::MitmBrowserCaptureApply {
             pac_file_path,
+            policy_file_path,
             snapshot_path,
+            proxy_scheme,
             confirm,
             ..
-        } => handle_mitm_browser_capture_apply_with_store(
+        } => handle_mitm_browser_capture_apply_with_store_and_proxy_scheme(
             platform,
             pac_store,
             pac_file_path.as_deref(),
+            policy_file_path.as_deref(),
             snapshot_path.as_deref(),
+            &proxy_scheme,
             confirm,
         ),
         LinuxCliCommand::MitmBrowserCaptureRollback { snapshot_path, .. } => {
@@ -2448,6 +2614,19 @@ pub fn handle_mitm_browser_capture_plan<P>(platform: &P) -> LinuxCliResponse
 where
     P: PlatformCapabilityService,
 {
+    handle_mitm_browser_capture_plan_with_proxy_scheme(
+        platform,
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME,
+    )
+}
+
+pub fn handle_mitm_browser_capture_plan_with_proxy_scheme<P>(
+    platform: &P,
+    proxy_scheme: &str,
+) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+{
     handle_mitm_browser_capture_inner(
         "mitm browser-capture plan",
         platform,
@@ -2456,10 +2635,25 @@ where
         None,
         None,
         None,
+        None,
+        Some(proxy_scheme),
     )
 }
 
 pub fn handle_mitm_browser_capture_launch_plan<P>(platform: &P) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+{
+    handle_mitm_browser_capture_launch_plan_with_proxy_scheme(
+        platform,
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME,
+    )
+}
+
+pub fn handle_mitm_browser_capture_launch_plan_with_proxy_scheme<P>(
+    platform: &P,
+    proxy_scheme: &str,
+) -> LinuxCliResponse
 where
     P: PlatformCapabilityService,
 {
@@ -2471,6 +2665,8 @@ where
         None,
         None,
         None,
+        None,
+        Some(proxy_scheme),
     )
 }
 
@@ -2480,6 +2676,37 @@ pub fn handle_mitm_browser_capture_session_plan<P>(
     browser: &str,
     profile_dir: &str,
     target_url: Option<&str>,
+    proof_token: Option<&str>,
+    proof_log_path: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+{
+    handle_mitm_browser_capture_session_plan_with_proxy_scheme(
+        platform,
+        url,
+        browser,
+        profile_dir,
+        target_url,
+        proof_token,
+        proof_log_path,
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME,
+        listen_host,
+        listen_port,
+    )
+}
+
+pub fn handle_mitm_browser_capture_session_plan_with_proxy_scheme<P>(
+    platform: &P,
+    url: &str,
+    browser: &str,
+    profile_dir: &str,
+    target_url: Option<&str>,
+    proof_token: Option<&str>,
+    proof_log_path: Option<&str>,
+    proxy_scheme: &str,
     listen_host: &str,
     listen_port: u16,
 ) -> LinuxCliResponse
@@ -2574,20 +2801,37 @@ where
         SOURCE_CLI_MITM,
     ));
 
-    let plan = build_linux_browser_capture_plan_with_proxy(
+    let plan = build_linux_browser_capture_plan_with_proxy_scheme(
         &platform_status,
         &mitm_status.policy,
         &generated_config.listen_host,
         generated_config.listen_port,
+        proxy_scheme,
     );
-    let launch_request =
-        build_linux_browser_capture_launch_request(browser, profile_dir, target_url, &plan);
+    let launch_request = build_linux_browser_capture_launch_request(
+        browser,
+        profile_dir,
+        target_url,
+        proof_token,
+        proof_log_path,
+        &plan,
+    );
     let verify_request = build_linux_browser_capture_verify_request(&plan, target_url);
+    let traffic_proof_request = build_linux_browser_capture_traffic_proof_request(
+        &plan,
+        target_url,
+        Some(&launch_request.proof_token),
+        Some(&launch_request.proof_log_path),
+    );
     let session_request = LinuxBrowserCaptureSessionPlanRequest {
         url_source: "cli-argument-redacted".to_string(),
         browser: browser.to_string(),
         profile_dir: profile_dir.to_string(),
         target_url: target_url.map(ToString::to_string),
+        proof_target_url: launch_request.proof_target_url.clone(),
+        proof_token: launch_request.proof_token.clone(),
+        proof_log_path: launch_request.proof_log_path.clone(),
+        proxy_scheme: plan.planned_proxy_scheme.clone(),
         listen_host: generated_config.listen_host.clone(),
         listen_port: generated_config.listen_port,
     };
@@ -2597,6 +2841,7 @@ where
         generated_config.selected_node_name,
         launch_request.command.clone(),
         verify_request.proxy_url.clone(),
+        traffic_proof_request.clone(),
         &mitm_status.policy,
         plan.blocked_operations.clone(),
     );
@@ -2606,7 +2851,7 @@ where
         launch: Some(launch_request),
         pac: None,
         verify: Some(verify_request),
-        traffic_proof: None,
+        traffic_proof: Some(traffic_proof_request),
         authorization: None,
         rollback_snapshot: None,
     };
@@ -2614,6 +2859,7 @@ where
         LinuxBrowserCaptureAction::SessionPlan,
         &platform_status,
         &mitm_status.policy,
+        None,
         None,
         None,
         None,
@@ -2636,6 +2882,36 @@ pub fn handle_mitm_browser_capture_launch<P, B>(
     browser: &str,
     profile_dir: &str,
     target_url: Option<&str>,
+    proof_token: Option<&str>,
+    proof_log_path: Option<&str>,
+    confirm: bool,
+) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+    B: BrowserCaptureProcessRunner,
+{
+    handle_mitm_browser_capture_launch_with_proxy_scheme(
+        platform,
+        browser_runner,
+        browser,
+        profile_dir,
+        target_url,
+        proof_token,
+        proof_log_path,
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME,
+        confirm,
+    )
+}
+
+pub fn handle_mitm_browser_capture_launch_with_proxy_scheme<P, B>(
+    platform: &P,
+    browser_runner: &B,
+    browser: &str,
+    profile_dir: &str,
+    target_url: Option<&str>,
+    proof_token: Option<&str>,
+    proof_log_path: Option<&str>,
+    proxy_scheme: &str,
     confirm: bool,
 ) -> LinuxCliResponse
 where
@@ -2677,7 +2953,7 @@ where
         scope: "linux dedicated browser profile launch".to_string(),
         gate: MITM_BROWSER_CAPTURE_GATE.to_string(),
     };
-    let mut report = build_linux_browser_capture_report(
+    let mut report = build_linux_browser_capture_report_with_proxy_scheme(
         LinuxBrowserCaptureAction::Launch,
         &platform_status,
         &mitm_status.policy,
@@ -2685,10 +2961,25 @@ where
         None,
         None,
         None,
+        None,
+        proxy_scheme,
     );
-    let launch_request =
-        build_linux_browser_capture_launch_request(browser, profile_dir, target_url, &report.plan);
+    let launch_request = build_linux_browser_capture_launch_request(
+        browser,
+        profile_dir,
+        target_url,
+        proof_token,
+        proof_log_path,
+        &report.plan,
+    );
+    let traffic_proof_request = build_linux_browser_capture_traffic_proof_request(
+        &report.plan,
+        target_url,
+        Some(&launch_request.proof_token),
+        Some(&launch_request.proof_log_path),
+    );
     report.request.launch = Some(launch_request.clone());
+    report.request.traffic_proof = Some(traffic_proof_request);
 
     if !confirm {
         diagnostics.push(cli_diagnostic(
@@ -2779,6 +3070,21 @@ pub fn handle_mitm_browser_capture_apply<P>(platform: &P, confirm: bool) -> Linu
 where
     P: PlatformCapabilityService,
 {
+    handle_mitm_browser_capture_apply_with_proxy_scheme(
+        platform,
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME,
+        confirm,
+    )
+}
+
+pub fn handle_mitm_browser_capture_apply_with_proxy_scheme<P>(
+    platform: &P,
+    proxy_scheme: &str,
+    confirm: bool,
+) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+{
     handle_mitm_browser_capture_inner(
         "mitm browser-capture apply",
         platform,
@@ -2787,6 +3093,8 @@ where
         None,
         None,
         None,
+        None,
+        Some(proxy_scheme),
     )
 }
 
@@ -2794,7 +3102,32 @@ pub fn handle_mitm_browser_capture_apply_with_store<P, S>(
     platform: &P,
     pac_store: &S,
     pac_file_path: Option<&str>,
+    policy_file_path: Option<&str>,
     snapshot_path: Option<&str>,
+    confirm: bool,
+) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+    S: BrowserCapturePacFileStore,
+{
+    handle_mitm_browser_capture_apply_with_store_and_proxy_scheme(
+        platform,
+        pac_store,
+        pac_file_path,
+        policy_file_path,
+        snapshot_path,
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME,
+        confirm,
+    )
+}
+
+pub fn handle_mitm_browser_capture_apply_with_store_and_proxy_scheme<P, S>(
+    platform: &P,
+    pac_store: &S,
+    pac_file_path: Option<&str>,
+    policy_file_path: Option<&str>,
+    snapshot_path: Option<&str>,
+    proxy_scheme: &str,
     confirm: bool,
 ) -> LinuxCliResponse
 where
@@ -2833,10 +3166,10 @@ where
         } else {
             "missing --confirm".to_string()
         },
-        scope: "linux browser capture PAC file artifact".to_string(),
+        scope: "linux browser capture PAC/browser policy artifacts".to_string(),
         gate: MITM_BROWSER_CAPTURE_GATE.to_string(),
     };
-    let mut report = build_linux_browser_capture_report(
+    let mut report = build_linux_browser_capture_report_with_proxy_scheme(
         LinuxBrowserCaptureAction::Apply,
         &platform_status,
         &mitm_status.policy,
@@ -2844,13 +3177,15 @@ where
         None,
         None,
         None,
+        None,
+        proxy_scheme,
     );
 
     if !confirm {
         diagnostics.push(cli_diagnostic(
             DiagnosticSeverity::Error,
             CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
-            "browser capture apply requires --confirm; no browser capture PAC file was written",
+            "browser capture apply requires --confirm; no browser capture PAC or policy artifact was written",
             SOURCE_CLI_MITM,
         ));
         report.apply_report = Some(LinuxBrowserCaptureApplyReport {
@@ -2859,6 +3194,8 @@ where
             authorization,
             pac_file_path: pac_file_path.map(ToString::to_string),
             pac_url: pac_file_path.map(browser_capture_pac_file_url),
+            policy_file_path: policy_file_path.map(ToString::to_string),
+            policy_url: policy_file_path.map(browser_capture_pac_file_url),
             rollback_snapshot: snapshot_path.map(|path| BrowserCaptureRollbackSnapshot {
                 path: path.to_string(),
                 status: "operator-provided".to_string(),
@@ -2889,6 +3226,8 @@ where
             authorization,
             pac_file_path: pac_file_path.map(ToString::to_string),
             pac_url: pac_file_path.map(browser_capture_pac_file_url),
+            policy_file_path: policy_file_path.map(ToString::to_string),
+            policy_url: policy_file_path.map(browser_capture_pac_file_url),
             rollback_snapshot: snapshot_path.map(|path| BrowserCaptureRollbackSnapshot {
                 path: path.to_string(),
                 status: "operator-provided".to_string(),
@@ -2906,8 +3245,12 @@ where
         };
     };
 
-    let pac_request =
-        build_linux_browser_capture_pac_request(&report.plan, pac_file_path, snapshot_path);
+    let pac_request = build_linux_browser_capture_pac_request(
+        &report.plan,
+        pac_file_path,
+        policy_file_path,
+        snapshot_path,
+    );
     report.request.pac = Some(pac_request.clone());
 
     match pac_store.apply_pac_file(&pac_request) {
@@ -2917,8 +3260,10 @@ where
                 status: "applied".to_string(),
                 applied: true,
                 authorization,
-                pac_file_path: Some(pac_request.pac_file_path),
-                pac_url: Some(pac_request.pac_url),
+                pac_file_path: Some(pac_request.pac_file_path.clone()),
+                pac_url: Some(pac_request.pac_url.clone()),
+                policy_file_path: pac_request.policy_file_path.clone(),
+                policy_url: pac_request.policy_url.clone(),
                 rollback_snapshot: Some(outcome.rollback_snapshot),
                 blocked_operations: report.plan.blocked_operations.clone(),
             });
@@ -2939,8 +3284,10 @@ where
                 status: "failed".to_string(),
                 applied: false,
                 authorization,
-                pac_file_path: Some(pac_request.pac_file_path),
-                pac_url: Some(pac_request.pac_url),
+                pac_file_path: Some(pac_request.pac_file_path.clone()),
+                pac_url: Some(pac_request.pac_url.clone()),
+                policy_file_path: pac_request.policy_file_path.clone(),
+                policy_url: pac_request.policy_url.clone(),
                 rollback_snapshot: Some(BrowserCaptureRollbackSnapshot {
                     path: pac_request.snapshot_path,
                     status: "operator-provided".to_string(),
@@ -2973,6 +3320,8 @@ where
         LinuxBrowserCaptureAction::Rollback,
         false,
         snapshot_path,
+        None,
+        None,
         None,
         None,
     )
@@ -3027,6 +3376,7 @@ where
             None,
             None,
             None,
+            None,
         );
         return LinuxCliResponse {
             ok: false,
@@ -3051,6 +3401,7 @@ where
         Some(rollback_snapshot.clone()),
         None,
         None,
+        None,
     );
 
     match pac_store.rollback_pac_file(&rollback_snapshot) {
@@ -3060,6 +3411,7 @@ where
                 status: "rolled_back".to_string(),
                 rolled_back: true,
                 pac_file_path: Some(outcome.pac_file_path),
+                policy_file_path: outcome.policy_file_path,
                 rollback_snapshot: Some(BrowserCaptureRollbackSnapshot {
                     status: "networkcore-restored".to_string(),
                     ..rollback_snapshot
@@ -3083,6 +3435,7 @@ where
                 status: "failed".to_string(),
                 rolled_back: false,
                 pac_file_path: None,
+                policy_file_path: None,
                 rollback_snapshot: Some(rollback_snapshot),
                 blocked_operations: report.plan.blocked_operations.clone(),
             });
@@ -3107,6 +3460,23 @@ pub fn handle_mitm_browser_capture_verify<P>(
 where
     P: PlatformCapabilityService,
 {
+    handle_mitm_browser_capture_verify_with_proxy_scheme(
+        platform,
+        target_url,
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME,
+        confirm,
+    )
+}
+
+pub fn handle_mitm_browser_capture_verify_with_proxy_scheme<P>(
+    platform: &P,
+    target_url: Option<&str>,
+    proxy_scheme: &str,
+    confirm: bool,
+) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+{
     handle_mitm_browser_capture_inner(
         "mitm browser-capture verify",
         platform,
@@ -3115,6 +3485,8 @@ where
         None,
         target_url,
         None,
+        None,
+        Some(proxy_scheme),
     )
 }
 
@@ -3122,6 +3494,26 @@ pub fn handle_mitm_browser_capture_verify_with_probe<P, V>(
     platform: &P,
     endpoint_probe: &V,
     target_url: Option<&str>,
+    confirm: bool,
+) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+    V: BrowserCaptureEndpointProbe,
+{
+    handle_mitm_browser_capture_verify_with_probe_and_proxy_scheme(
+        platform,
+        endpoint_probe,
+        target_url,
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME,
+        confirm,
+    )
+}
+
+pub fn handle_mitm_browser_capture_verify_with_probe_and_proxy_scheme<P, V>(
+    platform: &P,
+    endpoint_probe: &V,
+    target_url: Option<&str>,
+    proxy_scheme: &str,
     confirm: bool,
 ) -> LinuxCliResponse
 where
@@ -3163,7 +3555,7 @@ where
         scope: "linux browser capture local proxy endpoint verify".to_string(),
         gate: MITM_BROWSER_CAPTURE_GATE.to_string(),
     };
-    let mut report = build_linux_browser_capture_report(
+    let mut report = build_linux_browser_capture_report_with_proxy_scheme(
         LinuxBrowserCaptureAction::Verify,
         &platform_status,
         &mitm_status.policy,
@@ -3171,6 +3563,8 @@ where
         None,
         target_url,
         None,
+        None,
+        proxy_scheme,
     );
     let verify_request = report
         .request
@@ -3258,8 +3652,30 @@ where
 
 pub fn handle_mitm_browser_capture_traffic_proof<P>(
     platform: &P,
-    proof_token: &str,
-    proof_log_path: &str,
+    target_url: Option<&str>,
+    proof_token: Option<&str>,
+    proof_log_path: Option<&str>,
+    confirm: bool,
+) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+{
+    handle_mitm_browser_capture_traffic_proof_with_proxy_scheme(
+        platform,
+        target_url,
+        proof_token,
+        proof_log_path,
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME,
+        confirm,
+    )
+}
+
+pub fn handle_mitm_browser_capture_traffic_proof_with_proxy_scheme<P>(
+    platform: &P,
+    target_url: Option<&str>,
+    proof_token: Option<&str>,
+    proof_log_path: Option<&str>,
+    proxy_scheme: &str,
     confirm: bool,
 ) -> LinuxCliResponse
 where
@@ -3271,16 +3687,43 @@ where
         LinuxBrowserCaptureAction::TrafficProof,
         confirm,
         None,
-        None,
-        Some((proof_token, proof_log_path)),
+        target_url,
+        proof_token,
+        proof_log_path,
+        Some(proxy_scheme),
     )
 }
 
 pub fn handle_mitm_browser_capture_traffic_proof_with_probe<P, T>(
     platform: &P,
     traffic_proof_probe: &T,
-    proof_token: &str,
-    proof_log_path: &str,
+    target_url: Option<&str>,
+    proof_token: Option<&str>,
+    proof_log_path: Option<&str>,
+    confirm: bool,
+) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+    T: BrowserCaptureTrafficProofProbe,
+{
+    handle_mitm_browser_capture_traffic_proof_with_probe_and_proxy_scheme(
+        platform,
+        traffic_proof_probe,
+        target_url,
+        proof_token,
+        proof_log_path,
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME,
+        confirm,
+    )
+}
+
+pub fn handle_mitm_browser_capture_traffic_proof_with_probe_and_proxy_scheme<P, T>(
+    platform: &P,
+    traffic_proof_probe: &T,
+    target_url: Option<&str>,
+    proof_token: Option<&str>,
+    proof_log_path: Option<&str>,
+    proxy_scheme: &str,
     confirm: bool,
 ) -> LinuxCliResponse
 where
@@ -3322,14 +3765,16 @@ where
         scope: "linux browser capture traffic proof".to_string(),
         gate: MITM_BROWSER_CAPTURE_GATE.to_string(),
     };
-    let mut report = build_linux_browser_capture_report(
+    let mut report = build_linux_browser_capture_report_with_proxy_scheme(
         LinuxBrowserCaptureAction::TrafficProof,
         &platform_status,
         &mitm_status.policy,
         Some(authorization),
         None,
-        None,
-        Some((proof_token, proof_log_path)),
+        target_url,
+        proof_token,
+        proof_log_path,
+        proxy_scheme,
     );
     let proof_request = report
         .request
@@ -3449,7 +3894,9 @@ fn handle_mitm_browser_capture_inner<P>(
     confirm: bool,
     snapshot_path: Option<String>,
     target_url: Option<&str>,
-    traffic_proof: Option<(&str, &str)>,
+    traffic_proof_token: Option<&str>,
+    traffic_proof_log_path: Option<&str>,
+    proxy_scheme: Option<&str>,
 ) -> LinuxCliResponse
 where
     P: PlatformCapabilityService,
@@ -3593,14 +4040,16 @@ where
         }
     }
 
-    let report = build_linux_browser_capture_report(
+    let report = build_linux_browser_capture_report_with_proxy_scheme(
         action,
         &platform_status,
         &mitm_status.policy,
         authorization,
         rollback_snapshot,
         target_url,
-        traffic_proof,
+        traffic_proof_token,
+        traffic_proof_log_path,
+        proxy_scheme.unwrap_or(MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME),
     );
     let mut response = LinuxCliResponse::success(command)
         .with_platform(platform_status)
@@ -3680,7 +4129,7 @@ fn build_linux_mitm_status(
     diagnostics.push(cli_diagnostic(
         DiagnosticSeverity::Warning,
         CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE,
-        "MITM browser capture system mutation is blocked; the CLI only writes operator-provided NetworkCore PAC artifacts and does not write browser policy, system proxy, system PAC, TUN, DNS, or firewall state",
+        "MITM browser capture system mutation is blocked; the CLI only writes operator-provided NetworkCore PAC and browser policy artifacts and does not install browser policy, system proxy, system PAC, TUN, DNS, or firewall state",
         SOURCE_CLI_MITM,
     ));
     diagnostics.push(cli_diagnostic(
@@ -3730,7 +4179,7 @@ fn build_linux_mitm_status(
             LinuxMitmGateStatus {
                 gate: MITM_BROWSER_CAPTURE_GATE.to_string(),
                 status: MITM_BROWSER_CAPTURE_GATE_STATUS.to_string(),
-                reason: "browser capture PAC artifact apply is available; proxy/browser/system mutation remains blocked".to_string(),
+                reason: "browser capture PAC and browser policy artifact apply is available; proxy/browser/system mutation remains blocked".to_string(),
             },
         ],
     };
@@ -3772,12 +4221,17 @@ fn build_linux_mitm_browser_plan(
             LinuxMitmBrowserPlanStep {
                 id: "write-networkcore-pac-artifact".to_string(),
                 status: "active".to_string(),
-                reason: "browser-capture apply can write an operator-provided PAC file and rollback snapshot".to_string(),
+                reason: "browser-capture apply can write an operator-provided NetworkCore PAC file and rollback snapshot".to_string(),
+            },
+            LinuxMitmBrowserPlanStep {
+                id: "write-browser-policy-artifact".to_string(),
+                status: "active".to_string(),
+                reason: "browser-capture apply can write an operator-provided Chromium/Chrome managed proxy policy artifact and rollback snapshot".to_string(),
             },
             LinuxMitmBrowserPlanStep {
                 id: "configure-browser-explicit-proxy".to_string(),
                 status: "blocked".to_string(),
-                reason: "browser proxy configuration mutation is not implemented".to_string(),
+                reason: "browser policy installation and browser proxy configuration mutation are not implemented".to_string(),
             },
             LinuxMitmBrowserPlanStep {
                 id: "verify-browser-traffic-capture".to_string(),
@@ -3787,13 +4241,13 @@ fn build_linux_mitm_browser_plan(
             LinuxMitmBrowserPlanStep {
                 id: "rollback-browser-capture".to_string(),
                 status: "blocked".to_string(),
-                reason: "browser/system proxy rollback command is not implemented".to_string(),
+                reason: "browser/system proxy mutation rollback is not implemented".to_string(),
             },
         ],
         blocked_operations: vec![
             "start-mitm-proxy".to_string(),
             "write-system-proxy".to_string(),
-            "write-browser-policy".to_string(),
+            "install-browser-policy".to_string(),
             "install-system-pac".to_string(),
             "configure-tun-capture".to_string(),
             "configure-dns-capture".to_string(),
@@ -3811,9 +4265,40 @@ fn build_linux_browser_capture_report(
     authorization: Option<BrowserCaptureAuthorization>,
     rollback_snapshot: Option<BrowserCaptureRollbackSnapshot>,
     target_url: Option<&str>,
-    traffic_proof: Option<(&str, &str)>,
+    traffic_proof_token: Option<&str>,
+    traffic_proof_log_path: Option<&str>,
 ) -> LinuxBrowserCaptureReport {
-    let plan = build_linux_browser_capture_plan(platform_status, policy);
+    build_linux_browser_capture_report_with_proxy_scheme(
+        action,
+        platform_status,
+        policy,
+        authorization,
+        rollback_snapshot,
+        target_url,
+        traffic_proof_token,
+        traffic_proof_log_path,
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME,
+    )
+}
+
+fn build_linux_browser_capture_report_with_proxy_scheme(
+    action: LinuxBrowserCaptureAction,
+    platform_status: &PlatformCapabilityStatus,
+    policy: &LinuxMitmPolicyStatus,
+    authorization: Option<BrowserCaptureAuthorization>,
+    rollback_snapshot: Option<BrowserCaptureRollbackSnapshot>,
+    target_url: Option<&str>,
+    traffic_proof_token: Option<&str>,
+    traffic_proof_log_path: Option<&str>,
+    proxy_scheme: &str,
+) -> LinuxBrowserCaptureReport {
+    let plan = build_linux_browser_capture_plan_with_proxy_scheme(
+        platform_status,
+        policy,
+        MITM_BROWSER_CAPTURE_PROXY_HOST,
+        MITM_BROWSER_CAPTURE_PROXY_PORT,
+        proxy_scheme,
+    );
     let verify_request = if action == LinuxBrowserCaptureAction::Verify {
         Some(build_linux_browser_capture_verify_request(
             &plan, target_url,
@@ -3821,18 +4306,16 @@ fn build_linux_browser_capture_report(
     } else {
         None
     };
-    let traffic_proof_request =
-        if let (LinuxBrowserCaptureAction::TrafficProof, Some((proof_token, proof_log_path))) =
-            (action, traffic_proof)
-        {
-            Some(build_linux_browser_capture_traffic_proof_request(
-                &plan,
-                proof_token,
-                proof_log_path,
-            ))
-        } else {
-            None
-        };
+    let traffic_proof_request = if action == LinuxBrowserCaptureAction::TrafficProof {
+        Some(build_linux_browser_capture_traffic_proof_request(
+            &plan,
+            target_url,
+            traffic_proof_token,
+            traffic_proof_log_path,
+        ))
+    } else {
+        None
+    };
     let request = LinuxBrowserCaptureRequest {
         action,
         session: None,
@@ -3857,6 +4340,8 @@ fn build_linux_browser_capture_report(
                 authorization,
                 pac_file_path: None,
                 pac_url: None,
+                policy_file_path: None,
+                policy_url: None,
                 rollback_snapshot: None,
                 blocked_operations: blocked_operations.clone(),
             }
@@ -3869,6 +4354,7 @@ fn build_linux_browser_capture_report(
             status: "blocked".to_string(),
             rolled_back: false,
             pac_file_path: None,
+            policy_file_path: None,
             rollback_snapshot: rollback_snapshot.clone(),
             blocked_operations: blocked_operations.clone(),
         })
@@ -3937,18 +4423,35 @@ fn build_linux_browser_capture_plan_with_proxy(
     proxy_host: &str,
     proxy_port: u16,
 ) -> LinuxBrowserCapturePlan {
+    build_linux_browser_capture_plan_with_proxy_scheme(
+        platform_status,
+        policy,
+        proxy_host,
+        proxy_port,
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME,
+    )
+}
+
+fn build_linux_browser_capture_plan_with_proxy_scheme(
+    platform_status: &PlatformCapabilityStatus,
+    policy: &LinuxMitmPolicyStatus,
+    proxy_host: &str,
+    proxy_port: u16,
+    proxy_scheme: &str,
+) -> LinuxBrowserCapturePlan {
     let mitm_plan = build_linux_mitm_browser_plan(platform_status);
     let mitm_plan = LinuxMitmBrowserPlan {
         planned_proxy_host: proxy_host.to_string(),
         planned_proxy_port: proxy_port,
         ..mitm_plan
     };
-    let manual_launch = build_linux_browser_capture_manual_launch(&mitm_plan, policy);
+    let manual_launch = build_linux_browser_capture_manual_launch(&mitm_plan, policy, proxy_scheme);
     LinuxBrowserCapturePlan {
         status: mitm_plan.status,
         mutation_ready: mitm_plan.mutation_ready,
         current_capture: mitm_plan.current_capture,
         planned_capture_mode: mitm_plan.planned_capture_mode,
+        planned_proxy_scheme: proxy_scheme.to_string(),
         planned_proxy_host: mitm_plan.planned_proxy_host,
         planned_proxy_port: mitm_plan.planned_proxy_port,
         manual_launch,
@@ -3960,14 +4463,17 @@ fn build_linux_browser_capture_plan_with_proxy(
 fn build_linux_browser_capture_manual_launch(
     mitm_plan: &LinuxMitmBrowserPlan,
     policy: &LinuxMitmPolicyStatus,
+    proxy_scheme: &str,
 ) -> LinuxBrowserCaptureManualLaunch {
-    let proxy_url = format!(
-        "http://{}:{}",
-        mitm_plan.planned_proxy_host, mitm_plan.planned_proxy_port
+    let proxy_url = browser_capture_proxy_url(
+        proxy_scheme,
+        &mitm_plan.planned_proxy_host,
+        mitm_plan.planned_proxy_port,
     );
 
     LinuxBrowserCaptureManualLaunch {
         status: "manual-launch-plan-ready".to_string(),
+        proxy_scheme: proxy_scheme.to_string(),
         proxy_url: proxy_url.clone(),
         profile_strategy: "dedicated-temporary-profile".to_string(),
         plugin_engine: policy.engine.clone(),
@@ -3999,28 +4505,53 @@ fn default_linux_browser_capture_launch_commands(
         .collect()
 }
 
+fn browser_capture_proxy_url(proxy_scheme: &str, proxy_host: &str, proxy_port: u16) -> String {
+    format!("{proxy_scheme}://{proxy_host}:{proxy_port}")
+}
+
 fn build_linux_browser_capture_launch_request(
     browser: &str,
     profile_dir: &str,
     target_url: Option<&str>,
+    proof_token: Option<&str>,
+    proof_log_path: Option<&str>,
     plan: &LinuxBrowserCapturePlan,
 ) -> LinuxBrowserCaptureLaunchRequest {
-    let proxy_url = format!(
-        "http://{}:{}",
-        plan.planned_proxy_host, plan.planned_proxy_port
+    let proxy_url = browser_capture_proxy_url(
+        &plan.planned_proxy_scheme,
+        &plan.planned_proxy_host,
+        plan.planned_proxy_port,
     );
+    let resolved_proof_token =
+        resolve_browser_capture_proof_token(proof_token, target_url, &proxy_url);
+    let resolved_proof_log_path = proof_log_path
+        .unwrap_or(MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH)
+        .to_string();
+    let proof_target_url = target_url
+        .map(|target_url| browser_capture_proof_target_url(target_url, &resolved_proof_token));
+    let browser_target_url = proof_target_url.as_deref().or(target_url);
     let command = build_linux_browser_capture_launch_command(
         browser,
         browser,
         profile_dir,
         &proxy_url,
-        target_url,
+        browser_target_url,
     );
 
     LinuxBrowserCaptureLaunchRequest {
         browser: browser.to_string(),
         profile_dir: profile_dir.to_string(),
         target_url: target_url.map(ToString::to_string),
+        proof_target_url,
+        proof_token: resolved_proof_token.clone(),
+        proof_log_path: resolved_proof_log_path.clone(),
+        traffic_proof_command: build_linux_browser_capture_traffic_proof_command(
+            target_url,
+            &resolved_proof_token,
+            &resolved_proof_log_path,
+            &plan.planned_proxy_scheme,
+        ),
+        proxy_scheme: plan.planned_proxy_scheme.clone(),
         proxy_url,
         command,
     }
@@ -4033,9 +4564,11 @@ fn build_linux_browser_capture_verify_request(
     LinuxBrowserCaptureVerifyRequest {
         proxy_host: plan.planned_proxy_host.clone(),
         proxy_port: plan.planned_proxy_port,
-        proxy_url: format!(
-            "http://{}:{}",
-            plan.planned_proxy_host, plan.planned_proxy_port
+        proxy_scheme: plan.planned_proxy_scheme.clone(),
+        proxy_url: browser_capture_proxy_url(
+            &plan.planned_proxy_scheme,
+            &plan.planned_proxy_host,
+            plan.planned_proxy_port,
         ),
         target_url: target_url.map(ToString::to_string),
         probe: if target_url.is_some() {
@@ -4050,20 +4583,38 @@ fn build_linux_browser_capture_verify_request(
 fn build_linux_browser_capture_pac_request(
     plan: &LinuxBrowserCapturePlan,
     pac_file_path: &str,
+    policy_file_path: Option<&str>,
     snapshot_path: &str,
 ) -> LinuxBrowserCapturePacRequest {
-    let proxy_url = format!(
-        "http://{}:{}",
-        plan.planned_proxy_host, plan.planned_proxy_port
+    let proxy_url = browser_capture_proxy_url(
+        &plan.planned_proxy_scheme,
+        &plan.planned_proxy_host,
+        plan.planned_proxy_port,
     );
+    let policy_url = policy_file_path.map(browser_capture_pac_file_url);
+    let policy_content = policy_file_path.map(|_| {
+        browser_capture_chromium_policy_content(
+            &plan.planned_proxy_scheme,
+            &plan.planned_proxy_host,
+            plan.planned_proxy_port,
+        )
+    });
     LinuxBrowserCapturePacRequest {
         proxy_host: plan.planned_proxy_host.clone(),
         proxy_port: plan.planned_proxy_port,
+        proxy_scheme: plan.planned_proxy_scheme.clone(),
         proxy_url,
         pac_file_path: pac_file_path.to_string(),
         snapshot_path: snapshot_path.to_string(),
         pac_url: browser_capture_pac_file_url(pac_file_path),
-        pac_content: browser_capture_pac_content(&plan.planned_proxy_host, plan.planned_proxy_port),
+        pac_content: browser_capture_pac_content(
+            &plan.planned_proxy_scheme,
+            &plan.planned_proxy_host,
+            plan.planned_proxy_port,
+        ),
+        policy_file_path: policy_file_path.map(ToString::to_string),
+        policy_url,
+        policy_content,
     }
 }
 
@@ -4071,13 +4622,48 @@ fn browser_capture_pac_file_url(path: &str) -> String {
     format!("file://{path}")
 }
 
-fn browser_capture_pac_content(proxy_host: &str, proxy_port: u16) -> String {
+fn browser_capture_pac_content(proxy_scheme: &str, proxy_host: &str, proxy_port: u16) -> String {
+    let pac_proxy_type =
+        if proxy_scheme == MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME {
+            "SOCKS5"
+        } else {
+            "PROXY"
+        };
     format!(
-        "function FindProxyForURL(url, host) {{\n  return \"PROXY {proxy_host}:{proxy_port}; DIRECT\";\n}}\n"
+        "function FindProxyForURL(url, host) {{\n  return \"{pac_proxy_type} {proxy_host}:{proxy_port}; DIRECT\";\n}}\n"
     )
 }
 
-fn build_linux_browser_capture_verify_command(target_url: Option<&str>) -> String {
+#[derive(Serialize)]
+struct BrowserCaptureChromiumPolicyFile<'a> {
+    #[serde(rename = "ProxyMode")]
+    proxy_mode: &'a str,
+    #[serde(rename = "ProxyServer")]
+    proxy_server: String,
+    #[serde(rename = "ProxyBypassList")]
+    proxy_bypass_list: &'a str,
+}
+
+fn browser_capture_chromium_policy_content(
+    proxy_scheme: &str,
+    proxy_host: &str,
+    proxy_port: u16,
+) -> String {
+    let policy = BrowserCaptureChromiumPolicyFile {
+        proxy_mode: "fixed_servers",
+        proxy_server: browser_capture_proxy_url(proxy_scheme, proxy_host, proxy_port),
+        proxy_bypass_list: "<-loopback>",
+    };
+    let mut json = serde_json::to_string_pretty(&policy)
+        .expect("browser capture chromium policy serialization should be infallible");
+    json.push('\n');
+    json
+}
+
+fn build_linux_browser_capture_verify_command(
+    target_url: Option<&str>,
+    proxy_scheme: &str,
+) -> String {
     let mut args = vec![
         "networkcore-linux".to_string(),
         "mitm".to_string(),
@@ -4085,6 +4671,10 @@ fn build_linux_browser_capture_verify_command(target_url: Option<&str>) -> Strin
         "verify".to_string(),
         "--confirm".to_string(),
     ];
+    if proxy_scheme != MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME {
+        args.push("--proxy-scheme".to_string());
+        args.push(proxy_scheme.to_string());
+    }
     if let Some(target_url) = target_url {
         args.push("--target-url".to_string());
         args.push(target_url.to_string());
@@ -4094,6 +4684,104 @@ fn build_linux_browser_capture_verify_command(target_url: Option<&str>) -> Strin
         .map(|arg| shell_display_arg(&arg))
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn build_linux_browser_capture_traffic_proof_command(
+    target_url: Option<&str>,
+    proof_token: &str,
+    proof_log_path: &str,
+    proxy_scheme: &str,
+) -> String {
+    let mut args = vec![
+        "networkcore-linux".to_string(),
+        "mitm".to_string(),
+        "browser-capture".to_string(),
+        "traffic-proof".to_string(),
+        "--confirm".to_string(),
+    ];
+    if proxy_scheme != MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME {
+        args.push("--proxy-scheme".to_string());
+        args.push(proxy_scheme.to_string());
+    }
+    if let Some(target_url) = target_url {
+        args.push("--target-url".to_string());
+        args.push(target_url.to_string());
+    }
+    args.extend([
+        "--proof-token".to_string(),
+        proof_token.to_string(),
+        "--proof-log".to_string(),
+        proof_log_path.to_string(),
+    ]);
+    args
+        .into_iter()
+        .map(|arg| shell_display_arg(&arg))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn resolve_browser_capture_proof_token(
+    proof_token: Option<&str>,
+    target_url: Option<&str>,
+    proxy_url: &str,
+) -> String {
+    if let Some(proof_token) = proof_token {
+        return proof_token.to_string();
+    }
+
+    let proof_source = target_url
+        .and_then(|target_url| {
+            parse_browser_capture_target_endpoint(target_url)
+                .ok()
+                .map(|endpoint| format!("connect:{}|proxy:{proxy_url}", endpoint.authority()))
+        })
+        .unwrap_or_else(|| format!("target:no-target|proxy:{proxy_url}"));
+    browser_capture_proof_token_from_source(&proof_source)
+}
+
+fn browser_capture_proof_token_from_source(source: &str) -> String {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in source.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("networkcore-browser-proof-{hash:016x}")
+}
+
+fn browser_capture_proof_target_url(target_url: &str, proof_token: &str) -> String {
+    let (base, fragment) = match target_url.split_once('#') {
+        Some((base, fragment)) => (base, Some(fragment)),
+        None => (target_url, None),
+    };
+    let separator = if base.ends_with('?') || base.ends_with('&') {
+        ""
+    } else if base.contains('?') {
+        "&"
+    } else {
+        "?"
+    };
+    let mut proof_url = format!(
+        "{base}{separator}{MITM_BROWSER_CAPTURE_PROOF_QUERY_PARAM}={}",
+        browser_capture_url_query_encode(proof_token)
+    );
+    if let Some(fragment) = fragment {
+        proof_url.push('#');
+        proof_url.push_str(fragment);
+    }
+    proof_url
+}
+
+fn browser_capture_url_query_encode(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        let ch = byte as char;
+        if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '~') {
+            encoded.push(ch);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
 }
 
 fn build_linux_browser_capture_launch_command(
@@ -4173,18 +4861,32 @@ fn build_linux_browser_capture_verify_report(
 
 fn build_linux_browser_capture_traffic_proof_request(
     plan: &LinuxBrowserCapturePlan,
-    proof_token: &str,
-    proof_log_path: &str,
+    target_url: Option<&str>,
+    proof_token: Option<&str>,
+    proof_log_path: Option<&str>,
 ) -> LinuxBrowserCaptureTrafficProofRequest {
+    let proxy_url = browser_capture_proxy_url(
+        &plan.planned_proxy_scheme,
+        &plan.planned_proxy_host,
+        plan.planned_proxy_port,
+    );
+    let resolved_proof_token =
+        resolve_browser_capture_proof_token(proof_token, target_url, &proxy_url);
+    let resolved_proof_log_path = proof_log_path
+        .unwrap_or(MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH)
+        .to_string();
+    let proof_target_url = target_url
+        .map(|target_url| browser_capture_proof_target_url(target_url, &resolved_proof_token));
+
     LinuxBrowserCaptureTrafficProofRequest {
         proxy_host: plan.planned_proxy_host.clone(),
         proxy_port: plan.planned_proxy_port,
-        proxy_url: format!(
-            "http://{}:{}",
-            plan.planned_proxy_host, plan.planned_proxy_port
-        ),
-        proof_token: proof_token.to_string(),
-        proof_log_path: proof_log_path.to_string(),
+        proxy_scheme: plan.planned_proxy_scheme.clone(),
+        proxy_url,
+        target_url: target_url.map(ToString::to_string),
+        proof_target_url,
+        proof_token: resolved_proof_token,
+        proof_log_path: resolved_proof_log_path,
         probe: "proof-log-token".to_string(),
     }
 }
@@ -4213,11 +4915,20 @@ fn build_linux_browser_capture_session_plan_report(
     node_name: String,
     browser_command: LinuxBrowserCaptureLaunchCommand,
     proxy_url: String,
+    traffic_proof_request: LinuxBrowserCaptureTrafficProofRequest,
     policy: &LinuxMitmPolicyStatus,
     blocked_operations: Vec<String>,
 ) -> LinuxBrowserCaptureSessionPlanReport {
     let target_url = request.target_url;
-    let verify_command = build_linux_browser_capture_verify_command(target_url.as_deref());
+    let proof_target_url = request.proof_target_url;
+    let verify_command =
+        build_linux_browser_capture_verify_command(target_url.as_deref(), &request.proxy_scheme);
+    let traffic_proof_command = build_linux_browser_capture_traffic_proof_command(
+        target_url.as_deref(),
+        &traffic_proof_request.proof_token,
+        &traffic_proof_request.proof_log_path,
+        &request.proxy_scheme,
+    );
 
     LinuxBrowserCaptureSessionPlanReport {
         status: "ready".to_string(),
@@ -4225,8 +4936,12 @@ fn build_linux_browser_capture_session_plan_report(
         node_id,
         node_name,
         target_url,
+        proof_target_url,
+        proof_token: traffic_proof_request.proof_token,
+        proof_log_path: traffic_proof_request.proof_log_path,
         listen_host: request.listen_host.clone(),
         listen_port: request.listen_port,
+        proxy_scheme: request.proxy_scheme,
         proxy_url,
         run_command: format!(
             "networkcore-linux run-url <subscription-url> --listen-host {} --listen-port {}",
@@ -4234,6 +4949,7 @@ fn build_linux_browser_capture_session_plan_report(
         ),
         browser_command,
         verify_command,
+        traffic_proof_command,
         plugin_engine: policy.engine.clone(),
         plugin_id: policy.plugin_id.clone(),
         plugin_version: policy.plugin_version.clone(),
@@ -4241,6 +4957,7 @@ fn build_linux_browser_capture_session_plan_report(
             "start the local proxy with run-url using the same subscription URL".to_string(),
             "launch the dedicated browser profile with the planned explicit proxy".to_string(),
             "verify the local proxy endpoint before relying on browser traffic capture".to_string(),
+            "inspect the proxy proof log with the generated traffic-proof command".to_string(),
             "close the dedicated browser profile and stop the foreground proxy to leave the session"
                 .to_string(),
         ],
@@ -4619,6 +5336,16 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.pac_file_path = Some(value.clone());
             }
+            "--policy-file" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--policy-file requires a browser policy file path",
+                    ));
+                };
+                options.policy_file_path = Some(value.clone());
+            }
             "--proof-token" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -4638,6 +5365,16 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                     ));
                 };
                 options.proof_log_path = Some(value.clone());
+            }
+            "--proxy-scheme" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--proxy-scheme requires http or socks5",
+                    ));
+                };
+                options.proxy_scheme = Some(parse_browser_capture_proxy_scheme(value)?);
             }
             "--install-dir" => {
                 index += 1;
@@ -4773,6 +5510,9 @@ fn parse_mitm_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseE
         "browser-plan" | "browser-capture-plan" | "hijack-plan" => {
             let options = parse_options(&args[1..])?;
             Ok(LinuxCliCommand::MitmBrowserPlan {
+                proxy_scheme: options
+                    .proxy_scheme
+                    .unwrap_or_else(default_browser_capture_proxy_scheme),
                 format: options.format,
             })
         }
@@ -4790,6 +5530,9 @@ fn parse_mitm_browser_capture_command(
     let Some(subcommand) = args.first() else {
         let options = parse_options(args)?;
         return Ok(LinuxCliCommand::MitmBrowserCapturePlan {
+            proxy_scheme: options
+                .proxy_scheme
+                .unwrap_or_else(default_browser_capture_proxy_scheme),
             format: options.format,
         });
     };
@@ -4797,6 +5540,9 @@ fn parse_mitm_browser_capture_command(
     if subcommand.starts_with("--") {
         let options = parse_options(args)?;
         return Ok(LinuxCliCommand::MitmBrowserCapturePlan {
+            proxy_scheme: options
+                .proxy_scheme
+                .unwrap_or_else(default_browser_capture_proxy_scheme),
             format: options.format,
         });
     }
@@ -4805,12 +5551,18 @@ fn parse_mitm_browser_capture_command(
         "plan" => {
             let options = parse_options(&args[1..])?;
             Ok(LinuxCliCommand::MitmBrowserCapturePlan {
+                proxy_scheme: options
+                    .proxy_scheme
+                    .unwrap_or_else(default_browser_capture_proxy_scheme),
                 format: options.format,
             })
         }
         "launch-plan" | "manual-launch" | "hijack-launch-plan" => {
             let options = parse_options(&args[1..])?;
             Ok(LinuxCliCommand::MitmBrowserCaptureLaunchPlan {
+                proxy_scheme: options
+                    .proxy_scheme
+                    .unwrap_or_else(default_browser_capture_proxy_scheme),
                 format: options.format,
             })
         }
@@ -4837,6 +5589,11 @@ fn parse_mitm_browser_capture_command(
                     .profile_dir
                     .unwrap_or_else(|| MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR.to_string()),
                 target_url: options.target_url,
+                proof_token: options.proof_token,
+                proof_log_path: options.proof_log_path,
+                proxy_scheme: options
+                    .proxy_scheme
+                    .unwrap_or_else(default_browser_capture_proxy_scheme),
                 listen_host: options
                     .listen_host
                     .unwrap_or_else(|| MITM_BROWSER_CAPTURE_PROXY_HOST.to_string()),
@@ -4856,6 +5613,11 @@ fn parse_mitm_browser_capture_command(
                     .profile_dir
                     .unwrap_or_else(|| MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR.to_string()),
                 target_url: options.target_url,
+                proof_token: options.proof_token,
+                proof_log_path: options.proof_log_path,
+                proxy_scheme: options
+                    .proxy_scheme
+                    .unwrap_or_else(default_browser_capture_proxy_scheme),
                 confirm: options.confirm,
                 format: options.format,
             })
@@ -4864,7 +5626,11 @@ fn parse_mitm_browser_capture_command(
             let options = parse_options(&args[1..])?;
             Ok(LinuxCliCommand::MitmBrowserCaptureApply {
                 pac_file_path: options.pac_file_path,
+                policy_file_path: options.policy_file_path,
                 snapshot_path: options.snapshot_path,
+                proxy_scheme: options
+                    .proxy_scheme
+                    .unwrap_or_else(default_browser_capture_proxy_scheme),
                 confirm: options.confirm,
                 format: options.format,
             })
@@ -4880,27 +5646,22 @@ fn parse_mitm_browser_capture_command(
             let options = parse_options(&args[1..])?;
             Ok(LinuxCliCommand::MitmBrowserCaptureVerify {
                 target_url: options.target_url,
+                proxy_scheme: options
+                    .proxy_scheme
+                    .unwrap_or_else(default_browser_capture_proxy_scheme),
                 confirm: options.confirm,
                 format: options.format,
             })
         }
         "traffic-proof" | "proof" | "verify-traffic" => {
             let options = parse_options(&args[1..])?;
-            let Some(proof_token) = options.proof_token else {
-                return Err(parse_error(
-                    CLI_ARGUMENT_VALUE_MISSING_CODE,
-                    "mitm browser-capture traffic-proof requires --proof-token <token>",
-                ));
-            };
-            let Some(proof_log_path) = options.proof_log_path else {
-                return Err(parse_error(
-                    CLI_ARGUMENT_VALUE_MISSING_CODE,
-                    "mitm browser-capture traffic-proof requires --proof-log <path>",
-                ));
-            };
             Ok(LinuxCliCommand::MitmBrowserCaptureTrafficProof {
-                proof_token,
-                proof_log_path,
+                target_url: options.target_url,
+                proof_token: options.proof_token,
+                proof_log_path: options.proof_log_path,
+                proxy_scheme: options
+                    .proxy_scheme
+                    .unwrap_or_else(default_browser_capture_proxy_scheme),
                 confirm: options.confirm,
                 format: options.format,
             })
@@ -4955,6 +5716,26 @@ fn parse_listen_port(value: &str) -> Result<u16, LinuxCliParseError> {
     Ok(parsed)
 }
 
+fn default_browser_capture_proxy_scheme() -> String {
+    MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string()
+}
+
+fn parse_browser_capture_proxy_scheme(value: &str) -> Result<String, LinuxCliParseError> {
+    let normalized = value.to_ascii_lowercase();
+    match normalized.as_str() {
+        MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME
+        | MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME => Ok(normalized),
+        _ => Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            format!(
+                "--proxy-scheme must be {} or {}",
+                MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME,
+                MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME
+            ),
+        )),
+    }
+}
+
 pub const fn cli_help_text() -> &'static str {
     concat!(
         "NetworkCore Linux CLI\n",
@@ -4969,7 +5750,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux status [--format text|json]\n",
         "  networkcore-linux diagnostics [--format text|json]\n",
         "  networkcore-linux mitm [status|diagnostics|certificate-plan|browser-plan] [--format text|json]\n",
-        "  networkcore-linux mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify|traffic-proof] [<ss://url>] [--browser <executable>] [--profile-dir <dir>] [--target-url <url>] [--listen-host <host>] [--listen-port <port>] [--pac-file <path>] [--proof-token <token>] [--proof-log <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
+        "  networkcore-linux mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify|traffic-proof] [<ss://url>] [--browser <executable>] [--profile-dir <dir>] [--target-url <url>] [--proxy-scheme http|socks5] [--listen-host <host>] [--listen-port <port>] [--pac-file <path>] [--policy-file <path>] [--proof-token <token>] [--proof-log <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux run-url <ss://url> [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux sing-box install [--install-dir <dir>] [--force] [--format text|json]\n",
@@ -4992,7 +5773,9 @@ pub const fn cli_help_text() -> &'static str {
         "  --browser <exe>       Browser executable for mitm browser-capture session-plan/launch. Defaults to chromium.\n",
         "  --profile-dir <dir>   Dedicated browser profile directory for mitm browser-capture session-plan/launch.\n",
         "  --target-url <url>    Optional page URL to open in the dedicated browser capture profile.\n",
+        "  --proxy-scheme <mode> Browser explicit proxy scheme for browser-capture. Defaults to http; socks5 targets the native SOCKS5 CONNECT MITM hook.\n",
         "  --pac-file <path>     PAC file path for mitm browser-capture apply.\n",
+        "  --policy-file <path>  Chromium/Chrome managed proxy policy file artifact for mitm browser-capture apply.\n",
         "  --proof-token <token> Browser traffic proof token expected in a proof log.\n",
         "  --proof-log <path>    Browser traffic proof log path to inspect after an operator-driven visit.\n",
         "  --install-dir <dir>   Engine cache root for install-sing-box.\n",
@@ -5329,6 +6112,10 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             capture.plan.planned_proxy_host, capture.plan.planned_proxy_port
         ));
         lines.push(format!(
+            "browser capture planned proxy scheme: {}",
+            capture.plan.planned_proxy_scheme
+        ));
+        lines.push(format!(
             "browser capture manual launch: {} proxy={}",
             capture.plan.manual_launch.status, capture.plan.manual_launch.proxy_url
         ));
@@ -5356,9 +6143,26 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
                 "browser capture session local proxy: {}:{}",
                 session.listen_host, session.listen_port
             ));
+            lines.push(format!(
+                "browser capture session proxy scheme: {}",
+                session.proxy_scheme
+            ));
             if let Some(target_url) = &session.target_url {
                 lines.push(format!("browser capture session target URL: {target_url}"));
             }
+            if let Some(proof_target_url) = &session.proof_target_url {
+                lines.push(format!(
+                    "browser capture session proof target URL: {proof_target_url}"
+                ));
+            }
+            lines.push(format!(
+                "browser capture session proof token: {}",
+                session.proof_token
+            ));
+            lines.push(format!(
+                "browser capture session proof log: {}",
+                session.proof_log_path
+            ));
             lines.push(format!(
                 "browser capture session run command: {}",
                 session.run_command
@@ -5370,6 +6174,10 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             lines.push(format!(
                 "browser capture session verify command: {}",
                 session.verify_command
+            ));
+            lines.push(format!(
+                "browser capture session traffic-proof command: {}",
+                session.traffic_proof_command
             ));
             for step in &session.required_steps {
                 lines.push(format!("browser capture session step: {step}"));
@@ -5404,6 +6212,23 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             if let Some(target_url) = &report.request.target_url {
                 lines.push(format!("browser capture launch target URL: {target_url}"));
             }
+            if let Some(proof_target_url) = &report.request.proof_target_url {
+                lines.push(format!(
+                    "browser capture launch proof target URL: {proof_target_url}"
+                ));
+            }
+            lines.push(format!(
+                "browser capture launch proof token: {}",
+                report.request.proof_token
+            ));
+            lines.push(format!(
+                "browser capture launch proof log: {}",
+                report.request.proof_log_path
+            ));
+            lines.push(format!(
+                "browser capture launch traffic-proof command: {}",
+                report.request.traffic_proof_command
+            ));
             lines.push(format!(
                 "browser capture launch profile: {} proxy={}",
                 report.request.profile_dir, report.request.proxy_url
@@ -5420,6 +6245,16 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             if let Some(pac_url) = &report.pac_url {
                 lines.push(format!("browser capture PAC URL: {pac_url}"));
             }
+            if let Some(policy_file_path) = &report.policy_file_path {
+                lines.push(format!(
+                    "browser capture browser policy file: {policy_file_path}"
+                ));
+            }
+            if let Some(policy_url) = &report.policy_url {
+                lines.push(format!(
+                    "browser capture browser policy URL: {policy_url}"
+                ));
+            }
             if let Some(snapshot) = &report.rollback_snapshot {
                 lines.push(format!(
                     "browser capture apply rollback snapshot: {} ({})",
@@ -5435,6 +6270,11 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             if let Some(pac_file_path) = &report.pac_file_path {
                 lines.push(format!(
                     "browser capture rollback PAC file: {pac_file_path}"
+                ));
+            }
+            if let Some(policy_file_path) = &report.policy_file_path {
+                lines.push(format!(
+                    "browser capture rollback browser policy file: {policy_file_path}"
                 ));
             }
             if let Some(snapshot) = &report.rollback_snapshot {
@@ -5461,6 +6301,20 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
                 report.request.proxy_url,
                 report.request.proof_log_path,
                 report.request.probe
+            ));
+            if let Some(target_url) = &report.request.target_url {
+                lines.push(format!(
+                    "browser capture traffic proof target URL: {target_url}"
+                ));
+            }
+            if let Some(proof_target_url) = &report.request.proof_target_url {
+                lines.push(format!(
+                    "browser capture traffic proof target proof URL: {proof_target_url}"
+                ));
+            }
+            lines.push(format!(
+                "browser capture traffic proof token: {}",
+                report.request.proof_token
             ));
         }
     }
@@ -5796,11 +6650,15 @@ impl From<&LinuxBrowserCaptureRequest> for JsonBrowserCaptureRequest {
 struct JsonBrowserCapturePacRequest {
     proxy_host: String,
     proxy_port: u16,
+    proxy_scheme: String,
     proxy_url: String,
     pac_file_path: String,
     snapshot_path: String,
     pac_url: String,
     pac_content: String,
+    policy_file_path: Option<String>,
+    policy_url: Option<String>,
+    policy_content: Option<String>,
 }
 
 impl From<&LinuxBrowserCapturePacRequest> for JsonBrowserCapturePacRequest {
@@ -5808,11 +6666,15 @@ impl From<&LinuxBrowserCapturePacRequest> for JsonBrowserCapturePacRequest {
         Self {
             proxy_host: request.proxy_host.clone(),
             proxy_port: request.proxy_port,
+            proxy_scheme: request.proxy_scheme.clone(),
             proxy_url: request.proxy_url.clone(),
             pac_file_path: request.pac_file_path.clone(),
             snapshot_path: request.snapshot_path.clone(),
             pac_url: request.pac_url.clone(),
             pac_content: request.pac_content.clone(),
+            policy_file_path: request.policy_file_path.clone(),
+            policy_url: request.policy_url.clone(),
+            policy_content: request.policy_content.clone(),
         }
     }
 }
@@ -5823,6 +6685,10 @@ struct JsonBrowserCaptureSessionPlanRequest {
     browser: String,
     profile_dir: String,
     target_url: Option<String>,
+    proof_target_url: Option<String>,
+    proof_token: String,
+    proof_log_path: String,
+    proxy_scheme: String,
     listen_host: String,
     listen_port: u16,
 }
@@ -5834,6 +6700,10 @@ impl From<&LinuxBrowserCaptureSessionPlanRequest> for JsonBrowserCaptureSessionP
             browser: request.browser.clone(),
             profile_dir: request.profile_dir.clone(),
             target_url: request.target_url.clone(),
+            proof_target_url: request.proof_target_url.clone(),
+            proof_token: request.proof_token.clone(),
+            proof_log_path: request.proof_log_path.clone(),
+            proxy_scheme: request.proxy_scheme.clone(),
             listen_host: request.listen_host.clone(),
             listen_port: request.listen_port,
         }
@@ -5847,12 +6717,17 @@ struct JsonBrowserCaptureSessionPlanReport {
     node_id: String,
     node_name: String,
     target_url: Option<String>,
+    proof_target_url: Option<String>,
+    proof_token: String,
+    proof_log_path: String,
     listen_host: String,
     listen_port: u16,
+    proxy_scheme: String,
     proxy_url: String,
     run_command: String,
     browser_command: JsonBrowserCaptureLaunchCommand,
     verify_command: String,
+    traffic_proof_command: String,
     plugin_engine: String,
     plugin_id: String,
     plugin_version: String,
@@ -5868,12 +6743,17 @@ impl From<&LinuxBrowserCaptureSessionPlanReport> for JsonBrowserCaptureSessionPl
             node_id: report.node_id.clone(),
             node_name: report.node_name.clone(),
             target_url: report.target_url.clone(),
+            proof_target_url: report.proof_target_url.clone(),
+            proof_token: report.proof_token.clone(),
+            proof_log_path: report.proof_log_path.clone(),
             listen_host: report.listen_host.clone(),
             listen_port: report.listen_port,
+            proxy_scheme: report.proxy_scheme.clone(),
             proxy_url: report.proxy_url.clone(),
             run_command: report.run_command.clone(),
             browser_command: JsonBrowserCaptureLaunchCommand::from(&report.browser_command),
             verify_command: report.verify_command.clone(),
+            traffic_proof_command: report.traffic_proof_command.clone(),
             plugin_engine: report.plugin_engine.clone(),
             plugin_id: report.plugin_id.clone(),
             plugin_version: report.plugin_version.clone(),
@@ -5887,6 +6767,7 @@ impl From<&LinuxBrowserCaptureSessionPlanReport> for JsonBrowserCaptureSessionPl
 struct JsonBrowserCaptureVerifyRequest {
     proxy_host: String,
     proxy_port: u16,
+    proxy_scheme: String,
     proxy_url: String,
     target_url: Option<String>,
     probe: String,
@@ -5897,6 +6778,7 @@ impl From<&LinuxBrowserCaptureVerifyRequest> for JsonBrowserCaptureVerifyRequest
         Self {
             proxy_host: request.proxy_host.clone(),
             proxy_port: request.proxy_port,
+            proxy_scheme: request.proxy_scheme.clone(),
             proxy_url: request.proxy_url.clone(),
             target_url: request.target_url.clone(),
             probe: request.probe.clone(),
@@ -5908,7 +6790,10 @@ impl From<&LinuxBrowserCaptureVerifyRequest> for JsonBrowserCaptureVerifyRequest
 struct JsonBrowserCaptureTrafficProofRequest {
     proxy_host: String,
     proxy_port: u16,
+    proxy_scheme: String,
     proxy_url: String,
+    target_url: Option<String>,
+    proof_target_url: Option<String>,
     proof_token: String,
     proof_log_path: String,
     probe: String,
@@ -5919,7 +6804,10 @@ impl From<&LinuxBrowserCaptureTrafficProofRequest> for JsonBrowserCaptureTraffic
         Self {
             proxy_host: request.proxy_host.clone(),
             proxy_port: request.proxy_port,
+            proxy_scheme: request.proxy_scheme.clone(),
             proxy_url: request.proxy_url.clone(),
+            target_url: request.target_url.clone(),
+            proof_target_url: request.proof_target_url.clone(),
             proof_token: request.proof_token.clone(),
             proof_log_path: request.proof_log_path.clone(),
             probe: request.probe.clone(),
@@ -5967,6 +6855,7 @@ struct JsonBrowserCapturePlan {
     mutation_ready: bool,
     current_capture: String,
     planned_capture_mode: String,
+    planned_proxy_scheme: String,
     planned_proxy_host: String,
     planned_proxy_port: u16,
     manual_launch: JsonBrowserCaptureManualLaunch,
@@ -5981,6 +6870,7 @@ impl From<&LinuxBrowserCapturePlan> for JsonBrowserCapturePlan {
             mutation_ready: plan.mutation_ready,
             current_capture: plan.current_capture.clone(),
             planned_capture_mode: plan.planned_capture_mode.clone(),
+            planned_proxy_scheme: plan.planned_proxy_scheme.clone(),
             planned_proxy_host: plan.planned_proxy_host.clone(),
             planned_proxy_port: plan.planned_proxy_port,
             manual_launch: JsonBrowserCaptureManualLaunch::from(&plan.manual_launch),
@@ -5997,6 +6887,7 @@ impl From<&LinuxBrowserCapturePlan> for JsonBrowserCapturePlan {
 #[derive(Serialize)]
 struct JsonBrowserCaptureManualLaunch {
     status: String,
+    proxy_scheme: String,
     proxy_url: String,
     profile_strategy: String,
     plugin_engine: String,
@@ -6010,6 +6901,7 @@ impl From<&LinuxBrowserCaptureManualLaunch> for JsonBrowserCaptureManualLaunch {
     fn from(plan: &LinuxBrowserCaptureManualLaunch) -> Self {
         Self {
             status: plan.status.clone(),
+            proxy_scheme: plan.proxy_scheme.clone(),
             proxy_url: plan.proxy_url.clone(),
             profile_strategy: plan.profile_strategy.clone(),
             plugin_engine: plan.plugin_engine.clone(),
@@ -6049,6 +6941,11 @@ struct JsonBrowserCaptureLaunchRequest {
     browser: String,
     profile_dir: String,
     target_url: Option<String>,
+    proof_target_url: Option<String>,
+    proof_token: String,
+    proof_log_path: String,
+    traffic_proof_command: String,
+    proxy_scheme: String,
     proxy_url: String,
     command: JsonBrowserCaptureLaunchCommand,
 }
@@ -6059,6 +6956,11 @@ impl From<&LinuxBrowserCaptureLaunchRequest> for JsonBrowserCaptureLaunchRequest
             browser: request.browser.clone(),
             profile_dir: request.profile_dir.clone(),
             target_url: request.target_url.clone(),
+            proof_target_url: request.proof_target_url.clone(),
+            proof_token: request.proof_token.clone(),
+            proof_log_path: request.proof_log_path.clone(),
+            traffic_proof_command: request.traffic_proof_command.clone(),
+            proxy_scheme: request.proxy_scheme.clone(),
             proxy_url: request.proxy_url.clone(),
             command: JsonBrowserCaptureLaunchCommand::from(&request.command),
         }
@@ -6097,6 +6999,8 @@ struct JsonBrowserCaptureApplyReport {
     authorization: JsonBrowserCaptureAuthorization,
     pac_file_path: Option<String>,
     pac_url: Option<String>,
+    policy_file_path: Option<String>,
+    policy_url: Option<String>,
     rollback_snapshot: Option<JsonBrowserCaptureRollbackSnapshot>,
     blocked_operations: Vec<String>,
 }
@@ -6109,6 +7013,8 @@ impl From<&LinuxBrowserCaptureApplyReport> for JsonBrowserCaptureApplyReport {
             authorization: JsonBrowserCaptureAuthorization::from(&report.authorization),
             pac_file_path: report.pac_file_path.clone(),
             pac_url: report.pac_url.clone(),
+            policy_file_path: report.policy_file_path.clone(),
+            policy_url: report.policy_url.clone(),
             rollback_snapshot: report
                 .rollback_snapshot
                 .as_ref()
@@ -6123,6 +7029,7 @@ struct JsonBrowserCaptureRollbackReport {
     status: String,
     rolled_back: bool,
     pac_file_path: Option<String>,
+    policy_file_path: Option<String>,
     rollback_snapshot: Option<JsonBrowserCaptureRollbackSnapshot>,
     blocked_operations: Vec<String>,
 }
@@ -6133,6 +7040,7 @@ impl From<&LinuxBrowserCaptureRollbackReport> for JsonBrowserCaptureRollbackRepo
             status: report.status.clone(),
             rolled_back: report.rolled_back,
             pac_file_path: report.pac_file_path.clone(),
+            policy_file_path: report.policy_file_path.clone(),
             rollback_snapshot: report
                 .rollback_snapshot
                 .as_ref()

@@ -6,14 +6,40 @@ fn main() {
             let platform = platform_linux::ReadOnlyLinuxPlatformCapabilityService::new(
                 platform_linux::HostLinuxReadOnlyProbe::new(),
             );
-            let orchestrator = control_runtime::RuntimeOrchestrator::new(
-                config_core::CoreConfigurationService::new(),
-                platform.clone(),
-                engine_native::NativeProxyEngineService::new(),
-            );
             let reader = networkcore_linux::FsConfigReader;
             let lifecycle_host = networkcore_linux::CurrentProcessForegroundLifecycleHost::new();
-            let response = if matches!(
+            let response = if matches!(&command, networkcore_linux::LinuxCliCommand::Start { .. })
+            {
+                match networkcore_linux::native_proxy_engine_service_with_builtin_mitm_plugin() {
+                    Ok(native_engine) => {
+                        let orchestrator = control_runtime::RuntimeOrchestrator::new(
+                            config_core::CoreConfigurationService::new(),
+                            platform.clone(),
+                            native_engine,
+                        );
+                        networkcore_linux::handle_entrypoint_with_runtime_and_lifecycle(
+                            command,
+                            &platform,
+                            &orchestrator,
+                            &reader,
+                            &lifecycle_host,
+                        )
+                    }
+                    Err(error) => networkcore_linux::LinuxCliResponse::failure(
+                        command.name(),
+                        networkcore_linux::LinuxCliExitCode::EngineDenied,
+                        control_domain::Diagnostic::new(
+                            control_domain::DiagnosticSeverity::Error,
+                            networkcore_linux::CLI_START_ENGINE_DENIED_CODE,
+                            format!(
+                                "linux start MITM plugin hook could not be loaded: {}",
+                                error.message
+                            ),
+                            Some(networkcore_linux::SOURCE_CLI_START.to_string()),
+                        ),
+                    ),
+                }
+            } else if matches!(
                 &command,
                 networkcore_linux::LinuxCliCommand::InstallSingBox { .. }
                     | networkcore_linux::LinuxCliCommand::RunUrl { .. }
@@ -64,6 +90,11 @@ fn main() {
                     &pac_store,
                 )
             } else {
+                let orchestrator = control_runtime::RuntimeOrchestrator::new(
+                    config_core::CoreConfigurationService::new(),
+                    platform.clone(),
+                    engine_native::NativeProxyEngineService::new(),
+                );
                 networkcore_linux::handle_entrypoint_with_runtime_and_lifecycle(
                     command,
                     &platform,
