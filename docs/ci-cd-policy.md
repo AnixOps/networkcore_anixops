@@ -72,6 +72,9 @@
 - Linux CLI artifact 安装、卸载与回滚设计文件检查
 - Linux package artifact manifest 设计文件检查
 - Linux artifact license/NOTICE confirmation source contract 检查
+- Linux artifact release state consistency 检查，确保 README、ROADMAP、TODO、CHANGELOG、
+  release strategy、license/NOTICE contracts、manual marker、CI governance 和 release workflow
+  都保持 `linux-artifact-release-state=confirmed-release-path`
 - Release CI success source contract 检查
 - Linux package runner/toolchain/target contract 检查
 - Linux package archive staging contract 检查

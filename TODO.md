@@ -6,6 +6,9 @@
 
 当前阶段是 P4 Client And Platform Integration。
 P3 runtime baseline 已完成并保留后续 runtime backlog。
+Linux artifact release-state consistency 已固定为 `linux-artifact-release-state=confirmed-release-path`；
+license/NOTICE 已 confirmed，但后续 tag release 仍必须经过同 commit CI、checksum、manifest、
+attestation、release notes、rollback 和 publish eligibility gates。
 
 - [ ] 扩展订阅格式和 managed lifecycle：在 `run-url` foreground 闭环基础上，继续接入 VLESS/VMess/Trojan、Clash YAML、sing-box JSON、Surge/Loon/Quantumult X 高频子集、节点选择、持久订阅、managed status/events/logs/reload/rollback，并为后续真实 MITM 数据面接入补充独立 source contract。
 - [ ] 补齐用户可用 MITM 三个门禁：`MITM_CLI_COMMAND_GATE` 增加 `networkcore-linux mitm` 命令入口和状态/诊断输出；`MITM_CERTIFICATE_LIFECYCLE_GATE` 实现 CA 生成、安装、信任检测、撤销和回滚；`MITM_HTTP_TLS_DATA_PLANE_GATE` 在 HTTP/TLS 数据面中应用 `mitm-policy` URL/header/body/script rewrite plan。当前 `mitm-policy` 只做策略计算和 deferred mutation 诊断，不能直接拦截或改写真实流量。
@@ -14,6 +17,7 @@ P3 runtime baseline 已完成并保留后续 runtime backlog。
 
 ## 已完成
 
+- [x] 固化 Linux artifact release-state consistency gate：README、ROADMAP、TODO、CHANGELOG、Release Strategy、Linux license/NOTICE confirmation contract、transition validation contract、pre-release design、manual intervention marker、CI governance 和 release readiness 现在统一使用 `linux-artifact-release-state=confirmed-release-path`；license/NOTICE confirmed 只解除人工门禁，Linux tag release 仍必须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates。
 - [x] 固化第三方插件接入流程：新增 Third-Party Plugin Onboarding Process，要求后续 plugin、plugin parser、script runtime 或兼容核心先建立 source contract、固定 upstream source、确认 license/NOTICE、定义 permission/safe wrapper/CI governance 和 upgrade procedure；CI governance 已纳入该流程和现有 `networkcore.adblock` source contract anchor。验证仍只通过 GitHub Actions。
 - [x] 接入 `mitm_anixops v0.45.10-alpha` 并新增 `mitm-policy`：子模块固定到 `a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0`，`mitm-anixops-sys` 扩展低层 FFI，`mitm-policy` 提供 safe wrapper、`AnixOpsMitmPluginService`、manifest/permission gate、内置 `networkcore.adblock` alpha 去广告插件包、rewrite plan/header/body chain/script/JQ guard wrapper 合同和 deferred mutation 诊断；真实 HTTP/TLS 改写仍等待 mutation model 与数据面。验证仍只通过 GitHub Actions。
 - [x] 新增 `run-url` Shadowsocks foreground 闭环：`CoreSubscriptionService` 支持单条 `ss://`、明文 `ss://` 链接列表、base64 链接列表和既有 subscription TOML，`NodeDescriptor.metadata` 承载 Shadowsocks method/password，`engine-singbox` 渲染本地 `mixed` inbound + Shadowsocks outbound JSON，并由 `networkcore-linux run-url <ss://url>` 安装/复用 latest `sing-box`、写入 runtime config、前台执行 `sing-box run -c <config>`，JSON 输出 `sing_box_run`。

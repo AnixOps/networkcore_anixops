@@ -46,9 +46,10 @@ gh run list --workflow ci.yml --limit 5
 - GitHub Secrets 写入 Apple 相关凭据
 - App Review Notes、demo account、review attachment、隐私政策和目标地区 VPN compliance/VPN 牌照材料确认
 
-后续涉及真实 release artifact 时，还需要人工处理：
+后续涉及新的平台 release artifact、artifact 范围扩大或 license/NOTICE 来源变化时，还需要人工处理：
 
-- 项目 license 或 artifact 内置许可/NOTICE 文本确认；完成前不得放行真实 `package-linux` artifact job 或发布 Linux release asset
+- 对应平台或新增 artifact 文件集合的 license/NOTICE 文本确认；Linux `networkcore-linux` 当前范围已确认，
+  但范围变化前不得复用旧确认绕过 release gates
 - GitHub Environments、protected tags、branch protection 和 release approval policy 配置
 - Windows 代码签名证书、时间戳服务和商店账号确认
 - 第三方发布渠道账号、API token、税务或合规材料确认
@@ -60,6 +61,7 @@ gh run list --workflow ci.yml --limit 5
 attestation、release notes、rollback 或 publish eligibility。
 
 ```text
+linux-artifact-release-state=confirmed-release-path
 linux-artifact-license-notice-status=confirmed
 linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md
 linux-artifact-license-notice-transition-contract=docs/architecture/linux-package-license-notice-transition-validation-contract.md

@@ -1,9 +1,18 @@
 # Linux Package License Notice Transition Validation Contract
 
 本文定义首个 Linux `package-linux` artifact 的 license/NOTICE 状态从 `pending`
-切换为 `confirmed` 时必须满足的验证合同。当前仍是 pending placeholder；本文只固定
-未来人工确认提交、字段、文件存在性检查和 release workflow 阻断规则，不完成人工确认、
-不添加 license 文本、不定义 `package-linux` job、不上传 artifact。
+切换为 `confirmed` 时必须满足的验证合同。当前 transition 已完成，本文继续固定
+confirmed 字段、文件存在性检查、release workflow 阻断规则和防回退规则；它不重新确认
+license 文本，也不允许跳过 CI、checksum、manifest、attestation、release notes、rollback 或
+publish eligibility gates。
+
+当前状态：
+
+```text
+linux-artifact-release-state=confirmed-release-path
+linux-artifact-license-notice-status=confirmed
+linux-artifact-publish-scope=tag-release-after-all-gates
+```
 
 评估时间：2026-07-07。
 
@@ -18,11 +27,9 @@
 
 ## 非目标
 
-- 不完成 license/NOTICE 人工确认。
+- 不重新执行或扩大 license/NOTICE 人工确认。
 - 不新增、修改或解释项目 license、NOTICE 或第三方许可文本。
-- 不实现 `package-linux`、`publish-github-release`、`attest-linux`、`sign-linux`、
-  `post-release-summary` 或等价 job。
-- 不生成 archive、checksum、manifest、attestation、release notes、workflow artifact 或 release asset。
+- 不在本文档中生成 archive、checksum、manifest、attestation、release notes、workflow artifact 或 release asset。
 - 不把人工确认人的邮箱、私有身份信息、法律意见全文、私有合同、token、外部账号、
   runner 本地绝对路径或未公开安全公告细节写入仓库、manifest 或 Step Summary。
 
@@ -35,33 +42,35 @@
 [Linux Package Publish Eligibility Aggregate Contract](linux-package-publish-eligibility-aggregate-contract.md)、
 `docs/manual-intervention.md` 和 release workflow 中的显式常量。
 
-当前 placeholder 固定为：
+当前 confirmed release path 固定为：
 
 | 字段 | 值 |
 | --- | --- |
 | `package_license_notice_transition_validation_contract` | `present` |
-| `package_license_notice_transition_status` | `blocked-pending` |
+| `package_license_notice_transition_status` | `confirmed` |
 | `package_license_notice_transition_source` | `docs/manual-intervention.md` |
 | `package_license_notice_transition_required_commit` | `independent-manual-confirmation-commit` |
-| `package_license_notice_transition_pending_marker` | `present` |
-| `package_license_notice_transition_confirmed_marker` | `blocked-not-present` |
+| `package_license_notice_transition_pending_marker` | `absent` |
+| `package_license_notice_transition_confirmed_marker` | `present` |
 | `package_license_notice_transition_license_source` | `LICENSE` |
-| `package_license_notice_transition_license_file_check` | `blocked-until-confirmed` |
+| `package_license_notice_transition_license_file_check` | `present` |
 | `package_license_notice_transition_notice_source` | `not-required` |
-| `package_license_notice_transition_notice_file_check` | `not-required-until-confirmed` |
+| `package_license_notice_transition_notice_file_check` | `not-required` |
 | `package_license_notice_transition_artifact_files` | `LICENSE` |
-| `package_license_notice_transition_package_linux` | `not-defined` |
-| `package_license_notice_transition_release_assets` | `blocked` |
-| `package_license_notice_transition_next_action` | `manual-license-notice-confirmation` |
+| `package_license_notice_transition_package_linux` | `eligible-after-ci-and-release-gates` |
+| `package_license_notice_transition_release_assets` | `eligible-after-package-signing-checksum-and-rollback-gates` |
+| `package_license_notice_transition_next_action` | `continue-release-gates` |
 
-当前 `blocked-pending` 表示 release workflow 已知道如何验证 future confirmed transition，
-但 `docs/manual-intervention.md` 仍保持 pending marker，因此不得进入 packaging。
+当前 `confirmed` 表示 release workflow 已验证 transition 字段、`LICENSE`、`NOTICE=not-required`
+和 artifact files，且 pending marker 不存在。该状态只解除 license/NOTICE 人工阻断；
+packaging、attestation、publish eligibility 和 GitHub Release asset 上传仍必须继续通过各自 gate。
 
 ## Confirmed Transition 字段
 
-未来人工确认完成后，必须用一次独立提交只更新确认状态和必要 license/NOTICE 文件。该提交不得
+人工确认完成后，必须用一次独立提交只更新确认状态和必要 license/NOTICE 文件。该提交不得
 同时修改 `.github/workflows/release.yml` 中的 `package-linux`、`publish-github-release`、
-`attest-linux`、`sign-linux`、`post-release-summary` 或任何上传 artifact 的 job。
+`attest-linux`、`sign-linux`、`post-release-summary` 或任何上传 artifact 的 job；当前仓库已保留
+该独立 transition marker。
 
 confirmed 状态下，`docs/manual-intervention.md` 至少必须包含：
 
@@ -111,27 +120,24 @@ release workflow 后续读取 confirmed marker 时必须执行以下检查：
 8. `linux-artifact-license-notice-release-assets` 只能是
    `eligible-after-package-signing-checksum-and-rollback-gates`。
 
-如果 status 仍为 `pending`，release workflow 当前只能输出 blocked 状态，不得尝试查找或生成
-artifact license 文件。
+如果 status 为 `pending`、同时存在 pending/confirmed、或字段缺失，release workflow 必须失败，
+不得继续构建、上传 workflow artifact 或发布 GitHub Release asset。
 
 ## Release Workflow 边界
 
-当前 placeholder release 只能：
+当前 release workflow 必须：
 
 - 检查本文档存在和标题。
-- 检查 `docs/manual-intervention.md` 当前仍处于 pending 状态；如果 future confirmed marker 出现，
-  则先要求 pending 行不存在，并验证 transition 字段、`LICENSE` 和可选 `NOTICE` 文件存在性。
-- 在 `linux-artifact-readiness`、release placeholder 和 release summary 中输出 transition
-  validation contract。
+- 检查 `docs/manual-intervention.md` 当前处于 confirmed 状态，且 pending 行不存在。
+- 验证 transition 字段、`LICENSE`、`NOTICE=not-required` 和 artifact files。
+- 在 `linux-artifact-readiness` 和 release summary 中输出 transition validation 结果。
 - 标记 `linux-package-license-notice-transition-contract=present`。
-- 标记 `linux-package-license-notice-transition-status=blocked-pending`。
+- 标记 `linux-package-license-notice-transition-status=confirmed`。
 - 标记 `linux-package-license-notice-transition-required-commit=independent-manual-confirmation-commit`。
-- 标记 `linux-package-license-notice-transition-confirmed-marker=blocked-not-present`。
-- 标记 `linux-package-license-notice-transition-license-file-check=blocked-until-confirmed`。
-- 标记 `linux-package-license-notice-transition-package-linux=not-defined`。
-- 标记 `linux-package-license-notice-transition-next-action=manual-license-notice-confirmation`。
-- 继续不定义 `package-linux`、`publish-github-release`、`attest-linux`、`sign-linux` 或
-  `post-release-summary`。
+- 标记 `linux-package-license-notice-transition-confirmed-marker=present`。
+- 标记 `linux-package-license-notice-transition-license-file-check=present`。
+- 标记 `linux-package-license-notice-transition-package-linux=eligible-after-ci-and-release-gates`。
+- 标记 `linux-package-license-notice-transition-next-action=continue-release-gates`。
 
 confirmed transition 合同完成后，仍必须继续通过同 commit CI、runner/toolchain、archive staging、
 checksum/manifest、artifact manifest、publish/upload、signing/attestation、release notes/rollback
@@ -162,19 +168,20 @@ release workflow 必须拒绝以下情况：
   license/NOTICE confirmation source contract、Linux package manifest 设计、Linux package archive
   staging contract、Linux package artifact job preflight validation contract、Linux package publish
   eligibility aggregate contract、Linux CLI artifact 安装/回滚设计和 CI policy 中可发现。
-- `.github/workflows/ci.yml` governance 检查本文档存在、标题和 release workflow placeholder 输出字段。
-- `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、当前 pending marker、
-  future confirmed marker transition 字段、license/NOTICE 文件存在性检查、transition blocked marker 和
-  `package-linux` 未定义状态。
-- release placeholder 和 release summary 输出 transition source、blocked status、required independent
-  commit、future confirmed marker、license/NOTICE file check、`package-linux` not-defined 和 next action。
-- 当前不生成 artifact、不定义 `package-linux`、不定义 `publish-github-release`、不上传 workflow artifact、
-  不上传 release asset、不在本机执行测试、构建、打包或发布。
+- `.github/workflows/ci.yml` governance 检查本文档存在、标题、
+  `linux-artifact-release-state=confirmed-release-path` 和 confirmed marker。
+- `.github/workflows/release.yml` 的 `linux-artifact-readiness` 检查本文档存在、标题、confirmed marker、
+  pending marker absence、transition 字段、license/NOTICE 文件存在性检查和 release-state consistency marker。
+- release summary 输出 Linux readiness、package、attestation、publish eligibility、artifact、
+  checksum、manifest 和 GitHub Release 状态。
+- 当前只允许 GitHub Actions 生成 archive、checksum、manifest、attestation、workflow artifact
+  和 tag release asset；本机不得执行测试、构建、打包或发布。
 
 ## 后续工作
 
-- 在人工确认完成前，继续保持 `linux-artifact-license-notice-status=pending`。
+- 保持 `linux-artifact-license-notice-status=confirmed` 与 release strategy、release workflow、
+  README、ROADMAP、TODO 和 CHANGELOG 一致。
 - Linux package release CI gate activation validation contract、Linux package artifact job preflight
   validation contract、Linux package artifact build command validation contract、Linux package artifact
   staging file validation contract 和 Linux package artifact archive creation validation contract 已定义；
-  Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract、Linux package artifact attestation execution validation contract、Linux package release notes/rollback execution validation contract 和 Linux package publish eligibility execution validation contract 已定义；release CI gate execution validation contract 和 release CI gate API implementation 已激活；下一步必须完成 license/NOTICE 和 artifact gates，仍不发布 release asset。
+  Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract、Linux package artifact attestation execution validation contract、Linux package release notes/rollback execution validation contract 和 Linux package publish eligibility execution validation contract 已定义；release CI gate execution validation contract 和 release CI gate API implementation 已激活；下一步是继续补强 Linux managed lifecycle、安装器/服务设计或其他平台产物前置设计。

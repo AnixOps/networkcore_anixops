@@ -149,6 +149,33 @@ jobs:
           grep -q "P3 Runtime Capability Baseline (Completed)" ROADMAP.md
           grep -q "当前阶段进入 P4 Client And Platform Integration" README.md
           grep -q "当前阶段是 P4 Client And Platform Integration" TODO.md
+          grep -Fq "linux-artifact-release-state=confirmed-release-path" README.md
+          grep -Fq "linux-artifact-release-state=confirmed-release-path" ROADMAP.md
+          grep -Fq "linux-artifact-release-state=confirmed-release-path" TODO.md
+          grep -Fq "linux-artifact-release-state=confirmed-release-path" CHANGELOG.md
+          grep -Fq "linux-artifact-release-state=confirmed-release-path" docs/release-strategy.md
+          grep -Fq "linux-artifact-release-state=confirmed-release-path" docs/architecture/linux-artifact-license-notice-confirmation.md
+          grep -Fq "linux-artifact-release-state=confirmed-release-path" docs/architecture/linux-package-license-notice-transition-validation-contract.md
+          grep -Fq "linux-artifact-release-state=confirmed-release-path" docs/architecture/linux-artifact-pre-release-design.md
+          grep -q '^linux-artifact-release-state=confirmed-release-path$' docs/manual-intervention.md
+          grep -Fq "Linux artifact release state consistency" docs/ci-cd-policy.md
+          grep -Fq "release_state=confirmed-release-path" .github/workflows/release.yml
+          if grep -Fq "当前唯一阻断 Linux CLI 二进制发布的前置人工事项" docs/release-strategy.md; then
+            echo "::error::Release Strategy must not describe Linux license/NOTICE as the current pending blocker."
+            exit 1
+          fi
+          if grep -Fq "当前等待 license/NOTICE confirmed marker" docs/release-strategy.md; then
+            echo "::error::Release Strategy must not say Linux is waiting for a confirmed license/NOTICE marker."
+            exit 1
+          fi
+          if grep -Fq "当前状态仍为未确认" docs/architecture/linux-artifact-license-notice-confirmation.md; then
+            echo "::error::Linux license/NOTICE confirmation contract must reflect the current confirmed state."
+            exit 1
+          fi
+          if grep -Fq "当前仍是 pending placeholder" docs/architecture/linux-package-license-notice-transition-validation-contract.md; then
+            echo "::error::Linux license/NOTICE transition contract must reflect the current confirmed state."
+            exit 1
+          fi
           grep -q '^name = "networkcore-linux"$' apps/linux-cli/Cargo.toml
           grep -q '^\[\[bin\]\]$' apps/linux-cli/Cargo.toml
           grep -q '^name = "networkcore-linux"$' apps/linux-cli/Cargo.toml

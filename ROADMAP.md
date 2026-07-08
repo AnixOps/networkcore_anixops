@@ -122,7 +122,7 @@ P3 baseline 源码状态：`control-runtime` 已具备显式 inline subscription
 - 证书安装、权限提示、插件脚本边界和 App Review 风险治理。
 - 发布 workflow 的平台产物矩阵。
 
-当前 P4 状态：Linux CLI artifact 已通过 tag release workflow 发布到 GitHub Release，并包含 tarball、sha256、manifest 和 manifest sha256；Linux 仍是手动解压和 foreground 运行模型，不安装 daemon/service，不修改 TUN/DNS/firewall/certificate trust store。iOS 仍只允许 `apps/ios/README.md` source tree governance placeholder 和 upload blocked gates，不包含 Swift/Xcode/Network Extension target、签名、TestFlight/App Store upload 或 iOS release asset。用户可用 MITM 尚未启用，必须先完成 `MITM_CLI_COMMAND_GATE`、`MITM_CERTIFICATE_LIFECYCLE_GATE` 和 `MITM_HTTP_TLS_DATA_PLANE_GATE`。
+当前 P4 状态：Linux CLI artifact 已通过 tag release workflow 发布到 GitHub Release，并包含 tarball、sha256、manifest 和 manifest sha256；Linux artifact release-state consistency marker 为 `linux-artifact-release-state=confirmed-release-path`，license/NOTICE 已 confirmed，但后续 tag release 仍必须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates。Linux 仍是手动解压和 foreground 运行模型，不安装 daemon/service，不修改 TUN/DNS/firewall/certificate trust store。iOS 仍只允许 `apps/ios/README.md` source tree governance placeholder 和 upload blocked gates，不包含 Swift/Xcode/Network Extension target、签名、TestFlight/App Store upload 或 iOS release asset。用户可用 MITM 尚未启用，必须先完成 `MITM_CLI_COMMAND_GATE`、`MITM_CERTIFICATE_LIFECYCLE_GATE` 和 `MITM_HTTP_TLS_DATA_PLANE_GATE`。
 
 当前发布规划：
 

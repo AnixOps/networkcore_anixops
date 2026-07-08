@@ -6,6 +6,7 @@
 
 ### Changed
 
+- Linux artifact release 状态现在统一为 `linux-artifact-release-state=confirmed-release-path`：Release Strategy、Linux license/NOTICE confirmation contract、transition validation contract、pre-release design、manual intervention marker、README、ROADMAP 和 TODO 都记录 license/NOTICE 已 confirmed，但 Linux tag release 仍必须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates。
 - ROADMAP、README 和 TODO 现在把当前阶段统一为 P4 Client And Platform Integration。
 - P3 Runtime Capability Baseline 作为已完成 baseline 保留，后续订阅格式、managed lifecycle 和 MITM 真实流量能力作为 P4 集成阶段 backlog 继续推进。
 - README、ROADMAP、TODO、`mitm-policy` README 和 MITM source contract 现在明确记录当前发布版没有用户可启用的 MITM：没有 `networkcore-linux mitm` 命令、没有 CA 生成/安装/信任路径、没有 HTTP/TLS 解密改写数据面；后续工作固定为 `MITM_CLI_COMMAND_GATE`、`MITM_CERTIFICATE_LIFECYCLE_GATE` 和 `MITM_HTTP_TLS_DATA_PLANE_GATE` 三个门禁。
@@ -19,6 +20,7 @@
 
 ### Added
 
+- 新增 Linux artifact release-state consistency CI/release gate，防止文档或 workflow 回退到 license/NOTICE pending placeholder 描述，并要求 release readiness 读取同一 confirmed release path marker。
 - 新增 Third-Party Plugin Onboarding Process，并把它纳入 CI governance：后续第三方 plugin、plugin parser、script runtime 或兼容核心必须先有 source contract、pinned source、license/NOTICE gate、permission gate、safe wrapper gate、CI governance gate 和 upgrade procedure；现有 `networkcore.adblock` source contract 已挂接该流程。
 - 新增 `mitm-policy` safe wrapper 和 NetworkCore MITM plugin adapter：`mitm_anixops` 子模块固定到 `v0.45.10-alpha` (`a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0`)，`mitm-anixops-sys` 扩展 config/rule diagnostic/MITM/URL rewrite/rewrite plan/header/body chain/script/JQ guard FFI，`mitm-policy` 提供 `AnixOpsMitmPolicyEngine`、`AnixOpsMitmPluginService`、manifest/permission gate、内置 `networkcore.adblock` alpha 去广告插件包、0.45.10 rewrite plan/header/body/script 合同测试和 `mitm.policy.http_event.mutation_deferred` 诊断；真实 HTTP/TLS request/response mutation 仍等待领域 mutation model 和数据面。
 - 新增 `networkcore-linux run-url <ss://url>` 最小可用代理闭环：CLI 通过 `CoreSubscriptionService` 解析单条 Shadowsocks URL、明文 `ss://` 链接列表或 base64 链接列表，归一化为 `NodeCatalog`，由 `engine-singbox` 渲染本地 `mixed` inbound + Shadowsocks outbound JSON，写入 engine runtime cache，并以前台 `sing-box run -c <config>` 启动默认 `127.0.0.1:7890` 本地代理；JSON 输出新增 `sing_box_run`，文本输出显示 node、local proxy、config 和 process exit code。
