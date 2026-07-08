@@ -933,9 +933,7 @@ fn mitm_browser_capture_session_plan_links_proxy_browser_and_plugin_without_muta
     let rendered = render_response(&response, OutputFormat::Text);
     assert!(rendered.contains("browser capture session plan: ready node=香港"));
     assert!(rendered.contains("browser capture session local proxy: 127.0.0.1:7891"));
-    assert!(
-        rendered.contains("browser capture session target URL: https://example.com/capture")
-    );
+    assert!(rendered.contains("browser capture session target URL: https://example.com/capture"));
     assert!(rendered.contains("browser capture session browser command: google-chrome"));
 }
 
@@ -1047,9 +1045,7 @@ fn mitm_browser_capture_launch_uses_injected_runner_with_dedicated_profile() {
 
     let rendered = render_response(&response, OutputFormat::Text);
     assert!(rendered.contains("browser capture launch: started launched=true pid=4242"));
-    assert!(
-        rendered.contains("browser capture launch target URL: https://example.com/capture")
-    );
+    assert!(rendered.contains("browser capture launch target URL: https://example.com/capture"));
     assert!(rendered.contains("browser capture launch command: google-chrome"));
 }
 
