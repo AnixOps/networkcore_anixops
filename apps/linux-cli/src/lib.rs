@@ -1393,7 +1393,10 @@ fn platform_diagnostics(status: &PlatformCapabilityStatus) -> Vec<Diagnostic> {
 
 fn render_text_response(response: &LinuxCliResponse) -> String {
     if response.ok && response.command == "help" {
-        return response.help.clone().unwrap_or_else(|| cli_help_text().to_string());
+        return response
+            .help
+            .clone()
+            .unwrap_or_else(|| cli_help_text().to_string());
     }
 
     let state = if response.ok { "ok" } else { "error" };

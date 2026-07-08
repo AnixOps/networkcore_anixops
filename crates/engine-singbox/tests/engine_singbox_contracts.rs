@@ -103,10 +103,22 @@ fn latest_installer_downloads_verifies_and_extracts_sing_box_tarball() {
         b"fake-sing-box"
     );
     assert!(report.archive_path.exists());
-    assert_diagnostic(&report.diagnostics, ENGINE_SINGBOX_DOWNLOAD_LATEST_VERSION_RESOLVED_CODE);
-    assert_diagnostic(&report.diagnostics, ENGINE_SINGBOX_DOWNLOAD_ASSET_SELECTED_CODE);
-    assert_diagnostic(&report.diagnostics, ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE);
-    assert_diagnostic(&report.diagnostics, ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE);
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_SINGBOX_DOWNLOAD_LATEST_VERSION_RESOLVED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_SINGBOX_DOWNLOAD_ASSET_SELECTED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE,
+    );
 
     let cached_report = installer
         .install_latest(&request)

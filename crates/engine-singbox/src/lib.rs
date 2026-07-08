@@ -57,8 +57,7 @@ pub const ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_MISMATCH_CODE: &str =
     "engine.singbox.download.checksum_mismatch";
 pub const ENGINE_SINGBOX_DOWNLOAD_EXTRACT_FAILED_CODE: &str =
     "engine.singbox.download.extract_failed";
-pub const ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE: &str =
-    "engine.singbox.download.binary_ready";
+pub const ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE: &str = "engine.singbox.download.binary_ready";
 pub const ENGINE_SINGBOX_DOWNLOAD_BINARY_ALREADY_PRESENT_CODE: &str =
     "engine.singbox.download.binary_already_present";
 pub const ENGINE_SINGBOX_DOWNLOAD_BINARY_PERMISSION_FAILED_CODE: &str =
@@ -321,10 +320,8 @@ pub trait SingBoxHttpClient {
 }
 
 pub trait SingBoxReleaseInstaller {
-    fn install_latest(
-        &self,
-        request: &SingBoxInstallRequest,
-    ) -> DomainResult<SingBoxInstallReport>;
+    fn install_latest(&self, request: &SingBoxInstallRequest)
+        -> DomainResult<SingBoxInstallReport>;
 }
 
 #[derive(Debug, Clone)]
@@ -599,7 +596,11 @@ where
     })?;
 
     let archive_bytes = http.get_bytes(&plan.download_url)?;
-    verify_sha256_digest(&archive_bytes, plan.sha256_digest.as_deref(), &mut diagnostics)?;
+    verify_sha256_digest(
+        &archive_bytes,
+        plan.sha256_digest.as_deref(),
+        &mut diagnostics,
+    )?;
     fs::write(&archive_path, &archive_bytes).map_err(|error| {
         DomainError::new(
             ENGINE_SINGBOX_DOWNLOAD_ASSET_FETCH_FAILED_CODE,
@@ -613,7 +614,11 @@ where
         SOURCE_ENGINE_SINGBOX_DOWNLOAD,
     ));
 
-    extract_sing_box_tar_gz(&archive_bytes, plan.target.executable_name(), &executable_path)?;
+    extract_sing_box_tar_gz(
+        &archive_bytes,
+        plan.target.executable_name(),
+        &executable_path,
+    )?;
     mark_executable(&executable_path)?;
     diagnostics.push(sing_box_diagnostic(
         DiagnosticSeverity::Info,

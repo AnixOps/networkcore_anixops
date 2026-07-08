@@ -17,8 +17,7 @@ use engine_singbox::{
     ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE,
 };
 use networkcore_linux::{
-    cli_help_text,
-    handle_capabilities, handle_entrypoint, handle_entrypoint_with_runtime,
+    cli_help_text, handle_capabilities, handle_entrypoint, handle_entrypoint_with_runtime,
     handle_entrypoint_with_runtime_and_lifecycle,
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
     handle_foreground_lifecycle_with_runtime_stop, handle_install_sing_box, handle_parse_error,
@@ -476,7 +475,10 @@ fn install_sing_box_handler_uses_injected_latest_installer() {
     assert!(response.ok);
     assert_eq!(response.command, "install-sing-box");
     assert_eq!(response.exit_code, LinuxCliExitCode::Success);
-    assert_diagnostic(&response.diagnostics, ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE);
+    assert_diagnostic(
+        &response.diagnostics,
+        ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE,
+    );
     let install = response
         .sing_box_install
         .as_ref()
@@ -842,8 +844,7 @@ impl SingBoxReleaseInstaller for TestSingBoxInstaller {
             asset_name: "sing-box-1.2.3-linux-amd64.tar.gz".to_string(),
             asset_url: "https://example.invalid/sing-box.tar.gz".to_string(),
             asset_sha256: Some(
-                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-                    .to_string(),
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
             ),
             archive_path: request
                 .install_root
