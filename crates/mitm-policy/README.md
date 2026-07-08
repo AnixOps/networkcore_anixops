@@ -24,19 +24,20 @@ User-facing live MITM is not available yet. The current Linux CLI exposes
 `networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify`;
 the command surface reports policy-only status, a certificate lifecycle plan, a
 browser capture plan, manual dedicated-profile launch templates, a
-redacted subscription-to-local-proxy/browser/verify `session_plan`, a
-dedicated-profile `launch_report`, local proxy endpoint `verify_report`,
+redacted subscription-to-local-proxy/browser/verify `session_plan`, an optional
+dedicated profile target URL, a dedicated-profile `launch_report`, local proxy endpoint `verify_report`,
 `browser_capture` blocked reports, and deferred browser hijack gates. The launch
 templates, `session-plan`, `launch --confirm` report, and `verify --confirm`
-report carry the loaded `networkcore.adblock` plugin metadata and planned proxy
-URL, but they do not generate or install a CA, decrypt HTTPS traffic, write
+report carry the loaded `networkcore.adblock` plugin metadata, planned proxy
+URL, and optional target URL, but they do not generate or install a CA, decrypt HTTPS traffic, write
 browser/system proxy state, prove live browser traffic capture, or apply rewrite
 plans to live traffic.
 
 Release/source split: `v0.1.0-alpha.7` is the latest published Linux artifact,
 while this README describes current `main` source. Source-only MITM CLI
-increments after that tag require a later tag release before users can download
-them from GitHub Releases.
+increments after that tag, including `verify --confirm`, `session-plan`, and
+browser capture `--target-url`, require a later tag release before users can
+download them from GitHub Releases.
 
 Required gates before user-facing MITM:
 
@@ -48,16 +49,18 @@ Required gates before user-facing MITM:
   generation, install, trust detection, revocation, and rollback boundaries.
 - `MITM_BROWSER_CAPTURE_GATE`: currently plan-only/mutation-blocked through
   `mitm_status.browser_plan`, `browser_capture`, manual launch-plan output,
-  redacted session-plan output, explicit dedicated-profile launch output, and
-  local proxy endpoint verify output; later increments must
+  redacted session-plan output, optional target URL, explicit dedicated-profile
+  launch output, and local proxy endpoint verify output; later increments must
   implement explicit browser/system proxy configuration, PAC or other capture
   strategy, live capture verification, and rollback boundaries. The Linux
   source boundary is
   fixed by `docs/architecture/linux-mitm-browser-capture-source-contract.md`
   and requires `LinuxBrowserCaptureSessionPlanRequest`,
-  `LinuxBrowserCaptureSessionPlanReport`, `BrowserCaptureProcessRunner`, `LinuxBrowserCaptureLaunchRequest`,
-  `LinuxBrowserCaptureLaunchReport`, `BrowserCaptureAuthorization`, and
-  `BrowserCaptureRollbackSnapshot` before mutation.
+  `LinuxBrowserCaptureSessionPlanReport`, `BrowserCaptureProcessRunner`,
+  `LinuxBrowserCaptureLaunchRequest`, `LinuxBrowserCaptureLaunchReport`,
+  `LinuxBrowserCaptureVerifyRequest`, `LinuxBrowserCaptureVerifyReport`,
+  `BrowserCaptureEndpointProbe`, `BrowserCaptureAuthorization`,
+  `BrowserCaptureRollbackSnapshot`, and optional target URL before mutation.
 - `MITM_HTTP_TLS_DATA_PLANE_GATE`: wire HTTP/TLS interception to
   `mitm-policy` rewrite plans.
 

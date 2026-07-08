@@ -157,6 +157,8 @@ fn parses_mitm_status_and_diagnostics_commands() {
         "google-chrome",
         "--profile-dir",
         "/tmp/networkcore-browser-capture-profile",
+        "--target-url",
+        "https://example.com/capture",
         "--listen-host",
         "127.0.0.1",
         "--listen-port",
@@ -173,6 +175,8 @@ fn parses_mitm_status_and_diagnostics_commands() {
         "google-chrome",
         "--profile-dir",
         "/tmp/networkcore-browser-capture-profile",
+        "--target-url",
+        "https://example.com/capture",
         "--confirm",
         "--format",
         "json",
@@ -269,6 +273,7 @@ fn parses_mitm_status_and_diagnostics_commands() {
             url: "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF".to_string(),
             browser: "google-chrome".to_string(),
             profile_dir: "/tmp/networkcore-browser-capture-profile".to_string(),
+            target_url: Some("https://example.com/capture".to_string()),
             listen_host: "127.0.0.1".to_string(),
             listen_port: 7891,
             format: OutputFormat::Json
@@ -279,6 +284,7 @@ fn parses_mitm_status_and_diagnostics_commands() {
         LinuxCliCommand::MitmBrowserCaptureLaunch {
             browser: "google-chrome".to_string(),
             profile_dir: "/tmp/networkcore-browser-capture-profile".to_string(),
+            target_url: Some("https://example.com/capture".to_string()),
             confirm: true,
             format: OutputFormat::Json
         }
@@ -839,6 +845,7 @@ fn mitm_browser_capture_session_plan_links_proxy_browser_and_plugin_without_muta
         "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF",
         "google-chrome",
         "/tmp/networkcore-browser-capture-contract-profile",
+        Some("https://example.com/capture"),
         "127.0.0.1",
         7891,
     );
@@ -877,6 +884,10 @@ fn mitm_browser_capture_session_plan_links_proxy_browser_and_plugin_without_muta
         request.profile_dir,
         "/tmp/networkcore-browser-capture-contract-profile"
     );
+    assert_eq!(
+        request.target_url.as_deref(),
+        Some("https://example.com/capture")
+    );
     assert_eq!(request.listen_port, 7891);
     assert!(capture.request.launch.is_some());
     assert!(capture.request.verify.is_some());
@@ -894,10 +905,18 @@ fn mitm_browser_capture_session_plan_links_proxy_browser_and_plugin_without_muta
         .run_command
         .contains("networkcore-linux run-url <subscription-url>"));
     assert_eq!(session.browser_command.executable, "google-chrome");
+    assert_eq!(
+        session.target_url.as_deref(),
+        Some("https://example.com/capture")
+    );
     assert!(session
         .browser_command
         .args
         .contains(&"--proxy-server=http://127.0.0.1:7891".to_string()));
+    assert!(session
+        .browser_command
+        .args
+        .contains(&"https://example.com/capture".to_string()));
     assert_eq!(
         session.plugin_id,
         mitm_policy::MITM_POLICY_AD_BLOCK_PLUGIN_ID
@@ -914,6 +933,9 @@ fn mitm_browser_capture_session_plan_links_proxy_browser_and_plugin_without_muta
     let rendered = render_response(&response, OutputFormat::Text);
     assert!(rendered.contains("browser capture session plan: ready node=香港"));
     assert!(rendered.contains("browser capture session local proxy: 127.0.0.1:7891"));
+    assert!(
+        rendered.contains("browser capture session target URL: https://example.com/capture")
+    );
     assert!(rendered.contains("browser capture session browser command: google-chrome"));
 }
 
@@ -928,6 +950,7 @@ fn mitm_browser_capture_launch_requires_confirmation_before_starting_browser() {
         &runner,
         "chromium",
         MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR,
+        None,
         false,
     );
 
@@ -971,6 +994,7 @@ fn mitm_browser_capture_launch_uses_injected_runner_with_dedicated_profile() {
         &runner,
         "google-chrome",
         "/tmp/networkcore-browser-capture-contract-profile",
+        Some("https://example.com/capture"),
         true,
     );
 
@@ -999,6 +1023,10 @@ fn mitm_browser_capture_launch_uses_injected_runner_with_dedicated_profile() {
     assert!(launch.launched);
     assert_eq!(launch.pid, Some(4242));
     assert_eq!(launch.request.command.executable, "google-chrome");
+    assert_eq!(
+        launch.request.target_url.as_deref(),
+        Some("https://example.com/capture")
+    );
     assert!(launch.request.command.args.contains(
         &"--user-data-dir=/tmp/networkcore-browser-capture-contract-profile".to_string()
     ));
@@ -1007,6 +1035,11 @@ fn mitm_browser_capture_launch_uses_injected_runner_with_dedicated_profile() {
         .command
         .args
         .contains(&"--proxy-server=http://127.0.0.1:7890".to_string()));
+    assert!(launch
+        .request
+        .command
+        .args
+        .contains(&"https://example.com/capture".to_string()));
     assert_eq!(
         launch.plugin_id,
         mitm_policy::MITM_POLICY_AD_BLOCK_PLUGIN_ID
@@ -1014,6 +1047,9 @@ fn mitm_browser_capture_launch_uses_injected_runner_with_dedicated_profile() {
 
     let rendered = render_response(&response, OutputFormat::Text);
     assert!(rendered.contains("browser capture launch: started launched=true pid=4242"));
+    assert!(
+        rendered.contains("browser capture launch target URL: https://example.com/capture")
+    );
     assert!(rendered.contains("browser capture launch command: google-chrome"));
 }
 
@@ -1293,6 +1329,7 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
             url: "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF".to_string(),
             browser: "chromium".to_string(),
             profile_dir: MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR.to_string(),
+            target_url: None,
             listen_host: MITM_BROWSER_CAPTURE_PROXY_HOST.to_string(),
             listen_port: MITM_BROWSER_CAPTURE_PROXY_PORT,
             format: OutputFormat::Text,
@@ -1620,6 +1657,7 @@ fn browser_capture_entrypoint_routes_launch_to_injected_runner() {
         LinuxCliCommand::MitmBrowserCaptureLaunch {
             browser: "chromium".to_string(),
             profile_dir: MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR.to_string(),
+            target_url: Some("https://example.com/capture".to_string()),
             confirm: true,
             format: OutputFormat::Json,
         },
@@ -1642,6 +1680,10 @@ fn browser_capture_entrypoint_routes_launch_to_injected_runner() {
         .as_ref()
         .expect("launch response should include launch report");
     assert_eq!(launch.pid, Some(4242));
+    assert_eq!(
+        launch.request.target_url.as_deref(),
+        Some("https://example.com/capture")
+    );
 }
 
 #[test]
@@ -1687,6 +1729,7 @@ fn read_only_entrypoint_does_not_launch_browser_without_runner() {
         LinuxCliCommand::MitmBrowserCaptureLaunch {
             browser: "chromium".to_string(),
             profile_dir: MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR.to_string(),
+            target_url: None,
             confirm: true,
             format: OutputFormat::Text,
         },
@@ -2169,6 +2212,7 @@ fn browser_capture_launch_json_output_contains_process_report_fields() {
         &TestBrowserCaptureRunner,
         "chromium",
         MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR,
+        Some("https://example.com/capture"),
         true,
     );
 
@@ -2186,6 +2230,10 @@ fn browser_capture_launch_json_output_contains_process_report_fields() {
     assert_eq!(
         json["browser_capture"]["request"]["launch"]["profile_dir"],
         MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["launch"]["target_url"],
+        "https://example.com/capture"
     );
     assert_eq!(
         json["browser_capture"]["launch_report"]["status"],
@@ -2209,6 +2257,13 @@ fn browser_capture_launch_json_output_contains_process_report_fields() {
             .expect("launch args should be an array")
             .iter()
             .any(|arg| arg.as_str() == Some("--proxy-server=http://127.0.0.1:7890"))
+    );
+    assert!(
+        json["browser_capture"]["launch_report"]["request"]["command"]["args"]
+            .as_array()
+            .expect("launch args should be an array")
+            .iter()
+            .any(|arg| arg.as_str() == Some("https://example.com/capture"))
     );
     assert_eq!(
         json["browser_capture"]["launch_report"]["plugin_id"],
@@ -2265,6 +2320,7 @@ fn browser_capture_session_plan_json_output_contains_session_fields() {
         "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF",
         "chromium",
         MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR,
+        Some("https://example.com/capture"),
         "127.0.0.1",
         7890,
     );
@@ -2285,6 +2341,14 @@ fn browser_capture_session_plan_json_output_contains_session_fields() {
         "chromium"
     );
     assert_eq!(
+        json["browser_capture"]["request"]["session"]["target_url"],
+        "https://example.com/capture"
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["launch"]["target_url"],
+        "https://example.com/capture"
+    );
+    assert_eq!(
         json["browser_capture"]["request"]["launch"]["proxy_url"],
         "http://127.0.0.1:7890"
     );
@@ -2298,6 +2362,10 @@ fn browser_capture_session_plan_json_output_contains_session_fields() {
         "ss-82-47-34-99-11111"
     );
     assert_eq!(json["browser_capture"]["session_plan"]["node_name"], "香港");
+    assert_eq!(
+        json["browser_capture"]["session_plan"]["target_url"],
+        "https://example.com/capture"
+    );
     assert_eq!(
         json["browser_capture"]["session_plan"]["proxy_url"],
         "http://127.0.0.1:7890"

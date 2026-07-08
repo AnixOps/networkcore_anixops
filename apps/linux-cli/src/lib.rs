@@ -229,6 +229,7 @@ pub enum LinuxCliCommand {
         url: String,
         browser: String,
         profile_dir: String,
+        target_url: Option<String>,
         listen_host: String,
         listen_port: u16,
         format: OutputFormat,
@@ -236,6 +237,7 @@ pub enum LinuxCliCommand {
     MitmBrowserCaptureLaunch {
         browser: String,
         profile_dir: String,
+        target_url: Option<String>,
         confirm: bool,
         format: OutputFormat,
     },
@@ -570,6 +572,7 @@ pub struct LinuxBrowserCaptureSessionPlanRequest {
     pub url_source: String,
     pub browser: String,
     pub profile_dir: String,
+    pub target_url: Option<String>,
     pub listen_host: String,
     pub listen_port: u16,
 }
@@ -625,6 +628,7 @@ pub struct LinuxBrowserCaptureLaunchCommand {
 pub struct LinuxBrowserCaptureLaunchRequest {
     pub browser: String,
     pub profile_dir: String,
+    pub target_url: Option<String>,
     pub proxy_url: String,
     pub command: LinuxBrowserCaptureLaunchCommand,
 }
@@ -693,6 +697,7 @@ pub struct LinuxBrowserCaptureSessionPlanReport {
     pub url_source: String,
     pub node_id: String,
     pub node_name: String,
+    pub target_url: Option<String>,
     pub listen_host: String,
     pub listen_port: u16,
     pub proxy_url: String,
@@ -1151,6 +1156,7 @@ struct ParsedOptions {
     browser: Option<String>,
     config_path: Option<String>,
     profile_dir: Option<String>,
+    target_url: Option<String>,
     install_dir: Option<String>,
     listen_host: Option<String>,
     listen_port: Option<u16>,
@@ -1289,6 +1295,7 @@ where
             url,
             browser,
             profile_dir,
+            target_url,
             listen_host,
             listen_port,
             ..
@@ -1297,6 +1304,7 @@ where
             &url,
             &browser,
             &profile_dir,
+            target_url.as_deref(),
             &listen_host,
             listen_port,
         ),
@@ -1330,6 +1338,7 @@ where
         LinuxCliCommand::MitmBrowserCaptureLaunch {
             browser,
             profile_dir,
+            target_url,
             confirm,
             ..
         } => handle_mitm_browser_capture_launch(
@@ -1337,6 +1346,7 @@ where
             browser_runner,
             &browser,
             &profile_dir,
+            target_url.as_deref(),
             confirm,
         ),
         other => handle_entrypoint(other, platform),
@@ -1358,6 +1368,7 @@ where
         LinuxCliCommand::MitmBrowserCaptureLaunch {
             browser,
             profile_dir,
+            target_url,
             confirm,
             ..
         } => handle_mitm_browser_capture_launch(
@@ -1365,6 +1376,7 @@ where
             browser_runner,
             &browser,
             &profile_dir,
+            target_url.as_deref(),
             confirm,
         ),
         LinuxCliCommand::MitmBrowserCaptureVerify { confirm, .. } => {
@@ -1798,6 +1810,7 @@ pub fn handle_mitm_browser_capture_session_plan<P>(
     url: &str,
     browser: &str,
     profile_dir: &str,
+    target_url: Option<&str>,
     listen_host: &str,
     listen_port: u16,
 ) -> LinuxCliResponse
@@ -1898,12 +1911,14 @@ where
         &generated_config.listen_host,
         generated_config.listen_port,
     );
-    let launch_request = build_linux_browser_capture_launch_request(browser, profile_dir, &plan);
+    let launch_request =
+        build_linux_browser_capture_launch_request(browser, profile_dir, target_url, &plan);
     let verify_request = build_linux_browser_capture_verify_request(&plan);
     let session_request = LinuxBrowserCaptureSessionPlanRequest {
         url_source: "cli-argument-redacted".to_string(),
         browser: browser.to_string(),
         profile_dir: profile_dir.to_string(),
+        target_url: target_url.map(ToString::to_string),
         listen_host: generated_config.listen_host.clone(),
         listen_port: generated_config.listen_port,
     };
@@ -1947,6 +1962,7 @@ pub fn handle_mitm_browser_capture_launch<P, B>(
     browser_runner: &B,
     browser: &str,
     profile_dir: &str,
+    target_url: Option<&str>,
     confirm: bool,
 ) -> LinuxCliResponse
 where
@@ -1996,7 +2012,7 @@ where
         None,
     );
     let launch_request =
-        build_linux_browser_capture_launch_request(browser, profile_dir, &report.plan);
+        build_linux_browser_capture_launch_request(browser, profile_dir, target_url, &report.plan);
     report.request.launch = Some(launch_request.clone());
 
     if !confirm {
@@ -2763,6 +2779,7 @@ fn default_linux_browser_capture_launch_commands(
                 browser,
                 MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR,
                 proxy_url,
+                None,
             )
         })
         .collect()
@@ -2771,18 +2788,25 @@ fn default_linux_browser_capture_launch_commands(
 fn build_linux_browser_capture_launch_request(
     browser: &str,
     profile_dir: &str,
+    target_url: Option<&str>,
     plan: &LinuxBrowserCapturePlan,
 ) -> LinuxBrowserCaptureLaunchRequest {
     let proxy_url = format!(
         "http://{}:{}",
         plan.planned_proxy_host, plan.planned_proxy_port
     );
-    let command =
-        build_linux_browser_capture_launch_command(browser, browser, profile_dir, &proxy_url);
+    let command = build_linux_browser_capture_launch_command(
+        browser,
+        browser,
+        profile_dir,
+        &proxy_url,
+        target_url,
+    );
 
     LinuxBrowserCaptureLaunchRequest {
         browser: browser.to_string(),
         profile_dir: profile_dir.to_string(),
+        target_url: target_url.map(ToString::to_string),
         proxy_url,
         command,
     }
@@ -2807,13 +2831,18 @@ fn build_linux_browser_capture_launch_command(
     executable: &str,
     profile_dir: &str,
     proxy_url: &str,
+    target_url: Option<&str>,
 ) -> LinuxBrowserCaptureLaunchCommand {
-    let args = vec![
+    let mut args = vec![
         format!("--user-data-dir={profile_dir}"),
         format!("--proxy-server={proxy_url}"),
     ];
+    if let Some(target_url) = target_url {
+        args.push(target_url.to_string());
+    }
     let command = std::iter::once(executable.to_string())
         .chain(args.iter().cloned())
+        .map(|arg| shell_display_arg(&arg))
         .collect::<Vec<_>>()
         .join(" ");
 
@@ -2823,6 +2852,17 @@ fn build_linux_browser_capture_launch_command(
         args,
         command,
     }
+}
+
+fn shell_display_arg(arg: &str) -> String {
+    if arg
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/' | ':' | '='))
+    {
+        return arg.to_string();
+    }
+
+    format!("'{}'", arg.replace('\'', "'\\''"))
 }
 
 fn build_linux_browser_capture_launch_report(
@@ -2875,6 +2915,7 @@ fn build_linux_browser_capture_session_plan_report(
         url_source: request.url_source,
         node_id,
         node_name,
+        target_url: request.target_url,
         listen_host: request.listen_host.clone(),
         listen_port: request.listen_port,
         proxy_url,
@@ -3249,6 +3290,16 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.profile_dir = Some(value.clone());
             }
+            "--target-url" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--target-url requires a browser target URL value",
+                    ));
+                };
+                options.target_url = Some(value.clone());
+            }
             "--install-dir" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -3446,6 +3497,7 @@ fn parse_mitm_browser_capture_command(
                 profile_dir: options
                     .profile_dir
                     .unwrap_or_else(|| MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR.to_string()),
+                target_url: options.target_url,
                 listen_host: options
                     .listen_host
                     .unwrap_or_else(|| MITM_BROWSER_CAPTURE_PROXY_HOST.to_string()),
@@ -3464,6 +3516,7 @@ fn parse_mitm_browser_capture_command(
                 profile_dir: options
                     .profile_dir
                     .unwrap_or_else(|| MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR.to_string()),
+                target_url: options.target_url,
                 confirm: options.confirm,
                 format: options.format,
             })
@@ -3553,7 +3606,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux status [--format text|json]\n",
         "  networkcore-linux diagnostics [--format text|json]\n",
         "  networkcore-linux mitm [status|diagnostics|certificate-plan|browser-plan] [--format text|json]\n",
-        "  networkcore-linux mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify] [<ss://url>] [--browser <executable>] [--profile-dir <dir>] [--listen-host <host>] [--listen-port <port>] [--confirm] [--snapshot <path>] [--format text|json]\n",
+        "  networkcore-linux mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify] [<ss://url>] [--browser <executable>] [--profile-dir <dir>] [--target-url <url>] [--listen-host <host>] [--listen-port <port>] [--confirm] [--snapshot <path>] [--format text|json]\n",
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux run-url <ss://url> [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux sing-box install [--install-dir <dir>] [--force] [--format text|json]\n",
@@ -3575,6 +3628,7 @@ pub const fn cli_help_text() -> &'static str {
         "  --config <path>       Config file for prepare-config and start.\n",
         "  --browser <exe>       Browser executable for mitm browser-capture session-plan/launch. Defaults to chromium.\n",
         "  --profile-dir <dir>   Dedicated browser profile directory for mitm browser-capture session-plan/launch.\n",
+        "  --target-url <url>    Optional page URL to open in the dedicated browser capture profile.\n",
         "  --install-dir <dir>   Engine cache root for install-sing-box.\n",
         "  --listen-host <host>  Local proxy listen address for run-url. Defaults to 127.0.0.1.\n",
         "  --listen-port <port>  Local proxy listen port for run-url. Defaults to 7890.\n",
@@ -3936,6 +3990,9 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
                 "browser capture session local proxy: {}:{}",
                 session.listen_host, session.listen_port
             ));
+            if let Some(target_url) = &session.target_url {
+                lines.push(format!("browser capture session target URL: {target_url}"));
+            }
             lines.push(format!(
                 "browser capture session run command: {}",
                 session.run_command
@@ -3978,6 +4035,9 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
                 "browser capture launch command: {}",
                 report.request.command.command
             ));
+            if let Some(target_url) = &report.request.target_url {
+                lines.push(format!("browser capture launch target URL: {target_url}"));
+            }
             lines.push(format!(
                 "browser capture launch profile: {} proxy={}",
                 report.request.profile_dir, report.request.proxy_url
@@ -4323,6 +4383,7 @@ struct JsonBrowserCaptureSessionPlanRequest {
     url_source: String,
     browser: String,
     profile_dir: String,
+    target_url: Option<String>,
     listen_host: String,
     listen_port: u16,
 }
@@ -4333,6 +4394,7 @@ impl From<&LinuxBrowserCaptureSessionPlanRequest> for JsonBrowserCaptureSessionP
             url_source: request.url_source.clone(),
             browser: request.browser.clone(),
             profile_dir: request.profile_dir.clone(),
+            target_url: request.target_url.clone(),
             listen_host: request.listen_host.clone(),
             listen_port: request.listen_port,
         }
@@ -4345,6 +4407,7 @@ struct JsonBrowserCaptureSessionPlanReport {
     url_source: String,
     node_id: String,
     node_name: String,
+    target_url: Option<String>,
     listen_host: String,
     listen_port: u16,
     proxy_url: String,
@@ -4365,6 +4428,7 @@ impl From<&LinuxBrowserCaptureSessionPlanReport> for JsonBrowserCaptureSessionPl
             url_source: report.url_source.clone(),
             node_id: report.node_id.clone(),
             node_name: report.node_name.clone(),
+            target_url: report.target_url.clone(),
             listen_host: report.listen_host.clone(),
             listen_port: report.listen_port,
             proxy_url: report.proxy_url.clone(),
@@ -4520,6 +4584,7 @@ impl From<&LinuxBrowserCaptureLaunchCommand> for JsonBrowserCaptureLaunchCommand
 struct JsonBrowserCaptureLaunchRequest {
     browser: String,
     profile_dir: String,
+    target_url: Option<String>,
     proxy_url: String,
     command: JsonBrowserCaptureLaunchCommand,
 }
@@ -4529,6 +4594,7 @@ impl From<&LinuxBrowserCaptureLaunchRequest> for JsonBrowserCaptureLaunchRequest
         Self {
             browser: request.browser.clone(),
             profile_dir: request.profile_dir.clone(),
+            target_url: request.target_url.clone(),
             proxy_url: request.proxy_url.clone(),
             command: JsonBrowserCaptureLaunchCommand::from(&request.command),
         }

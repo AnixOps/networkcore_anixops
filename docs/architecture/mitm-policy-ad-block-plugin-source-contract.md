@@ -71,15 +71,16 @@ state, plan steps, blocked operations, and `mutation_ready=false`.
 planned explicit proxy `127.0.0.1:7890`, plan steps, blocked operations, and
 `mutation_ready=false`. `browser-capture` adds a top-level `browser_capture`
 machine report with source contract status, action, `LinuxBrowserCaptureManualLaunch`,
-`LinuxBrowserCaptureSessionPlanReport`, `LinuxBrowserCaptureLaunchReport`, `LinuxBrowserCaptureVerifyReport`,
+`LinuxBrowserCaptureSessionPlanReport`, optional target URL, `LinuxBrowserCaptureLaunchReport`, `LinuxBrowserCaptureVerifyReport`,
 authorization, snapshot, apply/rollback/verify reports, and blocked operations.
 `launch-plan` only returns manual dedicated-profile browser command templates,
 the planned proxy URL, and loaded `networkcore.adblock` plugin metadata. There
 is also a redacted `session-plan <ss://url>` path that returns selected node,
-local proxy, browser command, verify command, and loaded plugin metadata without
-starting processes. There is also an explicit `launch --confirm` process-launch path that starts a
+local proxy, browser command, optional `--target-url`, verify command, and
+loaded plugin metadata without starting processes. There is also an explicit
+`launch --confirm` process-launch path that starts a
 dedicated browser profile through `BrowserCaptureProcessRunner` and reports pid,
-profile, proxy, command args, and plugin metadata. `verify --confirm` probes the
+profile, proxy, optional target URL, command args, and plugin metadata. `verify --confirm` probes the
 planned local proxy endpoint through `BrowserCaptureEndpointProbe` and reports
 endpoint reachability plus plugin metadata, but does not prove live browser
 traffic capture or HTTPS MITM. There is still no CA generation/install/trust
@@ -131,7 +132,7 @@ Blocked until later phases:
   checks, uninstall, and rollback boundaries.
 - `MITM_BROWSER_CAPTURE_GATE`: currently plan-only through
   `mitm_status.browser_plan`, manual launch-plan output, redacted session-plan
-  output, explicit dedicated-profile launch output, explicit local proxy endpoint verify output, and
+  output, optional target URL, explicit dedicated-profile launch output, explicit local proxy endpoint verify output, and
   mutation-blocked `browser_capture` reports;
   later increments must add explicit browser/system proxy configuration, PAC or
   other capture strategy, live capture verification, and rollback boundaries.
@@ -142,7 +143,7 @@ Blocked until later phases:
   `LinuxBrowserCaptureLaunchReport`, `LinuxBrowserCaptureVerifyRequest`,
   `LinuxBrowserCaptureVerifyReport`, `BrowserCaptureProcessRunner`,
   `BrowserCaptureEndpointProbe`, `BrowserCaptureAuthorization`,
-  `BrowserCaptureRollbackSnapshot`, launch-plan, session-plan, launch, apply/rollback/verify,
+  `BrowserCaptureRollbackSnapshot`, launch-plan, session-plan, optional `--target-url`, launch, apply/rollback/verify,
   explicit authorization, snapshot, and rollback
   boundaries before any browser/system proxy mutation.
 - `MITM_HTTP_TLS_DATA_PLANE_GATE`: HTTP CONNECT/TLS interception, SNI/host

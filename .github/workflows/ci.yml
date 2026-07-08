@@ -249,6 +249,8 @@ jobs:
           grep -q "LinuxBrowserCaptureSessionPlanReport" apps/linux-cli/src/lib.rs
           grep -q "LinuxBrowserCaptureLaunchRequest" apps/linux-cli/src/lib.rs
           grep -q "LinuxBrowserCaptureLaunchReport" apps/linux-cli/src/lib.rs
+          grep -q "target_url" apps/linux-cli/src/lib.rs
+          grep -q -- "--target-url" apps/linux-cli/src/lib.rs
           grep -q "LinuxBrowserCaptureVerifyRequest" apps/linux-cli/src/lib.rs
           grep -q "LinuxBrowserCaptureVerifyOutcome" apps/linux-cli/src/lib.rs
           grep -q "LinuxBrowserCaptureVerifyReport" apps/linux-cli/src/lib.rs
@@ -305,6 +307,8 @@ jobs:
           grep -q "mitm_browser_capture_session_plan_links_proxy_browser_and_plugin_without_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_browser_capture_launch_requires_confirmation_before_starting_browser" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_browser_capture_launch_uses_injected_runner_with_dedicated_profile" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "https://example.com/capture" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "target_url" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_browser_capture_verify_requires_confirmation_before_probe" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_browser_capture_verify_uses_injected_endpoint_probe" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_browser_capture_verify_reports_unreachable_proxy_endpoint" apps/linux-cli/tests/linux_cli_contracts.rs
@@ -340,10 +344,12 @@ jobs:
           grep -q "browser-capture" README.md
           grep -q "launch-plan" README.md
           grep -q "session-plan" README.md
+          grep -q -- "--target-url" README.md
           grep -q "browser-plan" apps/linux-cli/README.md
           grep -q "browser-capture" apps/linux-cli/README.md
           grep -q "launch-plan" apps/linux-cli/README.md
           grep -q "session-plan" apps/linux-cli/README.md
+          grep -q -- "--target-url" apps/linux-cli/README.md
           grep -q "browser-plan" crates/mitm-policy/README.md
           grep -q "browser-capture" crates/mitm-policy/README.md
           grep -q "launch-plan" crates/mitm-policy/README.md
@@ -382,6 +388,7 @@ jobs:
           grep -q "LinuxBrowserCaptureSessionPlanReport" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "LinuxBrowserCaptureLaunchRequest" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "LinuxBrowserCaptureLaunchReport" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q -- "--target-url" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "LinuxBrowserCaptureVerifyRequest" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "LinuxBrowserCaptureVerifyReport" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureProcessRunner" docs/architecture/linux-mitm-browser-capture-source-contract.md
