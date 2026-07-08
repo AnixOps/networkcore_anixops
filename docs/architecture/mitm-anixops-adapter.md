@@ -177,7 +177,7 @@ mitm-cli-command-gate-status=partial-active
 
 `networkcore-linux mitm status`、`networkcore-linux mitm diagnostics`、
 `networkcore-linux mitm certificate-plan`、`networkcore-linux mitm browser-plan` 和
-`networkcore-linux mitm browser-capture plan/launch-plan/launch/apply/rollback/verify`
+`networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify`
 已接入 Linux CLI。它们通过
 `mitm-policy` 加载内置 `networkcore.adblock` policy，输出 `mitm_status`
 JSON 机器字段，并显式报告 browser hijack 为 deferred、
@@ -190,12 +190,14 @@ operations 和 `mutation_ready=false`；`browser-plan` 额外输出
 `127.0.0.1:7890`、计划步骤、blocked operations 和 `mutation_ready=false`。
 `browser-capture` 额外输出 `browser_capture` 机器字段；`launch-plan` 返回手动
 dedicated-profile 浏览器启动命令模板、计划代理 URL 和已加载插件元数据，不启动浏览器或写入系统状态；
+`session-plan <ss://url>` 返回脱敏订阅来源、选中节点、本地代理监听、`run-url <subscription-url>` 命令模板、
+dedicated 浏览器命令、`verify --confirm` 命令和已加载插件元数据，不启动 `sing-box`、不启动浏览器或写入系统状态；
 `launch --confirm` 通过 `BrowserCaptureProcessRunner` 启动带显式代理参数的 dedicated browser profile，
 并输出 `LinuxBrowserCaptureLaunchReport`、pid、profile、proxy、命令参数和插件元数据；
 `apply --confirm` 只记录 `BrowserCaptureAuthorization` 并返回 apply blocked，
 `rollback --snapshot <path>` 只保留 `BrowserCaptureRollbackSnapshot` 路径并返回 rollback blocked，
 `verify --confirm` 只探测计划本地代理端点 `http://127.0.0.1:7890` 是否可达；它不证明浏览器真实流量捕获、HTTPS MITM 或 rewrite 应用。未接线 endpoint probe 或更强 live capture probe 时仍返回 blocked。
-该状态只代表命令面、策略诊断入口、证书生命周期计划、浏览器捕获计划、manual launch-plan、dedicated-profile process launch 和 browser-capture blocked report 已存在，
+该状态只代表命令面、策略诊断入口、证书生命周期计划、浏览器捕获计划、manual launch-plan、session-plan、dedicated-profile process launch 和 browser-capture blocked report 已存在，
 不代表 HTTPS MITM、证书安装、系统代理/浏览器 policy 写入或真实流量改写已可用。
 
 范围：
@@ -238,18 +240,19 @@ dedicated-profile 浏览器启动命令模板、计划代理 URL 和已加载插
 当前状态：
 
 - `networkcore-linux mitm browser-plan` 已输出 `mitm_status.browser_plan`。
-- `networkcore-linux mitm browser-capture plan/launch-plan/launch/apply/rollback/verify` 已输出
-  `browser_capture` manual launch-plan、dedicated-profile launch report 和 blocked report。
+- `networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify` 已输出
+  `browser_capture` manual launch-plan、session-plan、dedicated-profile launch report、本地代理端点 verify report 和 blocked report。
 - 默认计划为显式代理 `127.0.0.1:7890`，仅用于机器可读计划和后续 UI/CLI 提示。
 - `launch-plan` 只输出 dedicated-profile 浏览器启动命令模板、计划代理 URL 和 `networkcore.adblock`
   插件元数据，不启动浏览器、不写 profile、不写系统状态。
+- `session-plan` 只输出脱敏订阅到本地代理、dedicated 浏览器和 verify 的命令计划，不启动 `sing-box`、不启动浏览器、不写 profile、不写系统状态。
 - `launch --confirm` 只启动 dedicated browser process，不写 browser policy、system proxy、PAC、TUN、DNS、firewall 或 CA。
 - 当前 gate 为 plan-only/mutation-blocked，不写入 browser policy、system proxy、PAC、TUN、DNS 或 firewall。
 - [Linux MITM Browser Capture Source Contract](linux-mitm-browser-capture-source-contract.md)
   已固定 `mitm-browser-capture-source-contract-status=active`、
-  `LinuxBrowserCaptureManualLaunch`、`LinuxBrowserCaptureLaunchRequest`、`LinuxBrowserCaptureLaunchReport`、
+  `LinuxBrowserCaptureManualLaunch`、`LinuxBrowserCaptureSessionPlanRequest`、`LinuxBrowserCaptureSessionPlanReport`、`LinuxBrowserCaptureLaunchRequest`、`LinuxBrowserCaptureLaunchReport`、
   `BrowserCaptureProcessRunner`、`BrowserCaptureAuthorization`、`BrowserCaptureRollbackSnapshot`、
-  launch-plan、launch、apply/rollback/verify、显式授权、snapshot 和 rollback 边界。
+  launch-plan、session-plan、launch、apply/rollback/verify、显式授权、snapshot 和 rollback 边界。
 - live browser capture probe、真实 apply 和真实 rollback 尚未实现；当前 verify/rollback
   命令只返回 blocked report，不读取或写入系统状态。
 
