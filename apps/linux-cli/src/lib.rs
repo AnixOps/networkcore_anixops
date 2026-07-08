@@ -2862,7 +2862,9 @@ fn build_linux_browser_capture_report(
 ) -> LinuxBrowserCaptureReport {
     let plan = build_linux_browser_capture_plan(platform_status, policy);
     let verify_request = if action == LinuxBrowserCaptureAction::Verify {
-        Some(build_linux_browser_capture_verify_request(&plan, target_url))
+        Some(build_linux_browser_capture_verify_request(
+            &plan, target_url,
+        ))
     } else {
         None
     };

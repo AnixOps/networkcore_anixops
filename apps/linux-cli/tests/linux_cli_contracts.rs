@@ -31,9 +31,9 @@ use networkcore_linux::{
     handle_prepare_config, handle_run_url_with_sing_box, handle_start, handle_status, handle_stop,
     parse_args, render_response, BrowserCaptureEndpointProbe, BrowserCaptureProcessRunner,
     CommandBrowserCaptureEndpointProbe, ConfigReadError, ConfigReader,
-    CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost, ForegroundLifecycleInterruption,
-    ForegroundLifecycleInterruptionSource, ForegroundLifecycleOutcome, ForegroundLifecycleRequest,
-    LinuxBrowserCaptureLaunchOutcome,
+    CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
+    ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
+    ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
     LinuxBrowserCaptureLaunchRequest, LinuxBrowserCaptureVerifyOutcome,
     LinuxBrowserCaptureVerifyRequest, LinuxCliCommand, LinuxCliExitCode, OutputFormat,
     UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
@@ -50,8 +50,7 @@ use networkcore_linux::{
     CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_REACHABLE_CODE,
     CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_UNREACHABLE_CODE,
     CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_INVALID_CODE,
-    CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_REACHABLE_CODE,
-    CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_REACHABLE_CODE, CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE,
     CLI_MITM_BROWSER_PLAN_READY_CODE, CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE,
     CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE, CLI_MITM_CERTIFICATE_PLAN_READY_CODE,
     CLI_MITM_CLI_GATE_PARTIAL_CODE, CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE,
@@ -1080,8 +1079,7 @@ fn mitm_browser_capture_verify_requires_confirmation_before_probe() {
         StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
     let probe = TestBrowserCaptureEndpointProbe { reachable: true };
 
-    let response =
-        handle_mitm_browser_capture_verify_with_probe(&platform, &probe, None, false);
+    let response = handle_mitm_browser_capture_verify_with_probe(&platform, &probe, None, false);
 
     assert!(!response.ok);
     assert_eq!(response.command, "mitm browser-capture verify");
