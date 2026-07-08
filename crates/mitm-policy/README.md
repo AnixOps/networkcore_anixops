@@ -21,11 +21,13 @@ User-facing live MITM is not available yet. The current Linux CLI exposes
 `networkcore-linux mitm status`, `networkcore-linux mitm diagnostics`,
 `networkcore-linux mitm certificate-plan`, and
 `networkcore-linux mitm browser-plan`, plus
-`networkcore-linux mitm browser-capture plan/apply/rollback/verify`; the
-command surface reports policy-only status, a certificate lifecycle plan, a
-browser capture plan, `browser_capture` blocked reports, and deferred browser
-hijack gates. It does not generate or install a CA, decrypt HTTPS traffic,
-write browser/system proxy state, or apply rewrite plans to live traffic.
+`networkcore-linux mitm browser-capture plan/launch-plan/apply/rollback/verify`;
+the command surface reports policy-only status, a certificate lifecycle plan, a
+browser capture plan, manual dedicated-profile launch templates, `browser_capture`
+blocked reports, and deferred browser hijack gates. The launch templates carry
+the loaded `networkcore.adblock` plugin metadata and planned proxy URL, but they
+do not generate or install a CA, decrypt HTTPS traffic, write browser/system
+proxy state, or apply rewrite plans to live traffic.
 
 Required gates before user-facing MITM:
 
@@ -35,7 +37,8 @@ Required gates before user-facing MITM:
   `mitm_status.certificate_plan`; later increments must implement CA
   generation, install, trust detection, revocation, and rollback boundaries.
 - `MITM_BROWSER_CAPTURE_GATE`: currently plan-only/mutation-blocked through
-  `mitm_status.browser_plan` and `browser_capture`; later increments must
+  `mitm_status.browser_plan`, `browser_capture`, and manual launch-plan output;
+  later increments must
   implement explicit browser/system proxy configuration, PAC or other capture
   strategy, live capture verification, and rollback boundaries. The Linux
   source boundary is

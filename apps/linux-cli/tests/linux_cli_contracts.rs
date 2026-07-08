@@ -22,11 +22,12 @@ use networkcore_linux::{
     handle_entrypoint_with_runtime_and_lifecycle,
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
     handle_foreground_lifecycle_with_runtime_stop, handle_install_sing_box,
-    handle_mitm_browser_capture_apply, handle_mitm_browser_capture_plan,
-    handle_mitm_browser_capture_rollback, handle_mitm_browser_capture_verify,
-    handle_mitm_browser_plan, handle_mitm_certificate_plan, handle_mitm_status, handle_parse_error,
-    handle_prepare_config, handle_run_url_with_sing_box, handle_start, handle_status, handle_stop,
-    parse_args, render_response, ConfigReadError, ConfigReader,
+    handle_mitm_browser_capture_apply, handle_mitm_browser_capture_launch_plan,
+    handle_mitm_browser_capture_plan, handle_mitm_browser_capture_rollback,
+    handle_mitm_browser_capture_verify, handle_mitm_browser_plan, handle_mitm_certificate_plan,
+    handle_mitm_status, handle_parse_error, handle_prepare_config, handle_run_url_with_sing_box,
+    handle_start, handle_status, handle_stop, parse_args, render_response, ConfigReadError,
+    ConfigReader,
     CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxCliCommand, LinuxCliExitCode,
@@ -34,6 +35,7 @@ use networkcore_linux::{
     CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_LAUNCH_PLAN_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE, CLI_MITM_BROWSER_CAPTURE_ROLLBACK_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_VERIFY_BLOCKED_CODE, CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE,
     CLI_MITM_BROWSER_PLAN_READY_CODE, CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE,
@@ -104,7 +106,9 @@ fn parses_help_command_and_renders_command_table() {
     assert!(rendered.contains("install-sing-box"));
     assert!(rendered.contains("run-url"));
     assert!(rendered.contains("mitm [status|diagnostics|certificate-plan|browser-plan]"));
-    assert!(rendered.contains("mitm browser-capture [plan|apply|rollback|verify]"));
+    assert!(rendered.contains(
+        "mitm browser-capture [plan|launch-plan|apply|rollback|verify]"
+    ));
     assert!(rendered.contains("sing-box install"));
 }
 
@@ -130,6 +134,9 @@ fn parses_mitm_status_and_diagnostics_commands() {
         parse_args(["mitm", "browser-capture"]).expect("mitm browser-capture should parse");
     let browser_capture_plan = parse_args(["mitm", "browser-capture", "plan", "--format", "json"])
         .expect("mitm browser-capture plan should parse");
+    let browser_capture_launch_plan =
+        parse_args(["mitm", "browser-capture", "launch-plan", "--format", "json"])
+            .expect("mitm browser-capture launch-plan should parse");
     let browser_capture_apply = parse_args(["mitm", "browser-capture", "apply", "--confirm"])
         .expect("mitm browser-capture apply should parse");
     let browser_capture_rollback = parse_args([
@@ -206,6 +213,12 @@ fn parses_mitm_status_and_diagnostics_commands() {
     assert_eq!(
         browser_capture_plan,
         LinuxCliCommand::MitmBrowserCapturePlan {
+            format: OutputFormat::Json
+        }
+    );
+    assert_eq!(
+        browser_capture_launch_plan,
+        LinuxCliCommand::MitmBrowserCaptureLaunchPlan {
             format: OutputFormat::Json
         }
     );
@@ -701,6 +714,55 @@ fn mitm_browser_capture_plan_outputs_source_contract_report_without_mutation() {
 }
 
 #[test]
+fn mitm_browser_capture_launch_plan_outputs_manual_browser_commands_without_mutation() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+
+    let response = handle_mitm_browser_capture_launch_plan(&platform);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "mitm browser-capture launch-plan");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Success);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_LAUNCH_PLAN_READY_CODE,
+    );
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE,
+    );
+
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("launch-plan response should include browser capture report");
+    assert_eq!(capture.action, "launch-plan");
+    assert_eq!(capture.plan.manual_launch.status, "manual-launch-plan-ready");
+    assert_eq!(
+        capture.plan.manual_launch.proxy_url,
+        "http://127.0.0.1:7890"
+    );
+    assert_eq!(
+        capture.plan.manual_launch.plugin_id,
+        mitm_policy::MITM_POLICY_AD_BLOCK_PLUGIN_ID
+    );
+    assert!(capture
+        .plan
+        .manual_launch
+        .browser_commands
+        .iter()
+        .any(|command| command.browser == "chromium"
+            && command.command.contains("--proxy-server=http://127.0.0.1:7890")));
+    assert!(capture.apply_report.is_none());
+    assert!(capture.rollback_report.is_none());
+    assert!(capture.verify_report.is_none());
+
+    let rendered = render_response(&response, OutputFormat::Text);
+    assert!(rendered.contains("browser capture manual launch: manual-launch-plan-ready"));
+    assert!(rendered.contains("browser launch command chromium: chromium"));
+}
+
+#[test]
 fn mitm_browser_capture_apply_requires_authorization_and_stays_blocked() {
     let platform =
         StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
@@ -860,6 +922,12 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
         },
         &platform,
     );
+    let browser_capture_launch_plan = handle_entrypoint(
+        LinuxCliCommand::MitmBrowserCaptureLaunchPlan {
+            format: OutputFormat::Text,
+        },
+        &platform,
+    );
     let browser_capture_apply = handle_entrypoint(
         LinuxCliCommand::MitmBrowserCaptureApply {
             confirm: true,
@@ -888,6 +956,7 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
     assert!(certificate_plan.ok);
     assert!(browser_plan.ok);
     assert!(browser_capture_plan.ok);
+    assert!(browser_capture_launch_plan.ok);
     assert!(!browser_capture_apply.ok);
     assert!(!browser_capture_rollback.ok);
     assert!(!browser_capture_verify.ok);
@@ -898,6 +967,10 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
     assert_eq!(certificate_plan.command, "mitm certificate-plan");
     assert_eq!(browser_plan.command, "mitm browser-plan");
     assert_eq!(browser_capture_plan.command, "mitm browser-capture plan");
+    assert_eq!(
+        browser_capture_launch_plan.command,
+        "mitm browser-capture launch-plan"
+    );
     assert_eq!(browser_capture_apply.command, "mitm browser-capture apply");
     assert_eq!(
         browser_capture_rollback.command,
@@ -914,6 +987,7 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
     assert!(certificate_plan.mitm_status.is_some());
     assert!(browser_plan.mitm_status.is_some());
     assert!(browser_capture_plan.browser_capture.is_some());
+    assert!(browser_capture_launch_plan.browser_capture.is_some());
     assert!(browser_capture_apply.browser_capture.is_some());
     assert!(browser_capture_rollback.browser_capture.is_some());
     assert!(browser_capture_verify.browser_capture.is_some());
@@ -1579,6 +1653,29 @@ fn browser_capture_json_output_contains_machine_report_fields() {
     assert_eq!(
         json["browser_capture"]["plan"]["planned_proxy_host"],
         MITM_BROWSER_CAPTURE_PROXY_HOST
+    );
+    assert_eq!(
+        json["browser_capture"]["plan"]["manual_launch"]["status"],
+        "manual-launch-plan-ready"
+    );
+    assert_eq!(
+        json["browser_capture"]["plan"]["manual_launch"]["proxy_url"],
+        "http://127.0.0.1:7890"
+    );
+    assert_eq!(
+        json["browser_capture"]["plan"]["manual_launch"]["plugin_id"],
+        mitm_policy::MITM_POLICY_AD_BLOCK_PLUGIN_ID
+    );
+    assert!(
+        json["browser_capture"]["plan"]["manual_launch"]["browser_commands"]
+            .as_array()
+            .expect("browser commands should be an array")
+            .iter()
+            .any(|command| command["browser"].as_str() == Some("chromium")
+                && command["command"]
+                    .as_str()
+                    .expect("browser command should be a string")
+                    .contains("--proxy-server=http://127.0.0.1:7890"))
     );
     assert_eq!(json["browser_capture"]["apply_report"]["status"], "blocked");
     assert_eq!(

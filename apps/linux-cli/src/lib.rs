@@ -73,6 +73,8 @@ pub const CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE: &str =
     "cli.linux.mitm.browser_capture_mutation.blocked";
 pub const CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE: &str =
     "cli.linux.mitm.browser_capture.authorization_required";
+pub const CLI_MITM_BROWSER_CAPTURE_LAUNCH_PLAN_READY_CODE: &str =
+    "cli.linux.mitm.browser_capture.launch_plan.ready";
 pub const CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE: &str =
     "cli.linux.mitm.browser_capture.apply.blocked";
 pub const CLI_MITM_BROWSER_CAPTURE_ROLLBACK_BLOCKED_CODE: &str =
@@ -197,6 +199,9 @@ pub enum LinuxCliCommand {
     MitmBrowserCapturePlan {
         format: OutputFormat,
     },
+    MitmBrowserCaptureLaunchPlan {
+        format: OutputFormat,
+    },
     MitmBrowserCaptureApply {
         confirm: bool,
         format: OutputFormat,
@@ -239,6 +244,7 @@ impl LinuxCliCommand {
             Self::MitmCertificatePlan { .. } => "mitm certificate-plan",
             Self::MitmBrowserPlan { .. } => "mitm browser-plan",
             Self::MitmBrowserCapturePlan { .. } => "mitm browser-capture plan",
+            Self::MitmBrowserCaptureLaunchPlan { .. } => "mitm browser-capture launch-plan",
             Self::MitmBrowserCaptureApply { .. } => "mitm browser-capture apply",
             Self::MitmBrowserCaptureRollback { .. } => "mitm browser-capture rollback",
             Self::MitmBrowserCaptureVerify { .. } => "mitm browser-capture verify",
@@ -262,6 +268,7 @@ impl LinuxCliCommand {
             | Self::MitmCertificatePlan { format }
             | Self::MitmBrowserPlan { format }
             | Self::MitmBrowserCapturePlan { format }
+            | Self::MitmBrowserCaptureLaunchPlan { format }
             | Self::MitmBrowserCaptureApply { format, .. }
             | Self::MitmBrowserCaptureRollback { format, .. }
             | Self::MitmBrowserCaptureVerify { format }
@@ -484,6 +491,7 @@ pub struct LinuxMitmBrowserPlanStep {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinuxBrowserCaptureAction {
     Plan,
+    LaunchPlan,
     Apply,
     Rollback,
     Verify,
@@ -493,6 +501,7 @@ impl LinuxBrowserCaptureAction {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Plan => "plan",
+            Self::LaunchPlan => "launch-plan",
             Self::Apply => "apply",
             Self::Rollback => "rollback",
             Self::Verify => "verify",
@@ -529,8 +538,27 @@ pub struct LinuxBrowserCapturePlan {
     pub planned_capture_mode: String,
     pub planned_proxy_host: String,
     pub planned_proxy_port: u16,
+    pub manual_launch: LinuxBrowserCaptureManualLaunch,
     pub required_steps: Vec<LinuxMitmBrowserPlanStep>,
     pub blocked_operations: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxBrowserCaptureManualLaunch {
+    pub status: String,
+    pub proxy_url: String,
+    pub profile_strategy: String,
+    pub plugin_engine: String,
+    pub plugin_id: String,
+    pub plugin_version: String,
+    pub browser_commands: Vec<LinuxBrowserCaptureLaunchCommand>,
+    pub manual_steps: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxBrowserCaptureLaunchCommand {
+    pub browser: String,
+    pub command: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1021,6 +1049,9 @@ where
         LinuxCliCommand::MitmBrowserCapturePlan { .. } => {
             handle_mitm_browser_capture_plan(platform)
         }
+        LinuxCliCommand::MitmBrowserCaptureLaunchPlan { .. } => {
+            handle_mitm_browser_capture_launch_plan(platform)
+        }
         LinuxCliCommand::MitmBrowserCaptureApply { confirm, .. } => {
             handle_mitm_browser_capture_apply(platform, confirm)
         }
@@ -1441,6 +1472,19 @@ where
     )
 }
 
+pub fn handle_mitm_browser_capture_launch_plan<P>(platform: &P) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+{
+    handle_mitm_browser_capture_inner(
+        "mitm browser-capture launch-plan",
+        platform,
+        LinuxBrowserCaptureAction::LaunchPlan,
+        false,
+        None,
+    )
+}
+
 pub fn handle_mitm_browser_capture_apply<P>(platform: &P, confirm: bool) -> LinuxCliResponse
 where
     P: PlatformCapabilityService,
@@ -1567,6 +1611,14 @@ where
 
     match action {
         LinuxBrowserCaptureAction::Plan => {}
+        LinuxBrowserCaptureAction::LaunchPlan => {
+            diagnostics.push(cli_diagnostic(
+                DiagnosticSeverity::Info,
+                CLI_MITM_BROWSER_CAPTURE_LAUNCH_PLAN_READY_CODE,
+                "browser capture manual launch plan is available; no browser or system state was changed",
+                SOURCE_CLI_MITM,
+            ));
+        }
         LinuxBrowserCaptureAction::Apply => {
             if !confirm {
                 diagnostics.push(cli_diagnostic(
@@ -1604,6 +1656,7 @@ where
     let report = build_linux_browser_capture_report(
         action,
         &platform_status,
+        &mitm_status.policy,
         authorization,
         rollback_snapshot,
     );
@@ -1613,7 +1666,10 @@ where
         .with_browser_capture(report)
         .with_diagnostics(diagnostics);
 
-    if action != LinuxBrowserCaptureAction::Plan {
+    if !matches!(
+        action,
+        LinuxBrowserCaptureAction::Plan | LinuxBrowserCaptureAction::LaunchPlan
+    ) {
         response.ok = false;
         response.exit_code = LinuxCliExitCode::Unavailable;
     }
@@ -1805,10 +1861,11 @@ fn build_linux_mitm_browser_plan(
 fn build_linux_browser_capture_report(
     action: LinuxBrowserCaptureAction,
     platform_status: &PlatformCapabilityStatus,
+    policy: &LinuxMitmPolicyStatus,
     authorization: Option<BrowserCaptureAuthorization>,
     rollback_snapshot: Option<BrowserCaptureRollbackSnapshot>,
 ) -> LinuxBrowserCaptureReport {
-    let plan = build_linux_browser_capture_plan(platform_status);
+    let plan = build_linux_browser_capture_plan(platform_status, policy);
     let request = LinuxBrowserCaptureRequest {
         action,
         authorization: authorization.clone(),
@@ -1869,8 +1926,10 @@ fn build_linux_browser_capture_report(
 
 fn build_linux_browser_capture_plan(
     platform_status: &PlatformCapabilityStatus,
+    policy: &LinuxMitmPolicyStatus,
 ) -> LinuxBrowserCapturePlan {
     let mitm_plan = build_linux_mitm_browser_plan(platform_status);
+    let manual_launch = build_linux_browser_capture_manual_launch(&mitm_plan, policy);
     LinuxBrowserCapturePlan {
         status: mitm_plan.status,
         mutation_ready: mitm_plan.mutation_ready,
@@ -1878,8 +1937,49 @@ fn build_linux_browser_capture_plan(
         planned_capture_mode: mitm_plan.planned_capture_mode,
         planned_proxy_host: mitm_plan.planned_proxy_host,
         planned_proxy_port: mitm_plan.planned_proxy_port,
+        manual_launch,
         required_steps: mitm_plan.required_steps,
         blocked_operations: mitm_plan.blocked_operations,
+    }
+}
+
+fn build_linux_browser_capture_manual_launch(
+    mitm_plan: &LinuxMitmBrowserPlan,
+    policy: &LinuxMitmPolicyStatus,
+) -> LinuxBrowserCaptureManualLaunch {
+    let proxy_url = format!(
+        "http://{}:{}",
+        mitm_plan.planned_proxy_host, mitm_plan.planned_proxy_port
+    );
+    let profile_dir = "/tmp/networkcore-browser-capture-profile";
+    let command_suffix = format!("--user-data-dir={profile_dir} --proxy-server={proxy_url}");
+
+    LinuxBrowserCaptureManualLaunch {
+        status: "manual-launch-plan-ready".to_string(),
+        proxy_url,
+        profile_strategy: "dedicated-temporary-profile".to_string(),
+        plugin_engine: policy.engine.clone(),
+        plugin_id: policy.plugin_id.clone(),
+        plugin_version: policy.plugin_version.clone(),
+        browser_commands: vec![
+            LinuxBrowserCaptureLaunchCommand {
+                browser: "chromium".to_string(),
+                command: format!("chromium {command_suffix}"),
+            },
+            LinuxBrowserCaptureLaunchCommand {
+                browser: "google-chrome".to_string(),
+                command: format!("google-chrome {command_suffix}"),
+            },
+            LinuxBrowserCaptureLaunchCommand {
+                browser: "microsoft-edge".to_string(),
+                command: format!("microsoft-edge {command_suffix}"),
+            },
+        ],
+        manual_steps: vec![
+            "start the planned local MITM proxy endpoint before launching the browser".to_string(),
+            "launch a dedicated browser profile with an explicit proxy argument".to_string(),
+            "close the dedicated browser profile to leave the manual capture session".to_string(),
+        ],
     }
 }
 
@@ -2383,6 +2483,12 @@ fn parse_mitm_browser_capture_command(
                 format: options.format,
             })
         }
+        "launch-plan" | "manual-launch" | "hijack-launch-plan" => {
+            let options = parse_options(&args[1..])?;
+            Ok(LinuxCliCommand::MitmBrowserCaptureLaunchPlan {
+                format: options.format,
+            })
+        }
         "apply" => {
             let options = parse_options(&args[1..])?;
             Ok(LinuxCliCommand::MitmBrowserCaptureApply {
@@ -2467,7 +2573,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux status [--format text|json]\n",
         "  networkcore-linux diagnostics [--format text|json]\n",
         "  networkcore-linux mitm [status|diagnostics|certificate-plan|browser-plan] [--format text|json]\n",
-        "  networkcore-linux mitm browser-capture [plan|apply|rollback|verify] [--confirm] [--snapshot <path>] [--format text|json]\n",
+        "  networkcore-linux mitm browser-capture [plan|launch-plan|apply|rollback|verify] [--confirm] [--snapshot <path>] [--format text|json]\n",
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux run-url <ss://url> [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux sing-box install [--install-dir <dir>] [--force] [--format text|json]\n",
@@ -2820,6 +2926,25 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             "browser capture planned proxy: {}:{}",
             capture.plan.planned_proxy_host, capture.plan.planned_proxy_port
         ));
+        lines.push(format!(
+            "browser capture manual launch: {} proxy={}",
+            capture.plan.manual_launch.status, capture.plan.manual_launch.proxy_url
+        ));
+        lines.push(format!(
+            "browser capture plugin: {} {} via {}",
+            capture.plan.manual_launch.plugin_id,
+            capture.plan.manual_launch.plugin_version,
+            capture.plan.manual_launch.plugin_engine
+        ));
+        for command in &capture.plan.manual_launch.browser_commands {
+            lines.push(format!(
+                "browser launch command {}: {}",
+                command.browser, command.command
+            ));
+        }
+        for step in &capture.plan.manual_launch.manual_steps {
+            lines.push(format!("browser launch step: {step}"));
+        }
         if let Some(authorization) = &capture.request.authorization {
             lines.push(format!(
                 "browser capture authorization: confirmed={} source={} scope={}",
@@ -3184,6 +3309,7 @@ struct JsonBrowserCapturePlan {
     planned_capture_mode: String,
     planned_proxy_host: String,
     planned_proxy_port: u16,
+    manual_launch: JsonBrowserCaptureManualLaunch,
     required_steps: Vec<JsonMitmBrowserPlanStep>,
     blocked_operations: Vec<String>,
 }
@@ -3197,12 +3323,59 @@ impl From<&LinuxBrowserCapturePlan> for JsonBrowserCapturePlan {
             planned_capture_mode: plan.planned_capture_mode.clone(),
             planned_proxy_host: plan.planned_proxy_host.clone(),
             planned_proxy_port: plan.planned_proxy_port,
+            manual_launch: JsonBrowserCaptureManualLaunch::from(&plan.manual_launch),
             required_steps: plan
                 .required_steps
                 .iter()
                 .map(JsonMitmBrowserPlanStep::from)
                 .collect(),
             blocked_operations: plan.blocked_operations.clone(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonBrowserCaptureManualLaunch {
+    status: String,
+    proxy_url: String,
+    profile_strategy: String,
+    plugin_engine: String,
+    plugin_id: String,
+    plugin_version: String,
+    browser_commands: Vec<JsonBrowserCaptureLaunchCommand>,
+    manual_steps: Vec<String>,
+}
+
+impl From<&LinuxBrowserCaptureManualLaunch> for JsonBrowserCaptureManualLaunch {
+    fn from(plan: &LinuxBrowserCaptureManualLaunch) -> Self {
+        Self {
+            status: plan.status.clone(),
+            proxy_url: plan.proxy_url.clone(),
+            profile_strategy: plan.profile_strategy.clone(),
+            plugin_engine: plan.plugin_engine.clone(),
+            plugin_id: plan.plugin_id.clone(),
+            plugin_version: plan.plugin_version.clone(),
+            browser_commands: plan
+                .browser_commands
+                .iter()
+                .map(JsonBrowserCaptureLaunchCommand::from)
+                .collect(),
+            manual_steps: plan.manual_steps.clone(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonBrowserCaptureLaunchCommand {
+    browser: String,
+    command: String,
+}
+
+impl From<&LinuxBrowserCaptureLaunchCommand> for JsonBrowserCaptureLaunchCommand {
+    fn from(command: &LinuxBrowserCaptureLaunchCommand) -> Self {
+        Self {
+            browser: command.browser.clone(),
+            command: command.command.clone(),
         }
     }
 }
