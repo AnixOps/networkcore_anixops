@@ -160,7 +160,22 @@ audit/diagnostics，真实 request/response mutation 继续等待领域 mutation
 - 扩展 `PluginResult` 或新增 `MitmPluginOutcome`。
 - 覆盖 URL redirect/reject、header add/replace/delete、body replace、script dispatch。
 
+### Phase 2B: Linux CLI MITM command gate
+
+`MITM_CLI_COMMAND_GATE`
+
+目标：提供用户可见但受门禁约束的 MITM 命令入口。
+
+范围：
+
+- 新增 `networkcore-linux mitm` 命令族，至少能输出 status、diagnostics 和 unavailable/deferred 状态。
+- 明确区分 policy-only、certificate-not-ready、data-plane-not-ready 和 ready 状态。
+- 命令不得在 CA 和 HTTP/TLS 数据面未完成前宣称真实 HTTPS MITM 可用。
+- JSON 输出必须包含稳定机器字段，便于后续客户端复用。
+
 ### Phase 3: engine-native HTTP/TLS 数据面
+
+`MITM_HTTP_TLS_DATA_PLANE_GATE`
 
 目标：把策略 adapter 放进真实流量路径。
 
@@ -183,6 +198,8 @@ audit/diagnostics，真实 request/response mutation 继续等待领域 mutation
 - stream backpressure 和 body size limit。
 
 ### Phase 4: 平台 adapter
+
+`MITM_CERTIFICATE_LIFECYCLE_GATE`
 
 Linux：
 

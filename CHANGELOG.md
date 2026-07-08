@@ -6,10 +6,13 @@
 
 ### Changed
 
+- ROADMAP、README 和 TODO 现在把当前阶段统一为 P4 Client And Platform Integration。
+- P3 Runtime Capability Baseline 作为已完成 baseline 保留，后续订阅格式、managed lifecycle 和 MITM 真实流量能力作为 P4 集成阶段 backlog 继续推进。
+- README、ROADMAP、TODO、`mitm-policy` README 和 MITM source contract 现在明确记录当前发布版没有用户可启用的 MITM：没有 `networkcore-linux mitm` 命令、没有 CA 生成/安装/信任路径、没有 HTTP/TLS 解密改写数据面；后续工作固定为 `MITM_CLI_COMMAND_GATE`、`MITM_CERTIFICATE_LIFECYCLE_GATE` 和 `MITM_HTTP_TLS_DATA_PLANE_GATE` 三个门禁。
 - P3 runtime strategy 现在固化为 public engine adapter first：NetworkCore 维护控制层，`engine-*` 维护 adapter 层，`sing-box` 等公有执行内核先承担 VLESS、Shadowsocks、Trojan、VMess、Hysteria 等协议数据面；`engine-native` 保留为自研执行内核实验线，但私有协议实现暂缓。
 - Release workflow 已完成首个 Linux CLI 二进制发布路径：`v0.1.0-alpha.2` 通过 GitHub Actions 生成 lockfile、执行 locked release build、组装 tarball、sha256、manifest 与 manifest sha256，`attest-linux` 生成 GitHub artifact attestation，`publish-eligibility-gate` 聚合发布门禁，tag 触发的 `publish-github-release` 创建 GitHub Release 并上传 Linux assets。
 - CI governance 改为检查真实 Linux release job、artifact/attestation/publish gates、iOS upload 阻断、license marker 和本地产物禁止提交，不再要求 `package-linux` 永久保持未定义。
-- ROADMAP、README 和 TODO 现在将 P2 Core Kernel Skeleton 标记为 completed，并把当前阶段推进到 P3 Runtime Capabilities；P4 iOS `Package.swift` manifest-only activation validation contract 已作为 alpha 发布前停止边界补齐。
+- ROADMAP、README 和 TODO 将 P2 Core Kernel Skeleton 标记为 completed；iOS `Package.swift` manifest-only activation validation contract 已作为 alpha 发布前停止边界补齐。
 - Release policy 现在允许 `vMAJOR.MINOR.PATCH-alpha.N` 作为 release 版本；手动 `workflow_dispatch` 只做验证，真实 GitHub Release asset 上传只允许 tag 触发，iOS upload job 仍保持 blocked。
 - Release placeholder 与 release summary 现在显式输出 alpha Windows 手工 smoke 测试清单、`docs/manual-intervention.md` confirmed marker、`passed` 结果、Windows 11 24H2 x64 环境、未运行本地构建/测试记录和 `not-produced-placeholder` artifact 状态；该输出只记录用户侧 Windows 手工确认，不替代 GitHub Actions Windows 矩阵。
 - `release-ci-gate` 现在在 job 级启用 `actions: read`，通过 GitHub Actions workflow runs API 查询同 repository、同 commit、`main` 分支 completed CI run，并通过 workflow jobs API 校验 `CI summary` job 成功；release summary 输出被选中的 `ci_workflow_name`、`ci_run_id`、`ci_run_url`、`ci_head_sha`、`ci_checked_at` 等字段，activation/execution/API implementation 状态切换为 active，并被当前 Linux CLI artifact 发布路径复用。

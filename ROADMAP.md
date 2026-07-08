@@ -2,9 +2,9 @@
 
 本路线图用于把 `networkcore_AnixOps` 从 bootstrap 仓库逐步推进为可验证、可维护的全平台网络内核与客户端体系。所有阶段都必须遵守 [AGENT.md](AGENT.md) 和 [docs/ci-cd-policy.md](docs/ci-cd-policy.md)：本机只编辑文件，验证只在 GitHub Actions 中运行。
 
-## 当前阶段：P3 Runtime Capabilities
+## 当前阶段：P4 Client And Platform Integration
 
-P0 Bootstrap Governance、P1 Domain And Architecture Specification 和 P2 Core Kernel Skeleton 已完成。当前工作进入运行能力阶段，优先把订阅 catalog、策略路由、DNS 策略、MITM 插件运行时和 native engine 数据面按最小可验证增量接入。
+P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成。当前工作进入客户端、平台和发布集成阶段：Linux CLI 已有 GitHub Actions 生成的预发布二进制，iOS 仍处于 source-tree/upload gates，运行层继续通过 public engine adapter 和后续 MITM gates 增量补齐能力。
 
 ## P0 Bootstrap Governance (Completed)
 
@@ -80,9 +80,9 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification 和 P2 Core K
 
 - [Control Runtime Orchestration Design](docs/architecture/control-runtime-orchestration.md)
 
-## P3 Runtime Capabilities
+## P3 Runtime Capability Baseline (Completed)
 
-目标是逐步实现可组合的网络控制能力。当前阶段采用公有执行内核 adapter 优先策略：
+目标是逐步实现可组合的网络控制能力。本阶段已采用公有执行内核 adapter 优先策略：
 先固化 NetworkCore 控制层、执行内核 adapter 层和公有执行内核层的三层维护框架，
 优先接入 `sing-box`，再按需要评估 `xray-core`、`mihomo`；`engine-native` 保留为自研执行内核实验线，
 但 VLESS、Shadowsocks、Trojan、VMess、Hysteria 等私有协议实现暂缓，直到公有内核 adapter 暴露出明确无法覆盖的产品缺口。
@@ -94,7 +94,7 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification 和 P2 Core K
 - MITM 插件运行时的高频 Loon 子集兼容。
 - 可插拔代理执行内核适配接口。
 - 公有执行内核 adapter，优先 `sing-box`，并通过统一配置、生命周期、状态、日志和回滚边界维护。
-- 自研执行内核只保留小步可审计增量，不以协议兼容追平作为当前阶段目标。
+- 自研执行内核只保留小步可审计增量，不以协议兼容追平作为当前目标。
 
 当前规格：
 
@@ -109,7 +109,7 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification 和 P2 Core K
 - [Native Engine Listener And Node Config Design](docs/architecture/native-engine-listener-node-config.md)
 - [Linux Native Proxy Engine Start Design](docs/architecture/linux-native-proxy-engine-start.md)
 
-当前源码状态：`control-runtime` 已具备显式 inline subscription catalog runtime gate，可把 `NodeCatalog.nodes` 编排进 `RuntimeConfigRequest.nodes`，拒绝重复 node id，并保持 `NodeCatalog.rules` deferred；`networkcore-linux run-url` 现在可消费单条 Shadowsocks URL、明文 `ss://` 链接列表或 base64 链接列表，经 `NodeCatalog` 渲染 sing-box 本地 `mixed` inbound 配置，并以前台 `sing-box run -c <config>` 暴露默认 `127.0.0.1:7890` 本地代理。`mitm_anixops` 已固定到 `v0.45.10-alpha`，`mitm-policy` 已提供 safe wrapper、`AnixOpsMitmPluginService`、内置 `networkcore.adblock` alpha 去广告插件包以及 rewrite plan/header/body chain/script/JQ guard wrapper 合同，但真实 request/response mutation 仍 deferred。第三方 plugin/parser/runtime 后续必须先经过 source contract、pinned source、license/NOTICE、permission、safe wrapper、CI governance 和 upgrade procedure 的固定接入流程。`networkcore-linux start` 仍不消费持久 subscription catalog。下一步 runtime 重点是 VLESS/VMess/Trojan/Clash/sing-box JSON 等订阅格式、节点选择、持久订阅、managed status/events/logs/reload/rollback 和后续 MITM 真实流量支持，而不是扩展私有协议实现。
+P3 baseline 源码状态：`control-runtime` 已具备显式 inline subscription catalog runtime gate，可把 `NodeCatalog.nodes` 编排进 `RuntimeConfigRequest.nodes`，拒绝重复 node id，并保持 `NodeCatalog.rules` deferred；`networkcore-linux run-url` 现在可消费单条 Shadowsocks URL、明文 `ss://` 链接列表或 base64 链接列表，经 `NodeCatalog` 渲染 sing-box 本地 `mixed` inbound 配置，并以前台 `sing-box run -c <config>` 暴露默认 `127.0.0.1:7890` 本地代理。`mitm_anixops` 已固定到 `v0.45.10-alpha`，`mitm-policy` 已提供 safe wrapper、`AnixOpsMitmPluginService`、内置 `networkcore.adblock` alpha 去广告插件包以及 rewrite plan/header/body chain/script/JQ guard wrapper 合同，但真实 request/response mutation 仍 deferred，当前发布版没有 `networkcore-linux mitm` 命令、CA 生成/安装/信任路径或 HTTP/TLS 解密改写数据面。第三方 plugin/parser/runtime 后续必须先经过 source contract、pinned source、license/NOTICE、permission、safe wrapper、CI governance 和 upgrade procedure 的固定接入流程。`networkcore-linux start` 仍不消费持久 subscription catalog。后续 runtime 缺口会在 P4 集成阶段继续推进：VLESS/VMess/Trojan/Clash/sing-box JSON 等订阅格式、节点选择、持久订阅、managed status/events/logs/reload/rollback，以及通过 `MITM_CLI_COMMAND_GATE`、`MITM_CERTIFICATE_LIFECYCLE_GATE`、`MITM_HTTP_TLS_DATA_PLANE_GATE` 补齐 MITM 真实流量支持。
 
 ## P4 Client And Platform Integration
 
@@ -121,6 +121,8 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification 和 P2 Core K
 - iOS Network Extension 可行性验证。
 - 证书安装、权限提示、插件脚本边界和 App Review 风险治理。
 - 发布 workflow 的平台产物矩阵。
+
+当前 P4 状态：Linux CLI artifact 已通过 tag release workflow 发布到 GitHub Release，并包含 tarball、sha256、manifest 和 manifest sha256；Linux 仍是手动解压和 foreground 运行模型，不安装 daemon/service，不修改 TUN/DNS/firewall/certificate trust store。iOS 仍只允许 `apps/ios/README.md` source tree governance placeholder 和 upload blocked gates，不包含 Swift/Xcode/Network Extension target、签名、TestFlight/App Store upload 或 iOS release asset。用户可用 MITM 尚未启用，必须先完成 `MITM_CLI_COMMAND_GATE`、`MITM_CERTIFICATE_LIFECYCLE_GATE` 和 `MITM_HTTP_TLS_DATA_PLANE_GATE`。
 
 当前发布规划：
 

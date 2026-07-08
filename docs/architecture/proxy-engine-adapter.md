@@ -16,17 +16,17 @@
 - 不定义外部内核的原生配置文件格式。
 - 不绕过平台权限、Network Extension、签名或 App Review 约束。
 
-## P3 优先级
+## Runtime Baseline Priority
 
-P3 Runtime Capabilities 采用 [ADR 0002: Public Engine Adapter First](adr-0002-public-engine-adapter-first.md)
-定义的三层维护框架：
+P3 Runtime Capability Baseline 已采用 [ADR 0002: Public Engine Adapter First](adr-0002-public-engine-adapter-first.md)
+定义的三层维护框架；当前 P4 Client And Platform Integration 继续沿用该策略：
 
 1. NetworkCore 控制层维护配置、订阅、策略、DNS、MITM/plugin 权限、平台能力、审计和 CLI/API 合同。
 2. `engine-*` adapter 层维护配置转换、生命周期、状态、事件、日志、secret redaction、binary/provenance 和回滚边界。
 3. 公有执行内核层优先由 `sing-box` 承担成熟协议数据面，后续再评估 `xray-core` 和 `mihomo`。
 
-因此，`engine-native` 当前只保留为自研执行内核实验线；VLESS、Shadowsocks、Trojan、VMess、Hysteria 等私有协议实现不作为当前 P3 首要目标。
-当前已定义 `sing-box` latest release download/cache source contract，并进入最小源码接线；下一步应推进 `sing-box` config translation、process lifecycle、status/events/logs 和 rollback source contract。
+因此，`engine-native` 当前只保留为自研执行内核实验线；VLESS、Shadowsocks、Trojan、VMess、Hysteria 等私有协议实现不作为当前首要目标。
+当前已定义 `sing-box` latest release download/cache source contract，并完成最小 run-url foreground 接线；下一步应推进多订阅格式、节点选择、持久订阅、managed lifecycle、status/events/logs 和 rollback source contract。
 
 ## 领域端口
 

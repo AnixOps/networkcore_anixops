@@ -145,6 +145,10 @@ jobs:
           grep -q "GitHub Actions" docs/ci-cd-policy.md
           grep -q "Apache License" LICENSE
           grep -q '^license = "Apache-2.0"$' Cargo.toml
+          grep -q "当前阶段：P4 Client And Platform Integration" ROADMAP.md
+          grep -q "P3 Runtime Capability Baseline (Completed)" ROADMAP.md
+          grep -q "当前阶段进入 P4 Client And Platform Integration" README.md
+          grep -q "当前阶段是 P4 Client And Platform Integration" TODO.md
           grep -q '^name = "networkcore-linux"$' apps/linux-cli/Cargo.toml
           grep -q '^\[\[bin\]\]$' apps/linux-cli/Cargo.toml
           grep -q '^name = "networkcore-linux"$' apps/linux-cli/Cargo.toml
@@ -153,6 +157,7 @@ jobs:
           grep -q "three-layer operating model" docs/architecture/adr-0002-public-engine-adapter-first.md
           grep -q "private protocol implementation is deferred" docs/architecture/adr-0002-public-engine-adapter-first.md
           grep -q "sing-box" docs/architecture/adr-0002-public-engine-adapter-first.md
+          grep -q "Runtime Baseline Priority" docs/architecture/proxy-engine-adapter.md
           grep -q '"crates/engine-singbox"' Cargo.toml
           grep -q '^name = "engine-singbox"$' crates/engine-singbox/Cargo.toml
           grep -q "sing-box public engine adapter source contract" docs/architecture/sing-box-public-engine-adapter-source-contract.md
@@ -193,6 +198,19 @@ jobs:
           grep -q "AnixOpsMitmPluginService" crates/mitm-policy/src/lib.rs
           grep -q "MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE" crates/mitm-policy/src/lib.rs
           grep -q "MITM_POLICY_CONFIG_PARSE_FAILED_CODE" crates/mitm-policy/tests/mitm_policy_contracts.rs
+          grep -q "MITM_CLI_COMMAND_GATE" README.md
+          grep -q "MITM_CERTIFICATE_LIFECYCLE_GATE" README.md
+          grep -q "MITM_HTTP_TLS_DATA_PLANE_GATE" README.md
+          grep -q "networkcore-linux mitm" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
+          grep -q "MITM_CLI_COMMAND_GATE" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
+          grep -q "MITM_CERTIFICATE_LIFECYCLE_GATE" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
+          grep -q "MITM_HTTP_TLS_DATA_PLANE_GATE" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
+          grep -q "MITM_CLI_COMMAND_GATE" docs/architecture/mitm-anixops-adapter.md
+          grep -q "MITM_CERTIFICATE_LIFECYCLE_GATE" docs/architecture/mitm-anixops-adapter.md
+          grep -q "MITM_HTTP_TLS_DATA_PLANE_GATE" docs/architecture/mitm-anixops-adapter.md
+          grep -q "MITM_CLI_COMMAND_GATE" TODO.md
+          grep -q "MITM_CERTIFICATE_LIFECYCLE_GATE" TODO.md
+          grep -q "MITM_HTTP_TLS_DATA_PLANE_GATE" TODO.md
           grep -q "Third-Party Plugin Onboarding Process" docs/architecture/third-party-plugin-onboarding-process.md
           grep -q "third-party-plugin-onboarding-status=active" docs/architecture/third-party-plugin-onboarding-process.md
           grep -q "THIRD_PARTY_PLUGIN_SOURCE_CONTRACT" docs/architecture/third-party-plugin-onboarding-process.md

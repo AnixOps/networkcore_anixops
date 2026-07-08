@@ -30,6 +30,9 @@ Required source anchors:
 - `MitmPolicyHeaderField`
 - `MitmPolicyScriptKind`
 - `MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE`
+- `MITM_CLI_COMMAND_GATE`
+- `MITM_CERTIFICATE_LIFECYCLE_GATE`
+- `MITM_HTTP_TLS_DATA_PLANE_GATE`
 
 The package id is fixed as:
 
@@ -46,6 +49,11 @@ types, including aggregated rewrite plan, named header rewrite, bounded
 header-list application, body rewrite chain, script dispatch, and JQ max-input
 guard state. These are policy/runtime plans, not proof that live traffic
 mutation is already wired.
+
+Current user-facing status: MITM is policy-only. There is no
+`networkcore-linux mitm` command, no CA generation/install/trust workflow, no
+HTTPS decryption path, and no live URL/header/body/script mutation path in the
+published CLI.
 
 ## Multi-Client Boundary
 
@@ -80,6 +88,15 @@ The current plugin service does not mutate live request or response data.
 
 Blocked until later phases:
 
+- `MITM_CLI_COMMAND_GATE`: user-facing `networkcore-linux mitm` command
+  surface, status output, diagnostics, and explicit unavailable/deferred states.
+- `MITM_CERTIFICATE_LIFECYCLE_GATE`: CA generation, user-approved install,
+  trust detection, fingerprint/expiration/revocation checks, uninstall, and
+  rollback boundaries.
+- `MITM_HTTP_TLS_DATA_PLANE_GATE`: HTTP CONNECT/TLS interception, SNI/host
+  routing, HTTP/1.1 and HTTP/2 parsing, body buffering/limits, compression
+  handling, and application of `mitm-policy` URL/header/body/script rewrite
+  plans to live traffic.
 - URL/header/body mutation output in `control-domain`.
 - HTTP request and response context with URL, method, phase, host, scheme, and
   response status.
@@ -103,5 +120,7 @@ CI must prove:
 - `mitm-policy` exposes the built-in ad-block package and adapter service;
 - `mitm-policy` exposes 0.45.10 rewrite plan, header, body chain, script, and
   JQ max-input wrapper contracts;
+- docs keep `MITM_CLI_COMMAND_GATE`, `MITM_CERTIFICATE_LIFECYCLE_GATE`, and
+  `MITM_HTTP_TLS_DATA_PLANE_GATE` visible while user-facing MITM is deferred;
 - Rust CI builds and tests the workspace on Linux, macOS, and Windows;
 - local machines do not run build, test, package, or release verification.

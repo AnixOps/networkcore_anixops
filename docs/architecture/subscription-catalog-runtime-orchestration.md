@@ -38,7 +38,7 @@
 - `engine-native::NativeProxyEngineService`，当前把 `ConfigSnapshot.nodes` 与 `ProxyEngineConfig.nodes` 合并为 effective node catalog，并用 `engine.native.config.node_id_duplicate` 拒绝重复 node id。
 - `engine-native` 合同测试已覆盖 `validate_config_uses_config_snapshot_nodes_for_route_targets` 和 `validate_config_uses_runtime_request_nodes_for_route_targets`，证明本地配置 nodes 与运行请求 nodes 都能作为 route target。
 
-因此，P3 当前源码 gate 已覆盖订阅 catalog 进入 `RuntimeConfigRequest.nodes` 前的运行层所有权、重复 id 处理、诊断和 source 边界；后续缺口是把该 gate 暴露到具体应用层或 CLI 输入，同时继续禁止默认路径扫描、远程拉取和系统 mutation。
+因此，P3 baseline 源码 gate 已覆盖订阅 catalog 进入 `RuntimeConfigRequest.nodes` 前的运行层所有权、重复 id 处理、诊断和 source 边界；当前 P4 阶段的后续缺口是把该 gate 暴露到具体应用层或 CLI 输入，同时继续禁止默认路径扫描、远程拉取和系统 mutation。
 
 ## 所有权模型
 
@@ -52,7 +52,7 @@
 
 ## 编排数据流
 
-当前 P3 源码接入按以下顺序执行：
+P3 baseline 源码接入按以下顺序执行：
 
 1. 应用层或 CLI 明确提供订阅 source；在当前阶段只允许 `inline:` source。
 2. `SubscriptionService::fetch` 返回 `RawSubscription`；unsupported source 必须返回稳定 `DomainError`，不得泄漏 URL token、header、credential 或 payload secret。
@@ -131,4 +131,4 @@ P3 subscription catalog 接入只解决 outbound node catalog。策略路由和 
 
 ## 当前阶段结论
 
-P3 当前已完成 subscription catalog runtime orchestration design 和 `control-runtime` 源码 gate。`RuntimeOrchestrator` 现在可通过显式 `SubscriptionService`/`SubscriptionSource` 把 inline `NodeCatalog.nodes` 接入 `RuntimeConfigRequest.nodes`，并在进入 engine-native 现有 `ProxyEngineConfig.nodes` 消费路径前拒绝重复 id、保留 rules deferred 诊断。`networkcore-linux start` 仍未暴露 subscription source，也不会扫描默认订阅路径；当前 CLI 边界是 no default subscription path。远程/文件订阅、系统 DNS/TUN mutation、daemon/control socket 和 release artifact 继续 blocked。
+P3 baseline 已完成 subscription catalog runtime orchestration design 和 `control-runtime` 源码 gate。`RuntimeOrchestrator` 现在可通过显式 `SubscriptionService`/`SubscriptionSource` 把 inline `NodeCatalog.nodes` 接入 `RuntimeConfigRequest.nodes`，并在进入 engine-native 现有 `ProxyEngineConfig.nodes` 消费路径前拒绝重复 id、保留 rules deferred 诊断。当前 P4 阶段仍未让 `networkcore-linux start` 暴露 subscription source，也不会扫描默认订阅路径；当前 CLI 边界是 no default subscription path。远程/文件订阅、系统 DNS/TUN mutation、daemon/control socket 和 release artifact 继续 blocked。
