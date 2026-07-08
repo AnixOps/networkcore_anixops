@@ -2319,6 +2319,7 @@ where
         None,
         None,
         None,
+        None,
     );
     report.request = request;
     report.plan = plan;
@@ -2383,6 +2384,7 @@ where
         &platform_status,
         &mitm_status.policy,
         Some(authorization),
+        None,
         None,
         None,
     );
@@ -2579,6 +2581,7 @@ where
         Some(authorization),
         None,
         target_url,
+        None,
     );
     let verify_request = report
         .request
