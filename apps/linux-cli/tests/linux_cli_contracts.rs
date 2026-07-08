@@ -927,8 +927,8 @@ fn mitm_browser_capture_plan_outputs_source_contract_report_without_mutation() {
     assert!(capture.verify_report.is_none());
 
     let rendered = render_response(&response, OutputFormat::Text);
-    assert!(rendered
-        .contains("browser capture plan: pac-policy-artifact-active/system-mutation-blocked"));
+    let expected_plan_line = format!("browser capture plan: {MITM_BROWSER_CAPTURE_GATE}");
+    assert!(rendered.contains(&expected_plan_line));
     assert!(rendered.contains("browser capture source contract: active"));
 }
 
