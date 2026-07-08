@@ -927,7 +927,7 @@ fn mitm_browser_capture_plan_outputs_source_contract_report_without_mutation() {
     assert!(capture.verify_report.is_none());
 
     let rendered = render_response(&response, OutputFormat::Text);
-    let expected_plan_line = format!("browser capture plan: {MITM_BROWSER_CAPTURE_GATE}");
+    let expected_plan_line = format!("browser capture plan: {MITM_BROWSER_CAPTURE_GATE_STATUS}");
     assert!(rendered.contains(&expected_plan_line));
     assert!(rendered.contains("browser capture source contract: active"));
 }
