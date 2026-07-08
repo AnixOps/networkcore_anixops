@@ -308,6 +308,7 @@ fn node_from_subscription(id: &str) -> NodeDescriptor {
             port: 1081,
         },
         tags: vec!["subscription".to_string()],
+        metadata: Vec::new(),
     }
 }
 

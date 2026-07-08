@@ -9,23 +9,27 @@ protocol data plane.
 
 This is the sing-box public engine adapter source contract.
 
-The current increment is a bootstrap contract: discover the official latest
-`sing-box` release, select the host asset, download it into an operator-visible
-cache, verify the GitHub release asset digest when present, and expose the path
-through `networkcore-linux install-sing-box`.
+The current increment covers the first usable public-engine path: discover the
+official latest `sing-box` release, select the host asset, download it into an
+operator-visible cache, verify the GitHub release asset digest when present,
+render a deterministic local mixed inbound config for a Shadowsocks
+`NodeCatalog`, and expose both `install-sing-box` and foreground `run-url`
+through `networkcore-linux`.
 
 ## Source Layout
 
 - `crates/engine-singbox`: adapter crate for public `sing-box` contracts.
 - `crates/engine-singbox/src/lib.rs`: descriptor, latest release metadata
-  parsing, target asset selection, download, checksum, archive extraction, and
-  stable diagnostics.
+  parsing, target asset selection, download, checksum, archive extraction,
+  local proxy config rendering, foreground process runner, and stable
+  diagnostics.
 - `crates/engine-singbox/tests/engine_singbox_contracts.rs`: no-network source
   contract tests using injected release metadata and archive bytes.
-- `apps/linux-cli/src/lib.rs`: `help`, `install-sing-box`, and `sing-box install`
-  command parsing, response mapping, and JSON/text output.
+- `apps/linux-cli/src/lib.rs`: `help`, `install-sing-box`, `run-url`, and
+  `sing-box install` command parsing, response mapping, and JSON/text output.
 - `apps/linux-cli/src/main.rs`: binary entrypoint wiring that creates the
-  GitHub downloader only for the install command.
+  GitHub downloader for install/run-url commands and the command process runner
+  for foreground `sing-box run`.
 
 ## Release Metadata Contract
 
@@ -96,6 +100,7 @@ The Linux CLI must expose:
 - `networkcore-linux help`
 - `networkcore-linux --help`
 - `networkcore-linux install-sing-box [--install-dir <dir>] [--force]`
+- `networkcore-linux run-url <ss://url> [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force]`
 - `networkcore-linux sing-box install [--install-dir <dir>] [--force]`
 
 Missing or unknown commands may still return parse errors, but their text output
@@ -112,6 +117,11 @@ JSON output must include `sing_box_install` with:
 - `executable_path`
 - `downloaded`
 
+`run-url` JSON output must also include `sing_box_run` with the selected node,
+local proxy address, cached executable path, generated config path, and process
+exit code. It must not print the generated config JSON because that config
+contains outbound credentials.
+
 ## Adapter Boundary
 
 This increment does not bundle `sing-box` in NetworkCore release artifacts.
@@ -120,11 +130,12 @@ NetworkCore-owned files unless a later third-party binary packaging contract
 adds license, NOTICE, checksum, provenance, attestation, rollback, and release
 notes gates.
 
-This increment also does not start, supervise, reload, or stop a `sing-box`
-process. `SingBoxProxyEngineService` exposes descriptor identity and keeps
-lifecycle methods unwired until the next source contract covers deterministic
-config generation, process ownership, status/events/logs, redaction, and
-rollback.
+`run-url` starts `sing-box` only as a foreground child process for the current
+CLI invocation. It does not supervise a daemon, implement cross-process stop,
+persist background status, tail logs, hot reload, or mutate TUN/DNS/firewall
+state. `SingBoxProxyEngineService` lifecycle methods remain unwired until a
+later managed-service source contract covers process ownership, status/events,
+logs, reload, redaction, and rollback.
 
 ## Diagnostics
 
@@ -140,7 +151,14 @@ Stable diagnostic anchors include:
 - `engine.singbox.download.extract_failed`
 - `engine.singbox.download.binary_ready`
 - `engine.singbox.download.binary_already_present`
+- `engine.singbox.config.translation_ready`
+- `engine.singbox.config.rendered`
+- `engine.singbox.process.started`
+- `engine.singbox.process.exited`
 - `cli.linux.sing_box.install_failed`
+- `cli.linux.run_url.parse_failed`
+- `cli.linux.run_url.config_failed`
+- `cli.linux.run_url.process_failed`
 
 ## Verification
 
@@ -150,5 +168,6 @@ required verification remains GitHub Actions:
 - Rust format, lint, test, and build for the workspace.
 - Dependency security audit after lockfile generation.
 - Repository policy checks for this source contract, `engine-singbox` workspace
-  membership, `install-sing-box` CLI anchors, and no committed local build or
-  package output.
+  membership, `install-sing-box`/`run-url` CLI anchors, `sing_box_run` response
+  fields, config rendering anchors, foreground process runner anchors, and no
+  committed local build or package output.

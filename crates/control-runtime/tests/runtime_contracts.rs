@@ -1965,6 +1965,7 @@ fn subscription_node(id: &str) -> NodeDescriptor {
             port: 1080,
         },
         tags: Vec::new(),
+        metadata: Vec::new(),
     }
 }
 

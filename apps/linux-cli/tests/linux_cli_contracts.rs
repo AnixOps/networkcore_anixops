@@ -13,25 +13,26 @@ use engine_native::{
     ENGINE_NATIVE_START_RUNNING_CODE,
 };
 use engine_singbox::{
-    SingBoxInstallReport, SingBoxInstallRequest, SingBoxReleaseInstaller,
-    ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE,
+    SingBoxInstallReport, SingBoxInstallRequest, SingBoxProcessRunReport, SingBoxProcessRunRequest,
+    SingBoxProcessRunner, SingBoxReleaseInstaller, ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE,
+    ENGINE_SINGBOX_PROCESS_EXITED_CODE,
 };
 use networkcore_linux::{
     cli_help_text, handle_capabilities, handle_entrypoint, handle_entrypoint_with_runtime,
     handle_entrypoint_with_runtime_and_lifecycle,
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
     handle_foreground_lifecycle_with_runtime_stop, handle_install_sing_box, handle_parse_error,
-    handle_prepare_config, handle_start, handle_status, handle_stop, parse_args, render_response,
-    ConfigReadError, ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
-    ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
-    ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxCliCommand, LinuxCliExitCode,
-    OutputFormat, UnavailableForegroundLifecycleHost, UnavailableProxyEngineService,
-    CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
-    CLI_RUNTIME_UNWIRED_CODE, CLI_START_FOREGROUND_ONLY_CODE, CLI_START_LIFECYCLE_FAILED_CODE,
-    CLI_START_LIFECYCLE_HOST_MISSING_CODE, CLI_START_LIFECYCLE_INTERRUPTED_CODE,
-    CLI_START_PLATFORM_DENIED_CODE, CLI_START_RUNTIME_STOP_FAILED_CODE,
-    CLI_STATUS_NO_RUNTIME_CONTEXT_CODE, CLI_STATUS_PLATFORM_ONLY_CODE,
-    CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
+    handle_prepare_config, handle_run_url_with_sing_box, handle_start, handle_status, handle_stop,
+    parse_args, render_response, ConfigReadError, ConfigReader,
+    CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost, ForegroundLifecycleInterruption,
+    ForegroundLifecycleInterruptionSource, ForegroundLifecycleOutcome, ForegroundLifecycleRequest,
+    LinuxCliCommand, LinuxCliExitCode, OutputFormat, UnavailableForegroundLifecycleHost,
+    UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
+    CLI_CONFIG_READ_FAILED_CODE, CLI_RUNTIME_UNWIRED_CODE, CLI_START_FOREGROUND_ONLY_CODE,
+    CLI_START_LIFECYCLE_FAILED_CODE, CLI_START_LIFECYCLE_HOST_MISSING_CODE,
+    CLI_START_LIFECYCLE_INTERRUPTED_CODE, CLI_START_PLATFORM_DENIED_CODE,
+    CLI_START_RUNTIME_STOP_FAILED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
+    CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
 };
 #[cfg(unix)]
 use networkcore_linux::{
@@ -83,6 +84,7 @@ fn parses_help_command_and_renders_command_table() {
     let rendered = render_response(&networkcore_linux::handle_help(), OutputFormat::Text);
     assert!(rendered.contains("NetworkCore Linux CLI"));
     assert!(rendered.contains("install-sing-box"));
+    assert!(rendered.contains("run-url"));
     assert!(rendered.contains("sing-box install"));
 }
 
@@ -134,6 +136,35 @@ fn parses_install_sing_box_command_and_alias() {
             install_dir: Some("/tmp/networkcore-engines".to_string()),
             force: false,
             format: OutputFormat::Text
+        }
+    );
+}
+
+#[test]
+fn parses_run_url_command_with_local_proxy_options() {
+    let command = parse_args([
+        "run-url",
+        "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF",
+        "--listen-host",
+        "127.0.0.1",
+        "--listen-port",
+        "7891",
+        "--install-dir",
+        "/tmp/networkcore-engines",
+        "--format",
+        "json",
+    ])
+    .expect("run-url should parse");
+
+    assert_eq!(
+        command,
+        LinuxCliCommand::RunUrl {
+            url: "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF".to_string(),
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7891,
+            install_dir: Some("/tmp/networkcore-engines".to_string()),
+            force: false,
+            format: OutputFormat::Json,
         }
     );
 }
@@ -514,11 +545,53 @@ fn runtime_lifecycle_entrypoint_routes_sing_box_install_to_injected_installer() 
         &reader,
         &UnavailableForegroundLifecycleHost::new(),
         &TestSingBoxInstaller,
+        &TestSingBoxRunner,
     );
 
     assert!(response.ok);
     assert_eq!(response.command, "install-sing-box");
     assert!(response.sing_box_install.is_some());
+}
+
+#[test]
+fn run_url_handler_parses_ss_url_writes_sing_box_config_and_uses_runner() {
+    let install_dir = std::env::temp_dir().join(format!(
+        "networkcore-linux-run-url-contract-{}",
+        std::process::id()
+    ));
+    let engine_dir = install_dir.join("networkcore-engines");
+    let _ = std::fs::remove_dir_all(&install_dir);
+
+    let response = handle_run_url_with_sing_box(
+        &TestSingBoxInstaller,
+        &TestSingBoxRunner,
+        "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF",
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("temp path should be utf-8")),
+        false,
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "run-url");
+    assert_eq!(response.exit_code, LinuxCliExitCode::Success);
+    assert!(response.sing_box_install.is_some());
+    let run = response
+        .sing_box_run
+        .as_ref()
+        .expect("run-url response should include run status");
+    assert_eq!(run.node_id, "ss-82-47-34-99-11111");
+    assert_eq!(run.node_name, "香港");
+    assert_eq!(run.listen_host, "127.0.0.1");
+    assert_eq!(run.listen_port, 7890);
+    assert_eq!(run.process_exit_code, Some(0));
+    assert_diagnostic(&response.diagnostics, ENGINE_SINGBOX_PROCESS_EXITED_CODE);
+
+    let rendered = render_response(&response, OutputFormat::Text);
+    assert!(rendered.contains("local proxy: 127.0.0.1:7890"));
+    assert!(rendered.contains("node: 香港 (ss-82-47-34-99-11111)"));
+
+    let _ = std::fs::remove_dir_all(&install_dir);
 }
 
 #[test]
@@ -891,6 +964,37 @@ impl ForegroundLifecycleInterruptionSource for TestForegroundLifecycleInterrupti
         assert_eq!(request.engine_status.engine_id.as_str(), DEFAULT_ENGINE_ID);
         ForegroundLifecycleInterruption::new(self.reason.clone())
             .with_diagnostics(self.diagnostics.clone())
+    }
+}
+
+struct TestSingBoxRunner;
+
+impl SingBoxProcessRunner for TestSingBoxRunner {
+    fn run(&self, request: &SingBoxProcessRunRequest) -> DomainResult<SingBoxProcessRunReport> {
+        let executable_name = request
+            .executable_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .expect("executable path should have a file name");
+        assert!(matches!(executable_name, "sing-box" | "sing-box.exe"));
+        let config = std::fs::read_to_string(&request.config_path)
+            .expect("run-url should write a sing-box config before starting the runner");
+        assert!(config.contains("\"type\": \"mixed\""));
+        assert!(config.contains("\"listen_port\": 7890"));
+        assert!(config.contains("\"type\": \"shadowsocks\""));
+        assert!(config.contains("\"server\": \"82.47.34.99\""));
+        assert!(config.contains("\"method\": \"aes-256-gcm\""));
+        assert!(config.contains("\"password\": \"f43c0eee-13b9-4f07-bec9-d4b744141503\""));
+
+        Ok(SingBoxProcessRunReport {
+            exit_code: Some(0),
+            diagnostics: vec![Diagnostic::new(
+                DiagnosticSeverity::Info,
+                ENGINE_SINGBOX_PROCESS_EXITED_CODE,
+                "sing-box test runner exited",
+                Some("engine.singbox.lifecycle".to_string()),
+            )],
+        })
     }
 }
 

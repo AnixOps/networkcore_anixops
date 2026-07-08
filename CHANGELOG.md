@@ -16,7 +16,10 @@
 
 ### Added
 
-- 新增 `engine-singbox` public engine adapter source contract 和源码 crate，覆盖 `sing-box` descriptor identity、官方 GitHub latest release metadata 解析、host asset selection、runtime cache layout、`sha256:` digest 校验、`.tar.gz` 中只提取 `sing-box` executable、Unix `0755` 权限和稳定下载诊断；当前仍不 bundle 第三方 binary、不启动或管理 `sing-box` 进程。
+- 新增 `networkcore-linux run-url <ss://url>` 最小可用代理闭环：CLI 通过 `CoreSubscriptionService` 解析单条 Shadowsocks URL、明文 `ss://` 链接列表或 base64 链接列表，归一化为 `NodeCatalog`，由 `engine-singbox` 渲染本地 `mixed` inbound + Shadowsocks outbound JSON，写入 engine runtime cache，并以前台 `sing-box run -c <config>` 启动默认 `127.0.0.1:7890` 本地代理；JSON 输出新增 `sing_box_run`，文本输出显示 node、local proxy、config 和 process exit code。
+- `control-domain::NodeDescriptor` 新增通用 `metadata`，并固定 `NODE_METADATA_SHADOWSOCKS_METHOD`、`NODE_METADATA_SHADOWSOCKS_PASSWORD` 和 `NODE_METADATA_SOURCE_FORMAT`，作为多订阅格式进入统一模型后的协议参数承载边界。
+- 新增 Subscription URL To sing-box Run source contract，固定多客户端/多订阅格式路线：各种订阅输入先进入 `SubscriptionService`/`NodeCatalog`，再由 engine adapter 生成执行内核配置，平台客户端不直接维护各格式解析器。
+- 新增 `engine-singbox` public engine adapter source contract 和源码 crate，覆盖 `sing-box` descriptor identity、官方 GitHub latest release metadata 解析、host asset selection、runtime cache layout、`sha256:` digest 校验、`.tar.gz` 中只提取 `sing-box` executable、Unix `0755` 权限和稳定下载诊断；当前仍不 bundle 第三方 binary，managed daemon/status/logs/reload 仍不在本增量内。
 - `networkcore-linux` 新增 `help`/`--help` 命令表，以及 `install-sing-box` 和 `sing-box install` alias；安装命令通过注入的 `GithubSingBoxReleaseInstaller` 自动下载 latest `sing-box`，文本输出展示版本、资产、archive、executable 和 downloaded 状态，JSON 输出新增 `sing_box_install` 机器字段。
 - 新增 ADR 0002 Public Engine Adapter First，定义 NetworkCore 控制层、执行内核 adapter 层、公有执行内核层的三层维护框架，固定 `sing-box` 为首个 public engine adapter 目标，要求 operator-provided binary path 优先于捆绑第三方二进制，并明确私有协议实现 deferred。
 - 新增 alpha Windows 手工 smoke 测试清单和 marker，固定 `v0.1.0-alpha.1`、release run head SHA、same-commit CI run、release run、placeholder artifact status 的记录方式和 marker update contract；该 marker 不替代 GitHub Actions Windows 矩阵，完成后需要独立更新 confirmed 字段并重新触发 CI/release workflow。

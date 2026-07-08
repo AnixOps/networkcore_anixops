@@ -6,17 +6,20 @@
 //! release artifacts.
 
 use control_domain::{
-    Diagnostic, DiagnosticSeverity, DomainError, DomainResult, ProxyEngineCapability,
-    ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineKind,
-    ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
+    Diagnostic, DiagnosticSeverity, DomainError, DomainResult, NodeDescriptor,
+    NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD, Protocol,
+    ProxyEngineCapability, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
+    ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
 };
 use flate2::read::GzDecoder;
 use reqwest::blocking::Client;
 use serde::Deserialize;
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use tar::Archive;
 
 pub const DEFAULT_SING_BOX_ENGINE_ID: &str = "sing-box";
@@ -31,8 +34,14 @@ pub const SOURCE_ENGINE_SINGBOX_LIFECYCLE: &str = "engine.singbox.lifecycle";
 
 pub const ENGINE_SINGBOX_CONFIG_ENGINE_ID_UNSUPPORTED_CODE: &str =
     "engine.singbox.config.engine_id_unsupported";
-pub const ENGINE_SINGBOX_CONFIG_TRANSLATION_DEFERRED_CODE: &str =
-    "engine.singbox.config.translation_deferred";
+pub const ENGINE_SINGBOX_CONFIG_TRANSLATION_READY_CODE: &str =
+    "engine.singbox.config.translation_ready";
+pub const ENGINE_SINGBOX_CONFIG_NODE_MISSING_CODE: &str = "engine.singbox.config.node_missing";
+pub const ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE: &str =
+    "engine.singbox.config.node_unsupported";
+pub const ENGINE_SINGBOX_CONFIG_SECRET_MISSING_CODE: &str =
+    "engine.singbox.config.secret_missing";
+pub const ENGINE_SINGBOX_CONFIG_RENDERED_CODE: &str = "engine.singbox.config.rendered";
 pub const ENGINE_SINGBOX_DOWNLOAD_TARGET_UNSUPPORTED_CODE: &str =
     "engine.singbox.download.target_unsupported";
 pub const ENGINE_SINGBOX_DOWNLOAD_RELEASE_FETCH_FAILED_CODE: &str =
@@ -63,6 +72,10 @@ pub const ENGINE_SINGBOX_DOWNLOAD_BINARY_ALREADY_PRESENT_CODE: &str =
 pub const ENGINE_SINGBOX_DOWNLOAD_BINARY_PERMISSION_FAILED_CODE: &str =
     "engine.singbox.download.binary_permission_failed";
 pub const ENGINE_SINGBOX_RUNTIME_UNWIRED_CODE: &str = "engine.singbox.runtime.unwired";
+pub const ENGINE_SINGBOX_PROCESS_START_FAILED_CODE: &str =
+    "engine.singbox.process.start_failed";
+pub const ENGINE_SINGBOX_PROCESS_STARTED_CODE: &str = "engine.singbox.process.started";
+pub const ENGINE_SINGBOX_PROCESS_EXITED_CODE: &str = "engine.singbox.process.exited";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SingBoxProxyEngineService;
@@ -104,8 +117,8 @@ impl ProxyEngineService for SingBoxProxyEngineService {
 
         diagnostics.push(sing_box_diagnostic(
             DiagnosticSeverity::Info,
-            ENGINE_SINGBOX_CONFIG_TRANSLATION_DEFERRED_CODE,
-            "sing-box runtime config translation is deferred until the adapter lifecycle source contract is wired",
+            ENGINE_SINGBOX_CONFIG_TRANSLATION_READY_CODE,
+            "sing-box local proxy config translation is available for supported node catalogs",
             SOURCE_ENGINE_SINGBOX_CONFIG,
         ));
 
@@ -313,6 +326,36 @@ pub struct SingBoxInstallReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingBoxLocalProxyConfigRequest {
+    pub nodes: Vec<NodeDescriptor>,
+    pub selected_node_id: Option<String>,
+    pub listen_host: String,
+    pub listen_port: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingBoxLocalProxyConfig {
+    pub json: String,
+    pub selected_node_id: String,
+    pub selected_node_name: String,
+    pub listen_host: String,
+    pub listen_port: u16,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingBoxProcessRunRequest {
+    pub executable_path: PathBuf,
+    pub config_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingBoxProcessRunReport {
+    pub exit_code: Option<i32>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
 pub trait SingBoxHttpClient {
     fn get_text(&self, url: &str) -> DomainResult<String>;
 
@@ -322,6 +365,66 @@ pub trait SingBoxHttpClient {
 pub trait SingBoxReleaseInstaller {
     fn install_latest(&self, request: &SingBoxInstallRequest)
         -> DomainResult<SingBoxInstallReport>;
+}
+
+pub trait SingBoxProcessRunner {
+    fn run(&self, request: &SingBoxProcessRunRequest) -> DomainResult<SingBoxProcessRunReport>;
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CommandSingBoxProcessRunner;
+
+impl CommandSingBoxProcessRunner {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl SingBoxProcessRunner for CommandSingBoxProcessRunner {
+    fn run(&self, request: &SingBoxProcessRunRequest) -> DomainResult<SingBoxProcessRunReport> {
+        let mut child = Command::new(request.executable_path.as_os_str())
+            .arg("run")
+            .arg("-c")
+            .arg(request.config_path.as_os_str())
+            .stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .map_err(|error| {
+                DomainError::new(
+                    ENGINE_SINGBOX_PROCESS_START_FAILED_CODE,
+                    format!("failed to start sing-box process: {error}"),
+                )
+            })?;
+        let mut diagnostics = vec![sing_box_diagnostic(
+            DiagnosticSeverity::Info,
+            ENGINE_SINGBOX_PROCESS_STARTED_CODE,
+            "sing-box process was started in the foreground",
+            SOURCE_ENGINE_SINGBOX_LIFECYCLE,
+        )];
+        let status = child.wait().map_err(|error| {
+            DomainError::new(
+                ENGINE_SINGBOX_PROCESS_START_FAILED_CODE,
+                format!("failed while waiting for sing-box process: {error}"),
+            )
+        })?;
+        let exit_code = status.code();
+        diagnostics.push(sing_box_diagnostic(
+            if status.success() {
+                DiagnosticSeverity::Info
+            } else {
+                DiagnosticSeverity::Error
+            },
+            ENGINE_SINGBOX_PROCESS_EXITED_CODE,
+            format!("sing-box process exited with status {exit_code:?}"),
+            SOURCE_ENGINE_SINGBOX_LIFECYCLE,
+        ));
+
+        Ok(SingBoxProcessRunReport {
+            exit_code,
+            diagnostics,
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -470,6 +573,82 @@ pub fn select_sing_box_asset(
     })
 }
 
+pub fn render_sing_box_local_proxy_config(
+    request: &SingBoxLocalProxyConfigRequest,
+) -> DomainResult<SingBoxLocalProxyConfig> {
+    let node = select_node(&request.nodes, request.selected_node_id.as_deref())?;
+    if node.protocol != Protocol::Shadowsocks {
+        return Err(DomainError::new(
+            ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE,
+            "sing-box alpha local proxy config currently supports shadowsocks nodes only",
+        ));
+    }
+
+    let method = metadata_value(node, NODE_METADATA_SHADOWSOCKS_METHOD).ok_or_else(|| {
+        DomainError::new(
+            ENGINE_SINGBOX_CONFIG_SECRET_MISSING_CODE,
+            "shadowsocks node is missing method metadata",
+        )
+    })?;
+    let password = metadata_value(node, NODE_METADATA_SHADOWSOCKS_PASSWORD).ok_or_else(|| {
+        DomainError::new(
+            ENGINE_SINGBOX_CONFIG_SECRET_MISSING_CODE,
+            "shadowsocks node is missing password metadata",
+        )
+    })?;
+
+    let config = json!({
+        "log": {
+            "level": "info"
+        },
+        "inbounds": [
+            {
+                "type": "mixed",
+                "tag": "mixed-in",
+                "listen": request.listen_host.as_str(),
+                "listen_port": request.listen_port
+            }
+        ],
+        "outbounds": [
+            {
+                "type": "shadowsocks",
+                "tag": node.id.as_str(),
+                "server": node.endpoint.host.as_str(),
+                "server_port": node.endpoint.port,
+                "method": method,
+                "password": password
+            },
+            {
+                "type": "direct",
+                "tag": "direct"
+            }
+        ],
+        "route": {
+            "final": node.id.as_str()
+        }
+    });
+    let json = serde_json::to_string_pretty(&config).map_err(|error| {
+        DomainError::new(
+            ENGINE_SINGBOX_CONFIG_RENDERED_CODE,
+            format!("failed to serialize sing-box config: {error}"),
+        )
+    })?;
+
+    Ok(SingBoxLocalProxyConfig {
+        json,
+        selected_node_id: node.id.clone(),
+        selected_node_name: node.name.clone(),
+        listen_host: request.listen_host.clone(),
+        listen_port: request.listen_port,
+        diagnostics: vec![sing_box_diagnostic(
+            DiagnosticSeverity::Info,
+            ENGINE_SINGBOX_CONFIG_RENDERED_CODE,
+            "rendered sing-box local mixed inbound config from NetworkCore node catalog",
+            SOURCE_ENGINE_SINGBOX_CONFIG,
+        )],
+    })
+}
+
 pub fn default_sing_box_install_root() -> PathBuf {
     if let Some(path) = non_empty_env_path("NETWORKCORE_ENGINE_DIR") {
         return path.join(DEFAULT_SING_BOX_ENGINE_ID);
@@ -504,6 +683,39 @@ pub fn sing_box_diagnostic(
     source: impl Into<String>,
 ) -> Diagnostic {
     Diagnostic::new(severity, code, message, Some(source.into()))
+}
+
+fn select_node<'a>(
+    nodes: &'a [NodeDescriptor],
+    selected_node_id: Option<&str>,
+) -> DomainResult<&'a NodeDescriptor> {
+    if nodes.is_empty() {
+        return Err(DomainError::new(
+            ENGINE_SINGBOX_CONFIG_NODE_MISSING_CODE,
+            "sing-box config generation requires at least one node",
+        ));
+    }
+
+    if let Some(selected_node_id) = selected_node_id {
+        return nodes
+            .iter()
+            .find(|node| node.id == selected_node_id)
+            .ok_or_else(|| {
+                DomainError::new(
+                    ENGINE_SINGBOX_CONFIG_NODE_MISSING_CODE,
+                    "selected node id was not present in the node catalog",
+                )
+            });
+    }
+
+    Ok(&nodes[0])
+}
+
+fn metadata_value<'a>(node: &'a NodeDescriptor, key: &str) -> Option<&'a str> {
+    node.metadata
+        .iter()
+        .find(|entry| entry.key == key)
+        .map(|entry| entry.value.as_str())
 }
 
 fn install_sing_box_asset<C>(

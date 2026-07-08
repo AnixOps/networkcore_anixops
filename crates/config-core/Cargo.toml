@@ -7,6 +7,7 @@ repository.workspace = true
 description = "Pure minimal configuration service for the AnixOps network control kernel."
 
 [dependencies]
+base64 = "0.22"
 control-domain = { path = "../control-domain" }
 serde = { version = "1", features = ["derive"] }
 toml = "0.9"

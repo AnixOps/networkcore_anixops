@@ -4,16 +4,19 @@
 //! and foreground runtime handoff. Daemon control, service installation, and
 //! release packaging are deliberately outside this first source increment.
 
+use config_core::CoreSubscriptionService;
 use control_domain::{
     CertificateTrustState, ConfigurationService, Diagnostic, DiagnosticSeverity, DomainError,
     DomainResult, OperatingSystem, PlatformCapabilityService, PlatformCapabilityStatus,
     PlatformFeatureState, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
-    ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
+    ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RawSubscription,
+    SubscriptionService,
 };
 use control_runtime::{RuntimeConfigRequest, RuntimeOperationResult, RuntimeOrchestrator};
 use engine_singbox::{
-    default_sing_box_install_root, SingBoxInstallReport, SingBoxInstallRequest,
-    SingBoxReleaseInstaller, SingBoxTarget,
+    default_sing_box_install_root, render_sing_box_local_proxy_config, SingBoxInstallReport,
+    SingBoxInstallRequest, SingBoxLocalProxyConfigRequest, SingBoxProcessRunRequest,
+    SingBoxProcessRunner, SingBoxReleaseInstaller, SingBoxTarget,
 };
 use serde::Serialize;
 #[cfg(unix)]
@@ -49,6 +52,10 @@ pub const CLI_STATUS_NO_RUNTIME_CONTEXT_CODE: &str = "cli.linux.status.no_runtim
 pub const CLI_STATUS_PLATFORM_ONLY_CODE: &str = "cli.linux.status.platform_only";
 pub const CLI_RUNTIME_UNWIRED_CODE: &str = "cli.linux.runtime.unwired";
 pub const CLI_SING_BOX_INSTALL_FAILED_CODE: &str = "cli.linux.sing_box.install_failed";
+pub const CLI_RUN_URL_PARSE_FAILED_CODE: &str = "cli.linux.run_url.parse_failed";
+pub const CLI_RUN_URL_CONFIG_FAILED_CODE: &str = "cli.linux.run_url.config_failed";
+pub const CLI_RUN_URL_CONFIG_WRITE_FAILED_CODE: &str = "cli.linux.run_url.config_write_failed";
+pub const CLI_RUN_URL_PROCESS_FAILED_CODE: &str = "cli.linux.run_url.process_failed";
 
 pub const SOURCE_CLI_ARGUMENT: &str = "cli.argument";
 pub const SOURCE_CLI_CONFIG: &str = "cli.config";
@@ -135,6 +142,14 @@ pub enum LinuxCliCommand {
         force: bool,
         format: OutputFormat,
     },
+    RunUrl {
+        url: String,
+        listen_host: String,
+        listen_port: u16,
+        install_dir: Option<String>,
+        force: bool,
+        format: OutputFormat,
+    },
 }
 
 impl LinuxCliCommand {
@@ -149,6 +164,7 @@ impl LinuxCliCommand {
             Self::Status { .. } => "status",
             Self::Diagnostics { .. } => "diagnostics",
             Self::InstallSingBox { .. } => "install-sing-box",
+            Self::RunUrl { .. } => "run-url",
         }
     }
 
@@ -162,7 +178,8 @@ impl LinuxCliCommand {
             | Self::Stop { format }
             | Self::Status { format }
             | Self::Diagnostics { format }
-            | Self::InstallSingBox { format, .. } => *format,
+            | Self::InstallSingBox { format, .. }
+            | Self::RunUrl { format, .. } => *format,
         }
     }
 }
@@ -199,6 +216,7 @@ pub struct LinuxCliResponse {
     pub version: Option<String>,
     pub help: Option<String>,
     pub sing_box_install: Option<LinuxSingBoxInstallStatus>,
+    pub sing_box_run: Option<LinuxSingBoxRunStatus>,
 }
 
 impl LinuxCliResponse {
@@ -213,6 +231,7 @@ impl LinuxCliResponse {
             version: None,
             help: None,
             sing_box_install: None,
+            sing_box_run: None,
         }
     }
 
@@ -231,6 +250,7 @@ impl LinuxCliResponse {
             version: None,
             help: None,
             sing_box_install: None,
+            sing_box_run: None,
         }
     }
 
@@ -256,6 +276,11 @@ impl LinuxCliResponse {
 
     pub fn with_sing_box_install(mut self, install: LinuxSingBoxInstallStatus) -> Self {
         self.sing_box_install = Some(install);
+        self
+    }
+
+    pub fn with_sing_box_run(mut self, run: LinuxSingBoxRunStatus) -> Self {
+        self.sing_box_run = Some(run);
         self
     }
 
@@ -290,6 +315,17 @@ impl From<SingBoxInstallReport> for LinuxSingBoxInstallStatus {
             downloaded: report.downloaded,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxSingBoxRunStatus {
+    pub node_id: String,
+    pub node_name: String,
+    pub listen_host: String,
+    pub listen_port: u16,
+    pub executable_path: String,
+    pub config_path: String,
+    pub process_exit_code: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -592,6 +628,8 @@ fn foreground_os_signal_name(signal: i32) -> String {
 struct ParsedOptions {
     config_path: Option<String>,
     install_dir: Option<String>,
+    listen_host: Option<String>,
+    listen_port: Option<u16>,
     force: bool,
     format: OutputFormat,
 }
@@ -669,6 +707,7 @@ where
                 format: options.format,
             })
         }
+        "run-url" => parse_run_url_command(&rest),
         "sing-box" => parse_sing_box_command(&rest),
         _ => Err(parse_error(
             CLI_ARGUMENT_UNKNOWN_CODE,
@@ -759,13 +798,14 @@ where
     }
 }
 
-pub fn handle_entrypoint_with_runtime_lifecycle_and_sing_box<C, P, E, R, H, I>(
+pub fn handle_entrypoint_with_runtime_lifecycle_and_sing_box<C, P, E, R, H, I, S>(
     command: LinuxCliCommand,
     platform: &P,
     orchestrator: &RuntimeOrchestrator<C, P, E>,
     reader: &R,
     lifecycle_host: &H,
     sing_box_installer: &I,
+    sing_box_runner: &S,
 ) -> LinuxCliResponse
 where
     C: ConfigurationService,
@@ -774,11 +814,28 @@ where
     R: ConfigReader,
     H: ForegroundLifecycleHost,
     I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
 {
     match command {
         LinuxCliCommand::InstallSingBox {
             install_dir, force, ..
         } => handle_install_sing_box(sing_box_installer, install_dir.as_deref(), force),
+        LinuxCliCommand::RunUrl {
+            url,
+            listen_host,
+            listen_port,
+            install_dir,
+            force,
+            ..
+        } => handle_run_url_with_sing_box(
+            sing_box_installer,
+            sing_box_runner,
+            &url,
+            &listen_host,
+            listen_port,
+            install_dir.as_deref(),
+            force,
+        ),
         other => handle_entrypoint_with_runtime_and_lifecycle(
             other,
             platform,
@@ -938,6 +995,7 @@ where
             version: None,
             help: None,
             sing_box_install: None,
+            sing_box_run: None,
         };
     }
 
@@ -956,6 +1014,7 @@ where
         version: None,
         help: None,
         sing_box_install: None,
+        sing_box_run: None,
     }
 }
 
@@ -1103,6 +1162,165 @@ where
     }
 }
 
+pub fn handle_run_url_with_sing_box<I, S>(
+    installer: &I,
+    runner: &S,
+    url: &str,
+    listen_host: &str,
+    listen_port: u16,
+    install_dir: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
+{
+    let install_root = install_dir
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(default_sing_box_install_root);
+    let subscription = CoreSubscriptionService::new();
+    let raw_subscription = RawSubscription {
+        source_id: "cli-run-url".to_string(),
+        content: url.to_string(),
+    };
+    let document = match subscription.parse(&raw_subscription) {
+        Ok(document) => document,
+        Err(error) => {
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::ArgumentOrConfig,
+                DomainError::new(CLI_RUN_URL_PARSE_FAILED_CODE, error.message),
+                SOURCE_CLI_SING_BOX,
+            );
+        }
+    };
+    let catalog = match subscription.normalize(&document) {
+        Ok(catalog) => catalog,
+        Err(error) => {
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::ArgumentOrConfig,
+                DomainError::new(CLI_RUN_URL_PARSE_FAILED_CODE, error.message),
+                SOURCE_CLI_SING_BOX,
+            );
+        }
+    };
+    let generated_config = match render_sing_box_local_proxy_config(
+        &SingBoxLocalProxyConfigRequest {
+            nodes: catalog.nodes,
+            selected_node_id: None,
+            listen_host: listen_host.to_string(),
+            listen_port,
+        },
+    ) {
+        Ok(config) => config,
+        Err(error) => {
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::ArgumentOrConfig,
+                DomainError::new(CLI_RUN_URL_CONFIG_FAILED_CODE, error.message),
+                SOURCE_CLI_SING_BOX,
+            );
+        }
+    };
+    let target = match SingBoxTarget::current() {
+        Ok(target) => target,
+        Err(error) => {
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::Unavailable,
+                error,
+                SOURCE_CLI_SING_BOX,
+            );
+        }
+    };
+    let install_request = SingBoxInstallRequest {
+        install_root: install_root.clone(),
+        target,
+        force,
+    };
+    let install_report = match installer.install_latest(&install_request) {
+        Ok(report) => report,
+        Err(error) => {
+            return LinuxCliResponse::failure(
+                "run-url",
+                LinuxCliExitCode::GeneralFailure,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_SING_BOX_INSTALL_FAILED_CODE,
+                    error.message,
+                    SOURCE_CLI_SING_BOX,
+                ),
+            );
+        }
+    };
+    let config_path = sing_box_run_config_path(&install_root, &generated_config.selected_node_id);
+    if let Err(error) = write_sing_box_run_config(&config_path, &generated_config.json) {
+        return LinuxCliResponse::failure(
+            "run-url",
+            LinuxCliExitCode::GeneralFailure,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_RUN_URL_CONFIG_WRITE_FAILED_CODE,
+                error.message,
+                SOURCE_CLI_SING_BOX,
+            ),
+        );
+    }
+
+    let run_request = SingBoxProcessRunRequest {
+        executable_path: install_report.executable_path.clone(),
+        config_path: config_path.clone(),
+    };
+    let run_report = match runner.run(&run_request) {
+        Ok(report) => report,
+        Err(error) => {
+            return LinuxCliResponse::failure(
+                "run-url",
+                LinuxCliExitCode::GeneralFailure,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_RUN_URL_PROCESS_FAILED_CODE,
+                    error.message,
+                    SOURCE_CLI_SING_BOX,
+                ),
+            );
+        }
+    };
+    let mut diagnostics = install_report.diagnostics.clone();
+    diagnostics.extend(document.diagnostics.clone());
+    diagnostics.extend(generated_config.diagnostics.clone());
+    diagnostics.extend(run_report.diagnostics.clone());
+    let run_status = LinuxSingBoxRunStatus {
+        node_id: generated_config.selected_node_id,
+        node_name: generated_config.selected_node_name,
+        listen_host: generated_config.listen_host,
+        listen_port: generated_config.listen_port,
+        executable_path: install_report.executable_path.display().to_string(),
+        config_path: config_path.display().to_string(),
+        process_exit_code: run_report.exit_code,
+    };
+
+    let response = LinuxCliResponse::success("run-url")
+        .with_diagnostics(diagnostics)
+        .with_sing_box_install(LinuxSingBoxInstallStatus::from(install_report))
+        .with_sing_box_run(run_status);
+
+    match run_report.exit_code {
+        Some(0) => response,
+        Some(130) => LinuxCliResponse {
+            ok: false,
+            exit_code: LinuxCliExitCode::Interrupted,
+            ..response
+        },
+        _ => LinuxCliResponse {
+            ok: false,
+            exit_code: LinuxCliExitCode::GeneralFailure,
+            ..response
+        },
+    }
+}
+
 pub fn render_response(response: &LinuxCliResponse, format: OutputFormat) -> String {
     match format {
         OutputFormat::Text => render_text_response(response),
@@ -1148,6 +1366,26 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
             "--force" => {
                 options.force = true;
             }
+            "--listen-host" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--listen-host requires an address value",
+                    ));
+                };
+                options.listen_host = Some(value.clone());
+            }
+            "--listen-port" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--listen-port requires a port value",
+                    ));
+                };
+                options.listen_port = Some(parse_listen_port(value)?);
+            }
             "--format" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -1170,6 +1408,33 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
     }
 
     Ok(options)
+}
+
+fn parse_run_url_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(url) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "run-url requires a proxy URL argument",
+        ));
+    };
+    if url.starts_with("--") {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "run-url requires a proxy URL before options",
+        ));
+    }
+    let options = parse_options(&args[1..])?;
+
+    Ok(LinuxCliCommand::RunUrl {
+        url: url.clone(),
+        listen_host: options
+            .listen_host
+            .unwrap_or_else(|| "127.0.0.1".to_string()),
+        listen_port: options.listen_port.unwrap_or(7890),
+        install_dir: options.install_dir,
+        force: options.force,
+        format: options.format,
+    })
 }
 
 fn parse_sing_box_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
@@ -1196,6 +1461,23 @@ fn parse_sing_box_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliPa
     }
 }
 
+fn parse_listen_port(value: &str) -> Result<u16, LinuxCliParseError> {
+    let parsed = value.parse::<u16>().map_err(|_| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "--listen-port must be between 1 and 65535",
+        )
+    })?;
+    if parsed == 0 {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "--listen-port must be between 1 and 65535",
+        ));
+    }
+
+    Ok(parsed)
+}
+
 pub const fn cli_help_text() -> &'static str {
     concat!(
         "NetworkCore Linux CLI\n",
@@ -1210,6 +1492,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux status [--format text|json]\n",
         "  networkcore-linux diagnostics [--format text|json]\n",
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
+        "  networkcore-linux run-url <ss://url> [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux sing-box install [--install-dir <dir>] [--force] [--format text|json]\n",
         "\n",
         "Commands:\n",
@@ -1222,10 +1505,13 @@ pub const fn cli_help_text() -> &'static str {
         "  status            Report platform-only status without a daemon context.\n",
         "  diagnostics       Print platform diagnostics.\n",
         "  install-sing-box  Download the latest official sing-box archive and cache its executable.\n",
+        "  run-url           Parse a proxy URL, render sing-box config, and run a local foreground proxy.\n",
         "\n",
         "Options:\n",
         "  --config <path>       Config file for prepare-config and start.\n",
         "  --install-dir <dir>   Engine cache root for install-sing-box.\n",
+        "  --listen-host <host>  Local proxy listen address for run-url. Defaults to 127.0.0.1.\n",
+        "  --listen-port <port>  Local proxy listen port for run-url. Defaults to 7890.\n",
         "  --force               Redownload and replace an existing cached sing-box executable.\n",
         "  --format text|json    Output format. Defaults to text.\n",
     )
@@ -1302,6 +1588,43 @@ where
     }
 
     Ok(raw_config)
+}
+
+fn sing_box_run_config_path(install_root: &std::path::Path, node_id: &str) -> std::path::PathBuf {
+    install_root
+        .join("runtime")
+        .join(format!("run-url-{}.json", sanitize_path_segment(node_id)))
+}
+
+fn write_sing_box_run_config(
+    path: &std::path::Path,
+    content: &str,
+) -> Result<(), ConfigReadError> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| ConfigReadError::new("sing-box config path has no parent directory"))?;
+    std::fs::create_dir_all(parent).map_err(|error| ConfigReadError::new(error.to_string()))?;
+    std::fs::write(path, content).map_err(|error| ConfigReadError::new(error.to_string()))
+}
+
+fn sanitize_path_segment(value: &str) -> String {
+    let sanitized = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
+                character
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    let sanitized = sanitized.trim_matches('-');
+
+    if sanitized.is_empty() {
+        "node".to_string()
+    } else {
+        sanitized.to_string()
+    }
 }
 
 fn start_error_response(error: DomainError) -> LinuxCliResponse {
@@ -1414,6 +1737,16 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
         lines.push(format!("downloaded: {}", install.downloaded));
     }
 
+    if let Some(run) = &response.sing_box_run {
+        lines.push(format!("node: {} ({})", run.node_name, run.node_id));
+        lines.push(format!(
+            "local proxy: {}:{}",
+            run.listen_host, run.listen_port
+        ));
+        lines.push(format!("config: {}", run.config_path));
+        lines.push(format!("process exit code: {:?}", run.process_exit_code));
+    }
+
     for diagnostic in &response.diagnostics {
         lines.push(format!(
             "{} {}: {}",
@@ -1475,6 +1808,7 @@ struct JsonCliResponse {
     version: Option<String>,
     help: Option<String>,
     sing_box_install: Option<JsonSingBoxInstallStatus>,
+    sing_box_run: Option<JsonSingBoxRunStatus>,
 }
 
 impl From<&LinuxCliResponse> for JsonCliResponse {
@@ -1496,6 +1830,10 @@ impl From<&LinuxCliResponse> for JsonCliResponse {
                 .sing_box_install
                 .as_ref()
                 .map(JsonSingBoxInstallStatus::from),
+            sing_box_run: response
+                .sing_box_run
+                .as_ref()
+                .map(JsonSingBoxRunStatus::from),
         }
     }
 }
@@ -1523,6 +1861,31 @@ impl From<&LinuxSingBoxInstallStatus> for JsonSingBoxInstallStatus {
             archive_path: status.archive_path.clone(),
             executable_path: status.executable_path.clone(),
             downloaded: status.downloaded,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonSingBoxRunStatus {
+    node_id: String,
+    node_name: String,
+    listen_host: String,
+    listen_port: u16,
+    executable_path: String,
+    config_path: String,
+    process_exit_code: Option<i32>,
+}
+
+impl From<&LinuxSingBoxRunStatus> for JsonSingBoxRunStatus {
+    fn from(status: &LinuxSingBoxRunStatus) -> Self {
+        Self {
+            node_id: status.node_id.clone(),
+            node_name: status.node_name.clone(),
+            listen_host: status.listen_host.clone(),
+            listen_port: status.listen_port,
+            executable_path: status.executable_path.clone(),
+            config_path: status.config_path.clone(),
+            process_exit_code: status.process_exit_code,
         }
     }
 }

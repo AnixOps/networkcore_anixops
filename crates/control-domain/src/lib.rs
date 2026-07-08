@@ -94,6 +94,10 @@ pub struct MetadataEntry {
 
 pub type Metadata = Vec<MetadataEntry>;
 
+pub const NODE_METADATA_SHADOWSOCKS_METHOD: &str = "shadowsocks.method";
+pub const NODE_METADATA_SHADOWSOCKS_PASSWORD: &str = "shadowsocks.password";
+pub const NODE_METADATA_SOURCE_FORMAT: &str = "subscription.source_format";
+
 /// Operating system capability target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OperatingSystem {
@@ -332,6 +336,7 @@ pub struct NodeDescriptor {
     pub protocol: Protocol,
     pub endpoint: Endpoint,
     pub tags: Vec<String>,
+    pub metadata: Metadata,
 }
 
 /// Subscription source descriptor.

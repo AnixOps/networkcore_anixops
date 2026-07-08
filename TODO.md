@@ -4,13 +4,14 @@
 
 ## 当前
 
-- [ ] 补充 `sing-box` config translation 与 lifecycle source contract：在已具备 latest downloader/cache 的基础上，定义 NetworkCore TOML 到 `sing-box` JSON 的最小确定性转换、secret redaction、operator-provided/downloaded binary path 优先级、foreground process lifecycle、status/events/logs、rollback 和 GitHub Actions 验证边界。
+- [ ] 扩展订阅格式和 managed lifecycle：在 `run-url` foreground 闭环基础上，继续接入 VLESS/VMess/Trojan、Clash YAML、sing-box JSON、Surge/Loon/Quantumult X 高频子集、节点选择、持久订阅、managed status/events/logs/reload/rollback，并为后续真实 MITM 数据面接入补充独立 source contract。
 
 说明：已完成条目保留当时的阶段状态；当前 runtime 方向以 [ROADMAP.md](ROADMAP.md) 和 [docs/architecture/adr-0002-public-engine-adapter-first.md](docs/architecture/adr-0002-public-engine-adapter-first.md) 为准。
 
 ## 已完成
 
-- [x] 新增 `engine-singbox` public engine adapter source contract 和 CLI 下载入口：`networkcore-linux help` 输出命令表，`install-sing-box`/`sing-box install` 从官方 GitHub latest release 动态选择当前目标资产、校验 `sha256:` digest、解压缓存 `sing-box` 可执行文件，并输出 `sing_box_install` JSON 字段；仍不把 `sing-box` binary 打进 NetworkCore release artifact，也不启动或管理 `sing-box` 进程。
+- [x] 新增 `run-url` Shadowsocks foreground 闭环：`CoreSubscriptionService` 支持单条 `ss://`、明文 `ss://` 链接列表、base64 链接列表和既有 subscription TOML，`NodeDescriptor.metadata` 承载 Shadowsocks method/password，`engine-singbox` 渲染本地 `mixed` inbound + Shadowsocks outbound JSON，并由 `networkcore-linux run-url <ss://url>` 安装/复用 latest `sing-box`、写入 runtime config、前台执行 `sing-box run -c <config>`，JSON 输出 `sing_box_run`。
+- [x] 新增 `engine-singbox` public engine adapter source contract 和 CLI 下载入口：`networkcore-linux help` 输出命令表，`install-sing-box`/`sing-box install` 从官方 GitHub latest release 动态选择当前目标资产、校验 `sha256:` digest、解压缓存 `sing-box` 可执行文件，并输出 `sing_box_install` JSON 字段；仍不把 `sing-box` binary 打进 NetworkCore release artifact，managed daemon/status/logs/reload 继续留给后续 lifecycle 增量。
 - [x] 固化公有执行内核 adapter 优先策略和三层维护框架：新增 ADR 0002，明确 NetworkCore 控制层、执行内核 adapter 层、公有执行内核层的职责，优先 `sing-box`，暂缓 `engine-native` 私有协议实现，后续只有在 adapter 路线暴露明确缺口时再扩展自研协议。
 - [x] Linux CLI 二进制进入 `v0.1.0-alpha.2`：release workflow 已在 GitHub Actions 中完成 `package-linux`、checksum、manifest、attestation、publish eligibility 和 tag release asset 上传，GitHub Release 已包含 Linux CLI tarball、sha256、manifest 和 manifest sha256；未运行本地构建、测试或打包。
 - [x] 补充 iOS `Package.swift` manifest-only activation validation contract，定义未来独立提交引入 `apps/ios/Package.swift` 时的 manifest-only source scan、target list verification、no Swift source before source gate、Xcode project 继续 blocked、upload workflow enabled marker 继续 blocked、`ios-package-swift-manifest-only-*` release blocked 输出和 `macos-26` GitHub Actions 验证入口；本轮仍不得引入真实 `Package.swift`、Swift source、Swift/Xcode project、`PrivacyInfo.xcprivacy`、Network Extension target、ExportOptions.plist、`.ipa`、`.xcarchive`、`.xcresult`、dSYM bundle、真实签名、TestFlight 上传或 iOS release asset。Linux artifact 继续等待 license/NOTICE confirmed marker，期间不得定义 `package-linux` 或发布 release asset。

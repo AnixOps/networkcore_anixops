@@ -6,10 +6,12 @@ use config_core::{
     CONFIG_PARSE_FAILED_CODE, CONFIG_PROFILE_CONFLICT_CODE, CONFIG_PROFILE_EMPTY_CODE,
     CONFIG_PROFILE_MISSING_CODE, CONFIG_ROUTE_PROXY_NODE_MISSING_CODE,
     CONFIG_SCHEMA_UNSUPPORTED_CODE, CURRENT_SCHEMA_VERSION, SUBSCRIPTION_FETCH_UNSUPPORTED_CODE,
-    SUBSCRIPTION_PARSE_FAILED_CODE,
+    SUBSCRIPTION_LINK_UNSUPPORTED_CODE, SUBSCRIPTION_PARSE_FAILED_CODE,
+    SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
 };
 use control_domain::{
     ConfigurationService, Diagnostic, ListenerKind, ListenerNetwork, ListenerRoute,
+    MetadataEntry, NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD,
     OperatingSystem, PlatformCapabilities, Protocol, RawSubscription, RouteAction, SchemaVersion,
     SubscriptionService, SubscriptionSource,
 };
@@ -100,6 +102,7 @@ metadata = { owner = "user" }
     assert_eq!(node.endpoint.host, "127.0.0.1");
     assert_eq!(node.endpoint.port, 1081);
     assert_eq!(node.tags, vec!["local".to_string(), "dev".to_string()]);
+    assert!(node.metadata.is_empty());
 
     assert_eq!(snapshot.policies.len(), 1);
     assert_eq!(snapshot.policies[0].id, "default-route");
@@ -110,6 +113,86 @@ metadata = { owner = "user" }
             node_id: "node-1".to_string()
         }
     );
+}
+
+#[test]
+fn parses_single_shadowsocks_url_subscription_into_node_catalog() {
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "manual-url".to_string(),
+        content: "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF".to_string(),
+    };
+
+    let document = service
+        .parse(&raw)
+        .expect("ss url should parse into a subscription document");
+    let catalog = service
+        .normalize(&document)
+        .expect("ss url document should normalize");
+
+    assert_eq!(catalog.nodes.len(), 1);
+    let node = &catalog.nodes[0];
+    assert_eq!(node.id, "ss-82-47-34-99-11111");
+    assert_eq!(node.name, "香港");
+    assert_eq!(node.protocol, Protocol::Shadowsocks);
+    assert_eq!(node.endpoint.host, "82.47.34.99");
+    assert_eq!(node.endpoint.port, 11111);
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_SHADOWSOCKS_METHOD,
+        "aes-256-gcm",
+    );
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_SHADOWSOCKS_PASSWORD,
+        "f43c0eee-13b9-4f07-bec9-d4b744141503",
+    );
+}
+
+#[test]
+fn parses_base64_plaintext_link_list_subscription() {
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "base64-list".to_string(),
+        content: "c3M6Ly9ZV1Z6TFRJMU5pMW5ZMjA2WmpRek16QmxaV1V0TVROaU9TMDBaakEzTFdKbFl6a3RaRFJpTnpRME1UUXhOVEF6QDgyLjQ3LjM0Ljk5OjExMTExI0hLCg==".to_string(),
+    };
+
+    let document = service
+        .parse(&raw)
+        .expect("base64 link list should parse");
+
+    assert_eq!(document.nodes.len(), 1);
+    assert_eq!(document.nodes[0].name, "HK");
+}
+
+#[test]
+fn unsupported_proxy_link_returns_stable_subscription_diagnostic() {
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "unsupported".to_string(),
+        content: "vmess://example".to_string(),
+    };
+
+    let error = service
+        .parse(&raw)
+        .expect_err("unsupported proxy link should fail");
+
+    assert_eq!(error.code, SUBSCRIPTION_LINK_UNSUPPORTED_CODE);
+}
+
+#[test]
+fn malformed_shadowsocks_link_returns_stable_subscription_diagnostic() {
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "bad-ss".to_string(),
+        content: "ss://not-valid".to_string(),
+    };
+
+    let error = service
+        .parse(&raw)
+        .expect_err("malformed ss link should fail");
+
+    assert_eq!(error.code, SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE);
 }
 
 #[test]
@@ -492,5 +575,14 @@ fn assert_diagnostic(diagnostics: &[Diagnostic], code: &str) {
     assert!(
         diagnostics.iter().any(|diagnostic| diagnostic.code == code),
         "missing diagnostic {code}: {diagnostics:?}"
+    );
+}
+
+fn assert_metadata(metadata: &[MetadataEntry], key: &str, value: &str) {
+    assert!(
+        metadata
+            .iter()
+            .any(|entry| entry.key == key && entry.value == value),
+        "missing metadata {key}={value}: {metadata:?}"
     );
 }

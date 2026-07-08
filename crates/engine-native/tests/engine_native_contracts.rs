@@ -2581,6 +2581,7 @@ fn node() -> NodeDescriptor {
             port: 1080,
         },
         tags: Vec::new(),
+        metadata: Vec::new(),
     }
 }
 

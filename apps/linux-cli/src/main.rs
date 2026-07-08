@@ -16,9 +16,11 @@ fn main() {
             let response = if matches!(
                 &command,
                 networkcore_linux::LinuxCliCommand::InstallSingBox { .. }
+                    | networkcore_linux::LinuxCliCommand::RunUrl { .. }
             ) {
                 match engine_singbox::GithubSingBoxReleaseInstaller::new() {
                     Ok(sing_box_installer) => {
+                        let sing_box_runner = engine_singbox::CommandSingBoxProcessRunner::new();
                         networkcore_linux::handle_entrypoint_with_runtime_lifecycle_and_sing_box(
                             command,
                             &platform,
@@ -26,10 +28,11 @@ fn main() {
                             &reader,
                             &lifecycle_host,
                             &sing_box_installer,
+                            &sing_box_runner,
                         )
                     }
                     Err(error) => networkcore_linux::LinuxCliResponse::failure(
-                        "install-sing-box",
+                        command.name(),
                         networkcore_linux::LinuxCliExitCode::GeneralFailure,
                         control_domain::Diagnostic::new(
                             control_domain::DiagnosticSeverity::Error,

@@ -124,6 +124,7 @@ jobs:
             docs/architecture/release-ci-gate-execution-validation-contract.md
             docs/architecture/release-ci-success-source-contract.md
             docs/architecture/sing-box-public-engine-adapter-source-contract.md
+            docs/architecture/subscription-url-to-sing-box-run-source-contract.md
             docs/architecture/subscription-catalog-runtime-orchestration.md
           )
 
@@ -151,6 +152,16 @@ jobs:
           grep -q "GithubSingBoxReleaseInstaller" crates/engine-singbox/src/lib.rs
           grep -q "install-sing-box" apps/linux-cli/src/lib.rs
           grep -q "sing_box_install" apps/linux-cli/src/lib.rs
+          grep -q "run-url" apps/linux-cli/src/lib.rs
+          grep -q "sing_box_run" apps/linux-cli/src/lib.rs
+          grep -q "handle_run_url_with_sing_box" apps/linux-cli/src/lib.rs
+          grep -q "CommandSingBoxProcessRunner" apps/linux-cli/src/main.rs
+          grep -q "render_sing_box_local_proxy_config" crates/engine-singbox/src/lib.rs
+          grep -q "ENGINE_SINGBOX_CONFIG_RENDERED_CODE" crates/engine-singbox/src/lib.rs
+          grep -q "SingBoxProcessRunner" crates/engine-singbox/src/lib.rs
+          grep -q "NODE_METADATA_SHADOWSOCKS_METHOD" crates/control-domain/src/lib.rs
+          grep -q "SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE" crates/config-core/src/lib.rs
+          grep -q "Subscription URL To sing-box Run Source Contract" docs/architecture/subscription-url-to-sing-box-run-source-contract.md
           grep -q "handle_entrypoint_with_runtime_lifecycle_and_sing_box" apps/linux-cli/src/main.rs
 
           release_workflow=.github/workflows/release.yml

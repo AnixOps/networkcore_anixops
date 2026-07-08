@@ -3,15 +3,18 @@
 //! This crate parses and normalizes the first minimal TOML configuration shape.
 //! It performs no file I/O, network access, platform probing, or engine work.
 
+use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
+use base64::Engine as _;
 use control_domain::{
     ConfigSnapshot, ConfigurationService, Diagnostic, DiagnosticSeverity, DomainError,
     DomainResult, Endpoint, ListenerBind, ListenerDescriptor, ListenerKind, ListenerNetwork,
-    ListenerRoute, Metadata, MetadataEntry, NodeCatalog, NodeDescriptor, PlatformCapabilities,
-    Protocol, RawSubscription, RouteAction, RuleSet, SchemaVersion, SubscriptionDocument,
-    SubscriptionService, SubscriptionSource,
+    ListenerRoute, Metadata, MetadataEntry, NodeCatalog, NodeDescriptor,
+    NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD,
+    NODE_METADATA_SOURCE_FORMAT, PlatformCapabilities, Protocol, RawSubscription, RouteAction,
+    RuleSet, SchemaVersion, SubscriptionDocument, SubscriptionService, SubscriptionSource,
 };
 use serde::Deserialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const CURRENT_SCHEMA_VERSION: u32 = 1;
 
@@ -45,6 +48,9 @@ pub const SUBSCRIPTION_LOCATION_EMPTY_CODE: &str = "subscription.core.location_e
 pub const SUBSCRIPTION_FETCH_UNSUPPORTED_CODE: &str = "subscription.core.fetch_unsupported";
 pub const SUBSCRIPTION_INLINE_PAYLOAD_EMPTY_CODE: &str = "subscription.core.inline_payload_empty";
 pub const SUBSCRIPTION_PARSE_FAILED_CODE: &str = "subscription.core.parse_failed";
+pub const SUBSCRIPTION_LINK_UNSUPPORTED_CODE: &str = "subscription.core.link_unsupported";
+pub const SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE: &str =
+    "subscription.core.shadowsocks_link_invalid";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CoreConfigurationService;
@@ -116,6 +122,7 @@ struct RawNode {
     host: String,
     port: i64,
     tags: Option<Vec<String>>,
+    metadata: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -204,24 +211,28 @@ impl SubscriptionService for CoreSubscriptionService {
     }
 
     fn parse(&self, raw_subscription: &RawSubscription) -> DomainResult<SubscriptionDocument> {
-        let _source_id = required_trimmed(
+        let source_id = required_trimmed(
             raw_subscription.source_id.clone(),
             SUBSCRIPTION_SOURCE_ID_EMPTY_CODE,
             "subscription source id cannot be empty",
         )?;
-        let raw =
-            toml::from_str::<RawSubscriptionDocument>(&raw_subscription.content).map_err(|_| {
-                domain_error(
-                    SUBSCRIPTION_PARSE_FAILED_CODE,
-                    "subscription payload could not be parsed as NetworkCore TOML",
-                )
-            })?;
 
-        Ok(SubscriptionDocument {
-            nodes: collect_nodes(raw.nodes.unwrap_or_default())?,
-            rules: collect_routes(raw.routes.unwrap_or_default())?,
-            diagnostics: Vec::new(),
-        })
+        if let Ok(raw) = toml::from_str::<RawSubscriptionDocument>(&raw_subscription.content) {
+            return Ok(SubscriptionDocument {
+                nodes: collect_nodes(raw.nodes.unwrap_or_default())?,
+                rules: collect_routes(raw.routes.unwrap_or_default())?,
+                diagnostics: Vec::new(),
+            });
+        }
+
+        if let Some(document) = parse_link_subscription(&source_id, &raw_subscription.content)? {
+            return Ok(document);
+        }
+
+        Err(domain_error(
+            SUBSCRIPTION_PARSE_FAILED_CODE,
+            "subscription payload could not be parsed as NetworkCore TOML or supported proxy links",
+        ))
     }
 
     fn normalize(&self, document: &SubscriptionDocument) -> DomainResult<NodeCatalog> {
@@ -434,7 +445,273 @@ fn normalize_node(raw: RawNode) -> DomainResult<NodeDescriptor> {
         protocol: parse_protocol(raw.protocol)?,
         endpoint: Endpoint { host, port },
         tags: collect_tags(raw.tags),
+        metadata: collect_metadata(raw.metadata),
     })
+}
+
+fn parse_link_subscription(
+    source_id: &str,
+    content: &str,
+) -> DomainResult<Option<SubscriptionDocument>> {
+    let content = content.trim();
+    if content.is_empty() {
+        return Ok(None);
+    }
+
+    if content.starts_with("ss://") || content.lines().any(|line| line.trim().contains("://")) {
+        return parse_proxy_link_lines(source_id, content).map(Some);
+    }
+
+    if let Some(decoded) = decode_base64_text(content) {
+        let decoded = decoded.trim();
+        if decoded.lines().any(|line| line.trim().contains("://")) {
+            return parse_proxy_link_lines(source_id, decoded).map(Some);
+        }
+    }
+
+    Ok(None)
+}
+
+fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<SubscriptionDocument> {
+    let mut nodes = Vec::new();
+    let mut seen_ids = BTreeSet::new();
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        if !line.starts_with("ss://") {
+            return Err(domain_error(
+                SUBSCRIPTION_LINK_UNSUPPORTED_CODE,
+                "only ss:// proxy links are supported in this alpha subscription parser",
+            ));
+        }
+
+        let mut node = parse_shadowsocks_link(line)?;
+        if !seen_ids.insert(node.id.clone()) {
+            let base_id = node.id.clone();
+            let mut suffix = seen_ids.len() + 1;
+            loop {
+                node.id = format!("{base_id}-{suffix}");
+                if seen_ids.insert(node.id.clone()) {
+                    break;
+                }
+                suffix += 1;
+            }
+        }
+        node.metadata.push(MetadataEntry {
+            key: "subscription.source_id".to_string(),
+            value: source_id.to_string(),
+        });
+        nodes.push(node);
+    }
+
+    if nodes.is_empty() {
+        return Err(domain_error(
+            SUBSCRIPTION_LINK_UNSUPPORTED_CODE,
+            "subscription link list did not contain supported proxy links",
+        ));
+    }
+
+    Ok(SubscriptionDocument {
+        nodes,
+        rules: Vec::new(),
+        diagnostics: Vec::new(),
+    })
+}
+
+fn parse_shadowsocks_link(link: &str) -> DomainResult<NodeDescriptor> {
+    let payload = link.strip_prefix("ss://").ok_or_else(|| {
+        domain_error(
+            SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
+            "shadowsocks link must start with ss://",
+        )
+    })?;
+    let (without_fragment, fragment) = split_once_optional(payload, '#');
+    let name = fragment
+        .and_then(|fragment| percent_decode(fragment).ok())
+        .filter(|name| !name.trim().is_empty());
+    let (main_without_query, _) = split_once_optional(without_fragment, '?');
+
+    let decoded_main = if main_without_query.contains('@') {
+        main_without_query.to_string()
+    } else {
+        decode_base64_text(main_without_query).ok_or_else(|| {
+            domain_error(
+                SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
+                "shadowsocks link payload is not valid base64",
+            )
+        })?
+    };
+
+    let (userinfo, host_port) = decoded_main.rsplit_once('@').ok_or_else(|| {
+        domain_error(
+            SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
+            "shadowsocks link must contain credentials and endpoint",
+        )
+    })?;
+    let credentials = decode_base64_text(userinfo).unwrap_or_else(|| userinfo.to_string());
+    let (method, password) = credentials.split_once(':').ok_or_else(|| {
+        domain_error(
+            SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
+            "shadowsocks credentials must contain method and password",
+        )
+    })?;
+    let method = required_trimmed(
+        method.to_string(),
+        SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
+        "shadowsocks method cannot be empty",
+    )?;
+    let password = required_trimmed(
+        password.to_string(),
+        SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
+        "shadowsocks password cannot be empty",
+    )?;
+    let (host, port) = parse_host_port(host_port)?;
+    let host_id = sanitize_identifier(&host);
+    let host_id = if host_id.is_empty() {
+        "host".to_string()
+    } else {
+        host_id
+    };
+    let id = format!("ss-{}-{port}", host_id);
+    let name = name.unwrap_or_else(|| id.clone());
+
+    Ok(NodeDescriptor {
+        id,
+        name,
+        protocol: Protocol::Shadowsocks,
+        endpoint: Endpoint { host, port },
+        tags: vec!["subscription".to_string(), "ss".to_string()],
+        metadata: vec![
+            MetadataEntry {
+                key: NODE_METADATA_SHADOWSOCKS_METHOD.to_string(),
+                value: method,
+            },
+            MetadataEntry {
+                key: NODE_METADATA_SHADOWSOCKS_PASSWORD.to_string(),
+                value: password,
+            },
+            MetadataEntry {
+                key: NODE_METADATA_SOURCE_FORMAT.to_string(),
+                value: "ss-url".to_string(),
+            },
+        ],
+    })
+}
+
+fn parse_host_port(value: &str) -> DomainResult<(String, u16)> {
+    let (host, port) = if let Some(rest) = value.strip_prefix('[') {
+        let (host, rest) = rest.split_once(']').ok_or_else(|| {
+            domain_error(
+                SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
+                "IPv6 shadowsocks endpoint must close with ]",
+            )
+        })?;
+        let port = rest.strip_prefix(':').ok_or_else(|| {
+            domain_error(
+                SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
+                "shadowsocks endpoint must contain a port",
+            )
+        })?;
+        (host.to_string(), port)
+    } else {
+        let (host, port) = value.rsplit_once(':').ok_or_else(|| {
+            domain_error(
+                SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
+                "shadowsocks endpoint must contain host and port",
+            )
+        })?;
+        (host.to_string(), port)
+    };
+    let host = required_trimmed(
+        host,
+        SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
+        "shadowsocks host cannot be empty",
+    )?;
+    let port = port.parse::<i64>().map_err(|_| {
+        domain_error(
+            SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
+            "shadowsocks port must be a number",
+        )
+    })?;
+    let port = parse_port(
+        port,
+        SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
+        "shadowsocks port must be between 1 and 65535",
+    )?;
+
+    Ok((host, port))
+}
+
+fn decode_base64_text(value: &str) -> Option<String> {
+    let compact = value.split_whitespace().collect::<String>();
+    let bytes = STANDARD
+        .decode(compact.as_bytes())
+        .or_else(|_| STANDARD_NO_PAD.decode(compact.as_bytes()))
+        .or_else(|_| URL_SAFE.decode(compact.as_bytes()))
+        .or_else(|_| URL_SAFE_NO_PAD.decode(compact.as_bytes()))
+        .ok()?;
+
+    String::from_utf8(bytes).ok()
+}
+
+fn percent_decode(value: &str) -> Result<String, ()> {
+    let bytes = value.as_bytes();
+    let mut output = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let hi = bytes.get(index + 1).and_then(|byte| hex_value(*byte));
+            let lo = bytes.get(index + 2).and_then(|byte| hex_value(*byte));
+            match (hi, lo) {
+                (Some(hi), Some(lo)) => {
+                    output.push((hi << 4) | lo);
+                    index += 3;
+                    continue;
+                }
+                _ => return Err(()),
+            }
+        }
+
+        output.push(bytes[index]);
+        index += 1;
+    }
+
+    String::from_utf8(output).map_err(|_| ())
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn split_once_optional(value: &str, separator: char) -> (&str, Option<&str>) {
+    value
+        .split_once(separator)
+        .map(|(left, right)| (left, Some(right)))
+        .unwrap_or((value, None))
+}
+
+fn sanitize_identifier(value: &str) -> String {
+    let sanitized = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    sanitized.trim_matches('-').to_string()
 }
 
 fn parse_protocol(raw: String) -> DomainResult<Protocol> {

@@ -100,12 +100,13 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification 和 P2 Core K
 - [Proxy Engine Adapter Interface](docs/architecture/proxy-engine-adapter.md)
 - [ADR 0002: Public Engine Adapter First](docs/architecture/adr-0002-public-engine-adapter-first.md)
 - [sing-box Public Engine Adapter Source Contract](docs/architecture/sing-box-public-engine-adapter-source-contract.md)
+- [Subscription URL To sing-box Run Source Contract](docs/architecture/subscription-url-to-sing-box-run-source-contract.md)
 - [mitm_anixops Adapter Design](docs/architecture/mitm-anixops-adapter.md)
 - [Subscription Catalog Runtime Orchestration Design](docs/architecture/subscription-catalog-runtime-orchestration.md)
 - [Native Engine Listener And Node Config Design](docs/architecture/native-engine-listener-node-config.md)
 - [Linux Native Proxy Engine Start Design](docs/architecture/linux-native-proxy-engine-start.md)
 
-当前源码状态：`control-runtime` 已具备显式 inline subscription catalog runtime gate，可把 `NodeCatalog.nodes` 编排进 `RuntimeConfigRequest.nodes`，拒绝重复 node id，并保持 `NodeCatalog.rules` deferred；`networkcore-linux start` 仍不消费 subscription catalog。`networkcore-linux v0.1.0-alpha.2` 已发布 Linux CLI 二进制和原生 SOCKS skeleton；`engine-singbox` 已补充 latest release 下载/cache source contract，并接入 `networkcore-linux help` 与 `install-sing-box`。下一步 runtime 重点是 `sing-box` config translation、进程 lifecycle、status/events/logs 和 rollback，而不是扩展私有协议实现。
+当前源码状态：`control-runtime` 已具备显式 inline subscription catalog runtime gate，可把 `NodeCatalog.nodes` 编排进 `RuntimeConfigRequest.nodes`，拒绝重复 node id，并保持 `NodeCatalog.rules` deferred；`networkcore-linux run-url` 现在可消费单条 Shadowsocks URL、明文 `ss://` 链接列表或 base64 链接列表，经 `NodeCatalog` 渲染 sing-box 本地 `mixed` inbound 配置，并以前台 `sing-box run -c <config>` 暴露默认 `127.0.0.1:7890` 本地代理。`networkcore-linux start` 仍不消费持久 subscription catalog。`networkcore-linux v0.1.0-alpha.3` 已发布 Linux CLI 二进制，下一步 runtime 重点是 VLESS/VMess/Trojan/Clash/sing-box JSON 等订阅格式、节点选择、持久订阅、managed status/events/logs/reload/rollback 和后续 MITM 真实流量支持，而不是扩展私有协议实现。
 
 ## P4 Client And Platform Integration
 

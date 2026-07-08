@@ -1,8 +1,12 @@
-use control_domain::{ProxyEngineKind, ProxyEngineService};
+use control_domain::{
+    Endpoint, MetadataEntry, NodeDescriptor, Protocol, ProxyEngineKind, ProxyEngineService,
+    NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD,
+};
 use engine_singbox::{
     GithubSingBoxReleaseInstaller, SingBoxHttpClient, SingBoxInstallRequest,
-    SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
-    DEFAULT_SING_BOX_ENGINE_ID, ENGINE_SINGBOX_DOWNLOAD_ASSET_SELECTED_CODE,
+    SingBoxLocalProxyConfigRequest, SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch,
+    SingBoxTargetOs, DEFAULT_SING_BOX_ENGINE_ID, ENGINE_SINGBOX_CONFIG_RENDERED_CODE,
+    ENGINE_SINGBOX_DOWNLOAD_ASSET_SELECTED_CODE,
     ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE, ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE,
     ENGINE_SINGBOX_DOWNLOAD_LATEST_VERSION_RESOLVED_CODE,
 };
@@ -128,9 +132,63 @@ fn latest_installer_downloads_verifies_and_extracts_sing_box_tarball() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[test]
+fn renders_local_mixed_inbound_config_from_shadowsocks_node_catalog() {
+    let rendered = engine_singbox::render_sing_box_local_proxy_config(
+        &SingBoxLocalProxyConfigRequest {
+            nodes: vec![shadowsocks_node()],
+            selected_node_id: None,
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7890,
+        },
+    )
+    .expect("shadowsocks node should render to sing-box config");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&rendered.json).expect("rendered config should be valid json");
+    assert_eq!(rendered.selected_node_id, "ss-hk");
+    assert_eq!(rendered.selected_node_name, "香港");
+    assert_eq!(json["inbounds"][0]["type"], "mixed");
+    assert_eq!(json["inbounds"][0]["listen"], "127.0.0.1");
+    assert_eq!(json["inbounds"][0]["listen_port"], 7890);
+    assert_eq!(json["outbounds"][0]["type"], "shadowsocks");
+    assert_eq!(json["outbounds"][0]["server"], "82.47.34.99");
+    assert_eq!(json["outbounds"][0]["server_port"], 11111);
+    assert_eq!(json["outbounds"][0]["method"], "aes-256-gcm");
+    assert_eq!(
+        json["outbounds"][0]["password"],
+        "f43c0eee-13b9-4f07-bec9-d4b744141503"
+    );
+    assert_eq!(json["route"]["final"], "ss-hk");
+    assert_diagnostic(&rendered.diagnostics, ENGINE_SINGBOX_CONFIG_RENDERED_CODE);
+}
+
 struct MemorySingBoxHttpClient {
     release_json: String,
     asset_bytes: Vec<u8>,
+}
+
+fn shadowsocks_node() -> NodeDescriptor {
+    NodeDescriptor {
+        id: "ss-hk".to_string(),
+        name: "香港".to_string(),
+        protocol: Protocol::Shadowsocks,
+        endpoint: Endpoint {
+            host: "82.47.34.99".to_string(),
+            port: 11111,
+        },
+        tags: vec!["subscription".to_string()],
+        metadata: vec![
+            MetadataEntry {
+                key: NODE_METADATA_SHADOWSOCKS_METHOD.to_string(),
+                value: "aes-256-gcm".to_string(),
+            },
+            MetadataEntry {
+                key: NODE_METADATA_SHADOWSOCKS_PASSWORD.to_string(),
+                value: "f43c0eee-13b9-4f07-bec9-d4b744141503".to_string(),
+            },
+        ],
+    }
 }
 
 impl SingBoxHttpClient for MemorySingBoxHttpClient {
