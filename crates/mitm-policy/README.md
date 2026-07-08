@@ -21,7 +21,9 @@ P4 current stage source of truth: MITM work is now part of P4 Client And
 Platform Integration. P3 Runtime Capability Baseline is completed history. The
 remaining P4 backlog buckets for this crate are the certificate lifecycle gate,
 the HTTP/TLS data plane gate, and the browser capture user flow that proves and
-routes real browser traffic before rewrite plans can affect live requests.
+routes real browser traffic before rewrite plans can affect live requests. P3
+mentions in completed entries describe the finished baseline only; current MITM
+work should be planned and documented as P4.
 
 User-facing live MITM is not available yet. The current Linux CLI exposes
 `networkcore-linux mitm status`, `networkcore-linux mitm diagnostics`,

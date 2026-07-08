@@ -8,7 +8,9 @@ P4 current stage source of truth: Linux CLI work is now P4 Client And Platform
 Integration. P3 Runtime Capability Baseline is completed history. The CLI must
 keep the current P4 backlog buckets visible: subscription/client compatibility,
 MITM data plane plus certificate lifecycle, and browser capture user flow
-completion.
+completion. References to P3 in older completed entries are audit history only;
+new CLI scope, release notes and source contracts must describe the repository
+as P4.
 
 ## 目标
 

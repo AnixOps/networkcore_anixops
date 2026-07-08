@@ -6,7 +6,7 @@
 
 P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成。当前工作进入客户端、平台和发布集成阶段：Linux CLI 已有 GitHub Actions 生成的预发布二进制，iOS 仍处于 source-tree/upload gates，运行层继续通过 public engine adapter 和后续 MITM gates 增量补齐能力。
 
-阶段判断以本节为准：P3 是已完成 baseline，当前仓库不再处于 P3。
+阶段判断以本节为准：P3 是已完成 baseline，当前仓库不再处于 P3。当前迭代、发布说明和 source contract 的 source of truth 是 P4 backlog buckets；P3 只在 completed section、历史 TODO 或 CHANGELOG 中保留审计语境。
 
 ## P0 Bootstrap Governance (Completed)
 

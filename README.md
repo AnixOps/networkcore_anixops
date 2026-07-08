@@ -96,10 +96,12 @@ P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成，当前阶
 阶段状态速查：
 
 - 当前阶段源：P4 Client And Platform Integration。
-- P3 是已完成历史基线，不再作为当前仓库阶段描述。
+- P3 是已完成历史基线，不再作为当前仓库阶段描述；后续迭代、TODO、release 说明和架构合同都按 P4 backlog 推进。
 - 当前最新已发布 artifact：`v0.1.0-alpha.8` GitHub Release 中的 Linux CLI tarball、sha256、manifest 和 manifest sha256；该二进制可用 `help` 命令表、`install-sing-box`、`run-url <ss://url>` foreground local proxy，以及 `mitm browser-capture launch-plan`、`session-plan <ss://url>`、`launch --confirm`、`verify --confirm` 和 `verify --confirm --target-url <url>`。
 - 当前 main 源码状态：`v0.1.0-alpha.8` artifact 边界已包含 MITM status/diagnostics/certificate-plan/browser-plan policy-only 命令面，以及 `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify` 的 manual launch-plan、订阅到本地代理/浏览器/verify 会话计划、显式授权 dedicated-profile launch、可选 `--target-url` dedicated profile 打开页面、本地代理端点/target route verify 与 blocked report 命令面；该 tag 之后的 main 源码新增 `mitm browser-capture traffic-proof --confirm --proof-token <token> --proof-log <path>` proof-log-token 验证入口，用于检查 operator-provided proof log 中是否出现浏览器访问 token。后续 main 新增能力仍需要新的 tag release 重新经过 GitHub Actions 后才会进入用户可下载 artifact。
 - 当前未启用：live MITM、browser hijack、browser capture mutation、CA 生成/安装/信任 mutation、HTTP/TLS 解密改写数据面、daemon/service、TUN/DNS/firewall mutation。
+
+当前文档判定规则：如果后续章节、TODO 已完成项或 CHANGELOG 中出现 P3，只表示当时完成的 runtime baseline 或历史源码合同；不得把这些历史条目解释为当前阶段、当前发布状态或当前开发优先级。
 
 P4 backlog buckets：
 

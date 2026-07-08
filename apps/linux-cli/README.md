@@ -27,7 +27,9 @@ P4 current stage source of truth: this crate is now in P4 Client And Platform
 Integration. P3 Runtime Capability Baseline is completed history, not the
 current repository stage. The active P4 backlog buckets are subscription/client
 compatibility, MITM data plane plus certificate lifecycle, and browser capture
-user flow completion.
+user flow completion. Any P3 wording in completed changelog or roadmap entries
+is historical context only and must not be used as the current CLI release or
+iteration stage.
 
 `install-sing-box` downloads the latest official `sing-box` release asset into an operator-visible cache and reports the cached executable path; it does not bundle `sing-box` into NetworkCore release artifacts. `run-url <ss://url>` parses a Shadowsocks URL through the subscription model, renders a local `mixed` inbound config for `sing-box`, writes it under the engine cache, and starts `sing-box run -c <config>` in the foreground. The default local proxy is `127.0.0.1:7890`.
 

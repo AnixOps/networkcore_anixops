@@ -9,6 +9,7 @@ placeholder/blocked 语境时，以 README、ROADMAP、TODO 和对应 source con
 
 ### Changed
 
+- README、ROADMAP、TODO、Linux CLI README、`mitm-policy` README 和 Linux CLI entrypoint 设计进一步明确当前仓库阶段只能判定为 P4 Client And Platform Integration；P3 只保留为 completed baseline、历史 TODO 或 CHANGELOG 审计语境，不能再作为当前开发、发布或 source contract 阶段。
 - README、ROADMAP、TODO、Linux CLI README、`mitm-policy` README、Linux CLI entrypoint 设计、Linux MITM browser capture source contract 和 CI policy 现在固定 `P4 backlog buckets`：订阅/客户端兼容、MITM 数据面和证书生命周期、浏览器捕获用户闭环；P3 只保留为 completed baseline 或历史条目。
 - README、ROADMAP、TODO、Release Strategy 和 Linux artifact 合同文档进一步拆清当前 P4 状态、`v0.1.0-alpha.8` artifact 边界、`mitm browser-capture verify --confirm`/`session-plan`/`--target-url` 已进入可下载 Linux CLI artifact 的语境，以及历史 placeholder 合同字段的审计语境；P3 仅保留为 completed baseline。
 - README、ROADMAP、TODO 和相关架构文档现在把阶段入口进一步固定为 P4 Client And Platform Integration；P3 只作为 completed baseline 或历史条目保留，不再作为当前仓库阶段描述。

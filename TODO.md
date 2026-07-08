@@ -5,7 +5,7 @@
 ## 当前
 
 当前阶段是 P4 Client And Platform Integration。
-P3 runtime baseline 已完成并保留后续 runtime backlog。
+P3 runtime baseline 已完成并保留后续 runtime backlog；当前 TODO 只按 P4 backlog buckets 排优先级，不能再把 P3 当作当前阶段。
 Linux artifact release-state consistency 已固定为 `linux-artifact-release-state=confirmed-release-path`；
 license/NOTICE 已 confirmed；当前最新 GitHub Release 是 `v0.1.0-alpha.8`，后续 tag release 仍必须经过
 同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates。
