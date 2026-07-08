@@ -2353,6 +2353,14 @@ where
                 SOURCE_CLI_MITM,
             ));
         }
+        LinuxBrowserCaptureAction::SessionPlan => {
+            diagnostics.push(cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_MITM_BROWSER_CAPTURE_SESSION_PLAN_CONFIG_FAILED_CODE,
+                "browser capture session-plan requires a subscription URL and the dedicated session-plan handler",
+                SOURCE_CLI_MITM,
+            ));
+        }
         LinuxBrowserCaptureAction::Launch => {}
         LinuxBrowserCaptureAction::Apply => {
             if !confirm {
