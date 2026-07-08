@@ -29,7 +29,9 @@ dedicated profile target URL, a dedicated-profile `launch_report`, local proxy e
 `browser_capture` blocked reports, and deferred browser hijack gates. The launch
 templates, `session-plan`, `launch --confirm` report, and `verify --confirm`
 report carry the loaded `networkcore.adblock` plugin metadata, planned proxy
-URL, and optional target URL, but they do not generate or install a CA, decrypt HTTPS traffic, write
+URL, and optional target URL; `verify --confirm --target-url <url>` additionally
+records `probe=http-connect-target` and `target_reachable` when the planned proxy
+can open a CONNECT tunnel to the target host:port, but these paths do not generate or install a CA, decrypt HTTPS traffic, write
 browser/system proxy state, prove live browser traffic capture, or apply rewrite
 plans to live traffic.
 
@@ -50,7 +52,7 @@ Required gates before user-facing MITM:
 - `MITM_BROWSER_CAPTURE_GATE`: currently plan-only/mutation-blocked through
   `mitm_status.browser_plan`, `browser_capture`, manual launch-plan output,
   redacted session-plan output, optional target URL, explicit dedicated-profile
-  launch output, and local proxy endpoint verify output; later increments must
+  launch output, local proxy endpoint verify output, and target route verify output; later increments must
   implement explicit browser/system proxy configuration, PAC or other capture
   strategy, live capture verification, and rollback boundaries. The Linux
   source boundary is

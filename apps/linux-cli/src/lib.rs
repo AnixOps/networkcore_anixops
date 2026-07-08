@@ -28,6 +28,7 @@ use signal_hook::{
     consts::signal::{SIGINT, SIGTERM},
     iterator::Signals,
 };
+use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::thread;
 use std::time::Duration;
@@ -101,6 +102,10 @@ pub const CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_REACHABLE_CODE: &str =
     "cli.linux.mitm.browser_capture.verify.proxy_reachable";
 pub const CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_UNREACHABLE_CODE: &str =
     "cli.linux.mitm.browser_capture.verify.proxy_unreachable";
+pub const CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_REACHABLE_CODE: &str =
+    "cli.linux.mitm.browser_capture.verify.target_reachable";
+pub const CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_INVALID_CODE: &str =
+    "cli.linux.mitm.browser_capture.verify.target_invalid";
 pub const CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE: &str = "cli.linux.mitm.browser_hijack.deferred";
 
 pub const MITM_CLI_COMMAND_GATE: &str = "MITM_CLI_COMMAND_GATE";
@@ -250,6 +255,7 @@ pub enum LinuxCliCommand {
         format: OutputFormat,
     },
     MitmBrowserCaptureVerify {
+        target_url: Option<String>,
         confirm: bool,
         format: OutputFormat,
     },
@@ -644,6 +650,7 @@ pub struct LinuxBrowserCaptureVerifyRequest {
     pub proxy_host: String,
     pub proxy_port: u16,
     pub proxy_url: String,
+    pub target_url: Option<String>,
     pub probe: String,
 }
 
@@ -945,6 +952,11 @@ impl BrowserCaptureEndpointProbe for CommandBrowserCaptureEndpointProbe {
         &self,
         request: &LinuxBrowserCaptureVerifyRequest,
     ) -> DomainResult<LinuxBrowserCaptureVerifyOutcome> {
+        let target = request
+            .target_url
+            .as_deref()
+            .map(parse_browser_capture_target_endpoint)
+            .transpose()?;
         let address = format!("{}:{}", request.proxy_host, request.proxy_port);
         let mut addrs = address.as_str().to_socket_addrs().map_err(|error| {
             DomainError::new(
@@ -959,15 +971,89 @@ impl BrowserCaptureEndpointProbe for CommandBrowserCaptureEndpointProbe {
             )
         })?;
 
-        TcpStream::connect_timeout(&socket_addr, Duration::from_secs(2)).map_err(|error| {
-            DomainError::new(
-                CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_UNREACHABLE_CODE,
-                format!(
-                    "browser capture planned proxy endpoint {} is not reachable: {error}",
-                    request.proxy_url
-                ),
-            )
-        })?;
+        let mut stream =
+            TcpStream::connect_timeout(&socket_addr, Duration::from_secs(2)).map_err(|error| {
+                DomainError::new(
+                    CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_UNREACHABLE_CODE,
+                    format!(
+                        "browser capture planned proxy endpoint {} is not reachable: {error}",
+                        request.proxy_url
+                    ),
+                )
+            })?;
+        stream
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .map_err(|error| {
+                DomainError::new(
+                    CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_UNREACHABLE_CODE,
+                    format!(
+                        "failed to set browser capture proxy read timeout for {}: {error}",
+                        request.proxy_url
+                    ),
+                )
+            })?;
+        stream
+            .set_write_timeout(Some(Duration::from_secs(3)))
+            .map_err(|error| {
+                DomainError::new(
+                    CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_UNREACHABLE_CODE,
+                    format!(
+                        "failed to set browser capture proxy write timeout for {}: {error}",
+                        request.proxy_url
+                    ),
+                )
+            })?;
+
+        if let (Some(target_url), Some(target)) = (&request.target_url, target) {
+            let authority = target.authority();
+            let connect_request = format!(
+                "CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\nUser-Agent: networkcore-linux-browser-capture-verify\r\nProxy-Connection: close\r\n\r\n"
+            );
+            stream
+                .write_all(connect_request.as_bytes())
+                .map_err(|error| {
+                    DomainError::new(
+                        CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_UNREACHABLE_CODE,
+                        format!(
+                            "failed to write browser capture target probe through {} for {target_url}: {error}",
+                            request.proxy_url
+                        ),
+                    )
+                })?;
+            let mut buffer = [0_u8; 512];
+            let byte_count = stream.read(&mut buffer).map_err(|error| {
+                DomainError::new(
+                    CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_UNREACHABLE_CODE,
+                    format!(
+                        "failed to read browser capture target probe response through {} for {target_url}: {error}",
+                        request.proxy_url
+                    ),
+                )
+            })?;
+            let response = String::from_utf8_lossy(&buffer[..byte_count]);
+            let status_line = response.lines().next().unwrap_or_default();
+            if !status_line.contains(" 200 ") && !status_line.ends_with(" 200") {
+                return Err(DomainError::new(
+                    CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_UNREACHABLE_CODE,
+                    format!(
+                        "browser capture proxy {} did not open a CONNECT tunnel to {target_url}: {status_line}",
+                        request.proxy_url
+                    ),
+                ));
+            }
+
+            return Ok(LinuxBrowserCaptureVerifyOutcome {
+                diagnostics: vec![cli_diagnostic(
+                    DiagnosticSeverity::Info,
+                    CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_REACHABLE_CODE,
+                    format!(
+                        "browser capture planned proxy endpoint {} can open a target tunnel to {target_url}",
+                        request.proxy_url
+                    ),
+                    SOURCE_CLI_MITM,
+                )],
+            });
+        }
 
         Ok(LinuxBrowserCaptureVerifyOutcome {
             diagnostics: vec![cli_diagnostic(
@@ -981,6 +1067,113 @@ impl BrowserCaptureEndpointProbe for CommandBrowserCaptureEndpointProbe {
             )],
         })
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BrowserCaptureTargetEndpoint {
+    host: String,
+    port: u16,
+    bracketed: bool,
+}
+
+impl BrowserCaptureTargetEndpoint {
+    fn authority(&self) -> String {
+        if self.bracketed {
+            format!("[{}]:{}", self.host, self.port)
+        } else {
+            format!("{}:{}", self.host, self.port)
+        }
+    }
+}
+
+fn parse_browser_capture_target_endpoint(
+    target_url: &str,
+) -> DomainResult<BrowserCaptureTargetEndpoint> {
+    let Some((scheme, remainder)) = target_url.split_once("://") else {
+        return Err(DomainError::new(
+            CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_INVALID_CODE,
+            "browser capture target URL must include http:// or https://",
+        ));
+    };
+    let default_port = match scheme {
+        "http" => 80,
+        "https" => 443,
+        _ => {
+            return Err(DomainError::new(
+                CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_INVALID_CODE,
+                "browser capture target URL scheme must be http or https",
+            ));
+        }
+    };
+    let authority = remainder
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default()
+        .rsplit('@')
+        .next()
+        .unwrap_or_default();
+    if authority.is_empty() {
+        return Err(DomainError::new(
+            CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_INVALID_CODE,
+            "browser capture target URL is missing a host",
+        ));
+    }
+
+    let (host, port, bracketed) = if let Some(rest) = authority.strip_prefix('[') {
+        let Some((host, after_host)) = rest.split_once(']') else {
+            return Err(DomainError::new(
+                CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_INVALID_CODE,
+                "browser capture target IPv6 host is missing a closing bracket",
+            ));
+        };
+        let port = if let Some(port) = after_host.strip_prefix(':') {
+            parse_browser_capture_target_port(port)?
+        } else if after_host.is_empty() {
+            default_port
+        } else {
+            return Err(DomainError::new(
+                CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_INVALID_CODE,
+                "browser capture target IPv6 host has an invalid suffix",
+            ));
+        };
+        (host.to_string(), port, true)
+    } else {
+        let mut parts = authority.split(':');
+        let host = parts.next().unwrap_or_default();
+        let port = match (parts.next(), parts.next()) {
+            (None, None) => default_port,
+            (Some(port), None) => parse_browser_capture_target_port(port)?,
+            _ => {
+                return Err(DomainError::new(
+                    CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_INVALID_CODE,
+                    "browser capture target URL host with multiple colons must use IPv6 brackets",
+                ));
+            }
+        };
+        (host.to_string(), port, false)
+    };
+
+    if host.is_empty() {
+        return Err(DomainError::new(
+            CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_INVALID_CODE,
+            "browser capture target URL is missing a host",
+        ));
+    }
+
+    Ok(BrowserCaptureTargetEndpoint {
+        host,
+        port,
+        bracketed,
+    })
+}
+
+fn parse_browser_capture_target_port(port: &str) -> DomainResult<u16> {
+    port.parse::<u16>().map_err(|_| {
+        DomainError::new(
+            CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_INVALID_CODE,
+            "browser capture target URL port must be a valid TCP port",
+        )
+    })
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -1317,9 +1510,11 @@ where
         LinuxCliCommand::MitmBrowserCaptureRollback { snapshot_path, .. } => {
             handle_mitm_browser_capture_rollback(platform, snapshot_path)
         }
-        LinuxCliCommand::MitmBrowserCaptureVerify { confirm, .. } => {
-            handle_mitm_browser_capture_verify(platform, confirm)
-        }
+        LinuxCliCommand::MitmBrowserCaptureVerify {
+            target_url,
+            confirm,
+            ..
+        } => handle_mitm_browser_capture_verify(platform, target_url.as_deref(), confirm),
         LinuxCliCommand::Stop { .. } => handle_stop(),
         other => handle_unwired_command(other.name()),
     }
@@ -1379,9 +1574,16 @@ where
             target_url.as_deref(),
             confirm,
         ),
-        LinuxCliCommand::MitmBrowserCaptureVerify { confirm, .. } => {
-            handle_mitm_browser_capture_verify_with_probe(platform, endpoint_probe, confirm)
-        }
+        LinuxCliCommand::MitmBrowserCaptureVerify {
+            target_url,
+            confirm,
+            ..
+        } => handle_mitm_browser_capture_verify_with_probe(
+            platform,
+            endpoint_probe,
+            target_url.as_deref(),
+            confirm,
+        ),
         other => handle_entrypoint(other, platform),
     }
 }
@@ -1789,6 +1991,7 @@ where
         LinuxBrowserCaptureAction::Plan,
         false,
         None,
+        None,
     )
 }
 
@@ -1801,6 +2004,7 @@ where
         platform,
         LinuxBrowserCaptureAction::LaunchPlan,
         false,
+        None,
         None,
     )
 }
@@ -1913,7 +2117,7 @@ where
     );
     let launch_request =
         build_linux_browser_capture_launch_request(browser, profile_dir, target_url, &plan);
-    let verify_request = build_linux_browser_capture_verify_request(&plan);
+    let verify_request = build_linux_browser_capture_verify_request(&plan, target_url);
     let session_request = LinuxBrowserCaptureSessionPlanRequest {
         url_source: "cli-argument-redacted".to_string(),
         browser: browser.to_string(),
@@ -1943,6 +2147,7 @@ where
         LinuxBrowserCaptureAction::SessionPlan,
         &platform_status,
         &mitm_status.policy,
+        None,
         None,
         None,
     );
@@ -2009,6 +2214,7 @@ where
         &platform_status,
         &mitm_status.policy,
         Some(authorization),
+        None,
         None,
     );
     let launch_request =
@@ -2110,6 +2316,7 @@ where
         LinuxBrowserCaptureAction::Apply,
         confirm,
         None,
+        None,
     )
 }
 
@@ -2126,10 +2333,15 @@ where
         LinuxBrowserCaptureAction::Rollback,
         false,
         snapshot_path,
+        None,
     )
 }
 
-pub fn handle_mitm_browser_capture_verify<P>(platform: &P, confirm: bool) -> LinuxCliResponse
+pub fn handle_mitm_browser_capture_verify<P>(
+    platform: &P,
+    target_url: Option<&str>,
+    confirm: bool,
+) -> LinuxCliResponse
 where
     P: PlatformCapabilityService,
 {
@@ -2139,12 +2351,14 @@ where
         LinuxBrowserCaptureAction::Verify,
         confirm,
         None,
+        target_url,
     )
 }
 
 pub fn handle_mitm_browser_capture_verify_with_probe<P, V>(
     platform: &P,
     endpoint_probe: &V,
+    target_url: Option<&str>,
     confirm: bool,
 ) -> LinuxCliResponse
 where
@@ -2192,6 +2406,7 @@ where
         &mitm_status.policy,
         Some(authorization),
         None,
+        target_url,
     );
     let verify_request = report
         .request
@@ -2227,8 +2442,13 @@ where
     match endpoint_probe.verify_proxy_endpoint(&verify_request) {
         Ok(outcome) => {
             diagnostics.extend(outcome.diagnostics);
+            let status = if verify_request.target_url.is_some() {
+                "target_reachable"
+            } else {
+                "proxy_reachable"
+            };
             report.verify_report = Some(build_linux_browser_capture_verify_report(
-                "proxy_reachable",
+                status,
                 true,
                 verify_request,
                 &mitm_status.policy,
@@ -2241,6 +2461,11 @@ where
                 .with_diagnostics(diagnostics)
         }
         Err(error) => {
+            let status = if error.code == CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_INVALID_CODE {
+                "target_invalid"
+            } else {
+                "proxy_unreachable"
+            };
             diagnostics.push(cli_diagnostic(
                 DiagnosticSeverity::Error,
                 error.code,
@@ -2248,7 +2473,7 @@ where
                 SOURCE_CLI_MITM,
             ));
             report.verify_report = Some(build_linux_browser_capture_verify_report(
-                "proxy_unreachable",
+                status,
                 false,
                 verify_request,
                 &mitm_status.policy,
@@ -2303,6 +2528,7 @@ fn handle_mitm_browser_capture_inner<P>(
     action: LinuxBrowserCaptureAction,
     confirm: bool,
     snapshot_path: Option<String>,
+    target_url: Option<&str>,
 ) -> LinuxCliResponse
 where
     P: PlatformCapabilityService,
@@ -2426,6 +2652,7 @@ where
         &mitm_status.policy,
         authorization,
         rollback_snapshot,
+        target_url,
     );
     let mut response = LinuxCliResponse::success(command)
         .with_platform(platform_status)
@@ -2631,10 +2858,11 @@ fn build_linux_browser_capture_report(
     policy: &LinuxMitmPolicyStatus,
     authorization: Option<BrowserCaptureAuthorization>,
     rollback_snapshot: Option<BrowserCaptureRollbackSnapshot>,
+    target_url: Option<&str>,
 ) -> LinuxBrowserCaptureReport {
     let plan = build_linux_browser_capture_plan(platform_status, policy);
     let verify_request = if action == LinuxBrowserCaptureAction::Verify {
-        Some(build_linux_browser_capture_verify_request(&plan))
+        Some(build_linux_browser_capture_verify_request(&plan, target_url))
     } else {
         None
     };
@@ -2814,6 +3042,7 @@ fn build_linux_browser_capture_launch_request(
 
 fn build_linux_browser_capture_verify_request(
     plan: &LinuxBrowserCapturePlan,
+    target_url: Option<&str>,
 ) -> LinuxBrowserCaptureVerifyRequest {
     LinuxBrowserCaptureVerifyRequest {
         proxy_host: plan.planned_proxy_host.clone(),
@@ -2822,8 +3051,33 @@ fn build_linux_browser_capture_verify_request(
             "http://{}:{}",
             plan.planned_proxy_host, plan.planned_proxy_port
         ),
-        probe: "tcp-connect-timeout".to_string(),
+        target_url: target_url.map(ToString::to_string),
+        probe: if target_url.is_some() {
+            "http-connect-target"
+        } else {
+            "tcp-connect-timeout"
+        }
+        .to_string(),
     }
+}
+
+fn build_linux_browser_capture_verify_command(target_url: Option<&str>) -> String {
+    let mut args = vec![
+        "networkcore-linux".to_string(),
+        "mitm".to_string(),
+        "browser-capture".to_string(),
+        "verify".to_string(),
+        "--confirm".to_string(),
+    ];
+    if let Some(target_url) = target_url {
+        args.push("--target-url".to_string());
+        args.push(target_url.to_string());
+    }
+
+    args.into_iter()
+        .map(|arg| shell_display_arg(&arg))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn build_linux_browser_capture_launch_command(
@@ -2910,12 +3164,15 @@ fn build_linux_browser_capture_session_plan_report(
     policy: &LinuxMitmPolicyStatus,
     blocked_operations: Vec<String>,
 ) -> LinuxBrowserCaptureSessionPlanReport {
+    let target_url = request.target_url;
+    let verify_command = build_linux_browser_capture_verify_command(target_url.as_deref());
+
     LinuxBrowserCaptureSessionPlanReport {
         status: "ready".to_string(),
         url_source: request.url_source,
         node_id,
         node_name,
-        target_url: request.target_url,
+        target_url,
         listen_host: request.listen_host.clone(),
         listen_port: request.listen_port,
         proxy_url,
@@ -2924,7 +3181,7 @@ fn build_linux_browser_capture_session_plan_report(
             request.listen_host, request.listen_port
         ),
         browser_command,
-        verify_command: "networkcore-linux mitm browser-capture verify --confirm".to_string(),
+        verify_command,
         plugin_engine: policy.engine.clone(),
         plugin_id: policy.plugin_id.clone(),
         plugin_version: policy.plugin_version.clone(),
@@ -3538,6 +3795,7 @@ fn parse_mitm_browser_capture_command(
         "verify" => {
             let options = parse_options(&args[1..])?;
             Ok(LinuxCliCommand::MitmBrowserCaptureVerify {
+                target_url: options.target_url,
                 confirm: options.confirm,
                 format: options.format,
             })
@@ -4060,6 +4318,9 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
                 "browser capture verify: {} verified={} proxy={} probe={}",
                 report.status, report.verified, report.request.proxy_url, report.request.probe
             ));
+            if let Some(target_url) = &report.request.target_url {
+                lines.push(format!("browser capture verify target URL: {target_url}"));
+            }
         }
     }
 
@@ -4449,6 +4710,7 @@ struct JsonBrowserCaptureVerifyRequest {
     proxy_host: String,
     proxy_port: u16,
     proxy_url: String,
+    target_url: Option<String>,
     probe: String,
 }
 
@@ -4458,6 +4720,7 @@ impl From<&LinuxBrowserCaptureVerifyRequest> for JsonBrowserCaptureVerifyRequest
             proxy_host: request.proxy_host.clone(),
             proxy_port: request.proxy_port,
             proxy_url: request.proxy_url.clone(),
+            target_url: request.target_url.clone(),
             probe: request.probe.clone(),
         }
     }

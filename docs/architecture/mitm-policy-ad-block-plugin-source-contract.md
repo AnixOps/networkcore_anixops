@@ -81,8 +81,10 @@ loaded plugin metadata without starting processes. There is also an explicit
 `launch --confirm` process-launch path that starts a
 dedicated browser profile through `BrowserCaptureProcessRunner` and reports pid,
 profile, proxy, optional target URL, command args, and plugin metadata. `verify --confirm` probes the
-planned local proxy endpoint through `BrowserCaptureEndpointProbe` and reports
-endpoint reachability plus plugin metadata, but does not prove live browser
+planned local proxy endpoint through `BrowserCaptureEndpointProbe`; `verify --confirm --target-url <url>`
+uses `probe=http-connect-target` to test whether the planned proxy can open a
+CONNECT tunnel to the target host:port and reports `target_reachable` plus
+plugin metadata, but does not prove live browser
 traffic capture or HTTPS MITM. There is still no CA generation/install/trust
 mutation workflow, no HTTPS decryption path, and no browser/system proxy
 mutation path.
@@ -132,7 +134,7 @@ Blocked until later phases:
   checks, uninstall, and rollback boundaries.
 - `MITM_BROWSER_CAPTURE_GATE`: currently plan-only through
   `mitm_status.browser_plan`, manual launch-plan output, redacted session-plan
-  output, optional target URL, explicit dedicated-profile launch output, explicit local proxy endpoint verify output, and
+  output, optional target URL, explicit dedicated-profile launch output, explicit local proxy endpoint verify output, target route verify output, and
   mutation-blocked `browser_capture` reports;
   later increments must add explicit browser/system proxy configuration, PAC or
   other capture strategy, live capture verification, and rollback boundaries.

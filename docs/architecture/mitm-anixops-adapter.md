@@ -196,7 +196,7 @@ dedicated 浏览器命令、可选 `--target-url`、`verify --confirm` 命令和
 并输出 `LinuxBrowserCaptureLaunchReport`、pid、profile、proxy、target URL、命令参数和插件元数据；
 `apply --confirm` 只记录 `BrowserCaptureAuthorization` 并返回 apply blocked，
 `rollback --snapshot <path>` 只保留 `BrowserCaptureRollbackSnapshot` 路径并返回 rollback blocked，
-`verify --confirm` 只探测计划本地代理端点 `http://127.0.0.1:7890` 是否可达；它不证明浏览器真实流量捕获、HTTPS MITM 或 rewrite 应用。未接线 endpoint probe 或更强 live capture probe 时仍返回 blocked。
+`verify --confirm` 只探测计划本地代理端点 `http://127.0.0.1:7890` 是否可达；传入 `--target-url <url>` 时只通过 `probe=http-connect-target` 检查计划代理能否对目标 host:port 打开 HTTP CONNECT 通路；它不证明浏览器真实流量捕获、HTTPS MITM 或 rewrite 应用。未接线 endpoint probe 或更强 live capture probe 时仍返回 blocked。
 该状态只代表命令面、策略诊断入口、证书生命周期计划、浏览器捕获计划、manual launch-plan、session-plan、dedicated-profile process launch 和 browser-capture blocked report 已存在，
 不代表 HTTPS MITM、证书安装、系统代理/浏览器 policy 写入或真实流量改写已可用。
 
@@ -247,6 +247,7 @@ dedicated 浏览器命令、可选 `--target-url`、`verify --confirm` 命令和
   插件元数据，不启动浏览器、不写 profile、不写系统状态。
 - `session-plan` 只输出脱敏订阅到本地代理、dedicated 浏览器、可选 target URL 和 verify 的命令计划，不启动 `sing-box`、不启动浏览器、不写 profile、不写系统状态。
 - `launch --confirm` 只启动 dedicated browser process，可把 `--target-url` 作为浏览器参数打开，不写 browser policy、system proxy、PAC、TUN、DNS、firewall 或 CA。
+- `verify --confirm --target-url <url>` 只输出 target route verify report，不证明浏览器真实流量或 HTTPS MITM。
 - 当前 gate 为 plan-only/mutation-blocked，不写入 browser policy、system proxy、PAC、TUN、DNS 或 firewall。
 - [Linux MITM Browser Capture Source Contract](linux-mitm-browser-capture-source-contract.md)
   已固定 `mitm-browser-capture-source-contract-status=active`、

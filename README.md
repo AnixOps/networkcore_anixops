@@ -98,7 +98,7 @@ P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成，当前阶
 - 当前阶段源：P4 Client And Platform Integration。
 - P3 是已完成历史基线，不再作为当前仓库阶段描述。
 - 当前最新已发布 artifact：`v0.1.0-alpha.7` GitHub Release 中的 Linux CLI tarball、sha256、manifest 和 manifest sha256；该二进制可用 `help` 命令表、`install-sing-box`、`run-url <ss://url>` foreground local proxy，以及 `mitm browser-capture launch-plan` 和 `mitm browser-capture launch --confirm` dedicated-profile browser launch。
-- 当前 main 源码状态：相对 `v0.1.0-alpha.7` release，后续 main 已继续加入 `mitm browser-capture verify --confirm` 本地代理端点探测合同、`mitm browser-capture session-plan <ss://url>` 会话计划和 `--target-url <url>` dedicated profile 打开目标页面参数；MITM status/diagnostics/certificate-plan/browser-plan policy-only 命令面，以及 `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify` 的 manual launch-plan、订阅到本地代理/浏览器/verify 会话计划、显式授权 dedicated-profile launch、本地代理端点 verify 与 blocked report 命令面已经进入 P4 源码边界。`verify --confirm`、`session-plan` 和 `--target-url` 要进入用户可下载 artifact，需要后续新 tag release 重新经过 GitHub Actions。
+- 当前 main 源码状态：相对 `v0.1.0-alpha.7` release，后续 main 已继续加入 `mitm browser-capture verify --confirm` 本地代理端点探测合同、`mitm browser-capture verify --confirm --target-url <url>` 目标 URL 代理通路探测、`mitm browser-capture session-plan <ss://url>` 会话计划和 `--target-url <url>` dedicated profile 打开目标页面参数；MITM status/diagnostics/certificate-plan/browser-plan policy-only 命令面，以及 `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify` 的 manual launch-plan、订阅到本地代理/浏览器/verify 会话计划、显式授权 dedicated-profile launch、本地代理端点/target route verify 与 blocked report 命令面已经进入 P4 源码边界。`verify --confirm`、`session-plan` 和 `--target-url` 要进入用户可下载 artifact，需要后续新 tag release 重新经过 GitHub Actions。
 - 当前未启用：live MITM、browser hijack、browser capture mutation、CA 生成/安装/信任 mutation、HTTP/TLS 解密改写数据面、daemon/service、TUN/DNS/firewall mutation。
 
 Linux CLI 二进制发布路径已打通：首个真实发布路径从 `v0.1.0-alpha.2` 开始，当前最新 GitHub Release 是
@@ -150,11 +150,11 @@ status/events/logs、reload、TUN/DNS mutation 和 MITM 真实流量处理仍是
 不解密 HTTPS，不修改浏览器/系统代理/PAC/TUN/DNS/firewall，也不把 rewrite plan 应用到真实流量。
 `networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify` 现在输出 `browser_capture` 机器字段；
 `launch-plan` 输出绑定已加载 `networkcore.adblock` 插件元数据和计划代理 URL 的手动 dedicated-profile 浏览器启动命令模板，但不启动浏览器、不写 profile 或系统状态；
-`session-plan <ss://url>` 解析单条订阅链接，输出脱敏 URL 来源、选中节点、本地代理地址、`run-url <subscription-url>` 启动命令模板、dedicated 浏览器命令、可选 `--target-url <url>` 目标页面、`verify --confirm` 命令和 `networkcore.adblock` 插件元数据；该路径不下载或启动 `sing-box`，不启动浏览器，不写系统代理、浏览器 policy、PAC、TUN、DNS、firewall 或 CA 状态；
+`session-plan <ss://url>` 解析单条订阅链接，输出脱敏 URL 来源、选中节点、本地代理地址、`run-url <subscription-url>` 启动命令模板、dedicated 浏览器命令、可选 `--target-url <url>` 目标页面、继承 target URL 的 `verify --confirm` 命令和 `networkcore.adblock` 插件元数据；该路径不下载或启动 `sing-box`，不启动浏览器，不写系统代理、浏览器 policy、PAC、TUN、DNS、firewall 或 CA 状态；
 `launch --confirm` 通过注入的 `BrowserCaptureProcessRunner` 启动一个带显式代理参数的 dedicated browser profile；传入 `--target-url <url>` 时会把目标页面作为浏览器参数打开，并输出 `launch_report`、pid、profile、proxy、target URL、命令参数和插件元数据；该路径不写系统代理、浏览器 policy、PAC、TUN、DNS、firewall 或 CA 状态，也不验证 live MITM；
 `apply --confirm` 只记录 `BrowserCaptureAuthorization` 并返回 apply blocked，
 `rollback --snapshot <path>` 只保留 `BrowserCaptureRollbackSnapshot` 路径并返回 rollback blocked，
-`verify --confirm` 通过注入的 `BrowserCaptureEndpointProbe` 检查计划本地代理端点 `http://127.0.0.1:7890` 是否可达，并输出 `verify_report`、proxy URL、probe 类型和插件元数据；该路径只验证本地代理端点，不验证浏览器真实流量、HTTPS MITM 或 rewrite 应用。
+`verify --confirm` 通过注入的 `BrowserCaptureEndpointProbe` 检查计划本地代理端点 `http://127.0.0.1:7890` 是否可达；传入 `--target-url <url>` 时会对目标 host:port 发起 HTTP CONNECT 探测，并输出 `verify_report`、proxy URL、target URL、probe 类型和插件元数据；该路径只验证本地代理端点或目标代理通路，不验证浏览器真实流量、HTTPS MITM 或 rewrite 应用。
 上述 `launch --confirm`、`verify --confirm` 和后续 browser-capture blocked report 已纳入当前 Linux CLI 源码边界；它们只启动 dedicated browser profile、探测本地代理端点或返回 blocked report，不代表已启用 live MITM。
 
 说明：下方历史清单中保留了 placeholder 阶段的字段名称；当前可执行状态以上面段落和 [ROADMAP.md](ROADMAP.md) 为准。
