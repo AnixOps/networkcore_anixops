@@ -6,8 +6,8 @@ use engine_singbox::{
     GithubSingBoxReleaseInstaller, SingBoxHttpClient, SingBoxInstallRequest,
     SingBoxLocalProxyConfigRequest, SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch,
     SingBoxTargetOs, DEFAULT_SING_BOX_ENGINE_ID, ENGINE_SINGBOX_CONFIG_RENDERED_CODE,
-    ENGINE_SINGBOX_DOWNLOAD_ASSET_SELECTED_CODE,
-    ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE, ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE,
+    ENGINE_SINGBOX_DOWNLOAD_ASSET_SELECTED_CODE, ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE,
+    ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE,
     ENGINE_SINGBOX_DOWNLOAD_LATEST_VERSION_RESOLVED_CODE,
 };
 use flate2::{write::GzEncoder, Compression};
@@ -134,15 +134,14 @@ fn latest_installer_downloads_verifies_and_extracts_sing_box_tarball() {
 
 #[test]
 fn renders_local_mixed_inbound_config_from_shadowsocks_node_catalog() {
-    let rendered = engine_singbox::render_sing_box_local_proxy_config(
-        &SingBoxLocalProxyConfigRequest {
+    let rendered =
+        engine_singbox::render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
             nodes: vec![shadowsocks_node()],
             selected_node_id: None,
             listen_host: "127.0.0.1".to_string(),
             listen_port: 7890,
-        },
-    )
-    .expect("shadowsocks node should render to sing-box config");
+        })
+        .expect("shadowsocks node should render to sing-box config");
 
     let json: serde_json::Value =
         serde_json::from_str(&rendered.json).expect("rendered config should be valid json");

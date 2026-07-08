@@ -1205,24 +1205,23 @@ where
             );
         }
     };
-    let generated_config = match render_sing_box_local_proxy_config(
-        &SingBoxLocalProxyConfigRequest {
+    let generated_config =
+        match render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
             nodes: catalog.nodes,
             selected_node_id: None,
             listen_host: listen_host.to_string(),
             listen_port,
-        },
-    ) {
-        Ok(config) => config,
-        Err(error) => {
-            return domain_error_response(
-                "run-url",
-                LinuxCliExitCode::ArgumentOrConfig,
-                DomainError::new(CLI_RUN_URL_CONFIG_FAILED_CODE, error.message),
-                SOURCE_CLI_SING_BOX,
-            );
-        }
-    };
+        }) {
+            Ok(config) => config,
+            Err(error) => {
+                return domain_error_response(
+                    "run-url",
+                    LinuxCliExitCode::ArgumentOrConfig,
+                    DomainError::new(CLI_RUN_URL_CONFIG_FAILED_CODE, error.message),
+                    SOURCE_CLI_SING_BOX,
+                );
+            }
+        };
     let target = match SingBoxTarget::current() {
         Ok(target) => target,
         Err(error) => {
@@ -1596,10 +1595,7 @@ fn sing_box_run_config_path(install_root: &std::path::Path, node_id: &str) -> st
         .join(format!("run-url-{}.json", sanitize_path_segment(node_id)))
 }
 
-fn write_sing_box_run_config(
-    path: &std::path::Path,
-    content: &str,
-) -> Result<(), ConfigReadError> {
+fn write_sing_box_run_config(path: &std::path::Path, content: &str) -> Result<(), ConfigReadError> {
     let parent = path
         .parent()
         .ok_or_else(|| ConfigReadError::new("sing-box config path has no parent directory"))?;

@@ -6,10 +6,10 @@
 //! release artifacts.
 
 use control_domain::{
-    Diagnostic, DiagnosticSeverity, DomainError, DomainResult, NodeDescriptor,
-    NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD, Protocol,
+    Diagnostic, DiagnosticSeverity, DomainError, DomainResult, NodeDescriptor, Protocol,
     ProxyEngineCapability, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
     ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
+    NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD,
 };
 use flate2::read::GzDecoder;
 use reqwest::blocking::Client;
@@ -39,8 +39,7 @@ pub const ENGINE_SINGBOX_CONFIG_TRANSLATION_READY_CODE: &str =
 pub const ENGINE_SINGBOX_CONFIG_NODE_MISSING_CODE: &str = "engine.singbox.config.node_missing";
 pub const ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE: &str =
     "engine.singbox.config.node_unsupported";
-pub const ENGINE_SINGBOX_CONFIG_SECRET_MISSING_CODE: &str =
-    "engine.singbox.config.secret_missing";
+pub const ENGINE_SINGBOX_CONFIG_SECRET_MISSING_CODE: &str = "engine.singbox.config.secret_missing";
 pub const ENGINE_SINGBOX_CONFIG_RENDERED_CODE: &str = "engine.singbox.config.rendered";
 pub const ENGINE_SINGBOX_DOWNLOAD_TARGET_UNSUPPORTED_CODE: &str =
     "engine.singbox.download.target_unsupported";
@@ -72,8 +71,7 @@ pub const ENGINE_SINGBOX_DOWNLOAD_BINARY_ALREADY_PRESENT_CODE: &str =
 pub const ENGINE_SINGBOX_DOWNLOAD_BINARY_PERMISSION_FAILED_CODE: &str =
     "engine.singbox.download.binary_permission_failed";
 pub const ENGINE_SINGBOX_RUNTIME_UNWIRED_CODE: &str = "engine.singbox.runtime.unwired";
-pub const ENGINE_SINGBOX_PROCESS_START_FAILED_CODE: &str =
-    "engine.singbox.process.start_failed";
+pub const ENGINE_SINGBOX_PROCESS_START_FAILED_CODE: &str = "engine.singbox.process.start_failed";
 pub const ENGINE_SINGBOX_PROCESS_STARTED_CODE: &str = "engine.singbox.process.started";
 pub const ENGINE_SINGBOX_PROCESS_EXITED_CODE: &str = "engine.singbox.process.exited";
 

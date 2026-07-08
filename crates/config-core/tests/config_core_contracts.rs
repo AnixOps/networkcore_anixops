@@ -10,10 +10,10 @@ use config_core::{
     SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
 };
 use control_domain::{
-    ConfigurationService, Diagnostic, ListenerKind, ListenerNetwork, ListenerRoute,
-    MetadataEntry, NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD,
+    ConfigurationService, Diagnostic, ListenerKind, ListenerNetwork, ListenerRoute, MetadataEntry,
     OperatingSystem, PlatformCapabilities, Protocol, RawSubscription, RouteAction, SchemaVersion,
-    SubscriptionService, SubscriptionSource,
+    SubscriptionService, SubscriptionSource, NODE_METADATA_SHADOWSOCKS_METHOD,
+    NODE_METADATA_SHADOWSOCKS_PASSWORD,
 };
 
 #[test]
@@ -157,9 +157,7 @@ fn parses_base64_plaintext_link_list_subscription() {
         content: "c3M6Ly9ZV1Z6TFRJMU5pMW5ZMjA2WmpRek16QmxaV1V0TVROaU9TMDBaakEzTFdKbFl6a3RaRFJpTnpRME1UUXhOVEF6QDgyLjQ3LjM0Ljk5OjExMTExI0hLCg==".to_string(),
     };
 
-    let document = service
-        .parse(&raw)
-        .expect("base64 link list should parse");
+    let document = service.parse(&raw).expect("base64 link list should parse");
 
     assert_eq!(document.nodes.len(), 1);
     assert_eq!(document.nodes[0].name, "HK");

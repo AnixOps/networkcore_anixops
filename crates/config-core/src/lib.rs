@@ -8,10 +8,10 @@ use base64::Engine as _;
 use control_domain::{
     ConfigSnapshot, ConfigurationService, Diagnostic, DiagnosticSeverity, DomainError,
     DomainResult, Endpoint, ListenerBind, ListenerDescriptor, ListenerKind, ListenerNetwork,
-    ListenerRoute, Metadata, MetadataEntry, NodeCatalog, NodeDescriptor,
-    NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD,
-    NODE_METADATA_SOURCE_FORMAT, PlatformCapabilities, Protocol, RawSubscription, RouteAction,
-    RuleSet, SchemaVersion, SubscriptionDocument, SubscriptionService, SubscriptionSource,
+    ListenerRoute, Metadata, MetadataEntry, NodeCatalog, NodeDescriptor, PlatformCapabilities,
+    Protocol, RawSubscription, RouteAction, RuleSet, SchemaVersion, SubscriptionDocument,
+    SubscriptionService, SubscriptionSource, NODE_METADATA_SHADOWSOCKS_METHOD,
+    NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SOURCE_FORMAT,
 };
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
