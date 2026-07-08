@@ -219,7 +219,10 @@ mod tests {
         unsafe {
             let engine = anixops_engine_new();
             assert!(!engine.is_null());
-            assert_eq!(anixops_engine_load_config(engine, config.as_ptr()), ANIXOPS_OK);
+            assert_eq!(
+                anixops_engine_load_config(engine, config.as_ptr()),
+                ANIXOPS_OK
+            );
             assert_eq!(anixops_engine_rewrite_rule_count(engine), 1);
             assert_eq!(anixops_engine_mitm_pattern_count(engine), 1);
             anixops_engine_free(engine);

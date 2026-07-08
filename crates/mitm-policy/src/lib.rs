@@ -196,8 +196,7 @@ impl AnixOpsMitmPolicyEngine {
             unsafe { sys::anixops_engine_mitm_pattern_count(self.raw.as_ptr()) };
         let rewrite_rule_count =
             unsafe { sys::anixops_engine_rewrite_rule_count(self.raw.as_ptr()) };
-        let script_rule_count =
-            unsafe { sys::anixops_engine_script_rule_count(self.raw.as_ptr()) };
+        let script_rule_count = unsafe { sys::anixops_engine_script_rule_count(self.raw.as_ptr()) };
         let argument_count = unsafe { sys::anixops_engine_argument_count(self.raw.as_ptr()) };
 
         Ok(MitmPolicyLoadReport {
@@ -252,9 +251,7 @@ impl AnixOpsMitmPolicyEngine {
             decision: match out.decision {
                 sys::AnixOpsMitmDecisionType::Bypass => MitmPolicyMitmDecisionType::Bypass,
                 sys::AnixOpsMitmDecisionType::Intercept => MitmPolicyMitmDecisionType::Intercept,
-                sys::AnixOpsMitmDecisionType::RejectQuic => {
-                    MitmPolicyMitmDecisionType::RejectQuic
-                }
+                sys::AnixOpsMitmDecisionType::RejectQuic => MitmPolicyMitmDecisionType::RejectQuic,
             },
             reason: format!("{:?}", out.reason),
             matched_pattern: ffi_string(&out.matched_pattern),
@@ -304,11 +301,7 @@ impl AnixOpsMitmPolicyEngine {
         for index in 0..count {
             let mut out = MaybeUninit::<sys::AnixOpsRuleDiagnostic>::uninit();
             let status = unsafe {
-                sys::anixops_engine_copy_rule_diagnostic(
-                    self.raw.as_ptr(),
-                    index,
-                    out.as_mut_ptr(),
-                )
+                sys::anixops_engine_copy_rule_diagnostic(self.raw.as_ptr(), index, out.as_mut_ptr())
             };
             if status != sys::ANIXOPS_OK {
                 continue;

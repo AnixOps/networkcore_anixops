@@ -95,10 +95,9 @@ fn manifest_without_hooks_returns_stable_diagnostic() {
         hooks: Vec::new(),
     });
 
-    assert!(diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.code == MITM_POLICY_MANIFEST_HOOK_MISSING_CODE
-            && diagnostic.severity == DiagnosticSeverity::Error));
+    assert!(diagnostics.iter().any(|diagnostic| diagnostic.code
+        == MITM_POLICY_MANIFEST_HOOK_MISSING_CODE
+        && diagnostic.severity == DiagnosticSeverity::Error));
 }
 
 #[test]
@@ -131,9 +130,7 @@ fn adapter_rejects_ungranted_permissions() {
 
 fn assert_diagnostic(diagnostics: &[control_domain::Diagnostic], code: &str) {
     assert!(
-        diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.code == code),
+        diagnostics.iter().any(|diagnostic| diagnostic.code == code),
         "expected diagnostic {code}, got {diagnostics:?}"
     );
 }
