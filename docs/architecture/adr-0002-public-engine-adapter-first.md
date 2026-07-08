@@ -6,9 +6,10 @@ Accepted.
 
 ## Context
 
-`networkcore-linux v0.1.0-alpha.2` proves that the repository can publish a Linux
-CLI artifact and run the first `engine-native` loopback SOCKS skeleton through
-GitHub Actions. It does not provide native support for VLESS, Shadowsocks,
+`networkcore-linux v0.1.0-alpha.5` is the latest published Linux CLI artifact
+at the time of this ADR status refresh. The release path proves that the
+repository can publish a Linux CLI artifact through GitHub Actions. It does not
+provide native support for VLESS, Shadowsocks,
 Trojan, VMess, Hysteria, TUIC, Reality, WebSocket, gRPC, UDP relay, or full DNS
 policy execution.
 

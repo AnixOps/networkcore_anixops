@@ -97,13 +97,14 @@ P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成，当前阶
 
 - 当前阶段源：P4 Client And Platform Integration。
 - P3 是已完成历史基线，不再作为当前仓库阶段描述。
-- 当前已发布 artifact 可用：GitHub Actions 发布的 Linux CLI artifact、`help` 命令表、`install-sing-box`、`run-url <ss://url>` foreground local proxy、MITM status/diagnostics/certificate-plan/browser-plan policy-only 命令面。
-- 当前仓库源码新增：`mitm browser-capture plan/apply/rollback/verify` 的 blocked report 命令面；进入可下载二进制仍需要下一次 GitHub Actions tag release。
+- 当前最新已发布 artifact：`v0.1.0-alpha.5` GitHub Release 中的 Linux CLI tarball、sha256、manifest 和 manifest sha256；该二进制可用 `help` 命令表、`install-sing-box` 和 `run-url <ss://url>` foreground local proxy。
+- 当前仓库源码新增：MITM status/diagnostics/certificate-plan/browser-plan policy-only 命令面，以及 `mitm browser-capture plan/apply/rollback/verify` 的 blocked report 命令面；这些增量晚于 `v0.1.0-alpha.5`，进入可下载二进制仍需要下一次 GitHub Actions tag release。
 - 当前未启用：live MITM、browser hijack、browser capture mutation、CA 生成/安装/信任 mutation、HTTP/TLS 解密改写数据面、daemon/service、TUN/DNS/firewall mutation。
 
-Linux CLI 二进制发布路径已打通：`v0.1.0-alpha.2` 由 GitHub Actions 构建并发布
-`networkcore-linux` Linux tarball、sha256、manifest 和 manifest sha256，release workflow 同时完成同 commit CI gate、
-artifact checksum、manifest、GitHub artifact attestation、publish eligibility 和 GitHub Release asset 上传。
+Linux CLI 二进制发布路径已打通：首个真实发布路径从 `v0.1.0-alpha.2` 开始，当前最新 GitHub Release 是
+`v0.1.0-alpha.5`，由 GitHub Actions 构建并发布 `networkcore-linux` Linux tarball、sha256、manifest
+和 manifest sha256，release workflow 同时完成同 commit CI gate、artifact checksum、manifest、
+GitHub artifact attestation、publish eligibility 和 GitHub Release asset 上传。
 当前 Linux artifact release-state consistency marker 为
 `linux-artifact-release-state=confirmed-release-path`：`docs/manual-intervention.md` 中的 license/NOTICE
 状态已是 `confirmed`，但该状态只解除人工 license/NOTICE 门禁；后续 Linux tag release 仍必须继续通过
@@ -114,7 +115,8 @@ P3 runtime baseline 已固化为公有执行内核 adapter 优先：NetworkCore 
 `sing-box` 等公有执行内核先承担 VLESS、Shadowsocks、Trojan、VMess、Hysteria 等协议数据面。
 `engine-native` 继续保留为自研执行内核实验线，但私有协议实现暂缓，直到 adapter 路线暴露明确缺口。
 
-当前 P4 状态：Linux CLI artifact 已经通过 GitHub Actions tag release workflow 发布到 GitHub Release；
+当前 P4 状态：Linux CLI artifact 已经通过 GitHub Actions tag release workflow 发布到 GitHub Release，
+最新已发布版本是 `v0.1.0-alpha.5`；
 Linux 仍是手动解压和 foreground 运行模型，不安装 daemon/service，不修改 TUN/DNS/firewall/certificate trust store。
 iOS 仍只允许 `apps/ios/README.md` source tree governance placeholder 和 upload blocked gates，
 不包含 Swift/Xcode/Network Extension target、签名、TestFlight/App Store upload 或 iOS release asset。
@@ -149,6 +151,7 @@ status/events/logs、reload、TUN/DNS mutation 和 MITM 真实流量处理仍是
 `apply --confirm` 只记录 `BrowserCaptureAuthorization` 并返回 apply blocked，
 `rollback --snapshot <path>` 只保留 `BrowserCaptureRollbackSnapshot` 路径并返回 rollback blocked，
 `verify` 返回 live capture probe blocked，全部都不写入系统或浏览器状态。
+上述 MITM CLI command gate 和 browser-capture blocked report 是当前源码状态，晚于 `v0.1.0-alpha.5`。
 
 说明：下方历史清单中保留了 placeholder 阶段的字段名称；当前可执行状态以上面段落和 [ROADMAP.md](ROADMAP.md) 为准。
 
