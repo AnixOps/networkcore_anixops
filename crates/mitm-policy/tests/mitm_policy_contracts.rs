@@ -5,8 +5,7 @@ use control_domain::{
 use mitm_policy::{
     builtin_ad_block_plugin_package, AnixOpsMitmPluginService, AnixOpsMitmPolicyEngine,
     MitmPolicyHeaderField, MitmPolicyMitmDecisionType, MitmPolicyPhase, MitmPolicyRewriteAction,
-    MitmPolicyScriptKind,
-    MITM_POLICY_AD_BLOCK_PLUGIN_ID, MITM_POLICY_CONFIG_LOADED_CODE,
+    MitmPolicyScriptKind, MITM_POLICY_AD_BLOCK_PLUGIN_ID, MITM_POLICY_CONFIG_LOADED_CODE,
     MITM_POLICY_CONFIG_PARSE_FAILED_CODE, MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE,
     MITM_POLICY_MANIFEST_HOOK_MISSING_CODE,
 };
@@ -101,7 +100,10 @@ http-response ^https:\/\/api\.networkcore\.example\/v1 requires-body=1, timeout=
     assert_eq!(body, "to=1");
     assert!(chain.rewritten);
     assert_eq!(chain.rewrites.len(), 1);
-    assert_eq!(chain.rewrites[0].action, MitmPolicyRewriteAction::BodyMutation);
+    assert_eq!(
+        chain.rewrites[0].action,
+        MitmPolicyRewriteAction::BodyMutation
+    );
 
     let script = engine
         .evaluate_script(

@@ -270,14 +270,9 @@ unsafe extern "C" {
         engine: *mut AnixOpsEngine,
         line: *const c_char,
     ) -> c_int;
-    pub fn anixops_engine_add_script_rule(
-        engine: *mut AnixOpsEngine,
-        line: *const c_char,
-    ) -> c_int;
-    pub fn anixops_engine_add_argument(
-        engine: *mut AnixOpsEngine,
-        line: *const c_char,
-    ) -> c_int;
+    pub fn anixops_engine_add_script_rule(engine: *mut AnixOpsEngine, line: *const c_char)
+        -> c_int;
+    pub fn anixops_engine_add_argument(engine: *mut AnixOpsEngine, line: *const c_char) -> c_int;
     pub fn anixops_engine_set_argument_value(
         engine: *mut AnixOpsEngine,
         name: *const c_char,

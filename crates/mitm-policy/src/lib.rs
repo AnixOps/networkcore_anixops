@@ -818,9 +818,7 @@ fn rewrite_result_from_sys(result: &sys::AnixOpsRewriteResult) -> MitmPolicyRewr
     }
 }
 
-fn body_rewrite_chain_from_sys(
-    chain: &sys::AnixOpsBodyRewriteChain,
-) -> MitmPolicyBodyRewriteChain {
+fn body_rewrite_chain_from_sys(chain: &sys::AnixOpsBodyRewriteChain) -> MitmPolicyBodyRewriteChain {
     let count = chain.rewrite_count.min(sys::ANIXOPS_BODY_CHAIN_CAP);
     let rewrites = chain
         .rewrites
@@ -850,9 +848,7 @@ fn header_rewrite_result_from_sys(
     }
 }
 
-fn header_list_to_sys(
-    headers: &[MitmPolicyHeaderField],
-) -> DomainResult<sys::AnixOpsHeaderList> {
+fn header_list_to_sys(headers: &[MitmPolicyHeaderField]) -> DomainResult<sys::AnixOpsHeaderList> {
     if headers.len() > sys::ANIXOPS_HEADER_LIST_CAP {
         return Err(DomainError::new(
             MITM_POLICY_HEADER_LIST_CAPACITY_CODE,
