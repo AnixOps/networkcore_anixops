@@ -22,30 +22,30 @@ use networkcore_linux::{
     handle_entrypoint_with_runtime_and_lifecycle,
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
     handle_foreground_lifecycle_with_runtime_stop, handle_install_sing_box,
-    handle_mitm_browser_plan, handle_mitm_certificate_plan, handle_mitm_status,
-    handle_parse_error, handle_prepare_config, handle_run_url_with_sing_box, handle_start,
-    handle_status, handle_stop, parse_args, render_response, ConfigReadError, ConfigReader,
+    handle_mitm_browser_plan, handle_mitm_certificate_plan, handle_mitm_status, handle_parse_error,
+    handle_prepare_config, handle_run_url_with_sing_box, handle_start, handle_status, handle_stop,
+    parse_args, render_response, ConfigReadError, ConfigReader,
     CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxCliCommand, LinuxCliExitCode,
     OutputFormat, UnavailableForegroundLifecycleHost, UnavailableProxyEngineService,
     CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
     CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE, CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE,
-    CLI_MITM_BROWSER_PLAN_READY_CODE,
-    CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE, CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE,
-    CLI_MITM_CERTIFICATE_PLAN_READY_CODE, CLI_MITM_CLI_GATE_PARTIAL_CODE,
-    CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE, CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE,
-    CLI_START_FOREGROUND_ONLY_CODE, CLI_START_LIFECYCLE_FAILED_CODE,
-    CLI_START_LIFECYCLE_HOST_MISSING_CODE, CLI_START_LIFECYCLE_INTERRUPTED_CODE,
-    CLI_START_PLATFORM_DENIED_CODE, CLI_START_RUNTIME_STOP_FAILED_CODE,
-    CLI_STATUS_NO_RUNTIME_CONTEXT_CODE, CLI_STATUS_PLATFORM_ONLY_CODE,
-    CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID, MITM_BROWSER_HIJACK_STATUS,
+    CLI_MITM_BROWSER_PLAN_READY_CODE, CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE,
+    CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE, CLI_MITM_CERTIFICATE_PLAN_READY_CODE,
+    CLI_MITM_CLI_GATE_PARTIAL_CODE, CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE,
+    CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE, CLI_START_FOREGROUND_ONLY_CODE,
+    CLI_START_LIFECYCLE_FAILED_CODE, CLI_START_LIFECYCLE_HOST_MISSING_CODE,
+    CLI_START_LIFECYCLE_INTERRUPTED_CODE, CLI_START_PLATFORM_DENIED_CODE,
+    CLI_START_RUNTIME_STOP_FAILED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
+    CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
     MITM_BROWSER_CAPTURE_GATE, MITM_BROWSER_CAPTURE_GATE_STATUS, MITM_BROWSER_CAPTURE_MODE,
     MITM_BROWSER_CAPTURE_MUTATION_READY, MITM_BROWSER_CAPTURE_PROXY_HOST,
-    MITM_BROWSER_CAPTURE_PROXY_PORT, MITM_BROWSER_PLAN_STATUS, MITM_CERTIFICATE_LIFECYCLE_GATE,
-    MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS, MITM_CERTIFICATE_MUTATION_READY,
-    MITM_CERTIFICATE_PLAN_STATUS, MITM_CLI_COMMAND_GATE, MITM_CLI_COMMAND_GATE_STATUS,
-    MITM_HTTP_TLS_DATA_PLANE_GATE, MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS, MITM_USER_FACING_STAGE,
+    MITM_BROWSER_CAPTURE_PROXY_PORT, MITM_BROWSER_HIJACK_STATUS, MITM_BROWSER_PLAN_STATUS,
+    MITM_CERTIFICATE_LIFECYCLE_GATE, MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS,
+    MITM_CERTIFICATE_MUTATION_READY, MITM_CERTIFICATE_PLAN_STATUS, MITM_CLI_COMMAND_GATE,
+    MITM_CLI_COMMAND_GATE_STATUS, MITM_HTTP_TLS_DATA_PLANE_GATE,
+    MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS, MITM_USER_FACING_STAGE,
 };
 #[cfg(unix)]
 use networkcore_linux::{
@@ -98,9 +98,7 @@ fn parses_help_command_and_renders_command_table() {
     assert!(rendered.contains("NetworkCore Linux CLI"));
     assert!(rendered.contains("install-sing-box"));
     assert!(rendered.contains("run-url"));
-    assert!(rendered.contains(
-        "mitm [status|diagnostics|certificate-plan|browser-plan]"
-    ));
+    assert!(rendered.contains("mitm [status|diagnostics|certificate-plan|browser-plan]"));
     assert!(rendered.contains("sing-box install"));
 }
 
@@ -429,7 +427,10 @@ fn mitm_status_loads_builtin_policy_and_reports_deferred_gates() {
         MITM_BROWSER_CAPTURE_MUTATION_READY
     );
     assert_eq!(mitm.browser_plan.current_capture, "not_configured");
-    assert_eq!(mitm.browser_plan.planned_capture_mode, MITM_BROWSER_CAPTURE_MODE);
+    assert_eq!(
+        mitm.browser_plan.planned_capture_mode,
+        MITM_BROWSER_CAPTURE_MODE
+    );
     assert_eq!(
         mitm.browser_plan.planned_proxy_host,
         MITM_BROWSER_CAPTURE_PROXY_HOST
