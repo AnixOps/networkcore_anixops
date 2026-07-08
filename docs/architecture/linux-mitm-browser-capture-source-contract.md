@@ -16,6 +16,10 @@ MITM_BROWSER_CAPTURE_GATE=plan-only/mutation-blocked
 `mitm_status.browser_plan`、`browser_capture` 机器字段和显式授权的本地代理端点 verify，但还没有用户可启用的 live browser capture，
 也没有浏览器/系统代理写入、PAC 写入、TUN/DNS/firewall mutation 或回滚实现。
 
+发布边界：当前最新用户可下载 Linux artifact 是 `v0.1.0-alpha.7`；本文描述 current `main`
+源码合同。`verify --confirm` 等 tag 之后的 main 增量需要后续新 tag release 通过 GitHub Actions
+后才会进入 GitHub Release asset。
+
 本合同的目标是先把后续源码边界固定下来，避免浏览器劫持功能直接写入用户系统状态而缺少显式授权、
 快照、回滚和 CI governance。
 

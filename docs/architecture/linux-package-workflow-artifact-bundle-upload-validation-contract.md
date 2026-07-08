@@ -4,7 +4,7 @@
 
 
 本文定义首个 Linux `package-linux` job 在未来 manifest checksum sidecar 生成后，
-上传同一 release run workflow artifact bundle 前必须满足的验证合同。当前仍是 placeholder；
+上传同一 release run workflow artifact bundle 前必须满足的验证合同。历史 placeholder 阶段曾是 contract-only；
 本文只固定 bundle 文件集、来源目录、artifact 名称、retention、同一 run 边界和 release asset
 继续阻断状态，不定义 `package-linux` job、不构建、不打包、不上传 workflow artifact、不发布
 GitHub Release asset。
@@ -47,7 +47,7 @@ GitHub Release asset。
 [Linux Package Publish Eligibility Execution Validation Contract](linux-package-publish-eligibility-execution-validation-contract.md)、
 runner/toolchain/target contract、release policy 认可的 version 和 release workflow 中的显式常量。
 
-当前 placeholder 固定为：
+历史 placeholder 固定为：
 
 | 字段 | 值 |
 | --- | --- |
@@ -75,7 +75,7 @@ runner/toolchain/target contract、release policy 认可的 version 和 release 
 | `package_workflow_artifact_bundle_upload_next_action` | `attestation-after-workflow-artifact-bundle` |
 
 `blocked-placeholder` 表示 release workflow 已记录未来 workflow artifact bundle upload 的验证要求，
-但当前 release 仍不得创建 `package-linux` job、调用 `actions/upload-artifact` 或上传 release asset。
+但历史 placeholder release 仍不得创建 `package-linux` job、调用 `actions/upload-artifact` 或上传 release asset。
 
 ## Future Workflow Artifact Upload
 
@@ -151,7 +151,7 @@ release asset。
 
 ## Release Workflow 边界
 
-当前 placeholder release 只能：
+历史 placeholder release 只能：
 
 - 检查本文档存在和标题。
 - 检查本文档包含 current placeholder fields、source dir、required files、future workflow
@@ -199,7 +199,7 @@ release asset。
 - release placeholder 和 release summary 输出 workflow artifact bundle upload status、required job、
   manifest checksum blocked、source dir、bundle name、retention days、required files、same-run requirement、
   upload action blocked、release asset blocked、publish job not-defined 和 next action。
-- 当前不生成 artifact、不定义 `package-linux`、不定义 `publish-github-release`、不定义
+- 历史 placeholder 不生成 artifact、不定义 `package-linux`、不定义 `publish-github-release`、不定义
   `attest-linux`、不调用 `actions/upload-artifact`、不上传 workflow artifact、不上传 release asset、
   不在本机执行测试、构建、打包或发布。
 

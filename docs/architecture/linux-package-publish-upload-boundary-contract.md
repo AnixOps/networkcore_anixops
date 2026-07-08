@@ -129,7 +129,7 @@ maintainer 上传文件、旧 run artifact、不同 commit artifact、不同 bra
 13. `release-summary` 或等价 post-publish summary 输出 release asset URL、checksum、manifest、CI run、release run、签名/证明
     状态和回滚字段。
 
-当前 placeholder release 不执行第 4 步及之后的任何真实上传步骤。
+历史 placeholder release 不执行第 4 步及之后的任何真实上传步骤。
 
 ## Rejection Rules
 

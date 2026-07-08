@@ -196,7 +196,7 @@ GitHub Release creation 或 release asset upload 之前：
 - `linux-artifact-readiness`、release placeholder 和 release summary 输出 API implementation plan status、required
   permission、runs endpoint、jobs endpoint、query filters、summary job、manual input blocked、`package-linux` not-defined、
   workflow artifact blocked 和 release asset blocked 状态。
-- 当前不生成 artifact、不定义 `package-linux`、不定义 `attest-linux`、不定义
+- 历史 placeholder 不生成 artifact、不定义 `package-linux`、不定义 `attest-linux`、不定义
   `publish-eligibility-gate`、不定义 `publish-github-release`、不定义 `post-release-summary`、不创建
   GitHub Release、不上传 workflow artifact、不上传 release asset、不在本机执行测试、构建、打包或发布。
 

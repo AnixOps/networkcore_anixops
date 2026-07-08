@@ -250,6 +250,9 @@ DNS 配置进入前应继续保守：
 33. 已为 `networkcore-linux start` 前台 lifecycle host 补充 signal/interruption 处理合同。
 34. 已为 `CurrentProcessForegroundLifecycleHost` 接入真实 Unix OS signal/interruption source。
 35. 已为前台 lifecycle interruption 后的 runtime stop/release 诊断聚合补充显式合同。
+    以下 36-49 保留当时 Linux artifact placeholder 阶段的历史记录；当前状态以第 50 条、
+    README、ROADMAP、TODO 和 Release Strategy 的 `linux-artifact-release-state=confirmed-release-path`
+    为准。
 36. 已在 Linux artifact readiness/release gate 中纳入 foreground stop/release 合同检查，并继续保持 license/NOTICE 未确认时不生成 `package-linux` artifact。
 37. 已在不生成 artifact 的前提下补充首个 Linux `package-linux` artifact manifest/metadata 输出合同设计。
 38. 已补充 Linux artifact license/NOTICE confirmation source contract 和 pending marker，继续不生成 artifact。

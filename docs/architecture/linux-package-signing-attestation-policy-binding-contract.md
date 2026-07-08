@@ -85,7 +85,7 @@ manifest 设计和 publish/upload boundary。
 }
 ```
 
-当前 placeholder 不生成 manifest，只能输出 blocked 状态：
+历史 placeholder 不生成 manifest，只能输出 blocked 状态：
 
 ```json
 {
@@ -101,7 +101,7 @@ manifest 设计和 publish/upload boundary。
 
 `provenance_file=github-artifact-attestation` 表示 provenance 来源是 GitHub artifact attestation
 记录，而不是当前仓库内的静态文件。真实 release summary 必须输出可验证的 attestation/provenance
-引用；当前 placeholder 只能输出 blocked 状态。
+引用；历史 placeholder 只能输出 blocked 状态。
 
 ## Job Boundary
 
@@ -119,7 +119,7 @@ manifest 设计和 publish/upload boundary。
 8. 只有 `package_attestation_status=attested` 且 provenance 引用可验证时，才允许上传
    GitHub Release assets。
 
-当前 placeholder release 不执行第 1 步及之后的任何真实 signing、attestation、provenance 或
+历史 placeholder release 不执行第 1 步及之后的任何真实 signing、attestation、provenance 或
 upload 步骤。
 
 ## Rejection Rules

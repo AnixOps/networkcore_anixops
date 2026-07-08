@@ -20,8 +20,8 @@ artifact manifest 和 metadata 输出合同。它承接
 [Linux Package Release Notes Rollback Execution Validation Contract](linux-package-release-notes-rollback-execution-validation-contract.md)、
 [Linux Package Publish Eligibility Aggregate Contract](linux-package-publish-eligibility-aggregate-contract.md)、
 [Linux Package Publish Eligibility Execution Validation Contract](linux-package-publish-eligibility-execution-validation-contract.md) 和
-[Release Strategy](../release-strategy.md)。当前仓库仍不生成 Linux artifact；
-本文件只定义后续 packaging job 的可检查字段。
+[Release Strategy](../release-strategy.md)。当前仓库的 Linux artifact release path 已激活；
+本文件定义当前和后续 `package-linux` job 必须持续输出、校验和发布的 manifest 字段。
 
 评估时间：2026-07-07。
 
@@ -30,12 +30,11 @@ artifact manifest 和 metadata 输出合同。它承接
 - 为首个 `networkcore-linux` Linux 压缩包定义 sidecar manifest 文件边界。
 - 让 release summary、checksum、签名/证明和回滚字段有一个稳定、机器可读的来源。
 - 避免 `package-linux` 只上传二进制或压缩包而缺少可审计 metadata。
-- 在 license/NOTICE 人工确认完成前继续阻止真实 `package-linux` job。
+- 在 license/NOTICE marker 缺失、非法或回退到 pending 时阻止真实 `package-linux` job。
 
 ## 非目标
 
-- 不实现 `package-linux` job。
-- 不构建、打包、签名、证明或上传 artifact。
+- 不允许在本机实现、构建、打包、签名、证明或上传 artifact；这些步骤只能由 GitHub Actions release workflow 执行。
 - 不定义 `.deb`、`.rpm`、AppImage、container image 或发行版仓库 metadata。
 - 不把 runner 本地绝对路径、secret、token、证书私钥、配置文件内容或用户环境信息写入 manifest。
 
@@ -258,7 +257,7 @@ Required Archive Contents 保持一致：
 
 缺少任一字段时，release workflow 必须失败，不得上传 Linux artifact。
 
-当前 placeholder release 不生成 manifest 文件，但必须在 `release-placeholder` 和
+历史 placeholder release 不生成 manifest 文件，但必须在 `release-placeholder` 和
 `release-summary` 中提前列出 manifest output contract，让后续真实 `package-linux`
 无法绕过 `artifact_manifest_name`、`artifact_manifest_path`、
 `artifact_manifest_checksum_file` 和 `artifact_manifest_checksum_value` 字段。

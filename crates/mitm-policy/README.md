@@ -32,6 +32,11 @@ not generate or install a CA, decrypt HTTPS traffic, write browser/system proxy
 state, prove live browser traffic capture, or apply rewrite plans to live
 traffic.
 
+Release/source split: `v0.1.0-alpha.7` is the latest published Linux artifact,
+while this README describes current `main` source. Source-only MITM CLI
+increments after that tag require a later tag release before users can download
+them from GitHub Releases.
+
 Required gates before user-facing MITM:
 
 - `MITM_CLI_COMMAND_GATE`: partially active for status, diagnostics,

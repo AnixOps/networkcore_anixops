@@ -9,6 +9,7 @@ placeholder/blocked 语境时，以 README、ROADMAP、TODO 和对应 source con
 
 ### Changed
 
+- README、ROADMAP、TODO、Release Strategy 和 Linux artifact 合同文档进一步拆清当前 P4 状态、最新已发布 `v0.1.0-alpha.7` artifact、main 源码中后续 `mitm browser-capture verify --confirm` 增量，以及历史 placeholder 合同字段的审计语境；P3 仅保留为 completed baseline。
 - README、ROADMAP、TODO 和相关架构文档现在把阶段入口进一步固定为 P4 Client And Platform Integration；P3 只作为 completed baseline 或历史条目保留，不再作为当前仓库阶段描述。
 - README 和 TODO 现在把最新已发布 Linux artifact 同步为 `v0.1.0-alpha.7`，并明确 `mitm browser-capture launch --confirm` 已进入当前 Linux CLI artifact 边界，但只启动 dedicated browser profile，不启用 live MITM 或系统代理 mutation。
 - Linux artifact release 状态现在统一为 `linux-artifact-release-state=confirmed-release-path`：Release Strategy、Linux license/NOTICE confirmation contract、transition validation contract、pre-release design、manual intervention marker、README、ROADMAP 和 TODO 都记录 license/NOTICE 已 confirmed，但 Linux tag release 仍必须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates。

@@ -98,7 +98,7 @@ P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成，当前阶
 - 当前阶段源：P4 Client And Platform Integration。
 - P3 是已完成历史基线，不再作为当前仓库阶段描述。
 - 当前最新已发布 artifact：`v0.1.0-alpha.7` GitHub Release 中的 Linux CLI tarball、sha256、manifest 和 manifest sha256；该二进制可用 `help` 命令表、`install-sing-box`、`run-url <ss://url>` foreground local proxy，以及 `mitm browser-capture launch-plan` 和 `mitm browser-capture launch --confirm` dedicated-profile browser launch。
-- 当前仓库源码状态：MITM status/diagnostics/certificate-plan/browser-plan policy-only 命令面，以及 `mitm browser-capture plan/launch-plan/launch/apply/rollback/verify` 的 manual launch-plan、显式授权 dedicated-profile launch、本地代理端点 verify 与 blocked report 命令面已经进入 P4 源码边界；live MITM、系统/浏览器代理 mutation 和 HTTP/TLS 数据面仍未启用。
+- 当前 main 源码状态：相对 `v0.1.0-alpha.7` release，后续 main 已继续加入 `mitm browser-capture verify --confirm` 本地代理端点探测合同；MITM status/diagnostics/certificate-plan/browser-plan policy-only 命令面，以及 `mitm browser-capture plan/launch-plan/launch/apply/rollback/verify` 的 manual launch-plan、显式授权 dedicated-profile launch、本地代理端点 verify 与 blocked report 命令面已经进入 P4 源码边界。`verify --confirm` 要进入用户可下载 artifact，需要后续新 tag release 重新经过 GitHub Actions。
 - 当前未启用：live MITM、browser hijack、browser capture mutation、CA 生成/安装/信任 mutation、HTTP/TLS 解密改写数据面、daemon/service、TUN/DNS/firewall mutation。
 
 Linux CLI 二进制发布路径已打通：首个真实发布路径从 `v0.1.0-alpha.2` 开始，当前最新 GitHub Release 是

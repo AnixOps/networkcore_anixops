@@ -3,10 +3,9 @@
 > Current activation note: Linux artifact release path is now `linux-artifact-release-state=confirmed-release-path`. `package-linux`, attestation, publish eligibility, and GitHub Release upload are owned by GitHub Actions; any older blocked, not-defined, or current-placeholder wording below describes the historical pre-activation boundary unless a section explicitly states the post-activation state.
 
 
-本文定义首个 Linux `package-linux` job 在未来真实加入 release workflow 前必须满足的
-preflight 验证合同。当前仍是 placeholder；本文只固定未来 job 的依赖、checkout、
-toolchain、build、staging 前置顺序、失败条件和继续不上传 artifact 的边界，不定义
-`package-linux` job、不构建、不打包、不上传 artifact。
+本文定义 Linux `package-linux` job 在 release workflow 中必须满足的 preflight
+验证合同。当前 release path 已激活；下方 blocked-placeholder 字段作为历史 pre-activation
+审计字段保留，当前 source of truth 是 release workflow 中已经定义的 `package-linux` job 及其 gates。
 
 评估时间：2026-07-07。
 
@@ -46,7 +45,7 @@ toolchain、build、staging 前置顺序、失败条件和继续不上传 artifa
 [Linux Package Publish Eligibility Aggregate Contract](linux-package-publish-eligibility-aggregate-contract.md)、
 `docs/manual-intervention.md` 和 release workflow 中的显式常量。
 
-当前 placeholder 固定为：
+历史 placeholder 固定为：
 
 | 字段 | 值 |
 | --- | --- |
@@ -69,8 +68,9 @@ toolchain、build、staging 前置顺序、失败条件和继续不上传 artifa
 | `package_artifact_job_preflight_failure_mode` | `fail-before-checkout-toolchain-build-staging` |
 | `package_artifact_job_preflight_next_action` | `license-notice-and-ci-gate-before-package-linux` |
 
-`blocked-placeholder` 表示 release workflow 已记录未来 `package-linux` job 的 preflight
-要求，但当前 release 仍不得创建 job 或执行任何 packaging step。
+`blocked-placeholder` 表示历史 release workflow 只记录未来 `package-linux` job 的 preflight
+要求；当前 release workflow 已进入 confirmed release path，真实 `package-linux` 只能在对应 gates
+全部通过后执行。
 
 ## Future `package-linux` Job Shape
 
@@ -104,7 +104,7 @@ job 内必须按以下顺序处理：
 12. 只有后续 checksum、manifest、signing/attestation、release notes/rollback 和 publish eligibility
     gates 全部完成后，才允许进入 workflow artifact upload。
 
-当前 placeholder 不执行以上步骤。
+历史 placeholder 不执行以上步骤。
 
 ## Preflight Fields
 
@@ -172,7 +172,7 @@ manifest、workflow artifact upload 或 release asset upload：
 
 ## Release Workflow 边界
 
-当前 placeholder release 只能：
+历史 placeholder release 只能：
 
 - 检查本文档存在和标题。
 - 检查本文档包含 current placeholder fields、future preflight fields 和 failure boundary。
@@ -247,7 +247,7 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、sec
 - release placeholder 和 release summary 输出 preflight status、required job、required needs、
   license/NOTICE blocked、CI gate active、checkout/toolchain/build/staging blocked、upload blocked
   和 next action。
-- 当前不生成 artifact、不定义 `package-linux`、不定义 `publish-github-release`、不上传 workflow
+- 历史 placeholder 不生成 artifact、不定义 `package-linux`、不定义 `publish-github-release`、不上传 workflow
   artifact、不上传 release asset、不在本机执行测试、构建、打包或发布。
 
 ## 后续工作

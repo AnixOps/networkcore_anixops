@@ -3,11 +3,10 @@
 > Current activation note: Linux artifact release path is now `linux-artifact-release-state=confirmed-release-path`. `package-linux`, attestation, publish eligibility, and GitHub Release upload are owned by GitHub Actions; any older blocked, not-defined, or current-placeholder wording below describes the historical pre-activation boundary unless a section explicitly states the post-activation state.
 
 
-本文定义首个 Linux artifact 在 release notes/rollback execution 完成后，未来
-publish eligibility gate 真正执行时必须满足的验证合同。当前仍是 placeholder；本文只固定输入来源、
-eligible 字段、required gates、失败边界和当前 blocked 状态，不定义 `package-linux`、
-`attest-linux`、`publish-eligibility-gate`、`publish-github-release`、`post-release-summary`
-或等价 publish job，不创建 GitHub Release 或上传 release asset。
+本文定义 Linux artifact 在 release notes/rollback execution 完成后，publish eligibility gate
+执行时必须满足的验证合同。当前 release path 已激活；下方 blocked-placeholder 字段作为历史
+pre-activation 审计字段保留，当前 source of truth 是 release workflow 中已经定义的
+`publish-eligibility-gate` 和 tag-only `publish-github-release` jobs。
 
 评估时间：2026-07-07。
 
@@ -18,7 +17,7 @@ eligible 字段、required gates、失败边界和当前 blocked 状态，不定
 - 明确 `package_publish_eligibility_status=eligible` 前必须校验的 required gates 和字段。
 - 拒绝缺失 gate、blocked gate、未知状态、与 manifest/release summary 不一致或试图绕过
   publish/upload boundary 的 release。
-- 在当前 placeholder 阶段继续阻止 `publish-github-release`、GitHub Release、workflow artifact 和
+- 在历史 placeholder 阶段继续阻止 `publish-github-release`、GitHub Release、workflow artifact 和
   release asset。
 
 ## 非目标
@@ -60,7 +59,7 @@ eligible 字段、required gates、失败边界和当前 blocked 状态，不定
 `workflow_dispatch` 中手动输入 eligible 状态、gate 状态、artifact path、release URL 或 release asset
 eligibility 来绕过门禁。
 
-当前 placeholder 固定为：
+历史 placeholder 固定为：
 
 | 字段 | 值 |
 | --- | --- |
@@ -90,9 +89,9 @@ eligibility 来绕过门禁。
 | `package_publish_eligibility_execution_publish_job_status` | `not-defined` |
 | `package_publish_eligibility_execution_next_action` | `license-notice-and-artifact-gates-before-publish-eligibility` |
 
-`blocked-placeholder` 表示 release workflow 已记录 future publish eligibility execution 的验证要求，
-但当前 release 仍不得执行 publish eligibility gate、创建 GitHub Release、定义 publish jobs 或上传任何
-artifact。
+`blocked-placeholder` 表示历史 release workflow 已记录 future publish eligibility execution 的验证要求；
+当前 release workflow 已进入 confirmed release path，只有 `package_publish_eligibility_status=eligible`
+后 tag release 才能创建 GitHub Release 并上传 Linux assets。
 
 ## Future Publish Eligibility Execution
 
@@ -162,7 +161,7 @@ release asset。
 
 ## Release Workflow 边界
 
-当前 placeholder release 只能：
+历史 placeholder release 只能：
 
 - 检查本文档存在和标题。
 - 检查本文档包含 status、required gates、required fields、eligible status field、future execution、
@@ -210,7 +209,7 @@ release asset。
 - release placeholder 和 release summary 输出 publish eligibility execution status、required job、
   upstream release notes/rollback job/status、aggregate status、required gates、required fields、
   eligible status field、publish blocking、release asset blocked、publish job not-defined 和 next action。
-- 当前不生成 artifact、不定义 `package-linux`、不定义 `attest-linux`、不定义
+- 历史 placeholder 不生成 artifact、不定义 `package-linux`、不定义 `attest-linux`、不定义
   `publish-eligibility-gate`、不定义 `publish-github-release`、不定义 `post-release-summary`、
   不创建 GitHub Release、不上传 workflow artifact、不上传 release asset、不在本机执行测试、构建、
   打包或发布。

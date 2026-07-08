@@ -3,10 +3,9 @@
 > Current activation note: Linux artifact release path is now `linux-artifact-release-state=confirmed-release-path`. `package-linux`, attestation, publish eligibility, and GitHub Release upload are owned by GitHub Actions; any older blocked, not-defined, or current-placeholder wording below describes the historical pre-activation boundary unless a section explicitly states the post-activation state.
 
 
-本文定义首个 Linux `package-linux` job 在未来真实执行 build step 前必须满足的 build
-command 验证合同。当前仍是 placeholder；本文只固定未来 target 安装策略、cargo build
-命令、binary path 校验、失败条件和继续不上传 artifact 的边界，不定义 `package-linux`
-job、不安装 target、不构建、不打包、不上传 artifact。
+本文定义 Linux `package-linux` job 执行 build step 时必须满足的 build command
+验证合同。当前 release path 已激活；下方 blocked-placeholder 字段作为历史 pre-activation
+审计字段保留，当前 source of truth 是 release workflow 中已经定义的 `package-linux` build step。
 
 评估时间：2026-07-07。
 
@@ -39,7 +38,7 @@ job、不安装 target、不构建、不打包、不上传 artifact。
 [Release CI Success Source Contract](release-ci-success-source-contract.md)、
 `apps/linux-cli/Cargo.toml`、workspace `Cargo.toml` 和 release workflow 中的显式常量。
 
-当前 placeholder 固定为：
+历史 placeholder 固定为：
 
 | 字段 | 值 |
 | --- | --- |
@@ -63,8 +62,9 @@ job、不安装 target、不构建、不打包、不上传 artifact。
 | `package_artifact_build_command_upload` | `blocked` |
 | `package_artifact_build_command_next_action` | `license-notice-ci-preflight-before-build` |
 
-`blocked-placeholder` 表示 release workflow 已记录未来 build command 的验证要求，但当前
-release 仍不得创建 job、安装 target 或执行 build step。
+`blocked-placeholder` 表示历史 release workflow 已记录未来 build command 的验证要求；当前
+release workflow 已进入 confirmed release path，build step 只能在 GitHub Actions 的 `package-linux`
+job 内执行。
 
 ## Future Build Command
 
@@ -115,7 +115,7 @@ manifest、workflow artifact upload 或 release asset upload：
 
 ## Release Workflow 边界
 
-当前 placeholder release 只能：
+历史 placeholder release 只能：
 
 - 检查本文档存在和标题。
 - 检查本文档包含 current placeholder fields、future build command、binary path 和 failure boundary。
@@ -183,7 +183,7 @@ manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、sec
 - release placeholder 和 release summary 输出 build command status、required job、preflight blocked、
   target install blocked、cargo args、binary path、binary path check、build output blocked、upload blocked
   和 next action。
-- 当前不生成 artifact、不定义 `package-linux`、不定义 `publish-github-release`、不上传 workflow
+- 历史 placeholder 不生成 artifact、不定义 `package-linux`、不定义 `publish-github-release`、不上传 workflow
   artifact、不上传 release asset、不在本机执行测试、构建、打包或发布。
 
 ## 后续工作

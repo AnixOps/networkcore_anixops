@@ -113,7 +113,7 @@ outputs 完全一致。首个 Linux artifact 的最小发布前状态为：
 }
 ```
 
-当前 placeholder 不生成 manifest，只能输出 blocked 状态：
+历史 placeholder 不生成 manifest，只能输出 blocked 状态：
 
 ```json
 {
@@ -145,7 +145,7 @@ version tag 发布替代版本；不得覆盖已公开 tag 或同名 asset。
 7. `post-release-summary` 或等价 summary 输出 release asset URL、checksums、CI run、release run、
    attestation/provenance、rollback summary、withdrawal policy 和 replacement policy。
 
-当前 placeholder release 不执行第 1 步及之后的任何真实 release notes、rollback summary、
+历史 placeholder release 不执行第 1 步及之后的任何真实 release notes、rollback summary、
 GitHub Release 或 upload 步骤。
 
 ## Rejection Rules

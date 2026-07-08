@@ -3,11 +3,10 @@
 > Current activation note: Linux artifact release path is now `linux-artifact-release-state=confirmed-release-path`. `package-linux`, attestation, publish eligibility, and GitHub Release upload are owned by GitHub Actions; any older blocked, not-defined, or current-placeholder wording below describes the historical pre-activation boundary unless a section explicitly states the post-activation state.
 
 
-本文定义首个 Linux workflow artifact bundle 上传完成后，未来 `attest-linux` job
-生成 GitHub artifact attestation/provenance 前必须满足的验证合同。当前仍是 placeholder；
-本文只固定 attestation 输入来源、subject 文件集合、权限要求、action 边界、provenance
-状态和 release asset 继续阻断状态，不定义 `package-linux`、`attest-linux`、
-`sign-linux`、`publish-github-release` 或 `post-release-summary` job。
+本文定义 Linux workflow artifact bundle 上传完成后，`attest-linux` job 生成 GitHub
+artifact attestation/provenance 前必须满足的验证合同。当前 release path 已激活；下方
+blocked-placeholder 字段作为历史 pre-activation 审计字段保留，当前 source of truth 是 release
+workflow 中已经定义的 `attest-linux` job。
 
 评估时间：2026-07-07。
 
@@ -47,7 +46,7 @@
 [Linux Package Publish Eligibility Execution Validation Contract](linux-package-publish-eligibility-execution-validation-contract.md)、
 runner/toolchain/target contract、release policy 认可的 version 和 release workflow 中的显式常量。
 
-当前 placeholder 固定为：
+历史 placeholder 固定为：
 
 | 字段 | 值 |
 | --- | --- |
@@ -80,9 +79,9 @@ runner/toolchain/target contract、release policy 认可的 version 和 release 
 | `package_artifact_attestation_execution_publish_job_status` | `not-defined` |
 | `package_artifact_attestation_execution_next_action` | `release-notes-rollback-execution-after-attestation` |
 
-`blocked-placeholder` 表示 release workflow 已记录 future attestation execution 的验证要求，
-但当前 release 仍不得定义 `attest-linux` job、启用 attestation permissions、调用
-`actions/attest` 或上传 release asset。
+`blocked-placeholder` 表示历史 release workflow 已记录 future attestation execution 的验证要求；
+当前 release workflow 已进入 confirmed release path，`attest-linux` 只能基于同一 release run 的
+workflow artifact bundle 执行。
 
 ## Future Attestation Execution
 
@@ -158,7 +157,7 @@ release asset。
 
 ## Release Workflow 边界
 
-当前 placeholder release 只能：
+历史 placeholder release 只能：
 
 - 检查本文档存在和标题。
 - 检查本文档包含 current placeholder fields、required permissions、subjects、future attestation
@@ -214,7 +213,7 @@ release asset。
   workflow artifact bundle blocked、download source、bundle name、subjects、subject path mode、
   action blocked、required permissions、permissions status、attestation/provenance blocked、release asset
   blocked、publish job not-defined 和 next action。
-- 当前不生成 artifact、不定义 `package-linux`、不定义 `attest-linux`、不定义 `sign-linux`、
+- 历史 placeholder 不生成 artifact、不定义 `package-linux`、不定义 `attest-linux`、不定义 `sign-linux`、
   不定义 `publish-github-release`、不启用 `id-token: write`、不启用 `attestations: write`、
   不调用 `actions/attest`、不上传 workflow artifact、不上传 release asset、不在本机执行测试、
   构建、打包或发布。
