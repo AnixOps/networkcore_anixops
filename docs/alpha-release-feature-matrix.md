@@ -1,6 +1,6 @@
 # Alpha Release Feature Matrix
 
-评估时间：2026-07-09。
+评估时间：2026-07-10。
 
 本文是 alpha 版本能力边界索引。发布事实以 Git tag、GitHub Actions release workflow 和
 GitHub Release asset 为准；`main` 中 tag 之后的源码增量不等于用户可下载能力。未发布版本只表达
@@ -328,6 +328,24 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 最新已发布切片
 
+### `v0.1.0`
+
+状态：已发布；Linux-only explicit HTTPS rewrite preview 正式版。
+
+当前 artifact 能力：
+
+- 发布 Linux CLI tarball、sha256、manifest 和 manifest sha256。
+- 继承 `v0.1.0-alpha.14` 到 `v0.1.0-rc.1` 的已发布能力边界：explicit HTTP proxy live plain HTTP data plane、TLS MITM readiness、controlled TLS termination plan/report、caller-provided HTTPS request/response rewrite preview、browser traffic proof hardening、traffic-proof text CONNECT authority 输出，以及 HTTPS request preview 回归冻结合同。
+- 正式版仍固定 `tls_decryption_ready=false`、`https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`，不声称 live TLS decryption、live CONNECT-stream rewrite 或 JavaScript script dispatch。
+
+明确不承诺：
+
+- 不包含 Windows artifact。
+- 不执行 live HTTPS decryption、live CONNECT 后 HTTPS request/response rewrite 或完整 live HTTPS response rewrite。
+- 不执行 JavaScript script dispatch。
+- 不安装、信任、撤销或回滚 system trust store。
+- 不修改 browser/system proxy、system PAC、TUN、DNS、firewall 或路由状态。
+
 ### `v0.1.0-rc.1`
 
 状态：已发布；`v0.1.0-rc.1` tag release 切片，在 `v0.1.0-alpha.20` Linux release hardening 基础上发布回归冻结候选。
@@ -416,13 +434,13 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前 main source 状态
 
-当前最新用户可下载 Linux artifact 是 `v0.1.0-rc.1`。`main` 已同步到
-`v0.1.0-rc.1` 发布边界：在保留 `v0.1.0-alpha.20`
+当前最新用户可下载 Linux artifact 是 `v0.1.0`。`main` 已同步到
+`v0.1.0` 正式发布边界：在保留 `v0.1.0-alpha.20`
 release hardening 发布边界的基础上，Linux CLI `mitm http-rewrite preview --confirm --url https://... --phase request`
 的合同测试固定 caller-provided HTTPS request preview 只能保持 preview/reject 边界，并继续输出
 `tls_decryption_ready=false`、`https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`。
 当前发布边界仍不执行 live HTTPS decryption、live CONNECT 后 HTTPS request/response rewrite、完整 live HTTPS response rewrite、JavaScript script dispatch、system trust
-store mutation 或 system proxy mutation；下一步 `v0.1.0` 正式发布只做 release/docs 和回归修复。
+store mutation 或 system proxy mutation；下一步 `v0.1.1-alpha.1` 只做 Windows CLI artifact source/release contract。
 
 ## 已拍板后续版本节奏
 
@@ -452,7 +470,7 @@ store mutation 或 system proxy mutation；下一步 `v0.1.0` 正式发布只做
   文档、CI governance、release notes 和 rollback 边界。
 - `v0.1.0-rc.1`：功能冻结候选版。已发布；HTTPS request preview 回归冻结合同、
   release notes/rollback、同 commit CI、package、attestation 和 publish eligibility 已进入 Linux artifact。
-- `v0.1.0`：发布 Linux-only explicit HTTPS rewrite preview artifact；只允许 release/docs 和回归修复。
+- `v0.1.0`：已发布 Linux-only explicit HTTPS rewrite preview 正式版；继承 rc.1 回归冻结合同，不发布 Windows artifact，不启用 JavaScript script dispatch、system trust store mutation 或 system proxy mutation。
 
 明确不包含：
 

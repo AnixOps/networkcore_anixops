@@ -80,8 +80,8 @@
 - Linux artifact release state consistency 检查，确保 README、ROADMAP、TODO、CHANGELOG、
   release strategy、license/NOTICE contracts、manual marker、CI governance 和 release workflow
   都保持 `linux-artifact-release-state=confirmed-release-path`
-- Alpha Release Feature Matrix 检查，确保 README、ROADMAP、TODO、Release Strategy 和 alpha/rc
-  版本能力索引同步记录已发布 `v0.1.0-alpha.1` 到 `v0.1.0-alpha.20` 以及 `v0.1.0-rc.1`，以及已拍板的
+- Alpha Release Feature Matrix 检查，确保 README、ROADMAP、TODO、Release Strategy 和 alpha/rc/stable
+  版本能力索引同步记录已发布 `v0.1.0-alpha.1` 到 `v0.1.0-alpha.20`、`v0.1.0-rc.1` 以及 `v0.1.0`，以及已拍板的
   `v0.1.0` Linux-only explicit HTTPS rewrite preview、`v0.1.1` Windows CLI artifact/订阅兼容、
   `v0.1.2` managed lifecycle、JavaScript script dispatch、system trust store mutation 和
   system proxy mutation 规划边界
