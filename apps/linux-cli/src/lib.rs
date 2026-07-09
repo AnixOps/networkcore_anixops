@@ -5386,8 +5386,7 @@ fn build_linux_mitm_http_rewrite_report(
         downstream_tls_termination_plan_ready:
             MITM_HTTP_REWRITE_DOWNSTREAM_TLS_TERMINATION_PLAN_READY,
         upstream_tls_forwarding_ready: MITM_HTTP_REWRITE_UPSTREAM_TLS_FORWARDING_READY,
-        https_request_rewrite_preview_ready:
-            MITM_HTTP_REWRITE_HTTPS_REQUEST_REWRITE_PREVIEW_READY,
+        https_request_rewrite_preview_ready: MITM_HTTP_REWRITE_HTTPS_REQUEST_REWRITE_PREVIEW_READY,
         https_response_rewrite_ready: MITM_HTTP_REWRITE_HTTPS_RESPONSE_REWRITE_READY,
         script_dispatch_ready: MITM_HTTP_REWRITE_SCRIPT_DISPATCH_READY,
         request: request.unwrap_or_else(|| {
