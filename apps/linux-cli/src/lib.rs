@@ -170,7 +170,7 @@ pub const MITM_HTTP_TLS_DATA_PLANE_GATE: &str = "MITM_HTTP_TLS_DATA_PLANE_GATE";
 pub const MITM_BROWSER_CAPTURE_GATE: &str = "MITM_BROWSER_CAPTURE_GATE";
 pub const MITM_CLI_COMMAND_GATE_STATUS: &str = "partial-active";
 pub const MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS: &str =
-    "artifact-lifecycle-active/trust-mutation-blocked";
+    "artifact-lifecycle-active/profile-trust-artifact-active/trust-mutation-blocked";
 pub const MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS: &str =
     "plain-http-rewrite-foundation-active/tls-decryption-blocked";
 pub const MITM_BROWSER_CAPTURE_GATE_STATUS: &str =
@@ -296,6 +296,7 @@ pub enum LinuxCliCommand {
     MitmCertificateApply {
         cert_file_path: Option<String>,
         key_file_path: Option<String>,
+        profile_trust_file_path: Option<String>,
         snapshot_path: Option<String>,
         confirm: bool,
         format: OutputFormat,
@@ -707,13 +708,16 @@ pub struct LinuxMitmCertificateTrustPlan {
 pub struct LinuxMitmCertificateArtifactRequest {
     pub cert_file_path: String,
     pub key_file_path: String,
+    pub profile_trust_file_path: Option<String>,
     pub snapshot_path: String,
     pub subject: String,
     pub artifact_version: u8,
     pub cert_content: String,
     pub key_content: String,
+    pub profile_trust_content: Option<String>,
     pub cert_fingerprint: String,
     pub key_fingerprint: String,
+    pub profile_trust_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -726,6 +730,7 @@ pub struct LinuxMitmCertificateArtifactApplyOutcome {
 pub struct LinuxMitmCertificateArtifactRollbackOutcome {
     pub cert_file_path: String,
     pub key_file_path: String,
+    pub profile_trust_file_path: Option<String>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -744,6 +749,7 @@ pub struct LinuxMitmCertificateApplyReport {
     pub authorization: MitmCertificateAuthorization,
     pub cert_file_path: Option<String>,
     pub key_file_path: Option<String>,
+    pub profile_trust_file_path: Option<String>,
     pub rollback_snapshot: Option<MitmCertificateRollbackSnapshot>,
     pub blocked_operations: Vec<String>,
 }
@@ -754,6 +760,7 @@ pub struct LinuxMitmCertificateRollbackReport {
     pub rolled_back: bool,
     pub cert_file_path: Option<String>,
     pub key_file_path: Option<String>,
+    pub profile_trust_file_path: Option<String>,
     pub rollback_snapshot: Option<MitmCertificateRollbackSnapshot>,
     pub blocked_operations: Vec<String>,
 }
@@ -1883,6 +1890,25 @@ impl MitmCertificateArtifactStore for CommandMitmCertificateArtifactStore {
                 ),
             ));
         }
+        if let Some(profile_trust_file_path) = &request.profile_trust_file_path {
+            if request.profile_trust_content.is_none()
+                || request.profile_trust_fingerprint.is_none()
+            {
+                return Err(DomainError::new(
+                    CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
+                    "MITM dedicated profile trust artifact request is missing content or fingerprint",
+                ));
+            }
+            if std::path::Path::new(profile_trust_file_path).exists() {
+                return Err(DomainError::new(
+                    CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
+                    format!(
+                        "refusing to overwrite existing MITM dedicated profile trust artifact {}",
+                        profile_trust_file_path
+                    ),
+                ));
+            }
+        }
         if std::path::Path::new(&request.snapshot_path).exists() {
             return Err(DomainError::new(
                 CLI_MITM_CERTIFICATE_SNAPSHOT_WRITE_FAILED_CODE,
@@ -1898,11 +1924,14 @@ impl MitmCertificateArtifactStore for CommandMitmCertificateArtifactStore {
             kind: MITM_CERTIFICATE_ARTIFACT_SNAPSHOT_KIND.to_string(),
             cert_file_path: request.cert_file_path.clone(),
             key_file_path: request.key_file_path.clone(),
+            profile_trust_file_path: request.profile_trust_file_path.clone(),
             subject: request.subject.clone(),
             created_cert_file: true,
             created_key_file: true,
+            created_profile_trust_file: request.profile_trust_file_path.is_some(),
             applied_cert_fingerprint: request.cert_fingerprint.clone(),
             applied_key_fingerprint: request.key_fingerprint.clone(),
+            applied_profile_trust_fingerprint: request.profile_trust_fingerprint.clone(),
         };
         let snapshot_json = serde_json::to_string_pretty(&snapshot).map_err(|error| {
             DomainError::new(
@@ -1932,6 +1961,17 @@ impl MitmCertificateArtifactStore for CommandMitmCertificateArtifactStore {
             CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
             "MITM private key artifact",
         )?;
+        if let (Some(profile_trust_file_path), Some(profile_trust_content)) = (
+            &request.profile_trust_file_path,
+            &request.profile_trust_content,
+        ) {
+            write_new_file(
+                profile_trust_file_path,
+                profile_trust_content.as_bytes(),
+                CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
+                "MITM dedicated profile trust artifact",
+            )?;
+        }
 
         Ok(LinuxMitmCertificateArtifactApplyOutcome {
             rollback_snapshot: MitmCertificateRollbackSnapshot {
@@ -1942,8 +1982,13 @@ impl MitmCertificateArtifactStore for CommandMitmCertificateArtifactStore {
                 DiagnosticSeverity::Info,
                 CLI_MITM_CERTIFICATE_APPLY_READY_CODE,
                 format!(
-                    "MITM certificate artifact {} and private key artifact {} were written with trust-store mutation blocked",
-                    request.cert_file_path, request.key_file_path
+                    "MITM certificate artifact {} and private key artifact {} were written with profile trust artifact {} and system trust-store mutation blocked",
+                    request.cert_file_path,
+                    request.key_file_path,
+                    request
+                        .profile_trust_file_path
+                        .as_deref()
+                        .unwrap_or("not-requested")
                 ),
                 SOURCE_CLI_MITM,
             )],
@@ -1993,16 +2038,39 @@ impl MitmCertificateArtifactStore for CommandMitmCertificateArtifactStore {
             &snapshot_file.applied_key_fingerprint,
             "MITM private key artifact",
         )?;
+        if snapshot_file.created_profile_trust_file {
+            let (Some(profile_trust_file_path), Some(applied_profile_trust_fingerprint)) = (
+                snapshot_file.profile_trust_file_path.as_deref(),
+                snapshot_file.applied_profile_trust_fingerprint.as_deref(),
+            ) else {
+                return Err(DomainError::new(
+                    CLI_MITM_CERTIFICATE_SNAPSHOT_READ_FAILED_CODE,
+                    "MITM certificate rollback snapshot is missing dedicated profile trust artifact fields",
+                ));
+            };
+            rollback_mitm_certificate_artifact_file(
+                profile_trust_file_path,
+                applied_profile_trust_fingerprint,
+                "MITM dedicated profile trust artifact",
+            )?;
+        }
 
         Ok(LinuxMitmCertificateArtifactRollbackOutcome {
             cert_file_path: snapshot_file.cert_file_path.clone(),
             key_file_path: snapshot_file.key_file_path.clone(),
+            profile_trust_file_path: snapshot_file.profile_trust_file_path.clone(),
             diagnostics: vec![cli_diagnostic(
                 DiagnosticSeverity::Info,
                 CLI_MITM_CERTIFICATE_ROLLBACK_READY_CODE,
                 format!(
-                    "MITM certificate artifact {} and private key artifact {} were removed from NetworkCore snapshot {}",
-                    snapshot_file.cert_file_path, snapshot_file.key_file_path, snapshot.path
+                    "MITM certificate artifact {} and private key artifact {} were removed from NetworkCore snapshot {}; profile trust artifact {}",
+                    snapshot_file.cert_file_path,
+                    snapshot_file.key_file_path,
+                    snapshot.path,
+                    snapshot_file
+                        .profile_trust_file_path
+                        .as_deref()
+                        .unwrap_or("not-requested")
                 ),
                 SOURCE_CLI_MITM,
             )],
@@ -2073,11 +2141,17 @@ struct MitmCertificateArtifactSnapshotFile {
     kind: String,
     cert_file_path: String,
     key_file_path: String,
+    #[serde(default)]
+    profile_trust_file_path: Option<String>,
     subject: String,
     created_cert_file: bool,
     created_key_file: bool,
+    #[serde(default)]
+    created_profile_trust_file: bool,
     applied_cert_fingerprint: String,
     applied_key_fingerprint: String,
+    #[serde(default)]
+    applied_profile_trust_fingerprint: Option<String>,
 }
 
 fn rollback_mitm_certificate_artifact_file(
@@ -2519,6 +2593,7 @@ struct ParsedOptions {
     target_url: Option<String>,
     cert_file_path: Option<String>,
     key_file_path: Option<String>,
+    profile_trust_file_path: Option<String>,
     pac_file_path: Option<String>,
     policy_file_path: Option<String>,
     proof_token: Option<String>,
@@ -2654,6 +2729,7 @@ where
         LinuxCliCommand::MitmCertificateApply {
             cert_file_path,
             key_file_path,
+            profile_trust_file_path,
             snapshot_path,
             confirm,
             ..
@@ -2664,6 +2740,7 @@ where
                 &store,
                 cert_file_path.as_deref(),
                 key_file_path.as_deref(),
+                profile_trust_file_path.as_deref(),
                 snapshot_path.as_deref(),
                 confirm,
             )
@@ -2834,6 +2911,7 @@ where
         LinuxCliCommand::MitmCertificateApply {
             cert_file_path,
             key_file_path,
+            profile_trust_file_path,
             snapshot_path,
             confirm,
             ..
@@ -2842,6 +2920,7 @@ where
             certificate_store,
             cert_file_path.as_deref(),
             key_file_path.as_deref(),
+            profile_trust_file_path.as_deref(),
             snapshot_path.as_deref(),
             confirm,
         ),
@@ -3336,7 +3415,7 @@ where
     P: PlatformCapabilityService,
 {
     let store = UnavailableMitmCertificateArtifactStore::new();
-    handle_mitm_certificate_apply_with_store(platform, &store, None, None, None, confirm)
+    handle_mitm_certificate_apply_with_store(platform, &store, None, None, None, None, confirm)
 }
 
 pub fn handle_mitm_certificate_apply_with_store<P, S>(
@@ -3344,6 +3423,7 @@ pub fn handle_mitm_certificate_apply_with_store<P, S>(
     certificate_store: &S,
     cert_file_path: Option<&str>,
     key_file_path: Option<&str>,
+    profile_trust_file_path: Option<&str>,
     snapshot_path: Option<&str>,
     confirm: bool,
 ) -> LinuxCliResponse
@@ -3383,7 +3463,8 @@ where
         } else {
             "missing --confirm".to_string()
         },
-        scope: "linux MITM certificate artifact and private key artifact".to_string(),
+        scope: "linux MITM certificate, private key, and optional dedicated profile trust artifacts"
+            .to_string(),
         gate: MITM_CERTIFICATE_LIFECYCLE_GATE.to_string(),
     };
     let mut report = build_linux_mitm_certificate_lifecycle_report(
@@ -3406,6 +3487,7 @@ where
             authorization,
             cert_file_path: cert_file_path.map(ToString::to_string),
             key_file_path: key_file_path.map(ToString::to_string),
+            profile_trust_file_path: profile_trust_file_path.map(ToString::to_string),
             rollback_snapshot: snapshot_path.map(|path| MitmCertificateRollbackSnapshot {
                 path: path.to_string(),
                 status: "operator-provided".to_string(),
@@ -3438,6 +3520,7 @@ where
             authorization,
             cert_file_path: cert_file_path.map(ToString::to_string),
             key_file_path: key_file_path.map(ToString::to_string),
+            profile_trust_file_path: profile_trust_file_path.map(ToString::to_string),
             rollback_snapshot: snapshot_path.map(|path| MitmCertificateRollbackSnapshot {
                 path: path.to_string(),
                 status: "operator-provided".to_string(),
@@ -3455,8 +3538,12 @@ where
         };
     };
 
-    let artifact_request =
-        build_linux_mitm_certificate_artifact_request(cert_file_path, key_file_path, snapshot_path);
+    let artifact_request = build_linux_mitm_certificate_artifact_request(
+        cert_file_path,
+        key_file_path,
+        profile_trust_file_path,
+        snapshot_path,
+    );
     report.request.artifact = Some(artifact_request.clone());
 
     match certificate_store.apply_certificate_artifact(&artifact_request) {
@@ -3468,6 +3555,7 @@ where
                 authorization,
                 cert_file_path: Some(artifact_request.cert_file_path.clone()),
                 key_file_path: Some(artifact_request.key_file_path.clone()),
+                profile_trust_file_path: artifact_request.profile_trust_file_path.clone(),
                 rollback_snapshot: Some(outcome.rollback_snapshot),
                 blocked_operations: report.trust_plan.blocked_operations.clone(),
             });
@@ -3490,6 +3578,7 @@ where
                 authorization,
                 cert_file_path: Some(artifact_request.cert_file_path.clone()),
                 key_file_path: Some(artifact_request.key_file_path.clone()),
+                profile_trust_file_path: artifact_request.profile_trust_file_path.clone(),
                 rollback_snapshot: Some(MitmCertificateRollbackSnapshot {
                     path: artifact_request.snapshot_path,
                     status: "operator-provided".to_string(),
@@ -3597,6 +3686,7 @@ where
                 rolled_back: true,
                 cert_file_path: Some(outcome.cert_file_path),
                 key_file_path: Some(outcome.key_file_path),
+                profile_trust_file_path: outcome.profile_trust_file_path,
                 rollback_snapshot: Some(MitmCertificateRollbackSnapshot {
                     status: "networkcore-restored".to_string(),
                     ..rollback_snapshot
@@ -3621,6 +3711,7 @@ where
                 rolled_back: false,
                 cert_file_path: None,
                 key_file_path: None,
+                profile_trust_file_path: None,
                 rollback_snapshot: Some(rollback_snapshot),
                 blocked_operations: report.trust_plan.blocked_operations.clone(),
             });
@@ -6464,6 +6555,11 @@ fn build_linux_mitm_certificate_plan(
                 reason: "certificate apply records NetworkCore ownership and content fingerprints before artifact rollback".to_string(),
             },
             LinuxMitmCertificatePlanStep {
+                id: "write-dedicated-profile-trust-artifact".to_string(),
+                status: "active".to_string(),
+                reason: "certificate apply can optionally copy the generated CA artifact to an operator-provided dedicated profile trust artifact path with rollback snapshot".to_string(),
+            },
+            LinuxMitmCertificatePlanStep {
                 id: "install-user-trust".to_string(),
                 status: certificate_trust_step_status(trust_satisfied).to_string(),
                 reason: certificate_trust_step_reason(platform_status.mitm_certificate.state)
@@ -6535,6 +6631,7 @@ fn build_linux_mitm_certificate_lifecycle_report(
                 authorization,
                 cert_file_path: None,
                 key_file_path: None,
+                profile_trust_file_path: None,
                 rollback_snapshot: None,
                 blocked_operations: trust_plan.blocked_operations.clone(),
             }
@@ -6548,6 +6645,7 @@ fn build_linux_mitm_certificate_lifecycle_report(
             rolled_back: false,
             cert_file_path: None,
             key_file_path: None,
+            profile_trust_file_path: None,
             rollback_snapshot: rollback_snapshot.clone(),
             blocked_operations: trust_plan.blocked_operations.clone(),
         })
@@ -6590,6 +6688,11 @@ fn build_linux_mitm_certificate_trust_plan(
                 reason: "system trust-store mutation is intentionally excluded from this alpha slice".to_string(),
             },
             LinuxMitmCertificatePlanStep {
+                id: "prepare-dedicated-profile-trust-artifact".to_string(),
+                status: "active".to_string(),
+                reason: "profile-local CA trust artifact generation is available for caller-selected dedicated profile paths without mutating trust stores".to_string(),
+            },
+            LinuxMitmCertificatePlanStep {
                 id: "prepare-browser-trust-store-mutation".to_string(),
                 status: "blocked".to_string(),
                 reason: "NSS DB, p11-kit, Firefox trust store, and browser-specific trust mutation are blocked".to_string(),
@@ -6611,25 +6714,35 @@ fn build_linux_mitm_certificate_trust_plan(
 fn build_linux_mitm_certificate_artifact_request(
     cert_file_path: &str,
     key_file_path: &str,
+    profile_trust_file_path: Option<&str>,
     snapshot_path: &str,
 ) -> LinuxMitmCertificateArtifactRequest {
     let subject = MITM_CERTIFICATE_ARTIFACT_SUBJECT.to_string();
     let artifact_id = stable_content_fingerprint(&format!(
-        "{subject}|{cert_file_path}|{key_file_path}|{MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS}"
+        "{subject}|{cert_file_path}|{key_file_path}|{}|{MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS}",
+        profile_trust_file_path.unwrap_or("profile-trust-not-requested")
     ));
     let cert_content = mitm_certificate_cert_artifact_content(&subject, &artifact_id);
     let key_content = mitm_certificate_key_artifact_content(&subject, &artifact_id);
+    let profile_trust_content = profile_trust_file_path.map(|_| {
+        mitm_certificate_profile_trust_artifact_content(&subject, &artifact_id, &cert_content)
+    });
 
     LinuxMitmCertificateArtifactRequest {
         cert_file_path: cert_file_path.to_string(),
         key_file_path: key_file_path.to_string(),
+        profile_trust_file_path: profile_trust_file_path.map(ToString::to_string),
         snapshot_path: snapshot_path.to_string(),
         subject,
         artifact_version: 1,
         cert_fingerprint: stable_content_fingerprint(&cert_content),
         key_fingerprint: stable_content_fingerprint(&key_content),
+        profile_trust_fingerprint: profile_trust_content
+            .as_deref()
+            .map(stable_content_fingerprint),
         cert_content,
         key_content,
+        profile_trust_content,
     }
 }
 
@@ -6658,6 +6771,29 @@ fn mitm_certificate_key_artifact_content(subject: &str, artifact_id: &str) -> St
          trust-store-mutation: blocked\n\
          https-rewrite: blocked\n\
          -----END NETWORKCORE MITM CA PRIVATE KEY ARTIFACT-----\n"
+    )
+}
+
+fn mitm_certificate_profile_trust_artifact_content(
+    subject: &str,
+    artifact_id: &str,
+    cert_content: &str,
+) -> String {
+    format!(
+        "-----BEGIN NETWORKCORE DEDICATED PROFILE TRUST ARTIFACT-----\n\
+         networkcore-artifact-version: 1\n\
+         networkcore-artifact-id: {artifact_id}\n\
+         subject: {subject}\n\
+         scope: dedicated-profile\n\
+         gate: {MITM_CERTIFICATE_LIFECYCLE_GATE}\n\
+         gate-status: {MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS}\n\
+         system-trust-store-mutation: blocked\n\
+         browser-trust-store-mutation: blocked\n\
+         profile-trust-state-mutation: blocked\n\
+         -----BEGIN NETWORKCORE DEDICATED PROFILE CA CERTIFICATE COPY-----\n\
+         {cert_content}\
+         -----END NETWORKCORE DEDICATED PROFILE CA CERTIFICATE COPY-----\n\
+         -----END NETWORKCORE DEDICATED PROFILE TRUST ARTIFACT-----\n"
     )
 }
 
@@ -7048,6 +7184,16 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.key_file_path = Some(value.clone());
             }
+            "--profile-trust-file" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--profile-trust-file requires a dedicated profile trust artifact path",
+                    ));
+                };
+                options.profile_trust_file_path = Some(value.clone());
+            }
             "--pac-file" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -7284,6 +7430,7 @@ fn parse_mitm_certificate_command(args: &[String]) -> Result<LinuxCliCommand, Li
             Ok(LinuxCliCommand::MitmCertificateApply {
                 cert_file_path: options.cert_file_path,
                 key_file_path: options.key_file_path,
+                profile_trust_file_path: options.profile_trust_file_path,
                 snapshot_path: options.snapshot_path,
                 confirm: options.confirm,
                 format: options.format,
@@ -7604,7 +7751,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux status [--format text|json]\n",
         "  networkcore-linux diagnostics [--format text|json]\n",
         "  networkcore-linux mitm [status|diagnostics|certificate-plan|browser-plan] [--format text|json]\n",
-        "  networkcore-linux mitm certificate [plan|apply|rollback] [--cert-file <path>] [--key-file <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
+        "  networkcore-linux mitm certificate [plan|apply|rollback] [--cert-file <path>] [--key-file <path>] [--profile-trust-file <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
         "  networkcore-linux mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify|traffic-proof] [<ss://url>] [--browser <executable>] [--profile-dir <dir>] [--target-url <url>] [--proxy-scheme http|socks5] [--listen-host <host>] [--listen-port <port>] [--pac-file <path>] [--policy-file <path>] [--profile-prefs-file <path>] [--proof-token <token>] [--proof-log <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
         "  networkcore-linux mitm http-rewrite [plan|preview] [--url <url>] [--method <method>] [--phase request|response] [--status-code <code>] [--header <name:value>] [--body <text>] [--confirm] [--format text|json]\n",
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
@@ -7638,6 +7785,7 @@ pub const fn cli_help_text() -> &'static str {
         "  --proxy-scheme <mode> Browser explicit proxy scheme for browser-capture. Defaults to http; socks5 targets the native SOCKS5 CONNECT MITM hook.\n",
         "  --cert-file <path>    Certificate artifact path for mitm certificate apply.\n",
         "  --key-file <path>     Private key artifact path for mitm certificate apply.\n",
+        "  --profile-trust-file <path> Dedicated profile CA trust artifact path for mitm certificate apply.\n",
         "  --pac-file <path>     PAC file path for mitm browser-capture apply.\n",
         "  --policy-file <path>  Chromium/Chrome managed proxy policy file artifact for mitm browser-capture apply.\n",
         "  --profile-prefs-file <path> Firefox dedicated profile user.js path for reversible browser-capture apply.\n",
@@ -7988,15 +8136,24 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
         }
         if let Some(artifact) = &certificate.request.artifact {
             lines.push(format!(
-                "certificate artifact request: cert={} key={} snapshot={} subject={}",
+                "certificate artifact request: cert={} key={} profile_trust={} snapshot={} subject={}",
                 artifact.cert_file_path,
                 artifact.key_file_path,
+                artifact
+                    .profile_trust_file_path
+                    .as_deref()
+                    .unwrap_or("not-requested"),
                 artifact.snapshot_path,
                 artifact.subject
             ));
             lines.push(format!(
-                "certificate artifact fingerprints: cert={} key={}",
-                artifact.cert_fingerprint, artifact.key_fingerprint
+                "certificate artifact fingerprints: cert={} key={} profile_trust={}",
+                artifact.cert_fingerprint,
+                artifact.key_fingerprint,
+                artifact
+                    .profile_trust_fingerprint
+                    .as_deref()
+                    .unwrap_or("not-requested")
             ));
         }
         if let Some(snapshot) = &certificate.request.rollback_snapshot {
@@ -8015,6 +8172,11 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             }
             if let Some(key_file_path) = &report.key_file_path {
                 lines.push(format!("certificate key artifact file: {key_file_path}"));
+            }
+            if let Some(profile_trust_file_path) = &report.profile_trust_file_path {
+                lines.push(format!(
+                    "certificate dedicated profile trust artifact file: {profile_trust_file_path}"
+                ));
             }
             if let Some(snapshot) = &report.rollback_snapshot {
                 lines.push(format!(
@@ -8036,6 +8198,11 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             if let Some(key_file_path) = &report.key_file_path {
                 lines.push(format!(
                     "certificate rollback key artifact file: {key_file_path}"
+                ));
+            }
+            if let Some(profile_trust_file_path) = &report.profile_trust_file_path {
+                lines.push(format!(
+                    "certificate rollback dedicated profile trust artifact file: {profile_trust_file_path}"
                 ));
             }
             if let Some(snapshot) = &report.rollback_snapshot {
@@ -8656,13 +8823,16 @@ impl From<&LinuxMitmCertificateLifecycleRequest> for JsonMitmCertificateLifecycl
 struct JsonMitmCertificateArtifactRequest {
     cert_file_path: String,
     key_file_path: String,
+    profile_trust_file_path: Option<String>,
     snapshot_path: String,
     subject: String,
     artifact_version: u8,
     cert_content: String,
     key_content: String,
+    profile_trust_content: Option<String>,
     cert_fingerprint: String,
     key_fingerprint: String,
+    profile_trust_fingerprint: Option<String>,
 }
 
 impl From<&LinuxMitmCertificateArtifactRequest> for JsonMitmCertificateArtifactRequest {
@@ -8670,13 +8840,16 @@ impl From<&LinuxMitmCertificateArtifactRequest> for JsonMitmCertificateArtifactR
         Self {
             cert_file_path: request.cert_file_path.clone(),
             key_file_path: request.key_file_path.clone(),
+            profile_trust_file_path: request.profile_trust_file_path.clone(),
             snapshot_path: request.snapshot_path.clone(),
             subject: request.subject.clone(),
             artifact_version: request.artifact_version,
             cert_content: request.cert_content.clone(),
             key_content: request.key_content.clone(),
+            profile_trust_content: request.profile_trust_content.clone(),
             cert_fingerprint: request.cert_fingerprint.clone(),
             key_fingerprint: request.key_fingerprint.clone(),
+            profile_trust_fingerprint: request.profile_trust_fingerprint.clone(),
         }
     }
 }
@@ -8745,6 +8918,7 @@ struct JsonMitmCertificateApplyReport {
     authorization: JsonMitmCertificateAuthorization,
     cert_file_path: Option<String>,
     key_file_path: Option<String>,
+    profile_trust_file_path: Option<String>,
     rollback_snapshot: Option<JsonMitmCertificateRollbackSnapshot>,
     blocked_operations: Vec<String>,
 }
@@ -8757,6 +8931,7 @@ impl From<&LinuxMitmCertificateApplyReport> for JsonMitmCertificateApplyReport {
             authorization: JsonMitmCertificateAuthorization::from(&report.authorization),
             cert_file_path: report.cert_file_path.clone(),
             key_file_path: report.key_file_path.clone(),
+            profile_trust_file_path: report.profile_trust_file_path.clone(),
             rollback_snapshot: report
                 .rollback_snapshot
                 .as_ref()
@@ -8772,6 +8947,7 @@ struct JsonMitmCertificateRollbackReport {
     rolled_back: bool,
     cert_file_path: Option<String>,
     key_file_path: Option<String>,
+    profile_trust_file_path: Option<String>,
     rollback_snapshot: Option<JsonMitmCertificateRollbackSnapshot>,
     blocked_operations: Vec<String>,
 }
@@ -8783,6 +8959,7 @@ impl From<&LinuxMitmCertificateRollbackReport> for JsonMitmCertificateRollbackRe
             rolled_back: report.rolled_back,
             cert_file_path: report.cert_file_path.clone(),
             key_file_path: report.key_file_path.clone(),
+            profile_trust_file_path: report.profile_trust_file_path.clone(),
             rollback_snapshot: report
                 .rollback_snapshot
                 .as_ref()

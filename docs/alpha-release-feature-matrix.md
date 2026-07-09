@@ -286,8 +286,11 @@ plain HTTP preview 为核心，固定 `MITM_HTTP_TLS_DATA_PLANE_GATE=plain-http-
 
 规划切片：
 
-- `v0.1.0-alpha.13`：Linux dedicated profile CA trust foundation。只允许显式授权的
-  dedicated browser/profile trust 或 NetworkCore-owned trust artifact/snapshot，不修改系统 trust store。
+- `v0.1.0-alpha.13`：Linux dedicated profile CA trust foundation。新增
+  `mitm certificate apply --confirm --cert-file <path> --key-file <path> --profile-trust-file <path> --snapshot <path>`，
+  将生成的 CA artifact 复制为调用方显式选择的 dedicated profile trust artifact，并由 NetworkCore
+  snapshot 记录 fingerprint 后回滚；不执行 NSS DB、p11-kit、Firefox trust store、系统 trust store 或
+  profile trust state mutation。
 - `v0.1.0-alpha.14`：Linux explicit HTTP proxy live plain HTTP data plane。真实 `http://`
   请求在 dedicated/explicit proxy 路径应用 reject、redirect、header/body rewrite。
 - `v0.1.0-alpha.15`：Linux TLS MITM foundation。CONNECT 后建立受控 TLS termination 与 upstream TLS

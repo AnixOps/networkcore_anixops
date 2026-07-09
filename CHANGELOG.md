@@ -6,6 +6,7 @@
 
 ### Added
 
+- 新增 `v0.1.0-alpha.13` Linux dedicated profile CA trust foundation 源码切片：`networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> --profile-trust-file <path> --snapshot <path>` 可将生成的 CA artifact 写入调用方显式指定的 dedicated profile trust artifact 路径，并在 NetworkCore snapshot 中记录 fingerprint 以便 rollback 删除；`certificate_lifecycle` JSON/text report 新增 `profile_trust_file_path`、`profile_trust_content` 和 `profile_trust_fingerprint`。本增量不执行 NSS DB、p11-kit、Firefox trust store、system trust store 或 profile trust state mutation，不解密 HTTPS，也不应用 live HTTP/TLS rewrite。
 - 固定 `v0.1.0` 到 `v0.1.2` 的拍板版本节奏：`v0.1.0` 目标为 Linux-only explicit HTTPS rewrite preview，`v0.1.1` 正式引入 Windows CLI artifact 并推进订阅兼容，`v0.1.2` 推进 managed lifecycle，并在 alpha 切片中相继推出 JavaScript script dispatch、system trust store mutation 和 system proxy mutation。该条目只更新规划 source of truth，不代表未发布能力已经进入用户 artifact。
 
 ## v0.1.0-alpha.12 - 2026-07-09

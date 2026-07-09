@@ -6,23 +6,24 @@
 
 ```text
 mitm-certificate-lifecycle-source-contract-status=active
-MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/trust-mutation-blocked
+MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/profile-trust-artifact-active/trust-mutation-blocked
 ```
 
-本文固定 Linux MITM certificate lifecycle 从 plan-only 进入受控 artifact lifecycle 后必须遵守的源码边界。当前仓库允许 `networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> --snapshot <path>` 写入调用方显式提供路径上的 NetworkCore certificate artifact、private key artifact 和 rollback snapshot；允许 `networkcore-linux mitm certificate rollback --snapshot <path>` 读取 NetworkCore snapshot 并删除 snapshot 管理的 artifact。该能力不安装或信任 CA，不修改 system trust store、NSS DB、p11-kit 或 Firefox trust store，不解密 HTTPS，也不应用 HTTP/TLS rewrite。
+本文固定 Linux MITM certificate lifecycle 从 plan-only 进入受控 artifact lifecycle 后必须遵守的源码边界。当前仓库允许 `networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` 写入调用方显式提供路径上的 NetworkCore certificate artifact、private key artifact、可选 dedicated profile trust artifact 和 rollback snapshot；允许 `networkcore-linux mitm certificate rollback --snapshot <path>` 读取 NetworkCore snapshot 并删除 snapshot 管理的 artifact。该能力不安装或信任 CA，不修改 system trust store、NSS DB、p11-kit、Firefox trust store 或 profile trust state，不解密 HTTPS，也不应用 HTTP/TLS rewrite。
 
 ## Current Boundary
 
-- `networkcore-linux mitm certificate-plan` 继续输出 `mitm_status.certificate_plan`，但计划状态推进为 `artifact-lifecycle-active`，并包含 `write-local-ca-artifact`、`snapshot-ca-artifact` 和 `rollback-ca-artifact` active steps。
-- `networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> --snapshot <path>` 通过 `CommandMitmCertificateArtifactStore` 写入 operator-provided certificate/key artifact 路径和 NetworkCore rollback snapshot。
+- `networkcore-linux mitm certificate-plan` 继续输出 `mitm_status.certificate_plan`，但计划包含 `write-local-ca-artifact`、`snapshot-ca-artifact`、`write-dedicated-profile-trust-artifact` 和 `rollback-ca-artifact` active steps。
+- `networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` 通过 `CommandMitmCertificateArtifactStore` 写入 operator-provided certificate/key artifact 路径、可选 dedicated profile trust artifact 路径和 NetworkCore rollback snapshot。
 - 缺少 `--confirm` 时返回 `cli.linux.mitm.certificate.authorization_required`，不写文件。
 - 缺少 `--cert-file`、`--key-file` 或 `--snapshot` 时返回 `cli.linux.mitm.certificate.apply.config_missing`，不写文件。
-- 已存在的 cert/key/snapshot 路径必须拒绝覆盖，分别返回 `cli.linux.mitm.certificate.artifact.write_failed` 或 `cli.linux.mitm.certificate.snapshot.write_failed`。
+- 已存在的 cert/key/profile trust/snapshot 路径必须拒绝覆盖，分别返回 `cli.linux.mitm.certificate.artifact.write_failed` 或 `cli.linux.mitm.certificate.snapshot.write_failed`。
 - Snapshot 记录 NetworkCore ownership、artifact path、subject 和内容 fingerprint；rollback 必须在当前文件 fingerprint 仍匹配 snapshot 时才删除 artifact，避免覆盖外部修改。
 - `networkcore-linux mitm certificate rollback --snapshot <path>` 读取 snapshot，成功时返回 `cli.linux.mitm.certificate.rollback.ready`；snapshot 缺失、不可读或不是 NetworkCore certificate artifact snapshot 时返回 `cli.linux.mitm.certificate.snapshot.read_failed`。
 - Artifact rollback 遇到外部修改时返回 `cli.linux.mitm.certificate.rollback.failed`。
 - `certificate_lifecycle` JSON report 输出 action、source contract status、gate、gate status、request、artifact request、trust_plan、apply_report 或 rollback_report。
-- `trust_plan` 固定为 `trust-mutation-blocked`，列出 `install-ca`、`trust-ca`、`update-ca-certificates`、`mutate-nss-db`、`mutate-p11-kit`、`mutate-firefox-trust-store`、`revoke-ca` 和 `rollback-trust-store` blocked operations。
+- `certificate_lifecycle.request.artifact`、`apply_report` 和 `rollback_report` 输出 `profile_trust_file_path`，artifact request 还输出 `profile_trust_content` 和 `profile_trust_fingerprint`。
+- `trust_plan` 固定为 `trust-mutation-blocked`，但包含 `prepare-dedicated-profile-trust-artifact` active step；仍列出 `install-ca`、`trust-ca`、`update-ca-certificates`、`mutate-nss-db`、`mutate-p11-kit`、`mutate-firefox-trust-store`、`revoke-ca` 和 `rollback-trust-store` blocked operations。
 
 ## Source Anchors
 
@@ -49,7 +50,11 @@ MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/trust-mutation-blocked
 - `certificate_lifecycle`
 - `--cert-file`
 - `--key-file`
+- `--profile-trust-file`
 - `--snapshot`
+- `profile_trust_file_path`
+- `profile_trust_content`
+- `profile_trust_fingerprint`
 - `cli.linux.mitm.certificate.authorization_required`
 - `cli.linux.mitm.certificate.apply.ready`
 - `cli.linux.mitm.certificate.apply.config_missing`

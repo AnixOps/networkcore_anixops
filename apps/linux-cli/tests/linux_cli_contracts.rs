@@ -155,6 +155,7 @@ fn parses_help_command_and_renders_command_table() {
     assert!(rendered.contains("mitm certificate [plan|apply|rollback]"));
     assert!(rendered.contains("--cert-file <path>"));
     assert!(rendered.contains("--key-file <path>"));
+    assert!(rendered.contains("--profile-trust-file <path>"));
     assert!(rendered.contains(
         "mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify|traffic-proof]"
     ));
@@ -195,6 +196,8 @@ fn parses_mitm_status_and_diagnostics_commands() {
         "/tmp/networkcore-mitm-ca.crt",
         "--key-file",
         "/tmp/networkcore-mitm-ca.key",
+        "--profile-trust-file",
+        "/tmp/networkcore-profile-trust.pem",
         "--snapshot",
         "/tmp/networkcore-mitm-ca.snapshot.json",
         "--format",
@@ -398,6 +401,7 @@ fn parses_mitm_status_and_diagnostics_commands() {
         LinuxCliCommand::MitmCertificateApply {
             cert_file_path: Some("/tmp/networkcore-mitm-ca.crt".to_string()),
             key_file_path: Some("/tmp/networkcore-mitm-ca.key".to_string()),
+            profile_trust_file_path: Some("/tmp/networkcore-profile-trust.pem".to_string()),
             snapshot_path: Some("/tmp/networkcore-mitm-ca.snapshot.json".to_string()),
             confirm: true,
             format: OutputFormat::Json
@@ -801,6 +805,10 @@ fn mitm_status_loads_builtin_policy_and_reports_deferred_gates() {
         .required_steps
         .iter()
         .any(|step| step.id == "write-local-ca-artifact" && step.status == "active"));
+    let has_profile_trust_step = mitm.certificate_plan.required_steps.iter().any(|step| {
+        step.id == "write-dedicated-profile-trust-artifact" && step.status == "active"
+    });
+    assert!(has_profile_trust_step);
     assert!(mitm
         .certificate_plan
         .required_steps
@@ -1124,6 +1132,7 @@ fn mitm_certificate_apply_requires_authorization_and_config() {
         None,
         None,
         None,
+        None,
         true,
     );
 
@@ -1156,6 +1165,7 @@ fn mitm_certificate_apply_with_store_writes_artifact_report() {
         &TestMitmCertificateArtifactStore,
         Some("/tmp/networkcore-mitm-ca.crt"),
         Some("/tmp/networkcore-mitm-ca.key"),
+        None,
         Some("/tmp/networkcore-mitm-ca.snapshot.json"),
         true,
     );
@@ -1244,6 +1254,7 @@ fn mitm_certificate_command_store_writes_and_rolls_back_artifacts() {
         &networkcore_linux::CommandMitmCertificateArtifactStore::new(),
         Some(cert_path.to_str().expect("cert path should be UTF-8")),
         Some(key_path.to_str().expect("key path should be UTF-8")),
+        None,
         Some(
             snapshot_path
                 .to_str()
@@ -1279,6 +1290,127 @@ fn mitm_certificate_command_store_writes_and_rolls_back_artifacts() {
     );
     assert!(!cert_path.exists());
     assert!(!key_path.exists());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn mitm_certificate_command_store_writes_and_rolls_back_profile_trust_artifact() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock should be after Unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-mitm-profile-trust-artifact-{unique}"
+    ));
+    let cert_path = root.join("networkcore-mitm-ca.crt");
+    let key_path = root.join("networkcore-mitm-ca.key");
+    let profile_trust_path = root.join("dedicated-profile-ca-trust.pem");
+    let snapshot_path = root.join("networkcore-mitm-ca.snapshot.json");
+
+    let apply = handle_mitm_certificate_apply_with_store(
+        &platform,
+        &networkcore_linux::CommandMitmCertificateArtifactStore::new(),
+        Some(cert_path.to_str().expect("cert path should be UTF-8")),
+        Some(key_path.to_str().expect("key path should be UTF-8")),
+        Some(
+            profile_trust_path
+                .to_str()
+                .expect("profile trust path should be UTF-8"),
+        ),
+        Some(
+            snapshot_path
+                .to_str()
+                .expect("snapshot path should be UTF-8"),
+        ),
+        true,
+    );
+
+    assert!(apply.ok);
+    assert_diagnostic(&apply.diagnostics, CLI_MITM_CERTIFICATE_APPLY_READY_CODE);
+    let lifecycle = apply
+        .certificate_lifecycle
+        .as_ref()
+        .expect("apply response should include certificate lifecycle");
+    let artifact = lifecycle
+        .request
+        .artifact
+        .as_ref()
+        .expect("apply request should include certificate artifact");
+    assert_eq!(
+        artifact.profile_trust_file_path.as_deref(),
+        Some(
+            profile_trust_path
+                .to_str()
+                .expect("profile trust path should be UTF-8")
+        )
+    );
+    assert!(artifact
+        .profile_trust_content
+        .as_ref()
+        .expect("profile trust content should be recorded")
+        .contains("NETWORKCORE DEDICATED PROFILE TRUST ARTIFACT"));
+    assert!(artifact.profile_trust_fingerprint.is_some());
+    let apply_report = lifecycle
+        .apply_report
+        .as_ref()
+        .expect("apply response should include apply report");
+    assert_eq!(
+        apply_report.profile_trust_file_path.as_deref(),
+        Some(
+            profile_trust_path
+                .to_str()
+                .expect("profile trust path should be UTF-8")
+        )
+    );
+
+    let profile_trust_content = std::fs::read_to_string(&profile_trust_path)
+        .expect("profile trust artifact should be written");
+    assert!(profile_trust_content.contains("NETWORKCORE DEDICATED PROFILE TRUST ARTIFACT"));
+    assert!(profile_trust_content.contains("profile-trust-state-mutation: blocked"));
+    assert!(profile_trust_content.contains("NETWORKCORE MITM CA CERTIFICATE ARTIFACT"));
+    assert!(snapshot_path.exists());
+
+    let rendered = render_response(&apply, OutputFormat::Text);
+    assert!(rendered.contains("certificate dedicated profile trust artifact file:"));
+
+    let rollback = handle_mitm_certificate_rollback_with_store(
+        &platform,
+        &networkcore_linux::CommandMitmCertificateArtifactStore::new(),
+        Some(
+            snapshot_path
+                .to_str()
+                .expect("snapshot path should be UTF-8")
+                .to_string(),
+        ),
+    );
+
+    assert!(rollback.ok);
+    assert_diagnostic(
+        &rollback.diagnostics,
+        CLI_MITM_CERTIFICATE_ROLLBACK_READY_CODE,
+    );
+    let rollback_lifecycle = rollback
+        .certificate_lifecycle
+        .as_ref()
+        .expect("rollback response should include certificate lifecycle");
+    let rollback_report = rollback_lifecycle
+        .rollback_report
+        .as_ref()
+        .expect("rollback response should include rollback report");
+    assert_eq!(
+        rollback_report.profile_trust_file_path.as_deref(),
+        Some(
+            profile_trust_path
+                .to_str()
+                .expect("profile trust path should be UTF-8")
+        )
+    );
+    assert!(!cert_path.exists());
+    assert!(!key_path.exists());
+    assert!(!profile_trust_path.exists());
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -2798,6 +2930,7 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
         LinuxCliCommand::MitmCertificateApply {
             cert_file_path: Some("/tmp/networkcore-mitm-ca.crt".to_string()),
             key_file_path: Some("/tmp/networkcore-mitm-ca.key".to_string()),
+            profile_trust_file_path: None,
             snapshot_path: Some("/tmp/networkcore-mitm-ca.snapshot.json".to_string()),
             confirm: true,
             format: OutputFormat::Text,
@@ -3375,6 +3508,7 @@ fn certificate_lifecycle_entrypoint_routes_apply_and_rollback_to_artifact_store(
         LinuxCliCommand::MitmCertificateApply {
             cert_file_path: Some("/tmp/networkcore-mitm-ca.crt".to_string()),
             key_file_path: Some("/tmp/networkcore-mitm-ca.key".to_string()),
+            profile_trust_file_path: None,
             snapshot_path: Some("/tmp/networkcore-mitm-ca.snapshot.json".to_string()),
             confirm: true,
             format: OutputFormat::Json,
@@ -3900,6 +4034,7 @@ fn certificate_lifecycle_json_output_contains_artifact_fields() {
         &TestMitmCertificateArtifactStore,
         Some("/tmp/networkcore-mitm-ca.crt"),
         Some("/tmp/networkcore-mitm-ca.key"),
+        None,
         Some("/tmp/networkcore-mitm-ca.snapshot.json"),
         true,
     );
@@ -4807,6 +4942,7 @@ impl MitmCertificateArtifactStore for TestMitmCertificateArtifactStore {
     ) -> DomainResult<LinuxMitmCertificateArtifactApplyOutcome> {
         assert_eq!(request.cert_file_path, "/tmp/networkcore-mitm-ca.crt");
         assert_eq!(request.key_file_path, "/tmp/networkcore-mitm-ca.key");
+        assert!(request.profile_trust_file_path.is_none());
         assert_eq!(
             request.snapshot_path,
             "/tmp/networkcore-mitm-ca.snapshot.json"
@@ -4819,8 +4955,10 @@ impl MitmCertificateArtifactStore for TestMitmCertificateArtifactStore {
         assert!(request
             .key_content
             .contains("NETWORKCORE MITM CA PRIVATE KEY ARTIFACT"));
+        assert!(request.profile_trust_content.is_none());
         assert!(!request.cert_fingerprint.is_empty());
         assert!(!request.key_fingerprint.is_empty());
+        assert!(request.profile_trust_fingerprint.is_none());
 
         Ok(LinuxMitmCertificateArtifactApplyOutcome {
             rollback_snapshot: MitmCertificateRollbackSnapshot {
@@ -4845,6 +4983,7 @@ impl MitmCertificateArtifactStore for TestMitmCertificateArtifactStore {
         Ok(LinuxMitmCertificateArtifactRollbackOutcome {
             cert_file_path: "/tmp/networkcore-mitm-ca.crt".to_string(),
             key_file_path: "/tmp/networkcore-mitm-ca.key".to_string(),
+            profile_trust_file_path: None,
             diagnostics: vec![Diagnostic::new(
                 DiagnosticSeverity::Info,
                 CLI_MITM_CERTIFICATE_ROLLBACK_READY_CODE,

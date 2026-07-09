@@ -99,11 +99,12 @@ Required gates before user-facing MITM:
 - `MITM_CLI_COMMAND_GATE`: partially active for status, diagnostics,
   certificate-plan, browser-plan, browser-capture session plan, launch report, and
   browser-capture blocked reports only.
-- `MITM_CERTIFICATE_LIFECYCLE_GATE`: currently artifact-lifecycle-active/trust-mutation-blocked through
+- `MITM_CERTIFICATE_LIFECYCLE_GATE`: currently artifact-lifecycle-active/profile-trust-artifact-active/trust-mutation-blocked through
   `mitm_status.certificate_plan` and Linux CLI `certificate_lifecycle`
   apply/rollback reports. `mitm certificate apply --confirm --cert-file
-  <path> --key-file <path> --snapshot <path>` writes only NetworkCore-owned
-  certificate/private-key artifacts and rollback snapshot; later increments
+  <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>`
+  writes only NetworkCore-owned certificate/private-key artifacts, optional
+  dedicated profile CA trust artifact, and rollback snapshot; later increments
   must implement CA install, trust detection, revocation, and trust-store
   rollback boundaries. The Linux boundary is documented in
   `docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md`.
