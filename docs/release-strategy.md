@@ -21,15 +21,15 @@ linux-artifact-license-notice-status=confirmed
 linux-artifact-publish-scope=tag-release-after-all-gates
 ```
 
-当前最新已发布 Linux artifact 是 `v0.1.0-alpha.13`。`main` 分支在该 tag 之后可能包含更多
+当前最新已发布 Linux artifact 是 `v0.1.0-alpha.14`。`main` 分支在该 tag 之后可能包含更多
 P4 源码增量；这些增量只有在后续新 tag release 完整通过 GitHub Actions 的 CI、package、
 attestation、publish eligibility 和 publish jobs 后，才会进入用户可下载的 GitHub Release asset。
 逐版本 alpha 功能、边界和规划切片记录在 [Alpha Release Feature Matrix](alpha-release-feature-matrix.md)。
 
 已拍板版本节奏：
 
-- `v0.1.0`：Linux-only explicit HTTPS rewrite preview。后续 alpha 切片必须先完成 dedicated profile
-  trust、plain HTTP live data plane、TLS MITM foundation、HTTPS request/response rewrite、live browser
+- `v0.1.0`：Linux-only explicit HTTPS rewrite preview。后续 alpha.15 起必须先完成 TLS MITM
+  foundation、HTTPS request/response rewrite、live browser
   proof 和 release hardening；不发布 Windows artifact，不启用 JavaScript script dispatch，不执行
   system trust store mutation、system proxy mutation、daemon/service、TUN、DNS 或 firewall mutation。
 - `v0.1.1`：正式引入 Windows 版本，并把订阅兼容作为主线。Windows 首期发布目标是 CLI artifact

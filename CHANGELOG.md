@@ -6,6 +6,12 @@
 
 ### Added
 
+- 同步 `v0.1.0-alpha.14` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README 和 `mitm-policy` README 现在把 `v0.1.0-alpha.14` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 alpha.15 起。
+
+## v0.1.0-alpha.14 - 2026-07-09
+
+### Added
+
 - 新增 `v0.1.0-alpha.14` Linux explicit HTTP proxy live plain HTTP data plane source 增量：`engine-native` 允许 `ListenerKind::Http` loopback listener 解析 bounded HTTP/1.x explicit proxy request，新增 `NativeExplicitHttpProxyRequest`、`NativePlainHttpProxyResponse`、`read_explicit_http_proxy_request`、`apply_http_mitm_outcome_to_live_plain_http_request`、`serialize_explicit_http_proxy_request_for_upstream` 和 `engine.native.runtime.http_proxy_plain_rewrite_applied` 诊断；真实 `http://` request/response 可在 explicit proxy 路径应用 reject、redirect、header/body rewrite，并经既有 SOCKS outbound primitive 转发。
 - `networkcore-linux mitm http-rewrite plan` 的 `MITM_HTTP_TLS_DATA_PLANE_GATE` 推进为 `plain-http-live-data-plane-active/tls-decryption-blocked`，`http_rewrite` report 现在声明 `mutation_ready=true`、`live_traffic_ready=true`、`tls_decryption_ready=false`。本增量仍不解密 HTTPS、不终止 TLS、不安装/信任 CA、不修改 browser/system proxy、system PAC、TUN、DNS 或 firewall，不执行 JavaScript script dispatch。
 - 同步 `v0.1.0-alpha.13` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README、`mitm-policy` README 和相关 source contract 现在把 `v0.1.0-alpha.13` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 alpha.14 起。

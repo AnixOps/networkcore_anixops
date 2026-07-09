@@ -295,14 +295,13 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 - 不解密 HTTPS，不终止 TLS，不拦截真实浏览器或系统流量。
 - 不应用 live HTTP/TLS redirect/header/body/script rewrite。
 
-## 当前 main source-only 增量
+## 最新已发布切片
 
 ### `v0.1.0-alpha.14`
 
-状态：source-only；尚未 tag release。最终用户可下载能力仍必须等待 `v0.1.0-alpha.14`
-tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release asset 全部通过。
+状态：已发布；`v0.1.0-alpha.14` tag release 切片，发布 Linux explicit HTTP proxy live plain HTTP data plane。
 
-当前源码能力：
+当前 artifact 能力：
 
 - Linux explicit HTTP proxy live plain HTTP data plane：`engine-native` 允许 `ListenerKind::Http`
   loopback listener 解析 bounded HTTP/1.x explicit proxy request，并通过 `NativeHttpMitmPluginHook`
@@ -339,8 +338,8 @@ tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Rel
 
 规划切片：
 
-- `v0.1.0-alpha.14`：Linux explicit HTTP proxy live plain HTTP data plane。当前已进入 source-only
-  增量；tag release 后，真实 `http://` 请求可在 dedicated/explicit proxy 路径应用 reject、redirect、header/body rewrite。
+- `v0.1.0-alpha.14`：Linux explicit HTTP proxy live plain HTTP data plane。已发布；真实 `http://`
+  请求可在 dedicated/explicit proxy 路径应用 reject、redirect、header/body rewrite。
 - `v0.1.0-alpha.15`：Linux TLS MITM foundation。CONNECT 后建立受控 TLS termination 与 upstream TLS
   forwarding，先证明解密通路和诊断，不执行 JavaScript script dispatch。
 - `v0.1.0-alpha.16`：Linux HTTPS request rewrite preview。对 dedicated/explicit HTTPS 请求应用
