@@ -11,6 +11,12 @@
 - 同步 `v0.1.0-alpha.19` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README、`mitm-policy` README 和 Linux browser capture source contract 现在把 `v0.1.0-alpha.19` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 alpha.20 release hardening。
 - 同步 `v0.1.0-alpha.18` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README 和 `mitm-policy` README 现在把 `v0.1.0-alpha.18` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 alpha.19 live browser proof hardening 起。
 
+## v0.1.0 - 2026-07-10
+
+### Added
+
+- 发布 Linux-only explicit HTTPS rewrite preview 正式版：包含 Linux CLI tarball、sha256、manifest 和 manifest sha256；保留 alpha.14 到 rc.1 已发布能力边界，包括 explicit HTTP proxy live plain HTTP data plane、TLS MITM readiness、controlled TLS termination plan/report、caller-provided HTTPS request/response rewrite preview、browser traffic proof hardening、traffic-proof text CONNECT authority 输出，以及 rc.1 HTTPS request preview 回归冻结合同。该版本仍不发布 Windows artifact，不执行 live HTTPS decryption、live CONNECT-stream HTTPS rewrite、system trust store mutation、system proxy mutation 或 JavaScript script dispatch。
+
 ## v0.1.0-rc.1 - 2026-07-10
 
 ### Added
