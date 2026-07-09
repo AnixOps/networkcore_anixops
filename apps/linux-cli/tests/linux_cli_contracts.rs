@@ -37,7 +37,8 @@ use networkcore_linux::{
     handle_mitm_browser_capture_verify_with_probe, handle_mitm_browser_plan,
     handle_mitm_certificate_apply, handle_mitm_certificate_apply_with_store,
     handle_mitm_certificate_plan, handle_mitm_certificate_rollback,
-    handle_mitm_certificate_rollback_with_store, handle_mitm_status, handle_parse_error,
+    handle_mitm_certificate_rollback_with_store, handle_mitm_http_rewrite_plan,
+    handle_mitm_http_rewrite_preview, handle_mitm_status, handle_parse_error,
     handle_prepare_config, handle_run_url_with_sing_box, handle_start, handle_status, handle_stop,
     native_proxy_engine_service_with_builtin_mitm_plugin, parse_args, render_response,
     BrowserCaptureEndpointProbe, BrowserCapturePacFileStore, BrowserCaptureProcessRunner,
@@ -77,7 +78,10 @@ use networkcore_linux::{
     CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE, CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE,
     CLI_MITM_CERTIFICATE_PLAN_READY_CODE, CLI_MITM_CERTIFICATE_ROLLBACK_BLOCKED_CODE,
     CLI_MITM_CERTIFICATE_ROLLBACK_READY_CODE, CLI_MITM_CLI_GATE_PARTIAL_CODE,
-    CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE, CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE,
+    CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE,
+    CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE, CLI_MITM_HTTP_REWRITE_AUTHORIZATION_REQUIRED_CODE,
+    CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE, CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE,
+    CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE,
     CLI_START_FOREGROUND_ONLY_CODE, CLI_START_LIFECYCLE_FAILED_CODE,
     CLI_START_LIFECYCLE_HOST_MISSING_CODE, CLI_START_LIFECYCLE_INTERRUPTED_CODE,
     CLI_START_PLATFORM_DENIED_CODE, CLI_START_RUNTIME_STOP_FAILED_CODE,
@@ -93,6 +97,8 @@ use networkcore_linux::{
     MITM_CERTIFICATE_LIFECYCLE_GATE, MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS,
     MITM_CERTIFICATE_LIFECYCLE_SOURCE_CONTRACT_STATUS, MITM_CERTIFICATE_MUTATION_READY,
     MITM_CERTIFICATE_PLAN_STATUS, MITM_CLI_COMMAND_GATE, MITM_CLI_COMMAND_GATE_STATUS,
+    MITM_HTTP_REWRITE_LIVE_TRAFFIC_READY, MITM_HTTP_REWRITE_MUTATION_READY,
+    MITM_HTTP_REWRITE_SOURCE_CONTRACT_STATUS, MITM_HTTP_REWRITE_TLS_DECRYPTION_READY,
     MITM_HTTP_TLS_DATA_PLANE_GATE, MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS, MITM_USER_FACING_STAGE,
 };
 #[cfg(unix)]
@@ -153,6 +159,9 @@ fn parses_help_command_and_renders_command_table() {
     assert!(rendered.contains(
         "mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify|traffic-proof]"
     ));
+    assert!(rendered.contains("mitm http-rewrite [plan|preview]"));
+    assert!(rendered.contains("--url <url>"));
+    assert!(rendered.contains("--phase request|response"));
     assert!(rendered.contains("--proof-token <token>"));
     assert!(rendered.contains("--proof-log <path>"));
     assert!(rendered.contains("sing-box install"));
@@ -327,6 +336,27 @@ fn parses_mitm_status_and_diagnostics_commands() {
         "https://example.com/capture",
     ])
     .expect("mitm browser-capture traffic-proof default proof binding should parse");
+    let http_rewrite_plan = parse_args(["mitm", "http-rewrite", "plan", "--format", "json"])
+        .expect("mitm http-rewrite plan should parse");
+    let http_rewrite_preview = parse_args([
+        "mitm",
+        "http-rewrite",
+        "preview",
+        "--url",
+        "https://pubads.g.doubleclick.net/pagead/id",
+        "--method",
+        "get",
+        "--phase",
+        "request",
+        "--header",
+        "Accept: */*",
+        "--body",
+        "from=1",
+        "--confirm",
+        "--format",
+        "json",
+    ])
+    .expect("mitm http-rewrite preview should parse");
 
     assert_eq!(
         default_status,
@@ -510,6 +540,25 @@ fn parses_mitm_status_and_diagnostics_commands() {
             proxy_scheme: MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string(),
             confirm: true,
             format: OutputFormat::Text
+        }
+    );
+    assert_eq!(
+        http_rewrite_plan,
+        LinuxCliCommand::MitmHttpRewritePlan {
+            format: OutputFormat::Json
+        }
+    );
+    assert_eq!(
+        http_rewrite_preview,
+        LinuxCliCommand::MitmHttpRewritePreview {
+            url: Some("https://pubads.g.doubleclick.net/pagead/id".to_string()),
+            method: "GET".to_string(),
+            phase: "request".to_string(),
+            status_code: None,
+            headers: vec!["Accept: */*".to_string()],
+            body: Some("from=1".to_string()),
+            confirm: true,
+            format: OutputFormat::Json
         }
     );
 }
@@ -827,6 +876,147 @@ fn mitm_status_loads_builtin_policy_and_reports_deferred_gates() {
     assert!(rendered.contains("browser plan: plan-only mutation_ready=false"));
     assert!(rendered.contains("browser step configure-browser-explicit-proxy: blocked"));
     assert!(rendered.contains("gate MITM_CLI_COMMAND_GATE: partial-active"));
+}
+
+#[test]
+fn mitm_http_rewrite_plan_reports_plain_http_foundation_without_tls_decryption() {
+    let platform = StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot {
+        mitm_certificate: LinuxCertificateProbe::new(CertificateTrustState::InstalledUntrusted),
+        ..LinuxPlatformSnapshot::available_for_tests()
+    });
+
+    let response = handle_mitm_http_rewrite_plan(&platform);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "mitm http-rewrite plan");
+    assert_diagnostic(&response.diagnostics, CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE);
+    assert_diagnostic(&response.diagnostics, CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE);
+    let report = response
+        .http_rewrite
+        .as_ref()
+        .expect("http rewrite plan should include machine report");
+    assert_eq!(
+        report.source_contract_status,
+        MITM_HTTP_REWRITE_SOURCE_CONTRACT_STATUS
+    );
+    assert_eq!(report.gate, MITM_HTTP_TLS_DATA_PLANE_GATE);
+    assert_eq!(report.gate_status, MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS);
+    assert_eq!(report.mutation_ready, MITM_HTTP_REWRITE_MUTATION_READY);
+    assert_eq!(
+        report.live_traffic_ready,
+        MITM_HTTP_REWRITE_LIVE_TRAFFIC_READY
+    );
+    assert_eq!(
+        report.tls_decryption_ready,
+        MITM_HTTP_REWRITE_TLS_DECRYPTION_READY
+    );
+    assert!(report
+        .blocked_operations
+        .iter()
+        .any(|operation| operation == "decrypt-https"));
+
+    let rendered = render_response(&response, OutputFormat::Text);
+    assert!(rendered
+        .contains("http rewrite plan: plain-http-rewrite-foundation-active/tls-decryption-blocked"));
+    assert!(rendered.contains("http rewrite blocked operation: decrypt-https"));
+}
+
+#[test]
+fn mitm_http_rewrite_preview_requires_authorization_before_applying_outcome() {
+    let platform = StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot {
+        mitm_certificate: LinuxCertificateProbe::new(CertificateTrustState::InstalledUntrusted),
+        ..LinuxPlatformSnapshot::available_for_tests()
+    });
+
+    let response = handle_mitm_http_rewrite_preview(
+        &platform,
+        Some("https://pubads.g.doubleclick.net/pagead/id"),
+        "GET",
+        "request",
+        None,
+        &[],
+        None,
+        false,
+    );
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, LinuxCliExitCode::Unavailable);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_HTTP_REWRITE_AUTHORIZATION_REQUIRED_CODE,
+    );
+    let report = response
+        .http_rewrite
+        .as_ref()
+        .expect("authorization failure should include http rewrite report");
+    assert!(report.outcome.is_none());
+    assert_eq!(
+        report
+            .request
+            .authorization
+            .as_ref()
+            .expect("authorization should be present")
+            .confirmed,
+        false
+    );
+}
+
+#[test]
+fn mitm_http_rewrite_preview_applies_builtin_reject_to_plain_http_input() {
+    let platform = StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot {
+        mitm_certificate: LinuxCertificateProbe::new(CertificateTrustState::InstalledUntrusted),
+        ..LinuxPlatformSnapshot::available_for_tests()
+    });
+    let headers = vec!["Accept: */*".to_string()];
+
+    let response = handle_mitm_http_rewrite_preview(
+        &platform,
+        Some("https://pubads.g.doubleclick.net/pagead/id"),
+        "GET",
+        "request",
+        None,
+        &headers,
+        Some("from=1"),
+        true,
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "mitm http-rewrite preview");
+    assert_diagnostic(&response.diagnostics, CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE);
+    assert_diagnostic(&response.diagnostics, CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE);
+    let report = response
+        .http_rewrite
+        .as_ref()
+        .expect("preview should include http rewrite report");
+    let outcome = report
+        .outcome
+        .as_ref()
+        .expect("preview should include outcome report");
+    assert!(outcome.planned);
+    assert!(outcome.applied);
+    assert_eq!(outcome.action, "reject");
+    assert_eq!(outcome.terminal_action.as_deref(), Some("reject"));
+    assert_eq!(outcome.final_status_code, Some(403));
+    assert_eq!(outcome.header_mutation_count, 0);
+    assert!(!outcome.body_mutated);
+    assert!(!outcome.script_dispatch_deferred);
+    assert_eq!(
+        outcome
+            .output_headers
+            .iter()
+            .find(|header| header.name == "Content-Length")
+            .map(|header| header.value.as_str()),
+        Some("0")
+    );
+    assert_eq!(
+        report
+            .request
+            .authorization
+            .as_ref()
+            .expect("authorization should be recorded")
+            .confirmed,
+        true
+    );
 }
 
 #[test]
@@ -3622,6 +3812,79 @@ fn mitm_status_json_output_contains_machine_fields() {
         json["mitm_status"]["gates"][2]["gate"],
         MITM_HTTP_TLS_DATA_PLANE_GATE
     );
+    assert_eq!(
+        json["mitm_status"]["gates"][2]["status"],
+        MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS
+    );
+}
+
+#[test]
+fn http_rewrite_json_output_contains_plain_http_application_fields() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let headers = vec!["Accept: */*".to_string()];
+    let response = handle_mitm_http_rewrite_preview(
+        &platform,
+        Some("https://pubads.g.doubleclick.net/pagead/id"),
+        "GET",
+        "request",
+        None,
+        &headers,
+        None,
+        true,
+    );
+
+    let rendered = render_response(&response, OutputFormat::Json);
+    let json: serde_json::Value =
+        serde_json::from_str(&rendered).expect("http rewrite response should be valid JSON");
+
+    assert_eq!(json["ok"].as_bool(), Some(true));
+    assert_eq!(json["command"], "mitm http-rewrite preview");
+    assert_eq!(json["http_rewrite"]["action"], "preview");
+    assert_eq!(
+        json["http_rewrite"]["source_contract_status"],
+        MITM_HTTP_REWRITE_SOURCE_CONTRACT_STATUS
+    );
+    assert_eq!(json["http_rewrite"]["gate"], MITM_HTTP_TLS_DATA_PLANE_GATE);
+    assert_eq!(
+        json["http_rewrite"]["gate_status"],
+        MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS
+    );
+    assert_eq!(
+        json["http_rewrite"]["mutation_ready"].as_bool(),
+        Some(MITM_HTTP_REWRITE_MUTATION_READY)
+    );
+    assert_eq!(
+        json["http_rewrite"]["live_traffic_ready"].as_bool(),
+        Some(MITM_HTTP_REWRITE_LIVE_TRAFFIC_READY)
+    );
+    assert_eq!(
+        json["http_rewrite"]["tls_decryption_ready"].as_bool(),
+        Some(MITM_HTTP_REWRITE_TLS_DECRYPTION_READY)
+    );
+    assert_eq!(
+        json["http_rewrite"]["request"]["url"],
+        "https://pubads.g.doubleclick.net/pagead/id"
+    );
+    assert_eq!(json["http_rewrite"]["request"]["method"], "GET");
+    assert_eq!(json["http_rewrite"]["request"]["phase"], "request");
+    assert_eq!(
+        json["http_rewrite"]["request"]["authorization"]["confirmed"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        json["http_rewrite"]["outcome"]["terminal_action"],
+        "reject"
+    );
+    assert_eq!(
+        json["http_rewrite"]["outcome"]["final_status_code"].as_u64(),
+        Some(403)
+    );
+    assert!(json["http_rewrite"]["blocked_operations"]
+        .as_array()
+        .expect("blocked operations should be an array")
+        .iter()
+        .any(|operation| operation.as_str() == Some("decrypt-https")));
 }
 
 #[test]

@@ -221,7 +221,7 @@ attestation、release notes/rollback 和 publish eligibility gates。
 - 不承诺 HTTPS 解密或 HTTP/TLS redirect/header/body/script rewrite 应用。
 - 即使 dedicated profile proxy prefs 可回滚写入，也仍不能称为完整 HTTPS MITM 或 request/response rewrite 可用。
 
-## 当前和后续 alpha 规划
+## 当前发布 alpha 切片
 
 ### `v0.1.0-alpha.11`
 
@@ -248,27 +248,37 @@ artifact、private-key artifact、文件所有权、snapshot、rollback 和 trus
 
 ### `v0.1.0-alpha.12`
 
-状态：规划中；按当前拍板作为首个 HTTP/TLS rewrite 候选切片。
+状态：已发布；`v0.1.0-alpha.12` tag release 切片，发布明文 HTTP rewrite foundation，不包含完整 HTTPS rewrite。
 
-预计窗口（非承诺）：`v0.1.0-alpha.11` 通过 GitHub Actions release 后评估。
+发布日期：2026-07-09；scope 以 Linux MITM HTTP rewrite source contract 和显式 caller-provided
+plain HTTP preview 为核心，固定 `MITM_HTTP_TLS_DATA_PLANE_GATE=plain-http-rewrite-foundation-active/tls-decryption-blocked`。
 
-目标方向：
+已发布能力：
 
-- 推进 `MITM_HTTP_TLS_DATA_PLANE_GATE`：把 `mitm-policy` `HttpMitmOutcome` redirect/header/body/script
-  rewrite plan 接到真实 HTTP/TLS 请求/响应数据面。
-- 以 `v0.1.0-alpha.11` 的 CA artifact lifecycle、显式授权、snapshot 和 rollback 边界为前置条件。
-- 继续保持 browser/system proxy、system PAC、TUN、DNS、firewall 和 trust store mutation 独立受控。
+- 新增 Linux MITM HTTP rewrite source contract，固定 `NativePlainHttpMessage`、`NativePlainHttpRewriteReport`、
+  `LinuxMitmHttpRewriteReport`、命令面、诊断 code、JSON report 和 CI governance。
+- 新增 `engine-native` 明文 HTTP rewrite application：把 caller-provided message 映射为 `HttpMitmEvent`，
+  调用 `MitmPluginService::handle_http_mitm_event`，并把 `HttpMitmOutcome` 的 reject、redirect、
+  header mutation 和 body mutation 应用到该合成输入。
+- 新增 `networkcore-linux mitm http-rewrite plan`，输出 source contract、gate、mutation_ready、
+  live_traffic_ready、tls_decryption_ready 和 blocked operations。
+- 新增 `networkcore-linux mitm http-rewrite preview --confirm --url <url> [--method <method>] [--phase request|response] [--status-code <code>] [--header <name:value>] [--body <text>]`，
+  使用内置 `networkcore.adblock` 计划并应用 outcome 到调用方输入，输出 `http_rewrite` report。
+- `HttpMitmScriptDispatch` 仍只记录 `script_dispatch_deferred=true`，不执行脚本。
 
 明确不承诺：
 
-- 不能跳过 CA trust、HTTP/TLS data plane、授权和 rollback 直接发布完整浏览器流量劫持。
-- 若数据面风险过高，`alpha.12` 可只发布 HTTP/TLS data plane source contract 或明文 HTTP rewrite
-  foundation，不强行承诺完整 HTTPS rewrite。
+- 不解密 HTTPS，不终止 TLS，不把 preview 输入等同于 live browser traffic。
+- 不安装、信任、撤销或回滚 CA trust store。
+- 不修改 browser/system proxy、system PAC、TUN、DNS、firewall 或路由状态。
+- 不执行 JavaScript plugin script dispatch。
+- 不承诺完整自动 browser hijack 或完整 HTTPS rewrite；该能力必须等待后续 alpha 切片。
 
 ## 相关文档
 
 - [Release Strategy](release-strategy.md)
 - [Linux MITM Browser Capture Source Contract](architecture/linux-mitm-browser-capture-source-contract.md)
+- [Linux MITM HTTP Rewrite Source Contract](architecture/linux-mitm-http-rewrite-source-contract.md)
 - [MITM Policy Ad Block Plugin Source Contract](architecture/mitm-policy-ad-block-plugin-source-contract.md)
 - [Linux Native Proxy Engine Start Design](architecture/linux-native-proxy-engine-start.md)
 - [Roadmap](../ROADMAP.md)

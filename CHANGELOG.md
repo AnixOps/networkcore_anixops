@@ -8,6 +8,14 @@
 
 - 暂无。
 
+## v0.1.0-alpha.12 - 2026-07-09
+
+### Added
+
+- 新增 Linux MITM plain HTTP rewrite foundation：`engine-native` 提供 `NativePlainHttpMessage`、`NativePlainHttpRewriteReport`、`plan_and_apply_plain_http_mitm` 和 `apply_http_mitm_outcome_to_plain_http_message`，可把 caller-provided HTTP message 映射为 `HttpMitmEvent`，调用 `MitmPluginService::handle_http_mitm_event`，并把 `HttpMitmOutcome` 的 reject、redirect、header mutation 和 body mutation 应用到该合成输入；script dispatch 只记录 deferred，不执行脚本。
+- 新增 Linux CLI `networkcore-linux mitm http-rewrite plan` / `preview --confirm --url <url>` 命令面和 `http_rewrite` JSON/text report，输出 source contract、authorization、request、outcome、output headers/body、blocked operations、`mutation_ready=true`、`live_traffic_ready=false` 和 `tls_decryption_ready=false`。
+- 新增 [Linux MITM HTTP Rewrite Source Contract](docs/architecture/linux-mitm-http-rewrite-source-contract.md)，并把 `MITM_HTTP_TLS_DATA_PLANE_GATE` 推进为 `plain-http-rewrite-foundation-active/tls-decryption-blocked`。本增量不解密 HTTPS，不安装或信任 CA，不修改 browser/system proxy、system PAC、TUN、DNS、firewall 或路由状态，不拦截真实浏览器/系统流量，也不承诺完整 HTTPS rewrite。
+
 ## v0.1.0-alpha.11 - 2026-07-09
 
 ### Added
@@ -19,7 +27,7 @@
 ### Added
 
 - 新增授权 dedicated Firefox profile prefs apply/rollback：`networkcore-linux mitm browser-capture apply --confirm --pac-file <path> [--policy-file <path>] [--profile-prefs-file <path>] --snapshot <path>` 现在可写入用户指定 Firefox profile `user.js` 的显式代理设置；`--proxy-scheme socks5` 会写 SOCKS5 proxy 和 remote DNS prefs，rollback 会在未被外部修改时恢复原内容或删除 NetworkCore 新建文件。该增量仍不修改系统代理、system PAC、TUN、DNS、firewall 或 CA，也不承诺静默/全自动 browser hijack、HTTPS 解密或 HTTP/TLS rewrite。
-- 固定后续 alpha 切片：`v0.1.0-alpha.11` 只推进 CA artifact lifecycle foundation，不做 HTTPS rewrite；`v0.1.0-alpha.12` 再作为 HTTP/TLS rewrite 候选切片。CI governance 同步恢复对 `v0.1.0-alpha.9`、`v0.1.0-alpha.10`、`v0.1.0-alpha.11` 和 `v0.1.0-alpha.12` 的逐版本矩阵检查。
+- 固定后续 alpha 切片：`v0.1.0-alpha.11` 只推进 CA artifact lifecycle foundation，不做 HTTPS rewrite；当时规划 `v0.1.0-alpha.12` 作为 HTTP/TLS rewrite 候选切片，后续已由 alpha.12 以 plain HTTP rewrite foundation 发布。CI governance 同步恢复对 `v0.1.0-alpha.9`、`v0.1.0-alpha.10`、`v0.1.0-alpha.11` 和 `v0.1.0-alpha.12` 的逐版本矩阵检查。
 
 ## v0.1.0-alpha.9 - 2026-07-09
 

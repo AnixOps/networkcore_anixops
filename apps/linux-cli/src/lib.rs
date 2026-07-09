@@ -7,7 +7,8 @@
 use config_core::CoreSubscriptionService;
 use control_domain::{
     CertificateTrustState, ConfigurationService, Diagnostic, DiagnosticSeverity, DomainError,
-    DomainResult, GrantedPermissions, MitmPluginService, OperatingSystem,
+    DomainResult, GrantedPermissions, HttpMitmAction, HttpMitmPhase, MetadataEntry,
+    MitmPluginService, OperatingSystem,
     PlatformCapabilityService, PlatformCapabilityStatus, PlatformFeatureState, ProxyEngineConfig,
     ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineLifecycleState, ProxyEngineService,
     ProxyEngineStatus, RawSubscription, SubscriptionService,
@@ -154,6 +155,16 @@ pub const CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_MISSING_CODE: &str =
     "cli.linux.mitm.browser_capture.traffic_proof.missing";
 pub const CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_LOG_UNREADABLE_CODE: &str =
     "cli.linux.mitm.browser_capture.traffic_proof.log_unreadable";
+pub const CLI_MITM_HTTP_REWRITE_AUTHORIZATION_REQUIRED_CODE: &str =
+    "cli.linux.mitm.http_rewrite.authorization_required";
+pub const CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE: &str =
+    "cli.linux.mitm.http_rewrite.plan.ready";
+pub const CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE: &str =
+    "cli.linux.mitm.http_rewrite.apply.ready";
+pub const CLI_MITM_HTTP_REWRITE_CONFIG_MISSING_CODE: &str =
+    "cli.linux.mitm.http_rewrite.config_missing";
+pub const CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE: &str =
+    "cli.linux.mitm.http_rewrite.tls_blocked";
 pub const CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE: &str = "cli.linux.mitm.browser_hijack.deferred";
 
 pub const MITM_CLI_COMMAND_GATE: &str = "MITM_CLI_COMMAND_GATE";
@@ -163,7 +174,8 @@ pub const MITM_BROWSER_CAPTURE_GATE: &str = "MITM_BROWSER_CAPTURE_GATE";
 pub const MITM_CLI_COMMAND_GATE_STATUS: &str = "partial-active";
 pub const MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS: &str =
     "artifact-lifecycle-active/trust-mutation-blocked";
-pub const MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS: &str = "blocked";
+pub const MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS: &str =
+    "plain-http-rewrite-foundation-active/tls-decryption-blocked";
 pub const MITM_BROWSER_CAPTURE_GATE_STATUS: &str =
     "pac-policy-profile-prefs-active/system-mutation-blocked";
 pub const MITM_BROWSER_HIJACK_STATUS: &str = "deferred";
@@ -185,6 +197,12 @@ pub const MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR: &str =
 pub const MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH: &str =
     "/tmp/networkcore-browser-capture-proof.log";
 pub const MITM_BROWSER_CAPTURE_PROOF_QUERY_PARAM: &str = "networkcore_proof_token";
+pub const MITM_HTTP_REWRITE_SOURCE_CONTRACT_STATUS: &str = "active";
+pub const MITM_HTTP_REWRITE_MUTATION_READY: bool = true;
+pub const MITM_HTTP_REWRITE_LIVE_TRAFFIC_READY: bool = false;
+pub const MITM_HTTP_REWRITE_TLS_DECRYPTION_READY: bool = false;
+pub const MITM_HTTP_REWRITE_DEFAULT_METHOD: &str = "GET";
+pub const MITM_HTTP_REWRITE_DEFAULT_PHASE: &str = "request";
 pub const MITM_USER_FACING_STAGE: &str = "policy-only";
 pub const MITM_USER_FACING_READY: bool = false;
 
@@ -349,6 +367,19 @@ pub enum LinuxCliCommand {
         confirm: bool,
         format: OutputFormat,
     },
+    MitmHttpRewritePlan {
+        format: OutputFormat,
+    },
+    MitmHttpRewritePreview {
+        url: Option<String>,
+        method: String,
+        phase: String,
+        status_code: Option<u16>,
+        headers: Vec<String>,
+        body: Option<String>,
+        confirm: bool,
+        format: OutputFormat,
+    },
     InstallSingBox {
         install_dir: Option<String>,
         force: bool,
@@ -389,6 +420,8 @@ impl LinuxCliCommand {
             Self::MitmBrowserCaptureRollback { .. } => "mitm browser-capture rollback",
             Self::MitmBrowserCaptureVerify { .. } => "mitm browser-capture verify",
             Self::MitmBrowserCaptureTrafficProof { .. } => "mitm browser-capture traffic-proof",
+            Self::MitmHttpRewritePlan { .. } => "mitm http-rewrite plan",
+            Self::MitmHttpRewritePreview { .. } => "mitm http-rewrite preview",
             Self::InstallSingBox { .. } => "install-sing-box",
             Self::RunUrl { .. } => "run-url",
         }
@@ -418,6 +451,8 @@ impl LinuxCliCommand {
             | Self::MitmBrowserCaptureRollback { format, .. }
             | Self::MitmBrowserCaptureVerify { format, .. }
             | Self::MitmBrowserCaptureTrafficProof { format, .. }
+            | Self::MitmHttpRewritePlan { format }
+            | Self::MitmHttpRewritePreview { format, .. }
             | Self::InstallSingBox { format, .. }
             | Self::RunUrl { format, .. } => *format,
         }
@@ -460,6 +495,7 @@ pub struct LinuxCliResponse {
     pub mitm_status: Option<LinuxMitmStatus>,
     pub certificate_lifecycle: Option<LinuxMitmCertificateLifecycleReport>,
     pub browser_capture: Option<LinuxBrowserCaptureReport>,
+    pub http_rewrite: Option<LinuxMitmHttpRewriteReport>,
 }
 
 impl LinuxCliResponse {
@@ -478,6 +514,7 @@ impl LinuxCliResponse {
             mitm_status: None,
             certificate_lifecycle: None,
             browser_capture: None,
+            http_rewrite: None,
         }
     }
 
@@ -500,6 +537,7 @@ impl LinuxCliResponse {
             mitm_status: None,
             certificate_lifecycle: None,
             browser_capture: None,
+            http_rewrite: None,
         }
     }
 
@@ -548,6 +586,11 @@ impl LinuxCliResponse {
 
     pub fn with_browser_capture(mut self, report: LinuxBrowserCaptureReport) -> Self {
         self.browser_capture = Some(report);
+        self
+    }
+
+    pub fn with_http_rewrite(mut self, report: LinuxMitmHttpRewriteReport) -> Self {
+        self.http_rewrite = Some(report);
         self
     }
 
@@ -1035,6 +1078,60 @@ pub struct LinuxBrowserCaptureReport {
     pub rollback_report: Option<LinuxBrowserCaptureRollbackReport>,
     pub verify_report: Option<LinuxBrowserCaptureVerifyReport>,
     pub traffic_proof_report: Option<LinuxBrowserCaptureTrafficProofReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxMitmHttpRewriteAuthorization {
+    pub confirmed: bool,
+    pub source: String,
+    pub scope: String,
+    pub gate: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxMitmHttpHeader {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxMitmHttpRewriteRequest {
+    pub url: Option<String>,
+    pub method: String,
+    pub phase: String,
+    pub status_code: Option<u16>,
+    pub headers: Vec<LinuxMitmHttpHeader>,
+    pub body: Option<String>,
+    pub authorization: Option<LinuxMitmHttpRewriteAuthorization>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxMitmHttpRewriteOutcomeReport {
+    pub planned: bool,
+    pub applied: bool,
+    pub action: String,
+    pub terminal_action: Option<String>,
+    pub final_status_code: Option<u16>,
+    pub redirect_location: Option<String>,
+    pub header_mutation_count: usize,
+    pub body_mutated: bool,
+    pub script_dispatch_deferred: bool,
+    pub output_headers: Vec<LinuxMitmHttpHeader>,
+    pub output_body: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxMitmHttpRewriteReport {
+    pub action: String,
+    pub source_contract_status: String,
+    pub gate: String,
+    pub gate_status: String,
+    pub mutation_ready: bool,
+    pub live_traffic_ready: bool,
+    pub tls_decryption_ready: bool,
+    pub request: LinuxMitmHttpRewriteRequest,
+    pub outcome: Option<LinuxMitmHttpRewriteOutcomeReport>,
+    pub blocked_operations: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2416,6 +2513,12 @@ struct ParsedOptions {
     config_path: Option<String>,
     profile_dir: Option<String>,
     profile_prefs_file_path: Option<String>,
+    url: Option<String>,
+    method: Option<String>,
+    phase: Option<String>,
+    status_code: Option<u16>,
+    headers: Vec<String>,
+    body: Option<String>,
     target_url: Option<String>,
     cert_file_path: Option<String>,
     key_file_path: Option<String>,
@@ -2637,6 +2740,26 @@ where
             proof_token.as_deref(),
             proof_log_path.as_deref(),
             &proxy_scheme,
+            confirm,
+        ),
+        LinuxCliCommand::MitmHttpRewritePlan { .. } => handle_mitm_http_rewrite_plan(platform),
+        LinuxCliCommand::MitmHttpRewritePreview {
+            url,
+            method,
+            phase,
+            status_code,
+            headers,
+            body,
+            confirm,
+            ..
+        } => handle_mitm_http_rewrite_preview(
+            platform,
+            url.as_deref(),
+            &method,
+            &phase,
+            status_code,
+            &headers,
+            body.as_deref(),
             confirm,
         ),
         LinuxCliCommand::Stop { .. } => handle_stop(),
@@ -4808,6 +4931,387 @@ where
     }
 }
 
+pub fn handle_mitm_http_rewrite_plan<P>(platform: &P) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+{
+    let command = "mitm http-rewrite plan";
+    let platform_status = match platform.status() {
+        Ok(status) => status,
+        Err(error) => {
+            return domain_error_response(
+                command,
+                LinuxCliExitCode::GeneralFailure,
+                error,
+                SOURCE_CLI_MITM,
+            );
+        }
+    };
+
+    let (mitm_status, mut diagnostics) = match build_linux_mitm_status(&platform_status) {
+        Ok(status) => status,
+        Err(error) => {
+            return domain_error_response(
+                command,
+                LinuxCliExitCode::GeneralFailure,
+                error,
+                SOURCE_CLI_MITM,
+            );
+        }
+    };
+
+    diagnostics.push(cli_diagnostic(
+        DiagnosticSeverity::Info,
+        CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE,
+        "plain HTTP rewrite data-plane foundation is available for explicit preview inputs",
+        SOURCE_CLI_MITM,
+    ));
+    diagnostics.push(cli_diagnostic(
+        DiagnosticSeverity::Warning,
+        CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE,
+        "TLS decryption and live HTTPS rewrite remain blocked until CA trust and TLS interception are active",
+        SOURCE_CLI_MITM,
+    ));
+    let report = build_linux_mitm_http_rewrite_report("plan", None, None);
+
+    LinuxCliResponse::success(command)
+        .with_platform(platform_status)
+        .with_mitm_status(mitm_status)
+        .with_http_rewrite(report)
+        .with_diagnostics(diagnostics)
+}
+
+pub fn handle_mitm_http_rewrite_preview<P>(
+    platform: &P,
+    url: Option<&str>,
+    method: &str,
+    phase: &str,
+    status_code: Option<u16>,
+    raw_headers: &[String],
+    body: Option<&str>,
+    confirm: bool,
+) -> LinuxCliResponse
+where
+    P: PlatformCapabilityService,
+{
+    let command = "mitm http-rewrite preview";
+    let platform_status = match platform.status() {
+        Ok(status) => status,
+        Err(error) => {
+            return domain_error_response(
+                command,
+                LinuxCliExitCode::GeneralFailure,
+                error,
+                SOURCE_CLI_MITM,
+            );
+        }
+    };
+
+    let (mitm_status, mut diagnostics) = match build_linux_mitm_status(&platform_status) {
+        Ok(status) => status,
+        Err(error) => {
+            return domain_error_response(
+                command,
+                LinuxCliExitCode::GeneralFailure,
+                error,
+                SOURCE_CLI_MITM,
+            );
+        }
+    };
+
+    let authorization = LinuxMitmHttpRewriteAuthorization {
+        confirmed: confirm,
+        source: if confirm {
+            "cli --confirm".to_string()
+        } else {
+            "missing --confirm".to_string()
+        },
+        scope: "linux plain HTTP rewrite preview".to_string(),
+        gate: MITM_HTTP_TLS_DATA_PLANE_GATE.to_string(),
+    };
+    let parsed_headers = match parse_http_rewrite_header_values(raw_headers) {
+        Ok(headers) => headers,
+        Err(diagnostic) => {
+            diagnostics.push(diagnostic);
+            let report = build_linux_mitm_http_rewrite_report(
+                "preview",
+                Some(build_linux_mitm_http_rewrite_request(
+                    url,
+                    method,
+                    phase,
+                    status_code,
+                    Vec::new(),
+                    body,
+                    Some(authorization),
+                )),
+                None,
+            );
+            return LinuxCliResponse {
+                ok: false,
+                exit_code: LinuxCliExitCode::ArgumentOrConfig,
+                ..LinuxCliResponse::success(command)
+                    .with_platform(platform_status)
+                    .with_mitm_status(mitm_status)
+                    .with_http_rewrite(report)
+                    .with_diagnostics(diagnostics)
+            };
+        }
+    };
+    let request = build_linux_mitm_http_rewrite_request(
+        url,
+        method,
+        phase,
+        status_code,
+        parsed_headers.clone(),
+        body,
+        Some(authorization.clone()),
+    );
+
+    if !confirm {
+        diagnostics.push(cli_diagnostic(
+            DiagnosticSeverity::Error,
+            CLI_MITM_HTTP_REWRITE_AUTHORIZATION_REQUIRED_CODE,
+            "plain HTTP rewrite preview requires --confirm before applying a plugin outcome to caller-provided input",
+            SOURCE_CLI_MITM,
+        ));
+        let report = build_linux_mitm_http_rewrite_report("preview", Some(request), None);
+        return LinuxCliResponse {
+            ok: false,
+            exit_code: LinuxCliExitCode::Unavailable,
+            ..LinuxCliResponse::success(command)
+                .with_platform(platform_status)
+                .with_mitm_status(mitm_status)
+                .with_http_rewrite(report)
+                .with_diagnostics(diagnostics)
+        };
+    }
+
+    let Some(url) = url else {
+        diagnostics.push(cli_diagnostic(
+            DiagnosticSeverity::Error,
+            CLI_MITM_HTTP_REWRITE_CONFIG_MISSING_CODE,
+            "plain HTTP rewrite preview requires --url <url>",
+            SOURCE_CLI_MITM,
+        ));
+        let report = build_linux_mitm_http_rewrite_report("preview", Some(request), None);
+        return LinuxCliResponse {
+            ok: false,
+            exit_code: LinuxCliExitCode::ArgumentOrConfig,
+            ..LinuxCliResponse::success(command)
+                .with_platform(platform_status)
+                .with_mitm_status(mitm_status)
+                .with_http_rewrite(report)
+                .with_diagnostics(diagnostics)
+        };
+    };
+
+    let package = builtin_ad_block_plugin_package();
+    let service = AnixOpsMitmPluginService::new();
+    let instance = match service.load(
+        &package,
+        &GrantedPermissions {
+            permissions: package.manifest.permissions.clone(),
+        },
+    ) {
+        Ok(instance) => instance,
+        Err(error) => {
+            return domain_error_response(
+                command,
+                LinuxCliExitCode::GeneralFailure,
+                error,
+                SOURCE_CLI_MITM,
+            );
+        }
+    };
+    let message = engine_native::NativePlainHttpMessage {
+        request_id: "linux-cli-http-rewrite-preview".to_string(),
+        url: url.to_string(),
+        method: Some(method.to_string()),
+        phase: http_rewrite_phase_from_name(phase),
+        status_code,
+        headers: parsed_headers,
+        body: body.unwrap_or_default().as_bytes().to_vec(),
+    };
+    let native_report =
+        engine_native::plan_and_apply_plain_http_mitm(&message, &instance, &service);
+    diagnostics.extend(native_report.diagnostics.clone());
+    diagnostics.push(cli_diagnostic(
+        DiagnosticSeverity::Info,
+        CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE,
+        "plain HTTP rewrite preview applied the plugin outcome to caller-provided input; live traffic was not intercepted",
+        SOURCE_CLI_MITM,
+    ));
+    diagnostics.push(cli_diagnostic(
+        DiagnosticSeverity::Warning,
+        CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE,
+        "TLS decryption and live HTTPS rewrite remain blocked until CA trust and TLS interception are active",
+        SOURCE_CLI_MITM,
+    ));
+    let outcome = build_linux_mitm_http_rewrite_outcome_report(&native_report);
+    let report =
+        build_linux_mitm_http_rewrite_report("preview", Some(request), Some(outcome));
+
+    LinuxCliResponse::success(command)
+        .with_platform(platform_status)
+        .with_mitm_status(mitm_status)
+        .with_http_rewrite(report)
+        .with_diagnostics(diagnostics)
+}
+
+fn build_linux_mitm_http_rewrite_report(
+    action: &str,
+    request: Option<LinuxMitmHttpRewriteRequest>,
+    outcome: Option<LinuxMitmHttpRewriteOutcomeReport>,
+) -> LinuxMitmHttpRewriteReport {
+    LinuxMitmHttpRewriteReport {
+        action: action.to_string(),
+        source_contract_status: MITM_HTTP_REWRITE_SOURCE_CONTRACT_STATUS.to_string(),
+        gate: MITM_HTTP_TLS_DATA_PLANE_GATE.to_string(),
+        gate_status: MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS.to_string(),
+        mutation_ready: MITM_HTTP_REWRITE_MUTATION_READY,
+        live_traffic_ready: MITM_HTTP_REWRITE_LIVE_TRAFFIC_READY,
+        tls_decryption_ready: MITM_HTTP_REWRITE_TLS_DECRYPTION_READY,
+        request: request.unwrap_or_else(|| {
+            build_linux_mitm_http_rewrite_request(
+                None,
+                MITM_HTTP_REWRITE_DEFAULT_METHOD,
+                MITM_HTTP_REWRITE_DEFAULT_PHASE,
+                None,
+                Vec::new(),
+                None,
+                None,
+            )
+        }),
+        outcome,
+        blocked_operations: linux_mitm_http_rewrite_blocked_operations(),
+    }
+}
+
+fn build_linux_mitm_http_rewrite_request(
+    url: Option<&str>,
+    method: &str,
+    phase: &str,
+    status_code: Option<u16>,
+    headers: Vec<MetadataEntry>,
+    body: Option<&str>,
+    authorization: Option<LinuxMitmHttpRewriteAuthorization>,
+) -> LinuxMitmHttpRewriteRequest {
+    LinuxMitmHttpRewriteRequest {
+        url: url.map(ToString::to_string),
+        method: method.to_string(),
+        phase: phase.to_string(),
+        status_code,
+        headers: headers
+            .iter()
+            .map(linux_mitm_http_header_from_metadata)
+            .collect(),
+        body: body.map(ToString::to_string),
+        authorization,
+    }
+}
+
+fn build_linux_mitm_http_rewrite_outcome_report(
+    report: &engine_native::NativePlainHttpRewriteReport,
+) -> LinuxMitmHttpRewriteOutcomeReport {
+    let outcome = report.outcome.as_ref();
+    LinuxMitmHttpRewriteOutcomeReport {
+        planned: outcome.is_some(),
+        applied: report.applied,
+        action: outcome
+            .map(|outcome| http_mitm_action_name(&outcome.action))
+            .unwrap_or_else(|| "failed".to_string()),
+        terminal_action: report.terminal_action.clone(),
+        final_status_code: report.final_status_code,
+        redirect_location: report.redirect_location.clone(),
+        header_mutation_count: outcome
+            .map(|outcome| outcome.header_mutations.len())
+            .unwrap_or_default(),
+        body_mutated: outcome
+            .and_then(|outcome| outcome.body_mutation.as_ref())
+            .is_some(),
+        script_dispatch_deferred: report.script_dispatch_deferred,
+        output_headers: report
+            .headers
+            .iter()
+            .map(linux_mitm_http_header_from_metadata)
+            .collect(),
+        output_body: Some(String::from_utf8_lossy(&report.body).to_string()),
+    }
+}
+
+fn parse_http_rewrite_header_values(
+    values: &[String],
+) -> Result<Vec<MetadataEntry>, Diagnostic> {
+    values
+        .iter()
+        .map(|value| {
+            let Some((name, header_value)) = value.split_once(':') else {
+                return Err(cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "--header must use Name: Value format",
+                    SOURCE_CLI_ARGUMENT,
+                ));
+            };
+            let name = name.trim();
+            if name.is_empty() {
+                return Err(cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "--header name must not be empty",
+                    SOURCE_CLI_ARGUMENT,
+                ));
+            }
+            Ok(MetadataEntry {
+                key: name.to_string(),
+                value: header_value.trim().to_string(),
+            })
+        })
+        .collect()
+}
+
+fn linux_mitm_http_header_from_metadata(header: &MetadataEntry) -> LinuxMitmHttpHeader {
+    LinuxMitmHttpHeader {
+        name: header.key.clone(),
+        value: header.value.clone(),
+    }
+}
+
+fn http_rewrite_phase_from_name(phase: &str) -> HttpMitmPhase {
+    if phase.eq_ignore_ascii_case("response") {
+        HttpMitmPhase::Response
+    } else {
+        HttpMitmPhase::Request
+    }
+}
+
+fn http_mitm_action_name(action: &HttpMitmAction) -> String {
+    match action {
+        HttpMitmAction::Continue => "continue",
+        HttpMitmAction::Redirect { .. } => "redirect",
+        HttpMitmAction::Reject { .. } => "reject",
+    }
+    .to_string()
+}
+
+fn linux_mitm_http_rewrite_blocked_operations() -> Vec<String> {
+    [
+        "decrypt-https",
+        "terminate-tls",
+        "install-ca",
+        "trust-ca",
+        "mutate-live-browser-traffic",
+        "mutate-system-proxy",
+        "mutate-system-pac",
+        "mutate-tun",
+        "mutate-dns",
+        "mutate-firewall",
+    ]
+    .iter()
+    .map(|operation| (*operation).to_string())
+    .collect()
+}
+
 fn handle_mitm_status_inner<P>(command: &'static str, platform: &P) -> LinuxCliResponse
 where
     P: PlatformCapabilityService,
@@ -5069,7 +5573,7 @@ fn build_linux_mitm_status(
     diagnostics.push(cli_diagnostic(
         DiagnosticSeverity::Warning,
         CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE,
-        "MITM_HTTP_TLS_DATA_PLANE_GATE is blocked; rewrite plans are not applied to live HTTP/TLS traffic",
+        "MITM_HTTP_TLS_DATA_PLANE_GATE allows explicit plain HTTP rewrite preview, while TLS decryption and live traffic mutation remain blocked",
         SOURCE_CLI_MITM,
     ));
     diagnostics.push(cli_diagnostic(
@@ -5125,7 +5629,7 @@ fn build_linux_mitm_status(
             LinuxMitmGateStatus {
                 gate: MITM_HTTP_TLS_DATA_PLANE_GATE.to_string(),
                 status: MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS.to_string(),
-                reason: "live HTTP/TLS interception and mutation are not wired".to_string(),
+                reason: "plain HTTP rewrite preview is available for caller-provided inputs; TLS decryption and live traffic mutation remain blocked".to_string(),
             },
             LinuxMitmGateStatus {
                 gate: MITM_BROWSER_CAPTURE_GATE.to_string(),
@@ -6457,6 +6961,66 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.profile_dir = Some(value.clone());
             }
+            "--url" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--url requires an HTTP/TLS rewrite target URL",
+                    ));
+                };
+                options.url = Some(value.clone());
+            }
+            "--method" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--method requires an HTTP method value",
+                    ));
+                };
+                options.method = Some(value.to_ascii_uppercase());
+            }
+            "--phase" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--phase requires request or response",
+                    ));
+                };
+                options.phase = Some(parse_http_rewrite_phase_name(value)?);
+            }
+            "--status-code" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--status-code requires a numeric HTTP status code",
+                    ));
+                };
+                options.status_code = Some(parse_http_status_code(value)?);
+            }
+            "--header" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--header requires a Name: Value header",
+                    ));
+                };
+                options.headers.push(value.clone());
+            }
+            "--body" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--body requires a plain HTTP body value",
+                    ));
+                };
+                options.body = Some(value.clone());
+            }
             "--target-url" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -6686,6 +7250,9 @@ fn parse_mitm_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseE
             })
         }
         "browser-capture" => parse_mitm_browser_capture_command(&args[1..]),
+        "http-rewrite" | "https-rewrite" | "tls-rewrite" => {
+            parse_mitm_http_rewrite_command(&args[1..])
+        }
         unknown => Err(parse_error(
             CLI_ARGUMENT_UNKNOWN_CODE,
             format!("unknown mitm subcommand: {unknown}; run networkcore-linux help"),
@@ -6891,6 +7458,56 @@ fn parse_mitm_browser_capture_command(
     }
 }
 
+fn parse_mitm_http_rewrite_command(
+    args: &[String],
+) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(subcommand) = args.first() else {
+        let options = parse_options(args)?;
+        return Ok(LinuxCliCommand::MitmHttpRewritePlan {
+            format: options.format,
+        });
+    };
+
+    if subcommand.starts_with("--") {
+        let options = parse_options(args)?;
+        return Ok(LinuxCliCommand::MitmHttpRewritePlan {
+            format: options.format,
+        });
+    }
+
+    match subcommand.as_str() {
+        "plan" | "status" => {
+            let options = parse_options(&args[1..])?;
+            Ok(LinuxCliCommand::MitmHttpRewritePlan {
+                format: options.format,
+            })
+        }
+        "preview" | "apply" | "dry-run" => {
+            let options = parse_options(&args[1..])?;
+            Ok(LinuxCliCommand::MitmHttpRewritePreview {
+                url: options.url,
+                method: options
+                    .method
+                    .unwrap_or_else(|| MITM_HTTP_REWRITE_DEFAULT_METHOD.to_string()),
+                phase: options
+                    .phase
+                    .unwrap_or_else(|| MITM_HTTP_REWRITE_DEFAULT_PHASE.to_string()),
+                status_code: options.status_code,
+                headers: options.headers,
+                body: options.body,
+                confirm: options.confirm,
+                format: options.format,
+            })
+        }
+        unknown => Err(parse_error(
+            CLI_ARGUMENT_UNKNOWN_CODE,
+            format!(
+                "unknown mitm http-rewrite subcommand: {unknown}; run networkcore-linux help"
+            ),
+        )),
+    }
+}
+
 fn parse_sing_box_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
     let Some(subcommand) = args.first() else {
         return Err(parse_error(
@@ -6932,6 +7549,34 @@ fn parse_listen_port(value: &str) -> Result<u16, LinuxCliParseError> {
     Ok(parsed)
 }
 
+fn parse_http_status_code(value: &str) -> Result<u16, LinuxCliParseError> {
+    let parsed = value.parse::<u16>().map_err(|_| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "--status-code must be between 100 and 599",
+        )
+    })?;
+    if !(100..=599).contains(&parsed) {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "--status-code must be between 100 and 599",
+        ));
+    }
+
+    Ok(parsed)
+}
+
+fn parse_http_rewrite_phase_name(value: &str) -> Result<String, LinuxCliParseError> {
+    let normalized = value.to_ascii_lowercase();
+    match normalized.as_str() {
+        "request" | "response" => Ok(normalized),
+        _ => Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "--phase must be request or response",
+        )),
+    }
+}
+
 fn default_browser_capture_proxy_scheme() -> String {
     MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME.to_string()
 }
@@ -6968,6 +7613,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux mitm [status|diagnostics|certificate-plan|browser-plan] [--format text|json]\n",
         "  networkcore-linux mitm certificate [plan|apply|rollback] [--cert-file <path>] [--key-file <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
         "  networkcore-linux mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify|traffic-proof] [<ss://url>] [--browser <executable>] [--profile-dir <dir>] [--target-url <url>] [--proxy-scheme http|socks5] [--listen-host <host>] [--listen-port <port>] [--pac-file <path>] [--policy-file <path>] [--profile-prefs-file <path>] [--proof-token <token>] [--proof-log <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
+        "  networkcore-linux mitm http-rewrite [plan|preview] [--url <url>] [--method <method>] [--phase request|response] [--status-code <code>] [--header <name:value>] [--body <text>] [--confirm] [--format text|json]\n",
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux run-url <ss://url> [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux sing-box install [--install-dir <dir>] [--force] [--format text|json]\n",
@@ -6990,6 +7636,12 @@ pub const fn cli_help_text() -> &'static str {
         "  --browser <exe>       Browser executable for mitm browser-capture session-plan/launch. Defaults to chromium.\n",
         "  --profile-dir <dir>   Dedicated browser profile directory for mitm browser-capture session-plan/launch.\n",
         "  --target-url <url>    Optional page URL to open in the dedicated browser capture profile.\n",
+        "  --url <url>           HTTP/TLS rewrite preview target URL for mitm http-rewrite preview.\n",
+        "  --method <method>     HTTP method for mitm http-rewrite preview. Defaults to GET.\n",
+        "  --phase <phase>       HTTP MITM phase for mitm http-rewrite preview: request or response.\n",
+        "  --status-code <code>  HTTP response status code for response-phase rewrite preview.\n",
+        "  --header <name:value> Plain HTTP header input for rewrite preview; repeat for multiple headers.\n",
+        "  --body <text>         Plain HTTP body input for rewrite preview.\n",
         "  --proxy-scheme <mode> Browser explicit proxy scheme for browser-capture. Defaults to http; socks5 targets the native SOCKS5 CONNECT MITM hook.\n",
         "  --cert-file <path>    Certificate artifact path for mitm certificate apply.\n",
         "  --key-file <path>     Private key artifact path for mitm certificate apply.\n",
@@ -7634,6 +8286,77 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
         }
     }
 
+    if let Some(rewrite) = &response.http_rewrite {
+        lines.push(format!(
+            "http rewrite {}: {} mutation_ready={} live_traffic_ready={} tls_decryption_ready={}",
+            rewrite.action,
+            rewrite.gate_status,
+            rewrite.mutation_ready,
+            rewrite.live_traffic_ready,
+            rewrite.tls_decryption_ready
+        ));
+        lines.push(format!(
+            "http rewrite source contract: {}",
+            rewrite.source_contract_status
+        ));
+        if let Some(url) = &rewrite.request.url {
+            lines.push(format!("http rewrite request URL: {url}"));
+        }
+        lines.push(format!(
+            "http rewrite request: method={} phase={} status_code={}",
+            rewrite.request.method,
+            rewrite.request.phase,
+            rewrite
+                .request
+                .status_code
+                .map(|status| status.to_string())
+                .unwrap_or_else(|| "none".to_string())
+        ));
+        if let Some(authorization) = &rewrite.request.authorization {
+            lines.push(format!(
+                "http rewrite authorization: confirmed={} source={} scope={}",
+                authorization.confirmed, authorization.source, authorization.scope
+            ));
+        }
+        if let Some(outcome) = &rewrite.outcome {
+            lines.push(format!(
+                "http rewrite outcome: planned={} applied={} action={} terminal={} final_status={}",
+                outcome.planned,
+                outcome.applied,
+                outcome.action,
+                outcome
+                    .terminal_action
+                    .clone()
+                    .unwrap_or_else(|| "none".to_string()),
+                outcome
+                    .final_status_code
+                    .map(|status| status.to_string())
+                    .unwrap_or_else(|| "none".to_string())
+            ));
+            if let Some(location) = &outcome.redirect_location {
+                lines.push(format!("http rewrite redirect location: {location}"));
+            }
+            lines.push(format!(
+                "http rewrite mutations: headers={} body_mutated={} script_dispatch_deferred={}",
+                outcome.header_mutation_count,
+                outcome.body_mutated,
+                outcome.script_dispatch_deferred
+            ));
+            for header in &outcome.output_headers {
+                lines.push(format!(
+                    "http rewrite output header: {}: {}",
+                    header.name, header.value
+                ));
+            }
+            if let Some(body) = &outcome.output_body {
+                lines.push(format!("http rewrite output body: {body}"));
+            }
+        }
+        for operation in &rewrite.blocked_operations {
+            lines.push(format!("http rewrite blocked operation: {operation}"));
+        }
+    }
+
     for diagnostic in &response.diagnostics {
         lines.push(format!(
             "{} {}: {}",
@@ -7699,6 +8422,7 @@ struct JsonCliResponse {
     mitm_status: Option<JsonMitmStatus>,
     certificate_lifecycle: Option<JsonMitmCertificateLifecycleReport>,
     browser_capture: Option<JsonBrowserCaptureReport>,
+    http_rewrite: Option<JsonMitmHttpRewriteReport>,
 }
 
 impl From<&LinuxCliResponse> for JsonCliResponse {
@@ -7733,6 +8457,10 @@ impl From<&LinuxCliResponse> for JsonCliResponse {
                 .browser_capture
                 .as_ref()
                 .map(JsonBrowserCaptureReport::from),
+            http_rewrite: response
+                .http_rewrite
+                .as_ref()
+                .map(JsonMitmHttpRewriteReport::from),
         }
     }
 }
@@ -8629,6 +9357,143 @@ impl From<&LinuxBrowserCaptureTrafficProofReport> for JsonBrowserCaptureTrafficP
             plugin_id: report.plugin_id.clone(),
             plugin_version: report.plugin_version.clone(),
             blocked_operations: report.blocked_operations.clone(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonMitmHttpRewriteReport {
+    action: String,
+    source_contract_status: String,
+    gate: String,
+    gate_status: String,
+    mutation_ready: bool,
+    live_traffic_ready: bool,
+    tls_decryption_ready: bool,
+    request: JsonMitmHttpRewriteRequest,
+    outcome: Option<JsonMitmHttpRewriteOutcomeReport>,
+    blocked_operations: Vec<String>,
+}
+
+impl From<&LinuxMitmHttpRewriteReport> for JsonMitmHttpRewriteReport {
+    fn from(report: &LinuxMitmHttpRewriteReport) -> Self {
+        Self {
+            action: report.action.clone(),
+            source_contract_status: report.source_contract_status.clone(),
+            gate: report.gate.clone(),
+            gate_status: report.gate_status.clone(),
+            mutation_ready: report.mutation_ready,
+            live_traffic_ready: report.live_traffic_ready,
+            tls_decryption_ready: report.tls_decryption_ready,
+            request: JsonMitmHttpRewriteRequest::from(&report.request),
+            outcome: report
+                .outcome
+                .as_ref()
+                .map(JsonMitmHttpRewriteOutcomeReport::from),
+            blocked_operations: report.blocked_operations.clone(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonMitmHttpRewriteRequest {
+    url: Option<String>,
+    method: String,
+    phase: String,
+    status_code: Option<u16>,
+    headers: Vec<JsonMitmHttpHeader>,
+    body: Option<String>,
+    authorization: Option<JsonMitmHttpRewriteAuthorization>,
+}
+
+impl From<&LinuxMitmHttpRewriteRequest> for JsonMitmHttpRewriteRequest {
+    fn from(request: &LinuxMitmHttpRewriteRequest) -> Self {
+        Self {
+            url: request.url.clone(),
+            method: request.method.clone(),
+            phase: request.phase.clone(),
+            status_code: request.status_code,
+            headers: request
+                .headers
+                .iter()
+                .map(JsonMitmHttpHeader::from)
+                .collect(),
+            body: request.body.clone(),
+            authorization: request
+                .authorization
+                .as_ref()
+                .map(JsonMitmHttpRewriteAuthorization::from),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonMitmHttpRewriteAuthorization {
+    confirmed: bool,
+    source: String,
+    scope: String,
+    gate: String,
+}
+
+impl From<&LinuxMitmHttpRewriteAuthorization> for JsonMitmHttpRewriteAuthorization {
+    fn from(authorization: &LinuxMitmHttpRewriteAuthorization) -> Self {
+        Self {
+            confirmed: authorization.confirmed,
+            source: authorization.source.clone(),
+            scope: authorization.scope.clone(),
+            gate: authorization.gate.clone(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonMitmHttpHeader {
+    name: String,
+    value: String,
+}
+
+impl From<&LinuxMitmHttpHeader> for JsonMitmHttpHeader {
+    fn from(header: &LinuxMitmHttpHeader) -> Self {
+        Self {
+            name: header.name.clone(),
+            value: header.value.clone(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonMitmHttpRewriteOutcomeReport {
+    planned: bool,
+    applied: bool,
+    action: String,
+    terminal_action: Option<String>,
+    final_status_code: Option<u16>,
+    redirect_location: Option<String>,
+    header_mutation_count: usize,
+    body_mutated: bool,
+    script_dispatch_deferred: bool,
+    output_headers: Vec<JsonMitmHttpHeader>,
+    output_body: Option<String>,
+}
+
+impl From<&LinuxMitmHttpRewriteOutcomeReport> for JsonMitmHttpRewriteOutcomeReport {
+    fn from(outcome: &LinuxMitmHttpRewriteOutcomeReport) -> Self {
+        Self {
+            planned: outcome.planned,
+            applied: outcome.applied,
+            action: outcome.action.clone(),
+            terminal_action: outcome.terminal_action.clone(),
+            final_status_code: outcome.final_status_code,
+            redirect_location: outcome.redirect_location.clone(),
+            header_mutation_count: outcome.header_mutation_count,
+            body_mutated: outcome.body_mutated,
+            script_dispatch_deferred: outcome.script_dispatch_deferred,
+            output_headers: outcome
+                .output_headers
+                .iter()
+                .map(JsonMitmHttpHeader::from)
+                .collect(),
+            output_body: outcome.output_body.clone(),
         }
     }
 }

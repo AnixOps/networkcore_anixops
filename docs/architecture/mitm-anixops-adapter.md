@@ -196,7 +196,7 @@ mitm-cli-command-gate-status=partial-active
 JSON 机器字段，并显式报告 browser hijack 为 deferred、
 `MITM_CERTIFICATE_LIFECYCLE_GATE` artifact-lifecycle-active/trust-mutation-blocked、
 `MITM_BROWSER_CAPTURE_GATE` pac-policy-profile-prefs-active/system-mutation-blocked 和
-`MITM_HTTP_TLS_DATA_PLANE_GATE` blocked。`certificate-plan` 额外输出
+`MITM_HTTP_TLS_DATA_PLANE_GATE` plain-http-rewrite-foundation-active/tls-decryption-blocked。`certificate-plan` 额外输出
 `mitm_status.certificate_plan`，包含当前证书状态、artifact lifecycle 步骤、trust blocked
 operations 和 `mutation_ready=false`；`mitm certificate apply/rollback` 额外输出
 `certificate_lifecycle`，只写入或删除 NetworkCore certificate/private-key artifact 和 snapshot；
@@ -214,12 +214,13 @@ dedicated 浏览器命令、可选 `--target-url`、`verify --confirm` 命令和
 `rollback --snapshot <path>` 只读取 NetworkCore PAC snapshot 并删除对应 PAC 文件，
 `verify --confirm` 只探测计划本地代理端点 `http://127.0.0.1:7890` 是否可达；传入 `--target-url <url>` 时只通过 `probe=http-connect-target` 检查计划代理能否对目标 host:port 打开 HTTP CONNECT 通路；它不证明浏览器真实流量捕获、HTTPS MITM 或 rewrite 应用。
 `traffic-proof --confirm [--target-url <url>] [--proof-token <token>] [--proof-log <path>]` 通过 `BrowserCaptureTrafficProofProbe` 读取 operator-provided proof log，输出 `traffic_proof_report` 和 `probe=proof-log-token`，并可在 token/log 省略时复用默认 proof 绑定；它只证明该证据文件中出现 token，不证明 HTTPS MITM 或 rewrite 应用。未接线 endpoint/proof probe 或更强 live capture probe 时仍返回 blocked。
+`mitm http-rewrite plan` / `mitm http-rewrite preview --confirm --url <url>` 输出 `http_rewrite` report，并只把 `HttpMitmOutcome` 的 reject、redirect、header mutation 和 body mutation 应用到 caller-provided plain HTTP input；该边界见 `linux-mitm-http-rewrite-source-contract.md`，不解密 TLS、不拦截 live traffic、不执行 script dispatch。
 `--proxy-scheme socks5` 只把 session-plan、launch、PAC/policy artifact、verify 和 traffic-proof 的 `proxy_scheme`/proxy URL 绑定到 `socks5://127.0.0.1:7890`，用于让显式授权 dedicated 浏览器会话走 native SOCKS5 CONNECT hook；它不写系统代理或安装浏览器 policy。
 `networkcore-linux start` 会通过 `native_proxy_engine_service_with_builtin_mitm_plugin`
 加载内置 `networkcore.adblock` 到 `engine-native`；匹配 `Reject` plan 的
 explicit SOCKS5 CONNECT 会被写入 SOCKS5 general failure response 并跳过
-outbound。该状态只代表命令面、策略诊断入口、证书生命周期计划、浏览器捕获计划、manual launch-plan、session-plan、dedicated-profile process launch、endpoint verify、proof-log-token traffic proof、PAC/browser policy artifact apply/rollback、native CONNECT reject 和 browser-capture blocked report 已存在，
-不代表 HTTPS MITM、证书安装、系统代理/system PAC/浏览器 policy 写入或真实 HTTP request/response 改写已可用。
+outbound。该状态只代表命令面、策略诊断入口、证书生命周期计划、caller-provided plain HTTP rewrite preview、浏览器捕获计划、manual launch-plan、session-plan、dedicated-profile process launch、endpoint verify、proof-log-token traffic proof、PAC/browser policy artifact apply/rollback、native CONNECT reject 和 browser-capture blocked report 已存在，
+不代表 HTTPS MITM、证书安装、系统代理/system PAC/浏览器 policy 写入或真实 live HTTP request/response 改写已可用。
 
 范围：
 
@@ -336,9 +337,9 @@ iOS 只能在 iOS platform crate 和 Network Extension 设计出现后，通过 
    NetworkCore-owned Rust 类型和稳定 diagnostic/error code；不得把 upstream demo
    proxy shim 当作 NetworkCore production data plane。
 5. 合同测试只验证 wrapper 能加载策略、生成 rewrite plan/header/body/script/JQ
-   guard 结果、deferred mutation 诊断、`HttpMitmOutcome` plan 和 native
-   CONNECT-level `Reject` 应用；真实 HTTP/TLS request/response mutation 仍必须等
-   engine data plane 和 platform certificate gate 通过。
+   guard 结果、deferred mutation 诊断、`HttpMitmOutcome` plan、native
+   CONNECT-level `Reject` 应用和 caller-provided plain HTTP rewrite preview；真实 live
+   HTTP/TLS request/response mutation 仍必须等 TLS data plane 和 platform certificate gate 通过。
 6. 提交并推送后只用 GitHub Actions 的 policy、Rust format/lint/test/build 和
    dependency audit 结果判断是否通过；本机不得运行 build/test/package/release 验证。
 
@@ -351,11 +352,12 @@ iOS 只能在 iOS platform crate 和 Network Extension 设计出现后，通过 
 - `engine-native` 已支持 HTTP/TLS MITM。
 - `mitm_anixops` 负责 TLS、证书、HTTP parser 或 JavaScript runtime。
 - `PluginResult` 已能表达完整 rewrite。
-- `HttpMitmOutcome` 已被 HTTP/TLS 数据面应用到真实流量。
+- `HttpMitmOutcome` 已被 HTTP/TLS 数据面应用到真实 live 流量。
 
 可以宣称：
 
 - `mitm_anixops` 是 NetworkCore 可接入的 MITM 策略/plugin 兼容 C ABI core。
 - NetworkCore 当前具备接入该 core 的领域端口、`HttpMitmOutcome` mutation
-  plan 和 native explicit SOCKS5 CONNECT `Reject` 应用。
+  plan、native explicit SOCKS5 CONNECT `Reject` 应用和 caller-provided plain HTTP
+  rewrite preview。
 - 完整流量接入需要后续 HTTP/TLS 数据面和平台 adapter。

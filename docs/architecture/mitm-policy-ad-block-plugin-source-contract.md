@@ -66,12 +66,14 @@ guard state. These are policy/runtime plans, not proof that live traffic
 mutation is already wired.
 
 Current user-facing source status: MITM is partially policy-driven but not full
-live HTTP/TLS MITM. There is no live URL redirect/header/body/script mutation
-path in the current Linux CLI source. The Linux CLI
+live HTTP/TLS MITM. The Linux CLI can apply URL reject/redirect/header/body
+outcomes only to caller-provided plain HTTP preview input; there is no live URL
+redirect/header/body/script mutation path in the current Linux CLI source. The Linux CLI
 now exposes `networkcore-linux mitm status`,
 `networkcore-linux mitm diagnostics`, and
 `networkcore-linux mitm certificate-plan`, and
 `networkcore-linux mitm browser-plan`, plus
+`networkcore-linux mitm http-rewrite plan/preview`, plus
 `networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` as a
 status/diagnostics/certificate-plan/browser-plan/browser-capture command
 surface. It reports:
@@ -111,7 +113,11 @@ application. `apply --confirm --pac-file <path> [--policy-file <path>] --snapsho
 `BrowserCapturePacFileStore` to write only a caller-selected NetworkCore PAC
 artifact, optional Chromium/Chrome managed proxy policy artifact, and rollback snapshot; it does not install system PAC or browser
 policy. There is still no CA generation/install/trust mutation workflow, no
-HTTPS decryption path, and no browser/system proxy mutation path.
+HTTPS decryption path, and no browser/system proxy mutation path. `mitm http-rewrite
+preview --confirm --url <url>` emits `http_rewrite` and applies plugin outcomes
+through `NativePlainHttpMessage`/`NativePlainHttpRewriteReport` to caller-provided
+plain HTTP input only; the Linux source boundary is
+[Linux MITM HTTP Rewrite Source Contract](linux-mitm-http-rewrite-source-contract.md).
 
 Current `main` source also has a policy-plan mutation model:
 `control-domain` defines `HttpMitmEvent`, `HttpMitmOutcome`, `HttpMitmAction`,
@@ -126,9 +132,10 @@ adds `NativeHttpMitmPluginHook` and `plan_socks5_connect_http_mitm`, and
 `native_proxy_engine_service_with_builtin_mitm_plugin`. When the plugin outcome
 is `HttpMitmAction::Reject`, the native SOCKS5 accept loop applies that
 CONNECT-level decision by writing a SOCKS5 general failure response and skipping
-outbound selection. Redirect/header/body/script plans are still not applied to
-live HTTP requests or responses until `MITM_HTTP_TLS_DATA_PLANE_GATE` is
-implemented.
+outbound selection. Redirect/header/body plans can also be applied to
+caller-provided plain HTTP preview input. Script plans, TLS decryption and live
+HTTP request/response mutation remain blocked until the next
+`MITM_HTTP_TLS_DATA_PLANE_GATE` increment.
 
 ## Multi-Client Boundary
 
@@ -199,10 +206,15 @@ Blocked until later phases:
   `BrowserCaptureRollbackSnapshot`, `proxy_scheme`, launch-plan, session-plan, optional `--target-url`, optional `--proxy-scheme socks5`, launch, apply/rollback/verify/traffic-proof,
   explicit authorization, snapshot, and rollback
   boundaries before any browser/system proxy mutation.
-- `MITM_HTTP_TLS_DATA_PLANE_GATE`: HTTP CONNECT/TLS interception, SNI/host
-  routing, HTTP/1.1 and HTTP/2 parsing, body buffering/limits, compression
-  handling, and application of `mitm-policy` URL redirect/header/body/script
-  rewrite plans to live HTTP request/response traffic.
+- `MITM_HTTP_TLS_DATA_PLANE_GATE`: currently plain-http-rewrite-foundation-active/tls-decryption-blocked through
+  caller-provided plain HTTP preview, `http_rewrite`, `NativePlainHttpMessage`,
+  `NativePlainHttpRewriteReport`, `LinuxMitmHttpRewriteReport`, explicit
+  authorization and `mitm http-rewrite plan/preview`. Later increments must add
+  HTTP CONNECT/TLS interception, SNI/host routing, live HTTP/1.1 and HTTP/2
+  parsing, body buffering/limits, compression handling, script runtime, and
+  application of `mitm-policy` URL redirect/header/body/script rewrite plans to
+  live HTTP request/response traffic. The Linux boundary is
+  [Linux MITM HTTP Rewrite Source Contract](linux-mitm-http-rewrite-source-contract.md).
 - Full HTTP request and response data-plane context with parsed host/scheme,
   decompression, streaming/backpressure, and response framing.
 - HTTP/TLS MITM data plane in `engine-native` or another execution adapter.
@@ -233,9 +245,10 @@ CI must prove:
   0.45.10 header/body/script outcome mapping, and missing loaded source
   deferral;
 - Linux CLI exposes `mitm_status` JSON, `mitm_status.certificate_plan`,
-  `mitm_status.browser_plan`, and `browser_capture` for
+  `mitm_status.browser_plan`, `http_rewrite`, and `browser_capture` for
   `networkcore-linux mitm status/diagnostics/certificate-plan/browser-plan`
-  and `networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof`,
+  and `networkcore-linux mitm http-rewrite plan/preview` and
+  `networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof`,
   exposes `traffic_proof_report` for proof-log-token evidence and PAC/browser policy artifact
   fields for `--pac-file` / `--policy-file` apply/rollback,
   keeps `mitm-cli-command-gate-status=partial-active`, and reports browser
@@ -251,5 +264,7 @@ CI must prove:
   while user-facing MITM is deferred;
 - docs keep the Linux MITM browser capture source contract discoverable while
   `MITM_BROWSER_CAPTURE_GATE` remains pac-policy-profile-prefs-active/system-mutation-blocked;
+- docs keep the Linux MITM HTTP rewrite source contract discoverable while
+  `MITM_HTTP_TLS_DATA_PLANE_GATE` remains plain-http-rewrite-foundation-active/tls-decryption-blocked;
 - Rust CI builds and tests the workspace on Linux, macOS, and Windows;
 - local machines do not run build, test, package, or release verification.

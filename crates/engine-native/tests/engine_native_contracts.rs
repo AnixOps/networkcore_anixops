@@ -1,20 +1,21 @@
 use control_domain::{
     AuditDecision, AuditEvent, ConfigSnapshot, Diagnostic, DiagnosticSeverity, DomainResult,
-    Endpoint, GrantedPermissions, HookPoint, HttpEvent, HttpMitmAction, HttpMitmEvent,
-    HttpMitmOutcome, ListenerBind, ListenerDescriptor, ListenerKind, ListenerNetwork,
-    ListenerRoute, MetadataEntry, MitmPluginService, NodeDescriptor, PluginInstance,
-    PluginManifest, PluginPackage, PluginPermission, PluginResult, Protocol, ProxyEngineConfig,
-    ProxyEngineEventKind, ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService,
-    RouteAction, RuleSet, SchemaVersion,
+    Endpoint, GrantedPermissions, HookPoint, HttpBodyMutation, HttpEvent, HttpHeaderMutation,
+    HttpHeaderMutationOperation, HttpMitmAction, HttpMitmEvent, HttpMitmOutcome, HttpMitmPhase,
+    HttpMitmScriptDispatch, HttpMitmScriptKind, ListenerBind, ListenerDescriptor, ListenerKind,
+    ListenerNetwork, ListenerRoute, MetadataEntry, MitmPluginService, NodeDescriptor,
+    PluginInstance, PluginManifest, PluginPackage, PluginPermission, PluginResult, Protocol,
+    ProxyEngineConfig, ProxyEngineEventKind, ProxyEngineKind, ProxyEngineLifecycleState,
+    ProxyEngineService, RouteAction, RuleSet, SchemaVersion,
 };
 use engine_native::{
-    assess_native_proxy_engine_start_readiness,
+    apply_http_mitm_outcome_to_plain_http_message, assess_native_proxy_engine_start_readiness,
     assess_socks5_outbound_connect_client_success_response_readiness,
     assess_socks5_outbound_connect_relay_readiness, attempt_socks5_outbound_tcp_connection,
     browser_capture_proof_token_from_connect_authority,
     build_socks5_outbound_connect_request_frame, decide_socks5_outbound_connect_response,
-    native_socks5_connect_browser_capture_proof_token, plan_socks5_connect_http_mitm,
-    plan_socks5_outbound_connect_client_success_response_write,
+    native_socks5_connect_browser_capture_proof_token, plan_and_apply_plain_http_mitm,
+    plan_socks5_connect_http_mitm, plan_socks5_outbound_connect_client_success_response_write,
     plan_socks5_outbound_connect_data_relay, plan_socks5_outbound_tcp_connection,
     read_socks5_command_header, read_socks5_connect_target, read_socks5_greeting,
     read_socks5_outbound_connect_response, reject_unsupported_socks5_command,
@@ -23,8 +24,9 @@ use engine_native::{
     write_socks5_auth_method_response, write_socks5_outbound_connect_client_success_response,
     write_socks5_outbound_connect_request, write_unwired_socks5_connect_failure_response,
     BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeHttpMitmPluginHook,
-    NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle, NativeProxyEngineService,
-    NativeProxyEngineStartReadiness, NativeRuntimeAssembly, NativeRuntimeAssemblyPlan,
+    NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle, NativePlainHttpMessage,
+    NativeProxyEngineService, NativeProxyEngineStartReadiness, NativeRuntimeAssembly,
+    NativeRuntimeAssemblyPlan,
     NativeSocks5Address, NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision,
     NativeSocks5CommandHeader, NativeSocks5ConnectTarget, NativeSocks5Greeting,
     NativeSocks5OutboundConnectClientSuccessResponseReadiness,
@@ -50,6 +52,12 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_PLAN_READY_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_REJECT_APPLIED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_REJECT_RESPONSE_WRITTEN_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_BODY_MUTATION_APPLIED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_EVENT_PLANNED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_HEADER_MUTATION_APPLIED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_PLAN_READY_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_SCRIPT_DISPATCH_DEFERRED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_TERMINAL_ACTION_APPLIED_CODE,
     ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE, ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE, ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
@@ -1213,6 +1221,179 @@ fn socks5_connect_http_mitm_plan_contract_maps_connect_target_to_plugin_plan_wit
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_PLAN_NOT_APPLIED_CODE,
+    );
+}
+
+#[test]
+fn plain_http_rewrite_application_applies_header_body_and_defers_script_dispatch() {
+    let message = NativePlainHttpMessage {
+        request_id: "plain-http-1".to_string(),
+        url: "https://api.networkcore.example/v1".to_string(),
+        method: Some("GET".to_string()),
+        phase: HttpMitmPhase::Response,
+        status_code: Some(200),
+        headers: vec![
+            MetadataEntry {
+                key: "X-Replace".to_string(),
+                value: "old".to_string(),
+            },
+            MetadataEntry {
+                key: "X-Remove".to_string(),
+                value: "yes".to_string(),
+            },
+        ],
+        body: b"from=1".to_vec(),
+    };
+    let outcome = HttpMitmOutcome {
+        action: HttpMitmAction::Continue,
+        header_mutations: vec![
+            HttpHeaderMutation {
+                operation: HttpHeaderMutationOperation::Add,
+                name: "X-Add".to_string(),
+                value: Some("added".to_string()),
+            },
+            HttpHeaderMutation {
+                operation: HttpHeaderMutationOperation::Replace,
+                name: "x-replace".to_string(),
+                value: Some("new".to_string()),
+            },
+            HttpHeaderMutation {
+                operation: HttpHeaderMutationOperation::Delete,
+                name: "x-remove".to_string(),
+                value: None,
+            },
+            HttpHeaderMutation {
+                operation: HttpHeaderMutationOperation::Set,
+                name: "X-Set".to_string(),
+                value: Some("set".to_string()),
+            },
+        ],
+        body_mutation: Some(HttpBodyMutation {
+            body: b"to=1".to_vec(),
+            truncated: false,
+        }),
+        script_dispatch: Some(HttpMitmScriptDispatch {
+            kind: HttpMitmScriptKind::Response,
+            phase: HttpMitmPhase::Response,
+            requires_body: true,
+            timeout_ms: 4000,
+            max_size: 2048,
+            script_path: "https://scripts.example/networkcore-response.js".to_string(),
+            tag: "networkcore.response".to_string(),
+            argument: "Mode=rust".to_string(),
+        }),
+        audits: Vec::new(),
+        diagnostics: Vec::new(),
+    };
+
+    let application = apply_http_mitm_outcome_to_plain_http_message(&message, &outcome);
+
+    assert!(application.applied);
+    assert_eq!(application.final_status_code, Some(200));
+    assert_eq!(application.body, b"to=1".to_vec());
+    assert_eq!(
+        application
+            .headers
+            .iter()
+            .find(|header| header.key == "X-Replace")
+            .map(|header| header.value.as_str()),
+        Some("new")
+    );
+    assert_eq!(
+        application
+            .headers
+            .iter()
+            .find(|header| header.key == "X-Add")
+            .map(|header| header.value.as_str()),
+        Some("added")
+    );
+    assert!(application
+        .headers
+        .iter()
+        .all(|header| !header.key.eq_ignore_ascii_case("X-Remove")));
+    assert_eq!(
+        application
+            .headers
+            .iter()
+            .find(|header| header.key == "X-Set")
+            .map(|header| header.value.as_str()),
+        Some("set")
+    );
+    assert!(application.script_dispatch_deferred);
+    assert_diagnostic(
+        &application.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_HEADER_MUTATION_APPLIED_CODE,
+    );
+    assert_diagnostic(
+        &application.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_BODY_MUTATION_APPLIED_CODE,
+    );
+    assert_diagnostic(
+        &application.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_SCRIPT_DISPATCH_DEFERRED_CODE,
+    );
+}
+
+#[test]
+fn plain_http_rewrite_plan_applies_plugin_reject_to_terminal_response() {
+    let plugin_instance = PluginInstance {
+        manifest: PluginManifest {
+            id: "networkcore.adblock".to_string(),
+            version: "0.1.0".to_string(),
+            permissions: vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ],
+            hooks: vec![HookPoint::Request],
+        },
+        loaded_source: None,
+    };
+    let message = NativePlainHttpMessage {
+        request_id: "plain-http-ad-1".to_string(),
+        url: "https://pubads.g.doubleclick.net/pagead/id".to_string(),
+        method: Some("GET".to_string()),
+        phase: HttpMitmPhase::Request,
+        status_code: None,
+        headers: Vec::new(),
+        body: Vec::new(),
+    };
+
+    let report = plan_and_apply_plain_http_mitm(
+        &message,
+        &plugin_instance,
+        &PlainHttpRejectingMitmPluginService,
+    );
+
+    assert!(report.applied);
+    assert_eq!(report.terminal_action.as_deref(), Some("reject"));
+    assert_eq!(report.final_status_code, Some(403));
+    assert_eq!(report.body, Vec::<u8>::new());
+    assert_eq!(
+        report
+            .headers
+            .iter()
+            .find(|header| header.key == "Content-Length")
+            .map(|header| header.value.as_str()),
+        Some("0")
+    );
+    assert_eq!(
+        report
+            .outcome
+            .expect("plain HTTP plugin plan should be present")
+            .action,
+        HttpMitmAction::Reject { status_code: 403 }
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_EVENT_PLANNED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_PLAN_READY_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_TERMINAL_ACTION_APPLIED_CODE,
     );
 }
 
@@ -2821,6 +3002,72 @@ impl Write for FailingWriter {
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+struct PlainHttpRejectingMitmPluginService;
+
+impl MitmPluginService for PlainHttpRejectingMitmPluginService {
+    fn validate_manifest(&self, _plugin_manifest: &PluginManifest) -> Vec<Diagnostic> {
+        Vec::new()
+    }
+
+    fn load(
+        &self,
+        plugin_package: &PluginPackage,
+        _granted_permissions: &GrantedPermissions,
+    ) -> DomainResult<PluginInstance> {
+        Ok(PluginInstance {
+            manifest: plugin_package.manifest.clone(),
+            loaded_source: None,
+        })
+    }
+
+    fn handle_http_event(
+        &self,
+        _plugin_instance: &PluginInstance,
+        _http_event: &HttpEvent,
+    ) -> DomainResult<PluginResult> {
+        Ok(PluginResult {
+            audits: Vec::new(),
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn handle_http_mitm_event(
+        &self,
+        plugin_instance: &PluginInstance,
+        http_event: &HttpMitmEvent,
+    ) -> DomainResult<HttpMitmOutcome> {
+        assert_eq!(plugin_instance.manifest.id, "networkcore.adblock");
+        assert_eq!(http_event.method.as_deref(), Some("GET"));
+        assert_eq!(
+            http_event.url,
+            "https://pubads.g.doubleclick.net/pagead/id"
+        );
+
+        Ok(HttpMitmOutcome {
+            action: HttpMitmAction::Reject { status_code: 403 },
+            header_mutations: Vec::new(),
+            body_mutation: None,
+            script_dispatch: None,
+            audits: vec![AuditEvent {
+                actor: "networkcore.adblock".to_string(),
+                action: "mitm.policy.plan_http_mitm_event".to_string(),
+                decision: AuditDecision::Allowed,
+                reason: Some("plain HTTP test reject plan".to_string()),
+            }],
+            diagnostics: vec![Diagnostic::new(
+                DiagnosticSeverity::Info,
+                "test.mitm.plain.plan.ready",
+                "test plain HTTP MITM plan ready",
+                Some("test.mitm".to_string()),
+            )],
+        })
+    }
+
+    fn audit(&self, plugin_result: &PluginResult) -> Vec<AuditEvent> {
+        plugin_result.audits.clone()
     }
 }
 

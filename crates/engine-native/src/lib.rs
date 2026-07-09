@@ -6,11 +6,12 @@
 
 use control_domain::{
     AuditEvent, Diagnostic, DiagnosticSeverity, DomainError, DomainResult, Endpoint,
-    HttpMitmAction, HttpMitmEvent, HttpMitmOutcome, HttpMitmPhase, ListenerDescriptor,
-    ListenerKind, ListenerNetwork, ListenerRoute, MetadataEntry, MitmPluginService, NodeDescriptor,
-    PluginInstance, Protocol, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
-    ProxyEngineEventKind, ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService,
-    ProxyEngineStatus, RouteAction, RuleSet,
+    HttpHeaderMutation, HttpHeaderMutationOperation, HttpMitmAction, HttpMitmEvent,
+    HttpMitmOutcome, HttpMitmPhase, ListenerDescriptor, ListenerKind, ListenerNetwork,
+    ListenerRoute, MetadataEntry, MitmPluginService, NodeDescriptor, PluginInstance, Protocol,
+    ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineEventKind,
+    ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
+    RouteAction, RuleSet,
 };
 use std::collections::BTreeSet;
 use std::fmt;
@@ -188,6 +189,22 @@ pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_REJECT_RESPONSE_WRITE_FAILED_C
     "engine.native.runtime.http_mitm_connect_reject_response_write_failed";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_CONNECT_BROWSER_PROOF_OBSERVED_CODE: &str =
     "engine.native.runtime.http_mitm_connect_browser_proof_observed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_EVENT_PLANNED_CODE: &str =
+    "engine.native.runtime.http_mitm_plain_event_planned";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_PLAN_READY_CODE: &str =
+    "engine.native.runtime.http_mitm_plain_plan_ready";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_PLAN_FAILED_CODE: &str =
+    "engine.native.runtime.http_mitm_plain_plan_failed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_TERMINAL_ACTION_APPLIED_CODE: &str =
+    "engine.native.runtime.http_mitm_plain_terminal_action_applied";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_HEADER_MUTATION_APPLIED_CODE: &str =
+    "engine.native.runtime.http_mitm_plain_header_mutation_applied";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_BODY_MUTATION_APPLIED_CODE: &str =
+    "engine.native.runtime.http_mitm_plain_body_mutation_applied";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_SCRIPT_DISPATCH_DEFERRED_CODE: &str =
+    "engine.native.runtime.http_mitm_plain_script_dispatch_deferred";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_REWRITE_NOOP_CODE: &str =
+    "engine.native.runtime.http_mitm_plain_rewrite_noop";
 
 const SOCKS5_VERSION: u8 = 0x05;
 const SOCKS5_AUTH_METHOD_NO_AUTHENTICATION_REQUIRED: u8 = 0x00;
@@ -702,6 +719,46 @@ pub struct NativeSocks5ConnectHttpMitmPlanReport {
     pub event: HttpMitmEvent,
     pub outcome: Option<HttpMitmOutcome>,
     pub applied: bool,
+    pub audits: Vec<AuditEvent>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativePlainHttpMessage {
+    pub request_id: String,
+    pub url: String,
+    pub method: Option<String>,
+    pub phase: HttpMitmPhase,
+    pub status_code: Option<u16>,
+    pub headers: Vec<MetadataEntry>,
+    pub body: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativePlainHttpRewriteApplication {
+    pub applied: bool,
+    pub terminal_action: Option<String>,
+    pub final_status_code: Option<u16>,
+    pub redirect_location: Option<String>,
+    pub headers: Vec<MetadataEntry>,
+    pub body: Vec<u8>,
+    pub script_dispatch_deferred: bool,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativePlainHttpRewriteReport {
+    pub request_id: String,
+    pub url: String,
+    pub event: HttpMitmEvent,
+    pub outcome: Option<HttpMitmOutcome>,
+    pub applied: bool,
+    pub terminal_action: Option<String>,
+    pub final_status_code: Option<u16>,
+    pub redirect_location: Option<String>,
+    pub headers: Vec<MetadataEntry>,
+    pub body: Vec<u8>,
+    pub script_dispatch_deferred: bool,
     pub audits: Vec<AuditEvent>,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -1766,6 +1823,183 @@ where
     }
 }
 
+pub fn plan_and_apply_plain_http_mitm(
+    message: &NativePlainHttpMessage,
+    plugin_instance: &PluginInstance,
+    plugin_service: &dyn MitmPluginService,
+) -> NativePlainHttpRewriteReport {
+    let event = plain_http_message_to_mitm_event(message);
+    let mut diagnostics = vec![engine_diagnostic(
+        DiagnosticSeverity::Info,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_EVENT_PLANNED_CODE,
+        "native plain HTTP message was mapped to a rich HTTP MITM event",
+        SOURCE_ENGINE_NATIVE_MITM,
+    )];
+
+    match plugin_service.handle_http_mitm_event(plugin_instance, &event) {
+        Ok(outcome) => {
+            let audits = outcome.audits.clone();
+            diagnostics.extend(outcome.diagnostics.clone());
+            diagnostics.push(engine_diagnostic(
+                DiagnosticSeverity::Info,
+                ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_PLAN_READY_CODE,
+                "native plain HTTP MITM plugin plan was produced",
+                SOURCE_ENGINE_NATIVE_MITM,
+            ));
+            let application = apply_http_mitm_outcome_to_plain_http_message(message, &outcome);
+            diagnostics.extend(application.diagnostics.clone());
+
+            NativePlainHttpRewriteReport {
+                request_id: message.request_id.clone(),
+                url: message.url.clone(),
+                event,
+                outcome: Some(outcome),
+                applied: application.applied,
+                terminal_action: application.terminal_action,
+                final_status_code: application.final_status_code,
+                redirect_location: application.redirect_location,
+                headers: application.headers,
+                body: application.body,
+                script_dispatch_deferred: application.script_dispatch_deferred,
+                audits,
+                diagnostics,
+            }
+        }
+        Err(_error) => {
+            diagnostics.push(engine_diagnostic(
+                DiagnosticSeverity::Error,
+                ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_PLAN_FAILED_CODE,
+                "native plain HTTP MITM plugin plan failed",
+                SOURCE_ENGINE_NATIVE_MITM,
+            ));
+
+            NativePlainHttpRewriteReport {
+                request_id: message.request_id.clone(),
+                url: message.url.clone(),
+                event,
+                outcome: None,
+                applied: false,
+                terminal_action: None,
+                final_status_code: message.status_code,
+                redirect_location: None,
+                headers: message.headers.clone(),
+                body: message.body.clone(),
+                script_dispatch_deferred: false,
+                audits: Vec::new(),
+                diagnostics,
+            }
+        }
+    }
+}
+
+pub fn apply_http_mitm_outcome_to_plain_http_message(
+    message: &NativePlainHttpMessage,
+    outcome: &HttpMitmOutcome,
+) -> NativePlainHttpRewriteApplication {
+    let mut headers = message.headers.clone();
+    let mut body = message.body.clone();
+    let mut applied = false;
+    let mut terminal_action = None;
+    let mut final_status_code = message.status_code;
+    let mut redirect_location = None;
+    let mut script_dispatch_deferred = false;
+    let mut diagnostics = Vec::new();
+
+    match &outcome.action {
+        HttpMitmAction::Continue => {}
+        HttpMitmAction::Reject { status_code } => {
+            applied = true;
+            terminal_action = Some("reject".to_string());
+            final_status_code = Some(*status_code);
+            redirect_location = None;
+            headers.clear();
+            set_plain_http_header(&mut headers, "Content-Length", "0");
+            body.clear();
+            diagnostics.push(engine_diagnostic(
+                DiagnosticSeverity::Info,
+                ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_TERMINAL_ACTION_APPLIED_CODE,
+                "native plain HTTP data plane applied a reject terminal action",
+                SOURCE_ENGINE_NATIVE_MITM,
+            ));
+        }
+        HttpMitmAction::Redirect {
+            status_code,
+            location,
+        } => {
+            applied = true;
+            terminal_action = Some("redirect".to_string());
+            final_status_code = Some(*status_code);
+            redirect_location = Some(location.clone());
+            set_plain_http_header(&mut headers, "Location", location);
+            set_plain_http_header(&mut headers, "Content-Length", "0");
+            body.clear();
+            diagnostics.push(engine_diagnostic(
+                DiagnosticSeverity::Info,
+                ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_TERMINAL_ACTION_APPLIED_CODE,
+                "native plain HTTP data plane applied a redirect terminal action",
+                SOURCE_ENGINE_NATIVE_MITM,
+            ));
+        }
+    }
+
+    if terminal_action.is_none() {
+        let header_mutations_applied =
+            apply_plain_http_header_mutations(&mut headers, &outcome.header_mutations);
+        if header_mutations_applied > 0 {
+            applied = true;
+            diagnostics.push(engine_diagnostic(
+                DiagnosticSeverity::Info,
+                ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_HEADER_MUTATION_APPLIED_CODE,
+                format!(
+                    "native plain HTTP data plane applied {header_mutations_applied} header mutation(s)"
+                ),
+                SOURCE_ENGINE_NATIVE_MITM,
+            ));
+        }
+
+        if let Some(body_mutation) = &outcome.body_mutation {
+            applied = true;
+            body = body_mutation.body.clone();
+            diagnostics.push(engine_diagnostic(
+                DiagnosticSeverity::Info,
+                ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_BODY_MUTATION_APPLIED_CODE,
+                "native plain HTTP data plane applied a body mutation",
+                SOURCE_ENGINE_NATIVE_MITM,
+            ));
+        }
+    }
+
+    if outcome.script_dispatch.is_some() {
+        script_dispatch_deferred = true;
+        diagnostics.push(engine_diagnostic(
+            DiagnosticSeverity::Warning,
+            ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_SCRIPT_DISPATCH_DEFERRED_CODE,
+            "native plain HTTP data plane recorded script dispatch but script execution remains deferred",
+            SOURCE_ENGINE_NATIVE_MITM,
+        ));
+    }
+
+    if !applied && !script_dispatch_deferred {
+        diagnostics.push(engine_diagnostic(
+            DiagnosticSeverity::Info,
+            ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_REWRITE_NOOP_CODE,
+            "native plain HTTP data plane found no rewrite mutation to apply",
+            SOURCE_ENGINE_NATIVE_MITM,
+        ));
+    }
+
+    NativePlainHttpRewriteApplication {
+        applied,
+        terminal_action,
+        final_status_code,
+        redirect_location,
+        headers,
+        body,
+        script_dispatch_deferred,
+        diagnostics,
+    }
+}
+
 pub fn write_http_mitm_rejected_socks5_connect_failure_response<W>(
     writer: &mut W,
 ) -> NativeSocks5ConnectFailureResponseWriteReport
@@ -2822,6 +3056,85 @@ fn http_mitm_outcome_requires_application(outcome: &HttpMitmOutcome) -> bool {
 
 fn http_mitm_outcome_rejects(outcome: &HttpMitmOutcome) -> bool {
     matches!(&outcome.action, HttpMitmAction::Reject { .. })
+}
+
+fn plain_http_message_to_mitm_event(message: &NativePlainHttpMessage) -> HttpMitmEvent {
+    HttpMitmEvent {
+        request_id: message.request_id.clone(),
+        url: message.url.clone(),
+        method: message.method.clone(),
+        phase: message.phase,
+        status_code: message.status_code,
+        headers: message.headers.clone(),
+        body: message.body.clone(),
+    }
+}
+
+fn apply_plain_http_header_mutations(
+    headers: &mut Vec<MetadataEntry>,
+    mutations: &[HttpHeaderMutation],
+) -> usize {
+    let mut applied = 0;
+
+    for mutation in mutations {
+        if apply_plain_http_header_mutation(headers, mutation) {
+            applied += 1;
+        }
+    }
+
+    applied
+}
+
+fn apply_plain_http_header_mutation(
+    headers: &mut Vec<MetadataEntry>,
+    mutation: &HttpHeaderMutation,
+) -> bool {
+    match mutation.operation {
+        HttpHeaderMutationOperation::Add => {
+            let Some(value) = mutation.value.as_ref() else {
+                return false;
+            };
+            headers.push(MetadataEntry {
+                key: mutation.name.clone(),
+                value: value.clone(),
+            });
+            true
+        }
+        HttpHeaderMutationOperation::Replace => {
+            let Some(value) = mutation.value.as_ref() else {
+                return false;
+            };
+            let mut replaced = false;
+            for header in headers
+                .iter_mut()
+                .filter(|header| header.key.eq_ignore_ascii_case(&mutation.name))
+            {
+                header.value = value.clone();
+                replaced = true;
+            }
+            replaced
+        }
+        HttpHeaderMutationOperation::Delete => {
+            let original_len = headers.len();
+            headers.retain(|header| !header.key.eq_ignore_ascii_case(&mutation.name));
+            headers.len() != original_len
+        }
+        HttpHeaderMutationOperation::Set => {
+            let Some(value) = mutation.value.as_ref() else {
+                return false;
+            };
+            set_plain_http_header(headers, &mutation.name, value);
+            true
+        }
+    }
+}
+
+fn set_plain_http_header(headers: &mut Vec<MetadataEntry>, name: &str, value: &str) {
+    headers.retain(|header| !header.key.eq_ignore_ascii_case(name));
+    headers.push(MetadataEntry {
+        key: name.to_string(),
+        value: value.to_string(),
+    });
 }
 
 fn socks5_outbound_connect_response_valid(response: &NativeSocks5OutboundConnectResponse) -> bool {
