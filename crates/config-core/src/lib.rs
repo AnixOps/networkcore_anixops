@@ -61,6 +61,10 @@ pub const SUBSCRIPTION_CLASH_YAML_UNSUPPORTED_CODE: &str =
 pub const SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE: &str = "subscription.core.sing_box_json_invalid";
 pub const SUBSCRIPTION_SING_BOX_JSON_UNSUPPORTED_CODE: &str =
     "subscription.core.sing_box_json_unsupported";
+pub const SUBSCRIPTION_LOON_PROXY_LINE_INVALID_CODE: &str =
+    "subscription.core.loon_proxy_line_invalid";
+pub const SUBSCRIPTION_LOON_PROXY_LINE_UNSUPPORTED_CODE: &str =
+    "subscription.core.loon_proxy_line_unsupported";
 pub const SUBSCRIPTION_SURGE_PROXY_LINE_INVALID_CODE: &str =
     "subscription.core.surge_proxy_line_invalid";
 pub const SUBSCRIPTION_SURGE_PROXY_LINE_UNSUPPORTED_CODE: &str =
@@ -318,6 +322,12 @@ impl SubscriptionService for CoreSubscriptionService {
         }
 
         if let Some(document) =
+            parse_loon_proxy_line_subscription(&source_id, &raw_subscription.content)?
+        {
+            return Ok(document);
+        }
+
+        if let Some(document) =
             parse_surge_proxy_line_subscription(&source_id, &raw_subscription.content)?
         {
             return Ok(document);
@@ -329,7 +339,7 @@ impl SubscriptionService for CoreSubscriptionService {
 
         Err(domain_error(
             SUBSCRIPTION_PARSE_FAILED_CODE,
-            "subscription payload could not be parsed as NetworkCore TOML, Clash YAML, sing-box JSON, Surge proxy lines, or supported proxy links",
+            "subscription payload could not be parsed as NetworkCore TOML, Clash YAML, sing-box JSON, Loon proxy lines, Surge proxy lines, or supported proxy links",
         ))
     }
 
@@ -978,6 +988,268 @@ fn optional_sing_box_scalar_field(raw: Option<RawSingBoxScalar>) -> Option<Strin
         None
     } else {
         Some(text)
+    }
+}
+
+fn parse_loon_proxy_line_subscription(
+    source_id: &str,
+    content: &str,
+) -> DomainResult<Option<SubscriptionDocument>> {
+    let content = content.trim();
+    if content.is_empty() {
+        return Ok(None);
+    }
+
+    let mut saw_proxy_section = false;
+    let mut in_proxy_section = false;
+    let mut proxy_lines = Vec::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with("//") {
+            continue;
+        }
+
+        if let Some(section) = parse_surge_section_header(line) {
+            in_proxy_section = normalized_token(section).as_str() == "proxy";
+            saw_proxy_section |= in_proxy_section;
+            continue;
+        }
+
+        if in_proxy_section {
+            proxy_lines.push(line.to_string());
+        }
+    }
+
+    if !saw_proxy_section {
+        return Ok(None);
+    }
+    if proxy_lines.is_empty() {
+        return Err(domain_error(
+            SUBSCRIPTION_LOON_PROXY_LINE_INVALID_CODE,
+            "loon proxy section cannot be empty",
+        ));
+    }
+
+    let mut parsed_nodes = Vec::new();
+    for line in proxy_lines {
+        let Some(node) = parse_loon_proxy_line(&line, source_id)? else {
+            if parsed_nodes.is_empty() {
+                return Ok(None);
+            }
+            return Err(domain_error(
+                SUBSCRIPTION_LOON_PROXY_LINE_INVALID_CODE,
+                "loon proxy section cannot mix positional lines with other proxy line styles",
+            ));
+        };
+        parsed_nodes.push(node);
+    }
+
+    if parsed_nodes.is_empty() {
+        return Ok(None);
+    }
+
+    let mut nodes = Vec::new();
+    let mut seen_ids = BTreeSet::new();
+    for mut node in parsed_nodes {
+        if !seen_ids.insert(node.id.clone()) {
+            let base_id = node.id.clone();
+            let mut suffix = seen_ids.len() + 1;
+            loop {
+                node.id = format!("{base_id}-{suffix}");
+                if seen_ids.insert(node.id.clone()) {
+                    break;
+                }
+                suffix += 1;
+            }
+        }
+        nodes.push(node);
+    }
+
+    Ok(Some(SubscriptionDocument {
+        nodes,
+        rules: Vec::new(),
+        diagnostics: Vec::new(),
+    }))
+}
+
+fn parse_loon_proxy_line(line: &str, source_id: &str) -> DomainResult<Option<NodeDescriptor>> {
+    let Some((name, definition)) = line.split_once('=') else {
+        return Ok(None);
+    };
+    let name = required_trimmed(
+        name.to_string(),
+        SUBSCRIPTION_LOON_PROXY_LINE_INVALID_CODE,
+        "loon proxy name cannot be empty",
+    )?;
+    let parts = definition
+        .split(',')
+        .map(|part| part.trim().to_string())
+        .collect::<Vec<_>>();
+    if parts.len() < 3 || parts.iter().take(3).any(String::is_empty) {
+        return Err(domain_error(
+            SUBSCRIPTION_LOON_PROXY_LINE_INVALID_CODE,
+            "loon proxy line must contain type, server, and port",
+        ));
+    }
+
+    let protocol_token = normalized_token(&parts[0]);
+    let host = required_trimmed(
+        parts[1].clone(),
+        SUBSCRIPTION_LOON_PROXY_LINE_INVALID_CODE,
+        "loon proxy server cannot be empty",
+    )?;
+    let port = parts[2].parse::<i64>().map_err(|_| {
+        domain_error(
+            SUBSCRIPTION_LOON_PROXY_LINE_INVALID_CODE,
+            "loon proxy port must be a number",
+        )
+    })?;
+    let port = parse_port(
+        port,
+        SUBSCRIPTION_LOON_PROXY_LINE_INVALID_CODE,
+        "loon proxy port must be between 1 and 65535",
+    )?;
+
+    let (protocol, protocol_tag, mut metadata) = match protocol_token.as_str() {
+        "ss" | "shadowsocks" => {
+            if loon_proxy_part_looks_like_key_value(&parts, 3)
+                || loon_proxy_part_looks_like_key_value(&parts, 4)
+            {
+                return Ok(None);
+            }
+            let method = required_loon_proxy_part(
+                &parts,
+                3,
+                "loon shadowsocks method cannot be empty",
+            )?;
+            let password = required_loon_proxy_part(
+                &parts,
+                4,
+                "loon shadowsocks password cannot be empty",
+            )?;
+            (
+                Protocol::Shadowsocks,
+                "ss",
+                vec![
+                    MetadataEntry {
+                        key: NODE_METADATA_SHADOWSOCKS_METHOD.to_string(),
+                        value: method,
+                    },
+                    MetadataEntry {
+                        key: NODE_METADATA_SHADOWSOCKS_PASSWORD.to_string(),
+                        value: password,
+                    },
+                ],
+            )
+        }
+        "trojan" => {
+            if loon_proxy_part_looks_like_key_value(&parts, 3) {
+                return Ok(None);
+            }
+            let password =
+                required_loon_proxy_part(&parts, 3, "loon trojan password cannot be empty")?;
+            (
+                Protocol::Trojan,
+                "trojan",
+                vec![MetadataEntry {
+                    key: NODE_METADATA_TROJAN_PASSWORD.to_string(),
+                    value: password,
+                }],
+            )
+        }
+        "vless" => {
+            if loon_proxy_part_looks_like_key_value(&parts, 3) {
+                return Ok(None);
+            }
+            let uuid = required_loon_proxy_part(&parts, 3, "loon vless uuid cannot be empty")?;
+            (
+                Protocol::Vless,
+                "vless",
+                vec![MetadataEntry {
+                    key: NODE_METADATA_VLESS_UUID.to_string(),
+                    value: uuid,
+                }],
+            )
+        }
+        "vmess" => {
+            if loon_proxy_part_looks_like_key_value(&parts, 3)
+                || loon_proxy_part_looks_like_key_value(&parts, 4)
+            {
+                return Ok(None);
+            }
+            let uuid = required_loon_proxy_part(&parts, 4, "loon vmess uuid cannot be empty")?;
+            (
+                Protocol::Vmess,
+                "vmess",
+                vec![MetadataEntry {
+                    key: NODE_METADATA_VMESS_UUID.to_string(),
+                    value: uuid,
+                }],
+            )
+        }
+        "direct" | "reject" | "http" | "https" | "socks" | "socks5" | "ssr" | "shadowsocksr"
+        | "hysteria" | "hysteria2" | "tuic" | "wireguard" => {
+            return Err(domain_error(
+                SUBSCRIPTION_LOON_PROXY_LINE_UNSUPPORTED_CODE,
+                "loon proxy type must be shadowsocks, trojan, vless, or vmess for catalog import",
+            ));
+        }
+        _ => return Ok(None),
+    };
+
+    let name_id = sanitize_identifier(&name);
+    let name_id = if name_id.is_empty() {
+        "node".to_string()
+    } else {
+        name_id
+    };
+    let id = format!("loon-{protocol_tag}-{name_id}");
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_SOURCE_FORMAT.to_string(),
+        value: "loon-proxy-line".to_string(),
+    });
+    metadata.push(MetadataEntry {
+        key: "subscription.source_id".to_string(),
+        value: source_id.to_string(),
+    });
+
+    Ok(Some(NodeDescriptor {
+        id,
+        name,
+        protocol,
+        endpoint: Endpoint { host, port },
+        tags: vec![
+            "subscription".to_string(),
+            "loon-proxy-line".to_string(),
+            protocol_tag.to_string(),
+        ],
+        metadata,
+    }))
+}
+
+fn loon_proxy_part_looks_like_key_value(parts: &[String], index: usize) -> bool {
+    parts
+        .get(index)
+        .map(|part| part.contains('='))
+        .unwrap_or_default()
+}
+
+fn required_loon_proxy_part(
+    parts: &[String],
+    index: usize,
+    message: &'static str,
+) -> DomainResult<String> {
+    let value = parts.get(index).cloned().unwrap_or_default();
+    let value = strip_loon_quotes(value);
+    required_trimmed(value, SUBSCRIPTION_LOON_PROXY_LINE_INVALID_CODE, message)
+}
+
+fn strip_loon_quotes(value: String) -> String {
+    let value = value.trim();
+    if value.len() >= 2 && value.starts_with('"') && value.ends_with('"') {
+        value[1..value.len() - 1].to_string()
+    } else {
+        value.to_string()
     }
 }
 

@@ -400,6 +400,62 @@ fn parses_sing_box_json_subscription_into_node_catalog() {
 }
 
 #[test]
+fn parses_loon_proxy_line_subscription_into_node_catalog() {
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "loon-proxy-line".to_string(),
+        content: r#"
+[General]
+loglevel = notify
+
+[Proxy]
+HK Loon = Shadowsocks, 82.47.34.99, 11111, aes-256-gcm, "f43c0eee-13b9-4f07-bec9-d4b744141503"
+
+[Proxy Group]
+Proxy = select, HK Loon
+"#
+        .to_string(),
+    };
+
+    let document = service
+        .parse(&raw)
+        .expect("loon proxy lines should parse into a subscription document");
+    assert!(document.diagnostics.is_empty());
+    let catalog = service
+        .normalize(&document)
+        .expect("loon proxy document should normalize");
+
+    assert_eq!(catalog.nodes.len(), 1);
+    assert!(catalog.rules.is_empty());
+    let node = &catalog.nodes[0];
+    assert_eq!(node.id, "loon-ss-hk-loon");
+    assert_eq!(node.name, "HK Loon");
+    assert_eq!(node.protocol, Protocol::Shadowsocks);
+    assert_eq!(node.endpoint.host, "82.47.34.99");
+    assert_eq!(node.endpoint.port, 11111);
+    assert_eq!(
+        node.tags,
+        vec![
+            "subscription".to_string(),
+            "loon-proxy-line".to_string(),
+            "ss".to_string()
+        ]
+    );
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_SHADOWSOCKS_METHOD,
+        "aes-256-gcm",
+    );
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_SHADOWSOCKS_PASSWORD,
+        "f43c0eee-13b9-4f07-bec9-d4b744141503",
+    );
+    assert_metadata(&node.metadata, NODE_METADATA_SOURCE_FORMAT, "loon-proxy-line");
+    assert_metadata(&node.metadata, "subscription.source_id", "loon-proxy-line");
+}
+
+#[test]
 fn parses_surge_proxy_line_subscription_into_node_catalog() {
     let service = CoreSubscriptionService::new();
     let raw = RawSubscription {

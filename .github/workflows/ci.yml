@@ -302,6 +302,9 @@ jobs:
           grep -q "SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE" crates/config-core/src/lib.rs
           grep -q "SUBSCRIPTION_SING_BOX_JSON_UNSUPPORTED_CODE" crates/config-core/src/lib.rs
           grep -q "parses_sing_box_json_subscription_into_node_catalog" crates/config-core/tests/config_core_contracts.rs
+          grep -q "SUBSCRIPTION_LOON_PROXY_LINE_INVALID_CODE" crates/config-core/src/lib.rs
+          grep -q "SUBSCRIPTION_LOON_PROXY_LINE_UNSUPPORTED_CODE" crates/config-core/src/lib.rs
+          grep -q "parses_loon_proxy_line_subscription_into_node_catalog" crates/config-core/tests/config_core_contracts.rs
           grep -q "SUBSCRIPTION_SURGE_PROXY_LINE_INVALID_CODE" crates/config-core/src/lib.rs
           grep -q "SUBSCRIPTION_SURGE_PROXY_LINE_UNSUPPORTED_CODE" crates/config-core/src/lib.rs
           grep -q "parses_surge_proxy_line_subscription_into_node_catalog" crates/config-core/tests/config_core_contracts.rs
@@ -326,6 +329,13 @@ jobs:
           grep -q "Surge proxy line parser gate" docs/alpha-release-feature-matrix.md
           grep -q "Surge proxy line may be imported as a catalog-only parser gate" docs/architecture/subscription-url-to-sing-box-run-source-contract.md
           grep -q "Surge proxy line parser gates are catalog import only" crates/config-core/README.md
+          grep -q "Loon proxy line parser gate" README.md
+          grep -q "Loon proxy line parser gate" ROADMAP.md
+          grep -q "Loon proxy line parser gate" TODO.md
+          grep -q "Loon proxy line parser gate" CHANGELOG.md
+          grep -q "Loon proxy line parser gate" docs/alpha-release-feature-matrix.md
+          grep -q "Loon proxy line may be imported as a catalog-only parser gate" docs/architecture/subscription-url-to-sing-box-run-source-contract.md
+          grep -q "Loon proxy line parser gates are catalog import only" crates/config-core/README.md
           grep -q "Subscription URL To sing-box Run Source Contract" docs/architecture/subscription-url-to-sing-box-run-source-contract.md
           grep -q "handle_entrypoint_with_runtime_lifecycle_and_sing_box" apps/linux-cli/src/main.rs
           git submodule status third_party/mitm_anixops | grep -q "a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0"
