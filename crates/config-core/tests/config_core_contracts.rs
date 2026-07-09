@@ -14,6 +14,7 @@ use control_domain::{
     OperatingSystem, PlatformCapabilities, Protocol, RawSubscription, RouteAction, SchemaVersion,
     SubscriptionService, SubscriptionSource, NODE_METADATA_SHADOWSOCKS_METHOD,
     NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SOURCE_FORMAT, NODE_METADATA_TROJAN_PASSWORD,
+    NODE_METADATA_VLESS_UUID,
 };
 
 #[test]
@@ -192,6 +193,45 @@ fn parses_single_trojan_url_subscription_into_node_catalog() {
     assert_metadata(&node.metadata, NODE_METADATA_TROJAN_PASSWORD, "pa@ss");
     assert_metadata(&node.metadata, NODE_METADATA_SOURCE_FORMAT, "trojan-url");
     assert_metadata(&node.metadata, "subscription.source_id", "trojan-url");
+}
+
+#[test]
+fn parses_single_vless_url_subscription_into_node_catalog() {
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "vless-url".to_string(),
+        content:
+            "vless://2f4d1d6d-7fd5-4a0f-90f0-1d3fb2fb5f1d@example.net:443?encryption=none&type=tcp#US%20VLESS"
+                .to_string(),
+    };
+
+    let document = service
+        .parse(&raw)
+        .expect("vless url should parse into a subscription document");
+    assert!(document.diagnostics.is_empty());
+    let catalog = service
+        .normalize(&document)
+        .expect("vless url document should normalize");
+
+    assert_eq!(catalog.nodes.len(), 1);
+    assert!(catalog.rules.is_empty());
+    let node = &catalog.nodes[0];
+    assert_eq!(node.id, "vless-example-net-443");
+    assert_eq!(node.name, "US VLESS");
+    assert_eq!(node.protocol, Protocol::Vless);
+    assert_eq!(node.endpoint.host, "example.net");
+    assert_eq!(node.endpoint.port, 443);
+    assert_eq!(
+        node.tags,
+        vec!["subscription".to_string(), "vless".to_string()]
+    );
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_VLESS_UUID,
+        "2f4d1d6d-7fd5-4a0f-90f0-1d3fb2fb5f1d",
+    );
+    assert_metadata(&node.metadata, NODE_METADATA_SOURCE_FORMAT, "vless-url");
+    assert_metadata(&node.metadata, "subscription.source_id", "vless-url");
 }
 
 #[test]

@@ -12,6 +12,7 @@ use control_domain::{
     Protocol, RawSubscription, RouteAction, RuleSet, SchemaVersion, SubscriptionDocument,
     SubscriptionService, SubscriptionSource, NODE_METADATA_SHADOWSOCKS_METHOD,
     NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SOURCE_FORMAT, NODE_METADATA_TROJAN_PASSWORD,
+    NODE_METADATA_VLESS_UUID,
 };
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -52,6 +53,7 @@ pub const SUBSCRIPTION_LINK_UNSUPPORTED_CODE: &str = "subscription.core.link_uns
 pub const SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE: &str =
     "subscription.core.shadowsocks_link_invalid";
 pub const SUBSCRIPTION_TROJAN_LINK_INVALID_CODE: &str = "subscription.core.trojan_link_invalid";
+pub const SUBSCRIPTION_VLESS_LINK_INVALID_CODE: &str = "subscription.core.vless_link_invalid";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CoreConfigurationService;
@@ -487,10 +489,12 @@ fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<Subscr
             parse_shadowsocks_link(line)?
         } else if line.starts_with("trojan://") {
             parse_trojan_link(line)?
+        } else if line.starts_with("vless://") {
+            parse_vless_link(line)?
         } else {
             return Err(domain_error(
                 SUBSCRIPTION_LINK_UNSUPPORTED_CODE,
-                "only ss:// and trojan:// proxy links are supported in this alpha subscription parser",
+                "only ss://, trojan://, and vless:// proxy links are supported in this alpha subscription parser",
             ));
         };
         if !seen_ids.insert(node.id.clone()) {
@@ -658,6 +662,60 @@ fn parse_trojan_link(link: &str) -> DomainResult<NodeDescriptor> {
             MetadataEntry {
                 key: NODE_METADATA_SOURCE_FORMAT.to_string(),
                 value: "trojan-url".to_string(),
+            },
+        ],
+    })
+}
+
+fn parse_vless_link(link: &str) -> DomainResult<NodeDescriptor> {
+    let payload = link.strip_prefix("vless://").ok_or_else(|| {
+        domain_error(
+            SUBSCRIPTION_VLESS_LINK_INVALID_CODE,
+            "vless link must start with vless://",
+        )
+    })?;
+    let (without_fragment, fragment) = split_once_optional(payload, '#');
+    let name = fragment
+        .and_then(|fragment| percent_decode(fragment).ok())
+        .filter(|name| !name.trim().is_empty());
+    let (main_without_query, _) = split_once_optional(without_fragment, '?');
+    let (uuid, host_port) = main_without_query.rsplit_once('@').ok_or_else(|| {
+        domain_error(
+            SUBSCRIPTION_VLESS_LINK_INVALID_CODE,
+            "vless link must contain uuid and endpoint",
+        )
+    })?;
+    let uuid = percent_decode(uuid).unwrap_or_else(|_| uuid.to_string());
+    let uuid = required_trimmed(
+        uuid,
+        SUBSCRIPTION_VLESS_LINK_INVALID_CODE,
+        "vless uuid cannot be empty",
+    )?;
+    let (host, port) =
+        parse_host_port_for(host_port, SUBSCRIPTION_VLESS_LINK_INVALID_CODE, "vless")?;
+    let host_id = sanitize_identifier(&host);
+    let host_id = if host_id.is_empty() {
+        "host".to_string()
+    } else {
+        host_id
+    };
+    let id = format!("vless-{}-{port}", host_id);
+    let name = name.unwrap_or_else(|| id.clone());
+
+    Ok(NodeDescriptor {
+        id,
+        name,
+        protocol: Protocol::Vless,
+        endpoint: Endpoint { host, port },
+        tags: vec!["subscription".to_string(), "vless".to_string()],
+        metadata: vec![
+            MetadataEntry {
+                key: NODE_METADATA_VLESS_UUID.to_string(),
+                value: uuid,
+            },
+            MetadataEntry {
+                key: NODE_METADATA_SOURCE_FORMAT.to_string(),
+                value: "vless-url".to_string(),
             },
         ],
     })
