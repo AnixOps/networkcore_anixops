@@ -400,6 +400,70 @@ fn parses_sing_box_json_subscription_into_node_catalog() {
 }
 
 #[test]
+fn parses_surge_proxy_line_subscription_into_node_catalog() {
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "surge-proxy-line".to_string(),
+        content: r#"
+[General]
+loglevel = notify
+
+[Proxy]
+HK Surge = ss, 82.47.34.99, 11111, encrypt-method=aes-256-gcm, password=f43c0eee-13b9-4f07-bec9-d4b744141503
+
+[Proxy Group]
+Proxy = select, HK Surge
+"#
+        .to_string(),
+    };
+
+    let document = service
+        .parse(&raw)
+        .expect("surge proxy lines should parse into a subscription document");
+    assert!(document.diagnostics.is_empty());
+    let catalog = service
+        .normalize(&document)
+        .expect("surge proxy document should normalize");
+
+    assert_eq!(catalog.nodes.len(), 1);
+    assert!(catalog.rules.is_empty());
+    let node = &catalog.nodes[0];
+    assert_eq!(node.id, "surge-ss-hk-surge");
+    assert_eq!(node.name, "HK Surge");
+    assert_eq!(node.protocol, Protocol::Shadowsocks);
+    assert_eq!(node.endpoint.host, "82.47.34.99");
+    assert_eq!(node.endpoint.port, 11111);
+    assert_eq!(
+        node.tags,
+        vec![
+            "subscription".to_string(),
+            "surge-proxy-line".to_string(),
+            "ss".to_string()
+        ]
+    );
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_SHADOWSOCKS_METHOD,
+        "aes-256-gcm",
+    );
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_SHADOWSOCKS_PASSWORD,
+        "f43c0eee-13b9-4f07-bec9-d4b744141503",
+    );
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_SOURCE_FORMAT,
+        "surge-proxy-line",
+    );
+    assert_metadata(
+        &node.metadata,
+        "subscription.source_id",
+        "surge-proxy-line",
+    );
+}
+
+#[test]
 fn unsupported_proxy_link_returns_stable_subscription_diagnostic() {
     let service = CoreSubscriptionService::new();
     let raw = RawSubscription {

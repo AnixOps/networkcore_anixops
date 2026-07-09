@@ -70,7 +70,7 @@
 - Linux CLI runtime wiring 设计文件检查
 - Native engine listener/node 配置设计文件检查
 - Linux native proxy engine start 设计文件检查
-- config-core crate README、subscription parser source contract、Trojan/VLESS/VMess URL parser gates、Clash YAML parser gate、sing-box JSON parser gate 和 Rust workspace 覆盖检查
+- config-core crate README、subscription parser source contract、Trojan/VLESS/VMess URL parser gates、Clash YAML parser gate、sing-box JSON parser gate、Surge proxy line parser gate 和 Rust workspace 覆盖检查
 - engine-native crate README 和 Rust workspace 覆盖检查
 - engine-singbox crate README、latest release download source contract、checksum/extraction diagnostics、subscription URL to sing-box run source contract、Linux CLI `install-sing-box`/`run-url`/`help` 覆盖检查
 - Linux CLI crate README 和 Rust workspace 覆盖检查
@@ -83,7 +83,7 @@
 - Alpha Release Feature Matrix 检查，确保 README、ROADMAP、TODO、Release Strategy 和 alpha/rc/stable
   版本能力索引同步记录已发布 `v0.1.0-alpha.1` 到 `v0.1.0-alpha.20`、`v0.1.0-rc.1`、`v0.1.0` 以及
   `v0.1.1-alpha.1`、`v0.1.1-alpha.2`、`v0.1.1-alpha.3` Trojan/VLESS/VMess URL parser gates、
-  Clash YAML parser gate 和 sing-box JSON parser gate，以及已拍板的
+  Clash YAML parser gate、sing-box JSON parser gate 和 Surge proxy line parser gate，以及已拍板的
   `v0.1.0` Linux-only explicit HTTPS rewrite preview、`v0.1.1` Windows CLI artifact/订阅兼容、
   `v0.1.2` managed lifecycle、JavaScript script dispatch、system trust store mutation 和
   system proxy mutation 规划边界

@@ -114,7 +114,22 @@ experimental, and adapter rendering fields remain deferred. This does not make
 `engine-singbox` renderer remains Shadowsocks URL path only until a later
 run-preview slice.
 
-Hysteria, Surge, Loon, and Quantumult X remain follow-up formats.
+Surge proxy line may be imported as a catalog-only parser gate when the payload
+has a `[Proxy]` section. The initial supported line subset reads
+`name = type, server, port, key=value...`; it accepts `ss`/`shadowsocks`,
+`trojan`, and `vmess` proxy types. Shadowsocks lines read `encrypt-method` (or
+`method`) and `password`, Trojan lines read `password`, and VMess lines read
+`username` as the VMess UUID. Imported Surge nodes must include
+`NODE_METADATA_SOURCE_FORMAT=surge-proxy-line`; unsupported Surge proxy line
+types must fail with `subscription.core.surge_proxy_line_unsupported`, and
+malformed supported proxy lines must fail with
+`subscription.core.surge_proxy_line_invalid` without echoing raw subscription
+content or secrets. Surge proxy groups, rules, policy logic, TLS/transport
+options, UDP flags, and adapter rendering remain deferred. This does not make
+`run-url` render or run Surge through `sing-box`; the current `engine-singbox`
+renderer remains Shadowsocks URL path only until a later run-preview slice.
+
+Hysteria, Loon, and Quantumult X remain follow-up formats.
 They must still enter through `SubscriptionService` and `NodeCatalog`, not
 through platform-specific parsers.
 
@@ -186,7 +201,7 @@ Local machines must not run build, test, package, or release validation. GitHub
 Actions must verify:
 
 - `control-domain` metadata fields for per-protocol node parameters;
-- `config-core` parsing for `ss://`, `trojan://`, `vless://`, `vmess://`, Clash YAML `proxies`, sing-box JSON `outbounds`, plaintext link list, and base64 link list;
+- `config-core` parsing for `ss://`, `trojan://`, `vless://`, `vmess://`, Clash YAML `proxies`, sing-box JSON `outbounds`, Surge `[Proxy]` lines, plaintext link list, and base64 link list;
 - `engine-singbox` deterministic local proxy config rendering;
 - `networkcore-linux run-url` parsing, response fields, config writing, and
   injected process runner behavior;
