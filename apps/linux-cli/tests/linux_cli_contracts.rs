@@ -78,10 +78,9 @@ use networkcore_linux::{
     CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE, CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE,
     CLI_MITM_CERTIFICATE_PLAN_READY_CODE, CLI_MITM_CERTIFICATE_ROLLBACK_BLOCKED_CODE,
     CLI_MITM_CERTIFICATE_ROLLBACK_READY_CODE, CLI_MITM_CLI_GATE_PARTIAL_CODE,
-    CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE,
-    CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE, CLI_MITM_HTTP_REWRITE_AUTHORIZATION_REQUIRED_CODE,
-    CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE, CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE,
-    CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE,
+    CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE, CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE,
+    CLI_MITM_HTTP_REWRITE_AUTHORIZATION_REQUIRED_CODE, CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE,
+    CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE, CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE,
     CLI_START_FOREGROUND_ONLY_CODE, CLI_START_LIFECYCLE_FAILED_CODE,
     CLI_START_LIFECYCLE_HOST_MISSING_CODE, CLI_START_LIFECYCLE_INTERRUPTED_CODE,
     CLI_START_PLATFORM_DENIED_CODE, CLI_START_RUNTIME_STOP_FAILED_CODE,
@@ -890,7 +889,10 @@ fn mitm_http_rewrite_plan_reports_plain_http_foundation_without_tls_decryption()
     assert!(response.ok);
     assert_eq!(response.command, "mitm http-rewrite plan");
     assert_diagnostic(&response.diagnostics, CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE);
-    assert_diagnostic(&response.diagnostics, CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE,
+    );
     let report = response
         .http_rewrite
         .as_ref()
@@ -916,8 +918,9 @@ fn mitm_http_rewrite_plan_reports_plain_http_foundation_without_tls_decryption()
         .any(|operation| operation == "decrypt-https"));
 
     let rendered = render_response(&response, OutputFormat::Text);
-    assert!(rendered
-        .contains("http rewrite plan: plain-http-rewrite-foundation-active/tls-decryption-blocked"));
+    assert!(rendered.contains(
+        "http rewrite plan: plain-http-rewrite-foundation-active/tls-decryption-blocked"
+    ));
     assert!(rendered.contains("http rewrite blocked operation: decrypt-https"));
 }
 
@@ -982,8 +985,14 @@ fn mitm_http_rewrite_preview_applies_builtin_reject_to_plain_http_input() {
 
     assert!(response.ok);
     assert_eq!(response.command, "mitm http-rewrite preview");
-    assert_diagnostic(&response.diagnostics, CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE);
-    assert_diagnostic(&response.diagnostics, CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE,
+    );
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE,
+    );
     let report = response
         .http_rewrite
         .as_ref()
@@ -3872,10 +3881,7 @@ fn http_rewrite_json_output_contains_plain_http_application_fields() {
         json["http_rewrite"]["request"]["authorization"]["confirmed"].as_bool(),
         Some(true)
     );
-    assert_eq!(
-        json["http_rewrite"]["outcome"]["terminal_action"],
-        "reject"
-    );
+    assert_eq!(json["http_rewrite"]["outcome"]["terminal_action"], "reject");
     assert_eq!(
         json["http_rewrite"]["outcome"]["final_status_code"].as_u64(),
         Some(403)

@@ -26,10 +26,9 @@ use engine_native::{
     BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeHttpMitmPluginHook,
     NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle, NativePlainHttpMessage,
     NativeProxyEngineService, NativeProxyEngineStartReadiness, NativeRuntimeAssembly,
-    NativeRuntimeAssemblyPlan,
-    NativeSocks5Address, NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision,
-    NativeSocks5CommandHeader, NativeSocks5ConnectTarget, NativeSocks5Greeting,
-    NativeSocks5OutboundConnectClientSuccessResponseReadiness,
+    NativeRuntimeAssemblyPlan, NativeSocks5Address, NativeSocks5AuthMethodDecision,
+    NativeSocks5CommandDecision, NativeSocks5CommandHeader, NativeSocks5ConnectTarget,
+    NativeSocks5Greeting, NativeSocks5OutboundConnectClientSuccessResponseReadiness,
     NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision,
     NativeSocks5OutboundConnectDataRelayPlanDecision, NativeSocks5OutboundConnectRelayReadiness,
     NativeSocks5OutboundConnectResponse, NativeSocks5OutboundConnectResponseDecision,
@@ -3041,10 +3040,7 @@ impl MitmPluginService for PlainHttpRejectingMitmPluginService {
     ) -> DomainResult<HttpMitmOutcome> {
         assert_eq!(plugin_instance.manifest.id, "networkcore.adblock");
         assert_eq!(http_event.method.as_deref(), Some("GET"));
-        assert_eq!(
-            http_event.url,
-            "https://pubads.g.doubleclick.net/pagead/id"
-        );
+        assert_eq!(http_event.url, "https://pubads.g.doubleclick.net/pagead/id");
 
         Ok(HttpMitmOutcome {
             action: HttpMitmAction::Reject { status_code: 403 },

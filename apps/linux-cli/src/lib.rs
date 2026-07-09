@@ -8,10 +8,10 @@ use config_core::CoreSubscriptionService;
 use control_domain::{
     CertificateTrustState, ConfigurationService, Diagnostic, DiagnosticSeverity, DomainError,
     DomainResult, GrantedPermissions, HttpMitmAction, HttpMitmPhase, MetadataEntry,
-    MitmPluginService, OperatingSystem,
-    PlatformCapabilityService, PlatformCapabilityStatus, PlatformFeatureState, ProxyEngineConfig,
-    ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineLifecycleState, ProxyEngineService,
-    ProxyEngineStatus, RawSubscription, SubscriptionService,
+    MitmPluginService, OperatingSystem, PlatformCapabilityService, PlatformCapabilityStatus,
+    PlatformFeatureState, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
+    ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RawSubscription,
+    SubscriptionService,
 };
 use control_runtime::{RuntimeConfigRequest, RuntimeOperationResult, RuntimeOrchestrator};
 use engine_singbox::{
@@ -157,14 +157,11 @@ pub const CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_LOG_UNREADABLE_CODE: &str =
     "cli.linux.mitm.browser_capture.traffic_proof.log_unreadable";
 pub const CLI_MITM_HTTP_REWRITE_AUTHORIZATION_REQUIRED_CODE: &str =
     "cli.linux.mitm.http_rewrite.authorization_required";
-pub const CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE: &str =
-    "cli.linux.mitm.http_rewrite.plan.ready";
-pub const CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE: &str =
-    "cli.linux.mitm.http_rewrite.apply.ready";
+pub const CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE: &str = "cli.linux.mitm.http_rewrite.plan.ready";
+pub const CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE: &str = "cli.linux.mitm.http_rewrite.apply.ready";
 pub const CLI_MITM_HTTP_REWRITE_CONFIG_MISSING_CODE: &str =
     "cli.linux.mitm.http_rewrite.config_missing";
-pub const CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE: &str =
-    "cli.linux.mitm.http_rewrite.tls_blocked";
+pub const CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE: &str = "cli.linux.mitm.http_rewrite.tls_blocked";
 pub const CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE: &str = "cli.linux.mitm.browser_hijack.deferred";
 
 pub const MITM_CLI_COMMAND_GATE: &str = "MITM_CLI_COMMAND_GATE";
@@ -5148,8 +5145,7 @@ where
         SOURCE_CLI_MITM,
     ));
     let outcome = build_linux_mitm_http_rewrite_outcome_report(&native_report);
-    let report =
-        build_linux_mitm_http_rewrite_report("preview", Some(request), Some(outcome));
+    let report = build_linux_mitm_http_rewrite_report("preview", Some(request), Some(outcome));
 
     LinuxCliResponse::success(command)
         .with_platform(platform_status)
@@ -5239,9 +5235,7 @@ fn build_linux_mitm_http_rewrite_outcome_report(
     }
 }
 
-fn parse_http_rewrite_header_values(
-    values: &[String],
-) -> Result<Vec<MetadataEntry>, Diagnostic> {
+fn parse_http_rewrite_header_values(values: &[String]) -> Result<Vec<MetadataEntry>, Diagnostic> {
     values
         .iter()
         .map(|value| {
@@ -7458,9 +7452,7 @@ fn parse_mitm_browser_capture_command(
     }
 }
 
-fn parse_mitm_http_rewrite_command(
-    args: &[String],
-) -> Result<LinuxCliCommand, LinuxCliParseError> {
+fn parse_mitm_http_rewrite_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
     let Some(subcommand) = args.first() else {
         let options = parse_options(args)?;
         return Ok(LinuxCliCommand::MitmHttpRewritePlan {
@@ -7501,9 +7493,7 @@ fn parse_mitm_http_rewrite_command(
         }
         unknown => Err(parse_error(
             CLI_ARGUMENT_UNKNOWN_CODE,
-            format!(
-                "unknown mitm http-rewrite subcommand: {unknown}; run networkcore-linux help"
-            ),
+            format!("unknown mitm http-rewrite subcommand: {unknown}; run networkcore-linux help"),
         )),
     }
 }

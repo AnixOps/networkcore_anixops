@@ -10,8 +10,8 @@ use control_domain::{
     HttpMitmOutcome, HttpMitmPhase, ListenerDescriptor, ListenerKind, ListenerNetwork,
     ListenerRoute, MetadataEntry, MitmPluginService, NodeDescriptor, PluginInstance, Protocol,
     ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineEventKind,
-    ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
-    RouteAction, RuleSet,
+    ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RouteAction,
+    RuleSet,
 };
 use std::collections::BTreeSet;
 use std::fmt;
