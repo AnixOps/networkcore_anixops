@@ -6,10 +6,9 @@ Current `main` also contains the source-only `CommandSubscriptionCatalogStore::a
 `CommandSubscriptionCatalogStore::list_sources` local JSON persistence boundary for v0.1.2-alpha.1. It requires explicit catalog and
 rollback snapshot paths for add, writes schema version 1, rejects duplicate source ids, and returns
 redacted add/list/remove/select reports. These operations are not wired into a CLI command or runtime startup yet;
-update, default paths, remote/file fetch, and managed lifecycle remain blocked. The add, list, and
-`CommandSubscriptionCatalogStore::remove_source` slices have passed their GitHub Actions contract tests.
-The `CommandSubscriptionCatalogStore::select_source` slice is present in source and awaits its GitHub
-Actions contract test result.
+update, default paths, remote/file fetch, and managed lifecycle remain blocked. The add, list,
+`CommandSubscriptionCatalogStore::remove_source`, and `CommandSubscriptionCatalogStore::select_source`
+slices have passed their GitHub Actions contract tests.
 
 The crate currently provides:
 
