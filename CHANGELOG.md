@@ -6,7 +6,7 @@
 
 ### Added
 
-- 同步 `v0.1.0-alpha.17` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、Linux CLI README 和 `mitm-policy` README 现在把 `v0.1.0-alpha.17` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 alpha.18 HTTPS response rewrite preview 起。
+- 同步 `v0.1.0-alpha.18` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README 和 `mitm-policy` README 现在把 `v0.1.0-alpha.18` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 alpha.19 live browser proof hardening 起。
 
 ## v0.1.0-alpha.18 - 2026-07-09
 

@@ -11,8 +11,8 @@ The crate currently provides:
 - JSON response rendering for automation-facing output contracts.
 - A minimal binary that wires `capabilities`, `status`, `diagnostics`, `mitm status/diagnostics/certificate-plan/browser-plan`, `mitm certificate apply/rollback`, `mitm http-rewrite plan/preview`, and `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` to `HostLinuxReadOnlyProbe`, wires `mitm certificate apply/rollback` to `CommandMitmCertificateArtifactStore`, wires `mitm browser-capture launch --confirm` to an injected `BrowserCaptureProcessRunner`, wires `mitm browser-capture verify --confirm` to an injected `BrowserCaptureEndpointProbe`, wires `mitm browser-capture traffic-proof --confirm` to an injected `BrowserCaptureTrafficProofProbe`, wires `prepare-config` to the pure `config-core` service, wires `start` to `engine-native::NativeProxyEngineService` through `RuntimeOrchestrator` with the built-in `networkcore.adblock` MITM plugin hook, wires `install-sing-box` to the `engine-singbox` latest release installer, and wires `run-url` to the `config-core` URL parser plus `sing-box` config renderer and foreground process runner.
 
-Release/source split: the latest published Linux artifact is `v0.1.0-alpha.17`.
-This README describes current `main` source. The `v0.1.0-alpha.17` artifact
+Release/source split: the latest published Linux artifact is `v0.1.0-alpha.18`.
+This README describes current `main` source. The `v0.1.0-alpha.18` artifact
 includes `mitm certificate apply --confirm --cert-file <path> --key-file
 <path> [--profile-trust-file <path>] --snapshot <path>` / `rollback --snapshot <path>` certificate artifact
 lifecycle, TLS-consumable CA certificate PEM, private key PEM, and an optional dedicated profile CA PEM copy while keeping CA install/trust mutation blocked. The artifact also includes `mitm http-rewrite plan` / `mitm http-rewrite preview --confirm --url <url>`
@@ -58,7 +58,7 @@ while keeping `tls_decryption_ready=false`. The same artifact also includes the 
 `https_response_rewrite_ready=false`, and `script_dispatch_ready=false`, while
 `engine-native` can preview reject, redirect, and request header mutation for
 caller-provided request-phase `https://` input after the controlled TLS
-termination plan is ready. Current `main` source additionally reports
+termination plan is ready. It also reports
 `https_response_rewrite_preview_ready=true` and can preview response header
 mutation plus guarded response body mutation for caller-provided response-phase
 `https://` input through `NativeHttpsResponseRewritePreviewReport`; full live

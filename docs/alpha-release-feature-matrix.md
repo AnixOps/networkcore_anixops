@@ -328,9 +328,9 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 最新已发布切片
 
-### `v0.1.0-alpha.17`
+### `v0.1.0-alpha.18`
 
-状态：已发布；`v0.1.0-alpha.17` tag release 切片，发布 Linux HTTPS request rewrite preview。
+状态：已发布；`v0.1.0-alpha.18` tag release 切片，发布 Linux HTTPS response rewrite preview。
 
 当前 artifact 能力：
 
@@ -370,26 +370,8 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
   report/JSON 新增 `https_request_rewrite_preview_ready=true`、
   `https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`。
 - 新增合同测试 `explicit_https_request_rewrite_preview_applies_headers_and_defers_body_and_script`，
-  固定 request header mutation 可预览、body mutation deferred、HTTPS response rewrite blocked
-  和 JavaScript script dispatch deferred invariant。
-
-明确不承诺：
-
-- 尚不执行 live downstream TLS termination，不解密 HTTPS。
-- 尚不执行 live CONNECT-stream HTTPS request/response rewrite；HTTPS request rewrite 仅限
-  caller-provided request-phase `https://` preview，不应用 HTTPS response rewrite。
-- 尚不应用 body mutation。
-- 不执行 JavaScript script dispatch。
-- 不安装、信任、撤销或回滚 CA trust store。
-- 不修改 browser/system proxy、system PAC、TUN、DNS、firewall 或路由状态。
-- 不代表 Windows artifact、跨平台 parity 或 managed lifecycle 已进入 release。
-
-### `v0.1.0-alpha.18`
-
-状态：source increment 已完成；等待同 commit GitHub Actions CI 和 tag release，目标是发布 Linux HTTPS response rewrite preview。
-
-当前 source 能力：
-
+  固定 request-phase header mutation 可预览、request-phase body mutation deferred、
+  response rewrite 由独立 response-phase preview 处理，以及 JavaScript script dispatch deferred invariant。
 - Linux HTTPS response rewrite preview：`engine-native` 新增 `NativeHttpsResponseRewritePreviewReport`、
   `plan_and_apply_https_response_rewrite_preview`、
   `engine.native.runtime.http_proxy_https_response_rewrite_preview_ready`、
@@ -411,6 +393,7 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 - 尚不执行 live CONNECT-stream HTTPS request/response rewrite；HTTPS request/response rewrite 仅限
   caller-provided `https://` preview。
 - 尚不把 `https_response_rewrite_ready` 翻为 true；完整 live HTTPS response rewrite 仍 blocked。
+- response body mutation 仅限通过 guard 的 caller-provided response preview，不应用到 live CONNECT stream。
 - 不执行 JavaScript script dispatch。
 - 不安装、信任、撤销或回滚 CA trust store。
 - 不修改 browser/system proxy、system PAC、TUN、DNS、firewall 或路由状态。
@@ -418,16 +401,16 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前 main source 状态
 
-当前 main 已进入 `v0.1.0-alpha.18` source increment：`engine-native` 已包含
+当前 main 已与 `v0.1.0-alpha.18` 发布边界对齐：`engine-native` 已包含
 `NativeHttpsRequestRewritePreviewReport`、`plan_and_apply_https_request_rewrite_preview`、
 `NativeHttpsResponseRewritePreviewReport` 和 `plan_and_apply_https_response_rewrite_preview`，
 在 controlled TLS termination plan ready 且输入为 request/response-phase `https://` message 时，预览 request
 reject/redirect/header mutation 与 response header/body mutation；`http_rewrite` report/JSON 新增
 `https_request_rewrite_preview_ready=true`、`https_response_rewrite_preview_ready=true`、
-`https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`。该 source increment 仍不执行 live
+`https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`。当前发布边界仍不执行 live
 HTTPS decryption、live CONNECT 后 HTTPS request/response rewrite、完整 live HTTPS response rewrite 或
-JavaScript script dispatch；进入用户可下载 artifact 仍必须等待新的 tag、同 commit CI、package、
-attestation、publish eligibility 和 GitHub Release asset 全部通过。
+JavaScript script dispatch；后续新能力进入用户可下载 artifact 仍必须等待新的 tag、同 commit CI、
+package、attestation、publish eligibility 和 GitHub Release asset 全部通过。
 
 ## 已拍板后续版本节奏
 
@@ -448,7 +431,7 @@ attestation、publish eligibility 和 GitHub Release asset 全部通过。
   termination plan/report、CA material readiness binding 和诊断，不执行 JavaScript script dispatch。
 - `v0.1.0-alpha.17`：Linux HTTPS request rewrite preview。已发布 caller-provided
   HTTPS request reject、redirect 和 request header rewrite preview；response body rewrite 继续独立切片。
-- `v0.1.0-alpha.18`：Linux HTTPS response rewrite preview。source increment 已完成；加入 response
+- `v0.1.0-alpha.18`：Linux HTTPS response rewrite preview。已发布；加入 response
   header/body rewrite，带 content-type、body size 和 buffering guard；JavaScript script dispatch 仍 deferred。
 - `v0.1.0-alpha.19`：Linux live browser proof hardening。把 dedicated browser proof、TLS MITM
   诊断和 rewrite-applied proof 串成可审计 report，并补 rollback/conflict diagnostics。
