@@ -689,7 +689,11 @@ fn required_clash_scalar_field(
         return Err(domain_error(SUBSCRIPTION_CLASH_YAML_INVALID_CODE, message));
     };
 
-    required_trimmed(raw.into_text(), SUBSCRIPTION_CLASH_YAML_INVALID_CODE, message)
+    required_trimmed(
+        raw.into_text(),
+        SUBSCRIPTION_CLASH_YAML_INVALID_CODE,
+        message,
+    )
 }
 
 fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<SubscriptionDocument> {
