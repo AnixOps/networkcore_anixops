@@ -1117,16 +1117,10 @@ fn parse_loon_proxy_line(line: &str, source_id: &str) -> DomainResult<Option<Nod
             {
                 return Ok(None);
             }
-            let method = required_loon_proxy_part(
-                &parts,
-                3,
-                "loon shadowsocks method cannot be empty",
-            )?;
-            let password = required_loon_proxy_part(
-                &parts,
-                4,
-                "loon shadowsocks password cannot be empty",
-            )?;
+            let method =
+                required_loon_proxy_part(&parts, 3, "loon shadowsocks method cannot be empty")?;
+            let password =
+                required_loon_proxy_part(&parts, 4, "loon shadowsocks password cannot be empty")?;
             (
                 Protocol::Shadowsocks,
                 "ss",

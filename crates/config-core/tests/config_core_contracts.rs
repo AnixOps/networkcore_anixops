@@ -451,7 +451,11 @@ Proxy = select, HK Loon
         NODE_METADATA_SHADOWSOCKS_PASSWORD,
         "f43c0eee-13b9-4f07-bec9-d4b744141503",
     );
-    assert_metadata(&node.metadata, NODE_METADATA_SOURCE_FORMAT, "loon-proxy-line");
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_SOURCE_FORMAT,
+        "loon-proxy-line",
+    );
     assert_metadata(&node.metadata, "subscription.source_id", "loon-proxy-line");
 }
 
