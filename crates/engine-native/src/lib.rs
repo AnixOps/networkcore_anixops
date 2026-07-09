@@ -1818,7 +1818,10 @@ pub fn plan_and_apply_https_response_rewrite_preview(
             body_size_limit_bytes: HTTP_PROXY_MAX_BODY_BYTES,
             body_buffering_guard_ready: https_response_body_buffering_guard_ready(
                 &message.body,
-                outcome.body_mutation.as_ref().map(|mutation| mutation.body.as_slice()),
+                outcome
+                    .body_mutation
+                    .as_ref()
+                    .map(|mutation| mutation.body.as_slice()),
             ),
             body_mutated: false,
             body_mutation_deferred: outcome.body_mutation.is_some(),
@@ -1881,7 +1884,10 @@ pub fn plan_and_apply_https_response_rewrite_preview(
         let content_type_guard_ready = https_response_body_content_type_guard_ready(&headers);
         let body_buffering_guard_ready = https_response_body_buffering_guard_ready(
             &message.body,
-            outcome.body_mutation.as_ref().map(|mutation| mutation.body.as_slice()),
+            outcome
+                .body_mutation
+                .as_ref()
+                .map(|mutation| mutation.body.as_slice()),
         );
         if let Some(body_mutation) = &outcome.body_mutation {
             if content_type_guard_ready && body_buffering_guard_ready {
@@ -1897,7 +1903,10 @@ pub fn plan_and_apply_https_response_rewrite_preview(
     let content_type_guard_ready = https_response_body_content_type_guard_ready(&headers);
     let body_buffering_guard_ready = https_response_body_buffering_guard_ready(
         &message.body,
-        outcome.body_mutation.as_ref().map(|mutation| mutation.body.as_slice()),
+        outcome
+            .body_mutation
+            .as_ref()
+            .map(|mutation| mutation.body.as_slice()),
     );
     let script_dispatch_deferred = outcome.script_dispatch.is_some();
     if script_dispatch_deferred {
