@@ -16,15 +16,17 @@ use engine_native::{
     browser_capture_proof_token_from_connect_authority,
     build_socks5_outbound_connect_request_frame, decide_socks5_outbound_connect_response,
     native_socks5_connect_browser_capture_proof_token, plan_and_apply_plain_http_mitm,
-    plan_socks5_connect_http_mitm, plan_socks5_outbound_connect_client_success_response_write,
+    plan_explicit_http_connect_tls_mitm_foundation, plan_socks5_connect_http_mitm,
+    plan_socks5_outbound_connect_client_success_response_write,
     plan_socks5_outbound_connect_data_relay, plan_socks5_outbound_tcp_connection,
     read_explicit_http_proxy_request, read_socks5_command_header, read_socks5_connect_target,
     read_socks5_greeting, read_socks5_outbound_connect_response, reject_unsupported_socks5_command,
     reject_unwired_socks5_route_outbound, relay_socks5_outbound_connect_data,
     select_socks5_auth_method, select_socks5_route_outbound_behavior,
     serialize_explicit_http_proxy_request_for_upstream, serialize_plain_http_proxy_response,
-    write_socks5_auth_method_response, write_socks5_outbound_connect_client_success_response,
-    write_socks5_outbound_connect_request, write_unwired_socks5_connect_failure_response,
+    write_http_connect_established_response, write_socks5_auth_method_response,
+    write_socks5_outbound_connect_client_success_response, write_socks5_outbound_connect_request,
+    write_unwired_socks5_connect_failure_response,
     BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeExplicitHttpProxyRequest,
     NativeHttpMitmPluginHook, NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle,
     NativePlainHttpMessage, NativePlainHttpRewriteReport, NativeProxyEngineService,
@@ -66,6 +68,8 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_RESPONSE_READ_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_FOUNDATION_READY_CODE,
     ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE, ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE, ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
@@ -1461,6 +1465,50 @@ fn plain_http_proxy_request_parser_maps_absolute_form_to_native_plain_http_messa
 }
 
 #[test]
+fn explicit_http_connect_tls_foundation_report_keeps_https_rewrite_deferred() {
+    let mut request = Cursor::new(
+        b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n".to_vec(),
+    );
+
+    let read_report = read_explicit_http_proxy_request(&mut request);
+    let parsed = read_report
+        .request
+        .expect("explicit HTTP CONNECT request should parse");
+    let foundation_report = plan_explicit_http_connect_tls_mitm_foundation(&parsed);
+
+    assert_eq!(parsed.method, "CONNECT");
+    assert_eq!(parsed.target_url, "https://example.com/");
+    assert_eq!(parsed.target_host, "example.com");
+    assert_eq!(parsed.target_port, 443);
+    assert!(foundation_report.connect_tunnel_ready);
+    assert!(foundation_report.upstream_tls_forwarding_ready);
+    assert!(!foundation_report.downstream_tls_termination_ready);
+    assert!(!foundation_report.https_request_rewrite_ready);
+    assert!(!foundation_report.https_response_rewrite_ready);
+    assert!(!foundation_report.script_dispatch_ready);
+    assert_diagnostic(
+        &foundation_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_FOUNDATION_READY_CODE,
+    );
+}
+
+#[test]
+fn write_http_connect_established_response_writes_empty_tunnel_response() {
+    let mut response = Vec::new();
+
+    let report = write_http_connect_established_response(&mut response, "HTTP/1.1");
+
+    assert_eq!(
+        String::from_utf8(response).expect("CONNECT response should be UTF-8"),
+        "HTTP/1.1 200 Connection Established\r\nProxy-Agent: NetworkCore\r\n\r\n"
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE,
+    );
+}
+
+#[test]
 fn plain_http_proxy_request_rewrite_serializes_origin_form_for_upstream() {
     let request = NativeExplicitHttpProxyRequest {
         request_id: "native-http-proxy:POST:http://example.com/upload".to_string(),
@@ -1983,10 +2031,62 @@ fn plain_http_proxy_request_header_and_body_rewrite_forwards_via_socks_outbound(
 }
 
 #[test]
-fn plain_http_proxy_connect_method_remains_tls_blocked() {
+fn plain_http_proxy_connect_method_establishes_tls_foundation_tunnel_via_socks_outbound() {
+    let outbound_listener =
+        TcpListener::bind(("127.0.0.1", 0)).expect("test outbound listener should bind");
+    outbound_listener
+        .set_nonblocking(true)
+        .expect("test outbound listener should support nonblocking accept");
+    let outbound_port = outbound_listener
+        .local_addr()
+        .expect("test outbound listener should have a local address")
+        .port();
+    let (frame_tx, frame_rx) = mpsc::channel();
+    let (payload_tx, payload_rx) = mpsc::channel();
+    let outbound_worker = thread::spawn(move || {
+        for _ in 0..100 {
+            match outbound_listener.accept() {
+                Ok((mut outbound_stream, _)) => {
+                    outbound_stream
+                        .set_nonblocking(false)
+                        .expect("captured outbound stream should use blocking reads");
+                    outbound_stream
+                        .set_read_timeout(Some(Duration::from_secs(5)))
+                        .expect("captured outbound stream should accept a read timeout");
+                    let request_frame = read_test_socks5_connect_frame(&mut outbound_stream);
+                    frame_tx
+                        .send(request_frame)
+                        .expect("captured outbound frame should be reported to the test");
+                    outbound_stream
+                        .write_all(&[0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0x04, 0x38])
+                        .expect("outbound stream should send the SOCKS5 CONNECT response frame");
+                    let mut tunneled_payload = [0_u8; 16];
+                    outbound_stream
+                        .read_exact(&mut tunneled_payload)
+                        .expect("outbound should receive finite CONNECT tunnel bytes");
+                    payload_tx
+                        .send(tunneled_payload.to_vec())
+                        .expect("captured tunnel payload should be reported to the test");
+                    outbound_stream
+                        .write_all(b"tls-server-hello")
+                        .expect("outbound should send finite tunnel response bytes");
+                    outbound_stream
+                        .shutdown(Shutdown::Write)
+                        .expect("outbound stream should close the response write side");
+                    return;
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("test outbound listener failed while accepting: {error}"),
+            }
+        }
+
+        panic!("test outbound listener did not receive a connection");
+    });
     let port = unused_loopback_port();
     let listener = LoopbackListenerHandle::from_descriptor(&http_listener_with_bind(
-        "mitm-plain-http-connect-blocked-loopback",
+        "mitm-http-connect-tls-foundation-loopback",
         "127.0.0.1",
         port,
         ListenerRoute::DefaultAction(RouteAction::Proxy {
@@ -1996,8 +2096,14 @@ fn plain_http_proxy_connect_method_remains_tls_blocked() {
     .expect("HTTP loopback listener handle should be representable");
     let bound_listener = BoundLoopbackTcpListenerHandle::bind(listener)
         .expect("HTTP loopback listener should bind on an available port");
-    let outbound = NativeOutboundHandlerHandle::from_node(&node())
-        .expect("socks outbound handler handle should be representable");
+    let outbound = NativeOutboundHandlerHandle::from_node(&NodeDescriptor {
+        endpoint: Endpoint {
+            host: "127.0.0.1".to_string(),
+            port: outbound_port,
+        },
+        ..node()
+    })
+    .expect("socks outbound handler handle should be representable");
     let accept_loop = NativeLoopbackTcpAcceptLoopHandle::start(bound_listener, outbound)
         .expect("HTTP loopback accept loop should start");
 
@@ -2007,8 +2113,10 @@ fn plain_http_proxy_connect_method_remains_tls_blocked() {
         .set_read_timeout(Some(Duration::from_secs(5)))
         .expect("test client should support a read timeout");
     stream
-        .write_all(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
-        .expect("test client should send an explicit HTTP CONNECT request");
+        .write_all(
+            b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\ntls-client-hello",
+        )
+        .expect("test client should send an explicit HTTP CONNECT request and tunnel payload");
     stream
         .shutdown(Shutdown::Write)
         .expect("test client should close the request write side");
@@ -2020,18 +2128,50 @@ fn plain_http_proxy_connect_method_remains_tls_blocked() {
     wait_until_relayed_count(&accept_loop, 1);
     drop(stream);
 
+    let outbound_frame = frame_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("accept loop should write the outbound SOCKS5 CONNECT frame");
+    let tunneled_payload = payload_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("outbound should receive finite tunnel bytes");
     let report = accept_loop.shutdown();
+    outbound_worker
+        .join()
+        .expect("outbound frame capture worker should finish");
     let response_text =
-        String::from_utf8(response).expect("HTTP TLS blocked response should be valid UTF-8");
+        String::from_utf8(response).expect("HTTP CONNECT tunnel response should be valid UTF-8");
 
-    assert!(response_text.starts_with("HTTP/1.1 501 Not Implemented\r\n"));
+    let mut expected_frame = vec![0x05, 0x01, 0x00, 0x03, "example.com".len() as u8];
+    expected_frame.extend_from_slice(b"example.com");
+    expected_frame.extend_from_slice(&[0x01, 0xbb]);
+    assert_eq!(outbound_frame, expected_frame);
+    assert_eq!(tunneled_payload, b"tls-client-hello".to_vec());
+    assert!(response_text.starts_with("HTTP/1.1 200 Connection Established\r\n"));
+    assert!(response_text.contains("Proxy-Agent: NetworkCore\r\n\r\n"));
+    assert!(response_text.ends_with("tls-server-hello"));
     assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_FOUNDATION_READY_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITTEN_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_DATA_RELAY_COMPLETED_CODE,
+    );
+    assert_no_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CONNECT_TLS_BLOCKED_CODE,
     );
     assert_no_diagnostic(
         &report.diagnostics,
-        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITTEN_CODE,
+        ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE,
     );
 }
 

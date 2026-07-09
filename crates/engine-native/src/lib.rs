@@ -213,6 +213,12 @@ pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_FAILED_CODE: &str 
     "engine.native.runtime.http_proxy_plain_request_read_failed";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CONNECT_TLS_BLOCKED_CODE: &str =
     "engine.native.runtime.http_proxy_plain_connect_tls_blocked";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_FOUNDATION_READY_CODE: &str =
+    "engine.native.runtime.http_proxy_tls_foundation_ready";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE: &str =
+    "engine.native.runtime.http_proxy_tls_connect_tunnel_established";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_FAILED_CODE: &str =
+    "engine.native.runtime.http_proxy_tls_connect_tunnel_failed";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE: &str =
     "engine.native.runtime.http_proxy_plain_rewrite_applied";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE: &str =
@@ -754,6 +760,21 @@ pub struct NativeSocks5ConnectHttpMitmPlanReport {
     pub outcome: Option<HttpMitmOutcome>,
     pub applied: bool,
     pub audits: Vec<AuditEvent>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeTlsMitmFoundationReport {
+    pub request_id: String,
+    pub target_host: String,
+    pub target_port: u16,
+    pub target_url: String,
+    pub connect_tunnel_ready: bool,
+    pub downstream_tls_termination_ready: bool,
+    pub upstream_tls_forwarding_ready: bool,
+    pub https_request_rewrite_ready: bool,
+    pub https_response_rewrite_ready: bool,
+    pub script_dispatch_ready: bool,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -1377,6 +1398,49 @@ pub fn plan_socks5_connect_http_mitm(
                 diagnostics,
             }
         }
+    }
+}
+
+pub fn plan_explicit_http_connect_tls_mitm_foundation(
+    request: &NativeExplicitHttpProxyRequest,
+) -> NativeTlsMitmFoundationReport {
+    let connect_request = request.method.eq_ignore_ascii_case("CONNECT");
+    let target_url = if request.target_url.starts_with("https://") {
+        request.target_url.clone()
+    } else {
+        let authority = http_url_authority(&request.target_host, request.target_port, 443);
+        format!("https://{authority}/")
+    };
+    let mut diagnostics = Vec::new();
+
+    if connect_request {
+        diagnostics.push(engine_diagnostic(
+            DiagnosticSeverity::Info,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_FOUNDATION_READY_CODE,
+            "native explicit HTTP proxy CONNECT TLS foundation can establish a bounded tunnel through the configured SOCKS outbound",
+            SOURCE_ENGINE_NATIVE_MITM,
+        ));
+    } else {
+        diagnostics.push(engine_diagnostic(
+            DiagnosticSeverity::Warning,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CONNECT_TLS_BLOCKED_CODE,
+            "native explicit HTTP proxy TLS foundation requires a CONNECT request",
+            SOURCE_ENGINE_NATIVE_MITM,
+        ));
+    }
+
+    NativeTlsMitmFoundationReport {
+        request_id: request.request_id.clone(),
+        target_host: request.target_host.clone(),
+        target_port: request.target_port,
+        target_url,
+        connect_tunnel_ready: connect_request,
+        downstream_tls_termination_ready: false,
+        upstream_tls_forwarding_ready: connect_request,
+        https_request_rewrite_ready: false,
+        https_response_rewrite_ready: false,
+        script_dispatch_ready: false,
+        diagnostics,
     }
 }
 
@@ -2380,6 +2444,40 @@ where
         runtime_warning(
             ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITE_FAILED_CODE,
             "native plain HTTP proxy client response could not be written",
+        )
+    };
+
+    NativePlainHttpProxyWriteReport {
+        bytes,
+        diagnostics: vec![diagnostic],
+    }
+}
+
+pub fn write_http_connect_established_response<W>(
+    writer: &mut W,
+    version: &str,
+) -> NativePlainHttpProxyWriteReport
+where
+    W: Write,
+{
+    let bytes = format!(
+        "{} 200 Connection Established\r\nProxy-Agent: NetworkCore\r\n\r\n",
+        normalized_http_version(version)
+    )
+    .into_bytes();
+    let diagnostic = if writer.write_all(&bytes).is_ok() {
+        engine_diagnostic(
+            DiagnosticSeverity::Info,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE,
+            "native explicit HTTP proxy CONNECT tunnel was established through the configured SOCKS outbound",
+            SOURCE_ENGINE_NATIVE_MITM,
+        )
+    } else {
+        engine_diagnostic(
+            DiagnosticSeverity::Warning,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_FAILED_CODE,
+            "native explicit HTTP proxy CONNECT tunnel response could not be written",
+            SOURCE_ENGINE_NATIVE_MITM,
         )
     };
 
@@ -4147,19 +4245,26 @@ fn handle_plain_http_proxy_accepted_connection(
     let read_report = read_explicit_http_proxy_request(&mut stream);
     let mut diagnostics = read_report.diagnostics;
     if let Some(request) = read_report.request.as_ref() {
-        if request.method.eq_ignore_ascii_case("CONNECT")
-            || request.target_url.starts_with("https://")
-        {
+        if request.method.eq_ignore_ascii_case("CONNECT") {
+            let (forwarded, forward_diagnostics) =
+                forward_http_connect_tunnel_via_socks_outbound(
+                    &mut stream,
+                    request,
+                    outbound_handler,
+                );
+            connection_handled = forwarded;
+            diagnostics.extend(forward_diagnostics);
+        } else if request.target_url.starts_with("https://") {
             diagnostics.push(engine_diagnostic(
                 DiagnosticSeverity::Warning,
                 ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CONNECT_TLS_BLOCKED_CODE,
-                "native explicit HTTP proxy CONNECT/TLS handling remains blocked for the plain HTTP data plane",
+                "native explicit HTTP proxy https absolute-form handling remains blocked; use CONNECT for the TLS foundation path",
                 SOURCE_ENGINE_NATIVE_MITM,
             ));
             let response = plain_http_status_response(
                 &request.version,
                 501,
-                b"NetworkCore plain HTTP proxy does not terminate TLS in this release.\n",
+                b"NetworkCore explicit HTTP proxy only accepts HTTPS through CONNECT in this release.\n",
             );
             let write_report = write_plain_http_proxy_client_response(&mut stream, response);
             connection_handled = diagnostics_contain_code(
@@ -4328,6 +4433,106 @@ fn forward_plain_http_proxy_request_via_socks_outbound(
         &request.version,
         502,
         b"NetworkCore plain HTTP proxy could not reach the configured SOCKS outbound.\n",
+    );
+    let write_report = write_plain_http_proxy_client_response(client_stream, response);
+    let response_written = diagnostics_contain_code(
+        &write_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
+    );
+    diagnostics.extend(write_report.diagnostics);
+
+    (response_written, diagnostics)
+}
+
+fn forward_http_connect_tunnel_via_socks_outbound(
+    client_stream: &mut TcpStream,
+    request: &NativeExplicitHttpProxyRequest,
+    outbound_handler: &NativeOutboundHandlerHandle,
+) -> (bool, Vec<Diagnostic>) {
+    let mut diagnostics = plan_explicit_http_connect_tls_mitm_foundation(request).diagnostics;
+    let target = explicit_http_proxy_request_to_socks5_target(request);
+    let route_selection_report = select_socks5_route_outbound_behavior(&target, outbound_handler);
+    diagnostics.extend(route_selection_report.diagnostics);
+    let frame_report =
+        build_socks5_outbound_connect_request_frame(&route_selection_report.behavior);
+    diagnostics.extend(frame_report.diagnostics);
+    let plan_report =
+        plan_socks5_outbound_tcp_connection(&route_selection_report.behavior, &frame_report.frame);
+    diagnostics.extend(plan_report.diagnostics);
+
+    if let Some(plan) = plan_report.plan.as_ref() {
+        let NativeSocks5OutboundTcpConnectionAttemptReport {
+            stream: outbound_stream,
+            diagnostics: attempt_diagnostics,
+        } = attempt_socks5_outbound_tcp_connection(plan);
+        diagnostics.extend(attempt_diagnostics);
+        if let Some(mut outbound_stream) = outbound_stream {
+            let _ = outbound_stream.set_write_timeout(Some(Duration::from_millis(
+                OUTBOUND_CONNECT_REQUEST_WRITE_TIMEOUT_MS,
+            )));
+            let write_report = write_socks5_outbound_connect_request(&mut outbound_stream, plan);
+            let connect_request_written = diagnostics_contain_code(
+                &write_report.diagnostics,
+                ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITTEN_CODE,
+            );
+            diagnostics.extend(write_report.diagnostics);
+            if connect_request_written {
+                let _ = outbound_stream.set_read_timeout(Some(Duration::from_millis(
+                    OUTBOUND_CONNECT_RESPONSE_READ_TIMEOUT_MS,
+                )));
+                let read_report = read_socks5_outbound_connect_response(&mut outbound_stream);
+                let response = read_report.response;
+                diagnostics.extend(read_report.diagnostics);
+                if let Some(response) = response.as_ref() {
+                    let decision_report = decide_socks5_outbound_connect_response(response);
+                    let decision = decision_report.decision;
+                    diagnostics.extend(decision_report.diagnostics);
+                    let readiness_report = assess_socks5_outbound_connect_relay_readiness(decision);
+                    let readiness = readiness_report.readiness;
+                    diagnostics.extend(readiness_report.diagnostics);
+                    let data_relay_plan_report = plan_socks5_outbound_connect_data_relay(readiness);
+                    let data_relay_plan = data_relay_plan_report.decision;
+                    diagnostics.extend(data_relay_plan_report.diagnostics);
+
+                    if data_relay_plan == NativeSocks5OutboundConnectDataRelayPlanDecision::Ready {
+                        let connect_response = write_http_connect_established_response(
+                            client_stream,
+                            &request.version,
+                        );
+                        let tunnel_established = diagnostics_contain_code(
+                            &connect_response.diagnostics,
+                            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE,
+                        );
+                        diagnostics.extend(connect_response.diagnostics);
+                        if tunnel_established {
+                            let relay_report = relay_socks5_outbound_connect_tcp_streams(
+                                client_stream,
+                                &outbound_stream,
+                            );
+                            let tunnel_relayed = diagnostics_contain_data_relay_completed(
+                                &relay_report.diagnostics,
+                            );
+                            diagnostics.extend(relay_report.diagnostics);
+                            let _ = outbound_stream.shutdown(Shutdown::Both);
+                            return (tunnel_relayed, diagnostics);
+                        }
+                    }
+                }
+            }
+            let _ = outbound_stream.shutdown(Shutdown::Both);
+        }
+    }
+
+    diagnostics.push(engine_diagnostic(
+        DiagnosticSeverity::Warning,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_FAILED_CODE,
+        "native explicit HTTP proxy CONNECT tunnel could not be established through the configured SOCKS outbound",
+        SOURCE_ENGINE_NATIVE_MITM,
+    ));
+    let response = plain_http_status_response(
+        &request.version,
+        502,
+        b"NetworkCore explicit HTTP CONNECT tunnel could not reach the configured SOCKS outbound.\n",
     );
     let write_report = write_plain_http_proxy_client_response(client_stream, response);
     let response_written = diagnostics_contain_code(

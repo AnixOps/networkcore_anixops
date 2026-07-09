@@ -60,8 +60,10 @@ path parses `NativeExplicitHttpProxyRequest`, applies reject, redirect,
 header/body rewrite outcomes, and forwards non-terminal requests through the
 existing SOCKS outbound primitive. This path is governed by
 `docs/architecture/linux-mitm-http-rewrite-source-contract.md` and does not
-perform TLS decryption, HTTPS CONNECT termination, CA trust mutation,
-browser/system proxy mutation, or script execution. Current `main` also adds
+perform TLS decryption, downstream TLS termination, HTTPS request/response
+rewrite, CA trust mutation, browser/system proxy mutation, or script execution;
+current `main` additionally allows explicit HTTP `CONNECT host:443` to establish
+a pass-through tunnel foundation through the configured SOCKS outbound. Current `main` also adds
 `traffic-proof --confirm [--target-url <url>] [--proof-token <token>] [--proof-log <path>]`, which uses a
 `BrowserCaptureTrafficProofProbe` with `probe=proof-log-token` to inspect an
 operator-provided proof log for a token, can default omitted proof token/log to the
@@ -139,9 +141,10 @@ Required gates before user-facing MITM:
   `NativePlainHttpRewriteReport`, `NativeExplicitHttpProxyRequest`,
   `NativePlainHttpProxyResponse`, `LinuxMitmHttpRewriteReport`, explicit
   authorization, caller-provided plain HTTP preview input, and explicit HTTP
-  proxy live `http://` request/response rewrite. Later increments must wire TLS
-  interception, HTTPS CONNECT termination, script runtime, and full HTTPS
-  rewrite boundaries. The Linux source boundary is fixed by
+  proxy live `http://` request/response rewrite plus explicit HTTP `CONNECT`
+  pass-through tunnel foundation. Later increments must wire downstream TLS
+  termination, HTTPS decryption, script runtime, and full HTTPS rewrite
+  boundaries. The Linux source boundary is fixed by
   `docs/architecture/linux-mitm-http-rewrite-source-contract.md`.
 
 Current CLI gate marker:

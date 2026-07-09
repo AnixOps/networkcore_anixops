@@ -326,6 +326,32 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 - 不承诺 HTTP/2、chunked/streaming body、压缩 response body 或完整通用 HTTP 兼容。
 - 不代表 Windows artifact、跨平台 parity 或 managed lifecycle 已进入 release。
 
+## 当前 main source-only 增量
+
+### `v0.1.0-alpha.15`
+
+状态：source-only first step；尚未 tag release。最终用户可下载能力仍必须等待 `v0.1.0-alpha.15`
+tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release asset 全部通过。
+
+当前源码能力：
+
+- Linux explicit HTTP CONNECT tunnel foundation：`engine-native` 新增 `NativeTlsMitmFoundationReport`、
+  `plan_explicit_http_connect_tls_mitm_foundation`、`write_http_connect_established_response`、
+  `engine.native.runtime.http_proxy_tls_foundation_ready` 和
+  `engine.native.runtime.http_proxy_tls_connect_tunnel_established`。
+- `ListenerKind::Http` explicit proxy `CONNECT host:443` 可经既有 SOCKS outbound primitive
+  建立标准 `HTTP/1.1 200 Connection Established` tunnel，并对 CONNECT 后的有限 TCP bytes 做
+  pass-through relay。
+
+明确不承诺：
+
+- 尚不执行 downstream TLS termination，不解密 HTTPS。
+- 尚不解析 CONNECT 后的 HTTPS request/response，不应用 HTTPS request/response rewrite。
+- 不执行 JavaScript script dispatch。
+- 不安装、信任、撤销或回滚 CA trust store。
+- 不修改 browser/system proxy、system PAC、TUN、DNS、firewall 或路由状态。
+- 不代表 `v0.1.0-alpha.15` 已发布；当前最新可下载 Linux artifact 仍是 `v0.1.0-alpha.14`。
+
 ## 已拍板后续版本节奏
 
 以下是 `v0.1.0` 到 `v0.1.2` 的规划 source of truth。后续未发布版本只表达切片目标，

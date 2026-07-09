@@ -6,6 +6,7 @@
 
 ### Added
 
+- 新增 `v0.1.0-alpha.15` source-only first step：`engine-native` explicit HTTP proxy `CONNECT host:443` 现在可通过既有 SOCKS outbound primitive 建立标准 `HTTP/1.1 200 Connection Established` tunnel 并进行有限双向 relay；新增 `NativeTlsMitmFoundationReport`、`plan_explicit_http_connect_tls_mitm_foundation`、`write_http_connect_established_response`、`engine.native.runtime.http_proxy_tls_foundation_ready` 和 `engine.native.runtime.http_proxy_tls_connect_tunnel_established` 合同锚点。该增量仍不执行 downstream TLS termination、HTTPS decryption、HTTPS request/response rewrite、CA trust mutation、browser/system proxy mutation 或 JavaScript script dispatch，尚未进入用户可下载 artifact。
 - 同步 `v0.1.0-alpha.14` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README 和 `mitm-policy` README 现在把 `v0.1.0-alpha.14` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 alpha.15 起。
 
 ## v0.1.0-alpha.14 - 2026-07-09
