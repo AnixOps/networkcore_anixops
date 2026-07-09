@@ -11,11 +11,11 @@ The crate currently provides:
 - JSON response rendering for automation-facing output contracts.
 - A minimal binary that wires `capabilities`, `status`, `diagnostics`, `mitm status/diagnostics/certificate-plan/browser-plan`, `mitm certificate apply/rollback`, `mitm http-rewrite plan/preview`, and `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` to `HostLinuxReadOnlyProbe`, wires `mitm certificate apply/rollback` to `CommandMitmCertificateArtifactStore`, wires `mitm browser-capture launch --confirm` to an injected `BrowserCaptureProcessRunner`, wires `mitm browser-capture verify --confirm` to an injected `BrowserCaptureEndpointProbe`, wires `mitm browser-capture traffic-proof --confirm` to an injected `BrowserCaptureTrafficProofProbe`, wires `prepare-config` to the pure `config-core` service, wires `start` to `engine-native::NativeProxyEngineService` through `RuntimeOrchestrator` with the built-in `networkcore.adblock` MITM plugin hook, wires `install-sing-box` to the `engine-singbox` latest release installer, and wires `run-url` to the `config-core` URL parser plus `sing-box` config renderer and foreground process runner.
 
-Release/source split: the latest published Linux artifact is `v0.1.0-alpha.14`.
-This README describes current `main` source. The `v0.1.0-alpha.14` artifact
+Release/source split: the latest published Linux artifact is `v0.1.0-alpha.15`.
+This README describes current `main` source. The `v0.1.0-alpha.15` artifact
 includes `mitm certificate apply --confirm --cert-file <path> --key-file
 <path> [--profile-trust-file <path>] --snapshot <path>` / `rollback --snapshot <path>` certificate artifact
-lifecycle and dedicated profile CA trust artifact foundation. Current `main` advances that path to write TLS-consumable CA certificate PEM, private key PEM, and an optional dedicated profile CA PEM copy while keeping CA install/trust mutation blocked. The artifact also includes `mitm http-rewrite plan` / `mitm http-rewrite preview --confirm --url <url>`
+lifecycle, TLS-consumable CA certificate PEM, private key PEM, and an optional dedicated profile CA PEM copy while keeping CA install/trust mutation blocked. The artifact also includes `mitm http-rewrite plan` / `mitm http-rewrite preview --confirm --url <url>`
 caller-provided plain HTTP rewrite foundation, explicit HTTP proxy `http://`
 live request/response rewrite, explicit HTTP `CONNECT` pass-through tunnel foundation with bounded ClientHello/SNI observation, `http_rewrite` report, `mitm browser-capture verify --confirm`,
 `mitm browser-capture verify --confirm --target-url <url>`,

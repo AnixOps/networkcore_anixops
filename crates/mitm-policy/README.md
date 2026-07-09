@@ -89,7 +89,7 @@ loads that built-in plugin into `engine-native` through
 before outbound selection. This blocks the CONNECT tunnel, but it is not HTTPS
 decryption and does not apply redirect/header/body/script rewrite plans.
 
-Release/source split: `v0.1.0-alpha.14` is the latest published Linux artifact,
+Release/source split: `v0.1.0-alpha.15` is the latest published Linux artifact,
 while this README describes current `main` source. That artifact includes
 `verify --confirm`, `verify --confirm --target-url <url>`, `session-plan`,
 browser capture `--target-url`, `traffic-proof`, PAC/browser policy artifact

@@ -295,7 +295,7 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 - 不解密 HTTPS，不终止 TLS，不拦截真实浏览器或系统流量。
 - 不应用 live HTTP/TLS redirect/header/body/script rewrite。
 
-## 最新已发布切片
+## 已发布切片
 
 ### `v0.1.0-alpha.14`
 
@@ -326,14 +326,13 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 - 不承诺 HTTP/2、chunked/streaming body、压缩 response body 或完整通用 HTTP 兼容。
 - 不代表 Windows artifact、跨平台 parity 或 managed lifecycle 已进入 release。
 
-## 当前 main source-only 增量
+## 最新已发布切片
 
 ### `v0.1.0-alpha.15`
 
-状态：source-only first step；尚未 tag release。最终用户可下载能力仍必须等待 `v0.1.0-alpha.15`
-tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release asset 全部通过。
+状态：已发布；`v0.1.0-alpha.15` tag release 切片，发布 Linux TLS MITM foundation readiness。
 
-当前源码能力：
+当前 artifact 能力：
 
 - Linux MITM certificate material readiness：`networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` 生成 TLS 可消费 CA certificate PEM、private key PEM，并把 dedicated profile trust artifact 写成同一 CA PEM copy；`profile_trust_fingerprint` 与 `cert_fingerprint` 对齐，private key 不进入 profile trust artifact。
 - Linux explicit HTTP CONNECT tunnel foundation：`engine-native` 新增 `NativeTlsMitmFoundationReport`、
@@ -354,7 +353,15 @@ tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Rel
 - 不安装、信任、撤销或回滚 CA trust store。
 - Dedicated profile trust artifact 只是 caller-provided path 上的 CA PEM copy，不代表 profile trust state 已修改。
 - 不修改 browser/system proxy、system PAC、TUN、DNS、firewall 或路由状态。
-- 不代表 `v0.1.0-alpha.15` 已发布；当前最新可下载 Linux artifact 仍是 `v0.1.0-alpha.14`。
+- 不代表 Windows artifact、跨平台 parity 或 managed lifecycle 已进入 release。
+
+## 当前 main source-only 增量
+
+当前 main 在 `v0.1.0-alpha.15` 发布后只包含 release state/source-of-truth 同步。下一项功能切片是
+`v0.1.0-alpha.16` Linux controlled TLS termination foundation：CONNECT 后建立受控 downstream TLS
+termination 与 upstream TLS forwarding，先证明解密通路和诊断，不执行 JavaScript script dispatch。
+该能力尚未实现，最终仍必须以新 tag、同 commit CI、package、attestation、publish eligibility 和
+GitHub Release 结果为准。
 
 ## 已拍板后续版本节奏
 
