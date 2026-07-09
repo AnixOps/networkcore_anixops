@@ -21,7 +21,7 @@ linux-artifact-license-notice-status=confirmed
 linux-artifact-publish-scope=tag-release-after-all-gates
 ```
 
-当前最新已发布 stable Linux artifact 是 `v0.1.0` 正式版；当前最新 prerelease tag release 是
+当前最新已发布 Linux artifact 是 `v0.1.0` 正式版 stable CLI 四件套；当前最新 prerelease tag release 是
 `v0.1.1-alpha.2`，它发布 Linux CLI 四件套和 Windows manual-extract CLI zip 四件套。`main` 分支下一步准备 `v0.1.1-alpha.3` 订阅格式扩展；Linux CLI
 `mitm http-rewrite preview --confirm --url https://... --phase request` 的合同测试固定 caller-provided
 HTTPS request preview 只能输出 preview/reject 边界，继续保持 `tls_decryption_ready=false`、
