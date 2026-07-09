@@ -725,17 +725,24 @@ jobs:
           grep -q "NativeExplicitHttpProxyRequest" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "NativeTlsMitmFoundationReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "NativeTlsClientHelloObservationReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "NativeControlledTlsTerminationPlanReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "read_explicit_http_proxy_request" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "apply_http_mitm_outcome_to_live_plain_http_request" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "plan_explicit_http_connect_tls_mitm_foundation" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "observe_explicit_http_connect_tls_client_hello" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "plan_explicit_http_connect_controlled_tls_termination" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "write_http_connect_established_response" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_FOUNDATION_READY_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_OBSERVED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_PLAN_READY_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_DEFERRED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "plan_and_apply_plain_http_mitm" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "apply_http_mitm_outcome_to_plain_http_message" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "LinuxMitmHttpRewriteReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "controlled_tls_termination_plan_ready" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "downstream_tls_termination_plan_ready" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "upstream_tls_forwarding_ready" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "LinuxMitmHttpRewriteRequest" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "LinuxMitmHttpRewriteOutcomeReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "LinuxMitmHttpRewriteAuthorization" docs/architecture/linux-mitm-http-rewrite-source-contract.md
@@ -753,21 +760,27 @@ jobs:
           grep -q "NativeExplicitHttpProxyRequest" crates/engine-native/src/lib.rs
           grep -q "NativeTlsMitmFoundationReport" crates/engine-native/src/lib.rs
           grep -q "NativeTlsClientHelloObservationReport" crates/engine-native/src/lib.rs
+          grep -q "NativeControlledTlsTerminationPlanReport" crates/engine-native/src/lib.rs
           grep -q "read_explicit_http_proxy_request" crates/engine-native/src/lib.rs
           grep -q "apply_http_mitm_outcome_to_live_plain_http_request" crates/engine-native/src/lib.rs
           grep -q "plan_explicit_http_connect_tls_mitm_foundation" crates/engine-native/src/lib.rs
           grep -q "observe_explicit_http_connect_tls_client_hello" crates/engine-native/src/lib.rs
+          grep -q "plan_explicit_http_connect_controlled_tls_termination" crates/engine-native/src/lib.rs
           grep -q "write_http_connect_established_response" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_FOUNDATION_READY_CODE" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_OBSERVED_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_PLAN_READY_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_DEFERRED_CODE" crates/engine-native/src/lib.rs
           grep -q "plan_and_apply_plain_http_mitm" crates/engine-native/src/lib.rs
           grep -q "apply_http_mitm_outcome_to_plain_http_message" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_EVENT_PLANNED_CODE" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_TERMINAL_ACTION_APPLIED_CODE" crates/engine-native/src/lib.rs
           grep -q "explicit_http_connect_tls_foundation_report_keeps_https_rewrite_deferred" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "explicit_http_connect_tls_client_hello_observation_extracts_sni_without_enabling_rewrite" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "explicit_http_connect_tls_termination_plan_keeps_rewrite_deferred" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "explicit_http_connect_tls_termination_plan_defers_without_material_or_hello" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "write_http_connect_established_response_writes_empty_tunnel_response" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "plain_http_rewrite_application_applies_header_body_and_defers_script_dispatch" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "plain_http_rewrite_plan_applies_plugin_reject_to_terminal_response" crates/engine-native/tests/engine_native_contracts.rs
@@ -776,6 +789,12 @@ jobs:
           grep -q "plain_http_proxy_response_header_and_body_rewrite_returns_modified_response" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "plain_http_proxy_connect_method_establishes_tls_foundation_tunnel_via_socks_outbound" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "LinuxMitmHttpRewriteReport" apps/linux-cli/src/lib.rs
+          grep -q "MITM_HTTP_REWRITE_CONTROLLED_TLS_TERMINATION_PLAN_READY" apps/linux-cli/src/lib.rs
+          grep -q "MITM_HTTP_REWRITE_DOWNSTREAM_TLS_TERMINATION_PLAN_READY" apps/linux-cli/src/lib.rs
+          grep -q "MITM_HTTP_REWRITE_UPSTREAM_TLS_FORWARDING_READY" apps/linux-cli/src/lib.rs
+          grep -q "controlled_tls_termination_plan_ready" apps/linux-cli/src/lib.rs
+          grep -q "downstream_tls_termination_plan_ready" apps/linux-cli/src/lib.rs
+          grep -q "upstream_tls_forwarding_ready" apps/linux-cli/src/lib.rs
           grep -q "LinuxMitmHttpRewriteRequest" apps/linux-cli/src/lib.rs
           grep -q "LinuxMitmHttpRewriteOutcomeReport" apps/linux-cli/src/lib.rs
           grep -q "LinuxMitmHttpRewriteAuthorization" apps/linux-cli/src/lib.rs
@@ -787,6 +806,7 @@ jobs:
           grep -q -- "--header" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE" apps/linux-cli/src/lib.rs
           grep -q "mitm_http_rewrite_plan_reports_live_plain_http_data_plane_without_tls_decryption" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_http_rewrite_plan_reports_controlled_tls_termination_plan_without_decryption" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_http_rewrite_preview_applies_builtin_reject_to_plain_http_input" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "http_rewrite_json_output_contains_live_plain_http_gate_fields" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "BrowserCaptureProcessRunner" docs/architecture/linux-mitm-browser-capture-source-contract.md

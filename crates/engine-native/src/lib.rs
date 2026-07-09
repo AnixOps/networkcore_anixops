@@ -223,6 +223,10 @@ pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_OBSERVED_CODE: &str 
     "engine.native.runtime.http_proxy_tls_client_hello_observed";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_DEFERRED_CODE: &str =
     "engine.native.runtime.http_proxy_tls_client_hello_deferred";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_PLAN_READY_CODE: &str =
+    "engine.native.runtime.http_proxy_tls_termination_plan_ready";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_DEFERRED_CODE: &str =
+    "engine.native.runtime.http_proxy_tls_termination_deferred";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE: &str =
     "engine.native.runtime.http_proxy_plain_rewrite_applied";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE: &str =
@@ -795,6 +799,28 @@ pub struct NativeTlsClientHelloObservationReport {
     pub downstream_tls_termination_ready: bool,
     pub https_request_rewrite_ready: bool,
     pub https_response_rewrite_ready: bool,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeControlledTlsTerminationPlanReport {
+    pub request_id: String,
+    pub target_host: String,
+    pub target_port: u16,
+    pub target_url: String,
+    pub connect_tunnel_ready: bool,
+    pub client_hello_observed: bool,
+    pub sni_hostname: Option<String>,
+    pub tls_record_version: Option<String>,
+    pub tls_handshake_version: Option<String>,
+    pub ca_certificate_pem_ready: bool,
+    pub ca_private_key_pem_ready: bool,
+    pub downstream_tls_termination_plan_ready: bool,
+    pub upstream_tls_forwarding_ready: bool,
+    pub live_https_decryption_ready: bool,
+    pub https_request_rewrite_ready: bool,
+    pub https_response_rewrite_ready: bool,
+    pub script_dispatch_ready: bool,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -1506,6 +1532,57 @@ pub fn observe_explicit_http_connect_tls_client_hello(
         downstream_tls_termination_ready: false,
         https_request_rewrite_ready: false,
         https_response_rewrite_ready: false,
+        diagnostics: vec![diagnostic],
+    }
+}
+
+pub fn plan_explicit_http_connect_controlled_tls_termination(
+    request: &NativeExplicitHttpProxyRequest,
+    foundation: &NativeTlsMitmFoundationReport,
+    client_hello: &NativeTlsClientHelloObservationReport,
+    ca_certificate_pem_ready: bool,
+    ca_private_key_pem_ready: bool,
+) -> NativeControlledTlsTerminationPlanReport {
+    let downstream_tls_termination_plan_ready = request.method.eq_ignore_ascii_case("CONNECT")
+        && foundation.connect_tunnel_ready
+        && foundation.upstream_tls_forwarding_ready
+        && client_hello.client_hello_observed
+        && ca_certificate_pem_ready
+        && ca_private_key_pem_ready;
+    let diagnostic = if downstream_tls_termination_plan_ready {
+        engine_diagnostic(
+            DiagnosticSeverity::Info,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_PLAN_READY_CODE,
+            "native explicit HTTP proxy CONNECT controlled TLS termination plan is ready with observed ClientHello and NetworkCore CA material",
+            SOURCE_ENGINE_NATIVE_MITM,
+        )
+    } else {
+        engine_diagnostic(
+            DiagnosticSeverity::Info,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_DEFERRED_CODE,
+            "native explicit HTTP proxy CONNECT controlled TLS termination is deferred until CONNECT tunnel, ClientHello, and NetworkCore CA material are all ready",
+            SOURCE_ENGINE_NATIVE_MITM,
+        )
+    };
+
+    NativeControlledTlsTerminationPlanReport {
+        request_id: request.request_id.clone(),
+        target_host: request.target_host.clone(),
+        target_port: request.target_port,
+        target_url: foundation.target_url.clone(),
+        connect_tunnel_ready: foundation.connect_tunnel_ready,
+        client_hello_observed: client_hello.client_hello_observed,
+        sni_hostname: client_hello.sni_hostname.clone(),
+        tls_record_version: client_hello.tls_record_version.clone(),
+        tls_handshake_version: client_hello.tls_handshake_version.clone(),
+        ca_certificate_pem_ready,
+        ca_private_key_pem_ready,
+        downstream_tls_termination_plan_ready,
+        upstream_tls_forwarding_ready: foundation.upstream_tls_forwarding_ready,
+        live_https_decryption_ready: false,
+        https_request_rewrite_ready: false,
+        https_response_rewrite_ready: false,
+        script_dispatch_ready: false,
         diagnostics: vec![diagnostic],
     }
 }

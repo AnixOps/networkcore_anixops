@@ -357,11 +357,38 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前 main source-only 增量
 
-当前 main 在 `v0.1.0-alpha.15` 发布后只包含 release state/source-of-truth 同步。下一项功能切片是
-`v0.1.0-alpha.16` Linux controlled TLS termination foundation：CONNECT 后建立受控 downstream TLS
-termination 与 upstream TLS forwarding，先证明解密通路和诊断，不执行 JavaScript script dispatch。
-该能力尚未实现，最终仍必须以新 tag、同 commit CI、package、attestation、publish eligibility 和
-GitHub Release 结果为准。
+### `v0.1.0-alpha.16`
+
+状态：source-only first step；尚未 tag release。最终用户可下载能力仍必须等待 `v0.1.0-alpha.16`
+tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release asset 全部通过。
+
+当前源码能力：
+
+- Linux controlled TLS termination plan foundation：`engine-native` 新增 `NativeControlledTlsTerminationPlanReport`、
+  `plan_explicit_http_connect_controlled_tls_termination`、
+  `engine.native.runtime.http_proxy_tls_termination_plan_ready` 和
+  `engine.native.runtime.http_proxy_tls_termination_deferred`。
+- 该 plan 会在 explicit HTTP `CONNECT` tunnel ready、ClientHello/SNI observed、NetworkCore CA certificate PEM
+  和 private key PEM material ready 同时成立时，把
+  `downstream_tls_termination_plan_ready=true`；同时继续输出
+  `live_https_decryption_ready=false`、`https_request_rewrite_ready=false`、
+  `https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`。
+- Linux CLI `http_rewrite` report/JSON 新增 `controlled_tls_termination_plan_ready`、
+  `downstream_tls_termination_plan_ready` 和 `upstream_tls_forwarding_ready`，同时保持
+  `tls_decryption_ready=false`。
+- 新增合同测试 `explicit_http_connect_tls_termination_plan_keeps_rewrite_deferred`、
+  `explicit_http_connect_tls_termination_plan_defers_without_material_or_hello` 和
+  `mitm_http_rewrite_plan_reports_controlled_tls_termination_plan_without_decryption`，
+  固定 CA material、ClientHello/SNI、deferred path 和 rewrite/script deferred invariant。
+
+明确不承诺：
+
+- 尚不执行 live downstream TLS termination，不解密 HTTPS。
+- 尚不解析 CONNECT 后的 HTTPS request/response，不应用 HTTPS request/response rewrite。
+- 不执行 JavaScript script dispatch。
+- 不安装、信任、撤销或回滚 CA trust store。
+- 不修改 browser/system proxy、system PAC、TUN、DNS、firewall 或路由状态。
+- 不代表 `v0.1.0-alpha.16` 已发布；当前最新可下载 Linux artifact 仍是 `v0.1.0-alpha.15`。
 
 ## 已拍板后续版本节奏
 
@@ -378,8 +405,8 @@ GitHub Release 结果为准。
 - `v0.1.0-alpha.14`：Linux explicit HTTP proxy live plain HTTP data plane。已发布；真实 `http://`
   请求可在 dedicated/explicit proxy 路径应用 reject、redirect、header/body rewrite。
 - `v0.1.0-alpha.15`：Linux TLS MITM foundation readiness。完成 CONNECT pass-through tunnel、bounded ClientHello/SNI observation、TLS 可消费 CA certificate PEM/private key PEM 和 dedicated profile CA PEM copy；仍不执行 TLS termination、HTTPS decryption 或 JavaScript script dispatch。
-- `v0.1.0-alpha.16`：Linux controlled TLS termination foundation。CONNECT 后建立受控 downstream TLS termination 与 upstream TLS
-  forwarding，先证明解密通路和诊断，不执行 JavaScript script dispatch。
+- `v0.1.0-alpha.16`：Linux controlled TLS termination foundation。先发布 controlled downstream TLS
+  termination plan/report、CA material readiness binding 和诊断，不执行 JavaScript script dispatch。
 - `v0.1.0-alpha.17`：Linux HTTPS request rewrite preview。对 dedicated/explicit HTTPS 请求应用
   reject、redirect 和 request header rewrite，response body rewrite 继续独立切片。
 - `v0.1.0-alpha.18`：Linux HTTPS response rewrite preview。加入 response header/body rewrite，

@@ -17,6 +17,7 @@ use engine_native::{
     build_socks5_outbound_connect_request_frame, decide_socks5_outbound_connect_response,
     native_socks5_connect_browser_capture_proof_token,
     observe_explicit_http_connect_tls_client_hello, plan_and_apply_plain_http_mitm,
+    plan_explicit_http_connect_controlled_tls_termination,
     plan_explicit_http_connect_tls_mitm_foundation, plan_socks5_connect_http_mitm,
     plan_socks5_outbound_connect_client_success_response_write,
     plan_socks5_outbound_connect_data_relay, plan_socks5_outbound_tcp_connection,
@@ -73,6 +74,8 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_OBSERVED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_FOUNDATION_READY_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_DEFERRED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_PLAN_READY_CODE,
     ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE, ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE, ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
@@ -1527,6 +1530,83 @@ fn explicit_http_connect_tls_client_hello_observation_extracts_sni_without_enabl
     assert_diagnostic(
         &observation_report.diagnostics,
         ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_OBSERVED_CODE,
+    );
+}
+
+#[test]
+fn explicit_http_connect_tls_termination_plan_keeps_rewrite_deferred() {
+    let mut request =
+        Cursor::new(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n".to_vec());
+
+    let read_report = read_explicit_http_proxy_request(&mut request);
+    let parsed = read_report
+        .request
+        .expect("explicit HTTP CONNECT request should parse");
+    let foundation_report = plan_explicit_http_connect_tls_mitm_foundation(&parsed);
+    let observation_report = observe_explicit_http_connect_tls_client_hello(
+        &parsed,
+        &tls_client_hello_with_sni("Example.COM"),
+    );
+
+    let termination_plan = plan_explicit_http_connect_controlled_tls_termination(
+        &parsed,
+        &foundation_report,
+        &observation_report,
+        true,
+        true,
+    );
+
+    assert!(termination_plan.connect_tunnel_ready);
+    assert!(termination_plan.client_hello_observed);
+    assert_eq!(termination_plan.sni_hostname.as_deref(), Some("example.com"));
+    assert!(termination_plan.ca_certificate_pem_ready);
+    assert!(termination_plan.ca_private_key_pem_ready);
+    assert!(termination_plan.downstream_tls_termination_plan_ready);
+    assert!(termination_plan.upstream_tls_forwarding_ready);
+    assert!(!termination_plan.live_https_decryption_ready);
+    assert!(!termination_plan.https_request_rewrite_ready);
+    assert!(!termination_plan.https_response_rewrite_ready);
+    assert!(!termination_plan.script_dispatch_ready);
+    assert_diagnostic(
+        &termination_plan.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_PLAN_READY_CODE,
+    );
+}
+
+#[test]
+fn explicit_http_connect_tls_termination_plan_defers_without_material_or_hello() {
+    let mut request =
+        Cursor::new(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n".to_vec());
+
+    let read_report = read_explicit_http_proxy_request(&mut request);
+    let parsed = read_report
+        .request
+        .expect("explicit HTTP CONNECT request should parse");
+    let foundation_report = plan_explicit_http_connect_tls_mitm_foundation(&parsed);
+    let observation_report = observe_explicit_http_connect_tls_client_hello(&parsed, b"");
+
+    let termination_plan = plan_explicit_http_connect_controlled_tls_termination(
+        &parsed,
+        &foundation_report,
+        &observation_report,
+        true,
+        false,
+    );
+
+    assert!(termination_plan.connect_tunnel_ready);
+    assert!(!termination_plan.client_hello_observed);
+    assert_eq!(termination_plan.sni_hostname, None);
+    assert!(termination_plan.ca_certificate_pem_ready);
+    assert!(!termination_plan.ca_private_key_pem_ready);
+    assert!(!termination_plan.downstream_tls_termination_plan_ready);
+    assert!(termination_plan.upstream_tls_forwarding_ready);
+    assert!(!termination_plan.live_https_decryption_ready);
+    assert!(!termination_plan.https_request_rewrite_ready);
+    assert!(!termination_plan.https_response_rewrite_ready);
+    assert!(!termination_plan.script_dispatch_ready);
+    assert_diagnostic(
+        &termination_plan.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_DEFERRED_CODE,
     );
 }
 

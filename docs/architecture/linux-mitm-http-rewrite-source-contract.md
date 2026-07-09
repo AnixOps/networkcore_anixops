@@ -18,8 +18,10 @@ HTTP message 应用 plugin outcome，也允许 `ListenerKind::Http` 的 native e
 `NativeHttpMitmPluginHook` 生成 `HttpMitmOutcome`，并在 request/response 两阶段应用
 reject、redirect、header mutation 和 body mutation。`CONNECT host:443` 已可经既有 SOCKS
 outbound primitive 建立标准 `HTTP/1.1 200 Connection Established` tunnel，在 relay 前 bounded
-peek TLS ClientHello/SNI，并做有限双向 relay，作为后续 TLS MITM foundation 的第一步。该能力仍
-不解密 TLS，不执行 downstream TLS termination，不解析 CONNECT 后 HTTPS request/response，不安装或
+peek TLS ClientHello/SNI，并做有限双向 relay，作为后续 TLS MITM foundation 的第一步。当前 main
+还新增 controlled downstream TLS termination plan：在 CONNECT tunnel、ClientHello/SNI 和 NetworkCore CA
+certificate/private key PEM material 同时具备时输出 plan-ready 诊断。该能力仍
+不执行 live TLS decryption，不解析 CONNECT 后 HTTPS request/response，不安装或
 信任 CA，不修改 browser/system proxy、system PAC、TUN、DNS 或 firewall，也不执行插件脚本。
 
 ## Current Boundary
@@ -39,6 +41,11 @@ peek TLS ClientHello/SNI，并做有限双向 relay，作为后续 TLS MITM foun
   `NativeTlsMitmFoundationReport.downstream_tls_termination_ready=false`、
   `https_request_rewrite_ready=false`、`https_response_rewrite_ready=false` 和
   `script_dispatch_ready=false`。
+- `plan_explicit_http_connect_controlled_tls_termination` 只生成 controlled TLS termination plan report；
+  当 CONNECT tunnel、ClientHello/SNI 和 NetworkCore CA certificate/private key PEM material 同时具备时，
+  `NativeControlledTlsTerminationPlanReport.downstream_tls_termination_plan_ready=true`，但
+  `live_https_decryption_ready=false`、`https_request_rewrite_ready=false`、
+  `https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`。
 - `https://` absolute-form target 在 HTTP listener 中仍返回 TLS blocked 诊断；HTTPS 必须通过
   CONNECT path 进入后续 TLS foundation。
 - 非 terminal request rewrite 会经既有 SOCKS outbound CONNECT primitive 转发到目标 host:port，并以 origin-form request 写给 upstream；bounded upstream response 会再进入 response phase rewrite 后写回 client。
@@ -50,6 +57,9 @@ peek TLS ClientHello/SNI，并做有限双向 relay，作为后续 TLS MITM foun
 - Header mutation 支持 add、replace、delete 和 set；body mutation 替换 output body。
 - `HttpMitmScriptDispatch` 只记录 `script_dispatch_deferred=true`，不运行 JavaScript 或外部脚本。
 - `http_rewrite` JSON/text report 输出 request、authorization、outcome、output_headers、output_body 和 blocked_operations。
+- `http_rewrite` JSON/text report 同时输出 `controlled_tls_termination_plan_ready`、
+  `downstream_tls_termination_plan_ready` 和 `upstream_tls_forwarding_ready`，但必须继续输出
+  `tls_decryption_ready=false`。
 
 ## Source Anchors
 
@@ -62,11 +72,13 @@ peek TLS ClientHello/SNI，并做有限双向 relay，作为后续 TLS MITM foun
 - `NativePlainHttpProxyResponse`
 - `NativeTlsMitmFoundationReport`
 - `NativeTlsClientHelloObservationReport`
+- `NativeControlledTlsTerminationPlanReport`
 - `read_explicit_http_proxy_request`
 - `apply_http_mitm_outcome_to_live_plain_http_request`
 - `serialize_explicit_http_proxy_request_for_upstream`
 - `plan_explicit_http_connect_tls_mitm_foundation`
 - `observe_explicit_http_connect_tls_client_hello`
+- `plan_explicit_http_connect_controlled_tls_termination`
 - `write_http_connect_established_response`
 - `plan_and_apply_plain_http_mitm`
 - `apply_http_mitm_outcome_to_plain_http_message`
@@ -82,11 +94,16 @@ peek TLS ClientHello/SNI，并做有限双向 relay，作为后续 TLS MITM foun
 - `ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE`
 - `ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_OBSERVED_CODE`
 - `ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_DEFERRED_CODE`
+- `ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_PLAN_READY_CODE`
+- `ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_DEFERRED_CODE`
 - `ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE`
 - `ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE`
 - `ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_RESPONSE_READ_CODE`
 - `ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE`
 - `LinuxMitmHttpRewriteReport`
+- `controlled_tls_termination_plan_ready`
+- `downstream_tls_termination_plan_ready`
+- `upstream_tls_forwarding_ready`
 - `LinuxMitmHttpRewriteRequest`
 - `LinuxMitmHttpRewriteOutcomeReport`
 - `LinuxMitmHttpRewriteAuthorization`
@@ -109,7 +126,7 @@ peek TLS ClientHello/SNI，并做有限双向 relay，作为后续 TLS MITM foun
 
 当前合同明确禁止：
 
-- 解密 HTTPS 或终止 TLS。
+- 执行 live HTTPS decryption 或真实 TLS stream termination。
 - 安装、信任、撤销或回滚 system trust store、NSS DB、p11-kit 或 Firefox trust store。
 - 修改 browser/system proxy、system PAC、TUN、DNS、firewall 或路由状态。
 - 把 caller-provided preview 输入等同于 live browser traffic capture；live path 仅限用户或 dedicated browser 显式指向 HTTP proxy listener 的 `http://` 请求。

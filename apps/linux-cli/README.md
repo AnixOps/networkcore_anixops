@@ -51,6 +51,17 @@ older artifacts before `v0.1.0-alpha.13`; the plain HTTP rewrite foundation is n
 The per-alpha feature and boundary index is
 `docs/alpha-release-feature-matrix.md`.
 
+Current `main` additionally contains the `v0.1.0-alpha.16` source-only
+controlled TLS termination plan in `engine-native`: `NativeControlledTlsTerminationPlanReport`
+and `plan_explicit_http_connect_controlled_tls_termination` can report that a
+CONNECT tunnel, observed ClientHello/SNI, and NetworkCore CA certificate/private
+key PEM material are sufficient to plan downstream TLS termination. The
+`http_rewrite` report exposes `controlled_tls_termination_plan_ready`,
+`downstream_tls_termination_plan_ready`, and `upstream_tls_forwarding_ready`
+while keeping `tls_decryption_ready=false`. This does not enable live HTTPS
+decryption, HTTPS request/response rewrite, CA trust mutation, browser/system
+proxy mutation, or JavaScript script dispatch.
+
 P4 current stage source of truth: this crate is now in P4 Client And Platform
 Integration. P3 Runtime Capability Baseline is completed history, not the
 current repository stage. The active P4 backlog buckets are subscription/client

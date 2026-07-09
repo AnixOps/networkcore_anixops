@@ -203,6 +203,9 @@ pub const MITM_HTTP_REWRITE_SOURCE_CONTRACT_STATUS: &str = "active";
 pub const MITM_HTTP_REWRITE_MUTATION_READY: bool = true;
 pub const MITM_HTTP_REWRITE_LIVE_TRAFFIC_READY: bool = true;
 pub const MITM_HTTP_REWRITE_TLS_DECRYPTION_READY: bool = false;
+pub const MITM_HTTP_REWRITE_CONTROLLED_TLS_TERMINATION_PLAN_READY: bool = true;
+pub const MITM_HTTP_REWRITE_DOWNSTREAM_TLS_TERMINATION_PLAN_READY: bool = true;
+pub const MITM_HTTP_REWRITE_UPSTREAM_TLS_FORWARDING_READY: bool = true;
 pub const MITM_HTTP_REWRITE_DEFAULT_METHOD: &str = "GET";
 pub const MITM_HTTP_REWRITE_DEFAULT_PHASE: &str = "request";
 pub const MITM_USER_FACING_STAGE: &str = "policy-only";
@@ -1138,6 +1141,9 @@ pub struct LinuxMitmHttpRewriteReport {
     pub mutation_ready: bool,
     pub live_traffic_ready: bool,
     pub tls_decryption_ready: bool,
+    pub controlled_tls_termination_plan_ready: bool,
+    pub downstream_tls_termination_plan_ready: bool,
+    pub upstream_tls_forwarding_ready: bool,
     pub request: LinuxMitmHttpRewriteRequest,
     pub outcome: Option<LinuxMitmHttpRewriteOutcomeReport>,
     pub blocked_operations: Vec<String>,
@@ -5369,6 +5375,11 @@ fn build_linux_mitm_http_rewrite_report(
         mutation_ready: MITM_HTTP_REWRITE_MUTATION_READY,
         live_traffic_ready: MITM_HTTP_REWRITE_LIVE_TRAFFIC_READY,
         tls_decryption_ready: MITM_HTTP_REWRITE_TLS_DECRYPTION_READY,
+        controlled_tls_termination_plan_ready:
+            MITM_HTTP_REWRITE_CONTROLLED_TLS_TERMINATION_PLAN_READY,
+        downstream_tls_termination_plan_ready:
+            MITM_HTTP_REWRITE_DOWNSTREAM_TLS_TERMINATION_PLAN_READY,
+        upstream_tls_forwarding_ready: MITM_HTTP_REWRITE_UPSTREAM_TLS_FORWARDING_READY,
         request: request.unwrap_or_else(|| {
             build_linux_mitm_http_rewrite_request(
                 None,
@@ -8541,12 +8552,15 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
 
     if let Some(rewrite) = &response.http_rewrite {
         lines.push(format!(
-            "http rewrite {}: {} mutation_ready={} live_traffic_ready={} tls_decryption_ready={}",
+            "http rewrite {}: {} mutation_ready={} live_traffic_ready={} tls_decryption_ready={} controlled_tls_termination_plan_ready={} downstream_tls_termination_plan_ready={} upstream_tls_forwarding_ready={}",
             rewrite.action,
             rewrite.gate_status,
             rewrite.mutation_ready,
             rewrite.live_traffic_ready,
-            rewrite.tls_decryption_ready
+            rewrite.tls_decryption_ready,
+            rewrite.controlled_tls_termination_plan_ready,
+            rewrite.downstream_tls_termination_plan_ready,
+            rewrite.upstream_tls_forwarding_ready
         ));
         lines.push(format!(
             "http rewrite source contract: {}",
@@ -9633,6 +9647,9 @@ struct JsonMitmHttpRewriteReport {
     mutation_ready: bool,
     live_traffic_ready: bool,
     tls_decryption_ready: bool,
+    controlled_tls_termination_plan_ready: bool,
+    downstream_tls_termination_plan_ready: bool,
+    upstream_tls_forwarding_ready: bool,
     request: JsonMitmHttpRewriteRequest,
     outcome: Option<JsonMitmHttpRewriteOutcomeReport>,
     blocked_operations: Vec<String>,
@@ -9648,6 +9665,9 @@ impl From<&LinuxMitmHttpRewriteReport> for JsonMitmHttpRewriteReport {
             mutation_ready: report.mutation_ready,
             live_traffic_ready: report.live_traffic_ready,
             tls_decryption_ready: report.tls_decryption_ready,
+            controlled_tls_termination_plan_ready: report.controlled_tls_termination_plan_ready,
+            downstream_tls_termination_plan_ready: report.downstream_tls_termination_plan_ready,
+            upstream_tls_forwarding_ready: report.upstream_tls_forwarding_ready,
             request: JsonMitmHttpRewriteRequest::from(&report.request),
             outcome: report
                 .outcome

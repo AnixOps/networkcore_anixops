@@ -96,9 +96,12 @@ use networkcore_linux::{
     MITM_CERTIFICATE_LIFECYCLE_GATE, MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS,
     MITM_CERTIFICATE_LIFECYCLE_SOURCE_CONTRACT_STATUS, MITM_CERTIFICATE_MUTATION_READY,
     MITM_CERTIFICATE_PLAN_STATUS, MITM_CLI_COMMAND_GATE, MITM_CLI_COMMAND_GATE_STATUS,
+    MITM_HTTP_REWRITE_CONTROLLED_TLS_TERMINATION_PLAN_READY,
+    MITM_HTTP_REWRITE_DOWNSTREAM_TLS_TERMINATION_PLAN_READY,
     MITM_HTTP_REWRITE_LIVE_TRAFFIC_READY, MITM_HTTP_REWRITE_MUTATION_READY,
     MITM_HTTP_REWRITE_SOURCE_CONTRACT_STATUS, MITM_HTTP_REWRITE_TLS_DECRYPTION_READY,
-    MITM_HTTP_TLS_DATA_PLANE_GATE, MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS, MITM_USER_FACING_STAGE,
+    MITM_HTTP_REWRITE_UPSTREAM_TLS_FORWARDING_READY, MITM_HTTP_TLS_DATA_PLANE_GATE,
+    MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS, MITM_USER_FACING_STAGE,
 };
 #[cfg(unix)]
 use networkcore_linux::{
@@ -921,6 +924,18 @@ fn mitm_http_rewrite_plan_reports_live_plain_http_data_plane_without_tls_decrypt
         report.tls_decryption_ready,
         MITM_HTTP_REWRITE_TLS_DECRYPTION_READY
     );
+    assert_eq!(
+        report.controlled_tls_termination_plan_ready,
+        MITM_HTTP_REWRITE_CONTROLLED_TLS_TERMINATION_PLAN_READY
+    );
+    assert_eq!(
+        report.downstream_tls_termination_plan_ready,
+        MITM_HTTP_REWRITE_DOWNSTREAM_TLS_TERMINATION_PLAN_READY
+    );
+    assert_eq!(
+        report.upstream_tls_forwarding_ready,
+        MITM_HTTP_REWRITE_UPSTREAM_TLS_FORWARDING_READY
+    );
     assert!(report
         .blocked_operations
         .iter()
@@ -930,6 +945,41 @@ fn mitm_http_rewrite_plan_reports_live_plain_http_data_plane_without_tls_decrypt
     assert!(rendered
         .contains("http rewrite plan: plain-http-live-data-plane-active/tls-decryption-blocked"));
     assert!(rendered.contains("http rewrite blocked operation: decrypt-https"));
+}
+
+#[test]
+fn mitm_http_rewrite_plan_reports_controlled_tls_termination_plan_without_decryption() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+
+    let response = handle_mitm_http_rewrite_plan(&platform);
+
+    let report = response
+        .http_rewrite
+        .as_ref()
+        .expect("http rewrite plan should include machine report");
+    assert_eq!(
+        report.controlled_tls_termination_plan_ready,
+        MITM_HTTP_REWRITE_CONTROLLED_TLS_TERMINATION_PLAN_READY
+    );
+    assert_eq!(
+        report.downstream_tls_termination_plan_ready,
+        MITM_HTTP_REWRITE_DOWNSTREAM_TLS_TERMINATION_PLAN_READY
+    );
+    assert_eq!(
+        report.upstream_tls_forwarding_ready,
+        MITM_HTTP_REWRITE_UPSTREAM_TLS_FORWARDING_READY
+    );
+    assert_eq!(
+        report.tls_decryption_ready,
+        MITM_HTTP_REWRITE_TLS_DECRYPTION_READY
+    );
+
+    let rendered = render_response(&response, OutputFormat::Text);
+    assert!(rendered.contains("controlled_tls_termination_plan_ready=true"));
+    assert!(rendered.contains("downstream_tls_termination_plan_ready=true"));
+    assert!(rendered.contains("upstream_tls_forwarding_ready=true"));
+    assert!(rendered.contains("tls_decryption_ready=false"));
 }
 
 #[test]
@@ -4174,6 +4224,18 @@ fn http_rewrite_json_output_contains_live_plain_http_gate_fields() {
     assert_eq!(
         json["http_rewrite"]["tls_decryption_ready"].as_bool(),
         Some(MITM_HTTP_REWRITE_TLS_DECRYPTION_READY)
+    );
+    assert_eq!(
+        json["http_rewrite"]["controlled_tls_termination_plan_ready"].as_bool(),
+        Some(MITM_HTTP_REWRITE_CONTROLLED_TLS_TERMINATION_PLAN_READY)
+    );
+    assert_eq!(
+        json["http_rewrite"]["downstream_tls_termination_plan_ready"].as_bool(),
+        Some(MITM_HTTP_REWRITE_DOWNSTREAM_TLS_TERMINATION_PLAN_READY)
+    );
+    assert_eq!(
+        json["http_rewrite"]["upstream_tls_forwarding_ready"].as_bool(),
+        Some(MITM_HTTP_REWRITE_UPSTREAM_TLS_FORWARDING_READY)
     );
     assert_eq!(
         json["http_rewrite"]["request"]["url"],
