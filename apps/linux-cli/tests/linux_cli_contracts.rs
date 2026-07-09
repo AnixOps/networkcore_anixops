@@ -33,8 +33,10 @@ use networkcore_linux::{
     handle_mitm_browser_capture_session_plan,
     handle_mitm_browser_capture_session_plan_with_proxy_scheme,
     handle_mitm_browser_capture_traffic_proof,
-    handle_mitm_browser_capture_traffic_proof_with_probe, handle_mitm_browser_capture_verify,
-    handle_mitm_browser_capture_verify_with_probe, handle_mitm_browser_plan,
+    handle_mitm_browser_capture_traffic_proof_with_probe,
+    handle_mitm_browser_capture_traffic_proof_with_probe_and_proxy_scheme,
+    handle_mitm_browser_capture_verify, handle_mitm_browser_capture_verify_with_probe,
+    handle_mitm_browser_plan,
     handle_mitm_certificate_apply, handle_mitm_certificate_apply_with_store,
     handle_mitm_certificate_plan, handle_mitm_certificate_rollback,
     handle_mitm_certificate_rollback_with_store, handle_mitm_http_rewrite_plan,
@@ -42,8 +44,9 @@ use networkcore_linux::{
     handle_prepare_config, handle_run_url_with_sing_box, handle_start, handle_status, handle_stop,
     native_proxy_engine_service_with_builtin_mitm_plugin, parse_args, render_response,
     BrowserCaptureEndpointProbe, BrowserCapturePacFileStore, BrowserCaptureProcessRunner,
-    BrowserCaptureTrafficProofProbe, CommandBrowserCaptureEndpointProbe, ConfigReadError,
-    ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
+    BrowserCaptureTrafficProofProbe, CommandBrowserCaptureEndpointProbe,
+    CommandBrowserCaptureTrafficProofProbe, ConfigReadError, ConfigReader,
+    CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
     LinuxBrowserCaptureLaunchRequest, LinuxBrowserCapturePacApplyOutcome,
@@ -64,6 +67,7 @@ use networkcore_linux::{
     CLI_MITM_BROWSER_CAPTURE_ROLLBACK_BLOCKED_CODE, CLI_MITM_BROWSER_CAPTURE_ROLLBACK_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_SESSION_PLAN_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_AUTHORIZATION_REQUIRED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_BINDING_MISMATCH_CODE,
     CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_MISSING_CODE,
     CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_OBSERVED_CODE,
@@ -2546,6 +2550,111 @@ fn mitm_browser_capture_traffic_proof_defaults_to_session_proof_binding() {
 }
 
 #[test]
+fn mitm_browser_capture_traffic_proof_requires_bound_proxy_and_connect_authority() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let probe = CommandBrowserCaptureTrafficProofProbe::new();
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock should be available")
+        .as_nanos();
+    let valid_log = std::env::temp_dir().join(format!(
+        "networkcore-browser-proof-bound-{}-{nonce}.log",
+        std::process::id()
+    ));
+    let mismatch_log = std::env::temp_dir().join(format!(
+        "networkcore-browser-proof-mismatch-{}-{nonce}.log",
+        std::process::id()
+    ));
+    let valid_log_path = valid_log.to_string_lossy().to_string();
+    let mismatch_log_path = mismatch_log.to_string_lossy().to_string();
+
+    std::fs::write(
+        &valid_log,
+        "engine.native.runtime.http_mitm_connect_browser_proof_observed token browser-proof-123 target example.com:443 via socks5://127.0.0.1:7890\n",
+    )
+    .expect("valid proof log should be writable");
+    std::fs::write(
+        &mismatch_log,
+        "engine.native.runtime.http_mitm_connect_browser_proof_observed token browser-proof-123 target example.org:443 via http://127.0.0.1:7890\n",
+    )
+    .expect("mismatch proof log should be writable");
+
+    let observed = handle_mitm_browser_capture_traffic_proof_with_probe_and_proxy_scheme(
+        &platform,
+        &probe,
+        Some("https://example.com/capture"),
+        Some("browser-proof-123"),
+        Some(&valid_log_path),
+        MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME,
+        true,
+    );
+
+    assert!(observed.ok);
+    assert_eq!(observed.exit_code, LinuxCliExitCode::Success);
+    assert_diagnostic(
+        &observed.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_OBSERVED_CODE,
+    );
+    let observed_capture = observed
+        .browser_capture
+        .as_ref()
+        .expect("traffic-proof response should include browser capture report");
+    let observed_proof = observed_capture
+        .traffic_proof_report
+        .as_ref()
+        .expect("traffic-proof response should include proof report");
+    assert_eq!(observed_proof.status, "observed");
+    assert!(observed_proof.proven);
+    assert_eq!(
+        observed_proof.request.proxy_url,
+        "socks5://127.0.0.1:7890"
+    );
+    assert_eq!(
+        observed_proof.request.proof_connect_authority.as_deref(),
+        Some("example.com:443")
+    );
+
+    let mismatch = handle_mitm_browser_capture_traffic_proof_with_probe_and_proxy_scheme(
+        &platform,
+        &probe,
+        Some("https://example.com/capture"),
+        Some("browser-proof-123"),
+        Some(&mismatch_log_path),
+        MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME,
+        true,
+    );
+
+    assert!(!mismatch.ok);
+    assert_eq!(mismatch.exit_code, LinuxCliExitCode::Unavailable);
+    assert_diagnostic(
+        &mismatch.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_BINDING_MISMATCH_CODE,
+    );
+    assert_no_diagnostic(
+        &mismatch.diagnostics,
+        CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_OBSERVED_CODE,
+    );
+    let mismatch_capture = mismatch
+        .browser_capture
+        .as_ref()
+        .expect("traffic-proof response should include browser capture report");
+    let mismatch_proof = mismatch_capture
+        .traffic_proof_report
+        .as_ref()
+        .expect("traffic-proof response should include proof report");
+    assert_eq!(mismatch_proof.status, "binding_mismatch");
+    assert!(!mismatch_proof.proven);
+    assert_eq!(
+        mismatch_proof.request.proof_connect_authority.as_deref(),
+        Some("example.com:443")
+    );
+
+    let _ = std::fs::remove_file(valid_log);
+    let _ = std::fs::remove_file(mismatch_log);
+}
+
+#[test]
 fn mitm_browser_capture_default_proof_token_tracks_connect_endpoint_not_url_path() {
     let platform =
         StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
@@ -4687,6 +4796,10 @@ fn browser_capture_traffic_proof_json_output_contains_proof_fields() {
     assert_eq!(
         json["browser_capture"]["request"]["traffic_proof"]["target_url"],
         "https://example.com/capture"
+    );
+    assert_eq!(
+        json["browser_capture"]["request"]["traffic_proof"]["proof_connect_authority"],
+        "example.com:443"
     );
     assert_eq!(
         json["browser_capture"]["request"]["traffic_proof"]["proof_target_url"],

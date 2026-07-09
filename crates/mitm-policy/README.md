@@ -67,9 +67,12 @@ a pass-through tunnel foundation and bounded ClientHello/SNI observation through
 the configured SOCKS outbound. Current `main` also adds
 `traffic-proof --confirm [--target-url <url>] [--proof-token <token>] [--proof-log <path>]`, which uses a
 `BrowserCaptureTrafficProofProbe` with `probe=proof-log-token` to inspect an
-operator-provided proof log for a token, can default omitted proof token/log to the
-same session proof binding, and emits `LinuxBrowserCaptureTrafficProofReport`;
-and `apply --confirm --pac-file <path> [--policy-file <path>] [--profile-prefs-file <path>] --snapshot <path>`, which uses
+operator-provided proof log for a session proof binding, can default omitted proof token/log to the
+same session proof binding, emits `proof_connect_authority` and
+`LinuxBrowserCaptureTrafficProofReport`, and reports `binding_mismatch` when the
+token is not bound on the same proof log line to the planned proxy URL and
+CONNECT authority. Current `main` also adds
+`apply --confirm --pac-file <path> [--policy-file <path>] [--profile-prefs-file <path>] --snapshot <path>`, which uses
 `BrowserCapturePacFileStore` to write only a caller-selected NetworkCore PAC
 artifact, optional Chromium/Chrome managed proxy policy artifact, optional Firefox
 dedicated profile prefs, `profile_prefs_file_path`/`profile_prefs_content`, and rollback snapshot. Those proof and artifact paths still do not prove
@@ -106,6 +109,9 @@ and caller-provided HTTPS response header/body mutation preview through
 TLS decryption and full HTTPS rewrite increments after this tag require a later tag
 release before users can download them from GitHub Releases. The full alpha
 feature and boundary index is `docs/alpha-release-feature-matrix.md`.
+Current `main` has started the `v0.1.0-alpha.19` proof binding hardening source
+increment: browser capture `traffic-proof` now records `proof_connect_authority`
+and requires token/proxy/CONNECT authority binding in the same proof log line.
 Current `main` source lets `engine-native` preview response header
 mutation and guarded response body mutation for caller-provided response-phase
 `https://` input through `NativeHttpsResponseRewritePreviewReport`, but it still

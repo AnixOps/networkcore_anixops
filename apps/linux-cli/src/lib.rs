@@ -160,6 +160,8 @@ pub const CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_MISSING_CODE: &str =
     "cli.linux.mitm.browser_capture.traffic_proof.missing";
 pub const CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_LOG_UNREADABLE_CODE: &str =
     "cli.linux.mitm.browser_capture.traffic_proof.log_unreadable";
+pub const CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_BINDING_MISMATCH_CODE: &str =
+    "cli.linux.mitm.browser_capture.traffic_proof.binding_mismatch";
 pub const CLI_MITM_HTTP_REWRITE_AUTHORIZATION_REQUIRED_CODE: &str =
     "cli.linux.mitm.http_rewrite.authorization_required";
 pub const CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE: &str = "cli.linux.mitm.http_rewrite.plan.ready";
@@ -985,6 +987,7 @@ pub struct LinuxBrowserCaptureTrafficProofRequest {
     pub proxy_scheme: String,
     pub proxy_url: String,
     pub target_url: Option<String>,
+    pub proof_connect_authority: Option<String>,
     pub proof_target_url: Option<String>,
     pub proof_token: String,
     pub proof_log_path: String,
@@ -1562,18 +1565,41 @@ impl BrowserCaptureTrafficProofProbe for CommandBrowserCaptureTrafficProofProbe 
             )
         })?;
 
-        if !proof_log.contains(&request.proof_token) {
+        let token_observed = proof_log.contains(&request.proof_token);
+        if !token_observed {
             return Err(DomainError::new(
                 CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_MISSING_CODE,
                 "browser capture traffic proof token was not observed in the proof log",
             ));
         }
+        if let Some(authority) = &request.proof_connect_authority {
+            let bound_line_observed = proof_log.lines().any(|line| {
+                line.contains(&request.proof_token)
+                    && line.contains(&request.proxy_url)
+                    && line.contains(authority)
+            });
+            if !bound_line_observed {
+                return Err(DomainError::new(
+                    CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_BINDING_MISMATCH_CODE,
+                    format!(
+                        "browser capture proof token was observed, but no proof log line bound it to proxy {} and CONNECT authority {authority}",
+                        request.proxy_url
+                    ),
+                ));
+            }
+        }
+
+        let observed_message = if request.proof_connect_authority.is_some() {
+            "browser capture proof token was observed in the proof log with the expected proxy and CONNECT authority binding"
+        } else {
+            "browser capture proof token was observed in the proof log"
+        };
 
         Ok(LinuxBrowserCaptureTrafficProofOutcome {
             diagnostics: vec![cli_diagnostic(
                 DiagnosticSeverity::Info,
                 CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_OBSERVED_CODE,
-                "browser capture proof token was observed in the proof log",
+                observed_message,
                 SOURCE_CLI_MITM,
             )],
         })
@@ -5114,6 +5140,8 @@ where
                 "missing"
             } else if error.code == CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_LOG_UNREADABLE_CODE {
                 "log_unreadable"
+            } else if error.code == CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_BINDING_MISMATCH_CODE {
+                "binding_mismatch"
             } else {
                 "blocked"
             };
@@ -6570,6 +6598,11 @@ fn build_linux_browser_capture_traffic_proof_request(
         .to_string();
     let proof_target_url = target_url
         .map(|target_url| browser_capture_proof_target_url(target_url, &resolved_proof_token));
+    let proof_connect_authority = target_url.and_then(|target_url| {
+        parse_browser_capture_target_endpoint(target_url)
+            .ok()
+            .map(|endpoint| endpoint.authority())
+    });
 
     LinuxBrowserCaptureTrafficProofRequest {
         proxy_host: plan.planned_proxy_host.clone(),
@@ -6577,6 +6610,7 @@ fn build_linux_browser_capture_traffic_proof_request(
         proxy_scheme: plan.planned_proxy_scheme.clone(),
         proxy_url,
         target_url: target_url.map(ToString::to_string),
+        proof_connect_authority,
         proof_target_url,
         proof_token: resolved_proof_token,
         proof_log_path: resolved_proof_log_path,
@@ -9344,6 +9378,7 @@ struct JsonBrowserCaptureTrafficProofRequest {
     proxy_scheme: String,
     proxy_url: String,
     target_url: Option<String>,
+    proof_connect_authority: Option<String>,
     proof_target_url: Option<String>,
     proof_token: String,
     proof_log_path: String,
@@ -9358,6 +9393,7 @@ impl From<&LinuxBrowserCaptureTrafficProofRequest> for JsonBrowserCaptureTraffic
             proxy_scheme: request.proxy_scheme.clone(),
             proxy_url: request.proxy_url.clone(),
             target_url: request.target_url.clone(),
+            proof_connect_authority: request.proof_connect_authority.clone(),
             proof_target_url: request.proof_target_url.clone(),
             proof_token: request.proof_token.clone(),
             proof_log_path: request.proof_log_path.clone(),

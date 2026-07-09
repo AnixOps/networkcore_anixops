@@ -187,10 +187,12 @@ jobs:
           grep -Fq "v0.1.0-alpha.16" docs/alpha-release-feature-matrix.md
           grep -Fq "v0.1.0-alpha.17" docs/alpha-release-feature-matrix.md
           grep -Fq "v0.1.0-alpha.18" docs/alpha-release-feature-matrix.md
+          grep -Fq "v0.1.0-alpha.19" docs/alpha-release-feature-matrix.md
           grep -Fq "Linux explicit HTTP proxy live plain HTTP data plane" docs/alpha-release-feature-matrix.md
           grep -Fq "Linux controlled TLS termination foundation" docs/alpha-release-feature-matrix.md
           grep -Fq "Linux HTTPS request rewrite preview" docs/alpha-release-feature-matrix.md
           grep -Fq "Linux HTTPS response rewrite preview" docs/alpha-release-feature-matrix.md
+          grep -Fq "Linux live browser proof hardening" docs/alpha-release-feature-matrix.md
           grep -Fq "plain-http-live-data-plane-active/tls-decryption-blocked" docs/alpha-release-feature-matrix.md
           grep -Fq "profile-trust-file" docs/alpha-release-feature-matrix.md
           grep -Fq "已拍板后续版本节奏" docs/alpha-release-feature-matrix.md
@@ -418,8 +420,11 @@ jobs:
           grep -q "CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_OBSERVED_CODE" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_MISSING_CODE" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_LOG_UNREADABLE_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_BROWSER_CAPTURE_TRAFFIC_PROOF_BINDING_MISMATCH_CODE" apps/linux-cli/src/lib.rs
           grep -q "traffic_proof_report" apps/linux-cli/src/lib.rs
           grep -q "proof-log-token" apps/linux-cli/src/lib.rs
+          grep -q "proof_connect_authority" apps/linux-cli/src/lib.rs
+          grep -q "binding_mismatch" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE" apps/linux-cli/src/lib.rs
           grep -q "MITM_CERTIFICATE_PLAN_STATUS" apps/linux-cli/src/lib.rs
           grep -q "MITM_CERTIFICATE_MUTATION_READY" apps/linux-cli/src/lib.rs
@@ -489,6 +494,7 @@ jobs:
           grep -q "mitm_browser_capture_traffic_proof_requires_confirmation_before_reading_evidence" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_browser_capture_traffic_proof_uses_injected_probe_for_observed_token" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_browser_capture_traffic_proof_defaults_to_session_proof_binding" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_browser_capture_traffic_proof_requires_bound_proxy_and_connect_authority" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_browser_capture_traffic_proof_reports_missing_token_without_live_mitm_claim" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_browser_capture_traffic_proof_stays_blocked_without_probe_wiring" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "browser_capture_entrypoint_routes_traffic_proof_to_injected_probe" apps/linux-cli/tests/linux_cli_contracts.rs
@@ -664,6 +670,7 @@ jobs:
           grep -q "proxy_scheme" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "socks5://127.0.0.1:7890" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "proof_target_url" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "proof_connect_authority" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "networkcore_proof_token" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "traffic_proof_command" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "CONNECT endpoint" docs/architecture/linux-mitm-browser-capture-source-contract.md
@@ -680,9 +687,11 @@ jobs:
           grep -q "profile_prefs_content" apps/linux-cli/src/lib.rs
           grep -q -- "--profile-prefs-file" apps/linux-cli/src/lib.rs
           grep -q "proof_target_url" apps/linux-cli/src/lib.rs
+          grep -q "proof_connect_authority" apps/linux-cli/src/lib.rs
           grep -q "traffic_proof_command" apps/linux-cli/src/lib.rs
           grep -q "networkcore_proof_token" apps/linux-cli/src/lib.rs
           grep -q "proof_target_url" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "proof_connect_authority" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_browser_capture_apply_can_restore_firefox_profile_prefs_file" apps/linux-cli/tests/linux_cli_contracts.rs
@@ -889,6 +898,7 @@ jobs:
           grep -q "cli.linux.mitm.browser_capture.traffic_proof.observed" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "cli.linux.mitm.browser_capture.traffic_proof.missing" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "cli.linux.mitm.browser_capture.traffic_proof.log_unreadable" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "cli.linux.mitm.browser_capture.traffic_proof.binding_mismatch" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "cli.linux.mitm.browser_capture.traffic_proof.blocked" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "handle_mitm_browser_capture_traffic_proof" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "linux-mitm-certificate-lifecycle-source-contract.md" README.md
