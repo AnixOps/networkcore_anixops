@@ -895,8 +895,9 @@ jobs:
           "@
           $installText | Set-Content -Path (Join-Path $stagingDir "INSTALL.md") -Encoding utf8
 
-          $actualFiles = Get-ChildItem -Path $stagingDir -Recurse -File | ForEach-Object {
-            $_.FullName.Substring($stagingDir.Length + 1).Replace('\', '/')
+          $stagingDirPath = (Resolve-Path $stagingDir).Path
+          $actualFiles = Get-ChildItem -Path $stagingDirPath -Recurse -File | ForEach-Object {
+            $_.FullName.Substring($stagingDirPath.Length + 1).Replace('\', '/')
           } | Sort-Object
           $expectedFiles = @("CHANGELOG.md", "INSTALL.md", "LICENSE", "bin/$env:BINARY.exe")
           if (($actualFiles -join ',') -ne ($expectedFiles -join ',')) {
