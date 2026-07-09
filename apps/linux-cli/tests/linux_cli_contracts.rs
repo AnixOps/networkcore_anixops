@@ -56,10 +56,10 @@ use networkcore_linux::{
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
     MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
-    SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest, SubscriptionCatalogRemoveRequest,
-    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
-    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
-    CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+    SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
+    SubscriptionCatalogRemoveRequest, UnavailableForegroundLifecycleHost,
+    UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
+    CLI_CONFIG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE,
@@ -329,7 +329,10 @@ fn subscription_catalog_remove_persists_snapshot_and_redacts_location() {
         &std::fs::read_to_string(&catalog_path).expect("catalog should be readable"),
     )
     .expect("catalog should be valid JSON");
-    assert_eq!(catalog["sources"].as_array().expect("sources array").len(), 1);
+    assert_eq!(
+        catalog["sources"].as_array().expect("sources array").len(),
+        1
+    );
     assert_eq!(catalog["sources"][0]["id"], "remote");
 
     let snapshot: serde_json::Value = serde_json::from_str(
@@ -337,8 +340,14 @@ fn subscription_catalog_remove_persists_snapshot_and_redacts_location() {
     )
     .expect("snapshot should be valid JSON");
     assert_eq!(snapshot["schema_version"], 1);
-    assert_eq!(snapshot["sources"].as_array().expect("sources array").len(), 2);
-    assert_eq!(snapshot["sources"][0]["location"], "inline:secret-subscription-payload");
+    assert_eq!(
+        snapshot["sources"].as_array().expect("sources array").len(),
+        2
+    );
+    assert_eq!(
+        snapshot["sources"][0]["location"],
+        "inline:secret-subscription-payload"
+    );
 
     let catalog_before_missing =
         std::fs::read_to_string(&catalog_path).expect("catalog should remain readable");
