@@ -1,8 +1,8 @@
 use networkcore_windows::{
     cli_help_text, handle_entrypoint, handle_parse_error, parse_args, render_response,
     OutputFormat, WindowsCliCommand, WindowsCliExitCode, CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE,
-    CLI_WINDOWS_ARTIFACT_READY_CODE, CLI_WINDOWS_SYSTEM_MUTATION_BLOCKED_CODE,
-    COMMAND_NAME, WINDOWS_CLI_SUBSCRIPTION_COMPATIBILITY_STATUS,
+    CLI_WINDOWS_ARTIFACT_READY_CODE, CLI_WINDOWS_SYSTEM_MUTATION_BLOCKED_CODE, COMMAND_NAME,
+    WINDOWS_CLI_SUBSCRIPTION_COMPATIBILITY_STATUS,
 };
 use platform_windows::{
     ReadOnlyWindowsPlatformCapabilityService, WINDOWS_ACTIVE_STATUS, WINDOWS_BLOCKED_STATUS,

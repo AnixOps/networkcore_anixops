@@ -23,8 +23,7 @@ pub const CLI_WINDOWS_ARGUMENT_VALUE_MISSING_CODE: &str = "cli.windows.argument.
 pub const CLI_WINDOWS_OUTPUT_FORMAT_UNSUPPORTED_CODE: &str =
     "cli.windows.output.format_unsupported";
 pub const CLI_WINDOWS_ARTIFACT_READY_CODE: &str = "cli.windows.artifact.package_ready";
-pub const CLI_WINDOWS_SYSTEM_MUTATION_BLOCKED_CODE: &str =
-    "cli.windows.system_mutation.blocked";
+pub const CLI_WINDOWS_SYSTEM_MUTATION_BLOCKED_CODE: &str = "cli.windows.system_mutation.blocked";
 pub const CLI_WINDOWS_SUBSCRIPTION_DEFERRED_CODE: &str =
     "cli.windows.subscription_compatibility.deferred";
 
@@ -341,14 +340,13 @@ pub fn handle_entrypoint(
     let snapshot = platform.snapshot();
     match command {
         WindowsCliCommand::Help { .. } => WindowsCliResponse::success(command.name()),
-        WindowsCliCommand::Version { .. } => {
-            WindowsCliResponse::success(command.name()).with_version(WindowsCliVersion {
+        WindowsCliCommand::Version { .. } => WindowsCliResponse::success(command.name())
+            .with_version(WindowsCliVersion {
                 package: COMMAND_NAME,
                 version: env!("CARGO_PKG_VERSION"),
                 source_identity: WINDOWS_CLI_SOURCE_IDENTITY,
                 version_scope: WINDOWS_CLI_VERSION_SCOPE,
-            })
-        }
+            }),
         WindowsCliCommand::Capabilities { .. } => WindowsCliResponse::success(command.name())
             .with_capabilities(WindowsCliCapabilities::from_snapshot(&snapshot)),
         WindowsCliCommand::Status { .. } => WindowsCliResponse::success(command.name())
