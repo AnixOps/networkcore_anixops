@@ -6,7 +6,13 @@
 
 ### Added
 
-- 新增 `v0.1.0-alpha.16` source-only controlled TLS termination plan：`engine-native` 新增 `NativeControlledTlsTerminationPlanReport`、`plan_explicit_http_connect_controlled_tls_termination`、`engine.native.runtime.http_proxy_tls_termination_plan_ready` 和 `engine.native.runtime.http_proxy_tls_termination_deferred`，在 explicit HTTP `CONNECT` tunnel、bounded ClientHello/SNI observation 和 NetworkCore CA certificate/private key PEM material 同时具备时输出 controlled downstream TLS termination plan；`networkcore-linux mitm http-rewrite plan/preview` 的 report/JSON 新增 `controlled_tls_termination_plan_ready`、`downstream_tls_termination_plan_ready` 和 `upstream_tls_forwarding_ready`，同时保持 `tls_decryption_ready=false`；新增 `explicit_http_connect_tls_termination_plan_keeps_rewrite_deferred`、`explicit_http_connect_tls_termination_plan_defers_without_material_or_hello` 和 `mitm_http_rewrite_plan_reports_controlled_tls_termination_plan_without_decryption` 合同测试。该增量仍不执行 live HTTPS decryption、HTTPS request/response rewrite、CA trust mutation、browser/system proxy mutation 或 JavaScript script dispatch，尚未进入用户可下载 artifact。
+- 同步 `v0.1.0-alpha.16` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README 和 `mitm-policy` README 现在把 `v0.1.0-alpha.16` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 alpha.17 HTTPS request rewrite preview 起。
+
+## v0.1.0-alpha.16 - 2026-07-09
+
+### Added
+
+- 新增 `v0.1.0-alpha.16` controlled TLS termination plan：`engine-native` 新增 `NativeControlledTlsTerminationPlanReport`、`plan_explicit_http_connect_controlled_tls_termination`、`engine.native.runtime.http_proxy_tls_termination_plan_ready` 和 `engine.native.runtime.http_proxy_tls_termination_deferred`，在 explicit HTTP `CONNECT` tunnel、bounded ClientHello/SNI observation 和 NetworkCore CA certificate/private key PEM material 同时具备时输出 controlled downstream TLS termination plan；`networkcore-linux mitm http-rewrite plan/preview` 的 report/JSON 新增 `controlled_tls_termination_plan_ready`、`downstream_tls_termination_plan_ready` 和 `upstream_tls_forwarding_ready`，同时保持 `tls_decryption_ready=false`；新增 `explicit_http_connect_tls_termination_plan_keeps_rewrite_deferred`、`explicit_http_connect_tls_termination_plan_defers_without_material_or_hello` 和 `mitm_http_rewrite_plan_reports_controlled_tls_termination_plan_without_decryption` 合同测试。该版本仍不执行 live HTTPS decryption、HTTPS request/response rewrite、CA trust mutation、browser/system proxy mutation 或 JavaScript script dispatch。
 - 同步 `v0.1.0-alpha.15` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README、`mitm-policy` README 和相关 source contract 现在把 `v0.1.0-alpha.15` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 alpha.16 controlled TLS termination foundation 起。
 
 ## v0.1.0-alpha.15 - 2026-07-09

@@ -328,9 +328,9 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 最新已发布切片
 
-### `v0.1.0-alpha.15`
+### `v0.1.0-alpha.16`
 
-状态：已发布；`v0.1.0-alpha.15` tag release 切片，发布 Linux TLS MITM foundation readiness。
+状态：已发布；`v0.1.0-alpha.16` tag release 切片，发布 Linux controlled TLS termination foundation。
 
 当前 artifact 能力：
 
@@ -344,26 +344,6 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 - `ListenerKind::Http` explicit proxy `CONNECT host:443` 可经既有 SOCKS outbound primitive
   建立标准 `HTTP/1.1 200 Connection Established` tunnel，并对 CONNECT 后的有限 TCP bytes 做
   bounded ClientHello/SNI observation 和 pass-through relay。
-
-明确不承诺：
-
-- 尚不执行 downstream TLS termination，不解密 HTTPS。
-- 尚不解析 CONNECT 后的 HTTPS request/response，不应用 HTTPS request/response rewrite。
-- 不执行 JavaScript script dispatch。
-- 不安装、信任、撤销或回滚 CA trust store。
-- Dedicated profile trust artifact 只是 caller-provided path 上的 CA PEM copy，不代表 profile trust state 已修改。
-- 不修改 browser/system proxy、system PAC、TUN、DNS、firewall 或路由状态。
-- 不代表 Windows artifact、跨平台 parity 或 managed lifecycle 已进入 release。
-
-## 当前 main source-only 增量
-
-### `v0.1.0-alpha.16`
-
-状态：source-only first step；尚未 tag release。最终用户可下载能力仍必须等待 `v0.1.0-alpha.16`
-tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release asset 全部通过。
-
-当前源码能力：
-
 - Linux controlled TLS termination plan foundation：`engine-native` 新增 `NativeControlledTlsTerminationPlanReport`、
   `plan_explicit_http_connect_controlled_tls_termination`、
   `engine.native.runtime.http_proxy_tls_termination_plan_ready` 和
@@ -388,7 +368,12 @@ tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Rel
 - 不执行 JavaScript script dispatch。
 - 不安装、信任、撤销或回滚 CA trust store。
 - 不修改 browser/system proxy、system PAC、TUN、DNS、firewall 或路由状态。
-- 不代表 `v0.1.0-alpha.16` 已发布；当前最新可下载 Linux artifact 仍是 `v0.1.0-alpha.15`。
+- 不代表 Windows artifact、跨平台 parity 或 managed lifecycle 已进入 release。
+
+## 当前 main source 状态
+
+当前 main 与 `v0.1.0-alpha.16` 发布边界对齐。下一步 `v0.1.0-alpha.17` 才推进 Linux HTTPS request rewrite preview；
+该后续能力仍必须等待新的 source 增量、tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release asset 全部通过。
 
 ## 已拍板后续版本节奏
 
@@ -405,7 +390,7 @@ tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Rel
 - `v0.1.0-alpha.14`：Linux explicit HTTP proxy live plain HTTP data plane。已发布；真实 `http://`
   请求可在 dedicated/explicit proxy 路径应用 reject、redirect、header/body rewrite。
 - `v0.1.0-alpha.15`：Linux TLS MITM foundation readiness。完成 CONNECT pass-through tunnel、bounded ClientHello/SNI observation、TLS 可消费 CA certificate PEM/private key PEM 和 dedicated profile CA PEM copy；仍不执行 TLS termination、HTTPS decryption 或 JavaScript script dispatch。
-- `v0.1.0-alpha.16`：Linux controlled TLS termination foundation。先发布 controlled downstream TLS
+- `v0.1.0-alpha.16`：Linux controlled TLS termination foundation。已发布 controlled downstream TLS
   termination plan/report、CA material readiness binding 和诊断，不执行 JavaScript script dispatch。
 - `v0.1.0-alpha.17`：Linux HTTPS request rewrite preview。对 dedicated/explicit HTTPS 请求应用
   reject、redirect 和 request header rewrite，response body rewrite 继续独立切片。

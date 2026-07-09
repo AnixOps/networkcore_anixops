@@ -11,8 +11,8 @@ The crate currently provides:
 - JSON response rendering for automation-facing output contracts.
 - A minimal binary that wires `capabilities`, `status`, `diagnostics`, `mitm status/diagnostics/certificate-plan/browser-plan`, `mitm certificate apply/rollback`, `mitm http-rewrite plan/preview`, and `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` to `HostLinuxReadOnlyProbe`, wires `mitm certificate apply/rollback` to `CommandMitmCertificateArtifactStore`, wires `mitm browser-capture launch --confirm` to an injected `BrowserCaptureProcessRunner`, wires `mitm browser-capture verify --confirm` to an injected `BrowserCaptureEndpointProbe`, wires `mitm browser-capture traffic-proof --confirm` to an injected `BrowserCaptureTrafficProofProbe`, wires `prepare-config` to the pure `config-core` service, wires `start` to `engine-native::NativeProxyEngineService` through `RuntimeOrchestrator` with the built-in `networkcore.adblock` MITM plugin hook, wires `install-sing-box` to the `engine-singbox` latest release installer, and wires `run-url` to the `config-core` URL parser plus `sing-box` config renderer and foreground process runner.
 
-Release/source split: the latest published Linux artifact is `v0.1.0-alpha.15`.
-This README describes current `main` source. The `v0.1.0-alpha.15` artifact
+Release/source split: the latest published Linux artifact is `v0.1.0-alpha.16`.
+This README describes current `main` source. The `v0.1.0-alpha.16` artifact
 includes `mitm certificate apply --confirm --cert-file <path> --key-file
 <path> [--profile-trust-file <path>] --snapshot <path>` / `rollback --snapshot <path>` certificate artifact
 lifecycle, TLS-consumable CA certificate PEM, private key PEM, and an optional dedicated profile CA PEM copy while keeping CA install/trust mutation blocked. The artifact also includes `mitm http-rewrite plan` / `mitm http-rewrite preview --confirm --url <url>`
@@ -46,21 +46,24 @@ failure for plugin `Reject`, emits
 `engine.native.runtime.http_mitm_connect_browser_proof_observed` with the same
 default proof token, and does not decrypt HTTPS. The HTTP rewrite preview applies
 plugin outcomes only to caller-provided plain HTTP input and does not intercept
-live browser/system traffic or execute TLS decryption. The dedicated profile trust artifact increment is not included in
+live browser/system traffic or execute TLS decryption. The latest artifact also includes the controlled TLS termination plan/report:
+`NativeControlledTlsTerminationPlanReport` and
+`plan_explicit_http_connect_controlled_tls_termination` can report that a
+CONNECT tunnel, observed ClientHello/SNI, and NetworkCore CA certificate/private
+key PEM material are sufficient to plan downstream TLS termination; the
+`http_rewrite` report exposes `controlled_tls_termination_plan_ready`,
+`downstream_tls_termination_plan_ready`, and `upstream_tls_forwarding_ready`
+while keeping `tls_decryption_ready=false`. The dedicated profile trust artifact increment is not included in
 older artifacts before `v0.1.0-alpha.13`; the plain HTTP rewrite foundation is not included before `v0.1.0-alpha.12`.
 The per-alpha feature and boundary index is
 `docs/alpha-release-feature-matrix.md`.
 
-Current `main` additionally contains the `v0.1.0-alpha.16` source-only
-controlled TLS termination plan in `engine-native`: `NativeControlledTlsTerminationPlanReport`
-and `plan_explicit_http_connect_controlled_tls_termination` can report that a
-CONNECT tunnel, observed ClientHello/SNI, and NetworkCore CA certificate/private
-key PEM material are sufficient to plan downstream TLS termination. The
-`http_rewrite` report exposes `controlled_tls_termination_plan_ready`,
-`downstream_tls_termination_plan_ready`, and `upstream_tls_forwarding_ready`
-while keeping `tls_decryption_ready=false`. This does not enable live HTTPS
-decryption, HTTPS request/response rewrite, CA trust mutation, browser/system
-proxy mutation, or JavaScript script dispatch.
+Current `main` is aligned with the `v0.1.0-alpha.16` release boundary. The next
+planned `v0.1.0-alpha.17` source increment is Linux HTTPS request rewrite
+preview; it is not present in the current artifact. The controlled TLS
+termination plan does not enable live HTTPS decryption, HTTPS request/response
+rewrite, CA trust mutation, browser/system proxy mutation, or JavaScript script
+dispatch.
 
 P4 current stage source of truth: this crate is now in P4 Client And Platform
 Integration. P3 Runtime Capability Baseline is completed history, not the
