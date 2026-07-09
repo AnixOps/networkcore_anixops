@@ -111,6 +111,12 @@ P4 backlog buckets：
 - MITM 数据面和证书生命周期：在已具备 certificate artifact lifecycle 的基础上补齐 CA 安装/信任/撤销/trust-store 回滚，以及把 `mitm-policy` `HttpMitmOutcome` rewrite plan 接入 HTTP/TLS 数据面；当前只输出 policy-only 状态、证书/浏览器计划、`certificate_lifecycle` artifact report、rich mutation plan，并在 native SOCKS5 CONNECT 前置点应用插件 `Reject` 为 CONNECT failure。
 - 浏览器捕获用户闭环：在 dedicated-profile launch、local proxy endpoint verify、target route verify、proof-log-token traffic proof 和 PAC/browser policy artifact apply/rollback 之后，继续补完整 live browser traffic proof 自动化、显式 browser/system proxy 配置、系统 PAC 或其他捕获策略，以及安全授权和回滚边界。
 
+已拍板版本节奏：
+
+- `v0.1.0`：Linux-only explicit HTTPS rewrite preview。后续 alpha.13 到 alpha.19 依次推进 dedicated profile CA trust、plain HTTP live data plane、TLS MITM foundation、HTTPS request rewrite、HTTPS response rewrite、live browser proof hardening 和 release hardening；不包含 Windows artifact、JavaScript script dispatch、system trust store mutation、system proxy mutation、daemon/service、TUN、DNS 或 firewall mutation。
+- `v0.1.1`：正式引入 Windows 版本，并把订阅兼容作为主线。Windows 首期目标是 CLI artifact 和 release path，不默认包含 Windows service、driver、installer 或系统代理 mutation；订阅侧推进 VLESS、VMess、Trojan 高频子集、Clash YAML、sing-box JSON、节点选择和 cross-platform run plan。
+- `v0.1.2`：managed lifecycle 版本。新增 persistent subscription catalog、managed foreground status/events/logs/reload/rollback，并在 alpha 切片中相继推出 JavaScript script dispatch、system trust store mutation、system proxy mutation 和 managed MITM session orchestration；所有高风险 mutation 必须显式授权、可检测、可回滚。
+
 Linux CLI 二进制发布路径已打通：首个真实发布路径从 `v0.1.0-alpha.2` 开始，当前最新 GitHub Release 是
 `v0.1.0-alpha.12`，由 GitHub Actions 构建并发布 `networkcore-linux` Linux tarball、sha256、manifest
 和 manifest sha256，release workflow 同时完成同 commit CI gate、artifact checksum、manifest、

@@ -274,6 +274,103 @@ plain HTTP preview 为核心，固定 `MITM_HTTP_TLS_DATA_PLANE_GATE=plain-http-
 - 不执行 JavaScript plugin script dispatch。
 - 不承诺完整自动 browser hijack 或完整 HTTPS rewrite；该能力必须等待后续 alpha 切片。
 
+## 已拍板后续版本节奏
+
+以下是 `v0.1.0` 到 `v0.1.2` 的规划 source of truth。未发布版本只表达切片目标，
+最终能力仍必须以新 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release
+结果为准。
+
+### `v0.1.0`
+
+目标：Linux-only explicit HTTPS rewrite preview。
+
+规划切片：
+
+- `v0.1.0-alpha.13`：Linux dedicated profile CA trust foundation。只允许显式授权的
+  dedicated browser/profile trust 或 NetworkCore-owned trust artifact/snapshot，不修改系统 trust store。
+- `v0.1.0-alpha.14`：Linux explicit HTTP proxy live plain HTTP data plane。真实 `http://`
+  请求在 dedicated/explicit proxy 路径应用 reject、redirect、header/body rewrite。
+- `v0.1.0-alpha.15`：Linux TLS MITM foundation。CONNECT 后建立受控 TLS termination 与 upstream TLS
+  forwarding，先证明解密通路和诊断，不执行 JavaScript script dispatch。
+- `v0.1.0-alpha.16`：Linux HTTPS request rewrite preview。对 dedicated/explicit HTTPS 请求应用
+  reject、redirect 和 request header rewrite，response body rewrite 继续独立切片。
+- `v0.1.0-alpha.17`：Linux HTTPS response rewrite preview。加入 response header/body rewrite，
+  带 content-type、body size 和 buffering guard；JavaScript script dispatch 仍 deferred。
+- `v0.1.0-alpha.18`：Linux live browser proof hardening。把 dedicated browser proof、TLS MITM
+  诊断和 rewrite-applied proof 串成可审计 report，并补 rollback/conflict diagnostics。
+- `v0.1.0-alpha.19`：Linux release hardening。冻结功能，只修 CLI UX、JSON 字段、错误码、文档、
+  CI governance、release notes 和 rollback 边界。
+- `v0.1.0-rc.1`：功能冻结候选版；只允许 CI、release、文档和回归修复。
+- `v0.1.0`：发布 Linux-only explicit HTTPS rewrite preview artifact。
+
+明确不包含：
+
+- 不包含 Windows 正式 artifact。
+- 不包含 JavaScript script dispatch。
+- 不包含 system trust store mutation。
+- 不包含 system/browser proxy mutation 或 system PAC installation。
+- 不包含 daemon/service、TUN、DNS 或 firewall mutation。
+
+### `v0.1.1`
+
+目标：正式引入 Windows 版本，并完成订阅兼容主线。
+
+规划切片：
+
+- `v0.1.1-alpha.1`：Windows CLI artifact source/release contract。定义 Windows runner、
+  toolchain、archive 格式、checksum、manifest、attestation、release notes、rollback 和 signing policy；
+  优先发布 Windows CLI zip，不默认包含 service、driver 或 installer。
+- `v0.1.1-alpha.2`：Windows CLI package/publish path。Release workflow 增加 `package-windows`
+  和 publish eligibility gate，产物只由 GitHub Actions 生成。
+- `v0.1.1-alpha.3`：订阅格式扩展。接入 VLESS、VMess、Trojan URL 高频子集，以及 Clash YAML、
+  sing-box JSON 的 source contract 和 parser gates。
+- `v0.1.1-alpha.4`：节点选择和运行计划。支持按 name/tag/filter 选择节点，输出 cross-platform
+  run plan，并保持 secret redaction。
+- `v0.1.1-alpha.5`：Linux/Windows subscription run preview。把订阅兼容和节点选择接入
+  Linux/Windows CLI 可下载 artifact，仍不引入 daemon/service。
+- `v0.1.1-rc.1`：Windows artifact 和订阅兼容功能冻结候选版。
+- `v0.1.1`：发布 Linux + Windows CLI artifact，订阅兼容作为主能力。
+
+明确不包含：
+
+- 不包含 Windows service、driver、installer 或系统代理 mutation。
+- 不包含 JavaScript script dispatch。
+- 不包含 system trust store mutation。
+- 不包含 managed daemon lifecycle。
+
+### `v0.1.2`
+
+目标：managed lifecycle，并在 alpha 切片中相继推出 JavaScript script dispatch、system trust store
+mutation 和 system proxy mutation。
+
+规划切片：
+
+- `v0.1.2-alpha.1`：persistent subscription catalog。新增 `add/list/remove/select/update`
+  source contract、本地存储、脱敏输出和 rollback snapshot。
+- `v0.1.2-alpha.2`：managed foreground lifecycle。新增 managed `status/events/logs/reload/rollback`
+  命令面；仍不默认安装 daemon/service。
+- `v0.1.2-alpha.3`：JavaScript script dispatch foundation。基于 plugin permission、sandbox/timeout、
+  IO guard、audit log 和 CI governance 执行受控 script dispatch。
+- `v0.1.2-alpha.4`：system trust store mutation foundation。显式授权后执行平台 trust store
+  apply/detect/revoke/rollback，必须有 snapshot、conflict detection 和 blocked fallback。
+- `v0.1.2-alpha.5`：system proxy mutation foundation。显式授权后执行 system proxy/system PAC
+  apply/detect/rollback，必须有 snapshot、conflict detection 和 route proof。
+- `v0.1.2-alpha.6`：managed MITM session orchestration。把 subscription catalog、managed lifecycle、
+  trust/proxy mutation、browser proof 和 rewrite proof 串成一键会话计划与回滚路径。
+- `v0.1.2-alpha.7`：cross-platform parity hardening。按 Linux/Windows 能力差异收口输出字段、
+  release notes、manual intervention markers 和 rollback docs。
+- `v0.1.2-rc.1`：managed lifecycle 功能冻结候选版。
+- `v0.1.2`：发布 managed lifecycle 版本。
+
+明确边界：
+
+- system trust store 和 system proxy mutation 必须显式授权、可检测、可回滚，并在无法自动化时写入
+  `docs/manual-intervention.md`。
+- JavaScript script dispatch 必须先落 permission、sandbox、timeout、audit 和 CI governance，不能直接
+  执行无约束远程脚本。
+- iOS、macOS GUI、Windows service/installer、daemon/service、TUN/DNS/firewall mutation 仍不作为
+  `v0.1.2` 默认承诺，除非后续单独拍板并补 source contract。
+
 ## 相关文档
 
 - [Release Strategy](release-strategy.md)

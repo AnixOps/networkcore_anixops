@@ -6,7 +6,7 @@
 
 ### Added
 
-- 暂无。
+- 固定 `v0.1.0` 到 `v0.1.2` 的拍板版本节奏：`v0.1.0` 目标为 Linux-only explicit HTTPS rewrite preview，`v0.1.1` 正式引入 Windows CLI artifact 并推进订阅兼容，`v0.1.2` 推进 managed lifecycle，并在 alpha 切片中相继推出 JavaScript script dispatch、system trust store mutation 和 system proxy mutation。该条目只更新规划 source of truth，不代表未发布能力已经进入用户 artifact。
 
 ## v0.1.0-alpha.12 - 2026-07-09
 

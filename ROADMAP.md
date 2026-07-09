@@ -128,9 +128,15 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Ker
 
 P4 backlog buckets：
 
-- 订阅和客户端兼容：继续把多客户端订阅格式、节点选择、持久订阅和 managed lifecycle 接入 public engine adapter 路线。
-- MITM 数据面和证书生命周期：把证书 lifecycle 从 artifact lifecycle 推进到受控 trust mutation，并把 `mitm-policy` redirect/header/body/script rewrite plan 接到 HTTP/TLS 数据面。
-- 浏览器捕获用户闭环：从 dedicated-profile launch、proxy route verify、proof-log-token traffic proof 和 PAC/browser policy artifact apply/rollback 推进到完整 live browser traffic proof 自动化、显式代理/system PAC 或系统 mutation、snapshot 和 rollback。
+- 订阅和客户端兼容：`v0.1.1` 主线，继续把多客户端订阅格式、节点选择和 Linux/Windows CLI artifact 接入 public engine adapter 路线。
+- MITM 数据面和证书生命周期：`v0.1.0` 先完成 Linux-only explicit HTTPS rewrite preview；`v0.1.2` alpha 再相继推出 JavaScript script dispatch、system trust store mutation 和 system proxy mutation。
+- 浏览器捕获用户闭环：从 dedicated-profile launch、proxy route verify、proof-log-token traffic proof 和 PAC/browser policy artifact apply/rollback 推进到完整 live browser traffic proof 自动化、显式代理/system PAC 或系统 mutation、snapshot 和 rollback；完整 managed session 编排归入 `v0.1.2`。
+
+已拍板版本节奏：
+
+- `v0.1.0`：Linux-only explicit HTTPS rewrite preview。后续 alpha.13 到 alpha.19 依次推进 dedicated profile CA trust、plain HTTP live data plane、TLS MITM foundation、HTTPS request rewrite、HTTPS response rewrite、live browser proof hardening 和 release hardening；不包含 Windows artifact、JavaScript script dispatch、system trust store mutation、system proxy mutation、daemon/service、TUN、DNS 或 firewall mutation。
+- `v0.1.1`：正式引入 Windows 版本，并把订阅兼容作为主线。Windows 首期目标是 CLI artifact 和 release path，不默认包含 Windows service、driver、installer 或系统代理 mutation；订阅侧推进 VLESS、VMess、Trojan 高频子集、Clash YAML、sing-box JSON、节点选择和 cross-platform run plan。
+- `v0.1.2`：managed lifecycle 版本。新增 persistent subscription catalog、managed foreground status/events/logs/reload/rollback，并在 alpha 切片中相继推出 JavaScript script dispatch、system trust store mutation、system proxy mutation 和 managed MITM session orchestration；所有高风险 mutation 必须显式授权、可检测、可回滚。
 
 当前发布规划：
 

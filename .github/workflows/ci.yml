@@ -181,6 +181,18 @@ jobs:
           grep -Fq "v0.1.0-alpha.10" docs/alpha-release-feature-matrix.md
           grep -Fq "v0.1.0-alpha.11" docs/alpha-release-feature-matrix.md
           grep -Fq "v0.1.0-alpha.12" docs/alpha-release-feature-matrix.md
+          grep -Fq "已拍板后续版本节奏" docs/alpha-release-feature-matrix.md
+          grep -Fq "Linux-only explicit HTTPS rewrite preview" docs/alpha-release-feature-matrix.md
+          grep -Fq "v0.1.1" docs/alpha-release-feature-matrix.md
+          grep -Fq "v0.1.2" docs/alpha-release-feature-matrix.md
+          grep -Fq "Windows CLI artifact" docs/alpha-release-feature-matrix.md
+          grep -Fq "JavaScript script dispatch" docs/alpha-release-feature-matrix.md
+          grep -Fq "system trust store mutation" docs/alpha-release-feature-matrix.md
+          grep -Fq "system proxy mutation" docs/alpha-release-feature-matrix.md
+          grep -Fq "Linux-only explicit HTTPS rewrite preview" README.md
+          grep -Fq "v0.1.1" ROADMAP.md
+          grep -Fq "v0.1.2" TODO.md
+          grep -Fq "Windows CLI artifact" docs/release-strategy.md
           grep -Fq "docs/alpha-release-feature-matrix.md" README.md
           grep -Fq "docs/alpha-release-feature-matrix.md" ROADMAP.md
           grep -Fq "docs/alpha-release-feature-matrix.md" TODO.md
