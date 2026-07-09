@@ -30,7 +30,7 @@ windows-cli-artifact-authenticode-policy=unsigned-no-authenticode-for-alpha-cli-
 windows-cli-artifact-attestation-policy=github-artifact-attestation-required
 windows-cli-artifact-package-windows=defined
 windows-cli-artifact-release-assets=enabled-after-attestation-and-publish-gate
-windows-cli-artifact-next-action=subscription-parser-gates-after-windows-artifact
+windows-cli-artifact-next-action=subscription-run-preview-and-node-selection
 ```
 
 ## Purpose
@@ -42,7 +42,7 @@ eligibility gate。
 
 `v0.1.1-alpha.2` 生成 Windows CLI zip 并上传 Windows release asset，但不引入 Windows service、
 driver、installer、系统代理 mutation、system trust store mutation、JavaScript script dispatch 或 managed
-lifecycle。订阅格式扩展继续等待 `v0.1.1-alpha.3` 或后续明确切片。
+lifecycle。共享 `config-core` parser gates 可在 `v0.1.1-alpha.3` 源码中继续推进；Windows CLI 订阅 run preview、节点选择和 run compatibility 仍等待后续明确切片。
 
 ## Source Identity Boundary
 

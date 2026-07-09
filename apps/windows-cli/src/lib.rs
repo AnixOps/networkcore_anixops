@@ -16,7 +16,8 @@ pub const COMMAND_NAME: &str = "networkcore-windows";
 pub const PLATFORM_NAME: &str = "windows";
 pub const WINDOWS_CLI_SOURCE_CONTRACT_STATUS: &str = "active";
 pub const WINDOWS_CLI_VERSION_SCOPE: &str = "v0.1.1-alpha.2";
-pub const WINDOWS_CLI_SUBSCRIPTION_COMPATIBILITY_STATUS: &str = "deferred-to-v0.1.1-alpha.3";
+pub const WINDOWS_CLI_SUBSCRIPTION_COMPATIBILITY_STATUS: &str =
+    "parser-gates-active-run-compat-deferred";
 
 pub const CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE: &str = "cli.windows.argument.unknown";
 pub const CLI_WINDOWS_ARGUMENT_VALUE_MISSING_CODE: &str = "cli.windows.argument.value_missing";
@@ -451,7 +452,7 @@ fn windows_cli_diagnostics(snapshot: &WindowsPlatformSnapshot) -> Vec<WindowsCli
         WindowsCliDiagnostic::new(
             WindowsCliDiagnosticSeverity::Info,
             CLI_WINDOWS_SUBSCRIPTION_DEFERRED_CODE,
-            "Subscription compatibility remains deferred to later v0.1.1 alpha slices.",
+            "Shared subscription parser gates are active in config-core, but Windows subscription run compatibility remains deferred to later v0.1.1 alpha slices.",
             "cli.windows.subscription",
         ),
     ]

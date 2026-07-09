@@ -279,6 +279,63 @@ fn parses_single_vmess_url_subscription_into_node_catalog() {
 }
 
 #[test]
+fn parses_clash_yaml_subscription_into_node_catalog() {
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "clash-yaml".to_string(),
+        content: r#"
+proxies:
+  - name: HK Clash
+    type: ss
+    server: 82.47.34.99
+    port: 11111
+    cipher: aes-256-gcm
+    password: f43c0eee-13b9-4f07-bec9-d4b744141503
+proxy-groups: []
+rules: []
+"#
+        .to_string(),
+    };
+
+    let document = service
+        .parse(&raw)
+        .expect("clash yaml should parse into a subscription document");
+    assert!(document.diagnostics.is_empty());
+    let catalog = service
+        .normalize(&document)
+        .expect("clash yaml document should normalize");
+
+    assert_eq!(catalog.nodes.len(), 1);
+    assert!(catalog.rules.is_empty());
+    let node = &catalog.nodes[0];
+    assert_eq!(node.id, "clash-ss-hk-clash");
+    assert_eq!(node.name, "HK Clash");
+    assert_eq!(node.protocol, Protocol::Shadowsocks);
+    assert_eq!(node.endpoint.host, "82.47.34.99");
+    assert_eq!(node.endpoint.port, 11111);
+    assert_eq!(
+        node.tags,
+        vec![
+            "subscription".to_string(),
+            "clash-yaml".to_string(),
+            "ss".to_string()
+        ]
+    );
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_SHADOWSOCKS_METHOD,
+        "aes-256-gcm",
+    );
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_SHADOWSOCKS_PASSWORD,
+        "f43c0eee-13b9-4f07-bec9-d4b744141503",
+    );
+    assert_metadata(&node.metadata, NODE_METADATA_SOURCE_FORMAT, "clash-yaml");
+    assert_metadata(&node.metadata, "subscription.source_id", "clash-yaml");
+}
+
+#[test]
 fn unsupported_proxy_link_returns_stable_subscription_diagnostic() {
     let service = CoreSubscriptionService::new();
     let raw = RawSubscription {

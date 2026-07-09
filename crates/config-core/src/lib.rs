@@ -55,6 +55,9 @@ pub const SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE: &str =
 pub const SUBSCRIPTION_TROJAN_LINK_INVALID_CODE: &str = "subscription.core.trojan_link_invalid";
 pub const SUBSCRIPTION_VLESS_LINK_INVALID_CODE: &str = "subscription.core.vless_link_invalid";
 pub const SUBSCRIPTION_VMESS_LINK_INVALID_CODE: &str = "subscription.core.vmess_link_invalid";
+pub const SUBSCRIPTION_CLASH_YAML_INVALID_CODE: &str = "subscription.core.clash_yaml_invalid";
+pub const SUBSCRIPTION_CLASH_YAML_UNSUPPORTED_CODE: &str =
+    "subscription.core.clash_yaml_unsupported";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CoreConfigurationService;
@@ -99,6 +102,39 @@ struct RawConfigDocument {
 struct RawSubscriptionDocument {
     nodes: Option<Vec<RawNode>>,
     routes: Option<Vec<RawRoute>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawClashDocument {
+    proxies: Option<Vec<RawClashProxy>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawClashProxy {
+    name: Option<RawClashScalar>,
+    #[serde(rename = "type")]
+    protocol: Option<RawClashScalar>,
+    server: Option<RawClashScalar>,
+    port: Option<RawClashScalar>,
+    cipher: Option<RawClashScalar>,
+    password: Option<RawClashScalar>,
+    uuid: Option<RawClashScalar>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawClashScalar {
+    Text(String),
+    Integer(i64),
+}
+
+impl RawClashScalar {
+    fn into_text(self) -> String {
+        match self {
+            Self::Text(value) => value,
+            Self::Integer(value) => value.to_string(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -229,13 +265,19 @@ impl SubscriptionService for CoreSubscriptionService {
             });
         }
 
+        if let Some(document) =
+            parse_clash_yaml_subscription(&source_id, &raw_subscription.content)?
+        {
+            return Ok(document);
+        }
+
         if let Some(document) = parse_link_subscription(&source_id, &raw_subscription.content)? {
             return Ok(document);
         }
 
         Err(domain_error(
             SUBSCRIPTION_PARSE_FAILED_CODE,
-            "subscription payload could not be parsed as NetworkCore TOML or supported proxy links",
+            "subscription payload could not be parsed as NetworkCore TOML, Clash YAML, or supported proxy links",
         ))
     }
 
@@ -474,6 +516,180 @@ fn parse_link_subscription(
     }
 
     Ok(None)
+}
+
+fn parse_clash_yaml_subscription(
+    source_id: &str,
+    content: &str,
+) -> DomainResult<Option<SubscriptionDocument>> {
+    let content = content.trim();
+    if content.is_empty() {
+        return Ok(None);
+    }
+
+    let raw = match serde_saphyr::from_str::<RawClashDocument>(content) {
+        Ok(raw) => raw,
+        Err(_) => return Ok(None),
+    };
+    let Some(proxies) = raw.proxies else {
+        return Ok(None);
+    };
+    if proxies.is_empty() {
+        return Err(domain_error(
+            SUBSCRIPTION_CLASH_YAML_INVALID_CODE,
+            "clash yaml proxies cannot be empty",
+        ));
+    }
+
+    let mut nodes = Vec::new();
+    let mut seen_ids = BTreeSet::new();
+    for proxy in proxies {
+        let mut node = parse_clash_proxy(proxy, source_id)?;
+        if !seen_ids.insert(node.id.clone()) {
+            let base_id = node.id.clone();
+            let mut suffix = seen_ids.len() + 1;
+            loop {
+                node.id = format!("{base_id}-{suffix}");
+                if seen_ids.insert(node.id.clone()) {
+                    break;
+                }
+                suffix += 1;
+            }
+        }
+        nodes.push(node);
+    }
+
+    Ok(Some(SubscriptionDocument {
+        nodes,
+        rules: Vec::new(),
+        diagnostics: Vec::new(),
+    }))
+}
+
+fn parse_clash_proxy(raw: RawClashProxy, source_id: &str) -> DomainResult<NodeDescriptor> {
+    let name = required_clash_scalar_field(raw.name, "clash proxy name cannot be empty")?;
+    let protocol = required_clash_scalar_field(raw.protocol, "clash proxy type cannot be empty")?;
+    let host = required_clash_scalar_field(raw.server, "clash proxy server cannot be empty")?;
+    let port = required_clash_scalar_field(raw.port, "clash proxy port cannot be empty")?;
+    let port = port.parse::<i64>().map_err(|_| {
+        domain_error(
+            SUBSCRIPTION_CLASH_YAML_INVALID_CODE,
+            "clash proxy port must be a number",
+        )
+    })?;
+    let port = parse_port(
+        port,
+        SUBSCRIPTION_CLASH_YAML_INVALID_CODE,
+        "clash proxy port must be between 1 and 65535",
+    )?;
+
+    let protocol_token = normalized_token(&protocol);
+    let (protocol, protocol_tag, mut metadata) = match protocol_token.as_str() {
+        "ss" | "shadowsocks" => {
+            let method = required_clash_scalar_field(
+                raw.cipher,
+                "clash shadowsocks cipher cannot be empty",
+            )?;
+            let password = required_clash_scalar_field(
+                raw.password,
+                "clash shadowsocks password cannot be empty",
+            )?;
+            (
+                Protocol::Shadowsocks,
+                "ss",
+                vec![
+                    MetadataEntry {
+                        key: NODE_METADATA_SHADOWSOCKS_METHOD.to_string(),
+                        value: method,
+                    },
+                    MetadataEntry {
+                        key: NODE_METADATA_SHADOWSOCKS_PASSWORD.to_string(),
+                        value: password,
+                    },
+                ],
+            )
+        }
+        "trojan" => {
+            let password =
+                required_clash_scalar_field(raw.password, "clash trojan password cannot be empty")?;
+            (
+                Protocol::Trojan,
+                "trojan",
+                vec![MetadataEntry {
+                    key: NODE_METADATA_TROJAN_PASSWORD.to_string(),
+                    value: password,
+                }],
+            )
+        }
+        "vless" => {
+            let uuid = required_clash_scalar_field(raw.uuid, "clash vless uuid cannot be empty")?;
+            (
+                Protocol::Vless,
+                "vless",
+                vec![MetadataEntry {
+                    key: NODE_METADATA_VLESS_UUID.to_string(),
+                    value: uuid,
+                }],
+            )
+        }
+        "vmess" => {
+            let uuid = required_clash_scalar_field(raw.uuid, "clash vmess uuid cannot be empty")?;
+            (
+                Protocol::Vmess,
+                "vmess",
+                vec![MetadataEntry {
+                    key: NODE_METADATA_VMESS_UUID.to_string(),
+                    value: uuid,
+                }],
+            )
+        }
+        _ => {
+            return Err(domain_error(
+                SUBSCRIPTION_CLASH_YAML_UNSUPPORTED_CODE,
+                "clash proxy type must be ss, trojan, vless, or vmess",
+            ));
+        }
+    };
+
+    let name_id = sanitize_identifier(&name);
+    let name_id = if name_id.is_empty() {
+        "node".to_string()
+    } else {
+        name_id
+    };
+    let id = format!("clash-{protocol_tag}-{name_id}");
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_SOURCE_FORMAT.to_string(),
+        value: "clash-yaml".to_string(),
+    });
+    metadata.push(MetadataEntry {
+        key: "subscription.source_id".to_string(),
+        value: source_id.to_string(),
+    });
+
+    Ok(NodeDescriptor {
+        id,
+        name,
+        protocol,
+        endpoint: Endpoint { host, port },
+        tags: vec![
+            "subscription".to_string(),
+            "clash-yaml".to_string(),
+            protocol_tag.to_string(),
+        ],
+        metadata,
+    })
+}
+
+fn required_clash_scalar_field(
+    raw: Option<RawClashScalar>,
+    message: &'static str,
+) -> DomainResult<String> {
+    let Some(raw) = raw else {
+        return Err(domain_error(SUBSCRIPTION_CLASH_YAML_INVALID_CODE, message));
+    };
+
+    required_trimmed(raw.into_text(), SUBSCRIPTION_CLASH_YAML_INVALID_CODE, message)
 }
 
 fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<SubscriptionDocument> {

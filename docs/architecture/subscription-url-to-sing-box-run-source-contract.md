@@ -82,9 +82,24 @@ does not make `run-url` render or run Trojan, VLESS, or VMess through
 `sing-box`; the initial `engine-singbox` renderer remains Shadowsocks-only
 until a later run-preview slice.
 
-Hysteria, Clash YAML, sing-box JSON, Surge, Loon, and Quantumult X remain
-follow-up formats. They must still enter through `SubscriptionService` and
-`NodeCatalog`, not through platform-specific parsers.
+Clash YAML may be imported as a catalog-only parser gate when the payload has a
+top-level `proxies` list. The initial supported proxy subset reads only
+`name`, `type`, `server`, `port`, `cipher`, `password`, and `uuid`; it accepts
+`ss`/`shadowsocks`, `trojan`, `vless`, and `vmess` proxy types and maps them to
+the corresponding `Protocol` plus the same per-protocol metadata used by URL
+imports. Imported Clash nodes must include
+`NODE_METADATA_SOURCE_FORMAT=clash-yaml`; unsupported Clash proxy types must
+fail with `subscription.core.clash_yaml_unsupported`, and malformed supported
+proxies must fail with `subscription.core.clash_yaml_invalid` without echoing
+raw subscription content or secrets. Clash `proxy-groups`, `rules`, provider
+URLs, transport options, TLS options, UDP flags, and adapter rendering remain
+deferred. This does not make `run-url` render or run Clash YAML through
+`sing-box`; the current `engine-singbox` renderer remains Shadowsocks URL path
+only until a later run-preview slice.
+
+Hysteria, sing-box JSON, Surge, Loon, and Quantumult X remain follow-up formats.
+They must still enter through `SubscriptionService` and `NodeCatalog`, not
+through platform-specific parsers.
 
 ## sing-box Translation
 
@@ -154,7 +169,7 @@ Local machines must not run build, test, package, or release validation. GitHub
 Actions must verify:
 
 - `control-domain` metadata fields for per-protocol node parameters;
-- `config-core` parsing for `ss://`, `trojan://`, `vless://`, `vmess://`, plaintext link list, and base64 link list;
+- `config-core` parsing for `ss://`, `trojan://`, `vless://`, `vmess://`, Clash YAML `proxies`, plaintext link list, and base64 link list;
 - `engine-singbox` deterministic local proxy config rendering;
 - `networkcore-linux run-url` parsing, response fields, config writing, and
   injected process runner behavior;

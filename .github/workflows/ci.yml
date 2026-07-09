@@ -297,6 +297,15 @@ jobs:
           grep -q "SingBoxProcessRunner" crates/engine-singbox/src/lib.rs
           grep -q "NODE_METADATA_SHADOWSOCKS_METHOD" crates/control-domain/src/lib.rs
           grep -q "SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE" crates/config-core/src/lib.rs
+          grep -q "SUBSCRIPTION_CLASH_YAML_INVALID_CODE" crates/config-core/src/lib.rs
+          grep -q "parses_clash_yaml_subscription_into_node_catalog" crates/config-core/tests/config_core_contracts.rs
+          grep -q "Clash YAML parser gate" README.md
+          grep -q "Clash YAML parser gate" ROADMAP.md
+          grep -q "Clash YAML parser gate" TODO.md
+          grep -q "Clash YAML parser gate" CHANGELOG.md
+          grep -q "Clash YAML parser gate" docs/alpha-release-feature-matrix.md
+          grep -q "Clash YAML may be imported as a catalog-only parser gate" docs/architecture/subscription-url-to-sing-box-run-source-contract.md
+          grep -q "Clash YAML parser gates are catalog import only" crates/config-core/README.md
           grep -q "Subscription URL To sing-box Run Source Contract" docs/architecture/subscription-url-to-sing-box-run-source-contract.md
           grep -q "handle_entrypoint_with_runtime_lifecycle_and_sing_box" apps/linux-cli/src/main.rs
           git submodule status third_party/mitm_anixops | grep -q "a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0"

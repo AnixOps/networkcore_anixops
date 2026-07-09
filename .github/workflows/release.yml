@@ -437,7 +437,7 @@ jobs:
           grep -q '^windows-cli-artifact-attestation-policy=github-artifact-attestation-required$' docs/architecture/windows-cli-artifact-source-release-contract.md
           grep -q '^windows-cli-artifact-package-windows=defined$' docs/architecture/windows-cli-artifact-source-release-contract.md
           grep -q '^windows-cli-artifact-release-assets=enabled-after-attestation-and-publish-gate$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-next-action=subscription-parser-gates-after-windows-artifact$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-next-action=subscription-run-preview-and-node-selection$' docs/architecture/windows-cli-artifact-source-release-contract.md
           grep -q 'networkcore-linux.exe' docs/architecture/windows-cli-artifact-source-release-contract.md
           grep -q 'networkcore-windows.exe' docs/architecture/windows-cli-artifact-source-release-contract.md
           grep -q "${WINDOWS_TARGET}" docs/architecture/windows-cli-artifact-source-release-contract.md
@@ -956,7 +956,7 @@ jobs:
             system_mutation_policy = "none"
             source_identity = "apps/windows-cli"
             capability_anchor = "windows-release-assets"
-            subscription_compatibility = "deferred-to-v0.1.1-alpha.3"
+            subscription_compatibility = "parser-gates-active-run-compat-deferred"
             blocked_operations = @(
               "install-windows-service",
               "install-driver",
@@ -1466,7 +1466,7 @@ jobs:
           - Windows release assets: ${WINDOWS_RELEASE_ASSETS_STATUS}
           - Install model: manual-extract
           - System mutation policy: none
-          - Subscription compatibility: deferred-to-v0.1.1-alpha.3
+          - Subscription compatibility: parser-gates-active-run-compat-deferred
           - Blocked: service, driver, installer, system proxy mutation, system trust store mutation, JavaScript script dispatch, managed daemon lifecycle
 
           ## Rollback
