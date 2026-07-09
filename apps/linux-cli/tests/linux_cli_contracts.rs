@@ -58,10 +58,9 @@ use networkcore_linux::{
     MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
     SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
     SubscriptionCatalogRemoveRequest, SubscriptionCatalogSelectRequest,
-    SubscriptionCatalogUpdateRequest,
-    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
-    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
-    CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+    SubscriptionCatalogUpdateRequest, UnavailableForegroundLifecycleHost,
+    UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
+    CLI_CONFIG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE,
@@ -399,7 +398,10 @@ fn subscription_catalog_update_persists_snapshot_and_redacts_location() {
         &std::fs::read_to_string(&snapshot_path).expect("snapshot should be readable"),
     )
     .expect("snapshot should be valid JSON");
-    assert_eq!(snapshot["sources"][0]["location"], "inline:old-secret-subscription-payload");
+    assert_eq!(
+        snapshot["sources"][0]["location"],
+        "inline:old-secret-subscription-payload"
+    );
 
     let catalog_before_missing =
         std::fs::read_to_string(&catalog_path).expect("catalog should remain readable");
