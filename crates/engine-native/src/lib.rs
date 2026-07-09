@@ -635,11 +635,7 @@ impl NativeHttpMitmPluginHook {
         &self,
         message: &NativePlainHttpMessage,
     ) -> NativePlainHttpRewriteReport {
-        plan_and_apply_plain_http_mitm(
-            message,
-            &self.plugin_instance,
-            self.plugin_service.as_ref(),
-        )
+        plan_and_apply_plain_http_mitm(message, &self.plugin_instance, self.plugin_service.as_ref())
     }
 }
 
@@ -2237,7 +2233,10 @@ where
     let Some(version) = status_parts.next() else {
         return plain_http_proxy_response_read_failed();
     };
-    let Some(status_code) = status_parts.next().and_then(|value| value.parse::<u16>().ok()) else {
+    let Some(status_code) = status_parts
+        .next()
+        .and_then(|value| value.parse::<u16>().ok())
+    else {
         return plain_http_proxy_response_read_failed();
     };
     if !version.starts_with("HTTP/") {
@@ -3531,8 +3530,7 @@ fn parse_http_start_line_and_headers(header_text: &str) -> Option<(&str, Vec<Met
 
 fn http_content_length(headers: &[MetadataEntry], max_len: usize) -> Result<usize, ()> {
     if headers.iter().any(|header| {
-        header.key.eq_ignore_ascii_case("Transfer-Encoding")
-            && !header.value.trim().is_empty()
+        header.key.eq_ignore_ascii_case("Transfer-Encoding") && !header.value.trim().is_empty()
     }) {
         return Err(());
     }
@@ -4175,10 +4173,7 @@ fn handle_plain_http_proxy_accepted_connection(
                 .map(|hook| hook.plan_plain_http(&request_message))
                 .unwrap_or_else(|| passthrough_plain_http_rewrite_report(&request_message));
             diagnostics.extend(request_rewrite_report.diagnostics.clone());
-            record_plain_http_live_rewrite_diagnostic(
-                &mut diagnostics,
-                &request_rewrite_report,
-            );
+            record_plain_http_live_rewrite_diagnostic(&mut diagnostics, &request_rewrite_report);
 
             if request_rewrite_report.terminal_action.is_some() {
                 let response =
@@ -4266,8 +4261,7 @@ fn forward_plain_http_proxy_request_via_socks_outbound(
                     let readiness_report = assess_socks5_outbound_connect_relay_readiness(decision);
                     let readiness = readiness_report.readiness;
                     diagnostics.extend(readiness_report.diagnostics);
-                    let data_relay_plan_report =
-                        plan_socks5_outbound_connect_data_relay(readiness);
+                    let data_relay_plan_report = plan_socks5_outbound_connect_data_relay(readiness);
                     let data_relay_plan = data_relay_plan_report.decision;
                     diagnostics.extend(data_relay_plan_report.diagnostics);
 

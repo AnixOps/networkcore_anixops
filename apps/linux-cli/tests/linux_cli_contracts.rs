@@ -927,9 +927,8 @@ fn mitm_http_rewrite_plan_reports_live_plain_http_data_plane_without_tls_decrypt
         .any(|operation| operation == "decrypt-https"));
 
     let rendered = render_response(&response, OutputFormat::Text);
-    assert!(rendered.contains(
-        "http rewrite plan: plain-http-live-data-plane-active/tls-decryption-blocked"
-    ));
+    assert!(rendered
+        .contains("http rewrite plan: plain-http-live-data-plane-active/tls-decryption-blocked"));
     assert!(rendered.contains("http rewrite blocked operation: decrypt-https"));
 }
 
