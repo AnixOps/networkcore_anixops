@@ -805,9 +805,10 @@ fn mitm_status_loads_builtin_policy_and_reports_deferred_gates() {
         .required_steps
         .iter()
         .any(|step| step.id == "write-local-ca-artifact" && step.status == "active"));
-    let has_profile_trust_step = mitm.certificate_plan.required_steps.iter().any(|step| {
-        step.id == "write-dedicated-profile-trust-artifact" && step.status == "active"
-    });
+    let has_profile_trust_step =
+        mitm.certificate_plan.required_steps.iter().any(|step| {
+            step.id == "write-dedicated-profile-trust-artifact" && step.status == "active"
+        });
     assert!(has_profile_trust_step);
     assert!(mitm
         .certificate_plan
@@ -1302,9 +1303,8 @@ fn mitm_certificate_command_store_writes_and_rolls_back_profile_trust_artifact()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system clock should be after Unix epoch")
         .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "networkcore-mitm-profile-trust-artifact-{unique}"
-    ));
+    let root =
+        std::env::temp_dir().join(format!("networkcore-mitm-profile-trust-artifact-{unique}"));
     let cert_path = root.join("networkcore-mitm-ca.crt");
     let key_path = root.join("networkcore-mitm-ca.key");
     let profile_trust_path = root.join("dedicated-profile-ca-trust.pem");

@@ -3463,8 +3463,9 @@ where
         } else {
             "missing --confirm".to_string()
         },
-        scope: "linux MITM certificate, private key, and optional dedicated profile trust artifacts"
-            .to_string(),
+        scope:
+            "linux MITM certificate, private key, and optional dedicated profile trust artifacts"
+                .to_string(),
         gate: MITM_CERTIFICATE_LIFECYCLE_GATE.to_string(),
     };
     let mut report = build_linux_mitm_certificate_lifecycle_report(
