@@ -24,6 +24,8 @@ env:
   LINUX_BINARY: networkcore-linux
   LINUX_RUST_TOOLCHAIN: stable
   LINUX_RUST_PROFILE: minimal
+  WINDOWS_TARGET: x86_64-pc-windows-gnu
+  WINDOWS_ARCHIVE_FORMAT: zip
 
 jobs:
   release-policy:
@@ -369,6 +371,79 @@ jobs:
             exit 1
           fi
           echo "ios-upload-readiness=blocked-placeholder"
+
+  windows-cli-artifact-readiness:
+    name: Windows CLI artifact source/release contract
+    runs-on: ubuntu-latest
+    needs:
+      - release-rollback-contract
+    outputs:
+      source_contract_status: ${{ steps.windows.outputs.source_contract_status }}
+      artifact_gate: ${{ steps.windows.outputs.artifact_gate }}
+      source_identity: ${{ steps.windows.outputs.source_identity }}
+      package_windows_status: ${{ steps.windows.outputs.package_windows_status }}
+      release_assets_status: ${{ steps.windows.outputs.release_assets_status }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Validate Windows artifact source/release contract
+        id: windows
+        shell: bash
+        env:
+          WINDOWS_TARGET: ${{ env.WINDOWS_TARGET }}
+          WINDOWS_ARCHIVE_FORMAT: ${{ env.WINDOWS_ARCHIVE_FORMAT }}
+        run: |
+          set -euo pipefail
+          test -f docs/architecture/windows-cli-artifact-source-release-contract.md
+          test -f docs/release-strategy.md
+          test -f docs/alpha-release-feature-matrix.md
+          test -f apps/linux-cli/Cargo.toml
+          test -f .github/workflows/release.yml
+
+          grep -q '^windows-cli-artifact-source-release-contract=present$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-release-state=contract-only$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-version-scope=v0.1.1-alpha.1$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^WINDOWS_CLI_ARTIFACT_GATE=source-release-contract-active/package-windows-blocked$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-runner=windows-latest$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-runner-kind=github-hosted$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-rust-toolchain=stable$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-rust-profile=minimal$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-target-triple=x86_64-pc-windows-gnu$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-package-format=zip$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-checksum-algorithm=sha256$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-manifest-schema-version=1$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-install-model=manual-extract$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-system-mutation-policy=none$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-source-identity=not-activated$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-service=blocked$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-driver=blocked$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-installer=blocked$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-system-proxy-mutation=blocked$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-trust-store-mutation=blocked$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-script-dispatch=blocked$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-authenticode-policy=unsigned-no-authenticode-for-alpha-cli-zip$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-attestation-policy=github-artifact-attestation-required$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-package-windows=not-defined$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-release-assets=blocked$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q '^windows-cli-artifact-next-action=package-windows-gate-after-source-contract$' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q 'networkcore-linux.exe' docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q "${WINDOWS_TARGET}" docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -q "${WINDOWS_ARCHIVE_FORMAT}" docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -Fq '`v0.1.1-alpha.1`：Windows CLI artifact source/release contract' docs/alpha-release-feature-matrix.md
+          grep -q "Windows CLI artifact source/release contract" docs/release-strategy.md
+          grep -q '^name = "networkcore-linux"$' apps/linux-cli/Cargo.toml
+          grep -q 'platform-linux' apps/linux-cli/Cargo.toml
+          if grep -q '^  package-windows:' .github/workflows/release.yml; then
+            echo "::error::package-windows must stay blocked until the Windows source identity and alpha.2 release gates are activated."
+            exit 1
+          fi
+
+          echo "source_contract_status=present" >> "${GITHUB_OUTPUT}"
+          echo "artifact_gate=source-release-contract-active/package-windows-blocked" >> "${GITHUB_OUTPUT}"
+          echo "source_identity=not-activated" >> "${GITHUB_OUTPUT}"
+          echo "package_windows_status=not-defined" >> "${GITHUB_OUTPUT}"
+          echo "release_assets_status=blocked" >> "${GITHUB_OUTPUT}"
 
   package-linux:
     name: Package Linux CLI
@@ -822,6 +897,7 @@ jobs:
       - attest-linux
       - post-release-summary
       - publish-eligibility-gate
+      - windows-cli-artifact-readiness
     if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
     permissions:
       contents: write
@@ -856,6 +932,10 @@ jobs:
           ROLLBACK_STATUS: ${{ needs.post-release-summary.outputs.rollback_status }}
           WITHDRAWAL_POLICY: ${{ needs.post-release-summary.outputs.withdrawal_policy }}
           REPLACEMENT_POLICY: ${{ needs.post-release-summary.outputs.replacement_policy }}
+          WINDOWS_ARTIFACT_GATE: ${{ needs.windows-cli-artifact-readiness.outputs.artifact_gate }}
+          WINDOWS_SOURCE_IDENTITY: ${{ needs.windows-cli-artifact-readiness.outputs.source_identity }}
+          PACKAGE_WINDOWS_STATUS: ${{ needs.windows-cli-artifact-readiness.outputs.package_windows_status }}
+          WINDOWS_RELEASE_ASSETS_STATUS: ${{ needs.windows-cli-artifact-readiness.outputs.release_assets_status }}
         run: |
           set -euo pipefail
           test "${ELIGIBILITY_STATUS}" = "eligible"
@@ -890,6 +970,14 @@ jobs:
           - CI: ${CI_RUN_URL}
           - Attestation: ${ATTESTATION_STATUS} via GitHub artifact attestation
           - Install model: manual-extract
+          - System mutation policy: none
+
+          ## Windows CLI Artifact Contract
+
+          - Artifact gate: ${WINDOWS_ARTIFACT_GATE}
+          - Source identity: ${WINDOWS_SOURCE_IDENTITY}
+          - Package Windows: ${PACKAGE_WINDOWS_STATUS}
+          - Windows release assets: ${WINDOWS_RELEASE_ASSETS_STATUS}
           - System mutation policy: none
 
           ## Rollback
@@ -936,6 +1024,7 @@ jobs:
       - release-rollback-contract
       - linux-artifact-readiness
       - ios-upload-readiness
+      - windows-cli-artifact-readiness
       - package-linux
       - attest-linux
       - post-release-summary
@@ -950,6 +1039,7 @@ jobs:
           RELEASE_CI_GATE_RESULT: ${{ needs.release-ci-gate.result }}
           LINUX_READINESS_RESULT: ${{ needs.linux-artifact-readiness.result }}
           IOS_READINESS_RESULT: ${{ needs.ios-upload-readiness.result }}
+          WINDOWS_READINESS_RESULT: ${{ needs.windows-cli-artifact-readiness.result }}
           PACKAGE_LINUX_RESULT: ${{ needs.package-linux.result }}
           ATTEST_LINUX_RESULT: ${{ needs.attest-linux.result }}
           RELEASE_NOTES_RESULT: ${{ needs.post-release-summary.result }}
@@ -957,6 +1047,10 @@ jobs:
           PUBLISH_RESULT: ${{ needs.publish-github-release.result }}
           CI_RUN_URL: ${{ needs.release-ci-gate.outputs.ci_run_url }}
           LINUX_RELEASE_STATE: ${{ needs.linux-artifact-readiness.outputs.release_state }}
+          WINDOWS_ARTIFACT_GATE: ${{ needs.windows-cli-artifact-readiness.outputs.artifact_gate }}
+          WINDOWS_SOURCE_IDENTITY: ${{ needs.windows-cli-artifact-readiness.outputs.source_identity }}
+          PACKAGE_WINDOWS_STATUS: ${{ needs.windows-cli-artifact-readiness.outputs.package_windows_status }}
+          WINDOWS_RELEASE_ASSETS_STATUS: ${{ needs.windows-cli-artifact-readiness.outputs.release_assets_status }}
           ARTIFACT_NAME: ${{ needs.package-linux.outputs.artifact_name }}
           CHECKSUM_VALUE: ${{ needs.package-linux.outputs.checksum_value }}
           MANIFEST_NAME: ${{ needs.package-linux.outputs.artifact_manifest_name }}
@@ -974,6 +1068,7 @@ jobs:
             echo "| Release CI gate | ${RELEASE_CI_GATE_RESULT} |"
             echo "| Linux readiness | ${LINUX_READINESS_RESULT} |"
             echo "| iOS readiness | ${IOS_READINESS_RESULT} |"
+            echo "| Windows readiness | ${WINDOWS_READINESS_RESULT} |"
             echo "| Package Linux | ${PACKAGE_LINUX_RESULT} |"
             echo "| Attest Linux | ${ATTEST_LINUX_RESULT} |"
             echo "| Release notes/rollback | ${RELEASE_NOTES_RESULT} |"
@@ -981,6 +1076,10 @@ jobs:
             echo "| Publish GitHub Release | ${PUBLISH_RESULT} |"
             echo "| CI run | ${CI_RUN_URL} |"
             echo "| Linux release state | ${LINUX_RELEASE_STATE} |"
+            echo "| Windows artifact gate | ${WINDOWS_ARTIFACT_GATE} |"
+            echo "| Windows source identity | ${WINDOWS_SOURCE_IDENTITY} |"
+            echo "| Package Windows | ${PACKAGE_WINDOWS_STATUS} |"
+            echo "| Windows release assets | ${WINDOWS_RELEASE_ASSETS_STATUS} |"
             echo "| Artifact | ${ARTIFACT_NAME} |"
             echo "| Artifact sha256 | ${CHECKSUM_VALUE} |"
             echo "| Manifest | ${MANIFEST_NAME} |"

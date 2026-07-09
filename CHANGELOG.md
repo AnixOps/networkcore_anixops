@@ -6,6 +6,7 @@
 
 ### Added
 
+- 新增 `v0.1.1-alpha.1` Windows CLI artifact source/release contract：新增 Windows CLI artifact source release contract，固定 `windows-latest`、`x86_64-pc-windows-gnu`、zip、sha256、manifest、attestation、release notes、rollback 和 signing policy 的后续边界；release workflow 新增 `windows-cli-artifact-readiness` 只输出 contract-only/blocked summary，继续不定义 `package-windows`、不生成 Windows zip、不上传 Windows release asset，不启用 Windows service、driver、installer、system proxy mutation、system trust store mutation 或 JavaScript script dispatch。
 - 同步 `v0.1.0` 正式发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README、`mitm-policy` README 和 Linux browser capture source contract 现在把 `v0.1.0` 记录为最新已发布 Linux artifact，并把下一步推进到 `v0.1.1-alpha.1` Windows CLI artifact source/release contract；`v0.1.1` 仍不包含 HTTPS rewrite、JavaScript script dispatch、system trust store mutation 或 system proxy mutation。
 - 同步 `v0.1.0-rc.1` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README、`mitm-policy` README 和 Linux browser capture source contract 现在把 `v0.1.0-rc.1` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到正式发布候选。
 - 同步 `v0.1.0-alpha.20` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README、`mitm-policy` README 和 Linux browser capture source contract 现在把 `v0.1.0-alpha.20` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 `v0.1.0-rc.1` 功能冻结候选。

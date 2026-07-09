@@ -109,6 +109,8 @@
 - Linux package release notes/rollback execution validation contract 检查
 - Linux package publish eligibility execution validation contract 检查
 - Release workflow Linux artifact readiness gate 检查
+- Release workflow Windows CLI artifact source/release contract gate 检查，确保 `windows-cli-artifact-readiness`
+  只输出 contract-only/blocked 状态，且 `package-windows` 在 `v0.1.1-alpha.1` 仍未定义
 - Release workflow Linux artifact manifest output summary 检查
 - Alpha placeholder release version policy、Windows manual smoke 测试清单、confirmed marker 与 release placeholder/summary 输出检查
 - 架构决策记录检查

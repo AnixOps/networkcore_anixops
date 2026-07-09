@@ -488,7 +488,8 @@ store mutation 或 system proxy mutation；下一步 `v0.1.1-alpha.1` 只做 Win
 
 - `v0.1.1-alpha.1`：Windows CLI artifact source/release contract。定义 Windows runner、
   toolchain、archive 格式、checksum、manifest、attestation、release notes、rollback 和 signing policy；
-  优先发布 Windows CLI zip，不默认包含 service、driver 或 installer。
+  本切片只激活合同和 release summary blocked 输出，不生成 Windows CLI zip，不定义 `package-windows`，
+  不默认包含 service、driver 或 installer。
 - `v0.1.1-alpha.2`：Windows CLI package/publish path。Release workflow 增加 `package-windows`
   和 publish eligibility gate，产物只由 GitHub Actions 生成。
 - `v0.1.1-alpha.3`：订阅格式扩展。接入 VLESS、VMess、Trojan URL 高频子集，以及 Clash YAML、

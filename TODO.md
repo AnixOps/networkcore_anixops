@@ -8,7 +8,7 @@
 P3 runtime baseline 已完成并保留后续 runtime backlog；当前 TODO 只按 P4 backlog buckets 排优先级，不能再把 P3 当作当前阶段。
 Linux artifact release-state consistency 已固定为 `linux-artifact-release-state=confirmed-release-path`；
 license/NOTICE 已 confirmed；当前最新 GitHub Release 是 `v0.1.0`，后续 tag release 仍必须经过
-同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates。当前 `main` 已同步到 `v0.1.0` 正式发布边界，下一步 `v0.1.1-alpha.1` 只做 Windows CLI artifact source/release contract；所有已发布和规划 alpha/rc/stable 切片的能力边界见 [Alpha Release Feature Matrix](docs/alpha-release-feature-matrix.md)。
+同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates。当前 `main` 已同步到 `v0.1.0` 正式发布边界，并新增 `v0.1.1-alpha.1` Windows CLI artifact source/release contract；`windows-cli-artifact-readiness` 只输出 contract-only/blocked summary，不定义 `package-windows`，不生成 Windows zip，不上传 Windows release asset。所有已发布和规划 alpha/rc/stable 切片的能力边界见 [Alpha Release Feature Matrix](docs/alpha-release-feature-matrix.md)。
 MITM CLI command gate 已进入状态/诊断/证书计划/浏览器捕获计划、browser-capture session-plan、dedicated profile `--target-url` 打开页面、本地代理端点/target route verify、proof-log-token traffic proof、PAC/browser policy artifact apply/rollback、native SOCKS5 CONNECT plugin reject、CONNECT proof 诊断和 blocked report 部分激活：
 `mitm-cli-command-gate-status=partial-active`；browser hijack 仍为 deferred，浏览器/系统代理配置 mutation 仍 blocked。
 Linux MITM browser capture source contract 已激活，当前源码已有 `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof`
