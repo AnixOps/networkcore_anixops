@@ -58,8 +58,7 @@ pub const SUBSCRIPTION_VMESS_LINK_INVALID_CODE: &str = "subscription.core.vmess_
 pub const SUBSCRIPTION_CLASH_YAML_INVALID_CODE: &str = "subscription.core.clash_yaml_invalid";
 pub const SUBSCRIPTION_CLASH_YAML_UNSUPPORTED_CODE: &str =
     "subscription.core.clash_yaml_unsupported";
-pub const SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE: &str =
-    "subscription.core.sing_box_json_invalid";
+pub const SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE: &str = "subscription.core.sing_box_json_invalid";
 pub const SUBSCRIPTION_SING_BOX_JSON_UNSUPPORTED_CODE: &str =
     "subscription.core.sing_box_json_unsupported";
 
@@ -800,19 +799,15 @@ fn parse_sing_box_outbound(
     raw: RawSingBoxOutbound,
     source_id: &str,
 ) -> DomainResult<Option<NodeDescriptor>> {
-    let protocol = required_sing_box_scalar_field(
-        raw.protocol,
-        "sing-box outbound type cannot be empty",
-    )?;
+    let protocol =
+        required_sing_box_scalar_field(raw.protocol, "sing-box outbound type cannot be empty")?;
     let protocol_token = normalized_token(&protocol);
     if is_ignored_sing_box_outbound(&protocol_token) {
         return Ok(None);
     }
 
-    let host = required_sing_box_scalar_field(
-        raw.server,
-        "sing-box outbound server cannot be empty",
-    )?;
+    let host =
+        required_sing_box_scalar_field(raw.server, "sing-box outbound server cannot be empty")?;
     let port = required_sing_box_scalar_field(
         raw.server_port,
         "sing-box outbound server_port cannot be empty",
@@ -869,10 +864,8 @@ fn parse_sing_box_outbound(
             )
         }
         "vless" => {
-            let uuid = required_sing_box_scalar_field(
-                raw.uuid,
-                "sing-box vless uuid cannot be empty",
-            )?;
+            let uuid =
+                required_sing_box_scalar_field(raw.uuid, "sing-box vless uuid cannot be empty")?;
             (
                 Protocol::Vless,
                 "vless",
@@ -883,10 +876,8 @@ fn parse_sing_box_outbound(
             )
         }
         "vmess" => {
-            let uuid = required_sing_box_scalar_field(
-                raw.uuid,
-                "sing-box vmess uuid cannot be empty",
-            )?;
+            let uuid =
+                required_sing_box_scalar_field(raw.uuid, "sing-box vmess uuid cannot be empty")?;
             (
                 Protocol::Vmess,
                 "vmess",
