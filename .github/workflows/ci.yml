@@ -188,11 +188,13 @@ jobs:
           grep -Fq "v0.1.0-alpha.17" docs/alpha-release-feature-matrix.md
           grep -Fq "v0.1.0-alpha.18" docs/alpha-release-feature-matrix.md
           grep -Fq "v0.1.0-alpha.19" docs/alpha-release-feature-matrix.md
+          grep -Fq "v0.1.0-alpha.20" docs/alpha-release-feature-matrix.md
           grep -Fq "Linux explicit HTTP proxy live plain HTTP data plane" docs/alpha-release-feature-matrix.md
           grep -Fq "Linux controlled TLS termination foundation" docs/alpha-release-feature-matrix.md
           grep -Fq "Linux HTTPS request rewrite preview" docs/alpha-release-feature-matrix.md
           grep -Fq "Linux HTTPS response rewrite preview" docs/alpha-release-feature-matrix.md
           grep -Fq "Linux live browser proof hardening" docs/alpha-release-feature-matrix.md
+          grep -Fq "Linux release hardening" docs/alpha-release-feature-matrix.md
           grep -Fq "plain-http-live-data-plane-active/tls-decryption-blocked" docs/alpha-release-feature-matrix.md
           grep -Fq "profile-trust-file" docs/alpha-release-feature-matrix.md
           grep -Fq "已拍板后续版本节奏" docs/alpha-release-feature-matrix.md
@@ -424,6 +426,8 @@ jobs:
           grep -q "traffic_proof_report" apps/linux-cli/src/lib.rs
           grep -q "proof-log-token" apps/linux-cli/src/lib.rs
           grep -q "proof_connect_authority" apps/linux-cli/src/lib.rs
+          grep -q "browser capture traffic proof CONNECT authority" apps/linux-cli/src/lib.rs
+          grep -q "mitm_browser_capture_traffic_proof_text_output_includes_connect_authority" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "binding_mismatch" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE" apps/linux-cli/src/lib.rs
           grep -q "MITM_CERTIFICATE_PLAN_STATUS" apps/linux-cli/src/lib.rs

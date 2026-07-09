@@ -8590,6 +8590,11 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
                     "browser capture traffic proof target proof URL: {proof_target_url}"
                 ));
             }
+            if let Some(proof_connect_authority) = &report.request.proof_connect_authority {
+                lines.push(format!(
+                    "browser capture traffic proof CONNECT authority: {proof_connect_authority}"
+                ));
+            }
             lines.push(format!(
                 "browser capture traffic proof token: {}",
                 report.request.proof_token

@@ -2549,6 +2549,41 @@ fn mitm_browser_capture_traffic_proof_defaults_to_session_proof_binding() {
 }
 
 #[test]
+fn mitm_browser_capture_traffic_proof_text_output_includes_connect_authority() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let probe = TestBrowserCaptureTrafficProofProbe { observed: true };
+
+    let response = handle_mitm_browser_capture_traffic_proof_with_probe(
+        &platform,
+        &probe,
+        Some("https://example.com/capture"),
+        Some("browser-proof-123"),
+        Some("/tmp/networkcore-browser-proof.log"),
+        true,
+    );
+
+    assert!(response.ok);
+    let capture = response
+        .browser_capture
+        .as_ref()
+        .expect("traffic-proof response should include browser capture report");
+    let proof = capture
+        .traffic_proof_report
+        .as_ref()
+        .expect("traffic-proof response should include proof report");
+    assert_eq!(
+        proof.request.proof_connect_authority.as_deref(),
+        Some("example.com:443")
+    );
+
+    let rendered = render_response(&response, OutputFormat::Text);
+    assert!(rendered.contains(
+        "browser capture traffic proof CONNECT authority: example.com:443"
+    ));
+}
+
+#[test]
 fn mitm_browser_capture_traffic_proof_requires_bound_proxy_and_connect_authority() {
     let platform =
         StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());

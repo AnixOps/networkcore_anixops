@@ -111,9 +111,10 @@ diagnostics. Later live TLS termination,
 TLS decryption and full HTTPS rewrite increments after this tag require a later tag
 release before users can download them from GitHub Releases. The full alpha
 feature and boundary index is `docs/alpha-release-feature-matrix.md`.
-Current `main` is synced to the `v0.1.0-alpha.19` proof binding hardening
-release boundary: browser capture `traffic-proof` records `proof_connect_authority`
-and requires token/proxy/CONNECT authority binding in the same proof log line.
+Current `main` is in the `v0.1.0-alpha.20` release hardening source
+increment: browser capture `traffic-proof` records `proof_connect_authority`,
+requires token/proxy/CONNECT authority binding in the same proof log line, and
+now prints the CONNECT authority in text output for manual proof audit.
 Current `main` source lets `engine-native` preview response header
 mutation and guarded response body mutation for caller-provided response-phase
 `https://` input through `NativeHttpsResponseRewritePreviewReport`, but it still

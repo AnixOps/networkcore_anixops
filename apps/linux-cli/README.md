@@ -110,6 +110,8 @@ proxy endpoint or target URL proxy route after `--confirm`; `traffic-proof`
 can reuse the same default proof binding from `--target-url` when token/log are
 omitted. It also reports `proof_connect_authority` and rejects proof logs where
 the token is not on the same line as the planned proxy URL and CONNECT authority.
+Text output now prints that CONNECT authority explicitly so the proof binding is
+auditable without switching to JSON.
 That default token is CONNECT-endpoint based, so a captured
 `networkcore-linux start` log can contain the same token through
 `engine.native.runtime.http_mitm_connect_browser_proof_observed`. It can also
