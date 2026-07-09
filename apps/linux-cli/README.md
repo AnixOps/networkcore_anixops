@@ -11,11 +11,11 @@ The crate currently provides:
 - JSON response rendering for automation-facing output contracts.
 - A minimal binary that wires `capabilities`, `status`, `diagnostics`, `mitm status/diagnostics/certificate-plan/browser-plan`, `mitm certificate apply/rollback`, `mitm http-rewrite plan/preview`, and `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` to `HostLinuxReadOnlyProbe`, wires `mitm certificate apply/rollback` to `CommandMitmCertificateArtifactStore`, wires `mitm browser-capture launch --confirm` to an injected `BrowserCaptureProcessRunner`, wires `mitm browser-capture verify --confirm` to an injected `BrowserCaptureEndpointProbe`, wires `mitm browser-capture traffic-proof --confirm` to an injected `BrowserCaptureTrafficProofProbe`, wires `prepare-config` to the pure `config-core` service, wires `start` to `engine-native::NativeProxyEngineService` through `RuntimeOrchestrator` with the built-in `networkcore.adblock` MITM plugin hook, wires `install-sing-box` to the `engine-singbox` latest release installer, and wires `run-url` to the `config-core` URL parser plus `sing-box` config renderer and foreground process runner.
 
-Release/source split: the latest published Linux artifact is `v0.1.0-alpha.12`.
-This README describes current `main` source. The `v0.1.0-alpha.12` artifact
+Release/source split: the latest published Linux artifact is `v0.1.0-alpha.13`.
+This README describes current `main` source. The `v0.1.0-alpha.13` artifact
 includes `mitm certificate apply --confirm --cert-file <path> --key-file
-<path> --snapshot <path>` / `rollback --snapshot <path>` certificate artifact
-lifecycle, `mitm http-rewrite plan` / `mitm http-rewrite preview --confirm --url <url>`
+<path> [--profile-trust-file <path>] --snapshot <path>` / `rollback --snapshot <path>` certificate artifact
+lifecycle and dedicated profile CA trust artifact foundation, `mitm http-rewrite plan` / `mitm http-rewrite preview --confirm --url <url>`
 caller-provided plain HTTP rewrite foundation, `http_rewrite` report, `mitm browser-capture verify --confirm`,
 `mitm browser-capture verify --confirm --target-url <url>`,
 `mitm browser-capture session-plan`, browser capture target route verify, the browser capture `--target-url`
@@ -45,8 +45,8 @@ failure for plugin `Reject`, emits
 `engine.native.runtime.http_mitm_connect_browser_proof_observed` with the same
 default proof token, and does not decrypt HTTPS. The HTTP rewrite preview applies
 plugin outcomes only to caller-provided plain HTTP input and does not intercept
-live browser/system traffic or execute TLS decryption. These MITM increments are not included in
-older artifacts before `v0.1.0-alpha.12`.
+live browser/system traffic or execute TLS decryption. The dedicated profile trust artifact increment is not included in
+older artifacts before `v0.1.0-alpha.13`; the plain HTTP rewrite foundation is not included before `v0.1.0-alpha.12`.
 The per-alpha feature and boundary index is
 `docs/alpha-release-feature-matrix.md`.
 

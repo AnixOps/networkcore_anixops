@@ -6,7 +6,7 @@
 
 ### Added
 
-- 暂无。
+- 同步 `v0.1.0-alpha.13` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README、`mitm-policy` README 和相关 source contract 现在把 `v0.1.0-alpha.13` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 alpha.14 起。
 
 ## v0.1.0-alpha.13 - 2026-07-09
 

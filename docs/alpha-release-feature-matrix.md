@@ -274,9 +274,30 @@ plain HTTP preview 为核心，固定 `MITM_HTTP_TLS_DATA_PLANE_GATE=plain-http-
 - 不执行 JavaScript plugin script dispatch。
 - 不承诺完整自动 browser hijack 或完整 HTTPS rewrite；该能力必须等待后续 alpha 切片。
 
+### `v0.1.0-alpha.13`
+
+状态：已发布；`v0.1.0-alpha.13` tag release 切片，发布 Linux dedicated profile CA trust artifact foundation，不包含系统或浏览器 trust store mutation。
+
+发布日期：2026-07-09；scope 以 Linux MITM certificate lifecycle source contract 的 dedicated profile
+trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/profile-trust-artifact-active/trust-mutation-blocked`。
+
+已发布能力：
+
+- `networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` 可把 NetworkCore CA artifact 同步写入调用方显式指定的 dedicated profile trust artifact 路径。
+- `certificate_lifecycle` JSON/text report 新增 `profile_trust_file_path`、`profile_trust_content` 和 `profile_trust_fingerprint`。
+- rollback snapshot 记录 dedicated profile trust artifact 路径、created flag 和 fingerprint；`mitm certificate rollback --snapshot <path>` 只在 fingerprint 仍匹配时删除 NetworkCore 创建的 profile trust artifact。
+- trust plan 新增 `prepare-dedicated-profile-trust-artifact`，certificate lifecycle plan 新增 `write-dedicated-profile-trust-artifact`。
+
+明确不承诺：
+
+- 不执行 NSS DB、p11-kit、Firefox trust store、Chrome/Chromium trust store、系统 trust store 或发行版 trust command mutation。
+- 不修改 profile trust state，不静默安装或信任 CA。
+- 不解密 HTTPS，不终止 TLS，不拦截真实浏览器或系统流量。
+- 不应用 live HTTP/TLS redirect/header/body/script rewrite。
+
 ## 已拍板后续版本节奏
 
-以下是 `v0.1.0` 到 `v0.1.2` 的规划 source of truth。未发布版本只表达切片目标，
+以下是 `v0.1.0` 到 `v0.1.2` 的规划 source of truth。后续未发布版本只表达切片目标，
 最终能力仍必须以新 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release
 结果为准。
 
@@ -286,11 +307,6 @@ plain HTTP preview 为核心，固定 `MITM_HTTP_TLS_DATA_PLANE_GATE=plain-http-
 
 规划切片：
 
-- `v0.1.0-alpha.13`：Linux dedicated profile CA trust foundation。新增
-  `mitm certificate apply --confirm --cert-file <path> --key-file <path> --profile-trust-file <path> --snapshot <path>`，
-  将生成的 CA artifact 复制为调用方显式选择的 dedicated profile trust artifact，并由 NetworkCore
-  snapshot 记录 fingerprint 后回滚；不执行 NSS DB、p11-kit、Firefox trust store、系统 trust store 或
-  profile trust state mutation。
 - `v0.1.0-alpha.14`：Linux explicit HTTP proxy live plain HTTP data plane。真实 `http://`
   请求在 dedicated/explicit proxy 路径应用 reject、redirect、header/body rewrite。
 - `v0.1.0-alpha.15`：Linux TLS MITM foundation。CONNECT 后建立受控 TLS termination 与 upstream TLS
