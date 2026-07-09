@@ -99,6 +99,7 @@ use networkcore_linux::{
     MITM_HTTP_REWRITE_CONTROLLED_TLS_TERMINATION_PLAN_READY,
     MITM_HTTP_REWRITE_DOWNSTREAM_TLS_TERMINATION_PLAN_READY,
     MITM_HTTP_REWRITE_HTTPS_REQUEST_REWRITE_PREVIEW_READY,
+    MITM_HTTP_REWRITE_HTTPS_RESPONSE_REWRITE_PREVIEW_READY,
     MITM_HTTP_REWRITE_HTTPS_RESPONSE_REWRITE_READY, MITM_HTTP_REWRITE_LIVE_TRAFFIC_READY,
     MITM_HTTP_REWRITE_MUTATION_READY, MITM_HTTP_REWRITE_SCRIPT_DISPATCH_READY,
     MITM_HTTP_REWRITE_SOURCE_CONTRACT_STATUS, MITM_HTTP_REWRITE_TLS_DECRYPTION_READY,
@@ -4242,6 +4243,10 @@ fn http_rewrite_json_output_contains_live_plain_http_gate_fields() {
     assert_eq!(
         json["http_rewrite"]["https_request_rewrite_preview_ready"].as_bool(),
         Some(MITM_HTTP_REWRITE_HTTPS_REQUEST_REWRITE_PREVIEW_READY)
+    );
+    assert_eq!(
+        json["http_rewrite"]["https_response_rewrite_preview_ready"].as_bool(),
+        Some(MITM_HTTP_REWRITE_HTTPS_RESPONSE_REWRITE_PREVIEW_READY)
     );
     assert_eq!(
         json["http_rewrite"]["https_response_rewrite_ready"].as_bool(),

@@ -233,6 +233,12 @@ pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_DEFERRE
     "engine.native.runtime.http_proxy_https_request_rewrite_preview_deferred";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_SCRIPT_DEFERRED_CODE: &str =
     "engine.native.runtime.http_proxy_https_request_rewrite_script_deferred";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_PREVIEW_READY_CODE: &str =
+    "engine.native.runtime.http_proxy_https_response_rewrite_preview_ready";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_PREVIEW_DEFERRED_CODE: &str =
+    "engine.native.runtime.http_proxy_https_response_rewrite_preview_deferred";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_SCRIPT_DEFERRED_CODE: &str =
+    "engine.native.runtime.http_proxy_https_response_rewrite_script_deferred";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE: &str =
     "engine.native.runtime.http_proxy_plain_rewrite_applied";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE: &str =
@@ -844,6 +850,36 @@ pub struct NativeHttpsRequestRewritePreviewReport {
     pub redirect_location: Option<String>,
     pub header_mutation_count: usize,
     pub body_mutation_deferred: bool,
+    pub https_response_rewrite_preview_ready: bool,
+    pub https_response_rewrite_ready: bool,
+    pub script_dispatch_ready: bool,
+    pub script_dispatch_deferred: bool,
+    pub headers: Vec<MetadataEntry>,
+    pub body: Vec<u8>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeHttpsResponseRewritePreviewReport {
+    pub request_id: String,
+    pub target_host: String,
+    pub target_port: u16,
+    pub target_url: String,
+    pub controlled_tls_termination_plan_ready: bool,
+    pub https_response_rewrite_preview_ready: bool,
+    pub applied: bool,
+    pub terminal_action: Option<String>,
+    pub final_status_code: Option<u16>,
+    pub redirect_location: Option<String>,
+    pub header_mutation_count: usize,
+    pub content_type: Option<String>,
+    pub content_type_guard_ready: bool,
+    pub body_size_bytes: usize,
+    pub body_size_limit_bytes: usize,
+    pub body_buffering_guard_ready: bool,
+    pub body_mutated: bool,
+    pub body_mutation_deferred: bool,
+    pub https_request_rewrite_preview_ready: bool,
     pub https_response_rewrite_ready: bool,
     pub script_dispatch_ready: bool,
     pub script_dispatch_deferred: bool,
@@ -1650,6 +1686,7 @@ pub fn plan_and_apply_https_request_rewrite_preview(
             redirect_location: None,
             header_mutation_count: 0,
             body_mutation_deferred: outcome.body_mutation.is_some(),
+            https_response_rewrite_preview_ready: false,
             https_response_rewrite_ready: false,
             script_dispatch_ready: false,
             script_dispatch_deferred: outcome.script_dispatch.is_some(),
@@ -1729,6 +1766,170 @@ pub fn plan_and_apply_https_request_rewrite_preview(
         redirect_location,
         header_mutation_count,
         body_mutation_deferred,
+        https_response_rewrite_preview_ready: false,
+        https_response_rewrite_ready: false,
+        script_dispatch_ready: false,
+        script_dispatch_deferred,
+        headers,
+        body,
+        diagnostics,
+    }
+}
+
+pub fn plan_and_apply_https_response_rewrite_preview(
+    termination_plan: &NativeControlledTlsTerminationPlanReport,
+    message: &NativePlainHttpMessage,
+    outcome: &HttpMitmOutcome,
+) -> NativeHttpsResponseRewritePreviewReport {
+    let response_phase = matches!(message.phase, HttpMitmPhase::Response);
+    let https_target = message.url.to_ascii_lowercase().starts_with("https://");
+    let preview_ready = termination_plan.downstream_tls_termination_plan_ready
+        && termination_plan.upstream_tls_forwarding_ready
+        && response_phase
+        && https_target;
+    let mut diagnostics = Vec::new();
+
+    if !preview_ready {
+        diagnostics.push(engine_diagnostic(
+            DiagnosticSeverity::Info,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_PREVIEW_DEFERRED_CODE,
+            "native explicit HTTP proxy HTTPS response rewrite preview is deferred until controlled TLS termination plan and response-phase HTTPS input are ready",
+            SOURCE_ENGINE_NATIVE_MITM,
+        ));
+
+        return NativeHttpsResponseRewritePreviewReport {
+            request_id: message.request_id.clone(),
+            target_host: termination_plan.target_host.clone(),
+            target_port: termination_plan.target_port,
+            target_url: termination_plan.target_url.clone(),
+            controlled_tls_termination_plan_ready: termination_plan
+                .downstream_tls_termination_plan_ready,
+            https_response_rewrite_preview_ready: false,
+            applied: false,
+            terminal_action: None,
+            final_status_code: message.status_code,
+            redirect_location: None,
+            header_mutation_count: 0,
+            content_type: plain_http_header_value(&message.headers, "Content-Type"),
+            content_type_guard_ready: https_response_body_content_type_guard_ready(
+                &message.headers,
+            ),
+            body_size_bytes: message.body.len(),
+            body_size_limit_bytes: HTTP_PROXY_MAX_BODY_BYTES,
+            body_buffering_guard_ready: https_response_body_buffering_guard_ready(
+                &message.body,
+                outcome.body_mutation.as_ref().map(|mutation| mutation.body.as_slice()),
+            ),
+            body_mutated: false,
+            body_mutation_deferred: outcome.body_mutation.is_some(),
+            https_request_rewrite_preview_ready: false,
+            https_response_rewrite_ready: false,
+            script_dispatch_ready: false,
+            script_dispatch_deferred: outcome.script_dispatch.is_some(),
+            headers: message.headers.clone(),
+            body: message.body.clone(),
+            diagnostics,
+        };
+    }
+
+    diagnostics.push(engine_diagnostic(
+        DiagnosticSeverity::Info,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_PREVIEW_READY_CODE,
+        "native explicit HTTP proxy HTTPS response rewrite preview is ready for reject, redirect, response header mutation, and response body mutation",
+        SOURCE_ENGINE_NATIVE_MITM,
+    ));
+
+    let mut headers = message.headers.clone();
+    let mut body = message.body.clone();
+    let mut applied = false;
+    let mut terminal_action = None;
+    let mut final_status_code = message.status_code;
+    let mut redirect_location = None;
+    let mut body_mutated = false;
+    let mut body_mutation_deferred = outcome.body_mutation.is_some();
+
+    match &outcome.action {
+        HttpMitmAction::Continue => {}
+        HttpMitmAction::Reject { status_code } => {
+            applied = true;
+            terminal_action = Some("reject".to_string());
+            final_status_code = Some(*status_code);
+            headers.clear();
+            set_plain_http_header(&mut headers, "Content-Length", "0");
+            body.clear();
+        }
+        HttpMitmAction::Redirect {
+            status_code,
+            location,
+        } => {
+            applied = true;
+            terminal_action = Some("redirect".to_string());
+            final_status_code = Some(*status_code);
+            redirect_location = Some(location.clone());
+            set_plain_http_header(&mut headers, "Location", location);
+            set_plain_http_header(&mut headers, "Content-Length", "0");
+            body.clear();
+        }
+    }
+
+    let mut header_mutation_count = 0;
+    if terminal_action.is_none() {
+        header_mutation_count =
+            apply_plain_http_header_mutations(&mut headers, &outcome.header_mutations);
+        applied = applied || header_mutation_count > 0;
+
+        let content_type_guard_ready = https_response_body_content_type_guard_ready(&headers);
+        let body_buffering_guard_ready = https_response_body_buffering_guard_ready(
+            &message.body,
+            outcome.body_mutation.as_ref().map(|mutation| mutation.body.as_slice()),
+        );
+        if let Some(body_mutation) = &outcome.body_mutation {
+            if content_type_guard_ready && body_buffering_guard_ready {
+                applied = true;
+                body_mutated = true;
+                body_mutation_deferred = false;
+                body = body_mutation.body.clone();
+            }
+        }
+    }
+
+    let content_type = plain_http_header_value(&headers, "Content-Type");
+    let content_type_guard_ready = https_response_body_content_type_guard_ready(&headers);
+    let body_buffering_guard_ready = https_response_body_buffering_guard_ready(
+        &message.body,
+        outcome.body_mutation.as_ref().map(|mutation| mutation.body.as_slice()),
+    );
+    let script_dispatch_deferred = outcome.script_dispatch.is_some();
+    if script_dispatch_deferred {
+        diagnostics.push(engine_diagnostic(
+            DiagnosticSeverity::Warning,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_SCRIPT_DEFERRED_CODE,
+            "native explicit HTTP proxy HTTPS response rewrite preview recorded script dispatch but JavaScript execution remains deferred",
+            SOURCE_ENGINE_NATIVE_MITM,
+        ));
+    }
+
+    NativeHttpsResponseRewritePreviewReport {
+        request_id: message.request_id.clone(),
+        target_host: termination_plan.target_host.clone(),
+        target_port: termination_plan.target_port,
+        target_url: termination_plan.target_url.clone(),
+        controlled_tls_termination_plan_ready: termination_plan
+            .downstream_tls_termination_plan_ready,
+        https_response_rewrite_preview_ready: true,
+        applied,
+        terminal_action,
+        final_status_code,
+        redirect_location,
+        header_mutation_count,
+        content_type,
+        content_type_guard_ready,
+        body_size_bytes: message.body.len(),
+        body_size_limit_bytes: HTTP_PROXY_MAX_BODY_BYTES,
+        body_buffering_guard_ready,
+        body_mutated,
+        body_mutation_deferred,
+        https_request_rewrite_preview_ready: true,
         https_response_rewrite_ready: false,
         script_dispatch_ready: false,
         script_dispatch_deferred,
@@ -4404,6 +4605,50 @@ fn set_plain_http_header(headers: &mut Vec<MetadataEntry>, name: &str, value: &s
         key: name.to_string(),
         value: value.to_string(),
     });
+}
+
+fn plain_http_header_value(headers: &[MetadataEntry], name: &str) -> Option<String> {
+    headers
+        .iter()
+        .find(|header| header.key.eq_ignore_ascii_case(name))
+        .map(|header| header.value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn https_response_body_content_type_guard_ready(headers: &[MetadataEntry]) -> bool {
+    plain_http_header_value(headers, "Content-Type")
+        .as_deref()
+        .map(https_response_body_content_type_supported)
+        .unwrap_or(false)
+}
+
+fn https_response_body_content_type_supported(content_type: &str) -> bool {
+    let media_type = content_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+
+    media_type.starts_with("text/")
+        || media_type == "application/json"
+        || media_type == "application/javascript"
+        || media_type == "application/x-javascript"
+        || media_type == "application/xml"
+        || media_type == "application/xhtml+xml"
+        || media_type == "application/x-www-form-urlencoded"
+        || media_type.ends_with("+json")
+        || media_type.ends_with("+xml")
+}
+
+fn https_response_body_buffering_guard_ready(
+    input_body: &[u8],
+    output_body: Option<&[u8]>,
+) -> bool {
+    input_body.len() <= HTTP_PROXY_MAX_BODY_BYTES
+        && output_body
+            .map(|body| body.len() <= HTTP_PROXY_MAX_BODY_BYTES)
+            .unwrap_or(true)
 }
 
 fn socks5_outbound_connect_response_valid(response: &NativeSocks5OutboundConnectResponse) -> bool {

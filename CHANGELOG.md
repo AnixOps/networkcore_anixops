@@ -8,6 +8,12 @@
 
 - 同步 `v0.1.0-alpha.17` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、Linux CLI README 和 `mitm-policy` README 现在把 `v0.1.0-alpha.17` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 alpha.18 HTTPS response rewrite preview 起。
 
+## v0.1.0-alpha.18 - 2026-07-09
+
+### Added
+
+- 新增 `v0.1.0-alpha.18` HTTPS response rewrite preview：`engine-native` 新增 `NativeHttpsResponseRewritePreviewReport`、`plan_and_apply_https_response_rewrite_preview`、`engine.native.runtime.http_proxy_https_response_rewrite_preview_ready`、`engine.native.runtime.http_proxy_https_response_rewrite_preview_deferred` 和 `engine.native.runtime.http_proxy_https_response_rewrite_script_deferred`，在 controlled TLS termination plan ready 且输入为 response-phase `https://` message 时预览 response header mutation 和通过 content-type/body-size/buffering guard 的 response body mutation；Linux CLI `http_rewrite` report/JSON 新增 `https_response_rewrite_preview_ready`，同时保持 `https_response_rewrite_ready=false`、`script_dispatch_ready=false` 和 `tls_decryption_ready=false`。新增 `explicit_https_response_rewrite_preview_applies_headers_body_and_defers_script` 合同测试。该版本仍不执行 live HTTPS decryption、live CONNECT 后 HTTPS request/response rewrite、完整 live HTTPS response rewrite、CA trust mutation、browser/system proxy mutation 或 JavaScript script dispatch。
+
 ## v0.1.0-alpha.17 - 2026-07-09
 
 ### Added

@@ -105,10 +105,11 @@ Later live TLS termination,
 TLS decryption and full HTTPS rewrite increments after this tag require a later tag
 release before users can download them from GitHub Releases. The full alpha
 feature and boundary index is `docs/alpha-release-feature-matrix.md`.
-Current `main` source additionally lets `engine-native` preview reject, redirect,
-and request header mutation for caller-provided request-phase `https://` input,
-but it still does not execute JavaScript dispatch, live TLS decryption, live
-CONNECT-stream HTTPS rewrite, or HTTPS response rewrite.
+Current `main` source additionally lets `engine-native` preview response header
+mutation and guarded response body mutation for caller-provided response-phase
+`https://` input through `NativeHttpsResponseRewritePreviewReport`, but it still
+does not execute JavaScript dispatch, live TLS decryption, live CONNECT-stream
+HTTPS rewrite, or full live HTTPS response rewrite.
 
 Required gates before user-facing MITM:
 
@@ -151,8 +152,9 @@ Required gates before user-facing MITM:
   `NativePlainHttpProxyResponse`, `LinuxMitmHttpRewriteReport`, explicit
   authorization, caller-provided plain HTTP preview input, and explicit HTTP
   proxy live `http://` request/response rewrite plus explicit HTTP `CONNECT`
-  pass-through tunnel foundation and bounded ClientHello/SNI observation. Later increments must wire downstream TLS
-  termination, HTTPS decryption, script runtime, and full HTTPS rewrite
+  pass-through tunnel foundation, bounded ClientHello/SNI observation, caller-provided
+  HTTPS request preview, and caller-provided HTTPS response preview. Later increments must wire downstream TLS
+  termination, HTTPS decryption, script runtime, and full live HTTPS rewrite
   boundaries. The Linux source boundary is fixed by
   `docs/architecture/linux-mitm-http-rewrite-source-contract.md`.
 

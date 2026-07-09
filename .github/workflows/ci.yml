@@ -186,9 +186,11 @@ jobs:
           grep -Fq "v0.1.0-alpha.15" docs/alpha-release-feature-matrix.md
           grep -Fq "v0.1.0-alpha.16" docs/alpha-release-feature-matrix.md
           grep -Fq "v0.1.0-alpha.17" docs/alpha-release-feature-matrix.md
+          grep -Fq "v0.1.0-alpha.18" docs/alpha-release-feature-matrix.md
           grep -Fq "Linux explicit HTTP proxy live plain HTTP data plane" docs/alpha-release-feature-matrix.md
           grep -Fq "Linux controlled TLS termination foundation" docs/alpha-release-feature-matrix.md
           grep -Fq "Linux HTTPS request rewrite preview" docs/alpha-release-feature-matrix.md
+          grep -Fq "Linux HTTPS response rewrite preview" docs/alpha-release-feature-matrix.md
           grep -Fq "plain-http-live-data-plane-active/tls-decryption-blocked" docs/alpha-release-feature-matrix.md
           grep -Fq "profile-trust-file" docs/alpha-release-feature-matrix.md
           grep -Fq "已拍板后续版本节奏" docs/alpha-release-feature-matrix.md
@@ -729,12 +731,14 @@ jobs:
           grep -q "NativeTlsClientHelloObservationReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "NativeControlledTlsTerminationPlanReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "NativeHttpsRequestRewritePreviewReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "NativeHttpsResponseRewritePreviewReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "read_explicit_http_proxy_request" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "apply_http_mitm_outcome_to_live_plain_http_request" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "plan_explicit_http_connect_tls_mitm_foundation" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "observe_explicit_http_connect_tls_client_hello" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "plan_explicit_http_connect_controlled_tls_termination" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "plan_and_apply_https_request_rewrite_preview" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "plan_and_apply_https_response_rewrite_preview" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "write_http_connect_established_response" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_FOUNDATION_READY_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
@@ -744,6 +748,9 @@ jobs:
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_READY_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_DEFERRED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_SCRIPT_DEFERRED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_PREVIEW_READY_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_PREVIEW_DEFERRED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_SCRIPT_DEFERRED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "plan_and_apply_plain_http_mitm" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "apply_http_mitm_outcome_to_plain_http_message" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "LinuxMitmHttpRewriteReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
@@ -751,7 +758,11 @@ jobs:
           grep -q "downstream_tls_termination_plan_ready" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "upstream_tls_forwarding_ready" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "https_request_rewrite_preview_ready" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "https_response_rewrite_preview_ready" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "https_response_rewrite_ready" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "content_type_guard_ready" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "body_size_limit_bytes" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "body_buffering_guard_ready" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "script_dispatch_ready" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "LinuxMitmHttpRewriteRequest" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "LinuxMitmHttpRewriteOutcomeReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
@@ -772,12 +783,14 @@ jobs:
           grep -q "NativeTlsClientHelloObservationReport" crates/engine-native/src/lib.rs
           grep -q "NativeControlledTlsTerminationPlanReport" crates/engine-native/src/lib.rs
           grep -q "NativeHttpsRequestRewritePreviewReport" crates/engine-native/src/lib.rs
+          grep -q "NativeHttpsResponseRewritePreviewReport" crates/engine-native/src/lib.rs
           grep -q "read_explicit_http_proxy_request" crates/engine-native/src/lib.rs
           grep -q "apply_http_mitm_outcome_to_live_plain_http_request" crates/engine-native/src/lib.rs
           grep -q "plan_explicit_http_connect_tls_mitm_foundation" crates/engine-native/src/lib.rs
           grep -q "observe_explicit_http_connect_tls_client_hello" crates/engine-native/src/lib.rs
           grep -q "plan_explicit_http_connect_controlled_tls_termination" crates/engine-native/src/lib.rs
           grep -q "plan_and_apply_https_request_rewrite_preview" crates/engine-native/src/lib.rs
+          grep -q "plan_and_apply_https_response_rewrite_preview" crates/engine-native/src/lib.rs
           grep -q "write_http_connect_established_response" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_FOUNDATION_READY_CODE" crates/engine-native/src/lib.rs
@@ -788,6 +801,9 @@ jobs:
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_READY_CODE" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_DEFERRED_CODE" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_SCRIPT_DEFERRED_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_PREVIEW_READY_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_PREVIEW_DEFERRED_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_SCRIPT_DEFERRED_CODE" crates/engine-native/src/lib.rs
           grep -q "plan_and_apply_plain_http_mitm" crates/engine-native/src/lib.rs
           grep -q "apply_http_mitm_outcome_to_plain_http_message" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_EVENT_PLANNED_CODE" crates/engine-native/src/lib.rs
@@ -797,6 +813,7 @@ jobs:
           grep -q "explicit_http_connect_tls_termination_plan_keeps_rewrite_deferred" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "explicit_http_connect_tls_termination_plan_defers_without_material_or_hello" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "explicit_https_request_rewrite_preview_applies_headers_and_defers_body_and_script" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "explicit_https_response_rewrite_preview_applies_headers_body_and_defers_script" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "write_http_connect_established_response_writes_empty_tunnel_response" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "plain_http_rewrite_application_applies_header_body_and_defers_script_dispatch" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "plain_http_rewrite_plan_applies_plugin_reject_to_terminal_response" crates/engine-native/tests/engine_native_contracts.rs
@@ -809,12 +826,14 @@ jobs:
           grep -q "MITM_HTTP_REWRITE_DOWNSTREAM_TLS_TERMINATION_PLAN_READY" apps/linux-cli/src/lib.rs
           grep -q "MITM_HTTP_REWRITE_UPSTREAM_TLS_FORWARDING_READY" apps/linux-cli/src/lib.rs
           grep -q "MITM_HTTP_REWRITE_HTTPS_REQUEST_REWRITE_PREVIEW_READY" apps/linux-cli/src/lib.rs
+          grep -q "MITM_HTTP_REWRITE_HTTPS_RESPONSE_REWRITE_PREVIEW_READY" apps/linux-cli/src/lib.rs
           grep -q "MITM_HTTP_REWRITE_HTTPS_RESPONSE_REWRITE_READY" apps/linux-cli/src/lib.rs
           grep -q "MITM_HTTP_REWRITE_SCRIPT_DISPATCH_READY" apps/linux-cli/src/lib.rs
           grep -q "controlled_tls_termination_plan_ready" apps/linux-cli/src/lib.rs
           grep -q "downstream_tls_termination_plan_ready" apps/linux-cli/src/lib.rs
           grep -q "upstream_tls_forwarding_ready" apps/linux-cli/src/lib.rs
           grep -q "https_request_rewrite_preview_ready" apps/linux-cli/src/lib.rs
+          grep -q "https_response_rewrite_preview_ready" apps/linux-cli/src/lib.rs
           grep -q "https_response_rewrite_ready" apps/linux-cli/src/lib.rs
           grep -q "script_dispatch_ready" apps/linux-cli/src/lib.rs
           grep -q "LinuxMitmHttpRewriteRequest" apps/linux-cli/src/lib.rs
@@ -831,6 +850,7 @@ jobs:
           grep -q "mitm_http_rewrite_plan_reports_controlled_tls_termination_plan_without_decryption" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_http_rewrite_preview_applies_builtin_reject_to_plain_http_input" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "http_rewrite_json_output_contains_live_plain_http_gate_fields" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "https_response_rewrite_preview_ready" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "BrowserCaptureProcessRunner" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureEndpointProbe" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureTrafficProofProbe" docs/architecture/linux-mitm-browser-capture-source-contract.md

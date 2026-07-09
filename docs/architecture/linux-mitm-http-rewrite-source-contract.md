@@ -23,7 +23,10 @@ peek TLS ClientHello/SNI，并做有限双向 relay，作为后续 TLS MITM foun
 certificate/private key PEM material 同时具备时输出 plan-ready 诊断。当前 main 还新增
 caller-provided HTTPS request rewrite preview：在 controlled TLS termination plan ready 且输入为
 request-phase `https://` message 时，可对 reject、redirect 和 request header mutation 生成 preview
-application report；body mutation、response rewrite 和 JavaScript script dispatch 仍 deferred/blocked。该能力仍
+application report。当前 main 还新增 caller-provided HTTPS response rewrite preview：在 controlled TLS
+termination plan ready 且输入为 response-phase `https://` message 时，可对 response header mutation
+和受 content-type/body-size/buffering guard 约束的 response body mutation 生成 preview application
+report；live CONNECT-stream HTTPS response rewrite 和 JavaScript script dispatch 仍 deferred/blocked。该能力仍
 不执行 live TLS decryption，不解析 live CONNECT 后 HTTPS request/response，不安装或
 信任 CA，不修改 browser/system proxy、system PAC、TUN、DNS 或 firewall，也不执行插件脚本。
 
@@ -54,6 +57,11 @@ application report；body mutation、response rewrite 和 JavaScript script disp
   `NativeHttpsRequestRewritePreviewReport` 中表达 reject、redirect 和 request header mutation preview
   application，同时保持 `https_response_rewrite_ready=false`、`script_dispatch_ready=false`、
   body mutation deferred 和 live HTTPS decryption blocked。
+- `plan_and_apply_https_response_rewrite_preview` 只消费调用方提供的 response-phase `https://`
+  `NativePlainHttpMessage` 和 `HttpMitmOutcome`，并要求 controlled TLS termination plan 已 ready；它可在
+  `NativeHttpsResponseRewritePreviewReport` 中表达 reject、redirect、response header mutation 和
+  response body mutation preview application。response body mutation 必须同时通过 content-type guard、
+  body-size guard 和 bounded buffering guard；未通过时只报告 `body_mutation_deferred=true`，不改写 body。
 - `https://` absolute-form target 在 HTTP listener 中仍返回 TLS blocked 诊断；HTTPS 必须通过
   CONNECT path 进入后续 TLS foundation。
 - 非 terminal request rewrite 会经既有 SOCKS outbound CONNECT primitive 转发到目标 host:port，并以 origin-form request 写给 upstream；bounded upstream response 会再进入 response phase rewrite 后写回 client。
@@ -69,8 +77,9 @@ application report；body mutation、response rewrite 和 JavaScript script disp
   `downstream_tls_termination_plan_ready` 和 `upstream_tls_forwarding_ready`，但必须继续输出
   `tls_decryption_ready=false`。
 - `http_rewrite` JSON/text report 还输出 `https_request_rewrite_preview_ready=true`、
-  `https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`，明确 alpha.17 仅开放
-  caller-provided HTTPS request rewrite preview，不开放 live HTTPS response rewrite 或脚本执行。
+  `https_response_rewrite_preview_ready=true`、`https_response_rewrite_ready=false` 和
+  `script_dispatch_ready=false`，明确 alpha.18 仅开放 caller-provided HTTPS request/response rewrite
+  preview，不开放 live HTTPS response rewrite 或脚本执行。
 
 ## Source Anchors
 
@@ -85,6 +94,7 @@ application report；body mutation、response rewrite 和 JavaScript script disp
 - `NativeTlsClientHelloObservationReport`
 - `NativeControlledTlsTerminationPlanReport`
 - `NativeHttpsRequestRewritePreviewReport`
+- `NativeHttpsResponseRewritePreviewReport`
 - `read_explicit_http_proxy_request`
 - `apply_http_mitm_outcome_to_live_plain_http_request`
 - `serialize_explicit_http_proxy_request_for_upstream`
@@ -92,6 +102,7 @@ application report；body mutation、response rewrite 和 JavaScript script disp
 - `observe_explicit_http_connect_tls_client_hello`
 - `plan_explicit_http_connect_controlled_tls_termination`
 - `plan_and_apply_https_request_rewrite_preview`
+- `plan_and_apply_https_response_rewrite_preview`
 - `write_http_connect_established_response`
 - `plan_and_apply_plain_http_mitm`
 - `apply_http_mitm_outcome_to_plain_http_message`
@@ -112,6 +123,9 @@ application report；body mutation、response rewrite 和 JavaScript script disp
 - `ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_READY_CODE`
 - `ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_DEFERRED_CODE`
 - `ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_SCRIPT_DEFERRED_CODE`
+- `ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_PREVIEW_READY_CODE`
+- `ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_PREVIEW_DEFERRED_CODE`
+- `ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_SCRIPT_DEFERRED_CODE`
 - `ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE`
 - `ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE`
 - `ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_RESPONSE_READ_CODE`
@@ -121,7 +135,11 @@ application report；body mutation、response rewrite 和 JavaScript script disp
 - `downstream_tls_termination_plan_ready`
 - `upstream_tls_forwarding_ready`
 - `https_request_rewrite_preview_ready`
+- `https_response_rewrite_preview_ready`
 - `https_response_rewrite_ready`
+- `content_type_guard_ready`
+- `body_size_limit_bytes`
+- `body_buffering_guard_ready`
 - `script_dispatch_ready`
 - `LinuxMitmHttpRewriteRequest`
 - `LinuxMitmHttpRewriteOutcomeReport`
@@ -147,7 +165,9 @@ application report；body mutation、response rewrite 和 JavaScript script disp
 
 - 执行 live HTTPS decryption 或真实 TLS stream termination。
 - 把 caller-provided HTTPS request rewrite preview 等同于 live CONNECT 后 HTTPS request rewrite。
-- 在 alpha.17 request preview 中应用 HTTPS response rewrite、body mutation 或 JavaScript script dispatch。
+- 把 caller-provided HTTPS response rewrite preview 等同于 live CONNECT 后 HTTPS response rewrite。
+- 在 alpha.18 response preview 中绕过 content-type/body-size/buffering guard 应用 body mutation。
+- 在 alpha.18 request/response preview 中执行 JavaScript script dispatch。
 - 安装、信任、撤销或回滚 system trust store、NSS DB、p11-kit 或 Firefox trust store。
 - 修改 browser/system proxy、system PAC、TUN、DNS、firewall 或路由状态。
 - 把 caller-provided preview 输入等同于 live browser traffic capture；live path 仅限用户或 dedicated browser 显式指向 HTTP proxy listener 的 `http://` 请求。
