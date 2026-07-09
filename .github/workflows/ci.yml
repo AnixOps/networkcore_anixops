@@ -352,6 +352,7 @@ jobs:
           grep -q "Persistent Subscription Catalog Source Contract" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "persistent-subscription-catalog-source-contract=active" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "persistent-subscription-catalog-operation=add" docs/architecture/subscription-catalog-persistence-source-contract.md
+          grep -q "persistent-subscription-catalog-list-operation=list" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "persistent-subscription-catalog-schema-version=1" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "persistent-subscription-catalog-default-path=blocked" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "persistent-subscription-catalog-remote-fetch=blocked" docs/architecture/subscription-catalog-persistence-source-contract.md
@@ -359,6 +360,9 @@ jobs:
           grep -q "SubscriptionCatalogAddRequest" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "SubscriptionCatalogAddReport" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "CommandSubscriptionCatalogStore::add_source" docs/architecture/subscription-catalog-persistence-source-contract.md
+          grep -q "SubscriptionCatalogListRequest" docs/architecture/subscription-catalog-persistence-source-contract.md
+          grep -q "SubscriptionCatalogListReport" docs/architecture/subscription-catalog-persistence-source-contract.md
+          grep -q "CommandSubscriptionCatalogStore::list_sources" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "location_redacted=true" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "rollback snapshot" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "SUBSCRIPTION_CATALOG_SCHEMA_VERSION" apps/linux-cli/src/lib.rs
@@ -366,7 +370,11 @@ jobs:
           grep -q "SubscriptionCatalogAddRequest" apps/linux-cli/src/lib.rs
           grep -q "SubscriptionCatalogAddReport" apps/linux-cli/src/lib.rs
           grep -q "fn add_source" apps/linux-cli/src/lib.rs
+          grep -q "SubscriptionCatalogListRequest" apps/linux-cli/src/lib.rs
+          grep -q "SubscriptionCatalogListReport" apps/linux-cli/src/lib.rs
+          grep -q "fn list_sources" apps/linux-cli/src/lib.rs
           grep -q "subscription_catalog_add_persists_source_snapshot_and_redacts_location" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "subscription_catalog_list_reads_and_redacts_sources" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "v0.1.2-alpha.1" README.md
           grep -q "v0.1.2-alpha.1" ROADMAP.md
           grep -q "v0.1.2-alpha.1" TODO.md
@@ -377,6 +385,9 @@ jobs:
           grep -q "CommandSubscriptionCatalogStore::add_source" TODO.md
           grep -q "CommandSubscriptionCatalogStore::add_source" CHANGELOG.md
           grep -q "CommandSubscriptionCatalogStore::add_source" apps/linux-cli/README.md
+          grep -q "CommandSubscriptionCatalogStore::list_sources" TODO.md
+          grep -q "CommandSubscriptionCatalogStore::list_sources" CHANGELOG.md
+          grep -q "CommandSubscriptionCatalogStore::list_sources" apps/linux-cli/README.md
           grep -q "handle_entrypoint_with_runtime_lifecycle_and_sing_box" apps/linux-cli/src/main.rs
           git submodule status third_party/mitm_anixops | grep -q "a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0"
           grep -q "v0.45.10-alpha" docs/architecture/mitm-anixops-adapter.md

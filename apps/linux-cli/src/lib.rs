@@ -1261,6 +1261,25 @@ pub struct SubscriptionCatalogAddReport {
     pub location_redacted: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubscriptionCatalogListRequest {
+    pub catalog_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubscriptionCatalogListEntry {
+    pub source_id: String,
+    pub location_kind: String,
+    pub location_redacted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubscriptionCatalogListReport {
+    pub catalog_path: String,
+    pub source_count: usize,
+    pub sources: Vec<SubscriptionCatalogListEntry>,
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CommandSubscriptionCatalogStore;
 
@@ -1360,6 +1379,34 @@ impl CommandSubscriptionCatalogStore {
             source_count: catalog.sources.len(),
             location_kind: subscription_catalog_location_kind(source_location).to_string(),
             location_redacted: true,
+        })
+    }
+
+    pub fn list_sources(
+        &self,
+        request: &SubscriptionCatalogListRequest,
+    ) -> DomainResult<SubscriptionCatalogListReport> {
+        let catalog_path = required_subscription_catalog_path(
+            &request.catalog_path,
+            CLI_SUBSCRIPTION_CATALOG_PATH_MISSING_CODE,
+            "subscription catalog path cannot be empty",
+        )?;
+        let (catalog, _) = read_subscription_catalog_file(&catalog_path)?;
+        let sources = catalog
+            .sources
+            .iter()
+            .map(|source| SubscriptionCatalogListEntry {
+                source_id: source.id.trim().to_string(),
+                location_kind: subscription_catalog_location_kind(source.location.trim())
+                    .to_string(),
+                location_redacted: true,
+            })
+            .collect::<Vec<_>>();
+
+        Ok(SubscriptionCatalogListReport {
+            catalog_path,
+            source_count: sources.len(),
+            sources,
         })
     }
 }

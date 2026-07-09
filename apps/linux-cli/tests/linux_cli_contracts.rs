@@ -56,7 +56,8 @@ use networkcore_linux::{
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
     MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
-    SubscriptionCatalogAddRequest, UnavailableForegroundLifecycleHost,
+    SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
+    UnavailableForegroundLifecycleHost,
     UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
     CLI_CONFIG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
@@ -246,6 +247,49 @@ fn subscription_catalog_add_persists_source_snapshot_and_redacts_location() {
     assert_eq!(catalog_after_duplicate, catalog);
 
     std::fs::remove_dir_all(&root).expect("catalog test directory should be removed");
+}
+
+#[test]
+fn subscription_catalog_list_reads_and_redacts_sources() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-subscription-catalog-list-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("catalog list test directory should be created");
+    let catalog_path = root.join("catalog.json");
+    let catalog_json = r#"{
+  "schema_version": 1,
+  "sources": [
+    {"id": " work ", "location": "inline:secret-subscription-payload"},
+    {"id": "remote", "location": "https://example.test/sub?token=secret-token"}
+  ]
+}"#;
+    std::fs::write(&catalog_path, catalog_json).expect("catalog should be written");
+    let before = std::fs::read_to_string(&catalog_path).expect("catalog should be readable");
+
+    let report = CommandSubscriptionCatalogStore::new()
+        .list_sources(&SubscriptionCatalogListRequest {
+            catalog_path: catalog_path.display().to_string(),
+        })
+        .expect("catalog list should read sources");
+
+    assert_eq!(report.source_count, 2);
+    assert_eq!(report.sources[0].source_id, "work");
+    assert_eq!(report.sources[0].location_kind, "inline");
+    assert!(report.sources[0].location_redacted);
+    assert_eq!(report.sources[1].source_id, "remote");
+    assert_eq!(report.sources[1].location_kind, "remote");
+    assert!(report.sources[1].location_redacted);
+    let debug_report = format!("{report:?}");
+    assert!(!debug_report.contains("secret-subscription-payload"));
+    assert!(!debug_report.contains("secret-token"));
+    assert_eq!(
+        std::fs::read_to_string(&catalog_path).expect("catalog should remain readable"),
+        before
+    );
+
+    std::fs::remove_dir_all(&root).expect("catalog list test directory should be removed");
 }
 
 #[test]
