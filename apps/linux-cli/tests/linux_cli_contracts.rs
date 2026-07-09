@@ -56,7 +56,7 @@ use networkcore_linux::{
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
     MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
-    SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
+    SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest, SubscriptionCatalogRemoveRequest,
     UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
     CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
@@ -290,6 +290,76 @@ fn subscription_catalog_list_reads_and_redacts_sources() {
     );
 
     std::fs::remove_dir_all(&root).expect("catalog list test directory should be removed");
+}
+
+#[test]
+fn subscription_catalog_remove_persists_snapshot_and_redacts_location() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-subscription-catalog-remove-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("catalog remove test directory should be created");
+    let catalog_path = root.join("catalog.json");
+    let snapshot_path = root.join("catalog.snapshot.json");
+    let catalog_json = r#"{
+  "schema_version": 1,
+  "sources": [
+    {"id": "work", "location": "inline:secret-subscription-payload"},
+    {"id": "remote", "location": "https://example.test/sub?token=secret-token"}
+  ]
+}"#;
+    std::fs::write(&catalog_path, catalog_json).expect("catalog should be written");
+
+    let report = CommandSubscriptionCatalogStore::new()
+        .remove_source(&SubscriptionCatalogRemoveRequest {
+            catalog_path: catalog_path.display().to_string(),
+            snapshot_path: snapshot_path.display().to_string(),
+            source_id: " work ".to_string(),
+        })
+        .expect("catalog remove should persist the updated catalog");
+
+    assert_eq!(report.source_id, "work");
+    assert_eq!(report.source_count, 1);
+    let debug_report = format!("{report:?}");
+    assert!(!debug_report.contains("secret-subscription-payload"));
+    assert!(!debug_report.contains("secret-token"));
+
+    let catalog: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&catalog_path).expect("catalog should be readable"),
+    )
+    .expect("catalog should be valid JSON");
+    assert_eq!(catalog["sources"].as_array().expect("sources array").len(), 1);
+    assert_eq!(catalog["sources"][0]["id"], "remote");
+
+    let snapshot: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&snapshot_path).expect("snapshot should be readable"),
+    )
+    .expect("snapshot should be valid JSON");
+    assert_eq!(snapshot["schema_version"], 1);
+    assert_eq!(snapshot["sources"].as_array().expect("sources array").len(), 2);
+    assert_eq!(snapshot["sources"][0]["location"], "inline:secret-subscription-payload");
+
+    let catalog_before_missing =
+        std::fs::read_to_string(&catalog_path).expect("catalog should remain readable");
+    let missing = CommandSubscriptionCatalogStore::new()
+        .remove_source(&SubscriptionCatalogRemoveRequest {
+            catalog_path: catalog_path.display().to_string(),
+            snapshot_path: root.join("missing.snapshot.json").display().to_string(),
+            source_id: "missing".to_string(),
+        })
+        .expect_err("missing source id should be rejected");
+    assert_eq!(
+        missing.code,
+        "cli.linux.subscription_catalog.source_not_found"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&catalog_path).expect("catalog should remain readable"),
+        catalog_before_missing
+    );
+    assert!(!root.join("missing.snapshot.json").exists());
+
+    std::fs::remove_dir_all(&root).expect("catalog remove test directory should be removed");
 }
 
 #[test]
