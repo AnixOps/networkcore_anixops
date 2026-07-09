@@ -2,6 +2,12 @@
 
 `networkcore-linux` is the Linux CLI entrypoint for NetworkCore.
 
+Current `main` also contains the source-only `CommandSubscriptionCatalogStore::add_source` local JSON
+persistence boundary for v0.1.2-alpha.1. It requires explicit catalog and rollback snapshot paths,
+writes schema version 1, rejects duplicate source ids, and returns a redacted report. It is not wired
+into a CLI command or runtime startup yet; list/remove/select/update, default paths, remote/file fetch,
+and managed lifecycle remain blocked.
+
 The crate currently provides:
 
 - Command parsing for the first Linux command surface.

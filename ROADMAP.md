@@ -108,6 +108,7 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Ker
 - [MITM Policy Ad Block Plugin Source Contract](docs/architecture/mitm-policy-ad-block-plugin-source-contract.md)
 - [Third-Party Plugin Onboarding Process](docs/architecture/third-party-plugin-onboarding-process.md)
 - [Subscription Catalog Runtime Orchestration Design](docs/architecture/subscription-catalog-runtime-orchestration.md)
+- [Persistent Subscription Catalog Source Contract](docs/architecture/subscription-catalog-persistence-source-contract.md)
 - [Native Engine Listener And Node Config Design](docs/architecture/native-engine-listener-node-config.md)
 - [Linux Native Proxy Engine Start Design](docs/architecture/linux-native-proxy-engine-start.md)
 

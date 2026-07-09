@@ -11,7 +11,7 @@ use control_domain::{
     MitmPluginService, OperatingSystem, PlatformCapabilityService, PlatformCapabilityStatus,
     PlatformFeatureState, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
     ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RawSubscription,
-    SubscriptionService,
+    SubscriptionService, SubscriptionSource,
 };
 use control_runtime::{RuntimeConfigRequest, RuntimeOperationResult, RuntimeOrchestrator};
 use engine_singbox::{
@@ -58,6 +58,28 @@ pub const CLI_START_LIFECYCLE_FAILED_CODE: &str = "cli.linux.start.lifecycle_fai
 pub const CLI_START_RUNTIME_STOP_FAILED_CODE: &str = "cli.linux.start.runtime_stop_failed";
 pub const CLI_START_SIGNAL_RECEIVED_CODE: &str = "cli.linux.start.signal_received";
 pub const CLI_START_SIGNAL_SOURCE_FAILED_CODE: &str = "cli.linux.start.signal_source_failed";
+pub const CLI_SUBSCRIPTION_CATALOG_PATH_MISSING_CODE: &str =
+    "cli.linux.subscription_catalog.path_missing";
+pub const CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_PATH_MISSING_CODE: &str =
+    "cli.linux.subscription_catalog.snapshot_path_missing";
+pub const CLI_SUBSCRIPTION_CATALOG_PATH_CONFLICT_CODE: &str =
+    "cli.linux.subscription_catalog.path_conflict";
+pub const CLI_SUBSCRIPTION_CATALOG_SOURCE_ID_EMPTY_CODE: &str =
+    "cli.linux.subscription_catalog.source_id_empty";
+pub const CLI_SUBSCRIPTION_CATALOG_SOURCE_LOCATION_EMPTY_CODE: &str =
+    "cli.linux.subscription_catalog.source_location_empty";
+pub const CLI_SUBSCRIPTION_CATALOG_READ_FAILED_CODE: &str =
+    "cli.linux.subscription_catalog.read_failed";
+pub const CLI_SUBSCRIPTION_CATALOG_SCHEMA_UNSUPPORTED_CODE: &str =
+    "cli.linux.subscription_catalog.schema_unsupported";
+pub const CLI_SUBSCRIPTION_CATALOG_SOURCE_INVALID_CODE: &str =
+    "cli.linux.subscription_catalog.source_invalid";
+pub const CLI_SUBSCRIPTION_CATALOG_DUPLICATE_SOURCE_ID_CODE: &str =
+    "cli.linux.subscription_catalog.duplicate_source_id";
+pub const CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_WRITE_FAILED_CODE: &str =
+    "cli.linux.subscription_catalog.snapshot_write_failed";
+pub const CLI_SUBSCRIPTION_CATALOG_WRITE_FAILED_CODE: &str =
+    "cli.linux.subscription_catalog.write_failed";
 pub const CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE: &str =
     "cli.linux.stop.unavailable_without_daemon";
 pub const CLI_STATUS_NO_RUNTIME_CONTEXT_CODE: &str = "cli.linux.status.no_runtime_context";
@@ -226,6 +248,7 @@ pub const SOURCE_CLI_START: &str = "cli.start";
 pub const SOURCE_CLI_STOP: &str = "cli.stop";
 pub const SOURCE_CLI_STATUS: &str = "cli.status";
 pub const SOURCE_CLI_RUNTIME: &str = "cli.runtime";
+pub const SUBSCRIPTION_CATALOG_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OutputFormat {
@@ -1218,6 +1241,206 @@ pub struct FsConfigReader;
 impl ConfigReader for FsConfigReader {
     fn read_config(&self, path: &str) -> Result<String, ConfigReadError> {
         std::fs::read_to_string(path).map_err(|error| ConfigReadError::new(error.to_string()))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubscriptionCatalogAddRequest {
+    pub catalog_path: String,
+    pub snapshot_path: String,
+    pub source: SubscriptionSource,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubscriptionCatalogAddReport {
+    pub catalog_path: String,
+    pub snapshot_path: String,
+    pub source_id: String,
+    pub source_count: usize,
+    pub location_kind: String,
+    pub location_redacted: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CommandSubscriptionCatalogStore;
+
+impl CommandSubscriptionCatalogStore {
+    pub const fn new() -> Self {
+        Self
+    }
+
+    pub fn add_source(
+        &self,
+        request: &SubscriptionCatalogAddRequest,
+    ) -> DomainResult<SubscriptionCatalogAddReport> {
+        let catalog_path = required_subscription_catalog_path(
+            &request.catalog_path,
+            CLI_SUBSCRIPTION_CATALOG_PATH_MISSING_CODE,
+            "subscription catalog path cannot be empty",
+        )?;
+        let snapshot_path = required_subscription_catalog_path(
+            &request.snapshot_path,
+            CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_PATH_MISSING_CODE,
+            "subscription catalog snapshot path cannot be empty",
+        )?;
+        if catalog_path == snapshot_path {
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_PATH_CONFLICT_CODE,
+                "subscription catalog and rollback snapshot paths must differ",
+            ));
+        }
+        if std::path::Path::new(&snapshot_path).exists() {
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_WRITE_FAILED_CODE,
+                "refusing to overwrite an existing subscription catalog rollback snapshot",
+            ));
+        }
+
+        let source_id = request.source.id.trim();
+        if source_id.is_empty() {
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_SOURCE_ID_EMPTY_CODE,
+                "subscription catalog source id cannot be empty",
+            ));
+        }
+        let source_location = request.source.location.trim();
+        if source_location.is_empty() {
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_SOURCE_LOCATION_EMPTY_CODE,
+                "subscription catalog source location cannot be empty",
+            ));
+        }
+
+        let (mut catalog, previous_catalog) = read_subscription_catalog_file(&catalog_path)?;
+        if catalog
+            .sources
+            .iter()
+            .any(|source| source.id.trim() == source_id)
+        {
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_DUPLICATE_SOURCE_ID_CODE,
+                format!("subscription catalog source id already exists: {source_id}"),
+            ));
+        }
+
+        catalog.sources.push(SubscriptionCatalogSourceFile {
+            id: source_id.to_string(),
+            location: source_location.to_string(),
+        });
+        let snapshot_json = serde_json::to_string_pretty(&previous_catalog).map_err(|error| {
+            DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_WRITE_FAILED_CODE,
+                format!("failed to render subscription catalog rollback snapshot: {error}"),
+            )
+        })?;
+        let catalog_json = serde_json::to_string_pretty(&catalog).map_err(|error| {
+            DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_WRITE_FAILED_CODE,
+                format!("failed to render subscription catalog: {error}"),
+            )
+        })?;
+
+        write_new_file(
+            &snapshot_path,
+            snapshot_json.as_bytes(),
+            CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_WRITE_FAILED_CODE,
+            "subscription catalog rollback snapshot",
+        )?;
+        write_replace_file(
+            &catalog_path,
+            catalog_json.as_bytes(),
+            CLI_SUBSCRIPTION_CATALOG_WRITE_FAILED_CODE,
+            "subscription catalog",
+        )?;
+
+        Ok(SubscriptionCatalogAddReport {
+            catalog_path,
+            snapshot_path,
+            source_id: source_id.to_string(),
+            source_count: catalog.sources.len(),
+            location_kind: subscription_catalog_location_kind(source_location).to_string(),
+            location_redacted: true,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SubscriptionCatalogFile {
+    schema_version: u32,
+    sources: Vec<SubscriptionCatalogSourceFile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SubscriptionCatalogSourceFile {
+    id: String,
+    location: String,
+}
+
+fn required_subscription_catalog_path(
+    path: &str,
+    code: &'static str,
+    message: &'static str,
+) -> DomainResult<String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err(DomainError::new(code, message));
+    }
+    Ok(path.to_string())
+}
+
+fn read_subscription_catalog_file(
+    path: &str,
+) -> DomainResult<(SubscriptionCatalogFile, SubscriptionCatalogFile)> {
+    let contents = match std::fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let empty = SubscriptionCatalogFile {
+                schema_version: SUBSCRIPTION_CATALOG_SCHEMA_VERSION,
+                sources: Vec::new(),
+            };
+            return Ok((empty.clone(), empty));
+        }
+        Err(error) => {
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_READ_FAILED_CODE,
+                format!("failed to read subscription catalog {path}: {error}"),
+            ));
+        }
+    };
+    let catalog = serde_json::from_str::<SubscriptionCatalogFile>(&contents).map_err(|error| {
+        DomainError::new(
+            CLI_SUBSCRIPTION_CATALOG_READ_FAILED_CODE,
+            format!("failed to parse subscription catalog {path}: {error}"),
+        )
+    })?;
+    if catalog.schema_version != SUBSCRIPTION_CATALOG_SCHEMA_VERSION {
+        return Err(DomainError::new(
+            CLI_SUBSCRIPTION_CATALOG_SCHEMA_UNSUPPORTED_CODE,
+            "subscription catalog schema version is unsupported",
+        ));
+    }
+    if catalog
+        .sources
+        .iter()
+        .any(|source| source.id.trim().is_empty() || source.location.trim().is_empty())
+    {
+        return Err(DomainError::new(
+            CLI_SUBSCRIPTION_CATALOG_SOURCE_INVALID_CODE,
+            "subscription catalog contains an empty source id or location",
+        ));
+    }
+    Ok((catalog.clone(), catalog))
+}
+
+fn subscription_catalog_location_kind(location: &str) -> &'static str {
+    if location.starts_with("inline:") {
+        "inline"
+    } else if location.starts_with("http://") || location.starts_with("https://") {
+        "remote"
+    } else if location.starts_with("file:") {
+        "file"
+    } else {
+        "other"
     }
 }
 

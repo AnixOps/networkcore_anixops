@@ -3,7 +3,7 @@ use control_domain::{
     CertificateTrustState, ConfigSnapshot, ConfigurationService, Diagnostic, DiagnosticSeverity,
     DomainError, DomainResult, PlatformCapabilities, PlatformFeatureState, ProxyEngineConfig,
     ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineLifecycleState, ProxyEngineService,
-    ProxyEngineStatus, SchemaVersion,
+    ProxyEngineStatus, SchemaVersion, SubscriptionSource,
 };
 use control_runtime::{RuntimeOperationResult, RuntimeOrchestrator};
 use engine_native::{
@@ -54,7 +54,8 @@ use networkcore_linux::{
     LinuxBrowserCaptureVerifyOutcome, LinuxBrowserCaptureVerifyRequest, LinuxCliCommand,
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
-    MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
+    CommandSubscriptionCatalogStore, MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot,
+    OutputFormat, SubscriptionCatalogAddRequest,
     UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
     CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
@@ -174,6 +175,71 @@ fn parses_help_command_and_renders_command_table() {
     assert!(rendered.contains("--proof-token <token>"));
     assert!(rendered.contains("--proof-log <path>"));
     assert!(rendered.contains("sing-box install"));
+}
+
+#[test]
+fn subscription_catalog_add_persists_source_snapshot_and_redacts_location() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-subscription-catalog-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("catalog test directory should be created");
+    let catalog_path = root.join("catalog.json");
+    let snapshot_path = root.join("catalog.snapshot.json");
+    let secret_location = "inline:secret-subscription-payload";
+    let store = CommandSubscriptionCatalogStore::new();
+
+    let report = store
+        .add_source(&SubscriptionCatalogAddRequest {
+            catalog_path: catalog_path.display().to_string(),
+            snapshot_path: snapshot_path.display().to_string(),
+            source: SubscriptionSource {
+                id: " work ".to_string(),
+                location: format!(" {secret_location} "),
+            },
+        })
+        .expect("catalog add should persist a source");
+
+    assert_eq!(report.source_id, "work");
+    assert_eq!(report.source_count, 1);
+    assert_eq!(report.location_kind, "inline");
+    assert!(report.location_redacted);
+    assert!(!format!("{report:?}").contains(secret_location));
+
+    let catalog: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&catalog_path).expect("catalog file should be readable"),
+    )
+    .expect("catalog file should be valid JSON");
+    assert_eq!(catalog["schema_version"], 1);
+    assert_eq!(catalog["sources"][0]["id"], "work");
+    assert_eq!(catalog["sources"][0]["location"], secret_location);
+
+    let snapshot: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&snapshot_path).expect("snapshot file should be readable"),
+    )
+    .expect("snapshot file should be valid JSON");
+    assert_eq!(snapshot["schema_version"], 1);
+    assert!(snapshot["sources"].as_array().expect("sources array").is_empty());
+
+    let duplicate = store
+        .add_source(&SubscriptionCatalogAddRequest {
+            catalog_path: catalog_path.display().to_string(),
+            snapshot_path: root.join("duplicate.snapshot.json").display().to_string(),
+            source: SubscriptionSource {
+                id: "work".to_string(),
+                location: "https://secret.example/next?token=redacted".to_string(),
+            },
+        })
+        .expect_err("duplicate source id should be rejected");
+    assert_eq!(duplicate.code, "cli.linux.subscription_catalog.duplicate_source_id");
+    let catalog_after_duplicate: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&catalog_path).expect("catalog should remain readable"),
+    )
+    .expect("catalog should remain valid JSON");
+    assert_eq!(catalog_after_duplicate, catalog);
+
+    std::fs::remove_dir_all(&root).expect("catalog test directory should be removed");
 }
 
 #[test]
