@@ -75,8 +75,7 @@ pub const CLI_MITM_CERTIFICATE_AUTHORIZATION_REQUIRED_CODE: &str =
     "cli.linux.mitm.certificate.authorization_required";
 pub const CLI_MITM_CERTIFICATE_APPLY_BLOCKED_CODE: &str =
     "cli.linux.mitm.certificate.apply.blocked";
-pub const CLI_MITM_CERTIFICATE_APPLY_READY_CODE: &str =
-    "cli.linux.mitm.certificate.apply.ready";
+pub const CLI_MITM_CERTIFICATE_APPLY_READY_CODE: &str = "cli.linux.mitm.certificate.apply.ready";
 pub const CLI_MITM_CERTIFICATE_APPLY_CONFIG_MISSING_CODE: &str =
     "cli.linux.mitm.certificate.apply.config_missing";
 pub const CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE: &str =
@@ -1949,8 +1948,7 @@ impl MitmCertificateArtifactStore for UnavailableMitmCertificateArtifactStore {
 }
 
 const BROWSER_CAPTURE_PAC_SNAPSHOT_KIND: &str = "networkcore-linux-browser-capture-pac";
-const MITM_CERTIFICATE_ARTIFACT_SNAPSHOT_KIND: &str =
-    "networkcore-linux-mitm-certificate-artifact";
+const MITM_CERTIFICATE_ARTIFACT_SNAPSHOT_KIND: &str = "networkcore-linux-mitm-certificate-artifact";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct BrowserCapturePacSnapshotFile {
@@ -1999,9 +1997,7 @@ fn rollback_mitm_certificate_artifact_file(
         {
             Err(DomainError::new(
                 CLI_MITM_CERTIFICATE_ROLLBACK_FAILED_CODE,
-                format!(
-                    "refusing to rollback {description} {path} because it changed after apply"
-                ),
+                format!("refusing to rollback {description} {path} because it changed after apply"),
             ))
         }
         Ok(_) => match std::fs::remove_file(path) {
@@ -3337,11 +3333,8 @@ where
         };
     };
 
-    let artifact_request = build_linux_mitm_certificate_artifact_request(
-        cert_file_path,
-        key_file_path,
-        snapshot_path,
-    );
+    let artifact_request =
+        build_linux_mitm_certificate_artifact_request(cert_file_path, key_file_path, snapshot_path);
     report.request.artifact = Some(artifact_request.clone());
 
     match certificate_store.apply_certificate_artifact(&artifact_request) {
@@ -7351,7 +7344,10 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
         if let Some(artifact) = &certificate.request.artifact {
             lines.push(format!(
                 "certificate artifact request: cert={} key={} snapshot={} subject={}",
-                artifact.cert_file_path, artifact.key_file_path, artifact.snapshot_path, artifact.subject
+                artifact.cert_file_path,
+                artifact.key_file_path,
+                artifact.snapshot_path,
+                artifact.subject
             ));
             lines.push(format!(
                 "certificate artifact fingerprints: cert={} key={}",
@@ -7388,10 +7384,14 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
                 report.status, report.rolled_back
             ));
             if let Some(cert_file_path) = &report.cert_file_path {
-                lines.push(format!("certificate rollback artifact file: {cert_file_path}"));
+                lines.push(format!(
+                    "certificate rollback artifact file: {cert_file_path}"
+                ));
             }
             if let Some(key_file_path) = &report.key_file_path {
-                lines.push(format!("certificate rollback key artifact file: {key_file_path}"));
+                lines.push(format!(
+                    "certificate rollback key artifact file: {key_file_path}"
+                ));
             }
             if let Some(snapshot) = &report.rollback_snapshot {
                 lines.push(format!(

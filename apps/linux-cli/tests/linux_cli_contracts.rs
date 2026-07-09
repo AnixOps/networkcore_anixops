@@ -44,17 +44,17 @@ use networkcore_linux::{
     BrowserCaptureTrafficProofProbe, CommandBrowserCaptureEndpointProbe, ConfigReadError,
     ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
-    ForegroundLifecycleOutcome, ForegroundLifecycleRequest,
-    LinuxBrowserCaptureLaunchOutcome, LinuxBrowserCaptureLaunchRequest,
-    LinuxBrowserCapturePacApplyOutcome, LinuxBrowserCapturePacRequest,
-    LinuxBrowserCapturePacRollbackOutcome, LinuxBrowserCaptureTrafficProofOutcome,
-    LinuxBrowserCaptureTrafficProofRequest, LinuxBrowserCaptureVerifyOutcome,
-    LinuxBrowserCaptureVerifyRequest, LinuxCliCommand, LinuxCliExitCode,
-    LinuxMitmCertificateArtifactApplyOutcome, LinuxMitmCertificateArtifactRequest,
-    LinuxMitmCertificateArtifactRollbackOutcome, MitmCertificateArtifactStore,
-    MitmCertificateRollbackSnapshot, OutputFormat, UnavailableForegroundLifecycleHost,
-    UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
-    CLI_CONFIG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+    ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
+    LinuxBrowserCaptureLaunchRequest, LinuxBrowserCapturePacApplyOutcome,
+    LinuxBrowserCapturePacRequest, LinuxBrowserCapturePacRollbackOutcome,
+    LinuxBrowserCaptureTrafficProofOutcome, LinuxBrowserCaptureTrafficProofRequest,
+    LinuxBrowserCaptureVerifyOutcome, LinuxBrowserCaptureVerifyRequest, LinuxCliCommand,
+    LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
+    LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
+    MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
+    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
+    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE,
@@ -73,16 +73,16 @@ use networkcore_linux::{
     CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_INVALID_CODE,
     CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_REACHABLE_CODE, CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE,
     CLI_MITM_BROWSER_PLAN_READY_CODE, CLI_MITM_CERTIFICATE_APPLY_CONFIG_MISSING_CODE,
-    CLI_MITM_CERTIFICATE_APPLY_READY_CODE,
-    CLI_MITM_CERTIFICATE_AUTHORIZATION_REQUIRED_CODE, CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE,
-    CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE, CLI_MITM_CERTIFICATE_PLAN_READY_CODE,
-    CLI_MITM_CERTIFICATE_ROLLBACK_BLOCKED_CODE, CLI_MITM_CERTIFICATE_ROLLBACK_READY_CODE,
-    CLI_MITM_CLI_GATE_PARTIAL_CODE, CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE,
-    CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE, CLI_START_FOREGROUND_ONLY_CODE,
-    CLI_START_LIFECYCLE_FAILED_CODE, CLI_START_LIFECYCLE_HOST_MISSING_CODE,
-    CLI_START_LIFECYCLE_INTERRUPTED_CODE, CLI_START_PLATFORM_DENIED_CODE,
-    CLI_START_RUNTIME_STOP_FAILED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
-    CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
+    CLI_MITM_CERTIFICATE_APPLY_READY_CODE, CLI_MITM_CERTIFICATE_AUTHORIZATION_REQUIRED_CODE,
+    CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE, CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE,
+    CLI_MITM_CERTIFICATE_PLAN_READY_CODE, CLI_MITM_CERTIFICATE_ROLLBACK_BLOCKED_CODE,
+    CLI_MITM_CERTIFICATE_ROLLBACK_READY_CODE, CLI_MITM_CLI_GATE_PARTIAL_CODE,
+    CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE, CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE,
+    CLI_START_FOREGROUND_ONLY_CODE, CLI_START_LIFECYCLE_FAILED_CODE,
+    CLI_START_LIFECYCLE_HOST_MISSING_CODE, CLI_START_LIFECYCLE_INTERRUPTED_CODE,
+    CLI_START_PLATFORM_DENIED_CODE, CLI_START_RUNTIME_STOP_FAILED_CODE,
+    CLI_STATUS_NO_RUNTIME_CONTEXT_CODE, CLI_STATUS_PLATFORM_ONLY_CODE,
+    CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
     MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR, MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH,
     MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME, MITM_BROWSER_CAPTURE_GATE,
     MITM_BROWSER_CAPTURE_GATE_STATUS, MITM_BROWSER_CAPTURE_MODE,
@@ -913,7 +913,10 @@ fn mitm_certificate_apply_requires_authorization_and_config() {
         .as_ref()
         .expect("certificate response should include apply report");
     assert_eq!(lifecycle.action, "apply");
-    assert_eq!(lifecycle.gate_status, MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS);
+    assert_eq!(
+        lifecycle.gate_status,
+        MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS
+    );
     assert_eq!(apply.status, "authorization_required");
     assert!(!apply.applied);
     assert!(!apply.authorization.confirmed);
@@ -973,7 +976,10 @@ fn mitm_certificate_apply_with_store_writes_artifact_report() {
         MITM_CERTIFICATE_LIFECYCLE_SOURCE_CONTRACT_STATUS
     );
     assert_eq!(lifecycle.gate, MITM_CERTIFICATE_LIFECYCLE_GATE);
-    assert_eq!(lifecycle.gate_status, MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS);
+    assert_eq!(
+        lifecycle.gate_status,
+        MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS
+    );
     assert!(!lifecycle.mutation_ready);
     assert_eq!(lifecycle.trust_plan.status, "trust-mutation-blocked");
     let artifact = lifecycle
@@ -1041,13 +1047,18 @@ fn mitm_certificate_command_store_writes_and_rolls_back_artifacts() {
         &networkcore_linux::CommandMitmCertificateArtifactStore::new(),
         Some(cert_path.to_str().expect("cert path should be UTF-8")),
         Some(key_path.to_str().expect("key path should be UTF-8")),
-        Some(snapshot_path.to_str().expect("snapshot path should be UTF-8")),
+        Some(
+            snapshot_path
+                .to_str()
+                .expect("snapshot path should be UTF-8"),
+        ),
         true,
     );
 
     assert!(apply.ok);
     assert_diagnostic(&apply.diagnostics, CLI_MITM_CERTIFICATE_APPLY_READY_CODE);
-    let cert_content = std::fs::read_to_string(&cert_path).expect("cert artifact should be written");
+    let cert_content =
+        std::fs::read_to_string(&cert_path).expect("cert artifact should be written");
     let key_content = std::fs::read_to_string(&key_path).expect("key artifact should be written");
     assert!(cert_content.contains("trust-store-mutation: blocked"));
     assert!(key_content.contains("https-rewrite: blocked"));
@@ -4529,7 +4540,10 @@ impl MitmCertificateArtifactStore for TestMitmCertificateArtifactStore {
     ) -> DomainResult<LinuxMitmCertificateArtifactApplyOutcome> {
         assert_eq!(request.cert_file_path, "/tmp/networkcore-mitm-ca.crt");
         assert_eq!(request.key_file_path, "/tmp/networkcore-mitm-ca.key");
-        assert_eq!(request.snapshot_path, "/tmp/networkcore-mitm-ca.snapshot.json");
+        assert_eq!(
+            request.snapshot_path,
+            "/tmp/networkcore-mitm-ca.snapshot.json"
+        );
         assert_eq!(request.subject, MITM_CERTIFICATE_ARTIFACT_SUBJECT);
         assert_eq!(request.artifact_version, 1);
         assert!(request
