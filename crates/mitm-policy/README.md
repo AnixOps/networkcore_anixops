@@ -92,7 +92,7 @@ loads that built-in plugin into `engine-native` through
 before outbound selection. This blocks the CONNECT tunnel, but it is not HTTPS
 decryption and does not apply redirect/header/body/script rewrite plans.
 
-Release/source split: `v0.1.0-alpha.20` is the latest published Linux artifact,
+Release/source split: `v0.1.0-rc.1` is the latest published Linux artifact,
 while this README describes current `main` source. That artifact includes
 `verify --confirm`, `verify --confirm --target-url <url>`, `session-plan`,
 browser capture `--target-url`, `traffic-proof`, PAC/browser policy artifact
@@ -109,11 +109,14 @@ and caller-provided HTTPS response header/body mutation preview through
 `proof_connect_authority` and same-line token/proxy/CONNECT authority binding
 diagnostics, plus traffic-proof text CONNECT authority output. Later live TLS termination,
 TLS decryption and full HTTPS rewrite increments after this tag require a later tag
-release before users can download them from GitHub Releases. The full alpha
+release before users can download them from GitHub Releases. The full alpha/rc
 feature and boundary index is `docs/alpha-release-feature-matrix.md`.
-Current `main` is synced to the `v0.1.0-alpha.20` release boundary: browser capture `traffic-proof` records `proof_connect_authority`,
+Current `main` is synced to the `v0.1.0-rc.1` release boundary: browser capture `traffic-proof` records `proof_connect_authority`,
 requires token/proxy/CONNECT authority binding in the same proof log line, and
-now prints the CONNECT authority in text output for manual proof audit.
+prints the CONNECT authority in text output for manual proof audit; Linux CLI
+also freezes caller-provided HTTPS request preview so it still reports
+`tls_decryption_ready=false`, `https_response_rewrite_ready=false`, and
+`script_dispatch_ready=false`.
 Current `main` source lets `engine-native` preview response header
 mutation and guarded response body mutation for caller-provided response-phase
 `https://` input through `NativeHttpsResponseRewritePreviewReport`, but it still

@@ -6,10 +6,16 @@
 
 ### Added
 
-- 新增 `v0.1.0-rc.1` 回归冻结合同：Linux CLI `mitm http-rewrite preview --confirm --url https://... --phase request` 的合同测试现在明确固定 caller-provided HTTPS request preview 只能输出 preview/reject 边界，继续保持 `tls_decryption_ready=false`、`https_response_rewrite_ready=false`、`script_dispatch_ready=false`，并保留 `decrypt-https` 与 `mutate-live-https-traffic` blocked operations。该增量不启用 live TLS decryption、live CONNECT-stream rewrite、system trust store mutation、system proxy mutation 或 JavaScript script dispatch。
+- 同步 `v0.1.0-rc.1` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README、`mitm-policy` README 和 Linux browser capture source contract 现在把 `v0.1.0-rc.1` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到正式发布候选。
 - 同步 `v0.1.0-alpha.20` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README、`mitm-policy` README 和 Linux browser capture source contract 现在把 `v0.1.0-alpha.20` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 `v0.1.0-rc.1` 功能冻结候选。
 - 同步 `v0.1.0-alpha.19` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README、`mitm-policy` README 和 Linux browser capture source contract 现在把 `v0.1.0-alpha.19` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 alpha.20 release hardening。
 - 同步 `v0.1.0-alpha.18` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README 和 `mitm-policy` README 现在把 `v0.1.0-alpha.18` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 alpha.19 live browser proof hardening 起。
+
+## v0.1.0-rc.1 - 2026-07-10
+
+### Added
+
+- 新增 `v0.1.0-rc.1` 回归冻结合同：Linux CLI `mitm http-rewrite preview --confirm --url https://... --phase request` 的合同测试现在明确固定 caller-provided HTTPS request preview 只能输出 preview/reject 边界，继续保持 `tls_decryption_ready=false`、`https_response_rewrite_ready=false`、`script_dispatch_ready=false`，并保留 `decrypt-https` 与 `mutate-live-https-traffic` blocked operations。该增量不启用 live TLS decryption、live CONNECT-stream rewrite、system trust store mutation、system proxy mutation 或 JavaScript script dispatch。
 
 ## v0.1.0-alpha.20 - 2026-07-10
 
