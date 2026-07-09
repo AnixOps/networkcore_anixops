@@ -953,14 +953,13 @@ fn mitm_http_rewrite_preview_requires_authorization_before_applying_outcome() {
         .as_ref()
         .expect("authorization failure should include http rewrite report");
     assert!(report.outcome.is_none());
-    assert_eq!(
-        report
+    assert!(
+        !report
             .request
             .authorization
             .as_ref()
             .expect("authorization should be present")
-            .confirmed,
-        false
+            .confirmed
     );
 }
 
@@ -1017,14 +1016,13 @@ fn mitm_http_rewrite_preview_applies_builtin_reject_to_plain_http_input() {
             .map(|header| header.value.as_str()),
         Some("0")
     );
-    assert_eq!(
+    assert!(
         report
             .request
             .authorization
             .as_ref()
             .expect("authorization should be recorded")
-            .confirmed,
-        true
+            .confirmed
     );
 }
 
