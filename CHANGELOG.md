@@ -6,9 +6,15 @@
 
 ### Added
 
-- 新增 `v0.1.0-alpha.20` release hardening source increment：`networkcore-linux mitm browser-capture traffic-proof --confirm [--target-url <url>] [--proxy-scheme http|socks5]` 的 text 输出现在显式打印 CONNECT authority，和 JSON/report 中的 `proof_connect_authority` 对齐。新增合同测试 `mitm_browser_capture_traffic_proof_text_output_includes_connect_authority`，并补充 CI governance 与 source contract anchor。该增量仍未发布为 GitHub Release artifact，不写 browser/system proxy，不安装 system PAC，不生成或安装 CA，不证明 HTTPS MITM 或 rewrite 应用。
+- 同步 `v0.1.0-alpha.20` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README、`mitm-policy` README 和 Linux browser capture source contract 现在把 `v0.1.0-alpha.20` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 `v0.1.0-rc.1` 功能冻结候选。
 - 同步 `v0.1.0-alpha.19` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README、`mitm-policy` README 和 Linux browser capture source contract 现在把 `v0.1.0-alpha.19` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 alpha.20 release hardening。
 - 同步 `v0.1.0-alpha.18` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README 和 `mitm-policy` README 现在把 `v0.1.0-alpha.18` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 alpha.19 live browser proof hardening 起。
+
+## v0.1.0-alpha.20 - 2026-07-10
+
+### Added
+
+- 新增 `v0.1.0-alpha.20` release hardening：`networkcore-linux mitm browser-capture traffic-proof --confirm [--target-url <url>] [--proxy-scheme http|socks5]` 的 text 输出现在显式打印 CONNECT authority，和 JSON/report 中的 `proof_connect_authority` 对齐。新增合同测试 `mitm_browser_capture_traffic_proof_text_output_includes_connect_authority`，并补充 CI governance 与 source contract anchor。该版本仍不写 browser/system proxy，不安装 system PAC，不生成或安装 CA，不证明 HTTPS MITM 或 rewrite 应用。
 
 ## v0.1.0-alpha.19 - 2026-07-09
 

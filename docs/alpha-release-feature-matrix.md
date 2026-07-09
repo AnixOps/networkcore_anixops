@@ -328,9 +328,9 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 最新已发布切片
 
-### `v0.1.0-alpha.19`
+### `v0.1.0-alpha.20`
 
-状态：已发布；`v0.1.0-alpha.19` tag release 切片，在 `v0.1.0-alpha.18` Linux HTTPS response rewrite preview 基础上发布 Linux live browser proof hardening。
+状态：已发布；`v0.1.0-alpha.20` tag release 切片，在 `v0.1.0-alpha.19` Linux live browser proof hardening 基础上发布 Linux release hardening。
 
 当前 artifact 能力：
 
@@ -392,6 +392,11 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
   和 `binding_mismatch` report status。
 - 新增合同测试 `mitm_browser_capture_traffic_proof_requires_bound_proxy_and_connect_authority`，
   固定 token/proxy/CONNECT authority 同行绑定和 mismatch 诊断。
+- Linux release hardening：traffic-proof text 输出显式打印 CONNECT authority，和 JSON/report 中的
+  `proof_connect_authority` 对齐，便于不用 JSON 也能人工审计 proof token、计划 proxy URL 和
+  CONNECT authority 绑定。
+- 新增合同测试 `mitm_browser_capture_traffic_proof_text_output_includes_connect_authority`，
+  固定 text CONNECT authority 输出。
 
 明确不承诺：
 
@@ -407,14 +412,13 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前 main source 状态
 
-当前最新用户可下载 Linux artifact 是 `v0.1.0-alpha.19`。`main` 已进入
-`v0.1.0-alpha.20` release hardening source increment：在保留 `v0.1.0-alpha.19`
+当前最新用户可下载 Linux artifact 是 `v0.1.0-alpha.20`。`main` 已同步到
+`v0.1.0-alpha.20` 发布边界：在保留 `v0.1.0-alpha.19`
 proof binding hardening 发布边界的基础上，`traffic-proof --confirm [--target-url <url>] [--proxy-scheme http|socks5]`
 的 text 输出显式打印 CONNECT authority，和 JSON/report 中的 `proof_connect_authority` 对齐，
 方便人工审计 proof token、计划 proxy URL 和 CONNECT authority 绑定。当前发布边界仍不执行 live HTTPS decryption、live CONNECT 后
 HTTPS request/response rewrite、完整 live HTTPS response rewrite、JavaScript script dispatch、system trust
-store mutation 或 system proxy mutation；后续新能力进入用户可下载 artifact 仍必须等待新的 tag、
-同 commit CI、package、attestation、publish eligibility 和 GitHub Release asset 全部通过。
+store mutation 或 system proxy mutation；下一步 `v0.1.0-rc.1` 只做功能冻结候选、CI/release/docs 和回归修复。
 
 ## 已拍板后续版本节奏
 
@@ -439,9 +443,9 @@ store mutation 或 system proxy mutation；后续新能力进入用户可下载 
   header/body rewrite，带 content-type、body size 和 buffering guard；JavaScript script dispatch 仍 deferred。
 - `v0.1.0-alpha.19`：Linux live browser proof hardening。已发布；traffic-proof 证据绑定强化包含
   `proof_connect_authority`、同一行 token/proxy/CONNECT authority 校验、`binding_mismatch` 诊断和合同测试。
-- `v0.1.0-alpha.20`：Linux release hardening。冻结功能；当前 source increment 为
-  traffic-proof text CONNECT authority 输出、合同测试和 CI governance anchor，只修 CLI UX、JSON 字段、
-  错误码、文档、CI governance、release notes 和 rollback 边界。
+- `v0.1.0-alpha.20`：Linux release hardening。已发布；traffic-proof text CONNECT authority 输出、
+  合同测试和 CI governance anchor 已进入 Linux artifact；功能冻结，只修 CLI UX、JSON 字段、错误码、
+  文档、CI governance、release notes 和 rollback 边界。
 - `v0.1.0-rc.1`：功能冻结候选版；只允许 CI、release、文档和回归修复。
 - `v0.1.0`：发布 Linux-only explicit HTTPS rewrite preview artifact。
 

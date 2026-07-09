@@ -21,14 +21,14 @@ linux-artifact-license-notice-status=confirmed
 linux-artifact-publish-scope=tag-release-after-all-gates
 ```
 
-当前最新已发布 Linux artifact 是 `v0.1.0-alpha.19`。`main` 分支已进入 `v0.1.0-alpha.20` release hardening source increment：`traffic-proof` 的 text 输出会显式打印 CONNECT authority，和 JSON/report 中的 `proof_connect_authority` 对齐，方便人工审计 proof token、计划 proxy URL 和 CONNECT authority 绑定；后续 P4 源码增量只有在后续新 tag release 完整通过 GitHub Actions 的 CI、package、
+当前最新已发布 Linux artifact 是 `v0.1.0-alpha.20`。`main` 分支已同步到 `v0.1.0-alpha.20` release hardening 发布边界：`traffic-proof` 的 text 输出会显式打印 CONNECT authority，和 JSON/report 中的 `proof_connect_authority` 对齐，方便人工审计 proof token、计划 proxy URL 和 CONNECT authority 绑定；后续 P4 源码增量只有在后续新 tag release 完整通过 GitHub Actions 的 CI、package、
 attestation、publish eligibility 和 publish jobs 后，才会进入用户可下载的 GitHub Release asset。
 逐版本 alpha 功能、边界和规划切片记录在 [Alpha Release Feature Matrix](alpha-release-feature-matrix.md)。
 
 已拍板版本节奏：
 
 - `v0.1.0`：Linux-only explicit HTTPS rewrite preview。alpha.15 已完成 TLS MITM
-  readiness，alpha.16 已完成 controlled TLS termination plan/report release，alpha.17 已完成 HTTPS request rewrite preview release，alpha.18 已完成 HTTPS response rewrite preview release，alpha.19 已完成 traffic-proof token/proxy/CONNECT authority binding hardening release；alpha.20 继续完成 release hardening，当前 source increment 为 traffic-proof text CONNECT authority 输出；不发布 Windows artifact，不启用 JavaScript script dispatch，不执行
+  readiness，alpha.16 已完成 controlled TLS termination plan/report release，alpha.17 已完成 HTTPS request rewrite preview release，alpha.18 已完成 HTTPS response rewrite preview release，alpha.19 已完成 traffic-proof token/proxy/CONNECT authority binding hardening release，alpha.20 已完成 release hardening；下一步 `v0.1.0-rc.1` 做功能冻结候选；不发布 Windows artifact，不启用 JavaScript script dispatch，不执行
   system trust store mutation、system proxy mutation、daemon/service、TUN、DNS 或 firewall mutation。
 - `v0.1.1`：正式引入 Windows 版本，并把订阅兼容作为主线。Windows 首期发布目标是 CLI artifact
   和 release path；Windows service、driver、installer、代码签名和系统代理 mutation 必须各自具备

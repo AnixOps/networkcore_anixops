@@ -92,7 +92,7 @@ loads that built-in plugin into `engine-native` through
 before outbound selection. This blocks the CONNECT tunnel, but it is not HTTPS
 decryption and does not apply redirect/header/body/script rewrite plans.
 
-Release/source split: `v0.1.0-alpha.19` is the latest published Linux artifact,
+Release/source split: `v0.1.0-alpha.20` is the latest published Linux artifact,
 while this README describes current `main` source. That artifact includes
 `verify --confirm`, `verify --confirm --target-url <url>`, `session-plan`,
 browser capture `--target-url`, `traffic-proof`, PAC/browser policy artifact
@@ -107,12 +107,11 @@ request reject/redirect/header mutation preview through `NativeHttpsRequestRewri
 and caller-provided HTTPS response header/body mutation preview through
 `NativeHttpsResponseRewritePreviewReport`, plus `traffic-proof`
 `proof_connect_authority` and same-line token/proxy/CONNECT authority binding
-diagnostics. Later live TLS termination,
+diagnostics, plus traffic-proof text CONNECT authority output. Later live TLS termination,
 TLS decryption and full HTTPS rewrite increments after this tag require a later tag
 release before users can download them from GitHub Releases. The full alpha
 feature and boundary index is `docs/alpha-release-feature-matrix.md`.
-Current `main` is in the `v0.1.0-alpha.20` release hardening source
-increment: browser capture `traffic-proof` records `proof_connect_authority`,
+Current `main` is synced to the `v0.1.0-alpha.20` release boundary: browser capture `traffic-proof` records `proof_connect_authority`,
 requires token/proxy/CONNECT authority binding in the same proof log line, and
 now prints the CONNECT authority in text output for manual proof audit.
 Current `main` source lets `engine-native` preview response header
