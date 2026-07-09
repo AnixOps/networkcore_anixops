@@ -219,6 +219,10 @@ pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE: 
     "engine.native.runtime.http_proxy_tls_connect_tunnel_established";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_FAILED_CODE: &str =
     "engine.native.runtime.http_proxy_tls_connect_tunnel_failed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_OBSERVED_CODE: &str =
+    "engine.native.runtime.http_proxy_tls_client_hello_observed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_DEFERRED_CODE: &str =
+    "engine.native.runtime.http_proxy_tls_client_hello_deferred";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE: &str =
     "engine.native.runtime.http_proxy_plain_rewrite_applied";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE: &str =
@@ -260,6 +264,7 @@ const ACCEPTED_CONNECTION_READ_TIMEOUT_MS: u64 = 100;
 const OUTBOUND_CONNECTION_ATTEMPT_TIMEOUT_MS: u64 = 100;
 const OUTBOUND_CONNECT_REQUEST_WRITE_TIMEOUT_MS: u64 = 100;
 const OUTBOUND_CONNECT_RESPONSE_READ_TIMEOUT_MS: u64 = 100;
+const TLS_CLIENT_HELLO_PEEK_MAX_BYTES: usize = 4096;
 const HTTP_PROXY_MAX_HEADER_BYTES: usize = 16 * 1024;
 const HTTP_PROXY_MAX_BODY_BYTES: usize = 64 * 1024;
 
@@ -775,6 +780,21 @@ pub struct NativeTlsMitmFoundationReport {
     pub https_request_rewrite_ready: bool,
     pub https_response_rewrite_ready: bool,
     pub script_dispatch_ready: bool,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeTlsClientHelloObservationReport {
+    pub request_id: String,
+    pub target_host: String,
+    pub target_port: u16,
+    pub client_hello_observed: bool,
+    pub sni_hostname: Option<String>,
+    pub tls_record_version: Option<String>,
+    pub tls_handshake_version: Option<String>,
+    pub downstream_tls_termination_ready: bool,
+    pub https_request_rewrite_ready: bool,
+    pub https_response_rewrite_ready: bool,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -1441,6 +1461,52 @@ pub fn plan_explicit_http_connect_tls_mitm_foundation(
         https_response_rewrite_ready: false,
         script_dispatch_ready: false,
         diagnostics,
+    }
+}
+
+pub fn observe_explicit_http_connect_tls_client_hello(
+    request: &NativeExplicitHttpProxyRequest,
+    client_hello: &[u8],
+) -> NativeTlsClientHelloObservationReport {
+    let metadata = parse_tls_client_hello_metadata(client_hello);
+    let (client_hello_observed, sni_hostname, tls_record_version, tls_handshake_version) =
+        match metadata {
+            Some(metadata) => (
+                true,
+                metadata.sni_hostname,
+                Some(metadata.tls_record_version),
+                Some(metadata.tls_handshake_version),
+            ),
+            None => (false, None, None, None),
+        };
+    let diagnostic = if client_hello_observed {
+        engine_diagnostic(
+            DiagnosticSeverity::Info,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_OBSERVED_CODE,
+            "native explicit HTTP proxy CONNECT TLS ClientHello was observed before pass-through relay",
+            SOURCE_ENGINE_NATIVE_MITM,
+        )
+    } else {
+        engine_diagnostic(
+            DiagnosticSeverity::Info,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_DEFERRED_CODE,
+            "native explicit HTTP proxy CONNECT TLS ClientHello was not available in the bounded pre-relay peek",
+            SOURCE_ENGINE_NATIVE_MITM,
+        )
+    };
+
+    NativeTlsClientHelloObservationReport {
+        request_id: request.request_id.clone(),
+        target_host: request.target_host.clone(),
+        target_port: request.target_port,
+        client_hello_observed,
+        sni_hostname,
+        tls_record_version,
+        tls_handshake_version,
+        downstream_tls_termination_ready: false,
+        https_request_rewrite_ready: false,
+        https_response_rewrite_ready: false,
+        diagnostics: vec![diagnostic],
     }
 }
 
@@ -3791,6 +3857,163 @@ fn explicit_http_proxy_request_to_socks5_target(
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TlsClientHelloMetadata {
+    sni_hostname: Option<String>,
+    tls_record_version: String,
+    tls_handshake_version: String,
+}
+
+fn parse_tls_client_hello_metadata(bytes: &[u8]) -> Option<TlsClientHelloMetadata> {
+    if *bytes.first()? != 0x16 {
+        return None;
+    }
+
+    let tls_record_version = format_tls_version(*bytes.get(1)?, *bytes.get(2)?);
+    let record_len = u16::from_be_bytes([*bytes.get(3)?, *bytes.get(4)?]) as usize;
+    let record_end = 5_usize.checked_add(record_len)?;
+    if bytes.len() < record_end {
+        return None;
+    }
+
+    let handshake = &bytes[5..record_end];
+    if handshake.len() < 4 || handshake[0] != 0x01 {
+        return None;
+    }
+
+    let handshake_len =
+        ((handshake[1] as usize) << 16) | ((handshake[2] as usize) << 8) | handshake[3] as usize;
+    let handshake_end = 4_usize.checked_add(handshake_len)?;
+    if handshake.len() < handshake_end {
+        return None;
+    }
+
+    let body = &handshake[4..handshake_end];
+    if body.len() < 34 {
+        return None;
+    }
+
+    let tls_handshake_version = format_tls_version(body[0], body[1]);
+    let mut cursor = 34_usize;
+
+    let session_id_len = *body.get(cursor)? as usize;
+    cursor = cursor.checked_add(1)?.checked_add(session_id_len)?;
+    if cursor > body.len() || cursor.checked_add(2)? > body.len() {
+        return None;
+    }
+
+    let cipher_suites_len = u16::from_be_bytes([body[cursor], body[cursor + 1]]) as usize;
+    cursor = cursor.checked_add(2)?.checked_add(cipher_suites_len)?;
+    if cursor >= body.len() {
+        return None;
+    }
+
+    let compression_methods_len = body[cursor] as usize;
+    cursor = cursor
+        .checked_add(1)?
+        .checked_add(compression_methods_len)?;
+    if cursor > body.len() {
+        return None;
+    }
+
+    let sni_hostname = parse_tls_client_hello_sni_extension(&body[cursor..]);
+
+    Some(TlsClientHelloMetadata {
+        sni_hostname,
+        tls_record_version,
+        tls_handshake_version,
+    })
+}
+
+fn parse_tls_client_hello_sni_extension(bytes: &[u8]) -> Option<String> {
+    if bytes.len() < 2 {
+        return None;
+    }
+
+    let extensions_len = u16::from_be_bytes([bytes[0], bytes[1]]) as usize;
+    let extensions_end = 2_usize.checked_add(extensions_len)?;
+    if bytes.len() < extensions_end {
+        return None;
+    }
+
+    let extensions = &bytes[2..extensions_end];
+    let mut cursor = 0_usize;
+    while cursor.checked_add(4)? <= extensions.len() {
+        let extension_type = u16::from_be_bytes([extensions[cursor], extensions[cursor + 1]]);
+        let extension_len =
+            u16::from_be_bytes([extensions[cursor + 2], extensions[cursor + 3]]) as usize;
+        cursor = cursor.checked_add(4)?;
+        let extension_end = cursor.checked_add(extension_len)?;
+        if extension_end > extensions.len() {
+            return None;
+        }
+
+        if extension_type == 0x0000 {
+            return parse_tls_server_name_extension(&extensions[cursor..extension_end]);
+        }
+
+        cursor = extension_end;
+    }
+
+    None
+}
+
+fn parse_tls_server_name_extension(bytes: &[u8]) -> Option<String> {
+    if bytes.len() < 2 {
+        return None;
+    }
+
+    let names_len = u16::from_be_bytes([bytes[0], bytes[1]]) as usize;
+    let names_end = 2_usize.checked_add(names_len)?;
+    if bytes.len() < names_end {
+        return None;
+    }
+
+    let mut cursor = 2_usize;
+    while cursor.checked_add(3)? <= names_end {
+        let name_type = bytes[cursor];
+        let name_len = u16::from_be_bytes([bytes[cursor + 1], bytes[cursor + 2]]) as usize;
+        cursor = cursor.checked_add(3)?;
+        let name_end = cursor.checked_add(name_len)?;
+        if name_end > names_end {
+            return None;
+        }
+
+        if name_type == 0x00 {
+            let hostname = std::str::from_utf8(&bytes[cursor..name_end]).ok()?;
+            let hostname = hostname.trim_end_matches('.').to_ascii_lowercase();
+            if tls_sni_hostname_valid(&hostname) {
+                return Some(hostname);
+            }
+            return None;
+        }
+
+        cursor = name_end;
+    }
+
+    None
+}
+
+fn tls_sni_hostname_valid(hostname: &str) -> bool {
+    !hostname.is_empty()
+        && hostname.len() <= 253
+        && !hostname.starts_with('.')
+        && !hostname.ends_with('.')
+        && hostname
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-')
+}
+
+fn format_tls_version(major: u8, minor: u8) -> String {
+    match (major, minor) {
+        (0x03, 0x01) => "TLS 1.0".to_string(),
+        (0x03, 0x02) => "TLS 1.1".to_string(),
+        (0x03, 0x03) => "TLS 1.2".to_string(),
+        (0x03, 0x04) => "TLS 1.3".to_string(),
+        _ => format!("0x{major:02x}{minor:02x}"),
+    }
+}
+
 fn write_http_headers_to_bytes(bytes: &mut Vec<u8>, headers: &[MetadataEntry]) {
     for header in headers.iter().filter(|header| http_header_safe(header)) {
         bytes.extend_from_slice(header.key.as_bytes());
@@ -4504,6 +4727,10 @@ fn forward_http_connect_tunnel_via_socks_outbound(
                         );
                         diagnostics.extend(connect_response.diagnostics);
                         if tunnel_established {
+                            diagnostics.extend(observe_http_connect_tls_client_hello_from_stream(
+                                client_stream,
+                                request,
+                            ));
                             let relay_report = relay_socks5_outbound_connect_tcp_streams(
                                 client_stream,
                                 &outbound_stream,
@@ -4540,6 +4767,21 @@ fn forward_http_connect_tunnel_via_socks_outbound(
     diagnostics.extend(write_report.diagnostics);
 
     (response_written, diagnostics)
+}
+
+fn observe_http_connect_tls_client_hello_from_stream(
+    client_stream: &TcpStream,
+    request: &NativeExplicitHttpProxyRequest,
+) -> Vec<Diagnostic> {
+    let mut buffer = [0_u8; TLS_CLIENT_HELLO_PEEK_MAX_BYTES];
+    let bytes = match client_stream.peek(&mut buffer) {
+        Ok(bytes_read) => &buffer[..bytes_read],
+        Err(error) if error.kind() == ErrorKind::WouldBlock => &buffer[..0],
+        Err(error) if error.kind() == ErrorKind::TimedOut => &buffer[..0],
+        Err(_) => &buffer[..0],
+    };
+
+    observe_explicit_http_connect_tls_client_hello(request, bytes).diagnostics
 }
 
 fn record_plain_http_live_rewrite_diagnostic(

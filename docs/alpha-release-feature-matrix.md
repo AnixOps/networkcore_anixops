@@ -336,12 +336,14 @@ tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Rel
 当前源码能力：
 
 - Linux explicit HTTP CONNECT tunnel foundation：`engine-native` 新增 `NativeTlsMitmFoundationReport`、
-  `plan_explicit_http_connect_tls_mitm_foundation`、`write_http_connect_established_response`、
-  `engine.native.runtime.http_proxy_tls_foundation_ready` 和
+  `NativeTlsClientHelloObservationReport`、`plan_explicit_http_connect_tls_mitm_foundation`、
+  `observe_explicit_http_connect_tls_client_hello`、`write_http_connect_established_response`、
+  `engine.native.runtime.http_proxy_tls_foundation_ready`、
+  `engine.native.runtime.http_proxy_tls_client_hello_observed` 和
   `engine.native.runtime.http_proxy_tls_connect_tunnel_established`。
 - `ListenerKind::Http` explicit proxy `CONNECT host:443` 可经既有 SOCKS outbound primitive
   建立标准 `HTTP/1.1 200 Connection Established` tunnel，并对 CONNECT 后的有限 TCP bytes 做
-  pass-through relay。
+  bounded ClientHello/SNI observation 和 pass-through relay。
 
 明确不承诺：
 

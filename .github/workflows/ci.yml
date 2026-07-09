@@ -700,12 +700,15 @@ jobs:
           grep -q "NativePlainHttpRewriteReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "NativeExplicitHttpProxyRequest" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "NativeTlsMitmFoundationReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "NativeTlsClientHelloObservationReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "read_explicit_http_proxy_request" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "apply_http_mitm_outcome_to_live_plain_http_request" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "plan_explicit_http_connect_tls_mitm_foundation" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "observe_explicit_http_connect_tls_client_hello" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "write_http_connect_established_response" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_FOUNDATION_READY_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_OBSERVED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "plan_and_apply_plain_http_mitm" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "apply_http_mitm_outcome_to_plain_http_message" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "LinuxMitmHttpRewriteReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
@@ -725,18 +728,22 @@ jobs:
           grep -q "NativePlainHttpRewriteReport" crates/engine-native/src/lib.rs
           grep -q "NativeExplicitHttpProxyRequest" crates/engine-native/src/lib.rs
           grep -q "NativeTlsMitmFoundationReport" crates/engine-native/src/lib.rs
+          grep -q "NativeTlsClientHelloObservationReport" crates/engine-native/src/lib.rs
           grep -q "read_explicit_http_proxy_request" crates/engine-native/src/lib.rs
           grep -q "apply_http_mitm_outcome_to_live_plain_http_request" crates/engine-native/src/lib.rs
           grep -q "plan_explicit_http_connect_tls_mitm_foundation" crates/engine-native/src/lib.rs
+          grep -q "observe_explicit_http_connect_tls_client_hello" crates/engine-native/src/lib.rs
           grep -q "write_http_connect_established_response" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_FOUNDATION_READY_CODE" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_OBSERVED_CODE" crates/engine-native/src/lib.rs
           grep -q "plan_and_apply_plain_http_mitm" crates/engine-native/src/lib.rs
           grep -q "apply_http_mitm_outcome_to_plain_http_message" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_EVENT_PLANNED_CODE" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_TERMINAL_ACTION_APPLIED_CODE" crates/engine-native/src/lib.rs
           grep -q "explicit_http_connect_tls_foundation_report_keeps_https_rewrite_deferred" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "explicit_http_connect_tls_client_hello_observation_extracts_sni_without_enabling_rewrite" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "write_http_connect_established_response_writes_empty_tunnel_response" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "plain_http_rewrite_application_applies_header_body_and_defers_script_dispatch" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "plain_http_rewrite_plan_applies_plugin_reject_to_terminal_response" crates/engine-native/tests/engine_native_contracts.rs

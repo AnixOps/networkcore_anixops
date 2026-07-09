@@ -16,6 +16,7 @@ use engine_native::{
     browser_capture_proof_token_from_connect_authority,
     build_socks5_outbound_connect_request_frame, decide_socks5_outbound_connect_response,
     native_socks5_connect_browser_capture_proof_token, plan_and_apply_plain_http_mitm,
+    observe_explicit_http_connect_tls_client_hello,
     plan_explicit_http_connect_tls_mitm_foundation, plan_socks5_connect_http_mitm,
     plan_socks5_outbound_connect_client_success_response_write,
     plan_socks5_outbound_connect_data_relay, plan_socks5_outbound_tcp_connection,
@@ -68,6 +69,8 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_RESPONSE_READ_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_DEFERRED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_OBSERVED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_FOUNDATION_READY_CODE,
     ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE, ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
@@ -1492,6 +1495,39 @@ fn explicit_http_connect_tls_foundation_report_keeps_https_rewrite_deferred() {
 }
 
 #[test]
+fn explicit_http_connect_tls_client_hello_observation_extracts_sni_without_enabling_rewrite() {
+    let mut request =
+        Cursor::new(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n".to_vec());
+
+    let read_report = read_explicit_http_proxy_request(&mut request);
+    let parsed = read_report
+        .request
+        .expect("explicit HTTP CONNECT request should parse");
+    let observation_report = observe_explicit_http_connect_tls_client_hello(
+        &parsed,
+        &tls_client_hello_with_sni("Example.COM"),
+    );
+
+    assert!(observation_report.client_hello_observed);
+    assert_eq!(observation_report.sni_hostname.as_deref(), Some("example.com"));
+    assert_eq!(
+        observation_report.tls_record_version.as_deref(),
+        Some("TLS 1.2")
+    );
+    assert_eq!(
+        observation_report.tls_handshake_version.as_deref(),
+        Some("TLS 1.2")
+    );
+    assert!(!observation_report.downstream_tls_termination_ready);
+    assert!(!observation_report.https_request_rewrite_ready);
+    assert!(!observation_report.https_response_rewrite_ready);
+    assert_diagnostic(
+        &observation_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_OBSERVED_CODE,
+    );
+}
+
+#[test]
 fn write_http_connect_established_response_writes_empty_tunnel_response() {
     let mut response = Vec::new();
 
@@ -2155,6 +2191,10 @@ fn plain_http_proxy_connect_method_establishes_tls_foundation_tunnel_via_socks_o
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_DEFERRED_CODE,
     );
     assert_diagnostic(
         &report.diagnostics,
@@ -3640,6 +3680,50 @@ fn assert_no_diagnostic(diagnostics: &[Diagnostic], code: &str) {
         diagnostics.iter().all(|diagnostic| diagnostic.code != code),
         "unexpected diagnostic {code}: {diagnostics:?}"
     );
+}
+
+fn tls_client_hello_with_sni(hostname: &str) -> Vec<u8> {
+    let hostname = hostname.as_bytes();
+    let mut server_name = Vec::new();
+    push_test_u16(&mut server_name, 1 + 2 + hostname.len());
+    server_name.push(0x00);
+    push_test_u16(&mut server_name, hostname.len());
+    server_name.extend_from_slice(hostname);
+
+    let mut extensions = Vec::new();
+    push_test_u16(&mut extensions, 0x0000);
+    push_test_u16(&mut extensions, server_name.len());
+    extensions.extend_from_slice(&server_name);
+
+    let mut body = Vec::new();
+    body.extend_from_slice(&[0x03, 0x03]);
+    body.extend_from_slice(&[0_u8; 32]);
+    body.push(0x00);
+    push_test_u16(&mut body, 2);
+    body.extend_from_slice(&[0x13, 0x01]);
+    body.push(1);
+    body.push(0);
+    push_test_u16(&mut body, extensions.len());
+    body.extend_from_slice(&extensions);
+
+    let mut handshake = vec![0x01];
+    push_test_u24(&mut handshake, body.len());
+    handshake.extend_from_slice(&body);
+
+    let mut record = vec![0x16, 0x03, 0x03];
+    push_test_u16(&mut record, handshake.len());
+    record.extend_from_slice(&handshake);
+    record
+}
+
+fn push_test_u16(bytes: &mut Vec<u8>, value: usize) {
+    bytes.extend_from_slice(&(value as u16).to_be_bytes());
+}
+
+fn push_test_u24(bytes: &mut Vec<u8>, value: usize) {
+    bytes.push(((value >> 16) & 0xff) as u8);
+    bytes.push(((value >> 8) & 0xff) as u8);
+    bytes.push((value & 0xff) as u8);
 }
 
 fn plugin_instance(id: &str) -> PluginInstance {
