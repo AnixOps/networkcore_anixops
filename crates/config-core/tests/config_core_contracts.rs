@@ -240,6 +240,7 @@ fn parses_single_vmess_url_subscription_into_node_catalog() {
     let raw = RawSubscription {
         source_id: "vmess-url".to_string(),
         content: concat!(
+            "vmess://",
             "eyJ2IjoiMiIsInBzIjoiSlAgVk1lc3MiLCJhZGQiOiJlZGdlLmV4YW1wbGUu",
             "bmV0IiwicG9ydCI6IjQ0MyIsImlkIjoiN2YwZjNmOTUtN2Q4My00YmIyLWJm",
             "ODQtMmYyZTdlMmE4ZDJkIiwiYWlkIjoiMCIsIm5ldCI6InRjcCIsInR5cGUi",
