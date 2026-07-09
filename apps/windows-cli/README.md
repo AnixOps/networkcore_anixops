@@ -14,8 +14,9 @@ Current boundary:
 - System mutation policy: none.
 
 The current command surface is intentionally conservative: `help`, `version`,
-`capabilities`, `status`, and `diagnostics`. Shared parser gates may be active
-in `config-core`, but Windows subscription run compatibility,
-Windows service, driver, installer, `system-proxy-mutation`,
-`system-trust-store-mutation`, JavaScript script dispatch, and managed daemon
-lifecycle remain blocked or deferred for later slices.
+`capabilities`, `status`, and `diagnostics`. Shared parser gates may
+catalog-import Trojan/VLESS/VMess URLs, Clash YAML, and sing-box JSON in
+`config-core`, but Windows subscription run compatibility, Windows service,
+driver, installer, `system-proxy-mutation`, `system-trust-store-mutation`,
+JavaScript script dispatch, and managed daemon lifecycle remain blocked or
+deferred for later slices.

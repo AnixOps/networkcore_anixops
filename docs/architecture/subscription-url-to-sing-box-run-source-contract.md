@@ -97,7 +97,24 @@ deferred. This does not make `run-url` render or run Clash YAML through
 `sing-box`; the current `engine-singbox` renderer remains Shadowsocks URL path
 only until a later run-preview slice.
 
-Hysteria, sing-box JSON, Surge, Loon, and Quantumult X remain follow-up formats.
+sing-box JSON may be imported as a catalog-only parser gate when the payload
+has a top-level `outbounds` list. The initial supported outbound subset reads
+only `type`, `tag`, `server`, `server_port`, `method`, `password`, and `uuid`;
+it accepts `shadowsocks`/`ss`, `trojan`, `vless`, and `vmess` outbound types and
+maps them to the corresponding `Protocol` plus the same per-protocol metadata
+used by URL imports. Non-proxy orchestration outbounds such as `direct`,
+`block`, `dns`, `selector`, and `urltest` are ignored. Imported sing-box nodes
+must include `NODE_METADATA_SOURCE_FORMAT=sing-box-json`; unsupported sing-box
+proxy outbounds must fail with `subscription.core.sing_box_json_unsupported`,
+and malformed supported outbounds must fail with
+`subscription.core.sing_box_json_invalid` without echoing raw subscription
+content or secrets. sing-box TLS, transport, multiplex, route, DNS, inbound,
+experimental, and adapter rendering fields remain deferred. This does not make
+`run-url` render or run sing-box JSON through `sing-box`; the current
+`engine-singbox` renderer remains Shadowsocks URL path only until a later
+run-preview slice.
+
+Hysteria, Surge, Loon, and Quantumult X remain follow-up formats.
 They must still enter through `SubscriptionService` and `NodeCatalog`, not
 through platform-specific parsers.
 
@@ -169,7 +186,7 @@ Local machines must not run build, test, package, or release validation. GitHub
 Actions must verify:
 
 - `control-domain` metadata fields for per-protocol node parameters;
-- `config-core` parsing for `ss://`, `trojan://`, `vless://`, `vmess://`, Clash YAML `proxies`, plaintext link list, and base64 link list;
+- `config-core` parsing for `ss://`, `trojan://`, `vless://`, `vmess://`, Clash YAML `proxies`, sing-box JSON `outbounds`, plaintext link list, and base64 link list;
 - `engine-singbox` deterministic local proxy config rendering;
 - `networkcore-linux run-url` parsing, response fields, config writing, and
   injected process runner behavior;

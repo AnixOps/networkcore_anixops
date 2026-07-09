@@ -435,7 +435,7 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 ## 当前 main source 状态
 
 当前最新用户可下载 prerelease artifact 是 `v0.1.1-alpha.2`，最新 stable artifact 是
-`v0.1.0`。`v0.1.1-alpha.2` 已发布 Linux CLI 四件套和 Windows manual-extract CLI zip 四件套；`main` 下一步准备 `v0.1.1-alpha.3` 订阅格式扩展。在保留 `v0.1.0-alpha.20`
+`v0.1.0`。`v0.1.1-alpha.2` 已发布 Linux CLI 四件套和 Windows manual-extract CLI zip 四件套；`main` 正在准备 `v0.1.1-alpha.3` 订阅格式扩展。在保留 `v0.1.0-alpha.20`
 release hardening 发布边界的基础上，Linux CLI `mitm http-rewrite preview --confirm --url https://... --phase request`
 的合同测试固定 caller-provided HTTPS request preview 只能保持 preview/reject 边界，并继续输出
 `tls_decryption_ready=false`、`https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`。
@@ -496,10 +496,9 @@ JavaScript script dispatch 或 managed lifecycle。
 - `v0.1.1-alpha.2`：Windows CLI package/publish path。已发布；新增 `apps/windows-cli`
   source identity、`platform-windows` read-only capability boundary、`package-windows`、`attest-windows`
   和 Windows publish eligibility gate，产物只由 GitHub Actions 生成并发布为 manual-extract Windows CLI zip 四件套。
-- `v0.1.1-alpha.3`：订阅格式扩展。当前 source 增量接入 Trojan/VLESS/VMess URL parser gates 和 Clash YAML parser gate：
-  `trojan://password@host:port?...#name`、`vless://uuid@host:port?...#name`、`vmess://base64(json)` 和受支持的 Clash
-  `proxies` 子集只归一化到 `SubscriptionDocument`/`NodeCatalog`。后续继续接入 sing-box JSON 的 source contract 和 parser
-  gates；本切片不包含节点选择、cross-platform run plan、Linux/Windows subscription run preview、远程 fetch、
+- `v0.1.1-alpha.3`：订阅格式扩展。当前 source 增量接入 Trojan/VLESS/VMess URL parser gates、Clash YAML parser gate 和 sing-box JSON parser gate：
+  `trojan://password@host:port?...#name`、`vless://uuid@host:port?...#name`、`vmess://base64(json)`、受支持的 Clash
+  `proxies` 子集以及 sing-box JSON `outbounds` 子集只归一化到 `SubscriptionDocument`/`NodeCatalog`。本切片不包含节点选择、cross-platform run plan、Linux/Windows subscription run preview、远程 fetch、
   文件 load、默认订阅路径扫描或 managed lifecycle。
 - `v0.1.1-alpha.4`：节点选择和运行计划。支持按 name/tag/filter 选择节点，输出 cross-platform
   run plan，并保持 secret redaction。

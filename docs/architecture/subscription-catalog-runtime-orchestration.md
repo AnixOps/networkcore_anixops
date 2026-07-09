@@ -32,7 +32,7 @@ P4 Client And Platform Integration；本文中的 P3 表述只指已完成历史
 
 - `control-domain::SubscriptionService`，定义 `fetch`、`parse` 和 `normalize` 三段订阅端口。
 - `control-domain::SubscriptionSource`、`RawSubscription`、`SubscriptionDocument` 和 `NodeCatalog`，能表达订阅 source、原始 payload、解析结果和归一化节点目录。
-- `config-core::CoreSubscriptionService`，当前只接受显式 `inline:` source，把最小 subscription TOML `nodes`/`routes` 子集、URL/list/base64 list parser gates 和 Clash YAML parser gate 解析为 `SubscriptionDocument` 并归一化为 `NodeCatalog`。
+- `config-core::CoreSubscriptionService`，当前只接受显式 `inline:` source，把最小 subscription TOML `nodes`/`routes` 子集、URL/list/base64 list parser gates、Clash YAML parser gate 和 sing-box JSON parser gate 解析为 `SubscriptionDocument` 并归一化为 `NodeCatalog`。
 - `control-runtime::RuntimeConfigRequest`，当前显式携带 `engine_id`、`raw_config`、`nodes` 和 `metadata`。
 - `control-runtime::RuntimeOrchestrator::prepare_engine_config`，当前把 `RuntimeConfigRequest.nodes` 直接传给 `ProxyEngineConfig.nodes`。
 - `control-runtime::RuntimeSubscriptionCatalogGateResult` 以及 `RuntimeOrchestrator::prepare_runtime_request_with_subscription_catalogs`、`start_runtime_with_subscription_catalogs` 和 `reload_runtime_with_subscription_catalogs`，当前基于调用方显式传入的 `SubscriptionService`/`SubscriptionSource` 把 inline `NodeCatalog.nodes` 编排进 `RuntimeConfigRequest.nodes`，并在运行层拒绝重复 node id、记录 rules deferred 诊断和 unsupported source 拒绝。
@@ -132,4 +132,4 @@ location、payload、URL token、文件路径或 credential 来实现。
 
 ## 当前阶段结论
 
-P3 baseline 已完成 subscription catalog runtime orchestration design 和 `control-runtime` 源码 gate。`RuntimeOrchestrator` 现在可通过显式 `SubscriptionService`/`SubscriptionSource` 把 inline `NodeCatalog.nodes` 接入 `RuntimeConfigRequest.nodes`，并在进入 engine-native 现有 `ProxyEngineConfig.nodes` 消费路径前拒绝重复 id、保留 rules deferred 诊断。当前 P4 阶段新增的 URL 和 Clash YAML parser gates 只扩展 `CoreSubscriptionService` 的纯内存 catalog import 能力，仍未让 `networkcore-linux start` 暴露 subscription source，也不会扫描默认订阅路径；当前 CLI 边界是 no default subscription path。远程/文件订阅、系统 DNS/TUN mutation、daemon/control socket 和 release artifact 继续 blocked。
+P3 baseline 已完成 subscription catalog runtime orchestration design 和 `control-runtime` 源码 gate。`RuntimeOrchestrator` 现在可通过显式 `SubscriptionService`/`SubscriptionSource` 把 inline `NodeCatalog.nodes` 接入 `RuntimeConfigRequest.nodes`，并在进入 engine-native 现有 `ProxyEngineConfig.nodes` 消费路径前拒绝重复 id、保留 rules deferred 诊断。当前 P4 阶段新增的 URL、Clash YAML 和 sing-box JSON parser gates 只扩展 `CoreSubscriptionService` 的纯内存 catalog import 能力，仍未让 `networkcore-linux start` 暴露 subscription source，也不会扫描默认订阅路径；当前 CLI 边界是 no default subscription path。远程/文件订阅、系统 DNS/TUN mutation、daemon/control socket 和 release artifact 继续 blocked。

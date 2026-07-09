@@ -58,6 +58,10 @@ pub const SUBSCRIPTION_VMESS_LINK_INVALID_CODE: &str = "subscription.core.vmess_
 pub const SUBSCRIPTION_CLASH_YAML_INVALID_CODE: &str = "subscription.core.clash_yaml_invalid";
 pub const SUBSCRIPTION_CLASH_YAML_UNSUPPORTED_CODE: &str =
     "subscription.core.clash_yaml_unsupported";
+pub const SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE: &str =
+    "subscription.core.sing_box_json_invalid";
+pub const SUBSCRIPTION_SING_BOX_JSON_UNSUPPORTED_CODE: &str =
+    "subscription.core.sing_box_json_unsupported";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CoreConfigurationService;
@@ -122,6 +126,23 @@ struct RawClashProxy {
 }
 
 #[derive(Debug, Deserialize)]
+struct RawSingBoxDocument {
+    outbounds: Option<Vec<RawSingBoxOutbound>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawSingBoxOutbound {
+    #[serde(rename = "type")]
+    protocol: Option<RawSingBoxScalar>,
+    tag: Option<RawSingBoxScalar>,
+    server: Option<RawSingBoxScalar>,
+    server_port: Option<RawSingBoxScalar>,
+    method: Option<RawSingBoxScalar>,
+    password: Option<RawSingBoxScalar>,
+    uuid: Option<RawSingBoxScalar>,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum RawClashScalar {
     Text(String),
@@ -129,6 +150,22 @@ enum RawClashScalar {
 }
 
 impl RawClashScalar {
+    fn into_text(self) -> String {
+        match self {
+            Self::Text(value) => value,
+            Self::Integer(value) => value.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawSingBoxScalar {
+    Text(String),
+    Integer(i64),
+}
+
+impl RawSingBoxScalar {
     fn into_text(self) -> String {
         match self {
             Self::Text(value) => value,
@@ -266,6 +303,12 @@ impl SubscriptionService for CoreSubscriptionService {
         }
 
         if let Some(document) =
+            parse_sing_box_json_subscription(&source_id, &raw_subscription.content)?
+        {
+            return Ok(document);
+        }
+
+        if let Some(document) =
             parse_clash_yaml_subscription(&source_id, &raw_subscription.content)?
         {
             return Ok(document);
@@ -277,7 +320,7 @@ impl SubscriptionService for CoreSubscriptionService {
 
         Err(domain_error(
             SUBSCRIPTION_PARSE_FAILED_CODE,
-            "subscription payload could not be parsed as NetworkCore TOML, Clash YAML, or supported proxy links",
+            "subscription payload could not be parsed as NetworkCore TOML, Clash YAML, sing-box JSON, or supported proxy links",
         ))
     }
 
@@ -694,6 +737,247 @@ fn required_clash_scalar_field(
         SUBSCRIPTION_CLASH_YAML_INVALID_CODE,
         message,
     )
+}
+
+fn parse_sing_box_json_subscription(
+    source_id: &str,
+    content: &str,
+) -> DomainResult<Option<SubscriptionDocument>> {
+    let content = content.trim();
+    if content.is_empty() {
+        return Ok(None);
+    }
+
+    let raw = match serde_json::from_str::<RawSingBoxDocument>(content) {
+        Ok(raw) => raw,
+        Err(_) => return Ok(None),
+    };
+    let Some(outbounds) = raw.outbounds else {
+        return Ok(None);
+    };
+    if outbounds.is_empty() {
+        return Err(domain_error(
+            SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE,
+            "sing-box json outbounds cannot be empty",
+        ));
+    }
+
+    let mut nodes = Vec::new();
+    let mut seen_ids = BTreeSet::new();
+    for outbound in outbounds {
+        let Some(mut node) = parse_sing_box_outbound(outbound, source_id)? else {
+            continue;
+        };
+        if !seen_ids.insert(node.id.clone()) {
+            let base_id = node.id.clone();
+            let mut suffix = seen_ids.len() + 1;
+            loop {
+                node.id = format!("{base_id}-{suffix}");
+                if seen_ids.insert(node.id.clone()) {
+                    break;
+                }
+                suffix += 1;
+            }
+        }
+        nodes.push(node);
+    }
+
+    if nodes.is_empty() {
+        return Err(domain_error(
+            SUBSCRIPTION_SING_BOX_JSON_UNSUPPORTED_CODE,
+            "sing-box json outbounds must contain at least one supported proxy outbound",
+        ));
+    }
+
+    Ok(Some(SubscriptionDocument {
+        nodes,
+        rules: Vec::new(),
+        diagnostics: Vec::new(),
+    }))
+}
+
+fn parse_sing_box_outbound(
+    raw: RawSingBoxOutbound,
+    source_id: &str,
+) -> DomainResult<Option<NodeDescriptor>> {
+    let protocol = required_sing_box_scalar_field(
+        raw.protocol,
+        "sing-box outbound type cannot be empty",
+    )?;
+    let protocol_token = normalized_token(&protocol);
+    if is_ignored_sing_box_outbound(&protocol_token) {
+        return Ok(None);
+    }
+
+    let host = required_sing_box_scalar_field(
+        raw.server,
+        "sing-box outbound server cannot be empty",
+    )?;
+    let port = required_sing_box_scalar_field(
+        raw.server_port,
+        "sing-box outbound server_port cannot be empty",
+    )?;
+    let port = port.parse::<i64>().map_err(|_| {
+        domain_error(
+            SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE,
+            "sing-box outbound server_port must be a number",
+        )
+    })?;
+    let port = parse_port(
+        port,
+        SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE,
+        "sing-box outbound server_port must be between 1 and 65535",
+    )?;
+
+    let (protocol, protocol_tag, mut metadata) = match protocol_token.as_str() {
+        "ss" | "shadowsocks" => {
+            let method = required_sing_box_scalar_field(
+                raw.method,
+                "sing-box shadowsocks method cannot be empty",
+            )?;
+            let password = required_sing_box_scalar_field(
+                raw.password,
+                "sing-box shadowsocks password cannot be empty",
+            )?;
+            (
+                Protocol::Shadowsocks,
+                "ss",
+                vec![
+                    MetadataEntry {
+                        key: NODE_METADATA_SHADOWSOCKS_METHOD.to_string(),
+                        value: method,
+                    },
+                    MetadataEntry {
+                        key: NODE_METADATA_SHADOWSOCKS_PASSWORD.to_string(),
+                        value: password,
+                    },
+                ],
+            )
+        }
+        "trojan" => {
+            let password = required_sing_box_scalar_field(
+                raw.password,
+                "sing-box trojan password cannot be empty",
+            )?;
+            (
+                Protocol::Trojan,
+                "trojan",
+                vec![MetadataEntry {
+                    key: NODE_METADATA_TROJAN_PASSWORD.to_string(),
+                    value: password,
+                }],
+            )
+        }
+        "vless" => {
+            let uuid = required_sing_box_scalar_field(
+                raw.uuid,
+                "sing-box vless uuid cannot be empty",
+            )?;
+            (
+                Protocol::Vless,
+                "vless",
+                vec![MetadataEntry {
+                    key: NODE_METADATA_VLESS_UUID.to_string(),
+                    value: uuid,
+                }],
+            )
+        }
+        "vmess" => {
+            let uuid = required_sing_box_scalar_field(
+                raw.uuid,
+                "sing-box vmess uuid cannot be empty",
+            )?;
+            (
+                Protocol::Vmess,
+                "vmess",
+                vec![MetadataEntry {
+                    key: NODE_METADATA_VMESS_UUID.to_string(),
+                    value: uuid,
+                }],
+            )
+        }
+        _ => {
+            return Err(domain_error(
+                SUBSCRIPTION_SING_BOX_JSON_UNSUPPORTED_CODE,
+                "sing-box outbound type must be shadowsocks, trojan, vless, or vmess for catalog import",
+            ));
+        }
+    };
+
+    let tag = optional_sing_box_scalar_field(raw.tag);
+    let host_id = sanitize_identifier(&host);
+    let host_id = if host_id.is_empty() {
+        "host".to_string()
+    } else {
+        host_id
+    };
+    let fallback_id = format!("{host_id}-{port}");
+    let name = tag
+        .clone()
+        .unwrap_or_else(|| format!("sing-box-{protocol_tag}-{fallback_id}"));
+    let name_id = tag.as_deref().unwrap_or(&fallback_id);
+    let name_id = sanitize_identifier(name_id);
+    let name_id = if name_id.is_empty() {
+        "node".to_string()
+    } else {
+        name_id
+    };
+    let id = format!("sing-box-{protocol_tag}-{name_id}");
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_SOURCE_FORMAT.to_string(),
+        value: "sing-box-json".to_string(),
+    });
+    metadata.push(MetadataEntry {
+        key: "subscription.source_id".to_string(),
+        value: source_id.to_string(),
+    });
+
+    Ok(Some(NodeDescriptor {
+        id,
+        name,
+        protocol,
+        endpoint: Endpoint { host, port },
+        tags: vec![
+            "subscription".to_string(),
+            "sing-box-json".to_string(),
+            protocol_tag.to_string(),
+        ],
+        metadata,
+    }))
+}
+
+fn is_ignored_sing_box_outbound(protocol_token: &str) -> bool {
+    matches!(
+        protocol_token,
+        "direct" | "block" | "dns" | "selector" | "urltest" | "bridge"
+    )
+}
+
+fn required_sing_box_scalar_field(
+    raw: Option<RawSingBoxScalar>,
+    message: &'static str,
+) -> DomainResult<String> {
+    let Some(raw) = raw else {
+        return Err(domain_error(
+            SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE,
+            message,
+        ));
+    };
+
+    required_trimmed(
+        raw.into_text(),
+        SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE,
+        message,
+    )
+}
+
+fn optional_sing_box_scalar_field(raw: Option<RawSingBoxScalar>) -> Option<String> {
+    let text = raw?.into_text().trim().to_string();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
 }
 
 fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<SubscriptionDocument> {
