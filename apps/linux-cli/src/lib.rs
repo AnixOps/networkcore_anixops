@@ -1877,6 +1877,8 @@ impl MitmCertificateArtifactStore for CommandMitmCertificateArtifactStore {
         &self,
         request: &LinuxMitmCertificateArtifactRequest,
     ) -> DomainResult<LinuxMitmCertificateArtifactApplyOutcome> {
+        validate_mitm_certificate_artifact_request(request)?;
+
         if std::path::Path::new(&request.cert_file_path).exists() {
             return Err(DomainError::new(
                 CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
@@ -1896,14 +1898,6 @@ impl MitmCertificateArtifactStore for CommandMitmCertificateArtifactStore {
             ));
         }
         if let Some(profile_trust_file_path) = &request.profile_trust_file_path {
-            if request.profile_trust_content.is_none()
-                || request.profile_trust_fingerprint.is_none()
-            {
-                return Err(DomainError::new(
-                    CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
-                    "MITM dedicated profile trust artifact request is missing content or fingerprint",
-                ));
-            }
             if std::path::Path::new(profile_trust_file_path).exists() {
                 return Err(DomainError::new(
                     CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
@@ -2081,6 +2075,82 @@ impl MitmCertificateArtifactStore for CommandMitmCertificateArtifactStore {
             )],
         })
     }
+}
+
+fn validate_mitm_certificate_artifact_request(
+    request: &LinuxMitmCertificateArtifactRequest,
+) -> DomainResult<()> {
+    if request.artifact_version != 2 {
+        return Err(DomainError::new(
+            CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
+            "MITM certificate artifact request must use artifact version 2",
+        ));
+    }
+    if !request.cert_content.contains("-----BEGIN CERTIFICATE-----")
+        || !request.cert_content.contains("-----END CERTIFICATE-----")
+    {
+        return Err(DomainError::new(
+            CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
+            "MITM certificate artifact request must contain CA certificate PEM content",
+        ));
+    }
+    if request.cert_content.contains("-----BEGIN PRIVATE KEY-----") {
+        return Err(DomainError::new(
+            CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
+            "MITM certificate artifact request must not contain private key material",
+        ));
+    }
+    if !request.key_content.contains("-----BEGIN PRIVATE KEY-----")
+        || !request.key_content.contains("-----END PRIVATE KEY-----")
+    {
+        return Err(DomainError::new(
+            CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
+            "MITM certificate artifact request must contain private key PEM content",
+        ));
+    }
+    let Some(profile_trust_file_path) = &request.profile_trust_file_path else {
+        return Ok(());
+    };
+    let Some(profile_trust_content) = &request.profile_trust_content else {
+        return Err(DomainError::new(
+            CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
+            format!(
+                "MITM dedicated profile CA PEM copy request is missing content for {}",
+                profile_trust_file_path
+            ),
+        ));
+    };
+    let Some(profile_trust_fingerprint) = &request.profile_trust_fingerprint else {
+        return Err(DomainError::new(
+            CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
+            format!(
+                "MITM dedicated profile CA PEM copy request is missing fingerprint for {}",
+                profile_trust_file_path
+            ),
+        ));
+    };
+    if profile_trust_content.contains("-----BEGIN PRIVATE KEY-----")
+        || profile_trust_content == &request.key_content
+    {
+        return Err(DomainError::new(
+            CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
+            "MITM dedicated profile CA PEM copy must not contain private key material",
+        ));
+    }
+    if profile_trust_content != &request.cert_content {
+        return Err(DomainError::new(
+            CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
+            "MITM dedicated profile CA PEM copy must match certificate PEM content",
+        ));
+    }
+    if profile_trust_fingerprint != &request.cert_fingerprint {
+        return Err(DomainError::new(
+            CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
+            "MITM dedicated profile CA PEM copy fingerprint must match certificate fingerprint",
+        ));
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, Default)]

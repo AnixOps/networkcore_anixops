@@ -74,10 +74,11 @@ use networkcore_linux::{
     CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_INVALID_CODE,
     CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_REACHABLE_CODE, CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE,
     CLI_MITM_BROWSER_PLAN_READY_CODE, CLI_MITM_CERTIFICATE_APPLY_CONFIG_MISSING_CODE,
-    CLI_MITM_CERTIFICATE_APPLY_READY_CODE, CLI_MITM_CERTIFICATE_AUTHORIZATION_REQUIRED_CODE,
-    CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE, CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE,
-    CLI_MITM_CERTIFICATE_PLAN_READY_CODE, CLI_MITM_CERTIFICATE_ROLLBACK_BLOCKED_CODE,
-    CLI_MITM_CERTIFICATE_ROLLBACK_READY_CODE, CLI_MITM_CLI_GATE_PARTIAL_CODE,
+    CLI_MITM_CERTIFICATE_APPLY_READY_CODE, CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
+    CLI_MITM_CERTIFICATE_AUTHORIZATION_REQUIRED_CODE, CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE,
+    CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE, CLI_MITM_CERTIFICATE_PLAN_READY_CODE,
+    CLI_MITM_CERTIFICATE_ROLLBACK_BLOCKED_CODE, CLI_MITM_CERTIFICATE_ROLLBACK_READY_CODE,
+    CLI_MITM_CLI_GATE_PARTIAL_CODE,
     CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE, CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE,
     CLI_MITM_HTTP_REWRITE_AUTHORIZATION_REQUIRED_CODE, CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE,
     CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE, CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE,
@@ -1204,9 +1205,7 @@ fn mitm_certificate_apply_with_store_writes_artifact_report() {
     assert!(artifact
         .cert_content
         .contains("-----BEGIN CERTIFICATE-----"));
-    assert!(artifact
-        .key_content
-        .contains("-----BEGIN PRIVATE KEY-----"));
+    assert!(artifact.key_content.contains("-----BEGIN PRIVATE KEY-----"));
     assert!(!artifact.cert_content.contains("NETWORKCORE MITM CA"));
     assert!(!artifact.key_content.contains("NETWORKCORE MITM CA"));
     let apply = lifecycle
@@ -1491,7 +1490,9 @@ fn mitm_certificate_apply_writes_tls_usable_ca_pem_without_trust_store_mutation(
         .as_ref()
         .expect("apply request should include certificate artifact");
     assert_eq!(artifact.artifact_version, 2);
-    assert!(artifact.cert_content.contains("-----BEGIN CERTIFICATE-----"));
+    assert!(artifact
+        .cert_content
+        .contains("-----BEGIN CERTIFICATE-----"));
     assert!(artifact.cert_content.contains("-----END CERTIFICATE-----"));
     assert!(artifact.key_content.contains("-----BEGIN PRIVATE KEY-----"));
     assert!(artifact.key_content.contains("-----END PRIVATE KEY-----"));
@@ -1522,6 +1523,69 @@ fn mitm_certificate_apply_writes_tls_usable_ca_pem_without_trust_store_mutation(
     assert_eq!(key_content, artifact.key_content);
     assert_eq!(profile_trust_content, cert_content);
     assert!(!profile_trust_content.contains("-----BEGIN PRIVATE KEY-----"));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn mitm_certificate_command_store_rejects_profile_trust_private_key_material() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock should be after Unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("networkcore-mitm-profile-invariant-{unique}"));
+    let cert_path = root.join("networkcore-mitm-ca.pem");
+    let key_path = root.join("networkcore-mitm-ca.key.pem");
+    let profile_trust_path = root.join("dedicated-profile-ca.pem");
+    let snapshot_path = root.join("networkcore-mitm-ca.snapshot.json");
+    let cert_content =
+        "-----BEGIN CERTIFICATE-----\nnetworkcore-test-ca\n-----END CERTIFICATE-----\n"
+            .to_string();
+    let key_content =
+        "-----BEGIN PRIVATE KEY-----\nnetworkcore-test-key\n-----END PRIVATE KEY-----\n"
+            .to_string();
+    let request = LinuxMitmCertificateArtifactRequest {
+        cert_file_path: cert_path
+            .to_str()
+            .expect("cert path should be UTF-8")
+            .to_string(),
+        key_file_path: key_path
+            .to_str()
+            .expect("key path should be UTF-8")
+            .to_string(),
+        profile_trust_file_path: Some(
+            profile_trust_path
+                .to_str()
+                .expect("profile trust path should be UTF-8")
+                .to_string(),
+        ),
+        snapshot_path: snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8")
+            .to_string(),
+        subject: MITM_CERTIFICATE_ARTIFACT_SUBJECT.to_string(),
+        artifact_version: 2,
+        cert_content: cert_content.clone(),
+        key_content: key_content.clone(),
+        profile_trust_content: Some(format!("{cert_content}{key_content}")),
+        cert_fingerprint: "cert-fingerprint".to_string(),
+        key_fingerprint: "key-fingerprint".to_string(),
+        profile_trust_fingerprint: Some("cert-fingerprint".to_string()),
+    };
+
+    let error = networkcore_linux::CommandMitmCertificateArtifactStore::new()
+        .apply_certificate_artifact(&request)
+        .expect_err("profile trust CA PEM copy must reject private key material");
+
+    assert_eq!(
+        error.code,
+        CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE
+    );
+    assert!(error.message.contains("must not contain private key material"));
+    assert!(!cert_path.exists());
+    assert!(!key_path.exists());
+    assert!(!profile_trust_path.exists());
+    assert!(!snapshot_path.exists());
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -5060,12 +5124,8 @@ impl MitmCertificateArtifactStore for TestMitmCertificateArtifactStore {
         );
         assert_eq!(request.subject, MITM_CERTIFICATE_ARTIFACT_SUBJECT);
         assert_eq!(request.artifact_version, 2);
-        assert!(request
-            .cert_content
-            .contains("-----BEGIN CERTIFICATE-----"));
-        assert!(request
-            .key_content
-            .contains("-----BEGIN PRIVATE KEY-----"));
+        assert!(request.cert_content.contains("-----BEGIN CERTIFICATE-----"));
+        assert!(request.key_content.contains("-----BEGIN PRIVATE KEY-----"));
         assert!(!request.cert_content.contains("NETWORKCORE MITM CA"));
         assert!(!request.key_content.contains("NETWORKCORE MITM CA"));
         assert!(request.profile_trust_content.is_none());

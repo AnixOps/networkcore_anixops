@@ -426,6 +426,14 @@ jobs:
           grep -q "profile_trust_fingerprint" apps/linux-cli/src/lib.rs
           grep -q "rcgen" apps/linux-cli/Cargo.toml
           grep -q "CLI_MITM_CERTIFICATE_MATERIAL_FAILED_CODE" apps/linux-cli/src/lib.rs
+          grep -q "cli.linux.mitm.certificate.material.failed" apps/linux-cli/src/lib.rs
+          grep -q "generate_mitm_certificate_ca_pem_material" apps/linux-cli/src/lib.rs
+          grep -q "KeyPair::generate" apps/linux-cli/src/lib.rs
+          grep -q "self_signed" apps/linux-cli/src/lib.rs
+          grep -q "serialize_pem" apps/linux-cli/src/lib.rs
+          grep -Fq "let profile_trust_content = profile_trust_file_path.map(|_| cert_content.clone());" apps/linux-cli/src/lib.rs
+          grep -q "validate_mitm_certificate_artifact_request" apps/linux-cli/src/lib.rs
+          grep -q "must not contain private key material" apps/linux-cli/src/lib.rs
           grep -q -- "-----BEGIN CERTIFICATE-----" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q -- "-----BEGIN PRIVATE KEY-----" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "MITM_BROWSER_CAPTURE_GATE" apps/linux-cli/src/lib.rs
@@ -443,6 +451,7 @@ jobs:
           grep -q "mitm_certificate_command_store_writes_and_rolls_back_artifacts" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_certificate_command_store_writes_and_rolls_back_profile_trust_artifact" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_certificate_apply_writes_tls_usable_ca_pem_without_trust_store_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_certificate_command_store_rejects_profile_trust_private_key_material" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_certificate_rollback_with_store_restores_artifact_report" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "certificate_lifecycle_entrypoint_routes_apply_and_rollback_to_artifact_store" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "certificate_lifecycle_json_output_contains_artifact_fields" apps/linux-cli/tests/linux_cli_contracts.rs
@@ -693,6 +702,9 @@ jobs:
           grep -q "CA certificate PEM" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
           grep -q "private key PEM" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
           grep -q "dedicated profile CA PEM copy" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "CommandMitmCertificateArtifactStore" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "artifact version" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "profile CA PEM copy 内容和 fingerprint invariant" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
           grep -q "cli.linux.mitm.certificate.material.failed" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
           grep -q "cli.linux.mitm.certificate.apply.ready" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
           grep -q "cli.linux.mitm.certificate.apply.config_missing" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md

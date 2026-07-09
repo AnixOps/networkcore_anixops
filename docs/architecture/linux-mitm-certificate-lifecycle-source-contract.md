@@ -17,6 +17,7 @@ MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/profile-trust-artifact
 - `networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` 通过 `CommandMitmCertificateArtifactStore` 写入 operator-provided CA certificate PEM、private key PEM、可选 dedicated profile CA PEM copy 路径和 NetworkCore rollback snapshot。
 - Certificate artifact content 必须是标准 PEM：`cert_content` 包含 `-----BEGIN CERTIFICATE-----`/`-----END CERTIFICATE-----`，`key_content` 包含 `-----BEGIN PRIVATE KEY-----`/`-----END PRIVATE KEY-----`，不再把 NetworkCore metadata wrapper 写入 PEM 文件。
 - `profile_trust_content` 在请求 `--profile-trust-file` 时必须等于同一 `cert_content` 的 CA PEM copy，`profile_trust_fingerprint` 必须等于 `cert_fingerprint`，且不得包含 private key PEM。
+- `CommandMitmCertificateArtifactStore` 必须在写入 snapshot、cert、key 或 profile trust file 之前防御性校验 artifact version、cert/key PEM marker、profile CA PEM copy 内容和 fingerprint invariant；非法 request 必须返回 `cli.linux.mitm.certificate.artifact.write_failed`，不得落盘。
 - 缺少 `--confirm` 时返回 `cli.linux.mitm.certificate.authorization_required`，不写文件。
 - 缺少 `--cert-file`、`--key-file` 或 `--snapshot` 时返回 `cli.linux.mitm.certificate.apply.config_missing`，不写文件。
 - 证书材料生成失败时返回 `cli.linux.mitm.certificate.material.failed`，不写文件。
