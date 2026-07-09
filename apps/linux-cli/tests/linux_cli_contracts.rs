@@ -36,17 +36,16 @@ use networkcore_linux::{
     handle_mitm_browser_capture_traffic_proof_with_probe,
     handle_mitm_browser_capture_traffic_proof_with_probe_and_proxy_scheme,
     handle_mitm_browser_capture_verify, handle_mitm_browser_capture_verify_with_probe,
-    handle_mitm_browser_plan,
-    handle_mitm_certificate_apply, handle_mitm_certificate_apply_with_store,
-    handle_mitm_certificate_plan, handle_mitm_certificate_rollback,
-    handle_mitm_certificate_rollback_with_store, handle_mitm_http_rewrite_plan,
-    handle_mitm_http_rewrite_preview, handle_mitm_status, handle_parse_error,
-    handle_prepare_config, handle_run_url_with_sing_box, handle_start, handle_status, handle_stop,
-    native_proxy_engine_service_with_builtin_mitm_plugin, parse_args, render_response,
-    BrowserCaptureEndpointProbe, BrowserCapturePacFileStore, BrowserCaptureProcessRunner,
-    BrowserCaptureTrafficProofProbe, CommandBrowserCaptureEndpointProbe,
-    CommandBrowserCaptureTrafficProofProbe, ConfigReadError, ConfigReader,
-    CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
+    handle_mitm_browser_plan, handle_mitm_certificate_apply,
+    handle_mitm_certificate_apply_with_store, handle_mitm_certificate_plan,
+    handle_mitm_certificate_rollback, handle_mitm_certificate_rollback_with_store,
+    handle_mitm_http_rewrite_plan, handle_mitm_http_rewrite_preview, handle_mitm_status,
+    handle_parse_error, handle_prepare_config, handle_run_url_with_sing_box, handle_start,
+    handle_status, handle_stop, native_proxy_engine_service_with_builtin_mitm_plugin, parse_args,
+    render_response, BrowserCaptureEndpointProbe, BrowserCapturePacFileStore,
+    BrowserCaptureProcessRunner, BrowserCaptureTrafficProofProbe,
+    CommandBrowserCaptureEndpointProbe, CommandBrowserCaptureTrafficProofProbe, ConfigReadError,
+    ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
     LinuxBrowserCaptureLaunchRequest, LinuxBrowserCapturePacApplyOutcome,
@@ -2606,10 +2605,7 @@ fn mitm_browser_capture_traffic_proof_requires_bound_proxy_and_connect_authority
         .expect("traffic-proof response should include proof report");
     assert_eq!(observed_proof.status, "observed");
     assert!(observed_proof.proven);
-    assert_eq!(
-        observed_proof.request.proxy_url,
-        "socks5://127.0.0.1:7890"
-    );
+    assert_eq!(observed_proof.request.proxy_url, "socks5://127.0.0.1:7890");
     assert_eq!(
         observed_proof.request.proof_connect_authority.as_deref(),
         Some("example.com:443")
