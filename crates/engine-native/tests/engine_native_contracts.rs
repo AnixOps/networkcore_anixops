@@ -16,8 +16,8 @@ use engine_native::{
     browser_capture_proof_token_from_connect_authority,
     build_socks5_outbound_connect_request_frame, decide_socks5_outbound_connect_response,
     native_socks5_connect_browser_capture_proof_token,
-    observe_explicit_http_connect_tls_client_hello, plan_and_apply_plain_http_mitm,
-    plan_explicit_http_connect_controlled_tls_termination,
+    observe_explicit_http_connect_tls_client_hello, plan_and_apply_https_request_rewrite_preview,
+    plan_and_apply_plain_http_mitm, plan_explicit_http_connect_controlled_tls_termination,
     plan_explicit_http_connect_tls_mitm_foundation, plan_socks5_connect_http_mitm,
     plan_socks5_outbound_connect_client_success_response_write,
     plan_socks5_outbound_connect_data_relay, plan_socks5_outbound_tcp_connection,
@@ -70,6 +70,8 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_RESPONSE_READ_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_READY_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_SCRIPT_DEFERRED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_DEFERRED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_OBSERVED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE,
@@ -1610,6 +1612,94 @@ fn explicit_http_connect_tls_termination_plan_defers_without_material_or_hello()
     assert_diagnostic(
         &termination_plan.diagnostics,
         ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_DEFERRED_CODE,
+    );
+}
+
+#[test]
+fn explicit_https_request_rewrite_preview_applies_headers_and_defers_body_and_script() {
+    let mut request =
+        Cursor::new(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n".to_vec());
+
+    let read_report = read_explicit_http_proxy_request(&mut request);
+    let parsed = read_report
+        .request
+        .expect("explicit HTTP CONNECT request should parse");
+    let foundation_report = plan_explicit_http_connect_tls_mitm_foundation(&parsed);
+    let observation_report = observe_explicit_http_connect_tls_client_hello(
+        &parsed,
+        &tls_client_hello_with_sni("example.com"),
+    );
+    let termination_plan = plan_explicit_http_connect_controlled_tls_termination(
+        &parsed,
+        &foundation_report,
+        &observation_report,
+        true,
+        true,
+    );
+    let message = NativePlainHttpMessage {
+        request_id: "https-request-1".to_string(),
+        url: "https://example.com/path".to_string(),
+        method: Some("GET".to_string()),
+        phase: HttpMitmPhase::Request,
+        status_code: None,
+        headers: vec![MetadataEntry {
+            key: "X-Original".to_string(),
+            value: "old".to_string(),
+        }],
+        body: b"request-body".to_vec(),
+    };
+    let outcome = HttpMitmOutcome {
+        action: HttpMitmAction::Continue,
+        header_mutations: vec![HttpHeaderMutation {
+            operation: HttpHeaderMutationOperation::Set,
+            name: "X-Request-Rewrite".to_string(),
+            value: Some("ready".to_string()),
+        }],
+        body_mutation: Some(HttpBodyMutation {
+            body: b"mutated-body".to_vec(),
+            truncated: false,
+        }),
+        script_dispatch: Some(HttpMitmScriptDispatch {
+            kind: HttpMitmScriptKind::Request,
+            phase: HttpMitmPhase::Request,
+            requires_body: true,
+            timeout_ms: 4000,
+            max_size: 2048,
+            script_path: "https://scripts.example/request.js".to_string(),
+            tag: "networkcore.request".to_string(),
+            argument: "Mode=preview".to_string(),
+        }),
+        audits: Vec::new(),
+        diagnostics: Vec::new(),
+    };
+
+    let preview =
+        plan_and_apply_https_request_rewrite_preview(&termination_plan, &message, &outcome);
+
+    assert!(preview.controlled_tls_termination_plan_ready);
+    assert!(preview.https_request_rewrite_preview_ready);
+    assert!(preview.applied);
+    assert_eq!(preview.header_mutation_count, 1);
+    assert_eq!(
+        preview
+            .headers
+            .iter()
+            .find(|header| header.key == "X-Request-Rewrite")
+            .map(|header| header.value.as_str()),
+        Some("ready")
+    );
+    assert_eq!(preview.body, b"request-body".to_vec());
+    assert!(preview.body_mutation_deferred);
+    assert!(!preview.https_response_rewrite_ready);
+    assert!(!preview.script_dispatch_ready);
+    assert!(preview.script_dispatch_deferred);
+    assert_diagnostic(
+        &preview.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_READY_CODE,
+    );
+    assert_diagnostic(
+        &preview.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_SCRIPT_DEFERRED_CODE,
     );
 }
 

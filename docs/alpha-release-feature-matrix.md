@@ -372,8 +372,14 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前 main source 状态
 
-当前 main 与 `v0.1.0-alpha.16` 发布边界对齐。下一步 `v0.1.0-alpha.17` 才推进 Linux HTTPS request rewrite preview；
-该后续能力仍必须等待新的 source 增量、tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release asset 全部通过。
+当前 main 已进入 `v0.1.0-alpha.17` source 增量：`engine-native` 新增
+`NativeHttpsRequestRewritePreviewReport` 和 `plan_and_apply_https_request_rewrite_preview`，
+在 controlled TLS termination plan ready 且输入为 request-phase `https://` message 时，预览 reject、redirect
+和 request header mutation；`http_rewrite` report/JSON 新增 `https_request_rewrite_preview_ready=true`、
+`https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`。该 source 增量仍不执行 live HTTPS
+decryption、live CONNECT 后 HTTPS request/response rewrite、HTTPS response rewrite、body mutation 或
+JavaScript script dispatch，也尚未进入用户可下载 artifact；最终能力仍必须等待新的 tag、同 commit CI、
+package、attestation、publish eligibility 和 GitHub Release asset 全部通过。
 
 ## 已拍板后续版本节奏
 
@@ -392,8 +398,8 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 - `v0.1.0-alpha.15`：Linux TLS MITM foundation readiness。完成 CONNECT pass-through tunnel、bounded ClientHello/SNI observation、TLS 可消费 CA certificate PEM/private key PEM 和 dedicated profile CA PEM copy；仍不执行 TLS termination、HTTPS decryption 或 JavaScript script dispatch。
 - `v0.1.0-alpha.16`：Linux controlled TLS termination foundation。已发布 controlled downstream TLS
   termination plan/report、CA material readiness binding 和诊断，不执行 JavaScript script dispatch。
-- `v0.1.0-alpha.17`：Linux HTTPS request rewrite preview。对 dedicated/explicit HTTPS 请求应用
-  reject、redirect 和 request header rewrite，response body rewrite 继续独立切片。
+- `v0.1.0-alpha.17`：Linux HTTPS request rewrite preview。当前 source 增量已加入 caller-provided
+  HTTPS request reject、redirect 和 request header rewrite preview；response body rewrite 继续独立切片。
 - `v0.1.0-alpha.18`：Linux HTTPS response rewrite preview。加入 response header/body rewrite，
   带 content-type、body size 和 buffering guard；JavaScript script dispatch 仍 deferred。
 - `v0.1.0-alpha.19`：Linux live browser proof hardening。把 dedicated browser proof、TLS MITM

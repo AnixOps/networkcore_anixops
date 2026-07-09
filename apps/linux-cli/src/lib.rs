@@ -206,6 +206,9 @@ pub const MITM_HTTP_REWRITE_TLS_DECRYPTION_READY: bool = false;
 pub const MITM_HTTP_REWRITE_CONTROLLED_TLS_TERMINATION_PLAN_READY: bool = true;
 pub const MITM_HTTP_REWRITE_DOWNSTREAM_TLS_TERMINATION_PLAN_READY: bool = true;
 pub const MITM_HTTP_REWRITE_UPSTREAM_TLS_FORWARDING_READY: bool = true;
+pub const MITM_HTTP_REWRITE_HTTPS_REQUEST_REWRITE_PREVIEW_READY: bool = true;
+pub const MITM_HTTP_REWRITE_HTTPS_RESPONSE_REWRITE_READY: bool = false;
+pub const MITM_HTTP_REWRITE_SCRIPT_DISPATCH_READY: bool = false;
 pub const MITM_HTTP_REWRITE_DEFAULT_METHOD: &str = "GET";
 pub const MITM_HTTP_REWRITE_DEFAULT_PHASE: &str = "request";
 pub const MITM_USER_FACING_STAGE: &str = "policy-only";
@@ -1144,6 +1147,9 @@ pub struct LinuxMitmHttpRewriteReport {
     pub controlled_tls_termination_plan_ready: bool,
     pub downstream_tls_termination_plan_ready: bool,
     pub upstream_tls_forwarding_ready: bool,
+    pub https_request_rewrite_preview_ready: bool,
+    pub https_response_rewrite_ready: bool,
+    pub script_dispatch_ready: bool,
     pub request: LinuxMitmHttpRewriteRequest,
     pub outcome: Option<LinuxMitmHttpRewriteOutcomeReport>,
     pub blocked_operations: Vec<String>,
@@ -5380,6 +5386,10 @@ fn build_linux_mitm_http_rewrite_report(
         downstream_tls_termination_plan_ready:
             MITM_HTTP_REWRITE_DOWNSTREAM_TLS_TERMINATION_PLAN_READY,
         upstream_tls_forwarding_ready: MITM_HTTP_REWRITE_UPSTREAM_TLS_FORWARDING_READY,
+        https_request_rewrite_preview_ready:
+            MITM_HTTP_REWRITE_HTTPS_REQUEST_REWRITE_PREVIEW_READY,
+        https_response_rewrite_ready: MITM_HTTP_REWRITE_HTTPS_RESPONSE_REWRITE_READY,
+        script_dispatch_ready: MITM_HTTP_REWRITE_SCRIPT_DISPATCH_READY,
         request: request.unwrap_or_else(|| {
             build_linux_mitm_http_rewrite_request(
                 None,
@@ -8552,7 +8562,7 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
 
     if let Some(rewrite) = &response.http_rewrite {
         lines.push(format!(
-            "http rewrite {}: {} mutation_ready={} live_traffic_ready={} tls_decryption_ready={} controlled_tls_termination_plan_ready={} downstream_tls_termination_plan_ready={} upstream_tls_forwarding_ready={}",
+            "http rewrite {}: {} mutation_ready={} live_traffic_ready={} tls_decryption_ready={} controlled_tls_termination_plan_ready={} downstream_tls_termination_plan_ready={} upstream_tls_forwarding_ready={} https_request_rewrite_preview_ready={} https_response_rewrite_ready={} script_dispatch_ready={}",
             rewrite.action,
             rewrite.gate_status,
             rewrite.mutation_ready,
@@ -8560,7 +8570,10 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             rewrite.tls_decryption_ready,
             rewrite.controlled_tls_termination_plan_ready,
             rewrite.downstream_tls_termination_plan_ready,
-            rewrite.upstream_tls_forwarding_ready
+            rewrite.upstream_tls_forwarding_ready,
+            rewrite.https_request_rewrite_preview_ready,
+            rewrite.https_response_rewrite_ready,
+            rewrite.script_dispatch_ready
         ));
         lines.push(format!(
             "http rewrite source contract: {}",
@@ -9650,6 +9663,9 @@ struct JsonMitmHttpRewriteReport {
     controlled_tls_termination_plan_ready: bool,
     downstream_tls_termination_plan_ready: bool,
     upstream_tls_forwarding_ready: bool,
+    https_request_rewrite_preview_ready: bool,
+    https_response_rewrite_ready: bool,
+    script_dispatch_ready: bool,
     request: JsonMitmHttpRewriteRequest,
     outcome: Option<JsonMitmHttpRewriteOutcomeReport>,
     blocked_operations: Vec<String>,
@@ -9668,6 +9684,9 @@ impl From<&LinuxMitmHttpRewriteReport> for JsonMitmHttpRewriteReport {
             controlled_tls_termination_plan_ready: report.controlled_tls_termination_plan_ready,
             downstream_tls_termination_plan_ready: report.downstream_tls_termination_plan_ready,
             upstream_tls_forwarding_ready: report.upstream_tls_forwarding_ready,
+            https_request_rewrite_preview_ready: report.https_request_rewrite_preview_ready,
+            https_response_rewrite_ready: report.https_response_rewrite_ready,
+            script_dispatch_ready: report.script_dispatch_ready,
             request: JsonMitmHttpRewriteRequest::from(&report.request),
             outcome: report
                 .outcome

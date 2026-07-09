@@ -227,6 +227,12 @@ pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_PLAN_READY_CODE: &str
     "engine.native.runtime.http_proxy_tls_termination_plan_ready";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_DEFERRED_CODE: &str =
     "engine.native.runtime.http_proxy_tls_termination_deferred";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_READY_CODE: &str =
+    "engine.native.runtime.http_proxy_https_request_rewrite_preview_ready";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_DEFERRED_CODE: &str =
+    "engine.native.runtime.http_proxy_https_request_rewrite_preview_deferred";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_SCRIPT_DEFERRED_CODE: &str =
+    "engine.native.runtime.http_proxy_https_request_rewrite_script_deferred";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE: &str =
     "engine.native.runtime.http_proxy_plain_rewrite_applied";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE: &str =
@@ -821,6 +827,28 @@ pub struct NativeControlledTlsTerminationPlanReport {
     pub https_request_rewrite_ready: bool,
     pub https_response_rewrite_ready: bool,
     pub script_dispatch_ready: bool,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeHttpsRequestRewritePreviewReport {
+    pub request_id: String,
+    pub target_host: String,
+    pub target_port: u16,
+    pub target_url: String,
+    pub controlled_tls_termination_plan_ready: bool,
+    pub https_request_rewrite_preview_ready: bool,
+    pub applied: bool,
+    pub terminal_action: Option<String>,
+    pub final_status_code: Option<u16>,
+    pub redirect_location: Option<String>,
+    pub header_mutation_count: usize,
+    pub body_mutation_deferred: bool,
+    pub https_response_rewrite_ready: bool,
+    pub script_dispatch_ready: bool,
+    pub script_dispatch_deferred: bool,
+    pub headers: Vec<MetadataEntry>,
+    pub body: Vec<u8>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -1584,6 +1612,129 @@ pub fn plan_explicit_http_connect_controlled_tls_termination(
         https_response_rewrite_ready: false,
         script_dispatch_ready: false,
         diagnostics: vec![diagnostic],
+    }
+}
+
+pub fn plan_and_apply_https_request_rewrite_preview(
+    termination_plan: &NativeControlledTlsTerminationPlanReport,
+    message: &NativePlainHttpMessage,
+    outcome: &HttpMitmOutcome,
+) -> NativeHttpsRequestRewritePreviewReport {
+    let request_phase = matches!(message.phase, HttpMitmPhase::Request);
+    let https_target = message.url.to_ascii_lowercase().starts_with("https://");
+    let preview_ready = termination_plan.downstream_tls_termination_plan_ready
+        && termination_plan.upstream_tls_forwarding_ready
+        && request_phase
+        && https_target;
+    let mut diagnostics = Vec::new();
+
+    if !preview_ready {
+        diagnostics.push(engine_diagnostic(
+            DiagnosticSeverity::Info,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_DEFERRED_CODE,
+            "native explicit HTTP proxy HTTPS request rewrite preview is deferred until controlled TLS termination plan and request-phase HTTPS input are ready",
+            SOURCE_ENGINE_NATIVE_MITM,
+        ));
+
+        return NativeHttpsRequestRewritePreviewReport {
+            request_id: message.request_id.clone(),
+            target_host: termination_plan.target_host.clone(),
+            target_port: termination_plan.target_port,
+            target_url: termination_plan.target_url.clone(),
+            controlled_tls_termination_plan_ready: termination_plan
+                .downstream_tls_termination_plan_ready,
+            https_request_rewrite_preview_ready: false,
+            applied: false,
+            terminal_action: None,
+            final_status_code: message.status_code,
+            redirect_location: None,
+            header_mutation_count: 0,
+            body_mutation_deferred: outcome.body_mutation.is_some(),
+            https_response_rewrite_ready: false,
+            script_dispatch_ready: false,
+            script_dispatch_deferred: outcome.script_dispatch.is_some(),
+            headers: message.headers.clone(),
+            body: message.body.clone(),
+            diagnostics,
+        };
+    }
+
+    diagnostics.push(engine_diagnostic(
+        DiagnosticSeverity::Info,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_READY_CODE,
+        "native explicit HTTP proxy HTTPS request rewrite preview is ready for reject, redirect, and request header mutation",
+        SOURCE_ENGINE_NATIVE_MITM,
+    ));
+
+    let mut headers = message.headers.clone();
+    let mut body = message.body.clone();
+    let mut applied = false;
+    let mut terminal_action = None;
+    let mut final_status_code = message.status_code;
+    let mut redirect_location = None;
+
+    match &outcome.action {
+        HttpMitmAction::Continue => {}
+        HttpMitmAction::Reject { status_code } => {
+            applied = true;
+            terminal_action = Some("reject".to_string());
+            final_status_code = Some(*status_code);
+            headers.clear();
+            set_plain_http_header(&mut headers, "Content-Length", "0");
+            body.clear();
+        }
+        HttpMitmAction::Redirect {
+            status_code,
+            location,
+        } => {
+            applied = true;
+            terminal_action = Some("redirect".to_string());
+            final_status_code = Some(*status_code);
+            redirect_location = Some(location.clone());
+            set_plain_http_header(&mut headers, "Location", location);
+            set_plain_http_header(&mut headers, "Content-Length", "0");
+            body.clear();
+        }
+    }
+
+    let mut header_mutation_count = 0;
+    if terminal_action.is_none() {
+        header_mutation_count =
+            apply_plain_http_header_mutations(&mut headers, &outcome.header_mutations);
+        applied = applied || header_mutation_count > 0;
+    }
+
+    let body_mutation_deferred = outcome.body_mutation.is_some();
+    let script_dispatch_deferred = outcome.script_dispatch.is_some();
+    if script_dispatch_deferred {
+        diagnostics.push(engine_diagnostic(
+            DiagnosticSeverity::Warning,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_SCRIPT_DEFERRED_CODE,
+            "native explicit HTTP proxy HTTPS request rewrite preview recorded script dispatch but JavaScript execution remains deferred",
+            SOURCE_ENGINE_NATIVE_MITM,
+        ));
+    }
+
+    NativeHttpsRequestRewritePreviewReport {
+        request_id: message.request_id.clone(),
+        target_host: termination_plan.target_host.clone(),
+        target_port: termination_plan.target_port,
+        target_url: termination_plan.target_url.clone(),
+        controlled_tls_termination_plan_ready: termination_plan
+            .downstream_tls_termination_plan_ready,
+        https_request_rewrite_preview_ready: true,
+        applied,
+        terminal_action,
+        final_status_code,
+        redirect_location,
+        header_mutation_count,
+        body_mutation_deferred,
+        https_response_rewrite_ready: false,
+        script_dispatch_ready: false,
+        script_dispatch_deferred,
+        headers,
+        body,
+        diagnostics,
     }
 }
 

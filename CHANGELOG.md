@@ -6,6 +6,7 @@
 
 ### Added
 
+- 新增 `v0.1.0-alpha.17` source-only HTTPS request rewrite preview：`engine-native` 新增 `NativeHttpsRequestRewritePreviewReport`、`plan_and_apply_https_request_rewrite_preview`、`engine.native.runtime.http_proxy_https_request_rewrite_preview_ready`、`engine.native.runtime.http_proxy_https_request_rewrite_preview_deferred` 和 `engine.native.runtime.http_proxy_https_request_rewrite_script_deferred`，在 controlled TLS termination plan ready 且输入为 request-phase `https://` message 时预览 reject、redirect 和 request header mutation；Linux CLI `http_rewrite` report/JSON 新增 `https_request_rewrite_preview_ready`、`https_response_rewrite_ready` 和 `script_dispatch_ready`。新增 `explicit_https_request_rewrite_preview_applies_headers_and_defers_body_and_script` 合同测试。该增量仍不执行 live HTTPS decryption、live CONNECT 后 HTTPS request/response rewrite、HTTPS response rewrite、body mutation、CA trust mutation、browser/system proxy mutation 或 JavaScript script dispatch，尚未进入用户可下载 artifact。
 - 同步 `v0.1.0-alpha.16` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README 和 `mitm-policy` README 现在把 `v0.1.0-alpha.16` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 alpha.17 HTTPS request rewrite preview 起。
 
 ## v0.1.0-alpha.16 - 2026-07-09

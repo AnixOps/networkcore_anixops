@@ -103,6 +103,10 @@ controlled downstream TLS termination plan/report. Later live TLS termination,
 TLS decryption and full HTTPS rewrite increments after this tag require a later tag
 release before users can download them from GitHub Releases. The full alpha
 feature and boundary index is `docs/alpha-release-feature-matrix.md`.
+Current `main` source additionally lets `engine-native` preview reject, redirect,
+and request header mutation for caller-provided request-phase `https://` input,
+but it still does not execute JavaScript dispatch, live TLS decryption, live
+CONNECT-stream HTTPS rewrite, or HTTPS response rewrite.
 
 Required gates before user-facing MITM:
 
