@@ -4980,6 +4980,7 @@ where
         .with_diagnostics(diagnostics)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn handle_mitm_http_rewrite_preview<P>(
     platform: &P,
     url: Option<&str>,
