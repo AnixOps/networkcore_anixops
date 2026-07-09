@@ -182,6 +182,9 @@ jobs:
           grep -Fq "v0.1.0-alpha.11" docs/alpha-release-feature-matrix.md
           grep -Fq "v0.1.0-alpha.12" docs/alpha-release-feature-matrix.md
           grep -Fq "v0.1.0-alpha.13" docs/alpha-release-feature-matrix.md
+          grep -Fq "v0.1.0-alpha.14" docs/alpha-release-feature-matrix.md
+          grep -Fq "Linux explicit HTTP proxy live plain HTTP data plane" docs/alpha-release-feature-matrix.md
+          grep -Fq "plain-http-live-data-plane-active/tls-decryption-blocked" docs/alpha-release-feature-matrix.md
           grep -Fq "profile-trust-file" docs/alpha-release-feature-matrix.md
           grep -Fq "已拍板后续版本节奏" docs/alpha-release-feature-matrix.md
           grep -Fq "Linux-only explicit HTTPS rewrite preview" docs/alpha-release-feature-matrix.md
@@ -204,7 +207,7 @@ jobs:
           grep -Fq "alpha-release-feature-matrix.md" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -Fq "Linux MITM HTTP Rewrite Source Contract" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -Fq "mitm-http-rewrite-source-contract-status=active" docs/architecture/linux-mitm-http-rewrite-source-contract.md
-          grep -Fq "MITM_HTTP_TLS_DATA_PLANE_GATE=plain-http-rewrite-foundation-active/tls-decryption-blocked" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -Fq "MITM_HTTP_TLS_DATA_PLANE_GATE=plain-http-live-data-plane-active/tls-decryption-blocked" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -Fq -- "--proxy-scheme socks5" docs/alpha-release-feature-matrix.md
           grep -q "pre-activation" docs/architecture/linux-package-artifact-job-preflight-validation-contract.md
           grep -q "pre-activation" docs/architecture/linux-package-artifact-build-command-validation-contract.md
@@ -493,7 +496,7 @@ jobs:
           grep -q "MITM_CLI_COMMAND_GATE.*partial-active" docs/ci-cd-policy.md
           grep -q "MITM_CERTIFICATE_LIFECYCLE_GATE.*artifact-lifecycle-active/profile-trust-artifact-active/trust-mutation-blocked" docs/ci-cd-policy.md
           grep -q "MITM_BROWSER_CAPTURE_GATE.*pac-policy-profile-prefs-active/system-mutation-blocked" docs/ci-cd-policy.md
-          grep -q "MITM_HTTP_TLS_DATA_PLANE_GATE.*plain-http-rewrite-foundation-active/tls-decryption-blocked" docs/ci-cd-policy.md
+          grep -q "MITM_HTTP_TLS_DATA_PLANE_GATE.*plain-http-live-data-plane-active/tls-decryption-blocked" docs/ci-cd-policy.md
           grep -q "Linux MITM certificate lifecycle source contract" docs/ci-cd-policy.md
           grep -q "Linux MITM browser capture source contract" docs/ci-cd-policy.md
           grep -q "Linux MITM HTTP rewrite source contract" docs/ci-cd-policy.md
@@ -537,7 +540,7 @@ jobs:
           grep -q "browser-plan" crates/mitm-policy/README.md
           grep -q "http-rewrite" crates/mitm-policy/README.md
           grep -q "http_rewrite" crates/mitm-policy/README.md
-          grep -q "plain-http-rewrite-foundation-active/tls-decryption-blocked" crates/mitm-policy/README.md
+          grep -q "plain-http-live-data-plane-active/tls-decryption-blocked" crates/mitm-policy/README.md
           grep -q "browser-capture" crates/mitm-policy/README.md
           grep -q "launch-plan" crates/mitm-policy/README.md
           grep -q "session-plan" crates/mitm-policy/README.md
@@ -552,7 +555,7 @@ jobs:
           grep -q "browser-plan" docs/architecture/mitm-anixops-adapter.md
           grep -q "http-rewrite" docs/architecture/mitm-anixops-adapter.md
           grep -q "http_rewrite" docs/architecture/mitm-anixops-adapter.md
-          grep -q "plain-http-rewrite-foundation-active/tls-decryption-blocked" docs/architecture/mitm-anixops-adapter.md
+          grep -q "plain-http-live-data-plane-active/tls-decryption-blocked" docs/architecture/mitm-anixops-adapter.md
           grep -q "browser-capture" docs/architecture/mitm-anixops-adapter.md
           grep -q "launch-plan" docs/architecture/mitm-anixops-adapter.md
           grep -q "session-plan" docs/architecture/mitm-anixops-adapter.md
@@ -565,7 +568,7 @@ jobs:
           grep -q "browser-plan" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "http-rewrite" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "http_rewrite" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
-          grep -q "plain-http-rewrite-foundation-active/tls-decryption-blocked" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
+          grep -q "plain-http-live-data-plane-active/tls-decryption-blocked" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "browser-capture" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "launch-plan" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "session-plan" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
@@ -578,7 +581,7 @@ jobs:
           grep -q "browser-plan" docs/architecture/linux-cli-entrypoint.md
           grep -q "http-rewrite" docs/architecture/linux-cli-entrypoint.md
           grep -q "http_rewrite" docs/architecture/linux-cli-entrypoint.md
-          grep -q "plain-http-rewrite-foundation-active/tls-decryption-blocked" docs/architecture/linux-cli-entrypoint.md
+          grep -q "plain-http-live-data-plane-active/tls-decryption-blocked" docs/architecture/linux-cli-entrypoint.md
           grep -q "browser-capture" docs/architecture/linux-cli-entrypoint.md
           grep -q "launch-plan" docs/architecture/linux-cli-entrypoint.md
           grep -q "session-plan" docs/architecture/linux-cli-entrypoint.md
@@ -691,10 +694,13 @@ jobs:
           grep -q "cli.linux.mitm.certificate.rollback.failed" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
           grep -q "update-ca-certificates" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
           grep -q "Linux MITM HTTP Rewrite Source Contract" docs/architecture/linux-mitm-http-rewrite-source-contract.md
-          grep -q "MITM_HTTP_TLS_DATA_PLANE_GATE=plain-http-rewrite-foundation-active/tls-decryption-blocked" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "MITM_HTTP_TLS_DATA_PLANE_GATE=plain-http-live-data-plane-active/tls-decryption-blocked" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "NativePlainHttpMessage" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "NativePlainHttpRewriteApplication" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "NativePlainHttpRewriteReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "NativeExplicitHttpProxyRequest" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "read_explicit_http_proxy_request" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "apply_http_mitm_outcome_to_live_plain_http_request" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "plan_and_apply_plain_http_mitm" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "apply_http_mitm_outcome_to_plain_http_message" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "LinuxMitmHttpRewriteReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
@@ -712,12 +718,19 @@ jobs:
           grep -q "NativePlainHttpMessage" crates/engine-native/src/lib.rs
           grep -q "NativePlainHttpRewriteApplication" crates/engine-native/src/lib.rs
           grep -q "NativePlainHttpRewriteReport" crates/engine-native/src/lib.rs
+          grep -q "NativeExplicitHttpProxyRequest" crates/engine-native/src/lib.rs
+          grep -q "read_explicit_http_proxy_request" crates/engine-native/src/lib.rs
+          grep -q "apply_http_mitm_outcome_to_live_plain_http_request" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE" crates/engine-native/src/lib.rs
           grep -q "plan_and_apply_plain_http_mitm" crates/engine-native/src/lib.rs
           grep -q "apply_http_mitm_outcome_to_plain_http_message" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_EVENT_PLANNED_CODE" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_TERMINAL_ACTION_APPLIED_CODE" crates/engine-native/src/lib.rs
           grep -q "plain_http_rewrite_application_applies_header_body_and_defers_script_dispatch" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "plain_http_rewrite_plan_applies_plugin_reject_to_terminal_response" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "runtime_accept_loop_contract_applies_plain_http_reject_for_http_listener" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "plain_http_proxy_request_header_and_body_rewrite_forwards_via_socks_outbound" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "plain_http_proxy_response_header_and_body_rewrite_returns_modified_response" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "LinuxMitmHttpRewriteReport" apps/linux-cli/src/lib.rs
           grep -q "LinuxMitmHttpRewriteRequest" apps/linux-cli/src/lib.rs
           grep -q "LinuxMitmHttpRewriteOutcomeReport" apps/linux-cli/src/lib.rs
@@ -729,9 +742,9 @@ jobs:
           grep -q -- "--phase" apps/linux-cli/src/lib.rs
           grep -q -- "--header" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE" apps/linux-cli/src/lib.rs
-          grep -q "mitm_http_rewrite_plan_reports_plain_http_foundation_without_tls_decryption" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_http_rewrite_plan_reports_live_plain_http_data_plane_without_tls_decryption" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_http_rewrite_preview_applies_builtin_reject_to_plain_http_input" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "http_rewrite_json_output_contains_plain_http_application_fields" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "http_rewrite_json_output_contains_live_plain_http_gate_fields" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "BrowserCaptureProcessRunner" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureEndpointProbe" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureTrafficProofProbe" docs/architecture/linux-mitm-browser-capture-source-contract.md

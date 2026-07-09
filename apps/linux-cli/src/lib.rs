@@ -172,7 +172,7 @@ pub const MITM_CLI_COMMAND_GATE_STATUS: &str = "partial-active";
 pub const MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS: &str =
     "artifact-lifecycle-active/profile-trust-artifact-active/trust-mutation-blocked";
 pub const MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS: &str =
-    "plain-http-rewrite-foundation-active/tls-decryption-blocked";
+    "plain-http-live-data-plane-active/tls-decryption-blocked";
 pub const MITM_BROWSER_CAPTURE_GATE_STATUS: &str =
     "pac-policy-profile-prefs-active/system-mutation-blocked";
 pub const MITM_BROWSER_HIJACK_STATUS: &str = "deferred";
@@ -196,7 +196,7 @@ pub const MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH: &str =
 pub const MITM_BROWSER_CAPTURE_PROOF_QUERY_PARAM: &str = "networkcore_proof_token";
 pub const MITM_HTTP_REWRITE_SOURCE_CONTRACT_STATUS: &str = "active";
 pub const MITM_HTTP_REWRITE_MUTATION_READY: bool = true;
-pub const MITM_HTTP_REWRITE_LIVE_TRAFFIC_READY: bool = false;
+pub const MITM_HTTP_REWRITE_LIVE_TRAFFIC_READY: bool = true;
 pub const MITM_HTTP_REWRITE_TLS_DECRYPTION_READY: bool = false;
 pub const MITM_HTTP_REWRITE_DEFAULT_METHOD: &str = "GET";
 pub const MITM_HTTP_REWRITE_DEFAULT_PHASE: &str = "request";
@@ -5054,7 +5054,7 @@ where
     diagnostics.push(cli_diagnostic(
         DiagnosticSeverity::Info,
         CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE,
-        "plain HTTP rewrite data-plane foundation is available for explicit preview inputs",
+        "plain HTTP rewrite data-plane is active for explicit HTTP proxy requests and explicit preview inputs",
         SOURCE_CLI_MITM,
     ));
     diagnostics.push(cli_diagnostic(
@@ -5230,7 +5230,7 @@ where
     diagnostics.push(cli_diagnostic(
         DiagnosticSeverity::Info,
         CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE,
-        "plain HTTP rewrite preview applied the plugin outcome to caller-provided input; live traffic was not intercepted",
+        "plain HTTP rewrite preview applied the plugin outcome to caller-provided input; explicit HTTP proxy live traffic uses the native plain HTTP data plane",
         SOURCE_CLI_MITM,
     ));
     diagnostics.push(cli_diagnostic(
@@ -5389,7 +5389,8 @@ fn linux_mitm_http_rewrite_blocked_operations() -> Vec<String> {
         "terminate-tls",
         "install-ca",
         "trust-ca",
-        "mutate-live-browser-traffic",
+        "mutate-live-https-traffic",
+        "mutate-browser-or-system-capture",
         "mutate-system-proxy",
         "mutate-system-pac",
         "mutate-tun",
@@ -5662,7 +5663,7 @@ fn build_linux_mitm_status(
     diagnostics.push(cli_diagnostic(
         DiagnosticSeverity::Warning,
         CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE,
-        "MITM_HTTP_TLS_DATA_PLANE_GATE allows explicit plain HTTP rewrite preview, while TLS decryption and live traffic mutation remain blocked",
+        "MITM_HTTP_TLS_DATA_PLANE_GATE allows explicit plain HTTP live data-plane rewrite, while TLS decryption and live HTTPS mutation remain blocked",
         SOURCE_CLI_MITM,
     ));
     diagnostics.push(cli_diagnostic(
@@ -5718,7 +5719,7 @@ fn build_linux_mitm_status(
             LinuxMitmGateStatus {
                 gate: MITM_HTTP_TLS_DATA_PLANE_GATE.to_string(),
                 status: MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS.to_string(),
-                reason: "plain HTTP rewrite preview is available for caller-provided inputs; TLS decryption and live traffic mutation remain blocked".to_string(),
+                reason: "explicit plain HTTP proxy live data plane and caller-provided preview are available; TLS decryption and live HTTPS mutation remain blocked".to_string(),
             },
             LinuxMitmGateStatus {
                 gate: MITM_BROWSER_CAPTURE_GATE.to_string(),

@@ -205,6 +205,28 @@ pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_SCRIPT_DISPATCH_DEFERRED_CODE: &
     "engine.native.runtime.http_mitm_plain_script_dispatch_deferred";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_REWRITE_NOOP_CODE: &str =
     "engine.native.runtime.http_mitm_plain_rewrite_noop";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_CODE: &str =
+    "engine.native.runtime.http_proxy_plain_request_read";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_INVALID_CODE: &str =
+    "engine.native.runtime.http_proxy_plain_request_invalid";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_FAILED_CODE: &str =
+    "engine.native.runtime.http_proxy_plain_request_read_failed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CONNECT_TLS_BLOCKED_CODE: &str =
+    "engine.native.runtime.http_proxy_plain_connect_tls_blocked";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE: &str =
+    "engine.native.runtime.http_proxy_plain_rewrite_applied";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE: &str =
+    "engine.native.runtime.http_proxy_plain_upstream_request_written";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITE_FAILED_CODE: &str =
+    "engine.native.runtime.http_proxy_plain_upstream_request_write_failed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_RESPONSE_READ_CODE: &str =
+    "engine.native.runtime.http_proxy_plain_upstream_response_read";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_RESPONSE_READ_FAILED_CODE: &str =
+    "engine.native.runtime.http_proxy_plain_upstream_response_read_failed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE: &str =
+    "engine.native.runtime.http_proxy_plain_client_response_written";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITE_FAILED_CODE: &str =
+    "engine.native.runtime.http_proxy_plain_client_response_write_failed";
 
 const SOCKS5_VERSION: u8 = 0x05;
 const SOCKS5_AUTH_METHOD_NO_AUTHENTICATION_REQUIRED: u8 = 0x00;
@@ -232,6 +254,8 @@ const ACCEPTED_CONNECTION_READ_TIMEOUT_MS: u64 = 100;
 const OUTBOUND_CONNECTION_ATTEMPT_TIMEOUT_MS: u64 = 100;
 const OUTBOUND_CONNECT_REQUEST_WRITE_TIMEOUT_MS: u64 = 100;
 const OUTBOUND_CONNECT_RESPONSE_READ_TIMEOUT_MS: u64 = 100;
+const HTTP_PROXY_MAX_HEADER_BYTES: usize = 16 * 1024;
+const HTTP_PROXY_MAX_BODY_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoopbackListenerHandle {
@@ -433,6 +457,7 @@ impl NativeLoopbackTcpAcceptLoopHandle {
         })?;
 
         let listener_id = contract.listener_id;
+        let listener_kind = contract.kind;
         let outbound_handler_id = outbound_handler.node_id.clone();
         let accepted_connections = Arc::new(AtomicUsize::new(0));
         let accepted_connections_for_worker = Arc::clone(&accepted_connections);
@@ -455,6 +480,7 @@ impl NativeLoopbackTcpAcceptLoopHandle {
                 relayed_connections_for_worker,
                 NativeLoopbackTcpAcceptLoopIdentity {
                     listener_id: worker_listener_id,
+                    listener_kind,
                     outbound_handler_id: worker_outbound_handler_id,
                     outbound_handler,
                     http_mitm_hook,
@@ -604,6 +630,17 @@ impl NativeHttpMitmPluginHook {
             self.plugin_service.as_ref(),
         )
     }
+
+    pub fn plan_plain_http(
+        &self,
+        message: &NativePlainHttpMessage,
+    ) -> NativePlainHttpRewriteReport {
+        plan_and_apply_plain_http_mitm(
+            message,
+            &self.plugin_instance,
+            self.plugin_service.as_ref(),
+        )
+    }
 }
 
 impl fmt::Debug for NativeHttpMitmPluginHook {
@@ -619,6 +656,7 @@ impl fmt::Debug for NativeHttpMitmPluginHook {
 #[derive(Debug, Clone)]
 struct NativeLoopbackTcpAcceptLoopIdentity {
     listener_id: String,
+    listener_kind: ListenerKind,
     outbound_handler_id: String,
     outbound_handler: NativeOutboundHandlerHandle,
     http_mitm_hook: Option<NativeHttpMitmPluginHook>,
@@ -760,6 +798,46 @@ pub struct NativePlainHttpRewriteReport {
     pub body: Vec<u8>,
     pub script_dispatch_deferred: bool,
     pub audits: Vec<AuditEvent>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeExplicitHttpProxyRequest {
+    pub request_id: String,
+    pub method: String,
+    pub target_url: String,
+    pub target_host: String,
+    pub target_port: u16,
+    pub origin_path: String,
+    pub version: String,
+    pub headers: Vec<MetadataEntry>,
+    pub body: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeExplicitHttpProxyRequestReadReport {
+    pub request: Option<NativeExplicitHttpProxyRequest>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativePlainHttpProxyResponse {
+    pub version: String,
+    pub status_code: u16,
+    pub reason_phrase: String,
+    pub headers: Vec<MetadataEntry>,
+    pub body: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativePlainHttpProxyResponseReadReport {
+    pub response: Option<NativePlainHttpProxyResponse>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativePlainHttpProxyWriteReport {
+    pub bytes: Vec<u8>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -2029,6 +2107,289 @@ where
     }
 }
 
+pub fn read_explicit_http_proxy_request<R>(
+    reader: &mut R,
+) -> NativeExplicitHttpProxyRequestReadReport
+where
+    R: Read,
+{
+    let header_bytes = match read_http_header_bytes(reader) {
+        Some(header_bytes) => header_bytes,
+        None => return explicit_http_proxy_request_read_failed(),
+    };
+    let header_text = match String::from_utf8(header_bytes) {
+        Ok(header_text) => header_text,
+        Err(_) => {
+            return explicit_http_proxy_request_invalid(
+                "native explicit HTTP proxy request header must be valid UTF-8",
+            );
+        }
+    };
+    let (request_line, headers) = match parse_http_start_line_and_headers(&header_text) {
+        Some(parsed) => parsed,
+        None => {
+            return explicit_http_proxy_request_invalid(
+                "native explicit HTTP proxy request header is invalid",
+            );
+        }
+    };
+    let mut request_parts = request_line.split_whitespace();
+    let Some(method) = request_parts.next() else {
+        return explicit_http_proxy_request_invalid(
+            "native explicit HTTP proxy request method is missing",
+        );
+    };
+    let Some(target) = request_parts.next() else {
+        return explicit_http_proxy_request_invalid(
+            "native explicit HTTP proxy request target is missing",
+        );
+    };
+    let Some(version) = request_parts.next() else {
+        return explicit_http_proxy_request_invalid(
+            "native explicit HTTP proxy request version is missing",
+        );
+    };
+    if request_parts.next().is_some() || !version.starts_with("HTTP/") {
+        return explicit_http_proxy_request_invalid(
+            "native explicit HTTP proxy request line is invalid",
+        );
+    }
+    let body_len = match http_content_length(&headers, HTTP_PROXY_MAX_BODY_BYTES) {
+        Ok(body_len) => body_len,
+        Err(()) => {
+            return explicit_http_proxy_request_invalid(
+                "native explicit HTTP proxy request body framing is unsupported",
+            );
+        }
+    };
+    let mut body = vec![0_u8; body_len];
+    if body_len > 0 && reader.read_exact(&mut body).is_err() {
+        return explicit_http_proxy_request_read_failed();
+    }
+    let Some(parsed_target) = parse_explicit_http_proxy_target(method, target, &headers) else {
+        return explicit_http_proxy_request_invalid(
+            "native explicit HTTP proxy request target is unsupported",
+        );
+    };
+
+    let request = NativeExplicitHttpProxyRequest {
+        request_id: format!("native-http-proxy:{}:{}", method, parsed_target.target_url),
+        method: method.to_string(),
+        target_url: parsed_target.target_url,
+        target_host: parsed_target.target_host,
+        target_port: parsed_target.target_port,
+        origin_path: parsed_target.origin_path,
+        version: version.to_string(),
+        headers,
+        body,
+    };
+
+    NativeExplicitHttpProxyRequestReadReport {
+        request: Some(request),
+        diagnostics: vec![runtime_info(
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_CODE,
+            "native explicit HTTP proxy request was read",
+        )],
+    }
+}
+
+pub fn read_plain_http_proxy_response<R>(reader: &mut R) -> NativePlainHttpProxyResponseReadReport
+where
+    R: Read,
+{
+    let header_bytes = match read_http_header_bytes(reader) {
+        Some(header_bytes) => header_bytes,
+        None => {
+            return NativePlainHttpProxyResponseReadReport {
+                response: None,
+                diagnostics: vec![runtime_warning(
+                    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_RESPONSE_READ_FAILED_CODE,
+                    "native plain HTTP proxy upstream response could not be read",
+                )],
+            };
+        }
+    };
+    let header_text = match String::from_utf8(header_bytes) {
+        Ok(header_text) => header_text,
+        Err(_) => {
+            return NativePlainHttpProxyResponseReadReport {
+                response: None,
+                diagnostics: vec![runtime_warning(
+                    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_RESPONSE_READ_FAILED_CODE,
+                    "native plain HTTP proxy upstream response header must be valid UTF-8",
+                )],
+            };
+        }
+    };
+    let (status_line, headers) = match parse_http_start_line_and_headers(&header_text) {
+        Some(parsed) => parsed,
+        None => {
+            return NativePlainHttpProxyResponseReadReport {
+                response: None,
+                diagnostics: vec![runtime_warning(
+                    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_RESPONSE_READ_FAILED_CODE,
+                    "native plain HTTP proxy upstream response header is invalid",
+                )],
+            };
+        }
+    };
+    let mut status_parts = status_line.splitn(3, ' ');
+    let Some(version) = status_parts.next() else {
+        return plain_http_proxy_response_read_failed();
+    };
+    let Some(status_code) = status_parts.next().and_then(|value| value.parse::<u16>().ok()) else {
+        return plain_http_proxy_response_read_failed();
+    };
+    if !version.starts_with("HTTP/") {
+        return plain_http_proxy_response_read_failed();
+    }
+    let reason_phrase = status_parts.next().unwrap_or("").to_string();
+    let body_len = match http_content_length(&headers, HTTP_PROXY_MAX_BODY_BYTES) {
+        Ok(body_len) => body_len,
+        Err(()) => return plain_http_proxy_response_read_failed(),
+    };
+    let mut body = vec![0_u8; body_len];
+    if body_len > 0 && reader.read_exact(&mut body).is_err() {
+        return plain_http_proxy_response_read_failed();
+    }
+
+    NativePlainHttpProxyResponseReadReport {
+        response: Some(NativePlainHttpProxyResponse {
+            version: version.to_string(),
+            status_code,
+            reason_phrase,
+            headers,
+            body,
+        }),
+        diagnostics: vec![runtime_info(
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_RESPONSE_READ_CODE,
+            "native plain HTTP proxy upstream response was read",
+        )],
+    }
+}
+
+pub fn apply_http_mitm_outcome_to_live_plain_http_request(
+    request: &NativeExplicitHttpProxyRequest,
+    outcome: &HttpMitmOutcome,
+) -> NativePlainHttpRewriteApplication {
+    let message = explicit_http_proxy_request_to_plain_http_message(request);
+    apply_http_mitm_outcome_to_plain_http_message(&message, outcome)
+}
+
+pub fn serialize_explicit_http_proxy_request_for_upstream(
+    request: &NativeExplicitHttpProxyRequest,
+    rewrite_report: &NativePlainHttpRewriteReport,
+) -> Vec<u8> {
+    let mut headers = rewrite_report.headers.clone();
+    headers.retain(|header| !header.key.eq_ignore_ascii_case("Proxy-Connection"));
+    set_plain_http_header(
+        &mut headers,
+        "Host",
+        &http_host_header_authority(&request.target_host, request.target_port),
+    );
+    set_plain_http_header(&mut headers, "Connection", "close");
+    if !rewrite_report.body.is_empty()
+        || headers
+            .iter()
+            .any(|header| header.key.eq_ignore_ascii_case("Content-Length"))
+    {
+        set_plain_http_header(
+            &mut headers,
+            "Content-Length",
+            &rewrite_report.body.len().to_string(),
+        );
+    }
+
+    let mut bytes = format!(
+        "{} {} {}\r\n",
+        request.method, request.origin_path, request.version
+    )
+    .into_bytes();
+    write_http_headers_to_bytes(&mut bytes, &headers);
+    bytes.extend_from_slice(b"\r\n");
+    bytes.extend_from_slice(&rewrite_report.body);
+    bytes
+}
+
+pub fn serialize_plain_http_proxy_response(
+    version: &str,
+    rewrite_report: &NativePlainHttpRewriteReport,
+) -> Vec<u8> {
+    let status_code = rewrite_report.final_status_code.unwrap_or(200);
+    let mut headers = rewrite_report.headers.clone();
+    if let Some(location) = &rewrite_report.redirect_location {
+        set_plain_http_header(&mut headers, "Location", location);
+    }
+    set_plain_http_header(&mut headers, "Connection", "close");
+    set_plain_http_header(
+        &mut headers,
+        "Content-Length",
+        &rewrite_report.body.len().to_string(),
+    );
+
+    let mut bytes = format!(
+        "{} {} {}\r\n",
+        normalized_http_version(version),
+        status_code,
+        http_reason_phrase(status_code)
+    )
+    .into_bytes();
+    write_http_headers_to_bytes(&mut bytes, &headers);
+    bytes.extend_from_slice(b"\r\n");
+    bytes.extend_from_slice(&rewrite_report.body);
+    bytes
+}
+
+pub fn write_plain_http_proxy_upstream_request<W>(
+    writer: &mut W,
+    bytes: Vec<u8>,
+) -> NativePlainHttpProxyWriteReport
+where
+    W: Write,
+{
+    let diagnostic = if writer.write_all(&bytes).is_ok() {
+        runtime_info(
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE,
+            "native plain HTTP proxy upstream request was written",
+        )
+    } else {
+        runtime_warning(
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITE_FAILED_CODE,
+            "native plain HTTP proxy upstream request could not be written",
+        )
+    };
+
+    NativePlainHttpProxyWriteReport {
+        bytes,
+        diagnostics: vec![diagnostic],
+    }
+}
+
+pub fn write_plain_http_proxy_client_response<W>(
+    writer: &mut W,
+    bytes: Vec<u8>,
+) -> NativePlainHttpProxyWriteReport
+where
+    W: Write,
+{
+    let diagnostic = if writer.write_all(&bytes).is_ok() {
+        runtime_info(
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
+            "native plain HTTP proxy client response was written",
+        )
+    } else {
+        runtime_warning(
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITE_FAILED_CODE,
+            "native plain HTTP proxy client response could not be written",
+        )
+    };
+
+    NativePlainHttpProxyWriteReport {
+        bytes,
+        diagnostics: vec![diagnostic],
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeOutboundHandlerHandle {
     pub node_id: String,
@@ -2941,7 +3302,10 @@ fn node_protocol_supported(protocol: &Protocol) -> bool {
 }
 
 fn listener_runtime_kind_supported(kind: &ListenerKind) -> bool {
-    matches!(kind, ListenerKind::LocalTcp | ListenerKind::Socks)
+    matches!(
+        kind,
+        ListenerKind::LocalTcp | ListenerKind::Socks | ListenerKind::Http
+    )
 }
 
 fn outbound_runtime_protocol_supported(protocol: &Protocol) -> bool {
@@ -3056,6 +3420,364 @@ fn http_mitm_outcome_requires_application(outcome: &HttpMitmOutcome) -> bool {
 
 fn http_mitm_outcome_rejects(outcome: &HttpMitmOutcome) -> bool {
     matches!(&outcome.action, HttpMitmAction::Reject { .. })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedExplicitHttpProxyTarget {
+    target_url: String,
+    target_host: String,
+    target_port: u16,
+    origin_path: String,
+}
+
+fn explicit_http_proxy_request_to_plain_http_message(
+    request: &NativeExplicitHttpProxyRequest,
+) -> NativePlainHttpMessage {
+    NativePlainHttpMessage {
+        request_id: request.request_id.clone(),
+        url: request.target_url.clone(),
+        method: Some(request.method.clone()),
+        phase: HttpMitmPhase::Request,
+        status_code: None,
+        headers: request.headers.clone(),
+        body: request.body.clone(),
+    }
+}
+
+fn plain_http_proxy_response_to_plain_http_message(
+    request: &NativeExplicitHttpProxyRequest,
+    response: &NativePlainHttpProxyResponse,
+) -> NativePlainHttpMessage {
+    NativePlainHttpMessage {
+        request_id: format!("{}:response", request.request_id),
+        url: request.target_url.clone(),
+        method: Some(request.method.clone()),
+        phase: HttpMitmPhase::Response,
+        status_code: Some(response.status_code),
+        headers: response.headers.clone(),
+        body: response.body.clone(),
+    }
+}
+
+fn passthrough_plain_http_rewrite_report(
+    message: &NativePlainHttpMessage,
+) -> NativePlainHttpRewriteReport {
+    NativePlainHttpRewriteReport {
+        request_id: message.request_id.clone(),
+        url: message.url.clone(),
+        event: plain_http_message_to_mitm_event(message),
+        outcome: None,
+        applied: false,
+        terminal_action: None,
+        final_status_code: message.status_code,
+        redirect_location: None,
+        headers: message.headers.clone(),
+        body: message.body.clone(),
+        script_dispatch_deferred: false,
+        audits: Vec::new(),
+        diagnostics: Vec::new(),
+    }
+}
+
+fn read_http_header_bytes<R>(reader: &mut R) -> Option<Vec<u8>>
+where
+    R: Read,
+{
+    let mut header = Vec::new();
+    let mut byte = [0_u8; 1];
+
+    while header.len() < HTTP_PROXY_MAX_HEADER_BYTES {
+        match reader.read(&mut byte) {
+            Ok(1) => {
+                header.push(byte[0]);
+                if header.ends_with(b"\r\n\r\n") {
+                    header.truncate(header.len().saturating_sub(4));
+                    return Some(header);
+                }
+            }
+            Ok(0) | Err(_) => return None,
+            Ok(_) => {}
+        }
+    }
+
+    None
+}
+
+fn parse_http_start_line_and_headers(header_text: &str) -> Option<(&str, Vec<MetadataEntry>)> {
+    let mut lines = header_text.split("\r\n");
+    let start_line = lines.next()?.trim();
+    if start_line.is_empty() {
+        return None;
+    }
+
+    let mut headers = Vec::new();
+    for line in lines {
+        if line.is_empty() {
+            continue;
+        }
+        let (name, value) = line.split_once(':')?;
+        let name = name.trim();
+        if name.is_empty() || name.contains('\r') || name.contains('\n') {
+            return None;
+        }
+        headers.push(MetadataEntry {
+            key: name.to_string(),
+            value: value.trim().to_string(),
+        });
+    }
+
+    Some((start_line, headers))
+}
+
+fn http_content_length(headers: &[MetadataEntry], max_len: usize) -> Result<usize, ()> {
+    if headers.iter().any(|header| {
+        header.key.eq_ignore_ascii_case("Transfer-Encoding")
+            && !header.value.trim().is_empty()
+    }) {
+        return Err(());
+    }
+
+    let mut content_length = None;
+    for header in headers
+        .iter()
+        .filter(|header| header.key.eq_ignore_ascii_case("Content-Length"))
+    {
+        if content_length.is_some() {
+            return Err(());
+        }
+        let value = header.value.trim().parse::<usize>().map_err(|_| ())?;
+        if value > max_len {
+            return Err(());
+        }
+        content_length = Some(value);
+    }
+
+    Ok(content_length.unwrap_or(0))
+}
+
+fn parse_explicit_http_proxy_target(
+    method: &str,
+    target: &str,
+    headers: &[MetadataEntry],
+) -> Option<ParsedExplicitHttpProxyTarget> {
+    if method.eq_ignore_ascii_case("CONNECT") {
+        let (target_host, target_port) = parse_http_authority(target, 443)?;
+        let authority = http_url_authority(&target_host, target_port, 443);
+        return Some(ParsedExplicitHttpProxyTarget {
+            target_url: format!("https://{authority}/"),
+            target_host,
+            target_port,
+            origin_path: String::new(),
+        });
+    }
+
+    if let Some(rest) = target.strip_prefix("http://") {
+        return parse_absolute_http_proxy_target("http", rest, 80);
+    }
+    if let Some(rest) = target.strip_prefix("https://") {
+        return parse_absolute_http_proxy_target("https", rest, 443);
+    }
+
+    if target.starts_with('/') {
+        let host = headers
+            .iter()
+            .find(|header| header.key.eq_ignore_ascii_case("Host"))?
+            .value
+            .trim();
+        let (target_host, target_port) = parse_http_authority(host, 80)?;
+        let authority = http_url_authority(&target_host, target_port, 80);
+        return Some(ParsedExplicitHttpProxyTarget {
+            target_url: format!("http://{authority}{target}"),
+            target_host,
+            target_port,
+            origin_path: target.to_string(),
+        });
+    }
+
+    None
+}
+
+fn parse_absolute_http_proxy_target(
+    scheme: &str,
+    rest: &str,
+    default_port: u16,
+) -> Option<ParsedExplicitHttpProxyTarget> {
+    let path_start = rest
+        .find('/')
+        .or_else(|| rest.find('?'))
+        .unwrap_or(rest.len());
+    let authority = &rest[..path_start];
+    let raw_path = &rest[path_start..];
+    let origin_path = if raw_path.is_empty() {
+        "/".to_string()
+    } else if raw_path.starts_with('?') {
+        format!("/{raw_path}")
+    } else {
+        raw_path.to_string()
+    };
+    let (target_host, target_port) = parse_http_authority(authority, default_port)?;
+    let authority = http_url_authority(&target_host, target_port, default_port);
+
+    Some(ParsedExplicitHttpProxyTarget {
+        target_url: format!("{scheme}://{authority}{origin_path}"),
+        target_host,
+        target_port,
+        origin_path,
+    })
+}
+
+fn parse_http_authority(authority: &str, default_port: u16) -> Option<(String, u16)> {
+    let authority = authority.trim();
+    if authority.is_empty() || authority.contains('/') || authority.contains('@') {
+        return None;
+    }
+
+    let (host, port) = if let Some(rest) = authority.strip_prefix('[') {
+        let end = rest.find(']')?;
+        let host = &rest[..end];
+        let suffix = &rest[end + 1..];
+        let port = if suffix.is_empty() {
+            default_port
+        } else {
+            let port = suffix.strip_prefix(':')?;
+            parse_http_port(port)?
+        };
+        (host, port)
+    } else {
+        match authority.split_once(':') {
+            Some((host, port)) if !port.contains(':') => (host, parse_http_port(port)?),
+            Some(_) => return None,
+            None => (authority, default_port),
+        }
+    };
+
+    if host.trim().is_empty() || port == 0 {
+        return None;
+    }
+
+    Some((host.to_string(), port))
+}
+
+fn parse_http_port(port: &str) -> Option<u16> {
+    let port = port.trim().parse::<u16>().ok()?;
+    (port != 0).then_some(port)
+}
+
+fn http_url_authority(host: &str, port: u16, default_port: u16) -> String {
+    let host = if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]")
+    } else {
+        host.to_string()
+    };
+    if port == default_port {
+        host
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
+fn http_host_header_authority(host: &str, port: u16) -> String {
+    http_url_authority(host, port, 80)
+}
+
+fn explicit_http_proxy_request_to_socks5_target(
+    request: &NativeExplicitHttpProxyRequest,
+) -> NativeSocks5ConnectTarget {
+    let address = match request.target_host.parse::<IpAddr>() {
+        Ok(IpAddr::V4(address)) => NativeSocks5Address::Ipv4(address.octets()),
+        Ok(IpAddr::V6(address)) => NativeSocks5Address::Ipv6(address.octets()),
+        Err(_) => NativeSocks5Address::DomainName(request.target_host.clone()),
+    };
+
+    NativeSocks5ConnectTarget {
+        address,
+        port: request.target_port,
+    }
+}
+
+fn write_http_headers_to_bytes(bytes: &mut Vec<u8>, headers: &[MetadataEntry]) {
+    for header in headers.iter().filter(|header| http_header_safe(header)) {
+        bytes.extend_from_slice(header.key.as_bytes());
+        bytes.extend_from_slice(b": ");
+        bytes.extend_from_slice(header.value.as_bytes());
+        bytes.extend_from_slice(b"\r\n");
+    }
+}
+
+fn http_header_safe(header: &MetadataEntry) -> bool {
+    !header.key.trim().is_empty()
+        && !header.key.contains('\r')
+        && !header.key.contains('\n')
+        && !header.value.contains('\r')
+        && !header.value.contains('\n')
+}
+
+fn normalized_http_version(version: &str) -> &str {
+    if version.starts_with("HTTP/") {
+        version
+    } else {
+        "HTTP/1.1"
+    }
+}
+
+fn http_reason_phrase(status_code: u16) -> &'static str {
+    match status_code {
+        200 => "OK",
+        301 => "Moved Permanently",
+        302 => "Found",
+        307 => "Temporary Redirect",
+        308 => "Permanent Redirect",
+        400 => "Bad Request",
+        403 => "Forbidden",
+        502 => "Bad Gateway",
+        501 => "Not Implemented",
+        _ => "NetworkCore",
+    }
+}
+
+fn plain_http_status_response(version: &str, status_code: u16, body: &[u8]) -> Vec<u8> {
+    let mut bytes = format!(
+        "{} {} {}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+        normalized_http_version(version),
+        status_code,
+        http_reason_phrase(status_code),
+        body.len()
+    )
+    .into_bytes();
+    bytes.extend_from_slice(body);
+    bytes
+}
+
+fn explicit_http_proxy_request_read_failed() -> NativeExplicitHttpProxyRequestReadReport {
+    NativeExplicitHttpProxyRequestReadReport {
+        request: None,
+        diagnostics: vec![runtime_warning(
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_FAILED_CODE,
+            "native explicit HTTP proxy request could not be read",
+        )],
+    }
+}
+
+fn explicit_http_proxy_request_invalid(
+    message: &'static str,
+) -> NativeExplicitHttpProxyRequestReadReport {
+    NativeExplicitHttpProxyRequestReadReport {
+        request: None,
+        diagnostics: vec![runtime_warning(
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_INVALID_CODE,
+            message,
+        )],
+    }
+}
+
+fn plain_http_proxy_response_read_failed() -> NativePlainHttpProxyResponseReadReport {
+    NativePlainHttpProxyResponseReadReport {
+        response: None,
+        diagnostics: vec![runtime_warning(
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_RESPONSE_READ_FAILED_CODE,
+            "native plain HTTP proxy upstream response could not be read",
+        )],
+    }
 }
 
 fn plain_http_message_to_mitm_event(message: &NativePlainHttpMessage) -> HttpMitmEvent {
@@ -3356,15 +4078,25 @@ fn run_loopback_tcp_accept_loop(
         match listener.accept() {
             Ok((stream, _)) => {
                 accepted_connections.fetch_add(1, Ordering::SeqCst);
-                diagnostics.extend(read_socks5_greeting_and_close_accepted_connection(
-                    stream,
-                    &pre_protocol_closed_connections,
-                    &relayed_connections,
-                    &identity.outbound_handler,
-                    identity.http_mitm_hook.as_ref(),
-                    &identity.local_host,
-                    identity.local_port,
-                ));
+                if identity.listener_kind == ListenerKind::Http {
+                    diagnostics.extend(handle_plain_http_proxy_accepted_connection(
+                        stream,
+                        &pre_protocol_closed_connections,
+                        &relayed_connections,
+                        &identity.outbound_handler,
+                        identity.http_mitm_hook.as_ref(),
+                    ));
+                } else {
+                    diagnostics.extend(read_socks5_greeting_and_close_accepted_connection(
+                        stream,
+                        &pre_protocol_closed_connections,
+                        &relayed_connections,
+                        &identity.outbound_handler,
+                        identity.http_mitm_hook.as_ref(),
+                        &identity.local_host,
+                        identity.local_port,
+                    ));
+                }
             }
             Err(error) if error.kind() == ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(10));
@@ -3395,6 +4127,235 @@ fn run_loopback_tcp_accept_loop(
         pre_protocol_closed_connections: pre_protocol_closed_connections.load(Ordering::SeqCst),
         relayed_connections: relayed_connections.load(Ordering::SeqCst),
         diagnostics,
+    }
+}
+
+fn handle_plain_http_proxy_accepted_connection(
+    mut stream: TcpStream,
+    pre_protocol_closed_connections: &AtomicUsize,
+    relayed_connections: &AtomicUsize,
+    outbound_handler: &NativeOutboundHandlerHandle,
+    http_mitm_hook: Option<&NativeHttpMitmPluginHook>,
+) -> Vec<Diagnostic> {
+    let mut connection_handled = false;
+    let _ = stream.set_nonblocking(false);
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(
+        ACCEPTED_CONNECTION_READ_TIMEOUT_MS,
+    )));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(
+        OUTBOUND_CONNECT_REQUEST_WRITE_TIMEOUT_MS,
+    )));
+
+    let read_report = read_explicit_http_proxy_request(&mut stream);
+    let mut diagnostics = read_report.diagnostics;
+    if let Some(request) = read_report.request.as_ref() {
+        if request.method.eq_ignore_ascii_case("CONNECT")
+            || request.target_url.starts_with("https://")
+        {
+            diagnostics.push(engine_diagnostic(
+                DiagnosticSeverity::Warning,
+                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CONNECT_TLS_BLOCKED_CODE,
+                "native explicit HTTP proxy CONNECT/TLS handling remains blocked for the plain HTTP data plane",
+                SOURCE_ENGINE_NATIVE_MITM,
+            ));
+            let response = plain_http_status_response(
+                &request.version,
+                501,
+                b"NetworkCore plain HTTP proxy does not terminate TLS in this release.\n",
+            );
+            let write_report = write_plain_http_proxy_client_response(&mut stream, response);
+            connection_handled = diagnostics_contain_code(
+                &write_report.diagnostics,
+                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
+            );
+            diagnostics.extend(write_report.diagnostics);
+        } else {
+            let request_message = explicit_http_proxy_request_to_plain_http_message(request);
+            let request_rewrite_report = http_mitm_hook
+                .map(|hook| hook.plan_plain_http(&request_message))
+                .unwrap_or_else(|| passthrough_plain_http_rewrite_report(&request_message));
+            diagnostics.extend(request_rewrite_report.diagnostics.clone());
+            record_plain_http_live_rewrite_diagnostic(
+                &mut diagnostics,
+                &request_rewrite_report,
+            );
+
+            if request_rewrite_report.terminal_action.is_some() {
+                let response =
+                    serialize_plain_http_proxy_response(&request.version, &request_rewrite_report);
+                let write_report = write_plain_http_proxy_client_response(&mut stream, response);
+                connection_handled = diagnostics_contain_code(
+                    &write_report.diagnostics,
+                    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
+                );
+                diagnostics.extend(write_report.diagnostics);
+            } else {
+                let (forwarded, forward_diagnostics) =
+                    forward_plain_http_proxy_request_via_socks_outbound(
+                        &mut stream,
+                        request,
+                        &request_rewrite_report,
+                        outbound_handler,
+                        http_mitm_hook,
+                    );
+                connection_handled = forwarded;
+                diagnostics.extend(forward_diagnostics);
+            }
+        }
+    }
+
+    let _ = stream.shutdown(Shutdown::Both);
+    if connection_handled {
+        relayed_connections.fetch_add(1, Ordering::SeqCst);
+    } else {
+        pre_protocol_closed_connections.fetch_add(1, Ordering::SeqCst);
+        diagnostics.push(runtime_info(
+            ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE,
+            "native loopback tcp connection was closed before route and outbound handling",
+        ));
+    }
+
+    diagnostics
+}
+
+fn forward_plain_http_proxy_request_via_socks_outbound(
+    client_stream: &mut TcpStream,
+    request: &NativeExplicitHttpProxyRequest,
+    request_rewrite_report: &NativePlainHttpRewriteReport,
+    outbound_handler: &NativeOutboundHandlerHandle,
+    http_mitm_hook: Option<&NativeHttpMitmPluginHook>,
+) -> (bool, Vec<Diagnostic>) {
+    let mut diagnostics = Vec::new();
+    let target = explicit_http_proxy_request_to_socks5_target(request);
+    let route_selection_report = select_socks5_route_outbound_behavior(&target, outbound_handler);
+    diagnostics.extend(route_selection_report.diagnostics);
+    let frame_report =
+        build_socks5_outbound_connect_request_frame(&route_selection_report.behavior);
+    diagnostics.extend(frame_report.diagnostics);
+    let plan_report =
+        plan_socks5_outbound_tcp_connection(&route_selection_report.behavior, &frame_report.frame);
+    diagnostics.extend(plan_report.diagnostics);
+
+    if let Some(plan) = plan_report.plan.as_ref() {
+        let NativeSocks5OutboundTcpConnectionAttemptReport {
+            stream: outbound_stream,
+            diagnostics: attempt_diagnostics,
+        } = attempt_socks5_outbound_tcp_connection(plan);
+        diagnostics.extend(attempt_diagnostics);
+        if let Some(mut outbound_stream) = outbound_stream {
+            let _ = outbound_stream.set_write_timeout(Some(Duration::from_millis(
+                OUTBOUND_CONNECT_REQUEST_WRITE_TIMEOUT_MS,
+            )));
+            let write_report = write_socks5_outbound_connect_request(&mut outbound_stream, plan);
+            let connect_request_written = diagnostics_contain_code(
+                &write_report.diagnostics,
+                ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITTEN_CODE,
+            );
+            diagnostics.extend(write_report.diagnostics);
+            if connect_request_written {
+                let _ = outbound_stream.set_read_timeout(Some(Duration::from_millis(
+                    OUTBOUND_CONNECT_RESPONSE_READ_TIMEOUT_MS,
+                )));
+                let read_report = read_socks5_outbound_connect_response(&mut outbound_stream);
+                let response = read_report.response;
+                diagnostics.extend(read_report.diagnostics);
+                if let Some(response) = response.as_ref() {
+                    let decision_report = decide_socks5_outbound_connect_response(response);
+                    let decision = decision_report.decision;
+                    diagnostics.extend(decision_report.diagnostics);
+                    let readiness_report = assess_socks5_outbound_connect_relay_readiness(decision);
+                    let readiness = readiness_report.readiness;
+                    diagnostics.extend(readiness_report.diagnostics);
+                    let data_relay_plan_report =
+                        plan_socks5_outbound_connect_data_relay(readiness);
+                    let data_relay_plan = data_relay_plan_report.decision;
+                    diagnostics.extend(data_relay_plan_report.diagnostics);
+
+                    if data_relay_plan == NativeSocks5OutboundConnectDataRelayPlanDecision::Ready {
+                        let request_bytes = serialize_explicit_http_proxy_request_for_upstream(
+                            request,
+                            request_rewrite_report,
+                        );
+                        let upstream_write_report = write_plain_http_proxy_upstream_request(
+                            &mut outbound_stream,
+                            request_bytes,
+                        );
+                        let upstream_request_written = diagnostics_contain_code(
+                            &upstream_write_report.diagnostics,
+                            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE,
+                        );
+                        diagnostics.extend(upstream_write_report.diagnostics);
+                        if upstream_request_written {
+                            let response_read_report =
+                                read_plain_http_proxy_response(&mut outbound_stream);
+                            let upstream_response = response_read_report.response;
+                            diagnostics.extend(response_read_report.diagnostics);
+                            if let Some(upstream_response) = upstream_response.as_ref() {
+                                let response_message =
+                                    plain_http_proxy_response_to_plain_http_message(
+                                        request,
+                                        upstream_response,
+                                    );
+                                let response_rewrite_report = http_mitm_hook
+                                    .map(|hook| hook.plan_plain_http(&response_message))
+                                    .unwrap_or_else(|| {
+                                        passthrough_plain_http_rewrite_report(&response_message)
+                                    });
+                                diagnostics.extend(response_rewrite_report.diagnostics.clone());
+                                record_plain_http_live_rewrite_diagnostic(
+                                    &mut diagnostics,
+                                    &response_rewrite_report,
+                                );
+                                let client_response = serialize_plain_http_proxy_response(
+                                    &upstream_response.version,
+                                    &response_rewrite_report,
+                                );
+                                let client_write_report = write_plain_http_proxy_client_response(
+                                    client_stream,
+                                    client_response,
+                                );
+                                let client_response_written = diagnostics_contain_code(
+                                    &client_write_report.diagnostics,
+                                    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
+                                );
+                                diagnostics.extend(client_write_report.diagnostics);
+                                let _ = outbound_stream.shutdown(Shutdown::Both);
+                                return (client_response_written, diagnostics);
+                            }
+                        }
+                    }
+                }
+            }
+            let _ = outbound_stream.shutdown(Shutdown::Both);
+        }
+    }
+
+    let response = plain_http_status_response(
+        &request.version,
+        502,
+        b"NetworkCore plain HTTP proxy could not reach the configured SOCKS outbound.\n",
+    );
+    let write_report = write_plain_http_proxy_client_response(client_stream, response);
+    let response_written = diagnostics_contain_code(
+        &write_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
+    );
+    diagnostics.extend(write_report.diagnostics);
+
+    (response_written, diagnostics)
+}
+
+fn record_plain_http_live_rewrite_diagnostic(
+    diagnostics: &mut Vec<Diagnostic>,
+    rewrite_report: &NativePlainHttpRewriteReport,
+) {
+    if rewrite_report.applied || rewrite_report.script_dispatch_deferred {
+        diagnostics.push(engine_diagnostic(
+            DiagnosticSeverity::Info,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE,
+            "native explicit HTTP proxy applied a plain HTTP MITM rewrite report",
+            SOURCE_ENGINE_NATIVE_MITM,
+        ));
     }
 }
 

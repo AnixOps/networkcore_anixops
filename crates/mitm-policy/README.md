@@ -54,10 +54,14 @@ browser/system proxy state, prove live browser traffic capture, or apply rewrite
 plans to live traffic. Current `main` also adds
 `mitm http-rewrite plan` and `mitm http-rewrite preview --confirm --url <url>`,
 which output `http_rewrite` and apply plugin outcomes to caller-provided plain
-HTTP input only; this path is governed by
+HTTP input. Current `main` also exposes the native `ListenerKind::Http`
+explicit proxy path for real `http://` HTTP/1.x request/response traffic; that
+path parses `NativeExplicitHttpProxyRequest`, applies reject, redirect,
+header/body rewrite outcomes, and forwards non-terminal requests through the
+existing SOCKS outbound primitive. This path is governed by
 `docs/architecture/linux-mitm-http-rewrite-source-contract.md` and does not
-perform TLS decryption, live traffic interception, CA trust mutation, or script
-execution. Current `main` also adds
+perform TLS decryption, HTTPS CONNECT termination, CA trust mutation,
+browser/system proxy mutation, or script execution. Current `main` also adds
 `traffic-proof --confirm [--target-url <url>] [--proof-token <token>] [--proof-log <path>]`, which uses a
 `BrowserCaptureTrafficProofProbe` with `probe=proof-log-token` to inspect an
 operator-provided proof log for a token, can default omitted proof token/log to the
@@ -129,12 +133,14 @@ Required gates before user-facing MITM:
   `LinuxBrowserCapturePacRequest`, `BrowserCapturePacFileStore`,
   `BrowserCaptureRollbackSnapshot`, optional target URL, and proof-log-token
   evidence before mutation.
-- `MITM_HTTP_TLS_DATA_PLANE_GATE`: currently plain-http-rewrite-foundation-active/tls-decryption-blocked through
+- `MITM_HTTP_TLS_DATA_PLANE_GATE`: currently plain-http-live-data-plane-active/tls-decryption-blocked through
   `mitm http-rewrite plan/preview`, `http_rewrite`, `NativePlainHttpMessage`,
-  `NativePlainHttpRewriteReport`, `LinuxMitmHttpRewriteReport`, explicit
-  authorization, and caller-provided plain HTTP input only. Later increments
-  must wire TLS interception, live traffic parsing, script runtime, and full
-  HTTPS rewrite boundaries. The Linux source boundary is fixed by
+  `NativePlainHttpRewriteReport`, `NativeExplicitHttpProxyRequest`,
+  `NativePlainHttpProxyResponse`, `LinuxMitmHttpRewriteReport`, explicit
+  authorization, caller-provided plain HTTP preview input, and explicit HTTP
+  proxy live `http://` request/response rewrite. Later increments must wire TLS
+  interception, HTTPS CONNECT termination, script runtime, and full HTTPS
+  rewrite boundaries. The Linux source boundary is fixed by
   `docs/architecture/linux-mitm-http-rewrite-source-contract.md`.
 
 Current CLI gate marker:

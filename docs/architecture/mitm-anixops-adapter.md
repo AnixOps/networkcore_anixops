@@ -196,7 +196,7 @@ mitm-cli-command-gate-status=partial-active
 JSON 机器字段，并显式报告 browser hijack 为 deferred、
 `MITM_CERTIFICATE_LIFECYCLE_GATE` artifact-lifecycle-active/profile-trust-artifact-active/trust-mutation-blocked、
 `MITM_BROWSER_CAPTURE_GATE` pac-policy-profile-prefs-active/system-mutation-blocked 和
-`MITM_HTTP_TLS_DATA_PLANE_GATE` plain-http-rewrite-foundation-active/tls-decryption-blocked。`certificate-plan` 额外输出
+`MITM_HTTP_TLS_DATA_PLANE_GATE` plain-http-live-data-plane-active/tls-decryption-blocked。`certificate-plan` 额外输出
 `mitm_status.certificate_plan`，包含当前证书状态、artifact lifecycle 步骤、trust blocked
 operations 和 `mutation_ready=false`；`mitm certificate apply/rollback` 额外输出
 `certificate_lifecycle`，只写入或删除 NetworkCore certificate/private-key artifact、可选 dedicated profile CA trust artifact 和 snapshot；
@@ -214,7 +214,7 @@ dedicated 浏览器命令、可选 `--target-url`、`verify --confirm` 命令和
 `rollback --snapshot <path>` 只读取 NetworkCore PAC snapshot 并删除对应 PAC 文件，
 `verify --confirm` 只探测计划本地代理端点 `http://127.0.0.1:7890` 是否可达；传入 `--target-url <url>` 时只通过 `probe=http-connect-target` 检查计划代理能否对目标 host:port 打开 HTTP CONNECT 通路；它不证明浏览器真实流量捕获、HTTPS MITM 或 rewrite 应用。
 `traffic-proof --confirm [--target-url <url>] [--proof-token <token>] [--proof-log <path>]` 通过 `BrowserCaptureTrafficProofProbe` 读取 operator-provided proof log，输出 `traffic_proof_report` 和 `probe=proof-log-token`，并可在 token/log 省略时复用默认 proof 绑定；它只证明该证据文件中出现 token，不证明 HTTPS MITM 或 rewrite 应用。未接线 endpoint/proof probe 或更强 live capture probe 时仍返回 blocked。
-`mitm http-rewrite plan` / `mitm http-rewrite preview --confirm --url <url>` 输出 `http_rewrite` report，并只把 `HttpMitmOutcome` 的 reject、redirect、header mutation 和 body mutation 应用到 caller-provided plain HTTP input；该边界见 `linux-mitm-http-rewrite-source-contract.md`，不解密 TLS、不拦截 live traffic、不执行 script dispatch。
+`mitm http-rewrite plan` / `mitm http-rewrite preview --confirm --url <url>` 输出 `http_rewrite` report，并把 `HttpMitmOutcome` 的 reject、redirect、header mutation 和 body mutation 应用到 caller-provided plain HTTP input；native `ListenerKind::Http` explicit proxy path 也会对真实 `http://` HTTP/1.x request/response 应用这些 outcome，并通过既有 SOCKS outbound primitive 转发非 terminal request；该边界见 `linux-mitm-http-rewrite-source-contract.md`，不解密 TLS、不终止 HTTPS CONNECT、不执行 script dispatch、不修改 browser/system proxy。
 `--proxy-scheme socks5` 只把 session-plan、launch、PAC/policy artifact、verify 和 traffic-proof 的 `proxy_scheme`/proxy URL 绑定到 `socks5://127.0.0.1:7890`，用于让显式授权 dedicated 浏览器会话走 native SOCKS5 CONNECT hook；它不写系统代理或安装浏览器 policy。
 `networkcore-linux start` 会通过 `native_proxy_engine_service_with_builtin_mitm_plugin`
 加载内置 `networkcore.adblock` 到 `engine-native`；匹配 `Reject` plan 的

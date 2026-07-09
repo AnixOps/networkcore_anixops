@@ -887,7 +887,7 @@ fn mitm_status_loads_builtin_policy_and_reports_deferred_gates() {
 }
 
 #[test]
-fn mitm_http_rewrite_plan_reports_plain_http_foundation_without_tls_decryption() {
+fn mitm_http_rewrite_plan_reports_live_plain_http_data_plane_without_tls_decryption() {
     let platform = StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot {
         mitm_certificate: LinuxCertificateProbe::new(CertificateTrustState::InstalledUntrusted),
         ..LinuxPlatformSnapshot::available_for_tests()
@@ -928,7 +928,7 @@ fn mitm_http_rewrite_plan_reports_plain_http_foundation_without_tls_decryption()
 
     let rendered = render_response(&response, OutputFormat::Text);
     assert!(rendered.contains(
-        "http rewrite plan: plain-http-rewrite-foundation-active/tls-decryption-blocked"
+        "http rewrite plan: plain-http-live-data-plane-active/tls-decryption-blocked"
     ));
     assert!(rendered.contains("http rewrite blocked operation: decrypt-https"));
 }
@@ -3960,7 +3960,7 @@ fn mitm_status_json_output_contains_machine_fields() {
 }
 
 #[test]
-fn http_rewrite_json_output_contains_plain_http_application_fields() {
+fn http_rewrite_json_output_contains_live_plain_http_gate_fields() {
     let platform =
         StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
     let headers = vec!["Accept: */*".to_string()];

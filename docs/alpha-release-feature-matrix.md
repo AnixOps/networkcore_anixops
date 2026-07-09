@@ -295,6 +295,38 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 - 不解密 HTTPS，不终止 TLS，不拦截真实浏览器或系统流量。
 - 不应用 live HTTP/TLS redirect/header/body/script rewrite。
 
+## 当前 main source-only 增量
+
+### `v0.1.0-alpha.14`
+
+状态：source-only；尚未 tag release。最终用户可下载能力仍必须等待 `v0.1.0-alpha.14`
+tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release asset 全部通过。
+
+当前源码能力：
+
+- Linux explicit HTTP proxy live plain HTTP data plane：`engine-native` 允许 `ListenerKind::Http`
+  loopback listener 解析 bounded HTTP/1.x explicit proxy request，并通过 `NativeHttpMitmPluginHook`
+  调用 `MitmPluginService::handle_http_mitm_event`。
+- 新增 `NativeExplicitHttpProxyRequest`、`NativePlainHttpProxyResponse`、
+  `read_explicit_http_proxy_request`、`apply_http_mitm_outcome_to_live_plain_http_request`、
+  `serialize_explicit_http_proxy_request_for_upstream` 和
+  `engine.native.runtime.http_proxy_plain_rewrite_applied` 诊断。
+- 真实 `http://` request/response 可在 explicit proxy 路径应用 reject、redirect、header/body rewrite；
+  非 terminal request rewrite 会经既有 SOCKS outbound primitive 转发 upstream，再对 bounded response
+  做 response phase rewrite 后返回 client。
+- `MITM_HTTP_TLS_DATA_PLANE_GATE` 推进为
+  `plain-http-live-data-plane-active/tls-decryption-blocked`，`http_rewrite` report 声明
+  `mutation_ready=true`、`live_traffic_ready=true`、`tls_decryption_ready=false`。
+
+明确不承诺：
+
+- 不解密 HTTPS，不终止 TLS，不处理 CONNECT 后的 TLS MITM。
+- 不安装、信任、撤销或回滚 CA trust store。
+- 不修改 browser/system proxy、system PAC、TUN、DNS、firewall 或路由状态。
+- 不执行 JavaScript script dispatch。
+- 不承诺 HTTP/2、chunked/streaming body、压缩 response body 或完整通用 HTTP 兼容。
+- 不代表 Windows artifact、跨平台 parity 或 managed lifecycle 已进入 release。
+
 ## 已拍板后续版本节奏
 
 以下是 `v0.1.0` 到 `v0.1.2` 的规划 source of truth。后续未发布版本只表达切片目标，
@@ -307,8 +339,8 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 规划切片：
 
-- `v0.1.0-alpha.14`：Linux explicit HTTP proxy live plain HTTP data plane。真实 `http://`
-  请求在 dedicated/explicit proxy 路径应用 reject、redirect、header/body rewrite。
+- `v0.1.0-alpha.14`：Linux explicit HTTP proxy live plain HTTP data plane。当前已进入 source-only
+  增量；tag release 后，真实 `http://` 请求可在 dedicated/explicit proxy 路径应用 reject、redirect、header/body rewrite。
 - `v0.1.0-alpha.15`：Linux TLS MITM foundation。CONNECT 后建立受控 TLS termination 与 upstream TLS
   forwarding，先证明解密通路和诊断，不执行 JavaScript script dispatch。
 - `v0.1.0-alpha.16`：Linux HTTPS request rewrite preview。对 dedicated/explicit HTTPS 请求应用

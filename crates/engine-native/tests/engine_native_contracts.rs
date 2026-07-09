@@ -9,6 +9,7 @@ use control_domain::{
     ProxyEngineService, RouteAction, RuleSet, SchemaVersion,
 };
 use engine_native::{
+    apply_http_mitm_outcome_to_live_plain_http_request,
     apply_http_mitm_outcome_to_plain_http_message, assess_native_proxy_engine_start_readiness,
     assess_socks5_outbound_connect_client_success_response_readiness,
     assess_socks5_outbound_connect_relay_readiness, attempt_socks5_outbound_tcp_connection,
@@ -17,18 +18,21 @@ use engine_native::{
     native_socks5_connect_browser_capture_proof_token, plan_and_apply_plain_http_mitm,
     plan_socks5_connect_http_mitm, plan_socks5_outbound_connect_client_success_response_write,
     plan_socks5_outbound_connect_data_relay, plan_socks5_outbound_tcp_connection,
-    read_socks5_command_header, read_socks5_connect_target, read_socks5_greeting,
-    read_socks5_outbound_connect_response, reject_unsupported_socks5_command,
-    reject_unwired_socks5_route_outbound, relay_socks5_outbound_connect_data,
-    select_socks5_auth_method, select_socks5_route_outbound_behavior,
-    write_socks5_auth_method_response, write_socks5_outbound_connect_client_success_response,
-    write_socks5_outbound_connect_request, write_unwired_socks5_connect_failure_response,
-    BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeHttpMitmPluginHook,
+    read_explicit_http_proxy_request, read_socks5_command_header, read_socks5_connect_target,
+    read_socks5_greeting, read_socks5_outbound_connect_response,
+    reject_unsupported_socks5_command, reject_unwired_socks5_route_outbound,
+    relay_socks5_outbound_connect_data, select_socks5_auth_method,
+    select_socks5_route_outbound_behavior, serialize_explicit_http_proxy_request_for_upstream,
+    serialize_plain_http_proxy_response, write_socks5_auth_method_response,
+    write_socks5_outbound_connect_client_success_response, write_socks5_outbound_connect_request,
+    write_unwired_socks5_connect_failure_response, BoundLoopbackTcpListenerHandle,
+    LoopbackListenerHandle, NativeExplicitHttpProxyRequest, NativeHttpMitmPluginHook,
     NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle, NativePlainHttpMessage,
-    NativeProxyEngineService, NativeProxyEngineStartReadiness, NativeRuntimeAssembly,
-    NativeRuntimeAssemblyPlan, NativeSocks5Address, NativeSocks5AuthMethodDecision,
-    NativeSocks5CommandDecision, NativeSocks5CommandHeader, NativeSocks5ConnectTarget,
-    NativeSocks5Greeting, NativeSocks5OutboundConnectClientSuccessResponseReadiness,
+    NativePlainHttpRewriteReport, NativeProxyEngineService, NativeProxyEngineStartReadiness,
+    NativeRuntimeAssembly, NativeRuntimeAssemblyPlan, NativeSocks5Address,
+    NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision, NativeSocks5CommandHeader,
+    NativeSocks5ConnectTarget, NativeSocks5Greeting,
+    NativeSocks5OutboundConnectClientSuccessResponseReadiness,
     NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision,
     NativeSocks5OutboundConnectDataRelayPlanDecision, NativeSocks5OutboundConnectRelayReadiness,
     NativeSocks5OutboundConnectResponse, NativeSocks5OutboundConnectResponseDecision,
@@ -57,6 +61,12 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_PLAN_READY_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_SCRIPT_DISPATCH_DEFERRED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_TERMINAL_ACTION_APPLIED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CONNECT_TLS_BLOCKED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_RESPONSE_READ_CODE,
     ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE, ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE, ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
@@ -231,7 +241,37 @@ fn validate_config_uses_runtime_request_nodes_for_route_targets() {
 }
 
 #[test]
-fn validate_config_reports_unimplemented_listener_and_node_protocols() {
+fn validate_config_accepts_http_listener_for_socks_outbound() {
+    let service = NativeProxyEngineService::new();
+    let engine_config = graph_config(
+        DEFAULT_NATIVE_ENGINE_ID,
+        vec![node()],
+        Vec::new(),
+        vec![http_listener_with_bind(
+            "http-loopback",
+            "127.0.0.1",
+            1080,
+            ListenerRoute::DefaultAction(RouteAction::Proxy {
+                node_id: "node-1".to_string(),
+            }),
+        )],
+        Vec::new(),
+    );
+
+    let diagnostics = service.validate_config(&engine_config);
+
+    assert_no_diagnostic(
+        &diagnostics,
+        ENGINE_NATIVE_CONFIG_LISTENER_KIND_UNSUPPORTED_CODE,
+    );
+    assert_no_diagnostic(
+        &diagnostics,
+        ENGINE_NATIVE_CONFIG_NODE_PROTOCOL_UNSUPPORTED_CODE,
+    );
+}
+
+#[test]
+fn validate_config_still_rejects_http_outbound_protocol() {
     let service = NativeProxyEngineService::new();
     let engine_config = graph_config(
         DEFAULT_NATIVE_ENGINE_ID,
@@ -254,7 +294,7 @@ fn validate_config_reports_unimplemented_listener_and_node_protocols() {
 
     let diagnostics = service.validate_config(&engine_config);
 
-    assert_diagnostic(
+    assert_no_diagnostic(
         &diagnostics,
         ENGINE_NATIVE_CONFIG_LISTENER_KIND_UNSUPPORTED_CODE,
     );
@@ -1397,6 +1437,162 @@ fn plain_http_rewrite_plan_applies_plugin_reject_to_terminal_response() {
 }
 
 #[test]
+fn plain_http_proxy_request_parser_maps_absolute_form_to_native_plain_http_message() {
+    let mut request = Cursor::new(
+        b"POST http://example.com:8080/api/path?x=1 HTTP/1.1\r\nHost: ignored.example\r\nContent-Length: 4\r\n\r\nbody"
+            .to_vec(),
+    );
+
+    let report = read_explicit_http_proxy_request(&mut request);
+    let parsed = report
+        .request
+        .expect("explicit HTTP proxy request should parse");
+
+    assert_eq!(parsed.method, "POST");
+    assert_eq!(parsed.target_url, "http://example.com:8080/api/path?x=1");
+    assert_eq!(parsed.target_host, "example.com");
+    assert_eq!(parsed.target_port, 8080);
+    assert_eq!(parsed.origin_path, "/api/path?x=1");
+    assert_eq!(parsed.version, "HTTP/1.1");
+    assert_eq!(parsed.body, b"body".to_vec());
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_CODE,
+    );
+}
+
+#[test]
+fn plain_http_proxy_request_rewrite_serializes_origin_form_for_upstream() {
+    let request = NativeExplicitHttpProxyRequest {
+        request_id: "native-http-proxy:POST:http://example.com/upload".to_string(),
+        method: "POST".to_string(),
+        target_url: "http://example.com/upload".to_string(),
+        target_host: "example.com".to_string(),
+        target_port: 80,
+        origin_path: "/upload".to_string(),
+        version: "HTTP/1.1".to_string(),
+        headers: vec![
+            MetadataEntry {
+                key: "Host".to_string(),
+                value: "example.com".to_string(),
+            },
+            MetadataEntry {
+                key: "Content-Length".to_string(),
+                value: "3".to_string(),
+            },
+        ],
+        body: b"old".to_vec(),
+    };
+    let outcome = HttpMitmOutcome {
+        action: HttpMitmAction::Continue,
+        header_mutations: vec![HttpHeaderMutation {
+            operation: HttpHeaderMutationOperation::Set,
+            name: "X-NetworkCore-Rewritten".to_string(),
+            value: Some("request".to_string()),
+        }],
+        body_mutation: Some(HttpBodyMutation {
+            body: b"new".to_vec(),
+            truncated: false,
+        }),
+        script_dispatch: None,
+        audits: Vec::new(),
+        diagnostics: Vec::new(),
+    };
+
+    let application = apply_http_mitm_outcome_to_live_plain_http_request(&request, &outcome);
+    let rewrite_report = NativePlainHttpRewriteReport {
+        request_id: request.request_id.clone(),
+        url: request.target_url.clone(),
+        event: HttpMitmEvent {
+            request_id: request.request_id.clone(),
+            url: request.target_url.clone(),
+            method: Some(request.method.clone()),
+            phase: HttpMitmPhase::Request,
+            status_code: None,
+            headers: request.headers.clone(),
+            body: request.body.clone(),
+        },
+        outcome: Some(outcome),
+        applied: application.applied,
+        terminal_action: application.terminal_action,
+        final_status_code: application.final_status_code,
+        redirect_location: application.redirect_location,
+        headers: application.headers,
+        body: application.body,
+        script_dispatch_deferred: application.script_dispatch_deferred,
+        audits: Vec::new(),
+        diagnostics: application.diagnostics,
+    };
+
+    let upstream = String::from_utf8(serialize_explicit_http_proxy_request_for_upstream(
+        &request,
+        &rewrite_report,
+    ))
+    .expect("upstream request should remain valid UTF-8");
+
+    assert!(upstream.starts_with("POST /upload HTTP/1.1\r\n"));
+    assert!(upstream.contains("Host: example.com\r\n"));
+    assert!(upstream.contains("Connection: close\r\n"));
+    assert!(upstream.contains("Content-Length: 3\r\n"));
+    assert!(upstream.contains("X-NetworkCore-Rewritten: request\r\n"));
+    assert!(upstream.ends_with("\r\n\r\nnew"));
+    assert_diagnostic(
+        &rewrite_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_HEADER_MUTATION_APPLIED_CODE,
+    );
+    assert_diagnostic(
+        &rewrite_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_BODY_MUTATION_APPLIED_CODE,
+    );
+}
+
+#[test]
+fn plain_http_proxy_response_header_and_body_rewrite_returns_modified_response() {
+    let rewrite_report = NativePlainHttpRewriteReport {
+        request_id: "native-http-proxy:GET:http://origin.example/response:response".to_string(),
+        url: "http://origin.example/response".to_string(),
+        event: HttpMitmEvent {
+            request_id: "native-http-proxy:GET:http://origin.example/response:response"
+                .to_string(),
+            url: "http://origin.example/response".to_string(),
+            method: Some("GET".to_string()),
+            phase: HttpMitmPhase::Response,
+            status_code: Some(200),
+            headers: vec![MetadataEntry {
+                key: "Content-Length".to_string(),
+                value: "3".to_string(),
+            }],
+            body: b"old".to_vec(),
+        },
+        outcome: None,
+        applied: true,
+        terminal_action: None,
+        final_status_code: Some(200),
+        redirect_location: None,
+        headers: vec![MetadataEntry {
+            key: "X-NetworkCore-Rewritten".to_string(),
+            value: "response".to_string(),
+        }],
+        body: b"response-new".to_vec(),
+        script_dispatch_deferred: false,
+        audits: Vec::new(),
+        diagnostics: Vec::new(),
+    };
+
+    let response = String::from_utf8(serialize_plain_http_proxy_response(
+        "HTTP/1.1",
+        &rewrite_report,
+    ))
+    .expect("serialized response should be valid UTF-8");
+
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response.contains("X-NetworkCore-Rewritten: response\r\n"));
+    assert!(response.contains("Connection: close\r\n"));
+    assert!(response.contains("Content-Length: 12\r\n"));
+    assert!(response.ends_with("\r\n\r\nresponse-new"));
+}
+
+#[test]
 fn socks5_connect_browser_capture_proof_token_uses_connect_authority_and_proxy_url() {
     let target = NativeSocks5ConnectTarget {
         address: NativeSocks5Address::DomainName("example.com".to_string()),
@@ -1530,6 +1726,314 @@ fn runtime_accept_loop_contract_applies_mitm_connect_reject_before_outbound() {
     assert_no_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE,
+    );
+}
+
+#[test]
+fn runtime_accept_loop_contract_applies_plain_http_reject_for_http_listener() {
+    let port = unused_loopback_port();
+    let listener = LoopbackListenerHandle::from_descriptor(&http_listener_with_bind(
+        "mitm-plain-http-reject-loopback",
+        "127.0.0.1",
+        port,
+        ListenerRoute::DefaultAction(RouteAction::Proxy {
+            node_id: "node-1".to_string(),
+        }),
+    ))
+    .expect("HTTP loopback listener handle should be representable");
+    let bound_listener = BoundLoopbackTcpListenerHandle::bind(listener)
+        .expect("HTTP loopback listener should bind on an available port");
+    let outbound = NativeOutboundHandlerHandle::from_node(&NodeDescriptor {
+        endpoint: Endpoint {
+            host: "127.0.0.1".to_string(),
+            port: unused_loopback_port(),
+        },
+        ..node()
+    })
+    .expect("socks outbound handler handle should be representable");
+    let http_mitm_hook = NativeHttpMitmPluginHook::new(
+        plugin_instance("networkcore.adblock"),
+        Arc::new(PlainHttpProxyRejectingMitmPluginService),
+    );
+    let accept_loop = NativeLoopbackTcpAcceptLoopHandle::start_with_http_mitm_hook(
+        bound_listener,
+        outbound,
+        Some(http_mitm_hook),
+    )
+    .expect("HTTP loopback accept loop should start with a MITM plugin hook");
+
+    let mut stream = TcpStream::connect(("127.0.0.1", port))
+        .expect("HTTP loopback accept loop should accept local connections");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .expect("test client should support a read timeout");
+    stream
+        .write_all(
+            b"GET http://pubads.g.doubleclick.net/pagead/id HTTP/1.1\r\nHost: pubads.g.doubleclick.net\r\n\r\n",
+        )
+        .expect("test client should send an explicit HTTP proxy request");
+    stream
+        .shutdown(Shutdown::Write)
+        .expect("test client should close the request write side");
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .expect("test client should read the HTTP reject response");
+    wait_until_accept_count(&accept_loop, 1);
+    wait_until_relayed_count(&accept_loop, 1);
+    drop(stream);
+
+    let report = accept_loop.shutdown();
+    let response_text =
+        String::from_utf8(response).expect("HTTP reject response should be valid UTF-8");
+
+    assert!(response_text.starts_with("HTTP/1.1 403 Forbidden\r\n"));
+    assert!(response_text.contains("Content-Length: 0\r\n"));
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_TERMINAL_ACTION_APPLIED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
+    );
+    assert_no_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_ATTEMPT_FAILED_CODE,
+    );
+    assert_no_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE,
+    );
+}
+
+#[test]
+fn plain_http_proxy_request_header_and_body_rewrite_forwards_via_socks_outbound() {
+    let outbound_listener =
+        TcpListener::bind(("127.0.0.1", 0)).expect("test outbound listener should bind");
+    outbound_listener
+        .set_nonblocking(true)
+        .expect("test outbound listener should support nonblocking accept");
+    let outbound_port = outbound_listener
+        .local_addr()
+        .expect("test outbound listener should have a local address")
+        .port();
+    let (frame_tx, frame_rx) = mpsc::channel();
+    let (request_tx, request_rx) = mpsc::channel();
+    let outbound_worker = thread::spawn(move || {
+        for _ in 0..100 {
+            match outbound_listener.accept() {
+                Ok((mut outbound_stream, _)) => {
+                    outbound_stream
+                        .set_nonblocking(false)
+                        .expect("captured outbound stream should use blocking reads");
+                    outbound_stream
+                        .set_read_timeout(Some(Duration::from_secs(5)))
+                        .expect("captured outbound stream should accept a read timeout");
+                    let request_frame = read_test_socks5_connect_frame(&mut outbound_stream);
+                    frame_tx
+                        .send(request_frame)
+                        .expect("captured outbound frame should be reported to the test");
+                    outbound_stream
+                        .write_all(&[0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0x04, 0x38])
+                        .expect("outbound stream should send the SOCKS5 CONNECT response frame");
+                    let upstream_request = read_test_http_message(&mut outbound_stream);
+                    request_tx
+                        .send(upstream_request)
+                        .expect("captured upstream request should be reported to the test");
+                    outbound_stream
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 3\r\n\r\nold",
+                        )
+                        .expect("outbound stream should send a finite HTTP response");
+                    outbound_stream
+                        .shutdown(Shutdown::Write)
+                        .expect("outbound stream should close the response write side");
+                    return;
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("test outbound listener failed while accepting: {error}"),
+            }
+        }
+
+        panic!("test outbound listener did not receive a connection");
+    });
+    let port = unused_loopback_port();
+    let listener = LoopbackListenerHandle::from_descriptor(&http_listener_with_bind(
+        "mitm-plain-http-rewrite-loopback",
+        "127.0.0.1",
+        port,
+        ListenerRoute::DefaultAction(RouteAction::Proxy {
+            node_id: "node-1".to_string(),
+        }),
+    ))
+    .expect("HTTP loopback listener handle should be representable");
+    let bound_listener = BoundLoopbackTcpListenerHandle::bind(listener)
+        .expect("HTTP loopback listener should bind on an available port");
+    let outbound = NativeOutboundHandlerHandle::from_node(&NodeDescriptor {
+        endpoint: Endpoint {
+            host: "127.0.0.1".to_string(),
+            port: outbound_port,
+        },
+        ..node()
+    })
+    .expect("socks outbound handler handle should be representable");
+    let http_mitm_hook = NativeHttpMitmPluginHook::new(
+        plugin_instance("networkcore.rewrite"),
+        Arc::new(PlainHttpProxyRewriteMitmPluginService),
+    );
+    let accept_loop = NativeLoopbackTcpAcceptLoopHandle::start_with_http_mitm_hook(
+        bound_listener,
+        outbound,
+        Some(http_mitm_hook),
+    )
+    .expect("HTTP loopback accept loop should start with a MITM plugin hook");
+
+    let mut stream = TcpStream::connect(("127.0.0.1", port))
+        .expect("HTTP loopback accept loop should accept local connections");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .expect("test client should support a read timeout");
+    stream
+        .write_all(
+            b"POST http://origin.example/upload HTTP/1.1\r\nHost: origin.example\r\nContent-Length: 3\r\n\r\nold",
+        )
+        .expect("test client should send an explicit HTTP proxy request");
+    stream
+        .shutdown(Shutdown::Write)
+        .expect("test client should close the request write side");
+    let mut client_response = Vec::new();
+    stream
+        .read_to_end(&mut client_response)
+        .expect("test client should read the rewritten HTTP response");
+    wait_until_accept_count(&accept_loop, 1);
+    wait_until_relayed_count(&accept_loop, 1);
+    drop(stream);
+
+    let outbound_frame = frame_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("accept loop should write the outbound SOCKS5 CONNECT frame");
+    let upstream_request = request_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("outbound should receive the rewritten HTTP request");
+    let report = accept_loop.shutdown();
+    outbound_worker
+        .join()
+        .expect("outbound frame capture worker should finish");
+    let response_text =
+        String::from_utf8(client_response).expect("client response should be valid UTF-8");
+
+    let mut expected_frame = vec![0x05, 0x01, 0x00, 0x03, "origin.example".len() as u8];
+    expected_frame.extend_from_slice(b"origin.example");
+    expected_frame.extend_from_slice(&[0x00, 0x50]);
+    assert_eq!(outbound_frame, expected_frame);
+    assert!(upstream_request.starts_with("POST /upload HTTP/1.1\r\n"));
+    assert!(upstream_request.contains("Host: origin.example\r\n"));
+    assert!(upstream_request.contains("X-NetworkCore-Rewritten: request\r\n"));
+    assert!(upstream_request.contains("Content-Length: 3\r\n"));
+    assert!(upstream_request.ends_with("\r\n\r\nnew"));
+    assert!(response_text.starts_with("HTTP/1.1 200 OK\r\n"));
+    assert!(response_text.contains("X-NetworkCore-Rewritten: response\r\n"));
+    assert!(response_text.contains("Content-Length: 12\r\n"));
+    assert!(response_text.ends_with("\r\n\r\nresponse-new"));
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITTEN_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_RESPONSE_READ_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_HEADER_MUTATION_APPLIED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_BODY_MUTATION_APPLIED_CODE,
+    );
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE,
+    );
+    assert_no_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE,
+    );
+}
+
+#[test]
+fn plain_http_proxy_connect_method_remains_tls_blocked() {
+    let port = unused_loopback_port();
+    let listener = LoopbackListenerHandle::from_descriptor(&http_listener_with_bind(
+        "mitm-plain-http-connect-blocked-loopback",
+        "127.0.0.1",
+        port,
+        ListenerRoute::DefaultAction(RouteAction::Proxy {
+            node_id: "node-1".to_string(),
+        }),
+    ))
+    .expect("HTTP loopback listener handle should be representable");
+    let bound_listener = BoundLoopbackTcpListenerHandle::bind(listener)
+        .expect("HTTP loopback listener should bind on an available port");
+    let outbound = NativeOutboundHandlerHandle::from_node(&node())
+        .expect("socks outbound handler handle should be representable");
+    let accept_loop = NativeLoopbackTcpAcceptLoopHandle::start(bound_listener, outbound)
+        .expect("HTTP loopback accept loop should start");
+
+    let mut stream = TcpStream::connect(("127.0.0.1", port))
+        .expect("HTTP loopback accept loop should accept local connections");
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .expect("test client should support a read timeout");
+    stream
+        .write_all(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
+        .expect("test client should send an explicit HTTP CONNECT request");
+    stream
+        .shutdown(Shutdown::Write)
+        .expect("test client should close the request write side");
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .expect("test client should read the HTTP TLS blocked response");
+    wait_until_accept_count(&accept_loop, 1);
+    wait_until_relayed_count(&accept_loop, 1);
+    drop(stream);
+
+    let report = accept_loop.shutdown();
+    let response_text =
+        String::from_utf8(response).expect("HTTP TLS blocked response should be valid UTF-8");
+
+    assert!(response_text.starts_with("HTTP/1.1 501 Not Implemented\r\n"));
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CONNECT_TLS_BLOCKED_CODE,
+    );
+    assert_no_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_CONNECT_REQUEST_WRITTEN_CODE,
     );
 }
 
@@ -2953,6 +3457,18 @@ fn local_tcp_listener_with_bind(
     }
 }
 
+fn http_listener_with_bind(
+    id: &str,
+    host: &str,
+    port: u16,
+    route: ListenerRoute,
+) -> ListenerDescriptor {
+    ListenerDescriptor {
+        kind: ListenerKind::Http,
+        ..listener_with_bind(id, host, port, route)
+    }
+}
+
 fn route_set(id: &str, default_action: RouteAction) -> RuleSet {
     RuleSet {
         id: id.to_string(),
@@ -2987,6 +3503,89 @@ fn assert_no_diagnostic(diagnostics: &[Diagnostic], code: &str) {
         diagnostics.iter().all(|diagnostic| diagnostic.code != code),
         "unexpected diagnostic {code}: {diagnostics:?}"
     );
+}
+
+fn plugin_instance(id: &str) -> PluginInstance {
+    PluginInstance {
+        manifest: PluginManifest {
+            id: id.to_string(),
+            version: "0.1.0".to_string(),
+            permissions: vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ],
+            hooks: vec![HookPoint::Request],
+        },
+        loaded_source: None,
+    }
+}
+
+fn read_test_socks5_connect_frame(stream: &mut TcpStream) -> Vec<u8> {
+    let mut frame = Vec::new();
+    let mut header = [0_u8; 4];
+    stream
+        .read_exact(&mut header)
+        .expect("outbound stream should receive SOCKS5 CONNECT header");
+    frame.extend_from_slice(&header);
+    match header[3] {
+        0x01 => {
+            let mut address_and_port = [0_u8; 6];
+            stream
+                .read_exact(&mut address_and_port)
+                .expect("outbound stream should receive IPv4 CONNECT target");
+            frame.extend_from_slice(&address_and_port);
+        }
+        0x03 => {
+            let mut length = [0_u8; 1];
+            stream
+                .read_exact(&mut length)
+                .expect("outbound stream should receive domain target length");
+            frame.push(length[0]);
+            let mut domain_and_port = vec![0_u8; length[0] as usize + 2];
+            stream
+                .read_exact(&mut domain_and_port)
+                .expect("outbound stream should receive domain CONNECT target");
+            frame.extend_from_slice(&domain_and_port);
+        }
+        0x04 => {
+            let mut address_and_port = [0_u8; 18];
+            stream
+                .read_exact(&mut address_and_port)
+                .expect("outbound stream should receive IPv6 CONNECT target");
+            frame.extend_from_slice(&address_and_port);
+        }
+        _ => panic!("unexpected SOCKS5 address type {}", header[3]),
+    }
+    frame
+}
+
+fn read_test_http_message(stream: &mut TcpStream) -> String {
+    let mut bytes = Vec::new();
+    let mut byte = [0_u8; 1];
+    while !bytes.ends_with(b"\r\n\r\n") {
+        stream
+            .read_exact(&mut byte)
+            .expect("HTTP message header should be readable");
+        bytes.push(byte[0]);
+    }
+    let header_text = String::from_utf8(bytes.clone()).expect("HTTP header should be UTF-8");
+    let content_length = header_text
+        .split("\r\n")
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("Content-Length")
+                .then(|| value.trim().parse::<usize>().ok())
+                .flatten()
+        })
+        .unwrap_or(0);
+    let mut body = vec![0_u8; content_length];
+    if content_length > 0 {
+        stream
+            .read_exact(&mut body)
+            .expect("HTTP message body should be readable");
+        bytes.extend_from_slice(&body);
+    }
+    String::from_utf8(bytes).expect("HTTP message should be valid UTF-8")
 }
 
 struct FailingWriter;
@@ -3059,6 +3658,130 @@ impl MitmPluginService for PlainHttpRejectingMitmPluginService {
                 "test plain HTTP MITM plan ready",
                 Some("test.mitm".to_string()),
             )],
+        })
+    }
+
+    fn audit(&self, plugin_result: &PluginResult) -> Vec<AuditEvent> {
+        plugin_result.audits.clone()
+    }
+}
+
+struct PlainHttpProxyRejectingMitmPluginService;
+
+impl MitmPluginService for PlainHttpProxyRejectingMitmPluginService {
+    fn validate_manifest(&self, _plugin_manifest: &PluginManifest) -> Vec<Diagnostic> {
+        Vec::new()
+    }
+
+    fn load(
+        &self,
+        plugin_package: &PluginPackage,
+        _granted_permissions: &GrantedPermissions,
+    ) -> DomainResult<PluginInstance> {
+        Ok(PluginInstance {
+            manifest: plugin_package.manifest.clone(),
+            loaded_source: None,
+        })
+    }
+
+    fn handle_http_event(
+        &self,
+        _plugin_instance: &PluginInstance,
+        _http_event: &HttpEvent,
+    ) -> DomainResult<PluginResult> {
+        Ok(PluginResult {
+            audits: Vec::new(),
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn handle_http_mitm_event(
+        &self,
+        plugin_instance: &PluginInstance,
+        http_event: &HttpMitmEvent,
+    ) -> DomainResult<HttpMitmOutcome> {
+        assert_eq!(plugin_instance.manifest.id, "networkcore.adblock");
+        assert_eq!(http_event.method.as_deref(), Some("GET"));
+        assert_eq!(http_event.phase, HttpMitmPhase::Request);
+        assert_eq!(http_event.url, "http://pubads.g.doubleclick.net/pagead/id");
+
+        Ok(HttpMitmOutcome {
+            action: HttpMitmAction::Reject { status_code: 403 },
+            header_mutations: Vec::new(),
+            body_mutation: None,
+            script_dispatch: None,
+            audits: Vec::new(),
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn audit(&self, plugin_result: &PluginResult) -> Vec<AuditEvent> {
+        plugin_result.audits.clone()
+    }
+}
+
+struct PlainHttpProxyRewriteMitmPluginService;
+
+impl MitmPluginService for PlainHttpProxyRewriteMitmPluginService {
+    fn validate_manifest(&self, _plugin_manifest: &PluginManifest) -> Vec<Diagnostic> {
+        Vec::new()
+    }
+
+    fn load(
+        &self,
+        plugin_package: &PluginPackage,
+        _granted_permissions: &GrantedPermissions,
+    ) -> DomainResult<PluginInstance> {
+        Ok(PluginInstance {
+            manifest: plugin_package.manifest.clone(),
+            loaded_source: None,
+        })
+    }
+
+    fn handle_http_event(
+        &self,
+        _plugin_instance: &PluginInstance,
+        _http_event: &HttpEvent,
+    ) -> DomainResult<PluginResult> {
+        Ok(PluginResult {
+            audits: Vec::new(),
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn handle_http_mitm_event(
+        &self,
+        plugin_instance: &PluginInstance,
+        http_event: &HttpMitmEvent,
+    ) -> DomainResult<HttpMitmOutcome> {
+        assert_eq!(plugin_instance.manifest.id, "networkcore.rewrite");
+        assert_eq!(http_event.url, "http://origin.example/upload");
+
+        let (header_value, body) = match http_event.phase {
+            HttpMitmPhase::Request => {
+                assert_eq!(http_event.method.as_deref(), Some("POST"));
+                ("request", b"new".to_vec())
+            }
+            HttpMitmPhase::Response => {
+                assert_eq!(http_event.status_code, Some(200));
+                ("response", b"response-new".to_vec())
+            }
+        };
+
+        Ok(HttpMitmOutcome {
+            action: HttpMitmAction::Continue,
+            header_mutations: vec![HttpHeaderMutation {
+                operation: HttpHeaderMutationOperation::Set,
+                name: "X-NetworkCore-Rewritten".to_string(),
+                value: Some(header_value.to_string()),
+            }],
+            body_mutation: Some(HttpBodyMutation {
+                body,
+                truncated: false,
+            }),
+            script_dispatch: None,
+            audits: Vec::new(),
+            diagnostics: Vec::new(),
         })
     }
 

@@ -72,7 +72,7 @@ safe snapshot, and rollback.
 - 通过 `traffic-proof` 将 operator-provided proof log token 等同于 HTTPS MITM 解密、rewrite 应用、系统代理 mutation 或完整 browser hijack 已验证。
 - 写入系统 proxy、system PAC、TUN、DNS、route 或 firewall 状态。
 - 生成、安装、信任或撤销 MITM CA。
-- 解密 HTTPS、解析 HTTP/TLS 数据面或应用 redirect/header/body/script rewrite plan 到真实 HTTP 请求/响应。
+- 解密 HTTPS、解析 browser/system captured HTTP/TLS 数据面或应用 redirect/header/body/script rewrite plan 到 browser/system captured HTTPS request/response 或 script runtime。
 - 将本地代理端点可达性等同于 browser hijack、live browser capture 或 HTTPS MITM 已可用。
 
 ## Future Source Anchors
