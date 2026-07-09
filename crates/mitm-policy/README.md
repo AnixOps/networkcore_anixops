@@ -89,7 +89,7 @@ loads that built-in plugin into `engine-native` through
 before outbound selection. This blocks the CONNECT tunnel, but it is not HTTPS
 decryption and does not apply redirect/header/body/script rewrite plans.
 
-Release/source split: `v0.1.0-alpha.16` is the latest published Linux artifact,
+Release/source split: `v0.1.0-alpha.17` is the latest published Linux artifact,
 while this README describes current `main` source. That artifact includes
 `verify --confirm`, `verify --confirm --target-url <url>`, `session-plan`,
 browser capture `--target-url`, `traffic-proof`, PAC/browser policy artifact
@@ -99,7 +99,9 @@ apply/rollback` certificate artifact lifecycle with TLS CA certificate PEM/priva
 plan/preview` caller-provided plain HTTP rewrite foundation and explicit HTTP
 proxy `http://` live request/response rewrite, explicit HTTP `CONNECT`
 pass-through tunnel foundation, bounded ClientHello/SNI observation, and
-controlled downstream TLS termination plan/report. Later live TLS termination,
+controlled downstream TLS termination plan/report, plus caller-provided HTTPS
+request reject/redirect/header mutation preview through `NativeHttpsRequestRewritePreviewReport`.
+Later live TLS termination,
 TLS decryption and full HTTPS rewrite increments after this tag require a later tag
 release before users can download them from GitHub Releases. The full alpha
 feature and boundary index is `docs/alpha-release-feature-matrix.md`.
