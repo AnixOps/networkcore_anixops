@@ -15,6 +15,6 @@ Current boundary:
 
 The current command surface is intentionally conservative: `help`, `version`,
 `capabilities`, `status`, and `diagnostics`. Subscription run compatibility,
-Windows service, driver, installer, system proxy mutation, system trust store
-mutation, JavaScript script dispatch, and managed daemon lifecycle remain
-blocked or deferred for later slices.
+Windows service, driver, installer, `system-proxy-mutation`,
+`system-trust-store-mutation`, JavaScript script dispatch, and managed daemon
+lifecycle remain blocked or deferred for later slices.

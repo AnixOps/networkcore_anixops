@@ -954,6 +954,7 @@ jobs:
             install_model = "manual-extract"
             system_mutation_policy = "none"
             source_identity = "apps/windows-cli"
+            capability_anchor = "windows-release-assets"
             subscription_compatibility = "deferred-to-v0.1.1-alpha.3"
             blocked_operations = @(
               "install-windows-service",
