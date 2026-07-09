@@ -3187,6 +3187,7 @@ where
             mitm_status: None,
             certificate_lifecycle: None,
             browser_capture: None,
+            http_rewrite: None,
         };
     }
 
@@ -3209,6 +3210,7 @@ where
         mitm_status: None,
         certificate_lifecycle: None,
         browser_capture: None,
+        http_rewrite: None,
     }
 }
 
