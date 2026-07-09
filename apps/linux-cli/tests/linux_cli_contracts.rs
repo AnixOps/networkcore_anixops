@@ -1203,10 +1203,12 @@ fn mitm_certificate_apply_with_store_writes_artifact_report() {
     assert_eq!(artifact.subject, MITM_CERTIFICATE_ARTIFACT_SUBJECT);
     assert!(artifact
         .cert_content
-        .contains("NETWORKCORE MITM CA CERTIFICATE ARTIFACT"));
+        .contains("-----BEGIN CERTIFICATE-----"));
     assert!(artifact
         .key_content
-        .contains("NETWORKCORE MITM CA PRIVATE KEY ARTIFACT"));
+        .contains("-----BEGIN PRIVATE KEY-----"));
+    assert!(!artifact.cert_content.contains("NETWORKCORE MITM CA"));
+    assert!(!artifact.key_content.contains("NETWORKCORE MITM CA"));
     let apply = lifecycle
         .apply_report
         .as_ref()
@@ -1268,8 +1270,12 @@ fn mitm_certificate_command_store_writes_and_rolls_back_artifacts() {
     let cert_content =
         std::fs::read_to_string(&cert_path).expect("cert artifact should be written");
     let key_content = std::fs::read_to_string(&key_path).expect("key artifact should be written");
-    assert!(cert_content.contains("trust-store-mutation: blocked"));
-    assert!(key_content.contains("https-rewrite: blocked"));
+    assert!(cert_content.contains("-----BEGIN CERTIFICATE-----"));
+    assert!(cert_content.contains("-----END CERTIFICATE-----"));
+    assert!(key_content.contains("-----BEGIN PRIVATE KEY-----"));
+    assert!(key_content.contains("-----END PRIVATE KEY-----"));
+    assert!(!cert_content.contains("trust-store-mutation: blocked"));
+    assert!(!key_content.contains("https-rewrite: blocked"));
     assert!(snapshot_path.exists());
 
     let rollback = handle_mitm_certificate_rollback_with_store(
@@ -1350,7 +1356,19 @@ fn mitm_certificate_command_store_writes_and_rolls_back_profile_trust_artifact()
         .profile_trust_content
         .as_ref()
         .expect("profile trust content should be recorded")
-        .contains("NETWORKCORE DEDICATED PROFILE TRUST ARTIFACT"));
+        .contains("-----BEGIN CERTIFICATE-----"));
+    assert_eq!(
+        artifact.profile_trust_content.as_deref(),
+        Some(artifact.cert_content.as_str())
+    );
+    assert_eq!(
+        artifact.profile_trust_fingerprint.as_deref(),
+        Some(artifact.cert_fingerprint.as_str())
+    );
+    assert_ne!(
+        artifact.profile_trust_fingerprint.as_deref(),
+        Some(artifact.key_fingerprint.as_str())
+    );
     assert!(artifact.profile_trust_fingerprint.is_some());
     let apply_report = lifecycle
         .apply_report
@@ -1367,9 +1385,13 @@ fn mitm_certificate_command_store_writes_and_rolls_back_profile_trust_artifact()
 
     let profile_trust_content = std::fs::read_to_string(&profile_trust_path)
         .expect("profile trust artifact should be written");
-    assert!(profile_trust_content.contains("NETWORKCORE DEDICATED PROFILE TRUST ARTIFACT"));
-    assert!(profile_trust_content.contains("profile-trust-state-mutation: blocked"));
-    assert!(profile_trust_content.contains("NETWORKCORE MITM CA CERTIFICATE ARTIFACT"));
+    let cert_content =
+        std::fs::read_to_string(&cert_path).expect("cert artifact should be written");
+    let key_content = std::fs::read_to_string(&key_path).expect("key artifact should be written");
+    assert_eq!(profile_trust_content, cert_content);
+    assert!(profile_trust_content.contains("-----BEGIN CERTIFICATE-----"));
+    assert!(!profile_trust_content.contains("-----BEGIN PRIVATE KEY-----"));
+    assert_ne!(profile_trust_content, key_content);
     assert!(snapshot_path.exists());
 
     let rendered = render_response(&apply, OutputFormat::Text);
@@ -1410,6 +1432,96 @@ fn mitm_certificate_command_store_writes_and_rolls_back_profile_trust_artifact()
     assert!(!cert_path.exists());
     assert!(!key_path.exists());
     assert!(!profile_trust_path.exists());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn mitm_certificate_apply_writes_tls_usable_ca_pem_without_trust_store_mutation() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock should be after Unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("networkcore-mitm-ca-pem-{unique}"));
+    let cert_path = root.join("networkcore-mitm-ca.pem");
+    let key_path = root.join("networkcore-mitm-ca.key.pem");
+    let profile_trust_path = root.join("dedicated-profile-ca.pem");
+    let snapshot_path = root.join("networkcore-mitm-ca.snapshot.json");
+
+    let response = handle_mitm_certificate_apply_with_store(
+        &platform,
+        &networkcore_linux::CommandMitmCertificateArtifactStore::new(),
+        Some(cert_path.to_str().expect("cert path should be UTF-8")),
+        Some(key_path.to_str().expect("key path should be UTF-8")),
+        Some(
+            profile_trust_path
+                .to_str()
+                .expect("profile trust path should be UTF-8"),
+        ),
+        Some(
+            snapshot_path
+                .to_str()
+                .expect("snapshot path should be UTF-8"),
+        ),
+        true,
+    );
+
+    assert!(response.ok);
+    let lifecycle = response
+        .certificate_lifecycle
+        .as_ref()
+        .expect("apply response should include certificate lifecycle");
+    assert_eq!(lifecycle.trust_plan.status, "trust-mutation-blocked");
+    assert!(!lifecycle.trust_plan.mutation_ready);
+    assert!(lifecycle
+        .trust_plan
+        .blocked_operations
+        .iter()
+        .any(|operation| operation == "update-ca-certificates"));
+    assert!(lifecycle
+        .trust_plan
+        .blocked_operations
+        .iter()
+        .any(|operation| operation == "mutate-firefox-trust-store"));
+    let artifact = lifecycle
+        .request
+        .artifact
+        .as_ref()
+        .expect("apply request should include certificate artifact");
+    assert_eq!(artifact.artifact_version, 2);
+    assert!(artifact.cert_content.contains("-----BEGIN CERTIFICATE-----"));
+    assert!(artifact.cert_content.contains("-----END CERTIFICATE-----"));
+    assert!(artifact.key_content.contains("-----BEGIN PRIVATE KEY-----"));
+    assert!(artifact.key_content.contains("-----END PRIVATE KEY-----"));
+    assert!(!artifact.cert_content.contains("NETWORKCORE MITM CA"));
+    assert!(!artifact.key_content.contains("NETWORKCORE MITM CA"));
+    assert!(!artifact.cert_content.contains("trust-store-mutation:"));
+    assert!(!artifact.key_content.contains("https-rewrite:"));
+    assert_eq!(
+        artifact.profile_trust_content.as_deref(),
+        Some(artifact.cert_content.as_str())
+    );
+    assert_eq!(
+        artifact.profile_trust_fingerprint.as_deref(),
+        Some(artifact.cert_fingerprint.as_str())
+    );
+    assert_ne!(
+        artifact.profile_trust_fingerprint.as_deref(),
+        Some(artifact.key_fingerprint.as_str())
+    );
+
+    let cert_content =
+        std::fs::read_to_string(&cert_path).expect("CA certificate PEM should be written");
+    let key_content =
+        std::fs::read_to_string(&key_path).expect("CA private key PEM should be written");
+    let profile_trust_content = std::fs::read_to_string(&profile_trust_path)
+        .expect("profile trust CA PEM copy should be written");
+    assert_eq!(cert_content, artifact.cert_content);
+    assert_eq!(key_content, artifact.key_content);
+    assert_eq!(profile_trust_content, cert_content);
+    assert!(!profile_trust_content.contains("-----BEGIN PRIVATE KEY-----"));
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -4085,7 +4197,7 @@ fn certificate_lifecycle_json_output_contains_artifact_fields() {
         json["certificate_lifecycle"]["request"]["artifact"]["cert_content"]
             .as_str()
             .expect("cert content should be a string")
-            .contains("NETWORKCORE MITM CA CERTIFICATE ARTIFACT")
+            .contains("-----BEGIN CERTIFICATE-----")
     );
     assert_eq!(
         json["certificate_lifecycle"]["apply_report"]["status"],
@@ -4947,13 +5059,15 @@ impl MitmCertificateArtifactStore for TestMitmCertificateArtifactStore {
             "/tmp/networkcore-mitm-ca.snapshot.json"
         );
         assert_eq!(request.subject, MITM_CERTIFICATE_ARTIFACT_SUBJECT);
-        assert_eq!(request.artifact_version, 1);
+        assert_eq!(request.artifact_version, 2);
         assert!(request
             .cert_content
-            .contains("NETWORKCORE MITM CA CERTIFICATE ARTIFACT"));
+            .contains("-----BEGIN CERTIFICATE-----"));
         assert!(request
             .key_content
-            .contains("NETWORKCORE MITM CA PRIVATE KEY ARTIFACT"));
+            .contains("-----BEGIN PRIVATE KEY-----"));
+        assert!(!request.cert_content.contains("NETWORKCORE MITM CA"));
+        assert!(!request.key_content.contains("NETWORKCORE MITM CA"));
         assert!(request.profile_trust_content.is_none());
         assert!(!request.cert_fingerprint.is_empty());
         assert!(!request.key_fingerprint.is_empty());

@@ -23,6 +23,9 @@ use mitm_policy::{
     builtin_ad_block_plugin_package, AnixOpsMitmPluginService, AnixOpsMitmPolicyEngine,
     MITM_POLICY_AD_BLOCK_PLUGIN_ID,
 };
+use rcgen::{
+    BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, KeyUsagePurpose,
+};
 use serde::{Deserialize, Serialize};
 #[cfg(unix)]
 use signal_hook::{
@@ -79,6 +82,8 @@ pub const CLI_MITM_CERTIFICATE_APPLY_BLOCKED_CODE: &str =
 pub const CLI_MITM_CERTIFICATE_APPLY_READY_CODE: &str = "cli.linux.mitm.certificate.apply.ready";
 pub const CLI_MITM_CERTIFICATE_APPLY_CONFIG_MISSING_CODE: &str =
     "cli.linux.mitm.certificate.apply.config_missing";
+pub const CLI_MITM_CERTIFICATE_MATERIAL_FAILED_CODE: &str =
+    "cli.linux.mitm.certificate.material.failed";
 pub const CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE: &str =
     "cli.linux.mitm.certificate.artifact.write_failed";
 pub const CLI_MITM_CERTIFICATE_SNAPSHOT_WRITE_FAILED_CODE: &str =
@@ -3539,12 +3544,44 @@ where
         };
     };
 
-    let artifact_request = build_linux_mitm_certificate_artifact_request(
+    let artifact_request = match build_linux_mitm_certificate_artifact_request(
         cert_file_path,
         key_file_path,
         profile_trust_file_path,
         snapshot_path,
-    );
+    ) {
+        Ok(artifact_request) => artifact_request,
+        Err(error) => {
+            diagnostics.push(cli_diagnostic(
+                DiagnosticSeverity::Error,
+                error.code,
+                error.message,
+                SOURCE_CLI_MITM,
+            ));
+            report.apply_report = Some(LinuxMitmCertificateApplyReport {
+                status: "failed".to_string(),
+                applied: false,
+                authorization,
+                cert_file_path: Some(cert_file_path.to_string()),
+                key_file_path: Some(key_file_path.to_string()),
+                profile_trust_file_path: profile_trust_file_path.map(ToString::to_string),
+                rollback_snapshot: Some(MitmCertificateRollbackSnapshot {
+                    path: snapshot_path.to_string(),
+                    status: "operator-provided".to_string(),
+                }),
+                blocked_operations: report.trust_plan.blocked_operations.clone(),
+            });
+            return LinuxCliResponse {
+                ok: false,
+                exit_code: LinuxCliExitCode::Unavailable,
+                ..LinuxCliResponse::success(command)
+                    .with_platform(platform_status)
+                    .with_mitm_status(mitm_status)
+                    .with_certificate_lifecycle(report)
+                    .with_diagnostics(diagnostics)
+            };
+        }
+    };
     report.request.artifact = Some(artifact_request.clone());
 
     match certificate_store.apply_certificate_artifact(&artifact_request) {
@@ -6718,25 +6755,20 @@ fn build_linux_mitm_certificate_artifact_request(
     key_file_path: &str,
     profile_trust_file_path: Option<&str>,
     snapshot_path: &str,
-) -> LinuxMitmCertificateArtifactRequest {
+) -> DomainResult<LinuxMitmCertificateArtifactRequest> {
     let subject = MITM_CERTIFICATE_ARTIFACT_SUBJECT.to_string();
-    let artifact_id = stable_content_fingerprint(&format!(
-        "{subject}|{cert_file_path}|{key_file_path}|{}|{MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS}",
-        profile_trust_file_path.unwrap_or("profile-trust-not-requested")
-    ));
-    let cert_content = mitm_certificate_cert_artifact_content(&subject, &artifact_id);
-    let key_content = mitm_certificate_key_artifact_content(&subject, &artifact_id);
-    let profile_trust_content = profile_trust_file_path.map(|_| {
-        mitm_certificate_profile_trust_artifact_content(&subject, &artifact_id, &cert_content)
-    });
+    let ca_material = generate_mitm_certificate_ca_pem_material(&subject)?;
+    let cert_content = ca_material.cert_pem;
+    let key_content = ca_material.key_pem;
+    let profile_trust_content = profile_trust_file_path.map(|_| cert_content.clone());
 
-    LinuxMitmCertificateArtifactRequest {
+    Ok(LinuxMitmCertificateArtifactRequest {
         cert_file_path: cert_file_path.to_string(),
         key_file_path: key_file_path.to_string(),
         profile_trust_file_path: profile_trust_file_path.map(ToString::to_string),
         snapshot_path: snapshot_path.to_string(),
         subject,
-        artifact_version: 1,
+        artifact_version: 2,
         cert_fingerprint: stable_content_fingerprint(&cert_content),
         key_fingerprint: stable_content_fingerprint(&key_content),
         profile_trust_fingerprint: profile_trust_content
@@ -6745,58 +6777,47 @@ fn build_linux_mitm_certificate_artifact_request(
         cert_content,
         key_content,
         profile_trust_content,
-    }
+    })
 }
 
-fn mitm_certificate_cert_artifact_content(subject: &str, artifact_id: &str) -> String {
-    format!(
-        "-----BEGIN NETWORKCORE MITM CA CERTIFICATE ARTIFACT-----\n\
-         networkcore-artifact-version: 1\n\
-         networkcore-artifact-id: {artifact_id}\n\
-         subject: {subject}\n\
-         gate: {MITM_CERTIFICATE_LIFECYCLE_GATE}\n\
-         gate-status: {MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS}\n\
-         trust-store-mutation: blocked\n\
-         https-rewrite: blocked\n\
-         -----END NETWORKCORE MITM CA CERTIFICATE ARTIFACT-----\n"
-    )
+struct MitmCertificateCaPemMaterial {
+    cert_pem: String,
+    key_pem: String,
 }
 
-fn mitm_certificate_key_artifact_content(subject: &str, artifact_id: &str) -> String {
-    format!(
-        "-----BEGIN NETWORKCORE MITM CA PRIVATE KEY ARTIFACT-----\n\
-         networkcore-artifact-version: 1\n\
-         networkcore-artifact-id: {artifact_id}\n\
-         subject: {subject}\n\
-         gate: {MITM_CERTIFICATE_LIFECYCLE_GATE}\n\
-         gate-status: {MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS}\n\
-         trust-store-mutation: blocked\n\
-         https-rewrite: blocked\n\
-         -----END NETWORKCORE MITM CA PRIVATE KEY ARTIFACT-----\n"
-    )
-}
-
-fn mitm_certificate_profile_trust_artifact_content(
+fn generate_mitm_certificate_ca_pem_material(
     subject: &str,
-    artifact_id: &str,
-    cert_content: &str,
-) -> String {
-    format!(
-        "-----BEGIN NETWORKCORE DEDICATED PROFILE TRUST ARTIFACT-----\n\
-         networkcore-artifact-version: 1\n\
-         networkcore-artifact-id: {artifact_id}\n\
-         subject: {subject}\n\
-         scope: dedicated-profile\n\
-         gate: {MITM_CERTIFICATE_LIFECYCLE_GATE}\n\
-         gate-status: {MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS}\n\
-         system-trust-store-mutation: blocked\n\
-         browser-trust-store-mutation: blocked\n\
-         profile-trust-state-mutation: blocked\n\
-         -----BEGIN NETWORKCORE DEDICATED PROFILE CA CERTIFICATE COPY-----\n\
-         {cert_content}\
-         -----END NETWORKCORE DEDICATED PROFILE CA CERTIFICATE COPY-----\n\
-         -----END NETWORKCORE DEDICATED PROFILE TRUST ARTIFACT-----\n"
-    )
+) -> DomainResult<MitmCertificateCaPemMaterial> {
+    let mut distinguished_name = DistinguishedName::new();
+    distinguished_name.push(DnType::CommonName, subject);
+    distinguished_name.push(DnType::OrganizationName, "AnixOps NetworkCore");
+
+    let mut params = CertificateParams::default();
+    params.distinguished_name = distinguished_name;
+    params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    params.key_usages = vec![
+        KeyUsagePurpose::KeyCertSign,
+        KeyUsagePurpose::CrlSign,
+        KeyUsagePurpose::DigitalSignature,
+    ];
+
+    let key_pair = KeyPair::generate().map_err(|error| {
+        DomainError::new(
+            CLI_MITM_CERTIFICATE_MATERIAL_FAILED_CODE,
+            format!("failed to generate MITM CA private key material: {error}"),
+        )
+    })?;
+    let certificate = params.self_signed(&key_pair).map_err(|error| {
+        DomainError::new(
+            CLI_MITM_CERTIFICATE_MATERIAL_FAILED_CODE,
+            format!("failed to generate self-signed MITM CA certificate material: {error}"),
+        )
+    })?;
+
+    Ok(MitmCertificateCaPemMaterial {
+        cert_pem: certificate.pem(),
+        key_pem: key_pair.serialize_pem(),
+    })
 }
 
 fn stable_content_fingerprint(source: &str) -> String {

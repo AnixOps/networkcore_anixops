@@ -9,14 +9,17 @@ mitm-certificate-lifecycle-source-contract-status=active
 MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/profile-trust-artifact-active/trust-mutation-blocked
 ```
 
-本文固定 Linux MITM certificate lifecycle 从 plan-only 进入受控 artifact lifecycle 后必须遵守的源码边界。当前仓库允许 `networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` 写入调用方显式提供路径上的 NetworkCore certificate artifact、private key artifact、可选 dedicated profile trust artifact 和 rollback snapshot；允许 `networkcore-linux mitm certificate rollback --snapshot <path>` 读取 NetworkCore snapshot 并删除 snapshot 管理的 artifact。该能力不安装或信任 CA，不修改 system trust store、NSS DB、p11-kit、Firefox trust store 或 profile trust state，不解密 HTTPS，也不应用 HTTP/TLS rewrite。
+本文固定 Linux MITM certificate lifecycle 从 plan-only 进入受控 artifact lifecycle 后必须遵守的源码边界。当前仓库允许 `networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` 写入调用方显式提供路径上的 TLS 可消费 CA certificate PEM、private key PEM、可选 dedicated profile CA PEM copy 和 rollback snapshot；允许 `networkcore-linux mitm certificate rollback --snapshot <path>` 读取 NetworkCore snapshot 并删除 snapshot 管理的 artifact。该能力不安装或信任 CA，不修改 system trust store、NSS DB、p11-kit、Firefox trust store 或 profile trust state，不解密 HTTPS，也不应用 HTTP/TLS rewrite。
 
 ## Current Boundary
 
 - `networkcore-linux mitm certificate-plan` 继续输出 `mitm_status.certificate_plan`，但计划包含 `write-local-ca-artifact`、`snapshot-ca-artifact`、`write-dedicated-profile-trust-artifact` 和 `rollback-ca-artifact` active steps。
-- `networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` 通过 `CommandMitmCertificateArtifactStore` 写入 operator-provided certificate/key artifact 路径、可选 dedicated profile trust artifact 路径和 NetworkCore rollback snapshot。
+- `networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` 通过 `CommandMitmCertificateArtifactStore` 写入 operator-provided CA certificate PEM、private key PEM、可选 dedicated profile CA PEM copy 路径和 NetworkCore rollback snapshot。
+- Certificate artifact content 必须是标准 PEM：`cert_content` 包含 `-----BEGIN CERTIFICATE-----`/`-----END CERTIFICATE-----`，`key_content` 包含 `-----BEGIN PRIVATE KEY-----`/`-----END PRIVATE KEY-----`，不再把 NetworkCore metadata wrapper 写入 PEM 文件。
+- `profile_trust_content` 在请求 `--profile-trust-file` 时必须等于同一 `cert_content` 的 CA PEM copy，`profile_trust_fingerprint` 必须等于 `cert_fingerprint`，且不得包含 private key PEM。
 - 缺少 `--confirm` 时返回 `cli.linux.mitm.certificate.authorization_required`，不写文件。
 - 缺少 `--cert-file`、`--key-file` 或 `--snapshot` 时返回 `cli.linux.mitm.certificate.apply.config_missing`，不写文件。
+- 证书材料生成失败时返回 `cli.linux.mitm.certificate.material.failed`，不写文件。
 - 已存在的 cert/key/profile trust/snapshot 路径必须拒绝覆盖，分别返回 `cli.linux.mitm.certificate.artifact.write_failed` 或 `cli.linux.mitm.certificate.snapshot.write_failed`。
 - Snapshot 记录 NetworkCore ownership、artifact path、subject 和内容 fingerprint；rollback 必须在当前文件 fingerprint 仍匹配 snapshot 时才删除 artifact，避免覆盖外部修改。
 - `networkcore-linux mitm certificate rollback --snapshot <path>` 读取 snapshot，成功时返回 `cli.linux.mitm.certificate.rollback.ready`；snapshot 缺失、不可读或不是 NetworkCore certificate artifact snapshot 时返回 `cli.linux.mitm.certificate.snapshot.read_failed`。
@@ -55,6 +58,7 @@ MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/profile-trust-artifact
 - `profile_trust_file_path`
 - `profile_trust_content`
 - `profile_trust_fingerprint`
+- `cli.linux.mitm.certificate.material.failed`
 - `cli.linux.mitm.certificate.authorization_required`
 - `cli.linux.mitm.certificate.apply.ready`
 - `cli.linux.mitm.certificate.apply.config_missing`
@@ -74,6 +78,7 @@ MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/profile-trust-artifact
 - 修改 NSS DB、p11-kit 或 Firefox trust store。
 - 写入发行版专用 trust command、system trust store、browser trust store 或 profile trust state。
 - 把 artifact 写入等同于可信 CA 安装。
+- 把 profile trust artifact 称为已信任的 profile state；它只是 caller-provided path 上的同一 CA PEM 副本。
 - 生成 live HTTPS decrypt capability 或 HTTP/TLS redirect/header/body/script rewrite。
 - 在没有 NetworkCore snapshot 且 fingerprint 匹配的情况下删除或覆盖 cert/key artifact。
 

@@ -199,7 +199,7 @@ JSON 机器字段，并显式报告 browser hijack 为 deferred、
 `MITM_HTTP_TLS_DATA_PLANE_GATE` plain-http-live-data-plane-active/tls-decryption-blocked。`certificate-plan` 额外输出
 `mitm_status.certificate_plan`，包含当前证书状态、artifact lifecycle 步骤、trust blocked
 operations 和 `mutation_ready=false`；`mitm certificate apply/rollback` 额外输出
-`certificate_lifecycle`，只写入或删除 NetworkCore certificate/private-key artifact、可选 dedicated profile CA trust artifact 和 snapshot；
+`certificate_lifecycle`，只写入或删除 NetworkCore CA certificate PEM、private key PEM、可选 dedicated profile CA PEM copy 和 snapshot；
 边界见 `linux-mitm-certificate-lifecycle-source-contract.md`；
 `browser-plan` 额外输出
 `mitm_status.browser_plan`，包含当前捕获状态、默认显式代理计划

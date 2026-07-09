@@ -193,8 +193,8 @@ Blocked until later phases:
   live MITM before the remaining gates are active.
 - `MITM_CERTIFICATE_LIFECYCLE_GATE`: currently artifact-lifecycle-active/profile-trust-artifact-active/trust-mutation-blocked through
   `mitm_status.certificate_plan` and `certificate_lifecycle`; current Linux CLI
-  can write/rollback NetworkCore certificate/private-key artifact files plus an optional
-  dedicated profile CA trust artifact through
+  can write/rollback NetworkCore CA certificate PEM/private key PEM artifact files plus an optional
+  dedicated profile CA PEM copy through
   `mitm certificate apply --confirm --cert-file <path> --key-file <path>
   [--profile-trust-file <path>] --snapshot <path>` and `mitm certificate rollback --snapshot <path>`.
   Later increments must add user-approved install, trust detection,

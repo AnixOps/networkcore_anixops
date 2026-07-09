@@ -95,7 +95,7 @@ while this README describes current `main` source. That artifact includes
 browser capture `--target-url`, `traffic-proof`, PAC/browser policy artifact
 apply/rollback, native SOCKS5 CONNECT plugin reject, the
 `--proxy-scheme socks5` native plugin proxy mode, and `mitm certificate
-apply/rollback` certificate artifact lifecycle with dedicated profile CA trust artifact output, plus `mitm http-rewrite
+apply/rollback` certificate artifact lifecycle with TLS CA certificate PEM/private key PEM and dedicated profile CA PEM copy output, plus `mitm http-rewrite
 plan/preview` caller-provided plain HTTP rewrite foundation and explicit HTTP
 proxy `http://` live request/response rewrite. Later TLS
 decryption and full HTTPS rewrite increments after this tag require a later tag
@@ -111,8 +111,8 @@ Required gates before user-facing MITM:
   `mitm_status.certificate_plan` and Linux CLI `certificate_lifecycle`
   apply/rollback reports. `mitm certificate apply --confirm --cert-file
   <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>`
-  writes only NetworkCore-owned certificate/private-key artifacts, optional
-  dedicated profile CA trust artifact, and rollback snapshot; later increments
+  writes only NetworkCore-owned CA certificate PEM/private key PEM artifacts, optional
+  dedicated profile CA PEM copy, and rollback snapshot; later increments
   must implement CA install, trust detection, revocation, and trust-store
   rollback boundaries. The Linux boundary is documented in
   `docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md`.

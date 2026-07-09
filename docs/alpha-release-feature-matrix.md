@@ -335,6 +335,7 @@ tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Rel
 
 当前源码能力：
 
+- Linux MITM certificate material readiness：`networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` 生成 TLS 可消费 CA certificate PEM、private key PEM，并把 dedicated profile trust artifact 写成同一 CA PEM copy；`profile_trust_fingerprint` 与 `cert_fingerprint` 对齐，private key 不进入 profile trust artifact。
 - Linux explicit HTTP CONNECT tunnel foundation：`engine-native` 新增 `NativeTlsMitmFoundationReport`、
   `NativeTlsClientHelloObservationReport`、`plan_explicit_http_connect_tls_mitm_foundation`、
   `observe_explicit_http_connect_tls_client_hello`、`write_http_connect_established_response`、
@@ -351,6 +352,7 @@ tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Rel
 - 尚不解析 CONNECT 后的 HTTPS request/response，不应用 HTTPS request/response rewrite。
 - 不执行 JavaScript script dispatch。
 - 不安装、信任、撤销或回滚 CA trust store。
+- Dedicated profile trust artifact 只是 caller-provided path 上的 CA PEM copy，不代表 profile trust state 已修改。
 - 不修改 browser/system proxy、system PAC、TUN、DNS、firewall 或路由状态。
 - 不代表 `v0.1.0-alpha.15` 已发布；当前最新可下载 Linux artifact 仍是 `v0.1.0-alpha.14`。
 
@@ -368,15 +370,16 @@ tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Rel
 
 - `v0.1.0-alpha.14`：Linux explicit HTTP proxy live plain HTTP data plane。已发布；真实 `http://`
   请求可在 dedicated/explicit proxy 路径应用 reject、redirect、header/body rewrite。
-- `v0.1.0-alpha.15`：Linux TLS MITM foundation。CONNECT 后建立受控 TLS termination 与 upstream TLS
+- `v0.1.0-alpha.15`：Linux TLS MITM foundation readiness。完成 CONNECT pass-through tunnel、bounded ClientHello/SNI observation、TLS 可消费 CA certificate PEM/private key PEM 和 dedicated profile CA PEM copy；仍不执行 TLS termination、HTTPS decryption 或 JavaScript script dispatch。
+- `v0.1.0-alpha.16`：Linux controlled TLS termination foundation。CONNECT 后建立受控 downstream TLS termination 与 upstream TLS
   forwarding，先证明解密通路和诊断，不执行 JavaScript script dispatch。
-- `v0.1.0-alpha.16`：Linux HTTPS request rewrite preview。对 dedicated/explicit HTTPS 请求应用
+- `v0.1.0-alpha.17`：Linux HTTPS request rewrite preview。对 dedicated/explicit HTTPS 请求应用
   reject、redirect 和 request header rewrite，response body rewrite 继续独立切片。
-- `v0.1.0-alpha.17`：Linux HTTPS response rewrite preview。加入 response header/body rewrite，
+- `v0.1.0-alpha.18`：Linux HTTPS response rewrite preview。加入 response header/body rewrite，
   带 content-type、body size 和 buffering guard；JavaScript script dispatch 仍 deferred。
-- `v0.1.0-alpha.18`：Linux live browser proof hardening。把 dedicated browser proof、TLS MITM
+- `v0.1.0-alpha.19`：Linux live browser proof hardening。把 dedicated browser proof、TLS MITM
   诊断和 rewrite-applied proof 串成可审计 report，并补 rollback/conflict diagnostics。
-- `v0.1.0-alpha.19`：Linux release hardening。冻结功能，只修 CLI UX、JSON 字段、错误码、文档、
+- `v0.1.0-alpha.20`：Linux release hardening。冻结功能，只修 CLI UX、JSON 字段、错误码、文档、
   CI governance、release notes 和 rollback 边界。
 - `v0.1.0-rc.1`：功能冻结候选版；只允许 CI、release、文档和回归修复。
 - `v0.1.0`：发布 Linux-only explicit HTTPS rewrite preview artifact。

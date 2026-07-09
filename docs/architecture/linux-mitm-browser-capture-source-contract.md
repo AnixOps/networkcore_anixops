@@ -28,7 +28,7 @@ safe snapshot, and rollback.
 `traffic-proof --confirm [--target-url <url>] [--proof-token <token>] [--proof-log <path>]` proof-log-token 验证入口、
 `session-plan`/`launch --confirm` proof URL/default proof 绑定、`--proxy-scheme socks5` native plugin proxy mode、
 `apply --confirm --pac-file <path> [--policy-file <path>] [--profile-prefs-file <path>] --snapshot <path>` / `rollback --snapshot <path>` PAC/browser policy artifact 与 Firefox dedicated profile prefs apply/rollback，
-以及 explicit SOCKS5 CONNECT-level plugin reject/proof 诊断；同一 artifact 还包含 Linux certificate artifact lifecycle、dedicated profile CA trust artifact foundation 和 `mitm http-rewrite plan/preview` caller-provided plain HTTP rewrite foundation。后续 TLS decryption、live traffic interception 和完整 HTTPS rewrite 增量需要后续新 tag release 通过 GitHub Actions 后才会进入 GitHub Release asset。逐 alpha 能力边界以 [Alpha Release Feature Matrix](../alpha-release-feature-matrix.md) 为准。
+以及 explicit SOCKS5 CONNECT-level plugin reject/proof 诊断；current `main` 的 certificate lifecycle 还生成 TLS CA certificate PEM、private key PEM 和 dedicated profile CA PEM copy，已发布 artifact 仍以对应 tag 的 alpha matrix 为准。后续 TLS decryption、live traffic interception 和完整 HTTPS rewrite 增量需要后续新 tag release 通过 GitHub Actions 后才会进入 GitHub Release asset。逐 alpha 能力边界以 [Alpha Release Feature Matrix](../alpha-release-feature-matrix.md) 为准。
 
 本合同的目标是先把后续源码边界固定下来，避免浏览器劫持功能直接写入用户系统状态而缺少显式授权、
 快照、回滚和 CI governance。

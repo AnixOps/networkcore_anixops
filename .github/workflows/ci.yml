@@ -424,6 +424,10 @@ jobs:
           grep -q "profile_trust_file_path" apps/linux-cli/src/lib.rs
           grep -q "profile_trust_content" apps/linux-cli/src/lib.rs
           grep -q "profile_trust_fingerprint" apps/linux-cli/src/lib.rs
+          grep -q "rcgen" apps/linux-cli/Cargo.toml
+          grep -q "CLI_MITM_CERTIFICATE_MATERIAL_FAILED_CODE" apps/linux-cli/src/lib.rs
+          grep -q -- "-----BEGIN CERTIFICATE-----" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q -- "-----BEGIN PRIVATE KEY-----" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "MITM_BROWSER_CAPTURE_GATE" apps/linux-cli/src/lib.rs
           grep -q "MITM_BROWSER_PLAN_STATUS" apps/linux-cli/src/lib.rs
           grep -q "MITM_BROWSER_CAPTURE_MUTATION_READY" apps/linux-cli/src/lib.rs
@@ -438,6 +442,7 @@ jobs:
           grep -q "mitm_certificate_apply_with_store_writes_artifact_report" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_certificate_command_store_writes_and_rolls_back_artifacts" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_certificate_command_store_writes_and_rolls_back_profile_trust_artifact" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_certificate_apply_writes_tls_usable_ca_pem_without_trust_store_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_certificate_rollback_with_store_restores_artifact_report" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "certificate_lifecycle_entrypoint_routes_apply_and_rollback_to_artifact_store" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "certificate_lifecycle_json_output_contains_artifact_fields" apps/linux-cli/tests/linux_cli_contracts.rs
@@ -685,6 +690,10 @@ jobs:
           grep -q -- "--key-file" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
           grep -q -- "--profile-trust-file" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
           grep -q "profile_trust_file_path" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "CA certificate PEM" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "private key PEM" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "dedicated profile CA PEM copy" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "cli.linux.mitm.certificate.material.failed" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
           grep -q "cli.linux.mitm.certificate.apply.ready" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
           grep -q "cli.linux.mitm.certificate.apply.config_missing" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
           grep -q "cli.linux.mitm.certificate.artifact.write_failed" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
