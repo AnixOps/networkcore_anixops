@@ -899,7 +899,7 @@ jobs:
           $actualFiles = Get-ChildItem -Path $stagingDirPath -Recurse -File | ForEach-Object {
             $_.FullName.Substring($stagingDirPath.Length + 1).Replace('\', '/')
           } | Sort-Object
-          $expectedFiles = @("CHANGELOG.md", "INSTALL.md", "LICENSE", "bin/$env:BINARY.exe")
+          $expectedFiles = @("CHANGELOG.md", "INSTALL.md", "LICENSE", "bin/$env:BINARY.exe") | Sort-Object
           if (($actualFiles -join ',') -ne ($expectedFiles -join ',')) {
             throw "Unexpected Windows archive staging files: $($actualFiles -join ',')"
           }
