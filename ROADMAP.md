@@ -120,6 +120,12 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Ker
 
 第三方 plugin/parser/runtime 后续必须先经过 source contract、pinned source、license/NOTICE、permission、safe wrapper、CI governance 和 upgrade procedure 的固定接入流程。`networkcore-linux start` 仍不消费持久 subscription catalog。后续 runtime 缺口会在 P4 集成阶段继续推进：Trojan/VLESS/VMess URL parser gates、Clash YAML parser gate、sing-box JSON parser gate、Surge proxy line parser gate、Loon proxy line parser gate 和 Quantumult X proxy/server line parser gate 之后的 Hysteria 等订阅格式、VLESS/Trojan/VMess/Clash/sing-box JSON/Surge/Loon/Quantumult X runnable path、节点选择、持久订阅、managed status/events/logs/reload/rollback，以及通过 `MITM_CLI_COMMAND_GATE`、`MITM_CERTIFICATE_LIFECYCLE_GATE`、`MITM_HTTP_TLS_DATA_PLANE_GATE` 和 `MITM_BROWSER_CAPTURE_GATE` 补齐 MITM 真实流量支持。
 
+当前 main 已开始 `v0.1.2-alpha.1` persistent subscription catalog 的 source-only `add` 切片：
+`CommandSubscriptionCatalogStore::add_source` 使用显式 catalog/snapshot 路径写入 schema version 1 本地 JSON，
+生成写前 rollback snapshot，拒绝重复 source id，并输出 `location_kind`/`location_redacted` 脱敏报告；
+`list/remove/select/update`、默认路径、远程/file fetch、runtime startup 和 managed lifecycle 仍 blocked，
+功能完成状态以 GitHub Actions 合同测试为准。
+
 ## P4 Client And Platform Integration
 
 目标是在不破坏内核边界的前提下推进全平台客户端。
