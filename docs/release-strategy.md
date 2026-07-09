@@ -22,7 +22,7 @@ linux-artifact-publish-scope=tag-release-after-all-gates
 ```
 
 当前最新已发布 Linux artifact 是 `v0.1.0` 正式版 stable CLI 四件套；当前最新 prerelease tag release 是
-`v0.1.1-alpha.2`，它发布 Linux CLI 四件套和 Windows manual-extract CLI zip 四件套。`main` 分支下一步准备 `v0.1.1-alpha.3` 订阅格式扩展；Linux CLI
+`v0.1.1-alpha.2`，它发布 Linux CLI 四件套和 Windows manual-extract CLI zip 四件套。`main` 分支已开始 `v0.1.1-alpha.3` 订阅格式扩展，首个源增量是 `CoreSubscriptionService` Trojan URL parser gate，仍不启用 `run-url` Trojan 运行、节点选择、远程订阅拉取、文件订阅读取、默认路径扫描、daemon/service 或系统代理 mutation；Linux CLI
 `mitm http-rewrite preview --confirm --url https://... --phase request` 的合同测试固定 caller-provided
 HTTPS request preview 只能输出 preview/reject 边界，继续保持 `tls_decryption_ready=false`、
 `https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`；Windows path 已新增 `apps/windows-cli`、

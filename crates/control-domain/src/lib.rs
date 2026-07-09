@@ -96,6 +96,7 @@ pub type Metadata = Vec<MetadataEntry>;
 
 pub const NODE_METADATA_SHADOWSOCKS_METHOD: &str = "shadowsocks.method";
 pub const NODE_METADATA_SHADOWSOCKS_PASSWORD: &str = "shadowsocks.password";
+pub const NODE_METADATA_TROJAN_PASSWORD: &str = "trojan.password";
 pub const NODE_METADATA_SOURCE_FORMAT: &str = "subscription.source_format";
 
 /// Operating system capability target.

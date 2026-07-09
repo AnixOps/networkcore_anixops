@@ -38,7 +38,7 @@ The command must:
 ## Subscription Formats
 
 `CoreSubscriptionService` remains the source of truth for subscription parsing.
-It must support these alpha inputs:
+The `run-url` foreground path must support these runnable alpha inputs:
 
 - existing NetworkCore subscription TOML `nodes`/`routes`;
 - single `ss://` URL;
@@ -64,9 +64,16 @@ Malformed Shadowsocks URLs must fail with
 `subscription.core.shadowsocks_link_invalid`. Error messages must not echo raw
 subscription content or secrets.
 
-VLESS, VMess, Trojan, Hysteria, Clash YAML, sing-box JSON, Surge, Loon, and
-Quantumult X remain follow-up formats. They must still enter through
-`SubscriptionService` and `NodeCatalog`, not through platform-specific parsers.
+`v0.1.1-alpha.3` starts parser gates beyond the runnable `run-url` surface:
+`trojan://password@host:port?...#name` may be imported as `Protocol::Trojan`
+with `NODE_METADATA_TROJAN_PASSWORD` and `NODE_METADATA_SOURCE_FORMAT=trojan-url`
+inside `SubscriptionDocument`/`NodeCatalog`. This does not make `run-url`
+render or run Trojan through `sing-box`; the initial `engine-singbox` renderer
+remains Shadowsocks-only until a later run-preview slice.
+
+VLESS, VMess, Hysteria, Clash YAML, sing-box JSON, Surge, Loon, and Quantumult X
+remain follow-up formats. They must still enter through `SubscriptionService`
+and `NodeCatalog`, not through platform-specific parsers.
 
 ## sing-box Translation
 
@@ -136,7 +143,7 @@ Local machines must not run build, test, package, or release validation. GitHub
 Actions must verify:
 
 - `control-domain` metadata fields for per-protocol node parameters;
-- `config-core` parsing for `ss://`, plaintext link list, and base64 link list;
+- `config-core` parsing for `ss://`, `trojan://`, plaintext link list, and base64 link list;
 - `engine-singbox` deterministic local proxy config rendering;
 - `networkcore-linux run-url` parsing, response fields, config writing, and
   injected process runner behavior;

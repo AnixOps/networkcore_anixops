@@ -6,6 +6,7 @@
 
 ### Added
 
+- 开始 `v0.1.1-alpha.3` 订阅格式扩展：`CoreSubscriptionService` 新增 Trojan URL parser gate，可把 `trojan://password@host:port?...#name` 归一化为 `Protocol::Trojan` 的 `SubscriptionDocument`/`NodeCatalog` 节点，并新增合同测试固定 password/source-format metadata。该增量不启用 `run-url` Trojan 运行、节点选择、远程订阅拉取、文件订阅读取、默认路径扫描、daemon/service 或系统代理 mutation。
 - 同步 `v0.1.1-alpha.2` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix 和 CI policy 现在把 `v0.1.1-alpha.2` 记录为最新 prerelease/tag release，并把下一步推进到 `v0.1.1-alpha.3` 订阅格式扩展；`v0.1.1-alpha.2` 发布 Linux CLI 四件套和 Windows manual-extract CLI zip 四件套，仍不启用 Windows service、driver、installer、system proxy mutation、system trust store mutation、JavaScript script dispatch 或 managed lifecycle。
 
 ## v0.1.1-alpha.2 - 2026-07-10

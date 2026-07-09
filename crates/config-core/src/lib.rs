@@ -12,6 +12,7 @@ use control_domain::{
     Protocol, RawSubscription, RouteAction, RuleSet, SchemaVersion, SubscriptionDocument,
     SubscriptionService, SubscriptionSource, NODE_METADATA_SHADOWSOCKS_METHOD,
     NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SOURCE_FORMAT,
+    NODE_METADATA_TROJAN_PASSWORD,
 };
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -51,6 +52,7 @@ pub const SUBSCRIPTION_PARSE_FAILED_CODE: &str = "subscription.core.parse_failed
 pub const SUBSCRIPTION_LINK_UNSUPPORTED_CODE: &str = "subscription.core.link_unsupported";
 pub const SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE: &str =
     "subscription.core.shadowsocks_link_invalid";
+pub const SUBSCRIPTION_TROJAN_LINK_INVALID_CODE: &str = "subscription.core.trojan_link_invalid";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CoreConfigurationService;
@@ -482,14 +484,16 @@ fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<Subscr
             continue;
         }
 
-        if !line.starts_with("ss://") {
+        let mut node = if line.starts_with("ss://") {
+            parse_shadowsocks_link(line)?
+        } else if line.starts_with("trojan://") {
+            parse_trojan_link(line)?
+        } else {
             return Err(domain_error(
                 SUBSCRIPTION_LINK_UNSUPPORTED_CODE,
-                "only ss:// proxy links are supported in this alpha subscription parser",
+                "only ss:// and trojan:// proxy links are supported in this alpha subscription parser",
             ));
-        }
-
-        let mut node = parse_shadowsocks_link(line)?;
+        };
         if !seen_ids.insert(node.id.clone()) {
             let base_id = node.id.clone();
             let mut suffix = seen_ids.len() + 1;
@@ -569,7 +573,11 @@ fn parse_shadowsocks_link(link: &str) -> DomainResult<NodeDescriptor> {
         SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
         "shadowsocks password cannot be empty",
     )?;
-    let (host, port) = parse_host_port(host_port)?;
+    let (host, port) = parse_host_port_for(
+        host_port,
+        SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
+        "shadowsocks",
+    )?;
     let host_id = sanitize_identifier(&host);
     let host_id = if host_id.is_empty() {
         "host".to_string()
@@ -602,45 +610,103 @@ fn parse_shadowsocks_link(link: &str) -> DomainResult<NodeDescriptor> {
     })
 }
 
-fn parse_host_port(value: &str) -> DomainResult<(String, u16)> {
+fn parse_trojan_link(link: &str) -> DomainResult<NodeDescriptor> {
+    let payload = link.strip_prefix("trojan://").ok_or_else(|| {
+        domain_error(
+            SUBSCRIPTION_TROJAN_LINK_INVALID_CODE,
+            "trojan link must start with trojan://",
+        )
+    })?;
+    let (without_fragment, fragment) = split_once_optional(payload, '#');
+    let name = fragment
+        .and_then(|fragment| percent_decode(fragment).ok())
+        .filter(|name| !name.trim().is_empty());
+    let (main_without_query, _) = split_once_optional(without_fragment, '?');
+    let (password, host_port) = main_without_query.rsplit_once('@').ok_or_else(|| {
+        domain_error(
+            SUBSCRIPTION_TROJAN_LINK_INVALID_CODE,
+            "trojan link must contain password and endpoint",
+        )
+    })?;
+    let password = percent_decode(password).unwrap_or_else(|_| password.to_string());
+    let password = required_trimmed(
+        password,
+        SUBSCRIPTION_TROJAN_LINK_INVALID_CODE,
+        "trojan password cannot be empty",
+    )?;
+    let (host, port) =
+        parse_host_port_for(host_port, SUBSCRIPTION_TROJAN_LINK_INVALID_CODE, "trojan")?;
+    let host_id = sanitize_identifier(&host);
+    let host_id = if host_id.is_empty() {
+        "host".to_string()
+    } else {
+        host_id
+    };
+    let id = format!("trojan-{}-{port}", host_id);
+    let name = name.unwrap_or_else(|| id.clone());
+
+    Ok(NodeDescriptor {
+        id,
+        name,
+        protocol: Protocol::Trojan,
+        endpoint: Endpoint { host, port },
+        tags: vec!["subscription".to_string(), "trojan".to_string()],
+        metadata: vec![
+            MetadataEntry {
+                key: NODE_METADATA_TROJAN_PASSWORD.to_string(),
+                value: password,
+            },
+            MetadataEntry {
+                key: NODE_METADATA_SOURCE_FORMAT.to_string(),
+                value: "trojan-url".to_string(),
+            },
+        ],
+    })
+}
+
+fn parse_host_port_for(
+    value: &str,
+    error_code: &'static str,
+    protocol_name: &'static str,
+) -> DomainResult<(String, u16)> {
     let (host, port) = if let Some(rest) = value.strip_prefix('[') {
         let (host, rest) = rest.split_once(']').ok_or_else(|| {
             domain_error(
-                SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
-                "IPv6 shadowsocks endpoint must close with ]",
+                error_code,
+                format!("IPv6 {protocol_name} endpoint must close with ]"),
             )
         })?;
         let port = rest.strip_prefix(':').ok_or_else(|| {
             domain_error(
-                SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
-                "shadowsocks endpoint must contain a port",
+                error_code,
+                format!("{protocol_name} endpoint must contain a port"),
             )
         })?;
         (host.to_string(), port)
     } else {
         let (host, port) = value.rsplit_once(':').ok_or_else(|| {
             domain_error(
-                SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
-                "shadowsocks endpoint must contain host and port",
+                error_code,
+                format!("{protocol_name} endpoint must contain host and port"),
             )
         })?;
         (host.to_string(), port)
     };
     let host = required_trimmed(
         host,
-        SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
-        "shadowsocks host cannot be empty",
+        error_code,
+        format!("{protocol_name} host cannot be empty"),
     )?;
     let port = port.parse::<i64>().map_err(|_| {
         domain_error(
-            SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
-            "shadowsocks port must be a number",
+            error_code,
+            format!("{protocol_name} port must be a number"),
         )
     })?;
     let port = parse_port(
         port,
-        SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
-        "shadowsocks port must be between 1 and 65535",
+        error_code,
+        format!("{protocol_name} port must be between 1 and 65535"),
     )?;
 
     Ok((host, port))
@@ -790,7 +856,7 @@ fn collect_metadata(metadata: Option<BTreeMap<String, String>>) -> Metadata {
         .collect()
 }
 
-fn parse_port(value: i64, code: &'static str, message: &'static str) -> DomainResult<u16> {
+fn parse_port(value: i64, code: &'static str, message: impl Into<String>) -> DomainResult<u16> {
     if !(1..=(u16::MAX as i64)).contains(&value) {
         return Err(domain_error(code, message));
     }
@@ -801,7 +867,7 @@ fn parse_port(value: i64, code: &'static str, message: &'static str) -> DomainRe
 fn required_trimmed(
     value: String,
     code: &'static str,
-    message: &'static str,
+    message: impl Into<String>,
 ) -> DomainResult<String> {
     let value = value.trim().to_string();
     if value.is_empty() {
