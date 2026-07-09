@@ -4,6 +4,16 @@
 
 ## Unreleased
 
+### Added
+
+- 暂无。
+
+## v0.1.0-alpha.11 - 2026-07-09
+
+### Added
+
+- 新增 Linux MITM certificate artifact lifecycle foundation：`networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> --snapshot <path>` 可写入调用方显式指定的 NetworkCore certificate/private-key artifact 和 rollback snapshot；`mitm certificate rollback --snapshot <path>` 会在 snapshot fingerprint 仍匹配时删除 NetworkCore 管理的 artifact。新增 `certificate_lifecycle` JSON report、trust-plan blocked operations、`LinuxMitmCertificate*` request/report/outcome 类型、`MitmCertificateArtifactStore`/`CommandMitmCertificateArtifactStore`、诊断 code 和 [Linux MITM Certificate Lifecycle Source Contract](docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md)。本增量只推进 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/trust-mutation-blocked`，不执行 `update-ca-certificates`、NSS DB、p11-kit、Firefox trust store 或发行版 trust command，不解密 HTTPS，也不应用 HTTP/TLS rewrite。
+
 ## v0.1.0-alpha.10 - 2026-07-09
 
 ### Added

@@ -6,7 +6,7 @@ Accepted.
 
 ## Context
 
-`networkcore-linux v0.1.0-alpha.10` is the latest published Linux CLI artifact
+`networkcore-linux v0.1.0-alpha.11` is the latest published Linux CLI artifact
 at the time of this ADR status refresh. The release path proves that the
 repository can publish a Linux CLI artifact through GitHub Actions. It does not
 provide native support for VLESS, Shadowsocks,

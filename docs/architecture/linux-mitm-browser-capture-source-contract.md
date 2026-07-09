@@ -23,12 +23,12 @@ safe snapshot, and rollback.
 `mitm_status.browser_plan`、`browser_capture` 机器字段、脱敏 session-plan、显式授权的本地代理端点 verify、proof-log-token traffic proof，以及 NetworkCore-owned PAC/browser policy artifact apply/rollback；current `main` 还会在 `session-plan`/`launch --confirm` 中生成 `proof_target_url`、`networkcore_proof_token` 和 `traffic_proof_command`，并允许 `traffic-proof --confirm [--target-url <url>]` 在 proof token/log 省略时复用同一默认 proof 绑定，把 dedicated 浏览器打开页面与后续 proof log 检查串起来；默认 proof token 使用 CONNECT endpoint 和 proxy URL 派生，以便与 native SOCKS5 CONNECT 层可见信息对齐；`session-plan`、`launch`、`apply`、`verify` 和 `traffic-proof` 支持显式 `--proxy-scheme http|socks5`，其中 `socks5` 会生成 `socks5://127.0.0.1:7890` browser/PAC/policy/verify/proof 计划，用于让授权的 dedicated 浏览器会话走到 native SOCKS5 CONNECT MITM hook；`apply --confirm` 还可在调用方显式传入 `--profile-prefs-file <path>` 时写入并回滚 Firefox dedicated profile `user.js` 代理 prefs；`networkcore-linux start` 还能在 explicit SOCKS5 CONNECT 层应用内置 MITM 插件 `Reject` 为 CONNECT failure，并输出 `engine.native.runtime.http_mitm_connect_browser_proof_observed` 诊断记录默认 proof token、CONNECT target 和本地 socks5 proxy URL。但还没有用户可启用的完整 live browser capture，
 也没有系统级浏览器/系统代理写入、系统 PAC 安装、TUN/DNS/firewall mutation、CA lifecycle、HTTPS 解密或 HTTP/TLS request/response rewrite data plane。
 
-发布边界：当前最新用户可下载 Linux artifact 是 `v0.1.0-alpha.10`；本文描述 current `main`
-源码合同。`v0.1.0-alpha.10` 已覆盖 `verify --confirm`、`verify --confirm --target-url <url>`、`session-plan`、`--target-url`、
+发布边界：当前最新用户可下载 Linux artifact 是 `v0.1.0-alpha.11`；本文描述 current `main`
+源码合同。`v0.1.0-alpha.11` 已覆盖 `verify --confirm`、`verify --confirm --target-url <url>`、`session-plan`、`--target-url`、
 `traffic-proof --confirm [--target-url <url>] [--proof-token <token>] [--proof-log <path>]` proof-log-token 验证入口、
 `session-plan`/`launch --confirm` proof URL/default proof 绑定、`--proxy-scheme socks5` native plugin proxy mode、
 `apply --confirm --pac-file <path> [--policy-file <path>] [--profile-prefs-file <path>] --snapshot <path>` / `rollback --snapshot <path>` PAC/browser policy artifact 与 Firefox dedicated profile prefs apply/rollback，
-以及 explicit SOCKS5 CONNECT-level plugin reject/proof 诊断；后续 main 增量需要后续新 tag release 通过 GitHub Actions
+以及 explicit SOCKS5 CONNECT-level plugin reject/proof 诊断；同一 artifact 还包含 Linux certificate artifact lifecycle。后续 HTTP/TLS rewrite 增量需要后续新 tag release 通过 GitHub Actions
 后才会进入 GitHub Release asset。逐 alpha 能力边界以 [Alpha Release Feature Matrix](../alpha-release-feature-matrix.md) 为准。
 
 本合同的目标是先把后续源码边界固定下来，避免浏览器劫持功能直接写入用户系统状态而缺少显式授权、

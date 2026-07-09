@@ -74,6 +74,17 @@ fn main() {
                 }
             } else if matches!(
                 &command,
+                networkcore_linux::LinuxCliCommand::MitmCertificateApply { .. }
+                    | networkcore_linux::LinuxCliCommand::MitmCertificateRollback { .. }
+            ) {
+                let certificate_store = networkcore_linux::CommandMitmCertificateArtifactStore::new();
+                networkcore_linux::handle_entrypoint_with_certificate_lifecycle_io(
+                    command,
+                    &platform,
+                    &certificate_store,
+                )
+            } else if matches!(
+                &command,
                 networkcore_linux::LinuxCliCommand::MitmBrowserCaptureLaunch { .. }
                     | networkcore_linux::LinuxCliCommand::MitmBrowserCaptureVerify { .. }
                     | networkcore_linux::LinuxCliCommand::MitmBrowserCaptureTrafficProof { .. }

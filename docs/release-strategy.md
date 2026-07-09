@@ -21,7 +21,7 @@ linux-artifact-license-notice-status=confirmed
 linux-artifact-publish-scope=tag-release-after-all-gates
 ```
 
-当前最新已发布 Linux artifact 是 `v0.1.0-alpha.10`。`main` 分支在该 tag 之后可能包含更多
+当前最新已发布 Linux artifact 是 `v0.1.0-alpha.11`。`main` 分支在该 tag 之后可能包含更多
 P4 源码增量；这些增量只有在后续新 tag release 完整通过 GitHub Actions 的 CI、package、
 attestation、publish eligibility 和 publish jobs 后，才会进入用户可下载的 GitHub Release asset。
 逐版本 alpha 功能、边界和规划切片记录在 [Alpha Release Feature Matrix](alpha-release-feature-matrix.md)。

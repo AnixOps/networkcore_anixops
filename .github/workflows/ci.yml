@@ -101,6 +101,7 @@ jobs:
             docs/architecture/linux-cli-artifact-installation-rollback.md
             docs/architecture/linux-cli-entrypoint.md
             docs/architecture/linux-mitm-browser-capture-source-contract.md
+            docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
             docs/architecture/linux-cli-runtime-wiring.md
             docs/architecture/linux-native-proxy-engine-start.md
             docs/architecture/linux-package-archive-staging-contract.md
@@ -164,7 +165,7 @@ jobs:
           grep -q "P4 backlog buckets" docs/ci-cd-policy.md
           grep -q "当前 main 源码状态" README.md
           grep -q "注意区分 release 与 main 源码" TODO.md
-          grep -Fq '当前最新已发布 Linux artifact 是 `v0.1.0-alpha.10`' docs/release-strategy.md
+          grep -Fq '当前最新已发布 Linux artifact 是 `v0.1.0-alpha.11`' docs/release-strategy.md
           grep -Fq "Alpha Release Feature Matrix" docs/ci-cd-policy.md
           grep -Fq "# Alpha Release Feature Matrix" docs/alpha-release-feature-matrix.md
           grep -Fq "v0.1.0-alpha.1" docs/alpha-release-feature-matrix.md
@@ -340,12 +341,24 @@ jobs:
           grep -q "handle_mitm_browser_capture_rollback" apps/linux-cli/src/lib.rs
           grep -q "handle_mitm_browser_capture_verify" apps/linux-cli/src/lib.rs
           grep -q "handle_mitm_browser_capture_traffic_proof" apps/linux-cli/src/lib.rs
+          grep -q "handle_mitm_certificate_apply" apps/linux-cli/src/lib.rs
+          grep -q "handle_mitm_certificate_rollback" apps/linux-cli/src/lib.rs
+          grep -q "handle_entrypoint_with_certificate_lifecycle_io" apps/linux-cli/src/lib.rs
           grep -q "handle_entrypoint_with_browser_capture_all_io" apps/linux-cli/src/lib.rs
+          grep -q "CommandMitmCertificateArtifactStore" apps/linux-cli/src/main.rs
           grep -q "CommandBrowserCaptureTrafficProofProbe" apps/linux-cli/src/main.rs
           grep -q "CommandBrowserCapturePacFileStore" apps/linux-cli/src/main.rs
           grep -q "CLI_MITM_POLICY_READY_CODE" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_CERTIFICATE_PLAN_READY_CODE" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_CERTIFICATE_AUTHORIZATION_REQUIRED_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_CERTIFICATE_APPLY_READY_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_CERTIFICATE_APPLY_CONFIG_MISSING_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_CERTIFICATE_SNAPSHOT_WRITE_FAILED_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_CERTIFICATE_SNAPSHOT_READ_FAILED_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_CERTIFICATE_ROLLBACK_READY_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_MITM_CERTIFICATE_ROLLBACK_FAILED_CODE" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_BROWSER_PLAN_READY_CODE" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_BROWSER_CAPTURE_LAUNCH_PLAN_READY_CODE" apps/linux-cli/src/lib.rs
@@ -382,6 +395,10 @@ jobs:
           grep -q "CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE" apps/linux-cli/src/lib.rs
           grep -q "MITM_CERTIFICATE_PLAN_STATUS" apps/linux-cli/src/lib.rs
           grep -q "MITM_CERTIFICATE_MUTATION_READY" apps/linux-cli/src/lib.rs
+          grep -q "MITM_CERTIFICATE_LIFECYCLE_SOURCE_CONTRACT_STATUS" apps/linux-cli/src/lib.rs
+          grep -q "certificate_lifecycle" apps/linux-cli/src/lib.rs
+          grep -q -- "--cert-file" apps/linux-cli/src/lib.rs
+          grep -q -- "--key-file" apps/linux-cli/src/lib.rs
           grep -q "MITM_BROWSER_CAPTURE_GATE" apps/linux-cli/src/lib.rs
           grep -q "MITM_BROWSER_PLAN_STATUS" apps/linux-cli/src/lib.rs
           grep -q "MITM_BROWSER_CAPTURE_MUTATION_READY" apps/linux-cli/src/lib.rs
@@ -391,7 +408,13 @@ jobs:
           grep -q "proxy_scheme" apps/linux-cli/src/lib.rs
           grep -q -- "--proxy-scheme" apps/linux-cli/src/lib.rs
           grep -q "parses_mitm_status_and_diagnostics_commands" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "mitm_certificate_plan_reports_plan_only_lifecycle_without_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_certificate_plan_reports_artifact_lifecycle_without_trust_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_certificate_apply_requires_authorization_and_config" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_certificate_apply_with_store_writes_artifact_report" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_certificate_command_store_writes_and_rolls_back_artifacts" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_certificate_rollback_with_store_restores_artifact_report" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "certificate_lifecycle_entrypoint_routes_apply_and_rollback_to_artifact_store" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "certificate_lifecycle_json_output_contains_artifact_fields" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_browser_plan_reports_capture_plan_without_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_browser_capture_launch_plan_outputs_manual_browser_commands_without_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_browser_capture_session_plan_links_proxy_browser_and_plugin_without_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
@@ -445,8 +468,9 @@ jobs:
           grep -q "mitm-cli-command-gate-status=partial-active" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "mitm-cli-command-gate-status=partial-active" docs/architecture/linux-cli-entrypoint.md
           grep -q "MITM_CLI_COMMAND_GATE.*partial-active" docs/ci-cd-policy.md
-          grep -q "MITM_CERTIFICATE_LIFECYCLE_GATE.*plan-only" docs/ci-cd-policy.md
+          grep -q "MITM_CERTIFICATE_LIFECYCLE_GATE.*artifact-lifecycle-active/trust-mutation-blocked" docs/ci-cd-policy.md
           grep -q "MITM_BROWSER_CAPTURE_GATE.*pac-policy-profile-prefs-active/system-mutation-blocked" docs/ci-cd-policy.md
+          grep -q "Linux MITM certificate lifecycle source contract" docs/ci-cd-policy.md
           grep -q "Linux MITM browser capture source contract" docs/ci-cd-policy.md
           grep -q "certificate-plan" README.md
           grep -q "certificate-plan" apps/linux-cli/README.md
@@ -604,6 +628,29 @@ jobs:
           grep -q "profile_prefs_file_path" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "proxy_scheme" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "traffic_proof_command" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "Linux MITM Certificate Lifecycle Source Contract" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/trust-mutation-blocked" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "LinuxMitmCertificateLifecycleReport" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "LinuxMitmCertificateArtifactRequest" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "LinuxMitmCertificateTrustPlan" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "MitmCertificateArtifactStore" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "CommandMitmCertificateArtifactStore" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "MitmCertificateAuthorization" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "MitmCertificateRollbackSnapshot" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "handle_mitm_certificate_apply" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "handle_mitm_certificate_rollback" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "handle_entrypoint_with_certificate_lifecycle_io" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "certificate_lifecycle" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q -- "--cert-file" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q -- "--key-file" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "cli.linux.mitm.certificate.apply.ready" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "cli.linux.mitm.certificate.apply.config_missing" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "cli.linux.mitm.certificate.artifact.write_failed" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "cli.linux.mitm.certificate.snapshot.write_failed" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "cli.linux.mitm.certificate.snapshot.read_failed" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "cli.linux.mitm.certificate.rollback.ready" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "cli.linux.mitm.certificate.rollback.failed" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
+          grep -q "update-ca-certificates" docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
           grep -q "BrowserCaptureProcessRunner" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureEndpointProbe" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureTrafficProofProbe" docs/architecture/linux-mitm-browser-capture-source-contract.md
@@ -644,6 +691,13 @@ jobs:
           grep -q "cli.linux.mitm.browser_capture.traffic_proof.log_unreadable" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "cli.linux.mitm.browser_capture.traffic_proof.blocked" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "handle_mitm_browser_capture_traffic_proof" docs/architecture/linux-mitm-browser-capture-source-contract.md
+          grep -q "linux-mitm-certificate-lifecycle-source-contract.md" README.md
+          grep -q "linux-mitm-certificate-lifecycle-source-contract.md" ROADMAP.md
+          grep -q "linux-mitm-certificate-lifecycle-source-contract.md" TODO.md
+          grep -q "linux-mitm-certificate-lifecycle-source-contract.md" apps/linux-cli/README.md
+          grep -q "linux-mitm-certificate-lifecycle-source-contract.md" crates/mitm-policy/README.md
+          grep -q "linux-mitm-certificate-lifecycle-source-contract.md" docs/architecture/mitm-anixops-adapter.md
+          grep -q "linux-mitm-certificate-lifecycle-source-contract.md" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
           grep -q "linux-mitm-browser-capture-source-contract.md" README.md
           grep -q "linux-mitm-browser-capture-source-contract.md" ROADMAP.md
           grep -q "linux-mitm-browser-capture-source-contract.md" TODO.md

@@ -73,14 +73,15 @@ loads that built-in plugin into `engine-native` through
 before outbound selection. This blocks the CONNECT tunnel, but it is not HTTPS
 decryption and does not apply redirect/header/body/script rewrite plans.
 
-Release/source split: `v0.1.0-alpha.10` is the latest published Linux artifact,
+Release/source split: `v0.1.0-alpha.11` is the latest published Linux artifact,
 while this README describes current `main` source. That artifact includes
 `verify --confirm`, `verify --confirm --target-url <url>`, `session-plan`,
 browser capture `--target-url`, `traffic-proof`, PAC/browser policy artifact
-apply/rollback, native SOCKS5 CONNECT plugin reject, and the
-`--proxy-scheme socks5` native plugin proxy mode. Later MITM CLI increments
-after this tag require a later tag release before users can download them from
-GitHub Releases. The full alpha
+apply/rollback, native SOCKS5 CONNECT plugin reject, the
+`--proxy-scheme socks5` native plugin proxy mode, and `mitm certificate
+apply/rollback` certificate artifact lifecycle. Later HTTP/TLS rewrite
+increments after this tag require a later tag release before users can download
+them from GitHub Releases. The full alpha
 feature and boundary index is `docs/alpha-release-feature-matrix.md`.
 
 Required gates before user-facing MITM:
@@ -88,9 +89,14 @@ Required gates before user-facing MITM:
 - `MITM_CLI_COMMAND_GATE`: partially active for status, diagnostics,
   certificate-plan, browser-plan, browser-capture session plan, launch report, and
   browser-capture blocked reports only.
-- `MITM_CERTIFICATE_LIFECYCLE_GATE`: currently plan-only through
-  `mitm_status.certificate_plan`; later increments must implement CA
-  generation, install, trust detection, revocation, and rollback boundaries.
+- `MITM_CERTIFICATE_LIFECYCLE_GATE`: currently artifact-lifecycle-active/trust-mutation-blocked through
+  `mitm_status.certificate_plan` and Linux CLI `certificate_lifecycle`
+  apply/rollback reports. `mitm certificate apply --confirm --cert-file
+  <path> --key-file <path> --snapshot <path>` writes only NetworkCore-owned
+  certificate/private-key artifacts and rollback snapshot; later increments
+  must implement CA install, trust detection, revocation, and trust-store
+  rollback boundaries. The Linux boundary is documented in
+  `docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md`.
 - `MITM_BROWSER_CAPTURE_GATE`: currently pac-policy-profile-prefs-active/system-mutation-blocked through
   `mitm_status.browser_plan`, `browser_capture`, manual launch-plan output,
   redacted session-plan output, optional target URL, explicit dedicated-profile

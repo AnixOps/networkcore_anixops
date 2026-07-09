@@ -20,8 +20,8 @@ use engine_singbox::{
 use networkcore_linux::{
     cli_help_text, handle_capabilities, handle_entrypoint,
     handle_entrypoint_with_browser_capture_all_io, handle_entrypoint_with_browser_capture_io,
-    handle_entrypoint_with_browser_capture_runner, handle_entrypoint_with_runtime,
-    handle_entrypoint_with_runtime_and_lifecycle,
+    handle_entrypoint_with_browser_capture_runner, handle_entrypoint_with_certificate_lifecycle_io,
+    handle_entrypoint_with_runtime, handle_entrypoint_with_runtime_and_lifecycle,
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
     handle_foreground_lifecycle_with_runtime_stop, handle_install_sing_box,
     handle_mitm_browser_capture_apply, handle_mitm_browser_capture_apply_with_store,
@@ -35,19 +35,24 @@ use networkcore_linux::{
     handle_mitm_browser_capture_traffic_proof,
     handle_mitm_browser_capture_traffic_proof_with_probe, handle_mitm_browser_capture_verify,
     handle_mitm_browser_capture_verify_with_probe, handle_mitm_browser_plan,
-    handle_mitm_certificate_plan, handle_mitm_status, handle_parse_error, handle_prepare_config,
-    handle_run_url_with_sing_box, handle_start, handle_status, handle_stop,
+    handle_mitm_certificate_apply, handle_mitm_certificate_apply_with_store,
+    handle_mitm_certificate_plan, handle_mitm_certificate_rollback,
+    handle_mitm_certificate_rollback_with_store, handle_mitm_status, handle_parse_error,
+    handle_prepare_config, handle_run_url_with_sing_box, handle_start, handle_status, handle_stop,
     native_proxy_engine_service_with_builtin_mitm_plugin, parse_args, render_response,
     BrowserCaptureEndpointProbe, BrowserCapturePacFileStore, BrowserCaptureProcessRunner,
     BrowserCaptureTrafficProofProbe, CommandBrowserCaptureEndpointProbe, ConfigReadError,
     ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
-    ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
-    LinuxBrowserCaptureLaunchRequest, LinuxBrowserCapturePacApplyOutcome,
-    LinuxBrowserCapturePacRequest, LinuxBrowserCapturePacRollbackOutcome,
-    LinuxBrowserCaptureTrafficProofOutcome, LinuxBrowserCaptureTrafficProofRequest,
-    LinuxBrowserCaptureVerifyOutcome, LinuxBrowserCaptureVerifyRequest, LinuxCliCommand,
-    LinuxCliExitCode, OutputFormat, UnavailableForegroundLifecycleHost,
+    ForegroundLifecycleOutcome, ForegroundLifecycleRequest,
+    LinuxBrowserCaptureLaunchOutcome, LinuxBrowserCaptureLaunchRequest,
+    LinuxBrowserCapturePacApplyOutcome, LinuxBrowserCapturePacRequest,
+    LinuxBrowserCapturePacRollbackOutcome, LinuxBrowserCaptureTrafficProofOutcome,
+    LinuxBrowserCaptureTrafficProofRequest, LinuxBrowserCaptureVerifyOutcome,
+    LinuxBrowserCaptureVerifyRequest, LinuxCliCommand, LinuxCliExitCode,
+    LinuxMitmCertificateArtifactApplyOutcome, LinuxMitmCertificateArtifactRequest,
+    LinuxMitmCertificateArtifactRollbackOutcome, MitmCertificateArtifactStore,
+    MitmCertificateRollbackSnapshot, OutputFormat, UnavailableForegroundLifecycleHost,
     UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
     CLI_CONFIG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
@@ -67,8 +72,11 @@ use networkcore_linux::{
     CLI_MITM_BROWSER_CAPTURE_VERIFY_PROXY_UNREACHABLE_CODE,
     CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_INVALID_CODE,
     CLI_MITM_BROWSER_CAPTURE_VERIFY_TARGET_REACHABLE_CODE, CLI_MITM_BROWSER_HIJACK_DEFERRED_CODE,
-    CLI_MITM_BROWSER_PLAN_READY_CODE, CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE,
+    CLI_MITM_BROWSER_PLAN_READY_CODE, CLI_MITM_CERTIFICATE_APPLY_CONFIG_MISSING_CODE,
+    CLI_MITM_CERTIFICATE_APPLY_READY_CODE,
+    CLI_MITM_CERTIFICATE_AUTHORIZATION_REQUIRED_CODE, CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE,
     CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE, CLI_MITM_CERTIFICATE_PLAN_READY_CODE,
+    CLI_MITM_CERTIFICATE_ROLLBACK_BLOCKED_CODE, CLI_MITM_CERTIFICATE_ROLLBACK_READY_CODE,
     CLI_MITM_CLI_GATE_PARTIAL_CODE, CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE,
     CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE, CLI_START_FOREGROUND_ONLY_CODE,
     CLI_START_LIFECYCLE_FAILED_CODE, CLI_START_LIFECYCLE_HOST_MISSING_CODE,
@@ -81,8 +89,9 @@ use networkcore_linux::{
     MITM_BROWSER_CAPTURE_MUTATION_READY, MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME,
     MITM_BROWSER_CAPTURE_PROOF_QUERY_PARAM, MITM_BROWSER_CAPTURE_PROXY_HOST,
     MITM_BROWSER_CAPTURE_PROXY_PORT, MITM_BROWSER_CAPTURE_SOURCE_CONTRACT_STATUS,
-    MITM_BROWSER_HIJACK_STATUS, MITM_BROWSER_PLAN_STATUS, MITM_CERTIFICATE_LIFECYCLE_GATE,
-    MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS, MITM_CERTIFICATE_MUTATION_READY,
+    MITM_BROWSER_HIJACK_STATUS, MITM_BROWSER_PLAN_STATUS, MITM_CERTIFICATE_ARTIFACT_SUBJECT,
+    MITM_CERTIFICATE_LIFECYCLE_GATE, MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS,
+    MITM_CERTIFICATE_LIFECYCLE_SOURCE_CONTRACT_STATUS, MITM_CERTIFICATE_MUTATION_READY,
     MITM_CERTIFICATE_PLAN_STATUS, MITM_CLI_COMMAND_GATE, MITM_CLI_COMMAND_GATE_STATUS,
     MITM_HTTP_TLS_DATA_PLANE_GATE, MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS, MITM_USER_FACING_STAGE,
 };
@@ -138,6 +147,9 @@ fn parses_help_command_and_renders_command_table() {
     assert!(rendered.contains("install-sing-box"));
     assert!(rendered.contains("run-url"));
     assert!(rendered.contains("mitm [status|diagnostics|certificate-plan|browser-plan]"));
+    assert!(rendered.contains("mitm certificate [plan|apply|rollback]"));
+    assert!(rendered.contains("--cert-file <path>"));
+    assert!(rendered.contains("--key-file <path>"));
     assert!(rendered.contains(
         "mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify|traffic-proof]"
     ));
@@ -166,6 +178,29 @@ fn parses_mitm_status_and_diagnostics_commands() {
         .expect("mitm certificate plan should parse");
     let cert_plan_alias =
         parse_args(["mitm", "cert-plan"]).expect("mitm cert-plan alias should parse");
+    let certificate_apply = parse_args([
+        "mitm",
+        "certificate",
+        "apply",
+        "--confirm",
+        "--cert-file",
+        "/tmp/networkcore-mitm-ca.crt",
+        "--key-file",
+        "/tmp/networkcore-mitm-ca.key",
+        "--snapshot",
+        "/tmp/networkcore-mitm-ca.snapshot.json",
+        "--format",
+        "json",
+    ])
+    .expect("mitm certificate apply should parse");
+    let certificate_rollback = parse_args([
+        "mitm",
+        "certificate",
+        "rollback",
+        "--snapshot",
+        "/tmp/networkcore-mitm-ca.snapshot.json",
+    ])
+    .expect("mitm certificate rollback should parse");
     let browser_plan = parse_args(["mitm", "browser-plan", "--format", "json"])
         .expect("mitm browser plan should parse");
     let browser_capture_plan_alias = parse_args(["mitm", "browser-capture-plan"])
@@ -326,6 +361,23 @@ fn parses_mitm_status_and_diagnostics_commands() {
     assert_eq!(
         cert_plan_alias,
         LinuxCliCommand::MitmCertificatePlan {
+            format: OutputFormat::Text
+        }
+    );
+    assert_eq!(
+        certificate_apply,
+        LinuxCliCommand::MitmCertificateApply {
+            cert_file_path: Some("/tmp/networkcore-mitm-ca.crt".to_string()),
+            key_file_path: Some("/tmp/networkcore-mitm-ca.key".to_string()),
+            snapshot_path: Some("/tmp/networkcore-mitm-ca.snapshot.json".to_string()),
+            confirm: true,
+            format: OutputFormat::Json
+        }
+    );
+    assert_eq!(
+        certificate_rollback,
+        LinuxCliCommand::MitmCertificateRollback {
+            snapshot_path: Some("/tmp/networkcore-mitm-ca.snapshot.json".to_string()),
             format: OutputFormat::Text
         }
     );
@@ -700,7 +752,12 @@ fn mitm_status_loads_builtin_policy_and_reports_deferred_gates() {
         .certificate_plan
         .required_steps
         .iter()
-        .any(|step| step.id == "generate-local-ca" && step.status == "blocked"));
+        .any(|step| step.id == "write-local-ca-artifact" && step.status == "active"));
+    assert!(mitm
+        .certificate_plan
+        .required_steps
+        .iter()
+        .any(|step| step.id == "rollback-ca-artifact" && step.status == "active"));
     assert!(mitm
         .certificate_plan
         .blocked_operations
@@ -765,15 +822,15 @@ fn mitm_status_loads_builtin_policy_and_reports_deferred_gates() {
     let rendered = render_response(&response, OutputFormat::Text);
     assert!(rendered.contains("mitm stage: policy-only"));
     assert!(rendered.contains("browser hijack: deferred"));
-    assert!(rendered.contains("certificate plan: plan-only mutation_ready=false"));
-    assert!(rendered.contains("certificate step generate-local-ca: blocked"));
+    assert!(rendered.contains("certificate plan: artifact-lifecycle-active mutation_ready=false"));
+    assert!(rendered.contains("certificate step write-local-ca-artifact: active"));
     assert!(rendered.contains("browser plan: plan-only mutation_ready=false"));
     assert!(rendered.contains("browser step configure-browser-explicit-proxy: blocked"));
     assert!(rendered.contains("gate MITM_CLI_COMMAND_GATE: partial-active"));
 }
 
 #[test]
-fn mitm_certificate_plan_reports_plan_only_lifecycle_without_mutation() {
+fn mitm_certificate_plan_reports_artifact_lifecycle_without_trust_mutation() {
     let platform = StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot {
         mitm_certificate: LinuxCertificateProbe::new(CertificateTrustState::InstalledUntrusted)
             .with_subject("NetworkCore Test CA")
@@ -817,6 +874,11 @@ fn mitm_certificate_plan_reports_plan_only_lifecycle_without_mutation() {
         .certificate_plan
         .required_steps
         .iter()
+        .any(|step| step.id == "write-local-ca-artifact" && step.status == "active"));
+    assert!(mitm
+        .certificate_plan
+        .required_steps
+        .iter()
         .any(|step| step.id == "install-user-trust" && step.status == "blocked"));
     assert!(mitm
         .certificate_plan
@@ -827,6 +889,244 @@ fn mitm_certificate_plan_reports_plan_only_lifecycle_without_mutation() {
     let rendered = render_response(&response, OutputFormat::Text);
     assert!(rendered.contains("certificate subject: NetworkCore Test CA"));
     assert!(rendered.contains("certificate blocked operation: trust-ca"));
+}
+
+#[test]
+fn mitm_certificate_apply_requires_authorization_and_config() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+
+    let missing_confirm = handle_mitm_certificate_apply(&platform, false);
+
+    assert!(!missing_confirm.ok);
+    assert_eq!(missing_confirm.exit_code, LinuxCliExitCode::Unavailable);
+    assert_diagnostic(
+        &missing_confirm.diagnostics,
+        CLI_MITM_CERTIFICATE_AUTHORIZATION_REQUIRED_CODE,
+    );
+    let lifecycle = missing_confirm
+        .certificate_lifecycle
+        .as_ref()
+        .expect("certificate response should include lifecycle report");
+    let apply = lifecycle
+        .apply_report
+        .as_ref()
+        .expect("certificate response should include apply report");
+    assert_eq!(lifecycle.action, "apply");
+    assert_eq!(lifecycle.gate_status, MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS);
+    assert_eq!(apply.status, "authorization_required");
+    assert!(!apply.applied);
+    assert!(!apply.authorization.confirmed);
+
+    let config_missing = handle_mitm_certificate_apply_with_store(
+        &platform,
+        &TestMitmCertificateArtifactStore,
+        None,
+        None,
+        None,
+        true,
+    );
+
+    assert!(!config_missing.ok);
+    assert_eq!(config_missing.exit_code, LinuxCliExitCode::ArgumentOrConfig);
+    assert_diagnostic(
+        &config_missing.diagnostics,
+        CLI_MITM_CERTIFICATE_APPLY_CONFIG_MISSING_CODE,
+    );
+    let lifecycle = config_missing
+        .certificate_lifecycle
+        .as_ref()
+        .expect("config missing response should include lifecycle report");
+    let apply = lifecycle
+        .apply_report
+        .as_ref()
+        .expect("config missing response should include apply report");
+    assert_eq!(apply.status, "config_missing");
+    assert!(!apply.applied);
+    assert!(apply.authorization.confirmed);
+}
+
+#[test]
+fn mitm_certificate_apply_with_store_writes_artifact_report() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+
+    let response = handle_mitm_certificate_apply_with_store(
+        &platform,
+        &TestMitmCertificateArtifactStore,
+        Some("/tmp/networkcore-mitm-ca.crt"),
+        Some("/tmp/networkcore-mitm-ca.key"),
+        Some("/tmp/networkcore-mitm-ca.snapshot.json"),
+        true,
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "mitm certificate apply");
+    assert_diagnostic(&response.diagnostics, CLI_MITM_CERTIFICATE_APPLY_READY_CODE);
+    let lifecycle = response
+        .certificate_lifecycle
+        .as_ref()
+        .expect("apply response should include certificate lifecycle report");
+    assert_eq!(lifecycle.action, "apply");
+    assert_eq!(
+        lifecycle.source_contract_status,
+        MITM_CERTIFICATE_LIFECYCLE_SOURCE_CONTRACT_STATUS
+    );
+    assert_eq!(lifecycle.gate, MITM_CERTIFICATE_LIFECYCLE_GATE);
+    assert_eq!(lifecycle.gate_status, MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS);
+    assert!(!lifecycle.mutation_ready);
+    assert_eq!(lifecycle.trust_plan.status, "trust-mutation-blocked");
+    let artifact = lifecycle
+        .request
+        .artifact
+        .as_ref()
+        .expect("apply response should include artifact request");
+    assert_eq!(artifact.cert_file_path, "/tmp/networkcore-mitm-ca.crt");
+    assert_eq!(artifact.key_file_path, "/tmp/networkcore-mitm-ca.key");
+    assert_eq!(
+        artifact.snapshot_path,
+        "/tmp/networkcore-mitm-ca.snapshot.json"
+    );
+    assert_eq!(artifact.subject, MITM_CERTIFICATE_ARTIFACT_SUBJECT);
+    assert!(artifact
+        .cert_content
+        .contains("NETWORKCORE MITM CA CERTIFICATE ARTIFACT"));
+    assert!(artifact
+        .key_content
+        .contains("NETWORKCORE MITM CA PRIVATE KEY ARTIFACT"));
+    let apply = lifecycle
+        .apply_report
+        .as_ref()
+        .expect("apply response should include apply report");
+    assert_eq!(apply.status, "applied");
+    assert!(apply.applied);
+    assert_eq!(
+        apply.cert_file_path.as_deref(),
+        Some("/tmp/networkcore-mitm-ca.crt")
+    );
+    assert_eq!(
+        apply.key_file_path.as_deref(),
+        Some("/tmp/networkcore-mitm-ca.key")
+    );
+    assert_eq!(
+        apply
+            .rollback_snapshot
+            .as_ref()
+            .expect("apply report should include rollback snapshot")
+            .status,
+        "networkcore-created"
+    );
+
+    let rendered = render_response(&response, OutputFormat::Text);
+    assert!(rendered.contains("certificate lifecycle apply"));
+    assert!(rendered.contains("certificate artifact file: /tmp/networkcore-mitm-ca.crt"));
+    assert!(rendered.contains("certificate trust blocked operation: trust-ca"));
+}
+
+#[test]
+fn mitm_certificate_command_store_writes_and_rolls_back_artifacts() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock should be after Unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("networkcore-mitm-ca-artifact-{unique}"));
+    let cert_path = root.join("networkcore-mitm-ca.crt");
+    let key_path = root.join("networkcore-mitm-ca.key");
+    let snapshot_path = root.join("networkcore-mitm-ca.snapshot.json");
+
+    let apply = handle_mitm_certificate_apply_with_store(
+        &platform,
+        &networkcore_linux::CommandMitmCertificateArtifactStore::new(),
+        Some(cert_path.to_str().expect("cert path should be UTF-8")),
+        Some(key_path.to_str().expect("key path should be UTF-8")),
+        Some(snapshot_path.to_str().expect("snapshot path should be UTF-8")),
+        true,
+    );
+
+    assert!(apply.ok);
+    assert_diagnostic(&apply.diagnostics, CLI_MITM_CERTIFICATE_APPLY_READY_CODE);
+    let cert_content = std::fs::read_to_string(&cert_path).expect("cert artifact should be written");
+    let key_content = std::fs::read_to_string(&key_path).expect("key artifact should be written");
+    assert!(cert_content.contains("trust-store-mutation: blocked"));
+    assert!(key_content.contains("https-rewrite: blocked"));
+    assert!(snapshot_path.exists());
+
+    let rollback = handle_mitm_certificate_rollback_with_store(
+        &platform,
+        &networkcore_linux::CommandMitmCertificateArtifactStore::new(),
+        Some(
+            snapshot_path
+                .to_str()
+                .expect("snapshot path should be UTF-8")
+                .to_string(),
+        ),
+    );
+
+    assert!(rollback.ok);
+    assert_diagnostic(
+        &rollback.diagnostics,
+        CLI_MITM_CERTIFICATE_ROLLBACK_READY_CODE,
+    );
+    assert!(!cert_path.exists());
+    assert!(!key_path.exists());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn mitm_certificate_rollback_with_store_restores_artifact_report() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+
+    let response = handle_mitm_certificate_rollback_with_store(
+        &platform,
+        &TestMitmCertificateArtifactStore,
+        Some("/tmp/networkcore-mitm-ca.snapshot.json".to_string()),
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "mitm certificate rollback");
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MITM_CERTIFICATE_ROLLBACK_READY_CODE,
+    );
+    let lifecycle = response
+        .certificate_lifecycle
+        .as_ref()
+        .expect("rollback response should include lifecycle report");
+    let rollback = lifecycle
+        .rollback_report
+        .as_ref()
+        .expect("rollback response should include rollback report");
+    assert_eq!(lifecycle.action, "rollback");
+    assert_eq!(rollback.status, "rolled_back");
+    assert!(rollback.rolled_back);
+    assert_eq!(
+        rollback.cert_file_path.as_deref(),
+        Some("/tmp/networkcore-mitm-ca.crt")
+    );
+    assert_eq!(
+        rollback.key_file_path.as_deref(),
+        Some("/tmp/networkcore-mitm-ca.key")
+    );
+    assert_eq!(
+        rollback
+            .rollback_snapshot
+            .as_ref()
+            .expect("rollback report should include snapshot")
+            .status,
+        "networkcore-restored"
+    );
+
+    let blocked = handle_mitm_certificate_rollback(&platform, None);
+    assert!(!blocked.ok);
+    assert_eq!(blocked.exit_code, LinuxCliExitCode::ArgumentOrConfig);
+    assert_diagnostic(
+        &blocked.diagnostics,
+        CLI_MITM_CERTIFICATE_ROLLBACK_BLOCKED_CODE,
+    );
 }
 
 #[test]
@@ -2286,6 +2586,23 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
         },
         &platform,
     );
+    let certificate_apply = handle_entrypoint(
+        LinuxCliCommand::MitmCertificateApply {
+            cert_file_path: Some("/tmp/networkcore-mitm-ca.crt".to_string()),
+            key_file_path: Some("/tmp/networkcore-mitm-ca.key".to_string()),
+            snapshot_path: Some("/tmp/networkcore-mitm-ca.snapshot.json".to_string()),
+            confirm: true,
+            format: OutputFormat::Text,
+        },
+        &platform,
+    );
+    let certificate_rollback = handle_entrypoint(
+        LinuxCliCommand::MitmCertificateRollback {
+            snapshot_path: Some("/tmp/networkcore-mitm-ca.snapshot.json".to_string()),
+            format: OutputFormat::Text,
+        },
+        &platform,
+    );
     let browser_plan = handle_entrypoint(
         LinuxCliCommand::MitmBrowserPlan {
             format: OutputFormat::Text,
@@ -2366,6 +2683,8 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
     assert!(diagnostics.ok);
     assert!(mitm.ok);
     assert!(certificate_plan.ok);
+    assert!(!certificate_apply.ok);
+    assert!(!certificate_rollback.ok);
     assert!(browser_plan.ok);
     assert!(browser_capture_plan.ok);
     assert!(browser_capture_launch_plan.ok);
@@ -2379,6 +2698,8 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
     assert_eq!(diagnostics.command, "diagnostics");
     assert_eq!(mitm.command, "mitm status");
     assert_eq!(certificate_plan.command, "mitm certificate-plan");
+    assert_eq!(certificate_apply.command, "mitm certificate apply");
+    assert_eq!(certificate_rollback.command, "mitm certificate rollback");
     assert_eq!(browser_plan.command, "mitm browser-plan");
     assert_eq!(browser_capture_plan.command, "mitm browser-capture plan");
     assert_eq!(
@@ -2407,6 +2728,8 @@ fn entrypoint_routes_read_only_platform_commands_to_injected_service() {
     assert_diagnostic(&diagnostics.diagnostics, DNS_MANAGER_UNKNOWN_CODE);
     assert!(mitm.mitm_status.is_some());
     assert!(certificate_plan.mitm_status.is_some());
+    assert!(certificate_apply.certificate_lifecycle.is_some());
+    assert!(certificate_rollback.certificate_lifecycle.is_some());
     assert!(browser_plan.mitm_status.is_some());
     assert!(browser_capture_plan.browser_capture.is_some());
     assert!(browser_capture_launch_plan.browser_capture.is_some());
@@ -2835,6 +3158,43 @@ fn browser_capture_entrypoint_routes_apply_and_rollback_to_pac_store() {
 }
 
 #[test]
+fn certificate_lifecycle_entrypoint_routes_apply_and_rollback_to_artifact_store() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let certificate_store = TestMitmCertificateArtifactStore;
+
+    let apply = handle_entrypoint_with_certificate_lifecycle_io(
+        LinuxCliCommand::MitmCertificateApply {
+            cert_file_path: Some("/tmp/networkcore-mitm-ca.crt".to_string()),
+            key_file_path: Some("/tmp/networkcore-mitm-ca.key".to_string()),
+            snapshot_path: Some("/tmp/networkcore-mitm-ca.snapshot.json".to_string()),
+            confirm: true,
+            format: OutputFormat::Json,
+        },
+        &platform,
+        &certificate_store,
+    );
+    assert!(apply.ok);
+    assert_eq!(apply.command, "mitm certificate apply");
+    assert_diagnostic(&apply.diagnostics, CLI_MITM_CERTIFICATE_APPLY_READY_CODE);
+
+    let rollback = handle_entrypoint_with_certificate_lifecycle_io(
+        LinuxCliCommand::MitmCertificateRollback {
+            snapshot_path: Some("/tmp/networkcore-mitm-ca.snapshot.json".to_string()),
+            format: OutputFormat::Json,
+        },
+        &platform,
+        &certificate_store,
+    );
+    assert!(rollback.ok);
+    assert_eq!(rollback.command, "mitm certificate rollback");
+    assert_diagnostic(
+        &rollback.diagnostics,
+        CLI_MITM_CERTIFICATE_ROLLBACK_READY_CODE,
+    );
+}
+
+#[test]
 fn read_only_entrypoint_does_not_launch_browser_without_runner() {
     let platform =
         StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
@@ -3244,8 +3604,95 @@ fn mitm_status_json_output_contains_machine_fields() {
         MITM_CERTIFICATE_LIFECYCLE_GATE
     );
     assert_eq!(
+        json["mitm_status"]["gates"][1]["status"],
+        MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS
+    );
+    assert_eq!(
         json["mitm_status"]["gates"][2]["gate"],
         MITM_HTTP_TLS_DATA_PLANE_GATE
+    );
+}
+
+#[test]
+fn certificate_lifecycle_json_output_contains_artifact_fields() {
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let response = handle_mitm_certificate_apply_with_store(
+        &platform,
+        &TestMitmCertificateArtifactStore,
+        Some("/tmp/networkcore-mitm-ca.crt"),
+        Some("/tmp/networkcore-mitm-ca.key"),
+        Some("/tmp/networkcore-mitm-ca.snapshot.json"),
+        true,
+    );
+
+    let rendered = render_response(&response, OutputFormat::Json);
+    let json: serde_json::Value = serde_json::from_str(&rendered)
+        .expect("certificate lifecycle response should be valid JSON");
+
+    assert_eq!(json["ok"].as_bool(), Some(true));
+    assert_eq!(json["command"], "mitm certificate apply");
+    assert_eq!(json["certificate_lifecycle"]["action"], "apply");
+    assert_eq!(
+        json["certificate_lifecycle"]["source_contract_status"],
+        MITM_CERTIFICATE_LIFECYCLE_SOURCE_CONTRACT_STATUS
+    );
+    assert_eq!(
+        json["certificate_lifecycle"]["gate"],
+        MITM_CERTIFICATE_LIFECYCLE_GATE
+    );
+    assert_eq!(
+        json["certificate_lifecycle"]["gate_status"],
+        MITM_CERTIFICATE_LIFECYCLE_GATE_STATUS
+    );
+    assert_eq!(
+        json["certificate_lifecycle"]["mutation_ready"].as_bool(),
+        Some(MITM_CERTIFICATE_MUTATION_READY)
+    );
+    assert_eq!(
+        json["certificate_lifecycle"]["request"]["authorization"]["confirmed"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        json["certificate_lifecycle"]["request"]["artifact"]["cert_file_path"],
+        "/tmp/networkcore-mitm-ca.crt"
+    );
+    assert_eq!(
+        json["certificate_lifecycle"]["request"]["artifact"]["key_file_path"],
+        "/tmp/networkcore-mitm-ca.key"
+    );
+    assert_eq!(
+        json["certificate_lifecycle"]["request"]["artifact"]["snapshot_path"],
+        "/tmp/networkcore-mitm-ca.snapshot.json"
+    );
+    assert_eq!(
+        json["certificate_lifecycle"]["request"]["artifact"]["subject"],
+        MITM_CERTIFICATE_ARTIFACT_SUBJECT
+    );
+    assert!(
+        json["certificate_lifecycle"]["request"]["artifact"]["cert_content"]
+            .as_str()
+            .expect("cert content should be a string")
+            .contains("NETWORKCORE MITM CA CERTIFICATE ARTIFACT")
+    );
+    assert_eq!(
+        json["certificate_lifecycle"]["apply_report"]["status"],
+        "applied"
+    );
+    assert_eq!(
+        json["certificate_lifecycle"]["apply_report"]["applied"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        json["certificate_lifecycle"]["apply_report"]["rollback_snapshot"]["status"],
+        "networkcore-created"
+    );
+    assert!(
+        json["certificate_lifecycle"]["trust_plan"]["blocked_operations"]
+            .as_array()
+            .expect("trust blocked operations should be an array")
+            .iter()
+            .any(|operation| operation.as_str() == Some("update-ca-certificates"))
     );
 }
 
@@ -4072,6 +4519,60 @@ impl BrowserCaptureTrafficProofProbe for TestBrowserCaptureTrafficProofProbe {
 }
 
 struct TestBrowserCapturePacFileStore;
+
+struct TestMitmCertificateArtifactStore;
+
+impl MitmCertificateArtifactStore for TestMitmCertificateArtifactStore {
+    fn apply_certificate_artifact(
+        &self,
+        request: &LinuxMitmCertificateArtifactRequest,
+    ) -> DomainResult<LinuxMitmCertificateArtifactApplyOutcome> {
+        assert_eq!(request.cert_file_path, "/tmp/networkcore-mitm-ca.crt");
+        assert_eq!(request.key_file_path, "/tmp/networkcore-mitm-ca.key");
+        assert_eq!(request.snapshot_path, "/tmp/networkcore-mitm-ca.snapshot.json");
+        assert_eq!(request.subject, MITM_CERTIFICATE_ARTIFACT_SUBJECT);
+        assert_eq!(request.artifact_version, 1);
+        assert!(request
+            .cert_content
+            .contains("NETWORKCORE MITM CA CERTIFICATE ARTIFACT"));
+        assert!(request
+            .key_content
+            .contains("NETWORKCORE MITM CA PRIVATE KEY ARTIFACT"));
+        assert!(!request.cert_fingerprint.is_empty());
+        assert!(!request.key_fingerprint.is_empty());
+
+        Ok(LinuxMitmCertificateArtifactApplyOutcome {
+            rollback_snapshot: MitmCertificateRollbackSnapshot {
+                path: request.snapshot_path.clone(),
+                status: "networkcore-created".to_string(),
+            },
+            diagnostics: vec![Diagnostic::new(
+                DiagnosticSeverity::Info,
+                CLI_MITM_CERTIFICATE_APPLY_READY_CODE,
+                "MITM certificate artifacts were written by the test store",
+                Some("cli.mitm".to_string()),
+            )],
+        })
+    }
+
+    fn rollback_certificate_artifact(
+        &self,
+        snapshot: &MitmCertificateRollbackSnapshot,
+    ) -> DomainResult<LinuxMitmCertificateArtifactRollbackOutcome> {
+        assert_eq!(snapshot.path, "/tmp/networkcore-mitm-ca.snapshot.json");
+
+        Ok(LinuxMitmCertificateArtifactRollbackOutcome {
+            cert_file_path: "/tmp/networkcore-mitm-ca.crt".to_string(),
+            key_file_path: "/tmp/networkcore-mitm-ca.key".to_string(),
+            diagnostics: vec![Diagnostic::new(
+                DiagnosticSeverity::Info,
+                CLI_MITM_CERTIFICATE_ROLLBACK_READY_CODE,
+                "MITM certificate artifacts were removed by the test store",
+                Some("cli.mitm".to_string()),
+            )],
+        })
+    }
+}
 
 impl BrowserCapturePacFileStore for TestBrowserCapturePacFileStore {
     fn apply_pac_file(

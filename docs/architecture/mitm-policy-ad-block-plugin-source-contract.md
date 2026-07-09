@@ -172,10 +172,15 @@ Blocked until later phases:
   and `networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof`; later
   increments must turn blocked reports into actionable controls without claiming
   live MITM before the remaining gates are active.
-- `MITM_CERTIFICATE_LIFECYCLE_GATE`: currently plan-only through
-  `mitm_status.certificate_plan`; later increments must add CA generation,
-  user-approved install, trust detection, fingerprint/expiration/revocation
-  checks, uninstall, and rollback boundaries.
+- `MITM_CERTIFICATE_LIFECYCLE_GATE`: currently artifact-lifecycle-active/trust-mutation-blocked through
+  `mitm_status.certificate_plan` and `certificate_lifecycle`; current Linux CLI
+  can write/rollback NetworkCore certificate/private-key artifact files through
+  `mitm certificate apply --confirm --cert-file <path> --key-file <path>
+  --snapshot <path>` and `mitm certificate rollback --snapshot <path>`.
+  Later increments must add user-approved install, trust detection,
+  fingerprint/expiration/revocation checks, uninstall, and trust-store rollback
+  boundaries. The Linux source boundary is
+  [Linux MITM Certificate Lifecycle Source Contract](linux-mitm-certificate-lifecycle-source-contract.md).
 - `MITM_BROWSER_CAPTURE_GATE`: currently pac-policy-profile-prefs-active/system-mutation-blocked through
   `mitm_status.browser_plan`, manual launch-plan output, redacted session-plan
   output, optional target URL, `--proxy-scheme socks5` native plugin proxy mode, explicit dedicated-profile launch output, explicit local proxy endpoint verify output, target route verify output, proof-log-token traffic proof output, and
