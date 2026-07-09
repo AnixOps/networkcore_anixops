@@ -456,11 +456,7 @@ Proxy = select, HK Surge
         NODE_METADATA_SOURCE_FORMAT,
         "surge-proxy-line",
     );
-    assert_metadata(
-        &node.metadata,
-        "subscription.source_id",
-        "surge-proxy-line",
-    );
+    assert_metadata(&node.metadata, "subscription.source_id", "surge-proxy-line");
 }
 
 #[test]
