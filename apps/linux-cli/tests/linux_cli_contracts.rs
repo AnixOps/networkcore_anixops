@@ -1028,7 +1028,7 @@ fn mitm_http_rewrite_preview_requires_authorization_before_applying_outcome() {
 }
 
 #[test]
-fn mitm_http_rewrite_preview_applies_builtin_reject_to_plain_http_input() {
+fn mitm_http_rewrite_preview_reports_https_request_preview_without_live_tls_or_script() {
     let platform = StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot {
         mitm_certificate: LinuxCertificateProbe::new(CertificateTrustState::InstalledUntrusted),
         ..LinuxPlatformSnapshot::available_for_tests()
@@ -1060,6 +1060,19 @@ fn mitm_http_rewrite_preview_applies_builtin_reject_to_plain_http_input() {
         .http_rewrite
         .as_ref()
         .expect("preview should include http rewrite report");
+    assert!(report.https_request_rewrite_preview_ready);
+    assert!(report.https_response_rewrite_preview_ready);
+    assert!(!report.https_response_rewrite_ready);
+    assert!(!report.script_dispatch_ready);
+    assert!(!report.tls_decryption_ready);
+    assert!(report
+        .blocked_operations
+        .iter()
+        .any(|operation| operation == "decrypt-https"));
+    assert!(report
+        .blocked_operations
+        .iter()
+        .any(|operation| operation == "mutate-live-https-traffic"));
     let outcome = report
         .outcome
         .as_ref()

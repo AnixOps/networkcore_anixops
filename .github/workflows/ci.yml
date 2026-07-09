@@ -861,7 +861,7 @@ jobs:
           grep -q "CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE" apps/linux-cli/src/lib.rs
           grep -q "mitm_http_rewrite_plan_reports_live_plain_http_data_plane_without_tls_decryption" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_http_rewrite_plan_reports_controlled_tls_termination_plan_without_decryption" apps/linux-cli/tests/linux_cli_contracts.rs
-          grep -q "mitm_http_rewrite_preview_applies_builtin_reject_to_plain_http_input" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "mitm_http_rewrite_preview_reports_https_request_preview_without_live_tls_or_script" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "http_rewrite_json_output_contains_live_plain_http_gate_fields" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "https_response_rewrite_preview_ready" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "BrowserCaptureProcessRunner" docs/architecture/linux-mitm-browser-capture-source-contract.md
