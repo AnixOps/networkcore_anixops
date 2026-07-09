@@ -1263,9 +1263,8 @@ fn required_quantumult_x_proxy_option(
     keys: &[&str],
     message: &'static str,
 ) -> DomainResult<String> {
-    optional_quantumult_x_proxy_option(options, keys).ok_or_else(|| {
-        domain_error(SUBSCRIPTION_QUANTUMULT_X_PROXY_LINE_INVALID_CODE, message)
-    })
+    optional_quantumult_x_proxy_option(options, keys)
+        .ok_or_else(|| domain_error(SUBSCRIPTION_QUANTUMULT_X_PROXY_LINE_INVALID_CODE, message))
 }
 
 fn strip_quantumult_x_quotes(value: String) -> String {
