@@ -124,7 +124,7 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Ker
 `CommandSubscriptionCatalogStore::add_source` 使用显式 catalog/snapshot 路径写入 schema version 1 本地 JSON，
 生成写前 rollback snapshot，拒绝重复 source id，并输出 `location_kind`/`location_redacted` 脱敏报告；
 第二个 `list_sources` source-only 切片已加入显式 catalog 读取和脱敏 entry，并已通过 GitHub Actions 全量 CI；
-第三个 `remove_source` source-only 切片已加入写前 snapshot、source-not-found 拒绝和脱敏 report，正在等待 GitHub Actions 合同测试通过；
+第三个 `remove_source` source-only 切片已加入写前 snapshot、source-not-found 拒绝和脱敏 report，并已通过 GitHub Actions 全量 CI；
 `select/update`、默认路径、远程/file fetch、runtime startup 和 managed lifecycle 仍 blocked，
 每个切片的功能完成状态以 GitHub Actions 合同测试为准。
 
