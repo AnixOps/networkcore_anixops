@@ -4246,12 +4246,11 @@ fn handle_plain_http_proxy_accepted_connection(
     let mut diagnostics = read_report.diagnostics;
     if let Some(request) = read_report.request.as_ref() {
         if request.method.eq_ignore_ascii_case("CONNECT") {
-            let (forwarded, forward_diagnostics) =
-                forward_http_connect_tunnel_via_socks_outbound(
-                    &mut stream,
-                    request,
-                    outbound_handler,
-                );
+            let (forwarded, forward_diagnostics) = forward_http_connect_tunnel_via_socks_outbound(
+                &mut stream,
+                request,
+                outbound_handler,
+            );
             connection_handled = forwarded;
             diagnostics.extend(forward_diagnostics);
         } else if request.target_url.starts_with("https://") {
@@ -4509,9 +4508,8 @@ fn forward_http_connect_tunnel_via_socks_outbound(
                                 client_stream,
                                 &outbound_stream,
                             );
-                            let tunnel_relayed = diagnostics_contain_data_relay_completed(
-                                &relay_report.diagnostics,
-                            );
+                            let tunnel_relayed =
+                                diagnostics_contain_data_relay_completed(&relay_report.diagnostics);
                             diagnostics.extend(relay_report.diagnostics);
                             let _ = outbound_stream.shutdown(Shutdown::Both);
                             return (tunnel_relayed, diagnostics);

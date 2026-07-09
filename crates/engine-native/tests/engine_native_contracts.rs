@@ -26,13 +26,13 @@ use engine_native::{
     serialize_explicit_http_proxy_request_for_upstream, serialize_plain_http_proxy_response,
     write_http_connect_established_response, write_socks5_auth_method_response,
     write_socks5_outbound_connect_client_success_response, write_socks5_outbound_connect_request,
-    write_unwired_socks5_connect_failure_response,
-    BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeExplicitHttpProxyRequest,
-    NativeHttpMitmPluginHook, NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle,
-    NativePlainHttpMessage, NativePlainHttpRewriteReport, NativeProxyEngineService,
-    NativeProxyEngineStartReadiness, NativeRuntimeAssembly, NativeRuntimeAssemblyPlan,
-    NativeSocks5Address, NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision,
-    NativeSocks5CommandHeader, NativeSocks5ConnectTarget, NativeSocks5Greeting,
+    write_unwired_socks5_connect_failure_response, BoundLoopbackTcpListenerHandle,
+    LoopbackListenerHandle, NativeExplicitHttpProxyRequest, NativeHttpMitmPluginHook,
+    NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle, NativePlainHttpMessage,
+    NativePlainHttpRewriteReport, NativeProxyEngineService, NativeProxyEngineStartReadiness,
+    NativeRuntimeAssembly, NativeRuntimeAssemblyPlan, NativeSocks5Address,
+    NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision, NativeSocks5CommandHeader,
+    NativeSocks5ConnectTarget, NativeSocks5Greeting,
     NativeSocks5OutboundConnectClientSuccessResponseReadiness,
     NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision,
     NativeSocks5OutboundConnectDataRelayPlanDecision, NativeSocks5OutboundConnectRelayReadiness,
@@ -1466,9 +1466,8 @@ fn plain_http_proxy_request_parser_maps_absolute_form_to_native_plain_http_messa
 
 #[test]
 fn explicit_http_connect_tls_foundation_report_keeps_https_rewrite_deferred() {
-    let mut request = Cursor::new(
-        b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n".to_vec(),
-    );
+    let mut request =
+        Cursor::new(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n".to_vec());
 
     let read_report = read_explicit_http_proxy_request(&mut request);
     let parsed = read_report
