@@ -1558,7 +1558,10 @@ fn explicit_http_connect_tls_termination_plan_keeps_rewrite_deferred() {
 
     assert!(termination_plan.connect_tunnel_ready);
     assert!(termination_plan.client_hello_observed);
-    assert_eq!(termination_plan.sni_hostname.as_deref(), Some("example.com"));
+    assert_eq!(
+        termination_plan.sni_hostname.as_deref(),
+        Some("example.com")
+    );
     assert!(termination_plan.ca_certificate_pem_ready);
     assert!(termination_plan.ca_private_key_pem_ready);
     assert!(termination_plan.downstream_tls_termination_plan_ready);
