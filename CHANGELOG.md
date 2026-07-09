@@ -6,6 +6,7 @@
 
 ### Added
 
+- 新增 `v0.1.1-alpha.2` Windows CLI package/publish path 候选：新增 `apps/windows-cli`、`platform-windows`、`package-windows`、`attest-windows`、Windows release notes/rollback gate 和 Windows publish eligibility gate，准备由 GitHub Actions 生成 `networkcore-windows` manual-extract zip、sha256、manifest 和 manifest sha256；service、driver、installer、system proxy mutation、system trust store mutation、JavaScript script dispatch 和 managed lifecycle 仍 blocked，订阅格式扩展顺延到 `v0.1.1-alpha.3`。
 - 同步 `v0.1.1-alpha.1` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、`mitm-policy` README 和 Linux browser capture source contract 现在把 `v0.1.1-alpha.1` 记录为最新 prerelease/tag release，并把下一步推进到 `v0.1.1-alpha.2` Windows CLI package/publish path；`v0.1.1-alpha.1` 仍只发布 Linux CLI 四件套和 Windows contract-only/blocked summary。
 
 ## v0.1.1-alpha.1 - 2026-07-10

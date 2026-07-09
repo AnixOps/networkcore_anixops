@@ -1,0 +1,10 @@
+[package]
+name = "platform-windows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Windows platform capability boundary for the AnixOps network control kernel."
+
+[lib]
+path = "src/lib.rs"

@@ -6,9 +6,9 @@
 
 ```text
 windows-cli-artifact-source-release-contract=present
-windows-cli-artifact-release-state=contract-only
-windows-cli-artifact-version-scope=v0.1.1-alpha.1
-WINDOWS_CLI_ARTIFACT_GATE=source-release-contract-active/package-windows-blocked
+windows-cli-artifact-release-state=package-path-active
+windows-cli-artifact-version-scope=v0.1.1-alpha.2
+WINDOWS_CLI_ARTIFACT_GATE=package-windows-active/system-mutation-blocked
 windows-cli-artifact-runner=windows-latest
 windows-cli-artifact-runner-kind=github-hosted
 windows-cli-artifact-rust-toolchain=stable
@@ -19,7 +19,7 @@ windows-cli-artifact-checksum-algorithm=sha256
 windows-cli-artifact-manifest-schema-version=1
 windows-cli-artifact-install-model=manual-extract
 windows-cli-artifact-system-mutation-policy=none
-windows-cli-artifact-source-identity=not-activated
+windows-cli-artifact-source-identity=apps/windows-cli
 windows-cli-artifact-service=blocked
 windows-cli-artifact-driver=blocked
 windows-cli-artifact-installer=blocked
@@ -28,43 +28,37 @@ windows-cli-artifact-trust-store-mutation=blocked
 windows-cli-artifact-script-dispatch=blocked
 windows-cli-artifact-authenticode-policy=unsigned-no-authenticode-for-alpha-cli-zip
 windows-cli-artifact-attestation-policy=github-artifact-attestation-required
-windows-cli-artifact-package-windows=not-defined
-windows-cli-artifact-release-assets=blocked
-windows-cli-artifact-next-action=package-windows-gate-after-source-contract
+windows-cli-artifact-package-windows=defined
+windows-cli-artifact-release-assets=enabled-after-attestation-and-publish-gate
+windows-cli-artifact-next-action=subscription-parser-gates-after-windows-artifact
 ```
 
 ## Purpose
 
-本文固定 `v0.1.1-alpha.1` 的 Windows CLI artifact source/release contract。该切片只定义 Windows
-artifact 进入 release workflow 前必须满足的源码身份、runner、toolchain、archive、checksum、manifest、
-attestation、release notes、rollback 和 signing policy 边界。
+本文固定 `v0.1.1-alpha.2` 的 Windows CLI artifact package/publish path。该切片在
+`v0.1.1-alpha.1` 的 source/release contract 基础上激活 `apps/windows-cli` source identity、
+`package-windows`、Windows zip、checksum、manifest、attestation、release notes/rollback 和 publish
+eligibility gate。
 
-`v0.1.1-alpha.1` 不生成 Windows zip，不上传 Windows release asset，不引入 Windows service、driver、
-installer、系统代理 mutation、system trust store mutation、JavaScript script dispatch 或 managed lifecycle。
-真实 `package-windows`、Windows artifact publish eligibility 和 GitHub Release asset 上传必须等待
-`v0.1.1-alpha.2` 或后续明确切片。
+`v0.1.1-alpha.2` 生成 Windows CLI zip 并上传 Windows release asset，但不引入 Windows service、
+driver、installer、系统代理 mutation、system trust store mutation、JavaScript script dispatch 或 managed
+lifecycle。订阅格式扩展继续等待 `v0.1.1-alpha.3` 或后续明确切片。
 
 ## Source Identity Boundary
 
-当前仓库只有 `apps/linux-cli` 入口，并且该 crate 名为 `networkcore-linux`、依赖 `platform-linux`。虽然
-GitHub Actions 的 CI matrix 已在 `windows-latest` 上验证 Rust workspace，但这不等于已有正式 Windows CLI
-artifact source identity。
+当前仓库同时保留 `apps/linux-cli` 和 `apps/windows-cli` 入口。Windows CLI 的 source identity 是
+`apps/windows-cli`，crate 和 binary 名为 `networkcore-windows`，并依赖 `platform-windows`。`platform-windows`
+只报告只读 artifact/package 状态和 blocked system mutation 边界。
 
-进入真实 Windows artifact 前，必须先满足以下条件之一：
+release workflow 不得把 `networkcore-linux.exe` 或 Windows CI build output 冒充为正式 Windows artifact。
+正式 Windows artifact 必须来自 `apps/windows-cli` 的 `networkcore-windows.exe`。
 
-- 新增独立 `apps/windows-cli` crate，二进制名、README、platform adapter 和命令边界均明确属于 Windows。
-- 或者先把现有 CLI 抽象为跨平台 entrypoint，并通过 source contract 说明 Linux/Windows 平台 adapter
-  的分发、二进制命名、命令输出差异和回滚边界。
+## Active Artifact Contract
 
-在上述源码身份激活前，release workflow 不得把 `networkcore-linux.exe` 或 Windows CI build output
-冒充为正式 Windows artifact。
-
-## Required Future Artifact Contract
-
-后续真实 Windows artifact job 必须至少定义：
+真实 Windows artifact job 必须至少定义：
 
 - runner: `windows-latest`。
-- source identity: `apps/windows-cli` 或经合同批准的跨平台 CLI entrypoint。
+- source identity: `apps/windows-cli`。
 - Rust toolchain: `stable` with `minimal` profile.
 - target triple: `x86_64-pc-windows-gnu` 或后续明确批准的 Windows target。
 - archive format: `.zip`。
@@ -78,10 +72,8 @@ artifact source identity。
 
 ## Blocked Operations
 
-`v0.1.1-alpha.1` 必须保持以下能力 blocked：
+`v0.1.1-alpha.2` 必须保持以下能力 blocked：
 
-- `package-windows`
-- `publish-windows-release-asset`
 - `install-windows-service`
 - `install-driver`
 - `run-installer`
@@ -92,31 +84,42 @@ artifact source identity。
 
 ## Release Workflow Boundary
 
-当前 release workflow 只允许新增 `windows-cli-artifact-readiness` 这类合同检查 job。该 job 可以读取本文档并输出
-blocked summary，但不得执行 cargo build、zip、checksum、manifest、attestation、signing、installer 或
-GitHub Release asset upload。
+当前 release workflow 必须包含：
 
-`publish-github-release` 在 `v0.1.1-alpha.1` 合同切片中仍只能上传已有 Linux artifact。Windows artifact 出现在
-GitHub Release asset 中必须等待真实 `package-windows`、attestation、release notes/rollback 和 publish
-eligibility gates 全部激活并在 GitHub Actions 中通过。
+- `windows-cli-artifact-readiness`：验证本文档、`apps/windows-cli`、`platform-windows` 和 blocked mutation anchors。
+- `package-windows`：在 `windows-latest` 上构建 `networkcore-windows.exe`，生成 zip、zip sha256、
+  manifest JSON 和 manifest sha256。
+- `attest-windows`：对 Windows 四件套生成 GitHub artifact attestation。
+- `windows-release-summary`：校验 release notes 和 rollback 字段。
+- `windows-publish-eligibility-gate`：聚合 source identity、同 commit CI、checksum/manifest、attestation、
+  release notes/rollback 和 system mutation blocked 状态。
+- `publish-github-release`：只有 tag release 且 Linux/Windows publish eligibility 都为 eligible 时，才上传
+  Linux 和 Windows release assets。
+
+所有 build、zip、checksum、manifest、attestation 和 GitHub Release asset upload 只能在 GitHub Actions 中运行。
 
 ## CI Governance Anchors
 
 Repository policy 必须检查以下锚点：
 
 - `windows-cli-artifact-source-release-contract=present`
-- `windows-cli-artifact-release-state=contract-only`
-- `windows-cli-artifact-version-scope=v0.1.1-alpha.1`
-- `WINDOWS_CLI_ARTIFACT_GATE=source-release-contract-active/package-windows-blocked`
+- `windows-cli-artifact-release-state=package-path-active`
+- `windows-cli-artifact-version-scope=v0.1.1-alpha.2`
+- `WINDOWS_CLI_ARTIFACT_GATE=package-windows-active/system-mutation-blocked`
 - `windows-cli-artifact-runner=windows-latest`
 - `windows-cli-artifact-target-triple=x86_64-pc-windows-gnu`
 - `windows-cli-artifact-package-format=zip`
 - `windows-cli-artifact-checksum-algorithm=sha256`
-- `windows-cli-artifact-source-identity=not-activated`
+- `windows-cli-artifact-source-identity=apps/windows-cli`
 - `windows-cli-artifact-attestation-policy=github-artifact-attestation-required`
-- `windows-cli-artifact-package-windows=not-defined`
-- `windows-cli-artifact-release-assets=blocked`
+- `windows-cli-artifact-package-windows=defined`
+- `windows-cli-artifact-release-assets=enabled-after-attestation-and-publish-gate`
 - `networkcore-linux.exe`
+- `networkcore-windows.exe`
 - `windows-cli-artifact-readiness`
+- `package-windows`
+- `attest-windows`
+- `windows-publish-eligibility-gate`
 
-这些检查只证明合同存在和 release workflow 输出 blocked 状态，不证明 Windows artifact 已发布。
+这些检查证明 Windows package/publish path 已激活，但不放开 Windows service、driver、installer、system
+proxy mutation、system trust store mutation、JavaScript script dispatch 或 managed daemon lifecycle。

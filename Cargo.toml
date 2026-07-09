@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "apps/linux-cli",
+    "apps/windows-cli",
     "crates/config-core",
     "crates/control-domain",
     "crates/control-runtime",
@@ -10,6 +11,7 @@ members = [
     "crates/mitm-policy",
     "crates/platform-ios",
     "crates/platform-linux",
+    "crates/platform-windows",
 ]
 resolver = "2"
 

@@ -435,14 +435,15 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 ## 当前 main source 状态
 
 当前最新用户可下载 Linux artifact 是 `v0.1.1-alpha.1` prerelease，最新 stable artifact 是
-`v0.1.0`。`main` 已同步到 `v0.1.1-alpha.1` 发布后边界：在保留 `v0.1.0-alpha.20`
+`v0.1.0`。`main` 正在准备 `v0.1.1-alpha.2` Windows CLI package/publish path：在保留 `v0.1.0-alpha.20`
 release hardening 发布边界的基础上，Linux CLI `mitm http-rewrite preview --confirm --url https://... --phase request`
 的合同测试固定 caller-provided HTTPS request preview 只能保持 preview/reject 边界，并继续输出
 `tls_decryption_ready=false`、`https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`。
 当前发布边界仍不执行 live HTTPS decryption、live CONNECT 后 HTTPS request/response rewrite、完整 live HTTPS response rewrite、JavaScript script dispatch、system trust
-store mutation 或 system proxy mutation；`v0.1.1-alpha.1` 已发布 Windows CLI artifact source/release contract，
-但仍不定义 `package-windows`、不生成 Windows zip、不上传 Windows release asset；下一步
-`v0.1.1-alpha.2` 做 Windows CLI package/publish path。
+store mutation 或 system proxy mutation；当前新增 `apps/windows-cli`、`platform-windows`、`package-windows`、
+`attest-windows`、Windows release notes/rollback gate 和 Windows publish eligibility gate。Windows path 只生成
+manual-extract CLI zip，不启用 service、driver、installer、system proxy mutation、system trust store mutation、
+JavaScript script dispatch 或 managed lifecycle；下一步 `v0.1.1-alpha.3` 做订阅格式扩展。
 
 ## 已拍板后续版本节奏
 
@@ -492,8 +493,9 @@ store mutation 或 system proxy mutation；`v0.1.1-alpha.1` 已发布 Windows CL
   toolchain、archive 格式、checksum、manifest、attestation、release notes、rollback 和 signing policy；
   本切片只激活合同和 release summary blocked 输出，不生成 Windows CLI zip，不定义 `package-windows`，
   不默认包含 service、driver 或 installer。
-- `v0.1.1-alpha.2`：Windows CLI package/publish path。Release workflow 增加 `package-windows`
-  和 publish eligibility gate，产物只由 GitHub Actions 生成。
+- `v0.1.1-alpha.2`：Windows CLI package/publish path。当前 main 候选；新增 `apps/windows-cli`
+  source identity、`platform-windows` read-only capability boundary、`package-windows`、`attest-windows`
+  和 Windows publish eligibility gate，产物只由 GitHub Actions 生成。
 - `v0.1.1-alpha.3`：订阅格式扩展。接入 VLESS、VMess、Trojan URL 高频子集，以及 Clash YAML、
   sing-box JSON 的 source contract 和 parser gates。
 - `v0.1.1-alpha.4`：节点选择和运行计划。支持按 name/tag/filter 选择节点，输出 cross-platform

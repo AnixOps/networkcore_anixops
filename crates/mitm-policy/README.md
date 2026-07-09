@@ -113,10 +113,12 @@ diagnostics, plus traffic-proof text CONNECT authority output. Later live TLS te
 TLS decryption and full HTTPS rewrite increments after this tag require a later tag
 release before users can download them from GitHub Releases. The full alpha/rc
 feature and boundary index is `docs/alpha-release-feature-matrix.md`.
-`v0.1.1-alpha.1` also publishes the Windows CLI artifact source/release contract
-as contract-only/blocked output; it does not define `package-windows` or upload a
-Windows zip. Current `main` is synced to the `v0.1.1-alpha.1` post-release
-boundary: browser capture `traffic-proof` records `proof_connect_authority`,
+Current `main` is preparing the `v0.1.1-alpha.2` Windows CLI package/publish path
+with `apps/windows-cli`, `platform-windows`, `package-windows`, `attest-windows`,
+and Windows publish eligibility gates. The Windows path remains manual-extract
+only and keeps service, driver, installer, system proxy mutation, trust store
+mutation, JavaScript script dispatch, and managed daemon lifecycle blocked. The
+Linux MITM boundary is unchanged: browser capture `traffic-proof` records `proof_connect_authority`,
 requires token/proxy/CONNECT authority binding in the same proof log line, and
 prints the CONNECT authority in text output for manual proof audit; Linux CLI
 also freezes caller-provided HTTPS request preview so it still reports

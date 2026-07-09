@@ -44,8 +44,8 @@ TUN/DNS/firewall mutation、CA lifecycle、HTTPS 解密或 live HTTP/TLS request
 `proof_connect_authority`、同一行 token/proxy/CONNECT authority binding mismatch 诊断、traffic-proof text CONNECT authority 输出、`session-plan`/`launch --confirm` proof URL/default proof 绑定、`--proxy-scheme socks5` native plugin proxy mode、
 `apply --confirm --pac-file <path> [--policy-file <path>] [--profile-prefs-file <path>] --snapshot <path>` / `rollback --snapshot <path>` PAC/browser policy artifact 与 Firefox dedicated profile prefs apply/rollback，
 explicit SOCKS5 CONNECT-level plugin reject/proof 诊断、explicit HTTP proxy live plain HTTP data plane、TLS CA certificate PEM、private key PEM、dedicated profile CA PEM copy、explicit HTTP `CONNECT` pass-through tunnel foundation、bounded ClientHello/SNI observation、controlled downstream TLS termination plan/report、caller-provided HTTPS request rewrite preview，以及 caller-provided HTTPS response rewrite preview；rc.1 回归冻结合同已进入正式版，继续固定 HTTPS request preview 不声称 live TLS decryption、live CONNECT-stream rewrite 或 JavaScript script dispatch。
-`v0.1.1-alpha.1` 额外发布 Windows CLI artifact source/release contract，但不生成 Windows zip。当前 `main`
-已同步到 `v0.1.1-alpha.1` 发布后边界；后续新能力仍必须等待新 tag、
+当前 `main` 额外准备 `v0.1.1-alpha.2` Windows CLI package/publish path；Windows zip 只有在对应 tag release
+通过后才会成为用户可下载 artifact。后续新能力仍必须等待新 tag、
 同 commit CI、package、attestation、publish eligibility 和 GitHub Release asset 全部通过后才会成为用户可下载 artifact。
 逐 alpha/rc 能力边界以 [Alpha Release Feature Matrix](../alpha-release-feature-matrix.md) 为准。
 

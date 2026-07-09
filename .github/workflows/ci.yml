@@ -207,16 +207,21 @@ jobs:
           grep -Fq "Windows CLI artifact" docs/alpha-release-feature-matrix.md
           grep -Fq "Windows CLI Artifact Source Release Contract" docs/architecture/windows-cli-artifact-source-release-contract.md
           grep -Fq "windows-cli-artifact-source-release-contract=present" docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -Fq "windows-cli-artifact-release-state=contract-only" docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -Fq "windows-cli-artifact-version-scope=v0.1.1-alpha.1" docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -Fq "windows-cli-artifact-release-state=package-path-active" docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -Fq "windows-cli-artifact-version-scope=v0.1.1-alpha.2" docs/architecture/windows-cli-artifact-source-release-contract.md
           grep -Fq "windows-cli-artifact-runner=windows-latest" docs/architecture/windows-cli-artifact-source-release-contract.md
           grep -Fq "windows-cli-artifact-target-triple=x86_64-pc-windows-gnu" docs/architecture/windows-cli-artifact-source-release-contract.md
           grep -Fq "windows-cli-artifact-package-format=zip" docs/architecture/windows-cli-artifact-source-release-contract.md
           grep -Fq "windows-cli-artifact-checksum-algorithm=sha256" docs/architecture/windows-cli-artifact-source-release-contract.md
           grep -Fq "windows-cli-artifact-attestation-policy=github-artifact-attestation-required" docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -Fq "windows-cli-artifact-package-windows=not-defined" docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -Fq "windows-cli-artifact-release-assets=blocked" docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -Fq "windows-cli-artifact-source-identity=apps/windows-cli" docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -Fq "windows-cli-artifact-package-windows=defined" docs/architecture/windows-cli-artifact-source-release-contract.md
+          grep -Fq "windows-cli-artifact-release-assets=enabled-after-attestation-and-publish-gate" docs/architecture/windows-cli-artifact-source-release-contract.md
           grep -Fq "windows-cli-artifact-source-release-contract.md" docs/release-strategy.md
+          grep -Fq "networkcore-windows" apps/windows-cli/README.md
+          grep -Fq "WINDOWS_CLI_ARTIFACT_GATE=package-windows-active/system-mutation-blocked" crates/platform-windows/README.md
+          grep -Fq "system-proxy-mutation" apps/windows-cli/README.md
+          grep -Fq "system-trust-store-mutation" apps/windows-cli/README.md
           grep -Fq "JavaScript script dispatch" docs/alpha-release-feature-matrix.md
           grep -Fq "system trust store mutation" docs/alpha-release-feature-matrix.md
           grep -Fq "system proxy mutation" docs/alpha-release-feature-matrix.md
@@ -988,10 +993,10 @@ jobs:
           grep -q '^  publish-eligibility-gate:' "${release_workflow}"
           grep -q '^  publish-github-release:' "${release_workflow}"
           grep -q '^  windows-cli-artifact-readiness:' "${release_workflow}"
-          if grep -q '^  package-windows:' "${release_workflow}"; then
-            echo "::error::package-windows must stay undefined for the v0.1.1-alpha.1 Windows source/release contract-only slice."
-            exit 1
-          fi
+          grep -q '^  package-windows:' "${release_workflow}"
+          grep -q '^  attest-windows:' "${release_workflow}"
+          grep -q '^  windows-release-summary:' "${release_workflow}"
+          grep -q '^  windows-publish-eligibility-gate:' "${release_workflow}"
           grep -q 'actions/upload-artifact@v4' "${release_workflow}"
           grep -q 'actions/download-artifact@v4' "${release_workflow}"
           grep -q 'actions/attest@v4' "${release_workflow}"
@@ -1000,11 +1005,16 @@ jobs:
           grep -q 'gh release create' "${release_workflow}"
           grep -q 'cargo generate-lockfile' "${release_workflow}"
           grep -Fq 'cargo build --locked --release --package "${PACKAGE}" --bin "${BINARY}" --target "${TARGET}"' "${release_workflow}"
+          grep -Fq 'cargo build --locked --release --package $env:PACKAGE --bin $env:BINARY --target $env:TARGET' "${release_workflow}"
           grep -Fq 'top_level_dir="networkcore-linux-${version}-${target}"' "${release_workflow}"
           grep -Fq 'archive_name="${top_level_dir}.tar.gz"' "${release_workflow}"
           grep -Fq 'manifest_name="${top_level_dir}.manifest.json"' "${release_workflow}"
+          grep -Fq '$topLevelDir = "networkcore-windows-$version-$target"' "${release_workflow}"
+          grep -Fq '$archiveName = "$topLevelDir.zip"' "${release_workflow}"
+          grep -Fq '$manifestName = "$topLevelDir.manifest.json"' "${release_workflow}"
           grep -q 'linux-artifact-license-notice-status=confirmed' "${release_workflow}"
           grep -q 'package_publish_eligibility_status=eligible' "${release_workflow}"
+          grep -q 'windows-release-assets' "${release_workflow}"
           grep -Fq "github.event_name == 'push' && github.ref_type == 'tag'" "${release_workflow}"
 
           grep -q '^linux-artifact-license-notice-source-contract=docs/architecture/linux-artifact-license-notice-confirmation.md$' docs/manual-intervention.md
