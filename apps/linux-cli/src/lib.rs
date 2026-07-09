@@ -1297,6 +1297,24 @@ pub struct SubscriptionCatalogSelectReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubscriptionCatalogUpdateRequest {
+    pub catalog_path: String,
+    pub snapshot_path: String,
+    pub source_id: String,
+    pub location: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubscriptionCatalogUpdateReport {
+    pub catalog_path: String,
+    pub snapshot_path: String,
+    pub source_id: String,
+    pub source_count: usize,
+    pub location_kind: String,
+    pub location_redacted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubscriptionCatalogRemoveRequest {
     pub catalog_path: String,
     pub snapshot_path: String,
@@ -1474,6 +1492,97 @@ impl CommandSubscriptionCatalogStore {
             catalog_path,
             source_id: source.id.trim().to_string(),
             location_kind: subscription_catalog_location_kind(source.location.trim()).to_string(),
+            location_redacted: true,
+        })
+    }
+
+    pub fn update_source(
+        &self,
+        request: &SubscriptionCatalogUpdateRequest,
+    ) -> DomainResult<SubscriptionCatalogUpdateReport> {
+        let catalog_path = required_subscription_catalog_path(
+            &request.catalog_path,
+            CLI_SUBSCRIPTION_CATALOG_PATH_MISSING_CODE,
+            "subscription catalog path cannot be empty",
+        )?;
+        let snapshot_path = required_subscription_catalog_path(
+            &request.snapshot_path,
+            CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_PATH_MISSING_CODE,
+            "subscription catalog snapshot path cannot be empty",
+        )?;
+        if catalog_path == snapshot_path {
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_PATH_CONFLICT_CODE,
+                "subscription catalog and rollback snapshot paths must differ",
+            ));
+        }
+        if std::path::Path::new(&snapshot_path).exists() {
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_WRITE_FAILED_CODE,
+                "refusing to overwrite an existing subscription catalog rollback snapshot",
+            ));
+        }
+
+        let source_id = request.source_id.trim();
+        if source_id.is_empty() {
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_SOURCE_ID_EMPTY_CODE,
+                "subscription catalog source id cannot be empty",
+            ));
+        }
+        let location = request.location.trim();
+        if location.is_empty() {
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_SOURCE_LOCATION_EMPTY_CODE,
+                "subscription catalog source location cannot be empty",
+            ));
+        }
+
+        let (mut catalog, previous_catalog) = read_subscription_catalog_file(&catalog_path)?;
+        let source = catalog
+            .sources
+            .iter_mut()
+            .find(|source| source.id.trim() == source_id)
+            .ok_or_else(|| {
+                DomainError::new(
+                    CLI_SUBSCRIPTION_CATALOG_SOURCE_NOT_FOUND_CODE,
+                    format!("subscription catalog source id was not found: {source_id}"),
+                )
+            })?;
+        source.location = location.to_string();
+
+        let snapshot_json = serde_json::to_string_pretty(&previous_catalog).map_err(|error| {
+            DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_WRITE_FAILED_CODE,
+                format!("failed to render subscription catalog rollback snapshot: {error}"),
+            )
+        })?;
+        let catalog_json = serde_json::to_string_pretty(&catalog).map_err(|error| {
+            DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_WRITE_FAILED_CODE,
+                format!("failed to render subscription catalog: {error}"),
+            )
+        })?;
+
+        write_new_file(
+            &snapshot_path,
+            snapshot_json.as_bytes(),
+            CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_WRITE_FAILED_CODE,
+            "subscription catalog rollback snapshot",
+        )?;
+        write_replace_file(
+            &catalog_path,
+            catalog_json.as_bytes(),
+            CLI_SUBSCRIPTION_CATALOG_WRITE_FAILED_CODE,
+            "subscription catalog",
+        )?;
+
+        Ok(SubscriptionCatalogUpdateReport {
+            catalog_path,
+            snapshot_path,
+            source_id: source_id.to_string(),
+            source_count: catalog.sources.len(),
+            location_kind: subscription_catalog_location_kind(location).to_string(),
             location_redacted: true,
         })
     }

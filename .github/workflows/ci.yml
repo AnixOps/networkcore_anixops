@@ -355,6 +355,7 @@ jobs:
           grep -q "persistent-subscription-catalog-list-operation=list" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "persistent-subscription-catalog-remove-operation=remove" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "persistent-subscription-catalog-select-operation=select" docs/architecture/subscription-catalog-persistence-source-contract.md
+          grep -q "persistent-subscription-catalog-update-operation=update" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "persistent-subscription-catalog-schema-version=1" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "persistent-subscription-catalog-default-path=blocked" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "persistent-subscription-catalog-remote-fetch=blocked" docs/architecture/subscription-catalog-persistence-source-contract.md
@@ -371,6 +372,9 @@ jobs:
           grep -q "SubscriptionCatalogSelectRequest" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "SubscriptionCatalogSelectReport" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "CommandSubscriptionCatalogStore::select_source" docs/architecture/subscription-catalog-persistence-source-contract.md
+          grep -q "SubscriptionCatalogUpdateRequest" docs/architecture/subscription-catalog-persistence-source-contract.md
+          grep -q "SubscriptionCatalogUpdateReport" docs/architecture/subscription-catalog-persistence-source-contract.md
+          grep -q "CommandSubscriptionCatalogStore::update_source" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "location_redacted=true" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "rollback snapshot" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "SUBSCRIPTION_CATALOG_SCHEMA_VERSION" apps/linux-cli/src/lib.rs
@@ -387,10 +391,14 @@ jobs:
           grep -q "SubscriptionCatalogSelectRequest" apps/linux-cli/src/lib.rs
           grep -q "SubscriptionCatalogSelectReport" apps/linux-cli/src/lib.rs
           grep -q "fn select_source" apps/linux-cli/src/lib.rs
+          grep -q "SubscriptionCatalogUpdateRequest" apps/linux-cli/src/lib.rs
+          grep -q "SubscriptionCatalogUpdateReport" apps/linux-cli/src/lib.rs
+          grep -q "fn update_source" apps/linux-cli/src/lib.rs
           grep -q "subscription_catalog_add_persists_source_snapshot_and_redacts_location" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "subscription_catalog_list_reads_and_redacts_sources" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "subscription_catalog_remove_persists_snapshot_and_redacts_location" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "subscription_catalog_select_reads_and_redacts_source" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "subscription_catalog_update_persists_snapshot_and_redacts_location" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "v0.1.2-alpha.1" README.md
           grep -q "v0.1.2-alpha.1" ROADMAP.md
           grep -q "v0.1.2-alpha.1" TODO.md
@@ -410,6 +418,9 @@ jobs:
           grep -q "CommandSubscriptionCatalogStore::select_source" TODO.md
           grep -q "CommandSubscriptionCatalogStore::select_source" CHANGELOG.md
           grep -q "CommandSubscriptionCatalogStore::select_source" apps/linux-cli/README.md
+          grep -q "CommandSubscriptionCatalogStore::update_source" TODO.md
+          grep -q "CommandSubscriptionCatalogStore::update_source" CHANGELOG.md
+          grep -q "CommandSubscriptionCatalogStore::update_source" apps/linux-cli/README.md
           grep -q "handle_entrypoint_with_runtime_lifecycle_and_sing_box" apps/linux-cli/src/main.rs
           git submodule status third_party/mitm_anixops | grep -q "a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0"
           grep -q "v0.45.10-alpha" docs/architecture/mitm-anixops-adapter.md
