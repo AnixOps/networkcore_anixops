@@ -44,8 +44,9 @@ use networkcore_linux::{
     handle_status, handle_stop, native_proxy_engine_service_with_builtin_mitm_plugin, parse_args,
     render_response, BrowserCaptureEndpointProbe, BrowserCapturePacFileStore,
     BrowserCaptureProcessRunner, BrowserCaptureTrafficProofProbe,
-    CommandBrowserCaptureEndpointProbe, CommandBrowserCaptureTrafficProofProbe, ConfigReadError,
-    ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
+    CommandBrowserCaptureEndpointProbe, CommandBrowserCaptureTrafficProofProbe,
+    CommandSubscriptionCatalogStore, ConfigReadError, ConfigReader,
+    CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
     LinuxBrowserCaptureLaunchRequest, LinuxBrowserCapturePacApplyOutcome,
@@ -54,10 +55,10 @@ use networkcore_linux::{
     LinuxBrowserCaptureVerifyOutcome, LinuxBrowserCaptureVerifyRequest, LinuxCliCommand,
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
-    CommandSubscriptionCatalogStore, MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot,
-    OutputFormat, SubscriptionCatalogAddRequest,
-    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
-    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
+    MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
+    SubscriptionCatalogAddRequest, UnavailableForegroundLifecycleHost,
+    UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
+    CLI_CONFIG_READ_FAILED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
@@ -220,7 +221,10 @@ fn subscription_catalog_add_persists_source_snapshot_and_redacts_location() {
     )
     .expect("snapshot file should be valid JSON");
     assert_eq!(snapshot["schema_version"], 1);
-    assert!(snapshot["sources"].as_array().expect("sources array").is_empty());
+    assert!(snapshot["sources"]
+        .as_array()
+        .expect("sources array")
+        .is_empty());
 
     let duplicate = store
         .add_source(&SubscriptionCatalogAddRequest {
@@ -232,7 +236,10 @@ fn subscription_catalog_add_persists_source_snapshot_and_redacts_location() {
             },
         })
         .expect_err("duplicate source id should be rejected");
-    assert_eq!(duplicate.code, "cli.linux.subscription_catalog.duplicate_source_id");
+    assert_eq!(
+        duplicate.code,
+        "cli.linux.subscription_catalog.duplicate_source_id"
+    );
     let catalog_after_duplicate: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(&catalog_path).expect("catalog should remain readable"),
     )
