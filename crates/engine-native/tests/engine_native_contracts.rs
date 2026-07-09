@@ -15,8 +15,8 @@ use engine_native::{
     assess_socks5_outbound_connect_relay_readiness, attempt_socks5_outbound_tcp_connection,
     browser_capture_proof_token_from_connect_authority,
     build_socks5_outbound_connect_request_frame, decide_socks5_outbound_connect_response,
-    native_socks5_connect_browser_capture_proof_token, plan_and_apply_plain_http_mitm,
-    observe_explicit_http_connect_tls_client_hello,
+    native_socks5_connect_browser_capture_proof_token,
+    observe_explicit_http_connect_tls_client_hello, plan_and_apply_plain_http_mitm,
     plan_explicit_http_connect_tls_mitm_foundation, plan_socks5_connect_http_mitm,
     plan_socks5_outbound_connect_client_success_response_write,
     plan_socks5_outbound_connect_data_relay, plan_socks5_outbound_tcp_connection,
@@ -1509,7 +1509,10 @@ fn explicit_http_connect_tls_client_hello_observation_extracts_sni_without_enabl
     );
 
     assert!(observation_report.client_hello_observed);
-    assert_eq!(observation_report.sni_hostname.as_deref(), Some("example.com"));
+    assert_eq!(
+        observation_report.sni_hostname.as_deref(),
+        Some("example.com")
+    );
     assert_eq!(
         observation_report.tls_record_version.as_deref(),
         Some("TLS 1.2")
