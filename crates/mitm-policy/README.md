@@ -92,8 +92,10 @@ loads that built-in plugin into `engine-native` through
 before outbound selection. This blocks the CONNECT tunnel, but it is not HTTPS
 decryption and does not apply redirect/header/body/script rewrite plans.
 
-Release/source split: `v0.1.0` is the latest published Linux artifact,
-while this README describes current `main` source. That artifact includes
+Release/source split: `v0.1.1-alpha.1` is the latest published prerelease Linux
+artifact, and `v0.1.0` remains the latest stable Linux artifact, while this
+README describes current `main` source. The prerelease inherits the `v0.1.0`
+Linux capability boundary and includes
 `verify --confirm`, `verify --confirm --target-url <url>`, `session-plan`,
 browser capture `--target-url`, `traffic-proof`, PAC/browser policy artifact
 apply/rollback, native SOCKS5 CONNECT plugin reject, the
@@ -111,7 +113,10 @@ diagnostics, plus traffic-proof text CONNECT authority output. Later live TLS te
 TLS decryption and full HTTPS rewrite increments after this tag require a later tag
 release before users can download them from GitHub Releases. The full alpha/rc
 feature and boundary index is `docs/alpha-release-feature-matrix.md`.
-Current `main` is synced to the `v0.1.0` release boundary: browser capture `traffic-proof` records `proof_connect_authority`,
+`v0.1.1-alpha.1` also publishes the Windows CLI artifact source/release contract
+as contract-only/blocked output; it does not define `package-windows` or upload a
+Windows zip. Current `main` is synced to the `v0.1.1-alpha.1` post-release
+boundary: browser capture `traffic-proof` records `proof_connect_authority`,
 requires token/proxy/CONNECT authority binding in the same proof log line, and
 prints the CONNECT authority in text output for manual proof audit; Linux CLI
 also freezes caller-provided HTTPS request preview so it still reports

@@ -434,13 +434,15 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前 main source 状态
 
-当前最新用户可下载 Linux artifact 是 `v0.1.0`。`main` 已同步到
-`v0.1.0` 正式发布边界：在保留 `v0.1.0-alpha.20`
+当前最新用户可下载 Linux artifact 是 `v0.1.1-alpha.1` prerelease，最新 stable artifact 是
+`v0.1.0`。`main` 已同步到 `v0.1.1-alpha.1` 发布后边界：在保留 `v0.1.0-alpha.20`
 release hardening 发布边界的基础上，Linux CLI `mitm http-rewrite preview --confirm --url https://... --phase request`
 的合同测试固定 caller-provided HTTPS request preview 只能保持 preview/reject 边界，并继续输出
 `tls_decryption_ready=false`、`https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`。
 当前发布边界仍不执行 live HTTPS decryption、live CONNECT 后 HTTPS request/response rewrite、完整 live HTTPS response rewrite、JavaScript script dispatch、system trust
-store mutation 或 system proxy mutation；下一步 `v0.1.1-alpha.1` 只做 Windows CLI artifact source/release contract。
+store mutation 或 system proxy mutation；`v0.1.1-alpha.1` 已发布 Windows CLI artifact source/release contract，
+但仍不定义 `package-windows`、不生成 Windows zip、不上传 Windows release asset；下一步
+`v0.1.1-alpha.2` 做 Windows CLI package/publish path。
 
 ## 已拍板后续版本节奏
 
@@ -486,7 +488,7 @@ store mutation 或 system proxy mutation；下一步 `v0.1.1-alpha.1` 只做 Win
 
 规划切片：
 
-- `v0.1.1-alpha.1`：Windows CLI artifact source/release contract。定义 Windows runner、
+- `v0.1.1-alpha.1`：Windows CLI artifact source/release contract。已发布；定义 Windows runner、
   toolchain、archive 格式、checksum、manifest、attestation、release notes、rollback 和 signing policy；
   本切片只激活合同和 release summary blocked 输出，不生成 Windows CLI zip，不定义 `package-windows`，
   不默认包含 service、driver 或 installer。

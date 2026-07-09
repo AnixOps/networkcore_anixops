@@ -21,7 +21,13 @@ linux-artifact-license-notice-status=confirmed
 linux-artifact-publish-scope=tag-release-after-all-gates
 ```
 
-当前最新已发布 Linux artifact 是 `v0.1.0`。`main` 分支已同步到 `v0.1.0` 正式发布边界：Linux CLI `mitm http-rewrite preview --confirm --url https://... --phase request` 的合同测试固定 caller-provided HTTPS request preview 只能输出 preview/reject 边界，继续保持 `tls_decryption_ready=false`、`https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`；下一步 `v0.1.1-alpha.1` 只做 Windows CLI artifact source/release contract，后续 P4 源码增量只有在新 tag release 完整通过 GitHub Actions 的 CI、package、
+当前最新已发布 Linux artifact 是 `v0.1.0` 正式版；当前最新 prerelease tag release 是
+`v0.1.1-alpha.1`，它继续发布 Linux CLI 四件套，并把 Windows CLI artifact source/release contract
+作为 contract-only/blocked 输出。`main` 分支已同步到 `v0.1.1-alpha.1` 发布后边界：Linux CLI
+`mitm http-rewrite preview --confirm --url https://... --phase request` 的合同测试固定 caller-provided
+HTTPS request preview 只能输出 preview/reject 边界，继续保持 `tls_decryption_ready=false`、
+`https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`；下一步 `v0.1.1-alpha.2` 做
+Windows CLI package/publish path，后续 P4 源码增量只有在新 tag release 完整通过 GitHub Actions 的 CI、package、
 attestation、publish eligibility 和 publish jobs 后，才会进入用户可下载的 GitHub Release asset。
 逐版本 alpha/rc 功能、边界和规划切片记录在 [Alpha Release Feature Matrix](alpha-release-feature-matrix.md)。
 
@@ -65,7 +71,7 @@ GitHub artifact attestation、release notes、rollback 和 publish eligibility g
   `package_publish_eligibility_status=eligible` 后，tag release 才能上传 GitHub Release assets。
 - iOS 仍保持 `ios-upload-readiness` blocked placeholder：不读取 secret，不定义真实 upload job，不生成
   Swift/Xcode source、archive/export、TestFlight/App Store upload、App Review submission 或 iOS release asset。
-- Windows 当前保持 `windows-cli-artifact-readiness` contract-only：`package-windows` 未定义，不生成 Windows zip，不上传 Windows release asset；service、driver、installer、Authenticode signing、system proxy mutation 和 system trust store mutation 继续 blocked。
+- Windows 当前在 `v0.1.1-alpha.1` 保持 `windows-cli-artifact-readiness` contract-only：`package-windows` 未定义，不生成 Windows zip，不上传 Windows release asset；service、driver、installer、Authenticode signing、system proxy mutation 和 system trust store mutation 继续 blocked。`v0.1.1-alpha.2` 才允许在通过 source identity、package-windows gate、checksum/manifest、attestation、release notes/rollback 和 publish eligibility 后进入 Windows CLI package/publish path。
 - license/NOTICE marker 当前为 confirmed；若 marker 缺失、非法或回退到 pending，不得生成 release artifact。confirmed 且同 commit CI、checksum、manifest、attestation、release notes、rollback 与 publish eligibility 全部通过后，tag release 可以生成并上传 Linux CLI artifact。
 - 不在本机打包、签名、测试或发布。
 - 通过 release summary job 输出发布来源、policy、release-ci-gate、release CI success source contract、release CI gate activation validation contract、release CI gate execution validation contract、release CI gate API implementation plan、iOS Swift/Xcode source tree activation preflight contract、iOS Package.swift source ownership activation preflight contract、iOS Package.swift manifest-only activation validation contract、iOS upload workflow activation validation contract、iOS source tree README placeholder/Package.swift ownership/manifest-only activation/marker/protected environment/manual approval/App Store Connect API secret/archive/export/upload/submission/release asset blocked 状态、Linux package artifact job preflight validation contract、Linux package artifact build command validation contract、Linux package artifact staging file validation contract、Linux package artifact archive creation validation contract、Linux package artifact checksum execution validation contract、Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract、Linux package artifact attestation execution validation contract、Linux package release notes/rollback execution validation contract、Linux package publish eligibility execution validation contract、release-artifact-contract、release-signing-contract、release-rollback-contract、linux-artifact-readiness、Linux foreground stop/release contract、Linux artifact manifest contract、Linux artifact manifest output fields、Linux package runner/toolchain/target contract、Linux package archive staging contract、Linux package checksum/manifest checksum contract、Linux package publish/upload boundary contract、Linux package signing/attestation policy binding contract、Linux package release notes/rollback policy binding contract、Linux package publish eligibility aggregate contract、Linux package license/NOTICE transition validation contract、Linux artifact license/NOTICE source contract 与 status、placeholder、artifact 状态和后续 artifact 门禁。
