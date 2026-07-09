@@ -57,7 +57,8 @@ use networkcore_linux::{
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
     MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
     SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
-    SubscriptionCatalogRemoveRequest, UnavailableForegroundLifecycleHost,
+    SubscriptionCatalogRemoveRequest, SubscriptionCatalogSelectRequest,
+    UnavailableForegroundLifecycleHost,
     UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
     CLI_CONFIG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
@@ -290,6 +291,61 @@ fn subscription_catalog_list_reads_and_redacts_sources() {
     );
 
     std::fs::remove_dir_all(&root).expect("catalog list test directory should be removed");
+}
+
+#[test]
+fn subscription_catalog_select_reads_and_redacts_source() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-subscription-catalog-select-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("catalog select test directory should be created");
+    let catalog_path = root.join("catalog.json");
+    let catalog_json = r#"{
+  "schema_version": 1,
+  "sources": [
+    {"id": "work", "location": "inline:secret-subscription-payload"},
+    {"id": "remote", "location": "https://example.test/sub?token=secret-token"}
+  ]
+}"#;
+    std::fs::write(&catalog_path, catalog_json).expect("catalog should be written");
+    let before = std::fs::read_to_string(&catalog_path).expect("catalog should be readable");
+
+    let report = CommandSubscriptionCatalogStore::new()
+        .select_source(&SubscriptionCatalogSelectRequest {
+            catalog_path: catalog_path.display().to_string(),
+            source_id: " remote ".to_string(),
+        })
+        .expect("catalog select should read the requested source");
+
+    assert_eq!(report.source_id, "remote");
+    assert_eq!(report.location_kind, "remote");
+    assert!(report.location_redacted);
+    let debug_report = format!("{report:?}");
+    assert!(!debug_report.contains("secret-subscription-payload"));
+    assert!(!debug_report.contains("secret-token"));
+    assert_eq!(
+        std::fs::read_to_string(&catalog_path).expect("catalog should remain readable"),
+        before
+    );
+
+    let missing = CommandSubscriptionCatalogStore::new()
+        .select_source(&SubscriptionCatalogSelectRequest {
+            catalog_path: catalog_path.display().to_string(),
+            source_id: "missing".to_string(),
+        })
+        .expect_err("missing source id should be rejected");
+    assert_eq!(
+        missing.code,
+        "cli.linux.subscription_catalog.source_not_found"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&catalog_path).expect("catalog should remain readable"),
+        before
+    );
+
+    std::fs::remove_dir_all(&root).expect("catalog select test directory should be removed");
 }
 
 #[test]

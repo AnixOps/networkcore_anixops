@@ -1283,6 +1283,20 @@ pub struct SubscriptionCatalogListReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubscriptionCatalogSelectRequest {
+    pub catalog_path: String,
+    pub source_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubscriptionCatalogSelectReport {
+    pub catalog_path: String,
+    pub source_id: String,
+    pub location_kind: String,
+    pub location_redacted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubscriptionCatalogRemoveRequest {
     pub catalog_path: String,
     pub snapshot_path: String,
@@ -1424,6 +1438,43 @@ impl CommandSubscriptionCatalogStore {
             catalog_path,
             source_count: sources.len(),
             sources,
+        })
+    }
+
+    pub fn select_source(
+        &self,
+        request: &SubscriptionCatalogSelectRequest,
+    ) -> DomainResult<SubscriptionCatalogSelectReport> {
+        let catalog_path = required_subscription_catalog_path(
+            &request.catalog_path,
+            CLI_SUBSCRIPTION_CATALOG_PATH_MISSING_CODE,
+            "subscription catalog path cannot be empty",
+        )?;
+        let source_id = request.source_id.trim();
+        if source_id.is_empty() {
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_SOURCE_ID_EMPTY_CODE,
+                "subscription catalog source id cannot be empty",
+            ));
+        }
+
+        let (catalog, _) = read_subscription_catalog_file(&catalog_path)?;
+        let source = catalog
+            .sources
+            .iter()
+            .find(|source| source.id.trim() == source_id)
+            .ok_or_else(|| {
+                DomainError::new(
+                    CLI_SUBSCRIPTION_CATALOG_SOURCE_NOT_FOUND_CODE,
+                    format!("subscription catalog source id was not found: {source_id}"),
+                )
+            })?;
+
+        Ok(SubscriptionCatalogSelectReport {
+            catalog_path,
+            source_id: source.id.trim().to_string(),
+            location_kind: subscription_catalog_location_kind(source.location.trim()).to_string(),
+            location_redacted: true,
         })
     }
 
