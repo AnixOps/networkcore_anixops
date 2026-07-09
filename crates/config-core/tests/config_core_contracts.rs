@@ -13,8 +13,7 @@ use control_domain::{
     ConfigurationService, Diagnostic, ListenerKind, ListenerNetwork, ListenerRoute, MetadataEntry,
     OperatingSystem, PlatformCapabilities, Protocol, RawSubscription, RouteAction, SchemaVersion,
     SubscriptionService, SubscriptionSource, NODE_METADATA_SHADOWSOCKS_METHOD,
-    NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SOURCE_FORMAT,
-    NODE_METADATA_TROJAN_PASSWORD,
+    NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SOURCE_FORMAT, NODE_METADATA_TROJAN_PASSWORD,
 };
 
 #[test]
@@ -169,8 +168,7 @@ fn parses_single_trojan_url_subscription_into_node_catalog() {
     let service = CoreSubscriptionService::new();
     let raw = RawSubscription {
         source_id: "trojan-url".to_string(),
-        content: "trojan://pa%40ss@example.com:443?sni=edge.example.com#HK%20Trojan"
-            .to_string(),
+        content: "trojan://pa%40ss@example.com:443?sni=edge.example.com#HK%20Trojan".to_string(),
     };
 
     let document = service

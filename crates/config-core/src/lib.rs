@@ -11,8 +11,7 @@ use control_domain::{
     ListenerRoute, Metadata, MetadataEntry, NodeCatalog, NodeDescriptor, PlatformCapabilities,
     Protocol, RawSubscription, RouteAction, RuleSet, SchemaVersion, SubscriptionDocument,
     SubscriptionService, SubscriptionSource, NODE_METADATA_SHADOWSOCKS_METHOD,
-    NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SOURCE_FORMAT,
-    NODE_METADATA_TROJAN_PASSWORD,
+    NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SOURCE_FORMAT, NODE_METADATA_TROJAN_PASSWORD,
 };
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -697,12 +696,9 @@ fn parse_host_port_for(
         error_code,
         format!("{protocol_name} host cannot be empty"),
     )?;
-    let port = port.parse::<i64>().map_err(|_| {
-        domain_error(
-            error_code,
-            format!("{protocol_name} port must be a number"),
-        )
-    })?;
+    let port = port
+        .parse::<i64>()
+        .map_err(|_| domain_error(error_code, format!("{protocol_name} port must be a number")))?;
     let port = parse_port(
         port,
         error_code,
