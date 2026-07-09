@@ -2578,9 +2578,7 @@ fn mitm_browser_capture_traffic_proof_text_output_includes_connect_authority() {
     );
 
     let rendered = render_response(&response, OutputFormat::Text);
-    assert!(rendered.contains(
-        "browser capture traffic proof CONNECT authority: example.com:443"
-    ));
+    assert!(rendered.contains("browser capture traffic proof CONNECT authority: example.com:443"));
 }
 
 #[test]
