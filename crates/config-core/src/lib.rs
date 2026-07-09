@@ -12,7 +12,7 @@ use control_domain::{
     Protocol, RawSubscription, RouteAction, RuleSet, SchemaVersion, SubscriptionDocument,
     SubscriptionService, SubscriptionSource, NODE_METADATA_SHADOWSOCKS_METHOD,
     NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SOURCE_FORMAT, NODE_METADATA_TROJAN_PASSWORD,
-    NODE_METADATA_VLESS_UUID,
+    NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_UUID,
 };
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -54,6 +54,7 @@ pub const SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE: &str =
     "subscription.core.shadowsocks_link_invalid";
 pub const SUBSCRIPTION_TROJAN_LINK_INVALID_CODE: &str = "subscription.core.trojan_link_invalid";
 pub const SUBSCRIPTION_VLESS_LINK_INVALID_CODE: &str = "subscription.core.vless_link_invalid";
+pub const SUBSCRIPTION_VMESS_LINK_INVALID_CODE: &str = "subscription.core.vmess_link_invalid";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CoreConfigurationService;
@@ -491,10 +492,12 @@ fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<Subscr
             parse_trojan_link(line)?
         } else if line.starts_with("vless://") {
             parse_vless_link(line)?
+        } else if line.starts_with("vmess://") {
+            parse_vmess_link(line)?
         } else {
             return Err(domain_error(
                 SUBSCRIPTION_LINK_UNSUPPORTED_CODE,
-                "only ss://, trojan://, and vless:// proxy links are supported in this alpha subscription parser",
+                "only ss://, trojan://, vless://, and vmess:// proxy links are supported in this alpha subscription parser",
             ));
         };
         if !seen_ids.insert(node.id.clone()) {
@@ -721,6 +724,82 @@ fn parse_vless_link(link: &str) -> DomainResult<NodeDescriptor> {
     })
 }
 
+fn parse_vmess_link(link: &str) -> DomainResult<NodeDescriptor> {
+    let payload = link.strip_prefix("vmess://").ok_or_else(|| {
+        domain_error(
+            SUBSCRIPTION_VMESS_LINK_INVALID_CODE,
+            "vmess link must start with vmess://",
+        )
+    })?;
+    let decoded = decode_base64_text(payload).ok_or_else(|| {
+        domain_error(
+            SUBSCRIPTION_VMESS_LINK_INVALID_CODE,
+            "vmess link payload is not valid base64",
+        )
+    })?;
+    let value = serde_json::from_str::<serde_json::Value>(&decoded).map_err(|_| {
+        domain_error(
+            SUBSCRIPTION_VMESS_LINK_INVALID_CODE,
+            "vmess link payload is not valid json",
+        )
+    })?;
+    let uuid = required_json_text_field(
+        &value,
+        "id",
+        SUBSCRIPTION_VMESS_LINK_INVALID_CODE,
+        "vmess uuid cannot be empty",
+    )?;
+    let host = required_json_text_field(
+        &value,
+        "add",
+        SUBSCRIPTION_VMESS_LINK_INVALID_CODE,
+        "vmess host cannot be empty",
+    )?;
+    let port = required_json_text_field(
+        &value,
+        "port",
+        SUBSCRIPTION_VMESS_LINK_INVALID_CODE,
+        "vmess port cannot be empty",
+    )?;
+    let port = port.parse::<i64>().map_err(|_| {
+        domain_error(
+            SUBSCRIPTION_VMESS_LINK_INVALID_CODE,
+            "vmess port must be a number",
+        )
+    })?;
+    let port = parse_port(
+        port,
+        SUBSCRIPTION_VMESS_LINK_INVALID_CODE,
+        "vmess port must be between 1 and 65535",
+    )?;
+    let host_id = sanitize_identifier(&host);
+    let host_id = if host_id.is_empty() {
+        "host".to_string()
+    } else {
+        host_id
+    };
+    let id = format!("vmess-{}-{port}", host_id);
+    let name = optional_json_text_field(&value, "ps").unwrap_or_else(|| id.clone());
+
+    Ok(NodeDescriptor {
+        id,
+        name,
+        protocol: Protocol::Vmess,
+        endpoint: Endpoint { host, port },
+        tags: vec!["subscription".to_string(), "vmess".to_string()],
+        metadata: vec![
+            MetadataEntry {
+                key: NODE_METADATA_VMESS_UUID.to_string(),
+                value: uuid,
+            },
+            MetadataEntry {
+                key: NODE_METADATA_SOURCE_FORMAT.to_string(),
+                value: "vmess-url".to_string(),
+            },
+        ],
+    })
+}
+
 fn parse_host_port_for(
     value: &str,
     error_code: &'static str,
@@ -802,6 +881,38 @@ fn percent_decode(value: &str) -> Result<String, ()> {
     }
 
     String::from_utf8(output).map_err(|_| ())
+}
+
+fn required_json_text_field(
+    value: &serde_json::Value,
+    field: &'static str,
+    code: &'static str,
+    message: &'static str,
+) -> DomainResult<String> {
+    let Some(raw) = value.get(field) else {
+        return Err(domain_error(code, message));
+    };
+    let text = match raw {
+        serde_json::Value::String(value) => value.clone(),
+        serde_json::Value::Number(value) => value.to_string(),
+        _ => return Err(domain_error(code, message)),
+    };
+
+    required_trimmed(text, code, message)
+}
+
+fn optional_json_text_field(value: &serde_json::Value, field: &'static str) -> Option<String> {
+    let text = match value.get(field)? {
+        serde_json::Value::String(value) => value.clone(),
+        serde_json::Value::Number(value) => value.to_string(),
+        _ => return None,
+    };
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
 }
 
 fn hex_value(byte: u8) -> Option<u8> {

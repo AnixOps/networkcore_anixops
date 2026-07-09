@@ -72,13 +72,19 @@ may be imported as `Protocol::Vless` with `NODE_METADATA_VLESS_UUID` and
 `NODE_METADATA_SOURCE_FORMAT=vless-url` inside `SubscriptionDocument`/
 `NodeCatalog`. VLESS query parameters such as `encryption=none` or `type=tcp`
 are accepted by this parser gate but not interpreted as runnable adapter
-configuration. This does not make `run-url` render or run Trojan or VLESS
-through `sing-box`; the initial `engine-singbox` renderer remains
-Shadowsocks-only until a later run-preview slice.
+configuration. `vmess://base64(json)` may be imported as `Protocol::Vmess`
+when the decoded JSON contains `add`, `port`, and `id`; `ps` may provide the
+display name, and `NODE_METADATA_VMESS_UUID` plus
+`NODE_METADATA_SOURCE_FORMAT=vmess-url` carry catalog metadata. VMess transport
+fields such as `net`, `tls`, `host`, `path`, `aid`, or `scy` are accepted by
+this parser gate but not interpreted as runnable adapter configuration. This
+does not make `run-url` render or run Trojan, VLESS, or VMess through
+`sing-box`; the initial `engine-singbox` renderer remains Shadowsocks-only
+until a later run-preview slice.
 
-VMess, Hysteria, Clash YAML, sing-box JSON, Surge, Loon, and Quantumult X
-remain follow-up formats. They must still enter through `SubscriptionService`
-and `NodeCatalog`, not through platform-specific parsers.
+Hysteria, Clash YAML, sing-box JSON, Surge, Loon, and Quantumult X remain
+follow-up formats. They must still enter through `SubscriptionService` and
+`NodeCatalog`, not through platform-specific parsers.
 
 ## sing-box Translation
 
@@ -148,7 +154,7 @@ Local machines must not run build, test, package, or release validation. GitHub
 Actions must verify:
 
 - `control-domain` metadata fields for per-protocol node parameters;
-- `config-core` parsing for `ss://`, `trojan://`, `vless://`, plaintext link list, and base64 link list;
+- `config-core` parsing for `ss://`, `trojan://`, `vless://`, `vmess://`, plaintext link list, and base64 link list;
 - `engine-singbox` deterministic local proxy config rendering;
 - `networkcore-linux run-url` parsing, response fields, config writing, and
   injected process runner behavior;

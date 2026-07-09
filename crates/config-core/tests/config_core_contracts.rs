@@ -14,7 +14,7 @@ use control_domain::{
     OperatingSystem, PlatformCapabilities, Protocol, RawSubscription, RouteAction, SchemaVersion,
     SubscriptionService, SubscriptionSource, NODE_METADATA_SHADOWSOCKS_METHOD,
     NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SOURCE_FORMAT, NODE_METADATA_TROJAN_PASSWORD,
-    NODE_METADATA_VLESS_UUID,
+    NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_UUID,
 };
 
 #[test]
@@ -235,11 +235,54 @@ fn parses_single_vless_url_subscription_into_node_catalog() {
 }
 
 #[test]
+fn parses_single_vmess_url_subscription_into_node_catalog() {
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "vmess-url".to_string(),
+        content: concat!(
+            "eyJ2IjoiMiIsInBzIjoiSlAgVk1lc3MiLCJhZGQiOiJlZGdlLmV4YW1wbGUu",
+            "bmV0IiwicG9ydCI6IjQ0MyIsImlkIjoiN2YwZjNmOTUtN2Q4My00YmIyLWJm",
+            "ODQtMmYyZTdlMmE4ZDJkIiwiYWlkIjoiMCIsIm5ldCI6InRjcCIsInR5cGUi",
+            "OiJub25lIiwiaG9zdCI6IiIsInBhdGgiOiIiLCJ0bHMiOiJ0bHMifQ=="
+        )
+        .to_string(),
+    };
+
+    let document = service
+        .parse(&raw)
+        .expect("vmess url should parse into a subscription document");
+    assert!(document.diagnostics.is_empty());
+    let catalog = service
+        .normalize(&document)
+        .expect("vmess url document should normalize");
+
+    assert_eq!(catalog.nodes.len(), 1);
+    assert!(catalog.rules.is_empty());
+    let node = &catalog.nodes[0];
+    assert_eq!(node.id, "vmess-edge-example-net-443");
+    assert_eq!(node.name, "JP VMess");
+    assert_eq!(node.protocol, Protocol::Vmess);
+    assert_eq!(node.endpoint.host, "edge.example.net");
+    assert_eq!(node.endpoint.port, 443);
+    assert_eq!(
+        node.tags,
+        vec!["subscription".to_string(), "vmess".to_string()]
+    );
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_VMESS_UUID,
+        "7f0f3f95-7d83-4bb2-bf84-2f2e7e2a8d2d",
+    );
+    assert_metadata(&node.metadata, NODE_METADATA_SOURCE_FORMAT, "vmess-url");
+    assert_metadata(&node.metadata, "subscription.source_id", "vmess-url");
+}
+
+#[test]
 fn unsupported_proxy_link_returns_stable_subscription_diagnostic() {
     let service = CoreSubscriptionService::new();
     let raw = RawSubscription {
         source_id: "unsupported".to_string(),
-        content: "vmess://example".to_string(),
+        content: "tuic://example".to_string(),
     };
 
     let error = service
