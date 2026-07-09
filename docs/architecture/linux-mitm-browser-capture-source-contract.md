@@ -24,7 +24,7 @@ safe snapshot, and rollback.
 current `main` 还会在 `session-plan`/`launch --confirm` 中生成 `proof_target_url`、`networkcore_proof_token` 和 `traffic_proof_command`，
 并允许 `traffic-proof --confirm [--target-url <url>]` 在 proof token/log 省略时复用同一默认 proof 绑定；
 默认 proof token 使用 CONNECT endpoint 和 proxy URL 派生，以便与 native SOCKS5 CONNECT 层可见信息对齐。
-当前 `v0.1.0-alpha.19` source increment 进一步让 `traffic-proof` 在可解析 target URL 时输出
+`v0.1.0-alpha.19` 进一步让 `traffic-proof` 在可解析 target URL 时输出
 `proof_connect_authority`，并要求同一 proof log 行同时包含 proof token、计划 proxy URL 和 CONNECT authority；
 不匹配时返回 `cli.linux.mitm.browser_capture.traffic_proof.binding_mismatch`，避免 token 孤立出现被误判为同一显式浏览器会话。
 `session-plan`、`launch`、`apply`、`verify` 和 `traffic-proof` 支持显式 `--proxy-scheme http|socks5`，
@@ -35,13 +35,13 @@ current `main` 还会在 `session-plan`/`launch --confirm` 中生成 `proof_targ
 但还没有用户可启用的完整 live browser capture，也没有系统级浏览器/系统代理写入、系统 PAC 安装、
 TUN/DNS/firewall mutation、CA lifecycle、HTTPS 解密或 live HTTP/TLS request/response rewrite data plane。
 
-发布边界：当前最新用户可下载 Linux artifact 是 `v0.1.0-alpha.18`；本文描述 current `main`
-源码合同。`v0.1.0-alpha.18` 已覆盖 `verify --confirm`、`verify --confirm --target-url <url>`、`session-plan`、`--target-url`、
+发布边界：当前最新用户可下载 Linux artifact 是 `v0.1.0-alpha.19`；本文描述 current `main`
+源码合同。`v0.1.0-alpha.19` 已覆盖 `verify --confirm`、`verify --confirm --target-url <url>`、`session-plan`、`--target-url`、
 `traffic-proof --confirm [--target-url <url>] [--proof-token <token>] [--proof-log <path>]` proof-log-token 验证入口、
-`session-plan`/`launch --confirm` proof URL/default proof 绑定、`--proxy-scheme socks5` native plugin proxy mode、
+`proof_connect_authority`、同一行 token/proxy/CONNECT authority binding mismatch 诊断、`session-plan`/`launch --confirm` proof URL/default proof 绑定、`--proxy-scheme socks5` native plugin proxy mode、
 `apply --confirm --pac-file <path> [--policy-file <path>] [--profile-prefs-file <path>] --snapshot <path>` / `rollback --snapshot <path>` PAC/browser policy artifact 与 Firefox dedicated profile prefs apply/rollback，
 explicit SOCKS5 CONNECT-level plugin reject/proof 诊断、explicit HTTP proxy live plain HTTP data plane、TLS CA certificate PEM、private key PEM、dedicated profile CA PEM copy、explicit HTTP `CONNECT` pass-through tunnel foundation、bounded ClientHello/SNI observation、controlled downstream TLS termination plan/report、caller-provided HTTPS request rewrite preview，以及 caller-provided HTTPS response rewrite preview。
-当前 `main` 已进入 `v0.1.0-alpha.19` proof binding hardening source increment，但该能力必须等待新 tag、
+当前 `main` 已同步到 `v0.1.0-alpha.19` proof binding hardening 发布边界；后续新能力仍必须等待新 tag、
 同 commit CI、package、attestation、publish eligibility 和 GitHub Release asset 全部通过后才会成为用户可下载 artifact。
 逐 alpha 能力边界以 [Alpha Release Feature Matrix](../alpha-release-feature-matrix.md) 为准。
 

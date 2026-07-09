@@ -6,8 +6,14 @@
 
 ### Added
 
-- 新增 `v0.1.0-alpha.19` proof binding hardening source increment：`networkcore-linux mitm browser-capture traffic-proof --confirm [--target-url <url>] [--proxy-scheme http|socks5]` 现在输出 `proof_connect_authority`，并要求同一 proof log 行同时包含 proof token、计划 proxy URL 和 CONNECT authority；未绑定时返回 `cli.linux.mitm.browser_capture.traffic_proof.binding_mismatch` 和 `binding_mismatch` report status。新增合同测试 `mitm_browser_capture_traffic_proof_requires_bound_proxy_and_connect_authority`。该增量仍未发布为 GitHub Release artifact，不证明 HTTPS 解密、live rewrite、system trust store mutation 或 system proxy mutation。
+- 同步 `v0.1.0-alpha.19` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README、`mitm-policy` README 和 Linux browser capture source contract 现在把 `v0.1.0-alpha.19` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 alpha.20 release hardening。
 - 同步 `v0.1.0-alpha.18` 发布后的 source-of-truth：README、ROADMAP、TODO、Release Strategy、Alpha Release Feature Matrix、CI policy、Linux CLI README 和 `mitm-policy` README 现在把 `v0.1.0-alpha.18` 记录为最新已发布 Linux artifact，并把后续 `v0.1.0` 切片推进到 alpha.19 live browser proof hardening 起。
+
+## v0.1.0-alpha.19 - 2026-07-09
+
+### Added
+
+- 新增 `v0.1.0-alpha.19` proof binding hardening：`networkcore-linux mitm browser-capture traffic-proof --confirm [--target-url <url>] [--proxy-scheme http|socks5]` 现在输出 `proof_connect_authority`，并要求同一 proof log 行同时包含 proof token、计划 proxy URL 和 CONNECT authority；未绑定时返回 `cli.linux.mitm.browser_capture.traffic_proof.binding_mismatch` 和 `binding_mismatch` report status。新增合同测试 `mitm_browser_capture_traffic_proof_requires_bound_proxy_and_connect_authority`。该版本仍不证明 HTTPS 解密、live rewrite、system trust store mutation 或 system proxy mutation。
 
 ## v0.1.0-alpha.18 - 2026-07-09
 
