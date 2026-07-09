@@ -302,6 +302,10 @@ jobs:
           grep -q "SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE" crates/config-core/src/lib.rs
           grep -q "SUBSCRIPTION_SING_BOX_JSON_UNSUPPORTED_CODE" crates/config-core/src/lib.rs
           grep -q "parses_sing_box_json_subscription_into_node_catalog" crates/config-core/tests/config_core_contracts.rs
+          grep -q "SUBSCRIPTION_QUANTUMULT_X_PROXY_LINE_INVALID_CODE" crates/config-core/src/lib.rs
+          grep -q "SUBSCRIPTION_QUANTUMULT_X_PROXY_LINE_UNSUPPORTED_CODE" crates/config-core/src/lib.rs
+          grep -q "parse_quantumult_x_proxy_line_subscription" crates/config-core/src/lib.rs
+          grep -q "parses_quantumult_x_proxy_line_subscription_into_node_catalog" crates/config-core/tests/config_core_contracts.rs
           grep -q "SUBSCRIPTION_LOON_PROXY_LINE_INVALID_CODE" crates/config-core/src/lib.rs
           grep -q "SUBSCRIPTION_LOON_PROXY_LINE_UNSUPPORTED_CODE" crates/config-core/src/lib.rs
           grep -q "parses_loon_proxy_line_subscription_into_node_catalog" crates/config-core/tests/config_core_contracts.rs
@@ -322,6 +326,14 @@ jobs:
           grep -q "sing-box JSON parser gate" docs/alpha-release-feature-matrix.md
           grep -q "sing-box JSON may be imported as a catalog-only parser gate" docs/architecture/subscription-url-to-sing-box-run-source-contract.md
           grep -q "sing-box JSON parser gates are catalog import only" crates/config-core/README.md
+          grep -q "Quantumult X proxy/server line parser gate" README.md
+          grep -q "Quantumult X proxy/server line parser gate" ROADMAP.md
+          grep -q "Quantumult X proxy/server line parser gate" TODO.md
+          grep -q "Quantumult X proxy/server line parser gate" CHANGELOG.md
+          grep -q "Quantumult X proxy/server line parser gate" docs/alpha-release-feature-matrix.md
+          grep -q "Quantumult X proxy/server line may be imported as a catalog-only parser gate" docs/architecture/subscription-url-to-sing-box-run-source-contract.md
+          grep -q "NODE_METADATA_SOURCE_FORMAT=quantumult-x-proxy-line" docs/architecture/subscription-url-to-sing-box-run-source-contract.md
+          grep -q "Quantumult X proxy/server line parser gates are catalog import only" crates/config-core/README.md
           grep -q "Surge proxy line parser gate" README.md
           grep -q "Surge proxy line parser gate" ROADMAP.md
           grep -q "Surge proxy line parser gate" TODO.md

@@ -16,7 +16,7 @@ Current boundary:
 The current command surface is intentionally conservative: `help`, `version`,
 `capabilities`, `status`, and `diagnostics`. Shared parser gates may
 catalog-import Trojan/VLESS/VMess URLs, Clash YAML, sing-box JSON, Surge proxy
-lines, and Loon proxy lines in `config-core`, but Windows subscription run
+lines, Loon proxy lines, and Quantumult X proxy/server lines in `config-core`, but Windows subscription run
 compatibility, Windows service, driver, installer, `system-proxy-mutation`,
 `system-trust-store-mutation`, JavaScript script dispatch, and managed daemon
 lifecycle remain blocked or deferred for later slices.

@@ -61,6 +61,10 @@ pub const SUBSCRIPTION_CLASH_YAML_UNSUPPORTED_CODE: &str =
 pub const SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE: &str = "subscription.core.sing_box_json_invalid";
 pub const SUBSCRIPTION_SING_BOX_JSON_UNSUPPORTED_CODE: &str =
     "subscription.core.sing_box_json_unsupported";
+pub const SUBSCRIPTION_QUANTUMULT_X_PROXY_LINE_INVALID_CODE: &str =
+    "subscription.core.quantumult_x_proxy_line_invalid";
+pub const SUBSCRIPTION_QUANTUMULT_X_PROXY_LINE_UNSUPPORTED_CODE: &str =
+    "subscription.core.quantumult_x_proxy_line_unsupported";
 pub const SUBSCRIPTION_LOON_PROXY_LINE_INVALID_CODE: &str =
     "subscription.core.loon_proxy_line_invalid";
 pub const SUBSCRIPTION_LOON_PROXY_LINE_UNSUPPORTED_CODE: &str =
@@ -322,6 +326,12 @@ impl SubscriptionService for CoreSubscriptionService {
         }
 
         if let Some(document) =
+            parse_quantumult_x_proxy_line_subscription(&source_id, &raw_subscription.content)?
+        {
+            return Ok(document);
+        }
+
+        if let Some(document) =
             parse_loon_proxy_line_subscription(&source_id, &raw_subscription.content)?
         {
             return Ok(document);
@@ -339,7 +349,7 @@ impl SubscriptionService for CoreSubscriptionService {
 
         Err(domain_error(
             SUBSCRIPTION_PARSE_FAILED_CODE,
-            "subscription payload could not be parsed as NetworkCore TOML, Clash YAML, sing-box JSON, Loon proxy lines, Surge proxy lines, or supported proxy links",
+            "subscription payload could not be parsed as NetworkCore TOML, Clash YAML, sing-box JSON, Quantumult X proxy lines, Loon proxy lines, Surge proxy lines, or supported proxy links",
         ))
     }
 
@@ -988,6 +998,282 @@ fn optional_sing_box_scalar_field(raw: Option<RawSingBoxScalar>) -> Option<Strin
         None
     } else {
         Some(text)
+    }
+}
+
+fn parse_quantumult_x_proxy_line_subscription(
+    source_id: &str,
+    content: &str,
+) -> DomainResult<Option<SubscriptionDocument>> {
+    let content = content.trim();
+    if content.is_empty() {
+        return Ok(None);
+    }
+
+    let mut saw_server_local_section = false;
+    let mut in_server_local_section = false;
+    let mut proxy_lines = Vec::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty()
+            || line.starts_with('#')
+            || line.starts_with("//")
+            || line.starts_with(';')
+        {
+            continue;
+        }
+
+        if let Some(section) = parse_surge_section_header(line) {
+            in_server_local_section = normalized_token(section).as_str() == "server_local";
+            saw_server_local_section |= in_server_local_section;
+            continue;
+        }
+
+        if in_server_local_section {
+            proxy_lines.push(line.to_string());
+        }
+    }
+
+    if !saw_server_local_section {
+        return Ok(None);
+    }
+    if proxy_lines.is_empty() {
+        return Err(domain_error(
+            SUBSCRIPTION_QUANTUMULT_X_PROXY_LINE_INVALID_CODE,
+            "quantumult x server_local section cannot be empty",
+        ));
+    }
+
+    let mut nodes = Vec::new();
+    let mut seen_ids = BTreeSet::new();
+    for line in proxy_lines {
+        let mut node = parse_quantumult_x_proxy_line(&line, source_id)?;
+        if !seen_ids.insert(node.id.clone()) {
+            let base_id = node.id.clone();
+            let mut suffix = seen_ids.len() + 1;
+            loop {
+                node.id = format!("{base_id}-{suffix}");
+                if seen_ids.insert(node.id.clone()) {
+                    break;
+                }
+                suffix += 1;
+            }
+        }
+        nodes.push(node);
+    }
+
+    Ok(Some(SubscriptionDocument {
+        nodes,
+        rules: Vec::new(),
+        diagnostics: Vec::new(),
+    }))
+}
+
+fn parse_quantumult_x_proxy_line(line: &str, source_id: &str) -> DomainResult<NodeDescriptor> {
+    let (protocol, definition) = line.split_once('=').ok_or_else(|| {
+        domain_error(
+            SUBSCRIPTION_QUANTUMULT_X_PROXY_LINE_INVALID_CODE,
+            "quantumult x proxy line must contain protocol and definition",
+        )
+    })?;
+    let protocol_token = normalized_token(protocol);
+    let parts = definition
+        .split(',')
+        .map(|part| part.trim().to_string())
+        .collect::<Vec<_>>();
+    let endpoint = parts.first().cloned().unwrap_or_default();
+    let endpoint = required_trimmed(
+        endpoint,
+        SUBSCRIPTION_QUANTUMULT_X_PROXY_LINE_INVALID_CODE,
+        "quantumult x proxy endpoint cannot be empty",
+    )?;
+    let (host, port) = parse_host_port_for(
+        &endpoint,
+        SUBSCRIPTION_QUANTUMULT_X_PROXY_LINE_INVALID_CODE,
+        "quantumult x proxy",
+    )?;
+    let options = collect_quantumult_x_proxy_options(&parts[1..])?;
+
+    let (protocol, protocol_tag, mut metadata) = match protocol_token.as_str() {
+        "ss" | "shadowsocks" => {
+            let method = required_quantumult_x_proxy_option(
+                &options,
+                &["method"],
+                "quantumult x shadowsocks method cannot be empty",
+            )?;
+            let password = required_quantumult_x_proxy_option(
+                &options,
+                &["password"],
+                "quantumult x shadowsocks password cannot be empty",
+            )?;
+            (
+                Protocol::Shadowsocks,
+                "ss",
+                vec![
+                    MetadataEntry {
+                        key: NODE_METADATA_SHADOWSOCKS_METHOD.to_string(),
+                        value: method,
+                    },
+                    MetadataEntry {
+                        key: NODE_METADATA_SHADOWSOCKS_PASSWORD.to_string(),
+                        value: password,
+                    },
+                ],
+            )
+        }
+        "trojan" => {
+            let password = required_quantumult_x_proxy_option(
+                &options,
+                &["password"],
+                "quantumult x trojan password cannot be empty",
+            )?;
+            (
+                Protocol::Trojan,
+                "trojan",
+                vec![MetadataEntry {
+                    key: NODE_METADATA_TROJAN_PASSWORD.to_string(),
+                    value: password,
+                }],
+            )
+        }
+        "vless" => {
+            let uuid = required_quantumult_x_proxy_option(
+                &options,
+                &["password", "uuid"],
+                "quantumult x vless uuid cannot be empty",
+            )?;
+            (
+                Protocol::Vless,
+                "vless",
+                vec![MetadataEntry {
+                    key: NODE_METADATA_VLESS_UUID.to_string(),
+                    value: uuid,
+                }],
+            )
+        }
+        "vmess" => {
+            let uuid = required_quantumult_x_proxy_option(
+                &options,
+                &["password", "uuid", "username"],
+                "quantumult x vmess uuid cannot be empty",
+            )?;
+            (
+                Protocol::Vmess,
+                "vmess",
+                vec![MetadataEntry {
+                    key: NODE_METADATA_VMESS_UUID.to_string(),
+                    value: uuid,
+                }],
+            )
+        }
+        "direct" | "reject" | "http" | "https" | "socks" | "socks5" | "ssr" | "shadowsocksr"
+        | "hysteria" | "hysteria2" | "tuic" | "wireguard" => {
+            return Err(domain_error(
+                SUBSCRIPTION_QUANTUMULT_X_PROXY_LINE_UNSUPPORTED_CODE,
+                "quantumult x proxy type must be shadowsocks, trojan, vless, or vmess for catalog import",
+            ));
+        }
+        _ => {
+            return Err(domain_error(
+                SUBSCRIPTION_QUANTUMULT_X_PROXY_LINE_UNSUPPORTED_CODE,
+                "quantumult x proxy type must be shadowsocks, trojan, vless, or vmess for catalog import",
+            ));
+        }
+    };
+
+    let name = optional_quantumult_x_proxy_option(&options, &["tag"]).unwrap_or_else(|| {
+        let host_id = sanitize_identifier(&host);
+        let host_id = if host_id.is_empty() {
+            "host".to_string()
+        } else {
+            host_id
+        };
+        format!("quantumult-x-{protocol_tag}-{host_id}-{port}")
+    });
+    let name_id = sanitize_identifier(&name);
+    let name_id = if name_id.is_empty() {
+        "node".to_string()
+    } else {
+        name_id
+    };
+    let id = format!("quantumult-x-{protocol_tag}-{name_id}");
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_SOURCE_FORMAT.to_string(),
+        value: "quantumult-x-proxy-line".to_string(),
+    });
+    metadata.push(MetadataEntry {
+        key: "subscription.source_id".to_string(),
+        value: source_id.to_string(),
+    });
+
+    Ok(NodeDescriptor {
+        id,
+        name,
+        protocol,
+        endpoint: Endpoint { host, port },
+        tags: vec![
+            "subscription".to_string(),
+            "quantumult-x-proxy-line".to_string(),
+            protocol_tag.to_string(),
+        ],
+        metadata,
+    })
+}
+
+fn collect_quantumult_x_proxy_options(parts: &[String]) -> DomainResult<BTreeMap<String, String>> {
+    let mut options = BTreeMap::new();
+    for part in parts {
+        if part.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = part.split_once('=') else {
+            return Err(domain_error(
+                SUBSCRIPTION_QUANTUMULT_X_PROXY_LINE_INVALID_CODE,
+                "quantumult x proxy option must use key=value",
+            ));
+        };
+        let key = normalized_token(key);
+        let value = strip_quantumult_x_quotes(value.to_string());
+        let value = required_trimmed(
+            value,
+            SUBSCRIPTION_QUANTUMULT_X_PROXY_LINE_INVALID_CODE,
+            "quantumult x proxy option value cannot be empty",
+        )?;
+        if !key.is_empty() {
+            options.insert(key, value);
+        }
+    }
+    Ok(options)
+}
+
+fn optional_quantumult_x_proxy_option(
+    options: &BTreeMap<String, String>,
+    keys: &[&str],
+) -> Option<String> {
+    for key in keys {
+        if let Some(value) = options.get(*key) {
+            return Some(value.clone());
+        }
+    }
+    None
+}
+
+fn required_quantumult_x_proxy_option(
+    options: &BTreeMap<String, String>,
+    keys: &[&str],
+    message: &'static str,
+) -> DomainResult<String> {
+    optional_quantumult_x_proxy_option(options, keys).ok_or_else(|| {
+        domain_error(SUBSCRIPTION_QUANTUMULT_X_PROXY_LINE_INVALID_CODE, message)
+    })
+}
+
+fn strip_quantumult_x_quotes(value: String) -> String {
+    let value = value.trim();
+    if value.len() >= 2 && value.starts_with('"') && value.ends_with('"') {
+        value[1..value.len() - 1].to_string()
+    } else {
+        value.to_string()
     }
 }
 

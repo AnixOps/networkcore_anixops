@@ -146,7 +146,27 @@ not make `run-url` render or run Loon through `sing-box`; the current
 `engine-singbox` renderer remains Shadowsocks URL path only until a later
 run-preview slice.
 
-Hysteria and Quantumult X remain follow-up formats.
+Quantumult X proxy/server line may be imported as a catalog-only parser gate
+when the payload has a `[server_local]` section. The initial supported line
+subset reads `protocol=host:port, key=value...`; it accepts
+`ss`/`shadowsocks`, `trojan`, `vless`, and `vmess` proxy types. Shadowsocks
+lines read `method` and `password`, Trojan lines read `password`, VLESS lines
+read `password` or `uuid` as the VLESS UUID, and VMess lines read `password`,
+`uuid`, or `username` as the VMess UUID. The `tag` option becomes the catalog
+display name when present. Imported Quantumult X nodes must include
+`NODE_METADATA_SOURCE_FORMAT=quantumult-x-proxy-line`; unsupported Quantumult X
+proxy/server line types must fail with
+`subscription.core.quantumult_x_proxy_line_unsupported`, and malformed supported
+proxy/server lines must fail with
+`subscription.core.quantumult_x_proxy_line_invalid` without echoing raw
+subscription content or secrets. Quantumult X `[server_remote]`, policies,
+filters, rewrite/task sections, TLS/transport/obfs options, UDP flags, remote
+subscription fetching, and adapter rendering remain deferred. This does not
+make `run-url` render or run Quantumult X through `sing-box`; the current
+`engine-singbox` renderer remains Shadowsocks URL path only until a later
+run-preview slice.
+
+Hysteria and other non-listed formats remain follow-up formats.
 They must still enter through `SubscriptionService` and `NodeCatalog`, not
 through platform-specific parsers.
 
