@@ -99,6 +99,13 @@ P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成，当前阶
 
 阶段状态速查：
 
+- 当前 source release 切片是 `v0.1.2-alpha.3`：Linux `start` 在显式
+  `--enable-https-mitm --mitm-ca-cert --mitm-ca-key --confirm` 下可对 CONNECT authority/SNI 一致的
+  流量签发 authority-bound leaf、终止下游 TLS、以 web-PKI 校验上游 TLS，并在单个有界 HTTP/1.1
+  request/response exchange 上执行插件改写。显式 local Node runner/script map 可在同一路径执行脚本，
+  失败 fail-open；它不是 sandbox，也不下载远程脚本。默认启动、系统/浏览器信任和代理 mutation 仍保持关闭。
+  该版本是否可下载只由同名 tag 的 GitHub Actions release workflow 决定。
+
 - 当前阶段源：P4 Client And Platform Integration。
 - P3 是已完成历史基线，不再作为当前仓库阶段描述；后续迭代、TODO、release 说明和架构合同都按 P4 backlog 推进。
 - 当前最新 stable artifact：`v0.1.0` GitHub Release 中的 Linux CLI tarball、sha256、manifest 和 manifest sha256；最新 prerelease/tag release 是 `v0.1.1-alpha.2`，它由 GitHub Actions 发布 Linux CLI 四件套和 Windows manual-extract CLI zip、sha256、manifest、manifest sha256。Linux 二进制可用 `help` 命令表、`install-sing-box`、`run-url <ss://url>` foreground local proxy、MITM status/diagnostics/certificate-plan/browser-plan policy-only 命令面、`mitm certificate apply/rollback` certificate artifact lifecycle、TLS 可消费 CA certificate PEM/private key PEM、dedicated profile CA PEM copy、`mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` 的 explicit proxy browser capture 切片、`mitm http-rewrite plan/preview` 的 caller-provided plain HTTP rewrite foundation、explicit HTTP proxy `http://` live request/response rewrite、explicit HTTP `CONNECT` pass-through tunnel foundation、bounded ClientHello/SNI observation、controlled downstream TLS termination plan/report、caller-provided HTTPS request reject/redirect/header mutation preview、caller-provided HTTPS response header/body mutation preview、`traffic-proof` 的 proof token/proxy/CONNECT authority 绑定 hardening，以及 traffic-proof text CONNECT authority 输出。各 alpha/rc/stable 版本能力边界见 [Alpha Release Feature Matrix](docs/alpha-release-feature-matrix.md)。
