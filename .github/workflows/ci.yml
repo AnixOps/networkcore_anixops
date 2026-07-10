@@ -433,6 +433,7 @@ jobs:
           grep -q "managed-foreground-session-event-operation=event-read" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-write-operation=event-write" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-cli-read-operation=managed-event" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "managed-foreground-session-event-cli-init-operation=managed-event-init" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-liveness-verification=blocked" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "ManagedForegroundSessionEventRequest" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "ManagedForegroundSessionEventReport" docs/architecture/managed-foreground-session-event-source-contract.md
@@ -472,6 +473,9 @@ jobs:
           grep -q "ManagedEvent" apps/linux-cli/src/lib.rs
           grep -q "fn handle_managed_foreground_event" apps/linux-cli/src/lib.rs
           grep -q "managed_foreground_session_event_cli_reads_explicit_record_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "ManagedEventInit" apps/linux-cli/src/lib.rs
+          grep -q "fn handle_managed_foreground_event_init" apps/linux-cli/src/lib.rs
+          grep -q "managed_foreground_session_event_cli_initializes_non_overwriting_record" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "v0.1.2-alpha.1" README.md
           grep -q "v0.1.2-alpha.1" ROADMAP.md
           grep -q "v0.1.2-alpha.1" TODO.md
@@ -524,6 +528,9 @@ jobs:
           grep -q "networkcore-linux managed-event" TODO.md
           grep -q "networkcore-linux managed-event" CHANGELOG.md
           grep -q "networkcore-linux managed-event" apps/linux-cli/README.md
+          grep -q "networkcore-linux managed-event init" TODO.md
+          grep -q "networkcore-linux managed-event init" CHANGELOG.md
+          grep -q "networkcore-linux managed-event init" apps/linux-cli/README.md
           grep -q "handle_entrypoint_with_runtime_lifecycle_and_sing_box" apps/linux-cli/src/main.rs
           git submodule status third_party/mitm_anixops | grep -q "a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0"
           grep -q "v0.45.10-alpha" docs/architecture/mitm-anixops-adapter.md
