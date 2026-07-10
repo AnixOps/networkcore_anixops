@@ -4448,11 +4448,9 @@ where
             snapshot_path,
             expected_state,
             ..
-        } => handle_managed_foreground_status_rollback(
-            &status_path,
-            &snapshot_path,
-            &expected_state,
-        ),
+        } => {
+            handle_managed_foreground_status_rollback(&status_path, &snapshot_path, &expected_state)
+        }
         LinuxCliCommand::ManagedEvent { event_path, .. } => {
             handle_managed_foreground_event(&event_path)
         }
