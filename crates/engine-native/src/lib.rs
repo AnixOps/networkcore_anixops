@@ -7,12 +7,11 @@
 use control_domain::{
     AuditEvent, Diagnostic, DiagnosticSeverity, DomainError, DomainResult, Endpoint,
     HttpHeaderMutation, HttpHeaderMutationOperation, HttpMitmAction, HttpMitmEvent,
-    HttpMitmOutcome, HttpMitmPhase, HttpMitmScriptDispatch, HttpMitmScriptKind,
-    ListenerDescriptor, ListenerKind, ListenerNetwork,
-    ListenerRoute, MetadataEntry, MitmPluginService, NodeDescriptor, PluginInstance, Protocol,
-    ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineEventKind,
-    ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RouteAction,
-    RuleSet,
+    HttpMitmOutcome, HttpMitmPhase, HttpMitmScriptDispatch, HttpMitmScriptKind, ListenerDescriptor,
+    ListenerKind, ListenerNetwork, ListenerRoute, MetadataEntry, MitmPluginService, NodeDescriptor,
+    PluginInstance, Protocol, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
+    ProxyEngineEventKind, ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService,
+    ProxyEngineStatus, RouteAction, RuleSet,
 };
 use rcgen::{
     CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, Issuer, KeyPair,
@@ -833,7 +832,8 @@ impl NativeNodeScriptExecutor {
         script_asset_path: &str,
         body_path: &std::path::Path,
     ) -> NativeHttpScriptExecutionReport {
-        let request_headers = match serde_json::to_string(&script_headers_to_map(&message.headers)) {
+        let request_headers = match serde_json::to_string(&script_headers_to_map(&message.headers))
+        {
             Ok(headers) => headers,
             Err(_) => {
                 return script_execution_failed(
@@ -865,14 +865,15 @@ impl NativeNodeScriptExecutor {
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
         if let HttpMitmPhase::Response = message.phase {
-            let response_headers = match serde_json::to_string(&script_headers_to_map(&message.headers)) {
-                Ok(headers) => headers,
-                Err(_) => {
-                    return script_execution_failed(
-                        "native HTTP script runtime could not encode response headers",
-                    )
-                }
-            };
+            let response_headers =
+                match serde_json::to_string(&script_headers_to_map(&message.headers)) {
+                    Ok(headers) => headers,
+                    Err(_) => {
+                        return script_execution_failed(
+                            "native HTTP script runtime could not encode response headers",
+                        )
+                    }
+                };
             command
                 .arg("--status")
                 .arg(message.status_code.unwrap_or(200).to_string())
@@ -1258,13 +1259,16 @@ fn script_url_mutation_preserves_authority(current_url: &str, updated_url: &str)
         return false;
     };
     current_scheme == updated_scheme
-        && current_target.target_host.eq_ignore_ascii_case(&updated_target.target_host)
+        && current_target
+            .target_host
+            .eq_ignore_ascii_case(&updated_target.target_host)
         && current_target.target_port == updated_target.target_port
 }
 
 fn parse_script_absolute_url(url: &str) -> Option<(&'static str, ParsedExplicitHttpProxyTarget)> {
     if let Some(rest) = url.strip_prefix("https://") {
-        return parse_absolute_http_proxy_target("https", rest, 443).map(|target| ("https", target));
+        return parse_absolute_http_proxy_target("https", rest, 443)
+            .map(|target| ("https", target));
     }
     if let Some(rest) = url.strip_prefix("http://") {
         return parse_absolute_http_proxy_target("http", rest, 80).map(|target| ("http", target));
@@ -1518,7 +1522,10 @@ impl fmt::Debug for NativeTlsServerConfigBuildReport {
             .debug_struct("NativeTlsServerConfigBuildReport")
             .field("authority", &self.authority)
             .field("server_config_ready", &self.server_config_ready)
-            .field("server_config", &self.server_config.as_ref().map(|_| "[configured]"))
+            .field(
+                "server_config",
+                &self.server_config.as_ref().map(|_| "[configured]"),
+            )
             .field("diagnostics", &self.diagnostics)
             .finish()
     }
@@ -1536,7 +1543,10 @@ impl fmt::Debug for NativeTlsUpstreamClientConfigBuildReport {
         formatter
             .debug_struct("NativeTlsUpstreamClientConfigBuildReport")
             .field("client_config_ready", &self.client_config_ready)
-            .field("client_config", &self.client_config.as_ref().map(|_| "[configured]"))
+            .field(
+                "client_config",
+                &self.client_config.as_ref().map(|_| "[configured]"),
+            )
             .field("diagnostics", &self.diagnostics)
             .finish()
     }
@@ -2394,10 +2404,8 @@ pub fn issue_controlled_tls_termination_leaf_certificate(
         .target_host
         .trim_end_matches('.')
         .to_ascii_lowercase();
-    let sni_authority_matches = tls_sni_matches_connect_authority(
-        &authority,
-        termination_plan.sni_hostname.as_deref(),
-    );
+    let sni_authority_matches =
+        tls_sni_matches_connect_authority(&authority, termination_plan.sni_hostname.as_deref());
     let certificate_issue_ready = termination_plan.downstream_tls_termination_plan_ready
         && termination_plan.ca_certificate_pem_ready
         && termination_plan.ca_private_key_pem_ready
@@ -2434,9 +2442,8 @@ pub fn issue_controlled_tls_termination_leaf_certificate(
         leaf_params.distinguished_name = distinguished_name;
         leaf_params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
 
-        let leaf_key = KeyPair::generate().map_err(|error| {
-            format!("TLS leaf private key could not be generated: {error}")
-        })?;
+        let leaf_key = KeyPair::generate()
+            .map_err(|error| format!("TLS leaf private key could not be generated: {error}"))?;
         let leaf_certificate = leaf_params.signed_by(&leaf_key, &issuer).map_err(|error| {
             format!("TLS leaf certificate could not be signed by the NetworkCore CA: {error}")
         })?;
@@ -2479,7 +2486,10 @@ pub fn issue_controlled_tls_termination_leaf_certificate(
 pub fn build_controlled_tls_termination_server_config(
     material: &NativeTlsLeafCertificateMaterial,
 ) -> NativeTlsServerConfigBuildReport {
-    let authority = material.authority.trim_end_matches('.').to_ascii_lowercase();
+    let authority = material
+        .authority
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
     let server_config = (|| {
         if authority.is_empty()
             || material.certificate_der.is_empty()
@@ -2489,19 +2499,17 @@ pub fn build_controlled_tls_termination_server_config(
         }
 
         let certificate_chain = vec![CertificateDer::from(material.certificate_der.clone())];
-        let private_key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
-            material.private_key_der.clone(),
-        ));
-        let mut server_config = ServerConfig::builder_with_provider(Arc::new(
-            rustls::crypto::ring::default_provider(),
-        ))
-            .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
-            .map_err(|error| format!("controlled TLS protocol configuration failed: {error}"))?
-            .with_no_client_auth()
-            .with_single_cert(certificate_chain, private_key)
-            .map_err(|error| {
-                format!("controlled TLS server certificate configuration failed: {error}")
-            })?;
+        let private_key =
+            PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(material.private_key_der.clone()));
+        let mut server_config =
+            ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+                .map_err(|error| format!("controlled TLS protocol configuration failed: {error}"))?
+                .with_no_client_auth()
+                .with_single_cert(certificate_chain, private_key)
+                .map_err(|error| {
+                    format!("controlled TLS server certificate configuration failed: {error}")
+                })?;
         server_config.alpn_protocols = vec![b"http/1.1".to_vec()];
         Ok(Arc::new(server_config))
     })();
@@ -2537,16 +2545,19 @@ pub fn build_controlled_tls_upstream_client_config() -> NativeTlsUpstreamClientC
         let mut roots = RootCertStore::empty();
         roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         if roots.is_empty() {
-            return Err("controlled TLS upstream configuration has no trusted web PKI roots".to_string());
+            return Err(
+                "controlled TLS upstream configuration has no trusted web PKI roots".to_string(),
+            );
         }
 
-        let mut client_config = ClientConfig::builder_with_provider(Arc::new(
-            rustls::crypto::ring::default_provider(),
-        ))
-        .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
-        .map_err(|error| format!("controlled TLS upstream protocol configuration failed: {error}"))?
-        .with_root_certificates(roots)
-        .with_no_client_auth();
+        let mut client_config =
+            ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+                .map_err(|error| {
+                    format!("controlled TLS upstream protocol configuration failed: {error}")
+                })?
+                .with_root_certificates(roots)
+                .with_no_client_auth();
         client_config.alpn_protocols = vec![b"http/1.1".to_vec()];
         Ok(Arc::new(client_config))
     })();
@@ -3699,7 +3710,10 @@ where
         .target_host
         .trim_end_matches('.')
         .to_ascii_lowercase();
-    let request_host = request.target_host.trim_end_matches('.').to_ascii_lowercase();
+    let request_host = request
+        .target_host
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
     if request.method.eq_ignore_ascii_case("CONNECT")
         || connect_host.is_empty()
         || request_host != connect_host
@@ -3717,7 +3731,10 @@ where
     request.target_host = connect_request.target_host.clone();
     request.target_port = connect_request.target_port;
     request.target_url = format!("https://{authority}{}", request.origin_path);
-    request.request_id = format!("native-https-connect:{}:{}", request.method, request.target_url);
+    request.request_id = format!(
+        "native-https-connect:{}:{}",
+        request.method, request.target_url
+    );
     read_report.diagnostics.push(engine_diagnostic(
         DiagnosticSeverity::Info,
         ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SESSION_DECRYPTION_READY_CODE,
@@ -3819,7 +3836,9 @@ pub fn serialize_explicit_http_proxy_request_for_upstream(
 ) -> Vec<u8> {
     let origin_path = parse_script_absolute_url(&rewrite_report.url)
         .filter(|(_, target)| {
-            target.target_host.eq_ignore_ascii_case(&request.target_host)
+            target
+                .target_host
+                .eq_ignore_ascii_case(&request.target_host)
                 && target.target_port == request.target_port
         })
         .map(|(_, target)| target.origin_path)
@@ -3844,11 +3863,8 @@ pub fn serialize_explicit_http_proxy_request_for_upstream(
         );
     }
 
-    let mut bytes = format!(
-        "{} {} {}\r\n",
-        request.method, origin_path, request.version
-    )
-    .into_bytes();
+    let mut bytes =
+        format!("{} {} {}\r\n", request.method, origin_path, request.version).into_bytes();
     write_http_headers_to_bytes(&mut bytes, &headers);
     bytes.extend_from_slice(b"\r\n");
     bytes.extend_from_slice(&rewrite_report.body);
@@ -4523,8 +4539,7 @@ impl ProxyEngineService for NativeProxyEngineService {
             .start_loopback_accept_loop_with_http_mitm_hook_and_tls_mitm_ca_material(
                 self.http_mitm_hook.clone(),
                 self.tls_mitm_ca_material.clone(),
-            )
-        {
+            ) {
             Ok(assembly) => assembly,
             Err(failure) => {
                 let NativeRuntimeStartupFailure { error, release } = *failure;
@@ -5994,7 +6009,10 @@ fn join_connection_workers(
     }
 }
 
-fn collect_connection_worker(worker: JoinHandle<Vec<Diagnostic>>, diagnostics: &mut Vec<Diagnostic>) {
+fn collect_connection_worker(
+    worker: JoinHandle<Vec<Diagnostic>>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
     match worker.join() {
         Ok(connection_diagnostics) => diagnostics.extend(connection_diagnostics),
         Err(_) => diagnostics.push(engine_diagnostic(
@@ -6245,11 +6263,13 @@ fn run_controlled_tls_connect_http_exchange(
             CONTROLLED_TLS_SOCKET_READ_TIMEOUT_MS,
         )));
         let _ = outbound_stream.set_write_timeout(Some(session_timeout));
-        let client_tls_stream = client_stream
-            .try_clone()
-            .map_err(|error| format!("controlled TLS client stream could not be cloned: {error}"))?;
-        let downstream_connection = ServerConnection::new(downstream_server_config)
-            .map_err(|error| format!("controlled TLS downstream session could not initialize: {error}"))?;
+        let client_tls_stream = client_stream.try_clone().map_err(|error| {
+            format!("controlled TLS client stream could not be cloned: {error}")
+        })?;
+        let downstream_connection =
+            ServerConnection::new(downstream_server_config).map_err(|error| {
+                format!("controlled TLS downstream session could not initialize: {error}")
+            })?;
         let mut downstream_tls = StreamOwned::new(downstream_connection, client_tls_stream);
 
         let decrypted_request_report = {
@@ -6288,10 +6308,14 @@ fn run_controlled_tls_connect_http_exchange(
             .map_err(|error| format!("controlled TLS upstream authority is invalid: {error}"))?
             .to_owned();
         let upstream_connection = ClientConnection::new(upstream_client_config, server_name)
-            .map_err(|error| format!("controlled TLS upstream session could not initialize: {error}"))?;
+            .map_err(|error| {
+                format!("controlled TLS upstream session could not initialize: {error}")
+            })?;
         let mut upstream_tls = StreamOwned::new(upstream_connection, outbound_stream);
-        let upstream_request =
-            serialize_explicit_http_proxy_request_for_upstream(&decrypted_request, &request_rewrite_report);
+        let upstream_request = serialize_explicit_http_proxy_request_for_upstream(
+            &decrypted_request,
+            &request_rewrite_report,
+        );
         let upstream_write_report =
             write_plain_http_proxy_upstream_request(&mut upstream_tls, upstream_request);
         let upstream_request_written = diagnostics_contain_code(
@@ -6318,8 +6342,10 @@ fn run_controlled_tls_connect_http_exchange(
             .unwrap_or_else(|| passthrough_plain_http_rewrite_report(&response_message));
         diagnostics.extend(response_rewrite_report.diagnostics.clone());
         record_plain_http_live_rewrite_diagnostic(&mut diagnostics, &response_rewrite_report);
-        let client_response =
-            serialize_plain_http_proxy_response(&upstream_response.version, &response_rewrite_report);
+        let client_response = serialize_plain_http_proxy_response(
+            &upstream_response.version,
+            &response_rewrite_report,
+        );
         let client_write_report =
             write_plain_http_proxy_client_response(&mut downstream_tls, client_response);
         let response_written = diagnostics_contain_code(
@@ -6461,7 +6487,8 @@ fn forward_http_connect_tunnel_via_socks_outbound(
                                 let upstream_config_report =
                                     build_controlled_tls_upstream_client_config();
                                 diagnostics.extend(upstream_config_report.diagnostics.clone());
-                                let Some(upstream_client_config) = upstream_config_report.client_config
+                                let Some(upstream_client_config) =
+                                    upstream_config_report.client_config
                                 else {
                                     let _ = outbound_stream.shutdown(Shutdown::Both);
                                     return (false, diagnostics);
@@ -6544,9 +6571,7 @@ fn observe_http_connect_tls_client_hello_from_stream(
         {
             break report;
         }
-        thread::sleep(Duration::from_millis(
-            TLS_CLIENT_HELLO_OBSERVATION_POLL_MS,
-        ));
+        thread::sleep(Duration::from_millis(TLS_CLIENT_HELLO_OBSERVATION_POLL_MS));
     };
     if wait_for_complete_client_hello {
         let _ = client_stream.set_read_timeout(prior_timeout);
@@ -6947,8 +6972,7 @@ mod controlled_tls_session_tests {
     };
     use rustls::{
         pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName},
-        ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection,
-        StreamOwned,
+        ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection, StreamOwned,
     };
     use std::collections::BTreeMap;
     use std::io::{Cursor, Read, Write};
@@ -7021,11 +7045,10 @@ mod controlled_tls_session_tests {
             certificate_der: mitm_leaf_certificate_der,
             private_key_der: mitm_leaf_private_key_der,
         };
-        let downstream_server_config = build_controlled_tls_termination_server_config(
-            &downstream_material,
-        )
-        .server_config
-        .expect("test MITM leaf material should build a downstream server config");
+        let downstream_server_config =
+            build_controlled_tls_termination_server_config(&downstream_material)
+                .server_config
+                .expect("test MITM leaf material should build a downstream server config");
 
         let (upstream_ca_certificate_pem, upstream_ca_private_key_pem, upstream_ca_der) =
             test_ca_material();
@@ -7034,10 +7057,8 @@ mod controlled_tls_session_tests {
             &upstream_ca_private_key_pem,
             "example.com",
         );
-        let upstream_server_config = test_server_config(
-            upstream_leaf_certificate_der,
-            upstream_leaf_private_key_der,
-        );
+        let upstream_server_config =
+            test_server_config(upstream_leaf_certificate_der, upstream_leaf_private_key_der);
         let upstream_client_config = test_client_config(upstream_ca_der);
 
         let upstream_listener =
@@ -7113,8 +7134,8 @@ mod controlled_tls_session_tests {
             .expect("test proxy should accept controlled TLS client connection");
         let _ = proxy_stream.set_read_timeout(Some(Duration::from_secs(5)));
         let _ = proxy_stream.set_write_timeout(Some(Duration::from_secs(5)));
-        let outbound_stream =
-            TcpStream::connect(upstream_address).expect("test proxy should connect to upstream TLS server");
+        let outbound_stream = TcpStream::connect(upstream_address)
+            .expect("test proxy should connect to upstream TLS server");
         let mut connect_request = Cursor::new(
             b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n".to_vec(),
         );
@@ -7183,7 +7204,10 @@ mod controlled_tls_session_tests {
             plugin_instance: &PluginInstance,
             http_event: &HttpMitmEvent,
         ) -> DomainResult<HttpMitmOutcome> {
-            assert_eq!(plugin_instance.manifest.id, "networkcore.controlled-tls-script");
+            assert_eq!(
+                plugin_instance.manifest.id,
+                "networkcore.controlled-tls-script"
+            );
             assert_eq!(http_event.url, "https://example.com/resource");
 
             let kind = match http_event.phase {
@@ -7237,9 +7261,13 @@ mod controlled_tls_session_tests {
         )
     }
 
-    fn issue_test_leaf(ca_certificate_pem: &str, ca_private_key_pem: &str, host: &str) -> (Vec<u8>, Vec<u8>) {
-        let issuer_key = KeyPair::from_pem(ca_private_key_pem)
-            .expect("test CA private key should parse");
+    fn issue_test_leaf(
+        ca_certificate_pem: &str,
+        ca_private_key_pem: &str,
+        host: &str,
+    ) -> (Vec<u8>, Vec<u8>) {
+        let issuer_key =
+            KeyPair::from_pem(ca_private_key_pem).expect("test CA private key should parse");
         let issuer = Issuer::from_ca_cert_pem(ca_certificate_pem, issuer_key)
             .expect("test CA certificate should parse");
         let mut params = CertificateParams::new(vec![host.to_string()])
@@ -7249,21 +7277,23 @@ mod controlled_tls_session_tests {
         let certificate = params
             .signed_by(&key_pair, &issuer)
             .expect("test leaf should sign");
-        (certificate.der().as_ref().to_vec(), key_pair.serialize_der())
+        (
+            certificate.der().as_ref().to_vec(),
+            key_pair.serialize_der(),
+        )
     }
 
     fn test_server_config(certificate_der: Vec<u8>, private_key_der: Vec<u8>) -> Arc<ServerConfig> {
-        let mut config = ServerConfig::builder_with_provider(Arc::new(
-            rustls::crypto::ring::default_provider(),
-        ))
-        .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
-        .expect("test rustls provider should support TLS 1.2 and TLS 1.3")
-        .with_no_client_auth()
-        .with_single_cert(
-            vec![CertificateDer::from(certificate_der)],
-            PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(private_key_der)),
-        )
-        .expect("test leaf key should match test leaf certificate");
+        let mut config =
+            ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+                .expect("test rustls provider should support TLS 1.2 and TLS 1.3")
+                .with_no_client_auth()
+                .with_single_cert(
+                    vec![CertificateDer::from(certificate_der)],
+                    PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(private_key_der)),
+                )
+                .expect("test leaf key should match test leaf certificate");
         config.alpn_protocols = vec![b"http/1.1".to_vec()];
         Arc::new(config)
     }
@@ -7273,13 +7303,12 @@ mod controlled_tls_session_tests {
         roots
             .add(CertificateDer::from(certificate_der))
             .expect("test CA should be a valid trust anchor");
-        let mut config = ClientConfig::builder_with_provider(Arc::new(
-            rustls::crypto::ring::default_provider(),
-        ))
-        .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
-        .expect("test rustls provider should support TLS 1.2 and TLS 1.3")
-        .with_root_certificates(roots)
-        .with_no_client_auth();
+        let mut config =
+            ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+                .expect("test rustls provider should support TLS 1.2 and TLS 1.3")
+                .with_root_certificates(roots)
+                .with_no_client_auth();
         config.alpn_protocols = vec![b"http/1.1".to_vec()];
         Arc::new(config)
     }

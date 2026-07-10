@@ -8,44 +8,34 @@ use control_domain::{
     ProxyEngineConfig, ProxyEngineEventKind, ProxyEngineKind, ProxyEngineLifecycleState,
     ProxyEngineService, RouteAction, RuleSet, SchemaVersion,
 };
-use rcgen::{
-    BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair,
-    KeyUsagePurpose,
-};
-use rustls::{
-    pki_types::{CertificateDer, ServerName},
-    ClientConfig, ClientConnection, RootCertStore, ServerConnection,
-};
 use engine_native::{
     apply_http_mitm_outcome_to_live_plain_http_request,
     apply_http_mitm_outcome_to_plain_http_message, assess_native_proxy_engine_start_readiness,
     assess_socks5_outbound_connect_client_success_response_readiness,
     assess_socks5_outbound_connect_relay_readiness, attempt_socks5_outbound_tcp_connection,
     browser_capture_proof_token_from_connect_authority,
-    build_controlled_tls_termination_server_config,
+    build_controlled_tls_termination_server_config, build_controlled_tls_upstream_client_config,
     build_socks5_outbound_connect_request_frame, decide_socks5_outbound_connect_response,
-    build_controlled_tls_upstream_client_config,
+    issue_controlled_tls_termination_leaf_certificate,
     native_socks5_connect_browser_capture_proof_token,
     observe_explicit_http_connect_tls_client_hello, plan_and_apply_https_request_rewrite_preview,
     plan_and_apply_https_response_rewrite_preview, plan_and_apply_plain_http_mitm,
-    issue_controlled_tls_termination_leaf_certificate,
     plan_explicit_http_connect_controlled_tls_termination,
     plan_explicit_http_connect_tls_mitm_foundation, plan_socks5_connect_http_mitm,
     plan_socks5_outbound_connect_client_success_response_write,
     plan_socks5_outbound_connect_data_relay, plan_socks5_outbound_tcp_connection,
-    read_explicit_http_proxy_request, read_socks5_command_header, read_socks5_connect_target,
-    read_socks5_greeting, read_socks5_outbound_connect_response, reject_unsupported_socks5_command,
-    read_https_connect_http_request,
-    reject_unwired_socks5_route_outbound, relay_socks5_outbound_connect_data,
-    select_socks5_auth_method, select_socks5_route_outbound_behavior,
-    serialize_explicit_http_proxy_request_for_upstream, serialize_plain_http_proxy_response,
-    write_http_connect_established_response, write_socks5_auth_method_response,
-    write_socks5_outbound_connect_client_success_response, write_socks5_outbound_connect_request,
-    write_unwired_socks5_connect_failure_response, BoundLoopbackTcpListenerHandle,
-    LoopbackListenerHandle, NativeExplicitHttpProxyRequest, NativeHttpMitmPluginHook,
-    NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle, NativePlainHttpMessage,
-    NativeNodeScriptExecutor, NativeNodeScriptRuntimeConfig, NativePlainHttpRewriteReport,
-    NativeProxyEngineService, NativeProxyEngineStartReadiness,
+    read_explicit_http_proxy_request, read_https_connect_http_request, read_socks5_command_header,
+    read_socks5_connect_target, read_socks5_greeting, read_socks5_outbound_connect_response,
+    reject_unsupported_socks5_command, reject_unwired_socks5_route_outbound,
+    relay_socks5_outbound_connect_data, select_socks5_auth_method,
+    select_socks5_route_outbound_behavior, serialize_explicit_http_proxy_request_for_upstream,
+    serialize_plain_http_proxy_response, write_http_connect_established_response,
+    write_socks5_auth_method_response, write_socks5_outbound_connect_client_success_response,
+    write_socks5_outbound_connect_request, write_unwired_socks5_connect_failure_response,
+    BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeExplicitHttpProxyRequest,
+    NativeHttpMitmPluginHook, NativeLoopbackTcpAcceptLoopHandle, NativeNodeScriptExecutor,
+    NativeNodeScriptRuntimeConfig, NativeOutboundHandlerHandle, NativePlainHttpMessage,
+    NativePlainHttpRewriteReport, NativeProxyEngineService, NativeProxyEngineStartReadiness,
     NativeRuntimeAssembly, NativeRuntimeAssemblyPlan, NativeSocks5Address,
     NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision, NativeSocks5CommandHeader,
     NativeSocks5ConnectTarget, NativeSocks5Greeting,
@@ -98,14 +88,14 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SERVER_CONFIG_FAILED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SERVER_CONFIG_READY_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SESSION_DECRYPTION_READY_CODE,
-    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_UPSTREAM_CONFIG_READY_CODE,
-    ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_DEFERRED_CODE,
-    ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_EXECUTED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SNI_AUTHORITY_MATCHED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SNI_AUTHORITY_MISMATCH_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_DEFERRED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_PLAN_READY_CODE,
-    ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE, ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_UPSTREAM_CONFIG_READY_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_DEFERRED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_EXECUTED_CODE, ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE,
+    ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE, ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
     ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE,
@@ -158,6 +148,13 @@ use engine_native::{
     ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE, ENGINE_NATIVE_START_RUNNING_CODE,
     ENGINE_NATIVE_START_RUNTIME_ASSEMBLY_READY_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
     ENGINE_NATIVE_START_SERVICE_RUNTIME_OWNER_MISSING_CODE,
+};
+use rcgen::{
+    BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, KeyUsagePurpose,
+};
+use rustls::{
+    pki_types::{CertificateDer, ServerName},
+    ClientConfig, ClientConnection, RootCertStore, ServerConnection,
 };
 use std::collections::BTreeMap;
 use std::io::{self, Cursor, Read, Write};
@@ -1826,8 +1823,12 @@ fn controlled_tls_termination_issues_authority_bound_leaf_certificate() {
         .as_ref()
         .expect("ready controlled TLS plan should issue leaf material");
     assert_eq!(material.authority, "example.com");
-    assert!(material.certificate_pem.contains("-----BEGIN CERTIFICATE-----"));
-    assert!(material.private_key_pem.contains("-----BEGIN PRIVATE KEY-----"));
+    assert!(material
+        .certificate_pem
+        .contains("-----BEGIN CERTIFICATE-----"));
+    assert!(material
+        .private_key_pem
+        .contains("-----BEGIN PRIVATE KEY-----"));
     assert!(!format!("{material:?}").contains(&material.private_key_pem));
     assert_diagnostic(
         &issue_report.diagnostics,
@@ -1878,13 +1879,12 @@ fn controlled_tls_server_config_performs_authenticated_handshake_and_decrypts_re
     roots
         .add(CertificateDer::from(ca_certificate_der))
         .expect("test CA should be a valid rustls trust anchor");
-    let client_config = ClientConfig::builder_with_provider(Arc::new(
-        rustls::crypto::ring::default_provider(),
-    ))
-    .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
-    .expect("ring provider should support TLS 1.2 and TLS 1.3")
-    .with_root_certificates(roots)
-    .with_no_client_auth();
+    let client_config =
+        ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+            .expect("ring provider should support TLS 1.2 and TLS 1.3")
+            .with_root_certificates(roots)
+            .with_no_client_auth();
     let server_name = ServerName::try_from("example.com")
         .expect("test server name should parse")
         .to_owned();
@@ -1955,8 +1955,7 @@ fn controlled_tls_connect_request_rebinds_origin_form_to_connect_authority() {
             .to_vec(),
     );
 
-    let request_report =
-        read_https_connect_http_request(&mut decrypted_request, &connect_request);
+    let request_report = read_https_connect_http_request(&mut decrypted_request, &connect_request);
     let request = request_report
         .request
         .expect("decrypted origin-form request should bind to CONNECT authority");
@@ -1983,8 +1982,7 @@ fn controlled_tls_connect_request_refuses_mismatched_decrypted_host_authority() 
     let mut decrypted_request =
         Cursor::new(b"GET / HTTP/1.1\r\nHost: other.example\r\n\r\n".to_vec());
 
-    let request_report =
-        read_https_connect_http_request(&mut decrypted_request, &connect_request);
+    let request_report = read_https_connect_http_request(&mut decrypted_request, &connect_request);
 
     assert!(request_report.request.is_none());
 }
@@ -2083,7 +2081,10 @@ fn explicit_http_connect_tls_termination_plan_defers_when_sni_disagrees_with_aut
 
     assert!(termination_plan.connect_tunnel_ready);
     assert!(termination_plan.client_hello_observed);
-    assert_eq!(termination_plan.sni_hostname.as_deref(), Some("other.example"));
+    assert_eq!(
+        termination_plan.sni_hostname.as_deref(),
+        Some("other.example")
+    );
     assert!(!termination_plan.downstream_tls_termination_plan_ready);
     assert!(!termination_plan.live_https_decryption_ready);
     assert_diagnostic(

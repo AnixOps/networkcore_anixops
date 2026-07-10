@@ -19,7 +19,8 @@ fn main() {
                 node_binary,
                 confirm,
                 ..
-            } = &command {
+            } = &command
+            {
                 match networkcore_linux::native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
                     mitm_ca_certificate_path.as_deref(),
                     mitm_ca_private_key_path.as_deref(),

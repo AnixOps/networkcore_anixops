@@ -48,8 +48,7 @@ use networkcore_linux::{
     BrowserCaptureProcessRunner, BrowserCaptureTrafficProofProbe,
     CommandBrowserCaptureEndpointProbe, CommandBrowserCaptureTrafficProofProbe,
     CommandManagedForegroundSessionStore, CommandSubscriptionCatalogStore, ConfigReadError,
-    ConfigReader,
-    CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
+    ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
     LinuxBrowserCaptureLaunchRequest, LinuxBrowserCapturePacApplyOutcome,
@@ -58,14 +57,13 @@ use networkcore_linux::{
     LinuxBrowserCaptureVerifyOutcome, LinuxBrowserCaptureVerifyRequest, LinuxCliCommand,
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
-    MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
-    ManagedForegroundSessionStatusRequest, SubscriptionCatalogAddRequest,
-    SubscriptionCatalogListRequest,
-    SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
-    SubscriptionCatalogSelectRequest, SubscriptionCatalogUpdateRequest,
-    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
-    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
-    CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+    ManagedForegroundSessionStatusRequest, MitmCertificateArtifactStore,
+    MitmCertificateRollbackSnapshot, OutputFormat, SubscriptionCatalogAddRequest,
+    SubscriptionCatalogListRequest, SubscriptionCatalogRemoveRequest,
+    SubscriptionCatalogRollbackRequest, SubscriptionCatalogSelectRequest,
+    SubscriptionCatalogUpdateRequest, UnavailableForegroundLifecycleHost,
+    UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
+    CLI_CONFIG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE,
@@ -95,11 +93,9 @@ use networkcore_linux::{
     CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE, CLI_START_FOREGROUND_ONLY_CODE,
     CLI_START_LIFECYCLE_FAILED_CODE, CLI_START_LIFECYCLE_HOST_MISSING_CODE,
     CLI_START_LIFECYCLE_INTERRUPTED_CODE, CLI_START_PLATFORM_DENIED_CODE,
-    CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE,
-    CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE,
-    CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE,
-    CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE,
-    CLI_START_RUNTIME_STOP_FAILED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
+    CLI_START_RUNTIME_STOP_FAILED_CODE, CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE,
+    CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE, CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE,
+    CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
     CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
     MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR, MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH,
     MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME, MITM_BROWSER_CAPTURE_GATE,
@@ -653,10 +649,7 @@ fn native_engine_factory_requires_explicit_authorization_before_loading_tls_mitm
     );
 
     let missing_material = native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files(
-        None,
-        None,
-        true,
-        true,
+        None, None, true, true,
     )
     .expect_err("TLS MITM enablement must require both material paths");
     assert_eq!(
@@ -712,18 +705,19 @@ fn parses_start_with_explicit_tls_mitm_authorization_and_material_paths() {
 
 #[test]
 fn native_engine_factory_requires_explicit_script_runtime_authorization_and_config() {
-    let missing_confirmation = native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
-        None,
-        None,
-        false,
-        true,
-        Some("/tmp/networkcore-script-runner.js"),
-        None,
-        &["https://scripts.networkcore.test/a.js=/tmp/a.js".to_string()],
-        None,
-        false,
-    )
-    .expect_err("script runtime must require explicit confirmation");
+    let missing_confirmation =
+        native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
+            None,
+            None,
+            false,
+            true,
+            Some("/tmp/networkcore-script-runner.js"),
+            None,
+            &["https://scripts.networkcore.test/a.js=/tmp/a.js".to_string()],
+            None,
+            false,
+        )
+        .expect_err("script runtime must require explicit confirmation");
     assert_eq!(
         missing_confirmation.code,
         CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE
@@ -761,7 +755,9 @@ fn native_engine_factory_requires_explicit_script_runtime_authorization_and_conf
         true,
         Some(&runner_path),
         None,
-        &[format!("https://scripts.networkcore.test/replay.js={script_path}")],
+        &[format!(
+            "https://scripts.networkcore.test/replay.js={script_path}"
+        )],
         None,
         true,
     )
@@ -798,9 +794,7 @@ fn parses_start_with_explicit_script_runtime_mapping() {
             enable_https_mitm: false,
             enable_script_runtime: true,
             script_runner_path: Some("/tmp/networkcore-script-runner.js".to_string()),
-            script_maps: vec![
-                "https://scripts.networkcore.test/a.js=/tmp/a.js".to_string(),
-            ],
+            script_maps: vec!["https://scripts.networkcore.test/a.js=/tmp/a.js".to_string(),],
             script_store_path: Some("/tmp/networkcore-script-store.json".to_string()),
             node_binary: Some("/usr/bin/node".to_string()),
             confirm: true,
