@@ -57,13 +57,14 @@ use networkcore_linux::{
     LinuxBrowserCaptureVerifyOutcome, LinuxBrowserCaptureVerifyRequest, LinuxCliCommand,
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
-    ManagedForegroundSessionStatusRequest, MitmCertificateArtifactStore,
-    MitmCertificateRollbackSnapshot, OutputFormat, SubscriptionCatalogAddRequest,
-    SubscriptionCatalogListRequest, SubscriptionCatalogRemoveRequest,
-    SubscriptionCatalogRollbackRequest, SubscriptionCatalogSelectRequest,
-    SubscriptionCatalogUpdateRequest, UnavailableForegroundLifecycleHost,
-    UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
-    CLI_CONFIG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+    LinuxNativeMitmRuntimeFileConfig, ManagedForegroundSessionStatusRequest,
+    MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
+    SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
+    SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
+    SubscriptionCatalogSelectRequest, SubscriptionCatalogUpdateRequest,
+    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
+    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE,
@@ -707,15 +708,17 @@ fn parses_start_with_explicit_tls_mitm_authorization_and_material_paths() {
 fn native_engine_factory_requires_explicit_script_runtime_authorization_and_config() {
     let missing_confirmation =
         native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
-            None,
-            None,
-            false,
-            true,
-            Some("/tmp/networkcore-script-runner.js"),
-            None,
-            &["https://scripts.networkcore.test/a.js=/tmp/a.js".to_string()],
-            None,
-            false,
+            LinuxNativeMitmRuntimeFileConfig {
+                certificate_path: None,
+                private_key_path: None,
+                enable_https_mitm: false,
+                enable_script_runtime: true,
+                script_runner_path: Some("/tmp/networkcore-script-runner.js"),
+                node_binary: None,
+                script_maps: &["https://scripts.networkcore.test/a.js=/tmp/a.js".to_string()],
+                script_store_path: None,
+                confirm: false,
+            },
         )
         .expect_err("script runtime must require explicit confirmation");
     assert_eq!(
@@ -724,15 +727,17 @@ fn native_engine_factory_requires_explicit_script_runtime_authorization_and_conf
     );
 
     let missing_runner = native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
-        None,
-        None,
-        false,
-        true,
-        None,
-        None,
-        &[],
-        None,
-        true,
+        LinuxNativeMitmRuntimeFileConfig {
+            certificate_path: None,
+            private_key_path: None,
+            enable_https_mitm: false,
+            enable_script_runtime: true,
+            script_runner_path: None,
+            node_binary: None,
+            script_maps: &[],
+            script_store_path: None,
+            confirm: true,
+        },
     )
     .expect_err("script runtime must require runner and mappings");
     assert_eq!(
@@ -749,17 +754,19 @@ fn native_engine_factory_requires_explicit_script_runtime_authorization_and_conf
         env!("CARGO_MANIFEST_DIR")
     );
     let configured = native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
-        None,
-        None,
-        false,
-        true,
-        Some(&runner_path),
-        None,
-        &[format!(
-            "https://scripts.networkcore.test/replay.js={script_path}"
-        )],
-        None,
-        true,
+        LinuxNativeMitmRuntimeFileConfig {
+            certificate_path: None,
+            private_key_path: None,
+            enable_https_mitm: false,
+            enable_script_runtime: true,
+            script_runner_path: Some(&runner_path),
+            node_binary: None,
+            script_maps: &[format!(
+                "https://scripts.networkcore.test/replay.js={script_path}"
+            )],
+            script_store_path: None,
+            confirm: true,
+        },
     )
     .expect("explicit local script mapping should configure the native engine");
     assert!(configured.http_mitm_hook_enabled());

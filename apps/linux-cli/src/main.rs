@@ -22,15 +22,17 @@ fn main() {
             } = &command
             {
                 match networkcore_linux::native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
-                    mitm_ca_certificate_path.as_deref(),
-                    mitm_ca_private_key_path.as_deref(),
-                    *enable_https_mitm,
-                    *enable_script_runtime,
-                    script_runner_path.as_deref(),
-                    node_binary.as_deref(),
-                    script_maps,
-                    script_store_path.as_deref(),
-                    *confirm,
+                    networkcore_linux::LinuxNativeMitmRuntimeFileConfig {
+                        certificate_path: mitm_ca_certificate_path.as_deref(),
+                        private_key_path: mitm_ca_private_key_path.as_deref(),
+                        enable_https_mitm: *enable_https_mitm,
+                        enable_script_runtime: *enable_script_runtime,
+                        script_runner_path: script_runner_path.as_deref(),
+                        node_binary: node_binary.as_deref(),
+                        script_maps,
+                        script_store_path: script_store_path.as_deref(),
+                        confirm: *confirm,
+                    },
                 ) {
                     Ok(native_engine) => {
                         let orchestrator = control_runtime::RuntimeOrchestrator::new(

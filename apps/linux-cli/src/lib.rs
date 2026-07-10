@@ -1238,6 +1238,19 @@ pub struct LinuxMitmGateStatus {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct LinuxNativeMitmRuntimeFileConfig<'a> {
+    pub certificate_path: Option<&'a str>,
+    pub private_key_path: Option<&'a str>,
+    pub enable_https_mitm: bool,
+    pub enable_script_runtime: bool,
+    pub script_runner_path: Option<&'a str>,
+    pub node_binary: Option<&'a str>,
+    pub script_maps: &'a [String],
+    pub script_store_path: Option<&'a str>,
+    pub confirm: bool,
+}
+
 pub fn native_proxy_engine_service_with_builtin_mitm_plugin(
 ) -> DomainResult<engine_native::NativeProxyEngineService> {
     native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_ca_material(None)
@@ -1281,29 +1294,34 @@ pub fn native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files(
     confirm: bool,
 ) -> DomainResult<engine_native::NativeProxyEngineService> {
     native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
-        certificate_path,
-        private_key_path,
-        enable_https_mitm,
-        false,
-        None,
-        None,
-        &[],
-        None,
-        confirm,
+        LinuxNativeMitmRuntimeFileConfig {
+            certificate_path,
+            private_key_path,
+            enable_https_mitm,
+            enable_script_runtime: false,
+            script_runner_path: None,
+            node_binary: None,
+            script_maps: &[],
+            script_store_path: None,
+            confirm,
+        },
     )
 }
 
 pub fn native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
-    certificate_path: Option<&str>,
-    private_key_path: Option<&str>,
-    enable_https_mitm: bool,
-    enable_script_runtime: bool,
-    script_runner_path: Option<&str>,
-    node_binary: Option<&str>,
-    script_maps: &[String],
-    script_store_path: Option<&str>,
-    confirm: bool,
+    runtime_config: LinuxNativeMitmRuntimeFileConfig<'_>,
 ) -> DomainResult<engine_native::NativeProxyEngineService> {
+    let LinuxNativeMitmRuntimeFileConfig {
+        certificate_path,
+        private_key_path,
+        enable_https_mitm,
+        enable_script_runtime,
+        script_runner_path,
+        node_binary,
+        script_maps,
+        script_store_path,
+        confirm,
+    } = runtime_config;
     let tls_mitm_ca_material = if enable_https_mitm {
         if !confirm {
             return Err(DomainError::new(
