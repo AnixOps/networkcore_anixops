@@ -510,7 +510,7 @@ jobs:
           rustup default "${RUST_TOOLCHAIN}"
           rustup target add "${TARGET}" --toolchain "${RUST_TOOLCHAIN}"
 
-          cargo generate-lockfile
+          test -f Cargo.lock
           cargo build --locked --release --package "${PACKAGE}" --bin "${BINARY}" --target "${TARGET}"
 
           binary_path="target/${TARGET}/release/${BINARY}"
@@ -539,8 +539,11 @@ jobs:
           bundle_name="${top_level_dir}-release-bundle"
 
           rm -rf "${dist_dir}"
-          mkdir -p "${staging_dir}/bin" "${output_dir}"
+          mkdir -p "${staging_dir}/bin" "${staging_dir}/libexec" "${output_dir}"
           install -m 0755 "${binary_path}" "${staging_dir}/bin/${BINARY}"
+          script_runner_source="third_party/mitm_anixops/mitm_anixops/e2e/script_runtime/anixops_runner.js"
+          test -f "${script_runner_source}"
+          install -m 0755 "${script_runner_source}" "${staging_dir}/libexec/anixops-runner.js"
           install -m 0644 LICENSE "${staging_dir}/LICENSE"
           install -m 0644 CHANGELOG.md "${staging_dir}/CHANGELOG.md"
           cat > "${staging_dir}/INSTALL.md" <<EOF
@@ -557,6 +560,14 @@ jobs:
           This artifact does not install a system service, grant capabilities, modify DNS,
           routes, firewall rules, certificate trust stores, or background daemon state.
 
+          ## Optional local script runtime
+
+          The archive includes libexec/anixops-runner.js for explicitly enabled local plugin
+          scripts. It requires a locally installed Node.js runtime (CI validates Node 22).
+          NetworkCore never downloads a script: provide --enable-script-runtime --confirm,
+          --script-runner <extract-dir>/libexec/anixops-runner.js, and one or more
+          --script-map <script-url>=<local-file> values when starting the CLI.
+
           ## Uninstall
 
           Stop any foreground networkcore-linux process, remove the extracted directory,
@@ -570,7 +581,7 @@ jobs:
           EOF
 
           actual_files="$(find "${staging_dir}" -type f -printf '%P\n' | sort | paste -sd ',')"
-          expected_files="CHANGELOG.md,INSTALL.md,LICENSE,bin/${BINARY}"
+          expected_files="CHANGELOG.md,INSTALL.md,LICENSE,bin/${BINARY},libexec/anixops-runner.js"
           if [ "${actual_files}" != "${expected_files}" ]; then
             echo "::error::Unexpected archive staging files: ${actual_files}"
             exit 1
@@ -637,6 +648,7 @@ jobs:
               },
               included_files: [
                 {path: "bin/networkcore-linux", kind: "binary", required: true, source: "apps/linux-cli"},
+                {path: "libexec/anixops-runner.js", kind: "script-runner", required: true, source: "third_party/mitm_anixops"},
                 {path: "INSTALL.md", kind: "documentation", required: true, source: "generated-from-linux-cli-artifact-installation-rollback"},
                 {path: "LICENSE", kind: "license", required: true, source: "LICENSE"},
                 {path: "CHANGELOG.md", kind: "changelog", required: true, source: "CHANGELOG.md"}
@@ -837,7 +849,9 @@ jobs:
           rustup default $env:RUST_TOOLCHAIN
           rustup target add $env:TARGET --toolchain $env:RUST_TOOLCHAIN
 
-          cargo generate-lockfile
+          if (-not (Test-Path -Path Cargo.lock -PathType Leaf)) {
+            throw "Cargo.lock must be checked in before creating release artifacts."
+          }
           cargo build --locked --release --package $env:PACKAGE --bin $env:BINARY --target $env:TARGET
 
           $binaryPath = Join-Path "target\$env:TARGET\release" "$env:BINARY.exe"

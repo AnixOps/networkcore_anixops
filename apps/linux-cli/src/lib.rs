@@ -32,6 +32,7 @@ use signal_hook::{
     consts::signal::{SIGINT, SIGTERM},
     iterator::Signals,
 };
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::Arc;
@@ -58,6 +59,18 @@ pub const CLI_START_LIFECYCLE_FAILED_CODE: &str = "cli.linux.start.lifecycle_fai
 pub const CLI_START_RUNTIME_STOP_FAILED_CODE: &str = "cli.linux.start.runtime_stop_failed";
 pub const CLI_START_SIGNAL_RECEIVED_CODE: &str = "cli.linux.start.signal_received";
 pub const CLI_START_SIGNAL_SOURCE_FAILED_CODE: &str = "cli.linux.start.signal_source_failed";
+pub const CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE: &str =
+    "cli.linux.start.tls_mitm_authorization_required";
+pub const CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE: &str =
+    "cli.linux.start.tls_mitm_material_required";
+pub const CLI_START_TLS_MITM_MATERIAL_READ_FAILED_CODE: &str =
+    "cli.linux.start.tls_mitm_material_read_failed";
+pub const CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE: &str =
+    "cli.linux.start.script_runtime_authorization_required";
+pub const CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE: &str =
+    "cli.linux.start.script_runtime_config_required";
+pub const CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE: &str =
+    "cli.linux.start.script_runtime_config_invalid";
 pub const CLI_SUBSCRIPTION_CATALOG_PATH_MISSING_CODE: &str =
     "cli.linux.subscription_catalog.path_missing";
 pub const CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_PATH_MISSING_CODE: &str =
@@ -323,6 +336,15 @@ pub enum LinuxCliCommand {
     },
     Start {
         config_path: Option<String>,
+        mitm_ca_certificate_path: Option<String>,
+        mitm_ca_private_key_path: Option<String>,
+        enable_https_mitm: bool,
+        enable_script_runtime: bool,
+        script_runner_path: Option<String>,
+        script_maps: Vec<String>,
+        script_store_path: Option<String>,
+        node_binary: Option<String>,
+        confirm: bool,
         format: OutputFormat,
     },
     Stop {
@@ -1218,6 +1240,22 @@ pub struct LinuxMitmGateStatus {
 
 pub fn native_proxy_engine_service_with_builtin_mitm_plugin(
 ) -> DomainResult<engine_native::NativeProxyEngineService> {
+    native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_ca_material(None)
+}
+
+pub fn native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_ca_material(
+    tls_mitm_ca_material: Option<engine_native::NativeTlsMitmCaMaterial>,
+) -> DomainResult<engine_native::NativeProxyEngineService> {
+    native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime(
+        tls_mitm_ca_material,
+        None,
+    )
+}
+
+pub fn native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime(
+    tls_mitm_ca_material: Option<engine_native::NativeTlsMitmCaMaterial>,
+    script_executor: Option<engine_native::NativeNodeScriptExecutor>,
+) -> DomainResult<engine_native::NativeProxyEngineService> {
     let package = builtin_ad_block_plugin_package();
     let service = AnixOpsMitmPluginService::new();
     let instance = service.load(
@@ -1227,8 +1265,189 @@ pub fn native_proxy_engine_service_with_builtin_mitm_plugin(
         },
     )?;
     let hook = engine_native::NativeHttpMitmPluginHook::new(instance, Arc::new(service));
+    let hook = match script_executor {
+        Some(executor) => hook.with_node_script_executor(executor),
+        None => hook,
+    };
 
-    Ok(engine_native::NativeProxyEngineService::new().with_http_mitm_hook(hook))
+    let service = engine_native::NativeProxyEngineService::new().with_http_mitm_hook(hook);
+    Ok(match tls_mitm_ca_material {
+        Some(material) => service.with_tls_mitm_ca_material(material),
+        None => service,
+    })
+}
+
+pub fn native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files(
+    certificate_path: Option<&str>,
+    private_key_path: Option<&str>,
+    enable_https_mitm: bool,
+    confirm: bool,
+) -> DomainResult<engine_native::NativeProxyEngineService> {
+    native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
+        certificate_path,
+        private_key_path,
+        enable_https_mitm,
+        false,
+        None,
+        None,
+        &[],
+        None,
+        confirm,
+    )
+}
+
+pub fn native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
+    certificate_path: Option<&str>,
+    private_key_path: Option<&str>,
+    enable_https_mitm: bool,
+    enable_script_runtime: bool,
+    script_runner_path: Option<&str>,
+    node_binary: Option<&str>,
+    script_maps: &[String],
+    script_store_path: Option<&str>,
+    confirm: bool,
+) -> DomainResult<engine_native::NativeProxyEngineService> {
+    let tls_mitm_ca_material = if enable_https_mitm {
+        if !confirm {
+            return Err(DomainError::new(
+                CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE,
+                "live HTTPS MITM start requires explicit --confirm authorization",
+            ));
+        }
+        let (Some(certificate_path), Some(private_key_path)) = (certificate_path, private_key_path)
+        else {
+            return Err(DomainError::new(
+                CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE,
+                "live HTTPS MITM start requires both --mitm-ca-cert and --mitm-ca-key",
+            ));
+        };
+        let certificate_pem = std::fs::read_to_string(certificate_path).map_err(|_| {
+            DomainError::new(
+                CLI_START_TLS_MITM_MATERIAL_READ_FAILED_CODE,
+                "live HTTPS MITM CA certificate material could not be read",
+            )
+        })?;
+        let private_key_pem = std::fs::read_to_string(private_key_path).map_err(|_| {
+            DomainError::new(
+                CLI_START_TLS_MITM_MATERIAL_READ_FAILED_CODE,
+                "live HTTPS MITM CA private key material could not be read",
+            )
+        })?;
+        if certificate_pem.trim().is_empty() || private_key_pem.trim().is_empty() {
+            return Err(DomainError::new(
+                CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE,
+                "live HTTPS MITM CA certificate and private key material must be non-empty",
+            ));
+        }
+        Some(engine_native::NativeTlsMitmCaMaterial::new(
+            certificate_pem,
+            private_key_pem,
+        ))
+    } else {
+        if certificate_path.is_some() || private_key_path.is_some() {
+            return Err(DomainError::new(
+                CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE,
+                "CA material requires explicit --enable-https-mitm and --confirm authorization",
+            ));
+        }
+        None
+    };
+
+    let script_executor = build_native_node_script_executor(
+        enable_script_runtime,
+        script_runner_path,
+        node_binary,
+        script_maps,
+        script_store_path,
+        confirm,
+    )?;
+
+    native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime(
+        tls_mitm_ca_material,
+        script_executor,
+    )
+}
+
+fn build_native_node_script_executor(
+    enable_script_runtime: bool,
+    script_runner_path: Option<&str>,
+    node_binary: Option<&str>,
+    script_maps: &[String],
+    script_store_path: Option<&str>,
+    confirm: bool,
+) -> DomainResult<Option<engine_native::NativeNodeScriptExecutor>> {
+    if !enable_script_runtime {
+        if script_runner_path.is_some()
+            || node_binary.is_some()
+            || !script_maps.is_empty()
+            || script_store_path.is_some()
+        {
+            return Err(DomainError::new(
+                CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE,
+                "script runtime configuration requires explicit --enable-script-runtime and --confirm authorization",
+            ));
+        }
+        return Ok(None);
+    }
+    if !confirm {
+        return Err(DomainError::new(
+            CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE,
+            "script runtime start requires explicit --confirm authorization",
+        ));
+    }
+    let Some(script_runner_path) = script_runner_path else {
+        return Err(DomainError::new(
+            CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE,
+            "script runtime start requires --script-runner and at least one --script-map",
+        ));
+    };
+    if script_maps.is_empty() {
+        return Err(DomainError::new(
+            CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE,
+            "script runtime start requires at least one --script-map",
+        ));
+    }
+    if !std::path::Path::new(script_runner_path).is_file() {
+        return Err(DomainError::new(
+            CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE,
+            "configured script runtime runner is not a readable local file",
+        ));
+    }
+
+    let mut script_assets = BTreeMap::new();
+    for script_map in script_maps {
+        let Some((script_url, local_path)) = script_map.split_once('=') else {
+            return Err(DomainError::new(
+                CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE,
+                "script runtime mappings must use script-url=local-file form",
+            ));
+        };
+        let script_url = script_url.trim();
+        let local_path = local_path.trim();
+        if !(script_url.starts_with("https://") || script_url.starts_with("http://"))
+            || local_path.is_empty()
+            || !std::path::Path::new(local_path).is_file()
+            || script_assets
+                .insert(script_url.to_string(), local_path.to_string())
+                .is_some()
+        {
+            return Err(DomainError::new(
+                CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE,
+                "script runtime mappings must use unique remote URLs and existing local files",
+            ));
+        }
+    }
+
+    Ok(Some(engine_native::NativeNodeScriptExecutor::new(
+        engine_native::NativeNodeScriptRuntimeConfig {
+            node_binary: node_binary.unwrap_or("node").to_string(),
+            runner_path: script_runner_path.to_string(),
+            script_assets,
+            persistent_store_path: script_store_path.map(ToString::to_string),
+            max_timeout_ms: 30_000,
+            max_body_bytes: 64 * 1024,
+        },
+    )))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3428,6 +3647,12 @@ struct ParsedOptions {
     target_url: Option<String>,
     cert_file_path: Option<String>,
     key_file_path: Option<String>,
+    mitm_ca_certificate_path: Option<String>,
+    mitm_ca_private_key_path: Option<String>,
+    script_runner_path: Option<String>,
+    script_maps: Vec<String>,
+    script_store_path: Option<String>,
+    node_binary: Option<String>,
     profile_trust_file_path: Option<String>,
     pac_file_path: Option<String>,
     policy_file_path: Option<String>,
@@ -3439,6 +3664,8 @@ struct ParsedOptions {
     listen_port: Option<u16>,
     snapshot_path: Option<String>,
     confirm: bool,
+    enable_https_mitm: bool,
+    enable_script_runtime: bool,
     force: bool,
     format: OutputFormat,
 }
@@ -3487,6 +3714,15 @@ where
             let options = parse_options(&rest)?;
             Ok(LinuxCliCommand::Start {
                 config_path: options.config_path,
+                mitm_ca_certificate_path: options.mitm_ca_certificate_path,
+                mitm_ca_private_key_path: options.mitm_ca_private_key_path,
+                enable_https_mitm: options.enable_https_mitm,
+                enable_script_runtime: options.enable_script_runtime,
+                script_runner_path: options.script_runner_path,
+                script_maps: options.script_maps,
+                script_store_path: options.script_store_path,
+                node_binary: options.node_binary,
+                confirm: options.confirm,
                 format: options.format,
             })
         }
@@ -8055,6 +8291,72 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.key_file_path = Some(value.clone());
             }
+            "--mitm-ca-cert" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--mitm-ca-cert requires a CA certificate PEM path",
+                    ));
+                };
+                options.mitm_ca_certificate_path = Some(value.clone());
+            }
+            "--mitm-ca-key" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--mitm-ca-key requires a CA private key PEM path",
+                    ));
+                };
+                options.mitm_ca_private_key_path = Some(value.clone());
+            }
+            "--enable-https-mitm" => {
+                options.enable_https_mitm = true;
+            }
+            "--enable-script-runtime" => {
+                options.enable_script_runtime = true;
+            }
+            "--script-runner" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--script-runner requires a local Node contract runner path",
+                    ));
+                };
+                options.script_runner_path = Some(value.clone());
+            }
+            "--script-map" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--script-map requires script-url=local-file mapping",
+                    ));
+                };
+                options.script_maps.push(value.clone());
+            }
+            "--script-store" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--script-store requires a persistent-store JSON path",
+                    ));
+                };
+                options.script_store_path = Some(value.clone());
+            }
+            "--node-binary" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--node-binary requires a Node executable path or command",
+                    ));
+                };
+                options.node_binary = Some(value.clone());
+            }
             "--profile-trust-file" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -8617,7 +8919,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux version [--format text|json]\n",
         "  networkcore-linux capabilities [--format text|json]\n",
         "  networkcore-linux prepare-config --config <path> [--format text|json]\n",
-        "  networkcore-linux start --config <path> [--format text|json]\n",
+        "  networkcore-linux start --config <path> [--enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path>] [--enable-script-runtime --script-runner <path> --script-map <url=file> ...] --confirm [--format text|json]\n",
         "  networkcore-linux stop [--format text|json]\n",
         "  networkcore-linux status [--format text|json]\n",
         "  networkcore-linux diagnostics [--format text|json]\n",
@@ -8634,7 +8936,7 @@ pub const fn cli_help_text() -> &'static str {
         "  version           Print the networkcore-linux version.\n",
         "  capabilities      Report read-only Linux platform capabilities.\n",
         "  prepare-config    Read and normalize a NetworkCore TOML config.\n",
-        "  start             Start the current foreground runtime from a config.\n",
+        "  start             Start the current foreground runtime; HTTPS MITM requires explicit CA paths and confirmation.\n",
         "  stop              Report that daemon stop is unavailable in this build.\n",
         "  status            Report platform-only status without a daemon context.\n",
         "  diagnostics       Print platform diagnostics.\n",
@@ -8644,6 +8946,14 @@ pub const fn cli_help_text() -> &'static str {
         "\n",
         "Options:\n",
         "  --config <path>       Config file for prepare-config and start.\n",
+        "  --enable-https-mitm   Explicitly enable the controlled HTTPS MITM engine path for start; requires --confirm and both CA paths.\n",
+        "  --mitm-ca-cert <path> CA certificate PEM path for explicitly enabled HTTPS MITM start.\n",
+        "  --mitm-ca-key <path>  CA private key PEM path for explicitly enabled HTTPS MITM start.\n",
+        "  --enable-script-runtime Explicitly enable mapped local Node script execution for start; requires --confirm, runner, and maps.\n",
+        "  --script-runner <path> Local Node contract runner path for explicitly enabled script execution.\n",
+        "  --script-map <url=file> Explicit remote script URL to local asset mapping; repeat for each permitted script.\n",
+        "  --script-store <path> Optional JSON persistent-store path for mapped scripts.\n",
+        "  --node-binary <path> Node executable path or command. Defaults to node.\n",
         "  --browser <exe>       Browser executable for mitm browser-capture session-plan/launch. Defaults to chromium.\n",
         "  --profile-dir <dir>   Dedicated browser profile directory for mitm browser-capture session-plan/launch.\n",
         "  --target-url <url>    Optional page URL to open in the dedicated browser capture profile.\n",

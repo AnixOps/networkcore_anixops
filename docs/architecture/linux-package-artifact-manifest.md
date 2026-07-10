@@ -131,6 +131,12 @@ manifest 顶层字段必须稳定、显式、可由自动化读取：
       "source": "apps/linux-cli"
     },
     {
+      "path": "libexec/anixops-runner.js",
+      "kind": "script-runner",
+      "required": true,
+      "source": "third_party/mitm_anixops"
+    },
+    {
       "path": "INSTALL.md",
       "kind": "documentation",
       "required": true,

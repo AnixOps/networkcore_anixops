@@ -8,8 +8,29 @@ fn main() {
             );
             let reader = networkcore_linux::FsConfigReader;
             let lifecycle_host = networkcore_linux::CurrentProcessForegroundLifecycleHost::new();
-            let response = if matches!(&command, networkcore_linux::LinuxCliCommand::Start { .. }) {
-                match networkcore_linux::native_proxy_engine_service_with_builtin_mitm_plugin() {
+            let response = if let networkcore_linux::LinuxCliCommand::Start {
+                mitm_ca_certificate_path,
+                mitm_ca_private_key_path,
+                enable_https_mitm,
+                enable_script_runtime,
+                script_runner_path,
+                script_maps,
+                script_store_path,
+                node_binary,
+                confirm,
+                ..
+            } = &command {
+                match networkcore_linux::native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
+                    mitm_ca_certificate_path.as_deref(),
+                    mitm_ca_private_key_path.as_deref(),
+                    *enable_https_mitm,
+                    *enable_script_runtime,
+                    script_runner_path.as_deref(),
+                    node_binary.as_deref(),
+                    script_maps,
+                    script_store_path.as_deref(),
+                    *confirm,
+                ) {
                     Ok(native_engine) => {
                         let orchestrator = control_runtime::RuntimeOrchestrator::new(
                             config_core::CoreConfigurationService::new(),
@@ -31,7 +52,7 @@ fn main() {
                             control_domain::DiagnosticSeverity::Error,
                             networkcore_linux::CLI_START_ENGINE_DENIED_CODE,
                             format!(
-                                "linux start MITM plugin hook could not be loaded: {}",
+                                "linux start native MITM engine could not be configured: {}",
                                 error.message
                             ),
                             Some(networkcore_linux::SOURCE_CLI_START.to_string()),

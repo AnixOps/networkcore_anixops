@@ -49,6 +49,8 @@ staging 目录、archive 路径或文件来源来绕过门禁。
 | `package_archive_path` | `dist/linux/${target}/artifacts/networkcore-linux-${version}-${target}.tar.gz` |
 | `package_binary_source_path` | `target/${target}/release/networkcore-linux` |
 | `package_binary_archive_path` | `bin/networkcore-linux` |
+| `package_script_runner_source_path` | `third_party/mitm_anixops/mitm_anixops/e2e/script_runtime/anixops_runner.js` |
+| `package_script_runner_archive_path` | `libexec/anixops-runner.js` |
 | `package_install_doc_archive_path` | `INSTALL.md` |
 | `package_license_source` | `license-notice-confirmed` |
 | `package_changelog_source` | `CHANGELOG.md` |
@@ -63,6 +65,7 @@ staging 目录、archive 路径或文件来源来绕过门禁。
 | archive path | kind | source | 要求 |
 | --- | --- | --- | --- |
 | `bin/networkcore-linux` | `binary` | `target/${target}/release/networkcore-linux` | 必须由同一 GitHub Actions release run 构建，且来自 `apps/linux-cli` |
+| `libexec/anixops-runner.js` | `script runner` | pinned `third_party/mitm_anixops` source | 必须是 CI checkout 的普通文件、随 archive 一起发布；只供显式本地 script map 使用，Node runtime 由操作者提供 |
 | `INSTALL.md` | `documentation` | repo docs 或 packaging 生成文档 | 必须描述手动解压、运行、卸载和回滚边界 |
 | `LICENSE` | `license` | `docs/manual-intervention.md` confirmed 字段指向的 license source | 仅在 license/NOTICE confirmed 后允许进入 archive |
 | `NOTICE` | `notice` | confirmed 字段指向的 NOTICE source 或省略 | `notice-source=not-required` 时不得生成伪 NOTICE |
@@ -93,11 +96,12 @@ archive 内所有路径必须位于单一顶层目录
 3. 在 GitHub Actions runner workspace 内创建干净的 `package_dist_dir`。
 4. 创建 `package_archive_staging_root`、`package_archive_staging_dir` 和 `package_archive_output_dir`。
 5. 从同一 job 的 Rust build output 复制 `package_binary_source_path` 到 `package_binary_archive_path`。
-6. 生成或复制 `INSTALL.md`，内容必须承接 Linux CLI artifact installation/rollback design。
-7. 复制 confirmed license/NOTICE 文件和 `CHANGELOG.md`。
-8. 校验 staging 目录只包含 Required Archive Contents 中允许的路径。
-9. 从 `package_archive_staging_root` 的父级创建 `.tar.gz`，确保 archive 只有一个顶层目录。
-10. 在 archive 外生成 checksum、sidecar manifest、manifest checksum、signing/attestation 和 rollback 输出。
+6. 从 pinned checkout 复制 `package_script_runner_source_path` 到 `package_script_runner_archive_path`。
+7. 生成或复制 `INSTALL.md`，内容必须承接 Linux CLI artifact installation/rollback design，并说明 Node runner 的显式本地映射边界。
+8. 复制 confirmed license/NOTICE 文件和 `CHANGELOG.md`。
+9. 校验 staging 目录只包含 Required Archive Contents 中允许的路径。
+10. 从 `package_archive_staging_root` 的父级创建 `.tar.gz`，确保 archive 只有一个顶层目录。
+11. 在 archive 外生成 checksum、sidecar manifest、manifest checksum、signing/attestation 和 rollback 输出。
 
 archive checksum、manifest 和 manifest checksum 都不得放入 archive 内部。
 
@@ -108,6 +112,7 @@ archive checksum、manifest 和 manifest checksum 都不得放入 archive 内部
 - staging、输出目录、archive 名称或顶层目录缺失。
 - archive 没有单一顶层目录，或顶层目录不等于 `package_top_level_dir`。
 - `bin/networkcore-linux` 不是当前 GitHub Actions release run 的 build output。
+- pinned script runner 缺失、不是普通文件，或未落在 `libexec/anixops-runner.js`。
 - `LICENSE`/`NOTICE` 来源没有经过 `docs/manual-intervention.md` 的 confirmed 字段确认。
 - staging 目录包含禁止文件、额外目录、runner 本地绝对路径、secret 或用户配置。
 - archive 路径不在 `package_archive_output_dir` 下。
