@@ -1156,6 +1156,139 @@ fn managed_foreground_session_status_cli_transitions_expected_state_with_snapsho
 }
 
 #[test]
+fn managed_foreground_session_status_cli_rolls_back_matching_snapshot() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-status-cli-rollback-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root)
+        .expect("managed status CLI rollback directory should be created");
+    let status_path = root.join("session-status.json");
+    let snapshot_path = root.join("session-status.snapshot.json");
+    let current_record = r#"{
+  "schema_version": 1,
+  "session_id": "session-cli-rollback",
+  "engine_id": "native",
+  "state": "running"
+}"#;
+    let snapshot_record = r#"{
+  "schema_version": 1,
+  "session_id": "session-cli-rollback",
+  "engine_id": "native",
+  "state": "starting"
+}"#;
+    std::fs::write(&status_path, current_record)
+        .expect("managed status CLI rollback record should be written");
+    std::fs::write(&snapshot_path, snapshot_record)
+        .expect("managed status CLI rollback snapshot should be written");
+    let status_path_text = status_path
+        .to_str()
+        .expect("managed status rollback path should be UTF-8");
+    let snapshot_path_text = snapshot_path
+        .to_str()
+        .expect("managed status rollback snapshot path should be UTF-8");
+    let command = parse_args([
+        "managed-status",
+        "rollback",
+        status_path_text,
+        snapshot_path_text,
+        "running",
+        "--format",
+        "json",
+    ])
+    .expect("managed-status rollback command should parse");
+    assert!(matches!(
+        &command,
+        LinuxCliCommand::ManagedStatusRollback {
+            format: OutputFormat::Json,
+            ..
+        }
+    ));
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let response = handle_entrypoint(command, &platform);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "managed-status rollback");
+    let report = response
+        .managed_foreground_status_rollback
+        .as_ref()
+        .expect("managed status rollback response should include the rollback report");
+    assert_eq!(report.session_id, "session-cli-rollback");
+    assert_eq!(report.engine_id, "native");
+    assert_eq!(report.previous_state, "running");
+    assert_eq!(report.state, "starting");
+    assert!(report.snapshot_retained);
+    assert!(!report.liveness_verified);
+    assert_eq!(
+        std::fs::read_to_string(&status_path)
+            .expect("managed status CLI rollback record should be readable"),
+        snapshot_record
+    );
+    assert_eq!(
+        std::fs::read_to_string(&snapshot_path)
+            .expect("managed status CLI rollback snapshot should be readable"),
+        snapshot_record
+    );
+    let text = render_response(&response, OutputFormat::Text);
+    assert!(text.contains("managed foreground previous recorded state: running"));
+    assert!(text.contains("managed foreground status snapshot retained: true"));
+    assert!(text.contains("managed foreground liveness verified: false"));
+    let json: serde_json::Value =
+        serde_json::from_str(&render_response(&response, OutputFormat::Json))
+            .expect("managed status rollback response should render JSON");
+    assert_eq!(
+        json["managed_foreground_status_rollback"]["previous_state"],
+        "running"
+    );
+    assert_eq!(
+        json["managed_foreground_status_rollback"]["state"],
+        "starting"
+    );
+    assert_eq!(
+        json["managed_foreground_status_rollback"]["snapshot_retained"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        json["managed_foreground_status_rollback"]["liveness_verified"].as_bool(),
+        Some(false)
+    );
+
+    let before_stale =
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable");
+    let stale = handle_entrypoint(
+        parse_args([
+            "managed-status",
+            "rollback",
+            status_path_text,
+            snapshot_path_text,
+            "running",
+        ])
+        .expect("stale managed-status rollback command should parse"),
+        &platform,
+    );
+    assert!(!stale.ok);
+    assert_eq!(stale.exit_code, LinuxCliExitCode::ConfigValidation);
+    assert_diagnostic(
+        &stale.diagnostics,
+        "cli.linux.managed_foreground_status.state_conflict",
+    );
+    assert_eq!(
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable"),
+        before_stale
+    );
+    assert_eq!(
+        std::fs::read_to_string(&snapshot_path)
+            .expect("managed status snapshot should be readable"),
+        snapshot_record
+    );
+
+    std::fs::remove_dir_all(&root)
+        .expect("managed status CLI rollback directory should be removed");
+}
+
+#[test]
 fn subscription_catalog_list_reads_and_redacts_sources() {
     let root = std::env::temp_dir().join(format!(
         "networkcore-subscription-catalog-list-contract-{}",

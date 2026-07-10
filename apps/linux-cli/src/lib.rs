@@ -400,6 +400,12 @@ pub enum LinuxCliCommand {
         next_state: String,
         format: OutputFormat,
     },
+    ManagedStatusRollback {
+        status_path: String,
+        snapshot_path: String,
+        expected_state: String,
+        format: OutputFormat,
+    },
     ManagedEvent {
         event_path: String,
         format: OutputFormat,
@@ -539,6 +545,7 @@ impl LinuxCliCommand {
             Self::ManagedStatus { .. } => "managed-status",
             Self::ManagedStatusInit { .. } => "managed-status init",
             Self::ManagedStatusTransition { .. } => "managed-status transition",
+            Self::ManagedStatusRollback { .. } => "managed-status rollback",
             Self::ManagedEvent { .. } => "managed-event",
             Self::ManagedEventInit { .. } => "managed-event init",
             Self::Diagnostics { .. } => "diagnostics",
@@ -575,6 +582,7 @@ impl LinuxCliCommand {
             | Self::ManagedStatus { format, .. }
             | Self::ManagedStatusInit { format, .. }
             | Self::ManagedStatusTransition { format, .. }
+            | Self::ManagedStatusRollback { format, .. }
             | Self::ManagedEvent { format, .. }
             | Self::ManagedEventInit { format, .. }
             | Self::Diagnostics { format }
@@ -635,6 +643,7 @@ pub struct LinuxCliResponse {
     pub managed_foreground_status_write: Option<ManagedForegroundSessionStatusWriteReport>,
     pub managed_foreground_status_transition:
         Option<ManagedForegroundSessionStatusTransitionReport>,
+    pub managed_foreground_status_rollback: Option<ManagedForegroundSessionStatusRollbackReport>,
     pub managed_foreground_event: Option<ManagedForegroundSessionEventReport>,
     pub managed_foreground_event_write: Option<ManagedForegroundSessionEventWriteReport>,
     pub sing_box_install: Option<LinuxSingBoxInstallStatus>,
@@ -659,6 +668,7 @@ impl LinuxCliResponse {
             managed_foreground_status: None,
             managed_foreground_status_write: None,
             managed_foreground_status_transition: None,
+            managed_foreground_status_rollback: None,
             managed_foreground_event: None,
             managed_foreground_event_write: None,
             sing_box_install: None,
@@ -687,6 +697,7 @@ impl LinuxCliResponse {
             managed_foreground_status: None,
             managed_foreground_status_write: None,
             managed_foreground_status_transition: None,
+            managed_foreground_status_rollback: None,
             managed_foreground_event: None,
             managed_foreground_event_write: None,
             sing_box_install: None,
@@ -739,6 +750,14 @@ impl LinuxCliResponse {
         report: ManagedForegroundSessionStatusTransitionReport,
     ) -> Self {
         self.managed_foreground_status_transition = Some(report);
+        self
+    }
+
+    pub fn with_managed_foreground_status_rollback(
+        mut self,
+        report: ManagedForegroundSessionStatusRollbackReport,
+    ) -> Self {
+        self.managed_foreground_status_rollback = Some(report);
         self
     }
 
@@ -4424,6 +4443,16 @@ where
             &expected_state,
             &next_state,
         ),
+        LinuxCliCommand::ManagedStatusRollback {
+            status_path,
+            snapshot_path,
+            expected_state,
+            ..
+        } => handle_managed_foreground_status_rollback(
+            &status_path,
+            &snapshot_path,
+            &expected_state,
+        ),
         LinuxCliCommand::ManagedEvent { event_path, .. } => {
             handle_managed_foreground_event(&event_path)
         }
@@ -4987,6 +5016,7 @@ where
             managed_foreground_status: None,
             managed_foreground_status_write: None,
             managed_foreground_status_transition: None,
+            managed_foreground_status_rollback: None,
             managed_foreground_event: None,
             managed_foreground_event_write: None,
             sing_box_install: None,
@@ -5015,6 +5045,7 @@ where
         managed_foreground_status: None,
         managed_foreground_status_write: None,
         managed_foreground_status_transition: None,
+        managed_foreground_status_rollback: None,
         managed_foreground_event: None,
         managed_foreground_event_write: None,
         sing_box_install: None,
@@ -5214,6 +5245,44 @@ pub fn handle_managed_foreground_status_transition(
             };
             domain_error_response(
                 "managed-status transition",
+                exit_code,
+                error,
+                SOURCE_CLI_MANAGED_FOREGROUND_STATUS,
+            )
+        }
+    }
+}
+
+pub fn handle_managed_foreground_status_rollback(
+    status_path: &str,
+    snapshot_path: &str,
+    expected_state: &str,
+) -> LinuxCliResponse {
+    let store = CommandManagedForegroundSessionStore::new();
+    match store.rollback_status(&ManagedForegroundSessionStatusRollbackRequest {
+        status_path: status_path.to_string(),
+        snapshot_path: snapshot_path.to_string(),
+        expected_state: expected_state.to_string(),
+    }) {
+        Ok(report) => LinuxCliResponse::success("managed-status rollback")
+            .with_managed_foreground_status_rollback(report),
+        Err(error) => {
+            let exit_code = if error.code == CLI_MANAGED_FOREGROUND_STATUS_PATH_MISSING_CODE
+                || error.code == CLI_MANAGED_FOREGROUND_STATUS_SNAPSHOT_PATH_MISSING_CODE
+                || error.code == CLI_MANAGED_FOREGROUND_STATUS_PATH_CONFLICT_CODE
+                || error.code == CLI_MANAGED_FOREGROUND_STATUS_ROLLBACK_INVALID_CODE
+            {
+                LinuxCliExitCode::ArgumentOrConfig
+            } else if error.code == CLI_MANAGED_FOREGROUND_STATUS_SCHEMA_UNSUPPORTED_CODE
+                || error.code == CLI_MANAGED_FOREGROUND_STATUS_RECORD_INVALID_CODE
+                || error.code == CLI_MANAGED_FOREGROUND_STATUS_STATE_CONFLICT_CODE
+            {
+                LinuxCliExitCode::ConfigValidation
+            } else {
+                LinuxCliExitCode::GeneralFailure
+            };
+            domain_error_response(
+                "managed-status rollback",
                 exit_code,
                 error,
                 SOURCE_CLI_MANAGED_FOREGROUND_STATUS,
@@ -9361,6 +9430,9 @@ fn parse_managed_status_command(args: &[String]) -> Result<LinuxCliCommand, Linu
         if subcommand == "transition" {
             return parse_managed_status_transition_command(&args[1..]);
         }
+        if subcommand == "rollback" {
+            return parse_managed_status_rollback_command(&args[1..]);
+        }
     }
 
     let Some(status_path) = args.first() else {
@@ -9475,6 +9547,46 @@ fn parse_managed_status_transition_command(
         snapshot_path: snapshot_path.clone(),
         expected_state: expected_state.clone(),
         next_state: next_state.clone(),
+        format: options.format,
+    })
+}
+
+fn parse_managed_status_rollback_command(
+    args: &[String],
+) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(status_path) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-status rollback requires <status-record-path> <snapshot-path> <expected-state>",
+        ));
+    };
+    let Some(snapshot_path) = args.get(1) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-status rollback requires <snapshot-path> <expected-state> after the status record path",
+        ));
+    };
+    let Some(expected_state) = args.get(2) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-status rollback requires <expected-state> after the snapshot path",
+        ));
+    };
+    if status_path.starts_with("--")
+        || snapshot_path.starts_with("--")
+        || expected_state.starts_with("--")
+    {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-status rollback requires record values before options",
+        ));
+    }
+    let options = parse_options(&args[3..])?;
+
+    Ok(LinuxCliCommand::ManagedStatusRollback {
+        status_path: status_path.clone(),
+        snapshot_path: snapshot_path.clone(),
+        expected_state: expected_state.clone(),
         format: options.format,
     })
 }
@@ -9979,6 +10091,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux managed-status <status-record-path> [--format text|json]\n",
         "  networkcore-linux managed-status init <status-record-path> <session-id> <engine-id> <state> [--format text|json]\n",
         "  networkcore-linux managed-status transition <status-record-path> <snapshot-path> <expected-state> <next-state> [--format text|json]\n",
+        "  networkcore-linux managed-status rollback <status-record-path> <snapshot-path> <expected-state> [--format text|json]\n",
         "  networkcore-linux managed-event <event-record-path> [--format text|json]\n",
         "  networkcore-linux managed-event init <event-record-path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at> [--format text|json]\n",
         "  networkcore-linux diagnostics [--format text|json]\n",
@@ -10001,6 +10114,7 @@ pub const fn cli_help_text() -> &'static str {
         "  managed-status    Read one explicit managed foreground status record.\n",
         "  managed-status init Create one explicit managed foreground status record without overwriting it.\n",
         "  managed-status transition Move one explicit record through an expected-state transition.\n",
+        "  managed-status rollback Restore one explicit record from a matching expected-state snapshot.\n",
         "  managed-event     Read one explicit managed foreground event record.\n",
         "  managed-event init Create one explicit managed foreground event record without overwriting it.\n",
         "  diagnostics       Print platform diagnostics.\n",
@@ -10347,6 +10461,41 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
         lines.push(format!(
             "managed foreground liveness verified: {}",
             status_transition.liveness_verified
+        ));
+    }
+
+    if let Some(status_rollback) = &response.managed_foreground_status_rollback {
+        lines.push(format!(
+            "managed foreground status record: {}",
+            status_rollback.status_path
+        ));
+        lines.push(format!(
+            "managed foreground status snapshot: {}",
+            status_rollback.snapshot_path
+        ));
+        lines.push(format!(
+            "managed foreground session: {}",
+            status_rollback.session_id
+        ));
+        lines.push(format!(
+            "managed foreground engine: {}",
+            status_rollback.engine_id
+        ));
+        lines.push(format!(
+            "managed foreground previous recorded state: {}",
+            status_rollback.previous_state
+        ));
+        lines.push(format!(
+            "managed foreground recorded state: {}",
+            status_rollback.state
+        ));
+        lines.push(format!(
+            "managed foreground status snapshot retained: {}",
+            status_rollback.snapshot_retained
+        ));
+        lines.push(format!(
+            "managed foreground liveness verified: {}",
+            status_rollback.liveness_verified
         ));
     }
 
@@ -10982,6 +11131,7 @@ struct JsonCliResponse {
     managed_foreground_status_write: Option<JsonManagedForegroundSessionStatusWriteReport>,
     managed_foreground_status_transition:
         Option<JsonManagedForegroundSessionStatusTransitionReport>,
+    managed_foreground_status_rollback: Option<JsonManagedForegroundSessionStatusRollbackReport>,
     managed_foreground_event: Option<JsonManagedForegroundSessionEventReport>,
     managed_foreground_event_write: Option<JsonManagedForegroundSessionEventWriteReport>,
     sing_box_install: Option<JsonSingBoxInstallStatus>,
@@ -11019,6 +11169,10 @@ impl From<&LinuxCliResponse> for JsonCliResponse {
                 .managed_foreground_status_transition
                 .as_ref()
                 .map(JsonManagedForegroundSessionStatusTransitionReport::from),
+            managed_foreground_status_rollback: response
+                .managed_foreground_status_rollback
+                .as_ref()
+                .map(JsonManagedForegroundSessionStatusRollbackReport::from),
             managed_foreground_event: response
                 .managed_foreground_event
                 .as_ref()
@@ -11122,6 +11276,35 @@ impl From<&ManagedForegroundSessionStatusTransitionReport>
             previous_state: report.previous_state.clone(),
             state: report.state.clone(),
             snapshot_written: report.snapshot_written,
+            liveness_verified: report.liveness_verified,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonManagedForegroundSessionStatusRollbackReport {
+    status_path: String,
+    snapshot_path: String,
+    session_id: String,
+    engine_id: String,
+    previous_state: String,
+    state: String,
+    snapshot_retained: bool,
+    liveness_verified: bool,
+}
+
+impl From<&ManagedForegroundSessionStatusRollbackReport>
+    for JsonManagedForegroundSessionStatusRollbackReport
+{
+    fn from(report: &ManagedForegroundSessionStatusRollbackReport) -> Self {
+        Self {
+            status_path: report.status_path.clone(),
+            snapshot_path: report.snapshot_path.clone(),
+            session_id: report.session_id.clone(),
+            engine_id: report.engine_id.clone(),
+            previous_state: report.previous_state.clone(),
+            state: report.state.clone(),
+            snapshot_retained: report.snapshot_retained,
             liveness_verified: report.liveness_verified,
         }
     }
