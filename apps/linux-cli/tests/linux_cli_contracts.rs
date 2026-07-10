@@ -612,6 +612,133 @@ fn managed_foreground_session_status_cli_initializes_non_overwriting_record() {
 }
 
 #[test]
+fn managed_foreground_session_status_cli_transitions_expected_state_with_snapshot() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-status-cli-transition-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root)
+        .expect("managed status CLI transition directory should be created");
+    let status_path = root.join("session-status.json");
+    let snapshot_path = root.join("session-status.snapshot.json");
+    let initial_record = r#"{
+  "schema_version": 1,
+  "session_id": "session-cli-transition",
+  "engine_id": "native",
+  "state": "starting"
+}"#;
+    std::fs::write(&status_path, initial_record)
+        .expect("managed status CLI transition record should be written");
+    let status_path_text = status_path
+        .to_str()
+        .expect("managed status path should be UTF-8");
+    let snapshot_path_text = snapshot_path
+        .to_str()
+        .expect("managed status snapshot path should be UTF-8");
+    let command = parse_args([
+        "managed-status",
+        "transition",
+        status_path_text,
+        snapshot_path_text,
+        "starting",
+        "running",
+        "--format",
+        "json",
+    ])
+    .expect("managed-status transition command should parse");
+    assert!(matches!(
+        &command,
+        LinuxCliCommand::ManagedStatusTransition {
+            format: OutputFormat::Json,
+            ..
+        }
+    ));
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let response = handle_entrypoint(command, &platform);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "managed-status transition");
+    let report = response
+        .managed_foreground_status_transition
+        .as_ref()
+        .expect("managed status transition response should include the transition report");
+    assert_eq!(report.session_id, "session-cli-transition");
+    assert_eq!(report.engine_id, "native");
+    assert_eq!(report.previous_state, "starting");
+    assert_eq!(report.state, "running");
+    assert!(report.snapshot_written);
+    assert!(!report.liveness_verified);
+    assert_eq!(
+        std::fs::read_to_string(&snapshot_path)
+            .expect("managed status CLI transition snapshot should be readable"),
+        initial_record
+    );
+    let record: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&status_path)
+            .expect("managed status CLI transition record should be readable"),
+    )
+    .expect("managed status CLI transition record should be valid JSON");
+    assert_eq!(record["state"], "running");
+    let text = render_response(&response, OutputFormat::Text);
+    assert!(text.contains("managed foreground previous recorded state: starting"));
+    assert!(text.contains("managed foreground status snapshot written: true"));
+    assert!(text.contains("managed foreground liveness verified: false"));
+    let json: serde_json::Value =
+        serde_json::from_str(&render_response(&response, OutputFormat::Json))
+            .expect("managed status transition response should render JSON");
+    assert_eq!(
+        json["managed_foreground_status_transition"]["previous_state"],
+        "starting"
+    );
+    assert_eq!(
+        json["managed_foreground_status_transition"]["state"],
+        "running"
+    );
+    assert_eq!(
+        json["managed_foreground_status_transition"]["snapshot_written"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        json["managed_foreground_status_transition"]["liveness_verified"].as_bool(),
+        Some(false)
+    );
+
+    let before_stale =
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable");
+    let stale_snapshot_path = root.join("session-status.stale.snapshot.json");
+    let stale = handle_entrypoint(
+        parse_args([
+            "managed-status",
+            "transition",
+            status_path_text,
+            stale_snapshot_path
+                .to_str()
+                .expect("managed status stale snapshot path should be UTF-8"),
+            "starting",
+            "failed",
+        ])
+        .expect("stale managed-status transition command should parse"),
+        &platform,
+    );
+    assert!(!stale.ok);
+    assert_eq!(stale.exit_code, LinuxCliExitCode::ConfigValidation);
+    assert_diagnostic(
+        &stale.diagnostics,
+        "cli.linux.managed_foreground_status.state_conflict",
+    );
+    assert_eq!(
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable"),
+        before_stale
+    );
+    assert!(!stale_snapshot_path.exists());
+
+    std::fs::remove_dir_all(&root)
+        .expect("managed status CLI transition directory should be removed");
+}
+
+#[test]
 fn subscription_catalog_list_reads_and_redacts_sources() {
     let root = std::env::temp_dir().join(format!(
         "networkcore-subscription-catalog-list-contract-{}",
