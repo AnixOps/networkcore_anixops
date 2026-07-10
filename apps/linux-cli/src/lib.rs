@@ -62,6 +62,8 @@ pub const CLI_SUBSCRIPTION_CATALOG_PATH_MISSING_CODE: &str =
     "cli.linux.subscription_catalog.path_missing";
 pub const CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_PATH_MISSING_CODE: &str =
     "cli.linux.subscription_catalog.snapshot_path_missing";
+pub const CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_READ_FAILED_CODE: &str =
+    "cli.linux.subscription_catalog.snapshot_read_failed";
 pub const CLI_SUBSCRIPTION_CATALOG_PATH_CONFLICT_CODE: &str =
     "cli.linux.subscription_catalog.path_conflict";
 pub const CLI_SUBSCRIPTION_CATALOG_SOURCE_ID_EMPTY_CODE: &str =
@@ -1315,6 +1317,20 @@ pub struct SubscriptionCatalogUpdateReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubscriptionCatalogRollbackRequest {
+    pub catalog_path: String,
+    pub snapshot_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubscriptionCatalogRollbackReport {
+    pub catalog_path: String,
+    pub snapshot_path: String,
+    pub source_count: usize,
+    pub snapshot_retained: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubscriptionCatalogRemoveRequest {
     pub catalog_path: String,
     pub snapshot_path: String,
@@ -1587,6 +1603,44 @@ impl CommandSubscriptionCatalogStore {
         })
     }
 
+    pub fn rollback_catalog(
+        &self,
+        request: &SubscriptionCatalogRollbackRequest,
+    ) -> DomainResult<SubscriptionCatalogRollbackReport> {
+        let catalog_path = required_subscription_catalog_path(
+            &request.catalog_path,
+            CLI_SUBSCRIPTION_CATALOG_PATH_MISSING_CODE,
+            "subscription catalog path cannot be empty",
+        )?;
+        let snapshot_path = required_subscription_catalog_path(
+            &request.snapshot_path,
+            CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_PATH_MISSING_CODE,
+            "subscription catalog snapshot path cannot be empty",
+        )?;
+        if catalog_path == snapshot_path {
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_PATH_CONFLICT_CODE,
+                "subscription catalog and rollback snapshot paths must differ",
+            ));
+        }
+
+        let (snapshot, snapshot_contents) =
+            read_required_subscription_catalog_snapshot_file(&snapshot_path)?;
+        write_replace_file(
+            &catalog_path,
+            snapshot_contents.as_bytes(),
+            CLI_SUBSCRIPTION_CATALOG_WRITE_FAILED_CODE,
+            "subscription catalog",
+        )?;
+
+        Ok(SubscriptionCatalogRollbackReport {
+            catalog_path,
+            snapshot_path,
+            source_count: snapshot.sources.len(),
+            snapshot_retained: true,
+        })
+    }
+
     pub fn remove_source(
         &self,
         request: &SubscriptionCatalogRemoveRequest,
@@ -1721,6 +1775,31 @@ fn read_subscription_catalog_file(
             format!("failed to parse subscription catalog {path}: {error}"),
         )
     })?;
+    let catalog = validate_subscription_catalog_file(catalog)?;
+    Ok((catalog.clone(), catalog))
+}
+
+fn read_required_subscription_catalog_snapshot_file(
+    path: &str,
+) -> DomainResult<(SubscriptionCatalogFile, String)> {
+    let contents = std::fs::read_to_string(path).map_err(|error| {
+        DomainError::new(
+            CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_READ_FAILED_CODE,
+            format!("failed to read subscription catalog rollback snapshot {path}: {error}"),
+        )
+    })?;
+    let catalog = serde_json::from_str::<SubscriptionCatalogFile>(&contents).map_err(|error| {
+        DomainError::new(
+            CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_READ_FAILED_CODE,
+            format!("failed to parse subscription catalog rollback snapshot {path}: {error}"),
+        )
+    })?;
+    Ok((validate_subscription_catalog_file(catalog)?, contents))
+}
+
+fn validate_subscription_catalog_file(
+    catalog: SubscriptionCatalogFile,
+) -> DomainResult<SubscriptionCatalogFile> {
     if catalog.schema_version != SUBSCRIPTION_CATALOG_SCHEMA_VERSION {
         return Err(DomainError::new(
             CLI_SUBSCRIPTION_CATALOG_SCHEMA_UNSUPPORTED_CODE,
@@ -1737,7 +1816,7 @@ fn read_subscription_catalog_file(
             "subscription catalog contains an empty source id or location",
         ));
     }
-    Ok((catalog.clone(), catalog))
+    Ok(catalog)
 }
 
 fn subscription_catalog_location_kind(location: &str) -> &'static str {

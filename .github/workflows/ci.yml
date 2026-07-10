@@ -356,6 +356,7 @@ jobs:
           grep -q "persistent-subscription-catalog-remove-operation=remove" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "persistent-subscription-catalog-select-operation=select" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "persistent-subscription-catalog-update-operation=update" docs/architecture/subscription-catalog-persistence-source-contract.md
+          grep -q "persistent-subscription-catalog-rollback-operation=rollback" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "persistent-subscription-catalog-schema-version=1" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "persistent-subscription-catalog-default-path=blocked" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "persistent-subscription-catalog-remote-fetch=blocked" docs/architecture/subscription-catalog-persistence-source-contract.md
@@ -375,6 +376,9 @@ jobs:
           grep -q "SubscriptionCatalogUpdateRequest" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "SubscriptionCatalogUpdateReport" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "CommandSubscriptionCatalogStore::update_source" docs/architecture/subscription-catalog-persistence-source-contract.md
+          grep -q "SubscriptionCatalogRollbackRequest" docs/architecture/subscription-catalog-persistence-source-contract.md
+          grep -q "SubscriptionCatalogRollbackReport" docs/architecture/subscription-catalog-persistence-source-contract.md
+          grep -q "CommandSubscriptionCatalogStore::rollback_catalog" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "location_redacted=true" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "rollback snapshot" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "SUBSCRIPTION_CATALOG_SCHEMA_VERSION" apps/linux-cli/src/lib.rs
@@ -394,11 +398,15 @@ jobs:
           grep -q "SubscriptionCatalogUpdateRequest" apps/linux-cli/src/lib.rs
           grep -q "SubscriptionCatalogUpdateReport" apps/linux-cli/src/lib.rs
           grep -q "fn update_source" apps/linux-cli/src/lib.rs
+          grep -q "SubscriptionCatalogRollbackRequest" apps/linux-cli/src/lib.rs
+          grep -q "SubscriptionCatalogRollbackReport" apps/linux-cli/src/lib.rs
+          grep -q "fn rollback_catalog" apps/linux-cli/src/lib.rs
           grep -q "subscription_catalog_add_persists_source_snapshot_and_redacts_location" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "subscription_catalog_list_reads_and_redacts_sources" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "subscription_catalog_remove_persists_snapshot_and_redacts_location" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "subscription_catalog_select_reads_and_redacts_source" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "subscription_catalog_update_persists_snapshot_and_redacts_location" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "subscription_catalog_rollback_restores_snapshot_and_retains_snapshot" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "v0.1.2-alpha.1" README.md
           grep -q "v0.1.2-alpha.1" ROADMAP.md
           grep -q "v0.1.2-alpha.1" TODO.md

@@ -57,7 +57,8 @@ use networkcore_linux::{
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
     MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
     SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
-    SubscriptionCatalogRemoveRequest, SubscriptionCatalogSelectRequest,
+    SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
+    SubscriptionCatalogSelectRequest,
     SubscriptionCatalogUpdateRequest, UnavailableForegroundLifecycleHost,
     UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
     CLI_CONFIG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
@@ -424,6 +425,75 @@ fn subscription_catalog_update_persists_snapshot_and_redacts_location() {
     assert!(!root.join("missing.snapshot.json").exists());
 
     std::fs::remove_dir_all(&root).expect("catalog update test directory should be removed");
+}
+
+#[test]
+fn subscription_catalog_rollback_restores_snapshot_and_retains_snapshot() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-subscription-catalog-rollback-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("catalog rollback test directory should be created");
+    let catalog_path = root.join("catalog.json");
+    let snapshot_path = root.join("catalog.snapshot.json");
+    let catalog_json = r#"{
+  "schema_version": 1,
+  "sources": [
+    {"id": "work", "location": "https://current.example/sub?token=current-secret-token"}
+  ]
+}"#;
+    let snapshot_json = r#"{
+  "schema_version": 1,
+  "sources": [
+    {"id": "work", "location": "inline:previous-secret-subscription-payload"},
+    {"id": "remote", "location": "https://previous.example/sub?token=previous-secret-token"}
+  ]
+}"#;
+    std::fs::write(&catalog_path, catalog_json).expect("catalog should be written");
+    std::fs::write(&snapshot_path, snapshot_json).expect("snapshot should be written");
+    let snapshot_before = std::fs::read_to_string(&snapshot_path).expect("snapshot should be readable");
+
+    let report = CommandSubscriptionCatalogStore::new()
+        .rollback_catalog(&SubscriptionCatalogRollbackRequest {
+            catalog_path: catalog_path.display().to_string(),
+            snapshot_path: snapshot_path.display().to_string(),
+        })
+        .expect("catalog rollback should restore the snapshot");
+
+    assert_eq!(report.source_count, 2);
+    assert!(report.snapshot_retained);
+    let debug_report = format!("{report:?}");
+    assert!(!debug_report.contains("current-secret-token"));
+    assert!(!debug_report.contains("previous-secret-subscription-payload"));
+    assert!(!debug_report.contains("previous-secret-token"));
+    assert_eq!(
+        std::fs::read_to_string(&catalog_path).expect("catalog should be readable"),
+        snapshot_before
+    );
+    assert_eq!(
+        std::fs::read_to_string(&snapshot_path).expect("snapshot should remain readable"),
+        snapshot_before
+    );
+
+    let catalog_before_missing_snapshot =
+        std::fs::read_to_string(&catalog_path).expect("catalog should remain readable");
+    let missing = CommandSubscriptionCatalogStore::new()
+        .rollback_catalog(&SubscriptionCatalogRollbackRequest {
+            catalog_path: catalog_path.display().to_string(),
+            snapshot_path: root.join("missing.snapshot.json").display().to_string(),
+        })
+        .expect_err("missing rollback snapshot should be rejected");
+    assert_eq!(
+        missing.code,
+        "cli.linux.subscription_catalog.snapshot_read_failed"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&catalog_path).expect("catalog should remain readable"),
+        catalog_before_missing_snapshot
+    );
+
+    std::fs::remove_dir_all(&root).expect("catalog rollback test directory should be removed");
 }
 
 #[test]
