@@ -414,6 +414,7 @@ jobs:
           grep -q "managed-foreground-session-status-write-operation=status-write" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "managed-foreground-session-status-transition-operation=status-transition" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "managed-foreground-session-status-cli-read-operation=managed-status" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "managed-foreground-session-status-cli-init-operation=managed-status-init" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "managed-foreground-session-status-liveness-verification=blocked" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "ManagedForegroundSessionStatusRequest" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "ManagedForegroundSessionStatusReport" docs/architecture/managed-foreground-session-status-source-contract.md
@@ -436,10 +437,13 @@ jobs:
           grep -q "fn transition_status" apps/linux-cli/src/lib.rs
           grep -q "ManagedStatus" apps/linux-cli/src/lib.rs
           grep -q "fn handle_managed_foreground_status" apps/linux-cli/src/lib.rs
+          grep -q "ManagedStatusInit" apps/linux-cli/src/lib.rs
+          grep -q "fn handle_managed_foreground_status_init" apps/linux-cli/src/lib.rs
           grep -q "managed_foreground_session_status_reads_explicit_record_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "managed_foreground_session_status_write_persists_non_overwriting_record" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "managed_foreground_session_status_transition_writes_snapshot_and_rejects_stale_state" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "managed_foreground_session_status_cli_reads_explicit_record_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "managed_foreground_session_status_cli_initializes_non_overwriting_record" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "v0.1.2-alpha.1" README.md
           grep -q "v0.1.2-alpha.1" ROADMAP.md
           grep -q "v0.1.2-alpha.1" TODO.md
@@ -477,6 +481,9 @@ jobs:
           grep -q "networkcore-linux managed-status" TODO.md
           grep -q "networkcore-linux managed-status" CHANGELOG.md
           grep -q "networkcore-linux managed-status" apps/linux-cli/README.md
+          grep -q "networkcore-linux managed-status init" TODO.md
+          grep -q "networkcore-linux managed-status init" CHANGELOG.md
+          grep -q "networkcore-linux managed-status init" apps/linux-cli/README.md
           grep -q "handle_entrypoint_with_runtime_lifecycle_and_sing_box" apps/linux-cli/src/main.rs
           git submodule status third_party/mitm_anixops | grep -q "a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0"
           grep -q "v0.45.10-alpha" docs/architecture/mitm-anixops-adapter.md
