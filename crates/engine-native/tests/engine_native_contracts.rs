@@ -1898,9 +1898,10 @@ fn controlled_tls_server_config_performs_authenticated_handshake_and_decrypts_re
     .expect("server connection should initialize");
 
     complete_tls_handshake(&mut client, &mut server);
+    let expected_request = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
     client
         .writer()
-        .write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+        .write_all(expected_request)
         .expect("client should accept plaintext request");
     let mut encrypted_request = Vec::new();
     client
@@ -1912,15 +1913,12 @@ fn controlled_tls_server_config_performs_authenticated_handshake_and_decrypts_re
     server
         .process_new_packets()
         .expect("server should decrypt the authenticated request");
-    let mut plaintext_request = Vec::new();
+    let mut plaintext_request = vec![0; expected_request.len()];
     server
         .reader()
-        .read_to_end(&mut plaintext_request)
+        .read_exact(&mut plaintext_request)
         .expect("server should expose decrypted request bytes");
-    assert_eq!(
-        plaintext_request,
-        b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
-    );
+    assert_eq!(plaintext_request.as_slice(), expected_request);
 }
 
 #[test]
