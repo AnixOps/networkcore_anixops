@@ -10741,7 +10741,9 @@ struct JsonManagedForegroundSessionEventWriteReport {
     liveness_verified: bool,
 }
 
-impl From<&ManagedForegroundSessionEventWriteReport> for JsonManagedForegroundSessionEventWriteReport {
+impl From<&ManagedForegroundSessionEventWriteReport>
+    for JsonManagedForegroundSessionEventWriteReport
+{
     fn from(report: &ManagedForegroundSessionEventWriteReport) -> Self {
         Self {
             event_path: report.event_path.clone(),

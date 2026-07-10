@@ -532,8 +532,7 @@ fn managed_foreground_session_event_cli_initializes_non_overwriting_record() {
         before_duplicate
     );
 
-    std::fs::remove_dir_all(&root)
-        .expect("managed event CLI init directory should be removed");
+    std::fs::remove_dir_all(&root).expect("managed event CLI init directory should be removed");
 }
 
 #[test]
