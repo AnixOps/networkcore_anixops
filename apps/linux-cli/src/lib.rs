@@ -84,6 +84,14 @@ pub const CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_WRITE_FAILED_CODE: &str =
     "cli.linux.subscription_catalog.snapshot_write_failed";
 pub const CLI_SUBSCRIPTION_CATALOG_WRITE_FAILED_CODE: &str =
     "cli.linux.subscription_catalog.write_failed";
+pub const CLI_MANAGED_FOREGROUND_STATUS_PATH_MISSING_CODE: &str =
+    "cli.linux.managed_foreground_status.path_missing";
+pub const CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE: &str =
+    "cli.linux.managed_foreground_status.read_failed";
+pub const CLI_MANAGED_FOREGROUND_STATUS_SCHEMA_UNSUPPORTED_CODE: &str =
+    "cli.linux.managed_foreground_status.schema_unsupported";
+pub const CLI_MANAGED_FOREGROUND_STATUS_RECORD_INVALID_CODE: &str =
+    "cli.linux.managed_foreground_status.record_invalid";
 pub const CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE: &str =
     "cli.linux.stop.unavailable_without_daemon";
 pub const CLI_STATUS_NO_RUNTIME_CONTEXT_CODE: &str = "cli.linux.status.no_runtime_context";
@@ -253,6 +261,7 @@ pub const SOURCE_CLI_STOP: &str = "cli.stop";
 pub const SOURCE_CLI_STATUS: &str = "cli.status";
 pub const SOURCE_CLI_RUNTIME: &str = "cli.runtime";
 pub const SUBSCRIPTION_CATALOG_SCHEMA_VERSION: u32 = 1;
+pub const MANAGED_FOREGROUND_SESSION_STATUS_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OutputFormat {
@@ -1345,6 +1354,61 @@ pub struct SubscriptionCatalogRemoveReport {
     pub source_count: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionStatusRequest {
+    pub status_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionStatusReport {
+    pub status_path: String,
+    pub session_id: String,
+    pub engine_id: String,
+    pub state: String,
+    pub liveness_verified: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CommandManagedForegroundSessionStore;
+
+impl CommandManagedForegroundSessionStore {
+    pub const fn new() -> Self {
+        Self
+    }
+
+    pub fn read_status(
+        &self,
+        request: &ManagedForegroundSessionStatusRequest,
+    ) -> DomainResult<ManagedForegroundSessionStatusReport> {
+        let status_path = required_managed_foreground_status_path(&request.status_path)?;
+        let contents = std::fs::read_to_string(&status_path).map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE,
+                format!("failed to read managed foreground status record {status_path}: {error}"),
+            )
+        })?;
+        let record = serde_json::from_str::<ManagedForegroundSessionStatusFile>(&contents).map_err(
+            |error| {
+                DomainError::new(
+                    CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE,
+                    format!(
+                        "failed to parse managed foreground status record {status_path}: {error}"
+                    ),
+                )
+            },
+        )?;
+        validate_managed_foreground_session_status_file(&record)?;
+
+        Ok(ManagedForegroundSessionStatusReport {
+            status_path,
+            session_id: record.session_id.trim().to_string(),
+            engine_id: record.engine_id.trim().to_string(),
+            state: record.state.trim().to_string(),
+            liveness_verified: false,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CommandSubscriptionCatalogStore;
 
@@ -1738,6 +1802,14 @@ struct SubscriptionCatalogSourceFile {
     location: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct ManagedForegroundSessionStatusFile {
+    schema_version: u32,
+    session_id: String,
+    engine_id: String,
+    state: String,
+}
+
 fn required_subscription_catalog_path(
     path: &str,
     code: &'static str,
@@ -1748,6 +1820,44 @@ fn required_subscription_catalog_path(
         return Err(DomainError::new(code, message));
     }
     Ok(path.to_string())
+}
+
+fn required_managed_foreground_status_path(path: &str) -> DomainResult<String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_STATUS_PATH_MISSING_CODE,
+            "managed foreground status path cannot be empty",
+        ));
+    }
+    Ok(path.to_string())
+}
+
+fn validate_managed_foreground_session_status_file(
+    record: &ManagedForegroundSessionStatusFile,
+) -> DomainResult<()> {
+    if record.schema_version != MANAGED_FOREGROUND_SESSION_STATUS_SCHEMA_VERSION {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_STATUS_SCHEMA_UNSUPPORTED_CODE,
+            "managed foreground status schema version is unsupported",
+        ));
+    }
+    if record.session_id.trim().is_empty() || record.engine_id.trim().is_empty() {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_STATUS_RECORD_INVALID_CODE,
+            "managed foreground status record contains an empty session or engine id",
+        ));
+    }
+    if !matches!(
+        record.state.trim(),
+        "starting" | "running" | "stopped" | "failed"
+    ) {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_STATUS_RECORD_INVALID_CODE,
+            "managed foreground status record contains an unsupported state",
+        ));
+    }
+    Ok(())
 }
 
 fn read_subscription_catalog_file(

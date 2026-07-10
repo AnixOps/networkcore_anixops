@@ -45,7 +45,8 @@ use networkcore_linux::{
     render_response, BrowserCaptureEndpointProbe, BrowserCapturePacFileStore,
     BrowserCaptureProcessRunner, BrowserCaptureTrafficProofProbe,
     CommandBrowserCaptureEndpointProbe, CommandBrowserCaptureTrafficProofProbe,
-    CommandSubscriptionCatalogStore, ConfigReadError, ConfigReader,
+    CommandManagedForegroundSessionStore, CommandSubscriptionCatalogStore, ConfigReadError,
+    ConfigReader,
     CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
@@ -56,7 +57,8 @@ use networkcore_linux::{
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
     MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
-    SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
+    ManagedForegroundSessionStatusRequest, SubscriptionCatalogAddRequest,
+    SubscriptionCatalogListRequest,
     SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
     SubscriptionCatalogSelectRequest, SubscriptionCatalogUpdateRequest,
     UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
@@ -249,6 +251,50 @@ fn subscription_catalog_add_persists_source_snapshot_and_redacts_location() {
     assert_eq!(catalog_after_duplicate, catalog);
 
     std::fs::remove_dir_all(&root).expect("catalog test directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_status_reads_explicit_record_without_liveness_claim() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-status-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("managed status test directory should be created");
+    let status_path = root.join("session-status.json");
+    std::fs::write(
+        &status_path,
+        r#"{
+  "schema_version": 1,
+  "session_id": " current-session ",
+  "engine_id": " native ",
+  "state": " running "
+}"#,
+    )
+    .expect("managed status record should be written");
+
+    let report = CommandManagedForegroundSessionStore::new()
+        .read_status(&ManagedForegroundSessionStatusRequest {
+            status_path: status_path.display().to_string(),
+        })
+        .expect("managed status record should be read");
+
+    assert_eq!(report.session_id, "current-session");
+    assert_eq!(report.engine_id, "native");
+    assert_eq!(report.state, "running");
+    assert!(!report.liveness_verified);
+
+    let missing = CommandManagedForegroundSessionStore::new()
+        .read_status(&ManagedForegroundSessionStatusRequest {
+            status_path: root.join("missing-status.json").display().to_string(),
+        })
+        .expect_err("missing managed status record should be rejected");
+    assert_eq!(
+        missing.code,
+        "cli.linux.managed_foreground_status.read_failed"
+    );
+
+    std::fs::remove_dir_all(&root).expect("managed status test directory should be removed");
 }
 
 #[test]

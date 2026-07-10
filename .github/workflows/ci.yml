@@ -104,6 +104,7 @@ jobs:
             docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
             docs/architecture/linux-mitm-http-rewrite-source-contract.md
             docs/architecture/linux-cli-runtime-wiring.md
+            docs/architecture/managed-foreground-session-status-source-contract.md
             docs/architecture/linux-native-proxy-engine-start.md
             docs/architecture/linux-package-archive-staging-contract.md
             docs/architecture/linux-package-artifact-archive-creation-validation-contract.md
@@ -407,6 +408,17 @@ jobs:
           grep -q "subscription_catalog_select_reads_and_redacts_source" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "subscription_catalog_update_persists_snapshot_and_redacts_location" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "subscription_catalog_rollback_restores_snapshot_and_retains_snapshot" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "Managed Foreground Session Status Source Contract" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "managed-foreground-session-status-source-contract=active" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "managed-foreground-session-status-operation=status-read" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "managed-foreground-session-status-liveness-verification=blocked" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "ManagedForegroundSessionStatusRequest" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "ManagedForegroundSessionStatusReport" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "CommandManagedForegroundSessionStore::read_status" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "ManagedForegroundSessionStatusRequest" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionStatusReport" apps/linux-cli/src/lib.rs
+          grep -q "fn read_status" apps/linux-cli/src/lib.rs
+          grep -q "managed_foreground_session_status_reads_explicit_record_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "v0.1.2-alpha.1" README.md
           grep -q "v0.1.2-alpha.1" ROADMAP.md
           grep -q "v0.1.2-alpha.1" TODO.md
