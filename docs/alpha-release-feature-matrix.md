@@ -532,7 +532,9 @@ mutation 和 system proxy mutation。
   迁移前原始 record snapshot、`starting -> running/failed` 与 `running -> stopped/failed`、`record_written=true`、
   `snapshot_written=true` 和 `liveness_verified=false`。`networkcore-linux managed-status <status-record-path>` 已只读
   输出同一 record，`networkcore-linux managed-status init <status-record-path> <session-id> <engine-id> <state>` 已非覆盖
-  创建 record 并输出 `record_written=true`；不验证 live process、不接入 CLI 状态迁移或 runtime control。后续新增 managed
+  创建 record 并输出 `record_written=true`，`networkcore-linux managed-status transition <status-record-path> <snapshot-path>
+  <expected-state> <next-state>` 已在 expected state 匹配时保存原始 snapshot 并输出 `snapshot_written=true`；不验证 live
+  process、不接入 runtime control。后续新增 managed
   `status/events/logs/reload/rollback` 命令面；仍不默认安装 daemon/service。
 - `v0.1.2-alpha.3`：JavaScript script dispatch foundation。基于 plugin permission、sandbox/timeout、
   IO guard、audit log 和 CI governance 执行受控 script dispatch。
