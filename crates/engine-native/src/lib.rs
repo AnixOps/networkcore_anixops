@@ -842,6 +842,7 @@ impl NativeNodeScriptExecutor {
             }
         };
         let timeout_ms = bounded_script_timeout(dispatch.timeout_ms, self.config.max_timeout_ms);
+        let execution_timeout = Duration::from_millis(timeout_ms as u64);
         let mut command = Command::new(&self.config.node_binary);
         command
             .arg(&self.config.runner_path)
@@ -903,7 +904,7 @@ impl NativeNodeScriptExecutor {
                         )
                     }
                 },
-                Ok(None) if started_at.elapsed() >= Duration::from_millis(timeout_ms) => {
+                Ok(None) if started_at.elapsed() >= execution_timeout => {
                     let _ = child.kill();
                     let _ = child.wait();
                     return script_execution_failed("native HTTP script runtime timed out");
