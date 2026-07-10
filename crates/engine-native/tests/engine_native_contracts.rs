@@ -2626,18 +2626,12 @@ fn runtime_accept_loop_contract_applies_mitm_connect_reject_before_outbound() {
 
 #[test]
 fn runtime_accept_loop_contract_applies_plain_http_reject_for_http_listener() {
-    let port = unused_loopback_port();
-    let listener = LoopbackListenerHandle::from_descriptor(&http_listener_with_bind(
+    let (port, bound_listener) = bind_http_loopback_listener_with_retry(
         "mitm-plain-http-reject-loopback",
-        "127.0.0.1",
-        port,
         ListenerRoute::DefaultAction(RouteAction::Proxy {
             node_id: "node-1".to_string(),
         }),
-    ))
-    .expect("HTTP loopback listener handle should be representable");
-    let bound_listener = BoundLoopbackTcpListenerHandle::bind(listener)
-        .expect("HTTP loopback listener should bind on an available port");
+    );
     let outbound = NativeOutboundHandlerHandle::from_node(&NodeDescriptor {
         endpoint: Endpoint {
             host: "127.0.0.1".to_string(),
@@ -2712,18 +2706,12 @@ fn runtime_accept_loop_contract_applies_plain_http_reject_for_http_listener() {
 
 #[test]
 fn http_accept_loop_processes_a_second_connection_while_the_first_is_stalled() {
-    let port = unused_loopback_port();
-    let listener = LoopbackListenerHandle::from_descriptor(&http_listener_with_bind(
+    let (port, bound_listener) = bind_http_loopback_listener_with_retry(
         "mitm-concurrent-http-loopback",
-        "127.0.0.1",
-        port,
         ListenerRoute::DefaultAction(RouteAction::Proxy {
             node_id: "node-1".to_string(),
         }),
-    ))
-    .expect("HTTP loopback listener handle should be representable");
-    let bound_listener = BoundLoopbackTcpListenerHandle::bind(listener)
-        .expect("HTTP loopback listener should bind on an available port");
+    );
     let outbound = NativeOutboundHandlerHandle::from_node(&NodeDescriptor {
         endpoint: Endpoint {
             host: "127.0.0.1".to_string(),
@@ -2857,18 +2845,12 @@ fn plain_http_proxy_request_header_and_body_rewrite_forwards_via_socks_outbound(
 
         panic!("test outbound listener did not receive a connection");
     });
-    let port = unused_loopback_port();
-    let listener = LoopbackListenerHandle::from_descriptor(&http_listener_with_bind(
+    let (port, bound_listener) = bind_http_loopback_listener_with_retry(
         "mitm-plain-http-rewrite-loopback",
-        "127.0.0.1",
-        port,
         ListenerRoute::DefaultAction(RouteAction::Proxy {
             node_id: "node-1".to_string(),
         }),
-    ))
-    .expect("HTTP loopback listener handle should be representable");
-    let bound_listener = BoundLoopbackTcpListenerHandle::bind(listener)
-        .expect("HTTP loopback listener should bind on an available port");
+    );
     let outbound = NativeOutboundHandlerHandle::from_node(&NodeDescriptor {
         endpoint: Endpoint {
             host: "127.0.0.1".to_string(),
@@ -3027,18 +3009,12 @@ fn plain_http_proxy_connect_method_establishes_tls_foundation_tunnel_via_socks_o
 
         panic!("test outbound listener did not receive a connection");
     });
-    let port = unused_loopback_port();
-    let listener = LoopbackListenerHandle::from_descriptor(&http_listener_with_bind(
+    let (port, bound_listener) = bind_http_loopback_listener_with_retry(
         "mitm-http-connect-tls-foundation-loopback",
-        "127.0.0.1",
-        port,
         ListenerRoute::DefaultAction(RouteAction::Proxy {
             node_id: "node-1".to_string(),
         }),
-    ))
-    .expect("HTTP loopback listener handle should be representable");
-    let bound_listener = BoundLoopbackTcpListenerHandle::bind(listener)
-        .expect("HTTP loopback listener should bind on an available port");
+    );
     let outbound = NativeOutboundHandlerHandle::from_node(&NodeDescriptor {
         endpoint: Endpoint {
             host: "127.0.0.1".to_string(),
@@ -5170,4 +5146,29 @@ fn unused_loopback_port() -> u16 {
         .port();
     drop(listener);
     port
+}
+
+fn bind_http_loopback_listener_with_retry(
+    listener_id: &str,
+    route: ListenerRoute,
+) -> (u16, BoundLoopbackTcpListenerHandle) {
+    for _ in 0..16 {
+        let port = unused_loopback_port();
+        let listener = LoopbackListenerHandle::from_descriptor(&http_listener_with_bind(
+            listener_id,
+            "127.0.0.1",
+            port,
+            route.clone(),
+        ))
+        .expect("HTTP loopback listener handle should be representable");
+        match BoundLoopbackTcpListenerHandle::bind(listener) {
+            Ok(bound_listener) => return (port, bound_listener),
+            Err(error) if error.code == ENGINE_NATIVE_START_BIND_FAILED_CODE => continue,
+            Err(error) => panic!(
+                "HTTP loopback listener should be bindable for test {listener_id}: {error:?}"
+            ),
+        }
+    }
+
+    panic!("HTTP loopback listener test could not acquire an available port");
 }
