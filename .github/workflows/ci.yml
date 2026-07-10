@@ -492,7 +492,7 @@ jobs:
           grep -q "native_proxy_engine_service_with_builtin_mitm_plugin" apps/linux-cli/src/main.rs
           grep -q "native_engine_factory_enables_builtin_mitm_plugin_hook_for_start_path" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files" apps/linux-cli/src/lib.rs
-          grep -q "native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files" apps/linux-cli/src/main.rs
+          grep -q "native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files" apps/linux-cli/src/main.rs
           grep -q -- "--enable-https-mitm" apps/linux-cli/src/lib.rs
           grep -q -- "--mitm-ca-cert" apps/linux-cli/src/lib.rs
           grep -q -- "--mitm-ca-key" apps/linux-cli/src/lib.rs
