@@ -431,11 +431,15 @@ jobs:
           grep -q "Managed Foreground Session Event Source Contract" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-source-contract=active" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-operation=event-read" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "managed-foreground-session-event-write-operation=event-write" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-cli-read-operation=managed-event" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-liveness-verification=blocked" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "ManagedForegroundSessionEventRequest" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "ManagedForegroundSessionEventReport" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "CommandManagedForegroundSessionEventStore::read_event" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "ManagedForegroundSessionEventWriteRequest" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "ManagedForegroundSessionEventWriteReport" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "CommandManagedForegroundSessionEventStore::write_event" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "ManagedForegroundSessionStatusRequest" apps/linux-cli/src/lib.rs
           grep -q "ManagedForegroundSessionStatusReport" apps/linux-cli/src/lib.rs
           grep -q "fn read_status" apps/linux-cli/src/lib.rs
@@ -460,7 +464,11 @@ jobs:
           grep -q "ManagedForegroundSessionEventRequest" apps/linux-cli/src/lib.rs
           grep -q "ManagedForegroundSessionEventReport" apps/linux-cli/src/lib.rs
           grep -q "fn read_event" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionEventWriteRequest" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionEventWriteReport" apps/linux-cli/src/lib.rs
+          grep -q "fn write_event" apps/linux-cli/src/lib.rs
           grep -q "managed_foreground_session_event_reads_explicit_record_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "managed_foreground_session_event_write_persists_non_overwriting_record" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "ManagedEvent" apps/linux-cli/src/lib.rs
           grep -q "fn handle_managed_foreground_event" apps/linux-cli/src/lib.rs
           grep -q "managed_foreground_session_event_cli_reads_explicit_record_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
@@ -510,6 +518,9 @@ jobs:
           grep -q "CommandManagedForegroundSessionEventStore::read_event" TODO.md
           grep -q "CommandManagedForegroundSessionEventStore::read_event" CHANGELOG.md
           grep -q "CommandManagedForegroundSessionEventStore::read_event" apps/linux-cli/README.md
+          grep -q "CommandManagedForegroundSessionEventStore::write_event" TODO.md
+          grep -q "CommandManagedForegroundSessionEventStore::write_event" CHANGELOG.md
+          grep -q "CommandManagedForegroundSessionEventStore::write_event" apps/linux-cli/README.md
           grep -q "networkcore-linux managed-event" TODO.md
           grep -q "networkcore-linux managed-event" CHANGELOG.md
           grep -q "networkcore-linux managed-event" apps/linux-cli/README.md
