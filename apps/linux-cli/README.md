@@ -33,7 +33,9 @@ non-overwritingly write one explicit schema version 1 JSON event record with ses
 event kind, recorded state, and a caller-recorded timestamp, while reporting `record_written=true` for writes and
 `liveness_verified=false`.
 `networkcore-linux managed-event <event-record-path>` exposes that one explicit record through text/JSON without
-claiming liveness. It does not expose event CLI write, list, or scan commands; it does not expose a runtime event
+claiming liveness. `networkcore-linux managed-event init <event-record-path> <session-id> <engine-id> <event-id>
+<event-kind> <state> <recorded-at>` non-overwritingly creates the explicit record and reports `record_written=true`
+without claiming liveness. It does not expose event list or scan commands; it does not expose a runtime event
 stream; and it does not read logs or control a runtime. Its contract tests have passed GitHub Actions.
 
 The crate currently provides:
