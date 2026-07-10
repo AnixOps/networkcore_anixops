@@ -140,6 +140,11 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Ker
 
 目标是在不破坏内核边界的前提下推进全平台客户端。
 
+当前 source release 切片为 `v0.1.2-alpha.3`：Linux 受控 TLS data plane 已可在显式 CA/confirm 下
+终止 authority/SNI-bound CONNECT TLS、web-PKI 转发上游并改写单个有界 HTTP/1.1 exchange；显式 local
+Node runner/script map 可执行受信本地脚本并 fail-open。该切片不安装 CA trust，也不修改 browser/system
+proxy、TUN、DNS、firewall 或路由；用户可下载状态只以同名 tag 的 GitHub Actions release workflow 为准。
+
 预期方向：
 
 - Linux、macOS、Windows 客户端控制入口。

@@ -328,6 +328,29 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 最新已发布切片
 
+### `v0.1.2-alpha.3`
+
+状态：当前发布切片；用户可下载状态以同名 Git tag 和 GitHub Actions release workflow 结果为准。
+
+主要特性：
+
+- 继承 `v0.1.2-alpha.1` 的 persistent subscription catalog，以及 `v0.1.2-alpha.2` 的显式
+  managed status/event record 读写、expected-state transition 和 rollback source 边界。
+- Linux `start --enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path> --confirm`
+  可在 CONNECT authority 与 ClientHello SNI 一致时签发 authority-bound leaf、终止下游 TLS、以
+  web-PKI 校验上游 TLS，并在单个有界 HTTP/1.1 request/response exchange 上应用插件 rewrite。
+- `start --enable-script-runtime --script-runner <path> --script-map <url>=<local-file> --confirm`
+  把显式本地 Node runner 和已映射 local asset 接入 request/response hook；body/timeout/header/status/
+  URL authority 均受限，失败 fail-open，不下载远程脚本。脚本是受信本地代码，不宣称 sandbox。
+- Linux/Windows 产物继续只由 GitHub Actions 生成、checksum、manifest、attestation 后发布。
+
+明确不包含：
+
+- 不安装或信任 CA，不修改 system/browser proxy、system PAC、TUN、DNS、firewall 或路由状态。
+- 受控 TLS 路径仅支持有界 HTTP/1.1 exchange；不承诺 HTTP/2、chunked/streaming、多 request session
+  或通用浏览器/system capture 自动化。
+- Windows artifact 不启用 Node script runtime、service、driver、installer 或系统 mutation。
+
 ### `v0.1.0`
 
 状态：已发布；Linux-only explicit HTTPS rewrite preview 正式版。
@@ -434,16 +457,12 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前 main source 状态
 
-当前最新用户可下载 prerelease artifact 是 `v0.1.1-alpha.2`，最新 stable artifact 是
-`v0.1.0`。`v0.1.1-alpha.2` 已发布 Linux CLI 四件套和 Windows manual-extract CLI zip 四件套；`main` 正在准备 `v0.1.1-alpha.3` 订阅格式扩展。在保留 `v0.1.0-alpha.20`
-release hardening 发布边界的基础上，Linux CLI `mitm http-rewrite preview --confirm --url https://... --phase request`
-的合同测试固定 caller-provided HTTPS request preview 只能保持 preview/reject 边界，并继续输出
-`tls_decryption_ready=false`、`https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`。
-当前发布边界仍不执行 live HTTPS decryption、live CONNECT 后 HTTPS request/response rewrite、完整 live HTTPS response rewrite、JavaScript script dispatch、system trust
-store mutation 或 system proxy mutation；`v0.1.1-alpha.2` 新增 `apps/windows-cli`、`platform-windows`、`package-windows`、
-`attest-windows`、Windows release notes/rollback gate 和 Windows publish eligibility gate。Windows path 只生成
-manual-extract CLI zip，不启用 service、driver、installer、system proxy mutation、system trust store mutation、
-JavaScript script dispatch 或 managed lifecycle。
+当前 release 切片是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
+`v0.1.1-alpha.2` 的 Linux/Windows package、checksum、manifest、attestation 和 publish gate，并把
+受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI。用户可下载状态仍以
+tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。Windows path 仍只生成
+manual-extract CLI zip，不启用 Node script runtime、service、driver、installer、system proxy mutation、
+system trust store mutation 或 managed daemon lifecycle。
 
 ## 已拍板后续版本节奏
 
@@ -540,8 +559,11 @@ mutation 和 system proxy mutation。
   managed-event init <event-record-path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at>` 已非覆盖创建
   record 并输出 `record_written=true`；不扫描 event，不接入实时 stream 或 runtime control。后续新增 managed
   `events/logs/reload/rollback` 命令面；仍不默认安装 daemon/service。
-- `v0.1.2-alpha.3`：JavaScript script dispatch foundation。基于 plugin permission、sandbox/timeout、
-  IO guard、audit log 和 CI governance 执行受控 script dispatch。
+- `v0.1.2-alpha.3`：JavaScript script dispatch + controlled TLS data plane。当前发布切片以
+  plugin permission、显式 local runner/script map、timeout/body/URL authority guard、fail-open diagnostics
+  和 CI governance 执行受控 dispatch；同一 Linux `start` runtime 在显式 CA/confirm 下完成
+  CONNECT authority/SNI-bound TLS termination、web-PKI upstream forwarding 和有界 HTTP/1.1 rewrite。
+  local Node code 是受信代码而非 sandbox，禁止远程脚本下载。
 - `v0.1.2-alpha.4`：system trust store mutation foundation。显式授权后执行平台 trust store
   apply/detect/revoke/rollback，必须有 snapshot、conflict detection 和 blocked fallback。
 - `v0.1.2-alpha.5`：system proxy mutation foundation。显式授权后执行 system proxy/system PAC

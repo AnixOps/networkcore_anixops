@@ -14,6 +14,13 @@ It owns the first NetworkCore MITM policy boundary:
   rich `handle_http_mitm_event` mutation-plan output for future data-plane use.
 - A built-in alpha ad-block plugin package.
 
+`v0.1.2-alpha.3` wires this policy through `networkcore-linux start` into the controlled
+CONNECT TLS data plane when the operator explicitly supplies CA material and confirmation.
+That path can terminate authority/SNI-bound TLS, forward upstream with web-PKI validation,
+rewrite one bounded HTTP/1.1 request/response exchange, and invoke an explicitly mapped local
+Node runner. The runner is trusted local code, has a bounded body/timeout and fail-open behavior,
+and never downloads a script URL; this crate itself still does not mutate traffic on its own.
+
 Current limitation: this crate does not mutate real HTTP traffic by itself. It
 maps `mitm_anixops` URL reject/redirect, header mutation, body mutation, and
 script dispatch results into `control-domain` `HttpMitmOutcome` plans. The

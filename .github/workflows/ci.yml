@@ -1063,7 +1063,7 @@ jobs:
           grep -q "body_size_limit_bytes" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "body_buffering_guard_ready" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "script_dispatch_ready" docs/architecture/linux-mitm-http-rewrite-source-contract.md
-          grep -q "controlled-tls-and-script-runtime-source=implemented-ci-pending" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "controlled-tls-and-script-runtime-source=implemented-ci-validated" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "NativeNodeScriptRuntimeConfig" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "NativeNodeScriptExecutor" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "NativeHttpScriptExecutionReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md

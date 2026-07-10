@@ -4,9 +4,11 @@
 
 ## Unreleased
 
+## v0.1.2-alpha.3 - 2026-07-10
+
 ### Added
 
-- 继续现有 `v0.1.2-alpha.1` 版本线的真实 TLS/session 实现：`engine-native` 在 controlled TLS
+- 发布 `v0.1.2-alpha.3` 的真实 TLS/session 实现：`engine-native` 在 controlled TLS
   termination plan ready、CONNECT authority/SNI 一致且 CA PEM 可解析时签发 authority-bound、server-auth
   EKU leaf，并建立固定 TLS 1.2/1.3 rustls downstream server 与 web-PKI-verified upstream client；显式
   CA material 沿 engine → accept loop → CONNECT path 传递，在 bounded HTTP/1.1 request/response 上执行
@@ -24,12 +26,12 @@
 - 固定可复现发布依赖：`Cargo.lock` 现在受版本控制，CI 的 clippy/test/build 和 tag-release artifact
   build 均使用 `--locked`；dependency audit 先以 `cargo metadata --locked --offline` 验证已提交 lockfile，
   再执行 `cargo audit`；release workflow 不再临时生成 lockfile。该门禁必须由 GitHub Actions 验证后才能进入发行。
-- 开始 `v0.1.2-alpha.1` TLS CONNECT authority/SNI hardening：
+- 完成 `v0.1.2-alpha.3` TLS CONNECT authority/SNI hardening：
   `plan_explicit_http_connect_controlled_tls_termination` 现在要求 observed
   ClientHello SNI 与 CONNECT authority 一致，才可报告 controlled downstream
   TLS termination plan ready；不一致或缺失 SNI 必须保持 deferred 并输出稳定
-  diagnostics。合同测试和 CI governance anchor 已加入；在 GitHub Actions
-  全量 CI 通过前，该能力不视为完成或可发行。
+  diagnostics。合同测试和 CI governance anchor 已加入，并已由同 commit GitHub Actions
+  全量 CI 验证。
 - 完成 `v0.1.2-alpha.1` persistent subscription catalog 首个 source-only 切片：新增 `SubscriptionCatalogAddRequest`、`SubscriptionCatalogAddReport` 和 `CommandSubscriptionCatalogStore::add_source`，使用显式 catalog/snapshot 路径写入 schema version 1 本地 JSON catalog，生成写前 rollback snapshot，拒绝重复 source id，并以 `location_kind`/`location_redacted` 输出脱敏报告；合同测试覆盖 source 持久化、snapshot、secret location 不进入 report 和 duplicate 不覆盖。该增量不执行默认路径扫描、远程/file fetch、节点选择、运行时接入或 managed lifecycle，已通过 GitHub Actions 全量 CI。
 - 完成 `v0.1.2-alpha.1` persistent subscription catalog 第二个 source-only `list` 切片：新增 `SubscriptionCatalogListRequest`、`SubscriptionCatalogListEntry`、`SubscriptionCatalogListReport` 和 `CommandSubscriptionCatalogStore::list_sources`，显式读取 schema version 1 本地 JSON catalog，输出 source 数量与脱敏 location kind，不修改 catalog、不执行默认路径扫描、远程/file fetch、节点选择、运行时接入或 managed lifecycle；合同测试已通过 GitHub Actions 全量 CI。
 - 完成 `v0.1.2-alpha.1` persistent subscription catalog 第三个 source-only `remove` 切片：新增 `SubscriptionCatalogRemoveRequest`、`SubscriptionCatalogRemoveReport` 和 `CommandSubscriptionCatalogStore::remove_source`，在显式 catalog 中删除 source id，生成写前 snapshot，拒绝不存在的 source id，并输出不含 location 的 report；合同测试已通过 GitHub Actions 全量 CI。

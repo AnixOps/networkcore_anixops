@@ -7,6 +7,12 @@
 
 ## 当前发布状态
 
+`v0.1.2-alpha.3` 是当前 source release 切片：Linux artifact 将在同名 tag 的 GitHub Actions 中生成，
+包含显式 CA/confirm 才启用的 controlled CONNECT TLS termination、web-PKI upstream forwarding、单个有界
+HTTP/1.1 rewrite exchange 和显式 local Node script runner/map。脚本为受信本地代码、失败 fail-open，
+不下载远程脚本；该切片不安装信任、不修改 browser/system proxy 或其他系统网络状态。没有本机打包或
+本机发布路径，用户可下载状态以 tag workflow 成功结果为准。
+
 当前 release workflow 已从 placeholder 过渡为 Linux CLI artifact 发布路径：`release-policy`、
 `release-ci-gate`、release contract jobs、`linux-artifact-readiness`、`package-linux`、`attest-linux`、
 `post-release-summary`、`publish-eligibility-gate`、`publish-github-release`、`ios-upload-readiness`、`windows-cli-artifact-readiness` 和
@@ -57,7 +63,7 @@ GitHub artifact attestation、release notes、rollback 和 publish eligibility g
 - `release-signing-contract` job 记录真实平台 artifact 发布前必须声明签名或 attestation 策略，并要求后续 job 输出 `signing_policy`、`signing_status`、`attestation_policy`、`attestation_status`、`provenance_policy` 和 `provenance_file`。
 - `release-rollback-contract` job 记录真实 artifact 发布说明必须输出 `rollback_scope`、`rollback_trigger`、`rollback_steps`、`replacement_version` 和 `rollback_owner`。
 - `linux-artifact-readiness` job 检查 Linux CLI 源码、platform adapter、native listener/node 配置设计、foreground stop/release 源码与合同测试、artifact manifest 合同设计、license/NOTICE confirmation source contract、Linux package license/NOTICE transition validation contract、release CI success source contract、Linux package release CI gate activation validation contract、release CI gate execution validation contract、release CI gate API implementation plan、Linux package artifact job preflight validation contract、Linux package artifact build command validation contract、Linux package artifact staging file validation contract、Linux package artifact archive creation validation contract、Linux package artifact checksum execution validation contract、Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract、Linux package artifact attestation execution validation contract、Linux package release notes/rollback execution validation contract、Linux package publish eligibility execution validation contract、Linux package runner/toolchain/target contract、Linux package archive staging contract、Linux package checksum/manifest checksum contract、Linux package publish/upload boundary contract、Linux package signing/attestation policy binding contract、Linux package release notes/rollback policy binding contract、Linux package publish eligibility aggregate contract、安装/回滚设计和 license/NOTICE marker；marker 为 pending 时失败，marker confirmed 后才允许进入 `package-linux`。
-- `package-linux` 在 `ubuntu-latest` 中生成 lockfile，执行 `cargo build --locked --release --package networkcore-linux --bin networkcore-linux --target x86_64-unknown-linux-gnu`，组装 `networkcore-linux-${version}-${target}.tar.gz`、`.sha256`、manifest JSON 和 manifest `.sha256`，并以同 run workflow artifact bundle 上传。
+- `package-linux` 在 `ubuntu-latest` 使用受版本控制的 `Cargo.lock` 执行 `cargo build --locked --release --package networkcore-linux --bin networkcore-linux --target x86_64-unknown-linux-gnu`，组装 `networkcore-linux-${version}-${target}.tar.gz`、`.sha256`、manifest JSON 和 manifest `.sha256`，并以同 run workflow artifact bundle 上传。
 - `attest-linux` 下载同 run bundle，重新校验 checksum，并用 GitHub artifact attestation 覆盖 archive、archive checksum、manifest 和 manifest checksum。
 - `post-release-summary` 与 `publish-eligibility-gate` 校验 release notes、rollback、withdrawal/replacement policy 和 `package_publish_eligibility_status=eligible`。
 - `publish-github-release` 只在 tag push release 中运行，使用 GitHub CLI 创建同名 GitHub Release，并上传符合 eligibility 的 Linux archive、archive checksum、manifest、manifest checksum，以及 Windows zip、zip checksum、manifest、manifest checksum；workflow_dispatch 只做验证，不发布 GitHub Release asset。
