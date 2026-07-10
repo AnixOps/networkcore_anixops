@@ -558,11 +558,12 @@ mutation 和 system proxy mutation。
   `liveness_verified=false`；`networkcore-linux managed-event <event-record-path>` 已只读输出同一 record，`networkcore-linux
   managed-event init <event-record-path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at>` 已非覆盖创建
   record 并输出 `record_written=true`；不扫描 event，不接入实时 stream 或 runtime control。后续新增 managed
-  `events/logs/reload/rollback` 命令面；仍不默认安装 daemon/service。
+  `events/logs/reload` 与 runtime rollback 命令面；仍不默认安装 daemon/service。
   同一 alpha.2 status source 还包含 `CommandManagedForegroundSessionStore::rollback_status`：仅在 explicit
   status/snapshot 路径不同、current expected state 与 snapshot 的 trim 后 session/engine identity 匹配时，恢复
-  snapshot 原始内容并保留 snapshot，输出 `snapshot_retained=true` 与 `liveness_verified=false`；不提供
-  `managed-status` rollback CLI，不检查 live process，也不控制 runtime。
+  snapshot 原始内容并保留 snapshot，输出 `snapshot_retained=true` 与 `liveness_verified=false`；
+  `networkcore-linux managed-status rollback <status-record-path> <snapshot-path> <expected-state>` 已输出同一
+  text/JSON 回滚 report，不检查 live process，也不控制 runtime。
 - `v0.1.2-alpha.3`：JavaScript script dispatch + controlled TLS data plane。当前发布切片以
   plugin permission、显式 local runner/script map、timeout/body/URL authority guard、fail-open diagnostics
   和 CI governance 执行受控 dispatch；同一 Linux `start` runtime 在显式 CA/confirm 下完成

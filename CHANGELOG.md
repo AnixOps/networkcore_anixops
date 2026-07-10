@@ -6,7 +6,8 @@
 
 ### Added
 
-- 完成 `v0.1.2-alpha.2` managed foreground status source-only `rollback_status` 切片：新增 `ManagedForegroundSessionStatusRollbackRequest`、`ManagedForegroundSessionStatusRollbackReport` 和 `CommandManagedForegroundSessionStore::rollback_status`，仅在显式 status/snapshot 路径不同、current state 匹配 expected state 且 snapshot session/engine identity 匹配时，将 snapshot 原始 JSON 写回 status record 并保留 snapshot；report 固定 previous/restored state、`snapshot_retained=true` 与 `liveness_verified=false`。stale state 返回 state-conflict，snapshot 无法读取或解析返回 snapshot-read-failed，不提供 `managed-status` rollback CLI 或 runtime control；合同测试已通过 GitHub Actions 全量 CI。
+- 完成 `v0.1.2-alpha.2` managed foreground status `rollback_status` 源切片：新增 `ManagedForegroundSessionStatusRollbackRequest`、`ManagedForegroundSessionStatusRollbackReport` 和 `CommandManagedForegroundSessionStore::rollback_status`，仅在显式 status/snapshot 路径不同、current state 匹配 expected state 且 snapshot session/engine identity 匹配时，将 snapshot 原始 JSON 写回 status record 并保留 snapshot；report 固定 previous/restored state、`snapshot_retained=true` 与 `liveness_verified=false`。stale state 返回 state-conflict，snapshot 无法读取或解析返回 snapshot-read-failed，不控制 runtime；合同测试已通过 GitHub Actions 全量 CI。
+- 完成 `v0.1.2-alpha.2` managed foreground status rollback CLI 切片：新增 `LinuxCliCommand::ManagedStatusRollback`、`networkcore-linux managed-status rollback <status-record-path> <snapshot-path> <expected-state>`、`handle_managed_foreground_status_rollback` 和 `managed_foreground_session_status_cli_rolls_back_matching_snapshot` 合同测试，调用同一 expected-state/identity-protected snapshot restore，输出 text/JSON previous/restored state、`snapshot_retained=true` 与 `liveness_verified=false`；stale expected state 保留 state-conflict 且不修改 record 或 snapshot，不检查 live process 或控制 runtime；合同测试已通过 GitHub Actions 全量 CI。
 
 ## v0.1.2-alpha.3 - 2026-07-10
 

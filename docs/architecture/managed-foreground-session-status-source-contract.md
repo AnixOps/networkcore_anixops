@@ -1,7 +1,7 @@
 # Managed Foreground Session Status Source Contract
 
-本文定义 `v0.1.2-alpha.2` managed foreground lifecycle 的四个 source-only status record 切片，以及只读、初始写入和 expected-state 迁移三个 CLI 接线切片。
-它只读取、初始写入、显式迁移或显式回滚调用方指定的 managed foreground session status record；当前 CLI 只对调用方显式提供的 record 执行读取、初始写入或迁移，不把记录内容误称为进程存活证明。
+本文定义 `v0.1.2-alpha.2` managed foreground lifecycle 的四个 source-only status record 切片，以及只读、初始写入、expected-state 迁移和 expected-state 回滚四个 CLI 接线切片。
+它只读取、初始写入、显式迁移或显式回滚调用方指定的 managed foreground session status record；当前 CLI 只对调用方显式提供的 record 执行读取、初始写入、迁移或回滚，不把记录内容误称为进程存活证明。
 
 ## Source Of Truth
 
@@ -14,7 +14,7 @@
 - `managed-foreground-session-status-cli-read-operation=managed-status`
 - `managed-foreground-session-status-cli-init-operation=managed-status-init`
 - `managed-foreground-session-status-cli-transition-operation=managed-status-transition`
-- `managed-foreground-session-status-cli-rollback=blocked`
+- `managed-foreground-session-status-cli-rollback-operation=managed-status-rollback`
 - `managed-foreground-session-status-storage=json`
 - `managed-foreground-session-status-schema-version=1`
 - `managed-foreground-session-status-default-path=blocked`
@@ -69,7 +69,7 @@ expected state 相同，且 snapshot 的 trim 后 session id/engine id 与当前
 原始内容写回 status record，并保留 snapshot。report 输出 trim 后的 session id、engine id、previous state、恢复后的
 state、`snapshot_retained=true` 和 `liveness_verified=false`。stale expected state 返回稳定 state-conflict 错误；
 snapshot 无法读取或解析时返回 snapshot-read-failed；不支持的 expected state 或 session/engine 不一致时返回
-rollback-invalid；任一拒绝都不修改 status record 或 snapshot。该 source-only 操作不创建新 snapshot、不检查
+rollback-invalid；任一拒绝都不修改 status record 或 snapshot。该操作不创建新 snapshot、不检查
 PID、端口、socket 或进程状态，也不控制 runtime。
 
 第五个源码增量将读取能力接入 `networkcore-linux managed-status <status-record-path>`。该命令要求显式的
@@ -91,12 +91,20 @@ text/JSON response 中输出 status/snapshot 路径、session id、engine id、p
 `running -> stopped/failed`，并以不覆盖方式保存迁移前原始 record。stale expected state 返回稳定 state-conflict
 错误且不修改 status record 或创建 snapshot；该命令不检查 PID、端口、socket 或进程状态。
 
+第八个源码增量将 expected-state 回滚能力接入 `networkcore-linux managed-status rollback <status-record-path> <snapshot-path> <expected-state>`。
+该命令要求三个显式位置参数，不扫描默认路径；它调用 `CommandManagedForegroundSessionStore::rollback_status`，在
+text/JSON response 中输出 status/snapshot 路径、session id、engine id、previous state、恢复后的 state、
+`snapshot_retained=true` 和 `liveness_verified=false`。它只在 current recorded state 与 expected state 匹配，且
+snapshot 的 trim 后 session/engine identity 与 current record 匹配时恢复 snapshot 原始内容；snapshot 保持不变。
+stale expected state 保留稳定 state-conflict 错误，且不修改 status record 或 snapshot；该命令不检查 PID、端口、
+socket 或进程状态，也不控制 runtime。
+
 本切片只读取、初始写入、显式迁移或显式回滚 status record，不修改 catalog，不启动、停止、reload 或 rollback runtime，
 不读取 events/logs，不扫描默认路径，不读取远程或 subscription 文件，不创建 daemon/control socket，
 不安装 service，不执行 system proxy、system trust store、TUN、DNS 或 firewall mutation。
 
 任意未经 expected state、session/engine identity 与 explicit snapshot 校验的 record 覆盖、PID/port liveness
-检查、events/logs/reload、CLI status rollback 与 runtime rollback 由后续独立功能处理。
+检查、events/logs/reload 与 runtime rollback 由后续独立功能处理。
 所有测试、构建、格式化、lint 和安全扫描只能在 GitHub Actions 执行。
 
 ## Acceptance Test
@@ -142,3 +150,9 @@ text/JSON response 中输出 status/snapshot 路径、session id、engine id、p
 - 解析显式 status/snapshot 路径、expected state 和 next state，并将 `starting` record 迁移为 `running`；
 - text/JSON response 都固定 previous/next state、`snapshot_written=true` 与 `liveness_verified=false`；
 - stale expected state 保留稳定 state-conflict 错误，不修改 status record，也不创建 snapshot。
+
+第八个合同测试必须证明 `managed-status rollback`：
+
+- 解析显式 status/snapshot 路径和 expected state，并在 matching `running` record 与 `starting` snapshot 间恢复原始 snapshot；
+- text/JSON response 都固定 previous/restored state、`snapshot_retained=true` 与 `liveness_verified=false`；
+- stale expected state 保留稳定 state-conflict 错误，不修改 status record 或 snapshot。
