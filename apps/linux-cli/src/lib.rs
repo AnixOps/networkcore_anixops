@@ -1387,16 +1387,15 @@ impl CommandManagedForegroundSessionStore {
                 format!("failed to read managed foreground status record {status_path}: {error}"),
             )
         })?;
-        let record = serde_json::from_str::<ManagedForegroundSessionStatusFile>(&contents).map_err(
-            |error| {
+        let record = serde_json::from_str::<ManagedForegroundSessionStatusFile>(&contents)
+            .map_err(|error| {
                 DomainError::new(
                     CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE,
                     format!(
                         "failed to parse managed foreground status record {status_path}: {error}"
                     ),
                 )
-            },
-        )?;
+            })?;
         validate_managed_foreground_session_status_file(&record)?;
 
         Ok(ManagedForegroundSessionStatusReport {
