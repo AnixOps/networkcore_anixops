@@ -10053,7 +10053,8 @@ struct JsonCliResponse {
     help: Option<String>,
     managed_foreground_status: Option<JsonManagedForegroundSessionStatusReport>,
     managed_foreground_status_write: Option<JsonManagedForegroundSessionStatusWriteReport>,
-    managed_foreground_status_transition: Option<JsonManagedForegroundSessionStatusTransitionReport>,
+    managed_foreground_status_transition:
+        Option<JsonManagedForegroundSessionStatusTransitionReport>,
     sing_box_install: Option<JsonSingBoxInstallStatus>,
     sing_box_run: Option<JsonSingBoxRunStatus>,
     mitm_status: Option<JsonMitmStatus>,
