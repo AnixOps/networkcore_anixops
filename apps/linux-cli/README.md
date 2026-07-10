@@ -2,13 +2,16 @@
 
 `networkcore-linux` is the Linux CLI entrypoint for NetworkCore.
 
-Current `main` also contains the source-only `CommandSubscriptionCatalogStore::add_source` and
-`CommandSubscriptionCatalogStore::list_sources` local JSON persistence boundary for v0.1.2-alpha.1. It requires explicit catalog and
-rollback snapshot paths for add, writes schema version 1, rejects duplicate source ids, and returns
-redacted add/list/remove/select reports. These operations are not wired into a CLI command or runtime startup yet;
-default paths, remote/file fetch, and managed lifecycle remain blocked. The add, list,
-`CommandSubscriptionCatalogStore::remove_source`, `CommandSubscriptionCatalogStore::select_source`, and
-`CommandSubscriptionCatalogStore::update_source` slices have passed their GitHub Actions contract tests.
+Current `main` also contains the source-only `CommandSubscriptionCatalogStore` local JSON persistence
+boundary for v0.1.2-alpha.1: `CommandSubscriptionCatalogStore::add_source`,
+`CommandSubscriptionCatalogStore::list_sources`, `CommandSubscriptionCatalogStore::remove_source`,
+`CommandSubscriptionCatalogStore::select_source`, `CommandSubscriptionCatalogStore::update_source`, and
+`CommandSubscriptionCatalogStore::rollback_catalog`. Add/remove/update require explicit catalog and rollback
+snapshot paths, the store writes schema version 1, rejects duplicate or missing source ids, and returns
+redacted reports. `CommandSubscriptionCatalogStore::rollback_catalog` restores an explicit validated snapshot
+while retaining that snapshot. These operations are not wired into a CLI command or runtime startup yet;
+default paths, remote/file fetch, and managed lifecycle remain blocked. All six slices have passed their
+GitHub Actions contract tests.
 
 The crate currently provides:
 
