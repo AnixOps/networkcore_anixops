@@ -422,6 +422,90 @@ fn managed_foreground_session_status_transition_writes_snapshot_and_rejects_stal
 }
 
 #[test]
+fn managed_foreground_session_status_cli_reads_explicit_record_without_liveness_claim() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-status-cli-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("managed status CLI test directory should be created");
+    let status_path = root.join("session-status.json");
+    std::fs::write(
+        &status_path,
+        r#"{
+  "schema_version": 1,
+  "session_id": "session-cli",
+  "engine_id": "native",
+  "state": "running"
+}"#,
+    )
+    .expect("managed status CLI record should be written");
+    let command = parse_args([
+        "managed-status",
+        status_path
+            .to_str()
+            .expect("managed status path should be UTF-8"),
+        "--format",
+        "json",
+    ])
+    .expect("managed-status command should parse");
+    assert!(matches!(
+        &command,
+        LinuxCliCommand::ManagedStatus {
+            format: OutputFormat::Json,
+            ..
+        }
+    ));
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let before_read =
+        std::fs::read_to_string(&status_path).expect("managed status CLI record should be readable");
+    let response = handle_entrypoint(command, &platform);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "managed-status");
+    let report = response
+        .managed_foreground_status
+        .as_ref()
+        .expect("managed status response should include the record");
+    assert_eq!(report.session_id, "session-cli");
+    assert_eq!(report.engine_id, "native");
+    assert_eq!(report.state, "running");
+    assert!(!report.liveness_verified);
+    assert_eq!(
+        std::fs::read_to_string(&status_path).expect("managed status CLI record should be readable"),
+        before_read
+    );
+    let text = render_response(&response, OutputFormat::Text);
+    assert!(text.contains("managed foreground recorded state: running"));
+    assert!(text.contains("managed foreground liveness verified: false"));
+    let json: serde_json::Value = serde_json::from_str(&render_response(&response, OutputFormat::Json))
+        .expect("managed status response should render JSON");
+    assert_eq!(json["managed_foreground_status"]["session_id"], "session-cli");
+    assert_eq!(json["managed_foreground_status"]["state"], "running");
+    assert_eq!(
+        json["managed_foreground_status"]["liveness_verified"].as_bool(),
+        Some(false)
+    );
+
+    let missing = handle_entrypoint(
+        LinuxCliCommand::ManagedStatus {
+            status_path: root.join("missing-status.json").display().to_string(),
+            format: OutputFormat::Text,
+        },
+        &platform,
+    );
+    assert!(!missing.ok);
+    assert_eq!(missing.exit_code, LinuxCliExitCode::GeneralFailure);
+    assert_diagnostic(
+        &missing.diagnostics,
+        "cli.linux.managed_foreground_status.read_failed",
+    );
+
+    std::fs::remove_dir_all(&root).expect("managed status CLI test directory should be removed");
+}
+
+#[test]
 fn subscription_catalog_list_reads_and_redacts_sources() {
     let root = std::env::temp_dir().join(format!(
         "networkcore-subscription-catalog-list-contract-{}",

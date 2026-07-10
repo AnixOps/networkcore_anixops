@@ -413,6 +413,7 @@ jobs:
           grep -q "managed-foreground-session-status-operation=status-read" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "managed-foreground-session-status-write-operation=status-write" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "managed-foreground-session-status-transition-operation=status-transition" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "managed-foreground-session-status-cli-read-operation=managed-status" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "managed-foreground-session-status-liveness-verification=blocked" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "ManagedForegroundSessionStatusRequest" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "ManagedForegroundSessionStatusReport" docs/architecture/managed-foreground-session-status-source-contract.md
@@ -423,6 +424,7 @@ jobs:
           grep -q "ManagedForegroundSessionStatusTransitionRequest" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "ManagedForegroundSessionStatusTransitionReport" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "CommandManagedForegroundSessionStore::transition_status" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "networkcore-linux managed-status" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "ManagedForegroundSessionStatusRequest" apps/linux-cli/src/lib.rs
           grep -q "ManagedForegroundSessionStatusReport" apps/linux-cli/src/lib.rs
           grep -q "fn read_status" apps/linux-cli/src/lib.rs
@@ -432,9 +434,12 @@ jobs:
           grep -q "ManagedForegroundSessionStatusTransitionRequest" apps/linux-cli/src/lib.rs
           grep -q "ManagedForegroundSessionStatusTransitionReport" apps/linux-cli/src/lib.rs
           grep -q "fn transition_status" apps/linux-cli/src/lib.rs
+          grep -q "ManagedStatus" apps/linux-cli/src/lib.rs
+          grep -q "fn handle_managed_foreground_status" apps/linux-cli/src/lib.rs
           grep -q "managed_foreground_session_status_reads_explicit_record_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "managed_foreground_session_status_write_persists_non_overwriting_record" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "managed_foreground_session_status_transition_writes_snapshot_and_rejects_stale_state" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "managed_foreground_session_status_cli_reads_explicit_record_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "v0.1.2-alpha.1" README.md
           grep -q "v0.1.2-alpha.1" ROADMAP.md
           grep -q "v0.1.2-alpha.1" TODO.md

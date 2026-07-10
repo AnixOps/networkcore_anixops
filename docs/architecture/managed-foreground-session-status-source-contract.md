@@ -1,7 +1,7 @@
 # Managed Foreground Session Status Source Contract
 
-本文定义 `v0.1.2-alpha.2` managed foreground lifecycle 的三个 source-only status record 切片。
-它只读取、初始写入或显式迁移调用方指定的 managed foreground session status record，不把记录内容误称为进程存活证明。
+本文定义 `v0.1.2-alpha.2` managed foreground lifecycle 的三个 source-only status record 切片和一个只读 CLI 接线切片。
+它只读取、初始写入或显式迁移调用方指定的 managed foreground session status record；CLI 也只读取调用方显式提供的 record，不把记录内容误称为进程存活证明。
 
 ## Source Of Truth
 
@@ -10,6 +10,7 @@
 - `managed-foreground-session-status-operation=status-read`
 - `managed-foreground-session-status-write-operation=status-write`
 - `managed-foreground-session-status-transition-operation=status-transition`
+- `managed-foreground-session-status-cli-read-operation=managed-status`
 - `managed-foreground-session-status-storage=json`
 - `managed-foreground-session-status-schema-version=1`
 - `managed-foreground-session-status-default-path=blocked`
@@ -56,11 +57,17 @@ trim 后的 session id、engine id、previous state、next state、`snapshot_wri
 `liveness_verified=false`。expected state 不匹配、snapshot 已存在、路径相同或状态边不允许时，操作必须拒绝，
 且不修改 status record。
 
+第四个源码增量将读取能力接入 `networkcore-linux managed-status <status-record-path>`。该命令要求显式的
+位置参数，不扫描默认路径；它调用 `CommandManagedForegroundSessionStore::read_status`，在 text/JSON response
+中输出 record 路径、session id、engine id、recorded state 和 `liveness_verified=false`。record 缺失、schema 或
+字段无效时保留稳定 `cli.linux.managed_foreground_status.*` 错误，不创建 snapshot，不写入或迁移 record，也不
+检查 PID、端口、socket 或进程状态。
+
 本切片只读取、初始写入或显式迁移 status record，不修改 catalog，不启动、停止、reload 或 rollback runtime，
 不读取 events/logs，不扫描默认路径，不读取远程或 subscription 文件，不创建 daemon/control socket，
 不安装 service，不执行 system proxy、system trust store、TUN、DNS 或 firewall mutation。
 
-CLI command wiring、任意 record 覆盖、PID/port liveness 检查、events/logs/reload/rollback 由后续独立功能处理。
+CLI 写入或迁移接线、任意 record 覆盖、PID/port liveness 检查、events/logs/reload/rollback 由后续独立功能处理。
 所有测试、构建、格式化、lint 和安全扫描只能在 GitHub Actions 执行。
 
 ## Acceptance Test
@@ -82,3 +89,9 @@ CLI command wiring、任意 record 覆盖、PID/port liveness 检查、events/lo
 - 将 explicit `starting` record 迁移为 `running`，并把迁移前的原始内容以不覆盖方式保存到 explicit snapshot；
 - report 固定 `snapshot_written=true` 与 `liveness_verified=false`，并报告 previous/next state；
 - stale expected state 返回稳定 state-conflict 错误，不修改 status record，也不创建 snapshot。
+
+第四个合同测试必须证明 `managed-status`：
+
+- 解析一个显式 status record 路径，并从该路径读取 session id、engine id、recorded state；
+- text/JSON response 都固定 `liveness_verified=false`，不声称跨进程 runtime 存活；
+- record 缺失时保留稳定 read-failed 错误，且不写入或创建 snapshot。

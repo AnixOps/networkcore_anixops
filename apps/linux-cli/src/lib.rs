@@ -267,6 +267,7 @@ pub const SOURCE_CLI_ARGUMENT: &str = "cli.argument";
 pub const SOURCE_CLI_CONFIG: &str = "cli.config";
 pub const SOURCE_CLI_HELP: &str = "cli.help";
 pub const SOURCE_CLI_MITM: &str = "cli.mitm";
+pub const SOURCE_CLI_MANAGED_FOREGROUND_STATUS: &str = "cli.managed_foreground_status";
 pub const SOURCE_CLI_SING_BOX: &str = "cli.sing_box";
 pub const SOURCE_CLI_START: &str = "cli.start";
 pub const SOURCE_CLI_STOP: &str = "cli.stop";
@@ -341,6 +342,10 @@ pub enum LinuxCliCommand {
         format: OutputFormat,
     },
     Status {
+        format: OutputFormat,
+    },
+    ManagedStatus {
+        status_path: String,
         format: OutputFormat,
     },
     Diagnostics {
@@ -465,6 +470,7 @@ impl LinuxCliCommand {
             Self::Start { .. } => "start",
             Self::Stop { .. } => "stop",
             Self::Status { .. } => "status",
+            Self::ManagedStatus { .. } => "managed-status",
             Self::Diagnostics { .. } => "diagnostics",
             Self::MitmStatus { .. } => "mitm status",
             Self::MitmDiagnostics { .. } => "mitm diagnostics",
@@ -496,6 +502,7 @@ impl LinuxCliCommand {
             | Self::Start { format, .. }
             | Self::Stop { format }
             | Self::Status { format }
+            | Self::ManagedStatus { format, .. }
             | Self::Diagnostics { format }
             | Self::MitmStatus { format }
             | Self::MitmDiagnostics { format }
@@ -550,6 +557,7 @@ pub struct LinuxCliResponse {
     pub config_profiles: Vec<String>,
     pub version: Option<String>,
     pub help: Option<String>,
+    pub managed_foreground_status: Option<ManagedForegroundSessionStatusReport>,
     pub sing_box_install: Option<LinuxSingBoxInstallStatus>,
     pub sing_box_run: Option<LinuxSingBoxRunStatus>,
     pub mitm_status: Option<LinuxMitmStatus>,
@@ -569,6 +577,7 @@ impl LinuxCliResponse {
             config_profiles: Vec::new(),
             version: None,
             help: None,
+            managed_foreground_status: None,
             sing_box_install: None,
             sing_box_run: None,
             mitm_status: None,
@@ -592,6 +601,7 @@ impl LinuxCliResponse {
             config_profiles: Vec::new(),
             version: None,
             help: None,
+            managed_foreground_status: None,
             sing_box_install: None,
             sing_box_run: None,
             mitm_status: None,
@@ -618,6 +628,14 @@ impl LinuxCliResponse {
 
     pub fn with_help(mut self, help: impl Into<String>) -> Self {
         self.help = Some(help.into());
+        self
+    }
+
+    pub fn with_managed_foreground_status(
+        mut self,
+        report: ManagedForegroundSessionStatusReport,
+    ) -> Self {
+        self.managed_foreground_status = Some(report);
         self
     }
 
@@ -3694,6 +3712,7 @@ where
                 format: options.format,
             })
         }
+        "managed-status" => parse_managed_status_command(&rest),
         "diagnostics" => {
             let options = parse_options(&rest)?;
             Ok(LinuxCliCommand::Diagnostics {
@@ -3749,6 +3768,9 @@ where
         LinuxCliCommand::Version { .. } => handle_version(),
         LinuxCliCommand::Capabilities { .. } => handle_capabilities(platform),
         LinuxCliCommand::Status { .. } => handle_status(platform),
+        LinuxCliCommand::ManagedStatus { status_path, .. } => {
+            handle_managed_foreground_status(&status_path)
+        }
         LinuxCliCommand::Diagnostics { .. } => handle_diagnostics(platform),
         LinuxCliCommand::MitmStatus { .. } => handle_mitm_status(platform),
         LinuxCliCommand::MitmDiagnostics { .. } => handle_mitm_diagnostics(platform),
@@ -4288,6 +4310,7 @@ where
             config_profiles: Vec::new(),
             version: None,
             help: None,
+            managed_foreground_status: None,
             sing_box_install: None,
             sing_box_run: None,
             mitm_status: None,
@@ -4311,6 +4334,7 @@ where
         config_profiles: Vec::new(),
         version: None,
         help: None,
+        managed_foreground_status: None,
         sing_box_install: None,
         sing_box_run: None,
         mitm_status: None,
@@ -4413,6 +4437,32 @@ where
             error,
             SOURCE_CLI_RUNTIME,
         ),
+    }
+}
+
+pub fn handle_managed_foreground_status(status_path: &str) -> LinuxCliResponse {
+    let store = CommandManagedForegroundSessionStore::new();
+    match store.read_status(&ManagedForegroundSessionStatusRequest {
+        status_path: status_path.to_string(),
+    }) {
+        Ok(report) => LinuxCliResponse::success("managed-status").with_managed_foreground_status(report),
+        Err(error) => {
+            let exit_code = if error.code == CLI_MANAGED_FOREGROUND_STATUS_PATH_MISSING_CODE {
+                LinuxCliExitCode::ArgumentOrConfig
+            } else if error.code == CLI_MANAGED_FOREGROUND_STATUS_SCHEMA_UNSUPPORTED_CODE
+                || error.code == CLI_MANAGED_FOREGROUND_STATUS_RECORD_INVALID_CODE
+            {
+                LinuxCliExitCode::ConfigValidation
+            } else {
+                LinuxCliExitCode::GeneralFailure
+            };
+            domain_error_response(
+                "managed-status",
+                exit_code,
+                error,
+                SOURCE_CLI_MANAGED_FOREGROUND_STATUS,
+            )
+        }
     }
 }
 
@@ -8414,6 +8464,27 @@ fn parse_run_url_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliPar
     })
 }
 
+fn parse_managed_status_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(status_path) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-status requires an explicit status record path",
+        ));
+    };
+    if status_path.starts_with("--") {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-status requires a status record path before options",
+        ));
+    }
+    let options = parse_options(&args[1..])?;
+
+    Ok(LinuxCliCommand::ManagedStatus {
+        status_path: status_path.clone(),
+        format: options.format,
+    })
+}
+
 fn parse_mitm_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
     let Some(subcommand) = args.first() else {
         let options = parse_options(args)?;
@@ -8812,6 +8883,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux start --config <path> [--format text|json]\n",
         "  networkcore-linux stop [--format text|json]\n",
         "  networkcore-linux status [--format text|json]\n",
+        "  networkcore-linux managed-status <status-record-path> [--format text|json]\n",
         "  networkcore-linux diagnostics [--format text|json]\n",
         "  networkcore-linux mitm [status|diagnostics|certificate-plan|browser-plan] [--format text|json]\n",
         "  networkcore-linux mitm certificate [plan|apply|rollback] [--cert-file <path>] [--key-file <path>] [--profile-trust-file <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
@@ -8829,6 +8901,7 @@ pub const fn cli_help_text() -> &'static str {
         "  start             Start the current foreground runtime from a config.\n",
         "  stop              Report that daemon stop is unavailable in this build.\n",
         "  status            Report platform-only status without a daemon context.\n",
+        "  managed-status    Read one explicit managed foreground status record.\n",
         "  diagnostics       Print platform diagnostics.\n",
         "  mitm              Report MITM plugin policy status, certificate/browser plans, and deferred browser hijack gates.\n",
         "  install-sing-box  Download the latest official sing-box archive and cache its executable.\n",
@@ -9087,6 +9160,17 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
         ));
         lines.push(format!("config: {}", run.config_path));
         lines.push(format!("process exit code: {:?}", run.process_exit_code));
+    }
+
+    if let Some(status) = &response.managed_foreground_status {
+        lines.push(format!("managed foreground status record: {}", status.status_path));
+        lines.push(format!("managed foreground session: {}", status.session_id));
+        lines.push(format!("managed foreground engine: {}", status.engine_id));
+        lines.push(format!("managed foreground recorded state: {}", status.state));
+        lines.push(format!(
+            "managed foreground liveness verified: {}",
+            status.liveness_verified
+        ));
     }
 
     if let Some(mitm) = &response.mitm_status {
@@ -9652,6 +9736,7 @@ struct JsonCliResponse {
     config_profiles: Vec<String>,
     version: Option<String>,
     help: Option<String>,
+    managed_foreground_status: Option<JsonManagedForegroundSessionStatusReport>,
     sing_box_install: Option<JsonSingBoxInstallStatus>,
     sing_box_run: Option<JsonSingBoxRunStatus>,
     mitm_status: Option<JsonMitmStatus>,
@@ -9675,6 +9760,10 @@ impl From<&LinuxCliResponse> for JsonCliResponse {
             config_profiles: response.config_profiles.clone(),
             version: response.version.clone(),
             help: response.help.clone(),
+            managed_foreground_status: response
+                .managed_foreground_status
+                .as_ref()
+                .map(JsonManagedForegroundSessionStatusReport::from),
             sing_box_install: response
                 .sing_box_install
                 .as_ref()
@@ -9696,6 +9785,27 @@ impl From<&LinuxCliResponse> for JsonCliResponse {
                 .http_rewrite
                 .as_ref()
                 .map(JsonMitmHttpRewriteReport::from),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonManagedForegroundSessionStatusReport {
+    status_path: String,
+    session_id: String,
+    engine_id: String,
+    state: String,
+    liveness_verified: bool,
+}
+
+impl From<&ManagedForegroundSessionStatusReport> for JsonManagedForegroundSessionStatusReport {
+    fn from(report: &ManagedForegroundSessionStatusReport) -> Self {
+        Self {
+            status_path: report.status_path.clone(),
+            session_id: report.session_id.clone(),
+            engine_id: report.engine_id.clone(),
+            state: report.state.clone(),
+            liveness_verified: report.liveness_verified,
         }
     }
 }
