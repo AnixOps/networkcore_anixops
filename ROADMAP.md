@@ -110,6 +110,7 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Ker
 - [Subscription Catalog Runtime Orchestration Design](docs/architecture/subscription-catalog-runtime-orchestration.md)
 - [Persistent Subscription Catalog Source Contract](docs/architecture/subscription-catalog-persistence-source-contract.md)
 - [Managed Foreground Session Status Source Contract](docs/architecture/managed-foreground-session-status-source-contract.md)
+- [Managed Foreground Session Event Source Contract](docs/architecture/managed-foreground-session-event-source-contract.md)
 - [Native Engine Listener And Node Config Design](docs/architecture/native-engine-listener-node-config.md)
 - [Linux Native Proxy Engine Start Design](docs/architecture/linux-native-proxy-engine-start.md)
 
@@ -130,6 +131,7 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Ker
 第五个 `update_source` source-only 切片已加入 location 更新、写前 snapshot、source-not-found 拒绝和脱敏 report，并已通过 GitHub Actions 全量 CI；
 第六个 `rollback_catalog` source-only 切片已加入显式 snapshot 复原、snapshot 保留、snapshot-not-found 拒绝和脱敏 report，并已通过 GitHub Actions 全量 CI；
 `v0.1.2-alpha.2` 的 `read_status`/`write_status`/`transition_status` source-only 切片已显式读取、初始非覆盖写入或受 expected state 保护地迁移 schema version 1 managed foreground session record；迁移保留原始 record snapshot，仅允许 `starting -> running/failed` 与 `running -> stopped/failed`；`networkcore-linux managed-status <status-record-path>` 已只读输出 recorded state，`networkcore-linux managed-status init <status-record-path> <session-id> <engine-id> <state>` 已非覆盖创建 record 并输出 `record_written=true`，`networkcore-linux managed-status transition <status-record-path> <snapshot-path> <expected-state> <next-state>` 已输出 previous/next state 和 `snapshot_written=true`，三者均固定 `liveness_verified=false`，不检查 live process、不接入 runtime control；
+同一阶段的 `CommandManagedForegroundSessionEventStore::read_event` 已从显式 schema version 1 event record 读取允许的 event kind、recorded state 与 recorded_at，固定 `liveness_verified=false`；不扫描/写入 event，不接入 event CLI、实时 event stream 或 runtime control；
 默认路径、远程/file fetch、runtime startup 和 managed lifecycle 仍 blocked，
 每个切片的功能完成状态以 GitHub Actions 合同测试为准。
 

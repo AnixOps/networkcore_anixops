@@ -27,6 +27,12 @@ liveness. `networkcore-linux managed-status transition <status-record-path> <sna
 <next-state>` performs an expected-state transition, writes the original record to a non-overwriting snapshot,
 and reports `snapshot_written=true` without claiming liveness. Their contract tests have passed GitHub Actions.
 
+Current `main` also contains the source-only `CommandManagedForegroundSessionEventStore::read_event` boundary
+for v0.1.2-alpha.2. It reads one explicit schema version 1 JSON event record with session/engine/event ids, an
+allowed event kind, recorded state, and a caller-recorded timestamp, while reporting `liveness_verified=false`.
+It does not write, list, or scan events; it does not expose an event CLI command or a runtime event stream; and
+it does not read logs or control a runtime. Its contract test has passed GitHub Actions.
+
 The crate currently provides:
 
 - Command parsing for the first Linux command surface.
