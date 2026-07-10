@@ -19,7 +19,9 @@ Current `main` also contains the source-only `CommandManagedForegroundSessionSto
 write, or expected-state transition an explicit schema version 1 session status record, respectively report
 `liveness_verified=false`, reject write overwrite, and retain a non-overwriting pre-transition snapshot. The
 transition allows only `starting -> running/failed` and `running -> stopped/failed`. They do not inspect a
-process or wire a CLI/runtime control command. Their contract tests have passed GitHub Actions.
+process or wire CLI write/transition or runtime control commands. `networkcore-linux managed-status
+<status-record-path>` exposes the same explicit record through text/JSON without claiming liveness or
+modifying the record. Their contract tests have passed GitHub Actions.
 
 The crate currently provides:
 

@@ -530,7 +530,8 @@ mutation 和 system proxy mutation。
 - `v0.1.2-alpha.2`：managed foreground lifecycle。当前 main 已完成 source-only `read_status`/`write_status`/
   `transition_status` record 读取/初始非覆盖写入/expected-state 迁移切片：显式 schema version 1 JSON record、
   迁移前原始 record snapshot、`starting -> running/failed` 与 `running -> stopped/failed`、`record_written=true`、
-  `snapshot_written=true` 和 `liveness_verified=false`，不验证 live process、不接入 CLI `status` 或 runtime control。后续新增 managed
+  `snapshot_written=true` 和 `liveness_verified=false`。`networkcore-linux managed-status <status-record-path>` 已只读
+  输出同一 record；不验证 live process、不接入 CLI 写入/迁移或 runtime control。后续新增 managed
   `status/events/logs/reload/rollback` 命令面；仍不默认安装 daemon/service。
 - `v0.1.2-alpha.3`：JavaScript script dispatch foundation。基于 plugin permission、sandbox/timeout、
   IO guard、audit log 和 CI governance 执行受控 script dispatch。
