@@ -60,15 +60,15 @@ use networkcore_linux::{
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
     LinuxNativeMitmRuntimeFileConfig, ManagedForegroundSessionEventListRequest,
     ManagedForegroundSessionEventRequest, ManagedForegroundSessionEventWriteRequest,
-    ManagedForegroundSessionStatusRequest,
-    ManagedForegroundSessionStatusRollbackRequest, ManagedForegroundSessionStatusTransitionRequest,
-    ManagedForegroundSessionStatusWriteRequest, MitmCertificateArtifactStore,
-    MitmCertificateRollbackSnapshot, OutputFormat, SubscriptionCatalogAddRequest,
-    SubscriptionCatalogListRequest, SubscriptionCatalogRemoveRequest,
-    SubscriptionCatalogRollbackRequest, SubscriptionCatalogSelectRequest,
-    SubscriptionCatalogUpdateRequest, UnavailableForegroundLifecycleHost,
-    UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
-    CLI_CONFIG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+    ManagedForegroundSessionStatusRequest, ManagedForegroundSessionStatusRollbackRequest,
+    ManagedForegroundSessionStatusTransitionRequest, ManagedForegroundSessionStatusWriteRequest,
+    MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
+    SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
+    SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
+    SubscriptionCatalogSelectRequest, SubscriptionCatalogUpdateRequest,
+    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
+    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE,
@@ -397,8 +397,7 @@ fn managed_foreground_session_event_list_reads_explicit_directory_deterministica
     std::fs::write(event_directory.join("ignored.txt"), "not an event")
         .expect("non-event file should be written");
     let nested_directory = event_directory.join("nested");
-    std::fs::create_dir_all(&nested_directory)
-        .expect("nested event directory should be created");
+    std::fs::create_dir_all(&nested_directory).expect("nested event directory should be created");
     std::fs::write(nested_directory.join("event-c.json"), second_record)
         .expect("nested managed event record should be written");
     let before_first = std::fs::read_to_string(&first_path)
@@ -413,7 +412,10 @@ fn managed_foreground_session_event_list_reads_explicit_directory_deterministica
         })
         .expect("managed event directory should be listed");
 
-    assert_eq!(report.event_directory, event_directory.display().to_string());
+    assert_eq!(
+        report.event_directory,
+        event_directory.display().to_string()
+    );
     assert_eq!(report.event_count, 2);
     assert!(!report.liveness_verified);
     assert_eq!(report.events[0].event_id, "event-a");
