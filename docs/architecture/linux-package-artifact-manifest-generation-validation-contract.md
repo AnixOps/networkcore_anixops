@@ -68,7 +68,7 @@ release policy 认可的 version、runner/toolchain/target contract 和 release 
 | `package_artifact_manifest_generation_checksum_algorithm_field` | `checksum.algorithm` |
 | `package_artifact_manifest_generation_checksum_file_field` | `checksum.file_name` |
 | `package_artifact_manifest_generation_checksum_value_field` | `checksum.value` |
-| `package_artifact_manifest_generation_included_files` | `bin/networkcore-linux,INSTALL.md,LICENSE,CHANGELOG.md` |
+| `package_artifact_manifest_generation_included_files` | `bin/networkcore-linux,libexec/anixops-runner.js,INSTALL.md,LICENSE,CHANGELOG.md` |
 | `package_artifact_manifest_generation_install_model` | `manual-extract` |
 | `package_artifact_manifest_generation_system_mutation_policy` | `none` |
 | `package_artifact_manifest_generation_manifest_checksum` | `blocked` |

@@ -41,7 +41,9 @@ use networkcore_linux::{
     handle_mitm_certificate_rollback, handle_mitm_certificate_rollback_with_store,
     handle_mitm_http_rewrite_plan, handle_mitm_http_rewrite_preview, handle_mitm_status,
     handle_parse_error, handle_prepare_config, handle_run_url_with_sing_box, handle_start,
-    handle_status, handle_stop, native_proxy_engine_service_with_builtin_mitm_plugin, parse_args,
+    handle_status, handle_stop, native_proxy_engine_service_with_builtin_mitm_plugin,
+    native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files,
+    native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files, parse_args,
     render_response, BrowserCaptureEndpointProbe, BrowserCapturePacFileStore,
     BrowserCaptureProcessRunner, BrowserCaptureTrafficProofProbe,
     CommandBrowserCaptureEndpointProbe, CommandBrowserCaptureTrafficProofProbe,
@@ -56,10 +58,10 @@ use networkcore_linux::{
     LinuxBrowserCaptureVerifyOutcome, LinuxBrowserCaptureVerifyRequest, LinuxCliCommand,
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
-    ManagedForegroundSessionEventRequest, ManagedForegroundSessionEventWriteRequest,
-    ManagedForegroundSessionStatusRequest, ManagedForegroundSessionStatusRollbackRequest,
-    ManagedForegroundSessionStatusTransitionRequest, ManagedForegroundSessionStatusWriteRequest,
-    MitmCertificateArtifactStore,
+    LinuxNativeMitmRuntimeFileConfig, ManagedForegroundSessionEventRequest,
+    ManagedForegroundSessionEventWriteRequest, ManagedForegroundSessionStatusRequest,
+    ManagedForegroundSessionStatusRollbackRequest, ManagedForegroundSessionStatusTransitionRequest,
+    ManagedForegroundSessionStatusWriteRequest, MitmCertificateArtifactStore,
     MitmCertificateRollbackSnapshot, OutputFormat, SubscriptionCatalogAddRequest,
     SubscriptionCatalogListRequest, SubscriptionCatalogRemoveRequest,
     SubscriptionCatalogRollbackRequest, SubscriptionCatalogSelectRequest,
@@ -95,7 +97,9 @@ use networkcore_linux::{
     CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE, CLI_START_FOREGROUND_ONLY_CODE,
     CLI_START_LIFECYCLE_FAILED_CODE, CLI_START_LIFECYCLE_HOST_MISSING_CODE,
     CLI_START_LIFECYCLE_INTERRUPTED_CODE, CLI_START_PLATFORM_DENIED_CODE,
-    CLI_START_RUNTIME_STOP_FAILED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
+    CLI_START_RUNTIME_STOP_FAILED_CODE, CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE,
+    CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE, CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE,
+    CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
     CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
     MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR, MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH,
     MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME, MITM_BROWSER_CAPTURE_GATE,
@@ -1482,6 +1486,183 @@ fn native_engine_factory_enables_builtin_mitm_plugin_hook_for_start_path() {
         .expect("built-in MITM plugin hook should load for native start path");
 
     assert!(service.http_mitm_hook_enabled());
+    assert!(!service.tls_mitm_ca_material_enabled());
+}
+
+#[test]
+fn native_engine_factory_requires_explicit_authorization_before_loading_tls_mitm_material() {
+    let missing_confirmation =
+        native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files(
+            Some("/tmp/networkcore-mitm-ca.crt"),
+            Some("/tmp/networkcore-mitm-ca.key"),
+            true,
+            false,
+        )
+        .expect_err("TLS MITM material must require explicit confirmation");
+    assert_eq!(
+        missing_confirmation.code,
+        CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE
+    );
+
+    let missing_material = native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files(
+        None, None, true, true,
+    )
+    .expect_err("TLS MITM enablement must require both material paths");
+    assert_eq!(
+        missing_material.code,
+        CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE
+    );
+
+    let unapproved_paths = native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files(
+        Some("/tmp/networkcore-mitm-ca.crt"),
+        Some("/tmp/networkcore-mitm-ca.key"),
+        false,
+        false,
+    )
+    .expect_err("CA paths must not load without explicit TLS MITM enablement");
+    assert_eq!(
+        unapproved_paths.code,
+        CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE
+    );
+}
+
+#[test]
+fn parses_start_with_explicit_tls_mitm_authorization_and_material_paths() {
+    let command = parse_args([
+        "start",
+        "--config",
+        "/tmp/networkcore.toml",
+        "--enable-https-mitm",
+        "--mitm-ca-cert",
+        "/tmp/networkcore-mitm-ca.crt",
+        "--mitm-ca-key",
+        "/tmp/networkcore-mitm-ca.key",
+        "--confirm",
+    ])
+    .expect("explicit TLS MITM start command should parse");
+
+    assert_eq!(
+        command,
+        LinuxCliCommand::Start {
+            config_path: Some("/tmp/networkcore.toml".to_string()),
+            mitm_ca_certificate_path: Some("/tmp/networkcore-mitm-ca.crt".to_string()),
+            mitm_ca_private_key_path: Some("/tmp/networkcore-mitm-ca.key".to_string()),
+            enable_https_mitm: true,
+            enable_script_runtime: false,
+            script_runner_path: None,
+            script_maps: Vec::new(),
+            script_store_path: None,
+            node_binary: None,
+            confirm: true,
+            format: OutputFormat::Text,
+        }
+    );
+}
+
+#[test]
+fn native_engine_factory_requires_explicit_script_runtime_authorization_and_config() {
+    let missing_confirmation =
+        native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
+            LinuxNativeMitmRuntimeFileConfig {
+                certificate_path: None,
+                private_key_path: None,
+                enable_https_mitm: false,
+                enable_script_runtime: true,
+                script_runner_path: Some("/tmp/networkcore-script-runner.js"),
+                node_binary: None,
+                script_maps: &["https://scripts.networkcore.test/a.js=/tmp/a.js".to_string()],
+                script_store_path: None,
+                confirm: false,
+            },
+        )
+        .expect_err("script runtime must require explicit confirmation");
+    assert_eq!(
+        missing_confirmation.code,
+        CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE
+    );
+
+    let missing_runner = native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
+        LinuxNativeMitmRuntimeFileConfig {
+            certificate_path: None,
+            private_key_path: None,
+            enable_https_mitm: false,
+            enable_script_runtime: true,
+            script_runner_path: None,
+            node_binary: None,
+            script_maps: &[],
+            script_store_path: None,
+            confirm: true,
+        },
+    )
+    .expect_err("script runtime must require runner and mappings");
+    assert_eq!(
+        missing_runner.code,
+        CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE
+    );
+
+    let runner_path = format!(
+        "{}/../../third_party/mitm_anixops/mitm_anixops/e2e/script_runtime/anixops_runner.js",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let script_path = format!(
+        "{}/../../third_party/mitm_anixops/mitm_anixops/tests/fixtures/runner_replay_script.js",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let configured = native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
+        LinuxNativeMitmRuntimeFileConfig {
+            certificate_path: None,
+            private_key_path: None,
+            enable_https_mitm: false,
+            enable_script_runtime: true,
+            script_runner_path: Some(&runner_path),
+            node_binary: None,
+            script_maps: &[format!(
+                "https://scripts.networkcore.test/replay.js={script_path}"
+            )],
+            script_store_path: None,
+            confirm: true,
+        },
+    )
+    .expect("explicit local script mapping should configure the native engine");
+    assert!(configured.http_mitm_hook_enabled());
+    assert!(configured.http_mitm_script_executor_enabled());
+}
+
+#[test]
+fn parses_start_with_explicit_script_runtime_mapping() {
+    let command = parse_args([
+        "start",
+        "--config",
+        "/tmp/networkcore.toml",
+        "--enable-script-runtime",
+        "--script-runner",
+        "/tmp/networkcore-script-runner.js",
+        "--script-map",
+        "https://scripts.networkcore.test/a.js=/tmp/a.js",
+        "--script-store",
+        "/tmp/networkcore-script-store.json",
+        "--node-binary",
+        "/usr/bin/node",
+        "--confirm",
+    ])
+    .expect("explicit script runtime start command should parse");
+
+    assert_eq!(
+        command,
+        LinuxCliCommand::Start {
+            config_path: Some("/tmp/networkcore.toml".to_string()),
+            mitm_ca_certificate_path: None,
+            mitm_ca_private_key_path: None,
+            enable_https_mitm: false,
+            enable_script_runtime: true,
+            script_runner_path: Some("/tmp/networkcore-script-runner.js".to_string()),
+            script_maps: vec!["https://scripts.networkcore.test/a.js=/tmp/a.js".to_string(),],
+            script_store_path: Some("/tmp/networkcore-script-store.json".to_string()),
+            node_binary: Some("/usr/bin/node".to_string()),
+            confirm: true,
+            format: OutputFormat::Text,
+        }
+    );
 }
 
 #[test]
@@ -4835,6 +5016,15 @@ fn entrypoint_keeps_runtime_mutation_commands_unwired() {
     let response = handle_entrypoint(
         LinuxCliCommand::Start {
             config_path: Some("config.toml".to_string()),
+            mitm_ca_certificate_path: None,
+            mitm_ca_private_key_path: None,
+            enable_https_mitm: false,
+            enable_script_runtime: false,
+            script_runner_path: None,
+            script_maps: Vec::new(),
+            script_store_path: None,
+            node_binary: None,
+            confirm: false,
             format: OutputFormat::Text,
         },
         &platform,
@@ -4865,6 +5055,15 @@ profile = "default"
     let response = handle_entrypoint_with_runtime(
         LinuxCliCommand::Start {
             config_path: Some("networkcore.toml".to_string()),
+            mitm_ca_certificate_path: None,
+            mitm_ca_private_key_path: None,
+            enable_https_mitm: false,
+            enable_script_runtime: false,
+            script_runner_path: None,
+            script_maps: Vec::new(),
+            script_store_path: None,
+            node_binary: None,
+            confirm: false,
             format: OutputFormat::Text,
         },
         &platform,
@@ -4914,6 +5113,15 @@ route_node = "node-1"
     let response = handle_entrypoint_with_runtime_and_lifecycle(
         LinuxCliCommand::Start {
             config_path: Some("networkcore.toml".to_string()),
+            mitm_ca_certificate_path: None,
+            mitm_ca_private_key_path: None,
+            enable_https_mitm: false,
+            enable_script_runtime: false,
+            script_runner_path: None,
+            script_maps: Vec::new(),
+            script_store_path: None,
+            node_binary: None,
+            confirm: false,
             format: OutputFormat::Text,
         },
         &platform,
@@ -5413,6 +5621,15 @@ route_node = "node-1"
     let response = handle_entrypoint_with_runtime_and_lifecycle(
         LinuxCliCommand::Start {
             config_path: Some("networkcore.toml".to_string()),
+            mitm_ca_certificate_path: None,
+            mitm_ca_private_key_path: None,
+            enable_https_mitm: false,
+            enable_script_runtime: false,
+            script_runner_path: None,
+            script_maps: Vec::new(),
+            script_store_path: None,
+            node_binary: None,
+            confirm: false,
             format: OutputFormat::Text,
         },
         &platform,

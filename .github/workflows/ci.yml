@@ -39,6 +39,7 @@ jobs:
             CHANGELOG.md
             LICENSE
             Cargo.toml
+            Cargo.lock
             docs/ci-cd-policy.md
             docs/manual-intervention.md
             docs/release-strategy.md
@@ -577,6 +578,13 @@ jobs:
           grep -q "native_proxy_engine_service_with_builtin_mitm_plugin" apps/linux-cli/src/lib.rs
           grep -q "native_proxy_engine_service_with_builtin_mitm_plugin" apps/linux-cli/src/main.rs
           grep -q "native_engine_factory_enables_builtin_mitm_plugin_hook_for_start_path" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files" apps/linux-cli/src/lib.rs
+          grep -q "native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files" apps/linux-cli/src/main.rs
+          grep -q -- "--enable-https-mitm" apps/linux-cli/src/lib.rs
+          grep -q -- "--mitm-ca-cert" apps/linux-cli/src/lib.rs
+          grep -q -- "--mitm-ca-key" apps/linux-cli/src/lib.rs
+          grep -q "native_engine_factory_requires_explicit_authorization_before_loading_tls_mitm_material" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "parses_start_with_explicit_tls_mitm_authorization_and_material_paths" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "networkcore-linux mitm" apps/linux-cli/src/lib.rs
           grep -q "LinuxMitmStatus" apps/linux-cli/src/lib.rs
           grep -q "LinuxMitmCertificatePlan" apps/linux-cli/src/lib.rs
@@ -996,6 +1004,11 @@ jobs:
           grep -q "NativeTlsMitmFoundationReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "NativeTlsClientHelloObservationReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "NativeControlledTlsTerminationPlanReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "NativeTlsLeafCertificateMaterial" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "NativeTlsLeafCertificateIssueReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "NativeTlsServerConfigBuildReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "NativeTlsUpstreamClientConfigBuildReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "NativeTlsMitmCaMaterial" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "NativeHttpsRequestRewritePreviewReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "NativeHttpsResponseRewritePreviewReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "read_explicit_http_proxy_request" docs/architecture/linux-mitm-http-rewrite-source-contract.md
@@ -1003,14 +1016,34 @@ jobs:
           grep -q "plan_explicit_http_connect_tls_mitm_foundation" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "observe_explicit_http_connect_tls_client_hello" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "plan_explicit_http_connect_controlled_tls_termination" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "issue_controlled_tls_termination_leaf_certificate" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "build_controlled_tls_termination_server_config" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "build_controlled_tls_upstream_client_config" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "read_https_connect_http_request" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "with_tls_mitm_ca_material" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "CLI_START_TLS_MITM_MATERIAL_READ_FAILED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "plan_and_apply_https_request_rewrite_preview" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "plan_and_apply_https_response_rewrite_preview" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "write_http_connect_established_response" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_FOUNDATION_READY_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_OBSERVED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SNI_AUTHORITY_MATCHED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SNI_AUTHORITY_MISMATCH_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_PLAN_READY_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_DEFERRED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_LEAF_CERTIFICATE_ISSUED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_LEAF_CERTIFICATE_DEFERRED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_LEAF_CERTIFICATE_FAILED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SERVER_CONFIG_READY_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SERVER_CONFIG_FAILED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_UPSTREAM_CONFIG_READY_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_UPSTREAM_CONFIG_FAILED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SESSION_DECRYPTION_READY_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SESSION_DECRYPTION_FAILED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_READY_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_DEFERRED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_SCRIPT_DEFERRED_CODE" docs/architecture/linux-mitm-http-rewrite-source-contract.md
@@ -1030,6 +1063,13 @@ jobs:
           grep -q "body_size_limit_bytes" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "body_buffering_guard_ready" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "script_dispatch_ready" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "controlled-tls-and-script-runtime-source=implemented-ci-pending" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "NativeNodeScriptRuntimeConfig" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "NativeNodeScriptExecutor" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "NativeHttpScriptExecutionReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q "with_node_script_executor" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q -- "--enable-script-runtime" docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q -- "--script-map" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "LinuxMitmHttpRewriteRequest" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "LinuxMitmHttpRewriteOutcomeReport" docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q "LinuxMitmHttpRewriteAuthorization" docs/architecture/linux-mitm-http-rewrite-source-contract.md
@@ -1048,6 +1088,16 @@ jobs:
           grep -q "NativeTlsMitmFoundationReport" crates/engine-native/src/lib.rs
           grep -q "NativeTlsClientHelloObservationReport" crates/engine-native/src/lib.rs
           grep -q "NativeControlledTlsTerminationPlanReport" crates/engine-native/src/lib.rs
+          grep -q "NativeTlsLeafCertificateMaterial" crates/engine-native/src/lib.rs
+          grep -q "NativeTlsLeafCertificateIssueReport" crates/engine-native/src/lib.rs
+          grep -q "NativeTlsServerConfigBuildReport" crates/engine-native/src/lib.rs
+          grep -q "NativeTlsUpstreamClientConfigBuildReport" crates/engine-native/src/lib.rs
+          grep -q "NativeTlsMitmCaMaterial" crates/engine-native/src/lib.rs
+          grep -q "NativeNodeScriptRuntimeConfig" crates/engine-native/src/lib.rs
+          grep -q "NativeNodeScriptExecutor" crates/engine-native/src/lib.rs
+          grep -q "NativeHttpScriptExecutionReport" crates/engine-native/src/lib.rs
+          grep -q "MAX_CONCURRENT_ACCEPTED_CONNECTIONS" crates/engine-native/src/lib.rs
+          grep -q "NativeBoundedRead" crates/engine-native/src/lib.rs
           grep -q "NativeHttpsRequestRewritePreviewReport" crates/engine-native/src/lib.rs
           grep -q "NativeHttpsResponseRewritePreviewReport" crates/engine-native/src/lib.rs
           grep -q "read_explicit_http_proxy_request" crates/engine-native/src/lib.rs
@@ -1055,6 +1105,16 @@ jobs:
           grep -q "plan_explicit_http_connect_tls_mitm_foundation" crates/engine-native/src/lib.rs
           grep -q "observe_explicit_http_connect_tls_client_hello" crates/engine-native/src/lib.rs
           grep -q "plan_explicit_http_connect_controlled_tls_termination" crates/engine-native/src/lib.rs
+          grep -q "issue_controlled_tls_termination_leaf_certificate" crates/engine-native/src/lib.rs
+          grep -q "build_controlled_tls_termination_server_config" crates/engine-native/src/lib.rs
+          grep -q "build_controlled_tls_upstream_client_config" crates/engine-native/src/lib.rs
+          grep -q "read_https_connect_http_request" crates/engine-native/src/lib.rs
+          grep -q "with_tls_mitm_ca_material" crates/engine-native/src/lib.rs
+          grep -q "with_node_script_executor" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_EXECUTED_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_DEFERRED_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_FAILED_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_URL_MUTATION_BLOCKED_CODE" crates/engine-native/src/lib.rs
           grep -q "plan_and_apply_https_request_rewrite_preview" crates/engine-native/src/lib.rs
           grep -q "plan_and_apply_https_response_rewrite_preview" crates/engine-native/src/lib.rs
           grep -q "write_http_connect_established_response" crates/engine-native/src/lib.rs
@@ -1062,8 +1122,19 @@ jobs:
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_FOUNDATION_READY_CODE" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_OBSERVED_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SNI_AUTHORITY_MATCHED_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SNI_AUTHORITY_MISMATCH_CODE" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_PLAN_READY_CODE" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_DEFERRED_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_LEAF_CERTIFICATE_ISSUED_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_LEAF_CERTIFICATE_DEFERRED_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_LEAF_CERTIFICATE_FAILED_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SERVER_CONFIG_READY_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SERVER_CONFIG_FAILED_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_UPSTREAM_CONFIG_READY_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_UPSTREAM_CONFIG_FAILED_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SESSION_DECRYPTION_READY_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SESSION_DECRYPTION_FAILED_CODE" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_READY_CODE" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_DEFERRED_CODE" crates/engine-native/src/lib.rs
           grep -q "ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_SCRIPT_DEFERRED_CODE" crates/engine-native/src/lib.rs
@@ -1077,13 +1148,25 @@ jobs:
           grep -q "explicit_http_connect_tls_foundation_report_keeps_https_rewrite_deferred" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "explicit_http_connect_tls_client_hello_observation_extracts_sni_without_enabling_rewrite" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "explicit_http_connect_tls_termination_plan_keeps_rewrite_deferred" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "explicit_http_connect_tls_termination_plan_defers_when_sni_disagrees_with_authority" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "controlled_tls_termination_issues_authority_bound_leaf_certificate" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "controlled_tls_termination_leaf_certificate_refuses_invalid_or_mismatched_inputs" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "controlled_tls_server_config_performs_authenticated_handshake_and_decrypts_request" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "controlled_tls_server_config_refuses_empty_leaf_material" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "controlled_tls_connect_request_rebinds_origin_form_to_connect_authority" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "controlled_tls_connect_request_refuses_mismatched_decrypted_host_authority" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "controlled_tls_upstream_client_config_uses_web_pki_roots" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "explicit_http_connect_tls_termination_plan_defers_without_material_or_hello" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "explicit_https_request_rewrite_preview_applies_headers_and_defers_body_and_script" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "explicit_https_response_rewrite_preview_applies_headers_body_and_defers_script" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "write_http_connect_established_response_writes_empty_tunnel_response" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "plain_http_rewrite_application_applies_header_body_and_defers_script_dispatch" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "node_script_executor_runs_explicit_local_asset_with_persistent_store" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "native_http_mitm_hook_applies_locally_mapped_script_dispatch" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "controlled_tls_connect_exchange_decrypts_forwards_and_executes_scripts_over_live_sockets" crates/engine-native/src/lib.rs
           grep -q "plain_http_rewrite_plan_applies_plugin_reject_to_terminal_response" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "runtime_accept_loop_contract_applies_plain_http_reject_for_http_listener" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "http_accept_loop_processes_a_second_connection_while_the_first_is_stalled" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "plain_http_proxy_request_header_and_body_rewrite_forwards_via_socks_outbound" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "plain_http_proxy_response_header_and_body_rewrite_returns_modified_response" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "plain_http_proxy_connect_method_establishes_tls_foundation_tunnel_via_socks_outbound" crates/engine-native/tests/engine_native_contracts.rs
@@ -1112,6 +1195,14 @@ jobs:
           grep -q -- "--phase" apps/linux-cli/src/lib.rs
           grep -q -- "--header" apps/linux-cli/src/lib.rs
           grep -q "CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE" apps/linux-cli/src/lib.rs
+          grep -q "native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files" apps/linux-cli/src/lib.rs
+          grep -q -- "--enable-script-runtime" apps/linux-cli/src/lib.rs
+          grep -q -- "--script-map" apps/linux-cli/src/lib.rs
+          grep -q "native_engine_factory_requires_explicit_script_runtime_authorization_and_config" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "parses_start_with_explicit_script_runtime_mapping" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_http_rewrite_plan_reports_live_plain_http_data_plane_without_tls_decryption" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_http_rewrite_plan_reports_controlled_tls_termination_plan_without_decryption" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "mitm_http_rewrite_preview_reports_https_request_preview_without_live_tls_or_script" apps/linux-cli/tests/linux_cli_contracts.rs
@@ -1236,9 +1327,15 @@ jobs:
           grep -q 'id-token: write' "${release_workflow}"
           grep -q 'attestations: write' "${release_workflow}"
           grep -q 'gh release create' "${release_workflow}"
-          grep -q 'cargo generate-lockfile' "${release_workflow}"
+          grep -Fq 'test -f Cargo.lock' "${release_workflow}"
+          if grep -Fq 'cargo generate-lockfile' "${release_workflow}"; then
+            echo "::error::Release artifacts must use the checked-in Cargo.lock; do not regenerate it in the release workflow."
+            exit 1
+          fi
           grep -Fq 'cargo build --locked --release --package "${PACKAGE}" --bin "${BINARY}" --target "${TARGET}"' "${release_workflow}"
           grep -Fq 'cargo build --locked --release --package $env:PACKAGE --bin $env:BINARY --target $env:TARGET' "${release_workflow}"
+          grep -Fq 'script_runner_source="third_party/mitm_anixops/mitm_anixops/e2e/script_runtime/anixops_runner.js"' "${release_workflow}"
+          grep -Fq 'libexec/anixops-runner.js' "${release_workflow}"
           grep -Fq 'top_level_dir="networkcore-linux-${version}-${target}"' "${release_workflow}"
           grep -Fq 'archive_name="${top_level_dir}.tar.gz"' "${release_workflow}"
           grep -Fq 'manifest_name="${top_level_dir}.manifest.json"' "${release_workflow}"
@@ -1466,21 +1563,26 @@ jobs:
             rustup target add x86_64-pc-windows-gnu
           fi
 
+      - name: Setup Node script runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Format
         shell: bash
         run: cargo fmt --all -- --check
 
       - name: Lint
         shell: bash
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
       - name: Test
         shell: bash
-        run: cargo test --workspace --all-targets
+        run: cargo test --locked --workspace --all-targets
 
       - name: Build
         shell: bash
-        run: cargo build --workspace --all-targets
+        run: cargo build --locked --workspace --all-targets
 
   rust-security-audit:
     name: Rust dependency security audit
@@ -1503,9 +1605,9 @@ jobs:
         shell: bash
         run: cargo install cargo-audit
 
-      - name: Generate lockfile
+      - name: Verify checked-in lockfile
         shell: bash
-        run: cargo generate-lockfile
+        run: cargo metadata --locked --offline --no-deps --format-version=1 > /dev/null
 
       - name: Audit dependencies
         shell: bash

@@ -103,6 +103,8 @@ install -m 0644 "CHANGELOG.md" \
 | staging root/dir | 必须与 archive staging contract 完全一致，且在 copy 前保持干净 |
 | binary source | 必须来自同一 `package-linux` job 的 build output，不能来自 cache 或旧 run artifact |
 | binary destination | 必须为 `bin/networkcore-linux`，权限 `0755`，不是目录或 symlink 到 staging 外部 |
+| script runner source | 必须来自 pinned `third_party/mitm_anixops` checkout，不能来自 runner cache、远程下载或用户路径 |
+| script runner destination | 必须为 `libexec/anixops-runner.js`，权限 `0755`，不是目录或 symlink 到 staging 外部 |
 | INSTALL.md | 必须由 repo design 生成或复制，描述 manual-extract、uninstall 和 rollback 边界 |
 | LICENSE | 必须来自 license/NOTICE confirmed 字段指向的 repo 文件，权限 `0644` |
 | NOTICE | 仅在 confirmed source 存在时复制；not-required 时不得创建 placeholder |

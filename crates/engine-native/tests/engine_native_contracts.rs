@@ -14,7 +14,9 @@ use engine_native::{
     assess_socks5_outbound_connect_client_success_response_readiness,
     assess_socks5_outbound_connect_relay_readiness, attempt_socks5_outbound_tcp_connection,
     browser_capture_proof_token_from_connect_authority,
+    build_controlled_tls_termination_server_config, build_controlled_tls_upstream_client_config,
     build_socks5_outbound_connect_request_frame, decide_socks5_outbound_connect_response,
+    issue_controlled_tls_termination_leaf_certificate,
     native_socks5_connect_browser_capture_proof_token,
     observe_explicit_http_connect_tls_client_hello, plan_and_apply_https_request_rewrite_preview,
     plan_and_apply_https_response_rewrite_preview, plan_and_apply_plain_http_mitm,
@@ -22,16 +24,17 @@ use engine_native::{
     plan_explicit_http_connect_tls_mitm_foundation, plan_socks5_connect_http_mitm,
     plan_socks5_outbound_connect_client_success_response_write,
     plan_socks5_outbound_connect_data_relay, plan_socks5_outbound_tcp_connection,
-    read_explicit_http_proxy_request, read_socks5_command_header, read_socks5_connect_target,
-    read_socks5_greeting, read_socks5_outbound_connect_response, reject_unsupported_socks5_command,
-    reject_unwired_socks5_route_outbound, relay_socks5_outbound_connect_data,
-    select_socks5_auth_method, select_socks5_route_outbound_behavior,
-    serialize_explicit_http_proxy_request_for_upstream, serialize_plain_http_proxy_response,
-    write_http_connect_established_response, write_socks5_auth_method_response,
-    write_socks5_outbound_connect_client_success_response, write_socks5_outbound_connect_request,
-    write_unwired_socks5_connect_failure_response, BoundLoopbackTcpListenerHandle,
-    LoopbackListenerHandle, NativeExplicitHttpProxyRequest, NativeHttpMitmPluginHook,
-    NativeLoopbackTcpAcceptLoopHandle, NativeOutboundHandlerHandle, NativePlainHttpMessage,
+    read_explicit_http_proxy_request, read_https_connect_http_request, read_socks5_command_header,
+    read_socks5_connect_target, read_socks5_greeting, read_socks5_outbound_connect_response,
+    reject_unsupported_socks5_command, reject_unwired_socks5_route_outbound,
+    relay_socks5_outbound_connect_data, select_socks5_auth_method,
+    select_socks5_route_outbound_behavior, serialize_explicit_http_proxy_request_for_upstream,
+    serialize_plain_http_proxy_response, write_http_connect_established_response,
+    write_socks5_auth_method_response, write_socks5_outbound_connect_client_success_response,
+    write_socks5_outbound_connect_request, write_unwired_socks5_connect_failure_response,
+    BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeExplicitHttpProxyRequest,
+    NativeHttpMitmPluginHook, NativeLoopbackTcpAcceptLoopHandle, NativeNodeScriptExecutor,
+    NativeNodeScriptRuntimeConfig, NativeOutboundHandlerHandle, NativePlainHttpMessage,
     NativePlainHttpRewriteReport, NativeProxyEngineService, NativeProxyEngineStartReadiness,
     NativeRuntimeAssembly, NativeRuntimeAssemblyPlan, NativeSocks5Address,
     NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision, NativeSocks5CommandHeader,
@@ -79,9 +82,20 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_OBSERVED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_FOUNDATION_READY_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_LEAF_CERTIFICATE_DEFERRED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_LEAF_CERTIFICATE_FAILED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_LEAF_CERTIFICATE_ISSUED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SERVER_CONFIG_FAILED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SERVER_CONFIG_READY_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SESSION_DECRYPTION_READY_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SNI_AUTHORITY_MATCHED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SNI_AUTHORITY_MISMATCH_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_DEFERRED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_PLAN_READY_CODE,
-    ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE, ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_UPSTREAM_CONFIG_READY_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_DEFERRED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_EXECUTED_CODE, ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE,
+    ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE, ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
     ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE,
@@ -135,6 +149,14 @@ use engine_native::{
     ENGINE_NATIVE_START_RUNTIME_ASSEMBLY_READY_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
     ENGINE_NATIVE_START_SERVICE_RUNTIME_OWNER_MISSING_CODE,
 };
+use rcgen::{
+    BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, KeyUsagePurpose,
+};
+use rustls::{
+    pki_types::{CertificateDer, ServerName},
+    ClientConfig, ClientConnection, RootCertStore, ServerConnection,
+};
+use std::collections::BTreeMap;
 use std::io::{self, Cursor, Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::{mpsc, Arc};
@@ -1388,6 +1410,187 @@ fn plain_http_rewrite_application_applies_header_body_and_defers_script_dispatch
 }
 
 #[test]
+fn node_script_executor_runs_explicit_local_asset_with_persistent_store() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-node-script-runtime-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("script runtime test directory should be created");
+    let runner_path = format!(
+        "{}/../../third_party/mitm_anixops/mitm_anixops/e2e/script_runtime/anixops_runner.js",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let script_path = format!(
+        "{}/../../third_party/mitm_anixops/mitm_anixops/tests/fixtures/runner_replay_script.js",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let script_url = "https://scripts.networkcore.test/replay.js".to_string();
+    let mut script_assets = BTreeMap::new();
+    script_assets.insert(script_url.clone(), script_path);
+    let executor = NativeNodeScriptExecutor::new(NativeNodeScriptRuntimeConfig {
+        node_binary: "node".to_string(),
+        runner_path,
+        script_assets,
+        persistent_store_path: Some(root.join("store.json").display().to_string()),
+        max_timeout_ms: 5000,
+        max_body_bytes: 4096,
+    });
+    let request_dispatch = HttpMitmScriptDispatch {
+        kind: HttpMitmScriptKind::Request,
+        phase: HttpMitmPhase::Request,
+        requires_body: true,
+        timeout_ms: 1000,
+        max_size: 1024,
+        script_path: script_url.clone(),
+        tag: "runtime.request".to_string(),
+        argument: "Mode=networkcore".to_string(),
+    };
+    let request = NativePlainHttpMessage {
+        request_id: "node-runtime-request".to_string(),
+        url: "https://api.networkcore.test/v1".to_string(),
+        method: Some("POST".to_string()),
+        phase: HttpMitmPhase::Request,
+        status_code: None,
+        headers: vec![MetadataEntry {
+            key: "Content-Type".to_string(),
+            value: "application/json".to_string(),
+        }],
+        body: b"{}".to_vec(),
+    };
+
+    let request_execution = executor.execute(&request_dispatch, &request);
+
+    assert!(request_execution.executed);
+    assert!(request_execution.applied);
+    assert!(String::from_utf8(
+        request_execution
+            .body
+            .expect("request script should return a body mutation")
+    )
+    .expect("request script body should remain UTF-8")
+    .contains("requestRuntime"));
+    assert_diagnostic(
+        &request_execution.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_EXECUTED_CODE,
+    );
+
+    let response_dispatch = HttpMitmScriptDispatch {
+        kind: HttpMitmScriptKind::Response,
+        phase: HttpMitmPhase::Response,
+        requires_body: true,
+        timeout_ms: 1000,
+        max_size: 1024,
+        script_path: script_url,
+        tag: "runtime.response".to_string(),
+        argument: "Mode=networkcore".to_string(),
+    };
+    let response = NativePlainHttpMessage {
+        request_id: "node-runtime-response".to_string(),
+        url: "https://api.networkcore.test/v1".to_string(),
+        method: Some("POST".to_string()),
+        phase: HttpMitmPhase::Response,
+        status_code: Some(200),
+        headers: vec![MetadataEntry {
+            key: "Content-Type".to_string(),
+            value: "application/json".to_string(),
+        }],
+        body: b"{\"from\":\"upstream\"}".to_vec(),
+    };
+
+    let response_execution = executor.execute(&response_dispatch, &response);
+
+    assert!(response_execution.executed);
+    assert_eq!(response_execution.status_code, Some(202));
+    assert!(String::from_utf8(
+        response_execution
+            .body
+            .expect("response script should return a body mutation")
+    )
+    .expect("response script body should remain UTF-8")
+    .contains("responseRuntime"));
+
+    let unmapped = NativeNodeScriptExecutor::new(NativeNodeScriptRuntimeConfig {
+        node_binary: "node".to_string(),
+        runner_path: executor.config().runner_path.clone(),
+        script_assets: BTreeMap::new(),
+        persistent_store_path: None,
+        max_timeout_ms: 1000,
+        max_body_bytes: 1024,
+    })
+    .execute(&request_dispatch, &request);
+    assert!(!unmapped.executed);
+    assert_diagnostic(
+        &unmapped.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_DEFERRED_CODE,
+    );
+
+    std::fs::remove_dir_all(&root).expect("script runtime test directory should be removed");
+}
+
+#[test]
+fn native_http_mitm_hook_applies_locally_mapped_script_dispatch() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-node-script-hook-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("script hook test directory should be created");
+    let runner_path = format!(
+        "{}/../../third_party/mitm_anixops/mitm_anixops/e2e/script_runtime/anixops_runner.js",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let script_path = format!(
+        "{}/../../third_party/mitm_anixops/mitm_anixops/tests/fixtures/runner_replay_script.js",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let script_url = "https://scripts.networkcore.test/hook-replay.js".to_string();
+    let mut script_assets = BTreeMap::new();
+    script_assets.insert(script_url.clone(), script_path);
+    let hook = NativeHttpMitmPluginHook::new(
+        plugin_instance("networkcore.script"),
+        Arc::new(ScriptDispatchingMitmPluginService { script_url }),
+    )
+    .with_node_script_executor(NativeNodeScriptExecutor::new(
+        NativeNodeScriptRuntimeConfig {
+            node_binary: "node".to_string(),
+            runner_path,
+            script_assets,
+            persistent_store_path: Some(root.join("store.json").display().to_string()),
+            max_timeout_ms: 5000,
+            max_body_bytes: 4096,
+        },
+    ));
+    let message = NativePlainHttpMessage {
+        request_id: "node-runtime-hook-request".to_string(),
+        url: "https://api.networkcore.test/v1".to_string(),
+        method: Some("POST".to_string()),
+        phase: HttpMitmPhase::Request,
+        status_code: None,
+        headers: vec![MetadataEntry {
+            key: "Content-Type".to_string(),
+            value: "application/json".to_string(),
+        }],
+        body: b"{}".to_vec(),
+    };
+
+    let report = hook.plan_plain_http(&message);
+
+    assert!(report.applied);
+    assert!(report.script_dispatch_executed);
+    assert!(!report.script_dispatch_deferred);
+    assert!(String::from_utf8(report.body)
+        .expect("script hook body should remain UTF-8")
+        .contains("requestRuntime"));
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_EXECUTED_CODE,
+    );
+
+    std::fs::remove_dir_all(&root).expect("script hook test directory should be removed");
+}
+
+#[test]
 fn plain_http_rewrite_plan_applies_plugin_reject_to_terminal_response() {
     let plugin_instance = PluginInstance {
         manifest: PluginManifest {
@@ -1577,7 +1780,318 @@ fn explicit_http_connect_tls_termination_plan_keeps_rewrite_deferred() {
     assert!(!termination_plan.script_dispatch_ready);
     assert_diagnostic(
         &termination_plan.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SNI_AUTHORITY_MATCHED_CODE,
+    );
+    assert_diagnostic(
+        &termination_plan.diagnostics,
         ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_PLAN_READY_CODE,
+    );
+}
+
+#[test]
+fn controlled_tls_termination_issues_authority_bound_leaf_certificate() {
+    let mut request =
+        Cursor::new(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n".to_vec());
+
+    let parsed = read_explicit_http_proxy_request(&mut request)
+        .request
+        .expect("explicit HTTP CONNECT request should parse");
+    let foundation_report = plan_explicit_http_connect_tls_mitm_foundation(&parsed);
+    let observation_report = observe_explicit_http_connect_tls_client_hello(
+        &parsed,
+        &tls_client_hello_with_sni("example.com"),
+    );
+    let termination_plan = plan_explicit_http_connect_controlled_tls_termination(
+        &parsed,
+        &foundation_report,
+        &observation_report,
+        true,
+        true,
+    );
+    let (ca_certificate_pem, ca_private_key_pem, _) = test_ca_pem_material();
+
+    let issue_report = issue_controlled_tls_termination_leaf_certificate(
+        &termination_plan,
+        &ca_certificate_pem,
+        &ca_private_key_pem,
+    );
+
+    assert!(issue_report.issued);
+    assert_eq!(issue_report.authority, "example.com");
+    let material = issue_report
+        .material
+        .as_ref()
+        .expect("ready controlled TLS plan should issue leaf material");
+    assert_eq!(material.authority, "example.com");
+    assert!(material
+        .certificate_pem
+        .contains("-----BEGIN CERTIFICATE-----"));
+    assert!(material
+        .private_key_pem
+        .contains("-----BEGIN PRIVATE KEY-----"));
+    assert!(!format!("{material:?}").contains(&material.private_key_pem));
+    assert_diagnostic(
+        &issue_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_LEAF_CERTIFICATE_ISSUED_CODE,
+    );
+}
+
+#[test]
+fn controlled_tls_server_config_performs_authenticated_handshake_and_decrypts_request() {
+    let mut request =
+        Cursor::new(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n".to_vec());
+
+    let parsed = read_explicit_http_proxy_request(&mut request)
+        .request
+        .expect("explicit HTTP CONNECT request should parse");
+    let foundation_report = plan_explicit_http_connect_tls_mitm_foundation(&parsed);
+    let observation_report = observe_explicit_http_connect_tls_client_hello(
+        &parsed,
+        &tls_client_hello_with_sni("example.com"),
+    );
+    let termination_plan = plan_explicit_http_connect_controlled_tls_termination(
+        &parsed,
+        &foundation_report,
+        &observation_report,
+        true,
+        true,
+    );
+    let (ca_certificate_pem, ca_private_key_pem, ca_certificate_der) = test_ca_pem_material();
+    let issue_report = issue_controlled_tls_termination_leaf_certificate(
+        &termination_plan,
+        &ca_certificate_pem,
+        &ca_private_key_pem,
+    );
+    let leaf_material = issue_report
+        .material
+        .as_ref()
+        .expect("ready controlled TLS plan should issue leaf material");
+    let server_config_report = build_controlled_tls_termination_server_config(leaf_material);
+
+    assert!(server_config_report.server_config_ready);
+    assert_eq!(server_config_report.authority, "example.com");
+    assert_diagnostic(
+        &server_config_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SERVER_CONFIG_READY_CODE,
+    );
+
+    let mut roots = RootCertStore::empty();
+    roots
+        .add(CertificateDer::from(ca_certificate_der))
+        .expect("test CA should be a valid rustls trust anchor");
+    let client_config =
+        ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+            .expect("ring provider should support TLS 1.2 and TLS 1.3")
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+    let server_name = ServerName::try_from("example.com")
+        .expect("test server name should parse")
+        .to_owned();
+    let mut client = ClientConnection::new(Arc::new(client_config), server_name)
+        .expect("client connection should initialize");
+    let mut server = ServerConnection::new(
+        server_config_report
+            .server_config
+            .expect("ready server configuration should be available"),
+    )
+    .expect("server connection should initialize");
+
+    complete_tls_handshake(&mut client, &mut server);
+    let expected_request = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
+    client
+        .writer()
+        .write_all(expected_request)
+        .expect("client should accept plaintext request");
+    let mut encrypted_request = Vec::new();
+    client
+        .write_tls(&mut encrypted_request)
+        .expect("client should emit encrypted request bytes");
+    server
+        .read_tls(&mut Cursor::new(encrypted_request))
+        .expect("server should receive encrypted request bytes");
+    server
+        .process_new_packets()
+        .expect("server should decrypt the authenticated request");
+    let mut plaintext_request = vec![0; expected_request.len()];
+    server
+        .reader()
+        .read_exact(&mut plaintext_request)
+        .expect("server should expose decrypted request bytes");
+    assert_eq!(plaintext_request.as_slice(), expected_request);
+}
+
+#[test]
+fn controlled_tls_server_config_refuses_empty_leaf_material() {
+    let invalid_material = engine_native::NativeTlsLeafCertificateMaterial {
+        authority: "example.com".to_string(),
+        certificate_pem: String::new(),
+        private_key_pem: String::new(),
+        certificate_der: Vec::new(),
+        private_key_der: Vec::new(),
+    };
+
+    let server_config_report = build_controlled_tls_termination_server_config(&invalid_material);
+
+    assert!(!server_config_report.server_config_ready);
+    assert!(server_config_report.server_config.is_none());
+    assert_diagnostic(
+        &server_config_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SERVER_CONFIG_FAILED_CODE,
+    );
+}
+
+#[test]
+fn controlled_tls_connect_request_rebinds_origin_form_to_connect_authority() {
+    let mut connect_request =
+        Cursor::new(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n".to_vec());
+    let connect_request = read_explicit_http_proxy_request(&mut connect_request)
+        .request
+        .expect("explicit HTTP CONNECT request should parse");
+    let mut decrypted_request = Cursor::new(
+        b"GET /catalog?source=direct HTTP/1.1\r\nHost: example.com\r\nContent-Length: 0\r\n\r\n"
+            .to_vec(),
+    );
+
+    let request_report = read_https_connect_http_request(&mut decrypted_request, &connect_request);
+    let request = request_report
+        .request
+        .expect("decrypted origin-form request should bind to CONNECT authority");
+
+    assert_eq!(request.target_host, "example.com");
+    assert_eq!(request.target_port, 443);
+    assert_eq!(
+        request.target_url,
+        "https://example.com/catalog?source=direct"
+    );
+    assert_diagnostic(
+        &request_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SESSION_DECRYPTION_READY_CODE,
+    );
+}
+
+#[test]
+fn controlled_tls_connect_request_refuses_mismatched_decrypted_host_authority() {
+    let mut connect_request =
+        Cursor::new(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n".to_vec());
+    let connect_request = read_explicit_http_proxy_request(&mut connect_request)
+        .request
+        .expect("explicit HTTP CONNECT request should parse");
+    let mut decrypted_request =
+        Cursor::new(b"GET / HTTP/1.1\r\nHost: other.example\r\n\r\n".to_vec());
+
+    let request_report = read_https_connect_http_request(&mut decrypted_request, &connect_request);
+
+    assert!(request_report.request.is_none());
+}
+
+#[test]
+fn controlled_tls_upstream_client_config_uses_web_pki_roots() {
+    let client_config_report = build_controlled_tls_upstream_client_config();
+
+    assert!(client_config_report.client_config_ready);
+    assert!(client_config_report.client_config.is_some());
+    assert_diagnostic(
+        &client_config_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_UPSTREAM_CONFIG_READY_CODE,
+    );
+}
+
+#[test]
+fn controlled_tls_termination_leaf_certificate_refuses_invalid_or_mismatched_inputs() {
+    let mut request =
+        Cursor::new(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n".to_vec());
+
+    let parsed = read_explicit_http_proxy_request(&mut request)
+        .request
+        .expect("explicit HTTP CONNECT request should parse");
+    let foundation_report = plan_explicit_http_connect_tls_mitm_foundation(&parsed);
+    let matching_observation = observe_explicit_http_connect_tls_client_hello(
+        &parsed,
+        &tls_client_hello_with_sni("example.com"),
+    );
+    let ready_plan = plan_explicit_http_connect_controlled_tls_termination(
+        &parsed,
+        &foundation_report,
+        &matching_observation,
+        true,
+        true,
+    );
+
+    let invalid_ca_report = issue_controlled_tls_termination_leaf_certificate(
+        &ready_plan,
+        "not a certificate",
+        "not a private key",
+    );
+    assert!(!invalid_ca_report.issued);
+    assert!(invalid_ca_report.material.is_none());
+    assert_diagnostic(
+        &invalid_ca_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_LEAF_CERTIFICATE_FAILED_CODE,
+    );
+
+    let mismatched_observation = observe_explicit_http_connect_tls_client_hello(
+        &parsed,
+        &tls_client_hello_with_sni("other.example"),
+    );
+    let mismatched_plan = plan_explicit_http_connect_controlled_tls_termination(
+        &parsed,
+        &foundation_report,
+        &mismatched_observation,
+        true,
+        true,
+    );
+    let deferred_report = issue_controlled_tls_termination_leaf_certificate(
+        &mismatched_plan,
+        "not a certificate",
+        "not a private key",
+    );
+    assert!(!deferred_report.issued);
+    assert!(deferred_report.material.is_none());
+    assert_diagnostic(
+        &deferred_report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_LEAF_CERTIFICATE_DEFERRED_CODE,
+    );
+}
+
+#[test]
+fn explicit_http_connect_tls_termination_plan_defers_when_sni_disagrees_with_authority() {
+    let mut request =
+        Cursor::new(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n".to_vec());
+
+    let read_report = read_explicit_http_proxy_request(&mut request);
+    let parsed = read_report
+        .request
+        .expect("explicit HTTP CONNECT request should parse");
+    let foundation_report = plan_explicit_http_connect_tls_mitm_foundation(&parsed);
+    let observation_report = observe_explicit_http_connect_tls_client_hello(
+        &parsed,
+        &tls_client_hello_with_sni("other.example"),
+    );
+
+    let termination_plan = plan_explicit_http_connect_controlled_tls_termination(
+        &parsed,
+        &foundation_report,
+        &observation_report,
+        true,
+        true,
+    );
+
+    assert!(termination_plan.connect_tunnel_ready);
+    assert!(termination_plan.client_hello_observed);
+    assert_eq!(
+        termination_plan.sni_hostname.as_deref(),
+        Some("other.example")
+    );
+    assert!(!termination_plan.downstream_tls_termination_plan_ready);
+    assert!(!termination_plan.live_https_decryption_ready);
+    assert_diagnostic(
+        &termination_plan.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SNI_AUTHORITY_MISMATCH_CODE,
+    );
+    assert_diagnostic(
+        &termination_plan.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_DEFERRED_CODE,
     );
 }
 
@@ -1900,6 +2414,7 @@ fn plain_http_proxy_request_rewrite_serializes_origin_form_for_upstream() {
         headers: application.headers,
         body: application.body,
         script_dispatch_deferred: application.script_dispatch_deferred,
+        script_dispatch_executed: false,
         audits: Vec::new(),
         diagnostics: application.diagnostics,
     };
@@ -1954,6 +2469,7 @@ fn plain_http_proxy_response_header_and_body_rewrite_returns_modified_response()
         }],
         body: b"response-new".to_vec(),
         script_dispatch_deferred: false,
+        script_dispatch_executed: false,
         audits: Vec::new(),
         diagnostics: Vec::new(),
     };
@@ -2110,18 +2626,12 @@ fn runtime_accept_loop_contract_applies_mitm_connect_reject_before_outbound() {
 
 #[test]
 fn runtime_accept_loop_contract_applies_plain_http_reject_for_http_listener() {
-    let port = unused_loopback_port();
-    let listener = LoopbackListenerHandle::from_descriptor(&http_listener_with_bind(
+    let (port, bound_listener) = bind_http_loopback_listener_with_retry(
         "mitm-plain-http-reject-loopback",
-        "127.0.0.1",
-        port,
         ListenerRoute::DefaultAction(RouteAction::Proxy {
             node_id: "node-1".to_string(),
         }),
-    ))
-    .expect("HTTP loopback listener handle should be representable");
-    let bound_listener = BoundLoopbackTcpListenerHandle::bind(listener)
-        .expect("HTTP loopback listener should bind on an available port");
+    );
     let outbound = NativeOutboundHandlerHandle::from_node(&NodeDescriptor {
         endpoint: Endpoint {
             host: "127.0.0.1".to_string(),
@@ -2195,6 +2705,94 @@ fn runtime_accept_loop_contract_applies_plain_http_reject_for_http_listener() {
 }
 
 #[test]
+fn http_accept_loop_processes_a_second_connection_while_the_first_is_stalled() {
+    let (port, bound_listener) = bind_http_loopback_listener_with_retry(
+        "mitm-concurrent-http-loopback",
+        ListenerRoute::DefaultAction(RouteAction::Proxy {
+            node_id: "node-1".to_string(),
+        }),
+    );
+    let outbound = NativeOutboundHandlerHandle::from_node(&NodeDescriptor {
+        endpoint: Endpoint {
+            host: "127.0.0.1".to_string(),
+            port: unused_loopback_port(),
+        },
+        ..node()
+    })
+    .expect("socks outbound handler handle should be representable");
+    let http_mitm_hook = NativeHttpMitmPluginHook::new(
+        plugin_instance("networkcore.adblock"),
+        Arc::new(PlainHttpProxyRejectingMitmPluginService),
+    );
+    let accept_loop = NativeLoopbackTcpAcceptLoopHandle::start_with_http_mitm_hook(
+        bound_listener,
+        outbound,
+        Some(http_mitm_hook),
+    )
+    .expect("HTTP loopback accept loop should start with a MITM plugin hook");
+
+    let (stalled_started_tx, stalled_started_rx) = mpsc::channel();
+    let stalled_client = thread::spawn(move || {
+        let mut stream = TcpStream::connect(("127.0.0.1", port))
+            .expect("stalled client should connect to HTTP loopback listener");
+        stream
+            .set_nodelay(true)
+            .expect("stalled client should disable Nagle buffering");
+        stream
+            .write_all(b"GET x")
+            .expect("stalled client should begin an incomplete HTTP request");
+        stalled_started_tx
+            .send(())
+            .expect("stalled client start should be reported");
+        for _ in 0..100 {
+            stream
+                .write_all(b"x")
+                .expect("stalled client should keep the first request incomplete");
+            thread::sleep(Duration::from_millis(20));
+        }
+        let _ = stream.shutdown(Shutdown::Both);
+    });
+    stalled_started_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("stalled client should begin first connection");
+    wait_until_accept_count(&accept_loop, 1);
+
+    let mut second_stream = TcpStream::connect(("127.0.0.1", port))
+        .expect("second client should connect while the first request is stalled");
+    second_stream
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .expect("second client should support a bounded read timeout");
+    second_stream
+        .write_all(
+            b"GET http://pubads.g.doubleclick.net/pagead/id HTTP/1.1\r\nHost: pubads.g.doubleclick.net\r\n\r\n",
+        )
+        .expect("second client should send a rejectable HTTP request");
+    second_stream
+        .shutdown(Shutdown::Write)
+        .expect("second client should close its request write side");
+    let mut response = Vec::new();
+    second_stream
+        .read_to_end(&mut response)
+        .expect("second client should receive a response before the stalled request completes");
+    drop(second_stream);
+
+    stalled_client
+        .join()
+        .expect("stalled client worker should finish");
+    wait_until_accept_count(&accept_loop, 2);
+    let report = accept_loop.shutdown();
+
+    assert!(String::from_utf8(response)
+        .expect("second client response should be UTF-8")
+        .starts_with("HTTP/1.1 403 Forbidden\r\n"));
+    assert_eq!(report.accepted_connections, 2);
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
+    );
+}
+
+#[test]
 fn plain_http_proxy_request_header_and_body_rewrite_forwards_via_socks_outbound() {
     let outbound_listener =
         TcpListener::bind(("127.0.0.1", 0)).expect("test outbound listener should bind");
@@ -2247,18 +2845,12 @@ fn plain_http_proxy_request_header_and_body_rewrite_forwards_via_socks_outbound(
 
         panic!("test outbound listener did not receive a connection");
     });
-    let port = unused_loopback_port();
-    let listener = LoopbackListenerHandle::from_descriptor(&http_listener_with_bind(
+    let (port, bound_listener) = bind_http_loopback_listener_with_retry(
         "mitm-plain-http-rewrite-loopback",
-        "127.0.0.1",
-        port,
         ListenerRoute::DefaultAction(RouteAction::Proxy {
             node_id: "node-1".to_string(),
         }),
-    ))
-    .expect("HTTP loopback listener handle should be representable");
-    let bound_listener = BoundLoopbackTcpListenerHandle::bind(listener)
-        .expect("HTTP loopback listener should bind on an available port");
+    );
     let outbound = NativeOutboundHandlerHandle::from_node(&NodeDescriptor {
         endpoint: Endpoint {
             host: "127.0.0.1".to_string(),
@@ -2417,18 +3009,12 @@ fn plain_http_proxy_connect_method_establishes_tls_foundation_tunnel_via_socks_o
 
         panic!("test outbound listener did not receive a connection");
     });
-    let port = unused_loopback_port();
-    let listener = LoopbackListenerHandle::from_descriptor(&http_listener_with_bind(
+    let (port, bound_listener) = bind_http_loopback_listener_with_retry(
         "mitm-http-connect-tls-foundation-loopback",
-        "127.0.0.1",
-        port,
         ListenerRoute::DefaultAction(RouteAction::Proxy {
             node_id: "node-1".to_string(),
         }),
-    ))
-    .expect("HTTP loopback listener handle should be representable");
-    let bound_listener = BoundLoopbackTcpListenerHandle::bind(listener)
-        .expect("HTTP loopback listener should bind on an available port");
+    );
     let outbound = NativeOutboundHandlerHandle::from_node(&NodeDescriptor {
         endpoint: Endpoint {
             host: "127.0.0.1".to_string(),
@@ -3980,6 +4566,67 @@ fn assert_no_diagnostic(diagnostics: &[Diagnostic], code: &str) {
     );
 }
 
+fn complete_tls_handshake(client: &mut ClientConnection, server: &mut ServerConnection) {
+    for _ in 0..16 {
+        let mut client_to_server = Vec::new();
+        client
+            .write_tls(&mut client_to_server)
+            .expect("client should emit TLS handshake bytes");
+        if !client_to_server.is_empty() {
+            server
+                .read_tls(&mut Cursor::new(client_to_server))
+                .expect("server should receive TLS handshake bytes");
+            server
+                .process_new_packets()
+                .expect("server should process TLS handshake bytes");
+        }
+
+        let mut server_to_client = Vec::new();
+        server
+            .write_tls(&mut server_to_client)
+            .expect("server should emit TLS handshake bytes");
+        if !server_to_client.is_empty() {
+            client
+                .read_tls(&mut Cursor::new(server_to_client))
+                .expect("client should receive TLS handshake bytes");
+            client
+                .process_new_packets()
+                .expect("client should process TLS handshake bytes");
+        }
+
+        if !client.is_handshaking() && !server.is_handshaking() {
+            return;
+        }
+    }
+
+    panic!("client/server TLS handshake did not complete within bounded exchanges");
+}
+
+fn test_ca_pem_material() -> (String, String, Vec<u8>) {
+    let mut distinguished_name = DistinguishedName::new();
+    distinguished_name.push(DnType::CommonName, "NetworkCore engine-native test CA");
+    distinguished_name.push(DnType::OrganizationName, "AnixOps NetworkCore");
+
+    let mut params = CertificateParams::default();
+    params.distinguished_name = distinguished_name;
+    params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    params.key_usages = vec![
+        KeyUsagePurpose::KeyCertSign,
+        KeyUsagePurpose::CrlSign,
+        KeyUsagePurpose::DigitalSignature,
+    ];
+
+    let key_pair = KeyPair::generate().expect("test CA private key should generate");
+    let certificate = params
+        .self_signed(&key_pair)
+        .expect("test CA certificate should self-sign");
+    (
+        certificate.pem(),
+        key_pair.serialize_pem(),
+        certificate.der().as_ref().to_vec(),
+    )
+}
+
 fn tls_client_hello_with_sni(hostname: &str) -> Vec<u8> {
     let hostname = hostname.as_bytes();
     let mut server_name = Vec::new();
@@ -4309,6 +4956,70 @@ impl MitmPluginService for PlainHttpProxyRewriteMitmPluginService {
     }
 }
 
+struct ScriptDispatchingMitmPluginService {
+    script_url: String,
+}
+
+impl MitmPluginService for ScriptDispatchingMitmPluginService {
+    fn validate_manifest(&self, _plugin_manifest: &PluginManifest) -> Vec<Diagnostic> {
+        Vec::new()
+    }
+
+    fn load(
+        &self,
+        plugin_package: &PluginPackage,
+        _granted_permissions: &GrantedPermissions,
+    ) -> DomainResult<PluginInstance> {
+        Ok(PluginInstance {
+            manifest: plugin_package.manifest.clone(),
+            loaded_source: None,
+        })
+    }
+
+    fn handle_http_event(
+        &self,
+        _plugin_instance: &PluginInstance,
+        _http_event: &HttpEvent,
+    ) -> DomainResult<PluginResult> {
+        Ok(PluginResult {
+            audits: Vec::new(),
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn handle_http_mitm_event(
+        &self,
+        plugin_instance: &PluginInstance,
+        http_event: &HttpMitmEvent,
+    ) -> DomainResult<HttpMitmOutcome> {
+        assert_eq!(plugin_instance.manifest.id, "networkcore.script");
+        assert_eq!(http_event.phase, HttpMitmPhase::Request);
+        assert_eq!(http_event.method.as_deref(), Some("POST"));
+
+        Ok(HttpMitmOutcome {
+            action: HttpMitmAction::Continue,
+            header_mutations: Vec::new(),
+            body_mutation: None,
+            script_dispatch: Some(HttpMitmScriptDispatch {
+                kind: HttpMitmScriptKind::Request,
+                phase: HttpMitmPhase::Request,
+                requires_body: true,
+                timeout_ms: 1000,
+                max_size: 1024,
+                script_path: self.script_url.clone(),
+                tag: "runtime.hook".to_string(),
+                argument: "Mode=hook".to_string(),
+            }),
+            audits: Vec::new(),
+            diagnostics: Vec::new(),
+        })
+    }
+
+    fn audit(&self, plugin_result: &PluginResult) -> Vec<AuditEvent> {
+        plugin_result.audits.clone()
+    }
+}
+
 struct RejectingMitmPluginService;
 
 impl MitmPluginService for RejectingMitmPluginService {
@@ -4435,4 +5146,29 @@ fn unused_loopback_port() -> u16 {
         .port();
     drop(listener);
     port
+}
+
+fn bind_http_loopback_listener_with_retry(
+    listener_id: &str,
+    route: ListenerRoute,
+) -> (u16, BoundLoopbackTcpListenerHandle) {
+    for _ in 0..16 {
+        let port = unused_loopback_port();
+        let listener = LoopbackListenerHandle::from_descriptor(&http_listener_with_bind(
+            listener_id,
+            "127.0.0.1",
+            port,
+            route.clone(),
+        ))
+        .expect("HTTP loopback listener handle should be representable");
+        match BoundLoopbackTcpListenerHandle::bind(listener) {
+            Ok(bound_listener) => return (port, bound_listener),
+            Err(error) if error.code == ENGINE_NATIVE_START_BIND_FAILED_CODE => continue,
+            Err(error) => panic!(
+                "HTTP loopback listener should be bindable for test {listener_id}: {error:?}"
+            ),
+        }
+    }
+
+    panic!("HTTP loopback listener test could not acquire an available port");
 }

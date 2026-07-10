@@ -7,20 +7,31 @@
 use control_domain::{
     AuditEvent, Diagnostic, DiagnosticSeverity, DomainError, DomainResult, Endpoint,
     HttpHeaderMutation, HttpHeaderMutationOperation, HttpMitmAction, HttpMitmEvent,
-    HttpMitmOutcome, HttpMitmPhase, ListenerDescriptor, ListenerKind, ListenerNetwork,
-    ListenerRoute, MetadataEntry, MitmPluginService, NodeDescriptor, PluginInstance, Protocol,
-    ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineEventKind,
-    ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RouteAction,
-    RuleSet,
+    HttpMitmOutcome, HttpMitmPhase, HttpMitmScriptDispatch, HttpMitmScriptKind, ListenerDescriptor,
+    ListenerKind, ListenerNetwork, ListenerRoute, MetadataEntry, MitmPluginService, NodeDescriptor,
+    PluginInstance, Protocol, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
+    ProxyEngineEventKind, ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService,
+    ProxyEngineStatus, RouteAction, RuleSet,
 };
-use std::collections::BTreeSet;
+use rcgen::{
+    CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, Issuer, KeyPair,
+};
+use rustls::{
+    pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName},
+    ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection, StreamOwned,
+};
+use serde::Deserialize;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{IpAddr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub const DEFAULT_NATIVE_ENGINE_ID: &str = "native";
 
@@ -223,10 +234,40 @@ pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_OBSERVED_CODE: &str 
     "engine.native.runtime.http_proxy_tls_client_hello_observed";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_DEFERRED_CODE: &str =
     "engine.native.runtime.http_proxy_tls_client_hello_deferred";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SNI_AUTHORITY_MATCHED_CODE: &str =
+    "engine.native.runtime.http_proxy_tls_sni_authority_matched";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SNI_AUTHORITY_MISMATCH_CODE: &str =
+    "engine.native.runtime.http_proxy_tls_sni_authority_mismatch";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_PLAN_READY_CODE: &str =
     "engine.native.runtime.http_proxy_tls_termination_plan_ready";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_DEFERRED_CODE: &str =
     "engine.native.runtime.http_proxy_tls_termination_deferred";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_LEAF_CERTIFICATE_ISSUED_CODE: &str =
+    "engine.native.runtime.http_proxy_tls_leaf_certificate_issued";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_LEAF_CERTIFICATE_DEFERRED_CODE: &str =
+    "engine.native.runtime.http_proxy_tls_leaf_certificate_deferred";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_LEAF_CERTIFICATE_FAILED_CODE: &str =
+    "engine.native.runtime.http_proxy_tls_leaf_certificate_failed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SERVER_CONFIG_READY_CODE: &str =
+    "engine.native.runtime.http_proxy_tls_server_config_ready";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SERVER_CONFIG_FAILED_CODE: &str =
+    "engine.native.runtime.http_proxy_tls_server_config_failed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_UPSTREAM_CONFIG_READY_CODE: &str =
+    "engine.native.runtime.http_proxy_tls_upstream_config_ready";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_UPSTREAM_CONFIG_FAILED_CODE: &str =
+    "engine.native.runtime.http_proxy_tls_upstream_config_failed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SESSION_DECRYPTION_READY_CODE: &str =
+    "engine.native.runtime.http_proxy_tls_session_decryption_ready";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SESSION_DECRYPTION_FAILED_CODE: &str =
+    "engine.native.runtime.http_proxy_tls_session_decryption_failed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_EXECUTED_CODE: &str =
+    "engine.native.runtime.http_script_executed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_DEFERRED_CODE: &str =
+    "engine.native.runtime.http_script_deferred";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_FAILED_CODE: &str =
+    "engine.native.runtime.http_script_failed";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_URL_MUTATION_BLOCKED_CODE: &str =
+    "engine.native.runtime.http_script_url_mutation_blocked";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_READY_CODE: &str =
     "engine.native.runtime.http_proxy_https_request_rewrite_preview_ready";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_DEFERRED_CODE: &str =
@@ -276,13 +317,59 @@ const SOCKS5_CONNECT_FAILURE_RESPONSE: [u8; 10] = [
     0,
     0,
 ];
-const ACCEPTED_CONNECTION_READ_TIMEOUT_MS: u64 = 100;
+const ACCEPTED_CONNECTION_READ_TIMEOUT_MS: u64 = 1000;
 const OUTBOUND_CONNECTION_ATTEMPT_TIMEOUT_MS: u64 = 100;
 const OUTBOUND_CONNECT_REQUEST_WRITE_TIMEOUT_MS: u64 = 100;
 const OUTBOUND_CONNECT_RESPONSE_READ_TIMEOUT_MS: u64 = 100;
-const TLS_CLIENT_HELLO_PEEK_MAX_BYTES: usize = 4096;
+const TLS_CLIENT_HELLO_PEEK_MAX_BYTES: usize = 16 * 1024 + 5;
+const TLS_CLIENT_HELLO_OBSERVATION_TIMEOUT_MS: u64 = 1000;
+const TLS_CLIENT_HELLO_OBSERVATION_POLL_MS: u64 = 5;
+const CONTROLLED_TLS_SESSION_TIMEOUT_MS: u64 = 15_000;
+const CONTROLLED_TLS_SOCKET_READ_TIMEOUT_MS: u64 = 1000;
+const MAX_CONCURRENT_ACCEPTED_CONNECTIONS: usize = 64;
 const HTTP_PROXY_MAX_HEADER_BYTES: usize = 16 * 1024;
 const HTTP_PROXY_MAX_BODY_BYTES: usize = 64 * 1024;
+const SCRIPT_RUNTIME_DEFAULT_TIMEOUT_MS: usize = 5000;
+const SCRIPT_RUNTIME_HARD_MAX_TIMEOUT_MS: usize = 30_000;
+static SCRIPT_RUNTIME_TEMP_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
+
+struct NativeBoundedRead<'a, R> {
+    reader: &'a mut R,
+    deadline: Instant,
+}
+
+impl<'a, R> NativeBoundedRead<'a, R> {
+    fn new(reader: &'a mut R, timeout: Duration) -> Self {
+        Self {
+            reader,
+            deadline: Instant::now() + timeout,
+        }
+    }
+}
+
+impl<R> Read for NativeBoundedRead<'_, R>
+where
+    R: Read,
+{
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        loop {
+            if Instant::now() >= self.deadline {
+                return Err(std::io::Error::new(
+                    ErrorKind::TimedOut,
+                    "native bounded HTTP read timed out",
+                ));
+            }
+            match self.reader.read(buffer) {
+                Err(error)
+                    if matches!(error.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock) =>
+                {
+                    continue
+                }
+                result => return result,
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoopbackListenerHandle {
@@ -461,13 +548,32 @@ impl NativeLoopbackTcpAcceptLoopHandle {
         listener: BoundLoopbackTcpListenerHandle,
         outbound_handler: NativeOutboundHandlerHandle,
     ) -> DomainResult<Self> {
-        Self::start_with_http_mitm_hook(listener, outbound_handler, None)
+        Self::start_with_http_mitm_hook_and_tls_mitm_ca_material(
+            listener,
+            outbound_handler,
+            None,
+            None,
+        )
     }
 
     pub fn start_with_http_mitm_hook(
         listener: BoundLoopbackTcpListenerHandle,
         outbound_handler: NativeOutboundHandlerHandle,
         http_mitm_hook: Option<NativeHttpMitmPluginHook>,
+    ) -> DomainResult<Self> {
+        Self::start_with_http_mitm_hook_and_tls_mitm_ca_material(
+            listener,
+            outbound_handler,
+            http_mitm_hook,
+            None,
+        )
+    }
+
+    pub fn start_with_http_mitm_hook_and_tls_mitm_ca_material(
+        listener: BoundLoopbackTcpListenerHandle,
+        outbound_handler: NativeOutboundHandlerHandle,
+        http_mitm_hook: Option<NativeHttpMitmPluginHook>,
+        tls_mitm_ca_material: Option<NativeTlsMitmCaMaterial>,
     ) -> DomainResult<Self> {
         let BoundLoopbackTcpListenerHandle {
             listener,
@@ -511,6 +617,7 @@ impl NativeLoopbackTcpAcceptLoopHandle {
                     outbound_handler_id: worker_outbound_handler_id,
                     outbound_handler,
                     http_mitm_hook,
+                    tls_mitm_ca_material,
                     local_host: worker_local_host,
                     local_port,
                 },
@@ -624,10 +731,272 @@ pub struct NativeLoopbackTcpAcceptLoopShutdownReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeNodeScriptRuntimeConfig {
+    pub node_binary: String,
+    pub runner_path: String,
+    pub script_assets: BTreeMap<String, String>,
+    pub persistent_store_path: Option<String>,
+    pub max_timeout_ms: usize,
+    pub max_body_bytes: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeHttpScriptExecutionReport {
+    pub executed: bool,
+    pub applied: bool,
+    pub url: Option<String>,
+    pub headers: Option<Vec<MetadataEntry>>,
+    pub body: Option<Vec<u8>>,
+    pub status_code: Option<u16>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NativeNodeScriptExecutor {
+    config: NativeNodeScriptRuntimeConfig,
+}
+
+impl NativeNodeScriptExecutor {
+    pub fn new(config: NativeNodeScriptRuntimeConfig) -> Self {
+        Self { config }
+    }
+
+    pub fn config(&self) -> &NativeNodeScriptRuntimeConfig {
+        &self.config
+    }
+
+    pub fn execute(
+        &self,
+        dispatch: &HttpMitmScriptDispatch,
+        message: &NativePlainHttpMessage,
+    ) -> NativeHttpScriptExecutionReport {
+        if !script_dispatch_matches_message(dispatch, message) {
+            return script_execution_deferred(
+                "native HTTP script dispatch phase does not match the intercepted message",
+            );
+        }
+        if dispatch.max_size > 0 && message.body.len() > dispatch.max_size {
+            return script_execution_deferred(
+                "native HTTP script dispatch body exceeds the rule max-size limit",
+            );
+        }
+        if self.config.max_body_bytes > 0 && message.body.len() > self.config.max_body_bytes {
+            return script_execution_deferred(
+                "native HTTP script dispatch body exceeds the runtime max-size limit",
+            );
+        }
+        if std::str::from_utf8(&message.body).is_err() {
+            return script_execution_deferred(
+                "native HTTP script dispatch requires a UTF-8 buffered body",
+            );
+        }
+        let Some(script_asset_path) = self.config.script_assets.get(&dispatch.script_path) else {
+            return script_execution_deferred(
+                "native HTTP script dispatch has no explicitly configured local script asset",
+            );
+        };
+        if self.config.node_binary.trim().is_empty()
+            || self.config.runner_path.trim().is_empty()
+            || script_asset_path.trim().is_empty()
+        {
+            return script_execution_deferred(
+                "native HTTP script runtime requires explicit node, runner, and local asset paths",
+            );
+        }
+        if !std::path::Path::new(&self.config.runner_path).is_file()
+            || !std::path::Path::new(script_asset_path).is_file()
+        {
+            return script_execution_deferred(
+                "native HTTP script runtime runner or mapped local asset is unavailable",
+            );
+        }
+
+        let body_path = match write_script_runtime_body(&message.body) {
+            Ok(body_path) => body_path,
+            Err(()) => {
+                return script_execution_failed(
+                    "native HTTP script runtime could not securely stage a buffered body",
+                )
+            }
+        };
+        let execution = self.execute_staged(dispatch, message, script_asset_path, &body_path);
+        let _ = std::fs::remove_file(&body_path);
+        execution
+    }
+
+    fn execute_staged(
+        &self,
+        dispatch: &HttpMitmScriptDispatch,
+        message: &NativePlainHttpMessage,
+        script_asset_path: &str,
+        body_path: &std::path::Path,
+    ) -> NativeHttpScriptExecutionReport {
+        let request_headers = match serde_json::to_string(&script_headers_to_map(&message.headers))
+        {
+            Ok(headers) => headers,
+            Err(_) => {
+                return script_execution_failed(
+                    "native HTTP script runtime could not encode request headers",
+                )
+            }
+        };
+        let timeout_ms = bounded_script_timeout(dispatch.timeout_ms, self.config.max_timeout_ms);
+        let execution_timeout = Duration::from_millis(timeout_ms as u64);
+        let mut command = Command::new(&self.config.node_binary);
+        command
+            .arg(&self.config.runner_path)
+            .arg("--script")
+            .arg(script_asset_path)
+            .arg("--url")
+            .arg(&message.url)
+            .arg("--argument")
+            .arg(&dispatch.argument)
+            .arg("--body")
+            .arg(body_path)
+            .arg("--phase")
+            .arg(script_phase_name(message.phase))
+            .arg("--method")
+            .arg(message.method.as_deref().unwrap_or("GET"))
+            .arg("--timeoutMs")
+            .arg(timeout_ms.to_string())
+            .arg("--requestHeaders")
+            .arg(request_headers)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        if let HttpMitmPhase::Response = message.phase {
+            let response_headers =
+                match serde_json::to_string(&script_headers_to_map(&message.headers)) {
+                    Ok(headers) => headers,
+                    Err(_) => {
+                        return script_execution_failed(
+                            "native HTTP script runtime could not encode response headers",
+                        )
+                    }
+                };
+            command
+                .arg("--status")
+                .arg(message.status_code.unwrap_or(200).to_string())
+                .arg("--responseHeaders")
+                .arg(response_headers);
+        }
+        if let Some(store_path) = self.config.persistent_store_path.as_deref() {
+            command.arg("--store").arg(store_path);
+        }
+
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(_) => {
+                return script_execution_failed(
+                    "native HTTP script runtime could not start the configured node runner",
+                )
+            }
+        };
+        let started_at = Instant::now();
+        let output = loop {
+            match child.try_wait() {
+                Ok(Some(_)) => match child.wait_with_output() {
+                    Ok(output) => break output,
+                    Err(_) => {
+                        return script_execution_failed(
+                            "native HTTP script runtime could not collect runner output",
+                        )
+                    }
+                },
+                Ok(None) if started_at.elapsed() >= execution_timeout => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return script_execution_failed("native HTTP script runtime timed out");
+                }
+                Ok(None) => thread::sleep(Duration::from_millis(5)),
+                Err(_) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return script_execution_failed(
+                        "native HTTP script runtime could not monitor the runner process",
+                    );
+                }
+            }
+        };
+        if !output.status.success() {
+            return script_execution_failed(
+                "native HTTP script runtime runner exited unsuccessfully",
+            );
+        }
+        let output = match String::from_utf8(output.stdout) {
+            Ok(output) => output,
+            Err(_) => {
+                return script_execution_failed(
+                    "native HTTP script runtime returned non-UTF-8 output",
+                )
+            }
+        };
+        let result = match serde_json::from_str::<NativeNodeScriptDone>(&output) {
+            Ok(result) => result,
+            Err(_) => {
+                return script_execution_failed("native HTTP script runtime returned invalid JSON")
+            }
+        };
+        let headers = match result.headers {
+            Some(headers) => match script_headers_from_map(headers) {
+                Some(headers) => Some(headers),
+                None => {
+                    return script_execution_failed(
+                        "native HTTP script runtime returned invalid headers",
+                    )
+                }
+            },
+            None => None,
+        };
+        let status_code = match result.status {
+            Some(status_code)
+                if message.phase == HttpMitmPhase::Response
+                    && (100..=599).contains(&status_code) =>
+            {
+                Some(status_code)
+            }
+            Some(_) => {
+                return script_execution_failed(
+                    "native HTTP script runtime returned an unsupported status mutation",
+                )
+            }
+            None => None,
+        };
+        let body = result.body.map(String::into_bytes);
+        let applied =
+            result.url.is_some() || headers.is_some() || body.is_some() || status_code.is_some();
+
+        NativeHttpScriptExecutionReport {
+            executed: true,
+            applied,
+            url: result.url,
+            headers,
+            body,
+            status_code,
+            diagnostics: vec![engine_diagnostic(
+                DiagnosticSeverity::Info,
+                ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_EXECUTED_CODE,
+                "native HTTP script runtime completed a locally mapped script dispatch",
+                SOURCE_ENGINE_NATIVE_MITM,
+            )],
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct NativeNodeScriptDone {
+    url: Option<String>,
+    headers: Option<BTreeMap<String, String>>,
+    body: Option<String>,
+    status: Option<u16>,
+}
+
 #[derive(Clone)]
 pub struct NativeHttpMitmPluginHook {
     plugin_instance: PluginInstance,
     plugin_service: Arc<dyn MitmPluginService + Send + Sync>,
+    script_executor: Option<NativeNodeScriptExecutor>,
 }
 
 impl NativeHttpMitmPluginHook {
@@ -638,7 +1007,17 @@ impl NativeHttpMitmPluginHook {
         Self {
             plugin_instance,
             plugin_service,
+            script_executor: None,
         }
+    }
+
+    pub fn with_node_script_executor(mut self, executor: NativeNodeScriptExecutor) -> Self {
+        self.script_executor = Some(executor);
+        self
+    }
+
+    pub fn script_executor_enabled(&self) -> bool {
+        self.script_executor.is_some()
     }
 
     pub fn plugin_instance(&self) -> &PluginInstance {
@@ -662,7 +1041,19 @@ impl NativeHttpMitmPluginHook {
         &self,
         message: &NativePlainHttpMessage,
     ) -> NativePlainHttpRewriteReport {
-        plan_and_apply_plain_http_mitm(message, &self.plugin_instance, self.plugin_service.as_ref())
+        let mut report = plan_and_apply_plain_http_mitm(
+            message,
+            &self.plugin_instance,
+            self.plugin_service.as_ref(),
+        );
+        if let Some(script_executor) = self.script_executor.as_ref() {
+            apply_node_script_dispatch_to_plain_http_rewrite_report(
+                &mut report,
+                message,
+                script_executor,
+            );
+        }
+        report
     }
 }
 
@@ -672,7 +1063,258 @@ impl fmt::Debug for NativeHttpMitmPluginHook {
             .debug_struct("NativeHttpMitmPluginHook")
             .field("plugin_id", &self.plugin_instance.manifest.id)
             .field("plugin_version", &self.plugin_instance.manifest.version)
+            .field(
+                "script_executor",
+                &self.script_executor.as_ref().map(|_| "[configured]"),
+            )
             .finish_non_exhaustive()
+    }
+}
+
+fn apply_node_script_dispatch_to_plain_http_rewrite_report(
+    report: &mut NativePlainHttpRewriteReport,
+    original_message: &NativePlainHttpMessage,
+    script_executor: &NativeNodeScriptExecutor,
+) {
+    let Some(dispatch) = report
+        .outcome
+        .as_ref()
+        .and_then(|outcome| outcome.script_dispatch.as_ref())
+    else {
+        return;
+    };
+    if report.terminal_action.is_some() {
+        return;
+    }
+
+    let script_message = NativePlainHttpMessage {
+        request_id: original_message.request_id.clone(),
+        url: report.url.clone(),
+        method: original_message.method.clone(),
+        phase: original_message.phase,
+        status_code: report.final_status_code,
+        headers: report.headers.clone(),
+        body: report.body.clone(),
+    };
+    let execution = script_executor.execute(dispatch, &script_message);
+    report.diagnostics.extend(execution.diagnostics.clone());
+    if !execution.executed {
+        return;
+    }
+
+    report.script_dispatch_executed = true;
+    report.script_dispatch_deferred = false;
+    if let Some(url) = execution.url {
+        if script_url_mutation_preserves_authority(&report.url, &url) {
+            report.url = url;
+            report.applied = true;
+        } else {
+            report.diagnostics.push(engine_diagnostic(
+                DiagnosticSeverity::Warning,
+                ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_URL_MUTATION_BLOCKED_CODE,
+                "native HTTP script runtime ignored a cross-authority or scheme-changing URL mutation",
+                SOURCE_ENGINE_NATIVE_MITM,
+            ));
+        }
+    }
+    if let Some(headers) = execution.headers {
+        report.headers = headers;
+        report.applied = true;
+    }
+    if let Some(body) = execution.body {
+        report.body = body;
+        report.applied = true;
+    }
+    if let Some(status_code) = execution.status_code {
+        report.final_status_code = Some(status_code);
+        report.applied = true;
+    }
+}
+
+fn script_dispatch_matches_message(
+    dispatch: &HttpMitmScriptDispatch,
+    message: &NativePlainHttpMessage,
+) -> bool {
+    matches!(
+        (dispatch.kind, dispatch.phase, message.phase),
+        (
+            HttpMitmScriptKind::Request,
+            HttpMitmPhase::Request,
+            HttpMitmPhase::Request
+        ) | (
+            HttpMitmScriptKind::Response,
+            HttpMitmPhase::Response,
+            HttpMitmPhase::Response
+        )
+    )
+}
+
+fn script_execution_deferred(message: &'static str) -> NativeHttpScriptExecutionReport {
+    NativeHttpScriptExecutionReport {
+        executed: false,
+        applied: false,
+        url: None,
+        headers: None,
+        body: None,
+        status_code: None,
+        diagnostics: vec![engine_diagnostic(
+            DiagnosticSeverity::Warning,
+            ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_DEFERRED_CODE,
+            message,
+            SOURCE_ENGINE_NATIVE_MITM,
+        )],
+    }
+}
+
+fn script_execution_failed(message: &'static str) -> NativeHttpScriptExecutionReport {
+    NativeHttpScriptExecutionReport {
+        executed: false,
+        applied: false,
+        url: None,
+        headers: None,
+        body: None,
+        status_code: None,
+        diagnostics: vec![engine_diagnostic(
+            DiagnosticSeverity::Warning,
+            ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_FAILED_CODE,
+            message,
+            SOURCE_ENGINE_NATIVE_MITM,
+        )],
+    }
+}
+
+fn script_headers_to_map(headers: &[MetadataEntry]) -> BTreeMap<String, String> {
+    let mut values = BTreeMap::new();
+    for header in headers {
+        values.insert(header.key.clone(), header.value.clone());
+    }
+    values
+}
+
+fn script_headers_from_map(headers: BTreeMap<String, String>) -> Option<Vec<MetadataEntry>> {
+    let mut values = Vec::with_capacity(headers.len());
+    for (key, value) in headers {
+        if key.trim().is_empty()
+            || key.contains('\r')
+            || key.contains('\n')
+            || value.contains('\r')
+            || value.contains('\n')
+        {
+            return None;
+        }
+        values.push(MetadataEntry { key, value });
+    }
+    Some(values)
+}
+
+fn script_phase_name(phase: HttpMitmPhase) -> &'static str {
+    match phase {
+        HttpMitmPhase::Request => "request",
+        HttpMitmPhase::Response => "response",
+    }
+}
+
+fn bounded_script_timeout(rule_timeout_ms: usize, runtime_max_timeout_ms: usize) -> usize {
+    let requested = if rule_timeout_ms == 0 {
+        SCRIPT_RUNTIME_DEFAULT_TIMEOUT_MS
+    } else {
+        rule_timeout_ms
+    };
+    let runtime_max_timeout_ms = if runtime_max_timeout_ms == 0 {
+        SCRIPT_RUNTIME_HARD_MAX_TIMEOUT_MS
+    } else {
+        runtime_max_timeout_ms.min(SCRIPT_RUNTIME_HARD_MAX_TIMEOUT_MS)
+    };
+    requested.min(runtime_max_timeout_ms).max(1)
+}
+
+fn write_script_runtime_body(body: &[u8]) -> Result<std::path::PathBuf, ()> {
+    for _ in 0..16 {
+        let sequence = SCRIPT_RUNTIME_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "networkcore-script-body-{}-{sequence}.tmp",
+            std::process::id()
+        ));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        let file = options.open(&path);
+        let Ok(mut file) = file else {
+            continue;
+        };
+        if file.write_all(body).is_ok() && file.flush().is_ok() {
+            return Ok(path);
+        }
+        let _ = std::fs::remove_file(&path);
+        return Err(());
+    }
+    Err(())
+}
+
+fn script_url_mutation_preserves_authority(current_url: &str, updated_url: &str) -> bool {
+    let Some((current_scheme, current_target)) = parse_script_absolute_url(current_url) else {
+        return false;
+    };
+    let Some((updated_scheme, updated_target)) = parse_script_absolute_url(updated_url) else {
+        return false;
+    };
+    current_scheme == updated_scheme
+        && current_target
+            .target_host
+            .eq_ignore_ascii_case(&updated_target.target_host)
+        && current_target.target_port == updated_target.target_port
+}
+
+fn parse_script_absolute_url(url: &str) -> Option<(&'static str, ParsedExplicitHttpProxyTarget)> {
+    if let Some(rest) = url.strip_prefix("https://") {
+        return parse_absolute_http_proxy_target("https", rest, 443)
+            .map(|target| ("https", target));
+    }
+    if let Some(rest) = url.strip_prefix("http://") {
+        return parse_absolute_http_proxy_target("http", rest, 80).map(|target| ("http", target));
+    }
+    None
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct NativeTlsMitmCaMaterial {
+    certificate_pem: String,
+    private_key_pem: String,
+}
+
+impl NativeTlsMitmCaMaterial {
+    pub fn new(certificate_pem: impl Into<String>, private_key_pem: impl Into<String>) -> Self {
+        Self {
+            certificate_pem: certificate_pem.into(),
+            private_key_pem: private_key_pem.into(),
+        }
+    }
+
+    fn certificate_pem(&self) -> &str {
+        &self.certificate_pem
+    }
+
+    fn private_key_pem(&self) -> &str {
+        &self.private_key_pem
+    }
+
+    fn certificate_pem_ready(&self) -> bool {
+        !self.certificate_pem.trim().is_empty()
+    }
+
+    fn private_key_pem_ready(&self) -> bool {
+        !self.private_key_pem.trim().is_empty()
+    }
+}
+
+impl fmt::Debug for NativeTlsMitmCaMaterial {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("NativeTlsMitmCaMaterial")
+            .field("certificate_pem", &"[redacted]")
+            .field("private_key_pem", &"[redacted]")
+            .finish()
     }
 }
 
@@ -683,6 +1325,7 @@ struct NativeLoopbackTcpAcceptLoopIdentity {
     outbound_handler_id: String,
     outbound_handler: NativeOutboundHandlerHandle,
     http_mitm_hook: Option<NativeHttpMitmPluginHook>,
+    tls_mitm_ca_material: Option<NativeTlsMitmCaMaterial>,
     local_host: String,
     local_port: u16,
 }
@@ -836,6 +1479,80 @@ pub struct NativeControlledTlsTerminationPlanReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Clone, PartialEq, Eq)]
+pub struct NativeTlsLeafCertificateMaterial {
+    pub authority: String,
+    pub certificate_pem: String,
+    pub private_key_pem: String,
+    pub certificate_der: Vec<u8>,
+    pub private_key_der: Vec<u8>,
+}
+
+impl fmt::Debug for NativeTlsLeafCertificateMaterial {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("NativeTlsLeafCertificateMaterial")
+            .field("authority", &self.authority)
+            .field("certificate_pem", &"[redacted]")
+            .field("private_key_pem", &"[redacted]")
+            .field("certificate_der", &"[redacted]")
+            .field("private_key_der", &"[redacted]")
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeTlsLeafCertificateIssueReport {
+    pub authority: String,
+    pub issued: bool,
+    pub material: Option<NativeTlsLeafCertificateMaterial>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Clone)]
+pub struct NativeTlsServerConfigBuildReport {
+    pub authority: String,
+    pub server_config_ready: bool,
+    pub server_config: Option<Arc<ServerConfig>>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl fmt::Debug for NativeTlsServerConfigBuildReport {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("NativeTlsServerConfigBuildReport")
+            .field("authority", &self.authority)
+            .field("server_config_ready", &self.server_config_ready)
+            .field(
+                "server_config",
+                &self.server_config.as_ref().map(|_| "[configured]"),
+            )
+            .field("diagnostics", &self.diagnostics)
+            .finish()
+    }
+}
+
+#[derive(Clone)]
+pub struct NativeTlsUpstreamClientConfigBuildReport {
+    pub client_config_ready: bool,
+    pub client_config: Option<Arc<ClientConfig>>,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl fmt::Debug for NativeTlsUpstreamClientConfigBuildReport {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("NativeTlsUpstreamClientConfigBuildReport")
+            .field("client_config_ready", &self.client_config_ready)
+            .field(
+                "client_config",
+                &self.client_config.as_ref().map(|_| "[configured]"),
+            )
+            .field("diagnostics", &self.diagnostics)
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeHttpsRequestRewritePreviewReport {
     pub request_id: String,
@@ -924,6 +1641,7 @@ pub struct NativePlainHttpRewriteReport {
     pub headers: Vec<MetadataEntry>,
     pub body: Vec<u8>,
     pub script_dispatch_deferred: bool,
+    pub script_dispatch_executed: bool,
     pub audits: Vec<AuditEvent>,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -1607,13 +2325,40 @@ pub fn plan_explicit_http_connect_controlled_tls_termination(
     ca_certificate_pem_ready: bool,
     ca_private_key_pem_ready: bool,
 ) -> NativeControlledTlsTerminationPlanReport {
+    let sni_authority_matches = client_hello.client_hello_observed
+        && tls_sni_matches_connect_authority(
+            &request.target_host,
+            client_hello.sni_hostname.as_deref(),
+        );
     let downstream_tls_termination_plan_ready = request.method.eq_ignore_ascii_case("CONNECT")
         && foundation.connect_tunnel_ready
         && foundation.upstream_tls_forwarding_ready
         && client_hello.client_hello_observed
+        && sni_authority_matches
         && ca_certificate_pem_ready
         && ca_private_key_pem_ready;
-    let diagnostic = if downstream_tls_termination_plan_ready {
+    let mut diagnostics = Vec::new();
+    if client_hello.client_hello_observed {
+        diagnostics.push(engine_diagnostic(
+            if sni_authority_matches {
+                DiagnosticSeverity::Info
+            } else {
+                DiagnosticSeverity::Warning
+            },
+            if sni_authority_matches {
+                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SNI_AUTHORITY_MATCHED_CODE
+            } else {
+                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SNI_AUTHORITY_MISMATCH_CODE
+            },
+            if sni_authority_matches {
+                "native explicit HTTP proxy CONNECT authority matches the observed TLS SNI hostname"
+            } else {
+                "native explicit HTTP proxy CONNECT controlled TLS termination is deferred because the observed TLS SNI hostname does not match the CONNECT authority"
+            },
+            SOURCE_ENGINE_NATIVE_MITM,
+        ));
+    }
+    diagnostics.push(if downstream_tls_termination_plan_ready {
         engine_diagnostic(
             DiagnosticSeverity::Info,
             ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_PLAN_READY_CODE,
@@ -1624,10 +2369,10 @@ pub fn plan_explicit_http_connect_controlled_tls_termination(
         engine_diagnostic(
             DiagnosticSeverity::Info,
             ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_DEFERRED_CODE,
-            "native explicit HTTP proxy CONNECT controlled TLS termination is deferred until CONNECT tunnel, ClientHello, and NetworkCore CA material are all ready",
+            "native explicit HTTP proxy CONNECT controlled TLS termination is deferred until CONNECT tunnel, ClientHello, matching authority, and NetworkCore CA material are all ready",
             SOURCE_ENGINE_NATIVE_MITM,
         )
-    };
+    });
 
     NativeControlledTlsTerminationPlanReport {
         request_id: request.request_id.clone(),
@@ -1647,7 +2392,198 @@ pub fn plan_explicit_http_connect_controlled_tls_termination(
         https_request_rewrite_ready: false,
         https_response_rewrite_ready: false,
         script_dispatch_ready: false,
-        diagnostics: vec![diagnostic],
+        diagnostics,
+    }
+}
+
+pub fn issue_controlled_tls_termination_leaf_certificate(
+    termination_plan: &NativeControlledTlsTerminationPlanReport,
+    ca_certificate_pem: &str,
+    ca_private_key_pem: &str,
+) -> NativeTlsLeafCertificateIssueReport {
+    let authority = termination_plan
+        .target_host
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    let sni_authority_matches =
+        tls_sni_matches_connect_authority(&authority, termination_plan.sni_hostname.as_deref());
+    let certificate_issue_ready = termination_plan.downstream_tls_termination_plan_ready
+        && termination_plan.ca_certificate_pem_ready
+        && termination_plan.ca_private_key_pem_ready
+        && sni_authority_matches
+        && !authority.is_empty();
+
+    if !certificate_issue_ready {
+        return NativeTlsLeafCertificateIssueReport {
+            authority,
+            issued: false,
+            material: None,
+            diagnostics: vec![engine_diagnostic(
+                DiagnosticSeverity::Info,
+                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_LEAF_CERTIFICATE_DEFERRED_CODE,
+                "native explicit HTTP proxy CONNECT leaf certificate issuance is deferred until the controlled TLS plan, CA material, and matching authority are ready",
+                SOURCE_ENGINE_NATIVE_MITM,
+            )],
+        };
+    }
+
+    let material = (|| {
+        let issuer_key = KeyPair::from_pem(ca_private_key_pem).map_err(|error| {
+            format!("NetworkCore CA private key could not be parsed for leaf issuance: {error}")
+        })?;
+        let issuer = Issuer::from_ca_cert_pem(ca_certificate_pem, issuer_key).map_err(|error| {
+            format!("NetworkCore CA certificate could not be parsed for leaf issuance: {error}")
+        })?;
+        let mut leaf_params = CertificateParams::new(vec![authority.clone()]).map_err(|error| {
+            format!("TLS leaf certificate authority could not be encoded: {error}")
+        })?;
+        let mut distinguished_name = DistinguishedName::new();
+        distinguished_name.push(DnType::CommonName, authority.clone());
+        distinguished_name.push(DnType::OrganizationName, "AnixOps NetworkCore");
+        leaf_params.distinguished_name = distinguished_name;
+        leaf_params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
+
+        let leaf_key = KeyPair::generate()
+            .map_err(|error| format!("TLS leaf private key could not be generated: {error}"))?;
+        let leaf_certificate = leaf_params.signed_by(&leaf_key, &issuer).map_err(|error| {
+            format!("TLS leaf certificate could not be signed by the NetworkCore CA: {error}")
+        })?;
+
+        Ok::<NativeTlsLeafCertificateMaterial, String>(NativeTlsLeafCertificateMaterial {
+            authority: authority.clone(),
+            certificate_pem: leaf_certificate.pem(),
+            private_key_pem: leaf_key.serialize_pem(),
+            certificate_der: leaf_certificate.der().as_ref().to_vec(),
+            private_key_der: leaf_key.serialize_der(),
+        })
+    })();
+
+    match material {
+        Ok(material) => NativeTlsLeafCertificateIssueReport {
+            authority,
+            issued: true,
+            material: Some(material),
+            diagnostics: vec![engine_diagnostic(
+                DiagnosticSeverity::Info,
+                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_LEAF_CERTIFICATE_ISSUED_CODE,
+                "native explicit HTTP proxy CONNECT issued an authority-bound TLS leaf certificate from the configured NetworkCore CA",
+                SOURCE_ENGINE_NATIVE_MITM,
+            )],
+        },
+        Err(error) => NativeTlsLeafCertificateIssueReport {
+            authority,
+            issued: false,
+            material: None,
+            diagnostics: vec![engine_diagnostic(
+                DiagnosticSeverity::Error,
+                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_LEAF_CERTIFICATE_FAILED_CODE,
+                error,
+                SOURCE_ENGINE_NATIVE_MITM,
+            )],
+        },
+    }
+}
+
+pub fn build_controlled_tls_termination_server_config(
+    material: &NativeTlsLeafCertificateMaterial,
+) -> NativeTlsServerConfigBuildReport {
+    let authority = material
+        .authority
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    let server_config = (|| {
+        if authority.is_empty()
+            || material.certificate_der.is_empty()
+            || material.private_key_der.is_empty()
+        {
+            return Err("controlled TLS server configuration requires authority-bound leaf certificate and private key material".to_string());
+        }
+
+        let certificate_chain = vec![CertificateDer::from(material.certificate_der.clone())];
+        let private_key =
+            PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(material.private_key_der.clone()));
+        let mut server_config =
+            ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+                .map_err(|error| format!("controlled TLS protocol configuration failed: {error}"))?
+                .with_no_client_auth()
+                .with_single_cert(certificate_chain, private_key)
+                .map_err(|error| {
+                    format!("controlled TLS server certificate configuration failed: {error}")
+                })?;
+        server_config.alpn_protocols = vec![b"http/1.1".to_vec()];
+        Ok(Arc::new(server_config))
+    })();
+
+    match server_config {
+        Ok(server_config) => NativeTlsServerConfigBuildReport {
+            authority,
+            server_config_ready: true,
+            server_config: Some(server_config),
+            diagnostics: vec![engine_diagnostic(
+                DiagnosticSeverity::Info,
+                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SERVER_CONFIG_READY_CODE,
+                "native explicit HTTP proxy CONNECT built a rustls downstream server configuration from authority-bound leaf material",
+                SOURCE_ENGINE_NATIVE_MITM,
+            )],
+        },
+        Err(error) => NativeTlsServerConfigBuildReport {
+            authority,
+            server_config_ready: false,
+            server_config: None,
+            diagnostics: vec![engine_diagnostic(
+                DiagnosticSeverity::Error,
+                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SERVER_CONFIG_FAILED_CODE,
+                error,
+                SOURCE_ENGINE_NATIVE_MITM,
+            )],
+        },
+    }
+}
+
+pub fn build_controlled_tls_upstream_client_config() -> NativeTlsUpstreamClientConfigBuildReport {
+    let client_config = (|| {
+        let mut roots = RootCertStore::empty();
+        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        if roots.is_empty() {
+            return Err(
+                "controlled TLS upstream configuration has no trusted web PKI roots".to_string(),
+            );
+        }
+
+        let mut client_config =
+            ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+                .map_err(|error| {
+                    format!("controlled TLS upstream protocol configuration failed: {error}")
+                })?
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+        client_config.alpn_protocols = vec![b"http/1.1".to_vec()];
+        Ok(Arc::new(client_config))
+    })();
+
+    match client_config {
+        Ok(client_config) => NativeTlsUpstreamClientConfigBuildReport {
+            client_config_ready: true,
+            client_config: Some(client_config),
+            diagnostics: vec![engine_diagnostic(
+                DiagnosticSeverity::Info,
+                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_UPSTREAM_CONFIG_READY_CODE,
+                "native explicit HTTP proxy CONNECT built a rustls upstream client configuration with web PKI roots",
+                SOURCE_ENGINE_NATIVE_MITM,
+            )],
+        },
+        Err(error) => NativeTlsUpstreamClientConfigBuildReport {
+            client_config_ready: false,
+            client_config: None,
+            diagnostics: vec![engine_diagnostic(
+                DiagnosticSeverity::Error,
+                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_UPSTREAM_CONFIG_FAILED_CODE,
+                error,
+                SOURCE_ENGINE_NATIVE_MITM,
+            )],
+        },
     }
 }
 
@@ -2503,6 +3439,7 @@ pub fn plan_and_apply_plain_http_mitm(
                 headers: application.headers,
                 body: application.body,
                 script_dispatch_deferred: application.script_dispatch_deferred,
+                script_dispatch_executed: false,
                 audits,
                 diagnostics,
             }
@@ -2527,6 +3464,7 @@ pub fn plan_and_apply_plain_http_mitm(
                 headers: message.headers.clone(),
                 body: message.body.clone(),
                 script_dispatch_deferred: false,
+                script_dispatch_executed: false,
                 audits: Vec::new(),
                 diagnostics,
             }
@@ -2757,6 +3695,56 @@ where
     }
 }
 
+pub fn read_https_connect_http_request<R>(
+    reader: &mut R,
+    connect_request: &NativeExplicitHttpProxyRequest,
+) -> NativeExplicitHttpProxyRequestReadReport
+where
+    R: Read,
+{
+    let mut read_report = read_explicit_http_proxy_request(reader);
+    let Some(request) = read_report.request.as_mut() else {
+        return read_report;
+    };
+
+    let connect_host = connect_request
+        .target_host
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    let request_host = request
+        .target_host
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    if request.method.eq_ignore_ascii_case("CONNECT")
+        || connect_host.is_empty()
+        || request_host != connect_host
+    {
+        return explicit_http_proxy_request_invalid(
+            "native controlled TLS CONNECT request authority must match the decrypted HTTP Host authority",
+        );
+    }
+
+    let authority = http_url_authority(
+        &connect_request.target_host,
+        connect_request.target_port,
+        443,
+    );
+    request.target_host = connect_request.target_host.clone();
+    request.target_port = connect_request.target_port;
+    request.target_url = format!("https://{authority}{}", request.origin_path);
+    request.request_id = format!(
+        "native-https-connect:{}:{}",
+        request.method, request.target_url
+    );
+    read_report.diagnostics.push(engine_diagnostic(
+        DiagnosticSeverity::Info,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SESSION_DECRYPTION_READY_CODE,
+        "native explicit HTTP proxy CONNECT decrypted a bounded HTTP/1.1 request bound to the CONNECT authority",
+        SOURCE_ENGINE_NATIVE_MITM,
+    ));
+    read_report
+}
+
 pub fn read_plain_http_proxy_response<R>(reader: &mut R) -> NativePlainHttpProxyResponseReadReport
 where
     R: Read,
@@ -2847,6 +3835,15 @@ pub fn serialize_explicit_http_proxy_request_for_upstream(
     request: &NativeExplicitHttpProxyRequest,
     rewrite_report: &NativePlainHttpRewriteReport,
 ) -> Vec<u8> {
+    let origin_path = parse_script_absolute_url(&rewrite_report.url)
+        .filter(|(_, target)| {
+            target
+                .target_host
+                .eq_ignore_ascii_case(&request.target_host)
+                && target.target_port == request.target_port
+        })
+        .map(|(_, target)| target.origin_path)
+        .unwrap_or_else(|| request.origin_path.clone());
     let mut headers = rewrite_report.headers.clone();
     headers.retain(|header| !header.key.eq_ignore_ascii_case("Proxy-Connection"));
     set_plain_http_header(
@@ -2867,11 +3864,8 @@ pub fn serialize_explicit_http_proxy_request_for_upstream(
         );
     }
 
-    let mut bytes = format!(
-        "{} {} {}\r\n",
-        request.method, request.origin_path, request.version
-    )
-    .into_bytes();
+    let mut bytes =
+        format!("{} {} {}\r\n", request.method, origin_path, request.version).into_bytes();
     write_http_headers_to_bytes(&mut bytes, &headers);
     bytes.extend_from_slice(b"\r\n");
     bytes.extend_from_slice(&rewrite_report.body);
@@ -3124,6 +4118,17 @@ impl NativeRuntimeAssemblyPlan {
         self,
         http_mitm_hook: Option<NativeHttpMitmPluginHook>,
     ) -> Result<NativeRuntimeAssembly, Box<NativeRuntimeStartupFailure>> {
+        self.start_loopback_accept_loop_with_http_mitm_hook_and_tls_mitm_ca_material(
+            http_mitm_hook,
+            None,
+        )
+    }
+
+    pub fn start_loopback_accept_loop_with_http_mitm_hook_and_tls_mitm_ca_material(
+        self,
+        http_mitm_hook: Option<NativeHttpMitmPluginHook>,
+        tls_mitm_ca_material: Option<NativeTlsMitmCaMaterial>,
+    ) -> Result<NativeRuntimeAssembly, Box<NativeRuntimeStartupFailure>> {
         let Self {
             engine_id,
             listener,
@@ -3144,10 +4149,11 @@ impl NativeRuntimeAssemblyPlan {
             }
         };
 
-        match NativeLoopbackTcpAcceptLoopHandle::start_with_http_mitm_hook(
+        match NativeLoopbackTcpAcceptLoopHandle::start_with_http_mitm_hook_and_tls_mitm_ca_material(
             bound_listener,
             outbound_handler,
             http_mitm_hook,
+            tls_mitm_ca_material,
         ) {
             Ok(accept_loop) => {
                 Ok(NativeRuntimeAssembly::new(engine_id).with_accept_loop(accept_loop))
@@ -3374,6 +4380,7 @@ pub struct NativeProxyEngineService {
     runtime: Arc<Mutex<Option<NativeRuntimeHandle>>>,
     lifecycle_events: Arc<Mutex<Vec<ProxyEngineEvent>>>,
     http_mitm_hook: Option<NativeHttpMitmPluginHook>,
+    tls_mitm_ca_material: Option<NativeTlsMitmCaMaterial>,
 }
 
 impl NativeProxyEngineService {
@@ -3386,8 +4393,24 @@ impl NativeProxyEngineService {
         self
     }
 
+    pub fn with_tls_mitm_ca_material(mut self, material: NativeTlsMitmCaMaterial) -> Self {
+        self.tls_mitm_ca_material = Some(material);
+        self
+    }
+
     pub fn http_mitm_hook_enabled(&self) -> bool {
         self.http_mitm_hook.is_some()
+    }
+
+    pub fn tls_mitm_ca_material_enabled(&self) -> bool {
+        self.tls_mitm_ca_material.is_some()
+    }
+
+    pub fn http_mitm_script_executor_enabled(&self) -> bool {
+        match self.http_mitm_hook.as_ref() {
+            Some(hook) => hook.script_executor_enabled(),
+            None => false,
+        }
     }
 
     fn runtime_state(
@@ -3514,8 +4537,10 @@ impl ProxyEngineService for NativeProxyEngineService {
 
         let plan = NativeRuntimeAssemblyPlan::from_config(engine_config)?;
         let assembly = match plan
-            .start_loopback_accept_loop_with_http_mitm_hook(self.http_mitm_hook.clone())
-        {
+            .start_loopback_accept_loop_with_http_mitm_hook_and_tls_mitm_ca_material(
+                self.http_mitm_hook.clone(),
+                self.tls_mitm_ca_material.clone(),
+            ) {
             Ok(assembly) => assembly,
             Err(failure) => {
                 let NativeRuntimeStartupFailure { error, release } = *failure;
@@ -4075,6 +5100,7 @@ fn passthrough_plain_http_rewrite_report(
         headers: message.headers.clone(),
         body: message.body.clone(),
         script_dispatch_deferred: false,
+        script_dispatch_executed: false,
         audits: Vec::new(),
         diagnostics: Vec::new(),
     }
@@ -4440,6 +5466,15 @@ fn tls_sni_hostname_valid(hostname: &str) -> bool {
         && hostname
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-')
+}
+
+fn tls_sni_matches_connect_authority(connect_host: &str, sni_hostname: Option<&str>) -> bool {
+    let connect_host = connect_host.trim_end_matches('.').to_ascii_lowercase();
+    let Some(sni_hostname) = sni_hostname else {
+        return false;
+    };
+    !connect_host.is_empty()
+        && connect_host == sni_hostname.trim_end_matches('.').to_ascii_lowercase()
 }
 
 fn format_tls_version(major: u8, minor: u8) -> String {
@@ -4869,8 +5904,10 @@ fn run_loopback_tcp_accept_loop(
     identity: NativeLoopbackTcpAcceptLoopIdentity,
 ) -> NativeLoopbackTcpAcceptLoopShutdownReport {
     let mut diagnostics = Vec::new();
+    let mut connection_workers = Vec::new();
 
     loop {
+        collect_finished_connection_workers(&mut connection_workers, &mut diagnostics);
         match shutdown_rx.try_recv() {
             Ok(()) | Err(mpsc::TryRecvError::Disconnected) => break,
             Err(mpsc::TryRecvError::Empty) => {}
@@ -4879,25 +5916,41 @@ fn run_loopback_tcp_accept_loop(
         match listener.accept() {
             Ok((stream, _)) => {
                 accepted_connections.fetch_add(1, Ordering::SeqCst);
-                if identity.listener_kind == ListenerKind::Http {
-                    diagnostics.extend(handle_plain_http_proxy_accepted_connection(
-                        stream,
-                        &pre_protocol_closed_connections,
-                        &relayed_connections,
-                        &identity.outbound_handler,
-                        identity.http_mitm_hook.as_ref(),
+                if connection_workers.len() >= MAX_CONCURRENT_ACCEPTED_CONNECTIONS {
+                    let _ = stream.shutdown(Shutdown::Both);
+                    pre_protocol_closed_connections.fetch_add(1, Ordering::SeqCst);
+                    diagnostics.push(runtime_warning(
+                        ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE,
+                        "native loopback tcp accept loop reached the bounded concurrent connection limit",
                     ));
-                } else {
-                    diagnostics.extend(read_socks5_greeting_and_close_accepted_connection(
-                        stream,
-                        &pre_protocol_closed_connections,
-                        &relayed_connections,
-                        &identity.outbound_handler,
-                        identity.http_mitm_hook.as_ref(),
-                        &identity.local_host,
-                        identity.local_port,
-                    ));
+                    continue;
                 }
+                let worker_identity = identity.clone();
+                let worker_pre_protocol_closed_connections =
+                    Arc::clone(&pre_protocol_closed_connections);
+                let worker_relayed_connections = Arc::clone(&relayed_connections);
+                connection_workers.push(thread::spawn(move || {
+                    if worker_identity.listener_kind == ListenerKind::Http {
+                        handle_plain_http_proxy_accepted_connection(
+                            stream,
+                            worker_pre_protocol_closed_connections.as_ref(),
+                            worker_relayed_connections.as_ref(),
+                            &worker_identity.outbound_handler,
+                            worker_identity.http_mitm_hook.as_ref(),
+                            worker_identity.tls_mitm_ca_material.as_ref(),
+                        )
+                    } else {
+                        read_socks5_greeting_and_close_accepted_connection(
+                            stream,
+                            worker_pre_protocol_closed_connections.as_ref(),
+                            worker_relayed_connections.as_ref(),
+                            &worker_identity.outbound_handler,
+                            worker_identity.http_mitm_hook.as_ref(),
+                            &worker_identity.local_host,
+                            worker_identity.local_port,
+                        )
+                    }
+                }));
             }
             Err(error) if error.kind() == ErrorKind::WouldBlock => {
                 thread::sleep(Duration::from_millis(10));
@@ -4913,6 +5966,8 @@ fn run_loopback_tcp_accept_loop(
             }
         }
     }
+
+    join_connection_workers(&mut connection_workers, &mut diagnostics);
 
     diagnostics.push(runtime_info(
         ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
@@ -4931,12 +5986,52 @@ fn run_loopback_tcp_accept_loop(
     }
 }
 
+fn collect_finished_connection_workers(
+    connection_workers: &mut Vec<JoinHandle<Vec<Diagnostic>>>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let mut pending_workers = Vec::new();
+    for worker in std::mem::take(connection_workers) {
+        if worker.is_finished() {
+            collect_connection_worker(worker, diagnostics);
+        } else {
+            pending_workers.push(worker);
+        }
+    }
+    *connection_workers = pending_workers;
+}
+
+fn join_connection_workers(
+    connection_workers: &mut Vec<JoinHandle<Vec<Diagnostic>>>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for worker in std::mem::take(connection_workers) {
+        collect_connection_worker(worker, diagnostics);
+    }
+}
+
+fn collect_connection_worker(
+    worker: JoinHandle<Vec<Diagnostic>>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    match worker.join() {
+        Ok(connection_diagnostics) => diagnostics.extend(connection_diagnostics),
+        Err(_) => diagnostics.push(engine_diagnostic(
+            DiagnosticSeverity::Error,
+            ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE,
+            "native loopback tcp connection worker terminated unexpectedly",
+            SOURCE_ENGINE_NATIVE_RUNTIME,
+        )),
+    }
+}
+
 fn handle_plain_http_proxy_accepted_connection(
     mut stream: TcpStream,
     pre_protocol_closed_connections: &AtomicUsize,
     relayed_connections: &AtomicUsize,
     outbound_handler: &NativeOutboundHandlerHandle,
     http_mitm_hook: Option<&NativeHttpMitmPluginHook>,
+    tls_mitm_ca_material: Option<&NativeTlsMitmCaMaterial>,
 ) -> Vec<Diagnostic> {
     let mut connection_handled = false;
     let _ = stream.set_nonblocking(false);
@@ -4955,6 +6050,8 @@ fn handle_plain_http_proxy_accepted_connection(
                 &mut stream,
                 request,
                 outbound_handler,
+                http_mitm_hook,
+                tls_mitm_ca_material,
             );
             connection_handled = forwarded;
             diagnostics.extend(forward_diagnostics);
@@ -5148,12 +6245,149 @@ fn forward_plain_http_proxy_request_via_socks_outbound(
     (response_written, diagnostics)
 }
 
+fn run_controlled_tls_connect_http_exchange(
+    client_stream: &TcpStream,
+    outbound_stream: TcpStream,
+    connect_request: &NativeExplicitHttpProxyRequest,
+    downstream_server_config: Arc<ServerConfig>,
+    upstream_client_config: Arc<ClientConfig>,
+    http_mitm_hook: Option<&NativeHttpMitmPluginHook>,
+) -> (bool, Vec<Diagnostic>) {
+    let mut diagnostics = Vec::new();
+    let exchange = (|| -> Result<bool, String> {
+        let session_timeout = Duration::from_millis(CONTROLLED_TLS_SESSION_TIMEOUT_MS);
+        let _ = client_stream.set_read_timeout(Some(Duration::from_millis(
+            CONTROLLED_TLS_SOCKET_READ_TIMEOUT_MS,
+        )));
+        let _ = client_stream.set_write_timeout(Some(session_timeout));
+        let _ = outbound_stream.set_read_timeout(Some(Duration::from_millis(
+            CONTROLLED_TLS_SOCKET_READ_TIMEOUT_MS,
+        )));
+        let _ = outbound_stream.set_write_timeout(Some(session_timeout));
+        let client_tls_stream = client_stream.try_clone().map_err(|error| {
+            format!("controlled TLS client stream could not be cloned: {error}")
+        })?;
+        let downstream_connection =
+            ServerConnection::new(downstream_server_config).map_err(|error| {
+                format!("controlled TLS downstream session could not initialize: {error}")
+            })?;
+        let mut downstream_tls = StreamOwned::new(downstream_connection, client_tls_stream);
+
+        let decrypted_request_report = {
+            let mut bounded_reader = NativeBoundedRead::new(&mut downstream_tls, session_timeout);
+            read_https_connect_http_request(&mut bounded_reader, connect_request)
+        };
+        diagnostics.extend(decrypted_request_report.diagnostics);
+        let decrypted_request = decrypted_request_report.request.ok_or_else(|| {
+            "controlled TLS downstream session could not read a bounded decrypted HTTP request"
+                .to_string()
+        })?;
+
+        let request_message = explicit_http_proxy_request_to_plain_http_message(&decrypted_request);
+        let request_rewrite_report = http_mitm_hook
+            .map(|hook| hook.plan_plain_http(&request_message))
+            .unwrap_or_else(|| passthrough_plain_http_rewrite_report(&request_message));
+        diagnostics.extend(request_rewrite_report.diagnostics.clone());
+        record_plain_http_live_rewrite_diagnostic(&mut diagnostics, &request_rewrite_report);
+
+        if request_rewrite_report.terminal_action.is_some() {
+            let client_response = serialize_plain_http_proxy_response(
+                &decrypted_request.version,
+                &request_rewrite_report,
+            );
+            let client_write_report =
+                write_plain_http_proxy_client_response(&mut downstream_tls, client_response);
+            let response_written = diagnostics_contain_code(
+                &client_write_report.diagnostics,
+                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
+            );
+            diagnostics.extend(client_write_report.diagnostics);
+            return Ok(response_written);
+        }
+
+        let server_name = ServerName::try_from(connect_request.target_host.as_str())
+            .map_err(|error| format!("controlled TLS upstream authority is invalid: {error}"))?
+            .to_owned();
+        let upstream_connection = ClientConnection::new(upstream_client_config, server_name)
+            .map_err(|error| {
+                format!("controlled TLS upstream session could not initialize: {error}")
+            })?;
+        let mut upstream_tls = StreamOwned::new(upstream_connection, outbound_stream);
+        let upstream_request = serialize_explicit_http_proxy_request_for_upstream(
+            &decrypted_request,
+            &request_rewrite_report,
+        );
+        let upstream_write_report =
+            write_plain_http_proxy_upstream_request(&mut upstream_tls, upstream_request);
+        let upstream_request_written = diagnostics_contain_code(
+            &upstream_write_report.diagnostics,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE,
+        );
+        diagnostics.extend(upstream_write_report.diagnostics);
+        if !upstream_request_written {
+            return Err("controlled TLS upstream request write failed".to_string());
+        }
+
+        let upstream_response_report = {
+            let mut bounded_reader = NativeBoundedRead::new(&mut upstream_tls, session_timeout);
+            read_plain_http_proxy_response(&mut bounded_reader)
+        };
+        diagnostics.extend(upstream_response_report.diagnostics.clone());
+        let upstream_response = upstream_response_report.response.ok_or_else(|| {
+            "controlled TLS upstream session could not read a bounded HTTP response".to_string()
+        })?;
+        let response_message =
+            plain_http_proxy_response_to_plain_http_message(&decrypted_request, &upstream_response);
+        let response_rewrite_report = http_mitm_hook
+            .map(|hook| hook.plan_plain_http(&response_message))
+            .unwrap_or_else(|| passthrough_plain_http_rewrite_report(&response_message));
+        diagnostics.extend(response_rewrite_report.diagnostics.clone());
+        record_plain_http_live_rewrite_diagnostic(&mut diagnostics, &response_rewrite_report);
+        let client_response = serialize_plain_http_proxy_response(
+            &upstream_response.version,
+            &response_rewrite_report,
+        );
+        let client_write_report =
+            write_plain_http_proxy_client_response(&mut downstream_tls, client_response);
+        let response_written = diagnostics_contain_code(
+            &client_write_report.diagnostics,
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
+        );
+        diagnostics.extend(client_write_report.diagnostics);
+        Ok(response_written)
+    })();
+
+    match exchange {
+        Ok(response_written) => {
+            diagnostics.push(engine_diagnostic(
+                DiagnosticSeverity::Info,
+                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SESSION_DECRYPTION_READY_CODE,
+                "native explicit HTTP proxy CONNECT completed a controlled TLS HTTP/1.1 request/response exchange",
+                SOURCE_ENGINE_NATIVE_MITM,
+            ));
+            (response_written, diagnostics)
+        }
+        Err(error) => {
+            diagnostics.push(engine_diagnostic(
+                DiagnosticSeverity::Error,
+                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SESSION_DECRYPTION_FAILED_CODE,
+                error,
+                SOURCE_ENGINE_NATIVE_MITM,
+            ));
+            (false, diagnostics)
+        }
+    }
+}
+
 fn forward_http_connect_tunnel_via_socks_outbound(
     client_stream: &mut TcpStream,
     request: &NativeExplicitHttpProxyRequest,
     outbound_handler: &NativeOutboundHandlerHandle,
+    http_mitm_hook: Option<&NativeHttpMitmPluginHook>,
+    tls_mitm_ca_material: Option<&NativeTlsMitmCaMaterial>,
 ) -> (bool, Vec<Diagnostic>) {
-    let mut diagnostics = plan_explicit_http_connect_tls_mitm_foundation(request).diagnostics;
+    let foundation_report = plan_explicit_http_connect_tls_mitm_foundation(request);
+    let mut diagnostics = foundation_report.diagnostics.clone();
     let target = explicit_http_proxy_request_to_socks5_target(request);
     let route_selection_report = select_socks5_route_outbound_behavior(&target, outbound_handler);
     diagnostics.extend(route_selection_report.diagnostics);
@@ -5209,10 +6443,69 @@ fn forward_http_connect_tunnel_via_socks_outbound(
                         );
                         diagnostics.extend(connect_response.diagnostics);
                         if tunnel_established {
-                            diagnostics.extend(observe_http_connect_tls_client_hello_from_stream(
-                                client_stream,
-                                request,
-                            ));
+                            let wait_for_complete_client_hello = tls_mitm_ca_material.is_some();
+                            let client_hello_report =
+                                observe_http_connect_tls_client_hello_from_stream(
+                                    client_stream,
+                                    request,
+                                    wait_for_complete_client_hello,
+                                );
+                            diagnostics.extend(client_hello_report.diagnostics.clone());
+                            if let Some(tls_mitm_ca_material) = tls_mitm_ca_material {
+                                let termination_plan =
+                                    plan_explicit_http_connect_controlled_tls_termination(
+                                        request,
+                                        &foundation_report,
+                                        &client_hello_report,
+                                        tls_mitm_ca_material.certificate_pem_ready(),
+                                        tls_mitm_ca_material.private_key_pem_ready(),
+                                    );
+                                diagnostics.extend(termination_plan.diagnostics.clone());
+                                let leaf_certificate_report =
+                                    issue_controlled_tls_termination_leaf_certificate(
+                                        &termination_plan,
+                                        tls_mitm_ca_material.certificate_pem(),
+                                        tls_mitm_ca_material.private_key_pem(),
+                                    );
+                                diagnostics.extend(leaf_certificate_report.diagnostics.clone());
+                                let Some(leaf_certificate_material) =
+                                    leaf_certificate_report.material.as_ref()
+                                else {
+                                    let _ = outbound_stream.shutdown(Shutdown::Both);
+                                    return (false, diagnostics);
+                                };
+                                let downstream_config_report =
+                                    build_controlled_tls_termination_server_config(
+                                        leaf_certificate_material,
+                                    );
+                                diagnostics.extend(downstream_config_report.diagnostics.clone());
+                                let Some(downstream_server_config) =
+                                    downstream_config_report.server_config
+                                else {
+                                    let _ = outbound_stream.shutdown(Shutdown::Both);
+                                    return (false, diagnostics);
+                                };
+                                let upstream_config_report =
+                                    build_controlled_tls_upstream_client_config();
+                                diagnostics.extend(upstream_config_report.diagnostics.clone());
+                                let Some(upstream_client_config) =
+                                    upstream_config_report.client_config
+                                else {
+                                    let _ = outbound_stream.shutdown(Shutdown::Both);
+                                    return (false, diagnostics);
+                                };
+                                let (exchange_completed, exchange_diagnostics) =
+                                    run_controlled_tls_connect_http_exchange(
+                                        client_stream,
+                                        outbound_stream,
+                                        request,
+                                        downstream_server_config,
+                                        upstream_client_config,
+                                        http_mitm_hook,
+                                    );
+                                diagnostics.extend(exchange_diagnostics);
+                                return (exchange_completed, diagnostics);
+                            }
                             let relay_report = relay_socks5_outbound_connect_tcp_streams(
                                 client_stream,
                                 &outbound_stream,
@@ -5254,16 +6547,38 @@ fn forward_http_connect_tunnel_via_socks_outbound(
 fn observe_http_connect_tls_client_hello_from_stream(
     client_stream: &TcpStream,
     request: &NativeExplicitHttpProxyRequest,
-) -> Vec<Diagnostic> {
+    wait_for_complete_client_hello: bool,
+) -> NativeTlsClientHelloObservationReport {
     let mut buffer = [0_u8; TLS_CLIENT_HELLO_PEEK_MAX_BYTES];
-    let bytes = match client_stream.peek(&mut buffer) {
-        Ok(bytes_read) => &buffer[..bytes_read],
-        Err(error) if error.kind() == ErrorKind::WouldBlock => &buffer[..0],
-        Err(error) if error.kind() == ErrorKind::TimedOut => &buffer[..0],
-        Err(_) => &buffer[..0],
+    let prior_timeout = client_stream.read_timeout().ok().flatten();
+    if wait_for_complete_client_hello {
+        let _ = client_stream.set_read_timeout(Some(Duration::from_millis(
+            ACCEPTED_CONNECTION_READ_TIMEOUT_MS,
+        )));
+    }
+    let started_at = Instant::now();
+    let report = loop {
+        let bytes = match client_stream.peek(&mut buffer) {
+            Ok(bytes_read) => &buffer[..bytes_read],
+            Err(error) if error.kind() == ErrorKind::WouldBlock => &buffer[..0],
+            Err(error) if error.kind() == ErrorKind::TimedOut => &buffer[..0],
+            Err(_) => &buffer[..0],
+        };
+        let report = observe_explicit_http_connect_tls_client_hello(request, bytes);
+        if report.client_hello_observed
+            || !wait_for_complete_client_hello
+            || started_at.elapsed()
+                >= Duration::from_millis(TLS_CLIENT_HELLO_OBSERVATION_TIMEOUT_MS)
+        {
+            break report;
+        }
+        thread::sleep(Duration::from_millis(TLS_CLIENT_HELLO_OBSERVATION_POLL_MS));
     };
+    if wait_for_complete_client_hello {
+        let _ = client_stream.set_read_timeout(prior_timeout);
+    }
 
-    observe_explicit_http_connect_tls_client_hello(request, bytes).diagnostics
+    report
 }
 
 fn record_plain_http_live_rewrite_diagnostic(
@@ -5627,4 +6942,379 @@ fn engine_diagnostic(
     source: impl Into<String>,
 ) -> Diagnostic {
     Diagnostic::new(severity, code, message, Some(source.into()))
+}
+
+#[cfg(all(test, unix))]
+mod script_runtime_security_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn script_runtime_body_staging_uses_owner_only_permissions() {
+        let path = write_script_runtime_body(b"sensitive script body")
+            .expect("script runtime body should stage securely");
+        let mode = std::fs::metadata(&path)
+            .expect("script runtime body metadata should be readable")
+            .permissions()
+            .mode()
+            & 0o777;
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(mode, 0o600);
+    }
+}
+
+#[cfg(test)]
+mod controlled_tls_session_tests {
+    use super::*;
+    use control_domain::{
+        GrantedPermissions, HookPoint, HttpEvent, PluginManifest, PluginPackage, PluginPermission,
+        PluginResult,
+    };
+    use rcgen::{
+        BasicConstraints, CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose,
+        IsCa, Issuer, KeyPair, KeyUsagePurpose,
+    };
+    use rustls::{
+        pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName},
+        ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection, StreamOwned,
+    };
+    use std::collections::BTreeMap;
+    use std::io::{Cursor, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::Duration;
+
+    #[test]
+    fn controlled_tls_connect_exchange_decrypts_forwards_and_executes_scripts_over_live_sockets() {
+        let script_runtime_root = std::env::temp_dir().join(format!(
+            "networkcore-controlled-tls-script-contract-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&script_runtime_root);
+        std::fs::create_dir_all(&script_runtime_root)
+            .expect("controlled TLS script runtime directory should be created");
+        let script_url = "https://scripts.networkcore.test/controlled-tls.js".to_string();
+        let mut script_assets = BTreeMap::new();
+        script_assets.insert(
+            script_url.clone(),
+            format!(
+                "{}/../../third_party/mitm_anixops/mitm_anixops/tests/fixtures/runner_replay_script.js",
+                env!("CARGO_MANIFEST_DIR")
+            ),
+        );
+        let http_mitm_hook = NativeHttpMitmPluginHook::new(
+            PluginInstance {
+                manifest: PluginManifest {
+                    id: "networkcore.controlled-tls-script".to_string(),
+                    version: "0.1.0".to_string(),
+                    permissions: vec![
+                        PluginPermission::ReadRequest,
+                        PluginPermission::ModifyRequest,
+                        PluginPermission::ReadResponse,
+                        PluginPermission::ModifyResponse,
+                        PluginPermission::PersistentStorage,
+                    ],
+                    hooks: vec![HookPoint::Request, HookPoint::Response],
+                },
+                loaded_source: None,
+            },
+            Arc::new(ControlledTlsScriptDispatchingMitmPluginService { script_url }),
+        )
+        .with_node_script_executor(NativeNodeScriptExecutor::new(
+            NativeNodeScriptRuntimeConfig {
+                node_binary: "node".to_string(),
+                runner_path: format!(
+                    "{}/../../third_party/mitm_anixops/mitm_anixops/e2e/script_runtime/anixops_runner.js",
+                    env!("CARGO_MANIFEST_DIR")
+                ),
+                script_assets,
+                persistent_store_path: Some(
+                    script_runtime_root.join("store.json").display().to_string(),
+                ),
+                max_timeout_ms: 5000,
+                max_body_bytes: 4096,
+            },
+        ));
+        let (mitm_ca_certificate_pem, mitm_ca_private_key_pem, mitm_ca_der) = test_ca_material();
+        let (mitm_leaf_certificate_der, mitm_leaf_private_key_der) = issue_test_leaf(
+            &mitm_ca_certificate_pem,
+            &mitm_ca_private_key_pem,
+            "example.com",
+        );
+        let downstream_material = NativeTlsLeafCertificateMaterial {
+            authority: "example.com".to_string(),
+            certificate_pem: String::new(),
+            private_key_pem: String::new(),
+            certificate_der: mitm_leaf_certificate_der,
+            private_key_der: mitm_leaf_private_key_der,
+        };
+        let downstream_server_config =
+            build_controlled_tls_termination_server_config(&downstream_material)
+                .server_config
+                .expect("test MITM leaf material should build a downstream server config");
+
+        let (upstream_ca_certificate_pem, upstream_ca_private_key_pem, upstream_ca_der) =
+            test_ca_material();
+        let (upstream_leaf_certificate_der, upstream_leaf_private_key_der) = issue_test_leaf(
+            &upstream_ca_certificate_pem,
+            &upstream_ca_private_key_pem,
+            "example.com",
+        );
+        let upstream_server_config =
+            test_server_config(upstream_leaf_certificate_der, upstream_leaf_private_key_der);
+        let upstream_client_config = test_client_config(upstream_ca_der);
+
+        let upstream_listener =
+            TcpListener::bind("127.0.0.1:0").expect("test upstream listener should bind");
+        let upstream_address = upstream_listener
+            .local_addr()
+            .expect("test upstream listener should expose local address");
+        let upstream_worker = thread::spawn(move || {
+            let (stream, _) = upstream_listener
+                .accept()
+                .expect("test upstream should accept proxy TLS connection");
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+            let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+            let connection = ServerConnection::new(upstream_server_config)
+                .expect("test upstream TLS connection should initialize");
+            let mut tls_stream = StreamOwned::new(connection, stream);
+            let request = read_explicit_http_proxy_request(&mut tls_stream)
+                .request
+                .expect("test upstream should receive decrypted HTTP request");
+            assert_eq!(request.origin_path, "/resource");
+            assert!(std::str::from_utf8(&request.body)
+                .expect("script-mutated upstream request body should be UTF-8")
+                .contains("requestRuntime"));
+            let response_body = b"{\"from\":\"upstream\"}";
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                std::str::from_utf8(response_body)
+                    .expect("test upstream response body should be UTF-8"),
+            );
+            tls_stream
+                .write_all(response.as_bytes())
+                .expect("test upstream should write HTTPS response");
+            tls_stream
+                .flush()
+                .expect("test upstream should flush HTTPS response");
+        });
+
+        let proxy_listener =
+            TcpListener::bind("127.0.0.1:0").expect("test proxy listener should bind");
+        let proxy_address = proxy_listener
+            .local_addr()
+            .expect("test proxy listener should expose local address");
+        let downstream_client_config = test_client_config(mitm_ca_der);
+        let downstream_client = thread::spawn(move || {
+            let stream = TcpStream::connect(proxy_address)
+                .expect("test TLS client should connect to controlled proxy session");
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+            let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+            let server_name = ServerName::try_from("example.com")
+                .expect("test server name should parse")
+                .to_owned();
+            let connection = ClientConnection::new(downstream_client_config, server_name)
+                .expect("test TLS client connection should initialize");
+            let mut tls_stream = StreamOwned::new(connection, stream);
+            tls_stream
+                .write_all(b"GET /resource HTTP/1.1\r\nHost: example.com\r\n\r\n")
+                .expect("test TLS client should write HTTP request");
+            tls_stream
+                .flush()
+                .expect("test TLS client should flush HTTP request");
+            let response = read_plain_http_proxy_response(&mut tls_stream)
+                .response
+                .expect("test TLS client should receive HTTP response");
+            assert_eq!(response.status_code, 202);
+            assert!(std::str::from_utf8(&response.body)
+                .expect("script-mutated client response body should be UTF-8")
+                .contains("responseRuntime"));
+        });
+
+        let (proxy_stream, _) = proxy_listener
+            .accept()
+            .expect("test proxy should accept controlled TLS client connection");
+        let _ = proxy_stream.set_read_timeout(Some(Duration::from_secs(5)));
+        let _ = proxy_stream.set_write_timeout(Some(Duration::from_secs(5)));
+        let outbound_stream = TcpStream::connect(upstream_address)
+            .expect("test proxy should connect to upstream TLS server");
+        let mut connect_request = Cursor::new(
+            b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n".to_vec(),
+        );
+        let connect_request = read_explicit_http_proxy_request(&mut connect_request)
+            .request
+            .expect("test CONNECT request should parse");
+        let (exchange_completed, diagnostics) = run_controlled_tls_connect_http_exchange(
+            &proxy_stream,
+            outbound_stream,
+            &connect_request,
+            downstream_server_config,
+            upstream_client_config,
+            Some(&http_mitm_hook),
+        );
+
+        assert!(exchange_completed);
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SESSION_DECRYPTION_READY_CODE
+        }));
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_EXECUTED_CODE
+        }));
+        downstream_client
+            .join()
+            .expect("test TLS client thread should finish");
+        upstream_worker
+            .join()
+            .expect("test upstream TLS thread should finish");
+        std::fs::remove_dir_all(&script_runtime_root)
+            .expect("controlled TLS script runtime directory should be removed");
+    }
+
+    struct ControlledTlsScriptDispatchingMitmPluginService {
+        script_url: String,
+    }
+
+    impl MitmPluginService for ControlledTlsScriptDispatchingMitmPluginService {
+        fn validate_manifest(&self, _plugin_manifest: &PluginManifest) -> Vec<Diagnostic> {
+            Vec::new()
+        }
+
+        fn load(
+            &self,
+            plugin_package: &PluginPackage,
+            _granted_permissions: &GrantedPermissions,
+        ) -> DomainResult<PluginInstance> {
+            Ok(PluginInstance {
+                manifest: plugin_package.manifest.clone(),
+                loaded_source: None,
+            })
+        }
+
+        fn handle_http_event(
+            &self,
+            _plugin_instance: &PluginInstance,
+            _http_event: &HttpEvent,
+        ) -> DomainResult<PluginResult> {
+            Ok(PluginResult {
+                audits: Vec::new(),
+                diagnostics: Vec::new(),
+            })
+        }
+
+        fn handle_http_mitm_event(
+            &self,
+            plugin_instance: &PluginInstance,
+            http_event: &HttpMitmEvent,
+        ) -> DomainResult<HttpMitmOutcome> {
+            assert_eq!(
+                plugin_instance.manifest.id,
+                "networkcore.controlled-tls-script"
+            );
+            assert_eq!(http_event.url, "https://example.com/resource");
+
+            let kind = match http_event.phase {
+                HttpMitmPhase::Request => HttpMitmScriptKind::Request,
+                HttpMitmPhase::Response => HttpMitmScriptKind::Response,
+            };
+            Ok(HttpMitmOutcome {
+                action: HttpMitmAction::Continue,
+                header_mutations: Vec::new(),
+                body_mutation: None,
+                script_dispatch: Some(HttpMitmScriptDispatch {
+                    kind,
+                    phase: http_event.phase,
+                    requires_body: true,
+                    timeout_ms: 1000,
+                    max_size: 1024,
+                    script_path: self.script_url.clone(),
+                    tag: "controlled-tls-script".to_string(),
+                    argument: "Mode=controlled-tls".to_string(),
+                }),
+                audits: Vec::new(),
+                diagnostics: Vec::new(),
+            })
+        }
+
+        fn audit(&self, plugin_result: &PluginResult) -> Vec<AuditEvent> {
+            plugin_result.audits.clone()
+        }
+    }
+
+    fn test_ca_material() -> (String, String, Vec<u8>) {
+        let mut distinguished_name = DistinguishedName::new();
+        distinguished_name.push(DnType::CommonName, "NetworkCore controlled TLS test CA");
+        distinguished_name.push(DnType::OrganizationName, "AnixOps NetworkCore");
+        let mut params = CertificateParams::default();
+        params.distinguished_name = distinguished_name;
+        params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        params.key_usages = vec![
+            KeyUsagePurpose::KeyCertSign,
+            KeyUsagePurpose::CrlSign,
+            KeyUsagePurpose::DigitalSignature,
+        ];
+        let key_pair = KeyPair::generate().expect("test CA key should generate");
+        let certificate = params
+            .self_signed(&key_pair)
+            .expect("test CA certificate should self-sign");
+        (
+            certificate.pem(),
+            key_pair.serialize_pem(),
+            certificate.der().as_ref().to_vec(),
+        )
+    }
+
+    fn issue_test_leaf(
+        ca_certificate_pem: &str,
+        ca_private_key_pem: &str,
+        host: &str,
+    ) -> (Vec<u8>, Vec<u8>) {
+        let issuer_key =
+            KeyPair::from_pem(ca_private_key_pem).expect("test CA private key should parse");
+        let issuer = Issuer::from_ca_cert_pem(ca_certificate_pem, issuer_key)
+            .expect("test CA certificate should parse");
+        let mut params = CertificateParams::new(vec![host.to_string()])
+            .expect("test leaf authority should encode");
+        params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
+        let key_pair = KeyPair::generate().expect("test leaf key should generate");
+        let certificate = params
+            .signed_by(&key_pair, &issuer)
+            .expect("test leaf should sign");
+        (
+            certificate.der().as_ref().to_vec(),
+            key_pair.serialize_der(),
+        )
+    }
+
+    fn test_server_config(certificate_der: Vec<u8>, private_key_der: Vec<u8>) -> Arc<ServerConfig> {
+        let mut config =
+            ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+                .expect("test rustls provider should support TLS 1.2 and TLS 1.3")
+                .with_no_client_auth()
+                .with_single_cert(
+                    vec![CertificateDer::from(certificate_der)],
+                    PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(private_key_der)),
+                )
+                .expect("test leaf key should match test leaf certificate");
+        config.alpn_protocols = vec![b"http/1.1".to_vec()];
+        Arc::new(config)
+    }
+
+    fn test_client_config(certificate_der: Vec<u8>) -> Arc<ClientConfig> {
+        let mut roots = RootCertStore::empty();
+        roots
+            .add(CertificateDer::from(certificate_der))
+            .expect("test CA should be a valid trust anchor");
+        let mut config =
+            ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
+                .expect("test rustls provider should support TLS 1.2 and TLS 1.3")
+                .with_root_certificates(roots)
+                .with_no_client_auth();
+        config.alpn_protocols = vec![b"http/1.1".to_vec()];
+        Arc::new(config)
+    }
 }
