@@ -55,15 +55,14 @@ use networkcore_linux::{
     LinuxBrowserCaptureVerifyOutcome, LinuxBrowserCaptureVerifyRequest, LinuxCliCommand,
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
-    ManagedForegroundSessionStatusRequest, ManagedForegroundSessionStatusWriteRequest,
-    ManagedForegroundSessionStatusTransitionRequest,
-    MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
-    SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
-    SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
-    SubscriptionCatalogSelectRequest, SubscriptionCatalogUpdateRequest,
-    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
-    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
-    CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+    ManagedForegroundSessionStatusRequest, ManagedForegroundSessionStatusTransitionRequest,
+    ManagedForegroundSessionStatusWriteRequest, MitmCertificateArtifactStore,
+    MitmCertificateRollbackSnapshot, OutputFormat, SubscriptionCatalogAddRequest,
+    SubscriptionCatalogListRequest, SubscriptionCatalogRemoveRequest,
+    SubscriptionCatalogRollbackRequest, SubscriptionCatalogSelectRequest,
+    SubscriptionCatalogUpdateRequest, UnavailableForegroundLifecycleHost,
+    UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
+    CLI_CONFIG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE,
@@ -360,7 +359,8 @@ fn managed_foreground_session_status_transition_writes_snapshot_and_rejects_stal
         std::process::id()
     ));
     let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).expect("managed status transition test directory should be created");
+    std::fs::create_dir_all(&root)
+        .expect("managed status transition test directory should be created");
     let status_path = root.join("session-status.json");
     let snapshot_path = root.join("session-status.snapshot.json");
     let initial_record = r#"{
@@ -391,7 +391,8 @@ fn managed_foreground_session_status_transition_writes_snapshot_and_rejects_stal
     .expect("managed status record should be valid JSON");
     assert_eq!(current["state"], "running");
     assert_eq!(
-        std::fs::read_to_string(&snapshot_path).expect("managed status snapshot should be readable"),
+        std::fs::read_to_string(&snapshot_path)
+            .expect("managed status snapshot should be readable"),
         initial_record
     );
 
@@ -416,7 +417,8 @@ fn managed_foreground_session_status_transition_writes_snapshot_and_rejects_stal
     );
     assert!(!stale_snapshot_path.exists());
 
-    std::fs::remove_dir_all(&root).expect("managed status transition test directory should be removed");
+    std::fs::remove_dir_all(&root)
+        .expect("managed status transition test directory should be removed");
 }
 
 #[test]

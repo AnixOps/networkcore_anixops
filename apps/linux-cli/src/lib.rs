@@ -1482,7 +1482,8 @@ impl CommandManagedForegroundSessionStore {
         request: &ManagedForegroundSessionStatusTransitionRequest,
     ) -> DomainResult<ManagedForegroundSessionStatusTransitionReport> {
         let status_path = required_managed_foreground_status_path(&request.status_path)?;
-        let snapshot_path = required_managed_foreground_status_snapshot_path(&request.snapshot_path)?;
+        let snapshot_path =
+            required_managed_foreground_status_snapshot_path(&request.snapshot_path)?;
         if status_path == snapshot_path {
             return Err(DomainError::new(
                 CLI_MANAGED_FOREGROUND_STATUS_PATH_CONFLICT_CODE,
@@ -1998,14 +1999,13 @@ fn read_managed_foreground_session_status_file(
             format!("failed to read managed foreground status record {path}: {error}"),
         )
     })?;
-    let record = serde_json::from_str::<ManagedForegroundSessionStatusFile>(&contents).map_err(
-        |error| {
+    let record =
+        serde_json::from_str::<ManagedForegroundSessionStatusFile>(&contents).map_err(|error| {
             DomainError::new(
                 CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE,
                 format!("failed to parse managed foreground status record {path}: {error}"),
             )
-        },
-    )?;
+        })?;
     validate_managed_foreground_session_status_file(&record)?;
     Ok((record, contents))
 }
