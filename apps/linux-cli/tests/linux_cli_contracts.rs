@@ -511,6 +511,108 @@ fn managed_foreground_session_status_cli_reads_explicit_record_without_liveness_
 }
 
 #[test]
+fn managed_foreground_session_status_cli_initializes_non_overwriting_record() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-status-cli-init-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("managed status CLI init directory should be created");
+    let status_path = root.join("session-status.json");
+    let status_path_text = status_path
+        .to_str()
+        .expect("managed status path should be UTF-8");
+    let command = parse_args([
+        "managed-status",
+        "init",
+        status_path_text,
+        "session-cli-init",
+        "native",
+        "starting",
+        "--format",
+        "json",
+    ])
+    .expect("managed-status init command should parse");
+    assert!(matches!(
+        &command,
+        LinuxCliCommand::ManagedStatusInit {
+            format: OutputFormat::Json,
+            ..
+        }
+    ));
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let response = handle_entrypoint(command, &platform);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "managed-status init");
+    let report = response
+        .managed_foreground_status_write
+        .as_ref()
+        .expect("managed status init response should include the write report");
+    assert_eq!(report.session_id, "session-cli-init");
+    assert_eq!(report.engine_id, "native");
+    assert_eq!(report.state, "starting");
+    assert!(report.record_written);
+    assert!(!report.liveness_verified);
+    let record: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&status_path)
+            .expect("managed status CLI init record should be readable"),
+    )
+    .expect("managed status CLI init record should be valid JSON");
+    assert_eq!(record["schema_version"], 1);
+    assert_eq!(record["session_id"], "session-cli-init");
+    assert_eq!(record["engine_id"], "native");
+    assert_eq!(record["state"], "starting");
+    let text = render_response(&response, OutputFormat::Text);
+    assert!(text.contains("managed foreground status record written: true"));
+    assert!(text.contains("managed foreground liveness verified: false"));
+    let json: serde_json::Value =
+        serde_json::from_str(&render_response(&response, OutputFormat::Json))
+            .expect("managed status init response should render JSON");
+    assert_eq!(
+        json["managed_foreground_status_write"]["session_id"],
+        "session-cli-init"
+    );
+    assert_eq!(
+        json["managed_foreground_status_write"]["record_written"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        json["managed_foreground_status_write"]["liveness_verified"].as_bool(),
+        Some(false)
+    );
+
+    let before_duplicate =
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable");
+    let duplicate = handle_entrypoint(
+        parse_args([
+            "managed-status",
+            "init",
+            status_path_text,
+            "next-session",
+            "native",
+            "stopped",
+        ])
+        .expect("duplicate managed-status init command should parse"),
+        &platform,
+    );
+    assert!(!duplicate.ok);
+    assert_eq!(duplicate.exit_code, LinuxCliExitCode::GeneralFailure);
+    assert_diagnostic(
+        &duplicate.diagnostics,
+        "cli.linux.managed_foreground_status.write_failed",
+    );
+    assert_eq!(
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable"),
+        before_duplicate
+    );
+
+    std::fs::remove_dir_all(&root)
+        .expect("managed status CLI init directory should be removed");
+}
+
+#[test]
 fn subscription_catalog_list_reads_and_redacts_sources() {
     let root = std::env::temp_dir().join(format!(
         "networkcore-subscription-catalog-list-contract-{}",
