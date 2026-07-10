@@ -104,6 +104,14 @@ pub const CLI_MANAGED_FOREGROUND_STATUS_SCHEMA_UNSUPPORTED_CODE: &str =
     "cli.linux.managed_foreground_status.schema_unsupported";
 pub const CLI_MANAGED_FOREGROUND_STATUS_RECORD_INVALID_CODE: &str =
     "cli.linux.managed_foreground_status.record_invalid";
+pub const CLI_MANAGED_FOREGROUND_EVENT_PATH_MISSING_CODE: &str =
+    "cli.linux.managed_foreground_event.path_missing";
+pub const CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE: &str =
+    "cli.linux.managed_foreground_event.read_failed";
+pub const CLI_MANAGED_FOREGROUND_EVENT_SCHEMA_UNSUPPORTED_CODE: &str =
+    "cli.linux.managed_foreground_event.schema_unsupported";
+pub const CLI_MANAGED_FOREGROUND_EVENT_RECORD_INVALID_CODE: &str =
+    "cli.linux.managed_foreground_event.record_invalid";
 pub const CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE: &str =
     "cli.linux.stop.unavailable_without_daemon";
 pub const CLI_STATUS_NO_RUNTIME_CONTEXT_CODE: &str = "cli.linux.status.no_runtime_context";
@@ -275,6 +283,7 @@ pub const SOURCE_CLI_STATUS: &str = "cli.status";
 pub const SOURCE_CLI_RUNTIME: &str = "cli.runtime";
 pub const SUBSCRIPTION_CATALOG_SCHEMA_VERSION: u32 = 1;
 pub const MANAGED_FOREGROUND_SESSION_STATUS_SCHEMA_VERSION: u32 = 1;
+pub const MANAGED_FOREGROUND_SESSION_EVENT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OutputFormat {
@@ -1477,6 +1486,23 @@ pub struct ManagedForegroundSessionStatusTransitionReport {
     pub liveness_verified: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionEventRequest {
+    pub event_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionEventReport {
+    pub event_path: String,
+    pub session_id: String,
+    pub engine_id: String,
+    pub event_id: String,
+    pub event_kind: String,
+    pub state: String,
+    pub recorded_at: String,
+    pub liveness_verified: bool,
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CommandManagedForegroundSessionStore;
 
@@ -1609,6 +1635,34 @@ impl CommandManagedForegroundSessionStore {
             previous_state,
             state: next_state,
             snapshot_written: true,
+            liveness_verified: false,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CommandManagedForegroundSessionEventStore;
+
+impl CommandManagedForegroundSessionEventStore {
+    pub const fn new() -> Self {
+        Self
+    }
+
+    pub fn read_event(
+        &self,
+        request: &ManagedForegroundSessionEventRequest,
+    ) -> DomainResult<ManagedForegroundSessionEventReport> {
+        let event_path = required_managed_foreground_event_path(&request.event_path)?;
+        let record = read_managed_foreground_session_event_file(&event_path)?;
+
+        Ok(ManagedForegroundSessionEventReport {
+            event_path,
+            session_id: record.session_id.trim().to_string(),
+            engine_id: record.engine_id.trim().to_string(),
+            event_id: record.event_id.trim().to_string(),
+            event_kind: record.event_kind.trim().to_string(),
+            state: record.state.trim().to_string(),
+            recorded_at: record.recorded_at.trim().to_string(),
             liveness_verified: false,
         })
     }
@@ -2015,6 +2069,17 @@ struct ManagedForegroundSessionStatusFile {
     state: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ManagedForegroundSessionEventFile {
+    schema_version: u32,
+    session_id: String,
+    engine_id: String,
+    event_id: String,
+    event_kind: String,
+    state: String,
+    recorded_at: String,
+}
+
 fn required_subscription_catalog_path(
     path: &str,
     code: &'static str,
@@ -2049,6 +2114,17 @@ fn required_managed_foreground_status_snapshot_path(path: &str) -> DomainResult<
     Ok(path.to_string())
 }
 
+fn required_managed_foreground_event_path(path: &str) -> DomainResult<String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_PATH_MISSING_CODE,
+            "managed foreground event path cannot be empty",
+        ));
+    }
+    Ok(path.to_string())
+}
+
 fn read_managed_foreground_session_status_file(
     path: &str,
 ) -> DomainResult<(ManagedForegroundSessionStatusFile, String)> {
@@ -2067,6 +2143,27 @@ fn read_managed_foreground_session_status_file(
         })?;
     validate_managed_foreground_session_status_file(&record)?;
     Ok((record, contents))
+}
+
+fn read_managed_foreground_session_event_file(
+    path: &str,
+) -> DomainResult<ManagedForegroundSessionEventFile> {
+    let contents = std::fs::read_to_string(path).map_err(|error| {
+        DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+            format!("failed to read managed foreground event record {path}: {error}"),
+        )
+    })?;
+    let record = serde_json::from_str::<ManagedForegroundSessionEventFile>(&contents).map_err(
+        |error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+                format!("failed to parse managed foreground event record {path}: {error}"),
+            )
+        },
+    )?;
+    validate_managed_foreground_session_event_file(&record)?;
+    Ok(record)
 }
 
 fn required_managed_foreground_status_state(
@@ -2107,6 +2204,42 @@ fn validate_managed_foreground_session_status_file(
         &record.state,
         CLI_MANAGED_FOREGROUND_STATUS_RECORD_INVALID_CODE,
         "managed foreground status record contains an unsupported state",
+    )?;
+    Ok(())
+}
+
+fn validate_managed_foreground_session_event_file(
+    record: &ManagedForegroundSessionEventFile,
+) -> DomainResult<()> {
+    if record.schema_version != MANAGED_FOREGROUND_SESSION_EVENT_SCHEMA_VERSION {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_SCHEMA_UNSUPPORTED_CODE,
+            "managed foreground event schema version is unsupported",
+        ));
+    }
+    if record.session_id.trim().is_empty()
+        || record.engine_id.trim().is_empty()
+        || record.event_id.trim().is_empty()
+        || record.recorded_at.trim().is_empty()
+    {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_RECORD_INVALID_CODE,
+            "managed foreground event record contains an empty required identifier or timestamp",
+        ));
+    }
+    if !matches!(
+        record.event_kind.trim(),
+        "session_started" | "status_transition" | "session_stopped" | "session_failed"
+    ) {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_RECORD_INVALID_CODE,
+            "managed foreground event record contains an unsupported event kind",
+        ));
+    }
+    required_managed_foreground_status_state(
+        &record.state,
+        CLI_MANAGED_FOREGROUND_EVENT_RECORD_INVALID_CODE,
+        "managed foreground event record contains an unsupported state",
     )?;
     Ok(())
 }

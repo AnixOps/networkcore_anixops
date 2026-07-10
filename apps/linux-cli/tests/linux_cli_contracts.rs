@@ -45,7 +45,8 @@ use networkcore_linux::{
     render_response, BrowserCaptureEndpointProbe, BrowserCapturePacFileStore,
     BrowserCaptureProcessRunner, BrowserCaptureTrafficProofProbe,
     CommandBrowserCaptureEndpointProbe, CommandBrowserCaptureTrafficProofProbe,
-    CommandManagedForegroundSessionStore, CommandSubscriptionCatalogStore, ConfigReadError,
+    CommandManagedForegroundSessionEventStore, CommandManagedForegroundSessionStore,
+    CommandSubscriptionCatalogStore, ConfigReadError,
     ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
@@ -55,8 +56,9 @@ use networkcore_linux::{
     LinuxBrowserCaptureVerifyOutcome, LinuxBrowserCaptureVerifyRequest, LinuxCliCommand,
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
-    ManagedForegroundSessionStatusRequest, ManagedForegroundSessionStatusTransitionRequest,
-    ManagedForegroundSessionStatusWriteRequest, MitmCertificateArtifactStore,
+    ManagedForegroundSessionEventRequest, ManagedForegroundSessionStatusRequest,
+    ManagedForegroundSessionStatusTransitionRequest, ManagedForegroundSessionStatusWriteRequest,
+    MitmCertificateArtifactStore,
     MitmCertificateRollbackSnapshot, OutputFormat, SubscriptionCatalogAddRequest,
     SubscriptionCatalogListRequest, SubscriptionCatalogRemoveRequest,
     SubscriptionCatalogRollbackRequest, SubscriptionCatalogSelectRequest,
@@ -294,6 +296,59 @@ fn managed_foreground_session_status_reads_explicit_record_without_liveness_clai
     );
 
     std::fs::remove_dir_all(&root).expect("managed status test directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_event_reads_explicit_record_without_liveness_claim() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-event-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("managed event test directory should be created");
+    let event_path = root.join("session-event.json");
+    std::fs::write(
+        &event_path,
+        r#"{
+  "schema_version": 1,
+  "session_id": " current-session ",
+  "engine_id": " native ",
+  "event_id": " event-1 ",
+  "event_kind": " status_transition ",
+  "state": " running ",
+  "recorded_at": " 2026-07-10T00:00:00Z "
+}"#,
+    )
+    .expect("managed event record should be written");
+    let before_read =
+        std::fs::read_to_string(&event_path).expect("managed event record should be readable");
+
+    let report = CommandManagedForegroundSessionEventStore::new()
+        .read_event(&ManagedForegroundSessionEventRequest {
+            event_path: event_path.display().to_string(),
+        })
+        .expect("managed event record should be read");
+
+    assert_eq!(report.session_id, "current-session");
+    assert_eq!(report.engine_id, "native");
+    assert_eq!(report.event_id, "event-1");
+    assert_eq!(report.event_kind, "status_transition");
+    assert_eq!(report.state, "running");
+    assert_eq!(report.recorded_at, "2026-07-10T00:00:00Z");
+    assert!(!report.liveness_verified);
+    assert_eq!(
+        std::fs::read_to_string(&event_path).expect("managed event record should be readable"),
+        before_read
+    );
+
+    let missing = CommandManagedForegroundSessionEventStore::new()
+        .read_event(&ManagedForegroundSessionEventRequest {
+            event_path: root.join("missing-event.json").display().to_string(),
+        })
+        .expect_err("missing managed event record should be rejected");
+    assert_eq!(missing.code, "cli.linux.managed_foreground_event.read_failed");
+
+    std::fs::remove_dir_all(&root).expect("managed event test directory should be removed");
 }
 
 #[test]
