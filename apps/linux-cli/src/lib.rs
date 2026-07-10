@@ -108,6 +108,8 @@ pub const CLI_MANAGED_FOREGROUND_EVENT_PATH_MISSING_CODE: &str =
     "cli.linux.managed_foreground_event.path_missing";
 pub const CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE: &str =
     "cli.linux.managed_foreground_event.read_failed";
+pub const CLI_MANAGED_FOREGROUND_EVENT_WRITE_FAILED_CODE: &str =
+    "cli.linux.managed_foreground_event.write_failed";
 pub const CLI_MANAGED_FOREGROUND_EVENT_SCHEMA_UNSUPPORTED_CODE: &str =
     "cli.linux.managed_foreground_event.schema_unsupported";
 pub const CLI_MANAGED_FOREGROUND_EVENT_RECORD_INVALID_CODE: &str =
@@ -1510,6 +1512,17 @@ pub struct ManagedForegroundSessionEventRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionEventWriteRequest {
+    pub event_path: String,
+    pub session_id: String,
+    pub engine_id: String,
+    pub event_id: String,
+    pub event_kind: String,
+    pub state: String,
+    pub recorded_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedForegroundSessionEventReport {
     pub event_path: String,
     pub session_id: String,
@@ -1518,6 +1531,19 @@ pub struct ManagedForegroundSessionEventReport {
     pub event_kind: String,
     pub state: String,
     pub recorded_at: String,
+    pub liveness_verified: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionEventWriteReport {
+    pub event_path: String,
+    pub session_id: String,
+    pub engine_id: String,
+    pub event_id: String,
+    pub event_kind: String,
+    pub state: String,
+    pub recorded_at: String,
+    pub record_written: bool,
     pub liveness_verified: bool,
 }
 
@@ -1681,6 +1707,47 @@ impl CommandManagedForegroundSessionEventStore {
             event_kind: record.event_kind.trim().to_string(),
             state: record.state.trim().to_string(),
             recorded_at: record.recorded_at.trim().to_string(),
+            liveness_verified: false,
+        })
+    }
+
+    pub fn write_event(
+        &self,
+        request: &ManagedForegroundSessionEventWriteRequest,
+    ) -> DomainResult<ManagedForegroundSessionEventWriteReport> {
+        let event_path = required_managed_foreground_event_path(&request.event_path)?;
+        let record = ManagedForegroundSessionEventFile {
+            schema_version: MANAGED_FOREGROUND_SESSION_EVENT_SCHEMA_VERSION,
+            session_id: request.session_id.trim().to_string(),
+            engine_id: request.engine_id.trim().to_string(),
+            event_id: request.event_id.trim().to_string(),
+            event_kind: request.event_kind.trim().to_string(),
+            state: request.state.trim().to_string(),
+            recorded_at: request.recorded_at.trim().to_string(),
+        };
+        validate_managed_foreground_session_event_file(&record)?;
+        let record_json = serde_json::to_string_pretty(&record).map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_EVENT_WRITE_FAILED_CODE,
+                format!("failed to render managed foreground event record: {error}"),
+            )
+        })?;
+        write_new_file(
+            &event_path,
+            record_json.as_bytes(),
+            CLI_MANAGED_FOREGROUND_EVENT_WRITE_FAILED_CODE,
+            "managed foreground event record",
+        )?;
+
+        Ok(ManagedForegroundSessionEventWriteReport {
+            event_path,
+            session_id: record.session_id,
+            engine_id: record.engine_id,
+            event_id: record.event_id,
+            event_kind: record.event_kind,
+            state: record.state,
+            recorded_at: record.recorded_at,
+            record_written: true,
             liveness_verified: false,
         })
     }

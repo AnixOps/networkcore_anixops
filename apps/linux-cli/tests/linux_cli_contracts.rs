@@ -56,8 +56,9 @@ use networkcore_linux::{
     LinuxBrowserCaptureVerifyOutcome, LinuxBrowserCaptureVerifyRequest, LinuxCliCommand,
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
-    ManagedForegroundSessionEventRequest, ManagedForegroundSessionStatusRequest,
-    ManagedForegroundSessionStatusTransitionRequest, ManagedForegroundSessionStatusWriteRequest,
+    ManagedForegroundSessionEventRequest, ManagedForegroundSessionEventWriteRequest,
+    ManagedForegroundSessionStatusRequest, ManagedForegroundSessionStatusTransitionRequest,
+    ManagedForegroundSessionStatusWriteRequest,
     MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
     SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
     SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
@@ -352,6 +353,74 @@ fn managed_foreground_session_event_reads_explicit_record_without_liveness_claim
     );
 
     std::fs::remove_dir_all(&root).expect("managed event test directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_event_write_persists_non_overwriting_record() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-event-write-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("managed event write directory should be created");
+    let event_path = root.join("session-event.json");
+    let store = CommandManagedForegroundSessionEventStore::new();
+
+    let report = store
+        .write_event(&ManagedForegroundSessionEventWriteRequest {
+            event_path: event_path.display().to_string(),
+            session_id: " session-write ".to_string(),
+            engine_id: " native ".to_string(),
+            event_id: " event-write-1 ".to_string(),
+            event_kind: " status_transition ".to_string(),
+            state: " running ".to_string(),
+            recorded_at: " 2026-07-10T00:00:00Z ".to_string(),
+        })
+        .expect("managed event record should be written");
+
+    assert_eq!(report.session_id, "session-write");
+    assert_eq!(report.engine_id, "native");
+    assert_eq!(report.event_id, "event-write-1");
+    assert_eq!(report.event_kind, "status_transition");
+    assert_eq!(report.state, "running");
+    assert_eq!(report.recorded_at, "2026-07-10T00:00:00Z");
+    assert!(report.record_written);
+    assert!(!report.liveness_verified);
+    let record: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&event_path).expect("managed event record should be readable"),
+    )
+    .expect("managed event record should be valid JSON");
+    assert_eq!(record["schema_version"], 1);
+    assert_eq!(record["session_id"], "session-write");
+    assert_eq!(record["engine_id"], "native");
+    assert_eq!(record["event_id"], "event-write-1");
+    assert_eq!(record["event_kind"], "status_transition");
+    assert_eq!(record["state"], "running");
+    assert_eq!(record["recorded_at"], "2026-07-10T00:00:00Z");
+
+    let before_duplicate =
+        std::fs::read_to_string(&event_path).expect("managed event record should be readable");
+    let duplicate = store
+        .write_event(&ManagedForegroundSessionEventWriteRequest {
+            event_path: event_path.display().to_string(),
+            session_id: "next-session".to_string(),
+            engine_id: "native".to_string(),
+            event_id: "event-write-2".to_string(),
+            event_kind: "session_stopped".to_string(),
+            state: "stopped".to_string(),
+            recorded_at: "2026-07-10T00:01:00Z".to_string(),
+        })
+        .expect_err("existing managed event record should not be overwritten");
+    assert_eq!(
+        duplicate.code,
+        "cli.linux.managed_foreground_event.write_failed"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&event_path).expect("managed event record should be readable"),
+        before_duplicate
+    );
+
+    std::fs::remove_dir_all(&root).expect("managed event write directory should be removed");
 }
 
 #[test]
