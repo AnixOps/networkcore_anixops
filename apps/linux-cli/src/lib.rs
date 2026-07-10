@@ -94,12 +94,16 @@ pub const CLI_MANAGED_FOREGROUND_STATUS_SNAPSHOT_PATH_MISSING_CODE: &str =
     "cli.linux.managed_foreground_status.snapshot_path_missing";
 pub const CLI_MANAGED_FOREGROUND_STATUS_PATH_CONFLICT_CODE: &str =
     "cli.linux.managed_foreground_status.path_conflict";
+pub const CLI_MANAGED_FOREGROUND_STATUS_SNAPSHOT_READ_FAILED_CODE: &str =
+    "cli.linux.managed_foreground_status.snapshot_read_failed";
 pub const CLI_MANAGED_FOREGROUND_STATUS_SNAPSHOT_WRITE_FAILED_CODE: &str =
     "cli.linux.managed_foreground_status.snapshot_write_failed";
 pub const CLI_MANAGED_FOREGROUND_STATUS_STATE_CONFLICT_CODE: &str =
     "cli.linux.managed_foreground_status.state_conflict";
 pub const CLI_MANAGED_FOREGROUND_STATUS_TRANSITION_INVALID_CODE: &str =
     "cli.linux.managed_foreground_status.transition_invalid";
+pub const CLI_MANAGED_FOREGROUND_STATUS_ROLLBACK_INVALID_CODE: &str =
+    "cli.linux.managed_foreground_status.rollback_invalid";
 pub const CLI_MANAGED_FOREGROUND_STATUS_SCHEMA_UNSUPPORTED_CODE: &str =
     "cli.linux.managed_foreground_status.schema_unsupported";
 pub const CLI_MANAGED_FOREGROUND_STATUS_RECORD_INVALID_CODE: &str =
@@ -1499,6 +1503,13 @@ pub struct ManagedForegroundSessionStatusTransitionRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionStatusRollbackRequest {
+    pub status_path: String,
+    pub snapshot_path: String,
+    pub expected_state: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedForegroundSessionStatusReport {
     pub status_path: String,
     pub session_id: String,
@@ -1526,6 +1537,18 @@ pub struct ManagedForegroundSessionStatusTransitionReport {
     pub previous_state: String,
     pub state: String,
     pub snapshot_written: bool,
+    pub liveness_verified: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionStatusRollbackReport {
+    pub status_path: String,
+    pub snapshot_path: String,
+    pub session_id: String,
+    pub engine_id: String,
+    pub previous_state: String,
+    pub state: String,
+    pub snapshot_retained: bool,
     pub liveness_verified: bool,
 }
 
@@ -1702,6 +1725,64 @@ impl CommandManagedForegroundSessionStore {
             previous_state,
             state: next_state,
             snapshot_written: true,
+            liveness_verified: false,
+        })
+    }
+
+    pub fn rollback_status(
+        &self,
+        request: &ManagedForegroundSessionStatusRollbackRequest,
+    ) -> DomainResult<ManagedForegroundSessionStatusRollbackReport> {
+        let status_path = required_managed_foreground_status_path(&request.status_path)?;
+        let snapshot_path =
+            required_managed_foreground_status_snapshot_path(&request.snapshot_path)?;
+        if status_path == snapshot_path {
+            return Err(DomainError::new(
+                CLI_MANAGED_FOREGROUND_STATUS_PATH_CONFLICT_CODE,
+                "managed foreground status and rollback snapshot paths must differ",
+            ));
+        }
+
+        let expected_state = required_managed_foreground_status_state(
+            &request.expected_state,
+            CLI_MANAGED_FOREGROUND_STATUS_ROLLBACK_INVALID_CODE,
+            "managed foreground rollback expected state is unsupported",
+        )?;
+        let (current_record, _) = read_managed_foreground_session_status_file(&status_path)?;
+        let previous_state = current_record.state.trim().to_string();
+        if previous_state != expected_state {
+            return Err(DomainError::new(
+                CLI_MANAGED_FOREGROUND_STATUS_STATE_CONFLICT_CODE,
+                "managed foreground status record did not match the expected rollback state",
+            ));
+        }
+
+        let (snapshot_record, snapshot_contents) =
+            read_managed_foreground_session_status_snapshot_file(&snapshot_path)?;
+        if current_record.session_id.trim() != snapshot_record.session_id.trim()
+            || current_record.engine_id.trim() != snapshot_record.engine_id.trim()
+        {
+            return Err(DomainError::new(
+                CLI_MANAGED_FOREGROUND_STATUS_ROLLBACK_INVALID_CODE,
+                "managed foreground rollback snapshot does not match the status record session",
+            ));
+        }
+
+        write_replace_file(
+            &status_path,
+            snapshot_contents.as_bytes(),
+            CLI_MANAGED_FOREGROUND_STATUS_WRITE_FAILED_CODE,
+            "managed foreground status record",
+        )?;
+
+        Ok(ManagedForegroundSessionStatusRollbackReport {
+            status_path,
+            snapshot_path,
+            session_id: snapshot_record.session_id.trim().to_string(),
+            engine_id: snapshot_record.engine_id.trim().to_string(),
+            previous_state,
+            state: snapshot_record.state.trim().to_string(),
+            snapshot_retained: true,
             liveness_verified: false,
         })
     }
@@ -2247,6 +2328,26 @@ fn read_managed_foreground_session_status_file(
             DomainError::new(
                 CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE,
                 format!("failed to parse managed foreground status record {path}: {error}"),
+            )
+        })?;
+    validate_managed_foreground_session_status_file(&record)?;
+    Ok((record, contents))
+}
+
+fn read_managed_foreground_session_status_snapshot_file(
+    path: &str,
+) -> DomainResult<(ManagedForegroundSessionStatusFile, String)> {
+    let contents = std::fs::read_to_string(path).map_err(|error| {
+        DomainError::new(
+            CLI_MANAGED_FOREGROUND_STATUS_SNAPSHOT_READ_FAILED_CODE,
+            format!("failed to read managed foreground status snapshot {path}: {error}"),
+        )
+    })?;
+    let record =
+        serde_json::from_str::<ManagedForegroundSessionStatusFile>(&contents).map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_STATUS_SNAPSHOT_READ_FAILED_CODE,
+                format!("failed to parse managed foreground status snapshot {path}: {error}"),
             )
         })?;
     validate_managed_foreground_session_status_file(&record)?;
