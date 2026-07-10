@@ -88,6 +88,8 @@ pub const CLI_MANAGED_FOREGROUND_STATUS_PATH_MISSING_CODE: &str =
     "cli.linux.managed_foreground_status.path_missing";
 pub const CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE: &str =
     "cli.linux.managed_foreground_status.read_failed";
+pub const CLI_MANAGED_FOREGROUND_STATUS_WRITE_FAILED_CODE: &str =
+    "cli.linux.managed_foreground_status.write_failed";
 pub const CLI_MANAGED_FOREGROUND_STATUS_SCHEMA_UNSUPPORTED_CODE: &str =
     "cli.linux.managed_foreground_status.schema_unsupported";
 pub const CLI_MANAGED_FOREGROUND_STATUS_RECORD_INVALID_CODE: &str =
@@ -1360,11 +1362,29 @@ pub struct ManagedForegroundSessionStatusRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionStatusWriteRequest {
+    pub status_path: String,
+    pub session_id: String,
+    pub engine_id: String,
+    pub state: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedForegroundSessionStatusReport {
     pub status_path: String,
     pub session_id: String,
     pub engine_id: String,
     pub state: String,
+    pub liveness_verified: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionStatusWriteReport {
+    pub status_path: String,
+    pub session_id: String,
+    pub engine_id: String,
+    pub state: String,
+    pub record_written: bool,
     pub liveness_verified: bool,
 }
 
@@ -1403,6 +1423,41 @@ impl CommandManagedForegroundSessionStore {
             session_id: record.session_id.trim().to_string(),
             engine_id: record.engine_id.trim().to_string(),
             state: record.state.trim().to_string(),
+            liveness_verified: false,
+        })
+    }
+
+    pub fn write_status(
+        &self,
+        request: &ManagedForegroundSessionStatusWriteRequest,
+    ) -> DomainResult<ManagedForegroundSessionStatusWriteReport> {
+        let status_path = required_managed_foreground_status_path(&request.status_path)?;
+        let record = ManagedForegroundSessionStatusFile {
+            schema_version: MANAGED_FOREGROUND_SESSION_STATUS_SCHEMA_VERSION,
+            session_id: request.session_id.trim().to_string(),
+            engine_id: request.engine_id.trim().to_string(),
+            state: request.state.trim().to_string(),
+        };
+        validate_managed_foreground_session_status_file(&record)?;
+        let record_json = serde_json::to_string_pretty(&record).map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_STATUS_WRITE_FAILED_CODE,
+                format!("failed to render managed foreground status record: {error}"),
+            )
+        })?;
+        write_new_file(
+            &status_path,
+            record_json.as_bytes(),
+            CLI_MANAGED_FOREGROUND_STATUS_WRITE_FAILED_CODE,
+            "managed foreground status record",
+        )?;
+
+        Ok(ManagedForegroundSessionStatusWriteReport {
+            status_path,
+            session_id: record.session_id,
+            engine_id: record.engine_id,
+            state: record.state,
+            record_written: true,
             liveness_verified: false,
         })
     }
@@ -1801,7 +1856,7 @@ struct SubscriptionCatalogSourceFile {
     location: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ManagedForegroundSessionStatusFile {
     schema_version: u32,
     session_id: String,

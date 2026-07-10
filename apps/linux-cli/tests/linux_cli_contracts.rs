@@ -55,7 +55,8 @@ use networkcore_linux::{
     LinuxBrowserCaptureVerifyOutcome, LinuxBrowserCaptureVerifyRequest, LinuxCliCommand,
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
-    ManagedForegroundSessionStatusRequest, MitmCertificateArtifactStore,
+    ManagedForegroundSessionStatusRequest, ManagedForegroundSessionStatusWriteRequest,
+    MitmCertificateArtifactStore,
     MitmCertificateRollbackSnapshot, OutputFormat, SubscriptionCatalogAddRequest,
     SubscriptionCatalogListRequest, SubscriptionCatalogRemoveRequest,
     SubscriptionCatalogRollbackRequest, SubscriptionCatalogSelectRequest,
@@ -293,6 +294,62 @@ fn managed_foreground_session_status_reads_explicit_record_without_liveness_clai
     );
 
     std::fs::remove_dir_all(&root).expect("managed status test directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_status_write_persists_non_overwriting_record() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-status-write-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("managed status write test directory should be created");
+    let status_path = root.join("session-status.json");
+    let store = CommandManagedForegroundSessionStore::new();
+
+    let report = store
+        .write_status(&ManagedForegroundSessionStatusWriteRequest {
+            status_path: status_path.display().to_string(),
+            session_id: " session-write ".to_string(),
+            engine_id: " native ".to_string(),
+            state: " running ".to_string(),
+        })
+        .expect("managed status record should be written");
+
+    assert_eq!(report.session_id, "session-write");
+    assert_eq!(report.engine_id, "native");
+    assert_eq!(report.state, "running");
+    assert!(report.record_written);
+    assert!(!report.liveness_verified);
+    let record: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&status_path).expect("managed status record should be readable"),
+    )
+    .expect("managed status record should be valid JSON");
+    assert_eq!(record["schema_version"], 1);
+    assert_eq!(record["session_id"], "session-write");
+    assert_eq!(record["engine_id"], "native");
+    assert_eq!(record["state"], "running");
+
+    let before_duplicate =
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable");
+    let duplicate = store
+        .write_status(&ManagedForegroundSessionStatusWriteRequest {
+            status_path: status_path.display().to_string(),
+            session_id: "next-session".to_string(),
+            engine_id: "native".to_string(),
+            state: "stopped".to_string(),
+        })
+        .expect_err("existing managed status record should not be overwritten");
+    assert_eq!(
+        duplicate.code,
+        "cli.linux.managed_foreground_status.write_failed"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable"),
+        before_duplicate
+    );
+
+    std::fs::remove_dir_all(&root).expect("managed status write test directory should be removed");
 }
 
 #[test]

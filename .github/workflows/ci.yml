@@ -411,14 +411,22 @@ jobs:
           grep -q "Managed Foreground Session Status Source Contract" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "managed-foreground-session-status-source-contract=active" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "managed-foreground-session-status-operation=status-read" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "managed-foreground-session-status-write-operation=status-write" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "managed-foreground-session-status-liveness-verification=blocked" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "ManagedForegroundSessionStatusRequest" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "ManagedForegroundSessionStatusReport" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "CommandManagedForegroundSessionStore::read_status" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "ManagedForegroundSessionStatusWriteRequest" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "ManagedForegroundSessionStatusWriteReport" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "CommandManagedForegroundSessionStore::write_status" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "ManagedForegroundSessionStatusRequest" apps/linux-cli/src/lib.rs
           grep -q "ManagedForegroundSessionStatusReport" apps/linux-cli/src/lib.rs
           grep -q "fn read_status" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionStatusWriteRequest" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionStatusWriteReport" apps/linux-cli/src/lib.rs
+          grep -q "fn write_status" apps/linux-cli/src/lib.rs
           grep -q "managed_foreground_session_status_reads_explicit_record_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "managed_foreground_session_status_write_persists_non_overwriting_record" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "v0.1.2-alpha.1" README.md
           grep -q "v0.1.2-alpha.1" ROADMAP.md
           grep -q "v0.1.2-alpha.1" TODO.md
