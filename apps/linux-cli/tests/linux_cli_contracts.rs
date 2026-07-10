@@ -58,8 +58,9 @@ use networkcore_linux::{
     LinuxBrowserCaptureVerifyOutcome, LinuxBrowserCaptureVerifyRequest, LinuxCliCommand,
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
-    LinuxNativeMitmRuntimeFileConfig, ManagedForegroundSessionEventRequest,
-    ManagedForegroundSessionEventWriteRequest, ManagedForegroundSessionStatusRequest,
+    LinuxNativeMitmRuntimeFileConfig, ManagedForegroundSessionEventListRequest,
+    ManagedForegroundSessionEventRequest, ManagedForegroundSessionEventWriteRequest,
+    ManagedForegroundSessionStatusRequest,
     ManagedForegroundSessionStatusRollbackRequest, ManagedForegroundSessionStatusTransitionRequest,
     ManagedForegroundSessionStatusWriteRequest, MitmCertificateArtifactStore,
     MitmCertificateRollbackSnapshot, OutputFormat, SubscriptionCatalogAddRequest,
@@ -357,6 +358,112 @@ fn managed_foreground_session_event_reads_explicit_record_without_liveness_claim
     );
 
     std::fs::remove_dir_all(&root).expect("managed event test directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_event_list_reads_explicit_directory_deterministically() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-event-list-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    let event_directory = root.join("events");
+    std::fs::create_dir_all(&event_directory)
+        .expect("managed event list directory should be created");
+    let first_path = event_directory.join("event-a.json");
+    let second_path = event_directory.join("event-b.json");
+    let first_record = r#"{
+  "schema_version": 1,
+  "session_id": "session-list",
+  "engine_id": "native",
+  "event_id": "event-a",
+  "event_kind": "session_started",
+  "state": "starting",
+  "recorded_at": "2026-07-10T00:00:00Z"
+}"#;
+    let second_record = r#"{
+  "schema_version": 1,
+  "session_id": "session-list",
+  "engine_id": "native",
+  "event_id": "event-b",
+  "event_kind": "status_transition",
+  "state": "running",
+  "recorded_at": "2026-07-10T00:01:00Z"
+}"#;
+    std::fs::write(&second_path, second_record)
+        .expect("second managed event record should be written");
+    std::fs::write(&first_path, first_record)
+        .expect("first managed event record should be written");
+    std::fs::write(event_directory.join("ignored.txt"), "not an event")
+        .expect("non-event file should be written");
+    let nested_directory = event_directory.join("nested");
+    std::fs::create_dir_all(&nested_directory)
+        .expect("nested event directory should be created");
+    std::fs::write(nested_directory.join("event-c.json"), second_record)
+        .expect("nested managed event record should be written");
+    let before_first = std::fs::read_to_string(&first_path)
+        .expect("first managed event record should be readable");
+    let before_second = std::fs::read_to_string(&second_path)
+        .expect("second managed event record should be readable");
+
+    let store = CommandManagedForegroundSessionEventStore::new();
+    let report = store
+        .list_events(&ManagedForegroundSessionEventListRequest {
+            event_directory: format!(" {} ", event_directory.display()),
+        })
+        .expect("managed event directory should be listed");
+
+    assert_eq!(report.event_directory, event_directory.display().to_string());
+    assert_eq!(report.event_count, 2);
+    assert!(!report.liveness_verified);
+    assert_eq!(report.events[0].event_id, "event-a");
+    assert_eq!(report.events[0].event_kind, "session_started");
+    assert_eq!(report.events[0].state, "starting");
+    assert_eq!(report.events[1].event_id, "event-b");
+    assert_eq!(report.events[1].event_kind, "status_transition");
+    assert_eq!(report.events[1].state, "running");
+    assert_eq!(
+        report.events[0].event_path,
+        first_path.display().to_string()
+    );
+    assert_eq!(
+        report.events[1].event_path,
+        second_path.display().to_string()
+    );
+    assert_eq!(
+        std::fs::read_to_string(&first_path)
+            .expect("first managed event record should be readable"),
+        before_first
+    );
+    assert_eq!(
+        std::fs::read_to_string(&second_path)
+            .expect("second managed event record should be readable"),
+        before_second
+    );
+
+    std::fs::write(event_directory.join("broken.json"), "not valid JSON")
+        .expect("broken managed event record should be written");
+    let broken = store
+        .list_events(&ManagedForegroundSessionEventListRequest {
+            event_directory: event_directory.display().to_string(),
+        })
+        .expect_err("broken event record should reject the list");
+    assert_eq!(
+        broken.code,
+        "cli.linux.managed_foreground_event.read_failed"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&first_path)
+            .expect("first managed event record should be readable"),
+        before_first
+    );
+    assert_eq!(
+        std::fs::read_to_string(&second_path)
+            .expect("second managed event record should be readable"),
+        before_second
+    );
+
+    std::fs::remove_dir_all(&root).expect("managed event list directory should be removed");
 }
 
 #[test]

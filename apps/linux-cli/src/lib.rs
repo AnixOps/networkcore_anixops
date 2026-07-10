@@ -123,6 +123,8 @@ pub const CLI_MANAGED_FOREGROUND_STATUS_RECORD_INVALID_CODE: &str =
     "cli.linux.managed_foreground_status.record_invalid";
 pub const CLI_MANAGED_FOREGROUND_EVENT_PATH_MISSING_CODE: &str =
     "cli.linux.managed_foreground_event.path_missing";
+pub const CLI_MANAGED_FOREGROUND_EVENT_DIRECTORY_MISSING_CODE: &str =
+    "cli.linux.managed_foreground_event.directory_missing";
 pub const CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE: &str =
     "cli.linux.managed_foreground_event.read_failed";
 pub const CLI_MANAGED_FOREGROUND_EVENT_WRITE_FAILED_CODE: &str =
@@ -1811,6 +1813,11 @@ pub struct ManagedForegroundSessionEventRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionEventListRequest {
+    pub event_directory: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedForegroundSessionEventWriteRequest {
     pub event_path: String,
     pub session_id: String,
@@ -1830,6 +1837,25 @@ pub struct ManagedForegroundSessionEventReport {
     pub event_kind: String,
     pub state: String,
     pub recorded_at: String,
+    pub liveness_verified: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionEventListEntry {
+    pub event_path: String,
+    pub session_id: String,
+    pub engine_id: String,
+    pub event_id: String,
+    pub event_kind: String,
+    pub state: String,
+    pub recorded_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionEventListReport {
+    pub event_directory: String,
+    pub event_count: usize,
+    pub events: Vec<ManagedForegroundSessionEventListEntry>,
     pub liveness_verified: bool,
 }
 
@@ -2064,6 +2090,81 @@ impl CommandManagedForegroundSessionEventStore {
             event_kind: record.event_kind.trim().to_string(),
             state: record.state.trim().to_string(),
             recorded_at: record.recorded_at.trim().to_string(),
+            liveness_verified: false,
+        })
+    }
+
+    pub fn list_events(
+        &self,
+        request: &ManagedForegroundSessionEventListRequest,
+    ) -> DomainResult<ManagedForegroundSessionEventListReport> {
+        let event_directory =
+            required_managed_foreground_event_directory_path(&request.event_directory)?;
+        let entries = std::fs::read_dir(&event_directory).map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+                format!(
+                    "failed to read managed foreground event directory {event_directory}: {error}"
+                ),
+            )
+        })?;
+        let mut event_paths = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(|error| {
+                DomainError::new(
+                    CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+                    format!(
+                        "failed to enumerate managed foreground event directory {event_directory}: {error}"
+                    ),
+                )
+            })?;
+            let file_type = entry.file_type().map_err(|error| {
+                DomainError::new(
+                    CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+                    format!(
+                        "failed to inspect managed foreground event directory {event_directory}: {error}"
+                    ),
+                )
+            })?;
+            let path = entry.path();
+            if !file_type.is_file()
+                || path.extension().and_then(|extension| extension.to_str()) != Some("json")
+            {
+                continue;
+            }
+            event_paths.push(path);
+        }
+        event_paths.sort();
+
+        let events = event_paths
+            .into_iter()
+            .map(|path| {
+                let event_path = path.to_str().ok_or_else(|| {
+                    DomainError::new(
+                        CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+                        format!(
+                            "managed foreground event record path is not valid UTF-8: {}",
+                            path.display()
+                        ),
+                    )
+                })?;
+                let record = read_managed_foreground_session_event_file(event_path)?;
+                Ok(ManagedForegroundSessionEventListEntry {
+                    event_path: event_path.to_string(),
+                    session_id: record.session_id.trim().to_string(),
+                    engine_id: record.engine_id.trim().to_string(),
+                    event_id: record.event_id.trim().to_string(),
+                    event_kind: record.event_kind.trim().to_string(),
+                    state: record.state.trim().to_string(),
+                    recorded_at: record.recorded_at.trim().to_string(),
+                })
+            })
+            .collect::<DomainResult<Vec<_>>>()?;
+
+        Ok(ManagedForegroundSessionEventListReport {
+            event_directory,
+            event_count: events.len(),
+            events,
             liveness_verified: false,
         })
     }
@@ -2562,6 +2663,17 @@ fn required_managed_foreground_event_path(path: &str) -> DomainResult<String> {
         return Err(DomainError::new(
             CLI_MANAGED_FOREGROUND_EVENT_PATH_MISSING_CODE,
             "managed foreground event path cannot be empty",
+        ));
+    }
+    Ok(path.to_string())
+}
+
+fn required_managed_foreground_event_directory_path(path: &str) -> DomainResult<String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_DIRECTORY_MISSING_CODE,
+            "managed foreground event directory cannot be empty",
         ));
     }
     Ok(path.to_string())
