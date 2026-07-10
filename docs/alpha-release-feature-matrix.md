@@ -527,9 +527,9 @@ mutation 和 system proxy mutation。
   catalog/snapshot 路径、schema version 1、重复 source id 拒绝、写前 snapshot、source-not-found 拒绝、
   snapshot 复原/保留和脱敏 report；
   默认路径、远程/file fetch、runtime startup 和 managed lifecycle 仍 blocked。
-- `v0.1.2-alpha.2`：managed foreground lifecycle。当前 main 已完成首个 source-only `read_status` record
-  读取切片：显式 schema version 1 JSON record、recorded state 和 `liveness_verified=false`，不验证 live
-  process、不写 record、不接入 CLI `status` 或 runtime control。后续新增 managed
+- `v0.1.2-alpha.2`：managed foreground lifecycle。当前 main 已完成 source-only `read_status`/`write_status`
+  record 读取/初始非覆盖写入切片：显式 schema version 1 JSON record、recorded state、`record_written=true`
+  和 `liveness_verified=false`，不验证 live process、不接入 CLI `status` 或 runtime control。后续新增 managed
   `status/events/logs/reload/rollback` 命令面；仍不默认安装 daemon/service。
 - `v0.1.2-alpha.3`：JavaScript script dispatch foundation。基于 plugin permission、sandbox/timeout、
   IO guard、audit log 和 CI governance 执行受控 script dispatch。
