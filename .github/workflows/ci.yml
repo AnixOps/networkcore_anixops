@@ -1524,7 +1524,7 @@ jobs:
 
       - name: Audit dependencies
         shell: bash
-        run: cargo audit --locked
+        run: cargo audit
 
   node-build-test:
     name: Node build and test
