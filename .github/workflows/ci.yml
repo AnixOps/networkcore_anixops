@@ -416,9 +416,11 @@ jobs:
           grep -q "managed-foreground-session-status-operation=status-read" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "managed-foreground-session-status-write-operation=status-write" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "managed-foreground-session-status-transition-operation=status-transition" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "managed-foreground-session-status-rollback-operation=status-rollback" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "managed-foreground-session-status-cli-read-operation=managed-status" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "managed-foreground-session-status-cli-init-operation=managed-status-init" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "managed-foreground-session-status-cli-transition-operation=managed-status-transition" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "managed-foreground-session-status-cli-rollback=blocked" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "managed-foreground-session-status-liveness-verification=blocked" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "ManagedForegroundSessionStatusRequest" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "ManagedForegroundSessionStatusReport" docs/architecture/managed-foreground-session-status-source-contract.md
@@ -429,6 +431,9 @@ jobs:
           grep -q "ManagedForegroundSessionStatusTransitionRequest" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "ManagedForegroundSessionStatusTransitionReport" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "CommandManagedForegroundSessionStore::transition_status" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "ManagedForegroundSessionStatusRollbackRequest" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "ManagedForegroundSessionStatusRollbackReport" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "CommandManagedForegroundSessionStore::rollback_status" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "networkcore-linux managed-status" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "Managed Foreground Session Event Source Contract" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-source-contract=active" docs/architecture/managed-foreground-session-event-source-contract.md
@@ -452,6 +457,9 @@ jobs:
           grep -q "ManagedForegroundSessionStatusTransitionRequest" apps/linux-cli/src/lib.rs
           grep -q "ManagedForegroundSessionStatusTransitionReport" apps/linux-cli/src/lib.rs
           grep -q "fn transition_status" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionStatusRollbackRequest" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionStatusRollbackReport" apps/linux-cli/src/lib.rs
+          grep -q "fn rollback_status" apps/linux-cli/src/lib.rs
           grep -q "ManagedStatus" apps/linux-cli/src/lib.rs
           grep -q "fn handle_managed_foreground_status" apps/linux-cli/src/lib.rs
           grep -q "ManagedStatusInit" apps/linux-cli/src/lib.rs
@@ -461,6 +469,7 @@ jobs:
           grep -q "managed_foreground_session_status_reads_explicit_record_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "managed_foreground_session_status_write_persists_non_overwriting_record" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "managed_foreground_session_status_transition_writes_snapshot_and_rejects_stale_state" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "managed_foreground_session_status_rollback_restores_matching_snapshot" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "managed_foreground_session_status_cli_reads_explicit_record_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "managed_foreground_session_status_cli_initializes_non_overwriting_record" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "managed_foreground_session_status_cli_transitions_expected_state_with_snapshot" apps/linux-cli/tests/linux_cli_contracts.rs

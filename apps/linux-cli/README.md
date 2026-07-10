@@ -27,6 +27,12 @@ liveness. `networkcore-linux managed-status transition <status-record-path> <sna
 <next-state>` performs an expected-state transition, writes the original record to a non-overwriting snapshot,
 and reports `snapshot_written=true` without claiming liveness. Their contract tests have passed GitHub Actions.
 
+`CommandManagedForegroundSessionStore::rollback_status` is also available as a source-only v0.1.2-alpha.2
+boundary. It restores an explicit snapshot's original contents only after the current expected state and trimmed
+session/engine identity match, retains the snapshot, and reports `snapshot_retained=true` with
+`liveness_verified=false`. It does not expose a `managed-status rollback` CLI command, inspect a process, or
+control a runtime.
+
 Current `main` also contains the source-only `CommandManagedForegroundSessionEventStore::read_event` and
 `CommandManagedForegroundSessionEventStore::write_event` boundaries for v0.1.2-alpha.2. They read or
 non-overwritingly write one explicit schema version 1 JSON event record with session/engine/event ids, an allowed
