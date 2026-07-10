@@ -58,10 +58,10 @@ use networkcore_linux::{
     MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
     SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
     SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
-    SubscriptionCatalogSelectRequest,
-    SubscriptionCatalogUpdateRequest, UnavailableForegroundLifecycleHost,
-    UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
-    CLI_CONFIG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+    SubscriptionCatalogSelectRequest, SubscriptionCatalogUpdateRequest,
+    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
+    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE,
@@ -452,7 +452,8 @@ fn subscription_catalog_rollback_restores_snapshot_and_retains_snapshot() {
 }"#;
     std::fs::write(&catalog_path, catalog_json).expect("catalog should be written");
     std::fs::write(&snapshot_path, snapshot_json).expect("snapshot should be written");
-    let snapshot_before = std::fs::read_to_string(&snapshot_path).expect("snapshot should be readable");
+    let snapshot_before =
+        std::fs::read_to_string(&snapshot_path).expect("snapshot should be readable");
 
     let report = CommandSubscriptionCatalogStore::new()
         .rollback_catalog(&SubscriptionCatalogRollbackRequest {
