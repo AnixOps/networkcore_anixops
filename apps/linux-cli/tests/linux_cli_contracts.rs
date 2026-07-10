@@ -46,8 +46,8 @@ use networkcore_linux::{
     BrowserCaptureProcessRunner, BrowserCaptureTrafficProofProbe,
     CommandBrowserCaptureEndpointProbe, CommandBrowserCaptureTrafficProofProbe,
     CommandManagedForegroundSessionEventStore, CommandManagedForegroundSessionStore,
-    CommandSubscriptionCatalogStore, ConfigReadError,
-    ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
+    CommandSubscriptionCatalogStore, ConfigReadError, ConfigReader,
+    CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
     LinuxBrowserCaptureLaunchRequest, LinuxBrowserCapturePacApplyOutcome,
@@ -58,13 +58,13 @@ use networkcore_linux::{
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
     ManagedForegroundSessionEventRequest, ManagedForegroundSessionStatusRequest,
     ManagedForegroundSessionStatusTransitionRequest, ManagedForegroundSessionStatusWriteRequest,
-    MitmCertificateArtifactStore,
-    MitmCertificateRollbackSnapshot, OutputFormat, SubscriptionCatalogAddRequest,
-    SubscriptionCatalogListRequest, SubscriptionCatalogRemoveRequest,
-    SubscriptionCatalogRollbackRequest, SubscriptionCatalogSelectRequest,
-    SubscriptionCatalogUpdateRequest, UnavailableForegroundLifecycleHost,
-    UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
-    CLI_CONFIG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+    MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
+    SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
+    SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
+    SubscriptionCatalogSelectRequest, SubscriptionCatalogUpdateRequest,
+    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
+    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE,
@@ -346,7 +346,10 @@ fn managed_foreground_session_event_reads_explicit_record_without_liveness_claim
             event_path: root.join("missing-event.json").display().to_string(),
         })
         .expect_err("missing managed event record should be rejected");
-    assert_eq!(missing.code, "cli.linux.managed_foreground_event.read_failed");
+    assert_eq!(
+        missing.code,
+        "cli.linux.managed_foreground_event.read_failed"
+    );
 
     std::fs::remove_dir_all(&root).expect("managed event test directory should be removed");
 }
