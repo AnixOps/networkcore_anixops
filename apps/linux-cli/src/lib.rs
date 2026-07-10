@@ -4765,7 +4765,9 @@ pub fn handle_managed_foreground_event(event_path: &str) -> LinuxCliResponse {
     match store.read_event(&ManagedForegroundSessionEventRequest {
         event_path: event_path.to_string(),
     }) {
-        Ok(report) => LinuxCliResponse::success("managed-event").with_managed_foreground_event(report),
+        Ok(report) => {
+            LinuxCliResponse::success("managed-event").with_managed_foreground_event(report)
+        }
         Err(error) => {
             let exit_code = if error.code == CLI_MANAGED_FOREGROUND_EVENT_PATH_MISSING_CODE {
                 LinuxCliExitCode::ArgumentOrConfig
@@ -9694,13 +9696,25 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
     }
 
     if let Some(event) = &response.managed_foreground_event {
-        lines.push(format!("managed foreground event record: {}", event.event_path));
+        lines.push(format!(
+            "managed foreground event record: {}",
+            event.event_path
+        ));
         lines.push(format!("managed foreground session: {}", event.session_id));
         lines.push(format!("managed foreground engine: {}", event.engine_id));
         lines.push(format!("managed foreground event id: {}", event.event_id));
-        lines.push(format!("managed foreground event kind: {}", event.event_kind));
-        lines.push(format!("managed foreground recorded state: {}", event.state));
-        lines.push(format!("managed foreground recorded at: {}", event.recorded_at));
+        lines.push(format!(
+            "managed foreground event kind: {}",
+            event.event_kind
+        ));
+        lines.push(format!(
+            "managed foreground recorded state: {}",
+            event.state
+        ));
+        lines.push(format!(
+            "managed foreground recorded at: {}",
+            event.recorded_at
+        ));
         lines.push(format!(
             "managed foreground liveness verified: {}",
             event.liveness_verified

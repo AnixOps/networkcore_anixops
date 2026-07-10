@@ -422,10 +422,7 @@ fn managed_foreground_session_event_cli_reads_explicit_record_without_liveness_c
     let json: serde_json::Value =
         serde_json::from_str(&render_response(&response, OutputFormat::Json))
             .expect("managed event response should render JSON");
-    assert_eq!(
-        json["managed_foreground_event"]["event_id"],
-        "event-cli-1"
-    );
+    assert_eq!(json["managed_foreground_event"]["event_id"], "event-cli-1");
     assert_eq!(
         json["managed_foreground_event"]["event_kind"],
         "status_transition"
