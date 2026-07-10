@@ -212,7 +212,7 @@ Privacy Manifest source、App Review manual confirmation source、iOS upload wor
 后续出现具体代码栈时，应把验证规则加入 GitHub Actions：
 
 - Go 内核：`go test ./...`、`go build ./...`
-- Rust 内核：`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace --all-targets`、`cargo build --workspace --all-targets`、`cargo generate-lockfile`、`cargo audit`
+- Rust 内核：`cargo fmt --all -- --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace --all-targets`、`cargo build --locked --workspace --all-targets`、`cargo metadata --locked --offline --no-deps --format-version=1`、`cargo audit`
 - Node 或 Web 客户端：`npm test`、`npm run build`
 - Swift 或 iOS 客户端：`swift test`、`swift build`、`xcodebuild`
 

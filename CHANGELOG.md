@@ -21,9 +21,9 @@
 - Rust CI matrix 现固定 Node 22 并 checkout pinned `mitm_anixops` submodule，以运行 TLS live-socket 和
   local runner 合同；`Cargo.lock`、CI/release `--locked` 规则仍是发行的前置条件。上述内容只有同 commit
   GitHub Actions 全量通过后才可进入后续 alpha 发行，未声称当前本地环境已完成验证。
-- 固定可复现发布依赖：`Cargo.lock` 现在受版本控制，CI 的 clippy/test/build、dependency audit 和
-  tag-release artifact build 均使用 `--locked`；release workflow 不再临时生成 lockfile。
-  该门禁必须由 GitHub Actions 验证后才能进入发行。
+- 固定可复现发布依赖：`Cargo.lock` 现在受版本控制，CI 的 clippy/test/build 和 tag-release artifact
+  build 均使用 `--locked`；dependency audit 先以 `cargo metadata --locked --offline` 验证已提交 lockfile，
+  再执行 `cargo audit`；release workflow 不再临时生成 lockfile。该门禁必须由 GitHub Actions 验证后才能进入发行。
 - 开始 `v0.1.2-alpha.1` TLS CONNECT authority/SNI hardening：
   `plan_explicit_http_connect_controlled_tls_termination` 现在要求 observed
   ClientHello SNI 与 CONNECT authority 一致，才可报告 controlled downstream

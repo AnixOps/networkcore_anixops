@@ -2751,7 +2751,7 @@ fn http_accept_loop_processes_a_second_connection_while_the_first_is_stalled() {
             .set_nodelay(true)
             .expect("stalled client should disable Nagle buffering");
         stream
-            .write_all(b"GET ")
+            .write_all(b"GET x")
             .expect("stalled client should begin an incomplete HTTP request");
         stalled_started_tx
             .send(())
@@ -2767,6 +2767,7 @@ fn http_accept_loop_processes_a_second_connection_while_the_first_is_stalled() {
     stalled_started_rx
         .recv_timeout(Duration::from_secs(1))
         .expect("stalled client should begin first connection");
+    wait_until_accept_count(&accept_loop, 1);
 
     let mut second_stream = TcpStream::connect(("127.0.0.1", port))
         .expect("second client should connect while the first request is stalled");
