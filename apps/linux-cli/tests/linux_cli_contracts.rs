@@ -458,8 +458,8 @@ fn managed_foreground_session_status_cli_reads_explicit_record_without_liveness_
     ));
     let platform =
         StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
-    let before_read =
-        std::fs::read_to_string(&status_path).expect("managed status CLI record should be readable");
+    let before_read = std::fs::read_to_string(&status_path)
+        .expect("managed status CLI record should be readable");
     let response = handle_entrypoint(command, &platform);
 
     assert!(response.ok);
@@ -473,15 +473,20 @@ fn managed_foreground_session_status_cli_reads_explicit_record_without_liveness_
     assert_eq!(report.state, "running");
     assert!(!report.liveness_verified);
     assert_eq!(
-        std::fs::read_to_string(&status_path).expect("managed status CLI record should be readable"),
+        std::fs::read_to_string(&status_path)
+            .expect("managed status CLI record should be readable"),
         before_read
     );
     let text = render_response(&response, OutputFormat::Text);
     assert!(text.contains("managed foreground recorded state: running"));
     assert!(text.contains("managed foreground liveness verified: false"));
-    let json: serde_json::Value = serde_json::from_str(&render_response(&response, OutputFormat::Json))
-        .expect("managed status response should render JSON");
-    assert_eq!(json["managed_foreground_status"]["session_id"], "session-cli");
+    let json: serde_json::Value =
+        serde_json::from_str(&render_response(&response, OutputFormat::Json))
+            .expect("managed status response should render JSON");
+    assert_eq!(
+        json["managed_foreground_status"]["session_id"],
+        "session-cli"
+    );
     assert_eq!(json["managed_foreground_status"]["state"], "running");
     assert_eq!(
         json["managed_foreground_status"]["liveness_verified"].as_bool(),

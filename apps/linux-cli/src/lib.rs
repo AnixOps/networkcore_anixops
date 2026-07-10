@@ -4445,7 +4445,9 @@ pub fn handle_managed_foreground_status(status_path: &str) -> LinuxCliResponse {
     match store.read_status(&ManagedForegroundSessionStatusRequest {
         status_path: status_path.to_string(),
     }) {
-        Ok(report) => LinuxCliResponse::success("managed-status").with_managed_foreground_status(report),
+        Ok(report) => {
+            LinuxCliResponse::success("managed-status").with_managed_foreground_status(report)
+        }
         Err(error) => {
             let exit_code = if error.code == CLI_MANAGED_FOREGROUND_STATUS_PATH_MISSING_CODE {
                 LinuxCliExitCode::ArgumentOrConfig
@@ -9163,10 +9165,16 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
     }
 
     if let Some(status) = &response.managed_foreground_status {
-        lines.push(format!("managed foreground status record: {}", status.status_path));
+        lines.push(format!(
+            "managed foreground status record: {}",
+            status.status_path
+        ));
         lines.push(format!("managed foreground session: {}", status.session_id));
         lines.push(format!("managed foreground engine: {}", status.engine_id));
-        lines.push(format!("managed foreground recorded state: {}", status.state));
+        lines.push(format!(
+            "managed foreground recorded state: {}",
+            status.state
+        ));
         lines.push(format!(
             "managed foreground liveness verified: {}",
             status.liveness_verified
