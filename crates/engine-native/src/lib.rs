@@ -6967,6 +6967,10 @@ mod script_runtime_security_tests {
 #[cfg(test)]
 mod controlled_tls_session_tests {
     use super::*;
+    use control_domain::{
+        GrantedPermissions, HookPoint, HttpEvent, PluginManifest, PluginPackage, PluginPermission,
+        PluginResult,
+    };
     use rcgen::{
         BasicConstraints, CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose,
         IsCa, Issuer, KeyPair, KeyUsagePurpose,
@@ -6976,7 +6980,7 @@ mod controlled_tls_session_tests {
         ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection, StreamOwned,
     };
     use std::collections::BTreeMap;
-    use std::io::{Cursor, Read, Write};
+    use std::io::{Cursor, Write};
     use std::net::{TcpListener, TcpStream};
     use std::sync::Arc;
     use std::thread;
