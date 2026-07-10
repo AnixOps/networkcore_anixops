@@ -60,14 +60,14 @@ use networkcore_linux::{
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
     LinuxNativeMitmRuntimeFileConfig, ManagedForegroundSessionEventRequest,
     ManagedForegroundSessionEventWriteRequest, ManagedForegroundSessionStatusRequest,
-    ManagedForegroundSessionStatusTransitionRequest, ManagedForegroundSessionStatusWriteRequest,
-    MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
-    SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
-    SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
-    SubscriptionCatalogSelectRequest, SubscriptionCatalogUpdateRequest,
-    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
-    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
-    CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+    ManagedForegroundSessionStatusRollbackRequest, ManagedForegroundSessionStatusTransitionRequest,
+    ManagedForegroundSessionStatusWriteRequest, MitmCertificateArtifactStore,
+    MitmCertificateRollbackSnapshot, OutputFormat, SubscriptionCatalogAddRequest,
+    SubscriptionCatalogListRequest, SubscriptionCatalogRemoveRequest,
+    SubscriptionCatalogRollbackRequest, SubscriptionCatalogSelectRequest,
+    SubscriptionCatalogUpdateRequest, UnavailableForegroundLifecycleHost,
+    UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
+    CLI_CONFIG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE,
@@ -759,6 +759,83 @@ fn managed_foreground_session_status_transition_writes_snapshot_and_rejects_stal
 
     std::fs::remove_dir_all(&root)
         .expect("managed status transition test directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_status_rollback_restores_matching_snapshot() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-status-rollback-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root)
+        .expect("managed status rollback test directory should be created");
+    let status_path = root.join("session-status.json");
+    let snapshot_path = root.join("session-status.snapshot.json");
+    let current_record = r#"{
+  "schema_version": 1,
+  "session_id": "session-rollback",
+  "engine_id": "native",
+  "state": "running"
+}"#;
+    let snapshot_record = r#"{
+  "schema_version": 1,
+  "session_id": "session-rollback",
+  "engine_id": "native",
+  "state": "starting"
+}"#;
+    std::fs::write(&status_path, current_record).expect("managed status record should be written");
+    std::fs::write(&snapshot_path, snapshot_record)
+        .expect("managed status snapshot should be written");
+    let store = CommandManagedForegroundSessionStore::new();
+
+    let report = store
+        .rollback_status(&ManagedForegroundSessionStatusRollbackRequest {
+            status_path: status_path.display().to_string(),
+            snapshot_path: snapshot_path.display().to_string(),
+            expected_state: " running ".to_string(),
+        })
+        .expect("managed status rollback should succeed");
+
+    assert_eq!(report.previous_state, "running");
+    assert_eq!(report.state, "starting");
+    assert_eq!(report.session_id, "session-rollback");
+    assert_eq!(report.engine_id, "native");
+    assert!(report.snapshot_retained);
+    assert!(!report.liveness_verified);
+    assert_eq!(
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable"),
+        snapshot_record
+    );
+    assert_eq!(
+        std::fs::read_to_string(&snapshot_path)
+            .expect("managed status snapshot should be readable"),
+        snapshot_record
+    );
+
+    let stale = store
+        .rollback_status(&ManagedForegroundSessionStatusRollbackRequest {
+            status_path: status_path.display().to_string(),
+            snapshot_path: snapshot_path.display().to_string(),
+            expected_state: "running".to_string(),
+        })
+        .expect_err("stale rollback expected state should be rejected");
+    assert_eq!(
+        stale.code,
+        "cli.linux.managed_foreground_status.state_conflict"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable"),
+        snapshot_record
+    );
+    assert_eq!(
+        std::fs::read_to_string(&snapshot_path)
+            .expect("managed status snapshot should be readable"),
+        snapshot_record
+    );
+
+    std::fs::remove_dir_all(&root)
+        .expect("managed status rollback test directory should be removed");
 }
 
 #[test]
