@@ -109,6 +109,7 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Ker
 - [Third-Party Plugin Onboarding Process](docs/architecture/third-party-plugin-onboarding-process.md)
 - [Subscription Catalog Runtime Orchestration Design](docs/architecture/subscription-catalog-runtime-orchestration.md)
 - [Persistent Subscription Catalog Source Contract](docs/architecture/subscription-catalog-persistence-source-contract.md)
+- [Managed Foreground Session Status Source Contract](docs/architecture/managed-foreground-session-status-source-contract.md)
 - [Native Engine Listener And Node Config Design](docs/architecture/native-engine-listener-node-config.md)
 - [Linux Native Proxy Engine Start Design](docs/architecture/linux-native-proxy-engine-start.md)
 
@@ -128,6 +129,7 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Ker
 第四个 `select_source` source-only 切片已加入显式 catalog 读取、source-not-found 拒绝和脱敏 report，并已通过 GitHub Actions 全量 CI；
 第五个 `update_source` source-only 切片已加入 location 更新、写前 snapshot、source-not-found 拒绝和脱敏 report，并已通过 GitHub Actions 全量 CI；
 第六个 `rollback_catalog` source-only 切片已加入显式 snapshot 复原、snapshot 保留、snapshot-not-found 拒绝和脱敏 report，并已通过 GitHub Actions 全量 CI；
+`v0.1.2-alpha.2` 首个 `read_status` source-only 切片已显式读取 schema version 1 managed foreground session record，返回 recorded state 并固定 `liveness_verified=false`，不检查 live process、不写 record、不接入 CLI 或 runtime control；
 默认路径、远程/file fetch、runtime startup 和 managed lifecycle 仍 blocked，
 每个切片的功能完成状态以 GitHub Actions 合同测试为准。
 

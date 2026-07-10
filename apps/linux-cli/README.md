@@ -13,6 +13,11 @@ while retaining that snapshot. These operations are not wired into a CLI command
 default paths, remote/file fetch, and managed lifecycle remain blocked. All six slices have passed their
 GitHub Actions contract tests.
 
+Current `main` also contains the source-only `CommandManagedForegroundSessionStore::read_status` boundary for
+v0.1.2-alpha.2. It reads an explicit schema version 1 session status record and reports only recorded state
+with `liveness_verified=false`; it does not inspect a process, write a record, or wire a CLI/runtime control
+command. Its contract test has passed GitHub Actions.
+
 The crate currently provides:
 
 - Command parsing for the first Linux command surface.

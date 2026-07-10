@@ -107,6 +107,8 @@ P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成，当前阶
 
 v0.1.2-alpha.1 的六个 source-only persistent subscription catalog 切片均已完成并通过 GitHub Actions 全量 CI：`CommandSubscriptionCatalogStore::add_source`、`list_sources`、`remove_source`、`select_source`、`update_source` 和 `rollback_catalog` 固定显式本地 JSON catalog、schema version 1、写前 rollback snapshot、source-not-found/duplicate 拒绝以及 location 脱敏 report；`update` 只替换已存在 source 的 location 并保持 source id，`rollback_catalog` 复原指定 snapshot 并保留该 snapshot。该阶段不执行默认路径扫描、远程或文件订阅读取，也不接入 `start`、节点选择或 managed lifecycle。边界见 [Persistent Subscription Catalog Source Contract](docs/architecture/subscription-catalog-persistence-source-contract.md)。
 
+v0.1.2-alpha.2 已完成首个 source-only managed foreground status record 读取切片：`CommandManagedForegroundSessionStore::read_status` 从显式 schema version 1 JSON record 读取 session id、engine id 和 recorded state，并固定 `liveness_verified=false`。它不验证 PID、端口、socket 或进程存活，不写 record，也不接入 CLI `status`、start、events、logs、reload 或 rollback。边界见 [Managed Foreground Session Status Source Contract](docs/architecture/managed-foreground-session-status-source-contract.md)。
+
 当前文档判定规则：如果后续章节、TODO 已完成项或 CHANGELOG 中出现 P3，只表示当时完成的 runtime baseline 或历史源码合同；不得把这些历史条目解释为当前阶段、当前发布状态或当前开发优先级。
 
 P4 backlog buckets：
