@@ -7,10 +7,8 @@ Current `main` also contains the source-only `CommandSubscriptionCatalogStore::a
 rollback snapshot paths for add, writes schema version 1, rejects duplicate source ids, and returns
 redacted add/list/remove/select reports. These operations are not wired into a CLI command or runtime startup yet;
 default paths, remote/file fetch, and managed lifecycle remain blocked. The add, list,
-`CommandSubscriptionCatalogStore::remove_source`, and `CommandSubscriptionCatalogStore::select_source`
-slices have passed their GitHub Actions contract tests. The
-`CommandSubscriptionCatalogStore::update_source` slice is present in source and awaits its GitHub
-Actions contract test result.
+`CommandSubscriptionCatalogStore::remove_source`, `CommandSubscriptionCatalogStore::select_source`, and
+`CommandSubscriptionCatalogStore::update_source` slices have passed their GitHub Actions contract tests.
 
 The crate currently provides:
 

@@ -523,10 +523,9 @@ mutation 和 system proxy mutation。
 
 - `v0.1.2-alpha.1`：persistent subscription catalog。新增 `add/list/remove/select/update`
   source contract、本地存储、脱敏输出和 rollback snapshot。当前 main 已完成并通过 GitHub Actions
-  验证 source-only `add`、`list`、`remove` 和 `select` 存储切片：显式 catalog/snapshot 路径、schema version 1、
-  重复 source id 拒绝、写前 snapshot、source-not-found 拒绝和脱敏 report；
-  `update` 已加入正在等待 GitHub Actions 验证的 source-only location update 存储切片；默认路径、远程/file fetch、
-  runtime startup 和 managed lifecycle 仍 blocked。
+  验证 source-only `add`、`list`、`remove`、`select` 和 `update` 存储切片：显式 catalog/snapshot 路径、
+  schema version 1、重复 source id 拒绝、写前 snapshot、source-not-found 拒绝和脱敏 report；
+  默认路径、远程/file fetch、runtime startup 和 managed lifecycle 仍 blocked。
 - `v0.1.2-alpha.2`：managed foreground lifecycle。新增 managed `status/events/logs/reload/rollback`
   命令面；仍不默认安装 daemon/service。
 - `v0.1.2-alpha.3`：JavaScript script dispatch foundation。基于 plugin permission、sandbox/timeout、
