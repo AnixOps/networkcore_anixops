@@ -13,11 +13,13 @@ while retaining that snapshot. These operations are not wired into a CLI command
 default paths, remote/file fetch, and managed lifecycle remain blocked. All six slices have passed their
 GitHub Actions contract tests.
 
-Current `main` also contains the source-only `CommandManagedForegroundSessionStore::read_status` and
-`CommandManagedForegroundSessionStore::write_status` boundaries for v0.1.2-alpha.2. They read or initially
-write an explicit schema version 1 session status record, respectively report `liveness_verified=false`, and
-reject write overwrite. They do not inspect a process or wire a CLI/runtime control command. Their contract
-tests have passed GitHub Actions.
+Current `main` also contains the source-only `CommandManagedForegroundSessionStore::read_status`,
+`CommandManagedForegroundSessionStore::write_status`, and
+`CommandManagedForegroundSessionStore::transition_status` boundaries for v0.1.2-alpha.2. They read, initially
+write, or expected-state transition an explicit schema version 1 session status record, respectively report
+`liveness_verified=false`, reject write overwrite, and retain a non-overwriting pre-transition snapshot. The
+transition allows only `starting -> running/failed` and `running -> stopped/failed`. They do not inspect a
+process or wire a CLI/runtime control command. Their contract tests have passed GitHub Actions.
 
 The crate currently provides:
 
