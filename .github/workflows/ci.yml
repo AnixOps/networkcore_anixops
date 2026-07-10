@@ -232,6 +232,7 @@ jobs:
           grep -Fq "v0.1.1" ROADMAP.md
           grep -Fq "v0.1.2" TODO.md
           grep -Fq "Windows CLI artifact" docs/release-strategy.md
+          grep -Fq "Windows CLI package/publish path" docs/release-strategy.md
           grep -Fq "docs/alpha-release-feature-matrix.md" README.md
           grep -Fq "docs/alpha-release-feature-matrix.md" ROADMAP.md
           grep -Fq "docs/alpha-release-feature-matrix.md" TODO.md
