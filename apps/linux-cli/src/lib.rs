@@ -90,6 +90,16 @@ pub const CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE: &str =
     "cli.linux.managed_foreground_status.read_failed";
 pub const CLI_MANAGED_FOREGROUND_STATUS_WRITE_FAILED_CODE: &str =
     "cli.linux.managed_foreground_status.write_failed";
+pub const CLI_MANAGED_FOREGROUND_STATUS_SNAPSHOT_PATH_MISSING_CODE: &str =
+    "cli.linux.managed_foreground_status.snapshot_path_missing";
+pub const CLI_MANAGED_FOREGROUND_STATUS_PATH_CONFLICT_CODE: &str =
+    "cli.linux.managed_foreground_status.path_conflict";
+pub const CLI_MANAGED_FOREGROUND_STATUS_SNAPSHOT_WRITE_FAILED_CODE: &str =
+    "cli.linux.managed_foreground_status.snapshot_write_failed";
+pub const CLI_MANAGED_FOREGROUND_STATUS_STATE_CONFLICT_CODE: &str =
+    "cli.linux.managed_foreground_status.state_conflict";
+pub const CLI_MANAGED_FOREGROUND_STATUS_TRANSITION_INVALID_CODE: &str =
+    "cli.linux.managed_foreground_status.transition_invalid";
 pub const CLI_MANAGED_FOREGROUND_STATUS_SCHEMA_UNSUPPORTED_CODE: &str =
     "cli.linux.managed_foreground_status.schema_unsupported";
 pub const CLI_MANAGED_FOREGROUND_STATUS_RECORD_INVALID_CODE: &str =
@@ -1370,6 +1380,14 @@ pub struct ManagedForegroundSessionStatusWriteRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionStatusTransitionRequest {
+    pub status_path: String,
+    pub snapshot_path: String,
+    pub expected_state: String,
+    pub next_state: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedForegroundSessionStatusReport {
     pub status_path: String,
     pub session_id: String,
@@ -1388,6 +1406,18 @@ pub struct ManagedForegroundSessionStatusWriteReport {
     pub liveness_verified: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionStatusTransitionReport {
+    pub status_path: String,
+    pub snapshot_path: String,
+    pub session_id: String,
+    pub engine_id: String,
+    pub previous_state: String,
+    pub state: String,
+    pub snapshot_written: bool,
+    pub liveness_verified: bool,
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CommandManagedForegroundSessionStore;
 
@@ -1401,22 +1431,7 @@ impl CommandManagedForegroundSessionStore {
         request: &ManagedForegroundSessionStatusRequest,
     ) -> DomainResult<ManagedForegroundSessionStatusReport> {
         let status_path = required_managed_foreground_status_path(&request.status_path)?;
-        let contents = std::fs::read_to_string(&status_path).map_err(|error| {
-            DomainError::new(
-                CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE,
-                format!("failed to read managed foreground status record {status_path}: {error}"),
-            )
-        })?;
-        let record = serde_json::from_str::<ManagedForegroundSessionStatusFile>(&contents)
-            .map_err(|error| {
-                DomainError::new(
-                    CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE,
-                    format!(
-                        "failed to parse managed foreground status record {status_path}: {error}"
-                    ),
-                )
-            })?;
-        validate_managed_foreground_session_status_file(&record)?;
+        let (record, _) = read_managed_foreground_session_status_file(&status_path)?;
 
         Ok(ManagedForegroundSessionStatusReport {
             status_path,
@@ -1458,6 +1473,82 @@ impl CommandManagedForegroundSessionStore {
             engine_id: record.engine_id,
             state: record.state,
             record_written: true,
+            liveness_verified: false,
+        })
+    }
+
+    pub fn transition_status(
+        &self,
+        request: &ManagedForegroundSessionStatusTransitionRequest,
+    ) -> DomainResult<ManagedForegroundSessionStatusTransitionReport> {
+        let status_path = required_managed_foreground_status_path(&request.status_path)?;
+        let snapshot_path = required_managed_foreground_status_snapshot_path(&request.snapshot_path)?;
+        if status_path == snapshot_path {
+            return Err(DomainError::new(
+                CLI_MANAGED_FOREGROUND_STATUS_PATH_CONFLICT_CODE,
+                "managed foreground status and snapshot paths must differ",
+            ));
+        }
+        if std::path::Path::new(&snapshot_path).exists() {
+            return Err(DomainError::new(
+                CLI_MANAGED_FOREGROUND_STATUS_SNAPSHOT_WRITE_FAILED_CODE,
+                "refusing to overwrite an existing managed foreground status snapshot",
+            ));
+        }
+
+        let expected_state = required_managed_foreground_status_state(
+            &request.expected_state,
+            CLI_MANAGED_FOREGROUND_STATUS_TRANSITION_INVALID_CODE,
+            "managed foreground expected state is unsupported",
+        )?;
+        let next_state = required_managed_foreground_status_state(
+            &request.next_state,
+            CLI_MANAGED_FOREGROUND_STATUS_TRANSITION_INVALID_CODE,
+            "managed foreground next state is unsupported",
+        )?;
+        let (mut record, previous_contents) =
+            read_managed_foreground_session_status_file(&status_path)?;
+        let previous_state = record.state.trim().to_string();
+        if previous_state != expected_state {
+            return Err(DomainError::new(
+                CLI_MANAGED_FOREGROUND_STATUS_STATE_CONFLICT_CODE,
+                "managed foreground status record did not match the expected state",
+            ));
+        }
+        if !is_managed_foreground_status_transition_allowed(&previous_state, &next_state) {
+            return Err(DomainError::new(
+                CLI_MANAGED_FOREGROUND_STATUS_TRANSITION_INVALID_CODE,
+                "managed foreground status transition is not allowed",
+            ));
+        }
+        record.state = next_state.clone();
+        let current_contents = serde_json::to_string_pretty(&record).map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_STATUS_WRITE_FAILED_CODE,
+                format!("failed to render managed foreground status record: {error}"),
+            )
+        })?;
+        write_new_file(
+            &snapshot_path,
+            previous_contents.as_bytes(),
+            CLI_MANAGED_FOREGROUND_STATUS_SNAPSHOT_WRITE_FAILED_CODE,
+            "managed foreground status snapshot",
+        )?;
+        write_replace_file(
+            &status_path,
+            current_contents.as_bytes(),
+            CLI_MANAGED_FOREGROUND_STATUS_WRITE_FAILED_CODE,
+            "managed foreground status record",
+        )?;
+
+        Ok(ManagedForegroundSessionStatusTransitionReport {
+            status_path,
+            snapshot_path,
+            session_id: record.session_id.trim().to_string(),
+            engine_id: record.engine_id.trim().to_string(),
+            previous_state,
+            state: next_state,
+            snapshot_written: true,
             liveness_verified: false,
         })
     }
@@ -1887,6 +1978,57 @@ fn required_managed_foreground_status_path(path: &str) -> DomainResult<String> {
     Ok(path.to_string())
 }
 
+fn required_managed_foreground_status_snapshot_path(path: &str) -> DomainResult<String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_STATUS_SNAPSHOT_PATH_MISSING_CODE,
+            "managed foreground status snapshot path cannot be empty",
+        ));
+    }
+    Ok(path.to_string())
+}
+
+fn read_managed_foreground_session_status_file(
+    path: &str,
+) -> DomainResult<(ManagedForegroundSessionStatusFile, String)> {
+    let contents = std::fs::read_to_string(path).map_err(|error| {
+        DomainError::new(
+            CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE,
+            format!("failed to read managed foreground status record {path}: {error}"),
+        )
+    })?;
+    let record = serde_json::from_str::<ManagedForegroundSessionStatusFile>(&contents).map_err(
+        |error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE,
+                format!("failed to parse managed foreground status record {path}: {error}"),
+            )
+        },
+    )?;
+    validate_managed_foreground_session_status_file(&record)?;
+    Ok((record, contents))
+}
+
+fn required_managed_foreground_status_state(
+    state: &str,
+    code: &'static str,
+    message: &'static str,
+) -> DomainResult<String> {
+    let state = state.trim();
+    if !matches!(state, "starting" | "running" | "stopped" | "failed") {
+        return Err(DomainError::new(code, message));
+    }
+    Ok(state.to_string())
+}
+
+fn is_managed_foreground_status_transition_allowed(previous_state: &str, next_state: &str) -> bool {
+    matches!(
+        (previous_state, next_state),
+        ("starting", "running" | "failed") | ("running", "stopped" | "failed")
+    )
+}
+
 fn validate_managed_foreground_session_status_file(
     record: &ManagedForegroundSessionStatusFile,
 ) -> DomainResult<()> {
@@ -1902,15 +2044,11 @@ fn validate_managed_foreground_session_status_file(
             "managed foreground status record contains an empty session or engine id",
         ));
     }
-    if !matches!(
-        record.state.trim(),
-        "starting" | "running" | "stopped" | "failed"
-    ) {
-        return Err(DomainError::new(
-            CLI_MANAGED_FOREGROUND_STATUS_RECORD_INVALID_CODE,
-            "managed foreground status record contains an unsupported state",
-        ));
-    }
+    required_managed_foreground_status_state(
+        &record.state,
+        CLI_MANAGED_FOREGROUND_STATUS_RECORD_INVALID_CODE,
+        "managed foreground status record contains an unsupported state",
+    )?;
     Ok(())
 }
 

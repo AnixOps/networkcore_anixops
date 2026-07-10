@@ -56,6 +56,7 @@ use networkcore_linux::{
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
     ManagedForegroundSessionStatusRequest, ManagedForegroundSessionStatusWriteRequest,
+    ManagedForegroundSessionStatusTransitionRequest,
     MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
     SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
     SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
@@ -350,6 +351,72 @@ fn managed_foreground_session_status_write_persists_non_overwriting_record() {
     );
 
     std::fs::remove_dir_all(&root).expect("managed status write test directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_status_transition_writes_snapshot_and_rejects_stale_state() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-status-transition-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("managed status transition test directory should be created");
+    let status_path = root.join("session-status.json");
+    let snapshot_path = root.join("session-status.snapshot.json");
+    let initial_record = r#"{
+  "schema_version": 1,
+  "session_id": "session-transition",
+  "engine_id": "native",
+  "state": "starting"
+}"#;
+    std::fs::write(&status_path, initial_record).expect("managed status record should be written");
+    let store = CommandManagedForegroundSessionStore::new();
+
+    let report = store
+        .transition_status(&ManagedForegroundSessionStatusTransitionRequest {
+            status_path: status_path.display().to_string(),
+            snapshot_path: snapshot_path.display().to_string(),
+            expected_state: " starting ".to_string(),
+            next_state: " running ".to_string(),
+        })
+        .expect("managed status transition should succeed");
+
+    assert_eq!(report.previous_state, "starting");
+    assert_eq!(report.state, "running");
+    assert!(report.snapshot_written);
+    assert!(!report.liveness_verified);
+    let current: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&status_path).expect("managed status record should be readable"),
+    )
+    .expect("managed status record should be valid JSON");
+    assert_eq!(current["state"], "running");
+    assert_eq!(
+        std::fs::read_to_string(&snapshot_path).expect("managed status snapshot should be readable"),
+        initial_record
+    );
+
+    let before_stale =
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable");
+    let stale_snapshot_path = root.join("stale.snapshot.json");
+    let stale = store
+        .transition_status(&ManagedForegroundSessionStatusTransitionRequest {
+            status_path: status_path.display().to_string(),
+            snapshot_path: stale_snapshot_path.display().to_string(),
+            expected_state: "starting".to_string(),
+            next_state: "failed".to_string(),
+        })
+        .expect_err("stale expected state should be rejected");
+    assert_eq!(
+        stale.code,
+        "cli.linux.managed_foreground_status.state_conflict"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable"),
+        before_stale
+    );
+    assert!(!stale_snapshot_path.exists());
+
+    std::fs::remove_dir_all(&root).expect("managed status transition test directory should be removed");
 }
 
 #[test]
