@@ -105,6 +105,7 @@ jobs:
             docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
             docs/architecture/linux-mitm-http-rewrite-source-contract.md
             docs/architecture/linux-cli-runtime-wiring.md
+            docs/architecture/managed-foreground-session-event-source-contract.md
             docs/architecture/managed-foreground-session-status-source-contract.md
             docs/architecture/linux-native-proxy-engine-start.md
             docs/architecture/linux-package-archive-staging-contract.md
@@ -412,14 +413,66 @@ jobs:
           grep -q "Managed Foreground Session Status Source Contract" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "managed-foreground-session-status-source-contract=active" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "managed-foreground-session-status-operation=status-read" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "managed-foreground-session-status-write-operation=status-write" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "managed-foreground-session-status-transition-operation=status-transition" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "managed-foreground-session-status-cli-read-operation=managed-status" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "managed-foreground-session-status-cli-init-operation=managed-status-init" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "managed-foreground-session-status-cli-transition-operation=managed-status-transition" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "managed-foreground-session-status-liveness-verification=blocked" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "ManagedForegroundSessionStatusRequest" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "ManagedForegroundSessionStatusReport" docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q "CommandManagedForegroundSessionStore::read_status" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "ManagedForegroundSessionStatusWriteRequest" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "ManagedForegroundSessionStatusWriteReport" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "CommandManagedForegroundSessionStore::write_status" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "ManagedForegroundSessionStatusTransitionRequest" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "ManagedForegroundSessionStatusTransitionReport" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "CommandManagedForegroundSessionStore::transition_status" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "networkcore-linux managed-status" docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q "Managed Foreground Session Event Source Contract" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "managed-foreground-session-event-source-contract=active" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "managed-foreground-session-event-operation=event-read" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "managed-foreground-session-event-write-operation=event-write" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "managed-foreground-session-event-cli-read-operation=managed-event" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "managed-foreground-session-event-liveness-verification=blocked" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "ManagedForegroundSessionEventRequest" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "ManagedForegroundSessionEventReport" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "CommandManagedForegroundSessionEventStore::read_event" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "ManagedForegroundSessionEventWriteRequest" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "ManagedForegroundSessionEventWriteReport" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "CommandManagedForegroundSessionEventStore::write_event" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "ManagedForegroundSessionStatusRequest" apps/linux-cli/src/lib.rs
           grep -q "ManagedForegroundSessionStatusReport" apps/linux-cli/src/lib.rs
           grep -q "fn read_status" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionStatusWriteRequest" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionStatusWriteReport" apps/linux-cli/src/lib.rs
+          grep -q "fn write_status" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionStatusTransitionRequest" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionStatusTransitionReport" apps/linux-cli/src/lib.rs
+          grep -q "fn transition_status" apps/linux-cli/src/lib.rs
+          grep -q "ManagedStatus" apps/linux-cli/src/lib.rs
+          grep -q "fn handle_managed_foreground_status" apps/linux-cli/src/lib.rs
+          grep -q "ManagedStatusInit" apps/linux-cli/src/lib.rs
+          grep -q "fn handle_managed_foreground_status_init" apps/linux-cli/src/lib.rs
+          grep -q "ManagedStatusTransition" apps/linux-cli/src/lib.rs
+          grep -q "fn handle_managed_foreground_status_transition" apps/linux-cli/src/lib.rs
           grep -q "managed_foreground_session_status_reads_explicit_record_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "managed_foreground_session_status_write_persists_non_overwriting_record" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "managed_foreground_session_status_transition_writes_snapshot_and_rejects_stale_state" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "managed_foreground_session_status_cli_reads_explicit_record_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "managed_foreground_session_status_cli_initializes_non_overwriting_record" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "managed_foreground_session_status_cli_transitions_expected_state_with_snapshot" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "ManagedForegroundSessionEventRequest" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionEventReport" apps/linux-cli/src/lib.rs
+          grep -q "fn read_event" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionEventWriteRequest" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionEventWriteReport" apps/linux-cli/src/lib.rs
+          grep -q "fn write_event" apps/linux-cli/src/lib.rs
+          grep -q "managed_foreground_session_event_reads_explicit_record_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "managed_foreground_session_event_write_persists_non_overwriting_record" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "ManagedEvent" apps/linux-cli/src/lib.rs
+          grep -q "fn handle_managed_foreground_event" apps/linux-cli/src/lib.rs
+          grep -q "managed_foreground_session_event_cli_reads_explicit_record_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "v0.1.2-alpha.1" README.md
           grep -q "v0.1.2-alpha.1" ROADMAP.md
           grep -q "v0.1.2-alpha.1" TODO.md
@@ -445,6 +498,33 @@ jobs:
           grep -q "CommandSubscriptionCatalogStore::rollback_catalog" TODO.md
           grep -q "CommandSubscriptionCatalogStore::rollback_catalog" CHANGELOG.md
           grep -q "CommandSubscriptionCatalogStore::rollback_catalog" apps/linux-cli/README.md
+          grep -q "CommandManagedForegroundSessionStore::read_status" TODO.md
+          grep -q "CommandManagedForegroundSessionStore::read_status" CHANGELOG.md
+          grep -q "CommandManagedForegroundSessionStore::read_status" apps/linux-cli/README.md
+          grep -q "CommandManagedForegroundSessionStore::write_status" TODO.md
+          grep -q "CommandManagedForegroundSessionStore::write_status" CHANGELOG.md
+          grep -q "CommandManagedForegroundSessionStore::write_status" apps/linux-cli/README.md
+          grep -q "CommandManagedForegroundSessionStore::transition_status" TODO.md
+          grep -q "CommandManagedForegroundSessionStore::transition_status" CHANGELOG.md
+          grep -q "CommandManagedForegroundSessionStore::transition_status" apps/linux-cli/README.md
+          grep -q "networkcore-linux managed-status" TODO.md
+          grep -q "networkcore-linux managed-status" CHANGELOG.md
+          grep -q "networkcore-linux managed-status" apps/linux-cli/README.md
+          grep -q "networkcore-linux managed-status init" TODO.md
+          grep -q "networkcore-linux managed-status init" CHANGELOG.md
+          grep -q "networkcore-linux managed-status init" apps/linux-cli/README.md
+          grep -q "networkcore-linux managed-status transition" TODO.md
+          grep -q "networkcore-linux managed-status transition" CHANGELOG.md
+          grep -q "networkcore-linux managed-status transition" apps/linux-cli/README.md
+          grep -q "CommandManagedForegroundSessionEventStore::read_event" TODO.md
+          grep -q "CommandManagedForegroundSessionEventStore::read_event" CHANGELOG.md
+          grep -q "CommandManagedForegroundSessionEventStore::read_event" apps/linux-cli/README.md
+          grep -q "CommandManagedForegroundSessionEventStore::write_event" TODO.md
+          grep -q "CommandManagedForegroundSessionEventStore::write_event" CHANGELOG.md
+          grep -q "CommandManagedForegroundSessionEventStore::write_event" apps/linux-cli/README.md
+          grep -q "networkcore-linux managed-event" TODO.md
+          grep -q "networkcore-linux managed-event" CHANGELOG.md
+          grep -q "networkcore-linux managed-event" apps/linux-cli/README.md
           grep -q "handle_entrypoint_with_runtime_lifecycle_and_sing_box" apps/linux-cli/src/main.rs
           git submodule status third_party/mitm_anixops | grep -q "a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0"
           grep -q "v0.45.10-alpha" docs/architecture/mitm-anixops-adapter.md

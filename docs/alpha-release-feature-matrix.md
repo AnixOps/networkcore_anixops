@@ -527,8 +527,17 @@ mutation 和 system proxy mutation。
   catalog/snapshot 路径、schema version 1、重复 source id 拒绝、写前 snapshot、source-not-found 拒绝、
   snapshot 复原/保留和脱敏 report；
   默认路径、远程/file fetch、runtime startup 和 managed lifecycle 仍 blocked。
-- `v0.1.2-alpha.2`：managed foreground lifecycle。新增 managed `status/events/logs/reload/rollback`
-  命令面；仍不默认安装 daemon/service。
+- `v0.1.2-alpha.2`：managed foreground lifecycle。当前 main 已完成 source-only `read_status`/`write_status`/
+  `transition_status` record 读取/初始非覆盖写入/expected-state 迁移切片：显式 schema version 1 JSON record、
+  迁移前原始 record snapshot、`starting -> running/failed` 与 `running -> stopped/failed`、`record_written=true`、
+  `snapshot_written=true` 和 `liveness_verified=false`。`networkcore-linux managed-status <status-record-path>` 已只读
+  输出同一 record，`networkcore-linux managed-status init <status-record-path> <session-id> <engine-id> <state>` 已非覆盖
+  创建 record 并输出 `record_written=true`，`networkcore-linux managed-status transition <status-record-path> <snapshot-path>
+  <expected-state> <next-state>` 已在 expected state 匹配时保存原始 snapshot 并输出 `snapshot_written=true`；不验证 live
+  process、不接入 runtime control。`CommandManagedForegroundSessionEventStore::read_event` 已读取显式 schema version 1
+  event record 的允许 event kind、recorded state 和 recorded_at，写入结果固定 `record_written=true` 与
+  `liveness_verified=false`；`networkcore-linux managed-event <event-record-path>` 已只读输出同一 record；不扫描 event，
+  不接入 event CLI 写入、实时 stream 或 runtime control。后续新增 managed `events/logs/reload/rollback` 命令面；仍不默认安装 daemon/service。
 - `v0.1.2-alpha.3`：JavaScript script dispatch foundation。基于 plugin permission、sandbox/timeout、
   IO guard、audit log 和 CI governance 执行受控 script dispatch。
 - `v0.1.2-alpha.4`：system trust store mutation foundation。显式授权后执行平台 trust store

@@ -13,6 +13,29 @@ while retaining that snapshot. These operations are not wired into a CLI command
 default paths, remote/file fetch, and managed lifecycle remain blocked. All six slices have passed their
 GitHub Actions contract tests.
 
+Current `main` also contains the source-only `CommandManagedForegroundSessionStore::read_status`,
+`CommandManagedForegroundSessionStore::write_status`, and
+`CommandManagedForegroundSessionStore::transition_status` boundaries for v0.1.2-alpha.2. They read, initially
+write, or expected-state transition an explicit schema version 1 session status record, respectively report
+`liveness_verified=false`, reject write overwrite, and retain a non-overwriting pre-transition snapshot. The
+transition allows only `starting -> running/failed` and `running -> stopped/failed`. They do not inspect a
+process or wire runtime control commands. `networkcore-linux managed-status
+<status-record-path>` exposes the same explicit record through text/JSON without claiming liveness or
+modifying the record. `networkcore-linux managed-status init <status-record-path> <session-id> <engine-id>
+<state>` non-overwritingly creates the explicit record and reports `record_written=true` without claiming
+liveness. `networkcore-linux managed-status transition <status-record-path> <snapshot-path> <expected-state>
+<next-state>` performs an expected-state transition, writes the original record to a non-overwriting snapshot,
+and reports `snapshot_written=true` without claiming liveness. Their contract tests have passed GitHub Actions.
+
+Current `main` also contains the source-only `CommandManagedForegroundSessionEventStore::read_event` and
+`CommandManagedForegroundSessionEventStore::write_event` boundaries for v0.1.2-alpha.2. They read or
+non-overwritingly write one explicit schema version 1 JSON event record with session/engine/event ids, an allowed
+event kind, recorded state, and a caller-recorded timestamp, while reporting `record_written=true` for writes and
+`liveness_verified=false`.
+`networkcore-linux managed-event <event-record-path>` exposes that one explicit record through text/JSON without
+claiming liveness. It does not expose event CLI write, list, or scan commands; it does not expose a runtime event
+stream; and it does not read logs or control a runtime. Its contract tests have passed GitHub Actions.
+
 The crate currently provides:
 
 - Command parsing for the first Linux command surface.

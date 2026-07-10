@@ -47,8 +47,9 @@ use networkcore_linux::{
     render_response, BrowserCaptureEndpointProbe, BrowserCapturePacFileStore,
     BrowserCaptureProcessRunner, BrowserCaptureTrafficProofProbe,
     CommandBrowserCaptureEndpointProbe, CommandBrowserCaptureTrafficProofProbe,
-    CommandManagedForegroundSessionStore, CommandSubscriptionCatalogStore, ConfigReadError,
-    ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
+    CommandManagedForegroundSessionEventStore, CommandManagedForegroundSessionStore,
+    CommandSubscriptionCatalogStore, ConfigReadError, ConfigReader,
+    CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
     LinuxBrowserCaptureLaunchRequest, LinuxBrowserCapturePacApplyOutcome,
@@ -57,7 +58,9 @@ use networkcore_linux::{
     LinuxBrowserCaptureVerifyOutcome, LinuxBrowserCaptureVerifyRequest, LinuxCliCommand,
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
-    LinuxNativeMitmRuntimeFileConfig, ManagedForegroundSessionStatusRequest,
+    LinuxNativeMitmRuntimeFileConfig, ManagedForegroundSessionEventRequest,
+    ManagedForegroundSessionEventWriteRequest, ManagedForegroundSessionStatusRequest,
+    ManagedForegroundSessionStatusTransitionRequest, ManagedForegroundSessionStatusWriteRequest,
     MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
     SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
     SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
@@ -298,6 +301,781 @@ fn managed_foreground_session_status_reads_explicit_record_without_liveness_clai
     );
 
     std::fs::remove_dir_all(&root).expect("managed status test directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_event_reads_explicit_record_without_liveness_claim() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-event-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("managed event test directory should be created");
+    let event_path = root.join("session-event.json");
+    std::fs::write(
+        &event_path,
+        r#"{
+  "schema_version": 1,
+  "session_id": " current-session ",
+  "engine_id": " native ",
+  "event_id": " event-1 ",
+  "event_kind": " status_transition ",
+  "state": " running ",
+  "recorded_at": " 2026-07-10T00:00:00Z "
+}"#,
+    )
+    .expect("managed event record should be written");
+    let before_read =
+        std::fs::read_to_string(&event_path).expect("managed event record should be readable");
+
+    let report = CommandManagedForegroundSessionEventStore::new()
+        .read_event(&ManagedForegroundSessionEventRequest {
+            event_path: event_path.display().to_string(),
+        })
+        .expect("managed event record should be read");
+
+    assert_eq!(report.session_id, "current-session");
+    assert_eq!(report.engine_id, "native");
+    assert_eq!(report.event_id, "event-1");
+    assert_eq!(report.event_kind, "status_transition");
+    assert_eq!(report.state, "running");
+    assert_eq!(report.recorded_at, "2026-07-10T00:00:00Z");
+    assert!(!report.liveness_verified);
+    assert_eq!(
+        std::fs::read_to_string(&event_path).expect("managed event record should be readable"),
+        before_read
+    );
+
+    let missing = CommandManagedForegroundSessionEventStore::new()
+        .read_event(&ManagedForegroundSessionEventRequest {
+            event_path: root.join("missing-event.json").display().to_string(),
+        })
+        .expect_err("missing managed event record should be rejected");
+    assert_eq!(
+        missing.code,
+        "cli.linux.managed_foreground_event.read_failed"
+    );
+
+    std::fs::remove_dir_all(&root).expect("managed event test directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_event_write_persists_non_overwriting_record() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-event-write-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("managed event write directory should be created");
+    let event_path = root.join("session-event.json");
+    let store = CommandManagedForegroundSessionEventStore::new();
+
+    let report = store
+        .write_event(&ManagedForegroundSessionEventWriteRequest {
+            event_path: event_path.display().to_string(),
+            session_id: " session-write ".to_string(),
+            engine_id: " native ".to_string(),
+            event_id: " event-write-1 ".to_string(),
+            event_kind: " status_transition ".to_string(),
+            state: " running ".to_string(),
+            recorded_at: " 2026-07-10T00:00:00Z ".to_string(),
+        })
+        .expect("managed event record should be written");
+
+    assert_eq!(report.session_id, "session-write");
+    assert_eq!(report.engine_id, "native");
+    assert_eq!(report.event_id, "event-write-1");
+    assert_eq!(report.event_kind, "status_transition");
+    assert_eq!(report.state, "running");
+    assert_eq!(report.recorded_at, "2026-07-10T00:00:00Z");
+    assert!(report.record_written);
+    assert!(!report.liveness_verified);
+    let record: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&event_path).expect("managed event record should be readable"),
+    )
+    .expect("managed event record should be valid JSON");
+    assert_eq!(record["schema_version"], 1);
+    assert_eq!(record["session_id"], "session-write");
+    assert_eq!(record["engine_id"], "native");
+    assert_eq!(record["event_id"], "event-write-1");
+    assert_eq!(record["event_kind"], "status_transition");
+    assert_eq!(record["state"], "running");
+    assert_eq!(record["recorded_at"], "2026-07-10T00:00:00Z");
+
+    let before_duplicate =
+        std::fs::read_to_string(&event_path).expect("managed event record should be readable");
+    let duplicate = store
+        .write_event(&ManagedForegroundSessionEventWriteRequest {
+            event_path: event_path.display().to_string(),
+            session_id: "next-session".to_string(),
+            engine_id: "native".to_string(),
+            event_id: "event-write-2".to_string(),
+            event_kind: "session_stopped".to_string(),
+            state: "stopped".to_string(),
+            recorded_at: "2026-07-10T00:01:00Z".to_string(),
+        })
+        .expect_err("existing managed event record should not be overwritten");
+    assert_eq!(
+        duplicate.code,
+        "cli.linux.managed_foreground_event.write_failed"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&event_path).expect("managed event record should be readable"),
+        before_duplicate
+    );
+
+    std::fs::remove_dir_all(&root).expect("managed event write directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_event_cli_initializes_non_overwriting_record() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-event-cli-init-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("managed event CLI init directory should be created");
+    let event_path = root.join("session-event.json");
+    let event_path_text = event_path
+        .to_str()
+        .expect("managed event path should be UTF-8");
+    let command = parse_args([
+        "managed-event",
+        "init",
+        event_path_text,
+        "session-event-cli-init",
+        "native",
+        "event-cli-init-1",
+        "status_transition",
+        "running",
+        "2026-07-10T00:00:00Z",
+        "--format",
+        "json",
+    ])
+    .expect("managed-event init command should parse");
+    assert!(matches!(
+        &command,
+        LinuxCliCommand::ManagedEventInit {
+            format: OutputFormat::Json,
+            ..
+        }
+    ));
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let response = handle_entrypoint(command, &platform);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "managed-event init");
+    let report = response
+        .managed_foreground_event_write
+        .as_ref()
+        .expect("managed event init response should include the write report");
+    assert_eq!(report.session_id, "session-event-cli-init");
+    assert_eq!(report.engine_id, "native");
+    assert_eq!(report.event_id, "event-cli-init-1");
+    assert_eq!(report.event_kind, "status_transition");
+    assert_eq!(report.state, "running");
+    assert_eq!(report.recorded_at, "2026-07-10T00:00:00Z");
+    assert!(report.record_written);
+    assert!(!report.liveness_verified);
+    let record: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&event_path)
+            .expect("managed event CLI init record should be readable"),
+    )
+    .expect("managed event CLI init record should be valid JSON");
+    assert_eq!(record["schema_version"], 1);
+    assert_eq!(record["session_id"], "session-event-cli-init");
+    assert_eq!(record["engine_id"], "native");
+    assert_eq!(record["event_id"], "event-cli-init-1");
+    assert_eq!(record["event_kind"], "status_transition");
+    assert_eq!(record["state"], "running");
+    assert_eq!(record["recorded_at"], "2026-07-10T00:00:00Z");
+    let text = render_response(&response, OutputFormat::Text);
+    assert!(text.contains("managed foreground event record written: true"));
+    assert!(text.contains("managed foreground liveness verified: false"));
+    let json: serde_json::Value =
+        serde_json::from_str(&render_response(&response, OutputFormat::Json))
+            .expect("managed event init response should render JSON");
+    assert_eq!(
+        json["managed_foreground_event_write"]["event_id"],
+        "event-cli-init-1"
+    );
+    assert_eq!(
+        json["managed_foreground_event_write"]["record_written"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        json["managed_foreground_event_write"]["liveness_verified"].as_bool(),
+        Some(false)
+    );
+
+    let before_duplicate =
+        std::fs::read_to_string(&event_path).expect("managed event record should be readable");
+    let duplicate = handle_entrypoint(
+        parse_args([
+            "managed-event",
+            "init",
+            event_path_text,
+            "next-session",
+            "native",
+            "event-cli-init-2",
+            "session_stopped",
+            "stopped",
+            "2026-07-10T00:01:00Z",
+        ])
+        .expect("duplicate managed-event init command should parse"),
+        &platform,
+    );
+    assert!(!duplicate.ok);
+    assert_eq!(duplicate.exit_code, LinuxCliExitCode::GeneralFailure);
+    assert_diagnostic(
+        &duplicate.diagnostics,
+        "cli.linux.managed_foreground_event.write_failed",
+    );
+    assert_eq!(
+        std::fs::read_to_string(&event_path).expect("managed event record should be readable"),
+        before_duplicate
+    );
+
+    std::fs::remove_dir_all(&root).expect("managed event CLI init directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_event_cli_reads_explicit_record_without_liveness_claim() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-event-cli-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("managed event CLI test directory should be created");
+    let event_path = root.join("session-event.json");
+    std::fs::write(
+        &event_path,
+        r#"{
+  "schema_version": 1,
+  "session_id": "session-event-cli",
+  "engine_id": "native",
+  "event_id": "event-cli-1",
+  "event_kind": "status_transition",
+  "state": "running",
+  "recorded_at": "2026-07-10T00:00:00Z"
+}"#,
+    )
+    .expect("managed event CLI record should be written");
+    let command = parse_args([
+        "managed-event",
+        event_path
+            .to_str()
+            .expect("managed event path should be UTF-8"),
+        "--format",
+        "json",
+    ])
+    .expect("managed-event command should parse");
+    assert!(matches!(
+        &command,
+        LinuxCliCommand::ManagedEvent {
+            format: OutputFormat::Json,
+            ..
+        }
+    ));
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let before_read =
+        std::fs::read_to_string(&event_path).expect("managed event CLI record should be readable");
+    let response = handle_entrypoint(command, &platform);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "managed-event");
+    let report = response
+        .managed_foreground_event
+        .as_ref()
+        .expect("managed event response should include the record");
+    assert_eq!(report.session_id, "session-event-cli");
+    assert_eq!(report.engine_id, "native");
+    assert_eq!(report.event_id, "event-cli-1");
+    assert_eq!(report.event_kind, "status_transition");
+    assert_eq!(report.state, "running");
+    assert_eq!(report.recorded_at, "2026-07-10T00:00:00Z");
+    assert!(!report.liveness_verified);
+    assert_eq!(
+        std::fs::read_to_string(&event_path).expect("managed event CLI record should be readable"),
+        before_read
+    );
+    let text = render_response(&response, OutputFormat::Text);
+    assert!(text.contains("managed foreground event kind: status_transition"));
+    assert!(text.contains("managed foreground recorded state: running"));
+    assert!(text.contains("managed foreground liveness verified: false"));
+    let json: serde_json::Value =
+        serde_json::from_str(&render_response(&response, OutputFormat::Json))
+            .expect("managed event response should render JSON");
+    assert_eq!(json["managed_foreground_event"]["event_id"], "event-cli-1");
+    assert_eq!(
+        json["managed_foreground_event"]["event_kind"],
+        "status_transition"
+    );
+    assert_eq!(json["managed_foreground_event"]["state"], "running");
+    assert_eq!(
+        json["managed_foreground_event"]["liveness_verified"].as_bool(),
+        Some(false)
+    );
+
+    let missing = handle_entrypoint(
+        LinuxCliCommand::ManagedEvent {
+            event_path: root.join("missing-event.json").display().to_string(),
+            format: OutputFormat::Text,
+        },
+        &platform,
+    );
+    assert!(!missing.ok);
+    assert_eq!(missing.exit_code, LinuxCliExitCode::GeneralFailure);
+    assert_diagnostic(
+        &missing.diagnostics,
+        "cli.linux.managed_foreground_event.read_failed",
+    );
+
+    std::fs::remove_dir_all(&root).expect("managed event CLI test directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_status_write_persists_non_overwriting_record() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-status-write-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("managed status write test directory should be created");
+    let status_path = root.join("session-status.json");
+    let store = CommandManagedForegroundSessionStore::new();
+
+    let report = store
+        .write_status(&ManagedForegroundSessionStatusWriteRequest {
+            status_path: status_path.display().to_string(),
+            session_id: " session-write ".to_string(),
+            engine_id: " native ".to_string(),
+            state: " running ".to_string(),
+        })
+        .expect("managed status record should be written");
+
+    assert_eq!(report.session_id, "session-write");
+    assert_eq!(report.engine_id, "native");
+    assert_eq!(report.state, "running");
+    assert!(report.record_written);
+    assert!(!report.liveness_verified);
+    let record: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&status_path).expect("managed status record should be readable"),
+    )
+    .expect("managed status record should be valid JSON");
+    assert_eq!(record["schema_version"], 1);
+    assert_eq!(record["session_id"], "session-write");
+    assert_eq!(record["engine_id"], "native");
+    assert_eq!(record["state"], "running");
+
+    let before_duplicate =
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable");
+    let duplicate = store
+        .write_status(&ManagedForegroundSessionStatusWriteRequest {
+            status_path: status_path.display().to_string(),
+            session_id: "next-session".to_string(),
+            engine_id: "native".to_string(),
+            state: "stopped".to_string(),
+        })
+        .expect_err("existing managed status record should not be overwritten");
+    assert_eq!(
+        duplicate.code,
+        "cli.linux.managed_foreground_status.write_failed"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable"),
+        before_duplicate
+    );
+
+    std::fs::remove_dir_all(&root).expect("managed status write test directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_status_transition_writes_snapshot_and_rejects_stale_state() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-status-transition-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root)
+        .expect("managed status transition test directory should be created");
+    let status_path = root.join("session-status.json");
+    let snapshot_path = root.join("session-status.snapshot.json");
+    let initial_record = r#"{
+  "schema_version": 1,
+  "session_id": "session-transition",
+  "engine_id": "native",
+  "state": "starting"
+}"#;
+    std::fs::write(&status_path, initial_record).expect("managed status record should be written");
+    let store = CommandManagedForegroundSessionStore::new();
+
+    let report = store
+        .transition_status(&ManagedForegroundSessionStatusTransitionRequest {
+            status_path: status_path.display().to_string(),
+            snapshot_path: snapshot_path.display().to_string(),
+            expected_state: " starting ".to_string(),
+            next_state: " running ".to_string(),
+        })
+        .expect("managed status transition should succeed");
+
+    assert_eq!(report.previous_state, "starting");
+    assert_eq!(report.state, "running");
+    assert!(report.snapshot_written);
+    assert!(!report.liveness_verified);
+    let current: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&status_path).expect("managed status record should be readable"),
+    )
+    .expect("managed status record should be valid JSON");
+    assert_eq!(current["state"], "running");
+    assert_eq!(
+        std::fs::read_to_string(&snapshot_path)
+            .expect("managed status snapshot should be readable"),
+        initial_record
+    );
+
+    let before_stale =
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable");
+    let stale_snapshot_path = root.join("stale.snapshot.json");
+    let stale = store
+        .transition_status(&ManagedForegroundSessionStatusTransitionRequest {
+            status_path: status_path.display().to_string(),
+            snapshot_path: stale_snapshot_path.display().to_string(),
+            expected_state: "starting".to_string(),
+            next_state: "failed".to_string(),
+        })
+        .expect_err("stale expected state should be rejected");
+    assert_eq!(
+        stale.code,
+        "cli.linux.managed_foreground_status.state_conflict"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable"),
+        before_stale
+    );
+    assert!(!stale_snapshot_path.exists());
+
+    std::fs::remove_dir_all(&root)
+        .expect("managed status transition test directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_status_cli_reads_explicit_record_without_liveness_claim() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-status-cli-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("managed status CLI test directory should be created");
+    let status_path = root.join("session-status.json");
+    std::fs::write(
+        &status_path,
+        r#"{
+  "schema_version": 1,
+  "session_id": "session-cli",
+  "engine_id": "native",
+  "state": "running"
+}"#,
+    )
+    .expect("managed status CLI record should be written");
+    let command = parse_args([
+        "managed-status",
+        status_path
+            .to_str()
+            .expect("managed status path should be UTF-8"),
+        "--format",
+        "json",
+    ])
+    .expect("managed-status command should parse");
+    assert!(matches!(
+        &command,
+        LinuxCliCommand::ManagedStatus {
+            format: OutputFormat::Json,
+            ..
+        }
+    ));
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let before_read = std::fs::read_to_string(&status_path)
+        .expect("managed status CLI record should be readable");
+    let response = handle_entrypoint(command, &platform);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "managed-status");
+    let report = response
+        .managed_foreground_status
+        .as_ref()
+        .expect("managed status response should include the record");
+    assert_eq!(report.session_id, "session-cli");
+    assert_eq!(report.engine_id, "native");
+    assert_eq!(report.state, "running");
+    assert!(!report.liveness_verified);
+    assert_eq!(
+        std::fs::read_to_string(&status_path)
+            .expect("managed status CLI record should be readable"),
+        before_read
+    );
+    let text = render_response(&response, OutputFormat::Text);
+    assert!(text.contains("managed foreground recorded state: running"));
+    assert!(text.contains("managed foreground liveness verified: false"));
+    let json: serde_json::Value =
+        serde_json::from_str(&render_response(&response, OutputFormat::Json))
+            .expect("managed status response should render JSON");
+    assert_eq!(
+        json["managed_foreground_status"]["session_id"],
+        "session-cli"
+    );
+    assert_eq!(json["managed_foreground_status"]["state"], "running");
+    assert_eq!(
+        json["managed_foreground_status"]["liveness_verified"].as_bool(),
+        Some(false)
+    );
+
+    let missing = handle_entrypoint(
+        LinuxCliCommand::ManagedStatus {
+            status_path: root.join("missing-status.json").display().to_string(),
+            format: OutputFormat::Text,
+        },
+        &platform,
+    );
+    assert!(!missing.ok);
+    assert_eq!(missing.exit_code, LinuxCliExitCode::GeneralFailure);
+    assert_diagnostic(
+        &missing.diagnostics,
+        "cli.linux.managed_foreground_status.read_failed",
+    );
+
+    std::fs::remove_dir_all(&root).expect("managed status CLI test directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_status_cli_initializes_non_overwriting_record() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-status-cli-init-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("managed status CLI init directory should be created");
+    let status_path = root.join("session-status.json");
+    let status_path_text = status_path
+        .to_str()
+        .expect("managed status path should be UTF-8");
+    let command = parse_args([
+        "managed-status",
+        "init",
+        status_path_text,
+        "session-cli-init",
+        "native",
+        "starting",
+        "--format",
+        "json",
+    ])
+    .expect("managed-status init command should parse");
+    assert!(matches!(
+        &command,
+        LinuxCliCommand::ManagedStatusInit {
+            format: OutputFormat::Json,
+            ..
+        }
+    ));
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let response = handle_entrypoint(command, &platform);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "managed-status init");
+    let report = response
+        .managed_foreground_status_write
+        .as_ref()
+        .expect("managed status init response should include the write report");
+    assert_eq!(report.session_id, "session-cli-init");
+    assert_eq!(report.engine_id, "native");
+    assert_eq!(report.state, "starting");
+    assert!(report.record_written);
+    assert!(!report.liveness_verified);
+    let record: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&status_path)
+            .expect("managed status CLI init record should be readable"),
+    )
+    .expect("managed status CLI init record should be valid JSON");
+    assert_eq!(record["schema_version"], 1);
+    assert_eq!(record["session_id"], "session-cli-init");
+    assert_eq!(record["engine_id"], "native");
+    assert_eq!(record["state"], "starting");
+    let text = render_response(&response, OutputFormat::Text);
+    assert!(text.contains("managed foreground status record written: true"));
+    assert!(text.contains("managed foreground liveness verified: false"));
+    let json: serde_json::Value =
+        serde_json::from_str(&render_response(&response, OutputFormat::Json))
+            .expect("managed status init response should render JSON");
+    assert_eq!(
+        json["managed_foreground_status_write"]["session_id"],
+        "session-cli-init"
+    );
+    assert_eq!(
+        json["managed_foreground_status_write"]["record_written"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        json["managed_foreground_status_write"]["liveness_verified"].as_bool(),
+        Some(false)
+    );
+
+    let before_duplicate =
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable");
+    let duplicate = handle_entrypoint(
+        parse_args([
+            "managed-status",
+            "init",
+            status_path_text,
+            "next-session",
+            "native",
+            "stopped",
+        ])
+        .expect("duplicate managed-status init command should parse"),
+        &platform,
+    );
+    assert!(!duplicate.ok);
+    assert_eq!(duplicate.exit_code, LinuxCliExitCode::GeneralFailure);
+    assert_diagnostic(
+        &duplicate.diagnostics,
+        "cli.linux.managed_foreground_status.write_failed",
+    );
+    assert_eq!(
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable"),
+        before_duplicate
+    );
+
+    std::fs::remove_dir_all(&root).expect("managed status CLI init directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_status_cli_transitions_expected_state_with_snapshot() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-status-cli-transition-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root)
+        .expect("managed status CLI transition directory should be created");
+    let status_path = root.join("session-status.json");
+    let snapshot_path = root.join("session-status.snapshot.json");
+    let initial_record = r#"{
+  "schema_version": 1,
+  "session_id": "session-cli-transition",
+  "engine_id": "native",
+  "state": "starting"
+}"#;
+    std::fs::write(&status_path, initial_record)
+        .expect("managed status CLI transition record should be written");
+    let status_path_text = status_path
+        .to_str()
+        .expect("managed status path should be UTF-8");
+    let snapshot_path_text = snapshot_path
+        .to_str()
+        .expect("managed status snapshot path should be UTF-8");
+    let command = parse_args([
+        "managed-status",
+        "transition",
+        status_path_text,
+        snapshot_path_text,
+        "starting",
+        "running",
+        "--format",
+        "json",
+    ])
+    .expect("managed-status transition command should parse");
+    assert!(matches!(
+        &command,
+        LinuxCliCommand::ManagedStatusTransition {
+            format: OutputFormat::Json,
+            ..
+        }
+    ));
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let response = handle_entrypoint(command, &platform);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "managed-status transition");
+    let report = response
+        .managed_foreground_status_transition
+        .as_ref()
+        .expect("managed status transition response should include the transition report");
+    assert_eq!(report.session_id, "session-cli-transition");
+    assert_eq!(report.engine_id, "native");
+    assert_eq!(report.previous_state, "starting");
+    assert_eq!(report.state, "running");
+    assert!(report.snapshot_written);
+    assert!(!report.liveness_verified);
+    assert_eq!(
+        std::fs::read_to_string(&snapshot_path)
+            .expect("managed status CLI transition snapshot should be readable"),
+        initial_record
+    );
+    let record: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&status_path)
+            .expect("managed status CLI transition record should be readable"),
+    )
+    .expect("managed status CLI transition record should be valid JSON");
+    assert_eq!(record["state"], "running");
+    let text = render_response(&response, OutputFormat::Text);
+    assert!(text.contains("managed foreground previous recorded state: starting"));
+    assert!(text.contains("managed foreground status snapshot written: true"));
+    assert!(text.contains("managed foreground liveness verified: false"));
+    let json: serde_json::Value =
+        serde_json::from_str(&render_response(&response, OutputFormat::Json))
+            .expect("managed status transition response should render JSON");
+    assert_eq!(
+        json["managed_foreground_status_transition"]["previous_state"],
+        "starting"
+    );
+    assert_eq!(
+        json["managed_foreground_status_transition"]["state"],
+        "running"
+    );
+    assert_eq!(
+        json["managed_foreground_status_transition"]["snapshot_written"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        json["managed_foreground_status_transition"]["liveness_verified"].as_bool(),
+        Some(false)
+    );
+
+    let before_stale =
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable");
+    let stale_snapshot_path = root.join("session-status.stale.snapshot.json");
+    let stale = handle_entrypoint(
+        parse_args([
+            "managed-status",
+            "transition",
+            status_path_text,
+            stale_snapshot_path
+                .to_str()
+                .expect("managed status stale snapshot path should be UTF-8"),
+            "starting",
+            "failed",
+        ])
+        .expect("stale managed-status transition command should parse"),
+        &platform,
+    );
+    assert!(!stale.ok);
+    assert_eq!(stale.exit_code, LinuxCliExitCode::ConfigValidation);
+    assert_diagnostic(
+        &stale.diagnostics,
+        "cli.linux.managed_foreground_status.state_conflict",
+    );
+    assert_eq!(
+        std::fs::read_to_string(&status_path).expect("managed status record should be readable"),
+        before_stale
+    );
+    assert!(!stale_snapshot_path.exists());
+
+    std::fs::remove_dir_all(&root)
+        .expect("managed status CLI transition directory should be removed");
 }
 
 #[test]

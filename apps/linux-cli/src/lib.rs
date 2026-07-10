@@ -101,10 +101,32 @@ pub const CLI_MANAGED_FOREGROUND_STATUS_PATH_MISSING_CODE: &str =
     "cli.linux.managed_foreground_status.path_missing";
 pub const CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE: &str =
     "cli.linux.managed_foreground_status.read_failed";
+pub const CLI_MANAGED_FOREGROUND_STATUS_WRITE_FAILED_CODE: &str =
+    "cli.linux.managed_foreground_status.write_failed";
+pub const CLI_MANAGED_FOREGROUND_STATUS_SNAPSHOT_PATH_MISSING_CODE: &str =
+    "cli.linux.managed_foreground_status.snapshot_path_missing";
+pub const CLI_MANAGED_FOREGROUND_STATUS_PATH_CONFLICT_CODE: &str =
+    "cli.linux.managed_foreground_status.path_conflict";
+pub const CLI_MANAGED_FOREGROUND_STATUS_SNAPSHOT_WRITE_FAILED_CODE: &str =
+    "cli.linux.managed_foreground_status.snapshot_write_failed";
+pub const CLI_MANAGED_FOREGROUND_STATUS_STATE_CONFLICT_CODE: &str =
+    "cli.linux.managed_foreground_status.state_conflict";
+pub const CLI_MANAGED_FOREGROUND_STATUS_TRANSITION_INVALID_CODE: &str =
+    "cli.linux.managed_foreground_status.transition_invalid";
 pub const CLI_MANAGED_FOREGROUND_STATUS_SCHEMA_UNSUPPORTED_CODE: &str =
     "cli.linux.managed_foreground_status.schema_unsupported";
 pub const CLI_MANAGED_FOREGROUND_STATUS_RECORD_INVALID_CODE: &str =
     "cli.linux.managed_foreground_status.record_invalid";
+pub const CLI_MANAGED_FOREGROUND_EVENT_PATH_MISSING_CODE: &str =
+    "cli.linux.managed_foreground_event.path_missing";
+pub const CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE: &str =
+    "cli.linux.managed_foreground_event.read_failed";
+pub const CLI_MANAGED_FOREGROUND_EVENT_WRITE_FAILED_CODE: &str =
+    "cli.linux.managed_foreground_event.write_failed";
+pub const CLI_MANAGED_FOREGROUND_EVENT_SCHEMA_UNSUPPORTED_CODE: &str =
+    "cli.linux.managed_foreground_event.schema_unsupported";
+pub const CLI_MANAGED_FOREGROUND_EVENT_RECORD_INVALID_CODE: &str =
+    "cli.linux.managed_foreground_event.record_invalid";
 pub const CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE: &str =
     "cli.linux.stop.unavailable_without_daemon";
 pub const CLI_STATUS_NO_RUNTIME_CONTEXT_CODE: &str = "cli.linux.status.no_runtime_context";
@@ -268,6 +290,8 @@ pub const SOURCE_CLI_ARGUMENT: &str = "cli.argument";
 pub const SOURCE_CLI_CONFIG: &str = "cli.config";
 pub const SOURCE_CLI_HELP: &str = "cli.help";
 pub const SOURCE_CLI_MITM: &str = "cli.mitm";
+pub const SOURCE_CLI_MANAGED_FOREGROUND_EVENT: &str = "cli.managed_foreground_event";
+pub const SOURCE_CLI_MANAGED_FOREGROUND_STATUS: &str = "cli.managed_foreground_status";
 pub const SOURCE_CLI_SING_BOX: &str = "cli.sing_box";
 pub const SOURCE_CLI_START: &str = "cli.start";
 pub const SOURCE_CLI_STOP: &str = "cli.stop";
@@ -275,6 +299,7 @@ pub const SOURCE_CLI_STATUS: &str = "cli.status";
 pub const SOURCE_CLI_RUNTIME: &str = "cli.runtime";
 pub const SUBSCRIPTION_CATALOG_SCHEMA_VERSION: u32 = 1;
 pub const MANAGED_FOREGROUND_SESSION_STATUS_SCHEMA_VERSION: u32 = 1;
+pub const MANAGED_FOREGROUND_SESSION_EVENT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OutputFormat {
@@ -351,6 +376,38 @@ pub enum LinuxCliCommand {
         format: OutputFormat,
     },
     Status {
+        format: OutputFormat,
+    },
+    ManagedStatus {
+        status_path: String,
+        format: OutputFormat,
+    },
+    ManagedStatusInit {
+        status_path: String,
+        session_id: String,
+        engine_id: String,
+        state: String,
+        format: OutputFormat,
+    },
+    ManagedStatusTransition {
+        status_path: String,
+        snapshot_path: String,
+        expected_state: String,
+        next_state: String,
+        format: OutputFormat,
+    },
+    ManagedEvent {
+        event_path: String,
+        format: OutputFormat,
+    },
+    ManagedEventInit {
+        event_path: String,
+        session_id: String,
+        engine_id: String,
+        event_id: String,
+        event_kind: String,
+        state: String,
+        recorded_at: String,
         format: OutputFormat,
     },
     Diagnostics {
@@ -475,6 +532,11 @@ impl LinuxCliCommand {
             Self::Start { .. } => "start",
             Self::Stop { .. } => "stop",
             Self::Status { .. } => "status",
+            Self::ManagedStatus { .. } => "managed-status",
+            Self::ManagedStatusInit { .. } => "managed-status init",
+            Self::ManagedStatusTransition { .. } => "managed-status transition",
+            Self::ManagedEvent { .. } => "managed-event",
+            Self::ManagedEventInit { .. } => "managed-event init",
             Self::Diagnostics { .. } => "diagnostics",
             Self::MitmStatus { .. } => "mitm status",
             Self::MitmDiagnostics { .. } => "mitm diagnostics",
@@ -506,6 +568,11 @@ impl LinuxCliCommand {
             | Self::Start { format, .. }
             | Self::Stop { format }
             | Self::Status { format }
+            | Self::ManagedStatus { format, .. }
+            | Self::ManagedStatusInit { format, .. }
+            | Self::ManagedStatusTransition { format, .. }
+            | Self::ManagedEvent { format, .. }
+            | Self::ManagedEventInit { format, .. }
             | Self::Diagnostics { format }
             | Self::MitmStatus { format }
             | Self::MitmDiagnostics { format }
@@ -560,6 +627,12 @@ pub struct LinuxCliResponse {
     pub config_profiles: Vec<String>,
     pub version: Option<String>,
     pub help: Option<String>,
+    pub managed_foreground_status: Option<ManagedForegroundSessionStatusReport>,
+    pub managed_foreground_status_write: Option<ManagedForegroundSessionStatusWriteReport>,
+    pub managed_foreground_status_transition:
+        Option<ManagedForegroundSessionStatusTransitionReport>,
+    pub managed_foreground_event: Option<ManagedForegroundSessionEventReport>,
+    pub managed_foreground_event_write: Option<ManagedForegroundSessionEventWriteReport>,
     pub sing_box_install: Option<LinuxSingBoxInstallStatus>,
     pub sing_box_run: Option<LinuxSingBoxRunStatus>,
     pub mitm_status: Option<LinuxMitmStatus>,
@@ -579,6 +652,11 @@ impl LinuxCliResponse {
             config_profiles: Vec::new(),
             version: None,
             help: None,
+            managed_foreground_status: None,
+            managed_foreground_status_write: None,
+            managed_foreground_status_transition: None,
+            managed_foreground_event: None,
+            managed_foreground_event_write: None,
             sing_box_install: None,
             sing_box_run: None,
             mitm_status: None,
@@ -602,6 +680,11 @@ impl LinuxCliResponse {
             config_profiles: Vec::new(),
             version: None,
             help: None,
+            managed_foreground_status: None,
+            managed_foreground_status_write: None,
+            managed_foreground_status_transition: None,
+            managed_foreground_event: None,
+            managed_foreground_event_write: None,
             sing_box_install: None,
             sing_box_run: None,
             mitm_status: None,
@@ -628,6 +711,46 @@ impl LinuxCliResponse {
 
     pub fn with_help(mut self, help: impl Into<String>) -> Self {
         self.help = Some(help.into());
+        self
+    }
+
+    pub fn with_managed_foreground_status(
+        mut self,
+        report: ManagedForegroundSessionStatusReport,
+    ) -> Self {
+        self.managed_foreground_status = Some(report);
+        self
+    }
+
+    pub fn with_managed_foreground_status_write(
+        mut self,
+        report: ManagedForegroundSessionStatusWriteReport,
+    ) -> Self {
+        self.managed_foreground_status_write = Some(report);
+        self
+    }
+
+    pub fn with_managed_foreground_status_transition(
+        mut self,
+        report: ManagedForegroundSessionStatusTransitionReport,
+    ) -> Self {
+        self.managed_foreground_status_transition = Some(report);
+        self
+    }
+
+    pub fn with_managed_foreground_event(
+        mut self,
+        report: ManagedForegroundSessionEventReport,
+    ) -> Self {
+        self.managed_foreground_event = Some(report);
+        self
+    }
+
+    pub fn with_managed_foreground_event_write(
+        mut self,
+        report: ManagedForegroundSessionEventWriteReport,
+    ) -> Self {
+        self.managed_foreground_event_write = Some(report);
         self
     }
 
@@ -1594,11 +1717,90 @@ pub struct ManagedForegroundSessionStatusRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionStatusWriteRequest {
+    pub status_path: String,
+    pub session_id: String,
+    pub engine_id: String,
+    pub state: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionStatusTransitionRequest {
+    pub status_path: String,
+    pub snapshot_path: String,
+    pub expected_state: String,
+    pub next_state: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedForegroundSessionStatusReport {
     pub status_path: String,
     pub session_id: String,
     pub engine_id: String,
     pub state: String,
+    pub liveness_verified: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionStatusWriteReport {
+    pub status_path: String,
+    pub session_id: String,
+    pub engine_id: String,
+    pub state: String,
+    pub record_written: bool,
+    pub liveness_verified: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionStatusTransitionReport {
+    pub status_path: String,
+    pub snapshot_path: String,
+    pub session_id: String,
+    pub engine_id: String,
+    pub previous_state: String,
+    pub state: String,
+    pub snapshot_written: bool,
+    pub liveness_verified: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionEventRequest {
+    pub event_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionEventWriteRequest {
+    pub event_path: String,
+    pub session_id: String,
+    pub engine_id: String,
+    pub event_id: String,
+    pub event_kind: String,
+    pub state: String,
+    pub recorded_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionEventReport {
+    pub event_path: String,
+    pub session_id: String,
+    pub engine_id: String,
+    pub event_id: String,
+    pub event_kind: String,
+    pub state: String,
+    pub recorded_at: String,
+    pub liveness_verified: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionEventWriteReport {
+    pub event_path: String,
+    pub session_id: String,
+    pub engine_id: String,
+    pub event_id: String,
+    pub event_kind: String,
+    pub state: String,
+    pub recorded_at: String,
+    pub record_written: bool,
     pub liveness_verified: bool,
 }
 
@@ -1615,28 +1817,194 @@ impl CommandManagedForegroundSessionStore {
         request: &ManagedForegroundSessionStatusRequest,
     ) -> DomainResult<ManagedForegroundSessionStatusReport> {
         let status_path = required_managed_foreground_status_path(&request.status_path)?;
-        let contents = std::fs::read_to_string(&status_path).map_err(|error| {
-            DomainError::new(
-                CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE,
-                format!("failed to read managed foreground status record {status_path}: {error}"),
-            )
-        })?;
-        let record = serde_json::from_str::<ManagedForegroundSessionStatusFile>(&contents)
-            .map_err(|error| {
-                DomainError::new(
-                    CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE,
-                    format!(
-                        "failed to parse managed foreground status record {status_path}: {error}"
-                    ),
-                )
-            })?;
-        validate_managed_foreground_session_status_file(&record)?;
+        let (record, _) = read_managed_foreground_session_status_file(&status_path)?;
 
         Ok(ManagedForegroundSessionStatusReport {
             status_path,
             session_id: record.session_id.trim().to_string(),
             engine_id: record.engine_id.trim().to_string(),
             state: record.state.trim().to_string(),
+            liveness_verified: false,
+        })
+    }
+
+    pub fn write_status(
+        &self,
+        request: &ManagedForegroundSessionStatusWriteRequest,
+    ) -> DomainResult<ManagedForegroundSessionStatusWriteReport> {
+        let status_path = required_managed_foreground_status_path(&request.status_path)?;
+        let record = ManagedForegroundSessionStatusFile {
+            schema_version: MANAGED_FOREGROUND_SESSION_STATUS_SCHEMA_VERSION,
+            session_id: request.session_id.trim().to_string(),
+            engine_id: request.engine_id.trim().to_string(),
+            state: request.state.trim().to_string(),
+        };
+        validate_managed_foreground_session_status_file(&record)?;
+        let record_json = serde_json::to_string_pretty(&record).map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_STATUS_WRITE_FAILED_CODE,
+                format!("failed to render managed foreground status record: {error}"),
+            )
+        })?;
+        write_new_file(
+            &status_path,
+            record_json.as_bytes(),
+            CLI_MANAGED_FOREGROUND_STATUS_WRITE_FAILED_CODE,
+            "managed foreground status record",
+        )?;
+
+        Ok(ManagedForegroundSessionStatusWriteReport {
+            status_path,
+            session_id: record.session_id,
+            engine_id: record.engine_id,
+            state: record.state,
+            record_written: true,
+            liveness_verified: false,
+        })
+    }
+
+    pub fn transition_status(
+        &self,
+        request: &ManagedForegroundSessionStatusTransitionRequest,
+    ) -> DomainResult<ManagedForegroundSessionStatusTransitionReport> {
+        let status_path = required_managed_foreground_status_path(&request.status_path)?;
+        let snapshot_path =
+            required_managed_foreground_status_snapshot_path(&request.snapshot_path)?;
+        if status_path == snapshot_path {
+            return Err(DomainError::new(
+                CLI_MANAGED_FOREGROUND_STATUS_PATH_CONFLICT_CODE,
+                "managed foreground status and snapshot paths must differ",
+            ));
+        }
+        if std::path::Path::new(&snapshot_path).exists() {
+            return Err(DomainError::new(
+                CLI_MANAGED_FOREGROUND_STATUS_SNAPSHOT_WRITE_FAILED_CODE,
+                "refusing to overwrite an existing managed foreground status snapshot",
+            ));
+        }
+
+        let expected_state = required_managed_foreground_status_state(
+            &request.expected_state,
+            CLI_MANAGED_FOREGROUND_STATUS_TRANSITION_INVALID_CODE,
+            "managed foreground expected state is unsupported",
+        )?;
+        let next_state = required_managed_foreground_status_state(
+            &request.next_state,
+            CLI_MANAGED_FOREGROUND_STATUS_TRANSITION_INVALID_CODE,
+            "managed foreground next state is unsupported",
+        )?;
+        let (mut record, previous_contents) =
+            read_managed_foreground_session_status_file(&status_path)?;
+        let previous_state = record.state.trim().to_string();
+        if previous_state != expected_state {
+            return Err(DomainError::new(
+                CLI_MANAGED_FOREGROUND_STATUS_STATE_CONFLICT_CODE,
+                "managed foreground status record did not match the expected state",
+            ));
+        }
+        if !is_managed_foreground_status_transition_allowed(&previous_state, &next_state) {
+            return Err(DomainError::new(
+                CLI_MANAGED_FOREGROUND_STATUS_TRANSITION_INVALID_CODE,
+                "managed foreground status transition is not allowed",
+            ));
+        }
+        record.state = next_state.clone();
+        let current_contents = serde_json::to_string_pretty(&record).map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_STATUS_WRITE_FAILED_CODE,
+                format!("failed to render managed foreground status record: {error}"),
+            )
+        })?;
+        write_new_file(
+            &snapshot_path,
+            previous_contents.as_bytes(),
+            CLI_MANAGED_FOREGROUND_STATUS_SNAPSHOT_WRITE_FAILED_CODE,
+            "managed foreground status snapshot",
+        )?;
+        write_replace_file(
+            &status_path,
+            current_contents.as_bytes(),
+            CLI_MANAGED_FOREGROUND_STATUS_WRITE_FAILED_CODE,
+            "managed foreground status record",
+        )?;
+
+        Ok(ManagedForegroundSessionStatusTransitionReport {
+            status_path,
+            snapshot_path,
+            session_id: record.session_id.trim().to_string(),
+            engine_id: record.engine_id.trim().to_string(),
+            previous_state,
+            state: next_state,
+            snapshot_written: true,
+            liveness_verified: false,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CommandManagedForegroundSessionEventStore;
+
+impl CommandManagedForegroundSessionEventStore {
+    pub const fn new() -> Self {
+        Self
+    }
+
+    pub fn read_event(
+        &self,
+        request: &ManagedForegroundSessionEventRequest,
+    ) -> DomainResult<ManagedForegroundSessionEventReport> {
+        let event_path = required_managed_foreground_event_path(&request.event_path)?;
+        let record = read_managed_foreground_session_event_file(&event_path)?;
+
+        Ok(ManagedForegroundSessionEventReport {
+            event_path,
+            session_id: record.session_id.trim().to_string(),
+            engine_id: record.engine_id.trim().to_string(),
+            event_id: record.event_id.trim().to_string(),
+            event_kind: record.event_kind.trim().to_string(),
+            state: record.state.trim().to_string(),
+            recorded_at: record.recorded_at.trim().to_string(),
+            liveness_verified: false,
+        })
+    }
+
+    pub fn write_event(
+        &self,
+        request: &ManagedForegroundSessionEventWriteRequest,
+    ) -> DomainResult<ManagedForegroundSessionEventWriteReport> {
+        let event_path = required_managed_foreground_event_path(&request.event_path)?;
+        let record = ManagedForegroundSessionEventFile {
+            schema_version: MANAGED_FOREGROUND_SESSION_EVENT_SCHEMA_VERSION,
+            session_id: request.session_id.trim().to_string(),
+            engine_id: request.engine_id.trim().to_string(),
+            event_id: request.event_id.trim().to_string(),
+            event_kind: request.event_kind.trim().to_string(),
+            state: request.state.trim().to_string(),
+            recorded_at: request.recorded_at.trim().to_string(),
+        };
+        validate_managed_foreground_session_event_file(&record)?;
+        let record_json = serde_json::to_string_pretty(&record).map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_EVENT_WRITE_FAILED_CODE,
+                format!("failed to render managed foreground event record: {error}"),
+            )
+        })?;
+        write_new_file(
+            &event_path,
+            record_json.as_bytes(),
+            CLI_MANAGED_FOREGROUND_EVENT_WRITE_FAILED_CODE,
+            "managed foreground event record",
+        )?;
+
+        Ok(ManagedForegroundSessionEventWriteReport {
+            event_path,
+            session_id: record.session_id,
+            engine_id: record.engine_id,
+            event_id: record.event_id,
+            event_kind: record.event_kind,
+            state: record.state,
+            recorded_at: record.recorded_at,
+            record_written: true,
             liveness_verified: false,
         })
     }
@@ -2035,12 +2403,23 @@ struct SubscriptionCatalogSourceFile {
     location: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct ManagedForegroundSessionStatusFile {
     schema_version: u32,
     session_id: String,
     engine_id: String,
     state: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ManagedForegroundSessionEventFile {
+    schema_version: u32,
+    session_id: String,
+    engine_id: String,
+    event_id: String,
+    event_kind: String,
+    state: String,
+    recorded_at: String,
 }
 
 fn required_subscription_catalog_path(
@@ -2066,6 +2445,87 @@ fn required_managed_foreground_status_path(path: &str) -> DomainResult<String> {
     Ok(path.to_string())
 }
 
+fn required_managed_foreground_status_snapshot_path(path: &str) -> DomainResult<String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_STATUS_SNAPSHOT_PATH_MISSING_CODE,
+            "managed foreground status snapshot path cannot be empty",
+        ));
+    }
+    Ok(path.to_string())
+}
+
+fn required_managed_foreground_event_path(path: &str) -> DomainResult<String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_PATH_MISSING_CODE,
+            "managed foreground event path cannot be empty",
+        ));
+    }
+    Ok(path.to_string())
+}
+
+fn read_managed_foreground_session_status_file(
+    path: &str,
+) -> DomainResult<(ManagedForegroundSessionStatusFile, String)> {
+    let contents = std::fs::read_to_string(path).map_err(|error| {
+        DomainError::new(
+            CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE,
+            format!("failed to read managed foreground status record {path}: {error}"),
+        )
+    })?;
+    let record =
+        serde_json::from_str::<ManagedForegroundSessionStatusFile>(&contents).map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE,
+                format!("failed to parse managed foreground status record {path}: {error}"),
+            )
+        })?;
+    validate_managed_foreground_session_status_file(&record)?;
+    Ok((record, contents))
+}
+
+fn read_managed_foreground_session_event_file(
+    path: &str,
+) -> DomainResult<ManagedForegroundSessionEventFile> {
+    let contents = std::fs::read_to_string(path).map_err(|error| {
+        DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+            format!("failed to read managed foreground event record {path}: {error}"),
+        )
+    })?;
+    let record =
+        serde_json::from_str::<ManagedForegroundSessionEventFile>(&contents).map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+                format!("failed to parse managed foreground event record {path}: {error}"),
+            )
+        })?;
+    validate_managed_foreground_session_event_file(&record)?;
+    Ok(record)
+}
+
+fn required_managed_foreground_status_state(
+    state: &str,
+    code: &'static str,
+    message: &'static str,
+) -> DomainResult<String> {
+    let state = state.trim();
+    if !matches!(state, "starting" | "running" | "stopped" | "failed") {
+        return Err(DomainError::new(code, message));
+    }
+    Ok(state.to_string())
+}
+
+fn is_managed_foreground_status_transition_allowed(previous_state: &str, next_state: &str) -> bool {
+    matches!(
+        (previous_state, next_state),
+        ("starting", "running" | "failed") | ("running", "stopped" | "failed")
+    )
+}
+
 fn validate_managed_foreground_session_status_file(
     record: &ManagedForegroundSessionStatusFile,
 ) -> DomainResult<()> {
@@ -2081,15 +2541,47 @@ fn validate_managed_foreground_session_status_file(
             "managed foreground status record contains an empty session or engine id",
         ));
     }
-    if !matches!(
-        record.state.trim(),
-        "starting" | "running" | "stopped" | "failed"
-    ) {
+    required_managed_foreground_status_state(
+        &record.state,
+        CLI_MANAGED_FOREGROUND_STATUS_RECORD_INVALID_CODE,
+        "managed foreground status record contains an unsupported state",
+    )?;
+    Ok(())
+}
+
+fn validate_managed_foreground_session_event_file(
+    record: &ManagedForegroundSessionEventFile,
+) -> DomainResult<()> {
+    if record.schema_version != MANAGED_FOREGROUND_SESSION_EVENT_SCHEMA_VERSION {
         return Err(DomainError::new(
-            CLI_MANAGED_FOREGROUND_STATUS_RECORD_INVALID_CODE,
-            "managed foreground status record contains an unsupported state",
+            CLI_MANAGED_FOREGROUND_EVENT_SCHEMA_UNSUPPORTED_CODE,
+            "managed foreground event schema version is unsupported",
         ));
     }
+    if record.session_id.trim().is_empty()
+        || record.engine_id.trim().is_empty()
+        || record.event_id.trim().is_empty()
+        || record.recorded_at.trim().is_empty()
+    {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_RECORD_INVALID_CODE,
+            "managed foreground event record contains an empty required identifier or timestamp",
+        ));
+    }
+    if !matches!(
+        record.event_kind.trim(),
+        "session_started" | "status_transition" | "session_stopped" | "session_failed"
+    ) {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_RECORD_INVALID_CODE,
+            "managed foreground event record contains an unsupported event kind",
+        ));
+    }
+    required_managed_foreground_status_state(
+        &record.state,
+        CLI_MANAGED_FOREGROUND_EVENT_RECORD_INVALID_CODE,
+        "managed foreground event record contains an unsupported state",
+    )?;
     Ok(())
 }
 
@@ -3752,6 +4244,8 @@ where
                 format: options.format,
             })
         }
+        "managed-status" => parse_managed_status_command(&rest),
+        "managed-event" => parse_managed_event_command(&rest),
         "diagnostics" => {
             let options = parse_options(&rest)?;
             Ok(LinuxCliCommand::Diagnostics {
@@ -3807,6 +4301,49 @@ where
         LinuxCliCommand::Version { .. } => handle_version(),
         LinuxCliCommand::Capabilities { .. } => handle_capabilities(platform),
         LinuxCliCommand::Status { .. } => handle_status(platform),
+        LinuxCliCommand::ManagedStatus { status_path, .. } => {
+            handle_managed_foreground_status(&status_path)
+        }
+        LinuxCliCommand::ManagedStatusInit {
+            status_path,
+            session_id,
+            engine_id,
+            state,
+            ..
+        } => handle_managed_foreground_status_init(&status_path, &session_id, &engine_id, &state),
+        LinuxCliCommand::ManagedStatusTransition {
+            status_path,
+            snapshot_path,
+            expected_state,
+            next_state,
+            ..
+        } => handle_managed_foreground_status_transition(
+            &status_path,
+            &snapshot_path,
+            &expected_state,
+            &next_state,
+        ),
+        LinuxCliCommand::ManagedEvent { event_path, .. } => {
+            handle_managed_foreground_event(&event_path)
+        }
+        LinuxCliCommand::ManagedEventInit {
+            event_path,
+            session_id,
+            engine_id,
+            event_id,
+            event_kind,
+            state,
+            recorded_at,
+            ..
+        } => handle_managed_foreground_event_init(
+            &event_path,
+            &session_id,
+            &engine_id,
+            &event_id,
+            &event_kind,
+            &state,
+            &recorded_at,
+        ),
         LinuxCliCommand::Diagnostics { .. } => handle_diagnostics(platform),
         LinuxCliCommand::MitmStatus { .. } => handle_mitm_status(platform),
         LinuxCliCommand::MitmDiagnostics { .. } => handle_mitm_diagnostics(platform),
@@ -4346,6 +4883,11 @@ where
             config_profiles: Vec::new(),
             version: None,
             help: None,
+            managed_foreground_status: None,
+            managed_foreground_status_write: None,
+            managed_foreground_status_transition: None,
+            managed_foreground_event: None,
+            managed_foreground_event_write: None,
             sing_box_install: None,
             sing_box_run: None,
             mitm_status: None,
@@ -4369,6 +4911,11 @@ where
         config_profiles: Vec::new(),
         version: None,
         help: None,
+        managed_foreground_status: None,
+        managed_foreground_status_write: None,
+        managed_foreground_status_transition: None,
+        managed_foreground_event: None,
+        managed_foreground_event_write: None,
         sing_box_install: None,
         sing_box_run: None,
         mitm_status: None,
@@ -4471,6 +5018,173 @@ where
             error,
             SOURCE_CLI_RUNTIME,
         ),
+    }
+}
+
+pub fn handle_managed_foreground_status(status_path: &str) -> LinuxCliResponse {
+    let store = CommandManagedForegroundSessionStore::new();
+    match store.read_status(&ManagedForegroundSessionStatusRequest {
+        status_path: status_path.to_string(),
+    }) {
+        Ok(report) => {
+            LinuxCliResponse::success("managed-status").with_managed_foreground_status(report)
+        }
+        Err(error) => {
+            let exit_code = if error.code == CLI_MANAGED_FOREGROUND_STATUS_PATH_MISSING_CODE {
+                LinuxCliExitCode::ArgumentOrConfig
+            } else if error.code == CLI_MANAGED_FOREGROUND_STATUS_SCHEMA_UNSUPPORTED_CODE
+                || error.code == CLI_MANAGED_FOREGROUND_STATUS_RECORD_INVALID_CODE
+            {
+                LinuxCliExitCode::ConfigValidation
+            } else {
+                LinuxCliExitCode::GeneralFailure
+            };
+            domain_error_response(
+                "managed-status",
+                exit_code,
+                error,
+                SOURCE_CLI_MANAGED_FOREGROUND_STATUS,
+            )
+        }
+    }
+}
+
+pub fn handle_managed_foreground_status_init(
+    status_path: &str,
+    session_id: &str,
+    engine_id: &str,
+    state: &str,
+) -> LinuxCliResponse {
+    let store = CommandManagedForegroundSessionStore::new();
+    match store.write_status(&ManagedForegroundSessionStatusWriteRequest {
+        status_path: status_path.to_string(),
+        session_id: session_id.to_string(),
+        engine_id: engine_id.to_string(),
+        state: state.to_string(),
+    }) {
+        Ok(report) => LinuxCliResponse::success("managed-status init")
+            .with_managed_foreground_status_write(report),
+        Err(error) => {
+            let exit_code = if error.code == CLI_MANAGED_FOREGROUND_STATUS_PATH_MISSING_CODE {
+                LinuxCliExitCode::ArgumentOrConfig
+            } else if error.code == CLI_MANAGED_FOREGROUND_STATUS_RECORD_INVALID_CODE {
+                LinuxCliExitCode::ConfigValidation
+            } else {
+                LinuxCliExitCode::GeneralFailure
+            };
+            domain_error_response(
+                "managed-status init",
+                exit_code,
+                error,
+                SOURCE_CLI_MANAGED_FOREGROUND_STATUS,
+            )
+        }
+    }
+}
+
+pub fn handle_managed_foreground_status_transition(
+    status_path: &str,
+    snapshot_path: &str,
+    expected_state: &str,
+    next_state: &str,
+) -> LinuxCliResponse {
+    let store = CommandManagedForegroundSessionStore::new();
+    match store.transition_status(&ManagedForegroundSessionStatusTransitionRequest {
+        status_path: status_path.to_string(),
+        snapshot_path: snapshot_path.to_string(),
+        expected_state: expected_state.to_string(),
+        next_state: next_state.to_string(),
+    }) {
+        Ok(report) => LinuxCliResponse::success("managed-status transition")
+            .with_managed_foreground_status_transition(report),
+        Err(error) => {
+            let exit_code = if error.code == CLI_MANAGED_FOREGROUND_STATUS_PATH_MISSING_CODE
+                || error.code == CLI_MANAGED_FOREGROUND_STATUS_SNAPSHOT_PATH_MISSING_CODE
+                || error.code == CLI_MANAGED_FOREGROUND_STATUS_TRANSITION_INVALID_CODE
+            {
+                LinuxCliExitCode::ArgumentOrConfig
+            } else if error.code == CLI_MANAGED_FOREGROUND_STATUS_SCHEMA_UNSUPPORTED_CODE
+                || error.code == CLI_MANAGED_FOREGROUND_STATUS_RECORD_INVALID_CODE
+                || error.code == CLI_MANAGED_FOREGROUND_STATUS_STATE_CONFLICT_CODE
+            {
+                LinuxCliExitCode::ConfigValidation
+            } else {
+                LinuxCliExitCode::GeneralFailure
+            };
+            domain_error_response(
+                "managed-status transition",
+                exit_code,
+                error,
+                SOURCE_CLI_MANAGED_FOREGROUND_STATUS,
+            )
+        }
+    }
+}
+
+pub fn handle_managed_foreground_event(event_path: &str) -> LinuxCliResponse {
+    let store = CommandManagedForegroundSessionEventStore::new();
+    match store.read_event(&ManagedForegroundSessionEventRequest {
+        event_path: event_path.to_string(),
+    }) {
+        Ok(report) => {
+            LinuxCliResponse::success("managed-event").with_managed_foreground_event(report)
+        }
+        Err(error) => {
+            let exit_code = if error.code == CLI_MANAGED_FOREGROUND_EVENT_PATH_MISSING_CODE {
+                LinuxCliExitCode::ArgumentOrConfig
+            } else if error.code == CLI_MANAGED_FOREGROUND_EVENT_SCHEMA_UNSUPPORTED_CODE
+                || error.code == CLI_MANAGED_FOREGROUND_EVENT_RECORD_INVALID_CODE
+            {
+                LinuxCliExitCode::ConfigValidation
+            } else {
+                LinuxCliExitCode::GeneralFailure
+            };
+            domain_error_response(
+                "managed-event",
+                exit_code,
+                error,
+                SOURCE_CLI_MANAGED_FOREGROUND_EVENT,
+            )
+        }
+    }
+}
+
+pub fn handle_managed_foreground_event_init(
+    event_path: &str,
+    session_id: &str,
+    engine_id: &str,
+    event_id: &str,
+    event_kind: &str,
+    state: &str,
+    recorded_at: &str,
+) -> LinuxCliResponse {
+    let store = CommandManagedForegroundSessionEventStore::new();
+    match store.write_event(&ManagedForegroundSessionEventWriteRequest {
+        event_path: event_path.to_string(),
+        session_id: session_id.to_string(),
+        engine_id: engine_id.to_string(),
+        event_id: event_id.to_string(),
+        event_kind: event_kind.to_string(),
+        state: state.to_string(),
+        recorded_at: recorded_at.to_string(),
+    }) {
+        Ok(report) => LinuxCliResponse::success("managed-event init")
+            .with_managed_foreground_event_write(report),
+        Err(error) => {
+            let exit_code = if error.code == CLI_MANAGED_FOREGROUND_EVENT_PATH_MISSING_CODE {
+                LinuxCliExitCode::ArgumentOrConfig
+            } else if error.code == CLI_MANAGED_FOREGROUND_EVENT_RECORD_INVALID_CODE {
+                LinuxCliExitCode::ConfigValidation
+            } else {
+                LinuxCliExitCode::GeneralFailure
+            };
+            domain_error_response(
+                "managed-event init",
+                exit_code,
+                error,
+                SOURCE_CLI_MANAGED_FOREGROUND_EVENT,
+            )
+        }
     }
 }
 
@@ -8538,6 +9252,231 @@ fn parse_run_url_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliPar
     })
 }
 
+fn parse_managed_status_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    if let Some(subcommand) = args.first() {
+        if subcommand == "init" {
+            return parse_managed_status_init_command(&args[1..]);
+        }
+        if subcommand == "transition" {
+            return parse_managed_status_transition_command(&args[1..]);
+        }
+    }
+
+    let Some(status_path) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-status requires an explicit status record path",
+        ));
+    };
+    if status_path.starts_with("--") {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-status requires a status record path before options",
+        ));
+    }
+    let options = parse_options(&args[1..])?;
+
+    Ok(LinuxCliCommand::ManagedStatus {
+        status_path: status_path.clone(),
+        format: options.format,
+    })
+}
+
+fn parse_managed_status_init_command(
+    args: &[String],
+) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(status_path) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-status init requires <status-record-path> <session-id> <engine-id> <state>",
+        ));
+    };
+    let Some(session_id) = args.get(1) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-status init requires <session-id> <engine-id> <state> after the status record path",
+        ));
+    };
+    let Some(engine_id) = args.get(2) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-status init requires <engine-id> <state> after the session id",
+        ));
+    };
+    let Some(state) = args.get(3) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-status init requires <state> after the engine id",
+        ));
+    };
+    if status_path.starts_with("--")
+        || session_id.starts_with("--")
+        || engine_id.starts_with("--")
+        || state.starts_with("--")
+    {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-status init requires record values before options",
+        ));
+    }
+    let options = parse_options(&args[4..])?;
+
+    Ok(LinuxCliCommand::ManagedStatusInit {
+        status_path: status_path.clone(),
+        session_id: session_id.clone(),
+        engine_id: engine_id.clone(),
+        state: state.clone(),
+        format: options.format,
+    })
+}
+
+fn parse_managed_status_transition_command(
+    args: &[String],
+) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(status_path) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-status transition requires <status-record-path> <snapshot-path> <expected-state> <next-state>",
+        ));
+    };
+    let Some(snapshot_path) = args.get(1) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-status transition requires <snapshot-path> <expected-state> <next-state> after the status record path",
+        ));
+    };
+    let Some(expected_state) = args.get(2) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-status transition requires <expected-state> <next-state> after the snapshot path",
+        ));
+    };
+    let Some(next_state) = args.get(3) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-status transition requires <next-state> after the expected state",
+        ));
+    };
+    if status_path.starts_with("--")
+        || snapshot_path.starts_with("--")
+        || expected_state.starts_with("--")
+        || next_state.starts_with("--")
+    {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-status transition requires record values before options",
+        ));
+    }
+    let options = parse_options(&args[4..])?;
+
+    Ok(LinuxCliCommand::ManagedStatusTransition {
+        status_path: status_path.clone(),
+        snapshot_path: snapshot_path.clone(),
+        expected_state: expected_state.clone(),
+        next_state: next_state.clone(),
+        format: options.format,
+    })
+}
+
+fn parse_managed_event_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    if let Some(subcommand) = args.first() {
+        if subcommand == "init" {
+            return parse_managed_event_init_command(&args[1..]);
+        }
+    }
+
+    let Some(event_path) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event requires an explicit event record path",
+        ));
+    };
+    if event_path.starts_with("--") {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event requires an event record path before options",
+        ));
+    }
+    let options = parse_options(&args[1..])?;
+
+    Ok(LinuxCliCommand::ManagedEvent {
+        event_path: event_path.clone(),
+        format: options.format,
+    })
+}
+
+fn parse_managed_event_init_command(
+    args: &[String],
+) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(event_path) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event init requires <event-record-path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at>",
+        ));
+    };
+    let Some(session_id) = args.get(1) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event init requires <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at> after the event record path",
+        ));
+    };
+    let Some(engine_id) = args.get(2) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event init requires <engine-id> <event-id> <event-kind> <state> <recorded-at> after the session id",
+        ));
+    };
+    let Some(event_id) = args.get(3) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event init requires <event-id> <event-kind> <state> <recorded-at> after the engine id",
+        ));
+    };
+    let Some(event_kind) = args.get(4) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event init requires <event-kind> <state> <recorded-at> after the event id",
+        ));
+    };
+    let Some(state) = args.get(5) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event init requires <state> <recorded-at> after the event kind",
+        ));
+    };
+    let Some(recorded_at) = args.get(6) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event init requires <recorded-at> after the state",
+        ));
+    };
+    if event_path.starts_with("--")
+        || session_id.starts_with("--")
+        || engine_id.starts_with("--")
+        || event_id.starts_with("--")
+        || event_kind.starts_with("--")
+        || state.starts_with("--")
+        || recorded_at.starts_with("--")
+    {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event init requires record values before options",
+        ));
+    }
+    let options = parse_options(&args[7..])?;
+
+    Ok(LinuxCliCommand::ManagedEventInit {
+        event_path: event_path.clone(),
+        session_id: session_id.clone(),
+        engine_id: engine_id.clone(),
+        event_id: event_id.clone(),
+        event_kind: event_kind.clone(),
+        state: state.clone(),
+        recorded_at: recorded_at.clone(),
+        format: options.format,
+    })
+}
+
 fn parse_mitm_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
     let Some(subcommand) = args.first() else {
         let options = parse_options(args)?;
@@ -8936,6 +9875,11 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux start --config <path> [--enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path>] [--enable-script-runtime --script-runner <path> --script-map <url=file> ...] --confirm [--format text|json]\n",
         "  networkcore-linux stop [--format text|json]\n",
         "  networkcore-linux status [--format text|json]\n",
+        "  networkcore-linux managed-status <status-record-path> [--format text|json]\n",
+        "  networkcore-linux managed-status init <status-record-path> <session-id> <engine-id> <state> [--format text|json]\n",
+        "  networkcore-linux managed-status transition <status-record-path> <snapshot-path> <expected-state> <next-state> [--format text|json]\n",
+        "  networkcore-linux managed-event <event-record-path> [--format text|json]\n",
+        "  networkcore-linux managed-event init <event-record-path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at> [--format text|json]\n",
         "  networkcore-linux diagnostics [--format text|json]\n",
         "  networkcore-linux mitm [status|diagnostics|certificate-plan|browser-plan] [--format text|json]\n",
         "  networkcore-linux mitm certificate [plan|apply|rollback] [--cert-file <path>] [--key-file <path>] [--profile-trust-file <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
@@ -8953,6 +9897,11 @@ pub const fn cli_help_text() -> &'static str {
         "  start             Start the current foreground runtime; HTTPS MITM requires explicit CA paths and confirmation.\n",
         "  stop              Report that daemon stop is unavailable in this build.\n",
         "  status            Report platform-only status without a daemon context.\n",
+        "  managed-status    Read one explicit managed foreground status record.\n",
+        "  managed-status init Create one explicit managed foreground status record without overwriting it.\n",
+        "  managed-status transition Move one explicit record through an expected-state transition.\n",
+        "  managed-event     Read one explicit managed foreground event record.\n",
+        "  managed-event init Create one explicit managed foreground event record without overwriting it.\n",
         "  diagnostics       Print platform diagnostics.\n",
         "  mitm              Report MITM plugin policy status, certificate/browser plans, and deferred browser hijack gates.\n",
         "  install-sing-box  Download the latest official sing-box archive and cache its executable.\n",
@@ -9219,6 +10168,150 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
         ));
         lines.push(format!("config: {}", run.config_path));
         lines.push(format!("process exit code: {:?}", run.process_exit_code));
+    }
+
+    if let Some(status) = &response.managed_foreground_status {
+        lines.push(format!(
+            "managed foreground status record: {}",
+            status.status_path
+        ));
+        lines.push(format!("managed foreground session: {}", status.session_id));
+        lines.push(format!("managed foreground engine: {}", status.engine_id));
+        lines.push(format!(
+            "managed foreground recorded state: {}",
+            status.state
+        ));
+        lines.push(format!(
+            "managed foreground liveness verified: {}",
+            status.liveness_verified
+        ));
+    }
+
+    if let Some(status_write) = &response.managed_foreground_status_write {
+        lines.push(format!(
+            "managed foreground status record: {}",
+            status_write.status_path
+        ));
+        lines.push(format!(
+            "managed foreground session: {}",
+            status_write.session_id
+        ));
+        lines.push(format!(
+            "managed foreground engine: {}",
+            status_write.engine_id
+        ));
+        lines.push(format!(
+            "managed foreground recorded state: {}",
+            status_write.state
+        ));
+        lines.push(format!(
+            "managed foreground status record written: {}",
+            status_write.record_written
+        ));
+        lines.push(format!(
+            "managed foreground liveness verified: {}",
+            status_write.liveness_verified
+        ));
+    }
+
+    if let Some(status_transition) = &response.managed_foreground_status_transition {
+        lines.push(format!(
+            "managed foreground status record: {}",
+            status_transition.status_path
+        ));
+        lines.push(format!(
+            "managed foreground status snapshot: {}",
+            status_transition.snapshot_path
+        ));
+        lines.push(format!(
+            "managed foreground session: {}",
+            status_transition.session_id
+        ));
+        lines.push(format!(
+            "managed foreground engine: {}",
+            status_transition.engine_id
+        ));
+        lines.push(format!(
+            "managed foreground previous recorded state: {}",
+            status_transition.previous_state
+        ));
+        lines.push(format!(
+            "managed foreground recorded state: {}",
+            status_transition.state
+        ));
+        lines.push(format!(
+            "managed foreground status snapshot written: {}",
+            status_transition.snapshot_written
+        ));
+        lines.push(format!(
+            "managed foreground liveness verified: {}",
+            status_transition.liveness_verified
+        ));
+    }
+
+    if let Some(event) = &response.managed_foreground_event {
+        lines.push(format!(
+            "managed foreground event record: {}",
+            event.event_path
+        ));
+        lines.push(format!("managed foreground session: {}", event.session_id));
+        lines.push(format!("managed foreground engine: {}", event.engine_id));
+        lines.push(format!("managed foreground event id: {}", event.event_id));
+        lines.push(format!(
+            "managed foreground event kind: {}",
+            event.event_kind
+        ));
+        lines.push(format!(
+            "managed foreground recorded state: {}",
+            event.state
+        ));
+        lines.push(format!(
+            "managed foreground recorded at: {}",
+            event.recorded_at
+        ));
+        lines.push(format!(
+            "managed foreground liveness verified: {}",
+            event.liveness_verified
+        ));
+    }
+
+    if let Some(event_write) = &response.managed_foreground_event_write {
+        lines.push(format!(
+            "managed foreground event record: {}",
+            event_write.event_path
+        ));
+        lines.push(format!(
+            "managed foreground session: {}",
+            event_write.session_id
+        ));
+        lines.push(format!(
+            "managed foreground engine: {}",
+            event_write.engine_id
+        ));
+        lines.push(format!(
+            "managed foreground event id: {}",
+            event_write.event_id
+        ));
+        lines.push(format!(
+            "managed foreground event kind: {}",
+            event_write.event_kind
+        ));
+        lines.push(format!(
+            "managed foreground recorded state: {}",
+            event_write.state
+        ));
+        lines.push(format!(
+            "managed foreground recorded at: {}",
+            event_write.recorded_at
+        ));
+        lines.push(format!(
+            "managed foreground event record written: {}",
+            event_write.record_written
+        ));
+        lines.push(format!(
+            "managed foreground liveness verified: {}",
+            event_write.liveness_verified
+        ));
     }
 
     if let Some(mitm) = &response.mitm_status {
@@ -9784,6 +10877,12 @@ struct JsonCliResponse {
     config_profiles: Vec<String>,
     version: Option<String>,
     help: Option<String>,
+    managed_foreground_status: Option<JsonManagedForegroundSessionStatusReport>,
+    managed_foreground_status_write: Option<JsonManagedForegroundSessionStatusWriteReport>,
+    managed_foreground_status_transition:
+        Option<JsonManagedForegroundSessionStatusTransitionReport>,
+    managed_foreground_event: Option<JsonManagedForegroundSessionEventReport>,
+    managed_foreground_event_write: Option<JsonManagedForegroundSessionEventWriteReport>,
     sing_box_install: Option<JsonSingBoxInstallStatus>,
     sing_box_run: Option<JsonSingBoxRunStatus>,
     mitm_status: Option<JsonMitmStatus>,
@@ -9807,6 +10906,26 @@ impl From<&LinuxCliResponse> for JsonCliResponse {
             config_profiles: response.config_profiles.clone(),
             version: response.version.clone(),
             help: response.help.clone(),
+            managed_foreground_status: response
+                .managed_foreground_status
+                .as_ref()
+                .map(JsonManagedForegroundSessionStatusReport::from),
+            managed_foreground_status_write: response
+                .managed_foreground_status_write
+                .as_ref()
+                .map(JsonManagedForegroundSessionStatusWriteReport::from),
+            managed_foreground_status_transition: response
+                .managed_foreground_status_transition
+                .as_ref()
+                .map(JsonManagedForegroundSessionStatusTransitionReport::from),
+            managed_foreground_event: response
+                .managed_foreground_event
+                .as_ref()
+                .map(JsonManagedForegroundSessionEventReport::from),
+            managed_foreground_event_write: response
+                .managed_foreground_event_write
+                .as_ref()
+                .map(JsonManagedForegroundSessionEventWriteReport::from),
             sing_box_install: response
                 .sing_box_install
                 .as_ref()
@@ -9828,6 +10947,139 @@ impl From<&LinuxCliResponse> for JsonCliResponse {
                 .http_rewrite
                 .as_ref()
                 .map(JsonMitmHttpRewriteReport::from),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonManagedForegroundSessionStatusReport {
+    status_path: String,
+    session_id: String,
+    engine_id: String,
+    state: String,
+    liveness_verified: bool,
+}
+
+impl From<&ManagedForegroundSessionStatusReport> for JsonManagedForegroundSessionStatusReport {
+    fn from(report: &ManagedForegroundSessionStatusReport) -> Self {
+        Self {
+            status_path: report.status_path.clone(),
+            session_id: report.session_id.clone(),
+            engine_id: report.engine_id.clone(),
+            state: report.state.clone(),
+            liveness_verified: report.liveness_verified,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonManagedForegroundSessionStatusWriteReport {
+    status_path: String,
+    session_id: String,
+    engine_id: String,
+    state: String,
+    record_written: bool,
+    liveness_verified: bool,
+}
+
+impl From<&ManagedForegroundSessionStatusWriteReport>
+    for JsonManagedForegroundSessionStatusWriteReport
+{
+    fn from(report: &ManagedForegroundSessionStatusWriteReport) -> Self {
+        Self {
+            status_path: report.status_path.clone(),
+            session_id: report.session_id.clone(),
+            engine_id: report.engine_id.clone(),
+            state: report.state.clone(),
+            record_written: report.record_written,
+            liveness_verified: report.liveness_verified,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonManagedForegroundSessionStatusTransitionReport {
+    status_path: String,
+    snapshot_path: String,
+    session_id: String,
+    engine_id: String,
+    previous_state: String,
+    state: String,
+    snapshot_written: bool,
+    liveness_verified: bool,
+}
+
+impl From<&ManagedForegroundSessionStatusTransitionReport>
+    for JsonManagedForegroundSessionStatusTransitionReport
+{
+    fn from(report: &ManagedForegroundSessionStatusTransitionReport) -> Self {
+        Self {
+            status_path: report.status_path.clone(),
+            snapshot_path: report.snapshot_path.clone(),
+            session_id: report.session_id.clone(),
+            engine_id: report.engine_id.clone(),
+            previous_state: report.previous_state.clone(),
+            state: report.state.clone(),
+            snapshot_written: report.snapshot_written,
+            liveness_verified: report.liveness_verified,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonManagedForegroundSessionEventReport {
+    event_path: String,
+    session_id: String,
+    engine_id: String,
+    event_id: String,
+    event_kind: String,
+    state: String,
+    recorded_at: String,
+    liveness_verified: bool,
+}
+
+impl From<&ManagedForegroundSessionEventReport> for JsonManagedForegroundSessionEventReport {
+    fn from(report: &ManagedForegroundSessionEventReport) -> Self {
+        Self {
+            event_path: report.event_path.clone(),
+            session_id: report.session_id.clone(),
+            engine_id: report.engine_id.clone(),
+            event_id: report.event_id.clone(),
+            event_kind: report.event_kind.clone(),
+            state: report.state.clone(),
+            recorded_at: report.recorded_at.clone(),
+            liveness_verified: report.liveness_verified,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonManagedForegroundSessionEventWriteReport {
+    event_path: String,
+    session_id: String,
+    engine_id: String,
+    event_id: String,
+    event_kind: String,
+    state: String,
+    recorded_at: String,
+    record_written: bool,
+    liveness_verified: bool,
+}
+
+impl From<&ManagedForegroundSessionEventWriteReport>
+    for JsonManagedForegroundSessionEventWriteReport
+{
+    fn from(report: &ManagedForegroundSessionEventWriteReport) -> Self {
+        Self {
+            event_path: report.event_path.clone(),
+            session_id: report.session_id.clone(),
+            engine_id: report.engine_id.clone(),
+            event_id: report.event_id.clone(),
+            event_kind: report.event_kind.clone(),
+            state: report.state.clone(),
+            recorded_at: report.recorded_at.clone(),
+            record_written: report.record_written,
+            liveness_verified: report.liveness_verified,
         }
     }
 }
