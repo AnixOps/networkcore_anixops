@@ -378,6 +378,16 @@ pub enum LinuxCliCommand {
         event_path: String,
         format: OutputFormat,
     },
+    ManagedEventInit {
+        event_path: String,
+        session_id: String,
+        engine_id: String,
+        event_id: String,
+        event_kind: String,
+        state: String,
+        recorded_at: String,
+        format: OutputFormat,
+    },
     Diagnostics {
         format: OutputFormat,
     },
@@ -504,6 +514,7 @@ impl LinuxCliCommand {
             Self::ManagedStatusInit { .. } => "managed-status init",
             Self::ManagedStatusTransition { .. } => "managed-status transition",
             Self::ManagedEvent { .. } => "managed-event",
+            Self::ManagedEventInit { .. } => "managed-event init",
             Self::Diagnostics { .. } => "diagnostics",
             Self::MitmStatus { .. } => "mitm status",
             Self::MitmDiagnostics { .. } => "mitm diagnostics",
@@ -539,6 +550,7 @@ impl LinuxCliCommand {
             | Self::ManagedStatusInit { format, .. }
             | Self::ManagedStatusTransition { format, .. }
             | Self::ManagedEvent { format, .. }
+            | Self::ManagedEventInit { format, .. }
             | Self::Diagnostics { format }
             | Self::MitmStatus { format }
             | Self::MitmDiagnostics { format }
@@ -598,6 +610,7 @@ pub struct LinuxCliResponse {
     pub managed_foreground_status_transition:
         Option<ManagedForegroundSessionStatusTransitionReport>,
     pub managed_foreground_event: Option<ManagedForegroundSessionEventReport>,
+    pub managed_foreground_event_write: Option<ManagedForegroundSessionEventWriteReport>,
     pub sing_box_install: Option<LinuxSingBoxInstallStatus>,
     pub sing_box_run: Option<LinuxSingBoxRunStatus>,
     pub mitm_status: Option<LinuxMitmStatus>,
@@ -621,6 +634,7 @@ impl LinuxCliResponse {
             managed_foreground_status_write: None,
             managed_foreground_status_transition: None,
             managed_foreground_event: None,
+            managed_foreground_event_write: None,
             sing_box_install: None,
             sing_box_run: None,
             mitm_status: None,
@@ -648,6 +662,7 @@ impl LinuxCliResponse {
             managed_foreground_status_write: None,
             managed_foreground_status_transition: None,
             managed_foreground_event: None,
+            managed_foreground_event_write: None,
             sing_box_install: None,
             sing_box_run: None,
             mitm_status: None,
@@ -706,6 +721,14 @@ impl LinuxCliResponse {
         report: ManagedForegroundSessionEventReport,
     ) -> Self {
         self.managed_foreground_event = Some(report);
+        self
+    }
+
+    pub fn with_managed_foreground_event_write(
+        mut self,
+        report: ManagedForegroundSessionEventWriteReport,
+    ) -> Self {
+        self.managed_foreground_event_write = Some(report);
         self
     }
 
@@ -4052,6 +4075,24 @@ where
         LinuxCliCommand::ManagedEvent { event_path, .. } => {
             handle_managed_foreground_event(&event_path)
         }
+        LinuxCliCommand::ManagedEventInit {
+            event_path,
+            session_id,
+            engine_id,
+            event_id,
+            event_kind,
+            state,
+            recorded_at,
+            ..
+        } => handle_managed_foreground_event_init(
+            &event_path,
+            &session_id,
+            &engine_id,
+            &event_id,
+            &event_kind,
+            &state,
+            &recorded_at,
+        ),
         LinuxCliCommand::Diagnostics { .. } => handle_diagnostics(platform),
         LinuxCliCommand::MitmStatus { .. } => handle_mitm_status(platform),
         LinuxCliCommand::MitmDiagnostics { .. } => handle_mitm_diagnostics(platform),
@@ -4595,6 +4636,7 @@ where
             managed_foreground_status_write: None,
             managed_foreground_status_transition: None,
             managed_foreground_event: None,
+            managed_foreground_event_write: None,
             sing_box_install: None,
             sing_box_run: None,
             mitm_status: None,
@@ -4622,6 +4664,7 @@ where
         managed_foreground_status_write: None,
         managed_foreground_status_transition: None,
         managed_foreground_event: None,
+        managed_foreground_event_write: None,
         sing_box_install: None,
         sing_box_run: None,
         mitm_status: None,
@@ -4847,6 +4890,45 @@ pub fn handle_managed_foreground_event(event_path: &str) -> LinuxCliResponse {
             };
             domain_error_response(
                 "managed-event",
+                exit_code,
+                error,
+                SOURCE_CLI_MANAGED_FOREGROUND_EVENT,
+            )
+        }
+    }
+}
+
+pub fn handle_managed_foreground_event_init(
+    event_path: &str,
+    session_id: &str,
+    engine_id: &str,
+    event_id: &str,
+    event_kind: &str,
+    state: &str,
+    recorded_at: &str,
+) -> LinuxCliResponse {
+    let store = CommandManagedForegroundSessionEventStore::new();
+    match store.write_event(&ManagedForegroundSessionEventWriteRequest {
+        event_path: event_path.to_string(),
+        session_id: session_id.to_string(),
+        engine_id: engine_id.to_string(),
+        event_id: event_id.to_string(),
+        event_kind: event_kind.to_string(),
+        state: state.to_string(),
+        recorded_at: recorded_at.to_string(),
+    }) {
+        Ok(report) => LinuxCliResponse::success("managed-event init")
+            .with_managed_foreground_event_write(report),
+        Err(error) => {
+            let exit_code = if error.code == CLI_MANAGED_FOREGROUND_EVENT_PATH_MISSING_CODE {
+                LinuxCliExitCode::ArgumentOrConfig
+            } else if error.code == CLI_MANAGED_FOREGROUND_EVENT_RECORD_INVALID_CODE {
+                LinuxCliExitCode::ConfigValidation
+            } else {
+                LinuxCliExitCode::GeneralFailure
+            };
+            domain_error_response(
+                "managed-event init",
                 exit_code,
                 error,
                 SOURCE_CLI_MANAGED_FOREGROUND_EVENT,
@@ -8980,6 +9062,12 @@ fn parse_managed_status_transition_command(
 }
 
 fn parse_managed_event_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    if let Some(subcommand) = args.first() {
+        if subcommand == "init" {
+            return parse_managed_event_init_command(&args[1..]);
+        }
+    }
+
     let Some(event_path) = args.first() else {
         return Err(parse_error(
             CLI_ARGUMENT_VALUE_MISSING_CODE,
@@ -8996,6 +9084,78 @@ fn parse_managed_event_command(args: &[String]) -> Result<LinuxCliCommand, Linux
 
     Ok(LinuxCliCommand::ManagedEvent {
         event_path: event_path.clone(),
+        format: options.format,
+    })
+}
+
+fn parse_managed_event_init_command(
+    args: &[String],
+) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(event_path) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event init requires <event-record-path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at>",
+        ));
+    };
+    let Some(session_id) = args.get(1) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event init requires <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at> after the event record path",
+        ));
+    };
+    let Some(engine_id) = args.get(2) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event init requires <engine-id> <event-id> <event-kind> <state> <recorded-at> after the session id",
+        ));
+    };
+    let Some(event_id) = args.get(3) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event init requires <event-id> <event-kind> <state> <recorded-at> after the engine id",
+        ));
+    };
+    let Some(event_kind) = args.get(4) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event init requires <event-kind> <state> <recorded-at> after the event id",
+        ));
+    };
+    let Some(state) = args.get(5) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event init requires <state> <recorded-at> after the event kind",
+        ));
+    };
+    let Some(recorded_at) = args.get(6) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event init requires <recorded-at> after the state",
+        ));
+    };
+    if event_path.starts_with("--")
+        || session_id.starts_with("--")
+        || engine_id.starts_with("--")
+        || event_id.starts_with("--")
+        || event_kind.starts_with("--")
+        || state.starts_with("--")
+        || recorded_at.starts_with("--")
+    {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event init requires record values before options",
+        ));
+    }
+    let options = parse_options(&args[7..])?;
+
+    Ok(LinuxCliCommand::ManagedEventInit {
+        event_path: event_path.clone(),
+        session_id: session_id.clone(),
+        engine_id: engine_id.clone(),
+        event_id: event_id.clone(),
+        event_kind: event_kind.clone(),
+        state: state.clone(),
+        recorded_at: recorded_at.clone(),
         format: options.format,
     })
 }
@@ -9402,6 +9562,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux managed-status init <status-record-path> <session-id> <engine-id> <state> [--format text|json]\n",
         "  networkcore-linux managed-status transition <status-record-path> <snapshot-path> <expected-state> <next-state> [--format text|json]\n",
         "  networkcore-linux managed-event <event-record-path> [--format text|json]\n",
+        "  networkcore-linux managed-event init <event-record-path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at> [--format text|json]\n",
         "  networkcore-linux diagnostics [--format text|json]\n",
         "  networkcore-linux mitm [status|diagnostics|certificate-plan|browser-plan] [--format text|json]\n",
         "  networkcore-linux mitm certificate [plan|apply|rollback] [--cert-file <path>] [--key-file <path>] [--profile-trust-file <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
@@ -9423,6 +9584,7 @@ pub const fn cli_help_text() -> &'static str {
         "  managed-status init Create one explicit managed foreground status record without overwriting it.\n",
         "  managed-status transition Move one explicit record through an expected-state transition.\n",
         "  managed-event     Read one explicit managed foreground event record.\n",
+        "  managed-event init Create one explicit managed foreground event record without overwriting it.\n",
         "  diagnostics       Print platform diagnostics.\n",
         "  mitm              Report MITM plugin policy status, certificate/browser plans, and deferred browser hijack gates.\n",
         "  install-sing-box  Download the latest official sing-box archive and cache its executable.\n",
@@ -9785,6 +9947,45 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
         lines.push(format!(
             "managed foreground liveness verified: {}",
             event.liveness_verified
+        ));
+    }
+
+    if let Some(event_write) = &response.managed_foreground_event_write {
+        lines.push(format!(
+            "managed foreground event record: {}",
+            event_write.event_path
+        ));
+        lines.push(format!(
+            "managed foreground session: {}",
+            event_write.session_id
+        ));
+        lines.push(format!(
+            "managed foreground engine: {}",
+            event_write.engine_id
+        ));
+        lines.push(format!(
+            "managed foreground event id: {}",
+            event_write.event_id
+        ));
+        lines.push(format!(
+            "managed foreground event kind: {}",
+            event_write.event_kind
+        ));
+        lines.push(format!(
+            "managed foreground recorded state: {}",
+            event_write.state
+        ));
+        lines.push(format!(
+            "managed foreground recorded at: {}",
+            event_write.recorded_at
+        ));
+        lines.push(format!(
+            "managed foreground event record written: {}",
+            event_write.record_written
+        ));
+        lines.push(format!(
+            "managed foreground liveness verified: {}",
+            event_write.liveness_verified
         ));
     }
 
@@ -10356,6 +10557,7 @@ struct JsonCliResponse {
     managed_foreground_status_transition:
         Option<JsonManagedForegroundSessionStatusTransitionReport>,
     managed_foreground_event: Option<JsonManagedForegroundSessionEventReport>,
+    managed_foreground_event_write: Option<JsonManagedForegroundSessionEventWriteReport>,
     sing_box_install: Option<JsonSingBoxInstallStatus>,
     sing_box_run: Option<JsonSingBoxRunStatus>,
     mitm_status: Option<JsonMitmStatus>,
@@ -10395,6 +10597,10 @@ impl From<&LinuxCliResponse> for JsonCliResponse {
                 .managed_foreground_event
                 .as_ref()
                 .map(JsonManagedForegroundSessionEventReport::from),
+            managed_foreground_event_write: response
+                .managed_foreground_event_write
+                .as_ref()
+                .map(JsonManagedForegroundSessionEventWriteReport::from),
             sing_box_install: response
                 .sing_box_install
                 .as_ref()
@@ -10517,6 +10723,35 @@ impl From<&ManagedForegroundSessionEventReport> for JsonManagedForegroundSession
             event_kind: report.event_kind.clone(),
             state: report.state.clone(),
             recorded_at: report.recorded_at.clone(),
+            liveness_verified: report.liveness_verified,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonManagedForegroundSessionEventWriteReport {
+    event_path: String,
+    session_id: String,
+    engine_id: String,
+    event_id: String,
+    event_kind: String,
+    state: String,
+    recorded_at: String,
+    record_written: bool,
+    liveness_verified: bool,
+}
+
+impl From<&ManagedForegroundSessionEventWriteReport> for JsonManagedForegroundSessionEventWriteReport {
+    fn from(report: &ManagedForegroundSessionEventWriteReport) -> Self {
+        Self {
+            event_path: report.event_path.clone(),
+            session_id: report.session_id.clone(),
+            engine_id: report.engine_id.clone(),
+            event_id: report.event_id.clone(),
+            event_kind: report.event_kind.clone(),
+            state: report.state.clone(),
+            recorded_at: report.recorded_at.clone(),
+            record_written: report.record_written,
             liveness_verified: report.liveness_verified,
         }
     }
