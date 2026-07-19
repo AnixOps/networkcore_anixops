@@ -57,7 +57,10 @@ fn linked_policy_core_reports_released_v1_capability_query() {
     );
 
     let capabilities = mitm_anixops_sys::policy_capabilities();
-    assert_eq!(capabilities.bits(), mitm_anixops_sys::POLICY_CAPABILITY_ALL_V1);
+    assert_eq!(
+        capabilities.bits(),
+        mitm_anixops_sys::POLICY_CAPABILITY_ALL_V1
+    );
     assert!(capabilities.is_v1_compatible());
 }
 
