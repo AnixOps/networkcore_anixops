@@ -240,7 +240,10 @@ fn build_plan_digest(
         &mut canonical,
         request.client.sequence().to_string().as_bytes(),
     )?;
-    append_digest_field(&mut canonical, request.pop.sequence().to_string().as_bytes())?;
+    append_digest_field(
+        &mut canonical,
+        request.pop.sequence().to_string().as_bytes(),
+    )?;
     append_digest_field(&mut canonical, request.device_id.as_bytes())?;
     append_digest_field(&mut canonical, request.selected_pop_id.as_bytes())?;
     append_digest_field(&mut canonical, selected_endpoint.as_bytes())?;
