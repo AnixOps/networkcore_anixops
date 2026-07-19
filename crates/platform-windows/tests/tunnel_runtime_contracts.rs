@@ -90,11 +90,9 @@ struct FakeRoutePort {
 }
 
 impl WindowsRoutePort for FakeRoutePort {
-    fn snapshot(
-        &mut self,
-        endpoints: &[IpAddr],
-    ) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
-        self.events.push(format!("route.snapshot:{}", endpoints.len()));
+    fn snapshot(&mut self, endpoints: &[IpAddr]) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
+        self.events
+            .push(format!("route.snapshot:{}", endpoints.len()));
         Ok(endpoints
             .iter()
             .map(|endpoint| WindowsRouteSnapshotEntry {
@@ -106,10 +104,7 @@ impl WindowsRoutePort for FakeRoutePort {
             .collect())
     }
 
-    fn add_endpoint_bypass(
-        &mut self,
-        endpoints: &[IpAddr],
-    ) -> DomainResult<()> {
+    fn add_endpoint_bypass(&mut self, endpoints: &[IpAddr]) -> DomainResult<()> {
         self.events
             .push(format!("route.bypass:{}", endpoints.len()));
         Ok(())
@@ -138,8 +133,7 @@ fn fixture_plan() -> WindowsTunnelPlan {
             direct_fallback: false,
         }],
         endpoint_bypass_required: true,
-        plan_digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-            .to_string(),
+        plan_digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
     }
 }
 
@@ -207,7 +201,10 @@ fn start_orders_snapshot_bypass_process_and_readiness() {
         .start(start_request(binary, cli, secret, state_path.clone()))
         .expect("fake EasyTier session starts");
     assert_eq!(state.state, WindowsTunnelLifecycleState::Running);
-    assert_eq!(read_tunnel_state(&state_path).expect("state is persisted"), state);
+    assert_eq!(
+        read_tunnel_state(&state_path).expect("state is persisted"),
+        state
+    );
 
     let events = events.snapshot();
     assert!(event_index(&events, "cli.version") < event_index(&events, "route.snapshot"));
