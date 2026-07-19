@@ -17,13 +17,11 @@ pub const WINDOWS_TUNNEL_DELIVERY_EXPIRED_CODE: &str = "windows.tunnel.delivery_
 pub const WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE: &str = "windows.tunnel.sequence_replayed";
 pub const WINDOWS_TUNNEL_TARGET_MISMATCH_CODE: &str = "windows.tunnel.target_mismatch";
 pub const WINDOWS_TUNNEL_TENANT_MISMATCH_CODE: &str = "windows.tunnel.tenant_mismatch";
-pub const WINDOWS_TUNNEL_TRANSPORT_UNSUPPORTED_CODE: &str =
-    "windows.tunnel.transport_unsupported";
+pub const WINDOWS_TUNNEL_TRANSPORT_UNSUPPORTED_CODE: &str = "windows.tunnel.transport_unsupported";
 pub const WINDOWS_TUNNEL_POP_NOT_SELECTED_CODE: &str = "windows.tunnel.pop_not_selected";
 pub const WINDOWS_TUNNEL_ROUTE_SELECTOR_UNSUPPORTED_CODE: &str =
     "windows.tunnel.route_selector_unsupported";
-pub const WINDOWS_TUNNEL_SERVICE_CHAIN_INVALID_CODE: &str =
-    "windows.tunnel.service_chain_invalid";
+pub const WINDOWS_TUNNEL_SERVICE_CHAIN_INVALID_CODE: &str = "windows.tunnel.service_chain_invalid";
 
 /// Compatibility alias for callers that describe a malformed envelope as a bundle error.
 pub const WINDOWS_TUNNEL_BUNDLE_INVALID_CODE: &str = WINDOWS_TUNNEL_DELIVERY_INVALID_CODE;
@@ -238,13 +236,19 @@ fn build_plan_digest(
     append_digest_field(&mut canonical, request.client.tenant_id().as_bytes())?;
     append_digest_field(&mut canonical, request.client.bundle_id().as_bytes())?;
     append_digest_field(&mut canonical, request.pop.bundle_id().as_bytes())?;
-    append_digest_field(&mut canonical, request.client.sequence().to_string().as_bytes())?;
+    append_digest_field(
+        &mut canonical,
+        request.client.sequence().to_string().as_bytes(),
+    )?;
     append_digest_field(&mut canonical, request.pop.sequence().to_string().as_bytes())?;
     append_digest_field(&mut canonical, request.device_id.as_bytes())?;
     append_digest_field(&mut canonical, request.selected_pop_id.as_bytes())?;
     append_digest_field(&mut canonical, selected_endpoint.as_bytes())?;
     append_digest_field(&mut canonical, SDWAN_DELIVERY_TRANSPORT_EASYTIER.as_bytes())?;
-    append_digest_field(&mut canonical, request.client.signing_input_hex().as_bytes())?;
+    append_digest_field(
+        &mut canonical,
+        request.client.signing_input_hex().as_bytes(),
+    )?;
     append_digest_field(&mut canonical, request.pop.signing_input_hex().as_bytes())?;
     append_digest_field(&mut canonical, route_intents.len().to_string().as_bytes())?;
     for route in route_intents {
@@ -254,7 +258,9 @@ fn build_plan_digest(
         append_digest_field(&mut canonical, route.direct_fallback.to_string().as_bytes())?;
     }
 
-    Ok(lowercase_hex(digest::digest(&digest::SHA256, &canonical).as_ref()))
+    Ok(lowercase_hex(
+        digest::digest(&digest::SHA256, &canonical).as_ref(),
+    ))
 }
 
 fn append_digest_field(output: &mut Vec<u8>, field: &[u8]) -> DomainResult<()> {
