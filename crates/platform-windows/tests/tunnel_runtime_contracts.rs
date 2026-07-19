@@ -41,6 +41,7 @@ impl SharedEvents {
 
 struct FakeProcessRunner {
     events: SharedEvents,
+    recovered_binary_path: Option<PathBuf>,
     recovered_cli_path: Option<PathBuf>,
 }
 
@@ -59,6 +60,12 @@ impl EasyTierProcessRunner for FakeProcessRunner {
 
     fn recover(&mut self, spec: &EasyTierRecoverySpec) -> DomainResult<RecoveredEasyTierProcess> {
         self.events.push("process.recover");
+        let binary_path = self.recovered_binary_path.clone().ok_or_else(|| {
+            DomainError::new(
+                "fixture.recovery_proof_failed",
+                "fixture recovery proof is unavailable",
+            )
+        })?;
         let cli_path = self.recovered_cli_path.clone().ok_or_else(|| {
             DomainError::new(
                 "fixture.recovery_proof_failed",
@@ -67,6 +74,7 @@ impl EasyTierProcessRunner for FakeProcessRunner {
         })?;
         Ok(RecoveredEasyTierProcess {
             process: spec.expected_process.clone(),
+            binary_path,
             cli_path,
         })
     }
@@ -139,10 +147,12 @@ impl WindowsRoutePort for FakeRoutePort {
 
 fn fake_process_runner(
     events: SharedEvents,
+    recovered_binary_path: Option<PathBuf>,
     recovered_cli_path: Option<PathBuf>,
 ) -> FakeProcessRunner {
     FakeProcessRunner {
         events,
+        recovered_binary_path,
         recovered_cli_path,
     }
 }
@@ -217,7 +227,7 @@ fn event_index(events: &[String], prefix: &str) -> usize {
         .unwrap_or_else(|| panic!("missing event {prefix}: {events:?}"))
 }
 
-fn fixture_recovered_cli(cli: &Path) -> PathBuf {
+fn fixture_cli_outside_binary_directory(cli: &Path) -> PathBuf {
     let directory = cli
         .parent()
         .expect("fixture CLI has a parent directory")
@@ -235,7 +245,7 @@ fn start_orders_snapshot_bypass_process_and_readiness() {
     let (binary, cli, secret) = fixture_paths("start-order");
     let state_path = binary.parent().expect("fixture parent").join("state.json");
     let mut service = WindowsTunnelSessionService::new(
-        fake_process_runner(events.clone(), None),
+        fake_process_runner(events.clone(), None, None),
         FakeCliRunner {
             events: events.clone(),
             peer_ready: true,
@@ -269,7 +279,7 @@ fn readiness_failure_restores_routes_and_stops_owned_process() {
     let (binary, cli, secret) = fixture_paths("readiness-failure");
     let state_path = binary.parent().expect("fixture parent").join("state.json");
     let mut service = WindowsTunnelSessionService::new(
-        fake_process_runner(events.clone(), None),
+        fake_process_runner(events.clone(), None, None),
         FakeCliRunner {
             events: events.clone(),
             peer_ready: false,
@@ -299,7 +309,7 @@ fn stop_rejects_missing_confirmation() {
         std::process::id()
     ));
     let mut service = WindowsTunnelSessionService::new(
-        fake_process_runner(events.clone(), None),
+        fake_process_runner(events.clone(), None, None),
         FakeCliRunner {
             events: events.clone(),
             peer_ready: true,
@@ -324,7 +334,7 @@ fn status_queries_explicit_easytier_cli() {
     let state_path = binary.parent().expect("fixture parent").join("state.json");
     let cli_path = cli.clone();
     let mut service = WindowsTunnelSessionService::new(
-        fake_process_runner(events.clone(), None),
+        fake_process_runner(events.clone(), None, None),
         FakeCliRunner {
             events: events.clone(),
             peer_ready: true,
@@ -351,7 +361,7 @@ fn stale_state_cannot_stop_another_session() {
     let (binary, cli, secret) = fixture_paths("stale-owner");
     let state_path = binary.parent().expect("fixture parent").join("state.json");
     let mut owner = WindowsTunnelSessionService::new(
-        fake_process_runner(owner_events.clone(), None),
+        fake_process_runner(owner_events.clone(), None, None),
         FakeCliRunner {
             events: owner_events.clone(),
             peer_ready: true,
@@ -367,7 +377,7 @@ fn stale_state_cannot_stop_another_session() {
 
     let stale_events = SharedEvents::new();
     let mut stale = WindowsTunnelSessionService::new(
-        fake_process_runner(stale_events.clone(), None),
+        fake_process_runner(stale_events.clone(), None, None),
         FakeCliRunner {
             events: stale_events.clone(),
             peer_ready: true,
@@ -390,9 +400,10 @@ fn fresh_service_status_requires_recovery_proof() {
     let owner_events = SharedEvents::new();
     let (binary, cli, secret) = fixture_paths("fresh-status");
     let state_path = binary.parent().expect("fixture parent").join("state.json");
-    let recovered_cli = fixture_recovered_cli(&cli);
+    let recovered_binary = binary.clone();
+    let recovered_cli = cli.clone();
     let mut owner = WindowsTunnelSessionService::new(
-        fake_process_runner(owner_events.clone(), None),
+        fake_process_runner(owner_events.clone(), None, None),
         FakeCliRunner {
             events: owner_events.clone(),
             peer_ready: true,
@@ -408,7 +419,7 @@ fn fresh_service_status_requires_recovery_proof() {
 
     let failed_events = SharedEvents::new();
     let mut unproven = WindowsTunnelSessionService::new(
-        fake_process_runner(failed_events.clone(), None),
+        fake_process_runner(failed_events.clone(), None, None),
         FakeCliRunner {
             events: failed_events.clone(),
             peer_ready: true,
@@ -425,7 +436,11 @@ fn fresh_service_status_requires_recovery_proof() {
 
     let recovered_events = SharedEvents::new();
     let mut recovered = WindowsTunnelSessionService::new(
-        fake_process_runner(recovered_events.clone(), Some(recovered_cli.clone())),
+        fake_process_runner(
+            recovered_events.clone(),
+            Some(recovered_binary),
+            Some(recovered_cli.clone()),
+        ),
         FakeCliRunner {
             events: recovered_events.clone(),
             peer_ready: true,
@@ -446,13 +461,60 @@ fn fresh_service_status_requires_recovery_proof() {
 }
 
 #[test]
+fn fresh_service_rejects_recovered_cli_outside_proven_binary_directory() {
+    let owner_events = SharedEvents::new();
+    let (binary, cli, secret) = fixture_paths("fresh-rejected-cli-directory");
+    let state_path = binary.parent().expect("fixture parent").join("state.json");
+    let recovered_binary = binary.clone();
+    let recovered_cli = fixture_cli_outside_binary_directory(&cli);
+    let mut owner = WindowsTunnelSessionService::new(
+        fake_process_runner(owner_events.clone(), None, None),
+        FakeCliRunner {
+            events: owner_events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        FakeRoutePort {
+            events: owner_events,
+        },
+    );
+    owner
+        .start(start_request(binary, cli, secret, state_path.clone()))
+        .expect("owner starts a persisted session");
+
+    let recovered_events = SharedEvents::new();
+    let mut recovered = WindowsTunnelSessionService::new(
+        fake_process_runner(
+            recovered_events.clone(),
+            Some(recovered_binary),
+            Some(recovered_cli),
+        ),
+        FakeCliRunner {
+            events: recovered_events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        FakeRoutePort {
+            events: recovered_events.clone(),
+        },
+    );
+
+    let error = recovered
+        .status(&state_path)
+        .expect_err("recovered CLI outside the proven binary directory is rejected");
+    assert_eq!(error.code, WINDOWS_TUNNEL_OWNERSHIP_MISMATCH_CODE);
+    assert_eq!(recovered_events.snapshot(), vec!["process.recover"]);
+}
+
+#[test]
 fn fresh_service_stop_requires_recovery_proof_before_cleanup() {
     let owner_events = SharedEvents::new();
     let (binary, cli, secret) = fixture_paths("fresh-stop");
     let state_path = binary.parent().expect("fixture parent").join("state.json");
-    let recovered_cli = fixture_recovered_cli(&cli);
+    let recovered_binary = binary.clone();
+    let recovered_cli = cli.clone();
     let mut owner = WindowsTunnelSessionService::new(
-        fake_process_runner(owner_events.clone(), None),
+        fake_process_runner(owner_events.clone(), None, None),
         FakeCliRunner {
             events: owner_events.clone(),
             peer_ready: true,
@@ -468,7 +530,7 @@ fn fresh_service_stop_requires_recovery_proof_before_cleanup() {
 
     let failed_events = SharedEvents::new();
     let mut unproven = WindowsTunnelSessionService::new(
-        fake_process_runner(failed_events.clone(), None),
+        fake_process_runner(failed_events.clone(), None, None),
         FakeCliRunner {
             events: failed_events.clone(),
             peer_ready: true,
@@ -485,7 +547,11 @@ fn fresh_service_stop_requires_recovery_proof_before_cleanup() {
 
     let recovered_events = SharedEvents::new();
     let mut recovered = WindowsTunnelSessionService::new(
-        fake_process_runner(recovered_events.clone(), Some(recovered_cli)),
+        fake_process_runner(
+            recovered_events.clone(),
+            Some(recovered_binary),
+            Some(recovered_cli),
+        ),
         FakeCliRunner {
             events: recovered_events.clone(),
             peer_ready: true,
