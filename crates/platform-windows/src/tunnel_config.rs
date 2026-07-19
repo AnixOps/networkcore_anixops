@@ -72,10 +72,7 @@ pub fn render_easytier_config(
     let network_name = required_text(request.network_name, "network name")?;
     let network_secret = required_text(request.network_secret, "network secret")?;
     let endpoint = required_text(&request.plan.selected_endpoint, "selected endpoint")?;
-    let virtual_ipv4 = request
-        .virtual_ipv4
-        .map(parse_virtual_ipv4)
-        .transpose()?;
+    let virtual_ipv4 = request.virtual_ipv4.map(parse_virtual_ipv4).transpose()?;
 
     if request.plan.route_intents.is_empty() {
         return Err(config_error("tunnel plan contains no route intents"));
@@ -95,12 +92,12 @@ pub fn render_easytier_config(
             network_secret: network_secret.clone(),
         },
         ipv4: virtual_ipv4.clone(),
-        peer: vec![EasyTierPeer { uri: peer_uri.clone() }],
+        peer: vec![EasyTierPeer {
+            uri: peer_uri.clone(),
+        }],
         proxy_network: proxy_cidrs
             .iter()
-            .map(|cidr| EasyTierProxyNetwork {
-                cidr: cidr.clone(),
-            })
+            .map(|cidr| EasyTierProxyNetwork { cidr: cidr.clone() })
             .collect(),
     };
     let redacted_config = EasyTierTomlConfig {
@@ -116,7 +113,8 @@ pub fn render_easytier_config(
             .collect(),
     };
 
-    let toml = toml::to_string(&raw_config).map_err(|_| config_error("EasyTier TOML is invalid"))?;
+    let toml =
+        toml::to_string(&raw_config).map_err(|_| config_error("EasyTier TOML is invalid"))?;
     let redacted_toml = toml::to_string(&redacted_config)
         .map_err(|_| config_error("redacted EasyTier TOML is invalid"))?;
 
@@ -134,7 +132,9 @@ pub fn verify_file_sha256(path: &Path, expected_lower_hex: &str) -> DomainResult
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     {
-        return Err(binary_error("EasyTier binary SHA-256 pin is not lower-case hex"));
+        return Err(binary_error(
+            "EasyTier binary SHA-256 pin is not lower-case hex",
+        ));
     }
 
     let bytes = fs::read(path).map_err(|_| binary_error("EasyTier binary cannot be read"))?;
