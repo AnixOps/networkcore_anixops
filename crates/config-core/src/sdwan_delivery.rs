@@ -141,11 +141,8 @@ impl SdwanDeliveryVerifier {
             .verify(&signing_input, &signature_bytes)
             .map_err(|_| signature_error())?;
 
-        let profile = parse_delivery_profile(
-            &payload,
-            envelope.bundle_kind,
-            &metadata.profile_target_id,
-        )?;
+        let profile =
+            parse_delivery_profile(&payload, envelope.bundle_kind, &metadata.profile_target_id)?;
 
         Ok(VerifiedDeliveryEnvelope {
             bundle_kind: envelope.bundle_kind.as_str().to_string(),
@@ -825,7 +822,10 @@ mod tests {
         let timestamp = parse_wire_timestamp("2026-07-19T00:00:00.000Z")
             .expect("timestamp is valid UTC RFC3339");
 
-        assert_eq!(canonical_signing_timestamp(timestamp), "2026-07-19T00:00:00Z");
+        assert_eq!(
+            canonical_signing_timestamp(timestamp),
+            "2026-07-19T00:00:00Z"
+        );
     }
 
     #[test]
@@ -833,7 +833,10 @@ mod tests {
         let timestamp = parse_wire_timestamp("2026-07-19T00:00:00.120000000Z")
             .expect("timestamp is valid UTC RFC3339");
 
-        assert_eq!(canonical_signing_timestamp(timestamp), "2026-07-19T00:00:00.12Z");
+        assert_eq!(
+            canonical_signing_timestamp(timestamp),
+            "2026-07-19T00:00:00.12Z"
+        );
     }
 
     #[test]
@@ -888,8 +891,8 @@ mod tests {
         let mut selector = route_selector(Some("   "), Some("\t"));
         selector.protocol = Some("tcp".to_string());
 
-        let selector = validate_route_selector(selector)
-            .expect("blank optional selector fields are absent");
+        let selector =
+            validate_route_selector(selector).expect("blank optional selector fields are absent");
         assert_eq!(selector.domain_suffix, None);
         assert_eq!(selector.traffic_class, None);
         assert_eq!(selector.protocol.as_deref(), Some("tcp"));
