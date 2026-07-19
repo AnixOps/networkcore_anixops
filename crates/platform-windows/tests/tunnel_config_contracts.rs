@@ -1,9 +1,10 @@
 use config_core::windows_tunnel::{WindowsTunnelPlan, WindowsTunnelRouteIntent};
 use platform_windows::tunnel_config::{
     deserialize_tunnel_state, render_easytier_config, serialize_tunnel_state, verify_file_sha256,
-    EasyTierConfigRequest, WindowsRouteSnapshotEntry, WindowsTunnelLifecycleState,
-    WindowsTunnelState, WINDOWS_TUNNEL_BINARY_HASH_INVALID_CODE,
-    WINDOWS_TUNNEL_STATE_SCHEMA_UNSUPPORTED_CODE,
+    EasyTierConfigRequest, OwnedProcessHandle, WindowsRouteSnapshotEntry,
+    WindowsTunnelLifecycleState, WindowsTunnelRuntimeOwnership, WindowsTunnelState,
+    WINDOWS_TUNNEL_BINARY_HASH_INVALID_CODE, WINDOWS_TUNNEL_STATE_SCHEMA_UNSUPPORTED_CODE,
+    WINDOWS_TUNNEL_STATE_SCHEMA_VERSION,
 };
 use std::path::Path;
 
@@ -30,13 +31,13 @@ fn fixture_plan() -> WindowsTunnelPlan {
 
 fn fixture_state() -> WindowsTunnelState {
     WindowsTunnelState {
-        schema_version: 1,
+        schema_version: WINDOWS_TUNNEL_STATE_SCHEMA_VERSION,
         session_id: "windows-easytier-fixture-session".to_string(),
         plan_digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
         selected_pop_id: "pop-a".to_string(),
         selected_endpoint: "198.51.100.10:11010".to_string(),
         state: WindowsTunnelLifecycleState::Running,
-        config_path: "C:/ProgramData/AnixOps/state/easytier.toml".to_string(),
+        config_path: "fixture-state.easytier.toml".to_string(),
         last_client_sequence: 3,
         last_pop_sequence: 4,
         route_snapshot: vec![WindowsRouteSnapshotEntry {
@@ -46,6 +47,17 @@ fn fixture_state() -> WindowsTunnelState {
             metric: Some(25),
         }],
         rollback_status: "clean".to_string(),
+        runtime_ownership: WindowsTunnelRuntimeOwnership {
+            process: OwnedProcessHandle {
+                session_id: "windows-easytier-fixture-session".to_string(),
+                process_id: 41001,
+                creation_marker: "fixture-creation-marker".to_string(),
+            },
+            binary_sha256: "d33d1d119b40c768c4d96c66236ba1c033e72a9c041e88aa9c84bd67a38d04a5"
+                .to_string(),
+            cli_file_name: "easytier-cli.exe".to_string(),
+            route_cidrs: vec!["203.0.113.0/24".to_string()],
+        },
     }
 }
 
@@ -112,19 +124,31 @@ fn rejects_invalid_binary_hash() {
 }
 
 #[test]
-fn writes_stable_state_json() {
+fn serializes_schema_v2_runtime_ownership_without_paths_or_secrets() {
     let state = fixture_state();
     let first = serialize_tunnel_state(&state).expect("state serializes");
     let second = serialize_tunnel_state(&state).expect("state serializes deterministically");
 
     assert_eq!(first, second);
-    assert!(first.contains("\"schema_version\": 1"));
+    assert!(first.contains("\"schema_version\": 2"));
     assert!(first.contains("\"selected_pop_id\": \"pop-a\""));
+    assert!(first.contains("\"creation_marker\": \"fixture-creation-marker\""));
+    assert!(first.contains("\"cli_file_name\": \"easytier-cli.exe\""));
     assert!(!first.contains("fixture-secret-never-commit"));
+    assert!(!first.contains("C:/fixture/runtime/easytier-core.exe"));
+    assert!(!first.contains("C:/fixture/runtime/easytier-cli.exe"));
     assert_eq!(
         deserialize_tunnel_state(first.as_bytes()).expect("state deserializes"),
         state
     );
+
+    let mut schema_v1: serde_json::Value =
+        serde_json::from_str(&first).expect("serialized state is JSON");
+    schema_v1["schema_version"] = serde_json::Value::from(1_u64);
+    let schema_v1 = serde_json::to_vec(&schema_v1).expect("schema-v1 record is JSON");
+    let error = deserialize_tunnel_state(&schema_v1)
+        .expect_err("schema-v1 state records must be unrecoverable");
+    assert_eq!(error.code, WINDOWS_TUNNEL_STATE_SCHEMA_UNSUPPORTED_CODE);
 }
 
 #[test]
