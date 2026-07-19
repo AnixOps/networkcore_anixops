@@ -65,14 +65,42 @@ fn renders_network_identity_peer_and_destination_routes_without_secret_in_redact
     assert!(artifact.toml.contains("fixture-network"));
     assert!(artifact.toml.contains("peer"));
     assert!(artifact.toml.contains("198.51.100.10:11010"));
-    assert!(artifact.toml.contains("routes"));
     assert!(artifact.toml.contains("203.0.113.0/24"));
     assert!(artifact.toml.contains("10.10.0.2"));
-    assert!(!artifact.toml.contains("proxy_network"));
     assert_eq!(artifact.route_cidrs, vec!["203.0.113.0/24"]);
+
+    let raw: toml::Value = toml::from_str(&artifact.toml).expect("raw TOML parses");
+    let raw_routes = raw
+        .get("routes")
+        .and_then(toml::Value::as_array)
+        .expect("destination routes are a root-level TOML array");
+    assert_eq!(raw_routes.len(), 1);
+    assert_eq!(raw_routes[0].as_str(), Some("203.0.113.0/24"));
+    assert!(raw.get("proxy_network").is_none());
+    let raw_peers = raw
+        .get("peer")
+        .and_then(toml::Value::as_array)
+        .expect("peer list is present");
+    assert!(raw_peers.iter().all(|peer| peer.get("routes").is_none()));
+
     assert!(artifact.redacted_toml.contains("[redacted]"));
     assert!(!artifact.redacted_toml.contains(secret));
-    assert!(!artifact.redacted_toml.contains("proxy_network"));
+    let redacted: toml::Value =
+        toml::from_str(&artifact.redacted_toml).expect("redacted TOML parses");
+    let redacted_routes = redacted
+        .get("routes")
+        .and_then(toml::Value::as_array)
+        .expect("redacted destination routes are a root-level TOML array");
+    assert_eq!(redacted_routes.len(), 1);
+    assert_eq!(redacted_routes[0].as_str(), Some("203.0.113.0/24"));
+    assert!(redacted.get("proxy_network").is_none());
+    let redacted_peers = redacted
+        .get("peer")
+        .and_then(toml::Value::as_array)
+        .expect("redacted peer list is present");
+    assert!(redacted_peers
+        .iter()
+        .all(|peer| peer.get("routes").is_none()));
 }
 
 #[test]
