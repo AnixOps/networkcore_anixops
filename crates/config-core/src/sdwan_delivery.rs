@@ -921,6 +921,24 @@ mod tests {
     }
 
     #[test]
+    fn accepts_easytier_client_transport() {
+        let target_id = validated_profile_binding_target_id("device-1");
+        let profile = validate_client_profile(
+            ClientDeliveryProfileWire {
+                id: "client-profile".to_string(),
+                principal_id: "device-1".to_string(),
+                transport: "easytier".to_string(),
+                pops: vec![pop_reference("pop-a")],
+                mitm: None,
+            },
+            &target_id,
+        )
+        .expect("EasyTier client transport is supported");
+
+        assert_eq!(profile.transport, "easytier");
+    }
+
+    #[test]
     fn rejects_whitespace_distinct_pop_profile_binding() {
         let target_id = validated_profile_binding_target_id(" pop-1 ");
         let error = validate_pop_profile(
