@@ -562,11 +562,15 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
 #[cfg(not(windows))]
 impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
     fn start(&mut self, _spec: &EasyTierLaunchSpec) -> DomainResult<OwnedProcessHandle> {
-        Err(start_error("Windows EasyTier process execution is unavailable on this platform"))
+        Err(start_error(
+            "Windows EasyTier process execution is unavailable on this platform",
+        ))
     }
 
     fn stop(&mut self, _handle: &OwnedProcessHandle) -> DomainResult<()> {
-        Err(stop_error("Windows EasyTier process execution is unavailable on this platform"))
+        Err(stop_error(
+            "Windows EasyTier process execution is unavailable on this platform",
+        ))
     }
 }
 
@@ -582,10 +586,7 @@ impl EasyTierCliRunner for NativeEasyTierCliRunner {
 
     fn peer_ready(&mut self, path: &Path) -> DomainResult<bool> {
         let output = native_cli_output(path, &["peer"])?;
-        Ok(output
-            .lines()
-            .skip(1)
-            .any(|line| !line.trim().is_empty()))
+        Ok(output.lines().skip(1).any(|line| !line.trim().is_empty()))
     }
 
     fn route_cidrs(&mut self, path: &Path) -> DomainResult<Vec<String>> {
@@ -622,15 +623,21 @@ fn native_cli_output(path: &Path, arguments: &[&str]) -> DomainResult<String> {
 #[cfg(not(windows))]
 impl EasyTierCliRunner for NativeEasyTierCliRunner {
     fn version(&mut self, _path: &Path) -> DomainResult<String> {
-        Err(status_error("Windows EasyTier CLI execution is unavailable on this platform"))
+        Err(status_error(
+            "Windows EasyTier CLI execution is unavailable on this platform",
+        ))
     }
 
     fn peer_ready(&mut self, _path: &Path) -> DomainResult<bool> {
-        Err(status_error("Windows EasyTier CLI execution is unavailable on this platform"))
+        Err(status_error(
+            "Windows EasyTier CLI execution is unavailable on this platform",
+        ))
     }
 
     fn route_cidrs(&mut self, _path: &Path) -> DomainResult<Vec<String>> {
-        Err(status_error("Windows EasyTier CLI execution is unavailable on this platform"))
+        Err(status_error(
+            "Windows EasyTier CLI execution is unavailable on this platform",
+        ))
     }
 }
 
@@ -709,7 +716,8 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
             });
         }
 
-        self.owned_bypasses.insert(native_snapshot_key(&snapshot), added);
+        self.owned_bypasses
+            .insert(native_snapshot_key(&snapshot), added);
         Ok(())
     }
 
@@ -722,7 +730,9 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
             restored &= native_remove_bypass(&bypass).is_ok();
         }
         if !restored {
-            return Err(endpoint_bypass_error("one or more underlay bypass routes remain"));
+            return Err(endpoint_bypass_error(
+                "one or more underlay bypass routes remain",
+            ));
         }
 
         Ok(())
@@ -815,10 +825,7 @@ pub struct NativeWindowsRoutePort;
 
 #[cfg(not(windows))]
 impl WindowsRoutePort for NativeWindowsRoutePort {
-    fn snapshot(
-        &mut self,
-        _endpoints: &[IpAddr],
-    ) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
+    fn snapshot(&mut self, _endpoints: &[IpAddr]) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
         Err(endpoint_bypass_error(
             "Windows route operations are unavailable on this platform",
         ))
