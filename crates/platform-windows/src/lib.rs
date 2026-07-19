@@ -4,6 +4,12 @@
 //! driver, installer, system proxy mutation, trust store mutation, script dispatch, and
 //! managed daemon lifecycle remain blocked for the v0.1.1 alpha packaging path.
 
+pub mod tunnel_config;
+
+pub use config_core::windows_tunnel::{
+    WindowsTunnelPlan, WindowsTunnelPlanRequest, WindowsTunnelRouteIntent,
+};
+
 pub const WINDOWS_PLATFORM_ADAPTER_STATUS: &str =
     "read-only-artifact-capability-active/system-mutation-blocked";
 pub const WINDOWS_CLI_ARTIFACT_GATE: &str = "package-windows-active/system-mutation-blocked";
