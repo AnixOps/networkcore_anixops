@@ -9,7 +9,8 @@ use networkcore_windows::{
     WINDOWS_CLI_SUBSCRIPTION_COMPATIBILITY_STATUS,
 };
 use platform_windows::tunnel_config::{
-    WindowsRouteSnapshotEntry, WindowsTunnelLifecycleState, WindowsTunnelState,
+    OwnedProcessHandle, WindowsRouteSnapshotEntry, WindowsTunnelLifecycleState,
+    WindowsTunnelRuntimeOwnership, WindowsTunnelState, WINDOWS_TUNNEL_STATE_SCHEMA_VERSION,
 };
 use platform_windows::tunnel_runtime::WINDOWS_TUNNEL_STATUS_UNAVAILABLE_CODE;
 use platform_windows::{
@@ -63,7 +64,7 @@ fn tunnel_start_arguments(
 
 fn fixture_tunnel_state() -> WindowsTunnelState {
     WindowsTunnelState {
-        schema_version: 1,
+        schema_version: WINDOWS_TUNNEL_STATE_SCHEMA_VERSION,
         session_id: "fixture-session".to_string(),
         plan_digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
         selected_pop_id: "pop-a".to_string(),
@@ -79,6 +80,17 @@ fn fixture_tunnel_state() -> WindowsTunnelState {
             metric: Some(25),
         }],
         rollback_status: "clean".to_string(),
+        runtime_ownership: WindowsTunnelRuntimeOwnership {
+            process: OwnedProcessHandle {
+                session_id: "fixture-session".to_string(),
+                process_id: 41001,
+                creation_marker: "fixture-creation-marker".to_string(),
+            },
+            binary_sha256: "d33d1d119b40c768c4d96c66236ba1c033e72a9c041e88aa9c84bd67a38d04a5"
+                .to_string(),
+            cli_file_name: "easytier-cli.exe".to_string(),
+            route_cidrs: vec!["203.0.113.0/24".to_string()],
+        },
     }
 }
 

@@ -161,7 +161,9 @@ single entry POP in this first slice.
 - `WindowsTunnelSessionPort` owns start/status/stop operations and returns stable domain
   diagnostics rather than raw process errors.
 - `EasyTierProcessRunner` and `EasyTierCliRunner` are injected ports. Production uses Windows
-  process execution; contract tests use deterministic fakes.
+  process execution; contract tests use deterministic fakes. A fresh service instance must first
+  obtain an exact process-recovery proof through `EasyTierProcessRunner` before it can query the
+  CLI or clean up a persisted session.
 - `WindowsRoutePort` owns the endpoint bypass and session-owned route transaction. It never
   accepts a route mutation without a session token produced by `WindowsTunnelPlan`.
 
@@ -173,6 +175,13 @@ The generated EasyTier config is deleted after a successful stop and retained on
 failed-cleanup path for manual recovery. It contains the selected peer, network identity,
 virtual address, and destination route settings derived from the verified plan. The adapter
 accepts only the configured EasyTier version/hash and refuses to launch an unpinned executable.
+
+Persisted foreground state uses schema v2. It records an owned PID, a nonempty creation marker,
+the pinned binary hash, a single CLI file name, a single redacted config file name, and destination
+CIDRs, but never an absolute executable, CLI, or config path. Schema-v1 records are unrecoverable.
+A fresh invocation canonicalizes the existing state directory and requires matching PID,
+creation-marker, hash, config, and CLI proof before any `status` or `stop` action. Native recovery
+remains fail-closed until a later slice supplies the platform-specific proof.
 
 ### CLI layer
 
@@ -204,10 +213,11 @@ delivery payload.
    the explicit EasyTier CLI.
 6. Only after readiness does the adapter expose `state=running` and allow the operator to run
    traffic tests.
-7. `status` reads the session record and performs an explicit EasyTier CLI health query; it does
+7. `status` reads a schema-v2 session record and, for a fresh service instance, first requires an
+   exact injected ownership proof before performing an explicit EasyTier CLI health query. It does
    not scan arbitrary processes or infer liveness from a stale PID.
-8. `stop` removes the session-owned route and terminates the owned EasyTier process. The state
-   record is retained as redacted audit evidence.
+8. `stop` requires the same proof before it removes the session-owned route or terminates the
+   owned EasyTier process. The state record is retained as redacted audit evidence.
 
 ## Error and Security Model
 

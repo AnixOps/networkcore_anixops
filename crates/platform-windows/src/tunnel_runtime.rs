@@ -1,8 +1,8 @@
 //! Foreground EasyTier session orchestration and route-safety ports.
 //!
 //! The generic service owns only processes and route bypasses that it starts in
-//! the current instance. It never discovers, adopts, or terminates arbitrary
-//! system processes.
+//! the current instance or rehydrates through an exact injected proof. It never
+//! discovers, adopts, or terminates arbitrary system processes.
 
 use control_domain::{DomainError, DomainResult};
 use std::collections::BTreeMap;
@@ -12,9 +12,10 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use crate::tunnel_config::{
-    read_tunnel_state, render_easytier_config, verify_file_sha256, write_tunnel_state,
-    EasyTierConfigRequest, EasyTierLaunchSpec, OwnedProcessHandle, WindowsRouteSnapshotEntry,
-    WindowsTunnelLifecycleState, WindowsTunnelState,
+    is_safe_tunnel_file_name, read_tunnel_state, render_easytier_config, verify_file_sha256,
+    write_tunnel_state, EasyTierConfigRequest, EasyTierLaunchSpec, OwnedProcessHandle,
+    WindowsRouteSnapshotEntry, WindowsTunnelLifecycleState, WindowsTunnelRuntimeOwnership,
+    WindowsTunnelState,
 };
 use crate::WindowsTunnelPlan;
 
@@ -35,7 +36,24 @@ pub const WINDOWS_TUNNEL_OWNERSHIP_MISMATCH_CODE: &str = "windows.tunnel.ownersh
 /// Starts and stops only an EasyTier process created by the current session service.
 pub trait EasyTierProcessRunner {
     fn start(&mut self, spec: &EasyTierLaunchSpec) -> DomainResult<OwnedProcessHandle>;
+    fn recover(&mut self, spec: &EasyTierRecoverySpec) -> DomainResult<RecoveredEasyTierProcess>;
     fn stop(&mut self, handle: &OwnedProcessHandle) -> DomainResult<()>;
+}
+
+/// Exact persisted process and artifact proof required for a fresh service instance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EasyTierRecoverySpec {
+    pub expected_process: OwnedProcessHandle,
+    pub expected_binary_sha256: String,
+    pub config_path: PathBuf,
+    pub cli_file_name: String,
+}
+
+/// A process proven by the injected platform runner for a persisted session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecoveredEasyTierProcess {
+    pub process: OwnedProcessHandle,
+    pub cli_path: PathBuf,
 }
 
 /// Queries one explicitly configured EasyTier CLI executable.
@@ -152,11 +170,17 @@ where
             selected_pop_id: prepared.plan.selected_pop_id.clone(),
             selected_endpoint: prepared.plan.selected_endpoint.clone(),
             state: WindowsTunnelLifecycleState::Running,
-            config_path: redacted_config_path(&prepared.config_path),
+            config_path: prepared.config_file_name.clone(),
             last_client_sequence: prepared.plan.client_sequence,
             last_pop_sequence: prepared.plan.pop_sequence,
             route_snapshot: route_snapshot.clone(),
             rollback_status: "clean".to_string(),
+            runtime_ownership: WindowsTunnelRuntimeOwnership {
+                process: process_handle.clone(),
+                binary_sha256: prepared.expected_sha256.clone(),
+                cli_file_name: prepared.cli_file_name.clone(),
+                route_cidrs: prepared.route_cidrs.clone(),
+            },
         };
         if let Err(error) = write_tunnel_state(&prepared.state_path, &state) {
             return Err(self.rollback_failed_start(
@@ -174,12 +198,7 @@ where
                 process_handle,
                 cli_path: prepared.cli_path,
                 route_snapshot,
-                route_cidrs: prepared
-                    .plan
-                    .route_intents
-                    .iter()
-                    .map(|route| route.destination_cidr.clone())
-                    .collect(),
+                route_cidrs: prepared.route_cidrs,
                 config_path: prepared.config_path,
             },
         );
@@ -189,31 +208,29 @@ where
 
     /// Queries readiness through the same explicit CLI path used at start time.
     pub fn status(&mut self, state_path: &Path) -> DomainResult<WindowsTunnelState> {
-        let state = read_tunnel_state(state_path)?;
+        let state_path = canonical_state_path(state_path)
+            .map_err(|_| status_error("tunnel state path is invalid"))?;
+        let state = read_tunnel_state(&state_path)?;
         if state.state != WindowsTunnelLifecycleState::Running {
             return Err(status_error("tunnel state is not running"));
         }
-        let owned = self
+        self.ensure_owned_session(&state_path, &state)?;
+        let (cli_path, expected_route_cidrs) = self
             .owned_sessions
-            .get(state_path)
-            .ok_or_else(|| status_error("tunnel session is not owned by this service"))?;
-        if owned.session_id != state.session_id {
-            return Err(status_error(
-                "tunnel ownership token does not match persisted state",
-            ));
-        }
+            .get(&state_path)
+            .map(|owned| (owned.cli_path.clone(), owned.route_cidrs.clone()))
+            .expect("owned tunnel session was checked before CLI readiness");
 
         let peer_ready = self
             .cli_runner
-            .peer_ready(&owned.cli_path)
+            .peer_ready(&cli_path)
             .map_err(|_| status_error("EasyTier peer readiness is unavailable"))?;
         let route_cidrs = self
             .cli_runner
-            .route_cidrs(&owned.cli_path)
+            .route_cidrs(&cli_path)
             .map_err(|_| status_error("EasyTier route readiness is unavailable"))?;
         if !peer_ready
-            || !owned
-                .route_cidrs
+            || !expected_route_cidrs
                 .iter()
                 .all(|cidr| route_cidrs.contains(cidr))
         {
@@ -229,28 +246,23 @@ where
             return Err(confirmation_error());
         }
 
-        let state = read_tunnel_state(state_path)?;
+        let state_path = canonical_state_path(state_path)
+            .map_err(|_| stop_error("tunnel state path is invalid"))?;
+        let state = read_tunnel_state(&state_path)?;
         if state.state != WindowsTunnelLifecycleState::Running {
             return Err(stop_error("tunnel state is not running"));
         }
-        let session_matches = self
-            .owned_sessions
-            .get(state_path)
-            .map(|owned| owned.session_id == state.session_id)
-            .unwrap_or(false);
-        if !session_matches {
-            return Err(ownership_error());
-        }
+        self.ensure_owned_session(&state_path, &state)?;
         let owned = self
             .owned_sessions
-            .remove(state_path)
+            .remove(&state_path)
             .expect("owned tunnel session was checked before removal");
 
         let mut stopping = state.clone();
         stopping.state = WindowsTunnelLifecycleState::Stopping;
         stopping.rollback_status = "pending".to_string();
-        if let Err(error) = write_tunnel_state(state_path, &stopping) {
-            self.owned_sessions.insert(state_path.to_path_buf(), owned);
+        if let Err(error) = write_tunnel_state(&state_path, &stopping) {
+            self.owned_sessions.insert(state_path.clone(), owned);
             return Err(error);
         }
 
@@ -261,15 +273,15 @@ where
             let mut failed = stopping;
             failed.state = WindowsTunnelLifecycleState::Failed;
             failed.rollback_status = "rollback_failed".to_string();
-            let _ = write_tunnel_state(state_path, &failed);
-            self.owned_sessions.insert(state_path.to_path_buf(), owned);
+            let _ = write_tunnel_state(&state_path, &failed);
+            self.owned_sessions.insert(state_path.clone(), owned);
             return Err(rollback_error());
         }
 
         let mut stopped = stopping;
         stopped.state = WindowsTunnelLifecycleState::Stopped;
         stopped.rollback_status = "clean".to_string();
-        write_tunnel_state(state_path, &stopped)?;
+        write_tunnel_state(&state_path, &stopped)?;
         Ok(stopped)
     }
 
@@ -291,19 +303,19 @@ where
                 "tunnel plan is not safe for foreground execution",
             ));
         }
-        if self.owned_sessions.contains_key(&request.state_path) || request.state_path.exists() {
+        let state_path = canonical_state_path(&request.state_path).map_err(|_| {
+            start_error("state path must use an existing directory and safe file name")
+        })?;
+        if self.owned_sessions.contains_key(&state_path) || state_path.exists() {
             return Err(start_error("state path is already owned or occupied"));
         }
-        let state_directory = request
-            .state_path
-            .parent()
-            .filter(|path| path.is_dir())
-            .ok_or_else(|| start_error("state directory must already exist"))?;
         if !request.easytier_binary.is_file() || !request.easytier_cli.is_file() {
             return Err(start_error(
                 "configured EasyTier executable path is invalid",
             ));
         }
+        let cli_file_name = safe_file_name_from_path(&request.easytier_cli)
+            .ok_or_else(|| start_error("configured EasyTier CLI file name is invalid"))?;
         verify_file_sha256(&request.easytier_binary, &request.easytier_sha256)?;
 
         let configured_version = required_text(&request.easytier_version, "EasyTier version")?;
@@ -327,13 +339,14 @@ where
         }
 
         let endpoint = endpoint_ip(&request.plan.selected_endpoint)?;
-        let config_path = state_directory.join(
-            request
-                .state_path
-                .file_stem()
-                .map(|stem| format!("{}.easytier.toml", stem.to_string_lossy()))
-                .unwrap_or_else(|| "easytier-session.toml".to_string()),
-        );
+        let state_file_name = safe_file_name_from_path(&state_path)
+            .ok_or_else(|| start_error("state file name is invalid"))?;
+        let config_file_name = config_file_name_for_state(&state_file_name)
+            .ok_or_else(|| start_error("session configuration file name is invalid"))?;
+        let state_directory = state_path
+            .parent()
+            .expect("canonical state path always has a parent directory");
+        let config_path = state_directory.join(&config_file_name);
         if config_path.exists() {
             return Err(start_error(
                 "session configuration path is already occupied",
@@ -352,10 +365,77 @@ where
             cli_path: request.easytier_cli,
             expected_version: configured_version,
             expected_sha256: request.easytier_sha256,
-            state_path: request.state_path,
+            state_path,
             config_path,
+            config_file_name,
+            cli_file_name,
             config_toml: config.toml,
+            route_cidrs: config.route_cidrs,
             endpoint,
+        })
+    }
+
+    fn ensure_owned_session(
+        &mut self,
+        state_path: &Path,
+        state: &WindowsTunnelState,
+    ) -> DomainResult<()> {
+        let state_path = canonical_state_path(state_path).map_err(|_| ownership_error())?;
+        if let Some(owned) = self.owned_sessions.get(&state_path) {
+            if owned.session_id != state.session_id {
+                return Err(ownership_error());
+            }
+            return Ok(());
+        }
+
+        let recovered = self.recover_owned_session(&state_path, state)?;
+        self.owned_sessions.insert(state_path, recovered);
+        Ok(())
+    }
+
+    fn recover_owned_session(
+        &mut self,
+        state_path: &Path,
+        state: &WindowsTunnelState,
+    ) -> DomainResult<OwnedTunnelSession> {
+        let state_path = canonical_state_path(state_path).map_err(|_| ownership_error())?;
+        let state_directory = state_path
+            .parent()
+            .expect("canonical state path always has a parent directory");
+        if !is_safe_tunnel_file_name(&state.config_path) {
+            return Err(ownership_error());
+        }
+        let config_path = state_directory.join(&state.config_path);
+        let ownership = state.runtime_ownership.clone();
+        let spec = EasyTierRecoverySpec {
+            expected_process: ownership.process.clone(),
+            expected_binary_sha256: ownership.binary_sha256.clone(),
+            config_path: config_path.clone(),
+            cli_file_name: ownership.cli_file_name.clone(),
+        };
+        let recovered = self
+            .process_runner
+            .recover(&spec)
+            .map_err(|_| ownership_error())?;
+        if recovered.process.process_id != ownership.process.process_id
+            || recovered.process.creation_marker != ownership.process.creation_marker
+            || recovered.process.session_id != ownership.process.session_id
+        {
+            return Err(ownership_error());
+        }
+        let recovered_cli_file_name =
+            safe_file_name_from_path(&recovered.cli_path).ok_or_else(ownership_error)?;
+        if recovered_cli_file_name != ownership.cli_file_name {
+            return Err(ownership_error());
+        }
+
+        Ok(OwnedTunnelSession {
+            session_id: state.session_id.clone(),
+            process_handle: recovered.process,
+            cli_path: recovered.cli_path,
+            route_snapshot: state.route_snapshot.clone(),
+            route_cidrs: ownership.route_cidrs,
+            config_path,
         })
     }
 
@@ -432,7 +512,10 @@ struct PreparedStart {
     expected_sha256: String,
     state_path: PathBuf,
     config_path: PathBuf,
+    config_file_name: String,
+    cli_file_name: String,
     config_toml: String,
+    route_cidrs: Vec<String>,
     endpoint: IpAddr,
 }
 
@@ -452,10 +535,30 @@ fn endpoint_ip(endpoint: &str) -> DomainResult<IpAddr> {
         .map_err(|_| endpoint_bypass_error("selected endpoint must be an IP address"))
 }
 
-fn redacted_config_path(path: &Path) -> String {
+fn canonical_state_path(path: &Path) -> Result<PathBuf, ()> {
+    let file_name = safe_file_name_from_path(path).ok_or(())?;
+    let directory = path
+        .parent()
+        .filter(|directory| directory.is_dir())
+        .ok_or(())?;
+    let directory = fs::canonicalize(directory).map_err(|_| ())?;
+    Ok(directory.join(file_name))
+}
+
+fn safe_file_name_from_path(path: &Path) -> Option<String> {
     path.file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "easytier-session.toml".to_string())
+        .and_then(|name| name.to_str())
+        .filter(|name| is_safe_tunnel_file_name(name))
+        .map(str::to_string)
+}
+
+fn config_file_name_for_state(state_file_name: &str) -> Option<String> {
+    let stem = Path::new(state_file_name).file_stem()?.to_str()?;
+    if stem.trim().is_empty() {
+        return None;
+    }
+    let config_file_name = format!("{stem}.easytier.toml");
+    is_safe_tunnel_file_name(&config_file_name).then_some(config_file_name)
 }
 
 fn required_text(value: &str, field: &str) -> DomainResult<String> {
@@ -541,9 +644,15 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
             .map_err(|_| start_error("explicit EasyTier executable could not be started"))?;
 
         Ok(OwnedProcessHandle {
-            session_id: redacted_config_path(&spec.config_path),
+            session_id: safe_file_name_from_path(&spec.config_path)
+                .unwrap_or_else(|| "easytier-session.toml".to_string()),
             process_id: child.id(),
+            creation_marker: format!("launch-{}", child.id()),
         })
+    }
+
+    fn recover(&mut self, _spec: &EasyTierRecoverySpec) -> DomainResult<RecoveredEasyTierProcess> {
+        Err(ownership_error())
     }
 
     fn stop(&mut self, handle: &OwnedProcessHandle) -> DomainResult<()> {
@@ -565,6 +674,10 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
         Err(start_error(
             "Windows EasyTier process execution is unavailable on this platform",
         ))
+    }
+
+    fn recover(&mut self, _spec: &EasyTierRecoverySpec) -> DomainResult<RecoveredEasyTierProcess> {
+        Err(ownership_error())
     }
 
     fn stop(&mut self, _handle: &OwnedProcessHandle) -> DomainResult<()> {

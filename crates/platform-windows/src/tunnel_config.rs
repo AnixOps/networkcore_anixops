@@ -10,11 +10,11 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fs;
 use std::net::Ipv4Addr;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use control_domain::{DomainError, DomainResult};
 
-pub const WINDOWS_TUNNEL_STATE_SCHEMA_VERSION: u32 = 1;
+pub const WINDOWS_TUNNEL_STATE_SCHEMA_VERSION: u32 = 2;
 pub const WINDOWS_TUNNEL_CONFIG_INVALID_CODE: &str = "windows.tunnel.config_invalid";
 pub const WINDOWS_TUNNEL_EASYTIER_BINARY_INVALID_CODE: &str =
     "windows.tunnel.easytier_binary_invalid";
@@ -121,11 +121,7 @@ pub fn render_easytier_config(
 
 /// Verifies a file against a lower-case SHA-256 pin without exposing its bytes.
 pub fn verify_file_sha256(path: &Path, expected_lower_hex: &str) -> DomainResult<()> {
-    if expected_lower_hex.len() != 64
-        || !expected_lower_hex
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    {
+    if !is_lowercase_sha256(expected_lower_hex) {
         return Err(binary_error(
             "EasyTier binary SHA-256 pin is not lower-case hex",
         ));
@@ -171,10 +167,21 @@ pub struct EasyTierLaunchSpec {
 }
 
 /// Ownership token for a process started by one tunnel session.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OwnedProcessHandle {
     pub session_id: String,
     pub process_id: u32,
+    pub creation_marker: String,
+}
+
+/// Secret-free runtime proof retained for a recoverable foreground session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WindowsTunnelRuntimeOwnership {
+    pub process: OwnedProcessHandle,
+    pub binary_sha256: String,
+    pub cli_file_name: String,
+    pub route_cidrs: Vec<String>,
 }
 
 /// Redacted state retained for status, stop ownership, and audit output.
@@ -192,6 +199,7 @@ pub struct WindowsTunnelState {
     pub last_pop_sequence: u64,
     pub route_snapshot: Vec<WindowsRouteSnapshotEntry>,
     pub rollback_status: String,
+    pub runtime_ownership: WindowsTunnelRuntimeOwnership,
 }
 
 /// Serializes a validated state record with deterministic field order.
@@ -203,8 +211,20 @@ pub fn serialize_tunnel_state(state: &WindowsTunnelState) -> DomainResult<String
 
 /// Parses and validates a persisted state record.
 pub fn deserialize_tunnel_state(input: &[u8]) -> DomainResult<WindowsTunnelState> {
-    let state: WindowsTunnelState =
+    let value: serde_json::Value =
         serde_json::from_slice(input).map_err(|_| state_error("tunnel state JSON is invalid"))?;
+    let schema_version = value
+        .get("schema_version")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| state_error("tunnel state schema is invalid"))?;
+    if schema_version != u64::from(WINDOWS_TUNNEL_STATE_SCHEMA_VERSION) {
+        return Err(DomainError::new(
+            WINDOWS_TUNNEL_STATE_SCHEMA_UNSUPPORTED_CODE,
+            "tunnel state schema is unsupported",
+        ));
+    }
+    let state: WindowsTunnelState =
+        serde_json::from_value(value).map_err(|_| state_error("tunnel state JSON is invalid"))?;
     validate_state(&state)?;
     Ok(state)
 }
@@ -268,12 +288,52 @@ fn validate_state(state: &WindowsTunnelState) -> DomainResult<()> {
         || state.plan_digest.trim().is_empty()
         || state.selected_pop_id.trim().is_empty()
         || state.selected_endpoint.trim().is_empty()
-        || state.config_path.trim().is_empty()
+        || !is_safe_tunnel_file_name(&state.config_path)
         || state.rollback_status.trim().is_empty()
     {
         return Err(state_error("tunnel state contains an empty required field"));
     }
+    if state.runtime_ownership.process.session_id.trim().is_empty()
+        || state.runtime_ownership.process.process_id == 0
+        || state
+            .runtime_ownership
+            .process
+            .creation_marker
+            .trim()
+            .is_empty()
+        || !is_lowercase_sha256(&state.runtime_ownership.binary_sha256)
+        || !is_safe_tunnel_file_name(&state.runtime_ownership.cli_file_name)
+        || state.runtime_ownership.route_cidrs.is_empty()
+        || state
+            .runtime_ownership
+            .route_cidrs
+            .iter()
+            .any(|cidr| cidr.trim().is_empty())
+    {
+        return Err(state_error("tunnel state ownership metadata is invalid"));
+    }
     Ok(())
+}
+
+pub(crate) fn is_safe_tunnel_file_name(value: &str) -> bool {
+    if value.is_empty()
+        || value != value.trim()
+        || value
+            .chars()
+            .any(|character| matches!(character, '/' | '\\' | ':' | '\0'))
+    {
+        return false;
+    }
+
+    let mut components = Path::new(value).components();
+    matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
+}
+
+fn is_lowercase_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 fn lowercase_hex(bytes: &[u8]) -> String {
