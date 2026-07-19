@@ -1,8 +1,9 @@
 //! Windows platform capability boundary for the first NetworkCore Windows CLI artifact.
 //!
-//! This crate intentionally reports only read-only artifact/package state. Windows service,
-//! driver, installer, system proxy mutation, trust store mutation, script dispatch, and
-//! managed daemon lifecycle remain blocked for the v0.1.1 alpha packaging path.
+//! This crate reports read-only artifact/package state and an explicitly confirmed foreground
+//! tunnel capability. Windows service, driver, installer, system proxy mutation, trust store
+//! mutation, script dispatch, and managed daemon lifecycle remain blocked for the v0.1.1 alpha
+//! packaging path.
 
 pub mod tunnel_config;
 pub mod tunnel_runtime;
@@ -21,6 +22,8 @@ pub const WINDOWS_SYSTEM_MUTATION_POLICY: &str = "none";
 pub const WINDOWS_BLOCKED_STATUS: &str = "blocked";
 pub const WINDOWS_DEFERRED_STATUS: &str = "deferred";
 pub const WINDOWS_ACTIVE_STATUS: &str = "active";
+pub const WINDOWS_FOREGROUND_TUNNEL_MUTATION_POLICY: &str =
+    "explicit-confirm-external-easytier-only";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowsFeatureStatus {
@@ -63,6 +66,7 @@ pub struct WindowsPlatformSnapshot {
     pub package_windows: WindowsFeatureStatus,
     pub release_assets: WindowsFeatureStatus,
     pub subscription_compatibility: WindowsFeatureStatus,
+    pub foreground_tunnel: WindowsFeatureStatus,
     pub service: WindowsFeatureStatus,
     pub driver: WindowsFeatureStatus,
     pub installer: WindowsFeatureStatus,
@@ -83,6 +87,11 @@ impl WindowsPlatformSnapshot {
             subscription_compatibility: WindowsFeatureStatus::deferred(
                 "subscription-compatibility",
             ),
+            foreground_tunnel: WindowsFeatureStatus {
+                name: "foreground-tunnel",
+                status: WINDOWS_ACTIVE_STATUS,
+                mutation_policy: WINDOWS_FOREGROUND_TUNNEL_MUTATION_POLICY,
+            },
             service: WindowsFeatureStatus::blocked("windows-service"),
             driver: WindowsFeatureStatus::blocked("windows-driver"),
             installer: WindowsFeatureStatus::blocked("windows-installer"),

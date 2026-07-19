@@ -7,12 +7,10 @@ repository.workspace = true
 description = "Windows CLI entrypoint for the AnixOps network control kernel."
 
 [dependencies]
+control-domain = { path = "../../crates/control-domain" }
 platform-windows = { path = "../../crates/platform-windows" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-
-[dev-dependencies]
-control-domain = { path = "../../crates/control-domain" }
 
 [lib]
 path = "src/lib.rs"

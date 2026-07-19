@@ -5,12 +5,15 @@
 //! drivers, system proxy settings, trust store entries, JavaScript dispatch, or managed
 //! daemon lifecycle state.
 
+use control_domain::{DomainError, DomainResult};
 use platform_windows::{
+    tunnel_config::{WindowsTunnelLifecycleState, WindowsTunnelState},
     WindowsFeatureStatus, WindowsPlatformCapabilityService, WindowsPlatformSnapshot,
     WINDOWS_CLI_PACKAGE_STATUS, WINDOWS_CLI_RELEASE_ASSETS_STATUS, WINDOWS_CLI_SOURCE_IDENTITY,
     WINDOWS_SYSTEM_MUTATION_POLICY,
 };
 use serde::Serialize;
+use std::path::PathBuf;
 
 pub const COMMAND_NAME: &str = "networkcore-windows";
 pub const PLATFORM_NAME: &str = "windows";
@@ -27,6 +30,12 @@ pub const CLI_WINDOWS_ARTIFACT_READY_CODE: &str = "cli.windows.artifact.package_
 pub const CLI_WINDOWS_SYSTEM_MUTATION_BLOCKED_CODE: &str = "cli.windows.system_mutation.blocked";
 pub const CLI_WINDOWS_SUBSCRIPTION_DEFERRED_CODE: &str =
     "cli.windows.subscription_compatibility.deferred";
+pub const CLI_WINDOWS_TUNNEL_UNAVAILABLE_CODE: &str = "cli.windows.tunnel.unavailable";
+
+const CLI_WINDOWS_TUNNEL_ERROR_MESSAGE: &str = "Tunnel command could not be completed.";
+const CLI_WINDOWS_TUNNEL_ERROR_SOURCE: &str = "cli.windows.tunnel.service";
+const CLI_WINDOWS_TUNNEL_UNAVAILABLE_MESSAGE: &str = "Tunnel command service is unavailable.";
+const CLI_WINDOWS_TUNNEL_UNAVAILABLE_SOURCE: &str = "cli.windows.tunnel";
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OutputFormat {
@@ -105,33 +114,110 @@ impl WindowsCliParseError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowsTunnelStartArgs {
+    pub client_envelope: PathBuf,
+    pub pop_envelope: PathBuf,
+    pub pop_id: String,
+    pub device_id: String,
+    pub delivery_public_key_file: PathBuf,
+    pub easytier_binary: PathBuf,
+    pub easytier_cli: PathBuf,
+    pub easytier_version: String,
+    pub easytier_sha256: String,
+    pub network_name: String,
+    pub network_secret_file: PathBuf,
+    pub state_path: PathBuf,
+    pub confirm: bool,
+    format: OutputFormat,
+}
+
+impl WindowsTunnelStartArgs {
+    pub const fn format(&self) -> OutputFormat {
+        self.format
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowsTunnelStatusArgs {
+    pub state_path: PathBuf,
+    format: OutputFormat,
+}
+
+impl WindowsTunnelStatusArgs {
+    pub const fn format(&self) -> OutputFormat {
+        self.format
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowsTunnelStopArgs {
+    pub state_path: PathBuf,
+    pub confirm: bool,
+    format: OutputFormat,
+}
+
+impl WindowsTunnelStopArgs {
+    pub const fn format(&self) -> OutputFormat {
+        self.format
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowsTunnelCommandResult {
+    pub state: WindowsTunnelState,
+    pub peer_ready: bool,
+    pub route_ready: bool,
+    pub route_count: usize,
+}
+
+pub trait WindowsTunnelCommandService {
+    fn start(&mut self, args: &WindowsTunnelStartArgs) -> DomainResult<WindowsTunnelCommandResult>;
+
+    fn status(
+        &mut self,
+        args: &WindowsTunnelStatusArgs,
+    ) -> DomainResult<WindowsTunnelCommandResult>;
+
+    fn stop(&mut self, args: &WindowsTunnelStopArgs) -> DomainResult<WindowsTunnelCommandResult>;
+}
+
+// The public parser contract requires direct typed tuple variants, not boxed indirection.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WindowsCliCommand {
     Help { format: OutputFormat },
     Version { format: OutputFormat },
     Capabilities { format: OutputFormat },
     Status { format: OutputFormat },
     Diagnostics { format: OutputFormat },
+    TunnelStart(WindowsTunnelStartArgs),
+    TunnelStatus(WindowsTunnelStatusArgs),
+    TunnelStop(WindowsTunnelStopArgs),
 }
 
 impl WindowsCliCommand {
-    pub const fn format(self) -> OutputFormat {
+    pub const fn format(&self) -> OutputFormat {
         match self {
             Self::Help { format }
             | Self::Version { format }
             | Self::Capabilities { format }
             | Self::Status { format }
-            | Self::Diagnostics { format } => format,
+            | Self::Diagnostics { format } => *format,
+            Self::TunnelStart(args) => args.format(),
+            Self::TunnelStatus(args) => args.format(),
+            Self::TunnelStop(args) => args.format(),
         }
     }
 
-    pub const fn name(self) -> &'static str {
+    pub const fn name(&self) -> &'static str {
         match self {
             Self::Help { .. } => "help",
             Self::Version { .. } => "version",
             Self::Capabilities { .. } => "capabilities",
             Self::Status { .. } => "status",
             Self::Diagnostics { .. } => "diagnostics",
+            Self::TunnelStart(_) | Self::TunnelStatus(_) | Self::TunnelStop(_) => "tunnel",
         }
     }
 }
@@ -172,6 +258,7 @@ pub struct WindowsCliCapabilities {
     pub package_windows: WindowsFeatureReport,
     pub release_assets: WindowsFeatureReport,
     pub subscription_compatibility: WindowsFeatureReport,
+    pub foreground_tunnel: WindowsFeatureReport,
     pub service: WindowsFeatureReport,
     pub driver: WindowsFeatureReport,
     pub installer: WindowsFeatureReport,
@@ -196,6 +283,7 @@ impl WindowsCliCapabilities {
             subscription_compatibility: WindowsFeatureReport::from(
                 &snapshot.subscription_compatibility,
             ),
+            foreground_tunnel: WindowsFeatureReport::from(&snapshot.foreground_tunnel),
             service: WindowsFeatureReport::from(&snapshot.service),
             driver: WindowsFeatureReport::from(&snapshot.driver),
             installer: WindowsFeatureReport::from(&snapshot.installer),
@@ -215,6 +303,7 @@ pub struct WindowsCliStatus {
     pub package_windows: &'static str,
     pub release_assets: &'static str,
     pub subscription_compatibility: &'static str,
+    pub foreground_tunnel: &'static str,
     pub service: &'static str,
     pub driver: &'static str,
     pub installer: &'static str,
@@ -233,6 +322,7 @@ impl WindowsCliStatus {
             package_windows: WINDOWS_CLI_PACKAGE_STATUS,
             release_assets: WINDOWS_CLI_RELEASE_ASSETS_STATUS,
             subscription_compatibility: WINDOWS_CLI_SUBSCRIPTION_COMPATIBILITY_STATUS,
+            foreground_tunnel: snapshot.foreground_tunnel.status,
             service: snapshot.service.status,
             driver: snapshot.driver.status,
             installer: snapshot.installer.status,
@@ -241,6 +331,35 @@ impl WindowsCliStatus {
             script_dispatch: snapshot.script_dispatch.status,
             managed_lifecycle: snapshot.managed_lifecycle.status,
             system_mutation_policy: WINDOWS_SYSTEM_MUTATION_POLICY,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WindowsTunnelReport {
+    pub session_id: String,
+    pub selected_pop_id: String,
+    pub selected_endpoint: String,
+    pub plan_digest: String,
+    pub state: WindowsTunnelLifecycleState,
+    pub peer_ready: bool,
+    pub route_ready: bool,
+    pub route_count: usize,
+    pub rollback_status: String,
+}
+
+impl From<WindowsTunnelCommandResult> for WindowsTunnelReport {
+    fn from(result: WindowsTunnelCommandResult) -> Self {
+        Self {
+            session_id: result.state.session_id,
+            selected_pop_id: result.state.selected_pop_id,
+            selected_endpoint: result.state.selected_endpoint,
+            plan_digest: result.state.plan_digest,
+            state: result.state.state,
+            peer_ready: result.peer_ready,
+            route_ready: result.route_ready,
+            route_count: result.route_count,
+            rollback_status: result.state.rollback_status,
         }
     }
 }
@@ -254,6 +373,7 @@ pub struct WindowsCliResponse {
     pub version: Option<WindowsCliVersion>,
     pub capabilities: Option<WindowsCliCapabilities>,
     pub status: Option<WindowsCliStatus>,
+    pub tunnel: Option<WindowsTunnelReport>,
 }
 
 impl WindowsCliResponse {
@@ -266,6 +386,7 @@ impl WindowsCliResponse {
             version: None,
             capabilities: None,
             status: None,
+            tunnel: None,
         }
     }
 
@@ -278,6 +399,7 @@ impl WindowsCliResponse {
             version: None,
             capabilities: None,
             status: None,
+            tunnel: None,
         }
     }
 
@@ -293,6 +415,11 @@ impl WindowsCliResponse {
 
     fn with_status(mut self, status: WindowsCliStatus) -> Self {
         self.status = Some(status);
+        self
+    }
+
+    fn with_tunnel(mut self, tunnel: WindowsTunnelReport) -> Self {
+        self.tunnel = Some(tunnel);
         self
     }
 
@@ -314,24 +441,350 @@ where
     }
 
     let command = values.remove(0);
-    if !values.is_empty() {
-        return Err(parse_error(
-            CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE,
-            format!("unknown windows CLI argument: {}", values[0]),
-        ));
-    }
-
     match command.as_str() {
-        "help" | "--help" | "-h" => Ok(WindowsCliCommand::Help { format }),
-        "version" | "--version" | "-V" => Ok(WindowsCliCommand::Version { format }),
-        "capabilities" => Ok(WindowsCliCommand::Capabilities { format }),
-        "status" => Ok(WindowsCliCommand::Status { format }),
-        "diagnostics" => Ok(WindowsCliCommand::Diagnostics { format }),
+        "tunnel" => parse_tunnel_command(&values, format),
+        "help" | "--help" | "-h" => {
+            reject_legacy_command_arguments(&values)?;
+            Ok(WindowsCliCommand::Help { format })
+        }
+        "version" | "--version" | "-V" => {
+            reject_legacy_command_arguments(&values)?;
+            Ok(WindowsCliCommand::Version { format })
+        }
+        "capabilities" => {
+            reject_legacy_command_arguments(&values)?;
+            Ok(WindowsCliCommand::Capabilities { format })
+        }
+        "status" => {
+            reject_legacy_command_arguments(&values)?;
+            Ok(WindowsCliCommand::Status { format })
+        }
+        "diagnostics" => {
+            reject_legacy_command_arguments(&values)?;
+            Ok(WindowsCliCommand::Diagnostics { format })
+        }
         unknown => Err(parse_error(
             CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE,
             format!("unknown windows CLI command: {unknown}"),
         )),
     }
+}
+
+fn reject_legacy_command_arguments(values: &[String]) -> Result<(), WindowsCliParseError> {
+    if values.is_empty() {
+        return Ok(());
+    }
+
+    Err(parse_error(
+        CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE,
+        format!("unknown windows CLI argument: {}", values[0]),
+    ))
+}
+
+fn parse_tunnel_command(
+    values: &[String],
+    format: OutputFormat,
+) -> Result<WindowsCliCommand, WindowsCliParseError> {
+    let (subcommand, values) = values.split_first().ok_or_else(|| {
+        tunnel_parse_error(
+            CLI_WINDOWS_ARGUMENT_VALUE_MISSING_CODE,
+            "tunnel requires a start, status, or stop command",
+        )
+    })?;
+
+    match subcommand.as_str() {
+        "start" => parse_tunnel_start_command(values, format),
+        "status" => parse_tunnel_status_command(values, format),
+        "stop" => parse_tunnel_stop_command(values, format),
+        _ => Err(tunnel_parse_error(
+            CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE,
+            "unknown tunnel command",
+        )),
+    }
+}
+
+fn parse_tunnel_start_command(
+    values: &[String],
+    format: OutputFormat,
+) -> Result<WindowsCliCommand, WindowsCliParseError> {
+    let mut positional = Vec::new();
+    let mut pop_id = None;
+    let mut device_id = None;
+    let mut delivery_public_key_file = None;
+    let mut easytier_binary = None;
+    let mut easytier_cli = None;
+    let mut easytier_version = None;
+    let mut easytier_sha256 = None;
+    let mut network_name = None;
+    let mut network_secret_file = None;
+    let mut state_path = None;
+    let mut confirm = false;
+    let mut index = 0;
+
+    while index < values.len() {
+        let value = &values[index];
+        if !value.starts_with('-') {
+            positional.push(value.clone());
+            index += 1;
+            continue;
+        }
+
+        match value.as_str() {
+            "--pop-id" => take_tunnel_option_value(&mut pop_id, values, &mut index, "--pop-id")?,
+            "--device-id" => {
+                take_tunnel_option_value(&mut device_id, values, &mut index, "--device-id")?
+            }
+            "--delivery-public-key-file" => take_tunnel_option_value(
+                &mut delivery_public_key_file,
+                values,
+                &mut index,
+                "--delivery-public-key-file",
+            )?,
+            "--easytier-bin" => take_tunnel_option_value(
+                &mut easytier_binary,
+                values,
+                &mut index,
+                "--easytier-bin",
+            )?,
+            "--easytier-cli" => {
+                take_tunnel_option_value(&mut easytier_cli, values, &mut index, "--easytier-cli")?
+            }
+            "--easytier-version" => take_tunnel_option_value(
+                &mut easytier_version,
+                values,
+                &mut index,
+                "--easytier-version",
+            )?,
+            "--easytier-sha256" => take_tunnel_option_value(
+                &mut easytier_sha256,
+                values,
+                &mut index,
+                "--easytier-sha256",
+            )?,
+            "--network-name" => {
+                take_tunnel_option_value(&mut network_name, values, &mut index, "--network-name")?
+            }
+            "--network-secret-file" => take_tunnel_option_value(
+                &mut network_secret_file,
+                values,
+                &mut index,
+                "--network-secret-file",
+            )?,
+            "--state-path" => {
+                take_tunnel_option_value(&mut state_path, values, &mut index, "--state-path")?
+            }
+            "--confirm" => {
+                if confirm {
+                    return Err(tunnel_parse_error(
+                        CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE,
+                        "tunnel option --confirm may only be specified once",
+                    ));
+                }
+                confirm = true;
+                index += 1;
+            }
+            _ => {
+                return Err(tunnel_parse_error(
+                    CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE,
+                    "tunnel command contains an unsupported option",
+                ));
+            }
+        }
+    }
+
+    let mut positional = positional.into_iter();
+    let client_envelope = positional.next().ok_or_else(|| {
+        tunnel_parse_error(
+            CLI_WINDOWS_ARGUMENT_VALUE_MISSING_CODE,
+            "tunnel start requires client and POP envelope paths",
+        )
+    })?;
+    let pop_envelope = positional.next().ok_or_else(|| {
+        tunnel_parse_error(
+            CLI_WINDOWS_ARGUMENT_VALUE_MISSING_CODE,
+            "tunnel start requires client and POP envelope paths",
+        )
+    })?;
+    if positional.next().is_some() {
+        return Err(tunnel_parse_error(
+            CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE,
+            "tunnel start received an unexpected positional argument",
+        ));
+    }
+
+    let state_path = require_tunnel_start_option(state_path, "--state-path", true)?;
+    let network_secret_file =
+        require_tunnel_start_option(network_secret_file, "--network-secret-file", false)?;
+    if !confirm {
+        return Err(tunnel_parse_error(
+            CLI_WINDOWS_ARGUMENT_VALUE_MISSING_CODE,
+            "tunnel mutations require --confirm",
+        ));
+    }
+
+    Ok(WindowsCliCommand::TunnelStart(WindowsTunnelStartArgs {
+        client_envelope: PathBuf::from(client_envelope),
+        pop_envelope: PathBuf::from(pop_envelope),
+        pop_id: require_tunnel_start_option(pop_id, "--pop-id", false)?,
+        device_id: require_tunnel_start_option(device_id, "--device-id", false)?,
+        delivery_public_key_file: PathBuf::from(require_tunnel_start_option(
+            delivery_public_key_file,
+            "--delivery-public-key-file",
+            false,
+        )?),
+        easytier_binary: PathBuf::from(require_tunnel_start_option(
+            easytier_binary,
+            "--easytier-bin",
+            false,
+        )?),
+        easytier_cli: PathBuf::from(require_tunnel_start_option(
+            easytier_cli,
+            "--easytier-cli",
+            false,
+        )?),
+        easytier_version: require_tunnel_start_option(
+            easytier_version,
+            "--easytier-version",
+            false,
+        )?,
+        easytier_sha256: require_tunnel_start_option(easytier_sha256, "--easytier-sha256", false)?,
+        network_name: require_tunnel_start_option(network_name, "--network-name", false)?,
+        network_secret_file: PathBuf::from(network_secret_file),
+        state_path: PathBuf::from(state_path),
+        confirm,
+        format,
+    }))
+}
+
+fn parse_tunnel_status_command(
+    values: &[String],
+    format: OutputFormat,
+) -> Result<WindowsCliCommand, WindowsCliParseError> {
+    let state_path = parse_tunnel_state_path(values)?;
+    Ok(WindowsCliCommand::TunnelStatus(WindowsTunnelStatusArgs {
+        state_path,
+        format,
+    }))
+}
+
+fn parse_tunnel_stop_command(
+    values: &[String],
+    format: OutputFormat,
+) -> Result<WindowsCliCommand, WindowsCliParseError> {
+    let mut state_path = None;
+    let mut confirm = false;
+
+    for value in values {
+        match value.as_str() {
+            "--confirm" => {
+                if confirm {
+                    return Err(tunnel_parse_error(
+                        CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE,
+                        "tunnel option --confirm may only be specified once",
+                    ));
+                }
+                confirm = true;
+            }
+            _ if value.starts_with('-') => {
+                return Err(tunnel_parse_error(
+                    CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE,
+                    "tunnel command contains an unsupported option",
+                ));
+            }
+            _ if state_path.is_some() => {
+                return Err(tunnel_parse_error(
+                    CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE,
+                    "tunnel stop received an unexpected positional argument",
+                ));
+            }
+            _ => state_path = Some(PathBuf::from(value)),
+        }
+    }
+
+    let state_path = state_path.ok_or_else(|| {
+        tunnel_parse_error(
+            CLI_WINDOWS_ARGUMENT_VALUE_MISSING_CODE,
+            "tunnel state path is required",
+        )
+    })?;
+    if !confirm {
+        return Err(tunnel_parse_error(
+            CLI_WINDOWS_ARGUMENT_VALUE_MISSING_CODE,
+            "tunnel mutations require --confirm",
+        ));
+    }
+
+    Ok(WindowsCliCommand::TunnelStop(WindowsTunnelStopArgs {
+        state_path,
+        confirm,
+        format,
+    }))
+}
+
+fn parse_tunnel_state_path(values: &[String]) -> Result<PathBuf, WindowsCliParseError> {
+    let Some((state_path, remaining)) = values.split_first() else {
+        return Err(tunnel_parse_error(
+            CLI_WINDOWS_ARGUMENT_VALUE_MISSING_CODE,
+            "tunnel state path is required",
+        ));
+    };
+    if state_path.starts_with('-') {
+        return Err(tunnel_parse_error(
+            CLI_WINDOWS_ARGUMENT_VALUE_MISSING_CODE,
+            "tunnel state path is required",
+        ));
+    }
+    if !remaining.is_empty() {
+        return Err(tunnel_parse_error(
+            CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE,
+            "tunnel status received an unexpected argument",
+        ));
+    }
+
+    Ok(PathBuf::from(state_path))
+}
+
+fn take_tunnel_option_value(
+    target: &mut Option<String>,
+    values: &[String],
+    index: &mut usize,
+    option: &'static str,
+) -> Result<(), WindowsCliParseError> {
+    if target.is_some() {
+        return Err(tunnel_parse_error(
+            CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE,
+            format!("tunnel option {option} may only be specified once"),
+        ));
+    }
+
+    let value = values
+        .get(*index + 1)
+        .filter(|value| !value.starts_with('-'))
+        .cloned()
+        .ok_or_else(|| {
+            tunnel_parse_error(
+                CLI_WINDOWS_ARGUMENT_VALUE_MISSING_CODE,
+                format!("tunnel option {option} requires a value"),
+            )
+        })?;
+    *target = Some(value);
+    *index += 2;
+    Ok(())
+}
+
+fn require_tunnel_start_option(
+    value: Option<String>,
+    option: &'static str,
+    state_path: bool,
+) -> Result<String, WindowsCliParseError> {
+    value.ok_or_else(|| {
+        let message = if state_path {
+            "tunnel state path is required; supply --state-path".to_string()
+        } else {
+            format!("tunnel start requires {option}")
+        };
+        tunnel_parse_error(CLI_WINDOWS_ARGUMENT_VALUE_MISSING_CODE, message)
+    })
 }
 
 pub fn handle_entrypoint(
@@ -340,22 +793,75 @@ pub fn handle_entrypoint(
 ) -> WindowsCliResponse {
     let snapshot = platform.snapshot();
     match command {
-        WindowsCliCommand::Help { .. } => WindowsCliResponse::success(command.name()),
-        WindowsCliCommand::Version { .. } => WindowsCliResponse::success(command.name())
-            .with_version(WindowsCliVersion {
+        WindowsCliCommand::Help { .. } => WindowsCliResponse::success("help"),
+        WindowsCliCommand::Version { .. } => {
+            WindowsCliResponse::success("version").with_version(WindowsCliVersion {
                 package: COMMAND_NAME,
                 version: env!("CARGO_PKG_VERSION"),
                 source_identity: WINDOWS_CLI_SOURCE_IDENTITY,
                 version_scope: WINDOWS_CLI_VERSION_SCOPE,
-            }),
-        WindowsCliCommand::Capabilities { .. } => WindowsCliResponse::success(command.name())
+            })
+        }
+        WindowsCliCommand::Capabilities { .. } => WindowsCliResponse::success("capabilities")
             .with_capabilities(WindowsCliCapabilities::from_snapshot(&snapshot)),
-        WindowsCliCommand::Status { .. } => WindowsCliResponse::success(command.name())
+        WindowsCliCommand::Status { .. } => WindowsCliResponse::success("status")
             .with_status(WindowsCliStatus::from_snapshot(&snapshot)),
-        WindowsCliCommand::Diagnostics { .. } => WindowsCliResponse::success(command.name())
+        WindowsCliCommand::Diagnostics { .. } => WindowsCliResponse::success("diagnostics")
             .with_status(WindowsCliStatus::from_snapshot(&snapshot))
             .with_diagnostics(windows_cli_diagnostics(&snapshot)),
+        WindowsCliCommand::TunnelStart(_)
+        | WindowsCliCommand::TunnelStatus(_)
+        | WindowsCliCommand::TunnelStop(_) => tunnel_service_unavailable_response(),
     }
+}
+
+pub fn handle_entrypoint_with_tunnel<T>(
+    command: WindowsCliCommand,
+    platform: &impl WindowsPlatformCapabilityService,
+    tunnel: &mut T,
+) -> WindowsCliResponse
+where
+    T: WindowsTunnelCommandService,
+{
+    match command {
+        WindowsCliCommand::TunnelStart(args) => tunnel_command_response(tunnel.start(&args)),
+        WindowsCliCommand::TunnelStatus(args) => tunnel_command_response(tunnel.status(&args)),
+        WindowsCliCommand::TunnelStop(args) => tunnel_command_response(tunnel.stop(&args)),
+        command => handle_entrypoint(command, platform),
+    }
+}
+
+fn tunnel_command_response(result: DomainResult<WindowsTunnelCommandResult>) -> WindowsCliResponse {
+    match result {
+        Ok(result) => {
+            WindowsCliResponse::success("tunnel").with_tunnel(WindowsTunnelReport::from(result))
+        }
+        Err(error) => tunnel_service_error_response(error),
+    }
+}
+
+fn tunnel_service_error_response(error: DomainError) -> WindowsCliResponse {
+    WindowsCliResponse::failure(
+        "tunnel",
+        WindowsCliDiagnostic::new(
+            WindowsCliDiagnosticSeverity::Error,
+            error.code,
+            CLI_WINDOWS_TUNNEL_ERROR_MESSAGE,
+            CLI_WINDOWS_TUNNEL_ERROR_SOURCE,
+        ),
+    )
+}
+
+fn tunnel_service_unavailable_response() -> WindowsCliResponse {
+    WindowsCliResponse::failure(
+        "tunnel",
+        WindowsCliDiagnostic::new(
+            WindowsCliDiagnosticSeverity::Error,
+            CLI_WINDOWS_TUNNEL_UNAVAILABLE_CODE,
+            CLI_WINDOWS_TUNNEL_UNAVAILABLE_MESSAGE,
+            CLI_WINDOWS_TUNNEL_UNAVAILABLE_SOURCE,
+        ),
+    )
 }
 
 pub fn handle_parse_error(diagnostic: WindowsCliDiagnostic) -> WindowsCliResponse {
@@ -379,12 +885,19 @@ pub fn cli_help_text() -> String {
         "  networkcore-windows capabilities [--format text|json]",
         "  networkcore-windows status [--format text|json]",
         "  networkcore-windows diagnostics [--format text|json]",
+        "  networkcore-windows tunnel start <client-envelope> <pop-envelope> --pop-id <id> --device-id <id> --delivery-public-key-file <path> --easytier-bin <path> --easytier-cli <path> --easytier-version <version> --easytier-sha256 <sha256> --network-name <name> --network-secret-file <path> --state-path <path> --confirm [--format text|json]",
+        "  networkcore-windows tunnel status <state-path> [--format text|json]",
+        "  networkcore-windows tunnel stop <state-path> --confirm [--format text|json]",
         "",
         "Current boundary:",
         "  artifact_gate: package-windows-active/system-mutation-blocked",
         "  source_identity: apps/windows-cli",
         "  install_model: manual-extract",
         "  system_mutation_policy: none",
+        "",
+        "Foreground tunnel boundary:",
+        "  Requires a preinstalled EasyTier installation and elevated execution.",
+        "  Tunnel mutations require --confirm.",
         "",
         "Blocked:",
         "  windows-service, windows-driver, windows-installer, system-proxy-mutation,",
@@ -395,25 +908,37 @@ pub fn cli_help_text() -> String {
 
 fn parse_output_format(values: &mut Vec<String>) -> Result<OutputFormat, WindowsCliParseError> {
     let mut format = OutputFormat::Text;
+    let mut seen_format = false;
     let mut index = 0;
     while index < values.len() {
         if values[index] == "--format" {
-            let value = values.get(index + 1).cloned().ok_or_else(|| {
-                parse_error(
-                    CLI_WINDOWS_ARGUMENT_VALUE_MISSING_CODE,
-                    "windows CLI --format requires text or json",
-                )
-            })?;
+            if seen_format {
+                return Err(parse_error(
+                    CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE,
+                    "windows CLI --format may only be specified once",
+                ));
+            }
+            let value = values
+                .get(index + 1)
+                .filter(|value| !value.starts_with('-'))
+                .cloned()
+                .ok_or_else(|| {
+                    parse_error(
+                        CLI_WINDOWS_ARGUMENT_VALUE_MISSING_CODE,
+                        "windows CLI --format requires text or json",
+                    )
+                })?;
             format = match value.as_str() {
                 "text" => OutputFormat::Text,
                 "json" => OutputFormat::Json,
-                other => {
+                _ => {
                     return Err(parse_error(
                         CLI_WINDOWS_OUTPUT_FORMAT_UNSUPPORTED_CODE,
-                        format!("unsupported windows CLI output format: {other}"),
+                        "unsupported windows CLI output format",
                     ))
                 }
             };
+            seen_format = true;
             values.remove(index);
             values.remove(index);
         } else {
@@ -429,6 +954,15 @@ fn parse_error(code: impl Into<String>, message: impl Into<String>) -> WindowsCl
         code,
         message,
         "cli.windows.argument",
+    ))
+}
+
+fn tunnel_parse_error(code: impl Into<String>, message: impl Into<String>) -> WindowsCliParseError {
+    WindowsCliParseError::new(WindowsCliDiagnostic::new(
+        WindowsCliDiagnosticSeverity::Error,
+        code,
+        message,
+        "cli.windows.tunnel.argument",
     ))
 }
 
@@ -492,6 +1026,10 @@ fn render_text_response(response: &WindowsCliResponse) -> String {
             "subscription_compatibility: {}",
             WINDOWS_CLI_SUBSCRIPTION_COMPATIBILITY_STATUS
         ));
+        lines.push(format!(
+            "foreground_tunnel: {}",
+            capabilities.foreground_tunnel.status
+        ));
         lines.push(format!("service: {}", capabilities.service.status));
         lines.push(format!("driver: {}", capabilities.driver.status));
         lines.push(format!("installer: {}", capabilities.installer.status));
@@ -526,6 +1064,7 @@ fn render_text_response(response: &WindowsCliResponse) -> String {
             "subscription_compatibility: {}",
             status.subscription_compatibility
         ));
+        lines.push(format!("foreground_tunnel: {}", status.foreground_tunnel));
         lines.push(format!("service: {}", status.service));
         lines.push(format!("driver: {}", status.driver));
         lines.push(format!("installer: {}", status.installer));
@@ -545,6 +1084,18 @@ fn render_text_response(response: &WindowsCliResponse) -> String {
         ));
     }
 
+    if let Some(tunnel) = &response.tunnel {
+        lines.push(format!("session_id: {}", tunnel.session_id));
+        lines.push(format!("selected_pop_id: {}", tunnel.selected_pop_id));
+        lines.push(format!("selected_endpoint: {}", tunnel.selected_endpoint));
+        lines.push(format!("plan_digest: {}", tunnel.plan_digest));
+        lines.push(format!("state: {}", tunnel_state_name(tunnel.state)));
+        lines.push(format!("peer_ready: {}", tunnel.peer_ready));
+        lines.push(format!("route_ready: {}", tunnel.route_ready));
+        lines.push(format!("route_count: {}", tunnel.route_count));
+        lines.push(format!("rollback_status: {}", tunnel.rollback_status));
+    }
+
     if !response.diagnostics.is_empty() {
         lines.push("diagnostics:".to_string());
         for diagnostic in &response.diagnostics {
@@ -558,6 +1109,16 @@ fn render_text_response(response: &WindowsCliResponse) -> String {
     lines.join("\n")
 }
 
+fn tunnel_state_name(state: WindowsTunnelLifecycleState) -> &'static str {
+    match state {
+        WindowsTunnelLifecycleState::Starting => "starting",
+        WindowsTunnelLifecycleState::Running => "running",
+        WindowsTunnelLifecycleState::Stopping => "stopping",
+        WindowsTunnelLifecycleState::Stopped => "stopped",
+        WindowsTunnelLifecycleState::Failed => "failed",
+    }
+}
+
 #[derive(Serialize)]
 struct JsonWindowsCliResponse<'a> {
     ok: bool,
@@ -567,6 +1128,7 @@ struct JsonWindowsCliResponse<'a> {
     version: Option<&'a WindowsCliVersion>,
     capabilities: Option<&'a WindowsCliCapabilities>,
     status: Option<&'a WindowsCliStatus>,
+    tunnel: Option<&'a WindowsTunnelReport>,
 }
 
 impl<'a> From<&'a WindowsCliResponse> for JsonWindowsCliResponse<'a> {
@@ -579,6 +1141,7 @@ impl<'a> From<&'a WindowsCliResponse> for JsonWindowsCliResponse<'a> {
             version: response.version.as_ref(),
             capabilities: response.capabilities.as_ref(),
             status: response.status.as_ref(),
+            tunnel: response.tunnel.as_ref(),
         }
     }
 }
