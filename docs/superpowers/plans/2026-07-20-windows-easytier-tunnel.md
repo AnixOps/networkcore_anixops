@@ -127,7 +127,7 @@ Interfaces:
     pub struct EasyTierConfigArtifact {
         pub toml: String,
         pub redacted_toml: String,
-        pub proxy_cidrs: Vec<String>,
+        pub route_cidrs: Vec<String>,
     }
 
     pub fn render_easytier_config(request: EasyTierConfigRequest<'_>) -> DomainResult<EasyTierConfigArtifact>;
@@ -166,10 +166,10 @@ Interfaces:
         pub rollback_status: String,
     }
 
-- [ ] Add tests named renders_network_identity_peer_and_proxy_cidr_without_secret_in_redacted_output, rejects_invalid_binary_hash, writes_stable_state_json, and refuses_unknown_state_schema. Assert EasyTier network_identity, peer, proxy_network, and optional ipv4 fields; assert redacted_toml never contains the secret.
+- [ ] Add tests named renders_network_identity_peer_and_destination_routes_without_secret_in_redacted_output, rejects_invalid_binary_hash, writes_stable_state_json, and refuses_unknown_state_schema. Assert EasyTier network_identity, peer, root-level routes, and optional ipv4 fields; assert redacted_toml never contains the secret.
 - [ ] Commit tests as test: define easytier config and state contracts, push, dispatch CI, and confirm the new tests fail because the module and functions do not exist.
 - [ ] Add direct dependencies on existing locked packages config-core, control-domain, ring, serde, serde_json, time, and toml. Update only the platform-windows dependency list in Cargo.lock; do not introduce a new third-party package.
-- [ ] Render a minimal EasyTier TOML containing the selected peer, network identity, optional virtual IPv4, and destination proxy CIDRs. The runtime passes the generated file with --config-file and --disable-env-parsing. The secret never appears in an argument, environment variable, diagnostic, or display string.
+- [ ] Render a minimal EasyTier TOML containing the selected peer, network identity, optional virtual IPv4, and destination routes. The runtime passes the generated file with --config-file and --disable-env-parsing. The secret never appears in an argument, environment variable, diagnostic, or display string.
 - [ ] Implement lower-case SHA-256 verification with ring, reject non-64-hex expected values and mismatches, serialize state with serde_json, retain only redacted paths and metadata, and delete config after successful stop.
 - [ ] Commit as feat: add easytier config and tunnel state and run the CI Checkpoint Procedure. Do not continue until the exact SHA is green.
 

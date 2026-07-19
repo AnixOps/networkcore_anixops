@@ -46,12 +46,12 @@ impl fmt::Debug for EasyTierConfigRequest<'_> {
     }
 }
 
-/// Raw and redacted TOML plus the route CIDRs copied from the plan.
+/// Raw and redacted TOML plus the destination route CIDRs copied from the plan.
 #[derive(Clone, PartialEq, Eq)]
 pub struct EasyTierConfigArtifact {
     pub toml: String,
     pub redacted_toml: String,
-    pub proxy_cidrs: Vec<String>,
+    pub route_cidrs: Vec<String>,
 }
 
 impl fmt::Debug for EasyTierConfigArtifact {
@@ -60,7 +60,7 @@ impl fmt::Debug for EasyTierConfigArtifact {
             .debug_struct("EasyTierConfigArtifact")
             .field("toml", &"[redacted]")
             .field("redacted_toml", &self.redacted_toml)
-            .field("proxy_cidrs", &self.proxy_cidrs)
+            .field("route_cidrs", &self.route_cidrs)
             .finish()
     }
 }
@@ -78,7 +78,7 @@ pub fn render_easytier_config(
         return Err(config_error("tunnel plan contains no route intents"));
     }
 
-    let proxy_cidrs = request
+    let route_cidrs = request
         .plan
         .route_intents
         .iter()
@@ -95,10 +95,7 @@ pub fn render_easytier_config(
         peer: vec![EasyTierPeer {
             uri: peer_uri.clone(),
         }],
-        proxy_network: proxy_cidrs
-            .iter()
-            .map(|cidr| EasyTierProxyNetwork { cidr: cidr.clone() })
-            .collect(),
+        routes: route_cidrs.clone(),
     };
     let redacted_config = EasyTierTomlConfig {
         network_identity: EasyTierNetworkIdentity {
@@ -107,10 +104,7 @@ pub fn render_easytier_config(
         },
         ipv4: virtual_ipv4,
         peer: vec![EasyTierPeer { uri: peer_uri }],
-        proxy_network: proxy_cidrs
-            .iter()
-            .map(|cidr| EasyTierProxyNetwork { cidr: cidr.clone() })
-            .collect(),
+        routes: route_cidrs.clone(),
     };
 
     let toml =
@@ -121,7 +115,7 @@ pub fn render_easytier_config(
     Ok(EasyTierConfigArtifact {
         toml,
         redacted_toml,
-        proxy_cidrs,
+        route_cidrs,
     })
 }
 
@@ -233,7 +227,7 @@ struct EasyTierTomlConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     ipv4: Option<String>,
     peer: Vec<EasyTierPeer>,
-    proxy_network: Vec<EasyTierProxyNetwork>,
+    routes: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -245,11 +239,6 @@ struct EasyTierNetworkIdentity {
 #[derive(Debug, Serialize)]
 struct EasyTierPeer {
     uri: String,
-}
-
-#[derive(Debug, Serialize)]
-struct EasyTierProxyNetwork {
-    cidr: String,
 }
 
 fn parse_virtual_ipv4(value: &str) -> DomainResult<String> {

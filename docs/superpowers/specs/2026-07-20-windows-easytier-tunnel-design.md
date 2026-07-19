@@ -171,7 +171,7 @@ types remain reusable by future GUI or service adapters.
 
 The generated EasyTier config is deleted after a successful stop and retained only on a
 failed-cleanup path for manual recovery. It contains the selected peer, network identity,
-virtual address, and proxy CIDR/route settings derived from the verified plan. The adapter
+virtual address, and destination route settings derived from the verified plan. The adapter
 accepts only the configured EasyTier version/hash and refuses to launch an unpinned executable.
 
 ### CLI layer
