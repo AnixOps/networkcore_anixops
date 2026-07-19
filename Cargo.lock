@@ -905,6 +905,15 @@ dependencies = [
 [[package]]
 name = "platform-windows"
 version = "0.1.0"
+dependencies = [
+ "config-core",
+ "control-domain",
+ "ring",
+ "serde",
+ "serde_json",
+ "time",
+ "toml",
+]
 
 [[package]]
 name = "potential_utf"
