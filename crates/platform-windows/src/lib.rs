@@ -5,6 +5,7 @@
 //! managed daemon lifecycle remain blocked for the v0.1.1 alpha packaging path.
 
 pub mod tunnel_config;
+pub mod tunnel_runtime;
 
 pub use config_core::windows_tunnel::{
     WindowsTunnelPlan, WindowsTunnelPlanRequest, WindowsTunnelRouteIntent,
