@@ -547,7 +547,7 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
     }
 
     fn stop(&mut self, handle: &OwnedProcessHandle) -> DomainResult<()> {
-        let status = Command::new("taskkill.exe")
+        let status = std::process::Command::new("taskkill.exe")
             .args(["/PID", &handle.process_id.to_string(), "/T", "/F"])
             .status()
             .map_err(|_| stop_error("owned EasyTier process could not be terminated"))?;
