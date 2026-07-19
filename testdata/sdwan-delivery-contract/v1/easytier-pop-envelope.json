@@ -1,0 +1,15 @@
+{
+  "schema_version": "anixops.sdwan.delivery/v1",
+  "bundle_kind": "pop",
+  "bundle_id": "fixture-easytier-pop-bundle-1",
+  "tenant_id": "fixture-tenant-1",
+  "target_id": "pop-a",
+  "sequence": 4,
+  "issued_at": "2026-07-20T00:00:00Z",
+  "expires_at": "2026-07-20T01:00:00Z",
+  "key_id": "fixture-ed25519-easytier-20260720",
+  "payload_base64": "ewogICJzY2hlbWFfdmVyc2lvbiI6ICJhbml4b3BzLnNkd2FuLmRlbGl2ZXJ5L3YxIiwKICAia2luZCI6ICJwb3AiLAogICJwb3AiOiB7CiAgICAiaWQiOiAiZml4dHVyZS1lYXN5dGllci1wb3AtcHJvZmlsZS0xIiwKICAgICJwcmluY2lwYWxfaWQiOiAicG9wLWEiLAogICAgInJvdXRlcyI6IFsKICAgICAgewogICAgICAgICJpZCI6ICJmaXh0dXJlLWVhc3l0aWVyLXJvdXRlLTEiLAogICAgICAgICJzZWxlY3RvciI6IHsKICAgICAgICAgICJzb3VyY2VfY2lkciI6IG51bGwsCiAgICAgICAgICAiZGVzdGluYXRpb25fY2lkciI6ICIyMDMuMC4xMTMuMC8yNCIsCiAgICAgICAgICAiZG9tYWluX3N1ZmZpeCI6IG51bGwsCiAgICAgICAgICAidHJhZmZpY19jbGFzcyI6IG51bGwsCiAgICAgICAgICAicHJvdG9jb2wiOiBudWxsLAogICAgICAgICAgInBvcnRzIjogbnVsbAogICAgICAgIH0sCiAgICAgICAgImNoYWluIjogewogICAgICAgICAgImlkIjogInBvcC1hLWNoYWluIiwKICAgICAgICAgICJob3BzIjogWwogICAgICAgICAgICAicG9wLWEiCiAgICAgICAgICBdLAogICAgICAgICAgInJldHVybl9ob3BzIjogbnVsbAogICAgICAgIH0sCiAgICAgICAgImRpcmVjdF9mYWxsYmFjayI6IGZhbHNlCiAgICAgIH0KICAgIF0KICB9Cn0K",
+  "algorithm": "ed25519",
+  "payload_sha256": "5b2997ae309f66d67acef39d8b31fa43c3f3e9c98e9f44ba44deca4a4cd9fe04",
+  "signature": "8rQNKmSzDz6y65IjgHRzejxpqaHDQ/wNrOxCCYRCVKp7P+FNXeI+Gk2Ccug0bbGxj+s6RRkZOf6WrQ+FUXvrDQ=="
+}
