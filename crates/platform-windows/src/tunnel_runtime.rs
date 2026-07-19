@@ -18,8 +18,7 @@ use crate::tunnel_config::{
 };
 use crate::WindowsTunnelPlan;
 
-pub const WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE: &str =
-    "windows.tunnel.confirmation_required";
+pub const WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE: &str = "windows.tunnel.confirmation_required";
 pub const WINDOWS_TUNNEL_SECRET_FILE_INVALID_CODE: &str = "windows.tunnel.secret_file_invalid";
 pub const WINDOWS_TUNNEL_EASYTIER_VERSION_MISMATCH_CODE: &str =
     "windows.tunnel.easytier_version_mismatch";
@@ -31,8 +30,7 @@ pub const WINDOWS_TUNNEL_ROUTE_NOT_READY_CODE: &str = "windows.tunnel.route_not_
 pub const WINDOWS_TUNNEL_STATUS_UNAVAILABLE_CODE: &str = "windows.tunnel.status_unavailable";
 pub const WINDOWS_TUNNEL_STOP_FAILED_CODE: &str = "windows.tunnel.stop_failed";
 pub const WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE: &str = "windows.tunnel.rollback_failed";
-pub const WINDOWS_TUNNEL_OWNERSHIP_MISMATCH_CODE: &str =
-    "windows.tunnel.ownership_mismatch";
+pub const WINDOWS_TUNNEL_OWNERSHIP_MISMATCH_CODE: &str = "windows.tunnel.ownership_mismatch";
 
 /// Starts and stops only an EasyTier process created by the current session service.
 pub trait EasyTierProcessRunner {
@@ -200,7 +198,9 @@ where
             .get(state_path)
             .ok_or_else(|| status_error("tunnel session is not owned by this service"))?;
         if owned.session_id != state.session_id {
-            return Err(status_error("tunnel ownership token does not match persisted state"));
+            return Err(status_error(
+                "tunnel ownership token does not match persisted state",
+            ));
         }
 
         let peer_ready = self
@@ -211,7 +211,12 @@ where
             .cli_runner
             .route_cidrs(&owned.cli_path)
             .map_err(|_| status_error("EasyTier route readiness is unavailable"))?;
-        if !peer_ready || !owned.route_cidrs.iter().all(|cidr| route_cidrs.contains(cidr)) {
+        if !peer_ready
+            || !owned
+                .route_cidrs
+                .iter()
+                .all(|cidr| route_cidrs.contains(cidr))
+        {
             return Err(status_error("EasyTier session is not ready"));
         }
 
@@ -282,7 +287,9 @@ where
                 .iter()
                 .any(|route| route.direct_fallback)
         {
-            return Err(start_error("tunnel plan is not safe for foreground execution"));
+            return Err(start_error(
+                "tunnel plan is not safe for foreground execution",
+            ));
         }
         if self.owned_sessions.contains_key(&request.state_path) || request.state_path.exists() {
             return Err(start_error("state path is already owned or occupied"));
@@ -293,7 +300,9 @@ where
             .filter(|path| path.is_dir())
             .ok_or_else(|| start_error("state directory must already exist"))?;
         if !request.easytier_binary.is_file() || !request.easytier_cli.is_file() {
-            return Err(start_error("configured EasyTier executable path is invalid"));
+            return Err(start_error(
+                "configured EasyTier executable path is invalid",
+            ));
         }
         verify_file_sha256(&request.easytier_binary, &request.easytier_sha256)?;
 
@@ -326,7 +335,9 @@ where
                 .unwrap_or_else(|| "easytier-session.toml".to_string()),
         );
         if config_path.exists() {
-            return Err(start_error("session configuration path is already occupied"));
+            return Err(start_error(
+                "session configuration path is already occupied",
+            ));
         }
         let config = render_easytier_config(EasyTierConfigRequest {
             plan: &request.plan,
