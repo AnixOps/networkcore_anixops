@@ -393,7 +393,7 @@ fn validate_client_profile(
     let id = required_profile_text(&id)?;
     let principal_id = required_profile_text(&principal_id)?;
 
-    if id != target_id || transport != "ikev2" || pops.is_empty() {
+    if principal_id != target_id || transport != "ikev2" || pops.is_empty() {
         return Err(profile_parse_error());
     }
 
@@ -458,7 +458,7 @@ fn validate_pop_profile(
     let id = required_profile_text(&id)?;
     let principal_id = required_profile_text(&principal_id)?;
 
-    if id != target_id || routes.is_empty() {
+    if principal_id != target_id || routes.is_empty() {
         return Err(profile_parse_error());
     }
 
