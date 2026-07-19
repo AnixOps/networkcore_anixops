@@ -1,4 +1,4 @@
-use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
+use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
 use control_domain::{DomainError, DomainResult};
 use ring::{digest, signature};
@@ -85,6 +85,8 @@ pub struct DeliveryRoutePolicy {
 pub struct DeliveryRouteSelector {
     pub source_cidr: Option<String>,
     pub destination_cidr: Option<String>,
+    pub domain_suffix: Option<String>,
+    pub traffic_class: Option<String>,
     pub protocol: Option<String>,
     pub ports: Option<DeliveryPortRange>,
 }
@@ -251,6 +253,8 @@ struct DeliveryRoutePolicyWire {
 struct DeliveryRouteSelectorWire {
     source_cidr: Option<String>,
     destination_cidr: Option<String>,
+    domain_suffix: Option<String>,
+    traffic_class: Option<String>,
     protocol: Option<String>,
     ports: Option<DeliveryPortRangeWire>,
 }
@@ -401,6 +405,7 @@ fn validate_client_profile(
         .into_iter()
         .map(validate_pop_reference)
         .collect::<DomainResult<Vec<_>>>()?;
+    validate_unique_pop_ids(&pops)?;
     let mitm = mitm.map(validate_mitm_profile).transpose()?;
 
     Ok(ClientDeliveryProfile {
@@ -431,11 +436,15 @@ fn validate_mitm_profile(profile: DeliveryMitmProfileWire) -> DomainResult<Deliv
         return Err(profile_parse_error());
     }
 
-    let allowed_domain_suffixes = profile
-        .allowed_domain_suffixes
-        .into_iter()
-        .map(|suffix| validate_dns_suffix(&suffix))
-        .collect::<DomainResult<Vec<_>>>()?;
+    let mut normalized_suffixes = BTreeSet::new();
+    let mut allowed_domain_suffixes = Vec::with_capacity(profile.allowed_domain_suffixes.len());
+    for suffix in profile.allowed_domain_suffixes {
+        let suffix = validate_dns_suffix(&suffix)?;
+        if !normalized_suffixes.insert(suffix.clone()) {
+            return Err(profile_parse_error());
+        }
+        allowed_domain_suffixes.push(suffix);
+    }
 
     Ok(DeliveryMitmProfile {
         allowed_domain_suffixes,
@@ -466,6 +475,7 @@ fn validate_pop_profile(
         .into_iter()
         .map(validate_route_policy)
         .collect::<DomainResult<Vec<_>>>()?;
+    validate_unique_route_ids(&routes)?;
 
     Ok(PopDeliveryProfile {
         id,
@@ -492,6 +502,8 @@ fn validate_route_selector(
 ) -> DomainResult<DeliveryRouteSelector> {
     if selector.source_cidr.is_none()
         && selector.destination_cidr.is_none()
+        && selector.domain_suffix.is_none()
+        && selector.traffic_class.is_none()
         && selector.protocol.is_none()
         && selector.ports.is_none()
     {
@@ -506,6 +518,14 @@ fn validate_route_selector(
         .destination_cidr
         .map(|cidr| validate_cidr(&cidr))
         .transpose()?;
+    let domain_suffix = selector
+        .domain_suffix
+        .map(|suffix| validate_dns_suffix(&suffix))
+        .transpose()?;
+    let traffic_class = selector
+        .traffic_class
+        .map(|traffic_class| required_profile_text(&traffic_class))
+        .transpose()?;
     let protocol = selector
         .protocol
         .map(|protocol| validate_protocol(&protocol))
@@ -519,9 +539,33 @@ fn validate_route_selector(
     Ok(DeliveryRouteSelector {
         source_cidr,
         destination_cidr,
+        domain_suffix,
+        traffic_class,
         protocol,
         ports,
     })
+}
+
+fn validate_unique_pop_ids(pops: &[DeliveryPopReference]) -> DomainResult<()> {
+    let mut ids = BTreeSet::new();
+    for pop in pops {
+        if !ids.insert(pop.id.clone()) {
+            return Err(profile_parse_error());
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_unique_route_ids(routes: &[DeliveryRoutePolicy]) -> DomainResult<()> {
+    let mut ids = BTreeSet::new();
+    for route in routes {
+        if !ids.insert(route.id.clone()) {
+            return Err(profile_parse_error());
+        }
+    }
+
+    Ok(())
 }
 
 fn validate_cidr(value: &str) -> DomainResult<String> {
@@ -615,30 +659,25 @@ fn validate_endpoint(value: &str) -> DomainResult<String> {
 }
 
 fn validate_dns_suffix(value: &str) -> DomainResult<String> {
-    let suffix = required_profile_text(value)?;
-    if !suffix.is_ascii() {
+    let suffix = value.trim().to_ascii_lowercase();
+    let suffix = suffix.strip_suffix('.').unwrap_or(&suffix);
+    if suffix.is_empty() || suffix.starts_with('.') {
         return Err(profile_parse_error());
     }
 
-    let labels = suffix.strip_prefix('.').unwrap_or(&suffix);
-    if labels.is_empty() || labels.len() > 253 {
-        return Err(profile_parse_error());
-    }
-
-    for label in labels.split('.') {
+    for label in suffix.split('.') {
         if label.is_empty()
-            || label.len() > 63
             || label.starts_with('-')
             || label.ends_with('-')
             || !label
                 .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
         {
             return Err(profile_parse_error());
         }
     }
 
-    Ok(suffix.to_ascii_lowercase())
+    Ok(suffix.to_string())
 }
 
 fn required_envelope_identifier(value: &str) -> DomainResult<String> {
@@ -671,9 +710,7 @@ fn lowercase_hex(bytes: &[u8]) -> String {
 }
 
 fn decode_standard_base64(value: &str) -> Result<Vec<u8>, base64::DecodeError> {
-    STANDARD
-        .decode(value)
-        .or_else(|_| STANDARD_NO_PAD.decode(value))
+    STANDARD.decode(value)
 }
 
 fn envelope_parse_error() -> DomainError {
@@ -716,4 +753,124 @@ fn expired_error() -> DomainError {
         SDWAN_DELIVERY_EXPIRED_CODE,
         "signed delivery envelope is expired",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalizes_controller_dns_suffix_and_rejects_leading_dot() {
+        assert_eq!(
+            validate_dns_suffix("  Example.COM.  ").expect("controller suffix normalizes"),
+            "example.com"
+        );
+
+        let error = validate_dns_suffix(".example.com").expect_err("leading dot is invalid");
+        assert_eq!(error.code, SDWAN_DELIVERY_PARSE_FAILED_CODE);
+    }
+
+    #[test]
+    fn rejects_unpadded_standard_base64() {
+        assert!(decode_standard_base64("YQ").is_err());
+    }
+
+    #[test]
+    fn accepts_domain_suffix_or_traffic_class_as_only_route_selector_condition() {
+        let domain_suffix = validate_route_selector(route_selector(
+            Some("Example.COM."),
+            None,
+        ))
+        .expect("domain suffix selector is valid");
+        assert_eq!(domain_suffix.domain_suffix.as_deref(), Some("example.com"));
+        assert_eq!(domain_suffix.traffic_class, None);
+
+        let traffic_class = validate_route_selector(route_selector(
+            None,
+            Some("  interactive  "),
+        ))
+        .expect("traffic class selector is valid");
+        assert_eq!(traffic_class.domain_suffix, None);
+        assert_eq!(traffic_class.traffic_class.as_deref(), Some("interactive"));
+    }
+
+    #[test]
+    fn rejects_duplicate_client_pop_ids_after_trimming() {
+        let error = validate_client_profile(
+            ClientDeliveryProfileWire {
+                id: "client-profile".to_string(),
+                principal_id: "client-target".to_string(),
+                transport: "ikev2".to_string(),
+                pops: vec![pop_reference("pop-a"), pop_reference("  pop-a  ")],
+                mitm: None,
+            },
+            "client-target",
+        )
+        .expect_err("duplicate POP IDs are invalid");
+
+        assert_eq!(error.code, SDWAN_DELIVERY_PARSE_FAILED_CODE);
+    }
+
+    #[test]
+    fn rejects_duplicate_pop_route_ids_after_trimming() {
+        let error = validate_pop_profile(
+            PopDeliveryProfileWire {
+                id: "pop-profile".to_string(),
+                principal_id: "pop-target".to_string(),
+                routes: vec![route("route-a"), route("  route-a  ")],
+            },
+            "pop-target",
+        )
+        .expect_err("duplicate route IDs are invalid");
+
+        assert_eq!(error.code, SDWAN_DELIVERY_PARSE_FAILED_CODE);
+    }
+
+    #[test]
+    fn rejects_duplicate_normalized_mitm_suffixes() {
+        let error = validate_mitm_profile(DeliveryMitmProfileWire {
+            allowed_domain_suffixes: vec!["Example.COM".to_string(), "example.com".to_string()],
+            require_consent: true,
+            block_quic: true,
+            block_pinned_tls: true,
+            metadata_retention_days: 7,
+        })
+        .expect_err("normalized duplicate suffixes are invalid");
+
+        assert_eq!(error.code, SDWAN_DELIVERY_PARSE_FAILED_CODE);
+    }
+
+    fn route_selector(
+        domain_suffix: Option<&str>,
+        traffic_class: Option<&str>,
+    ) -> DeliveryRouteSelectorWire {
+        DeliveryRouteSelectorWire {
+            source_cidr: None,
+            destination_cidr: None,
+            domain_suffix: domain_suffix.map(str::to_string),
+            traffic_class: traffic_class.map(str::to_string),
+            protocol: None,
+            ports: None,
+        }
+    }
+
+    fn pop_reference(id: &str) -> DeliveryPopReferenceWire {
+        DeliveryPopReferenceWire {
+            id: id.to_string(),
+            endpoint: "pop.example.test:443".to_string(),
+        }
+    }
+
+    fn route(id: &str) -> DeliveryRoutePolicyWire {
+        DeliveryRoutePolicyWire {
+            id: id.to_string(),
+            selector: route_selector(None, Some("interactive")),
+            chain: DeliveryServiceChainWire {
+                id: "chain-a".to_string(),
+                hops: vec!["hop-a".to_string()],
+                return_hops: None,
+            },
+            direct_fallback: false,
+        }
+    }
 }
