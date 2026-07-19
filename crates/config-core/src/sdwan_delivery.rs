@@ -10,6 +10,7 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime, UtcOffset};
 pub const SDWAN_DELIVERY_SCHEMA_V1: &str = "anixops.sdwan.delivery/v1";
 pub const SDWAN_DELIVERY_SIGNATURE_DOMAIN_V1: &str = "anixops.sdwan.delivery-signature/v1";
 pub const SDWAN_DELIVERY_SIGNATURE_ALGORITHM: &str = "ed25519";
+pub const SDWAN_DELIVERY_TRANSPORT_EASYTIER: &str = "easytier";
 pub const SDWAN_DELIVERY_PARSE_FAILED_CODE: &str = "sdwan.delivery.parse_failed";
 pub const SDWAN_DELIVERY_PUBLIC_KEY_INVALID_CODE: &str = "sdwan.delivery.public_key_invalid";
 pub const SDWAN_DELIVERY_PAYLOAD_HASH_INVALID_CODE: &str = "sdwan.delivery.payload_hash_invalid";
@@ -483,7 +484,10 @@ fn validate_client_profile(
     let raw_principal_id = principal_id;
     let principal_id = required_profile_text(&raw_principal_id)?;
 
-    if raw_principal_id != target_id || transport != "ikev2" || pops.is_empty() {
+    if raw_principal_id != target_id
+        || !(transport == "ikev2" || transport == SDWAN_DELIVERY_TRANSPORT_EASYTIER)
+        || pops.is_empty()
+    {
         return Err(profile_parse_error());
     }
 
