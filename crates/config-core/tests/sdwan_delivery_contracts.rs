@@ -1,8 +1,7 @@
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
 use config_core::sdwan_delivery::{
-    SdwanDeliveryVerifier, SDWAN_DELIVERY_EXPIRED_CODE,
-    SDWAN_DELIVERY_PAYLOAD_HASH_INVALID_CODE,
+    SdwanDeliveryVerifier, SDWAN_DELIVERY_EXPIRED_CODE, SDWAN_DELIVERY_PAYLOAD_HASH_INVALID_CODE,
 };
 use serde::Deserialize;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
@@ -36,8 +35,8 @@ fn verifies_controller_client_and_pop_fixtures() {
             .expect("public key"),
     )
     .expect("valid public key");
-    let now = OffsetDateTime::parse(&manifest.verification_time, &Rfc3339)
-        .expect("verification time");
+    let now =
+        OffsetDateTime::parse(&manifest.verification_time, &Rfc3339).expect("verification time");
 
     for fixture in manifest.fixtures {
         let envelope = match fixture.file.as_str() {

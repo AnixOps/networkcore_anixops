@@ -12,8 +12,7 @@ pub const SDWAN_DELIVERY_SIGNATURE_DOMAIN_V1: &str = "anixops.sdwan.delivery-sig
 pub const SDWAN_DELIVERY_SIGNATURE_ALGORITHM: &str = "ed25519";
 pub const SDWAN_DELIVERY_PARSE_FAILED_CODE: &str = "sdwan.delivery.parse_failed";
 pub const SDWAN_DELIVERY_PUBLIC_KEY_INVALID_CODE: &str = "sdwan.delivery.public_key_invalid";
-pub const SDWAN_DELIVERY_PAYLOAD_HASH_INVALID_CODE: &str =
-    "sdwan.delivery.payload_hash_invalid";
+pub const SDWAN_DELIVERY_PAYLOAD_HASH_INVALID_CODE: &str = "sdwan.delivery.payload_hash_invalid";
 pub const SDWAN_DELIVERY_SIGNATURE_INVALID_CODE: &str = "sdwan.delivery.signature_invalid";
 pub const SDWAN_DELIVERY_EXPIRED_CODE: &str = "sdwan.delivery.expired";
 
@@ -119,20 +118,18 @@ impl SdwanDeliveryVerifier {
             serde_json::from_slice(input).map_err(|_| envelope_parse_error())?;
         let metadata = validate_envelope_metadata(&envelope, now)?;
 
-        let payload = decode_standard_base64(&envelope.payload_base64)
-            .map_err(|_| payload_hash_error())?;
+        let payload =
+            decode_standard_base64(&envelope.payload_base64).map_err(|_| payload_hash_error())?;
         let payload_digest = digest::digest(&digest::SHA256, &payload);
         if lowercase_hex(payload_digest.as_ref()) != envelope.payload_sha256 {
             return Err(payload_hash_error());
         }
 
         let signing_input = build_signing_input(&envelope, payload_digest.as_ref())?;
-        let signature_bytes = decode_standard_base64(&envelope.signature)
-            .map_err(|_| signature_error())?;
-        let public_key = signature::UnparsedPublicKey::new(
-            &signature::ED25519,
-            self.public_key.as_slice(),
-        );
+        let signature_bytes =
+            decode_standard_base64(&envelope.signature).map_err(|_| signature_error())?;
+        let public_key =
+            signature::UnparsedPublicKey::new(&signature::ED25519, self.public_key.as_slice());
         public_key
             .verify(&signing_input, &signature_bytes)
             .map_err(|_| signature_error())?;
@@ -289,10 +286,7 @@ fn validate_envelope_metadata(
 ) -> DomainResult<EnvelopeMetadata> {
     if envelope.schema_version != SDWAN_DELIVERY_SCHEMA_V1
         || envelope.sequence == 0
-        || !matches!(
-            envelope.algorithm,
-            DeliverySignatureAlgorithmWire::Ed25519
-        )
+        || !matches!(envelope.algorithm, DeliverySignatureAlgorithmWire::Ed25519)
     {
         return Err(envelope_parse_error());
     }
@@ -337,7 +331,10 @@ fn build_signing_input(
     let sequence = envelope.sequence.to_string();
     let mut signing_input = Vec::new();
 
-    append_signing_field(&mut signing_input, SDWAN_DELIVERY_SIGNATURE_DOMAIN_V1.as_bytes())?;
+    append_signing_field(
+        &mut signing_input,
+        SDWAN_DELIVERY_SIGNATURE_DOMAIN_V1.as_bytes(),
+    )?;
     append_signing_field(&mut signing_input, envelope.schema_version.as_bytes())?;
     append_signing_field(&mut signing_input, envelope.bundle_kind.as_str().as_bytes())?;
     append_signing_field(&mut signing_input, envelope.bundle_id.as_bytes())?;
@@ -501,7 +498,10 @@ fn validate_route_selector(
         return Err(profile_parse_error());
     }
 
-    let source_cidr = selector.source_cidr.map(|cidr| validate_cidr(&cidr)).transpose()?;
+    let source_cidr = selector
+        .source_cidr
+        .map(|cidr| validate_cidr(&cidr))
+        .transpose()?;
     let destination_cidr = selector
         .destination_cidr
         .map(|cidr| validate_cidr(&cidr))
