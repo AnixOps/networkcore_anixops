@@ -523,3 +523,316 @@ fn ownership_error() -> DomainError {
         "tunnel state is not owned by this session service",
     )
 }
+
+/// Production process port for an explicitly supplied EasyTier executable.
+#[derive(Debug, Default)]
+pub struct NativeEasyTierProcessRunner;
+
+#[cfg(windows)]
+impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
+    fn start(&mut self, spec: &EasyTierLaunchSpec) -> DomainResult<OwnedProcessHandle> {
+        use std::process::Command;
+
+        let child = Command::new(&spec.binary_path)
+            .arg("--config-file")
+            .arg(&spec.config_path)
+            .arg("--disable-env-parsing")
+            .spawn()
+            .map_err(|_| start_error("explicit EasyTier executable could not be started"))?;
+
+        Ok(OwnedProcessHandle {
+            session_id: redacted_config_path(&spec.config_path),
+            process_id: child.id(),
+        })
+    }
+
+    fn stop(&mut self, handle: &OwnedProcessHandle) -> DomainResult<()> {
+        let status = Command::new("taskkill.exe")
+            .args(["/PID", &handle.process_id.to_string(), "/T", "/F"])
+            .status()
+            .map_err(|_| stop_error("owned EasyTier process could not be terminated"))?;
+        if !status.success() {
+            return Err(stop_error("owned EasyTier process could not be terminated"));
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
+    fn start(&mut self, _spec: &EasyTierLaunchSpec) -> DomainResult<OwnedProcessHandle> {
+        Err(start_error("Windows EasyTier process execution is unavailable on this platform"))
+    }
+
+    fn stop(&mut self, _handle: &OwnedProcessHandle) -> DomainResult<()> {
+        Err(stop_error("Windows EasyTier process execution is unavailable on this platform"))
+    }
+}
+
+/// Production CLI port that runs only the explicitly supplied EasyTier CLI binary.
+#[derive(Debug, Default)]
+pub struct NativeEasyTierCliRunner;
+
+#[cfg(windows)]
+impl EasyTierCliRunner for NativeEasyTierCliRunner {
+    fn version(&mut self, path: &Path) -> DomainResult<String> {
+        native_cli_output(path, &["--version"])
+    }
+
+    fn peer_ready(&mut self, path: &Path) -> DomainResult<bool> {
+        let output = native_cli_output(path, &["peer"])?;
+        Ok(output
+            .lines()
+            .skip(1)
+            .any(|line| !line.trim().is_empty()))
+    }
+
+    fn route_cidrs(&mut self, path: &Path) -> DomainResult<Vec<String>> {
+        let output = native_cli_output(path, &["route"])?;
+        let mut cidrs = Vec::new();
+        for token in output.split_whitespace() {
+            let token = token.trim_matches(|character: char| {
+                matches!(character, '|' | ',' | '[' | ']' | '(' | ')' | '"')
+            });
+            if token.contains('/') && !cidrs.iter().any(|cidr| cidr == token) {
+                cidrs.push(token.to_string());
+            }
+        }
+        Ok(cidrs)
+    }
+}
+
+#[cfg(windows)]
+fn native_cli_output(path: &Path, arguments: &[&str]) -> DomainResult<String> {
+    use std::process::Command;
+
+    let output = Command::new(path)
+        .args(arguments)
+        .output()
+        .map_err(|_| status_error("explicit EasyTier CLI could not be executed"))?;
+    if !output.status.success() {
+        return Err(status_error("explicit EasyTier CLI command failed"));
+    }
+    String::from_utf8(output.stdout)
+        .map(|output| output.trim().to_string())
+        .map_err(|_| status_error("explicit EasyTier CLI returned non-text output"))
+}
+
+#[cfg(not(windows))]
+impl EasyTierCliRunner for NativeEasyTierCliRunner {
+    fn version(&mut self, _path: &Path) -> DomainResult<String> {
+        Err(status_error("Windows EasyTier CLI execution is unavailable on this platform"))
+    }
+
+    fn peer_ready(&mut self, _path: &Path) -> DomainResult<bool> {
+        Err(status_error("Windows EasyTier CLI execution is unavailable on this platform"))
+    }
+
+    fn route_cidrs(&mut self, _path: &Path) -> DomainResult<Vec<String>> {
+        Err(status_error("Windows EasyTier CLI execution is unavailable on this platform"))
+    }
+}
+
+/// Production Windows route port for host-specific EasyTier underlay bypasses.
+#[cfg(windows)]
+#[derive(Debug, Default)]
+pub struct NativeWindowsRoutePort {
+    pending_snapshot: Option<Vec<WindowsRouteSnapshotEntry>>,
+    owned_bypasses: BTreeMap<String, Vec<NativeBypassRoute>>,
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone)]
+struct NativeBypassRoute {
+    endpoint: IpAddr,
+    gateway: String,
+    interface_index: u32,
+}
+
+#[cfg(windows)]
+impl WindowsRoutePort for NativeWindowsRoutePort {
+    fn snapshot(&mut self, endpoints: &[IpAddr]) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
+        let snapshot = endpoints
+            .iter()
+            .map(native_route_snapshot)
+            .collect::<DomainResult<Vec<_>>>()?;
+        self.pending_snapshot = Some(snapshot.clone());
+        Ok(snapshot)
+    }
+
+    fn add_endpoint_bypass(&mut self, endpoints: &[IpAddr]) -> DomainResult<()> {
+        let snapshot = self.pending_snapshot.take().ok_or_else(|| {
+            endpoint_bypass_error("underlay bypass was requested without a route snapshot")
+        })?;
+        if snapshot.len() != endpoints.len() {
+            return Err(endpoint_bypass_error(
+                "underlay bypass endpoints do not match the captured route snapshot",
+            ));
+        }
+
+        let mut added = Vec::with_capacity(endpoints.len());
+        for (endpoint, route) in endpoints.iter().zip(&snapshot) {
+            let gateway = route
+                .gateway
+                .as_ref()
+                .filter(|gateway| !gateway.trim().is_empty())
+                .ok_or_else(|| endpoint_bypass_error("physical next hop is unavailable"))?;
+            let interface_index = route
+                .interface_index
+                .ok_or_else(|| endpoint_bypass_error("physical interface index is unavailable"))?;
+            let metric = route.metric.unwrap_or(25).to_string();
+            let status = std::process::Command::new("route.exe")
+                .args([
+                    "ADD",
+                    &endpoint.to_string(),
+                    "MASK",
+                    "255.255.255.255",
+                    gateway,
+                    "METRIC",
+                    &metric,
+                    "IF",
+                    &interface_index.to_string(),
+                ])
+                .status()
+                .map_err(|_| endpoint_bypass_error("underlay bypass command could not run"))?;
+            if !status.success() {
+                for bypass in &added {
+                    let _ = native_remove_bypass(bypass);
+                }
+                return Err(endpoint_bypass_error("underlay bypass command failed"));
+            }
+            added.push(NativeBypassRoute {
+                endpoint: *endpoint,
+                gateway: gateway.clone(),
+                interface_index,
+            });
+        }
+
+        self.owned_bypasses.insert(native_snapshot_key(&snapshot), added);
+        Ok(())
+    }
+
+    fn restore(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()> {
+        let Some(bypasses) = self.owned_bypasses.remove(&native_snapshot_key(snapshot)) else {
+            return Ok(());
+        };
+        let mut restored = true;
+        for bypass in bypasses {
+            restored &= native_remove_bypass(&bypass).is_ok();
+        }
+        if !restored {
+            return Err(endpoint_bypass_error("one or more underlay bypass routes remain"));
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn native_route_snapshot(endpoint: &IpAddr) -> DomainResult<WindowsRouteSnapshotEntry> {
+    if !endpoint.is_ipv4() {
+        return Err(endpoint_bypass_error(
+            "Windows foreground tunnel supports only IPv4 underlay endpoints",
+        ));
+    }
+    let script = format!(
+        "$route = Find-NetRoute -RemoteIPAddress '{endpoint}' -ErrorAction Stop | Sort-Object RouteMetric | Select-Object -First 1; if ($null -eq $route) {{ exit 2 }}; [PSCustomObject]@{{ NextHop = $route.NextHop; InterfaceIndex = $route.InterfaceIndex; RouteMetric = $route.RouteMetric }} | ConvertTo-Json -Compress"
+    );
+    let output = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+        .map_err(|_| endpoint_bypass_error("physical route lookup could not be executed"))?;
+    if !output.status.success() {
+        return Err(endpoint_bypass_error("physical route lookup failed"));
+    }
+    let route: NativeRouteLookup = serde_json::from_slice(&output.stdout)
+        .map_err(|_| endpoint_bypass_error("physical route lookup returned invalid data"))?;
+    if route.next_hop.trim().is_empty() || route.interface_index == 0 {
+        return Err(endpoint_bypass_error("physical route lookup is incomplete"));
+    }
+
+    Ok(WindowsRouteSnapshotEntry {
+        destination_cidr: format!("{endpoint}/32"),
+        gateway: Some(route.next_hop),
+        interface_index: Some(route.interface_index),
+        metric: Some(route.route_metric),
+    })
+}
+
+#[cfg(windows)]
+#[derive(Debug, serde::Deserialize)]
+struct NativeRouteLookup {
+    #[serde(rename = "NextHop")]
+    next_hop: String,
+    #[serde(rename = "InterfaceIndex")]
+    interface_index: u32,
+    #[serde(rename = "RouteMetric")]
+    route_metric: u32,
+}
+
+#[cfg(windows)]
+fn native_remove_bypass(route: &NativeBypassRoute) -> DomainResult<()> {
+    let status = std::process::Command::new("route.exe")
+        .args([
+            "DELETE",
+            &route.endpoint.to_string(),
+            "MASK",
+            "255.255.255.255",
+            &route.gateway,
+            "IF",
+            &route.interface_index.to_string(),
+        ])
+        .status()
+        .map_err(|_| endpoint_bypass_error("underlay bypass removal could not run"))?;
+    if !status.success() {
+        return Err(endpoint_bypass_error("underlay bypass removal failed"));
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn native_snapshot_key(snapshot: &[WindowsRouteSnapshotEntry]) -> String {
+    snapshot
+        .iter()
+        .map(|route| {
+            format!(
+                "{}|{}|{}|{}",
+                route.destination_cidr,
+                route.gateway.as_deref().unwrap_or_default(),
+                route.interface_index.unwrap_or_default(),
+                route.metric.unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[cfg(not(windows))]
+#[derive(Debug, Default)]
+pub struct NativeWindowsRoutePort;
+
+#[cfg(not(windows))]
+impl WindowsRoutePort for NativeWindowsRoutePort {
+    fn snapshot(
+        &mut self,
+        _endpoints: &[IpAddr],
+    ) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
+        Err(endpoint_bypass_error(
+            "Windows route operations are unavailable on this platform",
+        ))
+    }
+
+    fn add_endpoint_bypass(&mut self, _endpoints: &[IpAddr]) -> DomainResult<()> {
+        Err(endpoint_bypass_error(
+            "Windows route operations are unavailable on this platform",
+        ))
+    }
+
+    fn restore(&mut self, _snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()> {
+        Err(endpoint_bypass_error(
+            "Windows route operations are unavailable on this platform",
+        ))
+    }
+}
