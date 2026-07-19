@@ -9,9 +9,11 @@ description = "Pure minimal configuration service for the AnixOps network contro
 [dependencies]
 base64 = "0.22"
 control-domain = { path = "../control-domain" }
+ring = "0.17"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde-saphyr = "0.0.29"
+time = { version = "0.3", features = ["parsing"] }
 toml = "0.9"
 
 [lib]

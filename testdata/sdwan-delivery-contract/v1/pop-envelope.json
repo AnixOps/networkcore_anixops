@@ -1,0 +1,15 @@
+{
+  "schema_version": "anixops.sdwan.delivery/v1",
+  "bundle_kind": "pop",
+  "bundle_id": "fixture-pop-bundle-1",
+  "tenant_id": "fixture-tenant-1",
+  "target_id": "pop-a",
+  "sequence": 2,
+  "issued_at": "2026-07-19T00:00:00Z",
+  "expires_at": "2026-07-19T01:00:00Z",
+  "key_id": "fixture-ed25519-20260719",
+  "payload_base64": "ewogICJzY2hlbWFfdmVyc2lvbiI6ICJhbml4b3BzLnNkd2FuLmRlbGl2ZXJ5L3YxIiwKICAia2luZCI6ICJwb3AiLAogICJwb3AiOiB7CiAgICAiaWQiOiAiZml4dHVyZS1wb3AtcHJvZmlsZS0xIiwKICAgICJwcmluY2lwYWxfaWQiOiAicG9wLWEiLAogICAgInJvdXRlcyI6IFsKICAgICAgewogICAgICAgICJpZCI6ICJmaXh0dXJlLWVudGVycHJpc2Utcm91dGUiLAogICAgICAgICJzZWxlY3RvciI6IHsKICAgICAgICAgICJzb3VyY2VfY2lkciI6ICIxMC4xMC4wLjAvMTYiLAogICAgICAgICAgImRlc3RpbmF0aW9uX2NpZHIiOiAiMjAzLjAuMTEzLjAvMjQiLAogICAgICAgICAgInByb3RvY29sIjogInRjcCIsCiAgICAgICAgICAicG9ydHMiOiB7CiAgICAgICAgICAgICJzdGFydCI6IDQ0MywKICAgICAgICAgICAgImVuZCI6IDQ0MwogICAgICAgICAgfQogICAgICAgIH0sCiAgICAgICAgImNoYWluIjogewogICAgICAgICAgImlkIjogImEtYi1jLWQiLAogICAgICAgICAgImhvcHMiOiBbCiAgICAgICAgICAgICJwb3AtYiIsCiAgICAgICAgICAgICJwb3AtYyIsCiAgICAgICAgICAgICJwb3AtZCIKICAgICAgICAgIF0sCiAgICAgICAgICAicmV0dXJuX2hvcHMiOiBbCiAgICAgICAgICAgICJwb3AtZCIsCiAgICAgICAgICAgICJwb3AtYyIsCiAgICAgICAgICAgICJwb3AtYiIKICAgICAgICAgIF0KICAgICAgICB9CiAgICAgIH0KICAgIF0KICB9Cn0=",
+  "algorithm": "ed25519",
+  "payload_sha256": "daa471cc05acae910bd6fd9c349d724d115cc9d56c9bef34ac4cec89b2b026df",
+  "signature": "4cPhMXCh5fyJOCEuJk+4EzBBnu7SjTkGQrjUh8BtT8ZhX48TJq5LlAKuc8xKNbFhqKwBlfae1+opwjZ7FEjxCA=="
+}

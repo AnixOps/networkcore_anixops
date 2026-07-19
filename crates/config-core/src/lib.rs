@@ -3,6 +3,8 @@
 //! This crate parses and normalizes the first minimal TOML configuration shape.
 //! It performs no file I/O, network access, platform probing, or engine work.
 
+pub mod sdwan_delivery;
+
 use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine as _;
 use control_domain::{
