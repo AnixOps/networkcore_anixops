@@ -127,7 +127,12 @@ impl SdwanDeliveryVerifier {
             return Err(payload_hash_error());
         }
 
-        let signing_input = build_signing_input(&envelope, payload_digest.as_ref())?;
+        let signing_input = build_signing_input(
+            &envelope,
+            metadata.issued_at,
+            metadata.expires_at,
+            payload_digest.as_ref(),
+        )?;
         let signature_bytes =
             decode_standard_base64(&envelope.signature).map_err(|_| signature_error())?;
         let public_key =
@@ -136,7 +141,11 @@ impl SdwanDeliveryVerifier {
             .verify(&signing_input, &signature_bytes)
             .map_err(|_| signature_error())?;
 
-        let profile = parse_delivery_profile(&payload, envelope.bundle_kind, &metadata.target_id)?;
+        let profile = parse_delivery_profile(
+            &payload,
+            envelope.bundle_kind,
+            &metadata.profile_target_id,
+        )?;
 
         Ok(VerifiedDeliveryEnvelope {
             bundle_kind: envelope.bundle_kind.as_str().to_string(),
@@ -279,6 +288,7 @@ struct EnvelopeMetadata {
     bundle_id: String,
     tenant_id: String,
     target_id: String,
+    profile_target_id: String,
     issued_at: OffsetDateTime,
     expires_at: OffsetDateTime,
     key_id: String,
@@ -298,6 +308,7 @@ fn validate_envelope_metadata(
     let bundle_id = required_envelope_identifier(&envelope.bundle_id)?;
     let tenant_id = required_envelope_identifier(&envelope.tenant_id)?;
     let target_id = required_envelope_identifier(&envelope.target_id)?;
+    let profile_target_id = envelope.target_id.clone();
     let key_id = required_envelope_identifier(&envelope.key_id)?;
     let issued_at = parse_wire_timestamp(&envelope.issued_at)?;
     let expires_at = parse_wire_timestamp(&envelope.expires_at)?;
@@ -313,6 +324,7 @@ fn validate_envelope_metadata(
         bundle_id,
         tenant_id,
         target_id,
+        profile_target_id,
         issued_at,
         expires_at,
         key_id,
@@ -330,9 +342,13 @@ fn parse_wire_timestamp(value: &str) -> DomainResult<OffsetDateTime> {
 
 fn build_signing_input(
     envelope: &SignedEnvelopeWire,
+    issued_at: OffsetDateTime,
+    expires_at: OffsetDateTime,
     payload_digest: &[u8],
 ) -> DomainResult<Vec<u8>> {
     let sequence = envelope.sequence.to_string();
+    let issued_at = canonical_signing_timestamp(issued_at);
+    let expires_at = canonical_signing_timestamp(expires_at);
     let mut signing_input = Vec::new();
 
     append_signing_field(
@@ -345,12 +361,37 @@ fn build_signing_input(
     append_signing_field(&mut signing_input, envelope.tenant_id.as_bytes())?;
     append_signing_field(&mut signing_input, envelope.target_id.as_bytes())?;
     append_signing_field(&mut signing_input, sequence.as_bytes())?;
-    append_signing_field(&mut signing_input, envelope.issued_at.as_bytes())?;
-    append_signing_field(&mut signing_input, envelope.expires_at.as_bytes())?;
+    append_signing_field(&mut signing_input, issued_at.as_bytes())?;
+    append_signing_field(&mut signing_input, expires_at.as_bytes())?;
     append_signing_field(&mut signing_input, envelope.key_id.as_bytes())?;
     append_signing_field(&mut signing_input, payload_digest)?;
 
     Ok(signing_input)
+}
+
+fn canonical_signing_timestamp(timestamp: OffsetDateTime) -> String {
+    let timestamp = timestamp.to_offset(UtcOffset::UTC);
+    let mut representation = format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
+        timestamp.year(),
+        timestamp.month() as u8,
+        timestamp.day(),
+        timestamp.hour(),
+        timestamp.minute(),
+        timestamp.second(),
+    );
+
+    if timestamp.nanosecond() != 0 {
+        let mut fraction = format!("{:09}", timestamp.nanosecond());
+        while fraction.ends_with('0') {
+            fraction.pop();
+        }
+        representation.push('.');
+        representation.push_str(&fraction);
+    }
+
+    representation.push('Z');
+    representation
 }
 
 fn append_signing_field(output: &mut Vec<u8>, field: &[u8]) -> DomainResult<()> {
@@ -395,9 +436,10 @@ fn validate_client_profile(
         mitm,
     } = profile;
     let id = required_profile_text(&id)?;
-    let principal_id = required_profile_text(&principal_id)?;
+    let raw_principal_id = principal_id;
+    let principal_id = required_profile_text(&raw_principal_id)?;
 
-    if principal_id != target_id || transport != "ikev2" || pops.is_empty() {
+    if raw_principal_id != target_id || transport != "ikev2" || pops.is_empty() {
         return Err(profile_parse_error());
     }
 
@@ -465,9 +507,10 @@ fn validate_pop_profile(
         routes,
     } = profile;
     let id = required_profile_text(&id)?;
-    let principal_id = required_profile_text(&principal_id)?;
+    let raw_principal_id = principal_id;
+    let principal_id = required_profile_text(&raw_principal_id)?;
 
-    if principal_id != target_id || routes.is_empty() {
+    if raw_principal_id != target_id || routes.is_empty() {
         return Err(profile_parse_error());
     }
 
@@ -500,16 +543,6 @@ fn validate_route_policy(route: DeliveryRoutePolicyWire) -> DomainResult<Deliver
 fn validate_route_selector(
     selector: DeliveryRouteSelectorWire,
 ) -> DomainResult<DeliveryRouteSelector> {
-    if selector.source_cidr.is_none()
-        && selector.destination_cidr.is_none()
-        && selector.domain_suffix.is_none()
-        && selector.traffic_class.is_none()
-        && selector.protocol.is_none()
-        && selector.ports.is_none()
-    {
-        return Err(profile_parse_error());
-    }
-
     let source_cidr = selector
         .source_cidr
         .map(|cidr| validate_cidr(&cidr))
@@ -520,10 +553,12 @@ fn validate_route_selector(
         .transpose()?;
     let domain_suffix = selector
         .domain_suffix
+        .filter(|suffix| !suffix.trim().is_empty())
         .map(|suffix| validate_dns_suffix(&suffix))
         .transpose()?;
     let traffic_class = selector
         .traffic_class
+        .filter(|traffic_class| !traffic_class.trim().is_empty())
         .map(|traffic_class| required_profile_text(&traffic_class))
         .transpose()?;
     let protocol = selector
@@ -535,6 +570,16 @@ fn validate_route_selector(
         Some(_) => return Err(profile_parse_error()),
         None => None,
     };
+
+    if source_cidr.is_none()
+        && destination_cidr.is_none()
+        && domain_suffix.is_none()
+        && traffic_class.is_none()
+        && protocol.is_none()
+        && ports.is_none()
+    {
+        return Err(profile_parse_error());
+    }
 
     Ok(DeliveryRouteSelector {
         source_cidr,
@@ -776,6 +821,56 @@ mod tests {
     }
 
     #[test]
+    fn canonicalizes_utc_timestamp_for_signing() {
+        let timestamp = parse_wire_timestamp("2026-07-19T00:00:00.000Z")
+            .expect("timestamp is valid UTC RFC3339");
+
+        assert_eq!(canonical_signing_timestamp(timestamp), "2026-07-19T00:00:00Z");
+    }
+
+    #[test]
+    fn trims_trailing_zeroes_from_fractional_signing_timestamps() {
+        let timestamp = parse_wire_timestamp("2026-07-19T00:00:00.120000000Z")
+            .expect("timestamp is valid UTC RFC3339");
+
+        assert_eq!(canonical_signing_timestamp(timestamp), "2026-07-19T00:00:00.12Z");
+    }
+
+    #[test]
+    fn rejects_whitespace_distinct_client_profile_binding() {
+        let target_id = validated_profile_binding_target_id(" device-1 ");
+        let error = validate_client_profile(
+            ClientDeliveryProfileWire {
+                id: "client-profile".to_string(),
+                principal_id: "device-1".to_string(),
+                transport: "ikev2".to_string(),
+                pops: vec![pop_reference("pop-a")],
+                mitm: None,
+            },
+            &target_id,
+        )
+        .expect_err("whitespace-distinct identities must not bind");
+
+        assert_eq!(error.code, SDWAN_DELIVERY_PARSE_FAILED_CODE);
+    }
+
+    #[test]
+    fn rejects_whitespace_distinct_pop_profile_binding() {
+        let target_id = validated_profile_binding_target_id(" pop-1 ");
+        let error = validate_pop_profile(
+            PopDeliveryProfileWire {
+                id: "pop-profile".to_string(),
+                principal_id: "pop-1".to_string(),
+                routes: vec![route("route-a")],
+            },
+            &target_id,
+        )
+        .expect_err("whitespace-distinct identities must not bind");
+
+        assert_eq!(error.code, SDWAN_DELIVERY_PARSE_FAILED_CODE);
+    }
+
+    #[test]
     fn accepts_domain_suffix_or_traffic_class_as_only_route_selector_condition() {
         let domain_suffix = validate_route_selector(route_selector(Some("Example.COM."), None))
             .expect("domain suffix selector is valid");
@@ -786,6 +881,26 @@ mod tests {
             .expect("traffic class selector is valid");
         assert_eq!(traffic_class.domain_suffix, None);
         assert_eq!(traffic_class.traffic_class.as_deref(), Some("interactive"));
+    }
+
+    #[test]
+    fn accepts_nonblank_selector_condition_with_blank_optional_fields() {
+        let mut selector = route_selector(Some("   "), Some("\t"));
+        selector.protocol = Some("tcp".to_string());
+
+        let selector = validate_route_selector(selector)
+            .expect("blank optional selector fields are absent");
+        assert_eq!(selector.domain_suffix, None);
+        assert_eq!(selector.traffic_class, None);
+        assert_eq!(selector.protocol.as_deref(), Some("tcp"));
+    }
+
+    #[test]
+    fn rejects_selector_with_only_blank_optional_fields() {
+        let error = validate_route_selector(route_selector(Some("   "), Some("\t")))
+            .expect_err("blank optional fields are not selector conditions");
+
+        assert_eq!(error.code, SDWAN_DELIVERY_PARSE_FAILED_CODE);
     }
 
     #[test]
@@ -866,5 +981,28 @@ mod tests {
             },
             direct_fallback: false,
         }
+    }
+
+    fn validated_profile_binding_target_id(target_id: &str) -> String {
+        validate_envelope_metadata(
+            &SignedEnvelopeWire {
+                schema_version: SDWAN_DELIVERY_SCHEMA_V1.to_string(),
+                bundle_kind: DeliveryBundleKindWire::Client,
+                bundle_id: "bundle-1".to_string(),
+                tenant_id: "tenant-1".to_string(),
+                target_id: target_id.to_string(),
+                sequence: 1,
+                issued_at: "2026-07-19T00:00:00Z".to_string(),
+                expires_at: "2026-07-20T00:00:00Z".to_string(),
+                key_id: "key-1".to_string(),
+                payload_base64: "".to_string(),
+                algorithm: DeliverySignatureAlgorithmWire::Ed25519,
+                payload_sha256: "".to_string(),
+                signature: "".to_string(),
+            },
+            OffsetDateTime::UNIX_EPOCH,
+        )
+        .expect("envelope metadata is valid")
+        .profile_target_id
     }
 }
