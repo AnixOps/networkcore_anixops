@@ -179,9 +179,11 @@ accepts only the configured EasyTier version/hash and refuses to launch an unpin
 Persisted foreground state uses schema v2. It records an owned PID, a nonempty creation marker,
 the pinned binary hash, a single CLI file name, a single redacted config file name, and destination
 CIDRs, but never an absolute executable, CLI, or config path. Schema-v1 records are unrecoverable.
-A fresh invocation canonicalizes the existing state directory and requires matching PID,
-creation-marker, hash, config, and CLI proof before any `status` or `stop` action. Native recovery
-remains fail-closed until a later slice supplies the platform-specific proof.
+A fresh invocation resolves the redacted config filename only under the canonical state directory.
+It requires matching PID and creation-marker proof, then verifies the recovered core executable
+against the persisted hash before accepting a CLI with the persisted filename as a sibling under
+the same canonical core-binary directory. Neither recovered runtime path is persisted. Native
+recovery remains fail-closed until a later slice supplies the platform-specific proof.
 
 ### CLI layer
 

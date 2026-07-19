@@ -53,6 +53,7 @@ pub struct EasyTierRecoverySpec {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecoveredEasyTierProcess {
     pub process: OwnedProcessHandle,
+    pub binary_path: PathBuf,
     pub cli_path: PathBuf,
 }
 
@@ -423,9 +424,24 @@ where
         {
             return Err(ownership_error());
         }
+        if !recovered.binary_path.is_file()
+            || verify_file_sha256(&recovered.binary_path, &spec.expected_binary_sha256).is_err()
+        {
+            return Err(ownership_error());
+        }
+        let recovered_binary_directory =
+            canonical_parent_directory(&recovered.binary_path).ok_or_else(ownership_error)?;
+        if !recovered.cli_path.is_file() {
+            return Err(ownership_error());
+        }
         let recovered_cli_file_name =
             safe_file_name_from_path(&recovered.cli_path).ok_or_else(ownership_error)?;
         if recovered_cli_file_name != ownership.cli_file_name {
+            return Err(ownership_error());
+        }
+        let recovered_cli_directory =
+            canonical_parent_directory(&recovered.cli_path).ok_or_else(ownership_error)?;
+        if recovered_cli_directory != recovered_binary_directory {
             return Err(ownership_error());
         }
 
@@ -543,6 +559,11 @@ fn canonical_state_path(path: &Path) -> Result<PathBuf, ()> {
         .ok_or(())?;
     let directory = fs::canonicalize(directory).map_err(|_| ())?;
     Ok(directory.join(file_name))
+}
+
+fn canonical_parent_directory(path: &Path) -> Option<PathBuf> {
+    let directory = path.parent()?;
+    fs::canonicalize(directory).ok()
 }
 
 fn safe_file_name_from_path(path: &Path) -> Option<String> {
