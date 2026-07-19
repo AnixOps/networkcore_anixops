@@ -50,7 +50,7 @@ fn fixture_state() -> WindowsTunnelState {
 }
 
 #[test]
-fn renders_network_identity_peer_and_proxy_cidr_without_secret_in_redacted_output() {
+fn renders_network_identity_peer_and_destination_routes_without_secret_in_redacted_output() {
     let secret = "fixture-secret-never-commit";
     let plan = fixture_plan();
     let artifact = render_easytier_config(EasyTierConfigRequest {
@@ -65,12 +65,14 @@ fn renders_network_identity_peer_and_proxy_cidr_without_secret_in_redacted_outpu
     assert!(artifact.toml.contains("fixture-network"));
     assert!(artifact.toml.contains("peer"));
     assert!(artifact.toml.contains("198.51.100.10:11010"));
-    assert!(artifact.toml.contains("proxy_network"));
+    assert!(artifact.toml.contains("routes"));
     assert!(artifact.toml.contains("203.0.113.0/24"));
     assert!(artifact.toml.contains("10.10.0.2"));
-    assert_eq!(artifact.proxy_cidrs, vec!["203.0.113.0/24"]);
+    assert!(!artifact.toml.contains("proxy_network"));
+    assert_eq!(artifact.route_cidrs, vec!["203.0.113.0/24"]);
     assert!(artifact.redacted_toml.contains("[redacted]"));
     assert!(!artifact.redacted_toml.contains(secret));
+    assert!(!artifact.redacted_toml.contains("proxy_network"));
 }
 
 #[test]
