@@ -21,19 +21,66 @@ pub struct SdwanDeliveryVerifier {
     public_key: [u8; 32],
 }
 
+/// Opaque immutable output created only after signed delivery verification.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedDeliveryEnvelope {
-    pub bundle_kind: String,
-    pub bundle_id: String,
-    pub tenant_id: String,
-    pub target_id: String,
-    pub sequence: u64,
-    pub issued_at: OffsetDateTime,
-    pub expires_at: OffsetDateTime,
-    pub key_id: String,
-    pub payload: Vec<u8>,
-    pub profile: DeliveryProfile,
-    pub signing_input_hex: String,
+    bundle_kind: String,
+    bundle_id: String,
+    tenant_id: String,
+    target_id: String,
+    sequence: u64,
+    issued_at: OffsetDateTime,
+    expires_at: OffsetDateTime,
+    key_id: String,
+    payload: Vec<u8>,
+    profile: DeliveryProfile,
+    signing_input_hex: String,
+}
+
+impl VerifiedDeliveryEnvelope {
+    pub fn bundle_kind(&self) -> &str {
+        &self.bundle_kind
+    }
+
+    pub fn bundle_id(&self) -> &str {
+        &self.bundle_id
+    }
+
+    pub fn tenant_id(&self) -> &str {
+        &self.tenant_id
+    }
+
+    pub fn target_id(&self) -> &str {
+        &self.target_id
+    }
+
+    pub const fn sequence(&self) -> u64 {
+        self.sequence
+    }
+
+    pub fn issued_at(&self) -> OffsetDateTime {
+        self.issued_at
+    }
+
+    pub fn expires_at(&self) -> OffsetDateTime {
+        self.expires_at
+    }
+
+    pub fn key_id(&self) -> &str {
+        &self.key_id
+    }
+
+    pub fn payload(&self) -> &[u8] {
+        &self.payload
+    }
+
+    pub fn profile(&self) -> &DeliveryProfile {
+        &self.profile
+    }
+
+    pub fn signing_input_hex(&self) -> &str {
+        &self.signing_input_hex
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -720,6 +767,22 @@ fn validate_dns_suffix(value: &str) -> DomainResult<String> {
     }
 
     Ok(suffix.to_string())
+}
+
+/// Normalizes a hostname only when it is exactly an allowed suffix or a
+/// subdomain separated from that suffix by a DNS label boundary.
+pub fn normalize_hostname_for_allowed_suffix(
+    hostname: &str,
+    allowed_suffix: &str,
+) -> Option<String> {
+    let hostname = validate_dns_suffix(hostname).ok()?;
+    let allowed_suffix = validate_dns_suffix(allowed_suffix).ok()?;
+
+    if hostname == allowed_suffix || hostname.ends_with(&format!(".{allowed_suffix}")) {
+        Some(hostname)
+    } else {
+        None
+    }
 }
 
 fn required_envelope_identifier(value: &str) -> DomainResult<String> {

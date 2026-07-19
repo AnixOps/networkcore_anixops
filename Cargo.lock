@@ -769,8 +769,10 @@ dependencies = [
 name = "mitm-policy"
 version = "0.1.0"
 dependencies = [
+ "config-core",
  "control-domain",
  "mitm-anixops-sys",
+ "time",
 ]
 
 [[package]]

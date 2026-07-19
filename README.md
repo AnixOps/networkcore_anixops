@@ -233,9 +233,10 @@ GitHub Actions 验证。`ios-package-swift-manifest-only-*` 当前只记录 bloc
 先建立 source contract、固定 upstream source、明确 license/NOTICE 和 permission gate，再进入 raw binding、
 safe wrapper、runtime/domain integration、CI governance 和 release gate。
 
-当前源码接入增量已把 `mitm_anixops` Git submodule 固定到 `v0.45.10-alpha`
-(`a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0`)；`mitm-anixops-sys` 编译 C core
-并暴露低层 FFI，`mitm-policy` 提供 safe wrapper、`AnixOpsMitmPluginService` 和
+当前源码接入增量已把 `mitm_anixops` Git submodule 固定到 upstream distribution release
+`v1.4.6` 的 source commit `6382f0147e02a8653343571791ef61b8cc885cb1`；该 release
+的 manifest digest 为 `sha256:3922e70f15fd0882b0617507a49ab34e223616937027718d862ba7a764c568fa`，而
+linked C core 继续报告版本 `0.45.10`。`mitm-anixops-sys` 编译 C core 并暴露低层 FFI，`mitm-policy` 提供 safe wrapper、`AnixOpsMitmPluginService` 和
 内置 `networkcore.adblock` alpha 去广告插件包。safe wrapper 现在覆盖 URL rewrite、
 named header rewrite、bounded header-list application、body rewrite chain、script dispatch、
 JQ max-input guard 和 aggregated rewrite plan 合同；当前插件路径保留旧
@@ -247,6 +248,11 @@ MITM event 并取得插件 plan；`networkcore-linux start` 会把内置
 `networkcore.adblock` hook 注入 native engine，插件返回 `Reject` 时会在
 CONNECT 进入 outbound 前写 SOCKS5 general failure response。真实
 redirect/header/body/script 改写仍等待 HTTP/TLS 数据面应用该 plan。
+
+`ManagedSdwanMitmPolicyGate` 只接受 verifier 产出的不透明不可变
+`VerifiedDeliveryEnvelope`，公开构造只会快照 linked C core；每次授权均由调用方提供
+受信任的当前服务时钟并重新检查 envelope 过期时间。它不接受调用方构造的 core snapshot，
+也不提供可写的已验证声明、profile 或 payload 入口。
 
 当前仓库源码已有用户可见的 MITM 状态、诊断、证书计划、证书 artifact apply/rollback、浏览器捕获计划、PAC/browser policy artifact apply/rollback、browser-capture blocked report 入口、caller-provided plain HTTP rewrite preview 和 explicit HTTP proxy live plain HTTP data plane，但没有用户可启用的 HTTPS MITM 功能：
 `networkcore-linux mitm status`、`networkcore-linux mitm diagnostics` 和
@@ -271,7 +277,7 @@ redirect/header/body/script 改写仍等待 HTTP/TLS 数据面应用该 plan。
 - [crates/control-runtime](crates/control-runtime)：组合领域端口的首批纯运行层编排用例；subscription catalog runtime gate 已支持显式 inline `SubscriptionSource` 的 `NodeCatalog.nodes` 到 `RuntimeConfigRequest.nodes` handoff、重复 id 拒绝和 rules deferred 诊断，仍不执行远程/文件订阅或平台 mutation。
 - [crates/engine-native](crates/engine-native)：原生代理执行内核的首批 adapter 合同、listener/node/route 图校验、native runtime handle 源码合同、loopback TCP listener 绑定/释放、runtime assembly plan、loopback TCP accept loop 受控关闭合同、service-owned runtime state 与 foreground lifecycle handoff 源码合同、accepted TCP connection 协议前置关闭诊断合同、SOCKS5 greeting 版本/认证方法读取诊断合同、SOCKS5 no-auth 方法选择/unsupported auth 方法拒绝诊断合同、SOCKS5 认证方法响应写入诊断合同、SOCKS5 命令头读取/unsupported command 拒绝诊断合同、SOCKS5 CONNECT 目标地址读取、CONNECT 到 rich MITM plugin plan 的 hook、browser capture CONNECT proof token 诊断、插件 `Reject` 到 SOCKS5 CONNECT failure 的应用、route/outbound 行为选择、SOCKS outbound CONNECT request frame 生成、SOCKS outbound TCP connection plan、SOCKS outbound TCP connection attempt、SOCKS outbound CONNECT request write、SOCKS outbound CONNECT response read、SOCKS outbound CONNECT response decision、SOCKS outbound CONNECT relay readiness、SOCKS outbound CONNECT data relay plan、SOCKS outbound CONNECT data relay execution、SOCKS outbound CONNECT client success response readiness、SOCKS outbound CONNECT client success response write plan、SOCKS outbound CONNECT client success response write、accept loop client success response 与有限 data relay 接线、未接入拒绝与 CONNECT failure response 写入诊断合同、配置拒绝和生命周期诊断。
 - [crates/engine-singbox](crates/engine-singbox)：`sing-box` public engine adapter 的首个 source contract，当前覆盖 descriptor identity、官方 GitHub latest release metadata 解析、目标资产选择、`sha256:` digest 校验、`.tar.gz` 中只提取 `sing-box` 可执行文件、缓存路径、Shadowsocks node 到本地 `mixed` inbound JSON 渲染、foreground process runner 和稳定诊断；仍不提供 daemon/control socket、managed status/events/logs 或 reload。
-- [crates/mitm-anixops-sys](crates/mitm-anixops-sys)：`mitm_anixops` v0.45.10-alpha C ABI 的 unsafe Rust FFI crate，当前编译 vendored C core 并验证 pinned version。
-- [crates/mitm-policy](crates/mitm-policy)：`mitm_anixops` 的 safe wrapper 和 NetworkCore MITM plugin adapter，当前提供内置 `networkcore.adblock` 去广告插件包、manifest/permission gate、MITM decision、URL reject、rewrite plan、header/body/script/JQ guard 合同测试和 deferred mutation 诊断；Linux CLI 只通过 `mitm status/diagnostics/certificate-plan/browser-plan` 暴露 policy-only 状态、证书计划和浏览器捕获计划，不直接改写真实流量，也不提供 CA 安装、HTTPS 解密或浏览器/系统代理写入路径。
+- [crates/mitm-anixops-sys](crates/mitm-anixops-sys)：以 `mitm_anixops` distribution release `v1.4.6` source commit 固定、linked C core version 为 `0.45.10` 的 unsafe Rust FFI crate，当前编译 vendored C core 并验证 pinned version。
+- [crates/mitm-policy](crates/mitm-policy)：`mitm_anixops` 的 safe wrapper 和 NetworkCore MITM plugin adapter，当前提供内置 `networkcore.adblock` 去广告插件包、manifest/permission gate、MITM decision、URL reject、rewrite plan、header/body/script/JQ guard 合同测试、纯 `ManagedSdwanMitmPolicyGate` 和 deferred mutation 诊断；Linux CLI 只通过 `mitm status/diagnostics/certificate-plan/browser-plan` 暴露 policy-only 状态、证书计划和浏览器捕获计划，不直接改写真实流量，也不提供 CA 安装、HTTPS 解密或浏览器/系统代理写入路径。
 - [crates/platform-ios](crates/platform-ios)：iOS 平台能力 adapter 的首批纯 Rust source contract 实现，当前提供静态 snapshot 映射、Network Extension/VPN/embedded runtime/MITM certificate/shared storage probe、稳定 `platform.ios.*` 诊断 code 和合同测试，不包含 Swift/Xcode/Network Extension target 或签名配置。
 - [crates/platform-linux](crates/platform-linux)：Linux 平台能力 adapter 的首批只读诊断映射、测试替身和 host probe 服务。

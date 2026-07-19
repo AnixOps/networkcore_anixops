@@ -65,7 +65,10 @@ jobs:
             crates/mitm-policy/Cargo.toml
             crates/mitm-policy/README.md
             crates/mitm-policy/src/lib.rs
+            crates/mitm-policy/src/managed_sdwan.rs
             crates/mitm-policy/tests/mitm_policy_contracts.rs
+            crates/mitm-policy/tests/managed_sdwan_policy_contracts.rs
+            crates/config-core/tests/sdwan_delivery_contracts.rs
             crates/platform-ios/README.md
             crates/platform-linux/README.md
             apps/ios/README.md
@@ -132,6 +135,7 @@ jobs:
             docs/architecture/linux-platform-adapter.md
             docs/architecture/mitm-anixops-adapter.md
             docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
+            docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md
             docs/architecture/native-engine-listener-node-config.md
             docs/architecture/proxy-engine-adapter.md
             docs/architecture/release-ci-gate-api-implementation-plan.md
@@ -547,12 +551,18 @@ jobs:
           grep -q "networkcore-linux managed-event init" CHANGELOG.md
           grep -q "networkcore-linux managed-event init" apps/linux-cli/README.md
           grep -q "handle_entrypoint_with_runtime_lifecycle_and_sing_box" apps/linux-cli/src/main.rs
-          git submodule status third_party/mitm_anixops | grep -q "a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0"
-          grep -q "v0.45.10-alpha" docs/architecture/mitm-anixops-adapter.md
-          grep -q "a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0" docs/architecture/mitm-anixops-adapter.md
+          git submodule status third_party/mitm_anixops | grep -q "6382f0147e02a8653343571791ef61b8cc885cb1"
+          grep -Fq "MITM_ANIXOPS_RELEASE_TAG=v1.4.6" docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md
+          grep -Fq "MITM_ANIXOPS_RELEASE_TAG_OBJECT=e1edd61a4a7d7f8c6828f1d791eaa925f2ccc06c" docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md
+          grep -Fq "MITM_ANIXOPS_RELEASE_COMMIT=6382f0147e02a8653343571791ef61b8cc885cb1" docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md
+          grep -Fq "MITM_ANIXOPS_RELEASE_MANIFEST_SHA256=3922e70f15fd0882b0617507a49ab34e223616937027718d862ba7a764c568fa" docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md
+          grep -Fq "MANAGED_SDWAN_MITM_POLICY_GATE" docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md
+          grep -q "v1.4.6" docs/architecture/mitm-anixops-adapter.md
+          grep -q "0.45.10" docs/architecture/mitm-anixops-adapter.md
           grep -q '"crates/mitm-policy"' Cargo.toml
           grep -q '^name = "mitm-policy"$' crates/mitm-policy/Cargo.toml
           grep -q "MITM Policy Ad Block Plugin Source Contract" docs/architecture/mitm-policy-ad-block-plugin-source-contract.md
+          grep -q "Managed SD-WAN MITM Policy Gate Source Contract" docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md
           grep -q "MITM_POLICY_AD_BLOCK_PLUGIN_ID" crates/mitm-policy/src/lib.rs
           grep -q "networkcore.adblock" crates/mitm-policy/src/lib.rs
           grep -q "builtin_ad_block_plugin_package" crates/mitm-policy/src/lib.rs
@@ -579,6 +589,37 @@ jobs:
           grep -q "adapter_maps_v04510_header_body_and_script_plan_to_domain_outcome" crates/mitm-policy/tests/mitm_policy_contracts.rs
           grep -q "mitm_plugin_service_rich_event_defaults_to_legacy_result_without_mutation" crates/control-domain/src/lib.rs
           grep -q "MITM_POLICY_CONFIG_PARSE_FAILED_CODE" crates/mitm-policy/tests/mitm_policy_contracts.rs
+          grep -q "ManagedSdwanMitmPolicyGate" crates/mitm-policy/src/managed_sdwan.rs
+          grep -Fq "pub(crate) struct ManagedSdwanMitmPolicyCoreSnapshot" crates/mitm-policy/src/managed_sdwan.rs
+          grep -Fq "pub(crate) query_abi_version: u32" crates/mitm-policy/src/managed_sdwan.rs
+          grep -Fq "pub(crate) capability_flags: u64" crates/mitm-policy/src/managed_sdwan.rs
+          grep -Fq "pub(crate) const fn new(" crates/mitm-policy/src/managed_sdwan.rs
+          grep -Fq "pub(crate) fn new(" crates/mitm-policy/src/managed_sdwan.rs
+          ! grep -Fq "pub struct ManagedSdwanMitmPolicyCoreSnapshot" crates/mitm-policy/src/managed_sdwan.rs
+          grep -Fq "MANAGED_SDWAN_MITM_DELIVERY_EXPIRED_CODE" crates/mitm-policy/src/managed_sdwan.rs
+          grep -Fq "now: OffsetDateTime" crates/mitm-policy/src/managed_sdwan.rs
+          grep -Fq "rejects_synthetic_core_snapshots_outside_released_contract" crates/mitm-policy/src/managed_sdwan.rs
+          grep -q "anixops_policy_capability_query_abi_version" crates/mitm-anixops-sys/src/lib.rs
+          grep -q "anixops_policy_capability_flags" crates/mitm-anixops-sys/src/lib.rs
+          grep -q "policy_capability_query_abi_version" crates/mitm-anixops-sys/src/lib.rs
+          grep -q "PolicyCapabilitySet" crates/mitm-anixops-sys/src/lib.rs
+          grep -q "normalize_hostname_for_allowed_suffix" crates/config-core/src/sdwan_delivery.rs
+          grep -Fq "pub fn bundle_kind(&self) -> &str" crates/config-core/src/sdwan_delivery.rs
+          grep -Fq "pub fn bundle_id(&self) -> &str" crates/config-core/src/sdwan_delivery.rs
+          grep -Fq "pub fn tenant_id(&self) -> &str" crates/config-core/src/sdwan_delivery.rs
+          grep -Fq "pub fn target_id(&self) -> &str" crates/config-core/src/sdwan_delivery.rs
+          grep -Fq "pub const fn sequence(&self) -> u64" crates/config-core/src/sdwan_delivery.rs
+          grep -Fq "pub fn issued_at(&self) -> OffsetDateTime" crates/config-core/src/sdwan_delivery.rs
+          grep -Fq "pub fn expires_at(&self) -> OffsetDateTime" crates/config-core/src/sdwan_delivery.rs
+          grep -Fq "pub fn key_id(&self) -> &str" crates/config-core/src/sdwan_delivery.rs
+          grep -Fq "pub fn payload(&self) -> &[u8]" crates/config-core/src/sdwan_delivery.rs
+          grep -Fq "pub fn profile(&self) -> &DeliveryProfile" crates/config-core/src/sdwan_delivery.rs
+          grep -Fq "pub fn signing_input_hex(&self) -> &str" crates/config-core/src/sdwan_delivery.rs
+          ! grep -Eq '^[[:space:]]+pub (bundle_kind|bundle_id|tenant_id|target_id|sequence|issued_at|expires_at|key_id|payload|profile|signing_input_hex):' crates/config-core/src/sdwan_delivery.rs
+          grep -q "linked_core_reports_v1_policy_capability_query" crates/mitm-policy/tests/managed_sdwan_policy_contracts.rs
+          grep -q "rejects_authorization_at_verified_delivery_expiry" crates/mitm-policy/tests/managed_sdwan_policy_contracts.rs
+          grep -q "MANAGED_SDWAN_MITM_DELIVERY_EXPIRED_CODE" crates/mitm-policy/tests/managed_sdwan_policy_contracts.rs
+          grep -q "denial_messages_do_not_include_signed_delivery_payload_content" crates/mitm-policy/tests/managed_sdwan_policy_contracts.rs
           grep -q "NativeHttpMitmPluginHook" crates/engine-native/src/lib.rs
           grep -q "plan_socks5_connect_http_mitm" crates/engine-native/src/lib.rs
           grep -q "native_socks5_connect_browser_capture_proof_token" crates/engine-native/src/lib.rs

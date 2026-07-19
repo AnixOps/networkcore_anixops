@@ -50,6 +50,18 @@ fn builtin_ad_block_plugin_package_loads_through_mitm_anixops_core() {
 }
 
 #[test]
+fn linked_policy_core_reports_released_v1_capability_query() {
+    assert_eq!(
+        mitm_anixops_sys::policy_capability_query_abi_version(),
+        mitm_anixops_sys::POLICY_CAPABILITY_QUERY_ABI_VERSION
+    );
+
+    let capabilities = mitm_anixops_sys::policy_capabilities();
+    assert_eq!(capabilities.bits(), mitm_anixops_sys::POLICY_CAPABILITY_ALL_V1);
+    assert!(capabilities.is_v1_compatible());
+}
+
+#[test]
 fn v04510_policy_wrapper_exposes_plan_header_body_and_script_contracts() {
     let mut engine = AnixOpsMitmPolicyEngine::new().expect("policy engine should allocate");
     engine

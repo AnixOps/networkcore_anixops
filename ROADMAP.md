@@ -106,6 +106,7 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Ker
 - [Subscription URL To sing-box Run Source Contract](docs/architecture/subscription-url-to-sing-box-run-source-contract.md)
 - [mitm_anixops Adapter Design](docs/architecture/mitm-anixops-adapter.md)
 - [MITM Policy Ad Block Plugin Source Contract](docs/architecture/mitm-policy-ad-block-plugin-source-contract.md)
+- [Managed SD-WAN MITM Policy Gate Source Contract](docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md)
 - [Third-Party Plugin Onboarding Process](docs/architecture/third-party-plugin-onboarding-process.md)
 - [Subscription Catalog Runtime Orchestration Design](docs/architecture/subscription-catalog-runtime-orchestration.md)
 - [Persistent Subscription Catalog Source Contract](docs/architecture/subscription-catalog-persistence-source-contract.md)
@@ -114,7 +115,7 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Ker
 - [Native Engine Listener And Node Config Design](docs/architecture/native-engine-listener-node-config.md)
 - [Linux Native Proxy Engine Start Design](docs/architecture/linux-native-proxy-engine-start.md)
 
-已完成 baseline 源码状态：`control-runtime` 已具备显式 inline subscription catalog runtime gate；`networkcore-linux run-url` 可消费 Shadowsocks URL/链接列表并以前台 `sing-box run -c <config>` 暴露默认 `127.0.0.1:7890` 本地代理；`mitm_anixops` 固定到 `v0.45.10-alpha`，`mitm-policy` 提供 safe wrapper 和内置 `networkcore.adblock`，`engine-native` 提供 `NativeHttpMitmPluginHook`、native SOCKS5 CONNECT plugin reject 应用路径、`NativePlainHttpMessage`、plain HTTP rewrite application 和 explicit HTTP proxy live plain HTTP data plane。
+已完成 baseline 源码状态：`control-runtime` 已具备显式 inline subscription catalog runtime gate；`networkcore-linux run-url` 可消费 Shadowsocks URL/链接列表并以前台 `sing-box run -c <config>` 暴露默认 `127.0.0.1:7890` 本地代理；`mitm_anixops` 固定到 distribution release `v1.4.6` source commit，linked C core 继续报告 `0.45.10`；`mitm-policy` 提供 safe wrapper、内置 `networkcore.adblock` 和纯 `ManagedSdwanMitmPolicyGate`，其仅消费不可变 verifier capability、只快照 linked C core，并在每次授权时使用调用方提供的受信任当前时钟重新检查 delivery expiry；`engine-native` 提供 `NativeHttpMitmPluginHook`、native SOCKS5 CONNECT plugin reject 应用路径、`NativePlainHttpMessage`、plain HTTP rewrite application 和 explicit HTTP proxy live plain HTTP data plane。
 
 当前 P4 main 的 MITM 命令面包含 `mitm status/diagnostics/certificate-plan/browser-plan`、`mitm http-rewrite plan/preview`、`traffic-proof --confirm [--target-url <url>] [--proof-token <token>] [--proof-log <path>]`、`--proxy-scheme socks5` native plugin proxy mode、`mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` / `rollback --snapshot <path>` TLS CA certificate PEM/private key PEM artifact lifecycle 与 dedicated profile CA PEM copy foundation，以及 browser-capture PAC/browser policy/profile prefs artifact apply/rollback。
 

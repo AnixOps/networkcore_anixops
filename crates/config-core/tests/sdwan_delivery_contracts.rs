@@ -1,7 +1,8 @@
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine as _;
 use config_core::sdwan_delivery::{
-    SdwanDeliveryVerifier, SDWAN_DELIVERY_EXPIRED_CODE, SDWAN_DELIVERY_PAYLOAD_HASH_INVALID_CODE,
+    normalize_hostname_for_allowed_suffix, DeliveryProfile, SdwanDeliveryVerifier,
+    SDWAN_DELIVERY_EXPIRED_CODE, SDWAN_DELIVERY_PAYLOAD_HASH_INVALID_CODE,
 };
 use serde::Deserialize;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
@@ -48,10 +49,37 @@ fn verifies_controller_client_and_pop_fixtures() {
             .verify_json(envelope, now)
             .expect("controller fixture verifies");
         assert_eq!(
-            verified.signing_input_hex,
+            verified.signing_input_hex(),
             fixture.expected_signing_input_hex
         );
     }
+}
+
+#[test]
+fn exposes_verified_claims_through_read_only_accessors() {
+    let verified = fixture_verifier()
+        .verify_json(CLIENT_ENVELOPE, fixture_time())
+        .expect("client fixture verifies");
+
+    assert_eq!(verified.bundle_kind(), "client");
+    assert_eq!(verified.bundle_id(), "fixture-client-bundle-1");
+    assert_eq!(verified.tenant_id(), "fixture-tenant-1");
+    assert_eq!(verified.target_id(), "fixture-device-1");
+    assert_eq!(verified.sequence(), 1);
+    assert_eq!(
+        verified.issued_at(),
+        OffsetDateTime::parse("2026-07-19T00:00:00Z", &Rfc3339).expect("issued time")
+    );
+    assert_eq!(
+        verified.expires_at(),
+        OffsetDateTime::parse("2026-07-19T01:00:00Z", &Rfc3339).expect("expiry time")
+    );
+    assert_eq!(verified.key_id(), "fixture-ed25519-20260719");
+    assert!(std::str::from_utf8(verified.payload())
+        .expect("fixture payload is UTF-8")
+        .contains("fixture-client-profile-1"));
+    assert!(matches!(verified.profile(), DeliveryProfile::Client(_)));
+    assert!(!verified.signing_input_hex().is_empty());
 }
 
 #[test]
@@ -79,6 +107,30 @@ fn rejects_expired_envelope() {
         )
         .expect_err("expiry must fail");
     assert_eq!(error.code, SDWAN_DELIVERY_EXPIRED_CODE);
+}
+
+#[test]
+fn normalizes_hostname_only_when_it_matches_an_allowed_suffix_boundary() {
+    assert_eq!(
+        normalize_hostname_for_allowed_suffix(" Example.COM. ", "example.com"),
+        Some("example.com".to_string())
+    );
+    assert_eq!(
+        normalize_hostname_for_allowed_suffix("Api.Example.Com.", "example.com"),
+        Some("api.example.com".to_string())
+    );
+    assert_eq!(
+        normalize_hostname_for_allowed_suffix("notexample.com", "example.com"),
+        None
+    );
+    assert_eq!(
+        normalize_hostname_for_allowed_suffix("api..example.com", "example.com"),
+        None
+    );
+    assert_eq!(
+        normalize_hostname_for_allowed_suffix("api.example.com", ".example.com"),
+        None
+    );
 }
 
 fn fixture_verifier() -> SdwanDeliveryVerifier {

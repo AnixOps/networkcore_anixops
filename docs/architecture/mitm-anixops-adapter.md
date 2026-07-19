@@ -5,8 +5,10 @@
 
 评估时间：2026-07-08。
 
-参考 `mitm_anixops` 版本：`v0.45.10-alpha`
-(`a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0`)。
+参考 upstream distribution release：`v1.4.6`，source commit
+`6382f0147e02a8653343571791ef61b8cc885cb1`。linked C core version 仍为
+`0.45.10`；release tag、公开 release 和 manifest 是 provenance evidence，source
+content pin 是 commit hash。
 
 ## 结论
 
@@ -89,8 +91,8 @@ crates/mitm-policy
 `Engine` wrapper 不得实现 `Sync`。`mitm_anixops` engine 内部不加锁，运行时共享必须由 adapter 通过 `Mutex`、per-worker engine 或 immutable snapshot 控制。
 
 当前源码增量已新增 `crates/mitm-anixops-sys` 和 `crates/mitm-policy`：
-前者通过 Git submodule 固定 `third_party/mitm_anixops` 到 `v0.45.10-alpha`
-并暴露低层 C ABI；后者用 RAII wrapper 加载 `PluginPackage.source`，
+前者通过 Git submodule 固定 `third_party/mitm_anixops` 到 distribution release
+`v1.4.6` 的 source commit 并暴露低层 C ABI；后者用 RAII wrapper 加载 `PluginPackage.source`，
 实现 `AnixOpsMitmPluginService`，提供内置
 `networkcore.adblock` alpha 去广告插件包，并把 0.45.10 的 URL rewrite、
 named header rewrite、bounded header-list application、body rewrite chain、

@@ -5,6 +5,8 @@
 //! an alpha built-in ad-block plugin package. It does not apply live
 //! request/response mutations yet.
 
+pub mod managed_sdwan;
+
 use control_domain::{
     AuditDecision, AuditEvent, CertificateTrustState, Diagnostic, DiagnosticSeverity, DomainError,
     DomainResult, GrantedPermissions, HookPoint, HttpBodyMutation, HttpEvent, HttpHeaderMutation,

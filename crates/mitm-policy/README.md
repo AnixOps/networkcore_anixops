@@ -1,7 +1,8 @@
 # mitm-policy
 
 `mitm-policy` is the safe Rust adapter over the vendored `mitm_anixops`
-v0.45.10-alpha C ABI.
+distribution release `v1.4.6` source commit. The linked C core ABI reports
+version `0.45.10`.
 
 It owns the first NetworkCore MITM policy boundary:
 
@@ -13,6 +14,13 @@ It owns the first NetworkCore MITM policy boundary:
 - `MitmPluginService` implementation with legacy deferred audit/diagnostics and
   rich `handle_http_mitm_event` mutation-plan output for future data-plane use.
 - A built-in alpha ad-block plugin package.
+- `ManagedSdwanMitmPolicyGate`, a pure fail-closed admission boundary for an
+  opaque immutable verifier-produced Plan B client delivery envelope. It
+  snapshots only the linked C core, validates the released V1 capability query,
+  client/profile coherence, DNS suffix boundary, consent, certificate trust,
+  QUIC, and pinned-TLS observations, and rechecks expiry against the
+  caller-supplied trusted current service clock without activating a proxy, POP
+  connection, CA operation, script, or host mutation.
 
 `v0.1.2-alpha.3` wires this policy through `networkcore-linux start` into the controlled
 CONNECT TLS data plane when the operator explicitly supplies CA material and confirmation.
