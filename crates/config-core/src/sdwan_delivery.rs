@@ -777,19 +777,13 @@ mod tests {
 
     #[test]
     fn accepts_domain_suffix_or_traffic_class_as_only_route_selector_condition() {
-        let domain_suffix = validate_route_selector(route_selector(
-            Some("Example.COM."),
-            None,
-        ))
-        .expect("domain suffix selector is valid");
+        let domain_suffix = validate_route_selector(route_selector(Some("Example.COM."), None))
+            .expect("domain suffix selector is valid");
         assert_eq!(domain_suffix.domain_suffix.as_deref(), Some("example.com"));
         assert_eq!(domain_suffix.traffic_class, None);
 
-        let traffic_class = validate_route_selector(route_selector(
-            None,
-            Some("  interactive  "),
-        ))
-        .expect("traffic class selector is valid");
+        let traffic_class = validate_route_selector(route_selector(None, Some("  interactive  ")))
+            .expect("traffic class selector is valid");
         assert_eq!(traffic_class.domain_suffix, None);
         assert_eq!(traffic_class.traffic_class.as_deref(), Some("interactive"));
     }
