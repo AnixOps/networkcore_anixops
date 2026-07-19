@@ -1,8 +1,8 @@
 use config_core::windows_tunnel::{WindowsTunnelPlan, WindowsTunnelRouteIntent};
 use platform_windows::tunnel_config::{
-    deserialize_tunnel_state, render_easytier_config, serialize_tunnel_state,
-    verify_file_sha256, EasyTierConfigRequest, WindowsRouteSnapshotEntry,
-    WindowsTunnelLifecycleState, WindowsTunnelState, WINDOWS_TUNNEL_BINARY_HASH_INVALID_CODE,
+    deserialize_tunnel_state, render_easytier_config, serialize_tunnel_state, verify_file_sha256,
+    EasyTierConfigRequest, WindowsRouteSnapshotEntry, WindowsTunnelLifecycleState,
+    WindowsTunnelState, WINDOWS_TUNNEL_BINARY_HASH_INVALID_CODE,
     WINDOWS_TUNNEL_STATE_SCHEMA_UNSUPPORTED_CODE,
 };
 use std::path::Path;
@@ -24,8 +24,7 @@ fn fixture_plan() -> WindowsTunnelPlan {
             direct_fallback: false,
         }],
         endpoint_bypass_required: true,
-        plan_digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-            .to_string(),
+        plan_digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
     }
 }
 
@@ -33,8 +32,7 @@ fn fixture_state() -> WindowsTunnelState {
     WindowsTunnelState {
         schema_version: 1,
         session_id: "windows-easytier-fixture-session".to_string(),
-        plan_digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-            .to_string(),
+        plan_digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
         selected_pop_id: "pop-a".to_string(),
         selected_endpoint: "198.51.100.10:11010".to_string(),
         state: WindowsTunnelLifecycleState::Running,
