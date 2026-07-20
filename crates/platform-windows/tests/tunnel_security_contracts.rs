@@ -137,9 +137,8 @@ fn native_windows_easytier_sidecars_require_bounded_file_acl_protection() {
 
     for script in [normalize, validation] {
         assert!(script.contains("$easytierDirectory = Join-Path $root 'easytier'"));
-        assert!(script.contains(
-            "Get-ChildItem -LiteralPath $easytierDirectory -Force -ErrorAction Stop"
-        ));
+        assert!(script
+            .contains("Get-ChildItem -LiteralPath $easytierDirectory -Force -ErrorAction Stop"));
         assert!(script.contains("[System.IO.FileInfo]"));
         assert!(script.contains("ReparsePoint"));
         assert!(!script.contains("-Recurse"));
@@ -162,9 +161,8 @@ fn native_windows_easytier_sidecars_require_bounded_file_acl_protection() {
     assert!(source.contains(
         "native_windows_validate_all_easytier_artifacts(&secure_paths.easytier_directory)?"
     ));
-    assert!(source.contains(
-        "pub(crate) fn native_windows_validate_existing_easytier_core_for_cleanup("
-    ));
+    assert!(source
+        .contains("pub(crate) fn native_windows_validate_existing_easytier_core_for_cleanup("));
 }
 
 #[test]
