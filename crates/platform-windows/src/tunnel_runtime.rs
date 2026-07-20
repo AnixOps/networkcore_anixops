@@ -124,6 +124,12 @@ pub struct WindowsTunnelStartRequest {
     pub confirm: bool,
 }
 
+enum StartProcessCleanup<'a> {
+    NotStarted,
+    Owned(&'a OwnedProcessHandle),
+    Unproven,
+}
+
 /// Session service composed from explicit process, CLI, and route ports.
 pub struct WindowsTunnelSessionService<P, C, R> {
     process_runner: P,
@@ -183,7 +189,7 @@ where
                 return Err(self.rollback_failed_start(
                     &route_snapshot,
                     None,
-                    None,
+                    StartProcessCleanup::NotStarted,
                     &prepared.config_path,
                     start_error("EasyTier session configuration could not be written"),
                 ));
@@ -200,7 +206,7 @@ where
                     return Err(self.rollback_failed_start(
                         &route_snapshot,
                         None,
-                        None,
+                        StartProcessCleanup::NotStarted,
                         &prepared.config_path,
                         start_error("EasyTier session configuration path is invalid"),
                     ));
@@ -218,11 +224,16 @@ where
         };
         let process_handle = match self.process_runner.start(&spec) {
             Ok(handle) => handle,
-            Err(_) => {
+            Err(error) => {
+                let process = if error.code == WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE {
+                    StartProcessCleanup::Unproven
+                } else {
+                    StartProcessCleanup::NotStarted
+                };
                 return Err(self.rollback_failed_start(
                     &route_snapshot,
                     None,
-                    None,
+                    process,
                     &prepared.config_path,
                     start_error("EasyTier process could not be started"),
                 ));
@@ -232,7 +243,7 @@ where
             return Err(self.rollback_failed_start(
                 &route_snapshot,
                 None,
-                Some(&process_handle),
+                StartProcessCleanup::Owned(&process_handle),
                 &prepared.config_path,
                 start_error("EasyTier process session identity does not match the tunnel plan"),
             ));
@@ -243,7 +254,7 @@ where
             return Err(self.rollback_failed_start(
                 &route_snapshot,
                 None,
-                Some(&process_handle),
+                StartProcessCleanup::Owned(&process_handle),
                 &prepared.config_path,
                 error,
             ));
@@ -258,7 +269,6 @@ where
                 return Err(self.rollback_unproven_destination_capture(
                     &route_snapshot,
                     &process_handle,
-                    &prepared.config_path,
                 ));
             }
         };
@@ -292,7 +302,7 @@ where
             return Err(self.rollback_failed_start(
                 &route_snapshot,
                 Some(&virtual_route_snapshot),
-                Some(&process_handle),
+                StartProcessCleanup::Owned(&process_handle),
                 &prepared.config_path,
                 error,
             ));
@@ -652,7 +662,7 @@ where
         &mut self,
         snapshot: &[WindowsRouteSnapshotEntry],
         virtual_route_snapshot: Option<&[WindowsRouteSnapshotEntry]>,
-        process_handle: Option<&OwnedProcessHandle>,
+        process: StartProcessCleanup<'_>,
         config_path: &Path,
         original: DomainError,
     ) -> DomainError {
@@ -664,28 +674,26 @@ where
             })
             .unwrap_or(true);
         let routes_restored = self.route_port.restore(snapshot).is_ok();
-        let process_stopped = process_handle
-            .map(|handle| self.process_runner.stop(handle).is_ok())
-            .unwrap_or(true);
-        let config_removed = fs::remove_file(config_path).is_ok();
-        if destination_routes_removed && routes_restored && process_stopped && config_removed {
-            original
-        } else {
-            rollback_error()
+        let process_stopped = match process {
+            StartProcessCleanup::NotStarted => true,
+            StartProcessCleanup::Owned(handle) => self.process_runner.stop(handle).is_ok(),
+            StartProcessCleanup::Unproven => false,
+        };
+        if destination_routes_removed && routes_restored && process_stopped {
+            if fs::remove_file(config_path).is_ok() {
+                return original;
+            }
         }
+        rollback_error()
     }
 
     fn rollback_unproven_destination_capture(
         &mut self,
         snapshot: &[WindowsRouteSnapshotEntry],
         process_handle: &OwnedProcessHandle,
-        config_path: &Path,
     ) -> DomainError {
-        let routes_restored = self.route_port.restore(snapshot).is_ok();
-        let process_stopped = self.process_runner.stop(process_handle).is_ok();
-        if routes_restored && process_stopped {
-            let _ = fs::remove_file(config_path);
-        }
+        let _ = self.route_port.restore(snapshot);
+        let _ = self.process_runner.stop(process_handle);
         rollback_error()
     }
 }
