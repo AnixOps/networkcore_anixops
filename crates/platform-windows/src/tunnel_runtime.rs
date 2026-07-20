@@ -266,10 +266,9 @@ where
         {
             Ok(snapshot) => snapshot,
             Err(_) => {
-                return Err(self.rollback_unproven_destination_capture(
-                    &route_snapshot,
-                    &process_handle,
-                ));
+                return Err(
+                    self.rollback_unproven_destination_capture(&route_snapshot, &process_handle)
+                );
             }
         };
 
