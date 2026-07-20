@@ -9,6 +9,11 @@
 - iOS TestFlight/App Store Connect upload workflow 仍为 pending；完成前不得执行 archive/export、
   TestFlight upload、App Store upload、App Review submission 或 iOS release asset。当前 release workflow 仅允许
   `ios-upload-readiness` blocked placeholder 读取这些 marker，输出 source tree preflight 和 safe summary。
+- Windows Stage 4 signed POP peer identity and structured readiness remains pending. The required
+  Linux POP, POP-routed Linux target, Windows endpoint, and protected evidence boundary are defined
+  in [Windows Stage 4 POP Peer Manual Acceptance](architecture/windows-stage-4-pop-peer-manual-acceptance.md).
+  Do not mark the foreground tunnel production-ready until its positive, negative, and cleanup
+  proofs are all recorded.
 
 ## Windows Foreground Tunnel Manual Acceptance
 
