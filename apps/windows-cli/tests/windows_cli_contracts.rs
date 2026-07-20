@@ -5,7 +5,8 @@ use networkcore_windows::{
     TunnelStartInputPaths, WindowsCliCommand, WindowsCliExitCode, WindowsCliResponse,
     WindowsTunnelCommandResult, WindowsTunnelCommandService, WindowsTunnelDeliveryLoader,
     WindowsTunnelInputPathPolicy, WindowsTunnelLifecyclePort, WindowsTunnelPrivilegePort,
-    WindowsTunnelStartArgs, WindowsTunnelStatusArgs, WindowsTunnelStopArgs,
+    WindowsTunnelPrepareStorageArgs, WindowsTunnelStartArgs, WindowsTunnelStatusArgs,
+    WindowsTunnelStopArgs,
     CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE, CLI_WINDOWS_ARTIFACT_READY_CODE,
     CLI_WINDOWS_SYSTEM_MUTATION_BLOCKED_CODE, COMMAND_NAME,
     WINDOWS_CLI_SUBSCRIPTION_COMPATIBILITY_STATUS,
@@ -158,6 +159,15 @@ fn fixture_tunnel_status_args() -> WindowsTunnelStatusArgs {
     }
 }
 
+fn fixture_tunnel_prepare_storage_args() -> WindowsTunnelPrepareStorageArgs {
+    match parse_args(["tunnel", "prepare-storage", "--confirm"])
+        .expect("fixture tunnel storage preparation")
+    {
+        WindowsCliCommand::TunnelPrepareStorage(args) => args,
+        command => panic!("expected tunnel storage preparation command, got {command:?}"),
+    }
+}
+
 fn fixture_tunnel_stop_args() -> WindowsTunnelStopArgs {
     match parse_args([
         "tunnel",
@@ -255,6 +265,7 @@ struct RecordedTunnelStop {
 }
 
 struct RecordingTunnelCommandService {
+    prepare_storage_calls: Vec<bool>,
     start_calls: Vec<RecordedTunnelStart>,
     status_paths: Vec<PathBuf>,
     stop_calls: Vec<RecordedTunnelStop>,
@@ -264,6 +275,7 @@ struct RecordingTunnelCommandService {
 impl RecordingTunnelCommandService {
     fn new() -> Self {
         Self {
+            prepare_storage_calls: Vec::new(),
             start_calls: Vec::new(),
             status_paths: Vec::new(),
             stop_calls: Vec::new(),
@@ -280,6 +292,11 @@ impl RecordingTunnelCommandService {
 }
 
 impl WindowsTunnelCommandService for RecordingTunnelCommandService {
+    fn prepare_storage(&mut self, args: &WindowsTunnelPrepareStorageArgs) -> DomainResult<()> {
+        self.prepare_storage_calls.push(args.confirm);
+        Ok(())
+    }
+
     fn start(&mut self, args: &WindowsTunnelStartArgs) -> DomainResult<WindowsTunnelCommandResult> {
         self.start_calls.push(RecordedTunnelStart {
             client_envelope: args.client_envelope.clone(),
@@ -334,6 +351,7 @@ impl WindowsTunnelPrivilegePort for FixedPrivilege {
 #[derive(Clone)]
 struct RecordingInputPathPolicy {
     events: Rc<RefCell<Vec<&'static str>>>,
+    prepare_storage_calls: Rc<RefCell<Vec<()>>>,
     start_calls: Rc<RefCell<Vec<(PathBuf, PathBuf)>>>,
     state_calls: Rc<RefCell<Vec<PathBuf>>>,
     guarded_state_path: PathBuf,
@@ -344,6 +362,7 @@ impl RecordingInputPathPolicy {
     fn new(events: Rc<RefCell<Vec<&'static str>>>) -> Self {
         Self {
             events,
+            prepare_storage_calls: Rc::new(RefCell::new(Vec::new())),
             start_calls: Rc::new(RefCell::new(Vec::new())),
             state_calls: Rc::new(RefCell::new(Vec::new())),
             guarded_state_path: PathBuf::from("C:/guarded/state/fixture-state.json"),
@@ -353,6 +372,12 @@ impl RecordingInputPathPolicy {
 }
 
 impl WindowsTunnelInputPathPolicy for RecordingInputPathPolicy {
+    fn prepare_storage(&self) -> DomainResult<()> {
+        self.events.borrow_mut().push("paths.prepare_storage");
+        self.prepare_storage_calls.borrow_mut().push(());
+        Ok(())
+    }
+
     fn prepare_start(
         &self,
         state_path: &Path,
@@ -379,6 +404,10 @@ impl WindowsTunnelInputPathPolicy for RecordingInputPathPolicy {
 struct AllowAllInputPathPolicy;
 
 impl WindowsTunnelInputPathPolicy for AllowAllInputPathPolicy {
+    fn prepare_storage(&self) -> DomainResult<()> {
+        Ok(())
+    }
+
     fn prepare_start(
         &self,
         state_path: &Path,
@@ -547,6 +576,8 @@ fn windows_cli_help_declares_package_boundary_and_explicit_easytier_tunnel() {
     assert!(help.contains("preinstalled EasyTier"));
     assert!(help.contains("elevated"));
     assert!(help.contains("--confirm"));
+    assert!(help.contains("tunnel prepare-storage --confirm"));
+    assert!(help.contains("Tunnel status requires elevated execution"));
 }
 
 #[test]
@@ -735,6 +766,67 @@ fn parses_tunnel_start_with_all_explicit_paths() {
 }
 
 #[test]
+fn parses_confirmed_tunnel_storage_preparation() {
+    let command = parse_args([
+        "tunnel",
+        "prepare-storage",
+        "--confirm",
+        "--format",
+        "json",
+    ])
+    .expect("confirmed tunnel storage preparation command");
+
+    match command {
+        WindowsCliCommand::TunnelPrepareStorage(args) => {
+            assert!(args.confirm);
+            assert_eq!(args.format(), OutputFormat::Json);
+        }
+        other => panic!("expected tunnel storage preparation command, got {other:?}"),
+    }
+}
+
+#[test]
+fn tunnel_storage_preparation_requires_confirm() {
+    let error = parse_args(["tunnel", "prepare-storage"])
+        .expect_err("storage preparation must require explicit confirmation");
+    let response = handle_parse_error(error.into_diagnostic());
+    let rendered = render_response(&response, OutputFormat::Text);
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, WindowsCliExitCode::ArgumentOrConfig);
+    assert!(rendered.contains("--confirm"));
+}
+
+#[test]
+fn tunnel_storage_preparation_rejects_duplicate_confirm() {
+    let error = parse_args([
+        "tunnel",
+        "prepare-storage",
+        "--confirm",
+        "--confirm",
+    ])
+    .expect_err("storage preparation must reject duplicate confirmation");
+    let response = handle_parse_error(error.into_diagnostic());
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, WindowsCliExitCode::ArgumentOrConfig);
+}
+
+#[test]
+fn tunnel_storage_preparation_rejects_positional_and_unknown_options() {
+    for values in [
+        vec!["tunnel", "prepare-storage", "--confirm", "unexpected"],
+        vec!["tunnel", "prepare-storage", "--confirm", "--state-path"],
+    ] {
+        let error = parse_args(values).expect_err("storage preparation accepts no extra values");
+        let response = handle_parse_error(error.into_diagnostic());
+
+        assert!(!response.ok);
+        assert_eq!(response.exit_code, WindowsCliExitCode::ArgumentOrConfig);
+    }
+}
+
+#[test]
 fn rejects_tunnel_start_without_confirm() {
     let error = parse_args(tunnel_start_arguments(false, true, true))
         .expect_err("tunnel start must require explicit confirmation");
@@ -828,6 +920,24 @@ fn confirmed_tunnel_start_delegates_typed_args_without_launching_process() {
         PathBuf::from("C:/ProgramData/AnixOps/tunnel-state.json")
     );
     assert!(start.confirm);
+    assert!(tunnel.status_paths.is_empty());
+    assert!(tunnel.stop_calls.is_empty());
+}
+
+#[test]
+fn confirmed_tunnel_storage_preparation_delegates_without_runtime_report() {
+    let command = parse_args(["tunnel", "prepare-storage", "--confirm"])
+        .expect("confirmed tunnel storage preparation");
+    let platform = ReadOnlyWindowsPlatformCapabilityService::new();
+    let mut tunnel = RecordingTunnelCommandService::new();
+
+    let response = handle_entrypoint_with_tunnel(command, &platform, &mut tunnel);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "tunnel");
+    assert!(response.tunnel.is_none());
+    assert_eq!(tunnel.prepare_storage_calls, [true]);
+    assert!(tunnel.start_calls.is_empty());
     assert!(tunnel.status_paths.is_empty());
     assert!(tunnel.stop_calls.is_empty());
 }
@@ -1084,6 +1194,143 @@ fn delivery_backed_tunnel_start_requires_confirmation_before_path_preparation() 
 }
 
 #[test]
+fn elevated_confirmed_storage_preparation_calls_only_the_input_policy() {
+    let delivery_calls = Rc::new(std::cell::Cell::new(0));
+    let lifecycle_events = Rc::new(RefCell::new(LifecycleEvents::default()));
+    let path_events = Rc::new(RefCell::new(Vec::new()));
+    let path_policy = RecordingInputPathPolicy::new(path_events);
+    let prepare_storage_calls = path_policy.prepare_storage_calls.clone();
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        RecordingLifecyclePort::with_states(
+            lifecycle_events.clone(),
+            fixture_tunnel_state(),
+            fixture_stopped_state(),
+        ),
+        RecordingDeliveryLoader {
+            plan: fixture_tunnel_plan(),
+            calls: delivery_calls.clone(),
+        },
+        FixedPrivilege(true),
+        path_policy,
+    );
+
+    service
+        .prepare_storage(&fixture_tunnel_prepare_storage_args())
+        .expect("elevated confirmed storage preparation succeeds");
+
+    assert_eq!(prepare_storage_calls.borrow().as_slice(), [()]);
+    assert_eq!(delivery_calls.get(), 0);
+    let lifecycle = lifecycle_events.borrow();
+    assert!(lifecycle.started.is_empty());
+    assert!(lifecycle.status_calls.is_empty());
+    assert!(lifecycle.stop_calls.is_empty());
+}
+
+#[test]
+fn storage_preparation_requires_confirmation_before_path_policy_access() {
+    let delivery_calls = Rc::new(std::cell::Cell::new(0));
+    let lifecycle_events = Rc::new(RefCell::new(LifecycleEvents::default()));
+    let path_events = Rc::new(RefCell::new(Vec::new()));
+    let path_policy = RecordingInputPathPolicy::new(path_events);
+    let prepare_storage_calls = path_policy.prepare_storage_calls.clone();
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        RecordingLifecyclePort::with_states(
+            lifecycle_events.clone(),
+            fixture_tunnel_state(),
+            fixture_stopped_state(),
+        ),
+        RecordingDeliveryLoader {
+            plan: fixture_tunnel_plan(),
+            calls: delivery_calls.clone(),
+        },
+        FixedPrivilege(true),
+        path_policy,
+    );
+    let mut args = fixture_tunnel_prepare_storage_args();
+    args.confirm = false;
+
+    let error = service
+        .prepare_storage(&args)
+        .expect_err("unconfirmed storage preparation is denied before path access");
+
+    assert_eq!(error.code, WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE);
+    assert!(prepare_storage_calls.borrow().is_empty());
+    assert_eq!(delivery_calls.get(), 0);
+    let lifecycle = lifecycle_events.borrow();
+    assert!(lifecycle.started.is_empty());
+    assert!(lifecycle.status_calls.is_empty());
+    assert!(lifecycle.stop_calls.is_empty());
+}
+
+#[test]
+fn unelevated_storage_preparation_is_denied_before_all_other_access() {
+    let delivery_calls = Rc::new(std::cell::Cell::new(0));
+    let lifecycle_events = Rc::new(RefCell::new(LifecycleEvents::default()));
+    let path_events = Rc::new(RefCell::new(Vec::new()));
+    let path_policy = RecordingInputPathPolicy::new(path_events);
+    let prepare_storage_calls = path_policy.prepare_storage_calls.clone();
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        RecordingLifecyclePort::with_states(
+            lifecycle_events.clone(),
+            fixture_tunnel_state(),
+            fixture_stopped_state(),
+        ),
+        RecordingDeliveryLoader {
+            plan: fixture_tunnel_plan(),
+            calls: delivery_calls.clone(),
+        },
+        FixedPrivilege(false),
+        path_policy,
+    );
+
+    let error = service
+        .prepare_storage(&fixture_tunnel_prepare_storage_args())
+        .expect_err("unelevated storage preparation is denied");
+
+    assert_eq!(error.code, WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE);
+    assert!(prepare_storage_calls.borrow().is_empty());
+    assert_eq!(delivery_calls.get(), 0);
+    let lifecycle = lifecycle_events.borrow();
+    assert!(lifecycle.started.is_empty());
+    assert!(lifecycle.status_calls.is_empty());
+    assert!(lifecycle.stop_calls.is_empty());
+}
+
+#[test]
+fn unelevated_tunnel_status_is_denied_before_storage_or_lifecycle_access() {
+    let delivery_calls = Rc::new(std::cell::Cell::new(0));
+    let lifecycle_events = Rc::new(RefCell::new(LifecycleEvents::default()));
+    let path_events = Rc::new(RefCell::new(Vec::new()));
+    let path_policy = RecordingInputPathPolicy::new(path_events);
+    let state_calls = path_policy.state_calls.clone();
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        RecordingLifecyclePort::with_states(
+            lifecycle_events.clone(),
+            fixture_tunnel_state(),
+            fixture_stopped_state(),
+        ),
+        RecordingDeliveryLoader {
+            plan: fixture_tunnel_plan(),
+            calls: delivery_calls.clone(),
+        },
+        FixedPrivilege(false),
+        path_policy,
+    );
+
+    let error = service
+        .status(&fixture_tunnel_status_args())
+        .expect_err("unelevated status is denied");
+
+    assert_eq!(error.code, WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE);
+    assert!(state_calls.borrow().is_empty());
+    assert_eq!(delivery_calls.get(), 0);
+    let lifecycle = lifecycle_events.borrow();
+    assert!(lifecycle.started.is_empty());
+    assert!(lifecycle.status_calls.is_empty());
+    assert!(lifecycle.stop_calls.is_empty());
+}
+
+#[test]
 fn delivery_backed_tunnel_stop_requires_elevation_before_lifecycle_stop() {
     let calls = std::rc::Rc::new(std::cell::Cell::new(0));
     let events = std::rc::Rc::new(std::cell::RefCell::new(LifecycleEvents::default()));
@@ -1184,6 +1431,38 @@ fn delivery_backed_tunnel_status_and_stop_render_runtime_evidence() {
 }
 
 #[test]
+fn elevated_tunnel_status_validates_state_before_lifecycle_delegation() {
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let policy = RecordingInputPathPolicy::new(events.clone());
+    let state_calls = policy.state_calls.clone();
+    let guarded_state_path = policy.guarded_state_path.clone();
+    let start_requests = Rc::new(RefCell::new(Vec::new()));
+    let status_paths = Rc::new(RefCell::new(Vec::new()));
+    let stop_calls = Rc::new(RefCell::new(Vec::new()));
+    let lifecycle = OrderedLifecycle::new(
+        events.clone(),
+        start_requests,
+        status_paths.clone(),
+        stop_calls,
+        fixture_tunnel_state(),
+        fixture_stopped_state(),
+    );
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        lifecycle,
+        OrderedDeliveryLoader::new(events.clone(), fixture_tunnel_plan()),
+        FixedPrivilege(true),
+        policy,
+    );
+    let status_args = fixture_tunnel_status_args();
+
+    service.status(&status_args).expect("elevated guarded status");
+
+    assert_eq!(events.borrow().as_slice(), ["paths.state", "lifecycle.status"]);
+    assert_eq!(state_calls.borrow().as_slice(), [status_args.state_path]);
+    assert_eq!(status_paths.borrow().as_slice(), [guarded_state_path]);
+}
+
+#[test]
 fn delivery_backed_start_validates_secure_paths_before_delivery_load() {
     let events = Rc::new(RefCell::new(Vec::new()));
     let policy = RecordingInputPathPolicy::new(events.clone());
@@ -1279,6 +1558,7 @@ fn native_tunnel_input_policy_is_limited_to_platform_secure_path_operations() {
     let source = include_str!("../src/lib.rs").replace("\r\n", "\n");
 
     assert!(source.contains("pub struct NativeWindowsTunnelInputPathPolicy"));
+    assert!(source.contains("native_windows_prepare_tunnel_secure_paths"));
     assert!(source.contains("native_windows_prepare_state_path"));
     assert!(source.contains("native_windows_prepare_secret_file"));
     assert!(source.contains("native_windows_validate_existing_state_path"));
@@ -1291,6 +1571,7 @@ fn native_main_routes_tunnel_commands_to_the_native_service() {
     assert!(source.contains("native_windows_tunnel_command_service()"));
     assert!(source.contains("handle_entrypoint_with_tunnel"));
     assert!(source.contains("WindowsCliCommand::TunnelStart"));
+    assert!(source.contains("WindowsCliCommand::TunnelPrepareStorage"));
     assert!(source.contains("WindowsCliCommand::TunnelStatus"));
     assert!(source.contains("WindowsCliCommand::TunnelStop"));
     assert_eq!(
