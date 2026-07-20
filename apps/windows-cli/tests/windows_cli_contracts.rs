@@ -876,6 +876,56 @@ fn rejects_tunnel_start_without_state_path() {
 }
 
 #[test]
+fn rejects_tunnel_start_without_cli_sha256() {
+    let error = parse_args(tunnel_start_arguments(true, true, true))
+        .expect_err("tunnel start must require an explicit EasyTier CLI SHA-256 pin");
+    let response = handle_parse_error(error.into_diagnostic());
+    let rendered = render_response(&response, OutputFormat::Text);
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, WindowsCliExitCode::ArgumentOrConfig);
+    assert!(rendered.contains("--easytier-cli-sha256"));
+}
+
+#[test]
+fn parses_tunnel_start_with_explicit_cli_sha256() {
+    let mut arguments = tunnel_start_arguments(true, true, true);
+    arguments.extend([
+        "--easytier-cli-sha256",
+        "d1e5061f7c995b142056ccfe154fd8d6700841b9fa488c253d5135790db52311",
+    ]);
+
+    let command = parse_args(arguments)
+        .expect("tunnel start accepts one explicit EasyTier CLI SHA-256 pin");
+    let source = include_str!("../src/lib.rs").replace("\r\n", "\n");
+
+    assert!(source.contains("pub easytier_cli_sha256: String,"));
+    assert!(source.contains("easytier_cli_sha256: require_tunnel_start_option("));
+    assert!(source.contains("\"--easytier-cli-sha256\""));
+    assert!(matches!(command, WindowsCliCommand::TunnelStart(_)));
+}
+
+#[test]
+fn rejects_duplicate_tunnel_start_cli_sha256() {
+    let mut arguments = tunnel_start_arguments(true, true, true);
+    arguments.extend([
+        "--easytier-cli-sha256",
+        "d1e5061f7c995b142056ccfe154fd8d6700841b9fa488c253d5135790db52311",
+        "--easytier-cli-sha256",
+        "2e0e8cf40cab344ddd9e04a906bb99c71deaa602b5ce1bde7315d23d61b0ea83",
+    ]);
+
+    let error = parse_args(arguments)
+        .expect_err("tunnel start must reject duplicate EasyTier CLI SHA-256 pins");
+    let response = handle_parse_error(error.into_diagnostic());
+    let rendered = render_response(&response, OutputFormat::Text);
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, WindowsCliExitCode::ArgumentOrConfig);
+    assert!(rendered.contains("--easytier-cli-sha256 may only be specified once"));
+}
+
+#[test]
 fn confirmed_tunnel_start_delegates_typed_args_without_launching_process() {
     let command =
         parse_args(tunnel_start_arguments(true, true, true)).expect("confirmed tunnel start");
@@ -1578,7 +1628,13 @@ fn native_tunnel_input_policy_is_limited_to_platform_secure_path_operations() {
     assert!(source.contains("native_windows_prepare_tunnel_secure_paths"));
     assert!(source.contains("native_windows_prepare_state_path"));
     assert!(source.contains("native_windows_prepare_secret_file"));
+    assert!(source.contains("native_windows_prepare_easytier_artifact"));
     assert!(source.contains("native_windows_validate_existing_state_path"));
+    assert!(source.contains("pub easytier_binary: PathBuf,"));
+    assert!(source.contains("pub easytier_cli: PathBuf,"));
+    assert!(source.contains("easytier_binary: guarded.easytier_binary,"));
+    assert!(source.contains("easytier_cli: guarded.easytier_cli,"));
+    assert!(source.contains("easytier_cli_sha256: args.easytier_cli_sha256.clone(),"));
 }
 
 #[test]

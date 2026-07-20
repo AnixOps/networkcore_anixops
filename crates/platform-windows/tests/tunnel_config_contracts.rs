@@ -197,16 +197,17 @@ fn rejects_invalid_binary_hash() {
 }
 
 #[test]
-fn serializes_schema_v3_runtime_ownership_without_paths_or_secrets() {
+fn serializes_schema_v4_runtime_ownership_without_paths_or_secrets() {
     let state = fixture_state();
     let first = serialize_tunnel_state(&state).expect("state serializes");
     let second = serialize_tunnel_state(&state).expect("state serializes deterministically");
 
     assert_eq!(first, second);
-    assert!(first.contains("\"schema_version\": 3"));
+    assert!(first.contains("\"schema_version\": 4"));
     assert!(first.contains("\"selected_pop_id\": \"pop-a\""));
     assert!(first.contains("\"creation_marker\": \"fixture-creation-marker\""));
     assert!(first.contains("\"cli_file_name\": \"easytier-cli.exe\""));
+    assert!(first.contains("\"cli_sha256\""));
     assert!(first.contains("\"virtual_route_snapshot\""));
     assert!(first.contains("\"client_bundle_id\": \"fixture-easytier-client-bundle-1\""));
     assert!(first.contains("\"client_sequence\": 3"));
@@ -221,13 +222,39 @@ fn serializes_schema_v3_runtime_ownership_without_paths_or_secrets() {
         state
     );
 
-    let mut schema_v2: serde_json::Value =
+    let mut schema_v3: serde_json::Value =
         serde_json::from_str(&first).expect("serialized state is JSON");
-    schema_v2["schema_version"] = serde_json::Value::from(2_u64);
-    let schema_v2 = serde_json::to_vec(&schema_v2).expect("schema-v2 record is JSON");
-    let error = deserialize_tunnel_state(&schema_v2)
-        .expect_err("schema-v2 state records must be unrecoverable");
+    schema_v3["schema_version"] = serde_json::Value::from(3_u64);
+    let schema_v3 = serde_json::to_vec(&schema_v3).expect("schema-v3 record is JSON");
+    let error = deserialize_tunnel_state(&schema_v3)
+        .expect_err("schema-v3 state records must be unrecoverable");
     assert_eq!(error.code, WINDOWS_TUNNEL_STATE_SCHEMA_UNSUPPORTED_CODE);
+}
+
+#[test]
+fn state_rejects_runtime_ownership_without_cli_hash() {
+    let state = fixture_state();
+    let serialized = serialize_tunnel_state(&state).expect("state serializes");
+    let mut value: serde_json::Value =
+        serde_json::from_str(&serialized).expect("serialized state is JSON");
+    value["runtime_ownership"]
+        .as_object_mut()
+        .expect("runtime ownership is an object")
+        .remove("cli_sha256");
+    let missing_cli_hash = serde_json::to_vec(&value).expect("missing CLI hash fixture is JSON");
+
+    let error = deserialize_tunnel_state(&missing_cli_hash)
+        .expect_err("persisted runtime ownership must include a CLI SHA-256 pin");
+    assert_eq!(error.code, WINDOWS_TUNNEL_STATE_INVALID_CODE);
+}
+
+#[test]
+fn runtime_ownership_contract_includes_a_validated_cli_hash() {
+    let source = include_str!("../src/tunnel_config.rs").replace("\r\n", "\n");
+
+    assert!(source.contains("pub const WINDOWS_TUNNEL_STATE_SCHEMA_VERSION: u32 = 4;"));
+    assert!(source.contains("pub cli_sha256: String,"));
+    assert!(source.contains("!is_lowercase_sha256(&state.runtime_ownership.cli_sha256)"));
 }
 
 #[test]

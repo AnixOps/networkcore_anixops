@@ -2468,6 +2468,49 @@ fn native_windows_process_start_uses_hardened_child_factory_and_discards_streams
 }
 
 #[test]
+fn native_windows_cli_and_recovery_reverify_trusted_cli_artifacts() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+
+    assert!(source.contains("pub easytier_cli_sha256: String,"));
+    assert!(source.contains("pub expected_cli_sha256: String,"));
+    assert!(source.contains("pub cli_sha256: String,"));
+    assert!(source.contains("fn version(&mut self, path: &Path, expected_sha256: &str)"));
+    assert!(source.contains("fn peer_ready(&mut self, path: &Path, expected_sha256: &str)"));
+    assert!(source.contains("fn route_cidrs(&mut self, path: &Path, expected_sha256: &str)"));
+    assert!(source.contains(
+        "fn native_cli_output(path: &Path, expected_sha256: &str, arguments: &[&str])"
+    ));
+    assert!(source.contains("native_windows_validate_existing_easytier_artifact(path)"));
+    assert!(source.contains("verify_file_sha256(&path, expected_sha256)"));
+
+    let preparation = &source[source
+        .find("    fn prepare_start(&mut self, request: WindowsTunnelStartRequest)")
+        .expect("start preparation exists")..];
+    assert!(preparation.contains("verify_file_sha256(&cli_path, &request.easytier_cli_sha256)?"));
+    assert!(preparation.contains(".version(&cli_path, &request.easytier_cli_sha256)"));
+
+    let readiness = &source[source
+        .find("    fn verify_readiness(")
+        .expect("readiness verification exists")..];
+    assert!(readiness.contains("verify_file_sha256(cli_path, expected_cli_sha256)?"));
+    assert!(readiness.contains(".peer_ready(cli_path, expected_cli_sha256)"));
+    assert!(readiness.contains(".route_cidrs(cli_path, expected_cli_sha256)"));
+
+    let recovery = &source[source
+        .find("    fn recover_owned_session(")
+        .expect("strict Running recovery exists")..];
+    assert!(recovery.contains("expected_cli_sha256: ownership.cli_sha256.clone(),"));
+    assert!(recovery.contains("verify_file_sha256(&cli_path, &spec.expected_cli_sha256)"));
+    assert!(recovery.contains("cli_sha256: ownership.cli_sha256,"));
+
+    let native_start = &source[source
+        .find("    fn start(&mut self, spec: &EasyTierLaunchSpec)")
+        .expect("native process start exists")..];
+    assert!(native_start.contains("native_windows_validate_existing_easytier_artifact(&spec.binary_path)"));
+    assert!(native_start.contains("native_windows_validate_existing_easytier_artifact(&spec.cli_path)"));
+}
+
+#[test]
 fn native_windows_runtime_child_commands_use_only_trusted_factories() {
     let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
 

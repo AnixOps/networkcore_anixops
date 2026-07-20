@@ -88,6 +88,36 @@ fn native_windows_prepare_uses_trusted_programdata_and_exact_storage_ownership()
 }
 
 #[test]
+fn native_windows_easytier_artifacts_require_a_protected_direct_child_root() {
+    let source = include_str!("../src/tunnel_security.rs").replace("\r\n", "\n");
+    let prepare = native_script(&source, "NATIVE_WINDOWS_TUNNEL_PREPARE_SCRIPT");
+    let inspection = native_script(&source, "NATIVE_WINDOWS_TUNNEL_INSPECT_SCRIPT");
+
+    for script in [prepare, inspection] {
+        assert!(script.contains("$easytierDirectory = Join-Path $root 'easytier'"));
+        assert!(script.contains("Assert-ExistingProtectedDirectory $easytierDirectory"));
+        assert!(script.contains("ReparsePoint"));
+        assert!(script.contains("S-1-5-18"));
+        assert!(script.contains("S-1-5-32-544"));
+    }
+    assert!(prepare.contains(
+        "@($vendorDirectory, $root, $stateDirectory, $secretDirectory, $easytierDirectory)"
+    ));
+    assert!(source.contains("pub easytier_directory: PathBuf,"));
+    assert!(source.contains("if paths.len() != 6"));
+    assert!(source.contains("let easytier_directory = fs::canonicalize(paths[5])"));
+    assert!(source.contains("easytier_directory.parent() != Some(root.as_path())"));
+    assert!(source.contains(
+        "easytier_directory.file_name().and_then(|name| name.to_str()) != Some(\"easytier\")"
+    ));
+    assert!(source.contains("pub fn native_windows_prepare_easytier_artifact("));
+    assert!(source.contains("pub fn native_windows_validate_existing_easytier_artifact("));
+    assert!(source.contains("fn native_windows_validate_easytier_artifact_in_directory("));
+    assert!(source.contains("native_windows_metadata_is_reparse_point(&metadata)"));
+    assert!(source.contains("canonical_file.parent() != Some(canonical_directory.as_path())"));
+}
+
+#[test]
 fn native_windows_system_commands_resolve_trusted_tools_and_clear_environment() {
     let source = include_str!("../src/tunnel_security.rs").replace("\r\n", "\n");
 
