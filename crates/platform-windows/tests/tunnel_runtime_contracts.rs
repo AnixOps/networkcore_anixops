@@ -2639,7 +2639,9 @@ fn native_windows_destination_adapter_proofs_fail_closed_on_query_errors() {
             "#[cfg(windows)]\nfn native_cleanup_destination_presence(",
         ),
     ] {
-        let start = source.find(marker).expect("native destination helper exists");
+        let start = source
+            .find(marker)
+            .expect("native destination helper exists");
         let end = source[start + marker.len()..]
             .find("\n#[cfg(windows)]\nfn ")
             .expect("native destination helper has a bounded source slice");
@@ -2652,7 +2654,10 @@ fn native_windows_destination_adapter_proofs_fail_closed_on_query_errors() {
             "-InterfaceIndex",
             "-RouteMetric",
         ] {
-            assert!(helper.contains(fragment), "{name} adapter proof filters {fragment}");
+            assert!(
+                helper.contains(fragment),
+                "{name} adapter proof filters {fragment}"
+            );
         }
         assert!(
             helper.contains(
