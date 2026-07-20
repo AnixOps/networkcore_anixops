@@ -1730,7 +1730,9 @@ fn running_cleanup_persists_failed_after_process_stop_failure_and_resumes() {
         WindowsTunnelLifecycleState::Failed
     );
     let first_events = events.snapshot();
-    assert!(event_index(&first_events, "route.restore") < event_index(&first_events, "process.stop"));
+    assert!(
+        event_index(&first_events, "route.restore") < event_index(&first_events, "process.stop")
+    );
     assert!(config_path.is_file());
 
     events.clear();
