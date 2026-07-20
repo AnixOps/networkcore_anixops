@@ -3,8 +3,9 @@ use platform_windows::tunnel_config::{
     deserialize_tunnel_state, render_easytier_config, serialize_tunnel_state, verify_file_sha256,
     EasyTierConfigRequest, OwnedProcessHandle, WindowsRouteSnapshotEntry,
     WindowsTunnelLifecycleState, WindowsTunnelRuntimeOwnership, WindowsTunnelState,
-    WINDOWS_TUNNEL_BINARY_HASH_INVALID_CODE, WINDOWS_TUNNEL_STATE_INVALID_CODE,
-    WINDOWS_TUNNEL_STATE_SCHEMA_UNSUPPORTED_CODE, WINDOWS_TUNNEL_STATE_SCHEMA_VERSION,
+    WINDOWS_TUNNEL_BINARY_HASH_INVALID_CODE, WINDOWS_TUNNEL_CONFIG_INVALID_CODE,
+    WINDOWS_TUNNEL_STATE_INVALID_CODE, WINDOWS_TUNNEL_STATE_SCHEMA_UNSUPPORTED_CODE,
+    WINDOWS_TUNNEL_STATE_SCHEMA_VERSION,
 };
 use std::path::Path;
 
@@ -127,6 +128,67 @@ fn renders_network_identity_peer_and_destination_routes_without_secret_in_redact
 }
 
 #[test]
+fn rejects_noncanonical_destination_policy_routes() {
+    for destination_cidr in [
+        "0.0.0.0/0",
+        "::/0",
+        "2001:db8::/32",
+        "203.0.113.1/24",
+        " 203.0.113.0/24",
+        "203.0.113.0/24 ",
+        "not-a-destination-prefix",
+    ] {
+        let mut plan = fixture_plan();
+        plan.route_intents[0].destination_cidr = destination_cidr.to_string();
+
+        let error = render_easytier_config(EasyTierConfigRequest {
+            plan: &plan,
+            network_name: "fixture-network",
+            network_secret: "fixture-secret-never-commit",
+            virtual_ipv4: None,
+        })
+        .expect_err("noncanonical destination policies must be rejected");
+        assert_eq!(error.code, WINDOWS_TUNNEL_CONFIG_INVALID_CODE);
+    }
+}
+
+#[test]
+fn rejects_duplicate_destination_policy_routes() {
+    let mut plan = fixture_plan();
+    plan.route_intents.push(WindowsTunnelRouteIntent {
+        route_id: "fixture-easytier-route-2".to_string(),
+        destination_cidr: "203.0.113.0/24".to_string(),
+        service_chain_id: "pop-a-chain".to_string(),
+        direct_fallback: false,
+    });
+
+    let error = render_easytier_config(EasyTierConfigRequest {
+        plan: &plan,
+        network_name: "fixture-network",
+        network_secret: "fixture-secret-never-commit",
+        virtual_ipv4: None,
+    })
+    .expect_err("duplicate destination policies must be rejected");
+    assert_eq!(error.code, WINDOWS_TUNNEL_CONFIG_INVALID_CODE);
+}
+
+#[test]
+fn preserves_canonical_ipv4_host_routes() {
+    let mut plan = fixture_plan();
+    plan.route_intents[0].destination_cidr = "203.0.113.7/32".to_string();
+
+    let artifact = render_easytier_config(EasyTierConfigRequest {
+        plan: &plan,
+        network_name: "fixture-network",
+        network_secret: "fixture-secret-never-commit",
+        virtual_ipv4: None,
+    })
+    .expect("canonical IPv4 host routes remain valid destination policies");
+
+    assert_eq!(artifact.route_cidrs, vec!["203.0.113.7/32"]);
+}
+
+#[test]
 fn rejects_invalid_binary_hash() {
     let error = verify_file_sha256(Path::new("C:/missing/easytier.exe"), "not-a-sha256")
         .expect_err("invalid hash format must be rejected before reading a file");
@@ -194,4 +256,108 @@ fn state_rejects_process_session_id_that_differs_from_state() {
     assert_eq!(error.code, WINDOWS_TUNNEL_STATE_INVALID_CODE);
     assert!(!error.message.contains("windows-easytier-fixture-session"));
     assert!(!error.message.contains(different_process_session_id));
+}
+
+#[test]
+fn state_rejects_noncanonical_owned_destination_routes() {
+    for destination_cidr in [
+        "0.0.0.0/0",
+        "::/0",
+        "2001:db8::/32",
+        "203.0.113.1/24",
+        " 203.0.113.0/24",
+        "not-a-destination-prefix",
+    ] {
+        let mut state = fixture_state();
+        state.runtime_ownership.route_cidrs = vec![destination_cidr.to_string()];
+        state.runtime_ownership.virtual_route_snapshot[0].destination_cidr =
+            destination_cidr.to_string();
+        let serialized = serde_json::to_vec(&state).expect("fixture state JSON");
+
+        let error = deserialize_tunnel_state(&serialized)
+            .expect_err("persisted policy route ownership must stay canonical IPv4");
+        assert_eq!(error.code, WINDOWS_TUNNEL_STATE_INVALID_CODE);
+    }
+}
+
+#[test]
+fn state_rejects_duplicate_owned_destination_routes() {
+    let mut state = fixture_state();
+    state
+        .runtime_ownership
+        .route_cidrs
+        .push("203.0.113.0/24".to_string());
+    state
+        .runtime_ownership
+        .virtual_route_snapshot
+        .push(WindowsRouteSnapshotEntry {
+            destination_cidr: "203.0.113.0/24".to_string(),
+            gateway: Some("10.10.0.2".to_string()),
+            interface_index: Some(43),
+            metric: Some(8),
+        });
+    let serialized = serde_json::to_vec(&state).expect("fixture state JSON");
+
+    let error = deserialize_tunnel_state(&serialized)
+        .expect_err("persisted policy route ownership cannot repeat a destination");
+    assert_eq!(error.code, WINDOWS_TUNNEL_STATE_INVALID_CODE);
+}
+
+#[test]
+fn state_writer_uses_synced_unique_sibling_and_atomic_replacement() {
+    let source = include_str!("../src/tunnel_config.rs").replace("\r\n", "\n");
+    let writer_start = source
+        .find("pub fn write_tunnel_state(path: &Path, state: &WindowsTunnelState)")
+        .expect("state writer exists");
+    let writer_end = source[writer_start..]
+        .find("\n/// Reads and validates a state record")
+        .expect("state writer ends before state reader");
+    let writer = &source[writer_start..writer_start + writer_end];
+
+    let serialized = writer
+        .find("serialize_tunnel_state(state)?")
+        .expect("state serializes before filesystem mutation");
+    let temporary = writer
+        .find("create_state_temporary_file(path)")
+        .expect("state writer creates a unique sibling temporary file");
+    let write = writer
+        .find("write_all(serialized.as_bytes())")
+        .expect("state writer writes serialized bytes to its temporary file");
+    let sync = writer
+        .find("sync_all()")
+        .expect("state writer synchronizes its temporary file");
+    let replace = writer
+        .find("replace_state_file(&temporary_path, path)")
+        .expect("state writer atomically replaces the destination after syncing");
+    assert!(serialized < temporary && temporary < write && write < sync && sync < replace);
+    assert!(writer.contains("fs::remove_file(&temporary_path)"));
+    assert!(!writer.contains("fs::write("));
+
+    let temporary_start = source
+        .find("fn create_state_temporary_file(path: &Path)")
+        .expect("state temporary helper exists");
+    let temporary_end = source[temporary_start..]
+        .find("\n#[cfg(windows)]\nfn replace_state_file(")
+        .expect("state temporary helper ends before platform replacement");
+    let temporary = &source[temporary_start..temporary_start + temporary_end];
+    assert!(temporary.contains("path.parent()"));
+    assert!(temporary.contains("directory.join("));
+    assert!(temporary.contains(".create_new(true)"));
+    assert!(temporary.contains("file.metadata()?.is_file()"));
+
+    let windows_replace = "#[cfg(windows)]\nfn replace_state_file(";
+    let windows_replace_start = source
+        .find(windows_replace)
+        .expect("Windows state replacement helper exists");
+    let non_windows_replace = "#[cfg(not(windows))]\nfn replace_state_file(";
+    let non_windows_replace_start = source
+        .find(non_windows_replace)
+        .expect("non-Windows state replacement helper exists");
+    let windows_replace = &source[windows_replace_start..non_windows_replace_start];
+    assert!(windows_replace.contains("MoveFileExW"));
+    assert!(windows_replace.contains("MOVEFILE_REPLACE_EXISTING"));
+    assert!(windows_replace.contains("MOVEFILE_WRITE_THROUGH"));
+
+    let non_windows_replace = &source[non_windows_replace_start..];
+    assert!(non_windows_replace.contains("fs::rename(temporary_path, destination)"));
 }

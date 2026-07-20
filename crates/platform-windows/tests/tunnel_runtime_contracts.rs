@@ -121,6 +121,7 @@ impl EasyTierCliRunner for FakeCliRunner {
 struct FakeRoutePort {
     events: SharedEvents,
     recovery_error: Option<DomainError>,
+    restore_error: Option<DomainError>,
     destination_capture_error: Option<DomainError>,
     destination_remove_error: Option<DomainError>,
 }
@@ -130,6 +131,7 @@ impl FakeRoutePort {
         Self {
             events,
             recovery_error: None,
+            restore_error: None,
             destination_capture_error: None,
             destination_remove_error: None,
         }
@@ -142,6 +144,7 @@ impl FakeRoutePort {
                 WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
                 "fixture route recovery proof failed",
             )),
+            restore_error: None,
             destination_capture_error: None,
             destination_remove_error: None,
         }
@@ -155,6 +158,23 @@ impl FakeRoutePort {
         Self {
             events,
             recovery_error: None,
+            restore_error: None,
+            destination_capture_error: Some(DomainError::new(
+                WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
+                "fixture destination capture failed",
+            )),
+            destination_remove_error: None,
+        }
+    }
+
+    fn destination_capture_cleanup_fails(events: SharedEvents) -> Self {
+        Self {
+            events,
+            recovery_error: None,
+            restore_error: Some(DomainError::new(
+                WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
+                "fixture endpoint bypass restoration failed",
+            )),
             destination_capture_error: Some(DomainError::new(
                 WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
                 "fixture destination capture failed",
@@ -167,6 +187,7 @@ impl FakeRoutePort {
         Self {
             events,
             recovery_error: None,
+            restore_error: None,
             destination_capture_error: None,
             destination_remove_error: Some(DomainError::new(
                 WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
@@ -276,7 +297,10 @@ impl WindowsRoutePort for FakeRoutePort {
     fn restore(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()> {
         self.events
             .push(format!("route.restore:{}", route_snapshot_key(snapshot)));
-        Ok(())
+        match &self.restore_error {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
+        }
     }
 }
 
@@ -441,6 +465,57 @@ fn start_redacts_process_runner_paths_from_the_service_diagnostic() {
 }
 
 #[test]
+fn start_rejects_noncanonical_destination_policies_before_route_mutation() {
+    let cases: &[(&str, &[&str])] = &[
+        ("default-ipv4", &["0.0.0.0/0"]),
+        ("default-ipv6", &["::/0"]),
+        ("ipv6", &["2001:db8::/32"]),
+        ("host-bits", &["203.0.113.1/24"]),
+        ("whitespace", &[" 203.0.113.0/24"]),
+        ("malformed", &["not-a-destination-prefix"]),
+        ("duplicate", &["203.0.113.0/24", "203.0.113.0/24"]),
+    ];
+
+    for (name, destination_cidrs) in cases {
+        let events = SharedEvents::new();
+        let (binary, cli, secret) = fixture_paths(&format!("start-invalid-policy-{name}"));
+        let state_path = binary.parent().expect("fixture parent").join("state.json");
+        let mut request = start_request(binary, cli, secret, state_path);
+        request.plan.route_intents = destination_cidrs
+            .iter()
+            .enumerate()
+            .map(|(index, destination_cidr)| WindowsTunnelRouteIntent {
+                route_id: format!("fixture-route-{index}"),
+                destination_cidr: (*destination_cidr).to_string(),
+                service_chain_id: "pop-a-chain".to_string(),
+                direct_fallback: false,
+            })
+            .collect();
+        let mut service = WindowsTunnelSessionService::new(
+            fake_process_runner(events.clone(), None, None),
+            FakeCliRunner {
+                events: events.clone(),
+                peer_ready: true,
+                routes: vec!["203.0.113.0/24".to_string()],
+            },
+            FakeRoutePort::ready(events.clone()),
+        );
+
+        let error = service
+            .start(request)
+            .expect_err("invalid destination policy must fail preflight");
+        assert_eq!(error.code, WINDOWS_TUNNEL_START_FAILED_CODE);
+        assert!(
+            !events
+                .snapshot()
+                .iter()
+                .any(|event| event.starts_with("route.")),
+            "{name} must be rejected before any route operation"
+        );
+    }
+}
+
+#[test]
 fn start_orders_destination_snapshot_bypass_process_readiness_capture_and_state() {
     let events = SharedEvents::new();
     let (binary, cli, secret) = fixture_paths("start-order");
@@ -503,6 +578,39 @@ fn destination_capture_failure_returns_rollback_without_unproven_removal() {
     );
     assert!(event_index(&events, "route.restore") < event_index(&events, "process.stop"));
     assert!(!events
+        .iter()
+        .any(|event| event.starts_with("route.destination_remove")));
+}
+
+#[test]
+fn unproven_destination_capture_retains_config_when_cleanup_fails() {
+    let events = SharedEvents::new();
+    let (binary, cli, secret) = fixture_paths("destination-capture-cleanup-failure");
+    let state_path = binary.parent().expect("fixture parent").join("state.json");
+    let config_path = state_path
+        .parent()
+        .expect("fixture state path has a parent")
+        .join("state.easytier.toml");
+    let mut service = WindowsTunnelSessionService::new(
+        fake_process_runner(events.clone(), None, None),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        FakeRoutePort::destination_capture_cleanup_fails(events.clone()),
+    );
+
+    let error = service
+        .start(start_request(binary, cli, secret, state_path))
+        .expect_err("unproven destination capture must fail closed");
+    assert_eq!(error.code, WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE);
+    assert!(
+        config_path.is_file(),
+        "manual recovery configuration remains when rollback cannot be proven"
+    );
+    assert!(!events
+        .snapshot()
         .iter()
         .any(|event| event.starts_with("route.destination_remove")));
 }
@@ -1028,6 +1136,43 @@ fn fresh_service_stop_requires_recovery_proof_before_cleanup() {
 }
 
 #[test]
+fn stop_removes_destination_before_persisting_stopping_state() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+    let stop_marker =
+        "    pub fn stop(&mut self, state_path: &Path, confirm: bool) -> DomainResult<WindowsTunnelState> {";
+    let stop_start = source.find(stop_marker).expect("stop implementation exists");
+    let stop_end = source[stop_start..]
+        .find("\n    fn prepare_start(")
+        .expect("stop implementation ends before start preparation");
+    let stop = &source[stop_start..stop_start + stop_end];
+
+    let destination_remove = stop
+        .find(".remove_owned_destination_routes(&owned.virtual_route_snapshot)")
+        .expect("stop removes exact owned destination routes");
+    let stopping_state = stop
+        .find("stopping.state = WindowsTunnelLifecycleState::Stopping")
+        .expect("stop persists an explicit stopping state after route removal");
+    assert!(
+        destination_remove < stopping_state,
+        "destination removal must precede every persisted stopping state"
+    );
+
+    let destination_failure = stop
+        .find("if destination_result.is_err() {")
+        .expect("destination removal failure remains explicit");
+    let stopping_after_failure = stop[destination_failure..]
+        .find("\n        let mut stopping = state.clone();")
+        .expect("stopping state is constructed only after destination removal succeeds");
+    let destination_failure =
+        &stop[destination_failure..destination_failure + stopping_after_failure];
+    assert!(destination_failure.contains("let mut failed = state.clone()"));
+    assert!(destination_failure.contains("write_tunnel_state(&state_path, &failed)"));
+    assert!(!destination_failure.contains("route_port.restore("));
+    assert!(!destination_failure.contains("process_runner.stop("));
+    assert!(!destination_failure.contains("fs::remove_file("));
+}
+
+#[test]
 fn native_windows_elevation_probe_is_explicit_and_fail_closed() {
     let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
     let windows_marker = "#[cfg(windows)]\npub fn native_windows_is_elevated() -> bool {";
@@ -1222,6 +1367,23 @@ fn native_windows_destination_routes_use_bounded_active_store_exact_tuple_proof(
     }
     assert!(!destination.contains("route.exe DELETE"));
     assert!(!destination.contains("-DestinationPrefix '*"));
+}
+
+#[test]
+fn native_windows_destination_normalization_uses_canonical_ipv4_policy() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+    let normalization_marker =
+        "#[cfg(windows)]\nfn native_normalize_destination_cidr(destination_cidr: &str)";
+    let normalization_start = source
+        .find(normalization_marker)
+        .expect("native destination normalization exists");
+    let normalization_end = source[normalization_start..]
+        .find("\n#[cfg(windows)]\nfn native_destination_routes_from_snapshot(")
+        .expect("native destination normalization ends before snapshot parsing");
+    let normalization = &source[normalization_start..normalization_start + normalization_end];
+
+    assert!(normalization.contains("canonical_destination_ipv4_cidr(destination_cidr)"));
+    assert!(!normalization.contains("IpAddr::from_str(address)"));
 }
 
 #[test]
