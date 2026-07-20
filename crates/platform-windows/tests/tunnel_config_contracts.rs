@@ -62,8 +62,8 @@ fn fixture_state() -> WindowsTunnelState {
             binary_sha256: "d33d1d119b40c768c4d96c66236ba1c033e72a9c041e88aa9c84bd67a38d04a5"
                 .to_string(),
             cli_file_name: "easytier-cli.exe".to_string(),
-            cli_sha256:
-                "1a83ab65ea2cc02bbcd58f5bc8b24cd3942cbe9c4ac1b9cb2acd9881410bfcd3".to_string(),
+            cli_sha256: "1a83ab65ea2cc02bbcd58f5bc8b24cd3942cbe9c4ac1b9cb2acd9881410bfcd3"
+                .to_string(),
             route_cidrs: vec!["203.0.113.0/24".to_string()],
             virtual_route_snapshot: vec![WindowsRouteSnapshotEntry {
                 destination_cidr: "203.0.113.0/24".to_string(),

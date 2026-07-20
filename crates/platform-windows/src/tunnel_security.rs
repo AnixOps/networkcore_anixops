@@ -473,7 +473,10 @@ fn native_windows_secure_paths_from_output(
         || easytier_directory.parent() != Some(root.as_path())
         || state_directory.file_name().and_then(|name| name.to_str()) != Some("state")
         || secret_directory.file_name().and_then(|name| name.to_str()) != Some("secrets")
-        || easytier_directory.file_name().and_then(|name| name.to_str()) != Some("easytier")
+        || easytier_directory
+            .file_name()
+            .and_then(|name| name.to_str())
+            != Some("easytier")
     {
         return Err(secure_path_error());
     }

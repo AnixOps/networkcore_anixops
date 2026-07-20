@@ -842,8 +842,7 @@ where
         expected_cli_sha256: &str,
         plan: &WindowsTunnelPlan,
     ) -> DomainResult<()> {
-        verify_file_sha256(cli_path, expected_cli_sha256)
-            .map_err(|_| peer_not_ready_error())?;
+        verify_file_sha256(cli_path, expected_cli_sha256).map_err(|_| peer_not_ready_error())?;
         let peer_ready = self
             .cli_runner
             .peer_ready(cli_path, expected_cli_sha256)
@@ -852,8 +851,7 @@ where
             return Err(peer_not_ready_error());
         }
 
-        verify_file_sha256(cli_path, expected_cli_sha256)
-            .map_err(|_| route_not_ready_error())?;
+        verify_file_sha256(cli_path, expected_cli_sha256).map_err(|_| route_not_ready_error())?;
         let route_cidrs = self
             .cli_runner
             .route_cidrs(cli_path, expected_cli_sha256)
@@ -1257,7 +1255,9 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
         let cli_path = native_windows_validate_existing_easytier_artifact(&spec.cli_path)
             .map_err(|_| start_error("explicit EasyTier CLI path is invalid"))?;
         if binary_path.parent() != cli_path.parent() {
-            return Err(start_error("EasyTier executable paths are not trusted siblings"));
+            return Err(start_error(
+                "EasyTier executable paths are not trusted siblings",
+            ));
         }
         let config_file_name = safe_file_name_from_path(&spec.config_path)
             .ok_or_else(|| start_error("EasyTier session configuration path is invalid"))?;
@@ -1327,8 +1327,9 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
         )
         .ok_or_else(ownership_error)?;
         let binary_directory = proof.binary_path.parent().ok_or_else(ownership_error)?;
-        let trusted_binary_path = native_windows_validate_existing_easytier_artifact(&proof.binary_path)
-            .map_err(|_| ownership_error())?;
+        let trusted_binary_path =
+            native_windows_validate_existing_easytier_artifact(&proof.binary_path)
+                .map_err(|_| ownership_error())?;
         if trusted_binary_path != proof.binary_path {
             return Err(ownership_error());
         }
@@ -1378,8 +1379,9 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
             NativeVerifiedProcessHandle::open(proof.process.process_id, proof.creation_filetime)
                 .ok_or_else(ownership_error)?;
         let binary_directory = proof.binary_path.parent().ok_or_else(ownership_error)?;
-        let trusted_binary_path = native_windows_validate_existing_easytier_artifact(&proof.binary_path)
-            .map_err(|_| ownership_error())?;
+        let trusted_binary_path =
+            native_windows_validate_existing_easytier_artifact(&proof.binary_path)
+                .map_err(|_| ownership_error())?;
         if trusted_binary_path != proof.binary_path {
             return Err(ownership_error());
         }
@@ -1490,7 +1492,8 @@ fn native_process_proof_from_inspection(
     if !binary_path.is_file() {
         return None;
     }
-    let trusted_binary_path = native_windows_validate_existing_easytier_artifact(&binary_path).ok()?;
+    let trusted_binary_path =
+        native_windows_validate_existing_easytier_artifact(&binary_path).ok()?;
     if trusted_binary_path != binary_path {
         return None;
     }
@@ -1768,11 +1771,7 @@ impl EasyTierCliRunner for NativeEasyTierCliRunner {
         ))
     }
 
-    fn route_cidrs(
-        &mut self,
-        _path: &Path,
-        _expected_sha256: &str,
-    ) -> DomainResult<Vec<String>> {
+    fn route_cidrs(&mut self, _path: &Path, _expected_sha256: &str) -> DomainResult<Vec<String>> {
         Err(status_error(
             "Windows EasyTier CLI execution is unavailable on this platform",
         ))

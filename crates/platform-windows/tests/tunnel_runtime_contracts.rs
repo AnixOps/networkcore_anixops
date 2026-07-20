@@ -20,8 +20,7 @@ use std::rc::Rc;
 
 const FIXTURE_BINARY_SHA256: &str =
     "d33d1d119b40c768c4d96c66236ba1c033e72a9c041e88aa9c84bd67a38d04a5";
-const FIXTURE_CLI_SHA256: &str =
-    "1a83ab65ea2cc02bbcd58f5bc8b24cd3942cbe9c4ac1b9cb2acd9881410bfcd3";
+const FIXTURE_CLI_SHA256: &str = "1a83ab65ea2cc02bbcd58f5bc8b24cd3942cbe9c4ac1b9cb2acd9881410bfcd3";
 
 #[derive(Clone)]
 struct SharedEvents(Rc<RefCell<Vec<String>>>);
