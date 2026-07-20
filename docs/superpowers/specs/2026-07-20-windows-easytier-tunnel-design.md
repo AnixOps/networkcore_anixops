@@ -167,6 +167,10 @@ single entry POP in this first slice.
 - `WindowsRoutePort` owns the endpoint bypass and session-owned route transaction. It never
   accepts a route mutation without a session token produced by `WindowsTunnelPlan`.
 
+The native foreground EasyTier command builder discards child stdin, stdout, and stderr at the
+process boundary. Operator status comes only through the explicitly supplied `easytier-cli` path
+and fixed redacted diagnostics, never inherited child output.
+
    `control-runtime` is not given arbitrary process-spawn responsibilities. The platform adapter
 contains the OS-specific process and route mechanics, while the pure plan and lifecycle result
 types remain reusable by future GUI or service adapters.

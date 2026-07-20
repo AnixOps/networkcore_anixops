@@ -838,7 +838,7 @@ fn fresh_service_stop_requires_recovery_proof_before_cleanup() {
 
 #[test]
 fn native_windows_process_start_discards_child_standard_streams() {
-    let source = include_str!("../src/tunnel_runtime.rs");
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
     let command_builder_marker = "#[cfg(windows)]\nfn native_easytier_process_command(";
     let command_builder_start = source
         .find(command_builder_marker)

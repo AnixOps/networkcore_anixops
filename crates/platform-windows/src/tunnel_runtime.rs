@@ -12,6 +12,9 @@ use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+#[cfg(windows)]
+use std::process::{Command, Stdio};
+
 use crate::tunnel_config::{
     is_safe_tunnel_file_name, read_tunnel_state, render_easytier_config, verify_file_sha256,
     write_tunnel_state, EasyTierConfigRequest, EasyTierLaunchSpec, OwnedProcessHandle,
@@ -825,10 +828,21 @@ struct NativeProcessInspection {
 }
 
 #[cfg(windows)]
+fn native_easytier_process_command(binary_path: &Path, config_path: &Path) -> Command {
+    let mut command = Command::new(binary_path);
+    command
+        .arg("--config-file")
+        .arg(config_path)
+        .arg("--disable-env-parsing")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    command
+}
+
+#[cfg(windows)]
 impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
     fn start(&mut self, spec: &EasyTierLaunchSpec) -> DomainResult<OwnedProcessHandle> {
-        use std::process::Command;
-
         if spec.session_id.trim().is_empty() {
             return Err(start_error("EasyTier launch session identity is invalid"));
         }
@@ -848,10 +862,7 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
             ));
         }
 
-        let child = Command::new(&binary_path)
-            .arg("--config-file")
-            .arg(&config_path)
-            .arg("--disable-env-parsing")
+        let child = native_easytier_process_command(&binary_path, &config_path)
             .spawn()
             .map_err(|_| start_error("explicit EasyTier executable could not be started"))?;
         let process_id = child.id();
