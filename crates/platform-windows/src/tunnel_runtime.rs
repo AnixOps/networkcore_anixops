@@ -1194,9 +1194,9 @@ fn native_easytier_process_command(
     binary_path: &Path,
     config_path: &Path,
 ) -> DomainResult<Command> {
-    let working_directory = binary_path.parent().ok_or_else(|| {
-        start_error("explicit EasyTier executable path is invalid")
-    })?;
+    let working_directory = binary_path
+        .parent()
+        .ok_or_else(|| start_error("explicit EasyTier executable path is invalid"))?;
     let mut command = native_windows_hardened_command(binary_path)
         .map_err(|_| start_error("explicit EasyTier executable could not be started"))?;
     command
