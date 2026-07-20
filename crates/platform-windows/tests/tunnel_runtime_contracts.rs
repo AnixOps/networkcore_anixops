@@ -2925,7 +2925,7 @@ fn native_windows_cleanup_presence_uses_only_bounded_absence_and_fail_closed_pro
 fn manual_cleanup_recovery_requires_durable_state_failure_and_fresh_convergence_evidence() {
     let manual = include_str!("../../../docs/manual-intervention.md");
     for fact in [
-        "state-write denial",
+        "State-write denial",
         "disk-full",
         "native state move failure",
         "fresh cleanup convergence",
