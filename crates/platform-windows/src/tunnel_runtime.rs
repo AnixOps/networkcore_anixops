@@ -1363,6 +1363,7 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
 #[cfg(all(test, windows))]
 mod native_process_proof_tests {
     use super::*;
+    use std::net::Ipv4Addr;
 
     const FIXTURE_BINARY_SHA256: &str =
         "d33d1d119b40c768c4d96c66236ba1c033e72a9c041e88aa9c84bd67a38d04a5";
@@ -1428,6 +1429,106 @@ mod native_process_proof_tests {
             &config_path,
         );
         assert!(extra_argument_proof.is_none());
+    }
+
+    #[test]
+    fn native_bypass_routes_require_one_normalized_ipv4_tuple_per_endpoint() {
+        let snapshot = vec![WindowsRouteSnapshotEntry {
+            destination_cidr: "198.51.100.10/32".to_string(),
+            gateway: Some("192.0.2.1".to_string()),
+            interface_index: Some(12),
+            metric: Some(25),
+        }];
+        let routes = native_bypass_routes_from_snapshot(&snapshot)
+            .expect("valid persisted endpoint bypass is normalized");
+        assert_eq!(
+            routes,
+            vec![NativeBypassRoute {
+                endpoint: Ipv4Addr::new(198, 51, 100, 10),
+                gateway: Ipv4Addr::new(192, 0, 2, 1),
+                interface_index: 12,
+                metric: 25,
+            }]
+        );
+
+        let rejected_snapshots = [
+            vec![WindowsRouteSnapshotEntry {
+                destination_cidr: "198.51.100.10/24".to_string(),
+                ..snapshot[0].clone()
+            }],
+            vec![WindowsRouteSnapshotEntry {
+                destination_cidr: "2001:db8::10/32".to_string(),
+                ..snapshot[0].clone()
+            }],
+            vec![WindowsRouteSnapshotEntry {
+                gateway: Some("   ".to_string()),
+                ..snapshot[0].clone()
+            }],
+            vec![WindowsRouteSnapshotEntry {
+                gateway: Some("not-an-ip".to_string()),
+                ..snapshot[0].clone()
+            }],
+            vec![WindowsRouteSnapshotEntry {
+                interface_index: None,
+                ..snapshot[0].clone()
+            }],
+            vec![WindowsRouteSnapshotEntry {
+                interface_index: Some(0),
+                ..snapshot[0].clone()
+            }],
+            vec![WindowsRouteSnapshotEntry {
+                metric: None,
+                ..snapshot[0].clone()
+            }],
+            vec![WindowsRouteSnapshotEntry {
+                metric: Some(65_536),
+                ..snapshot[0].clone()
+            }],
+            vec![snapshot[0].clone(), snapshot[0].clone()],
+        ];
+        for invalid_snapshot in rejected_snapshots {
+            assert!(
+                native_bypass_routes_from_snapshot(&invalid_snapshot).is_err(),
+                "invalid persisted bypass snapshots are rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn native_exact_bypass_scripts_bind_every_route_tuple_field() {
+        let snapshot = vec![WindowsRouteSnapshotEntry {
+            destination_cidr: "198.51.100.10/32".to_string(),
+            gateway: Some("192.0.2.1".to_string()),
+            interface_index: Some(12),
+            metric: Some(25),
+        }];
+        let route = native_bypass_routes_from_snapshot(&snapshot)
+            .expect("valid persisted endpoint bypass is normalized")
+            .pop()
+            .expect("one normalized route is returned");
+        let proof_script = native_exact_bypass_proof_script(&route);
+        let removal_script = native_exact_bypass_removal_script(&route);
+        let required_fragments = [
+            "Get-NetRoute",
+            "-PolicyStore ActiveStore",
+            "-DestinationPrefix '198.51.100.10/32'",
+            "-NextHop '192.0.2.1'",
+            "-InterfaceIndex 12",
+            "-RouteMetric 25",
+            "$matches.Count -ne 1",
+        ];
+        for script in [&proof_script, &removal_script] {
+            for fragment in required_fragments {
+                assert!(
+                    script.contains(fragment),
+                    "exact bypass script contains {fragment}: {script}"
+                );
+            }
+        }
+        assert!(removal_script.contains(
+            "Remove-NetRoute -InputObject $matches[0] -Confirm:$false -ErrorAction Stop"
+        ));
+        assert!(!removal_script.contains("route.exe"));
     }
 }
 

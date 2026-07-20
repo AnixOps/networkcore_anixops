@@ -899,3 +899,63 @@ fn native_windows_process_start_discards_child_standard_streams() {
         "native process start configures the command before spawning it"
     );
 }
+
+#[test]
+fn native_windows_recovery_and_removal_require_exact_bypass_proof() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+    let route_port_marker = "#[cfg(windows)]\nimpl WindowsRoutePort for NativeWindowsRoutePort {";
+    let route_port_start = source
+        .find(route_port_marker)
+        .expect("Windows route port implementation exists");
+    let route_port_end = source[route_port_start..]
+        .find("\n#[cfg(all(test, windows))]\nmod native_process_proof_tests")
+        .expect("Windows route port implementation ends before native unit tests");
+    let route_port = &source[route_port_start..route_port_start + route_port_end];
+    let recovery_start = route_port
+        .find("    fn recover_owned_bypass(")
+        .expect("native bypass recovery exists");
+    let recovery_end = route_port[recovery_start..]
+        .find("\n\n    fn restore(")
+        .expect("native bypass recovery ends before restore");
+    let recovery = &route_port[recovery_start..recovery_start + recovery_end];
+
+    let parse = recovery
+        .find("native_bypass_routes_from_snapshot(snapshot)")
+        .expect("recovery normalizes the persisted bypass snapshot");
+    let key = recovery
+        .find("native_bypass_key(&bypasses)")
+        .expect("recovery constructs a normalized bypass ownership key");
+    let proof_loop = recovery
+        .find("for bypass in &bypasses")
+        .expect("recovery proves each normalized bypass route");
+    let proof = recovery
+        .find("native_prove_bypass(bypass)")
+        .expect("recovery invokes exact native bypass proof");
+    let insertion = recovery
+        .find("self.owned_bypasses")
+        .expect("recovery records only proven bypass ownership");
+    assert!(
+        parse < key && key < proof_loop && proof_loop < proof && proof < insertion,
+        "recovery must normalize, key, prove every tuple, then insert ownership"
+    );
+
+    let removal_marker =
+        "#[cfg(windows)]\nfn native_remove_bypass(route: &NativeBypassRoute) -> DomainResult<()> {";
+    let removal_start = source
+        .find(removal_marker)
+        .expect("native bypass removal helper exists");
+    let removal_end = source[removal_start + removal_marker.len()..]
+        .find("\n#[cfg(windows)]\nfn native_bypass_key(")
+        .expect("native bypass removal helper ends before key normalization");
+    let removal = &source[removal_start..removal_start + removal_marker.len() + removal_end];
+    assert!(
+        removal.contains("native_exact_bypass_removal_script(route)"),
+        "removal uses the exact bounded PowerShell removal script"
+    );
+    assert!(
+        removal.contains("powershell.exe"),
+        "removal executes the bounded PowerShell script"
+    );
+    assert!(!removal.contains("route.exe"));
+    assert!(!removal.contains("DELETE"));
+}
