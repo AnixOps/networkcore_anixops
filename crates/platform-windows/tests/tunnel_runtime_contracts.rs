@@ -124,6 +124,7 @@ impl EasyTierCliRunner for FakeCliRunner {
 
 struct FakeRoutePort {
     events: SharedEvents,
+    bypass_error: Option<DomainError>,
     recovery_error: Option<DomainError>,
     restore_error: Option<DomainError>,
     destination_capture_error: Option<DomainError>,
@@ -135,6 +136,7 @@ impl FakeRoutePort {
     fn ready(events: SharedEvents) -> Self {
         Self {
             events,
+            bypass_error: None,
             recovery_error: None,
             restore_error: None,
             destination_capture_error: None,
@@ -146,6 +148,7 @@ impl FakeRoutePort {
     fn failing_recovery(events: SharedEvents) -> Self {
         Self {
             events,
+            bypass_error: None,
             recovery_error: Some(DomainError::new(
                 WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
                 "fixture route recovery proof failed",
@@ -174,6 +177,7 @@ impl FakeRoutePort {
     fn destination_capture_fails(events: SharedEvents) -> Self {
         Self {
             events,
+            bypass_error: None,
             recovery_error: None,
             restore_error: None,
             destination_capture_error: Some(DomainError::new(
@@ -188,6 +192,7 @@ impl FakeRoutePort {
     fn destination_capture_cleanup_fails(events: SharedEvents) -> Self {
         Self {
             events,
+            bypass_error: None,
             recovery_error: None,
             restore_error: Some(DomainError::new(
                 WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
@@ -205,6 +210,7 @@ impl FakeRoutePort {
     fn bypass_restore_fails(events: SharedEvents) -> Self {
         Self {
             events,
+            bypass_error: None,
             recovery_error: None,
             restore_error: Some(DomainError::new(
                 WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
@@ -219,6 +225,7 @@ impl FakeRoutePort {
     fn destination_removal_fails(events: SharedEvents) -> Self {
         Self {
             events,
+            bypass_error: None,
             recovery_error: None,
             restore_error: None,
             destination_capture_error: None,
@@ -227,6 +234,13 @@ impl FakeRoutePort {
                 "fixture destination removal failed",
             )),
             strict_destination_recovery_available: None,
+        }
+    }
+
+    fn bypass_installation_fails(events: SharedEvents, error: DomainError) -> Self {
+        Self {
+            bypass_error: Some(error),
+            ..Self::ready(events)
         }
     }
 }
@@ -324,7 +338,10 @@ impl WindowsRoutePort for FakeRoutePort {
     fn add_endpoint_bypass(&mut self, endpoints: &[IpAddr]) -> DomainResult<()> {
         self.events
             .push(format!("route.bypass:{}", endpoints.len()));
-        Ok(())
+        match &self.bypass_error {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
+        }
     }
 
     fn recover_owned_bypass(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()> {
@@ -989,6 +1006,53 @@ fn start_redacts_process_runner_paths_from_the_service_diagnostic() {
 }
 
 #[test]
+fn fully_proven_process_start_failure_removes_direct_child_config_and_retains_redacted_error() {
+    let events = SharedEvents::new();
+    let (binary, cli, secret) = fixture_paths("fully-proven-process-start-failure");
+    let state_path = binary.parent().expect("fixture parent").join("state.json");
+    let config_path = state_path
+        .parent()
+        .expect("fixture state path has a parent")
+        .join("state.easytier.toml");
+    let mut service = WindowsTunnelSessionService::new(
+        failing_start_process_runner(
+            events.clone(),
+            DomainError::new(
+                "fixture.process_start_failed",
+                "fixture process start failure must remain redacted",
+            ),
+        ),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        FakeRoutePort::ready(events.clone()),
+    );
+
+    let error = service
+        .start(start_request(binary, cli, secret, state_path.clone()))
+        .expect_err("ordinary process start failure must roll back cleanly");
+    assert_eq!(error.code, WINDOWS_TUNNEL_START_FAILED_CODE);
+    assert_eq!(error.message, "EasyTier process could not be started");
+    assert!(
+        !config_path.exists(),
+        "the direct-child config is removed after route restoration is proven"
+    );
+    assert!(
+        !state_path.exists(),
+        "a failed start does not persist a running state after clean rollback"
+    );
+
+    let events = events.snapshot();
+    assert!(event_index(&events, "process.start") < event_index(&events, "route.restore"));
+    assert!(
+        !events.iter().any(|event| event.starts_with("process.stop")),
+        "a process that never started is not treated as owned"
+    );
+}
+
+#[test]
 fn start_rejects_noncanonical_destination_policies_before_route_mutation() {
     let cases: &[(&str, &[&str])] = &[
         ("default-ipv4", &["0.0.0.0/0"]),
@@ -1074,6 +1138,40 @@ fn start_orders_destination_snapshot_bypass_process_readiness_capture_and_state(
     assert!(event_index(&events, "cli.peer_ready") < event_index(&events, "cli.route_cidrs"));
     assert!(
         event_index(&events, "cli.route_cidrs") < event_index(&events, "route.destination_capture")
+    );
+}
+
+#[test]
+fn start_preserves_route_port_rollback_failure_from_endpoint_bypass_installation() {
+    let events = SharedEvents::new();
+    let (binary, cli, secret) = fixture_paths("endpoint-bypass-rollback-failure");
+    let state_path = binary.parent().expect("fixture parent").join("state.json");
+    let expected = DomainError::new(
+        WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE,
+        "fixture exact endpoint-bypass reconciliation could not be proven",
+    );
+    let mut service = WindowsTunnelSessionService::new(
+        fake_process_runner(events.clone(), None, None),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        FakeRoutePort::bypass_installation_fails(events.clone(), expected.clone()),
+    );
+
+    let error = service
+        .start(start_request(binary, cli, secret, state_path))
+        .expect_err("route-port rollback failure must reach start unchanged");
+    assert_eq!(error.code, expected.code);
+    assert_eq!(error.message, expected.message);
+
+    let events = events.snapshot();
+    assert!(event_index(&events, "route.snapshot") < event_index(&events, "route.bypass"));
+    assert!(event_index(&events, "route.bypass") < event_index(&events, "route.restore"));
+    assert!(
+        !events.iter().any(|event| event.starts_with("process.start")),
+        "endpoint-bypass failure prevents process launch"
     );
 }
 
@@ -2739,6 +2837,78 @@ fn native_windows_runtime_child_commands_use_only_trusted_factories() {
         .find(".stderr(Stdio::null())")
         .expect("silent helper discards child stderr");
     assert!(trusted_factory < stdin && stdin < stdout && stdout < stderr);
+}
+
+#[test]
+fn native_windows_bypass_installation_requires_exact_proof_and_reconciliation() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+    let route_port_marker = "#[cfg(windows)]\nimpl WindowsRoutePort for NativeWindowsRoutePort {";
+    let route_port_start = source
+        .find(route_port_marker)
+        .expect("Windows route port implementation exists");
+    let route_port_end = source[route_port_start..]
+        .find("\n#[cfg(all(test, windows))]\nmod native_process_proof_tests")
+        .expect("Windows route port implementation ends before native unit tests");
+    let route_port = &source[route_port_start..route_port_start + route_port_end];
+    let addition_start = route_port
+        .find("    fn add_endpoint_bypass(")
+        .expect("native bypass installation exists");
+    let addition_end = route_port[addition_start..]
+        .find("\n\n    fn recover_owned_bypass(")
+        .expect("native bypass installation ends before recovery");
+    let addition = &route_port[addition_start..addition_start + addition_end];
+
+    let attempted = addition
+        .find("let mut attempted = Vec::with_capacity(bypasses.len());")
+        .expect("native bypass installation records every attempted tuple before mutation");
+    let add = addition
+        .find("if let Err(error) = native_add_bypass(bypass)")
+        .expect("native bypass installation handles exact add failure");
+    let proof = addition
+        .find("if let Err(error) = native_prove_bypass(bypass)")
+        .expect("every successful native bypass add is immediately exact-proven");
+    let ownership = addition
+        .find("self.owned_bypasses.insert(key, bypasses)")
+        .expect("native bypass ownership insertion exists");
+    assert!(
+        attempted < add && add < proof && proof < ownership,
+        "attempted tuples are added, exact-proven, then owned only after all proofs"
+    );
+    assert_eq!(
+        addition
+            .matches("native_reconcile_attempted_bypasses(&attempted, error)")
+            .count(),
+        2,
+        "both native add and proof failures reconcile every attempted exact tuple"
+    );
+
+    let reconciliation_marker =
+        "#[cfg(windows)]\nfn native_reconcile_attempted_bypasses(";
+    let reconciliation_start = source
+        .find(reconciliation_marker)
+        .expect("native attempted-bypass reconciliation helper exists");
+    let reconciliation_end = source[reconciliation_start..]
+        .find("\n#[cfg(windows)]\nfn native_bypass_key(")
+        .expect("native attempted-bypass reconciliation ends before key normalization");
+    let reconciliation =
+        &source[reconciliation_start..reconciliation_start + reconciliation_end];
+    let inspection = reconciliation
+        .find("native_cleanup_bypass_presence(bypass)")
+        .expect("reconciliation first performs bounded exact presence inspection");
+    let removal = reconciliation
+        .find("native_remove_bypass(bypass)")
+        .expect("a present attempted tuple is removed through the exact helper");
+    let absence_proof = removal
+        + reconciliation[removal..]
+            .find("native_cleanup_bypass_presence(bypass)")
+            .expect("exact removal is followed by bounded absence proof");
+    let original = reconciliation
+        .rfind("\n    original")
+        .expect("the original endpoint-bypass failure is retained only after reconciliation");
+    assert!(inspection < removal && removal < absence_proof && absence_proof < original);
+    assert!(reconciliation.contains("Ok(false) => continue"));
+    assert!(reconciliation.contains("Err(_) => return rollback_error()"));
+    assert!(reconciliation.contains("Ok(true) | Err(_) => return rollback_error()"));
 }
 
 #[test]
