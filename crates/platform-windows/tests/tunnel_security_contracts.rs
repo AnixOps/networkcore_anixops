@@ -13,10 +13,8 @@ fn native_windows_prepare_uses_trusted_programdata_and_exact_storage_ownership()
     let source = include_str!("../src/tunnel_security.rs").replace("\r\n", "\n");
     let prepare = native_script(&source, "NATIVE_WINDOWS_TUNNEL_PREPARE_SCRIPT");
     let inspection = native_script(&source, "NATIVE_WINDOWS_TUNNEL_INSPECT_SCRIPT");
-    let secret_protection = native_script(
-        &source,
-        "NATIVE_WINDOWS_TUNNEL_PROTECT_SECRET_FILE_SCRIPT",
-    );
+    let secret_protection =
+        native_script(&source, "NATIVE_WINDOWS_TUNNEL_PROTECT_SECRET_FILE_SCRIPT");
 
     for script in [prepare, inspection, secret_protection] {
         assert!(script.contains(
@@ -45,9 +43,8 @@ fn native_windows_prepare_uses_trusted_programdata_and_exact_storage_ownership()
     assert!(prepare.contains("@($vendorDirectory, $root, $stateDirectory, $secretDirectory)"));
 
     assert!(secret_protection.contains("SetOwner"));
-    assert!(secret_protection.contains(
-        "GetOwner([System.Security.Principal.SecurityIdentifier]).Value"
-    ));
+    assert!(secret_protection
+        .contains("GetOwner([System.Security.Principal.SecurityIdentifier]).Value"));
     assert!(secret_protection.contains("$rules.Count -ne 2"));
     assert!(secret_protection.contains("FileSystemRights]::FullControl"));
 
@@ -82,13 +79,12 @@ fn native_windows_prepare_uses_trusted_programdata_and_exact_storage_ownership()
     assert!(source.contains("let vendor = fs::canonicalize(paths[1])"));
     assert!(source.contains("let root = fs::canonicalize(paths[2])"));
     assert!(source.contains("vendor.parent() != Some(base.as_path())"));
-    assert!(source.contains(
-        "vendor.file_name().and_then(|name| name.to_str()) != Some(\"AnixOps\")"
-    ));
+    assert!(
+        source.contains("vendor.file_name().and_then(|name| name.to_str()) != Some(\"AnixOps\")")
+    );
     assert!(source.contains("root.parent() != Some(vendor.as_path())"));
-    assert!(source.contains(
-        "root.file_name().and_then(|name| name.to_str()) != Some(\"WindowsTunnel\")"
-    ));
+    assert!(source
+        .contains("root.file_name().and_then(|name| name.to_str()) != Some(\"WindowsTunnel\")"));
 }
 
 #[test]

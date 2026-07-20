@@ -4,10 +4,9 @@ use networkcore_windows::{
     parse_args, render_response, DeliveryBackedWindowsTunnelCommandService, OutputFormat,
     TunnelStartInputPaths, WindowsCliCommand, WindowsCliExitCode, WindowsCliResponse,
     WindowsTunnelCommandResult, WindowsTunnelCommandService, WindowsTunnelDeliveryLoader,
-    WindowsTunnelInputPathPolicy, WindowsTunnelLifecyclePort, WindowsTunnelPrivilegePort,
-    WindowsTunnelPrepareStorageArgs, WindowsTunnelStartArgs, WindowsTunnelStatusArgs,
-    WindowsTunnelStopArgs,
-    CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE, CLI_WINDOWS_ARTIFACT_READY_CODE,
+    WindowsTunnelInputPathPolicy, WindowsTunnelLifecyclePort, WindowsTunnelPrepareStorageArgs,
+    WindowsTunnelPrivilegePort, WindowsTunnelStartArgs, WindowsTunnelStatusArgs,
+    WindowsTunnelStopArgs, CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE, CLI_WINDOWS_ARTIFACT_READY_CODE,
     CLI_WINDOWS_SYSTEM_MUTATION_BLOCKED_CODE, COMMAND_NAME,
     WINDOWS_CLI_SUBSCRIPTION_COMPATIBILITY_STATUS,
 };
@@ -767,14 +766,8 @@ fn parses_tunnel_start_with_all_explicit_paths() {
 
 #[test]
 fn parses_confirmed_tunnel_storage_preparation() {
-    let command = parse_args([
-        "tunnel",
-        "prepare-storage",
-        "--confirm",
-        "--format",
-        "json",
-    ])
-    .expect("confirmed tunnel storage preparation command");
+    let command = parse_args(["tunnel", "prepare-storage", "--confirm", "--format", "json"])
+        .expect("confirmed tunnel storage preparation command");
 
     match command {
         WindowsCliCommand::TunnelPrepareStorage(args) => {
@@ -799,13 +792,8 @@ fn tunnel_storage_preparation_requires_confirm() {
 
 #[test]
 fn tunnel_storage_preparation_rejects_duplicate_confirm() {
-    let error = parse_args([
-        "tunnel",
-        "prepare-storage",
-        "--confirm",
-        "--confirm",
-    ])
-    .expect_err("storage preparation must reject duplicate confirmation");
+    let error = parse_args(["tunnel", "prepare-storage", "--confirm", "--confirm"])
+        .expect_err("storage preparation must reject duplicate confirmation");
     let response = handle_parse_error(error.into_diagnostic());
 
     assert!(!response.ok);
@@ -1455,9 +1443,14 @@ fn elevated_tunnel_status_validates_state_before_lifecycle_delegation() {
     );
     let status_args = fixture_tunnel_status_args();
 
-    service.status(&status_args).expect("elevated guarded status");
+    service
+        .status(&status_args)
+        .expect("elevated guarded status");
 
-    assert_eq!(events.borrow().as_slice(), ["paths.state", "lifecycle.status"]);
+    assert_eq!(
+        events.borrow().as_slice(),
+        ["paths.state", "lifecycle.status"]
+    );
     assert_eq!(state_calls.borrow().as_slice(), [status_args.state_path]);
     assert_eq!(status_paths.borrow().as_slice(), [guarded_state_path]);
 }
