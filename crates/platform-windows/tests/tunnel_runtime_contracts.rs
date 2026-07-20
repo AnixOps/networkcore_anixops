@@ -835,3 +835,67 @@ fn fresh_service_stop_requires_recovery_proof_before_cleanup() {
         events.contains(&"process.stop:fixture-session:41001:fixture-creation-marker".to_string())
     );
 }
+
+#[test]
+fn native_windows_process_start_discards_child_standard_streams() {
+    let source = include_str!("../src/tunnel_runtime.rs");
+    let command_builder_marker = "#[cfg(windows)]\nfn native_easytier_process_command(";
+    let command_builder_start = source
+        .find(command_builder_marker)
+        .expect("Windows EasyTier command builder exists");
+    let native_runner_marker =
+        "#[cfg(windows)]\nimpl EasyTierProcessRunner for NativeEasyTierProcessRunner";
+    let command_builder_end = source[command_builder_start..]
+        .find(native_runner_marker)
+        .expect("Windows command builder ends before native process start");
+    let command_builder =
+        &source[command_builder_start..command_builder_start + command_builder_end];
+
+    let config_flag = command_builder
+        .find(".arg(\"--config-file\")")
+        .expect("command builder preserves the config-file flag");
+    let config_path = command_builder
+        .find(".arg(config_path)")
+        .expect("command builder preserves the canonical config path");
+    let disable_environment_parsing = command_builder
+        .find(".arg(\"--disable-env-parsing\")")
+        .expect("command builder preserves disabled environment parsing");
+    assert!(
+        config_flag < config_path && config_path < disable_environment_parsing,
+        "command builder preserves the canonical EasyTier argument order"
+    );
+
+    let stdin = command_builder
+        .find(".stdin(Stdio::null())")
+        .expect("command builder discards child stdin");
+    let stdout = command_builder
+        .find(".stdout(Stdio::null())")
+        .expect("command builder discards child stdout");
+    let stderr = command_builder
+        .find(".stderr(Stdio::null())")
+        .expect("command builder discards child stderr");
+    assert!(
+        stdin < stdout && stdout < stderr,
+        "command builder configures every child standard stream explicitly"
+    );
+
+    let native_runner = &source[command_builder_start + command_builder_end..];
+    let start_offset = native_runner
+        .find("fn start(&mut self, spec: &EasyTierLaunchSpec)")
+        .expect("native process runner start exists");
+    let start = &native_runner[start_offset..];
+    let start_end = start
+        .find("\n    fn recover(")
+        .expect("native process runner start ends before recovery");
+    let start = &start[..start_end];
+    let command_builder_call = start
+        .find("native_easytier_process_command(&binary_path, &config_path)")
+        .expect("native process start uses the command builder");
+    let spawn = start
+        .find(".spawn()")
+        .expect("native process start spawns the configured command");
+    assert!(
+        command_builder_call < spawn,
+        "native process start configures the command before spawning it"
+    );
+}
