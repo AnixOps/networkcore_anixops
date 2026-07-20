@@ -811,10 +811,7 @@ where
         }
         let binary_file_name =
             safe_file_name_from_path(&recovered.binary_path).ok_or_else(ownership_error)?;
-        let binary_directory = recovered
-            .binary_path
-            .parent()
-            .ok_or_else(ownership_error)?;
+        let binary_directory = recovered.binary_path.parent().ok_or_else(ownership_error)?;
         let binary_path = canonical_file_under_directory(binary_directory, &binary_file_name)
             .ok_or_else(ownership_error)?;
         if verify_file_sha256(&binary_path, &spec.expected_binary_sha256).is_err() {
