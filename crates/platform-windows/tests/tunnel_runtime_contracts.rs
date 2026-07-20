@@ -1170,7 +1170,9 @@ fn start_preserves_route_port_rollback_failure_from_endpoint_bypass_installation
     assert!(event_index(&events, "route.snapshot") < event_index(&events, "route.bypass"));
     assert!(event_index(&events, "route.bypass") < event_index(&events, "route.restore"));
     assert!(
-        !events.iter().any(|event| event.starts_with("process.start")),
+        !events
+            .iter()
+            .any(|event| event.starts_with("process.start")),
         "endpoint-bypass failure prevents process launch"
     );
 }
@@ -2882,16 +2884,14 @@ fn native_windows_bypass_installation_requires_exact_proof_and_reconciliation() 
         "both native add and proof failures reconcile every attempted exact tuple"
     );
 
-    let reconciliation_marker =
-        "#[cfg(windows)]\nfn native_reconcile_attempted_bypasses(";
+    let reconciliation_marker = "#[cfg(windows)]\nfn native_reconcile_attempted_bypasses(";
     let reconciliation_start = source
         .find(reconciliation_marker)
         .expect("native attempted-bypass reconciliation helper exists");
     let reconciliation_end = source[reconciliation_start..]
         .find("\n#[cfg(windows)]\nfn native_bypass_key(")
         .expect("native attempted-bypass reconciliation ends before key normalization");
-    let reconciliation =
-        &source[reconciliation_start..reconciliation_start + reconciliation_end];
+    let reconciliation = &source[reconciliation_start..reconciliation_start + reconciliation_end];
     let inspection = reconciliation
         .find("native_cleanup_bypass_presence(bypass)")
         .expect("reconciliation first performs bounded exact presence inspection");
