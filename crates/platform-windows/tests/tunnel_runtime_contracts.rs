@@ -959,3 +959,64 @@ fn native_windows_recovery_and_removal_require_exact_bypass_proof() {
     assert!(!removal.contains("route.exe"));
     assert!(!removal.contains("DELETE"));
 }
+
+#[test]
+fn native_windows_bypass_commands_discard_child_standard_streams() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+    let command_marker =
+        "#[cfg(windows)]\nfn native_silent_route_command(program: &str) -> Command {";
+    let command_start = source
+        .find(command_marker)
+        .expect("native silent route command helper exists");
+    let command_end = source[command_start..]
+        .find("\n#[cfg(windows)]\nfn native_add_bypass(")
+        .expect("native silent route command helper ends before route addition");
+    let command = &source[command_start..command_start + command_end];
+    let stdin = command
+        .find(".stdin(Stdio::null())")
+        .expect("native route commands discard child stdin");
+    let stdout = command
+        .find(".stdout(Stdio::null())")
+        .expect("native route commands discard child stdout");
+    let stderr = command
+        .find(".stderr(Stdio::null())")
+        .expect("native route commands discard child stderr");
+    assert!(
+        stdin < stdout && stdout < stderr,
+        "native route command helper configures every child standard stream"
+    );
+
+    for (name, marker, end_marker) in [
+        (
+            "add",
+            "#[cfg(windows)]\nfn native_add_bypass(",
+            "\n#[cfg(windows)]\nfn native_exact_bypass_proof_script(",
+        ),
+        (
+            "proof",
+            "#[cfg(windows)]\nfn native_prove_bypass(",
+            "\n#[cfg(windows)]\nfn native_remove_bypass(",
+        ),
+        (
+            "removal",
+            "#[cfg(windows)]\nfn native_remove_bypass(",
+            "\n#[cfg(windows)]\nfn native_bypass_key(",
+        ),
+    ] {
+        let start = source.find(marker).expect("native bypass helper exists");
+        let end = source[start..]
+            .find(end_marker)
+            .expect("native bypass helper has a bounded source slice");
+        let helper = &source[start..start + end];
+        let silent_command = helper
+            .find("native_silent_route_command(")
+            .expect("native bypass helper uses the silent route command helper");
+        let status = helper
+            .find(".status()")
+            .expect("native bypass helper executes its configured command");
+        assert!(
+            silent_command < status,
+            "native {name} bypass helper configures silent streams before status"
+        );
+    }
+}
