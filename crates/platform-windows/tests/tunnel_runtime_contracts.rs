@@ -2187,7 +2187,9 @@ fn stopping_cleanup_does_not_require_the_cli_artifact() {
     );
     assert!(!config_path.exists());
     let events = events.snapshot();
-    assert!(events.iter().any(|event| event == "process.cleanup_recover"));
+    assert!(events
+        .iter()
+        .any(|event| event == "process.cleanup_recover"));
     assert!(events.iter().any(|event| event.starts_with("process.stop")));
     assert!(!events.iter().any(|event| event.starts_with("cli.")));
 }
