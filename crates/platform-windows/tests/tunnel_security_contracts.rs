@@ -120,6 +120,54 @@ fn native_windows_easytier_artifacts_require_a_protected_direct_child_root() {
 }
 
 #[test]
+fn native_windows_easytier_sidecars_require_bounded_file_acl_protection() {
+    let source = include_str!("../src/tunnel_security.rs").replace("\r\n", "\n");
+    let normalize = native_script(
+        &source,
+        "NATIVE_WINDOWS_TUNNEL_NORMALIZE_EASYTIER_ARTIFACTS_SCRIPT",
+    );
+    let validation = native_script(
+        &source,
+        "NATIVE_WINDOWS_TUNNEL_VALIDATE_EASYTIER_ARTIFACTS_SCRIPT",
+    );
+    let cleanup_core = native_script(
+        &source,
+        "NATIVE_WINDOWS_TUNNEL_VALIDATE_EASYTIER_CORE_ARTIFACT_SCRIPT",
+    );
+
+    for script in [normalize, validation] {
+        assert!(script.contains("$easytierDirectory = Join-Path $root 'easytier'"));
+        assert!(script.contains(
+            "Get-ChildItem -LiteralPath $easytierDirectory -Force -ErrorAction Stop"
+        ));
+        assert!(script.contains("[System.IO.FileInfo]"));
+        assert!(script.contains("ReparsePoint"));
+        assert!(!script.contains("-Recurse"));
+    }
+    assert!(normalize.contains("SetAccessRuleProtection($true, $false)"));
+    assert!(normalize.contains("Set-Acl -LiteralPath"));
+    assert!(normalize.contains("S-1-5-18"));
+    assert!(normalize.contains("S-1-5-32-544"));
+    assert!(normalize.contains("[System.Security.AccessControl.InheritanceFlags]::None"));
+    assert!(validation.contains("Get-Acl -LiteralPath"));
+    assert!(!validation.contains("Set-Acl"));
+
+    assert!(cleanup_core.contains("$path = $env:ANIXOPS_WINDOWS_TUNNEL_EASYTIER_CORE_PATH"));
+    assert!(cleanup_core.contains("Assert-ExactProtectedEasyTierFile"));
+    assert!(!cleanup_core.contains("Get-ChildItem"));
+
+    assert!(source.contains(
+        "native_windows_normalize_easytier_artifacts(&secure_paths.easytier_directory)?"
+    ));
+    assert!(source.contains(
+        "native_windows_validate_all_easytier_artifacts(&secure_paths.easytier_directory)?"
+    ));
+    assert!(source.contains(
+        "pub(crate) fn native_windows_validate_existing_easytier_core_for_cleanup("
+    ));
+}
+
+#[test]
 fn native_windows_system_commands_resolve_trusted_tools_and_clear_environment() {
     let source = include_str!("../src/tunnel_security.rs").replace("\r\n", "\n");
 

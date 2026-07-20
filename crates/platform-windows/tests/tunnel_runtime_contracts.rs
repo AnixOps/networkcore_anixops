@@ -2650,6 +2650,31 @@ fn native_windows_cli_and_recovery_reverify_trusted_cli_artifacts() {
 }
 
 #[test]
+fn native_windows_cleanup_reproof_uses_only_the_protected_core_artifact() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+    assert!(source.contains("native_windows_validate_existing_easytier_core_for_cleanup"));
+    assert!(source.contains("enum NativeEasyTierArtifactValidationScope"));
+    assert!(source.contains("CleanupCoreOnly"));
+
+    let native_marker =
+        "#[cfg(windows)]\nimpl EasyTierProcessRunner for NativeEasyTierProcessRunner {";
+    let native_start = source
+        .find(native_marker)
+        .expect("native process runner implementation exists");
+    let native = &source[native_start..];
+    let cleanup_start = native
+        .find("    fn recover_for_cleanup(")
+        .expect("native cleanup recovery exists");
+    let cleanup_end = native[cleanup_start..]
+        .find("\n    fn stop(")
+        .expect("native cleanup recovery ends before stop");
+    let cleanup = &native[cleanup_start..cleanup_start + cleanup_end];
+    assert!(cleanup.contains("native_cleanup_process_proof_from_inspection("));
+    assert!(!cleanup.contains("native_windows_validate_existing_easytier_artifact"));
+    assert!(!cleanup.contains("cli_"));
+}
+
+#[test]
 fn native_windows_runtime_child_commands_use_only_trusted_factories() {
     let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
 
