@@ -176,19 +176,28 @@ failed-cleanup path for manual recovery. It contains the selected peer, network 
 virtual address, and destination route settings derived from the verified plan. The adapter
 accepts only the configured EasyTier version/hash and refuses to launch an unpinned executable.
 
-Persisted foreground state uses schema v2. It records an owned PID, a nonempty creation marker,
-the pinned binary hash, a single CLI file name, a single redacted config file name, and destination
-CIDRs, but never an absolute executable, CLI, or config path. Schema-v1 records are unrecoverable.
-A fresh invocation resolves the redacted config filename only under the canonical state directory.
-It requires matching PID and creation-marker proof, then verifies the recovered core executable
-against the persisted hash before accepting a CLI with the persisted filename as a sibling under
-the same canonical core-binary directory. Neither recovered runtime path is persisted. Native
-proof is an exact `Get-CimInstance Win32_Process -Filter "ProcessId = <u32>"` lookup paired with
-the UTC creation marker, canonical core path and hash pin, and a `CommandLineToArgvW` parse whose
-complete non-executable argument vector is exactly `--config-file <canonical-state-config>`
-followed by `--disable-env-parsing`, with no duplicate or additional arguments. It does not scan
-processes, enumerate candidates, persist raw command lines, or expose runtime paths in
-diagnostics. A fresh native stop remains fail-closed at the
+Persisted foreground state uses schema v2. It records an owned PID, a nonempty UTC creation-marker
+string, the pinned binary hash, a single CLI file name, a single redacted config file name, and
+destination CIDRs, but never an absolute executable, CLI, config path, raw command line, or numeric
+creation FILETIME. Schema-v1 records are unrecoverable. Start canonicalizes the supplied core and
+CLI files before version/hash checks and accepts them only when their canonical parents are equal.
+The configuration artifact is created with exclusive-create semantics, then must be a canonical
+direct child of the canonical state directory before process start. Fresh recovery applies the same
+direct-child config rule before invoking the process port, and accepts a canonical recovered CLI
+only when its persisted filename and canonical parent exactly match the canonical, hash-proven core.
+
+Native proof is an exact `Get-CimInstance Win32_Process -Filter "ProcessId = <u32>"` lookup paired
+with the persisted UTC creation-marker, canonical core path and hash pin, and a
+`CommandLineToArgvW` parse whose complete non-executable argument vector is exactly
+`--config-file <canonical-state-config>` followed by `--disable-env-parsing`, with no duplicate or
+additional arguments. WMI also yields a numeric UTC creation FILETIME that exists only in the
+in-memory native proof. Before accepting a start or fresh recovery proof, and again immediately
+before termination, the runner opens the exact PID with query, terminate, and synchronize access
+and requires `GetProcessTimes` to match that FILETIME. It calls `TerminateProcess` and waits on that
+same owned handle; RAII closes the handle. It never uses `taskkill`, descendant-tree termination,
+process-name scanning, or candidate enumeration. Service boundaries convert process-start and
+recovered bypass-port failures to fixed redacted diagnostics, preserving the fixed cleanup failure
+diagnostic when rollback cannot be proven. A fresh native stop remains fail-closed at the
 endpoint-bypass recovery gate until a later slice can prove the persisted bypass route.
 
 ### CLI layer

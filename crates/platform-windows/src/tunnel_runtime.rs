@@ -7,6 +7,7 @@
 use control_domain::{DomainError, DomainResult};
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Write;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -116,7 +117,7 @@ where
         &mut self,
         request: WindowsTunnelStartRequest,
     ) -> DomainResult<WindowsTunnelState> {
-        let prepared = self.prepare_start(request)?;
+        let mut prepared = self.prepare_start(request)?;
 
         let route_snapshot = self
             .route_port
@@ -129,12 +130,40 @@ where
             ));
         }
 
-        if fs::write(&prepared.config_path, &prepared.config_toml).is_err() {
-            return Err(self.rollback_routes_after_start_error(
-                &route_snapshot,
-                start_error("EasyTier session configuration could not be written"),
-            ));
+        match write_exclusive_config(&prepared.config_path, &prepared.config_toml) {
+            Ok(()) => {}
+            Err(ExclusiveConfigWriteError::Create) => {
+                return Err(self.rollback_routes_after_start_error(
+                    &route_snapshot,
+                    start_error("EasyTier session configuration could not be written"),
+                ));
+            }
+            Err(ExclusiveConfigWriteError::Write) => {
+                return Err(self.rollback_failed_start(
+                    &route_snapshot,
+                    None,
+                    &prepared.config_path,
+                    start_error("EasyTier session configuration could not be written"),
+                ));
+            }
         }
+        let state_directory = prepared
+            .state_path
+            .parent()
+            .expect("canonical state path always has a parent directory");
+        let config_path =
+            match canonical_file_under_directory(state_directory, &prepared.config_file_name) {
+                Some(path) => path,
+                None => {
+                    return Err(self.rollback_failed_start(
+                        &route_snapshot,
+                        None,
+                        &prepared.config_path,
+                        start_error("EasyTier session configuration path is invalid"),
+                    ));
+                }
+            };
+        prepared.config_path = config_path;
 
         let spec = EasyTierLaunchSpec {
             session_id: prepared.plan.session_id.clone(),
@@ -146,12 +175,12 @@ where
         };
         let process_handle = match self.process_runner.start(&spec) {
             Ok(handle) => handle,
-            Err(error) => {
+            Err(_) => {
                 return Err(self.rollback_failed_start(
                     &route_snapshot,
                     None,
                     &prepared.config_path,
-                    error,
+                    start_error("EasyTier process could not be started"),
                 ));
             }
         };
@@ -276,7 +305,11 @@ where
                 .get(&state_path)
                 .map(|owned| owned.route_snapshot.clone())
                 .expect("owned tunnel session was checked before route recovery");
-            self.route_port.recover_owned_bypass(&route_snapshot)?;
+            self.route_port
+                .recover_owned_bypass(&route_snapshot)
+                .map_err(|_| {
+                    endpoint_bypass_error("persisted endpoint-bypass recovery could not be proven")
+                })?;
             self.owned_sessions
                 .get_mut(&state_path)
                 .expect("owned tunnel session was checked before route recovery")
@@ -338,19 +371,17 @@ where
         if self.owned_sessions.contains_key(&state_path) || state_path.exists() {
             return Err(start_error("state path is already owned or occupied"));
         }
-        if !request.easytier_binary.is_file() || !request.easytier_cli.is_file() {
-            return Err(start_error(
-                "configured EasyTier executable path is invalid",
-            ));
-        }
-        let cli_file_name = safe_file_name_from_path(&request.easytier_cli)
+        let (binary_path, cli_path) =
+            canonical_sibling_artifacts(&request.easytier_binary, &request.easytier_cli)
+                .ok_or_else(|| start_error("configured EasyTier executable path is invalid"))?;
+        let cli_file_name = safe_file_name_from_path(&cli_path)
             .ok_or_else(|| start_error("configured EasyTier CLI file name is invalid"))?;
-        verify_file_sha256(&request.easytier_binary, &request.easytier_sha256)?;
+        verify_file_sha256(&binary_path, &request.easytier_sha256)?;
 
         let configured_version = required_text(&request.easytier_version, "EasyTier version")?;
         let runtime_version = self
             .cli_runner
-            .version(&request.easytier_cli)
+            .version(&cli_path)
             .map_err(|_| start_error("EasyTier CLI version query failed"))?;
         if runtime_version.trim() != configured_version {
             return Err(DomainError::new(
@@ -376,11 +407,6 @@ where
             .parent()
             .expect("canonical state path always has a parent directory");
         let config_path = state_directory.join(&config_file_name);
-        if config_path.exists() {
-            return Err(start_error(
-                "session configuration path is already occupied",
-            ));
-        }
         let config = render_easytier_config(EasyTierConfigRequest {
             plan: &request.plan,
             network_name: &request.network_name,
@@ -390,8 +416,8 @@ where
 
         Ok(PreparedStart {
             plan: request.plan,
-            binary_path: request.easytier_binary,
-            cli_path: request.easytier_cli,
+            binary_path,
+            cli_path,
             expected_version: configured_version,
             expected_sha256: request.easytier_sha256,
             state_path,
@@ -434,7 +460,8 @@ where
         if !is_safe_tunnel_file_name(&state.config_path) {
             return Err(ownership_error());
         }
-        let config_path = state_directory.join(&state.config_path);
+        let config_path = canonical_file_under_directory(state_directory, &state.config_path)
+            .ok_or_else(ownership_error)?;
         let ownership = state.runtime_ownership.clone();
         if ownership.process.session_id != state.session_id {
             return Err(ownership_error());
@@ -456,31 +483,22 @@ where
         {
             return Err(ownership_error());
         }
-        if !recovered.binary_path.is_file()
-            || verify_file_sha256(&recovered.binary_path, &spec.expected_binary_sha256).is_err()
-        {
-            return Err(ownership_error());
-        }
-        let recovered_binary_directory =
-            canonical_parent_directory(&recovered.binary_path).ok_or_else(ownership_error)?;
-        if !recovered.cli_path.is_file() {
+        let (binary_path, cli_path) =
+            canonical_sibling_artifacts(&recovered.binary_path, &recovered.cli_path)
+                .ok_or_else(ownership_error)?;
+        if verify_file_sha256(&binary_path, &spec.expected_binary_sha256).is_err() {
             return Err(ownership_error());
         }
         let recovered_cli_file_name =
-            safe_file_name_from_path(&recovered.cli_path).ok_or_else(ownership_error)?;
+            safe_file_name_from_path(&cli_path).ok_or_else(ownership_error)?;
         if recovered_cli_file_name != ownership.cli_file_name {
-            return Err(ownership_error());
-        }
-        let recovered_cli_directory =
-            canonical_parent_directory(&recovered.cli_path).ok_or_else(ownership_error)?;
-        if recovered_cli_directory != recovered_binary_directory {
             return Err(ownership_error());
         }
 
         Ok(OwnedTunnelSession {
             session_id: state.session_id.clone(),
             process_handle: recovered.process,
-            cli_path: recovered.cli_path,
+            cli_path,
             route_snapshot: state.route_snapshot.clone(),
             route_cidrs: ownership.route_cidrs,
             config_path,
@@ -569,6 +587,11 @@ struct PreparedStart {
     endpoint: IpAddr,
 }
 
+enum ExclusiveConfigWriteError {
+    Create,
+    Write,
+}
+
 fn endpoint_ip(endpoint: &str) -> DomainResult<IpAddr> {
     let host = if let Some(endpoint) = endpoint.strip_prefix('[') {
         endpoint
@@ -595,9 +618,36 @@ fn canonical_state_path(path: &Path) -> Result<PathBuf, ()> {
     Ok(directory.join(file_name))
 }
 
-fn canonical_parent_directory(path: &Path) -> Option<PathBuf> {
-    let directory = path.parent()?;
-    fs::canonicalize(directory).ok()
+fn canonical_file_under_directory(directory: &Path, file_name: &str) -> Option<PathBuf> {
+    if !is_safe_tunnel_file_name(file_name) {
+        return None;
+    }
+    let directory = fs::canonicalize(directory).ok()?;
+    let candidate = directory.join(file_name);
+    if !fs::symlink_metadata(&candidate).ok()?.file_type().is_file() {
+        return None;
+    }
+    let file = fs::canonicalize(candidate).ok()?;
+    (file.parent() == Some(directory.as_path())).then_some(file)
+}
+
+fn canonical_sibling_artifacts(binary: &Path, cli: &Path) -> Option<(PathBuf, PathBuf)> {
+    let binary = fs::canonicalize(binary).ok()?;
+    let cli = fs::canonicalize(cli).ok()?;
+    if !binary.is_file() || !cli.is_file() || binary.parent() != cli.parent() {
+        return None;
+    }
+    Some((binary, cli))
+}
+
+fn write_exclusive_config(path: &Path, contents: &str) -> Result<(), ExclusiveConfigWriteError> {
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|_| ExclusiveConfigWriteError::Create)?;
+    file.write_all(contents.as_bytes())
+        .map_err(|_| ExclusiveConfigWriteError::Write)
 }
 
 fn safe_file_name_from_path(path: &Path) -> Option<String> {
@@ -696,6 +746,67 @@ struct NativeEasyTierProcessProof {
     binary_path: PathBuf,
     config_path: PathBuf,
     expected_sha256: String,
+    creation_filetime: u64,
+}
+
+#[cfg(windows)]
+const PROCESS_SYNCHRONIZE: u32 = 1_048_576;
+
+#[cfg(windows)]
+const NATIVE_PROCESS_STOP_WAIT_MILLIS: u32 = 10_000;
+
+#[cfg(windows)]
+struct NativeVerifiedProcessHandle {
+    raw: windows_sys::Win32::Foundation::HANDLE,
+}
+
+#[cfg(windows)]
+impl NativeVerifiedProcessHandle {
+    fn open(process_id: u32, expected_creation_filetime: u64) -> Option<Self> {
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+        };
+
+        let raw = unsafe {
+            OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | PROCESS_SYNCHRONIZE,
+                0,
+                process_id,
+            )
+        };
+        if raw.is_null() {
+            return None;
+        }
+        let handle = Self { raw };
+        (native_process_creation_filetime(handle.raw) == Some(expected_creation_filetime))
+            .then_some(handle)
+    }
+
+    fn terminate_and_wait(&self) -> DomainResult<()> {
+        use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
+        use windows_sys::Win32::System::Threading::{TerminateProcess, WaitForSingleObject};
+
+        if unsafe { TerminateProcess(self.raw, 1) } == 0 {
+            return Err(stop_error("owned EasyTier process could not be terminated"));
+        }
+        if unsafe { WaitForSingleObject(self.raw, NATIVE_PROCESS_STOP_WAIT_MILLIS) }
+            != WAIT_OBJECT_0
+        {
+            return Err(stop_error("owned EasyTier process could not be terminated"));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+impl Drop for NativeVerifiedProcessHandle {
+    fn drop(&mut self) {
+        use windows_sys::Win32::Foundation::CloseHandle;
+
+        unsafe {
+            let _ = CloseHandle(self.raw);
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -705,6 +816,8 @@ struct NativeProcessInspection {
     process_id: u32,
     #[serde(rename = "CreationDate")]
     creation_marker: String,
+    #[serde(rename = "CreationFileTime")]
+    creation_filetime: u64,
     #[serde(rename = "ExecutablePath")]
     executable_path: String,
     #[serde(rename = "CommandLine")]
@@ -719,10 +832,16 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
         if spec.session_id.trim().is_empty() {
             return Err(start_error("EasyTier launch session identity is invalid"));
         }
-        let binary_path = fs::canonicalize(&spec.binary_path)
-            .map_err(|_| start_error("explicit EasyTier executable path is invalid"))?;
-        let config_path = fs::canonicalize(&spec.config_path)
-            .map_err(|_| start_error("EasyTier session configuration path is invalid"))?;
+        let (binary_path, _) = canonical_sibling_artifacts(&spec.binary_path, &spec.cli_path)
+            .ok_or_else(|| start_error("explicit EasyTier executable path is invalid"))?;
+        let config_file_name = safe_file_name_from_path(&spec.config_path)
+            .ok_or_else(|| start_error("EasyTier session configuration path is invalid"))?;
+        let config_directory = spec
+            .config_path
+            .parent()
+            .ok_or_else(|| start_error("EasyTier session configuration path is invalid"))?;
+        let config_path = canonical_file_under_directory(config_directory, &config_file_name)
+            .ok_or_else(|| start_error("EasyTier session configuration path is invalid"))?;
         if verify_file_sha256(&binary_path, &spec.expected_sha256).is_err() {
             return Err(start_error(
                 "explicit EasyTier executable does not match its pin",
@@ -770,7 +889,11 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
         if !is_safe_tunnel_file_name(&spec.cli_file_name) {
             return Err(ownership_error());
         }
-        let config_path = fs::canonicalize(&spec.config_path).map_err(|_| ownership_error())?;
+        let config_file_name =
+            safe_file_name_from_path(&spec.config_path).ok_or_else(ownership_error)?;
+        let config_directory = spec.config_path.parent().ok_or_else(ownership_error)?;
+        let config_path = canonical_file_under_directory(config_directory, &config_file_name)
+            .ok_or_else(ownership_error)?;
         let proof = native_process_proof(
             &spec.expected_process,
             None,
@@ -779,10 +902,8 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
         )
         .ok_or_else(ownership_error)?;
         let binary_directory = proof.binary_path.parent().ok_or_else(ownership_error)?;
-        let cli_path = binary_directory.join(&spec.cli_file_name);
-        if !cli_path.is_file() {
-            return Err(ownership_error());
-        }
+        let cli_path = canonical_file_under_directory(binary_directory, &spec.cli_file_name)
+            .ok_or_else(ownership_error)?;
 
         let recovered = RecoveredEasyTierProcess {
             process: proof.process.clone(),
@@ -797,19 +918,23 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
     fn stop(&mut self, handle: &OwnedProcessHandle) -> DomainResult<()> {
         let key = native_process_key(handle);
         let proof = self.proofs.get(&key).cloned().ok_or_else(ownership_error)?;
-        if proof.process != *handle
-            || native_process_proof(
-                handle,
-                Some(&proof.binary_path),
-                &proof.expected_sha256,
-                &proof.config_path,
-            )
-            .is_none()
-        {
+        if proof.process != *handle {
             return Err(ownership_error());
         }
-
-        native_taskkill(handle.process_id)?;
+        let reproof = native_process_proof(
+            handle,
+            Some(&proof.binary_path),
+            &proof.expected_sha256,
+            &proof.config_path,
+        )
+        .ok_or_else(ownership_error)?;
+        if reproof.creation_filetime != proof.creation_filetime {
+            return Err(ownership_error());
+        }
+        let verified_handle =
+            NativeVerifiedProcessHandle::open(handle.process_id, reproof.creation_filetime)
+                .ok_or_else(ownership_error)?;
+        verified_handle.terminate_and_wait()?;
         self.proofs.remove(&key);
         Ok(())
     }
@@ -824,7 +949,10 @@ fn native_start_proof(
     expected_sha256: &str,
 ) -> Option<NativeEasyTierProcessProof> {
     let inspection = native_inspect_process(process_id)?;
-    if inspection.process_id != process_id || inspection.creation_marker.trim().is_empty() {
+    if inspection.process_id != process_id
+        || inspection.creation_marker.trim().is_empty()
+        || inspection.creation_filetime == 0
+    {
         return None;
     }
     let process = OwnedProcessHandle {
@@ -832,13 +960,15 @@ fn native_start_proof(
         process_id,
         creation_marker: inspection.creation_marker.clone(),
     };
-    native_process_proof_from_inspection(
+    let proof = native_process_proof_from_inspection(
         inspection,
         &process,
         Some(expected_binary_path),
         expected_sha256,
         expected_config_path,
-    )
+    )?;
+    NativeVerifiedProcessHandle::open(process_id, proof.creation_filetime)?;
+    Some(proof)
 }
 
 #[cfg(windows)]
@@ -849,13 +979,15 @@ fn native_process_proof(
     expected_config_path: &Path,
 ) -> Option<NativeEasyTierProcessProof> {
     let inspection = native_inspect_process(expected_process.process_id)?;
-    native_process_proof_from_inspection(
+    let proof = native_process_proof_from_inspection(
         inspection,
         expected_process,
         expected_binary_path,
         expected_sha256,
         expected_config_path,
-    )
+    )?;
+    NativeVerifiedProcessHandle::open(expected_process.process_id, proof.creation_filetime)?;
+    Some(proof)
 }
 
 #[cfg(windows)]
@@ -868,10 +1000,14 @@ fn native_process_proof_from_inspection(
 ) -> Option<NativeEasyTierProcessProof> {
     if inspection.process_id != expected_process.process_id
         || inspection.creation_marker != expected_process.creation_marker
+        || inspection.creation_filetime == 0
     {
         return None;
     }
     let binary_path = fs::canonicalize(&inspection.executable_path).ok()?;
+    if !binary_path.is_file() {
+        return None;
+    }
     match expected_binary_path {
         Some(expected_binary_path) if binary_path != expected_binary_path => return None,
         _ => {}
@@ -880,15 +1016,18 @@ fn native_process_proof_from_inspection(
         return None;
     }
     let config_path = fs::canonicalize(expected_config_path).ok()?;
+    if !config_path.is_file() {
+        return None;
+    }
     if !native_command_matches(&inspection.command_line, &config_path) {
         return None;
     }
-
     Some(NativeEasyTierProcessProof {
         process: expected_process.clone(),
         binary_path,
         config_path,
         expected_sha256: expected_sha256.to_string(),
+        creation_filetime: inspection.creation_filetime,
     })
 }
 
@@ -900,7 +1039,7 @@ fn native_process_key(handle: &OwnedProcessHandle) -> (u32, String) {
 #[cfg(windows)]
 fn native_inspect_process(process_id: u32) -> Option<NativeProcessInspection> {
     let script = format!(
-        "$process = Get-CimInstance Win32_Process -Filter \"ProcessId = {process_id}\" -ErrorAction SilentlyContinue; if ($null -eq $process) {{ exit 2 }}; [PSCustomObject]@{{ ProcessId = [uint32]$process.ProcessId; CreationDate = $process.CreationDate.ToUniversalTime().ToString('o'); ExecutablePath = $process.ExecutablePath; CommandLine = $process.CommandLine }} | ConvertTo-Json -Compress"
+        "$process = Get-CimInstance Win32_Process -Filter \"ProcessId = {process_id}\" -ErrorAction SilentlyContinue; if ($null -eq $process) {{ exit 2 }}; [PSCustomObject]@{{ ProcessId = [uint32]$process.ProcessId; CreationDate = $process.CreationDate.ToUniversalTime().ToString('o'); CreationFileTime = [uint64]$process.CreationDate.ToUniversalTime().ToFileTimeUtc(); ExecutablePath = $process.ExecutablePath; CommandLine = $process.CommandLine }} | ConvertTo-Json -Compress"
     );
     let output = std::process::Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
@@ -970,16 +1109,32 @@ fn native_wide_argument(argument: *const u16) -> Option<String> {
 }
 
 #[cfg(windows)]
-fn native_taskkill(process_id: u32) -> DomainResult<()> {
-    let status = std::process::Command::new("taskkill.exe")
-        .args(["/PID", &process_id.to_string(), "/T", "/F"])
-        .status()
-        .map_err(|_| stop_error("owned EasyTier process could not be terminated"))?;
-    if !status.success() {
-        return Err(stop_error("owned EasyTier process could not be terminated"));
-    }
+fn native_process_creation_filetime(handle: windows_sys::Win32::Foundation::HANDLE) -> Option<u64> {
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::Threading::GetProcessTimes;
 
-    Ok(())
+    let mut creation = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let mut exit = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let mut kernel = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let mut user = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let process_times =
+        unsafe { GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user) };
+    if process_times == 0 {
+        return None;
+    }
+    Some((u64::from(creation.dwHighDateTime) << 32) | u64::from(creation.dwLowDateTime))
 }
 
 #[cfg(windows)]

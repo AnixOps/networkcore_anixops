@@ -430,7 +430,7 @@ fn status_queries_explicit_easytier_cli() {
     let events = SharedEvents::new();
     let (binary, cli, secret) = fixture_paths("status-cli");
     let state_path = binary.parent().expect("fixture parent").join("state.json");
-    let cli_path = cli.clone();
+    let cli_path = fs::canonicalize(&cli).expect("fixture CLI path is canonical");
     let mut service = WindowsTunnelSessionService::new(
         fake_process_runner(events.clone(), None, None),
         FakeCliRunner {
@@ -493,7 +493,7 @@ fn fresh_service_status_requires_recovery_proof() {
     let (binary, cli, secret) = fixture_paths("fresh-status");
     let state_path = binary.parent().expect("fixture parent").join("state.json");
     let recovered_binary = binary.clone();
-    let recovered_cli = cli.clone();
+    let recovered_cli = fs::canonicalize(&cli).expect("fixture CLI path is canonical");
     let mut owner = WindowsTunnelSessionService::new(
         fake_process_runner(owner_events.clone(), None, None),
         FakeCliRunner {
