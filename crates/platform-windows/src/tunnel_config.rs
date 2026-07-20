@@ -10,8 +10,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fmt;
 use std::fs;
+use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use control_domain::{DomainError, DomainResult};
 
@@ -25,6 +27,8 @@ pub const WINDOWS_TUNNEL_STATE_INVALID_CODE: &str = "windows.tunnel.state_invali
 pub const WINDOWS_TUNNEL_STATE_SCHEMA_UNSUPPORTED_CODE: &str =
     "windows.tunnel.state_schema_unsupported";
 pub const WINDOWS_TUNNEL_STATE_IO_CODE: &str = "windows.tunnel.state_io_failed";
+
+static STATE_TEMPORARY_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Inputs for one redacted EasyTier configuration artifact.
 #[derive(Clone, PartialEq, Eq)]
@@ -79,12 +83,13 @@ pub fn render_easytier_config(
         return Err(config_error("tunnel plan contains no route intents"));
     }
 
-    let route_cidrs = request
-        .plan
-        .route_intents
-        .iter()
-        .map(|route| required_text(&route.destination_cidr, "route destination CIDR"))
-        .collect::<DomainResult<Vec<_>>>()?;
+    let route_cidrs = canonical_destination_ipv4_cidrs(
+        request
+            .plan
+            .route_intents
+            .iter()
+            .map(|route| route.destination_cidr.as_str()),
+    )?;
 
     let peer_uri = format!("tcp://{endpoint}");
     let raw_config = EasyTierTomlConfig {
@@ -240,13 +245,121 @@ pub fn deserialize_tunnel_state(input: &[u8]) -> DomainResult<WindowsTunnelState
 /// Writes a validated state record to an explicit path.
 pub fn write_tunnel_state(path: &Path, state: &WindowsTunnelState) -> DomainResult<()> {
     let serialized = serialize_tunnel_state(state)?;
-    fs::write(path, serialized).map_err(|_| state_io_error("tunnel state could not be written"))
+    let (temporary_path, mut temporary_file) = create_state_temporary_file(path)
+        .map_err(|_| state_io_error("tunnel state could not be written"))?;
+    let write_result = temporary_file
+        .write_all(serialized.as_bytes())
+        .and_then(|_| temporary_file.sync_all());
+    drop(temporary_file);
+    if write_result.is_err() {
+        let _ = fs::remove_file(&temporary_path);
+        return Err(state_io_error("tunnel state could not be written"));
+    }
+    if replace_state_file(&temporary_path, path).is_err() {
+        let _ = fs::remove_file(&temporary_path);
+        return Err(state_io_error("tunnel state could not be written"));
+    }
+    Ok(())
 }
 
 /// Reads and validates a state record from an explicit path.
 pub fn read_tunnel_state(path: &Path) -> DomainResult<WindowsTunnelState> {
     let input = fs::read(path).map_err(|_| state_io_error("tunnel state could not be read"))?;
     deserialize_tunnel_state(&input)
+}
+
+fn create_state_temporary_file(path: &Path) -> std::io::Result<(PathBuf, fs::File)> {
+    let directory = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "tunnel state path has no parent directory",
+        )
+    })?;
+    let file_name = path.file_name().and_then(|name| name.to_str()).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "tunnel state path has no file name",
+        )
+    })?;
+
+    for _ in 0..64 {
+        let sequence = STATE_TEMPORARY_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let temporary_path = directory.join(format!(
+            ".{file_name}.{}.{}.tmp",
+            std::process::id(),
+            sequence
+        ));
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary_path)
+        {
+            Ok(file) => {
+                let is_regular_file =
+                    (|| -> std::io::Result<bool> { Ok(file.metadata()?.is_file()) })();
+                let is_regular_file = match is_regular_file {
+                    Ok(is_regular_file) => is_regular_file,
+                    Err(error) => {
+                        drop(file);
+                        let _ = fs::remove_file(&temporary_path);
+                        return Err(error);
+                    }
+                };
+                if !is_regular_file {
+                    drop(file);
+                    let _ = fs::remove_file(&temporary_path);
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "tunnel state temporary file is not regular",
+                    ));
+                }
+                return Ok((temporary_path, file));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "tunnel state temporary file could not be created",
+    ))
+}
+
+#[cfg(windows)]
+fn replace_state_file(temporary_path: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+
+    let temporary_path = temporary_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let destination = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let replaced = unsafe {
+        MoveFileExW(
+            temporary_path.as_ptr(),
+            destination.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if replaced == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(windows))]
+fn replace_state_file(temporary_path: &Path, destination: &Path) -> std::io::Result<()> {
+    fs::rename(temporary_path, destination)
 }
 
 #[derive(Debug, Serialize)]
@@ -275,6 +388,48 @@ fn parse_virtual_ipv4(value: &str) -> DomainResult<String> {
         .parse::<Ipv4Addr>()
         .map(|address| address.to_string())
         .map_err(|_| config_error("virtual IPv4 is invalid"))
+}
+
+pub(crate) fn canonical_destination_ipv4_cidrs<'a>(
+    destination_cidrs: impl IntoIterator<Item = &'a str>,
+) -> DomainResult<Vec<String>> {
+    let mut seen = BTreeSet::new();
+    let mut canonical = Vec::new();
+    for destination_cidr in destination_cidrs {
+        let destination_cidr = canonical_destination_ipv4_cidr(destination_cidr)?;
+        if !seen.insert(destination_cidr.clone()) {
+            return Err(config_error("destination route prefixes contain a duplicate"));
+        }
+        canonical.push(destination_cidr);
+    }
+    Ok(canonical)
+}
+
+pub(crate) fn canonical_destination_ipv4_cidr(value: &str) -> DomainResult<String> {
+    if value != value.trim() {
+        return Err(config_error("destination route prefix is not normalized"));
+    }
+    let (address, prefix) = value
+        .split_once('/')
+        .ok_or_else(|| config_error("destination route prefix is invalid"))?;
+    let address = address
+        .parse::<Ipv4Addr>()
+        .map_err(|_| config_error("destination route prefix is invalid"))?;
+    let prefix = prefix
+        .parse::<u8>()
+        .map_err(|_| config_error("destination route prefix is invalid"))?;
+    if prefix == 0 || prefix > 32 {
+        return Err(config_error("destination route prefix is invalid"));
+    }
+    let network_mask = u32::MAX << u32::from(32_u8 - prefix);
+    if u32::from(address) & network_mask != u32::from(address) {
+        return Err(config_error("destination route prefix has host bits"));
+    }
+    let canonical = format!("{address}/{prefix}");
+    if canonical != value {
+        return Err(config_error("destination route prefix is not normalized"));
+    }
+    Ok(canonical)
 }
 
 fn required_text(value: &str, field: &str) -> DomainResult<String> {
@@ -333,20 +488,7 @@ fn is_normalized_required_text(value: &str) -> bool {
 }
 
 fn is_normalized_destination_cidr(value: &str) -> bool {
-    let Some((address, prefix)) = value.split_once('/') else {
-        return false;
-    };
-    let Ok(address) = address.parse::<IpAddr>() else {
-        return false;
-    };
-    let Ok(prefix) = prefix.parse::<u8>() else {
-        return false;
-    };
-    let maximum_prefix = match address {
-        IpAddr::V4(_) => 32,
-        IpAddr::V6(_) => 128,
-    };
-    prefix <= maximum_prefix && value == format!("{address}/{prefix}")
+    canonical_destination_ipv4_cidr(value).is_ok()
 }
 
 fn is_normalized_ip_address(value: &str) -> bool {

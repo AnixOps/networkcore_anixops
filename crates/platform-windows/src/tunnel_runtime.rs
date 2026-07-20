@@ -20,10 +20,10 @@ use std::net::Ipv4Addr;
 use std::process::{Command, Stdio};
 
 use crate::tunnel_config::{
-    is_safe_tunnel_file_name, read_tunnel_state, render_easytier_config, verify_file_sha256,
-    write_tunnel_state, EasyTierConfigRequest, EasyTierLaunchSpec, OwnedProcessHandle,
-    WindowsRouteSnapshotEntry, WindowsTunnelLifecycleState, WindowsTunnelRuntimeOwnership,
-    WindowsTunnelState,
+    canonical_destination_ipv4_cidrs, is_safe_tunnel_file_name, read_tunnel_state,
+    render_easytier_config, verify_file_sha256, write_tunnel_state, EasyTierConfigRequest,
+    EasyTierLaunchSpec, OwnedProcessHandle, WindowsRouteSnapshotEntry,
+    WindowsTunnelLifecycleState, WindowsTunnelRuntimeOwnership, WindowsTunnelState,
 };
 use crate::WindowsTunnelPlan;
 
@@ -408,24 +408,24 @@ where
             .remove(&state_path)
             .expect("owned tunnel session was checked before removal");
 
+        let destination_result = self
+            .route_port
+            .remove_owned_destination_routes(&owned.virtual_route_snapshot);
+        if destination_result.is_err() {
+            let mut failed = state.clone();
+            failed.state = WindowsTunnelLifecycleState::Failed;
+            failed.rollback_status = "rollback_failed".to_string();
+            let _ = write_tunnel_state(&state_path, &failed);
+            self.owned_sessions.insert(state_path.clone(), owned);
+            return Err(rollback_error());
+        }
+
         let mut stopping = state.clone();
         stopping.state = WindowsTunnelLifecycleState::Stopping;
         stopping.rollback_status = "pending".to_string();
         if let Err(error) = write_tunnel_state(&state_path, &stopping) {
             self.owned_sessions.insert(state_path.clone(), owned);
             return Err(error);
-        }
-
-        let destination_result = self
-            .route_port
-            .remove_owned_destination_routes(&owned.virtual_route_snapshot);
-        if destination_result.is_err() {
-            let mut failed = stopping;
-            failed.state = WindowsTunnelLifecycleState::Failed;
-            failed.rollback_status = "rollback_failed".to_string();
-            let _ = write_tunnel_state(&state_path, &failed);
-            self.owned_sessions.insert(state_path.clone(), owned);
-            return Err(rollback_error());
         }
 
         let bypass_result = self.route_port.restore(&owned.route_snapshot);
@@ -465,6 +465,14 @@ where
                 "tunnel plan is not safe for foreground execution",
             ));
         }
+        let route_cidrs = canonical_destination_ipv4_cidrs(
+            request
+                .plan
+                .route_intents
+                .iter()
+                .map(|route| route.destination_cidr.as_str()),
+        )
+        .map_err(|_| start_error("tunnel plan contains an invalid destination policy route"))?;
         let state_path = canonical_state_path(&request.state_path).map_err(|_| {
             start_error("state path must use an existing directory and safe file name")
         })?;
@@ -525,7 +533,7 @@ where
             config_file_name,
             cli_file_name,
             config_toml: config.toml,
-            route_cidrs: config.route_cidrs,
+            route_cidrs,
             endpoint,
         })
     }
@@ -677,9 +685,11 @@ where
         process_handle: &OwnedProcessHandle,
         config_path: &Path,
     ) -> DomainError {
-        let _ = self.route_port.restore(snapshot);
-        let _ = self.process_runner.stop(process_handle);
-        let _ = fs::remove_file(config_path);
+        let routes_restored = self.route_port.restore(snapshot).is_ok();
+        let process_stopped = self.process_runner.stop(process_handle).is_ok();
+        if routes_restored && process_stopped {
+            let _ = fs::remove_file(config_path);
+        }
         rollback_error()
     }
 }
@@ -2077,33 +2087,8 @@ fn native_normalize_destination_cidrs(destination_cidrs: &[String]) -> DomainRes
 
 #[cfg(windows)]
 fn native_normalize_destination_cidr(destination_cidr: &str) -> DomainResult<String> {
-    if destination_cidr != destination_cidr.trim() {
-        return Err(endpoint_bypass_error(
-            "destination route prefix is not normalized",
-        ));
-    }
-    let (address, prefix) = destination_cidr
-        .split_once('/')
-        .ok_or_else(|| endpoint_bypass_error("destination route prefix is invalid"))?;
-    let address = IpAddr::from_str(address)
-        .map_err(|_| endpoint_bypass_error("destination route prefix is invalid"))?;
-    let prefix = prefix
-        .parse::<u8>()
-        .map_err(|_| endpoint_bypass_error("destination route prefix is invalid"))?;
-    let maximum_prefix = match address {
-        IpAddr::V4(_) => 32,
-        IpAddr::V6(_) => 128,
-    };
-    if prefix > maximum_prefix {
-        return Err(endpoint_bypass_error("destination route prefix is invalid"));
-    }
-    let normalized = format!("{address}/{prefix}");
-    if normalized != destination_cidr {
-        return Err(endpoint_bypass_error(
-            "destination route prefix is not normalized",
-        ));
-    }
-    Ok(normalized)
+    crate::tunnel_config::canonical_destination_ipv4_cidr(destination_cidr)
+        .map_err(|_| endpoint_bypass_error("destination route prefix is invalid"))
 }
 
 #[cfg(windows)]
