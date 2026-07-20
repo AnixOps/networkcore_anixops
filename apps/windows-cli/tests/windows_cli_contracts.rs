@@ -1558,6 +1558,49 @@ fn native_tunnel_input_policy_is_limited_to_platform_secure_path_operations() {
 }
 
 #[test]
+fn native_delivery_loader_persists_verified_sequence_floors_before_lifecycle_start() {
+    let source = include_str!("../src/lib.rs").replace("\r\n", "\n");
+    let loader_start = source
+        .find("impl WindowsTunnelDeliveryLoader for NativeWindowsTunnelDeliveryLoader")
+        .expect("native delivery loader implementation exists");
+    let loader = &source[loader_start..];
+    let loader_end = loader
+        .find("/// Native privilege adapter")
+        .expect("native loader source is bounded before privilege adapter");
+    let loader = &loader[..loader_end];
+
+    let ledger = loader
+        .find("NativeWindowsTunnelSequenceLedger")
+        .expect("native loader owns the sequence ledger");
+    let read = loader
+        .find("read_floors")
+        .expect("native loader reads persisted floors");
+    let plan = loader
+        .find("plan_windows_tunnel(WindowsTunnelPlanRequest")
+        .expect("native loader plans after reading floors");
+    let reserve = loader
+        .find("reserve_pair")
+        .expect("native loader reserves after planning");
+    assert!(ledger < read && read < plan && plan < reserve);
+    assert!(loader.contains("last_client_sequence: floors.client"));
+    assert!(loader.contains("last_pop_sequence: floors.pop"));
+    assert!(loader.contains("DeliverySequenceIdentity::new(&client)"));
+    assert!(loader.contains("DeliverySequenceIdentity::new(&pop)"));
+    assert!(loader.contains("WINDOWS_TUNNEL_DELIVERY_INVALID_CODE"));
+    assert!(loader.contains("WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE"));
+    assert!(loader.contains("Ok(plan)"));
+
+    let service_start = source
+        .find("let plan = self.delivery.load_plan(args)?;")
+        .expect("bridge loads delivery before lifecycle start");
+    let lifecycle_start = source[service_start..]
+        .find("self.session.start(WindowsTunnelStartRequest")
+        .map(|offset| service_start + offset)
+        .expect("bridge starts lifecycle only after delivery load");
+    assert!(service_start < lifecycle_start);
+}
+
+#[test]
 fn native_main_routes_tunnel_commands_to_the_native_service() {
     let source = include_str!("../src/main.rs").replace("\r\n", "\n");
 
