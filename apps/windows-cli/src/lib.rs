@@ -395,13 +395,23 @@ pub type NativeWindowsTunnelCommandService = DeliveryBackedWindowsTunnelCommandS
     NativeWindowsTunnelPrivilegeChecker,
 >;
 
+#[cfg(windows)]
+fn native_windows_route_port() -> NativeWindowsRoutePort {
+    NativeWindowsRoutePort::default()
+}
+
+#[cfg(not(windows))]
+fn native_windows_route_port() -> NativeWindowsRoutePort {
+    NativeWindowsRoutePort
+}
+
 /// Produces the only native production bridge used by the tunnel CLI variants.
 pub fn native_windows_tunnel_command_service() -> NativeWindowsTunnelCommandService {
     DeliveryBackedWindowsTunnelCommandService::new(
         WindowsTunnelSessionService::new(
             NativeEasyTierProcessRunner::default(),
             NativeEasyTierCliRunner,
-            NativeWindowsRoutePort::default(),
+            native_windows_route_port(),
         ),
         NativeWindowsTunnelDeliveryLoader,
         NativeWindowsTunnelPrivilegeChecker,
