@@ -18,9 +18,12 @@ evidence; it verifies source and injected contracts only.
 
 1. Secure ProgramData root evidence: owner and exact SYSTEM/Administrators-only ACL for
    `AnixOps\WindowsTunnel`, `state`, `secrets`, and `easytier`, with no reparse point. Stage the
-   approved EasyTier core and CLI as existing non-reparse direct children of `easytier`; record
-   their independently verified lower-case SHA-256 values before starting the tunnel. NetworkCore
-   never copies or downloads either executable.
+   approved EasyTier core, CLI, and every loader sidecar (including DLL/Wintun) as existing
+   non-reparse direct regular children of `easytier`, with no nested directories. Record the
+   exact SYSTEM/Administrators-only, non-inheriting ACL for every direct file and the independently
+   verified lower-case core/CLI SHA-256 values. The elevated start path must normalize and recheck
+   that complete direct-file inventory before it launches the core; record the resulting ACL
+   evidence. NetworkCore never copies or downloads executable content.
 2. Delivery-ledger floor values for the verified client and POP identities before and after the
    accepted start reservation.
 3. `Find-NetRoute` and `Get-NetAdapter -Physical` evidence that the selected endpoint underlay is
@@ -39,9 +42,11 @@ evidence; it verifies source and injected contracts only.
    transition. A failed `Stopping` write leaves routes, process, and config untouched; a failure
    after mutation retains retryable cleanup intent. After storage is restored, record fresh cleanup
    convergence: it removes only exact still-present tuples and accepts proven-absent resources only
-   for persisted `Stopping` or `Failed` cleanup. `Running` requires all ownership proofs. Leave
-   unrelated resources unchanged and keep this evidence in protected operator records, without raw
-   tuple, PID, or config details in CLI or repository output.
+   for persisted `Stopping` or `Failed` cleanup. Confirm that this cleanup can reprove and stop the
+   protected running core without requiring the CLI artifact; `Running` requires all ownership
+   proofs and the full direct-file artifact set. Leave unrelated resources unchanged and keep this
+   evidence in protected operator records, without raw tuple, PID, or config details in CLI or
+   repository output.
 
 ## 已完成的人工/外部事项
 

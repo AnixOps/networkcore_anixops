@@ -95,6 +95,11 @@ paths plus independent hashes.
      ACL, and non-reparse policy as the other WindowsTunnel directories;
    - accepts only existing non-reparse regular files that are direct children of `easytier` for
      `--easytier-bin` and `--easytier-cli`, without copying or downloading executable content;
+   - treats easytier as a flat, bounded loader set: explicit artifact preparation during start
+     normalizes every direct regular child file, including DLL and Wintun sidecars, to the exact
+     SYSTEM/BUILTIN\Administrators-only file DACL; normal start, status, CLI execution, and strict
+     Running recovery read-only validate that entire direct-child set, reject a directory or
+     reparse point, and never recurse;
    - checks the core and CLI SHA-256 pins before version, peer, route, and strict Running recovery
      commands, and rechecks the CLI immediately before every native CLI invocation;
    - treats `CommonApplicationData` as trusted, then creates or validates the fixed
@@ -227,7 +232,11 @@ equal and that parent is the protected `easytier` directory. The configuration a
 canonical direct child of the canonical state directory before process start. Fresh recovery applies
 the same direct-child config rule before invoking the process port, and accepts a canonical recovered
 CLI only when its persisted filename and canonical parent exactly match the canonical, hash-proven
-core.
+core. The easytier directory is a flat direct-file set: elevated artifact preparation during start
+normalizes every direct regular file's owner and exact non-inheriting SYSTEM/Administrators DACL,
+while normal execution and strict recovery only read and validate the same entire set. Direct
+directories and all reparse points fail closed, and the implementation never recursively scans the
+root.
 
 Native proof is an exact `Get-CimInstance Win32_Process -Filter "ProcessId = <u32>"` lookup paired
 with the persisted UTC creation-marker, canonical core path and hash pin, and a
@@ -256,10 +265,13 @@ exposing only fixed diagnostics at the adapter boundary.
 proofs before the service writes `Stopping` or mutates a resource. Native Windows recovery for an
 already persisted `Stopping` or `Failed` state instead reconciles one exact `ActiveStore` tuple at a
 time. It retains only exact present tuples under the original full ownership key and permits a
-proven-absent exact tuple or PID to converge without deletion. PowerShell exit code `3` is reserved
-only for that zero-match tuple or absent exact PID result; ambiguity, malformed data, command
-failure, physical destination adapter, or any present-process proof/config mismatch fails closed.
-No raw tuple, PID, command, or config detail reaches diagnostics.
+proven-absent exact tuple or PID to converge without deletion. This cleanup proof deliberately
+checks only the running core's exact identity, hash, protected direct-child path, and exact file
+ACL; it does not inspect, pin, or execute the CLI and does not require unrelated sidecar files to
+remain present. PowerShell exit code `3` is reserved only for that zero-match tuple or absent exact
+PID result; ambiguity, malformed data, command failure, physical destination adapter, or any
+present-process proof/config mismatch fails closed. No raw tuple, PID, command, or config detail
+reaches diagnostics.
 
 The native secure-storage boundary has two distinct operations. Elevated `prepare-storage --confirm`
 creates the `AnixOps`, `WindowsTunnel`, `state`, and `secrets` components in that order when they
@@ -297,8 +309,10 @@ The supported first-run procedure is:
 
 ```text
 1. Run elevated: networkcore-windows tunnel prepare-storage --confirm
-2. From an elevated terminal, stage the approved EasyTier core and CLI as direct children under
-   `%ProgramData%\AnixOps\WindowsTunnel\easytier\`; verify and record each lower-case SHA-256.
+2. From an elevated terminal, stage the approved EasyTier core, CLI, and every loader sidecar
+   (including DLL/Wintun files) as direct regular children under
+   `%ProgramData%\AnixOps\WindowsTunnel\easytier\`; do not stage subdirectories or reparse
+   points. Record the core and CLI lower-case SHA-256 values and the exact file ACL inventory.
 3. Create one safe-name secret file under `%ProgramData%\AnixOps\WindowsTunnel\secrets\`.
 4. Run elevated tunnel start with the two protected direct-child artifact paths, both hashes, that
    direct-child secret path, and a direct-child state path.
@@ -380,12 +394,13 @@ invocation fails closed with
 `windows.tunnel.admin_required`. It never returns public-key paths, envelope paths, state paths,
 verifier messages, ACL output, PowerShell output, or secret-bearing inputs in CLI diagnostics.
 
-Native storage rejects arbitrary parent directories and every reparse point. `prepare-storage` and
-`start` may mutate only newly created fixed ProgramData hierarchy components and the approved
-secret file after elevation; neither repairs an existing owned component. `status` has no directory
-creation or ACL-repair authority, and `stop` obtains that same read-only path proof only after its
-elevation gate. A failed path policy maps to the fixed, path-free
-`windows.tunnel.start_failed` diagnostic.
+Native storage rejects arbitrary parent directories and every reparse point. `prepare-storage` may
+mutate only newly created fixed ProgramData hierarchy components. During explicit artifact preparation,
+`start` additionally normalizes the exact DACL of every existing direct regular EasyTier child file;
+it does not copy, download, or recurse through artifact content, and it never repairs an existing owned
+directory. `status` has no directory creation or ACL-repair authority, and `stop` obtains
+that same read-only path proof only after its elevation gate. A failed path policy maps to the fixed,
+path-free `windows.tunnel.start_failed` diagnostic.
 
 The adapter fails closed on every preflight error. It must not fall back to a different
 EasyTier binary, a different POP, a direct route, or an unverified delivery. A failed start

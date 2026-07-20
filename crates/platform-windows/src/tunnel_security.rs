@@ -256,6 +256,201 @@ Assert-ExistingProtectedDirectory $easytierDirectory
 "#;
 
 #[cfg(windows)]
+const NATIVE_WINDOWS_TUNNEL_NORMALIZE_EASYTIER_ARTIFACTS_SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+$base = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
+if ([String]::IsNullOrWhiteSpace($base)) { throw 'common application data is unavailable' }
+$vendorDirectory = Join-Path $base 'AnixOps'
+$root = Join-Path $vendorDirectory 'WindowsTunnel'
+$easytierDirectory = Join-Path $root 'easytier'
+$requestedDirectory = $env:ANIXOPS_WINDOWS_TUNNEL_EASYTIER_DIRECTORY
+if ([String]::IsNullOrWhiteSpace($requestedDirectory)) { throw 'easytier directory is unavailable' }
+
+function Get-ProtectedEasyTierDirectory {
+    $item = Get-Item -LiteralPath $easytierDirectory -Force -ErrorAction Stop
+    if (-not $item.PSIsContainer) { throw 'easytier root is not a directory' }
+    if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'reparse points are not allowed'
+    }
+    if (-not [String]::Equals($item.FullName, $requestedDirectory, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'easytier root is not the requested directory'
+    }
+    return $item
+}
+
+function Assert-DirectEasyTierFile {
+    param([System.IO.FileSystemInfo]$Item, [System.IO.DirectoryInfo]$Directory)
+    if (-not ($Item -is [System.IO.FileInfo])) { throw 'easytier root contains a non-file item' }
+    if (($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'reparse points are not allowed'
+    }
+    if (-not [String]::Equals($Item.DirectoryName, $Directory.FullName, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'easytier artifact is not a direct child'
+    }
+    return $Item
+}
+
+function Assert-ExactProtectedEasyTierFile {
+    param([System.IO.FileSystemInfo]$Item, [System.IO.DirectoryInfo]$Directory)
+    $null = Assert-DirectEasyTierFile $Item $Directory
+    $acl = Get-Acl -LiteralPath $Item.FullName -ErrorAction Stop
+    $owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+    if ($owner -ne 'S-1-5-32-544') { throw 'easytier artifact owner is invalid' }
+    if (-not $acl.AreAccessRulesProtected) { throw 'ACL inheritance is enabled' }
+    $rules = @($acl.GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier]))
+    if ($rules.Count -ne 2) { throw 'unexpected ACL rule count' }
+    foreach ($sidValue in @('S-1-5-18', 'S-1-5-32-544')) {
+        $matches = @($rules | Where-Object {
+            $_.IdentityReference.Value -eq $sidValue -and
+            $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and
+            $_.FileSystemRights -eq [System.Security.AccessControl.FileSystemRights]::FullControl -and
+            $_.InheritanceFlags -eq [System.Security.AccessControl.InheritanceFlags]::None -and
+            $_.PropagationFlags -eq [System.Security.AccessControl.PropagationFlags]::None
+        })
+        if ($matches.Count -ne 1) { throw 'required ACL rule is missing' }
+    }
+}
+
+function Set-ExactProtectedEasyTierFile {
+    param([System.IO.FileSystemInfo]$Item, [System.IO.DirectoryInfo]$Directory)
+    $null = Assert-DirectEasyTierFile $Item $Directory
+    $acl = Get-Acl -LiteralPath $Item.FullName -ErrorAction Stop
+    $administrators = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList 'S-1-5-32-544'
+    $acl.SetOwner($administrators)
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRuleAll($rule) }
+    foreach ($sidValue in @('S-1-5-18', 'S-1-5-32-544')) {
+        $identity = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList $sidValue
+        $rule = New-Object -TypeName System.Security.AccessControl.FileSystemAccessRule -ArgumentList $identity, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.InheritanceFlags]::None, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow
+        [void]$acl.AddAccessRule($rule)
+    }
+    Set-Acl -LiteralPath $Item.FullName -AclObject $acl -ErrorAction Stop
+    $null = Assert-ExactProtectedEasyTierFile $Item $Directory
+}
+
+$directory = Get-ProtectedEasyTierDirectory
+foreach ($item in @(Get-ChildItem -LiteralPath $easytierDirectory -Force -ErrorAction Stop)) {
+    Set-ExactProtectedEasyTierFile $item $directory
+}
+foreach ($item in @(Get-ChildItem -LiteralPath $easytierDirectory -Force -ErrorAction Stop)) {
+    $null = Assert-ExactProtectedEasyTierFile $item $directory
+}
+"#;
+
+#[cfg(windows)]
+const NATIVE_WINDOWS_TUNNEL_VALIDATE_EASYTIER_ARTIFACTS_SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+$base = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
+if ([String]::IsNullOrWhiteSpace($base)) { throw 'common application data is unavailable' }
+$vendorDirectory = Join-Path $base 'AnixOps'
+$root = Join-Path $vendorDirectory 'WindowsTunnel'
+$easytierDirectory = Join-Path $root 'easytier'
+$requestedDirectory = $env:ANIXOPS_WINDOWS_TUNNEL_EASYTIER_DIRECTORY
+if ([String]::IsNullOrWhiteSpace($requestedDirectory)) { throw 'easytier directory is unavailable' }
+
+function Get-ProtectedEasyTierDirectory {
+    $item = Get-Item -LiteralPath $easytierDirectory -Force -ErrorAction Stop
+    if (-not $item.PSIsContainer) { throw 'easytier root is not a directory' }
+    if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'reparse points are not allowed'
+    }
+    if (-not [String]::Equals($item.FullName, $requestedDirectory, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'easytier root is not the requested directory'
+    }
+    return $item
+}
+
+function Assert-ExactProtectedEasyTierFile {
+    param([System.IO.FileSystemInfo]$Item, [System.IO.DirectoryInfo]$Directory)
+    if (-not ($Item -is [System.IO.FileInfo])) { throw 'easytier root contains a non-file item' }
+    if (($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'reparse points are not allowed'
+    }
+    if (-not [String]::Equals($Item.DirectoryName, $Directory.FullName, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'easytier artifact is not a direct child'
+    }
+    $acl = Get-Acl -LiteralPath $Item.FullName -ErrorAction Stop
+    $owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+    if ($owner -ne 'S-1-5-32-544') { throw 'easytier artifact owner is invalid' }
+    if (-not $acl.AreAccessRulesProtected) { throw 'ACL inheritance is enabled' }
+    $rules = @($acl.GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier]))
+    if ($rules.Count -ne 2) { throw 'unexpected ACL rule count' }
+    foreach ($sidValue in @('S-1-5-18', 'S-1-5-32-544')) {
+        $matches = @($rules | Where-Object {
+            $_.IdentityReference.Value -eq $sidValue -and
+            $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and
+            $_.FileSystemRights -eq [System.Security.AccessControl.FileSystemRights]::FullControl -and
+            $_.InheritanceFlags -eq [System.Security.AccessControl.InheritanceFlags]::None -and
+            $_.PropagationFlags -eq [System.Security.AccessControl.PropagationFlags]::None
+        })
+        if ($matches.Count -ne 1) { throw 'required ACL rule is missing' }
+    }
+}
+
+$directory = Get-ProtectedEasyTierDirectory
+foreach ($item in @(Get-ChildItem -LiteralPath $easytierDirectory -Force -ErrorAction Stop)) {
+    Assert-ExactProtectedEasyTierFile $item $directory
+}
+"#;
+
+#[cfg(windows)]
+const NATIVE_WINDOWS_TUNNEL_VALIDATE_EASYTIER_CORE_ARTIFACT_SCRIPT: &str = r#"
+$ErrorActionPreference = 'Stop'
+$path = $env:ANIXOPS_WINDOWS_TUNNEL_EASYTIER_CORE_PATH
+if ([String]::IsNullOrWhiteSpace($path)) { throw 'easytier core path is unavailable' }
+$base = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
+if ([String]::IsNullOrWhiteSpace($base)) { throw 'common application data is unavailable' }
+$vendorDirectory = Join-Path $base 'AnixOps'
+$root = Join-Path $vendorDirectory 'WindowsTunnel'
+$easytierDirectory = Join-Path $root 'easytier'
+$requestedDirectory = $env:ANIXOPS_WINDOWS_TUNNEL_EASYTIER_DIRECTORY
+if ([String]::IsNullOrWhiteSpace($requestedDirectory)) { throw 'easytier directory is unavailable' }
+
+function Get-ProtectedEasyTierDirectory {
+    $item = Get-Item -LiteralPath $easytierDirectory -Force -ErrorAction Stop
+    if (-not $item.PSIsContainer) { throw 'easytier root is not a directory' }
+    if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'reparse points are not allowed'
+    }
+    if (-not [String]::Equals($item.FullName, $requestedDirectory, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'easytier root is not the requested directory'
+    }
+    return $item
+}
+
+function Assert-ExactProtectedEasyTierFile {
+    param([string]$Path, [System.IO.DirectoryInfo]$Directory)
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if (-not ($item -is [System.IO.FileInfo])) { throw 'easytier core is not a regular file' }
+    if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'reparse points are not allowed'
+    }
+    if (-not [String]::Equals($item.DirectoryName, $Directory.FullName, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'easytier core is not a direct child'
+    }
+    $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    $owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+    if ($owner -ne 'S-1-5-32-544') { throw 'easytier core owner is invalid' }
+    if (-not $acl.AreAccessRulesProtected) { throw 'ACL inheritance is enabled' }
+    $rules = @($acl.GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier]))
+    if ($rules.Count -ne 2) { throw 'unexpected ACL rule count' }
+    foreach ($sidValue in @('S-1-5-18', 'S-1-5-32-544')) {
+        $matches = @($rules | Where-Object {
+            $_.IdentityReference.Value -eq $sidValue -and
+            $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and
+            $_.FileSystemRights -eq [System.Security.AccessControl.FileSystemRights]::FullControl -and
+            $_.InheritanceFlags -eq [System.Security.AccessControl.InheritanceFlags]::None -and
+            $_.PropagationFlags -eq [System.Security.AccessControl.PropagationFlags]::None
+        })
+        if ($matches.Count -ne 1) { throw 'required ACL rule is missing' }
+    }
+}
+
+$directory = Get-ProtectedEasyTierDirectory
+Assert-ExactProtectedEasyTierFile $path $directory
+"#;
+
+#[cfg(windows)]
 const NATIVE_WINDOWS_TUNNEL_PROTECT_SECRET_FILE_SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
 $path = $env:ANIXOPS_WINDOWS_TUNNEL_SECRET_PATH
@@ -408,6 +603,7 @@ pub fn native_windows_prepare_secret_file(path: &Path) -> DomainResult<PathBuf> 
 #[cfg(windows)]
 pub fn native_windows_prepare_easytier_artifact(path: &Path) -> DomainResult<PathBuf> {
     let secure_paths = native_windows_prepare_tunnel_secure_paths_impl()?;
+    native_windows_normalize_easytier_artifacts(&secure_paths.easytier_directory)?;
     native_windows_validate_easytier_artifact_in_directory(path, &secure_paths.easytier_directory)
 }
 
@@ -432,6 +628,7 @@ pub fn native_windows_validate_existing_state_path(path: &Path) -> DomainResult<
 #[cfg(windows)]
 pub fn native_windows_validate_existing_easytier_artifact(path: &Path) -> DomainResult<PathBuf> {
     let secure_paths = native_windows_inspect_tunnel_secure_paths_impl()?;
+    native_windows_validate_all_easytier_artifacts(&secure_paths.easytier_directory)?;
     native_windows_validate_easytier_artifact_in_directory(path, &secure_paths.easytier_directory)
 }
 
@@ -440,9 +637,87 @@ pub fn native_windows_validate_existing_easytier_artifact(_path: &Path) -> Domai
     Err(secure_path_error())
 }
 
+/// Inspects only a persisted EasyTier core artifact while reconciling cleanup.
+#[cfg(windows)]
+pub(crate) fn native_windows_validate_existing_easytier_core_for_cleanup(
+    path: &Path,
+) -> DomainResult<PathBuf> {
+    let secure_paths = native_windows_inspect_tunnel_secure_paths_impl()?;
+    let core_path =
+        native_windows_validate_easytier_artifact_in_directory(path, &secure_paths.easytier_directory)?;
+    native_windows_validate_easytier_core_artifact(&core_path, &secure_paths.easytier_directory)?;
+    native_windows_validate_easytier_artifact_in_directory(
+        &core_path,
+        &secure_paths.easytier_directory,
+    )
+}
+
 #[cfg(not(windows))]
 pub fn native_windows_validate_existing_state_path(_path: &Path) -> DomainResult<PathBuf> {
     Err(secure_path_error())
+}
+
+#[cfg(windows)]
+fn native_windows_normalize_easytier_artifacts(easytier_directory: &Path) -> DomainResult<()> {
+    native_windows_run_easytier_artifact_script(
+        NATIVE_WINDOWS_TUNNEL_NORMALIZE_EASYTIER_ARTIFACTS_SCRIPT,
+        easytier_directory,
+        None,
+    )
+}
+
+#[cfg(windows)]
+fn native_windows_validate_all_easytier_artifacts(
+    easytier_directory: &Path,
+) -> DomainResult<()> {
+    native_windows_run_easytier_artifact_script(
+        NATIVE_WINDOWS_TUNNEL_VALIDATE_EASYTIER_ARTIFACTS_SCRIPT,
+        easytier_directory,
+        None,
+    )
+}
+
+#[cfg(windows)]
+fn native_windows_validate_easytier_core_artifact(
+    core_path: &Path,
+    easytier_directory: &Path,
+) -> DomainResult<()> {
+    native_windows_run_easytier_artifact_script(
+        NATIVE_WINDOWS_TUNNEL_VALIDATE_EASYTIER_CORE_ARTIFACT_SCRIPT,
+        easytier_directory,
+        Some(core_path),
+    )
+}
+
+#[cfg(windows)]
+fn native_windows_run_easytier_artifact_script(
+    script: &str,
+    easytier_directory: &Path,
+    core_path: Option<&Path>,
+) -> DomainResult<()> {
+    let mut command = native_windows_system_command(NativeWindowsSystemTool::PowerShell)
+        .map_err(|_| secure_path_error())?;
+    command
+        .arg("-NoProfile")
+        .arg("-NonInteractive")
+        .arg("-Command")
+        .arg(script)
+        .env(
+            "ANIXOPS_WINDOWS_TUNNEL_EASYTIER_DIRECTORY",
+            easytier_directory,
+        )
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(core_path) = core_path {
+        command.env("ANIXOPS_WINDOWS_TUNNEL_EASYTIER_CORE_PATH", core_path);
+    }
+    let output = command.output().map_err(|_| secure_path_error())?;
+    output
+        .status
+        .success()
+        .then_some(())
+        .ok_or_else(secure_path_error)
 }
 
 #[cfg(windows)]

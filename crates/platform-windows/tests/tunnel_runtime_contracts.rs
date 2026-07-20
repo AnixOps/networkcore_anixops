@@ -2672,6 +2672,12 @@ fn native_windows_cleanup_reproof_uses_only_the_protected_core_artifact() {
     assert!(cleanup.contains("native_cleanup_process_proof_from_inspection("));
     assert!(!cleanup.contains("native_windows_validate_existing_easytier_artifact"));
     assert!(!cleanup.contains("cli_"));
+
+    let stop_start = native
+        .find("    fn stop(&mut self, handle: &OwnedProcessHandle)")
+        .expect("native stop implementation exists");
+    let stop = &native[stop_start..];
+    assert!(stop.contains("let reproof = native_cleanup_process_proof("));
 }
 
 #[test]
@@ -3237,7 +3243,7 @@ fn native_windows_cleanup_presence_uses_only_bounded_absence_and_fail_closed_pro
         .find("canonical_file_under_directory")
         .expect("a present process still requires a canonical config");
     assert!(inspection < absent && absent < config);
-    assert!(cleanup.contains("native_process_proof_from_inspection("));
+    assert!(cleanup.contains("native_cleanup_process_proof_from_inspection("));
     assert!(cleanup.contains("NativeVerifiedProcessHandle::open("));
 
     assert_eq!(

@@ -30,7 +30,8 @@ use crate::tunnel_config::{
 #[cfg(windows)]
 use crate::tunnel_security::{
     native_windows_hardened_command, native_windows_system_command,
-    native_windows_validate_existing_easytier_artifact, NativeWindowsSystemTool,
+    native_windows_validate_existing_easytier_artifact,
+    native_windows_validate_existing_easytier_core_for_cleanup, NativeWindowsSystemTool,
 };
 use crate::WindowsTunnelPlan;
 
@@ -1162,6 +1163,13 @@ struct NativeEasyTierProcessProof {
 }
 
 #[cfg(windows)]
+#[derive(Clone, Copy)]
+enum NativeEasyTierArtifactValidationScope {
+    FullRoot,
+    CleanupCoreOnly,
+}
+
+#[cfg(windows)]
 const PROCESS_SYNCHRONIZE: u32 = 1_048_576;
 
 #[cfg(windows)]
@@ -1377,7 +1385,7 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
         let config_directory = spec.config_path.parent().ok_or_else(ownership_error)?;
         let config_path = canonical_file_under_directory(config_directory, &config_file_name)
             .ok_or_else(ownership_error)?;
-        let proof = native_process_proof_from_inspection(
+        let proof = native_cleanup_process_proof_from_inspection(
             inspection,
             &spec.expected_process,
             None,
@@ -1389,7 +1397,7 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
             NativeVerifiedProcessHandle::open(proof.process.process_id, proof.creation_filetime)
                 .ok_or_else(ownership_error)?;
         let trusted_binary_path =
-            native_windows_validate_existing_easytier_artifact(&proof.binary_path)
+            native_windows_validate_existing_easytier_core_for_cleanup(&proof.binary_path)
                 .map_err(|_| ownership_error())?;
         if trusted_binary_path != proof.binary_path {
             return Err(ownership_error());
@@ -1409,7 +1417,7 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
         if proof.process != *handle {
             return Err(ownership_error());
         }
-        let reproof = native_process_proof(
+        let reproof = native_cleanup_process_proof(
             handle,
             Some(&proof.binary_path),
             &proof.expected_sha256,
@@ -1479,12 +1487,68 @@ fn native_process_proof(
 }
 
 #[cfg(windows)]
+fn native_cleanup_process_proof(
+    expected_process: &OwnedProcessHandle,
+    expected_binary_path: Option<&Path>,
+    expected_sha256: &str,
+    expected_config_path: &Path,
+) -> Option<NativeEasyTierProcessProof> {
+    let inspection = native_inspect_process(expected_process.process_id)?;
+    let proof = native_cleanup_process_proof_from_inspection(
+        inspection,
+        expected_process,
+        expected_binary_path,
+        expected_sha256,
+        expected_config_path,
+    )?;
+    NativeVerifiedProcessHandle::open(expected_process.process_id, proof.creation_filetime)?;
+    Some(proof)
+}
+
+#[cfg(windows)]
 fn native_process_proof_from_inspection(
     inspection: NativeProcessInspection,
     expected_process: &OwnedProcessHandle,
     expected_binary_path: Option<&Path>,
     expected_sha256: &str,
     expected_config_path: &Path,
+) -> Option<NativeEasyTierProcessProof> {
+    native_process_proof_from_inspection_with_scope(
+        inspection,
+        expected_process,
+        expected_binary_path,
+        expected_sha256,
+        expected_config_path,
+        NativeEasyTierArtifactValidationScope::FullRoot,
+    )
+}
+
+#[cfg(windows)]
+fn native_cleanup_process_proof_from_inspection(
+    inspection: NativeProcessInspection,
+    expected_process: &OwnedProcessHandle,
+    expected_binary_path: Option<&Path>,
+    expected_sha256: &str,
+    expected_config_path: &Path,
+) -> Option<NativeEasyTierProcessProof> {
+    native_process_proof_from_inspection_with_scope(
+        inspection,
+        expected_process,
+        expected_binary_path,
+        expected_sha256,
+        expected_config_path,
+        NativeEasyTierArtifactValidationScope::CleanupCoreOnly,
+    )
+}
+
+#[cfg(windows)]
+fn native_process_proof_from_inspection_with_scope(
+    inspection: NativeProcessInspection,
+    expected_process: &OwnedProcessHandle,
+    expected_binary_path: Option<&Path>,
+    expected_sha256: &str,
+    expected_config_path: &Path,
+    artifact_validation_scope: NativeEasyTierArtifactValidationScope,
 ) -> Option<NativeEasyTierProcessProof> {
     if inspection.process_id != expected_process.process_id
         || inspection.creation_marker != expected_process.creation_marker
@@ -1496,8 +1560,14 @@ fn native_process_proof_from_inspection(
     if !binary_path.is_file() {
         return None;
     }
-    let trusted_binary_path =
-        native_windows_validate_existing_easytier_artifact(&binary_path).ok()?;
+    let trusted_binary_path = match artifact_validation_scope {
+        NativeEasyTierArtifactValidationScope::FullRoot => {
+            native_windows_validate_existing_easytier_artifact(&binary_path).ok()?
+        }
+        NativeEasyTierArtifactValidationScope::CleanupCoreOnly => {
+            native_windows_validate_existing_easytier_core_for_cleanup(&binary_path).ok()?
+        }
+    };
     if trusted_binary_path != binary_path {
         return None;
     }
