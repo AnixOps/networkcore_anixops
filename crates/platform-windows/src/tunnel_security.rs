@@ -643,8 +643,10 @@ pub(crate) fn native_windows_validate_existing_easytier_core_for_cleanup(
     path: &Path,
 ) -> DomainResult<PathBuf> {
     let secure_paths = native_windows_inspect_tunnel_secure_paths_impl()?;
-    let core_path =
-        native_windows_validate_easytier_artifact_in_directory(path, &secure_paths.easytier_directory)?;
+    let core_path = native_windows_validate_easytier_artifact_in_directory(
+        path,
+        &secure_paths.easytier_directory,
+    )?;
     native_windows_validate_easytier_core_artifact(&core_path, &secure_paths.easytier_directory)?;
     native_windows_validate_easytier_artifact_in_directory(
         &core_path,
@@ -667,9 +669,7 @@ fn native_windows_normalize_easytier_artifacts(easytier_directory: &Path) -> Dom
 }
 
 #[cfg(windows)]
-fn native_windows_validate_all_easytier_artifacts(
-    easytier_directory: &Path,
-) -> DomainResult<()> {
+fn native_windows_validate_all_easytier_artifacts(easytier_directory: &Path) -> DomainResult<()> {
     native_windows_run_easytier_artifact_script(
         NATIVE_WINDOWS_TUNNEL_VALIDATE_EASYTIER_ARTIFACTS_SCRIPT,
         easytier_directory,

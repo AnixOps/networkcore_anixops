@@ -174,8 +174,9 @@ fn native_windows_easytier_sidecars_require_bounded_file_acl_protection() {
         .expect("explicit EasyTier artifact preparation ends before non-Windows implementation");
     let artifact_prepare =
         &source[artifact_prepare_start..artifact_prepare_start + artifact_prepare_end];
-    assert!(artifact_prepare
-        .contains("native_windows_normalize_easytier_artifacts(&secure_paths.easytier_directory)?"));
+    assert!(artifact_prepare.contains(
+        "native_windows_normalize_easytier_artifacts(&secure_paths.easytier_directory)?"
+    ));
 
     let storage_prepare_marker =
         "#[cfg(windows)]\nfn native_windows_prepare_tunnel_secure_paths_impl(";
@@ -185,7 +186,8 @@ fn native_windows_easytier_sidecars_require_bounded_file_acl_protection() {
     let storage_prepare_end = source[storage_prepare_start..]
         .find("\n#[cfg(windows)]\nfn native_windows_inspect_tunnel_secure_paths_impl(")
         .expect("generic secure storage preparation ends before inspection");
-    let storage_prepare = &source[storage_prepare_start..storage_prepare_start + storage_prepare_end];
+    let storage_prepare =
+        &source[storage_prepare_start..storage_prepare_start + storage_prepare_end];
     assert!(!storage_prepare.contains("native_windows_normalize_easytier_artifacts"));
 }
 
