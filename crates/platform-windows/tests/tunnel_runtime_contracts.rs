@@ -2495,7 +2495,7 @@ fn native_windows_cli_and_recovery_reverify_trusted_cli_artifacts() {
     let readiness = &source[source
         .find("    fn verify_readiness(")
         .expect("readiness verification exists")..];
-    assert!(readiness.contains("verify_file_sha256(cli_path, expected_cli_sha256)?"));
+    assert!(readiness.contains("verify_file_sha256(cli_path, expected_cli_sha256).map_err"));
     assert!(readiness.contains(".peer_ready(cli_path, expected_cli_sha256)"));
     assert!(readiness.contains(".route_cidrs(cli_path, expected_cli_sha256)"));
 
