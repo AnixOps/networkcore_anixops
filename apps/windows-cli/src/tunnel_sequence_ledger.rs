@@ -555,25 +555,39 @@ mod tests {
     }
 
     #[test]
-    fn complete_valid_v1_record_without_final_newline_recovers_its_floors() {
+    fn complete_valid_v1_record_without_final_newline_is_an_uncommitted_recoverable_tail() {
         let path = TemporaryLedgerPath::new();
         let client = identity("tenant-a", "client", "device-a");
         let pop = identity("tenant-a", "pop", "pop-a");
-        fs::write(path.path(), valid_record(&client, 3, &pop, 4))
+        test_ledger(path.path())
+            .reserve_pair((&client, 3), (&pop, 4))
+            .expect("initial reservation succeeds");
+
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(path.path())
+            .expect("test can append a complete unterminated record");
+        file.write_all(&valid_record(&client, 99, &pop, 100))
             .expect("test can write a complete unterminated record");
+        drop(file);
 
         let floors = test_ledger(path.path())
             .read_floors(&client, &pop)
-            .expect("complete unterminated record remains a replay floor");
+            .expect("complete unterminated tail preserves the durable replay floor");
         assert_eq!(floors.client, Some(3));
         assert_eq!(floors.pop, Some(4));
 
         test_ledger(path.path())
             .reserve_pair((&client, 5), (&pop, 6))
             .expect("newer pair replaces only the known unterminated tail");
+        let floors = test_ledger(path.path())
+            .read_floors(&client, &pop)
+            .expect("recovered journal remains readable");
+        assert_eq!(floors.client, Some(5));
+        assert_eq!(floors.pop, Some(6));
         let bytes = fs::read(path.path()).expect("test can inspect recovered record");
         assert!(bytes.ends_with(b"\n"));
-        assert_eq!(bytes.iter().filter(|byte| **byte == b'\n').count(), 1);
+        assert_eq!(bytes.iter().filter(|byte| **byte == b'\n').count(), 2);
     }
 
     #[test]
