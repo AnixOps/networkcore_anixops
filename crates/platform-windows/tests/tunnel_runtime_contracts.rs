@@ -2477,9 +2477,8 @@ fn native_windows_cli_and_recovery_reverify_trusted_cli_artifacts() {
     assert!(source.contains("fn version(&mut self, path: &Path, expected_sha256: &str)"));
     assert!(source.contains("fn peer_ready(&mut self, path: &Path, expected_sha256: &str)"));
     assert!(source.contains("fn route_cidrs(&mut self, path: &Path, expected_sha256: &str)"));
-    assert!(source.contains(
-        "fn native_cli_output(path: &Path, expected_sha256: &str, arguments: &[&str])"
-    ));
+    assert!(source
+        .contains("fn native_cli_output(path: &Path, expected_sha256: &str, arguments: &[&str])"));
     assert!(source.contains("native_windows_validate_existing_easytier_artifact(path)"));
     assert!(source.contains("verify_file_sha256(&path, expected_sha256)"));
 
@@ -2506,8 +2505,11 @@ fn native_windows_cli_and_recovery_reverify_trusted_cli_artifacts() {
     let native_start = &source[source
         .find("    fn start(&mut self, spec: &EasyTierLaunchSpec)")
         .expect("native process start exists")..];
-    assert!(native_start.contains("native_windows_validate_existing_easytier_artifact(&spec.binary_path)"));
-    assert!(native_start.contains("native_windows_validate_existing_easytier_artifact(&spec.cli_path)"));
+    assert!(native_start
+        .contains("native_windows_validate_existing_easytier_artifact(&spec.binary_path)"));
+    assert!(
+        native_start.contains("native_windows_validate_existing_easytier_artifact(&spec.cli_path)")
+    );
 }
 
 #[test]

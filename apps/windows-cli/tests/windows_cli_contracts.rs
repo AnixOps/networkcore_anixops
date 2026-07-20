@@ -895,8 +895,8 @@ fn parses_tunnel_start_with_explicit_cli_sha256() {
         "d1e5061f7c995b142056ccfe154fd8d6700841b9fa488c253d5135790db52311",
     ]);
 
-    let command = parse_args(arguments)
-        .expect("tunnel start accepts one explicit EasyTier CLI SHA-256 pin");
+    let command =
+        parse_args(arguments).expect("tunnel start accepts one explicit EasyTier CLI SHA-256 pin");
     let source = include_str!("../src/lib.rs").replace("\r\n", "\n");
 
     assert!(source.contains("pub easytier_cli_sha256: String,"));
