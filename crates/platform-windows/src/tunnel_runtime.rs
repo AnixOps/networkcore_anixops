@@ -1940,8 +1940,7 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
             if let Err(error) = native_add_bypass(bypass) {
                 let prior_reconciliation =
                     native_reconcile_added_bypasses(&added_after_success, error);
-                let current_is_absent =
-                    matches!(native_cleanup_bypass_presence(bypass), Ok(false));
+                let current_is_absent = matches!(native_cleanup_bypass_presence(bypass), Ok(false));
                 return Err(if current_is_absent {
                     prior_reconciliation
                 } else {
