@@ -20,9 +20,9 @@ use platform_windows::{
         WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE, WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE,
     },
     tunnel_security::{
-        native_windows_prepare_easytier_artifact,
-        native_windows_prepare_secret_file, native_windows_prepare_state_path,
-        native_windows_prepare_tunnel_secure_paths, native_windows_validate_existing_state_path,
+        native_windows_prepare_easytier_artifact, native_windows_prepare_secret_file,
+        native_windows_prepare_state_path, native_windows_prepare_tunnel_secure_paths,
+        native_windows_validate_existing_state_path,
     },
     WindowsFeatureStatus, WindowsPlatformCapabilityService, WindowsPlatformSnapshot,
     WindowsTunnelPlan, WINDOWS_CLI_PACKAGE_STATUS, WINDOWS_CLI_RELEASE_ASSETS_STATUS,
@@ -327,14 +327,12 @@ where
             return Err(confirmation_required_error());
         }
 
-        let guarded = self
-            .paths
-            .prepare_start(
-                &args.state_path,
-                &args.network_secret_file,
-                &args.easytier_binary,
-                &args.easytier_cli,
-            )?;
+        let guarded = self.paths.prepare_start(
+            &args.state_path,
+            &args.network_secret_file,
+            &args.easytier_binary,
+            &args.easytier_cli,
+        )?;
         let plan = self.delivery.load_plan(args)?;
         let state = self.session.start(WindowsTunnelStartRequest {
             plan,
