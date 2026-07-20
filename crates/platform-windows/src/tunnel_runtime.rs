@@ -258,11 +258,13 @@ where
             .route_port
             .snapshot(&[prepared.endpoint])
             .map_err(|_| endpoint_bypass_error("underlay route snapshot could not be captured"))?;
-        if let Err(_error) = self.route_port.add_endpoint_bypass(&[prepared.endpoint]) {
-            return Err(self.rollback_routes_after_start_error(
-                &route_snapshot,
-                endpoint_bypass_error("underlay endpoint bypass could not be installed"),
-            ));
+        if let Err(error) = self.route_port.add_endpoint_bypass(&[prepared.endpoint]) {
+            let original = if error.code.as_str() == WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE {
+                error
+            } else {
+                endpoint_bypass_error("underlay endpoint bypass could not be installed")
+            };
+            return Err(self.rollback_routes_after_start_error(&route_snapshot, original));
         }
 
         match write_exclusive_config(&prepared.config_path, &prepared.config_toml) {
@@ -1922,15 +1924,15 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
             ));
         }
 
-        let mut added = Vec::with_capacity(bypasses.len());
+        let mut attempted = Vec::with_capacity(bypasses.len());
         for bypass in &bypasses {
-            if native_add_bypass(bypass).is_err() {
-                for bypass in &added {
-                    let _ = native_remove_bypass(bypass);
-                }
-                return Err(endpoint_bypass_error("underlay bypass command failed"));
+            attempted.push(bypass.clone());
+            if let Err(error) = native_add_bypass(bypass) {
+                return Err(native_reconcile_attempted_bypasses(&attempted, error));
             }
-            added.push(bypass.clone());
+            if let Err(error) = native_prove_bypass(bypass) {
+                return Err(native_reconcile_attempted_bypasses(&attempted, error));
+            }
         }
 
         self.owned_bypasses.insert(key, bypasses);
@@ -2495,6 +2497,34 @@ fn native_remove_bypass(route: &NativeBypassRoute) -> DomainResult<()> {
     }
 
     Ok(())
+}
+
+#[cfg(windows)]
+fn native_reconcile_attempted_bypasses(
+    attempted: &[NativeBypassRoute],
+    original: DomainError,
+) -> DomainError {
+    let mut reconciliation_failed = false;
+    for bypass in attempted {
+        match native_cleanup_bypass_presence(bypass) {
+            Ok(false) => continue,
+            Ok(true) => {
+                if native_remove_bypass(bypass).is_err() {
+                    reconciliation_failed = true;
+                    continue;
+                }
+                match native_cleanup_bypass_presence(bypass) {
+                    Ok(false) => {}
+                    Ok(true) | Err(_) => reconciliation_failed = true,
+                }
+            }
+            Err(_) => reconciliation_failed = true,
+        }
+    }
+    if reconciliation_failed {
+        return rollback_error();
+    }
+    original
 }
 
 #[cfg(windows)]

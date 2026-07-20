@@ -30,7 +30,11 @@ evidence; it verifies source and injected contracts only.
    the same up physical interface, not a virtual or VPN adapter.
 4. Before/after `ActiveStore` tuples for every endpoint bypass and planned destination route,
    including destination prefix, next hop, interface index, and route metric. Record only in the
-   protected operator evidence, not a CLI report or repository fixture.
+   protected operator evidence, not a CLI report or repository fixture. For a controlled
+   endpoint-bypass add or proof failure, record bounded per-tuple reconciliation: either a proven
+   absence, or exact removal followed by a proven absence. An ambiguous inspection, inspection or
+   removal failure, or a still-present tuple must remain a `rollback_failed` manual-recovery
+   outcome.
 5. Successful EasyTier peer and route readiness plus `ping` to the overlay address and `ping` and
    `curl` to the POP test subnet.
 6. Stop evidence that both exact virtual destination routes and endpoint-bypass routes were removed

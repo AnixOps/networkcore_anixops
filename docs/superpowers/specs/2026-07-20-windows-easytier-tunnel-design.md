@@ -129,6 +129,11 @@ paths plus independent hashes.
      physical-interface bypass route to every EasyTier control/peer endpoint before launch;
    - accept the selected endpoint underlay only when `Find-NetRoute` resolves to an up adapter
      proven by `Get-NetAdapter -Physical`; virtual or VPN-only underlays fail before mutation;
+   - immediately exact-prove every successfully added endpoint-bypass `ActiveStore` tuple before
+     it becomes owned; if an add or proof fails, reconcile every attempted exact tuple through a
+     bounded presence inspection, accepting only proven absence or exact removal followed by
+     proven absence, and return `rollback_failed` for ambiguity, inspection/removal failure, or a
+     tuple still present;
    - after explicit peer and route readiness, capture exactly one newly added nonphysical
      `ActiveStore` tuple for every planned destination prefix; the full destination, next-hop,
      interface-index, and metric tuple is the only virtual-route ownership token;
@@ -259,7 +264,14 @@ and route metric. Removal uses only the exact
 `Remove-NetRoute -InputObject $matches[0] -Confirm:$false -ErrorAction Stop`; it never synthesizes a
 deletion from a CIDR, scans broadly, or deletes a default
 route. Native route add, proof, and exact removal commands discard child stdin, stdout, and stderr,
-exposing only fixed diagnostics at the adapter boundary.
+exposing only fixed diagnostics at the adapter boundary. Each successfully added endpoint-bypass
+tuple receives immediate exact proof and is not recorded as owned until every requested tuple is
+proven. An add or proof failure reconciles every attempted tuple through the bounded exact presence
+helper: it accepts only an already absent tuple or a successful exact removal followed by a proven
+absence. Ambiguity, inspection failure, removal failure, or a still-present tuple returns the fixed
+`rollback_failed` diagnostic; only after complete reconciliation is the original fixed
+endpoint-bypass failure retained. The start service preserves a route-port `rollback_failed` result
+through its route-restoration step rather than replacing it with a normal endpoint-bypass failure.
 
 `Running` remains strict: the process and every persisted route tuple must satisfy all ownership
 proofs before the service writes `Stopping` or mutates a resource. Native Windows recovery for an

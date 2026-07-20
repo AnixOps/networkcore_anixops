@@ -2892,6 +2892,9 @@ fn native_windows_bypass_installation_requires_exact_proof_and_reconciliation() 
         .find("\n#[cfg(windows)]\nfn native_bypass_key(")
         .expect("native attempted-bypass reconciliation ends before key normalization");
     let reconciliation = &source[reconciliation_start..reconciliation_start + reconciliation_end];
+    let reconciliation_loop = reconciliation
+        .find("for bypass in attempted")
+        .expect("reconciliation processes every attempted bypass tuple");
     let inspection = reconciliation
         .find("native_cleanup_bypass_presence(bypass)")
         .expect("reconciliation first performs bounded exact presence inspection");
@@ -2905,10 +2908,19 @@ fn native_windows_bypass_installation_requires_exact_proof_and_reconciliation() 
     let original = reconciliation
         .rfind("\n    original")
         .expect("the original endpoint-bypass failure is retained only after reconciliation");
-    assert!(inspection < removal && removal < absence_proof && absence_proof < original);
+    let rollback = reconciliation
+        .find("if reconciliation_failed {\n        return rollback_error();\n    }")
+        .expect("any unresolved attempted tuple returns the fixed rollback failure");
+    assert!(
+        reconciliation_loop < inspection
+            && inspection < removal
+            && removal < absence_proof
+            && absence_proof < rollback
+            && rollback < original
+    );
     assert!(reconciliation.contains("Ok(false) => continue"));
-    assert!(reconciliation.contains("Err(_) => return rollback_error()"));
-    assert!(reconciliation.contains("Ok(true) | Err(_) => return rollback_error()"));
+    assert!(reconciliation.contains("Err(_) => reconciliation_failed = true"));
+    assert!(reconciliation.contains("Ok(true) | Err(_) => reconciliation_failed = true"));
 }
 
 #[test]
