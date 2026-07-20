@@ -183,6 +183,19 @@ impl FakeRoutePort {
         }
     }
 
+    fn bypass_restore_fails(events: SharedEvents) -> Self {
+        Self {
+            events,
+            recovery_error: None,
+            restore_error: Some(DomainError::new(
+                WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
+                "fixture endpoint bypass restoration failed",
+            )),
+            destination_capture_error: None,
+            destination_remove_error: None,
+        }
+    }
+
     fn destination_removal_fails(events: SharedEvents) -> Self {
         Self {
             events,
@@ -696,6 +709,87 @@ fn readiness_failure_restores_routes_and_stops_owned_process() {
 }
 
 #[test]
+fn unproven_native_start_failure_retains_config_without_clean_rollback_state() {
+    let events = SharedEvents::new();
+    let (binary, cli, secret) = fixture_paths("unproven-native-start-failure");
+    let state_path = binary.parent().expect("fixture parent").join("state.json");
+    let config_path = state_path
+        .parent()
+        .expect("fixture state path has a parent")
+        .join("state.easytier.toml");
+    let mut service = WindowsTunnelSessionService::new(
+        failing_start_process_runner(
+            events.clone(),
+            DomainError::new(
+                WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE,
+                "fixture native child termination could not be proven",
+            ),
+        ),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: Vec::new(),
+        },
+        FakeRoutePort::ready(events.clone()),
+    );
+
+    let error = service
+        .start(start_request(binary, cli, secret, state_path.clone()))
+        .expect_err("unproven native process cleanup must fail closed");
+    assert_eq!(error.code, WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE);
+    assert!(
+        config_path.is_file(),
+        "manual recovery configuration remains when native process cleanup is unproven"
+    );
+    assert!(
+        !state_path.exists(),
+        "failed start must not persist a state claiming clean rollback"
+    );
+
+    let events = events.snapshot();
+    assert!(events.contains(&"process.start".to_string()));
+    assert!(!events.iter().any(|event| event.starts_with("process.stop")));
+}
+
+#[test]
+fn readiness_and_bypass_restore_failure_retain_config_without_clean_rollback_state() {
+    let events = SharedEvents::new();
+    let (binary, cli, secret) = fixture_paths("readiness-bypass-restore-failure");
+    let state_path = binary.parent().expect("fixture parent").join("state.json");
+    let config_path = state_path
+        .parent()
+        .expect("fixture state path has a parent")
+        .join("state.easytier.toml");
+    let mut service = WindowsTunnelSessionService::new(
+        fake_process_runner(events.clone(), None, None),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: false,
+            routes: Vec::new(),
+        },
+        FakeRoutePort::bypass_restore_fails(events.clone()),
+    );
+
+    let error = service
+        .start(start_request(binary, cli, secret, state_path.clone()))
+        .expect_err("failed bypass restoration must retain the recovery configuration");
+    assert_eq!(error.code, WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE);
+    assert!(
+        config_path.is_file(),
+        "manual recovery configuration remains when bypass restoration fails"
+    );
+    assert!(
+        !state_path.exists(),
+        "failed start must not persist a state claiming clean rollback"
+    );
+
+    let events = events.snapshot();
+    assert!(events.contains(&"process.start".to_string()));
+    assert!(event_index(&events, "process.start") < event_index(&events, "route.restore"));
+    assert!(event_index(&events, "route.restore") < event_index(&events, "process.stop"));
+}
+
+#[test]
 fn stop_rejects_missing_confirmation() {
     let events = SharedEvents::new();
     let (_binary, _cli, _secret) = fixture_paths("stop-confirmation");
@@ -1191,6 +1285,60 @@ fn stop_never_persists_transient_stopping_state() {
     assert!(
         !stop.contains("write_tunnel_state(&state_path, &stopping)"),
         "a post-removal stopping write can leave an unrecoverable running record"
+    );
+}
+
+#[test]
+fn failed_start_config_removal_requires_proven_destination_bypass_and_process_cleanup() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+    let rollback_marker = "    fn rollback_failed_start(";
+    let rollback_start = source
+        .find(rollback_marker)
+        .expect("failed-start rollback implementation exists");
+    let rollback_end = source[rollback_start..]
+        .find("\n\n    fn rollback_unproven_destination_capture(")
+        .expect("failed-start rollback ends before unproven destination cleanup");
+    let rollback = &source[rollback_start..rollback_start + rollback_end];
+
+    assert!(
+        source.contains(
+            "enum StartProcessCleanup<'a> {\n    NotStarted,\n    Owned(&'a OwnedProcessHandle),\n    Unproven,\n}"
+        ),
+        "failed start distinguishes absent, owned, and unproven process cleanup"
+    );
+    assert!(
+        rollback.contains("process: StartProcessCleanup<'_>"),
+        "failed-start rollback receives an explicit process cleanup proof"
+    );
+    assert!(
+        rollback.contains("StartProcessCleanup::Unproven => false"),
+        "unproven process cleanup cannot be treated as stopped"
+    );
+
+    let all_cleanup_proven = rollback
+        .find("if destination_routes_removed && routes_restored && process_stopped {")
+        .expect("config removal is guarded by destination, bypass, and process cleanup proof");
+    let config_removal = rollback
+        .find("if fs::remove_file(config_path).is_ok() {")
+        .expect("failed-start rollback removes its direct-child config only after proof");
+    let original_return = config_removal
+        + rollback[config_removal..]
+            .find("return original;")
+            .expect("successful config removal returns the original failure");
+    assert!(all_cleanup_proven < config_removal);
+    assert!(config_removal < original_return);
+
+    let unproven_capture_start = source
+        .find("    fn rollback_unproven_destination_capture(")
+        .expect("unproven destination cleanup implementation exists");
+    let unproven_capture_end = source[unproven_capture_start..]
+        .find("\n}\n\nstruct OwnedTunnelSession")
+        .expect("unproven destination cleanup ends before session ownership");
+    let unproven_capture =
+        &source[unproven_capture_start..unproven_capture_start + unproven_capture_end];
+    assert!(
+        !unproven_capture.contains("fs::remove_file(config_path)"),
+        "unproven destination cleanup retains the config because route cleanup is not proven"
     );
 }
 
