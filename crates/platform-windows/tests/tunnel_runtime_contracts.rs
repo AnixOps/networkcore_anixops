@@ -1476,6 +1476,50 @@ fn fresh_service_rejects_recovered_cli_outside_proven_binary_directory() {
     assert_eq!(recovered_events.snapshot(), vec!["process.recover"]);
 }
 
+#[test]
+fn fresh_service_rejects_recovered_cli_that_no_longer_matches_its_pin() {
+    let owner_events = SharedEvents::new();
+    let (binary, cli, secret) = fixture_paths("fresh-rejected-cli-hash");
+    let state_path = binary.parent().expect("fixture parent").join("state.json");
+    let recovered_binary = binary.clone();
+    let recovered_cli = cli.clone();
+    let mut owner = WindowsTunnelSessionService::new(
+        fake_process_runner(owner_events.clone(), None, None),
+        FakeCliRunner {
+            events: owner_events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        FakeRoutePort::ready(owner_events),
+    );
+    owner
+        .start(start_request(binary, cli.clone(), secret, state_path.clone()))
+        .expect("owner starts a persisted session");
+    fs::write(&cli, b"fixture-easytier-cli-replaced")
+        .expect("recovered CLI fixture can be replaced after state persistence");
+
+    let recovered_events = SharedEvents::new();
+    let mut recovered = WindowsTunnelSessionService::new(
+        fake_process_runner(
+            recovered_events.clone(),
+            Some(recovered_binary),
+            Some(recovered_cli),
+        ),
+        FakeCliRunner {
+            events: recovered_events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        FakeRoutePort::ready(recovered_events.clone()),
+    );
+
+    let error = recovered
+        .status(&state_path)
+        .expect_err("strict recovery rejects a CLI whose pin no longer matches");
+    assert_eq!(error.code, WINDOWS_TUNNEL_OWNERSHIP_MISMATCH_CODE);
+    assert_eq!(recovered_events.snapshot(), vec!["process.recover"]);
+}
+
 #[cfg(unix)]
 #[test]
 fn fresh_service_rejects_recovered_config_symlink_outside_state_directory_before_process_recovery()
