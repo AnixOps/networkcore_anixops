@@ -52,14 +52,13 @@ fn native_windows_prepare_uses_bounded_programdata_acl_setup() {
 #[test]
 fn existing_state_validation_uses_inspection_only_storage_checks() {
     let source = include_str!("../src/tunnel_security.rs").replace("\r\n", "\n");
-    let inspection_marker = "#[cfg(windows)]\nfn native_windows_inspect_tunnel_secure_paths_impl(";
+    let inspection_marker = "const NATIVE_WINDOWS_TUNNEL_INSPECT_SCRIPT: &str = r#\"";
     let inspection_start = source
         .find(inspection_marker)
-        .expect("Windows secure path inspection helper exists");
-    let next_marker = "#[cfg(not(windows))]\nfn native_windows_prepare_tunnel_secure_paths_impl(";
+        .expect("Windows secure path inspection script exists");
     let inspection_end = source[inspection_start..]
-        .find(next_marker)
-        .expect("Windows secure path inspection ends before non-Windows implementation");
+        .find("\"#;")
+        .expect("Windows secure path inspection script has a bounded source slice");
     let inspection = &source[inspection_start..inspection_start + inspection_end];
 
     assert!(inspection.contains("Get-Acl"));

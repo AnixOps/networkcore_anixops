@@ -17,7 +17,11 @@ use platform_windows::{
         native_windows_is_elevated, EasyTierCliRunner, EasyTierProcessRunner,
         NativeEasyTierCliRunner, NativeEasyTierProcessRunner, NativeWindowsRoutePort,
         WindowsRoutePort, WindowsTunnelSessionService, WindowsTunnelStartRequest,
-        WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE,
+        WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE, WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE,
+    },
+    tunnel_security::{
+        native_windows_prepare_secret_file, native_windows_prepare_state_path,
+        native_windows_validate_existing_state_path,
     },
     WindowsFeatureStatus, WindowsPlatformCapabilityService, WindowsPlatformSnapshot,
     WindowsTunnelPlan, WINDOWS_CLI_PACKAGE_STATUS, WINDOWS_CLI_RELEASE_ASSETS_STATUS,
@@ -233,34 +237,62 @@ pub trait WindowsTunnelPrivilegePort {
     fn is_elevated(&self) -> bool;
 }
 
+/// Guarded local paths approved for one foreground tunnel start.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TunnelStartInputPaths {
+    pub state_path: PathBuf,
+    pub network_secret_file: PathBuf,
+}
+
+/// Separates native input storage authority from the delivery and lifecycle ports.
+pub trait WindowsTunnelInputPathPolicy {
+    fn prepare_start(
+        &self,
+        state_path: &Path,
+        network_secret_file: &Path,
+    ) -> DomainResult<TunnelStartInputPaths>;
+
+    fn validate_existing_state(&self, state_path: &Path) -> DomainResult<PathBuf>;
+}
+
 /// Connects verified delivery and explicit Windows lifecycle operations to CLI commands.
-pub struct DeliveryBackedWindowsTunnelCommandService<S, L, P> {
+pub struct DeliveryBackedWindowsTunnelCommandService<S, L, P, G> {
     session: S,
     delivery: L,
     privilege: P,
+    paths: G,
 }
 
-impl<S, L, P> DeliveryBackedWindowsTunnelCommandService<S, L, P> {
-    pub fn new(session: S, delivery: L, privilege: P) -> Self {
+impl<S, L, P, G> DeliveryBackedWindowsTunnelCommandService<S, L, P, G> {
+    pub fn new(session: S, delivery: L, privilege: P, paths: G) -> Self {
         Self {
             session,
             delivery,
             privilege,
+            paths,
         }
     }
 }
 
-impl<S, L, P> WindowsTunnelCommandService for DeliveryBackedWindowsTunnelCommandService<S, L, P>
+impl<S, L, P, G> WindowsTunnelCommandService
+    for DeliveryBackedWindowsTunnelCommandService<S, L, P, G>
 where
     S: WindowsTunnelLifecyclePort,
     L: WindowsTunnelDeliveryLoader,
     P: WindowsTunnelPrivilegePort,
+    G: WindowsTunnelInputPathPolicy,
 {
     fn start(&mut self, args: &WindowsTunnelStartArgs) -> DomainResult<WindowsTunnelCommandResult> {
         if !self.privilege.is_elevated() {
             return Err(admin_required_error());
         }
+        if !args.confirm {
+            return Err(confirmation_required_error());
+        }
 
+        let guarded = self
+            .paths
+            .prepare_start(&args.state_path, &args.network_secret_file)?;
         let plan = self.delivery.load_plan(args)?;
         let state = self.session.start(WindowsTunnelStartRequest {
             plan,
@@ -269,8 +301,8 @@ where
             easytier_version: args.easytier_version.clone(),
             easytier_sha256: args.easytier_sha256.clone(),
             network_name: args.network_name.clone(),
-            network_secret_file: args.network_secret_file.clone(),
-            state_path: args.state_path.clone(),
+            network_secret_file: guarded.network_secret_file,
+            state_path: guarded.state_path,
             confirm: args.confirm,
         })?;
         Ok(running_tunnel_result(state))
@@ -280,8 +312,9 @@ where
         &mut self,
         args: &WindowsTunnelStatusArgs,
     ) -> DomainResult<WindowsTunnelCommandResult> {
+        let state_path = self.paths.validate_existing_state(&args.state_path)?;
         self.session
-            .status(&args.state_path)
+            .status(&state_path)
             .map(running_tunnel_result)
     }
 
@@ -290,8 +323,9 @@ where
             return Err(admin_required_error());
         }
 
+        let state_path = self.paths.validate_existing_state(&args.state_path)?;
         self.session
-            .stop(&args.state_path, args.confirm)
+            .stop(&state_path, args.confirm)
             .map(stopped_tunnel_result)
     }
 }
@@ -318,6 +352,13 @@ fn admin_required_error() -> DomainError {
     DomainError::new(
         WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE,
         "elevated Windows execution is required",
+    )
+}
+
+fn confirmation_required_error() -> DomainError {
+    DomainError::new(
+        WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE,
+        "tunnel mutation requires explicit confirmation",
     )
 }
 
@@ -385,6 +426,27 @@ impl WindowsTunnelPrivilegePort for NativeWindowsTunnelPrivilegeChecker {
     }
 }
 
+/// Native secure-storage adapter used only by the production Windows tunnel bridge.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NativeWindowsTunnelInputPathPolicy;
+
+impl WindowsTunnelInputPathPolicy for NativeWindowsTunnelInputPathPolicy {
+    fn prepare_start(
+        &self,
+        state_path: &Path,
+        network_secret_file: &Path,
+    ) -> DomainResult<TunnelStartInputPaths> {
+        Ok(TunnelStartInputPaths {
+            state_path: native_windows_prepare_state_path(state_path)?,
+            network_secret_file: native_windows_prepare_secret_file(network_secret_file)?,
+        })
+    }
+
+    fn validate_existing_state(&self, state_path: &Path) -> DomainResult<PathBuf> {
+        native_windows_validate_existing_state_path(state_path)
+    }
+}
+
 pub type NativeWindowsTunnelCommandService = DeliveryBackedWindowsTunnelCommandService<
     WindowsTunnelSessionService<
         NativeEasyTierProcessRunner,
@@ -393,6 +455,7 @@ pub type NativeWindowsTunnelCommandService = DeliveryBackedWindowsTunnelCommandS
     >,
     NativeWindowsTunnelDeliveryLoader,
     NativeWindowsTunnelPrivilegeChecker,
+    NativeWindowsTunnelInputPathPolicy,
 >;
 
 #[cfg(windows)]
@@ -415,6 +478,7 @@ pub fn native_windows_tunnel_command_service() -> NativeWindowsTunnelCommandServ
         ),
         NativeWindowsTunnelDeliveryLoader,
         NativeWindowsTunnelPrivilegeChecker,
+        NativeWindowsTunnelInputPathPolicy,
     )
 }
 

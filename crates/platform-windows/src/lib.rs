@@ -7,6 +7,7 @@
 
 pub mod tunnel_config;
 pub mod tunnel_runtime;
+pub mod tunnel_security;
 
 pub use config_core::windows_tunnel::{
     WindowsTunnelPlan, WindowsTunnelPlanRequest, WindowsTunnelRouteIntent,

@@ -16,7 +16,7 @@ use platform_windows::tunnel_config::{
 };
 use platform_windows::tunnel_runtime::{
     WindowsTunnelStartRequest, WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE,
-    WINDOWS_TUNNEL_STATUS_UNAVAILABLE_CODE,
+    WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE, WINDOWS_TUNNEL_STATUS_UNAVAILABLE_CODE,
 };
 use platform_windows::{
     ReadOnlyWindowsPlatformCapabilityService, WindowsTunnelPlan, WindowsTunnelRouteIntent,
@@ -372,6 +372,26 @@ impl WindowsTunnelInputPathPolicy for RecordingInputPathPolicy {
         self.events.borrow_mut().push("paths.state");
         self.state_calls.borrow_mut().push(state_path.to_path_buf());
         Ok(self.guarded_state_path.clone())
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct AllowAllInputPathPolicy;
+
+impl WindowsTunnelInputPathPolicy for AllowAllInputPathPolicy {
+    fn prepare_start(
+        &self,
+        state_path: &Path,
+        network_secret_file: &Path,
+    ) -> DomainResult<TunnelStartInputPaths> {
+        Ok(TunnelStartInputPaths {
+            state_path: state_path.to_path_buf(),
+            network_secret_file: network_secret_file.to_path_buf(),
+        })
+    }
+
+    fn validate_existing_state(&self, state_path: &Path) -> DomainResult<PathBuf> {
+        Ok(state_path.to_path_buf())
     }
 }
 
@@ -1002,6 +1022,9 @@ fn confirmed_tunnel_stop_delegates_typed_args_without_launching_process() {
 fn delivery_backed_tunnel_start_requires_elevation_before_delivery_load() {
     let calls = std::rc::Rc::new(std::cell::Cell::new(0));
     let events = std::rc::Rc::new(std::cell::RefCell::new(LifecycleEvents::default()));
+    let path_events = Rc::new(RefCell::new(Vec::new()));
+    let path_policy = RecordingInputPathPolicy::new(path_events);
+    let path_start_calls = path_policy.start_calls.clone();
     let lifecycle = RecordingLifecyclePort::with_states(
         events.clone(),
         fixture_tunnel_state(),
@@ -1014,6 +1037,7 @@ fn delivery_backed_tunnel_start_requires_elevation_before_delivery_load() {
             calls: calls.clone(),
         },
         FixedPrivilege(false),
+        path_policy,
     );
 
     let error = service
@@ -1022,13 +1046,50 @@ fn delivery_backed_tunnel_start_requires_elevation_before_delivery_load() {
 
     assert_eq!(error.code, WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE);
     assert_eq!(calls.get(), 0);
+    assert!(path_start_calls.borrow().is_empty());
     assert!(events.borrow().started.is_empty());
+}
+
+#[test]
+fn delivery_backed_tunnel_start_requires_confirmation_before_path_preparation() {
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+    let lifecycle_events = std::rc::Rc::new(std::cell::RefCell::new(LifecycleEvents::default()));
+    let path_events = Rc::new(RefCell::new(Vec::new()));
+    let path_policy = RecordingInputPathPolicy::new(path_events);
+    let path_start_calls = path_policy.start_calls.clone();
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        RecordingLifecyclePort::with_states(
+            lifecycle_events.clone(),
+            fixture_tunnel_state(),
+            fixture_stopped_state(),
+        ),
+        RecordingDeliveryLoader {
+            plan: fixture_tunnel_plan(),
+            calls: calls.clone(),
+        },
+        FixedPrivilege(true),
+        path_policy,
+    );
+    let mut start_args = fixture_tunnel_start_args();
+    start_args.confirm = false;
+
+    let error = service
+        .start(&start_args)
+        .expect_err("unconfirmed start is denied before storage preparation");
+
+    assert_eq!(error.code, WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE);
+    assert!(path_start_calls.borrow().is_empty());
+    assert_eq!(calls.get(), 0);
+    assert!(lifecycle_events.borrow().started.is_empty());
 }
 
 #[test]
 fn delivery_backed_tunnel_stop_requires_elevation_before_lifecycle_stop() {
     let calls = std::rc::Rc::new(std::cell::Cell::new(0));
     let events = std::rc::Rc::new(std::cell::RefCell::new(LifecycleEvents::default()));
+    let path_events = Rc::new(RefCell::new(Vec::new()));
+    let path_policy = RecordingInputPathPolicy::new(path_events);
+    let path_state_calls = path_policy.state_calls.clone();
     let mut service = DeliveryBackedWindowsTunnelCommandService::new(
         RecordingLifecyclePort::with_states(
             events.clone(),
@@ -1040,6 +1101,7 @@ fn delivery_backed_tunnel_stop_requires_elevation_before_lifecycle_stop() {
             calls,
         },
         FixedPrivilege(false),
+        path_policy,
     );
 
     let error = service
@@ -1047,6 +1109,7 @@ fn delivery_backed_tunnel_stop_requires_elevation_before_lifecycle_stop() {
         .expect_err("unelevated stop is denied");
 
     assert_eq!(error.code, WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE);
+    assert!(path_state_calls.borrow().is_empty());
     assert!(events.borrow().stop_calls.is_empty());
 }
 
@@ -1066,6 +1129,7 @@ fn delivery_backed_tunnel_service_delegates_verified_plan_and_reports_readiness(
             calls: calls.clone(),
         },
         FixedPrivilege(true),
+        AllowAllInputPathPolicy,
     );
 
     let result = service
@@ -1096,6 +1160,7 @@ fn delivery_backed_tunnel_status_and_stop_render_runtime_evidence() {
             calls,
         },
         FixedPrivilege(true),
+        AllowAllInputPathPolicy,
     );
 
     let status = service
