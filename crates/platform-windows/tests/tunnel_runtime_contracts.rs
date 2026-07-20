@@ -932,7 +932,7 @@ fn native_windows_recovery_and_removal_require_exact_bypass_proof() {
         .find("native_prove_bypass(bypass)")
         .expect("recovery invokes exact native bypass proof");
     let insertion = recovery
-        .find("self.owned_bypasses")
+        .find("self.owned_bypasses.insert(key, bypasses)")
         .expect("recovery records only proven bypass ownership");
     assert!(
         parse < key && key < proof_loop && proof_loop < proof && proof < insertion,

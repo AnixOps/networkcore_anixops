@@ -201,8 +201,14 @@ and requires `GetProcessTimes` to match that FILETIME. It calls `TerminateProces
 same owned handle; RAII closes the handle. It never uses `taskkill`, descendant-tree termination,
 process-name scanning, or candidate enumeration. Service boundaries convert process-start and
 recovered bypass-port failures to fixed redacted diagnostics, preserving the fixed cleanup failure
-diagnostic when rollback cannot be proven. A fresh native stop remains fail-closed at the
-endpoint-bypass recovery gate until a later slice can prove the persisted bypass route.
+diagnostic when rollback cannot be proven. Native endpoint-bypass ownership is normalized before
+every mutation as an IPv4 endpoint `/32`, IPv4 gateway, nonzero interface index, and `u16` metric.
+Fresh native recovery accepts each persisted tuple only when `Get-NetRoute -PolicyStore ActiveStore`
+finds exactly one route matching all four fields; zero or multiple matches fail closed before service
+cleanup can mutate running state, configuration, routes, or the EasyTier process. Initial installation
+uses `route.exe ADD` with that normalized tuple. Exact cleanup reruns the bounded ActiveStore query and
+uses `Remove-NetRoute -InputObject $matches[0] -Confirm:$false -ErrorAction Stop`, so it removes only
+the one proven route rather than scanning route names or issuing a broad deletion.
 
 ### CLI layer
 
@@ -306,8 +312,14 @@ must show:
 6. A negative route test proving an unadvertised CIDR is not sent through the POP.
 7. Successful `tunnel status` output.
 8. `tunnel stop` output and a post-stop route/process snapshot matching the pre-start state.
+9. After a fresh service restart and before `tunnel stop`, record the one ActiveStore route matching
+   endpoint `/32`, gateway, interface index, and metric; after stop, record that this exact route is
+   absent.
+10. In an isolated test environment, make that proof missing or ambiguous and record that fresh
+    `tunnel stop` fails while the EasyTier process, state, config, and any unrelated route remain
+    unchanged; restore the controlled fixture before cleanup.
 
-The first slice is considered usable only when all eight records are present. A green CI run
+The first slice is considered usable only when all ten records are present. A green CI run
 alone is not sufficient evidence of Windows packet forwarding.
 
 ## Packaging and Rollout

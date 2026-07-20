@@ -13,6 +13,10 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 #[cfg(windows)]
+use std::collections::BTreeSet;
+#[cfg(windows)]
+use std::net::Ipv4Addr;
+#[cfg(windows)]
 use std::process::{Command, Stdio};
 
 use crate::tunnel_config::{
@@ -1262,11 +1266,12 @@ pub struct NativeWindowsRoutePort {
 }
 
 #[cfg(windows)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct NativeBypassRoute {
-    endpoint: IpAddr,
-    gateway: String,
+    endpoint: Ipv4Addr,
+    gateway: Ipv4Addr,
     interface_index: u32,
+    metric: u16,
 }
 
 #[cfg(windows)]
@@ -1284,73 +1289,77 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
         let snapshot = self.pending_snapshot.take().ok_or_else(|| {
             endpoint_bypass_error("underlay bypass was requested without a route snapshot")
         })?;
-        if snapshot.len() != endpoints.len() {
+        let bypasses = native_bypass_routes_from_snapshot(&snapshot)?;
+        let requested_endpoints = endpoints
+            .iter()
+            .map(|endpoint| match endpoint {
+                IpAddr::V4(endpoint) => Ok(*endpoint),
+                IpAddr::V6(_) => Err(endpoint_bypass_error(
+                    "underlay bypass endpoints do not match the captured route snapshot",
+                )),
+            })
+            .collect::<DomainResult<Vec<_>>>()?;
+        if bypasses
+            .iter()
+            .map(|route| route.endpoint)
+            .collect::<Vec<_>>()
+            != requested_endpoints
+        {
             return Err(endpoint_bypass_error(
                 "underlay bypass endpoints do not match the captured route snapshot",
             ));
         }
+        let key = native_bypass_key(&bypasses);
+        if self.owned_bypasses.contains_key(&key) {
+            return Err(endpoint_bypass_error(
+                "underlay bypass is already owned by this session",
+            ));
+        }
 
-        let mut added = Vec::with_capacity(endpoints.len());
-        for (endpoint, route) in endpoints.iter().zip(&snapshot) {
-            let gateway = route
-                .gateway
-                .as_ref()
-                .filter(|gateway| !gateway.trim().is_empty())
-                .ok_or_else(|| endpoint_bypass_error("physical next hop is unavailable"))?;
-            let interface_index = route
-                .interface_index
-                .ok_or_else(|| endpoint_bypass_error("physical interface index is unavailable"))?;
-            let metric = route.metric.unwrap_or(25).to_string();
-            let status = std::process::Command::new("route.exe")
-                .args([
-                    "ADD",
-                    &endpoint.to_string(),
-                    "MASK",
-                    "255.255.255.255",
-                    gateway,
-                    "METRIC",
-                    &metric,
-                    "IF",
-                    &interface_index.to_string(),
-                ])
-                .status()
-                .map_err(|_| endpoint_bypass_error("underlay bypass command could not run"))?;
-            if !status.success() {
+        let mut added = Vec::with_capacity(bypasses.len());
+        for bypass in &bypasses {
+            if native_add_bypass(bypass).is_err() {
                 for bypass in &added {
                     let _ = native_remove_bypass(bypass);
                 }
                 return Err(endpoint_bypass_error("underlay bypass command failed"));
             }
-            added.push(NativeBypassRoute {
-                endpoint: *endpoint,
-                gateway: gateway.clone(),
-                interface_index,
-            });
+            added.push(bypass.clone());
         }
 
-        self.owned_bypasses
-            .insert(native_snapshot_key(&snapshot), added);
+        self.owned_bypasses.insert(key, bypasses);
         Ok(())
     }
 
-    fn recover_owned_bypass(
-        &mut self,
-        _snapshot: &[WindowsRouteSnapshotEntry],
-    ) -> DomainResult<()> {
-        Err(endpoint_bypass_error(
-            "persisted endpoint-bypass recovery proof is unavailable",
-        ))
+    fn recover_owned_bypass(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()> {
+        let bypasses = native_bypass_routes_from_snapshot(snapshot)?;
+        let key = native_bypass_key(&bypasses);
+        if self.owned_bypasses.contains_key(&key) {
+            return Err(endpoint_bypass_error(
+                "persisted endpoint bypass is already owned by this session",
+            ));
+        }
+        for bypass in &bypasses {
+            native_prove_bypass(bypass)?;
+        }
+        self.owned_bypasses.insert(key, bypasses);
+        Ok(())
     }
 
     fn restore(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()> {
-        let Some(bypasses) = self.owned_bypasses.remove(&native_snapshot_key(snapshot)) else {
+        let bypasses = native_bypass_routes_from_snapshot(snapshot)?;
+        let key = native_bypass_key(&bypasses);
+        let Some(bypasses) = self.owned_bypasses.remove(&key) else {
             return Ok(());
         };
-        let mut restored = true;
+        let mut remaining = Vec::new();
         for bypass in bypasses {
-            restored &= native_remove_bypass(&bypass).is_ok();
+            if native_remove_bypass(&bypass).is_err() {
+                remaining.push(bypass);
+            }
         }
-        if !restored {
+        if !remaining.is_empty() {
+            self.owned_bypasses.insert(key, remaining);
             return Err(endpoint_bypass_error(
                 "one or more underlay bypass routes remain",
             ));
@@ -1452,6 +1461,7 @@ mod native_process_proof_tests {
         );
 
         let rejected_snapshots = [
+            Vec::new(),
             vec![WindowsRouteSnapshotEntry {
                 destination_cidr: "198.51.100.10/24".to_string(),
                 ..snapshot[0].clone()
@@ -1575,17 +1585,131 @@ struct NativeRouteLookup {
 }
 
 #[cfg(windows)]
-fn native_remove_bypass(route: &NativeBypassRoute) -> DomainResult<()> {
-    let status = std::process::Command::new("route.exe")
+fn native_bypass_routes_from_snapshot(
+    snapshot: &[WindowsRouteSnapshotEntry],
+) -> DomainResult<Vec<NativeBypassRoute>> {
+    if snapshot.is_empty() {
+        return Err(endpoint_bypass_error(
+            "persisted endpoint bypass snapshot is empty",
+        ));
+    }
+
+    let mut endpoints = BTreeSet::new();
+    snapshot
+        .iter()
+        .map(|entry| {
+            let (address, prefix) = entry.destination_cidr.split_once('/').ok_or_else(|| {
+                endpoint_bypass_error("persisted endpoint bypass destination is invalid")
+            })?;
+            if prefix != "32" {
+                return Err(endpoint_bypass_error(
+                    "persisted endpoint bypass must use an IPv4 /32",
+                ));
+            }
+            let endpoint = Ipv4Addr::from_str(address).map_err(|_| {
+                endpoint_bypass_error("persisted endpoint bypass destination is not IPv4")
+            })?;
+            let gateway = entry
+                .gateway
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| {
+                    endpoint_bypass_error("persisted endpoint bypass gateway is unavailable")
+                })?
+                .parse::<Ipv4Addr>()
+                .map_err(|_| {
+                    endpoint_bypass_error("persisted endpoint bypass gateway is not IPv4")
+                })?;
+            let interface_index = entry
+                .interface_index
+                .filter(|value| *value != 0)
+                .ok_or_else(|| {
+                    endpoint_bypass_error("persisted endpoint bypass interface is invalid")
+                })?;
+            let metric = entry
+                .metric
+                .and_then(|value| u16::try_from(value).ok())
+                .ok_or_else(|| {
+                    endpoint_bypass_error("persisted endpoint bypass metric is invalid")
+                })?;
+            if !endpoints.insert(endpoint) {
+                return Err(endpoint_bypass_error(
+                    "persisted endpoint bypass contains a duplicate endpoint",
+                ));
+            }
+
+            Ok(NativeBypassRoute {
+                endpoint,
+                gateway,
+                interface_index,
+                metric,
+            })
+        })
+        .collect()
+}
+
+#[cfg(windows)]
+fn native_add_bypass(route: &NativeBypassRoute) -> DomainResult<()> {
+    let endpoint = route.endpoint.to_string();
+    let gateway = route.gateway.to_string();
+    let interface_index = route.interface_index.to_string();
+    let metric = route.metric.to_string();
+    let status = Command::new("route.exe")
         .args([
-            "DELETE",
-            &route.endpoint.to_string(),
+            "ADD",
+            &endpoint,
             "MASK",
             "255.255.255.255",
-            &route.gateway,
+            &gateway,
+            "METRIC",
+            &metric,
             "IF",
-            &route.interface_index.to_string(),
+            &interface_index,
         ])
+        .status()
+        .map_err(|_| endpoint_bypass_error("underlay bypass command could not run"))?;
+    if !status.success() {
+        return Err(endpoint_bypass_error("underlay bypass command failed"));
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn native_exact_bypass_proof_script(route: &NativeBypassRoute) -> String {
+    format!(
+        "$matches = @(Get-NetRoute -PolicyStore ActiveStore -DestinationPrefix '{}/32' -NextHop '{}' -InterfaceIndex {} -RouteMetric {} -ErrorAction Stop)\nif ($matches.Count -ne 1) {{ exit 2 }}",
+        route.endpoint, route.gateway, route.interface_index, route.metric
+    )
+}
+
+#[cfg(windows)]
+fn native_exact_bypass_removal_script(route: &NativeBypassRoute) -> String {
+    format!(
+        "{}\nRemove-NetRoute -InputObject $matches[0] -Confirm:$false -ErrorAction Stop",
+        native_exact_bypass_proof_script(route)
+    )
+}
+
+#[cfg(windows)]
+fn native_prove_bypass(route: &NativeBypassRoute) -> DomainResult<()> {
+    let script = native_exact_bypass_proof_script(route);
+    let status = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .status()
+        .map_err(|_| endpoint_bypass_error("underlay bypass proof could not run"))?;
+    if !status.success() {
+        return Err(endpoint_bypass_error("underlay bypass proof failed"));
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn native_remove_bypass(route: &NativeBypassRoute) -> DomainResult<()> {
+    let script = native_exact_bypass_removal_script(route);
+    let status = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .status()
         .map_err(|_| endpoint_bypass_error("underlay bypass removal could not run"))?;
     if !status.success() {
@@ -1596,20 +1720,18 @@ fn native_remove_bypass(route: &NativeBypassRoute) -> DomainResult<()> {
 }
 
 #[cfg(windows)]
-fn native_snapshot_key(snapshot: &[WindowsRouteSnapshotEntry]) -> String {
-    snapshot
+fn native_bypass_key(routes: &[NativeBypassRoute]) -> String {
+    let mut tuples = routes
         .iter()
         .map(|route| {
             format!(
                 "{}|{}|{}|{}",
-                route.destination_cidr,
-                route.gateway.as_deref().unwrap_or_default(),
-                route.interface_index.unwrap_or_default(),
-                route.metric.unwrap_or_default(),
+                route.endpoint, route.gateway, route.interface_index, route.metric,
             )
         })
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect::<Vec<_>>();
+    tuples.sort();
+    tuples.join("\n")
 }
 
 #[cfg(not(windows))]
