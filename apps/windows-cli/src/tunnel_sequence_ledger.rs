@@ -224,10 +224,7 @@ mod sequence_floor_map {
             if entry.sequence == 0 || !entry.identity.is_valid() {
                 return Err(D::Error::custom("invalid delivery sequence floor"));
             }
-            if floors
-                .insert(entry.identity, entry.sequence)
-                .is_some()
-            {
+            if floors.insert(entry.identity, entry.sequence).is_some() {
                 return Err(D::Error::custom("duplicate delivery sequence identity"));
             }
         }

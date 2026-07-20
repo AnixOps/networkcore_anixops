@@ -440,16 +440,18 @@ impl WindowsTunnelDeliveryLoader for NativeWindowsTunnelDeliveryLoader {
         let ledger = NativeWindowsTunnelSequenceLedger;
         let client_identity = DeliverySequenceIdentity::new(&client);
         let pop_identity = DeliverySequenceIdentity::new(&pop);
-        let floors = ledger.read_floors(&client_identity, &pop_identity).map_err(|error| {
-            if error.code == WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE {
-                error
-            } else {
-                DomainError::new(
-                    WINDOWS_TUNNEL_DELIVERY_INVALID_CODE,
-                    "signed tunnel delivery is invalid",
-                )
-            }
-        })?;
+        let floors = ledger
+            .read_floors(&client_identity, &pop_identity)
+            .map_err(|error| {
+                if error.code == WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE {
+                    error
+                } else {
+                    DomainError::new(
+                        WINDOWS_TUNNEL_DELIVERY_INVALID_CODE,
+                        "signed tunnel delivery is invalid",
+                    )
+                }
+            })?;
         let plan = plan_windows_tunnel(WindowsTunnelPlanRequest {
             client: &client,
             pop: &pop,
