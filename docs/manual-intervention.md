@@ -31,12 +31,16 @@ evidence; it verifies source and injected contracts only.
 4. Before/after `ActiveStore` tuples for every endpoint bypass and planned destination route,
    including destination prefix, next hop, interface index, and route metric. Record only in the
    protected operator evidence, not a CLI report or repository fixture. For a controlled
-   endpoint-bypass add or proof failure, record bounded per-tuple reconciliation: either a proven
-   absence, or exact removal followed by a proven absence. An ambiguous inspection, inspection or
-   removal failure, or a still-present tuple must remain a `rollback_failed` manual-recovery
-   outcome. Before every add, record a bounded exact absence proof; a pre-existing or ambiguous
-   exact tuple is not session-owned, must not be deleted, and may only cause reconciliation of
-   earlier tuples that already had that pre-add absence proof.
+   endpoint-bypass proof failure, or reconciliation of earlier successful adds after an add
+   failure, record bounded per-tuple reconciliation: either a proven absence, or exact removal
+   followed by a proven absence. An ambiguous inspection, inspection or removal failure, or a
+   still-present tuple must remain a `rollback_failed` manual-recovery outcome. Before every add,
+   record a bounded exact absence proof; a pre-existing or ambiguous exact tuple is not
+   session-owned, must not be deleted, and may only cause reconciliation of earlier tuples that
+   already had that pre-add absence proof. An add error does not establish ownership despite that
+   preflight: reconcile only earlier successful adds, then inspect the current exact tuple without
+   deleting it. Only a proven absent current tuple retains the normal endpoint error; a present or
+   ambiguous tuple remains in place and returns `rollback_failed`.
 5. Successful EasyTier peer and route readiness plus `ping` to the overlay address and `ping` and
    `curl` to the POP test subnet.
 6. Stop evidence that both exact virtual destination routes and endpoint-bypass routes were removed

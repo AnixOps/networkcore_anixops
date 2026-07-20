@@ -1924,25 +1924,33 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
             ));
         }
 
-        let mut attempted = Vec::with_capacity(bypasses.len());
+        let mut added_after_success = Vec::with_capacity(bypasses.len());
         for bypass in &bypasses {
             match native_cleanup_bypass_presence(bypass) {
                 Ok(false) => {}
                 Ok(true) | Err(_) => {
-                    return Err(native_reconcile_attempted_bypasses(
-                        &attempted,
+                    return Err(native_reconcile_added_bypasses(
+                        &added_after_success,
                         endpoint_bypass_error(
                             "underlay bypass ownership could not be proven before installation",
                         ),
                     ));
                 }
             }
-            attempted.push(bypass.clone());
             if let Err(error) = native_add_bypass(bypass) {
-                return Err(native_reconcile_attempted_bypasses(&attempted, error));
+                let prior_reconciliation =
+                    native_reconcile_added_bypasses(&added_after_success, error);
+                let current_is_absent =
+                    matches!(native_cleanup_bypass_presence(bypass), Ok(false));
+                return Err(if current_is_absent {
+                    prior_reconciliation
+                } else {
+                    rollback_error()
+                });
             }
+            added_after_success.push(bypass.clone());
             if let Err(error) = native_prove_bypass(bypass) {
-                return Err(native_reconcile_attempted_bypasses(&attempted, error));
+                return Err(native_reconcile_added_bypasses(&added_after_success, error));
             }
         }
 
@@ -2511,12 +2519,12 @@ fn native_remove_bypass(route: &NativeBypassRoute) -> DomainResult<()> {
 }
 
 #[cfg(windows)]
-fn native_reconcile_attempted_bypasses(
-    attempted: &[NativeBypassRoute],
+fn native_reconcile_added_bypasses(
+    added_after_success: &[NativeBypassRoute],
     original: DomainError,
 ) -> DomainError {
     let mut reconciliation_failed = false;
-    for bypass in attempted {
+    for bypass in added_after_success {
         match native_cleanup_bypass_presence(bypass) {
             Ok(false) => continue,
             Ok(true) => {

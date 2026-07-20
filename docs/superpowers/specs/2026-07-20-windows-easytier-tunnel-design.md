@@ -132,11 +132,15 @@ paths plus independent hashes.
    - require a bounded exact absence proof before each endpoint-bypass add. A pre-existing or
      ambiguous exact tuple is not owned, is never deleted, and fails the start while reconciling
      only earlier tuples that had pre-add absence proof;
+   - treat an add error as non-ownership even after a successful preflight: reconcile only
+     earlier successful adds, then inspect the current exact tuple without deleting it. Only a
+     proven absent current tuple retains the endpoint error; a present or ambiguous tuple remains
+     in place and returns `rollback_failed`;
    - immediately exact-prove every successfully added endpoint-bypass `ActiveStore` tuple before
-     it becomes owned; if an add or proof fails, reconcile every attempted exact tuple through a
-     bounded presence inspection, accepting only proven absence or exact removal followed by
-     proven absence, and return `rollback_failed` for ambiguity, inspection/removal failure, or a
-     tuple still present;
+     it becomes owned; if an add or proof fails, reconcile every successfully added exact tuple
+     through a bounded presence inspection, accepting only proven absence or exact removal
+     followed by proven absence, and return `rollback_failed` for ambiguity,
+     inspection/removal failure, or a tuple still present;
    - after explicit peer and route readiness, capture exactly one newly added nonphysical
      `ActiveStore` tuple for every planned destination prefix; the full destination, next-hop,
      interface-index, and metric tuple is the only virtual-route ownership token;
@@ -269,15 +273,20 @@ deletion from a CIDR, scans broadly, or deletes a default
 route. Native route add, proof, and exact removal commands discard child stdin, stdout, and stderr,
 exposing only fixed diagnostics at the adapter boundary. Each successfully added endpoint-bypass
 tuple receives immediate exact proof and is not recorded as owned until every requested tuple is
-proven. An add or proof failure reconciles every attempted tuple through the bounded exact presence
-helper: it accepts only an already absent tuple or a successful exact removal followed by a proven
-absence. Ambiguity, inspection failure, removal failure, or a still-present tuple returns the fixed
-`rollback_failed` diagnostic; only after complete reconciliation is the original fixed
-endpoint-bypass failure retained. The start service preserves a route-port `rollback_failed` result
-through its route-restoration step rather than replacing it with a normal endpoint-bypass failure.
+proven. A proof failure, or reconciliation of earlier successful adds after an add failure,
+reconciles every successfully added tuple through the bounded exact presence helper: it accepts
+only an already absent tuple or a successful exact removal followed by a proven absence. Ambiguity,
+inspection failure, removal failure, or a still-present tuple returns the fixed `rollback_failed`
+diagnostic; only after complete reconciliation is the original fixed endpoint-bypass failure
+retained. The start service preserves a route-port `rollback_failed` result through its
+route-restoration step rather than replacing it with a normal endpoint-bypass failure.
 Before an add, the adapter must prove the exact tuple absent. A pre-existing or ambiguous exact
 tuple is not session-owned, must never be deleted, and can only trigger reconciliation of earlier
-tuples that already had pre-add absence proof.
+tuples that already had pre-add absence proof. That preflight does not establish ownership across
+the query/add race: if `route.exe ADD` returns an error, the current tuple never enters the
+removable set. The adapter first reconciles earlier successful adds, then only checks the current
+tuple for exact absence. A proven absent current tuple retains the original endpoint error; a
+present or ambiguous tuple stays in place and returns `rollback_failed`.
 
 `Running` remains strict: the process and every persisted route tuple must satisfy all ownership
 proofs before the service writes `Stopping` or mutates a resource. Native Windows recovery for an
