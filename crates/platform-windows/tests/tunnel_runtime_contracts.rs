@@ -1221,8 +1221,14 @@ fn same_service_duplicate_endpoint_bypass_keeps_first_session_owned_until_stop()
     let events = SharedEvents::new();
     let bypass_owned = Rc::new(RefCell::new(false));
     let (binary, cli, secret) = fixture_paths("same-service-duplicate-endpoint-bypass");
-    let state_path_a = binary.parent().expect("fixture parent").join("session-a.json");
-    let state_path_b = binary.parent().expect("fixture parent").join("session-b.json");
+    let state_path_a = binary
+        .parent()
+        .expect("fixture parent")
+        .join("session-a.json");
+    let state_path_b = binary
+        .parent()
+        .expect("fixture parent")
+        .join("session-b.json");
     let recovered_binary = binary.clone();
     let recovered_cli = fs::canonicalize(&cli).expect("fixture CLI path is canonical");
     let mut service = WindowsTunnelSessionService::new(
@@ -1243,7 +1249,10 @@ fn same_service_duplicate_endpoint_bypass_keeps_first_session_owned_until_stop()
             state_path_a.clone(),
         ))
         .expect("first session owns the shared endpoint bypass");
-    assert!(*bypass_owned.borrow(), "first session holds the shared bypass");
+    assert!(
+        *bypass_owned.borrow(),
+        "first session holds the shared bypass"
+    );
 
     events.clear();
     let mut second_request = start_request(binary, cli, secret, state_path_b);
