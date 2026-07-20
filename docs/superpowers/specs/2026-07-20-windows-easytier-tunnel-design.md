@@ -233,6 +233,15 @@ deletion from a CIDR, scans broadly, or deletes a default
 route. Native route add, proof, and exact removal commands discard child stdin, stdout, and stderr,
 exposing only fixed diagnostics at the adapter boundary.
 
+`Running` remains strict: the process and every persisted route tuple must satisfy all ownership
+proofs before the service writes `Stopping` or mutates a resource. Native Windows recovery for an
+already persisted `Stopping` or `Failed` state instead reconciles one exact `ActiveStore` tuple at a
+time. It retains only exact present tuples under the original full ownership key and permits a
+proven-absent exact tuple or PID to converge without deletion. PowerShell exit code `3` is reserved
+only for that zero-match tuple or absent exact PID result; ambiguity, malformed data, command
+failure, physical destination adapter, or any present-process proof/config mismatch fails closed.
+No raw tuple, PID, command, or config detail reaches diagnostics.
+
 The native secure-storage boundary has two distinct operations. Elevated `prepare-storage --confirm`
 creates the `AnixOps`, `WindowsTunnel`, `state`, and `secrets` components in that order when they
 do not exist, then sets and verifies the exact owner/DACL only on components it created. Existing

@@ -1282,6 +1282,46 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
         Ok(recovered)
     }
 
+    fn recover_for_cleanup(
+        &mut self,
+        spec: &EasyTierRecoverySpec,
+    ) -> DomainResult<EasyTierCleanupRecovery> {
+        if !is_safe_tunnel_file_name(&spec.cli_file_name) {
+            return Err(ownership_error());
+        }
+        let config_file_name =
+            safe_file_name_from_path(&spec.config_path).ok_or_else(ownership_error)?;
+        let inspection = native_inspect_process_for_cleanup(spec.expected_process.process_id)?;
+        let Some(inspection) = inspection else {
+            return Ok(EasyTierCleanupRecovery::Absent);
+        };
+        let config_directory = spec.config_path.parent().ok_or_else(ownership_error)?;
+        let config_path = canonical_file_under_directory(config_directory, &config_file_name)
+            .ok_or_else(ownership_error)?;
+        let proof = native_process_proof_from_inspection(
+            inspection,
+            &spec.expected_process,
+            None,
+            &spec.expected_binary_sha256,
+            &config_path,
+        )
+        .ok_or_else(ownership_error)?;
+        let _verified_handle =
+            NativeVerifiedProcessHandle::open(proof.process.process_id, proof.creation_filetime)
+                .ok_or_else(ownership_error)?;
+        let binary_directory = proof.binary_path.parent().ok_or_else(ownership_error)?;
+        let cli_path = canonical_file_under_directory(binary_directory, &spec.cli_file_name)
+            .ok_or_else(ownership_error)?;
+        let recovered = RecoveredEasyTierProcess {
+            process: proof.process.clone(),
+            binary_path: proof.binary_path.clone(),
+            cli_path,
+        };
+        self.proofs
+            .insert(native_process_key(&proof.process), proof);
+        Ok(EasyTierCleanupRecovery::Present(recovered))
+    }
+
     fn stop(&mut self, handle: &OwnedProcessHandle) -> DomainResult<()> {
         let key = native_process_key(handle);
         let proof = self.proofs.get(&key).cloned().ok_or_else(ownership_error)?;
@@ -1416,6 +1456,32 @@ fn native_inspect_process(process_id: u32) -> Option<NativeProcessInspection> {
         return None;
     }
     serde_json::from_slice(&output.stdout).ok()
+}
+
+#[cfg(windows)]
+fn native_inspect_process_for_cleanup(
+    process_id: u32,
+) -> DomainResult<Option<NativeProcessInspection>> {
+    if process_id == 0 {
+        return Err(ownership_error());
+    }
+    let script = format!(
+        "$ErrorActionPreference = 'Stop'\ntry {{\n$processes = @(Get-CimInstance Win32_Process -Filter \"ProcessId = {process_id}\" -ErrorAction Stop)\nif ($processes.Count -eq 0) {{ exit 3 }}\nif ($processes.Count -ne 1) {{ exit 2 }}\n$process = $processes[0]\n[PSCustomObject]@{{ ProcessId = [uint32]$process.ProcessId; CreationDate = $process.CreationDate.ToUniversalTime().ToString('o'); CreationFileTime = [uint64]$process.CreationDate.ToUniversalTime().ToFileTimeUtc(); ExecutablePath = $process.ExecutablePath; CommandLine = $process.CommandLine }} | ConvertTo-Json -Compress\n}}"
+    ) + "\ncatch { exit 2 }";
+    let output = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|_| ownership_error())?;
+    match output.status.code() {
+        Some(0) => serde_json::from_slice(&output.stdout)
+            .map(Some)
+            .map_err(|_| ownership_error()),
+        Some(3) => Ok(None),
+        _ => Err(ownership_error()),
+    }
 }
 
 #[cfg(windows)]
@@ -1616,6 +1682,7 @@ pub struct NativeWindowsRoutePort {
     pending_snapshot: Option<Vec<WindowsRouteSnapshotEntry>>,
     owned_bypasses: BTreeMap<String, Vec<NativeBypassRoute>>,
     owned_destination_routes: BTreeMap<String, Vec<NativeDestinationRoute>>,
+    cleanup_destination_keys: BTreeSet<String>,
 }
 
 #[cfg(windows)]
@@ -1703,6 +1770,25 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
         Ok(())
     }
 
+    fn recover_cleanup_bypass(
+        &mut self,
+        snapshot: &[WindowsRouteSnapshotEntry],
+    ) -> DomainResult<()> {
+        let bypasses = native_bypass_routes_from_snapshot(snapshot)?;
+        let key = native_bypass_key(&bypasses);
+        let mut present = Vec::new();
+        for bypass in &bypasses {
+            if native_cleanup_bypass_presence(bypass)? {
+                present.push(bypass.clone());
+            }
+        }
+        self.owned_bypasses.remove(&key);
+        if !present.is_empty() {
+            self.owned_bypasses.insert(key, present);
+        }
+        Ok(())
+    }
+
     fn restore(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()> {
         let bypasses = native_bypass_routes_from_snapshot(snapshot)?;
         let key = native_bypass_key(&bypasses);
@@ -1781,6 +1867,7 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
             ));
         }
         let snapshot = native_destination_route_snapshot_entries(&owned);
+        self.cleanup_destination_keys.remove(&key);
         self.owned_destination_routes.insert(key, owned);
         Ok(snapshot)
     }
@@ -1794,7 +1881,29 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
         for route in &owned {
             native_prove_virtual_destination_route(route)?;
         }
+        self.cleanup_destination_keys.remove(&key);
         self.owned_destination_routes.insert(key, owned);
+        Ok(())
+    }
+
+    fn recover_cleanup_destination_routes(
+        &mut self,
+        owned: &[WindowsRouteSnapshotEntry],
+    ) -> DomainResult<()> {
+        let owned = native_destination_routes_from_snapshot(owned)?;
+        let key = native_destination_route_key(&owned);
+        let cleanup_key = key.clone();
+        let mut present = Vec::new();
+        for route in &owned {
+            if native_cleanup_destination_presence(route)? {
+                present.push(route.clone());
+            }
+        }
+        self.owned_destination_routes.remove(&key);
+        if !present.is_empty() {
+            self.owned_destination_routes.insert(key, present);
+        }
+        self.cleanup_destination_keys.insert(cleanup_key);
         Ok(())
     }
 
@@ -1804,7 +1913,11 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
     ) -> DomainResult<()> {
         let owned = native_destination_routes_from_snapshot(owned)?;
         let key = native_destination_route_key(&owned);
+        let cleanup_reconciled = self.cleanup_destination_keys.remove(&key);
         let Some(owned) = self.owned_destination_routes.remove(&key) else {
+            if cleanup_reconciled {
+                return Ok(());
+            }
             return Err(endpoint_bypass_error(
                 "destination route is not owned by this session",
             ));
@@ -1816,7 +1929,10 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
             }
         }
         if !remaining.is_empty() {
-            self.owned_destination_routes.insert(key, remaining);
+            self.owned_destination_routes.insert(key.clone(), remaining);
+            if cleanup_reconciled {
+                self.cleanup_destination_keys.insert(key);
+            }
             return Err(endpoint_bypass_error(
                 "one or more destination routes remain",
             ));
@@ -2159,6 +2275,25 @@ fn native_exact_bypass_removal_script(route: &NativeBypassRoute) -> String {
 }
 
 #[cfg(windows)]
+fn native_cleanup_bypass_presence(route: &NativeBypassRoute) -> DomainResult<bool> {
+    let script = format!(
+        "$ErrorActionPreference = 'Stop'\ntry {{\n$matches = @(Get-NetRoute -PolicyStore ActiveStore -DestinationPrefix '{}/32' -NextHop '{}' -InterfaceIndex {} -RouteMetric {} -ErrorAction Stop)\nif ($matches.Count -eq 0) {{ exit 3 }}\nif ($matches.Count -ne 1) {{ exit 2 }}\n}}",
+        route.endpoint, route.gateway, route.interface_index, route.metric
+    ) + "\ncatch { exit 2 }";
+    let status = native_silent_route_command("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .status()
+        .map_err(|_| endpoint_bypass_error("underlay bypass cleanup inspection could not run"))?;
+    match status.code() {
+        Some(0) => Ok(true),
+        Some(3) => Ok(false),
+        _ => Err(endpoint_bypass_error(
+            "underlay bypass cleanup inspection could not be proven",
+        )),
+    }
+}
+
+#[cfg(windows)]
 fn native_prove_bypass(route: &NativeBypassRoute) -> DomainResult<()> {
     let script = native_exact_bypass_proof_script(route);
     let status = native_silent_route_command("powershell.exe")
@@ -2393,6 +2528,27 @@ fn native_exact_destination_route_removal_script(route: &NativeDestinationRoute)
         "{}\nRemove-NetRoute -InputObject $matches[0] -Confirm:$false -ErrorAction Stop",
         native_exact_destination_route_proof_script(route)
     )
+}
+
+#[cfg(windows)]
+fn native_cleanup_destination_presence(route: &NativeDestinationRoute) -> DomainResult<bool> {
+    let script = format!(
+        "$ErrorActionPreference = 'Stop'\ntry {{\n$matches = @(Get-NetRoute -PolicyStore ActiveStore -DestinationPrefix '{}' -NextHop '{}' -InterfaceIndex {} -RouteMetric {} -ErrorAction Stop)\nif ($matches.Count -eq 0) {{ exit 3 }}\nif ($matches.Count -ne 1) {{ exit 2 }}\n$route = $matches[0]\n$physical = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -Physical -ErrorAction SilentlyContinue\nif ($null -ne $physical) {{ exit 2 }}\n$adapter = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction Stop\nif ($adapter.Status -ne 'Up') {{ exit 2 }}\n}}",
+        route.destination_cidr, route.gateway, route.interface_index, route.metric
+    ) + "\ncatch { exit 2 }";
+    let status = native_silent_route_command("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .status()
+        .map_err(|_| {
+            endpoint_bypass_error("destination route cleanup inspection could not run")
+        })?;
+    match status.code() {
+        Some(0) => Ok(true),
+        Some(3) => Ok(false),
+        _ => Err(endpoint_bypass_error(
+            "destination route cleanup inspection could not be proven",
+        )),
+    }
 }
 
 #[cfg(windows)]
