@@ -2158,6 +2158,41 @@ fn stopped_write_failure_releases_session_for_absent_resource_reconciliation() {
 }
 
 #[test]
+fn stopping_cleanup_does_not_require_the_cli_artifact() {
+    let events = SharedEvents::new();
+    let (binary, cli, state_path, config_path, state) = cleanup_fixture(
+        "cleanup-missing-cli-artifact",
+        WindowsTunnelLifecycleState::Stopping,
+    );
+    fs::remove_file(&cli).expect("CLI fixture can be absent during cleanup recovery");
+    let state_port = FakeStatePort::seeded(state, events.clone());
+    let mut service = WindowsTunnelSessionService::new_with_state_port(
+        CleanupFakeProcessRunner::present(events.clone(), binary, cli, None),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string(), "203.0.114.0/24".to_string()],
+        },
+        CleanupFakeRoutePort::complete(events.clone()),
+        state_port.clone(),
+    );
+
+    let stopped = service
+        .stop(&state_path, true)
+        .expect("Stopping cleanup does not require the CLI artifact");
+    assert_eq!(stopped.state, WindowsTunnelLifecycleState::Stopped);
+    assert_eq!(
+        state_port.current().state,
+        WindowsTunnelLifecycleState::Stopped
+    );
+    assert!(!config_path.exists());
+    let events = events.snapshot();
+    assert!(events.iter().any(|event| event == "process.cleanup_recover"));
+    assert!(events.iter().any(|event| event.starts_with("process.stop")));
+    assert!(!events.iter().any(|event| event.starts_with("cli.")));
+}
+
+#[test]
 fn running_recovery_rejects_missing_route_tuple_before_stopping_write() {
     let events = SharedEvents::new();
     let (binary, cli, state_path, _config_path, state) = cleanup_fixture(
