@@ -28,6 +28,7 @@ use crate::tunnel_config::{
 use crate::WindowsTunnelPlan;
 
 pub const WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE: &str = "windows.tunnel.confirmation_required";
+pub const WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE: &str = "windows.tunnel.admin_required";
 pub const WINDOWS_TUNNEL_SECRET_FILE_INVALID_CODE: &str = "windows.tunnel.secret_file_invalid";
 pub const WINDOWS_TUNNEL_EASYTIER_VERSION_MISMATCH_CODE: &str =
     "windows.tunnel.easytier_version_mismatch";
@@ -40,6 +41,18 @@ pub const WINDOWS_TUNNEL_STATUS_UNAVAILABLE_CODE: &str = "windows.tunnel.status_
 pub const WINDOWS_TUNNEL_STOP_FAILED_CODE: &str = "windows.tunnel.stop_failed";
 pub const WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE: &str = "windows.tunnel.rollback_failed";
 pub const WINDOWS_TUNNEL_OWNERSHIP_MISMATCH_CODE: &str = "windows.tunnel.ownership_mismatch";
+
+#[cfg(windows)]
+pub fn native_windows_is_elevated() -> bool {
+    use windows_sys::Win32::UI::Shell::IsUserAnAdmin;
+
+    unsafe { IsUserAnAdmin() != 0 }
+}
+
+#[cfg(not(windows))]
+pub fn native_windows_is_elevated() -> bool {
+    false
+}
 
 /// Starts and stops only an EasyTier process created by the current session service.
 pub trait EasyTierProcessRunner {

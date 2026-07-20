@@ -273,6 +273,9 @@ windows.tunnel.stop_failed
 windows.tunnel.rollback_failed
 ```
 
+The native CLI checks elevation before accepting any `start` or `stop` input or performing a
+mutation; a non-elevated invocation fails closed with `windows.tunnel.admin_required`.
+
 The adapter fails closed on every preflight error. It must not fall back to a different
 EasyTier binary, a different POP, a direct route, or an unverified delivery. A failed start
 must leave no session-owned route or running EasyTier process; inability to prove that cleanup
