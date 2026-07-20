@@ -2924,6 +2924,62 @@ fn native_windows_bypass_installation_requires_exact_proof_and_reconciliation() 
 }
 
 #[test]
+fn native_windows_bypass_installation_requires_preadd_exact_absence_proof() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+    let route_port_marker = "#[cfg(windows)]\nimpl WindowsRoutePort for NativeWindowsRoutePort {";
+    let route_port_start = source
+        .find(route_port_marker)
+        .expect("Windows route port implementation exists");
+    let route_port_end = source[route_port_start..]
+        .find("\n#[cfg(all(test, windows))]\nmod native_process_proof_tests")
+        .expect("Windows route port implementation ends before native unit tests");
+    let route_port = &source[route_port_start..route_port_start + route_port_end];
+    let addition_start = route_port
+        .find("    fn add_endpoint_bypass(")
+        .expect("native bypass installation exists");
+    let addition_end = route_port[addition_start..]
+        .find("\n\n    fn recover_owned_bypass(")
+        .expect("native bypass installation ends before recovery");
+    let addition = &route_port[addition_start..addition_start + addition_end];
+
+    let attempted = addition
+        .find("let mut attempted = Vec::with_capacity(bypasses.len());")
+        .expect("native bypass installation tracks only preflight-proven tuples");
+    let preflight = addition
+        .find("match native_cleanup_bypass_presence(bypass)")
+        .expect("every bypass has a bounded exact pre-add absence proof");
+    let attempted_push = addition
+        .find("attempted.push(bypass.clone());")
+        .expect("only a preflight-proven tuple becomes reconcilable");
+    let add = addition
+        .find("if let Err(error) = native_add_bypass(bypass)")
+        .expect("native bypass installation handles exact add failure");
+    assert!(
+        attempted < preflight && preflight < attempted_push && attempted_push < add,
+        "pre-add exact absence is required before a tuple enters the cleanup set or mutates routes"
+    );
+
+    let preflight_failure_start = addition
+        .find("Ok(true) | Err(_) =>")
+        .expect("pre-existing or ambiguous preflight fails closed");
+    let preflight_failure_end = preflight_failure_start
+        + addition[preflight_failure_start..]
+            .find("\n        attempted.push(bypass.clone());")
+            .expect("preflight failure ends before the current tuple can become reconcilable");
+    let preflight_failure = &addition[preflight_failure_start..preflight_failure_end];
+    assert!(
+        preflight_failure.contains("native_reconcile_attempted_bypasses(")
+            && preflight_failure.contains("&attempted,"),
+        "a preflight failure reconciles only previously proven attempted tuples"
+    );
+    assert!(
+        !preflight_failure.contains("attempted.push(bypass.clone())")
+            && !preflight_failure.contains("native_add_bypass(bypass)"),
+        "an unproven current tuple is neither added nor eligible for exact removal"
+    );
+}
+
+#[test]
 fn native_windows_recovery_and_removal_require_exact_bypass_proof() {
     let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
     let route_port_marker = "#[cfg(windows)]\nimpl WindowsRoutePort for NativeWindowsRoutePort {";
