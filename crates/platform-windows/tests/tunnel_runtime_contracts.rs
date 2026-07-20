@@ -2626,6 +2626,54 @@ fn native_windows_destination_routes_use_bounded_active_store_exact_tuple_proof(
 }
 
 #[test]
+fn native_windows_destination_adapter_proofs_fail_closed_on_query_errors() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+
+    for (name, marker) in [
+        (
+            "strict",
+            "#[cfg(windows)]\nfn native_exact_destination_route_proof_script(",
+        ),
+        (
+            "cleanup",
+            "#[cfg(windows)]\nfn native_cleanup_destination_presence(",
+        ),
+    ] {
+        let start = source.find(marker).expect("native destination helper exists");
+        let end = source[start + marker.len()..]
+            .find("\n#[cfg(windows)]\nfn ")
+            .expect("native destination helper has a bounded source slice");
+        let helper = &source[start..start + marker.len() + end];
+
+        for fragment in [
+            "Get-NetRoute -PolicyStore ActiveStore",
+            "-DestinationPrefix",
+            "-NextHop",
+            "-InterfaceIndex",
+            "-RouteMetric",
+        ] {
+            assert!(helper.contains(fragment), "{name} adapter proof filters {fragment}");
+        }
+        assert!(
+            helper.contains(
+                "$physical = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -Physical -ErrorAction Stop"
+            ),
+            "{name} adapter proof makes query failures terminating"
+        );
+        assert!(
+            helper.contains("if ($null -ne $physical) {{ exit 2 }}"),
+            "{name} adapter proof accepts only a confirmed nonphysical result"
+        );
+        assert!(
+            !helper.contains(
+                "Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -Physical -ErrorAction SilentlyContinue"
+            ),
+            "{name} adapter proof must not suppress adapter-query failures"
+        );
+    }
+}
+
+#[test]
 fn native_windows_destination_normalization_uses_canonical_ipv4_policy() {
     let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
     let normalization_marker =
