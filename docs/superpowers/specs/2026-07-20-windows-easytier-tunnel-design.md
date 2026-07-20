@@ -135,7 +135,9 @@ paths plus independent hashes.
    - treat an add error as non-ownership even after a successful preflight: reconcile only
      earlier successful adds, then inspect the current exact tuple without deleting it. Only a
      proven absent current tuple retains the endpoint error; a present or ambiguous tuple remains
-     in place and returns `rollback_failed`;
+     in place and returns `rollback_failed`. The start service returns that failed acquisition
+     without an outer restore; only later failures after a successful add restore that start's
+     bypass;
    - immediately exact-prove every successfully added endpoint-bypass `ActiveStore` tuple before
      it becomes owned; if an add or proof fails, reconcile every successfully added exact tuple
      through a bounded presence inspection, accepting only proven absence or exact removal
@@ -278,8 +280,10 @@ reconciles every successfully added tuple through the bounded exact presence hel
 only an already absent tuple or a successful exact removal followed by a proven absence. Ambiguity,
 inspection failure, removal failure, or a still-present tuple returns the fixed `rollback_failed`
 diagnostic; only after complete reconciliation is the original fixed endpoint-bypass failure
-retained. The start service preserves a route-port `rollback_failed` result through its
-route-restoration step rather than replacing it with a normal endpoint-bypass failure.
+retained. A route-port add error is transaction-local: the start service preserves a
+`rollback_failed` result, or maps an ordinary error to the fixed endpoint-bypass diagnostic,
+without an outer route restore. Later start failures restore only a bypass that successfully
+completed its add transaction.
 Before an add, the adapter must prove the exact tuple absent. A pre-existing or ambiguous exact
 tuple is not session-owned, must never be deleted, and can only trigger reconciliation of earlier
 tuples that already had pre-add absence proof. That preflight does not establish ownership across

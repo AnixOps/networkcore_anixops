@@ -259,12 +259,11 @@ where
             .snapshot(&[prepared.endpoint])
             .map_err(|_| endpoint_bypass_error("underlay route snapshot could not be captured"))?;
         if let Err(error) = self.route_port.add_endpoint_bypass(&[prepared.endpoint]) {
-            let original = if error.code.as_str() == WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE {
+            return Err(if error.code.as_str() == WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE {
                 error
             } else {
                 endpoint_bypass_error("underlay endpoint bypass could not be installed")
-            };
-            return Err(self.rollback_routes_after_start_error(&route_snapshot, original));
+            });
         }
 
         match write_exclusive_config(&prepared.config_path, &prepared.config_toml) {

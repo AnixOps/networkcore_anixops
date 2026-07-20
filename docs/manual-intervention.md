@@ -40,7 +40,9 @@ evidence; it verifies source and injected contracts only.
    already had that pre-add absence proof. An add error does not establish ownership despite that
    preflight: reconcile only earlier successful adds, then inspect the current exact tuple without
    deleting it. Only a proven absent current tuple retains the normal endpoint error; a present or
-   ambiguous tuple remains in place and returns `rollback_failed`.
+   ambiguous tuple remains in place and returns `rollback_failed`. Record that a failed add did
+   not trigger an outer restore; later start failures may restore only a bypass whose add
+   succeeded for that start.
 5. Successful EasyTier peer and route readiness plus `ping` to the overlay address and `ping` and
    `curl` to the POP test subnet.
 6. Stop evidence that both exact virtual destination routes and endpoint-bypass routes were removed
