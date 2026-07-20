@@ -1568,7 +1568,9 @@ fn native_delivery_loader_persists_verified_sequence_floors_before_lifecycle_sta
     assert!(!ledger_source.contains("pub fn read_floors"));
     assert!(!ledger_source.contains("pub fn reserve_pair"));
     assert!(!ledger_source.contains("pub fn new("));
-    assert!(ledger_source.contains("#[serde(deny_unknown_fields)]\nstruct DeliverySequenceIdentity"));
+    assert!(
+        ledger_source.contains("#[serde(deny_unknown_fields)]\nstruct DeliverySequenceIdentity")
+    );
     assert!(ledger_source.contains("lock_exclusive"));
     assert!(ledger_source.contains("SeekFrom::End(0)"));
     assert!(ledger_source.contains("write_all(b\"\\n\")"));
