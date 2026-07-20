@@ -58,6 +58,12 @@ pub fn native_windows_is_elevated() -> bool {
 pub trait EasyTierProcessRunner {
     fn start(&mut self, spec: &EasyTierLaunchSpec) -> DomainResult<OwnedProcessHandle>;
     fn recover(&mut self, spec: &EasyTierRecoverySpec) -> DomainResult<RecoveredEasyTierProcess>;
+    fn recover_for_cleanup(
+        &mut self,
+        spec: &EasyTierRecoverySpec,
+    ) -> DomainResult<EasyTierCleanupRecovery> {
+        self.recover(spec).map(EasyTierCleanupRecovery::Present)
+    }
     fn stop(&mut self, handle: &OwnedProcessHandle) -> DomainResult<()>;
 }
 
@@ -78,6 +84,13 @@ pub struct RecoveredEasyTierProcess {
     pub cli_path: PathBuf,
 }
 
+/// Exact cleanup recovery result for a persisted EasyTier process proof.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EasyTierCleanupRecovery {
+    Present(RecoveredEasyTierProcess),
+    Absent,
+}
+
 /// Queries one explicitly configured EasyTier CLI executable.
 pub trait EasyTierCliRunner {
     fn version(&mut self, path: &Path) -> DomainResult<String>;
@@ -90,6 +103,12 @@ pub trait WindowsRoutePort {
     fn snapshot(&mut self, endpoints: &[IpAddr]) -> DomainResult<Vec<WindowsRouteSnapshotEntry>>;
     fn add_endpoint_bypass(&mut self, endpoints: &[IpAddr]) -> DomainResult<()>;
     fn recover_owned_bypass(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()>;
+    fn recover_cleanup_bypass(
+        &mut self,
+        snapshot: &[WindowsRouteSnapshotEntry],
+    ) -> DomainResult<()> {
+        self.recover_owned_bypass(snapshot)
+    }
     fn restore(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()>;
     fn snapshot_destination_routes(
         &mut self,
@@ -104,10 +123,35 @@ pub trait WindowsRoutePort {
         &mut self,
         owned: &[WindowsRouteSnapshotEntry],
     ) -> DomainResult<()>;
+    fn recover_cleanup_destination_routes(
+        &mut self,
+        owned: &[WindowsRouteSnapshotEntry],
+    ) -> DomainResult<()> {
+        self.recover_owned_destination_routes(owned)
+    }
     fn remove_owned_destination_routes(
         &mut self,
         owned: &[WindowsRouteSnapshotEntry],
     ) -> DomainResult<()>;
+}
+
+/// Durable session-state access used by every lifecycle operation.
+pub trait WindowsTunnelStatePort {
+    fn read(&mut self, path: &Path) -> DomainResult<WindowsTunnelState>;
+    fn write(&mut self, path: &Path, state: &WindowsTunnelState) -> DomainResult<()>;
+}
+
+#[derive(Default)]
+struct FileWindowsTunnelStatePort;
+
+impl WindowsTunnelStatePort for FileWindowsTunnelStatePort {
+    fn read(&mut self, path: &Path) -> DomainResult<WindowsTunnelState> {
+        read_tunnel_state(path)
+    }
+
+    fn write(&mut self, path: &Path, state: &WindowsTunnelState) -> DomainResult<()> {
+        write_tunnel_state(path, state)
+    }
 }
 
 /// Explicit operator inputs for a foreground EasyTier session.
@@ -135,15 +179,34 @@ pub struct WindowsTunnelSessionService<P, C, R> {
     process_runner: P,
     cli_runner: C,
     route_port: R,
+    state_port: Box<dyn WindowsTunnelStatePort>,
     owned_sessions: BTreeMap<PathBuf, OwnedTunnelSession>,
 }
 
 impl<P, C, R> WindowsTunnelSessionService<P, C, R> {
     pub fn new(process_runner: P, cli_runner: C, route_port: R) -> Self {
+        Self::new_with_state_port(
+            process_runner,
+            cli_runner,
+            route_port,
+            FileWindowsTunnelStatePort,
+        )
+    }
+
+    pub fn new_with_state_port<S>(
+        process_runner: P,
+        cli_runner: C,
+        route_port: R,
+        state_port: S,
+    ) -> Self
+    where
+        S: WindowsTunnelStatePort + 'static,
+    {
         Self {
             process_runner,
             cli_runner,
             route_port,
+            state_port: Box::new(state_port),
             owned_sessions: BTreeMap::new(),
         }
     }
@@ -297,7 +360,7 @@ where
                 virtual_route_snapshot: virtual_route_snapshot.clone(),
             },
         };
-        if let Err(error) = write_tunnel_state(&prepared.state_path, &state) {
+        if let Err(error) = self.state_port.write(&prepared.state_path, &state) {
             return Err(self.rollback_failed_start(
                 &route_snapshot,
                 Some(&virtual_route_snapshot),
@@ -329,7 +392,7 @@ where
     pub fn status(&mut self, state_path: &Path) -> DomainResult<WindowsTunnelState> {
         let state_path = canonical_state_path(state_path)
             .map_err(|_| status_error("tunnel state path is invalid"))?;
-        let state = read_tunnel_state(&state_path)?;
+        let state = self.state_port.read(&state_path)?;
         if state.state != WindowsTunnelLifecycleState::Running {
             return Err(status_error("tunnel state is not running"));
         }
@@ -367,88 +430,50 @@ where
 
         let state_path = canonical_state_path(state_path)
             .map_err(|_| stop_error("tunnel state path is invalid"))?;
-        let state = read_tunnel_state(&state_path)?;
-        if state.state != WindowsTunnelLifecycleState::Running {
-            return Err(stop_error("tunnel state is not running"));
-        }
-        self.ensure_owned_session(&state_path, &state)?;
-        let bypass_recovery_required = self
-            .owned_sessions
-            .get(&state_path)
-            .map(|owned| owned.bypass_recovery_required)
-            .expect("owned tunnel session was checked before route recovery");
-        if bypass_recovery_required {
-            let route_snapshot = self
-                .owned_sessions
-                .get(&state_path)
-                .map(|owned| owned.route_snapshot.clone())
-                .expect("owned tunnel session was checked before route recovery");
-            self.route_port
-                .recover_owned_bypass(&route_snapshot)
-                .map_err(|_| {
-                    endpoint_bypass_error("persisted endpoint-bypass recovery could not be proven")
-                })?;
-            self.owned_sessions
-                .get_mut(&state_path)
-                .expect("owned tunnel session was checked before route recovery")
-                .bypass_recovery_required = false;
-        }
-        let destination_recovery_required = self
-            .owned_sessions
-            .get(&state_path)
-            .map(|owned| owned.destination_recovery_required)
-            .expect("owned tunnel session was checked before destination route recovery");
-        if destination_recovery_required {
-            let virtual_route_snapshot = self
-                .owned_sessions
-                .get(&state_path)
-                .map(|owned| owned.virtual_route_snapshot.clone())
-                .expect("owned tunnel session was checked before destination route recovery");
-            self.route_port
-                .recover_owned_destination_routes(&virtual_route_snapshot)
-                .map_err(|_| rollback_error())?;
-            self.owned_sessions
-                .get_mut(&state_path)
-                .expect("owned tunnel session was checked before destination route recovery")
-                .destination_recovery_required = false;
-        }
-        let owned = self
-            .owned_sessions
-            .remove(&state_path)
-            .expect("owned tunnel session was checked before removal");
+        let state = self.state_port.read(&state_path)?;
+        let (cleanup_state, cleanup_result) = match state.state {
+            WindowsTunnelLifecycleState::Running => {
+                self.ensure_owned_session(&state_path, &state)?;
+                self.recover_running_routes(&state_path)?;
 
-        let destination_result = self
-            .route_port
-            .remove_owned_destination_routes(&owned.virtual_route_snapshot);
-        if destination_result.is_err() {
-            let mut failed = state.clone();
+                let mut stopping = state.clone();
+                stopping.state = WindowsTunnelLifecycleState::Stopping;
+                stopping.rollback_status = "pending".to_string();
+                self.state_port.write(&state_path, &stopping)?;
+
+                let owned = self.owned_sessions.remove(&state_path);
+                let owned = owned.expect("owned tunnel session was checked before cleanup");
+                (
+                    stopping,
+                    self.cleanup_owned_resources(&CleanupOwnedTunnelSession::from(owned)),
+                )
+            }
+            WindowsTunnelLifecycleState::Stopping | WindowsTunnelLifecycleState::Failed => {
+                let cleanup_result = self
+                    .recover_cleanup_session(&state_path, &state)
+                    .and_then(|owned| {
+                        self.recover_cleanup_routes(&owned)?;
+                        self.cleanup_owned_resources(&owned)
+                    });
+                (state.clone(), cleanup_result)
+            }
+            WindowsTunnelLifecycleState::Starting | WindowsTunnelLifecycleState::Stopped => {
+                return Err(stop_error("tunnel state cannot be cleaned up"));
+            }
+        };
+
+        if cleanup_result.is_err() {
+            let mut failed = cleanup_state.clone();
             failed.state = WindowsTunnelLifecycleState::Failed;
             failed.rollback_status = "rollback_failed".to_string();
-            let _ = write_tunnel_state(&state_path, &failed);
-            self.owned_sessions.insert(state_path.clone(), owned);
+            let _ = self.state_port.write(&state_path, &failed);
             return Err(rollback_error());
         }
 
-        let mut stopping = state.clone();
-        stopping.state = WindowsTunnelLifecycleState::Stopping;
-        stopping.rollback_status = "pending".to_string();
-
-        let bypass_result = self.route_port.restore(&owned.route_snapshot);
-        let process_result = self.process_runner.stop(&owned.process_handle);
-        let config_result = fs::remove_file(&owned.config_path);
-        if bypass_result.is_err() || process_result.is_err() || config_result.is_err() {
-            let mut failed = stopping;
-            failed.state = WindowsTunnelLifecycleState::Failed;
-            failed.rollback_status = "rollback_failed".to_string();
-            let _ = write_tunnel_state(&state_path, &failed);
-            self.owned_sessions.insert(state_path.clone(), owned);
-            return Err(rollback_error());
-        }
-
-        let mut stopped = stopping;
+        let mut stopped = cleanup_state;
         stopped.state = WindowsTunnelLifecycleState::Stopped;
         stopped.rollback_status = "clean".to_string();
-        write_tunnel_state(&state_path, &stopped)?;
+        self.state_port.write(&state_path, &stopped)?;
         Ok(stopped)
     }
 
@@ -621,6 +646,158 @@ where
         })
     }
 
+    fn recover_running_routes(&mut self, state_path: &Path) -> DomainResult<()> {
+        let bypass_recovery_required = self
+            .owned_sessions
+            .get(state_path)
+            .map(|owned| owned.bypass_recovery_required)
+            .expect("owned tunnel session was checked before route recovery");
+        if bypass_recovery_required {
+            let route_snapshot = self
+                .owned_sessions
+                .get(state_path)
+                .map(|owned| owned.route_snapshot.clone())
+                .expect("owned tunnel session was checked before route recovery");
+            self.route_port
+                .recover_owned_bypass(&route_snapshot)
+                .map_err(|_| {
+                    endpoint_bypass_error("persisted endpoint-bypass recovery could not be proven")
+                })?;
+            self.owned_sessions
+                .get_mut(state_path)
+                .expect("owned tunnel session was checked before route recovery")
+                .bypass_recovery_required = false;
+        }
+
+        let destination_recovery_required = self
+            .owned_sessions
+            .get(state_path)
+            .map(|owned| owned.destination_recovery_required)
+            .expect("owned tunnel session was checked before destination route recovery");
+        if destination_recovery_required {
+            let virtual_route_snapshot = self
+                .owned_sessions
+                .get(state_path)
+                .map(|owned| owned.virtual_route_snapshot.clone())
+                .expect("owned tunnel session was checked before destination route recovery");
+            self.route_port
+                .recover_owned_destination_routes(&virtual_route_snapshot)
+                .map_err(|_| rollback_error())?;
+            self.owned_sessions
+                .get_mut(state_path)
+                .expect("owned tunnel session was checked before destination route recovery")
+                .destination_recovery_required = false;
+        }
+        Ok(())
+    }
+
+    fn recover_cleanup_session(
+        &mut self,
+        state_path: &Path,
+        state: &WindowsTunnelState,
+    ) -> DomainResult<CleanupOwnedTunnelSession> {
+        let state_path = canonical_state_path(state_path).map_err(|_| ownership_error())?;
+        let state_directory = state_path
+            .parent()
+            .expect("canonical state path always has a parent directory");
+        if !is_safe_tunnel_file_name(&state.config_path) {
+            return Err(ownership_error());
+        }
+        let ownership = state.runtime_ownership.clone();
+        if ownership.process.session_id != state.session_id {
+            return Err(ownership_error());
+        }
+        let spec = EasyTierRecoverySpec {
+            expected_process: ownership.process.clone(),
+            expected_binary_sha256: ownership.binary_sha256.clone(),
+            config_path: state_directory.join(&state.config_path),
+            cli_file_name: ownership.cli_file_name.clone(),
+        };
+        let recovery = self
+            .process_runner
+            .recover_for_cleanup(&spec)
+            .map_err(|_| ownership_error())?;
+        let config_path = cleanup_config_path(state_directory, &state.config_path)
+            .map_err(|_| ownership_error())?;
+        let process_handle = match recovery {
+            EasyTierCleanupRecovery::Present(recovered) => {
+                if config_path.is_none() {
+                    return Err(ownership_error());
+                }
+                Some(Self::validate_recovered_process(
+                    state, &ownership, &spec, recovered,
+                )?)
+            }
+            EasyTierCleanupRecovery::Absent => None,
+        };
+
+        Ok(CleanupOwnedTunnelSession {
+            process_handle,
+            route_snapshot: state.route_snapshot.clone(),
+            virtual_route_snapshot: ownership.virtual_route_snapshot,
+            config_path,
+        })
+    }
+
+    fn validate_recovered_process(
+        state: &WindowsTunnelState,
+        ownership: &WindowsTunnelRuntimeOwnership,
+        spec: &EasyTierRecoverySpec,
+        recovered: RecoveredEasyTierProcess,
+    ) -> DomainResult<OwnedProcessHandle> {
+        if recovered.process.process_id != ownership.process.process_id
+            || recovered.process.creation_marker != ownership.process.creation_marker
+            || recovered.process.session_id != ownership.process.session_id
+            || recovered.process.session_id != state.session_id
+        {
+            return Err(ownership_error());
+        }
+        let (binary_path, cli_path) =
+            canonical_sibling_artifacts(&recovered.binary_path, &recovered.cli_path)
+                .ok_or_else(ownership_error)?;
+        if verify_file_sha256(&binary_path, &spec.expected_binary_sha256).is_err() {
+            return Err(ownership_error());
+        }
+        let recovered_cli_file_name =
+            safe_file_name_from_path(&cli_path).ok_or_else(ownership_error)?;
+        if recovered_cli_file_name != ownership.cli_file_name {
+            return Err(ownership_error());
+        }
+        Ok(recovered.process)
+    }
+
+    fn recover_cleanup_routes(
+        &mut self,
+        owned: &CleanupOwnedTunnelSession,
+    ) -> DomainResult<()> {
+        self.route_port
+            .recover_cleanup_bypass(&owned.route_snapshot)
+            .map_err(|_| {
+                endpoint_bypass_error("persisted endpoint-bypass cleanup could not be proven")
+            })?;
+        self.route_port
+            .recover_cleanup_destination_routes(&owned.virtual_route_snapshot)
+            .map_err(|_| rollback_error())
+    }
+
+    fn cleanup_owned_resources(&mut self, owned: &CleanupOwnedTunnelSession) -> DomainResult<()> {
+        self.route_port
+            .remove_owned_destination_routes(&owned.virtual_route_snapshot)
+            .map_err(|_| rollback_error())?;
+        self.route_port
+            .restore(&owned.route_snapshot)
+            .map_err(|_| rollback_error())?;
+        if let Some(process_handle) = &owned.process_handle {
+            self.process_runner
+                .stop(process_handle)
+                .map_err(|_| rollback_error())?;
+        }
+        if let Some(config_path) = &owned.config_path {
+            fs::remove_file(config_path).map_err(|_| rollback_error())?;
+        }
+        Ok(())
+    }
+
     fn verify_readiness(&mut self, cli_path: &Path, plan: &WindowsTunnelPlan) -> DomainResult<()> {
         let peer_ready = self
             .cli_runner
@@ -711,6 +888,24 @@ struct OwnedTunnelSession {
     destination_recovery_required: bool,
 }
 
+struct CleanupOwnedTunnelSession {
+    process_handle: Option<OwnedProcessHandle>,
+    route_snapshot: Vec<WindowsRouteSnapshotEntry>,
+    virtual_route_snapshot: Vec<WindowsRouteSnapshotEntry>,
+    config_path: Option<PathBuf>,
+}
+
+impl From<OwnedTunnelSession> for CleanupOwnedTunnelSession {
+    fn from(owned: OwnedTunnelSession) -> Self {
+        Self {
+            process_handle: Some(owned.process_handle),
+            route_snapshot: owned.route_snapshot,
+            virtual_route_snapshot: owned.virtual_route_snapshot,
+            config_path: Some(owned.config_path),
+        }
+    }
+}
+
 struct PreparedStart {
     plan: WindowsTunnelPlan,
     binary_path: PathBuf,
@@ -768,6 +963,24 @@ fn canonical_file_under_directory(directory: &Path, file_name: &str) -> Option<P
     }
     let file = fs::canonicalize(candidate).ok()?;
     (file.parent() == Some(directory.as_path())).then_some(file)
+}
+
+fn cleanup_config_path(directory: &Path, file_name: &str) -> Result<Option<PathBuf>, ()> {
+    if !is_safe_tunnel_file_name(file_name) {
+        return Err(());
+    }
+    let directory = fs::canonicalize(directory).map_err(|_| ())?;
+    let candidate = directory.join(file_name);
+    match fs::symlink_metadata(&candidate) {
+        Ok(metadata) if metadata.file_type().is_file() => {
+            canonical_file_under_directory(&directory, file_name)
+                .map(Some)
+                .ok_or(())
+        }
+        Ok(_) => Err(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err(()),
+    }
 }
 
 fn canonical_sibling_artifacts(binary: &Path, cli: &Path) -> Option<(PathBuf, PathBuf)> {

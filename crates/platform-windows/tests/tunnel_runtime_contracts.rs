@@ -1695,6 +1695,42 @@ fn running_cleanup_persists_stopping_before_partial_destination_failure_and_resu
 }
 
 #[test]
+fn stopping_write_failure_leaves_running_resources_untouched() {
+    let events = SharedEvents::new();
+    let (binary, cli, state_path, config_path, state) = cleanup_fixture(
+        "cleanup-stopping-write-failure",
+        WindowsTunnelLifecycleState::Running,
+    );
+    let state_port = FakeStatePort::seeded(state, events.clone());
+    state_port.fail_next_write_for(WindowsTunnelLifecycleState::Stopping);
+    let mut service = WindowsTunnelSessionService::new_with_state_port(
+        CleanupFakeProcessRunner::present(events.clone(), binary, cli, None),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string(), "203.0.114.0/24".to_string()],
+        },
+        CleanupFakeRoutePort::complete(events.clone()),
+        state_port.clone(),
+    );
+
+    service
+        .stop(&state_path, true)
+        .expect_err("a failed Stopping write must abort cleanup before mutation");
+    assert_eq!(
+        state_port.current().state,
+        WindowsTunnelLifecycleState::Running
+    );
+    assert!(config_path.is_file());
+    let events = events.snapshot();
+    assert!(!events
+        .iter()
+        .any(|event| event.starts_with("route.destination_remove")));
+    assert!(!events.iter().any(|event| event == "route.restore"));
+    assert!(!events.iter().any(|event| event.starts_with("process.stop")));
+}
+
+#[test]
 fn running_cleanup_persists_failed_after_process_stop_failure_and_resumes() {
     let events = SharedEvents::new();
     let (binary, cli, state_path, config_path, state) = cleanup_fixture(
@@ -1907,6 +1943,42 @@ fn cleanup_recovery_rejects_ambiguous_tuple_before_deletion() {
 }
 
 #[test]
+fn cleanup_recovery_rejects_missing_config_while_process_is_present() {
+    let events = SharedEvents::new();
+    let (binary, cli, state_path, config_path, state) = cleanup_fixture(
+        "cleanup-present-process-missing-config",
+        WindowsTunnelLifecycleState::Stopping,
+    );
+    fs::remove_file(&config_path).expect("fixture config can be removed before recovery");
+    let state_port = FakeStatePort::seeded(state, events.clone());
+    let mut service = WindowsTunnelSessionService::new_with_state_port(
+        CleanupFakeProcessRunner::present(events.clone(), binary, cli, None),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string(), "203.0.114.0/24".to_string()],
+        },
+        CleanupFakeRoutePort::complete(events.clone()),
+        state_port.clone(),
+    );
+
+    let error = service
+        .stop(&state_path, true)
+        .expect_err("a present process cannot be reconciled without its exact config artifact");
+    assert_eq!(error.code, WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE);
+    assert_eq!(
+        state_port.current().state,
+        WindowsTunnelLifecycleState::Failed
+    );
+    let events = events.snapshot();
+    assert!(!events
+        .iter()
+        .any(|event| event.starts_with("route.destination_remove")));
+    assert!(!events.iter().any(|event| event == "route.restore"));
+    assert!(!events.iter().any(|event| event.starts_with("process.stop")));
+}
+
+#[test]
 fn stop_persists_durable_stopping_before_first_destination_mutation() {
     let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
     let stop_marker =
@@ -1922,13 +1994,22 @@ fn stop_persists_durable_stopping_before_first_destination_mutation() {
     let stopping_state = stop
         .find("self.state_port.write(&state_path, &stopping)?;")
         .expect("stop durably writes Stopping through the state port");
-    let destination_remove = stop
-        .find(".remove_owned_destination_routes(&owned.virtual_route_snapshot)")
-        .expect("stop removes exact owned destination routes");
+    let cleanup_resources = stop
+        .find("self.cleanup_owned_resources")
+        .expect("stop enters the ordered cleanup helper");
     assert!(
-        stopping_state < destination_remove,
+        stopping_state < cleanup_resources,
         "durable Stopping intent must precede the first destination deletion"
     );
+    let cleanup_marker = "    fn cleanup_owned_resources(";
+    let cleanup_start = source
+        .find(cleanup_marker)
+        .expect("ordered cleanup helper exists");
+    let cleanup_end = source[cleanup_start..]
+        .find("\n    fn verify_readiness(")
+        .expect("ordered cleanup helper ends before readiness verification");
+    let cleanup = &source[cleanup_start..cleanup_start + cleanup_end];
+    assert!(cleanup.contains(".remove_owned_destination_routes(&owned.virtual_route_snapshot)"));
 }
 
 #[test]
@@ -1939,6 +2020,22 @@ fn lifecycle_cleanup_uses_injected_state_port_and_leaves_retryable_intent() {
     assert!(source.contains("fn recover_for_cleanup("));
     assert!(source.contains("fn recover_cleanup_bypass("));
     assert!(source.contains("fn recover_cleanup_destination_routes("));
+    let start_marker =
+        "    pub fn start(\n        &mut self,\n        request: WindowsTunnelStartRequest,\n    ) -> DomainResult<WindowsTunnelState> {";
+    let start_start = source.find(start_marker).expect("start implementation exists");
+    let start_end = source[start_start..]
+        .find("\n    /// Queries readiness")
+        .expect("start implementation ends before status");
+    let start = &source[start_start..start_start + start_end];
+    assert!(start.contains("self.state_port.write(&prepared.state_path, &state)"));
+    let status_marker =
+        "    pub fn status(&mut self, state_path: &Path) -> DomainResult<WindowsTunnelState> {";
+    let status_start = source.find(status_marker).expect("status implementation exists");
+    let status_end = source[status_start..]
+        .find("\n    /// Removes session-owned route state")
+        .expect("status implementation ends before stop");
+    let status = &source[status_start..status_start + status_end];
+    assert!(status.contains("self.state_port.read(&state_path)?;"));
     let stop_marker =
         "    pub fn stop(&mut self, state_path: &Path, confirm: bool) -> DomainResult<WindowsTunnelState> {";
     let stop_start = source
