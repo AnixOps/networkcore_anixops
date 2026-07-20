@@ -2702,3 +2702,231 @@ fn native_windows_bypass_commands_discard_child_standard_streams() {
         );
     }
 }
+
+#[test]
+fn native_windows_cleanup_reconciliation_keeps_running_strict_and_retains_only_present_tuples() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+    let route_port_marker = "#[cfg(windows)]\nimpl WindowsRoutePort for NativeWindowsRoutePort {";
+    let route_port_start = source
+        .find(route_port_marker)
+        .expect("Windows route port implementation exists");
+    let route_port_end = source[route_port_start..]
+        .find("\n#[cfg(all(test, windows))]\nmod native_process_proof_tests")
+        .expect("Windows route port implementation ends before native unit tests");
+    let route_port = &source[route_port_start..route_port_start + route_port_end];
+
+    for (
+        name,
+        strict_marker,
+        cleanup_marker,
+        cleanup_end_marker,
+        route_type,
+        key,
+        presence,
+        insertion,
+    ) in [
+        (
+            "bypass",
+            "    fn recover_owned_bypass(",
+            "    fn recover_cleanup_bypass(",
+            "\n\n    fn restore(",
+            "bypasses",
+            "native_bypass_key(&bypasses)",
+            "native_cleanup_bypass_presence(bypass)?",
+            "self.owned_bypasses.insert(key, present)",
+        ),
+        (
+            "destination",
+            "    fn recover_owned_destination_routes(",
+            "    fn recover_cleanup_destination_routes(",
+            "\n\n    fn remove_owned_destination_routes(",
+            "owned",
+            "native_destination_route_key(&owned)",
+            "native_cleanup_destination_presence(route)?",
+            "self.owned_destination_routes.insert(key, present)",
+        ),
+    ] {
+        let strict_start = route_port
+            .find(strict_marker)
+            .expect("native strict recovery exists");
+        let strict = &route_port[strict_start..];
+        assert!(
+            strict.contains("native_prove"),
+            "Running {name} recovery retains exact strict proof"
+        );
+
+        let cleanup_start = route_port
+            .find(cleanup_marker)
+            .expect("native cleanup recovery exists");
+        let cleanup_end = route_port[cleanup_start..]
+            .find(cleanup_end_marker)
+            .expect("native cleanup recovery has a bounded source slice");
+        let cleanup = &route_port[cleanup_start..cleanup_start + cleanup_end];
+        let key = cleanup
+            .find(key)
+            .expect("cleanup derives the original full ownership key");
+        let present = cleanup
+            .find("let mut present = Vec::new();")
+            .expect("cleanup collects only exact present tuples");
+        let tuple_loop = cleanup
+            .find(&format!("for {name} in &{route_type}"))
+            .or_else(|| cleanup.find(&format!("for route in &{route_type}")))
+            .expect("cleanup checks every persisted tuple");
+        let presence = cleanup
+            .find(presence)
+            .expect("cleanup uses the native exact-presence helper");
+        let insertion = cleanup
+            .find(insertion)
+            .expect("cleanup holds only present tuples under the original key");
+        assert!(
+            key < present && present < tuple_loop && tuple_loop < presence && presence < insertion,
+            "native {name} cleanup derives the full key before retaining only exact present tuples"
+        );
+        assert!(cleanup.contains("if !present.is_empty()"));
+        assert!(
+            !cleanup.contains("native_prove"),
+            "cleanup may reconcile a zero exact match but must not weaken Running proof"
+        );
+    }
+
+    let trait_start = source
+        .find("pub trait WindowsRoutePort {")
+        .expect("generic route port exists");
+    let trait_end = source[trait_start..]
+        .find("\n}\n\n/// Durable session-state access")
+        .expect("generic route port has a bounded source slice");
+    let route_trait = &source[trait_start..trait_start + trait_end];
+    assert!(
+        route_trait.contains("self.recover_owned_bypass(snapshot)"),
+        "generic route ports retain strict cleanup fallback"
+    );
+    assert!(
+        route_trait.contains("self.recover_owned_destination_routes(owned)"),
+        "generic destination ports retain strict cleanup fallback"
+    );
+}
+
+#[test]
+fn native_windows_cleanup_presence_uses_only_bounded_absence_and_fail_closed_process_proof() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+
+    for (name, marker, route_fields, physical_check) in [
+        (
+            "bypass",
+            "#[cfg(windows)]\nfn native_cleanup_bypass_presence(",
+            vec![
+                "Get-NetRoute -PolicyStore ActiveStore",
+                "-DestinationPrefix",
+                "-NextHop",
+                "-InterfaceIndex",
+                "-RouteMetric",
+            ],
+            None,
+        ),
+        (
+            "destination",
+            "#[cfg(windows)]\nfn native_cleanup_destination_presence(",
+            vec![
+                "Get-NetRoute -PolicyStore ActiveStore",
+                "-DestinationPrefix",
+                "-NextHop",
+                "-InterfaceIndex",
+                "-RouteMetric",
+            ],
+            Some("Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -Physical"),
+        ),
+    ] {
+        let start = source.find(marker).expect("native cleanup presence helper exists");
+        let end = source[start + marker.len()..]
+            .find("\n#[cfg(windows)]\nfn ")
+            .expect("native cleanup presence helper has a bounded source slice");
+        let helper = &source[start..start + marker.len() + end];
+        for field in route_fields {
+            assert!(helper.contains(field), "{name} cleanup filters {field}");
+        }
+        if let Some(physical_check) = physical_check {
+            assert!(
+                helper.contains(physical_check),
+                "destination cleanup rejects a physical adapter"
+            );
+        }
+        assert!(helper.contains("$ErrorActionPreference = 'Stop'"));
+        assert!(helper.contains("if ($matches.Count -eq 0) {{ exit 3 }}"));
+        assert!(helper.contains("if ($matches.Count -ne 1) {{ exit 2 }}"));
+        assert!(helper.contains("catch { exit 2 }"));
+        assert!(helper.contains("Some(3) => Ok(false)"));
+        assert!(!helper.contains("route.exe"));
+        assert!(!helper.contains("-DestinationPrefix '*"));
+    }
+
+    let process_marker = "#[cfg(windows)]\nfn native_inspect_process_for_cleanup(";
+    let process_start = source
+        .find(process_marker)
+        .expect("native cleanup process inspection exists");
+    let process_end = source[process_start + process_marker.len()..]
+        .find("\n#[cfg(windows)]\nfn ")
+        .expect("native cleanup process inspection has a bounded source slice");
+    let process = &source[process_start..process_start + process_marker.len() + process_end];
+    for fragment in [
+        "Get-CimInstance Win32_Process -Filter \\\"ProcessId = {process_id}\\\"",
+        "$processes = @(",
+        "if ($processes.Count -eq 0) {{ exit 3 }}",
+        "if ($processes.Count -ne 1) {{ exit 2 }}",
+        "$ErrorActionPreference = 'Stop'",
+        "catch { exit 2 }",
+        "Some(3) => Ok(None)",
+        "serde_json::from_slice(&output.stdout)",
+        "stderr(Stdio::null())",
+    ] {
+        assert!(process.contains(fragment), "cleanup process inspection contains {fragment}");
+    }
+    assert!(!process.contains("Win32_Process -Class"));
+    assert!(!process.contains("Get-Process"));
+
+    let native_runner_marker =
+        "#[cfg(windows)]\nimpl EasyTierProcessRunner for NativeEasyTierProcessRunner {";
+    let native_runner_start = source
+        .find(native_runner_marker)
+        .expect("native process runner implementation exists");
+    let native_runner = &source[native_runner_start..];
+    let cleanup_start = native_runner
+        .find("    fn recover_for_cleanup(")
+        .expect("native process runner overrides cleanup recovery");
+    let cleanup_end = native_runner[cleanup_start..]
+        .find("\n    fn stop(")
+        .expect("native cleanup recovery ends before stop");
+    let cleanup = &native_runner[cleanup_start..cleanup_start + cleanup_end];
+    let inspection = cleanup
+        .find("native_inspect_process_for_cleanup(")
+        .expect("cleanup recovers one exact persisted PID");
+    let absent = cleanup
+        .find("EasyTierCleanupRecovery::Absent")
+        .expect("only an absent exact PID may bypass cleanup process proof");
+    let config = cleanup
+        .find("canonical_file_under_directory")
+        .expect("a present process still requires a canonical config");
+    assert!(inspection < absent && absent < config);
+    assert!(cleanup.contains("native_process_proof_from_inspection("));
+    assert!(cleanup.contains("NativeVerifiedProcessHandle::open("));
+
+    assert_eq!(
+        source.matches("exit 3").count(),
+        3,
+        "PowerShell exit code 3 is reserved for zero exact route matches and an absent exact PID"
+    );
+}
+
+#[test]
+fn manual_cleanup_recovery_requires_durable_state_failure_and_fresh_convergence_evidence() {
+    let manual = include_str!("../../../docs/manual-intervention.md");
+    for fact in [
+        "state-write denial",
+        "disk-full",
+        "native state move failure",
+        "fresh cleanup convergence",
+        "only exact still-present tuples",
+        "proven-absent resources",
+    ] {
+        assert!(manual.contains(fact), "manual record requires {fact}");
+    }
+}

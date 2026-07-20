@@ -32,6 +32,12 @@ evidence; it verifies source and injected contracts only.
 7. A controlled missing and ambiguous tuple proof that leaves the owned process, state/config, and
    unrelated routes unchanged while `tunnel stop` fails closed; restore the fixture before normal
    cleanup.
+8. State-write denial, disk-full, and native state move failure evidence for each durable cleanup
+   transition. A failed `Stopping` write leaves routes, process, and config untouched; a failure
+   after mutation retains retryable cleanup intent. After storage is restored, record fresh cleanup
+   convergence: it removes only exact still-present tuples, accepts proven-absent resources only
+   for persisted cleanup states, and leaves unrelated resources unchanged. Keep this evidence in
+   protected operator records, without raw tuple, PID, or config details in CLI or repository output.
 
 ## 已完成的人工/外部事项
 
