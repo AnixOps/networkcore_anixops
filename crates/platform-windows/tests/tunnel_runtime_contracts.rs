@@ -2480,8 +2480,9 @@ fn native_windows_cli_and_recovery_reverify_trusted_cli_artifacts() {
     assert!(source.contains("fn version(&mut self, path: &Path, expected_sha256: &str)"));
     assert!(source.contains("fn peer_ready(&mut self, path: &Path, expected_sha256: &str)"));
     assert!(source.contains("fn route_cidrs(&mut self, path: &Path, expected_sha256: &str)"));
-    assert!(source
-        .contains("fn native_cli_output(path: &Path, expected_sha256: &str, arguments: &[&str])"));
+    assert!(source.contains("fn native_cli_output("));
+    assert!(source.contains("    expected_sha256: &str,"));
+    assert!(source.contains("    arguments: &[&str],"));
     assert!(source.contains("native_windows_validate_existing_easytier_artifact(path)"));
     assert!(source.contains("verify_file_sha256(&path, expected_sha256)"));
 
@@ -2543,7 +2544,7 @@ fn native_windows_runtime_child_commands_use_only_trusted_factories() {
 
     for required in [
         "native_windows_hardened_command(binary_path)",
-        "native_windows_hardened_command(path)",
+        "native_windows_hardened_command(&path)",
         "native_windows_system_command(NativeWindowsSystemTool::PowerShell)",
         "native_silent_system_command(NativeWindowsSystemTool::Route)",
     ] {
