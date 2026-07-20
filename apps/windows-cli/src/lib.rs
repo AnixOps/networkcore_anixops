@@ -32,9 +32,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use time::OffsetDateTime;
 
-pub mod tunnel_sequence_ledger;
+mod tunnel_sequence_ledger;
 
-use tunnel_sequence_ledger::{DeliverySequenceIdentity, NativeWindowsTunnelSequenceLedger};
+use tunnel_sequence_ledger::NativeWindowsTunnelSequenceLedger;
 
 pub const COMMAND_NAME: &str = "networkcore-windows";
 pub const PLATFORM_NAME: &str = "windows";
@@ -438,10 +438,8 @@ impl WindowsTunnelDeliveryLoader for NativeWindowsTunnelDeliveryLoader {
             .map_err(map_delivery_verification_error)?;
 
         let ledger = NativeWindowsTunnelSequenceLedger;
-        let client_identity = DeliverySequenceIdentity::new(&client);
-        let pop_identity = DeliverySequenceIdentity::new(&pop);
         let floors = ledger
-            .read_floors(&client_identity, &pop_identity)
+            .read_floors(&client, &pop)
             .map_err(|error| {
                 if error.code == WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE {
                     error
@@ -462,10 +460,7 @@ impl WindowsTunnelDeliveryLoader for NativeWindowsTunnelDeliveryLoader {
             now,
         })?;
         ledger
-            .reserve_pair(
-                (&client_identity, client.sequence()),
-                (&pop_identity, pop.sequence()),
-            )
+            .reserve_pair(&client, &pop)
             .map_err(|error| {
                 if error.code == WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE {
                     error

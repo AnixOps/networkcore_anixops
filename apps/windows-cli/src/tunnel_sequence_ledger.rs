@@ -15,19 +15,24 @@ use std::path::PathBuf;
 const LEDGER_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Serialize, Deserialize)]
-pub struct DeliverySequenceIdentity {
+#[serde(deny_unknown_fields)]
+struct DeliverySequenceIdentity {
     tenant_id: String,
     bundle_kind: String,
     target_id: String,
 }
 
 impl DeliverySequenceIdentity {
-    /// Creates an identity only from fields exposed by a verified envelope.
-    pub fn new(envelope: &VerifiedDeliveryEnvelope) -> Self {
-        Self {
+    fn from_verified(envelope: &VerifiedDeliveryEnvelope) -> DomainResult<Self> {
+        let identity = Self {
             tenant_id: envelope.tenant_id().to_string(),
             bundle_kind: envelope.bundle_kind().to_string(),
             target_id: envelope.target_id().to_string(),
+        };
+        if identity.is_valid() {
+            Ok(identity)
+        } else {
+            Err(delivery_invalid_error())
         }
     }
 
@@ -41,36 +46,48 @@ impl DeliverySequenceIdentity {
     }
 
     fn is_valid(&self) -> bool {
-        !self.tenant_id.trim().is_empty()
-            && !self.bundle_kind.trim().is_empty()
-            && !self.target_id.trim().is_empty()
+        is_canonical_identifier(&self.tenant_id)
+            && is_canonical_identifier(&self.bundle_kind)
+            && matches!(self.bundle_kind.as_str(), "client" | "pop")
+            && is_canonical_identifier(&self.target_id)
     }
+}
+
+fn is_canonical_identifier(value: &str) -> bool {
+    !value.is_empty() && value.trim() == value
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DeliverySequenceFloors {
-    pub client: Option<u64>,
-    pub pop: Option<u64>,
+pub(super) struct DeliverySequenceFloors {
+    pub(super) client: Option<u64>,
+    pub(super) pop: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub struct NativeWindowsTunnelSequenceLedger;
+pub(super) struct NativeWindowsTunnelSequenceLedger;
 
 impl NativeWindowsTunnelSequenceLedger {
-    pub fn read_floors(
+    pub(super) fn read_floors(
         &self,
-        client: &DeliverySequenceIdentity,
-        pop: &DeliverySequenceIdentity,
+        client: &VerifiedDeliveryEnvelope,
+        pop: &VerifiedDeliveryEnvelope,
     ) -> DomainResult<DeliverySequenceFloors> {
-        self.store()?.read_floors(client, pop)
+        let client_identity = DeliverySequenceIdentity::from_verified(client)?;
+        let pop_identity = DeliverySequenceIdentity::from_verified(pop)?;
+        self.store()?.read_floors(&client_identity, &pop_identity)
     }
 
-    pub fn reserve_pair(
+    pub(super) fn reserve_pair(
         &self,
-        client: (&DeliverySequenceIdentity, u64),
-        pop: (&DeliverySequenceIdentity, u64),
+        client: &VerifiedDeliveryEnvelope,
+        pop: &VerifiedDeliveryEnvelope,
     ) -> DomainResult<()> {
-        self.store()?.reserve_pair(client, pop)
+        let client_identity = DeliverySequenceIdentity::from_verified(client)?;
+        let pop_identity = DeliverySequenceIdentity::from_verified(pop)?;
+        self.store()?.reserve_pair(
+            (&client_identity, client.sequence()),
+            (&pop_identity, pop.sequence()),
+        )
     }
 
     fn store(&self) -> DomainResult<SequenceLedgerStore> {
@@ -259,20 +276,40 @@ fn read_document(file: &mut File) -> DomainResult<LedgerJournal> {
         if record.is_empty() {
             return Err(delivery_invalid_error());
         }
-        let document = serde_json::from_slice::<LedgerDocument>(record)
-            .map_err(|_| delivery_invalid_error())?;
-        if document.schema_version != LEDGER_SCHEMA_VERSION {
-            return Err(delivery_invalid_error());
-        }
-        latest = Some(document);
+        latest = Some(read_ledger_document(record)?);
         record_start = index + 1;
         last_complete_end = u64::try_from(record_start).map_err(|_| delivery_invalid_error())?;
     }
+
+    if record_start < bytes.len() {
+        let trailing_record = &bytes[record_start..];
+        match serde_json::from_slice::<LedgerDocument>(trailing_record) {
+            Ok(document) => {
+                validate_ledger_document(document)?;
+            }
+            Err(error) if error.is_eof() => {}
+            Err(_) => return Err(delivery_invalid_error()),
+        }
+    }
+
     Ok(LedgerJournal {
         document: latest.unwrap_or_else(LedgerDocument::empty),
         last_complete_end,
         has_trailing_partial: record_start < bytes.len(),
     })
+}
+
+fn read_ledger_document(record: &[u8]) -> DomainResult<LedgerDocument> {
+    let document = serde_json::from_slice::<LedgerDocument>(record)
+        .map_err(|_| delivery_invalid_error())?;
+    validate_ledger_document(document)
+}
+
+fn validate_ledger_document(document: LedgerDocument) -> DomainResult<LedgerDocument> {
+    if document.schema_version != LEDGER_SCHEMA_VERSION {
+        return Err(delivery_invalid_error());
+    }
+    Ok(document)
 }
 
 fn append_document(file: &mut File, journal: &LedgerJournal) -> DomainResult<()> {
