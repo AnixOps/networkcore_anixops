@@ -181,8 +181,10 @@ impl WindowsRoutePort for FakeRoutePort {
         &mut self,
         destination_cidrs: &[String],
     ) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
-        self.events
-            .push(format!("route.destination_snapshot:{}", destination_cidrs.len()));
+        self.events.push(format!(
+            "route.destination_snapshot:{}",
+            destination_cidrs.len()
+        ));
         Ok(destination_cidrs
             .iter()
             .map(|destination_cidr| WindowsRouteSnapshotEntry {
@@ -199,8 +201,10 @@ impl WindowsRoutePort for FakeRoutePort {
         _before: &[WindowsRouteSnapshotEntry],
         destination_cidrs: &[String],
     ) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
-        self.events
-            .push(format!("route.destination_capture:{}", destination_cidrs.len()));
+        self.events.push(format!(
+            "route.destination_capture:{}",
+            destination_cidrs.len()
+        ));
         if let Some(error) = &self.destination_capture_error {
             return Err(error.clone());
         }
@@ -462,12 +466,16 @@ fn start_orders_destination_snapshot_bypass_process_readiness_capture_and_state(
 
     let events = events.snapshot();
     assert!(event_index(&events, "cli.version") < event_index(&events, "route.snapshot"));
-    assert!(event_index(&events, "route.destination_snapshot") < event_index(&events, "route.snapshot"));
+    assert!(
+        event_index(&events, "route.destination_snapshot") < event_index(&events, "route.snapshot")
+    );
     assert!(event_index(&events, "route.snapshot") < event_index(&events, "route.bypass"));
     assert!(event_index(&events, "route.bypass") < event_index(&events, "process.start"));
     assert!(event_index(&events, "process.start") < event_index(&events, "cli.peer_ready"));
     assert!(event_index(&events, "cli.peer_ready") < event_index(&events, "cli.route_cidrs"));
-    assert!(event_index(&events, "cli.route_cidrs") < event_index(&events, "route.destination_capture"));
+    assert!(
+        event_index(&events, "cli.route_cidrs") < event_index(&events, "route.destination_capture")
+    );
 }
 
 #[test]
@@ -490,9 +498,13 @@ fn destination_capture_failure_returns_rollback_without_unproven_removal() {
         .expect_err("destination ownership capture failure must abort cleanup");
     assert_eq!(error.code, WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE);
     let events = events.snapshot();
-    assert!(event_index(&events, "route.destination_capture") < event_index(&events, "route.restore"));
+    assert!(
+        event_index(&events, "route.destination_capture") < event_index(&events, "route.restore")
+    );
     assert!(event_index(&events, "route.restore") < event_index(&events, "process.stop"));
-    assert!(!events.iter().any(|event| event.starts_with("route.destination_remove")));
+    assert!(!events
+        .iter()
+        .any(|event| event.starts_with("route.destination_remove")));
 }
 
 #[test]
@@ -510,7 +522,12 @@ fn destination_removal_failure_retains_owned_state_and_skips_later_cleanup() {
         FakeRoutePort::ready(owner_events.clone()),
     );
     owner
-        .start(start_request(binary.clone(), cli.clone(), secret, state_path.clone()))
+        .start(start_request(
+            binary.clone(),
+            cli.clone(),
+            secret,
+            state_path.clone(),
+        ))
         .expect("owner starts a session");
 
     let events = SharedEvents::new();
@@ -529,7 +546,9 @@ fn destination_removal_failure_retains_owned_state_and_skips_later_cleanup() {
     assert_eq!(error.code, WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE);
     let events = events.snapshot();
     let destination_remove = event_index(&events, "route.destination_remove");
-    assert!(!events.iter().any(|event| event.starts_with("route.restore")));
+    assert!(!events
+        .iter()
+        .any(|event| event.starts_with("route.restore")));
     assert!(!events.iter().any(|event| event.starts_with("process.stop")));
     assert!(destination_remove > event_index(&events, "route.destination_recover"));
     assert_eq!(
@@ -1196,7 +1215,10 @@ fn native_windows_destination_routes_use_bounded_active_store_exact_tuple_proof(
         "Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -Physical",
         "Remove-NetRoute -InputObject $matches[0]",
     ] {
-        assert!(destination.contains(fragment), "destination proof contains {fragment}");
+        assert!(
+            destination.contains(fragment),
+            "destination proof contains {fragment}"
+        );
     }
     assert!(!destination.contains("route.exe DELETE"));
     assert!(!destination.contains("-DestinationPrefix '*"));
