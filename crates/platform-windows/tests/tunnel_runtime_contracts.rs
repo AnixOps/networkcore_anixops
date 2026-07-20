@@ -2836,7 +2836,9 @@ fn native_windows_cleanup_presence_uses_only_bounded_absence_and_fail_closed_pro
             Some("Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -Physical"),
         ),
     ] {
-        let start = source.find(marker).expect("native cleanup presence helper exists");
+        let start = source
+            .find(marker)
+            .expect("native cleanup presence helper exists");
         let end = source[start + marker.len()..]
             .find("\n#[cfg(windows)]\nfn ")
             .expect("native cleanup presence helper has a bounded source slice");
@@ -2878,7 +2880,10 @@ fn native_windows_cleanup_presence_uses_only_bounded_absence_and_fail_closed_pro
         "serde_json::from_slice(&output.stdout)",
         "stderr(Stdio::null())",
     ] {
-        assert!(process.contains(fragment), "cleanup process inspection contains {fragment}");
+        assert!(
+            process.contains(fragment),
+            "cleanup process inspection contains {fragment}"
+        );
     }
     assert!(!process.contains("Win32_Process -Class"));
     assert!(!process.contains("Get-Process"));
