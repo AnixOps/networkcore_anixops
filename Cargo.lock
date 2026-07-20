@@ -796,10 +796,12 @@ dependencies = [
 name = "networkcore-windows"
 version = "0.1.0"
 dependencies = [
+ "config-core",
  "control-domain",
  "platform-windows",
  "serde",
  "serde_json",
+ "time",
 ]
 
 [[package]]

@@ -68,7 +68,8 @@ version-pinned EasyTier installation and an explicit executable path.
 
 2. Delivery verification before any process or route change:
 
-   - verify both envelopes with the configured Ed25519 public key and a trusted current clock;
+   - read the configured public-key file as exactly 32 raw Ed25519 bytes, not PEM, base64, or
+     DER, then verify both envelopes with one trusted current clock value;
    - require `bundle_kind=client` for the client envelope and `bundle_kind=pop` for the POP
      envelope;
    - require matching tenant identity and a client target matching the explicit `--device-id`;
@@ -214,8 +215,12 @@ diagnostics at the adapter boundary.
 
 ### CLI layer
 
-`apps/windows-cli` parses the tunnel command and delegates to the injected platform session
-service. It renders text and JSON with the same stable fields:
+`apps/windows-cli` parses the tunnel command and delegates through an injected bridge. Production
+constructs the native bridge only for `TunnelStart`, `TunnelStatus`, and `TunnelStop`; Help,
+Version, Capabilities, Status, and Diagnostics retain the read-only entrypoint. The bridge loads
+the raw 32-byte public key, verifies both delivery envelopes at one clock value, derives the plan,
+and passes only that plan plus explicit operator paths to the native platform session service. It
+renders text and JSON with the same stable fields:
 
 - `session_id`, `state`, `selected_pop_id`, `selected_endpoint`;
 - `delivery_bundle_id`, `delivery_sequence`, `plan_digest`;
@@ -231,8 +236,9 @@ delivery payload.
 1. Operator supplies signed client and POP envelope files, the local device identity, a public
    key file, pinned EasyTier paths/version/hash, a network name, a secret file, and an explicit
    state directory.
-2. CLI parses arguments and requests the delivery verifier to verify both envelopes at one
-   trusted `now` value.
+2. For `start`, the native bridge checks elevation before it reads the public key or either
+   envelope, then verifies both envelopes at one trusted `now` value. For `stop`, it checks
+   elevation before lifecycle access. `status` remains read-only and does not require elevation.
 3. The pure planner checks identity, expiry, sequence, transport, POP selection, and route
    intent. It emits a redacted plan or a stable rejection diagnostic.
 4. The Windows adapter validates administrator context, executable hashes, secret-file ACL
@@ -273,8 +279,10 @@ windows.tunnel.stop_failed
 windows.tunnel.rollback_failed
 ```
 
-The native CLI checks elevation before accepting any `start` or `stop` input or performing a
-mutation; a non-elevated invocation fails closed with `windows.tunnel.admin_required`.
+The native bridge checks elevation before `start` delivery/file access and before `stop` lifecycle
+access; a non-elevated invocation fails closed with `windows.tunnel.admin_required`. It never
+returns public-key paths, envelope paths, verifier messages, or secret-bearing inputs in CLI
+diagnostics.
 
 The adapter fails closed on every preflight error. It must not fall back to a different
 EasyTier binary, a different POP, a direct route, or an unverified delivery. A failed start
@@ -298,10 +306,16 @@ GitHub Actions must cover:
 - executable version/hash mismatch and missing-secret diagnostics;
 - endpoint bypass transaction ordering and rollback on process/readiness failure;
 - status/stop ownership checks and stale-session refusal;
+- injected delivery/lifecycle bridge ordering: unelevated start reads no delivery input, unelevated
+  stop invokes no lifecycle operation, and running/stopped lifecycle evidence maps to the stable
+  readiness fields;
+- native `main` routing only for the three tunnel variants, while the bridge's raw-key, one-clock,
+  and fixed-redaction behavior remains unit-contract covered;
 - Windows target format, lint, test, build, dependency audit, and package manifest checks.
 
 No automated job claims that a GitHub-hosted Windows runner established a real tunnel. The
-workflow records the distinction between contract verification and manual data-plane evidence.
+workflow records the distinction between injected bridge contract verification and manual elevated
+data-plane evidence.
 
 ### Manual end-to-end acceptance
 

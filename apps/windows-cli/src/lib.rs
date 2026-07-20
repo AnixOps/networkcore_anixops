@@ -5,15 +5,28 @@
 //! drivers, system proxy settings, trust store entries, JavaScript dispatch, or managed
 //! daemon lifecycle state.
 
+use config_core::sdwan_delivery::{SdwanDeliveryVerifier, SDWAN_DELIVERY_EXPIRED_CODE};
+use config_core::windows_tunnel::{
+    plan_windows_tunnel, WindowsTunnelPlanRequest, WINDOWS_TUNNEL_DELIVERY_EXPIRED_CODE,
+    WINDOWS_TUNNEL_DELIVERY_INVALID_CODE,
+};
 use control_domain::{DomainError, DomainResult};
 use platform_windows::{
     tunnel_config::{WindowsTunnelLifecycleState, WindowsTunnelState},
+    tunnel_runtime::{
+        native_windows_is_elevated, EasyTierCliRunner, EasyTierProcessRunner,
+        NativeEasyTierCliRunner, NativeEasyTierProcessRunner, NativeWindowsRoutePort,
+        WindowsRoutePort, WindowsTunnelSessionService, WindowsTunnelStartRequest,
+        WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE,
+    },
     WindowsFeatureStatus, WindowsPlatformCapabilityService, WindowsPlatformSnapshot,
-    WINDOWS_CLI_PACKAGE_STATUS, WINDOWS_CLI_RELEASE_ASSETS_STATUS, WINDOWS_CLI_SOURCE_IDENTITY,
-    WINDOWS_SYSTEM_MUTATION_POLICY,
+    WindowsTunnelPlan, WINDOWS_CLI_PACKAGE_STATUS, WINDOWS_CLI_RELEASE_ASSETS_STATUS,
+    WINDOWS_CLI_SOURCE_IDENTITY, WINDOWS_SYSTEM_MUTATION_POLICY,
 };
 use serde::Serialize;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
+use time::OffsetDateTime;
 
 pub const COMMAND_NAME: &str = "networkcore-windows";
 pub const PLATFORM_NAME: &str = "windows";
@@ -180,6 +193,219 @@ pub trait WindowsTunnelCommandService {
     ) -> DomainResult<WindowsTunnelCommandResult>;
 
     fn stop(&mut self, args: &WindowsTunnelStopArgs) -> DomainResult<WindowsTunnelCommandResult>;
+}
+
+/// Narrow lifecycle boundary used by the CLI bridge and deterministic tests.
+pub trait WindowsTunnelLifecyclePort {
+    fn start(&mut self, request: WindowsTunnelStartRequest) -> DomainResult<WindowsTunnelState>;
+
+    fn status(&mut self, state_path: &Path) -> DomainResult<WindowsTunnelState>;
+
+    fn stop(&mut self, state_path: &Path, confirm: bool) -> DomainResult<WindowsTunnelState>;
+}
+
+impl<P, C, R> WindowsTunnelLifecyclePort for WindowsTunnelSessionService<P, C, R>
+where
+    P: EasyTierProcessRunner,
+    C: EasyTierCliRunner,
+    R: WindowsRoutePort,
+{
+    fn start(&mut self, request: WindowsTunnelStartRequest) -> DomainResult<WindowsTunnelState> {
+        WindowsTunnelSessionService::start(self, request)
+    }
+
+    fn status(&mut self, state_path: &Path) -> DomainResult<WindowsTunnelState> {
+        WindowsTunnelSessionService::status(self, state_path)
+    }
+
+    fn stop(&mut self, state_path: &Path, confirm: bool) -> DomainResult<WindowsTunnelState> {
+        WindowsTunnelSessionService::stop(self, state_path, confirm)
+    }
+}
+
+/// Loads and verifies the signed delivery pair needed to start one tunnel.
+pub trait WindowsTunnelDeliveryLoader {
+    fn load_plan(&self, args: &WindowsTunnelStartArgs) -> DomainResult<WindowsTunnelPlan>;
+}
+
+/// Supplies the platform elevation check without granting a lifecycle port more authority.
+pub trait WindowsTunnelPrivilegePort {
+    fn is_elevated(&self) -> bool;
+}
+
+/// Connects verified delivery and explicit Windows lifecycle operations to CLI commands.
+pub struct DeliveryBackedWindowsTunnelCommandService<S, L, P> {
+    session: S,
+    delivery: L,
+    privilege: P,
+}
+
+impl<S, L, P> DeliveryBackedWindowsTunnelCommandService<S, L, P> {
+    pub fn new(session: S, delivery: L, privilege: P) -> Self {
+        Self {
+            session,
+            delivery,
+            privilege,
+        }
+    }
+}
+
+impl<S, L, P> WindowsTunnelCommandService for DeliveryBackedWindowsTunnelCommandService<S, L, P>
+where
+    S: WindowsTunnelLifecyclePort,
+    L: WindowsTunnelDeliveryLoader,
+    P: WindowsTunnelPrivilegePort,
+{
+    fn start(&mut self, args: &WindowsTunnelStartArgs) -> DomainResult<WindowsTunnelCommandResult> {
+        if !self.privilege.is_elevated() {
+            return Err(admin_required_error());
+        }
+
+        let plan = self.delivery.load_plan(args)?;
+        let state = self.session.start(WindowsTunnelStartRequest {
+            plan,
+            easytier_binary: args.easytier_binary.clone(),
+            easytier_cli: args.easytier_cli.clone(),
+            easytier_version: args.easytier_version.clone(),
+            easytier_sha256: args.easytier_sha256.clone(),
+            network_name: args.network_name.clone(),
+            network_secret_file: args.network_secret_file.clone(),
+            state_path: args.state_path.clone(),
+            confirm: args.confirm,
+        })?;
+        Ok(running_tunnel_result(state))
+    }
+
+    fn status(
+        &mut self,
+        args: &WindowsTunnelStatusArgs,
+    ) -> DomainResult<WindowsTunnelCommandResult> {
+        self.session
+            .status(&args.state_path)
+            .map(running_tunnel_result)
+    }
+
+    fn stop(&mut self, args: &WindowsTunnelStopArgs) -> DomainResult<WindowsTunnelCommandResult> {
+        if !self.privilege.is_elevated() {
+            return Err(admin_required_error());
+        }
+
+        self.session
+            .stop(&args.state_path, args.confirm)
+            .map(stopped_tunnel_result)
+    }
+}
+
+fn running_tunnel_result(state: WindowsTunnelState) -> WindowsTunnelCommandResult {
+    WindowsTunnelCommandResult {
+        route_count: state.runtime_ownership.route_cidrs.len(),
+        state,
+        peer_ready: true,
+        route_ready: true,
+    }
+}
+
+fn stopped_tunnel_result(state: WindowsTunnelState) -> WindowsTunnelCommandResult {
+    WindowsTunnelCommandResult {
+        state,
+        peer_ready: false,
+        route_ready: false,
+        route_count: 0,
+    }
+}
+
+fn admin_required_error() -> DomainError {
+    DomainError::new(
+        WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE,
+        "elevated Windows execution is required",
+    )
+}
+
+fn delivery_invalid_error() -> DomainError {
+    DomainError::new(
+        WINDOWS_TUNNEL_DELIVERY_INVALID_CODE,
+        "signed tunnel delivery is invalid",
+    )
+}
+
+fn delivery_expired_error() -> DomainError {
+    DomainError::new(
+        WINDOWS_TUNNEL_DELIVERY_EXPIRED_CODE,
+        "signed tunnel delivery has expired",
+    )
+}
+
+fn map_delivery_verification_error(error: DomainError) -> DomainError {
+    if error.code == SDWAN_DELIVERY_EXPIRED_CODE {
+        delivery_expired_error()
+    } else {
+        delivery_invalid_error()
+    }
+}
+
+/// Native delivery loader that accepts exactly 32 raw Ed25519 public-key bytes.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NativeWindowsTunnelDeliveryLoader;
+
+impl WindowsTunnelDeliveryLoader for NativeWindowsTunnelDeliveryLoader {
+    fn load_plan(&self, args: &WindowsTunnelStartArgs) -> DomainResult<WindowsTunnelPlan> {
+        let now = OffsetDateTime::now_utc();
+        let public_key =
+            fs::read(&args.delivery_public_key_file).map_err(|_| delivery_invalid_error())?;
+        let verifier =
+            SdwanDeliveryVerifier::new(&public_key).map_err(|_| delivery_invalid_error())?;
+        let client_bytes = fs::read(&args.client_envelope).map_err(|_| delivery_invalid_error())?;
+        let pop_bytes = fs::read(&args.pop_envelope).map_err(|_| delivery_invalid_error())?;
+        let client = verifier
+            .verify_json(&client_bytes, now)
+            .map_err(map_delivery_verification_error)?;
+        let pop = verifier
+            .verify_json(&pop_bytes, now)
+            .map_err(map_delivery_verification_error)?;
+
+        plan_windows_tunnel(WindowsTunnelPlanRequest {
+            client: &client,
+            pop: &pop,
+            device_id: &args.device_id,
+            selected_pop_id: &args.pop_id,
+            last_client_sequence: None,
+            last_pop_sequence: None,
+            now,
+        })
+    }
+}
+
+/// Native privilege adapter with no independent platform behavior.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NativeWindowsTunnelPrivilegeChecker;
+
+impl WindowsTunnelPrivilegePort for NativeWindowsTunnelPrivilegeChecker {
+    fn is_elevated(&self) -> bool {
+        native_windows_is_elevated()
+    }
+}
+
+pub type NativeWindowsTunnelCommandService = DeliveryBackedWindowsTunnelCommandService<
+    WindowsTunnelSessionService<
+        NativeEasyTierProcessRunner,
+        NativeEasyTierCliRunner,
+        NativeWindowsRoutePort,
+    >,
+    NativeWindowsTunnelDeliveryLoader,
+    NativeWindowsTunnelPrivilegeChecker,
+>;
+
+/// Produces the only native production bridge used by the tunnel CLI variants.
+pub fn native_windows_tunnel_command_service() -> NativeWindowsTunnelCommandService {
+    DeliveryBackedWindowsTunnelCommandService::new(
+        WindowsTunnelSessionService::new(
+            NativeEasyTierProcessRunner::default(),
+            NativeEasyTierCliRunner,
+            NativeWindowsRoutePort::default(),
+        ),
+        NativeWindowsTunnelDeliveryLoader,
+        NativeWindowsTunnelPrivilegeChecker,
+    )
 }
 
 // The public parser contract requires direct typed tuple variants, not boxed indirection.
