@@ -49,6 +49,8 @@ version-pinned EasyTier installation and an explicit executable path.
 1. A Windows foreground tunnel command family:
 
    ```text
+   networkcore-windows tunnel prepare-storage --confirm [--format text|json]
+
    networkcore-windows tunnel start <client-envelope> <pop-envelope>
      --pop-id <id>
      --device-id <id>
@@ -88,10 +90,14 @@ version-pinned EasyTier installation and an explicit executable path.
 
    - validates the explicit EasyTier executable and CLI paths without downloading anything;
    - checks the executable version and configured SHA-256 pin before launch;
-   - prepares a fixed `CommonApplicationData\AnixOps\WindowsTunnel` root, with direct
-     `state` and `secrets` children only; the root and both children reject reparse points and
-     retain only protected full-control ACL rules for SYSTEM (`S-1-5-18`) and
-     BUILTIN\Administrators (`S-1-5-32-544`);
+   - treats `CommonApplicationData` as trusted, then creates or validates the fixed
+     `CommonApplicationData\AnixOps\WindowsTunnel` hierarchy with direct `state` and `secrets`
+     children only; each owned directory rejects reparse points and must have owner
+     BUILTIN\Administrators (`S-1-5-32-544`) with exactly SYSTEM (`S-1-5-18`) and
+     BUILTIN\Administrators full-control ACL rules;
+   - never repairs a pre-existing owned directory: a failed exclusive create inspects the exact
+     existing component and accepts it only when its owner, DACL, and non-reparse invariants are
+     already exact;
    - accepts a state file only as a safe, non-reparse direct child of `state`, and a secret only
      as a safe, non-reparse regular direct child of `secrets`; start applies the same protected
      ACL to the secret file before it is read;
@@ -219,43 +225,62 @@ the one proven route rather than scanning route names or issuing a broad deletio
 proof, and exact removal commands discard child stdin, stdout, and stderr, exposing only fixed
 diagnostics at the adapter boundary.
 
-The native secure-storage boundary has two distinct operations. Elevated `start` may create and
-repair the fixed ProgramData root and its protected ACLs before it accepts a state or secret
-path. `status` and the path-validation portion of `stop` use a separate inspection-only path:
-it checks the existing directories, ACL rules, reparse attributes, and direct-child state file,
-but never calls `New-Item`, `Set-Acl`, or another host-mutating operation. Every native
-PowerShell invocation captures its standard streams internally and maps failure to a fixed,
-path-free diagnostic.
+The native secure-storage boundary has two distinct operations. Elevated `prepare-storage --confirm`
+creates the `AnixOps`, `WindowsTunnel`, `state`, and `secrets` components in that order when they
+do not exist, then sets and verifies the exact owner/DACL only on components it created. Existing
+components are inspection-only and fail closed unless their owner, DACL, and non-reparse invariants
+already match. Elevated `start` uses the same guarded preparation before accepting a direct-child
+state or secret path. `status` and the path-validation portion of `stop` use a separate
+inspection-only path: it checks the existing directories, ACL rules, reparse attributes, and
+direct-child state file, but never calls `New-Item`, `Set-Acl`, or another host-mutating operation.
+Every native PowerShell invocation captures its standard streams internally and maps failure to a
+fixed, path-free diagnostic.
 
 ### CLI layer
 
 `apps/windows-cli` parses the tunnel command and delegates through an injected bridge. Production
-constructs the native bridge only for `TunnelStart`, `TunnelStatus`, and `TunnelStop`; Help,
-Version, Capabilities, Status, and Diagnostics retain the read-only entrypoint. The bridge loads
-the raw 32-byte public key, verifies both delivery envelopes at one clock value, derives the plan,
-and passes only that plan plus secure-path-policy-approved operator paths to the native platform
-session service. It renders text and JSON with the same stable fields:
+constructs the native bridge only for `TunnelPrepareStorage`, `TunnelStart`, `TunnelStatus`, and
+`TunnelStop`; Help, Version, Capabilities, Status, and Diagnostics retain the read-only entrypoint.
+`prepare-storage` requires elevation and `--confirm`, then invokes only the secure input-path policy;
+it does not load delivery, access secret/state children, start a lifecycle session, or access
+EasyTier, routes, or processes. The start bridge loads the raw 32-byte public key, verifies both
+delivery envelopes at one clock value, derives the plan, and passes only that plan plus
+secure-path-policy-approved operator paths to the native platform session service. It renders text
+and JSON with the same stable fields:
 
 - `session_id`, `state`, `selected_pop_id`, `selected_endpoint`;
 - `delivery_bundle_id`, `delivery_sequence`, `plan_digest`;
 - `easytier_version`, `peer_ready`, `route_ready`, `route_count`;
 - `system_mutation_policy`, `rollback_status`, and redacted diagnostics.
 
-The CLI must refuse `start` without `--confirm`, an explicit state path, explicit binary paths,
-and the network-secret file. It must not print the secret, raw command line, full delivery
-payload, or any rejected local path.
+The CLI must refuse `prepare-storage` and `start` without `--confirm`. It must refuse `start`
+without an explicit state path, explicit binary paths, and the network-secret file. It must not
+print the secret, raw command line, full delivery payload, or any rejected local path.
+
+The supported first-run procedure is:
+
+```text
+1. Run elevated: networkcore-windows tunnel prepare-storage --confirm
+2. From an elevated terminal, create one safe-name secret file under
+   %ProgramData%\AnixOps\WindowsTunnel\secrets\.
+3. Run elevated tunnel start with that direct-child secret path and a direct-child state path.
+```
+
+Live `tunnel status` also requires elevation because it performs storage, configuration, and
+process ownership proof. There is no non-elevated live status mode.
 
 ## Data Flow
 
 1. Operator supplies signed client and POP envelope files, the local device identity, a public
    key file, pinned EasyTier paths/version/hash, a network name, a secret file, and an explicit
    state path.
-2. For `start`, the native bridge checks elevation before it reads the public key, either
-   envelope, state path, or secret path. It then creates or repairs the protected ProgramData
-   root and validates both direct-child paths before it verifies either envelope at one trusted
-   `now` value. For `stop`, it checks elevation before it performs inspection-only state-path
-   validation or lifecycle access. `status` remains read-only, does not require elevation, and
-   performs only inspection-only state-path validation before lifecycle access.
+2. For `prepare-storage`, the native bridge checks elevation and confirmation before it creates or
+   validates only the fixed storage hierarchy. For `start`, it checks elevation before it reads the
+   public key, either envelope, state path, or secret path, then performs guarded preparation and
+   validates both direct-child paths before it verifies either envelope at one trusted `now` value.
+   For `stop` and live `status`, it checks elevation before it performs inspection-only state-path
+   validation or lifecycle access; status remains non-mutating but elevation is required for the
+   storage/config/process ownership proof.
 3. The pure planner checks identity, expiry, sequence, transport, POP selection, and route
    intent. It emits a redacted plan or a stable rejection diagnostic.
 4. The Windows adapter validates administrator context, executable hashes, secret-file ACL
@@ -296,15 +321,17 @@ windows.tunnel.stop_failed
 windows.tunnel.rollback_failed
 ```
 
-The native bridge checks elevation before `start` delivery/file access and before `stop`
-inspection or lifecycle access; a non-elevated invocation fails closed with
+The native bridge checks elevation before `prepare-storage`, `start` delivery/file access, `status`
+inspection or lifecycle access, and `stop` inspection or lifecycle access; a non-elevated
+invocation fails closed with
 `windows.tunnel.admin_required`. It never returns public-key paths, envelope paths, state paths,
 verifier messages, ACL output, PowerShell output, or secret-bearing inputs in CLI diagnostics.
 
-Native storage rejects arbitrary parent directories and every reparse point. `start` may mutate
-only the fixed ProgramData root and the approved secret file after elevation. `status` has no
-directory creation or ACL-repair authority, and `stop` obtains that same read-only path proof
-only after its elevation gate. A failed path policy maps to the fixed, path-free
+Native storage rejects arbitrary parent directories and every reparse point. `prepare-storage` and
+`start` may mutate only newly created fixed ProgramData hierarchy components and the approved
+secret file after elevation; neither repairs an existing owned component. `status` has no directory
+creation or ACL-repair authority, and `stop` obtains that same read-only path proof only after its
+elevation gate. A failed path policy maps to the fixed, path-free
 `windows.tunnel.start_failed` diagnostic.
 
 The adapter fails closed on every preflight error. It must not fall back to a different
@@ -322,21 +349,23 @@ testing uses a local secret file outside the repository.
 
 GitHub Actions must cover:
 
-- command parsing and `--confirm`/path requirements;
+- command parsing and `--confirm`/path requirements, including storage-only preparation;
 - client/POP identity, expiry, sequence, transport, and POP-selection rejection paths;
 - independent per-bundle sequence replay rejection and persisted sequence-floor handling;
 - deterministic EasyTier command/config generation with secret redaction;
 - executable version/hash mismatch and missing-secret diagnostics;
 - endpoint bypass transaction ordering and rollback on process/readiness failure;
 - status/stop ownership checks and stale-session refusal;
-- injected delivery/lifecycle bridge ordering: unelevated start reads no storage or delivery
-  input, unelevated stop invokes no storage or lifecycle operation, elevated start validates
-  secure paths before delivery loading, status/stop validate existing state before lifecycle
-  delegation, and running/stopped lifecycle evidence maps to the stable readiness fields;
-- CRLF-normalized source contracts for fixed ProgramData children, reparse rejection,
-  SYSTEM/Administrators-only protected ACLs, child-stream capture, and inspection-only status
+- injected bridge ordering: unconfirmed or unelevated preparation invokes no path, delivery, or
+  lifecycle operation; confirmed elevated preparation invokes only the input-path policy;
+  unelevated start/status/stop invoke no prohibited storage or lifecycle operation; elevated start
+  validates secure paths before delivery loading; elevated status/stop validate existing state
+  before lifecycle delegation; and running/stopped lifecycle evidence maps to the stable readiness
+  fields;
+- CRLF-normalized source contracts for the trusted ProgramData ancestor, owned AnixOps hierarchy,
+  exact owner/DACL rules, reparse rejection, child-stream capture, and inspection-only status
   validation; hosted CI verifies these boundaries but does not establish a real host ACL;
-- native `main` routing only for the three tunnel variants, while the bridge's raw-key, one-clock,
+- native `main` routing only for the four tunnel variants, while the bridge's raw-key, one-clock,
   and fixed-redaction behavior remains unit-contract covered;
 - Windows target format, lint, test, build, dependency audit, and package manifest checks.
 

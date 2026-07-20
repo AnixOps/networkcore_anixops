@@ -5,7 +5,8 @@ fn main() {
             let format = command.format();
             let platform = platform_windows::ReadOnlyWindowsPlatformCapabilityService::new();
             let response = match command {
-                command @ (networkcore_windows::WindowsCliCommand::TunnelStart(_)
+                command @ (networkcore_windows::WindowsCliCommand::TunnelPrepareStorage(_)
+                | networkcore_windows::WindowsCliCommand::TunnelStart(_)
                 | networkcore_windows::WindowsCliCommand::TunnelStatus(_)
                 | networkcore_windows::WindowsCliCommand::TunnelStop(_)) => {
                     let mut tunnel = networkcore_windows::native_windows_tunnel_command_service();

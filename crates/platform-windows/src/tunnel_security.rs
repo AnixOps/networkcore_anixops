@@ -23,7 +23,8 @@ const NATIVE_WINDOWS_TUNNEL_PREPARE_SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
 $base = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
 if ([String]::IsNullOrWhiteSpace($base)) { throw 'common application data is unavailable' }
-$root = Join-Path $base 'AnixOps\WindowsTunnel'
+$vendorDirectory = Join-Path $base 'AnixOps'
+$root = Join-Path $vendorDirectory 'WindowsTunnel'
 $stateDirectory = Join-Path $root 'state'
 $secretDirectory = Join-Path $root 'secrets'
 
@@ -36,13 +37,16 @@ function Assert-NoReparsePoint {
     return $item
 }
 
-function Assert-ProtectedAcl {
-    param(
-        [string]$Path,
-        [System.Security.AccessControl.InheritanceFlags]$InheritanceFlags
-    )
+function Assert-ExistingProtectedDirectory {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) { throw 'protected directory is absent' }
+    $item = Assert-NoReparsePoint $Path
+    if (-not $item.PSIsContainer) { throw 'protected path is not a directory' }
     $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    $owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+    if ($owner -ne 'S-1-5-32-544') { throw 'protected directory owner is invalid' }
     if (-not $acl.AreAccessRulesProtected) { throw 'ACL inheritance is enabled' }
+    $inheritanceFlags = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
     $rules = @($acl.GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier]))
     if ($rules.Count -ne 2) { throw 'unexpected ACL rule count' }
     foreach ($sidValue in @('S-1-5-18', 'S-1-5-32-544')) {
@@ -57,15 +61,14 @@ function Assert-ProtectedAcl {
     }
 }
 
-function Set-ProtectedDirectory {
+function Set-ExactProtectedDirectorySecurity {
     param([string]$Path)
-    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
-        New-Item -ItemType Directory -LiteralPath $Path -Force -ErrorAction Stop | Out-Null
-    }
     $item = Assert-NoReparsePoint $Path
     if (-not $item.PSIsContainer) { throw 'protected path is not a directory' }
     $inheritanceFlags = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
     $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    $administrators = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList 'S-1-5-32-544'
+    $acl.SetOwner($administrators)
     $acl.SetAccessRuleProtection($true, $false)
     foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRuleAll($rule) }
     foreach ($sidValue in @('S-1-5-18', 'S-1-5-32-544')) {
@@ -74,14 +77,33 @@ function Set-ProtectedDirectory {
         [void]$acl.AddAccessRule($rule)
     }
     Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
-    Assert-NoReparsePoint $Path | Out-Null
-    Assert-ProtectedAcl $Path $inheritanceFlags
+    Assert-ExistingProtectedDirectory $Path
 }
 
-foreach ($directory in @($root, $stateDirectory, $secretDirectory)) {
-    Set-ProtectedDirectory $directory
+function New-ProtectedDirectory {
+    param([string]$Path)
+    New-Item -ItemType Directory -LiteralPath $Path -ErrorAction Stop | Out-Null
+    Set-ExactProtectedDirectorySecurity $Path
 }
 
+function Ensure-ProtectedDirectory {
+    param([string]$Path)
+    $created = $false
+    try {
+        New-ProtectedDirectory $Path
+        $created = $true
+    } catch {
+        if (-not (Test-Path -LiteralPath $Path -PathType Container)) { throw }
+    }
+    if (-not $created) { Assert-ExistingProtectedDirectory $Path }
+}
+
+foreach ($directory in @($vendorDirectory, $root, $stateDirectory, $secretDirectory)) {
+    Ensure-ProtectedDirectory $directory
+}
+
+[Console]::Out.WriteLine((Get-Item -LiteralPath $base -Force -ErrorAction Stop).FullName)
+[Console]::Out.WriteLine((Get-Item -LiteralPath $vendorDirectory -Force -ErrorAction Stop).FullName)
 [Console]::Out.WriteLine((Get-Item -LiteralPath $root -Force -ErrorAction Stop).FullName)
 [Console]::Out.WriteLine((Get-Item -LiteralPath $stateDirectory -Force -ErrorAction Stop).FullName)
 [Console]::Out.WriteLine((Get-Item -LiteralPath $secretDirectory -Force -ErrorAction Stop).FullName)
@@ -92,7 +114,8 @@ const NATIVE_WINDOWS_TUNNEL_INSPECT_SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
 $base = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
 if ([String]::IsNullOrWhiteSpace($base)) { throw 'common application data is unavailable' }
-$root = Join-Path $base 'AnixOps\WindowsTunnel'
+$vendorDirectory = Join-Path $base 'AnixOps'
+$root = Join-Path $vendorDirectory 'WindowsTunnel'
 $stateDirectory = Join-Path $root 'state'
 $secretDirectory = Join-Path $root 'secrets'
 
@@ -104,6 +127,8 @@ function Assert-ExistingProtectedDirectory {
         throw 'reparse points are not allowed'
     }
     $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    $owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+    if ($owner -ne 'S-1-5-32-544') { throw 'protected directory owner is invalid' }
     if (-not $acl.AreAccessRulesProtected) { throw 'ACL inheritance is enabled' }
     $inheritanceFlags = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
     $rules = @($acl.GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier]))
@@ -120,10 +145,12 @@ function Assert-ExistingProtectedDirectory {
     }
 }
 
-foreach ($directory in @($root, $stateDirectory, $secretDirectory)) {
+foreach ($directory in @($vendorDirectory, $root, $stateDirectory, $secretDirectory)) {
     Assert-ExistingProtectedDirectory $directory
 }
 
+[Console]::Out.WriteLine((Get-Item -LiteralPath $base -Force -ErrorAction Stop).FullName)
+[Console]::Out.WriteLine((Get-Item -LiteralPath $vendorDirectory -Force -ErrorAction Stop).FullName)
 [Console]::Out.WriteLine((Get-Item -LiteralPath $root -Force -ErrorAction Stop).FullName)
 [Console]::Out.WriteLine((Get-Item -LiteralPath $stateDirectory -Force -ErrorAction Stop).FullName)
 [Console]::Out.WriteLine((Get-Item -LiteralPath $secretDirectory -Force -ErrorAction Stop).FullName)
@@ -134,12 +161,54 @@ const NATIVE_WINDOWS_TUNNEL_PROTECT_SECRET_FILE_SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
 $path = $env:ANIXOPS_WINDOWS_TUNNEL_SECRET_PATH
 if ([String]::IsNullOrWhiteSpace($path)) { throw 'secret path is unavailable' }
+$base = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
+if ([String]::IsNullOrWhiteSpace($base)) { throw 'common application data is unavailable' }
+$vendorDirectory = Join-Path $base 'AnixOps'
+$root = Join-Path $vendorDirectory 'WindowsTunnel'
+$stateDirectory = Join-Path $root 'state'
+$secretDirectory = Join-Path $root 'secrets'
 $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
-if ($item.PSIsContainer) { throw 'secret path is a directory' }
+if (-not ($item -is [System.IO.FileInfo])) { throw 'secret path is not a regular file' }
 if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
     throw 'reparse points are not allowed'
 }
+$secretDirectoryItem = Get-Item -LiteralPath $secretDirectory -Force -ErrorAction Stop
+if (-not $secretDirectoryItem.PSIsContainer) { throw 'secret directory is not a directory' }
+if (($secretDirectoryItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw 'reparse points are not allowed'
+}
+if (-not [String]::Equals($item.DirectoryName, $secretDirectoryItem.FullName, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'secret path is not a direct child'
+}
+
+function Assert-ExactProtectedSecretFile {
+    param([string]$Path)
+    $verifiedItem = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if (-not ($verifiedItem -is [System.IO.FileInfo])) { throw 'secret path is not a regular file' }
+    if (($verifiedItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw 'reparse points are not allowed'
+    }
+    $verified = Get-Acl -LiteralPath $Path -ErrorAction Stop
+    $owner = $verified.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+    if ($owner -ne 'S-1-5-32-544') { throw 'secret file owner is invalid' }
+    if (-not $verified.AreAccessRulesProtected) { throw 'ACL inheritance is enabled' }
+    $rules = @($verified.GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier]))
+    if ($rules.Count -ne 2) { throw 'unexpected ACL rule count' }
+    foreach ($sidValue in @('S-1-5-18', 'S-1-5-32-544')) {
+        $matches = @($rules | Where-Object {
+            $_.IdentityReference.Value -eq $sidValue -and
+            $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and
+            $_.FileSystemRights -eq [System.Security.AccessControl.FileSystemRights]::FullControl -and
+            $_.InheritanceFlags -eq [System.Security.AccessControl.InheritanceFlags]::None -and
+            $_.PropagationFlags -eq [System.Security.AccessControl.PropagationFlags]::None
+        })
+        if ($matches.Count -ne 1) { throw 'required ACL rule is missing' }
+    }
+}
+
 $acl = Get-Acl -LiteralPath $path -ErrorAction Stop
+$administrators = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList 'S-1-5-32-544'
+$acl.SetOwner($administrators)
 $acl.SetAccessRuleProtection($true, $false)
 foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRuleAll($rule) }
 foreach ($sidValue in @('S-1-5-18', 'S-1-5-32-544')) {
@@ -148,20 +217,7 @@ foreach ($sidValue in @('S-1-5-18', 'S-1-5-32-544')) {
     [void]$acl.AddAccessRule($rule)
 }
 Set-Acl -LiteralPath $path -AclObject $acl -ErrorAction Stop
-$verified = Get-Acl -LiteralPath $path -ErrorAction Stop
-if (-not $verified.AreAccessRulesProtected) { throw 'ACL inheritance is enabled' }
-$rules = @($verified.GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier]))
-if ($rules.Count -ne 2) { throw 'unexpected ACL rule count' }
-foreach ($sidValue in @('S-1-5-18', 'S-1-5-32-544')) {
-    $matches = @($rules | Where-Object {
-        $_.IdentityReference.Value -eq $sidValue -and
-        $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and
-        $_.FileSystemRights -eq [System.Security.AccessControl.FileSystemRights]::FullControl -and
-        $_.InheritanceFlags -eq [System.Security.AccessControl.InheritanceFlags]::None -and
-        $_.PropagationFlags -eq [System.Security.AccessControl.PropagationFlags]::None
-    })
-    if ($matches.Count -ne 1) { throw 'required ACL rule is missing' }
-}
+Assert-ExactProtectedSecretFile $path
 "#;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -270,14 +326,20 @@ fn native_windows_secure_paths_from_output(
     }
     let output = String::from_utf8(output.stdout).map_err(|_| secure_path_error())?;
     let paths = output.lines().collect::<Vec<_>>();
-    if paths.len() != 3 || paths.iter().any(|path| path.trim().is_empty()) {
+    if paths.len() != 5 || paths.iter().any(|path| path.trim().is_empty()) {
         return Err(secure_path_error());
     }
 
-    let root = fs::canonicalize(paths[0]).map_err(|_| secure_path_error())?;
-    let state_directory = fs::canonicalize(paths[1]).map_err(|_| secure_path_error())?;
-    let secret_directory = fs::canonicalize(paths[2]).map_err(|_| secure_path_error())?;
-    if state_directory.parent() != Some(root.as_path())
+    let base = fs::canonicalize(paths[0]).map_err(|_| secure_path_error())?;
+    let vendor = fs::canonicalize(paths[1]).map_err(|_| secure_path_error())?;
+    let root = fs::canonicalize(paths[2]).map_err(|_| secure_path_error())?;
+    let state_directory = fs::canonicalize(paths[3]).map_err(|_| secure_path_error())?;
+    let secret_directory = fs::canonicalize(paths[4]).map_err(|_| secure_path_error())?;
+    if vendor.parent() != Some(base.as_path())
+        || vendor.file_name().and_then(|name| name.to_str()) != Some("AnixOps")
+        || root.parent() != Some(vendor.as_path())
+        || root.file_name().and_then(|name| name.to_str()) != Some("WindowsTunnel")
+        || state_directory.parent() != Some(root.as_path())
         || secret_directory.parent() != Some(root.as_path())
         || state_directory.file_name().and_then(|name| name.to_str()) != Some("state")
         || secret_directory.file_name().and_then(|name| name.to_str()) != Some("secrets")

@@ -21,7 +21,7 @@ use platform_windows::{
     },
     tunnel_security::{
         native_windows_prepare_secret_file, native_windows_prepare_state_path,
-        native_windows_validate_existing_state_path,
+        native_windows_prepare_tunnel_secure_paths, native_windows_validate_existing_state_path,
     },
     WindowsFeatureStatus, WindowsPlatformCapabilityService, WindowsPlatformSnapshot,
     WindowsTunnelPlan, WINDOWS_CLI_PACKAGE_STATUS, WINDOWS_CLI_RELEASE_ASSETS_STATUS,
@@ -132,6 +132,18 @@ impl WindowsCliParseError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowsTunnelPrepareStorageArgs {
+    pub confirm: bool,
+    format: OutputFormat,
+}
+
+impl WindowsTunnelPrepareStorageArgs {
+    pub const fn format(&self) -> OutputFormat {
+        self.format
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowsTunnelStartArgs {
     pub client_envelope: PathBuf,
     pub pop_envelope: PathBuf,
@@ -189,6 +201,8 @@ pub struct WindowsTunnelCommandResult {
 }
 
 pub trait WindowsTunnelCommandService {
+    fn prepare_storage(&mut self, args: &WindowsTunnelPrepareStorageArgs) -> DomainResult<()>;
+
     fn start(&mut self, args: &WindowsTunnelStartArgs) -> DomainResult<WindowsTunnelCommandResult>;
 
     fn status(
@@ -246,6 +260,8 @@ pub struct TunnelStartInputPaths {
 
 /// Separates native input storage authority from the delivery and lifecycle ports.
 pub trait WindowsTunnelInputPathPolicy {
+    fn prepare_storage(&self) -> DomainResult<()>;
+
     fn prepare_start(
         &self,
         state_path: &Path,
@@ -282,6 +298,17 @@ where
     P: WindowsTunnelPrivilegePort,
     G: WindowsTunnelInputPathPolicy,
 {
+    fn prepare_storage(&mut self, args: &WindowsTunnelPrepareStorageArgs) -> DomainResult<()> {
+        if !self.privilege.is_elevated() {
+            return Err(admin_required_error());
+        }
+        if !args.confirm {
+            return Err(confirmation_required_error());
+        }
+
+        self.paths.prepare_storage()
+    }
+
     fn start(&mut self, args: &WindowsTunnelStartArgs) -> DomainResult<WindowsTunnelCommandResult> {
         if !self.privilege.is_elevated() {
             return Err(admin_required_error());
@@ -312,6 +339,10 @@ where
         &mut self,
         args: &WindowsTunnelStatusArgs,
     ) -> DomainResult<WindowsTunnelCommandResult> {
+        if !self.privilege.is_elevated() {
+            return Err(admin_required_error());
+        }
+
         let state_path = self.paths.validate_existing_state(&args.state_path)?;
         self.session.status(&state_path).map(running_tunnel_result)
     }
@@ -429,6 +460,10 @@ impl WindowsTunnelPrivilegePort for NativeWindowsTunnelPrivilegeChecker {
 pub struct NativeWindowsTunnelInputPathPolicy;
 
 impl WindowsTunnelInputPathPolicy for NativeWindowsTunnelInputPathPolicy {
+    fn prepare_storage(&self) -> DomainResult<()> {
+        native_windows_prepare_tunnel_secure_paths().map(|_| ())
+    }
+
     fn prepare_start(
         &self,
         state_path: &Path,
@@ -489,6 +524,7 @@ pub enum WindowsCliCommand {
     Capabilities { format: OutputFormat },
     Status { format: OutputFormat },
     Diagnostics { format: OutputFormat },
+    TunnelPrepareStorage(WindowsTunnelPrepareStorageArgs),
     TunnelStart(WindowsTunnelStartArgs),
     TunnelStatus(WindowsTunnelStatusArgs),
     TunnelStop(WindowsTunnelStopArgs),
@@ -502,6 +538,7 @@ impl WindowsCliCommand {
             | Self::Capabilities { format }
             | Self::Status { format }
             | Self::Diagnostics { format } => *format,
+            Self::TunnelPrepareStorage(args) => args.format(),
             Self::TunnelStart(args) => args.format(),
             Self::TunnelStatus(args) => args.format(),
             Self::TunnelStop(args) => args.format(),
@@ -515,7 +552,10 @@ impl WindowsCliCommand {
             Self::Capabilities { .. } => "capabilities",
             Self::Status { .. } => "status",
             Self::Diagnostics { .. } => "diagnostics",
-            Self::TunnelStart(_) | Self::TunnelStatus(_) | Self::TunnelStop(_) => "tunnel",
+            Self::TunnelPrepareStorage(_)
+            | Self::TunnelStart(_)
+            | Self::TunnelStatus(_)
+            | Self::TunnelStop(_) => "tunnel",
         }
     }
 }
@@ -786,11 +826,12 @@ fn parse_tunnel_command(
     let (subcommand, values) = values.split_first().ok_or_else(|| {
         tunnel_parse_error(
             CLI_WINDOWS_ARGUMENT_VALUE_MISSING_CODE,
-            "tunnel requires a start, status, or stop command",
+            "tunnel requires a prepare-storage, start, status, or stop command",
         )
     })?;
 
     match subcommand.as_str() {
+        "prepare-storage" => parse_tunnel_prepare_storage_command(values, format),
         "start" => parse_tunnel_start_command(values, format),
         "status" => parse_tunnel_status_command(values, format),
         "stop" => parse_tunnel_stop_command(values, format),
@@ -799,6 +840,50 @@ fn parse_tunnel_command(
             "unknown tunnel command",
         )),
     }
+}
+
+fn parse_tunnel_prepare_storage_command(
+    values: &[String],
+    format: OutputFormat,
+) -> Result<WindowsCliCommand, WindowsCliParseError> {
+    let mut confirm = false;
+
+    for value in values {
+        match value.as_str() {
+            "--confirm" => {
+                if confirm {
+                    return Err(tunnel_parse_error(
+                        CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE,
+                        "tunnel option --confirm may only be specified once",
+                    ));
+                }
+                confirm = true;
+            }
+            _ if value.starts_with('-') => {
+                return Err(tunnel_parse_error(
+                    CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE,
+                    "tunnel command contains an unsupported option",
+                ));
+            }
+            _ => {
+                return Err(tunnel_parse_error(
+                    CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE,
+                    "tunnel prepare-storage received an unexpected positional argument",
+                ));
+            }
+        }
+    }
+
+    if !confirm {
+        return Err(tunnel_parse_error(
+            CLI_WINDOWS_ARGUMENT_VALUE_MISSING_CODE,
+            "tunnel mutations require --confirm",
+        ));
+    }
+
+    Ok(WindowsCliCommand::TunnelPrepareStorage(
+        WindowsTunnelPrepareStorageArgs { confirm, format },
+    ))
 }
 
 fn parse_tunnel_start_command(
@@ -1107,7 +1192,8 @@ pub fn handle_entrypoint(
         WindowsCliCommand::Diagnostics { .. } => WindowsCliResponse::success("diagnostics")
             .with_status(WindowsCliStatus::from_snapshot(&snapshot))
             .with_diagnostics(windows_cli_diagnostics(&snapshot)),
-        WindowsCliCommand::TunnelStart(_)
+        WindowsCliCommand::TunnelPrepareStorage(_)
+        | WindowsCliCommand::TunnelStart(_)
         | WindowsCliCommand::TunnelStatus(_)
         | WindowsCliCommand::TunnelStop(_) => tunnel_service_unavailable_response(),
     }
@@ -1122,10 +1208,20 @@ where
     T: WindowsTunnelCommandService,
 {
     match command {
+        WindowsCliCommand::TunnelPrepareStorage(args) => {
+            tunnel_storage_preparation_response(tunnel.prepare_storage(&args))
+        }
         WindowsCliCommand::TunnelStart(args) => tunnel_command_response(tunnel.start(&args)),
         WindowsCliCommand::TunnelStatus(args) => tunnel_command_response(tunnel.status(&args)),
         WindowsCliCommand::TunnelStop(args) => tunnel_command_response(tunnel.stop(&args)),
         command => handle_entrypoint(command, platform),
+    }
+}
+
+fn tunnel_storage_preparation_response(result: DomainResult<()>) -> WindowsCliResponse {
+    match result {
+        Ok(()) => WindowsCliResponse::success("tunnel"),
+        Err(error) => tunnel_service_error_response(error),
     }
 }
 
@@ -1183,6 +1279,7 @@ pub fn cli_help_text() -> String {
         "  networkcore-windows capabilities [--format text|json]",
         "  networkcore-windows status [--format text|json]",
         "  networkcore-windows diagnostics [--format text|json]",
+        "  networkcore-windows tunnel prepare-storage --confirm [--format text|json]",
         "  networkcore-windows tunnel start <client-envelope> <pop-envelope> --pop-id <id> --device-id <id> --delivery-public-key-file <path> --easytier-bin <path> --easytier-cli <path> --easytier-version <version> --easytier-sha256 <sha256> --network-name <name> --network-secret-file <path> --state-path <path> --confirm [--format text|json]",
         "  networkcore-windows tunnel status <state-path> [--format text|json]",
         "  networkcore-windows tunnel stop <state-path> --confirm [--format text|json]",
@@ -1196,6 +1293,8 @@ pub fn cli_help_text() -> String {
         "Foreground tunnel boundary:",
         "  Requires a preinstalled EasyTier installation and elevated execution.",
         "  Tunnel mutations require --confirm.",
+        "  Prepare storage before creating the direct-child secret file.",
+        "  Tunnel status requires elevated execution for live ownership proof.",
         "",
         "Blocked:",
         "  windows-service, windows-driver, windows-installer, system-proxy-mutation,",
