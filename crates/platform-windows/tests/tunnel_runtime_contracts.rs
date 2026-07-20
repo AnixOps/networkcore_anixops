@@ -1315,18 +1315,24 @@ fn failed_start_config_removal_requires_proven_destination_bypass_and_process_cl
         "unproven process cleanup cannot be treated as stopped"
     );
 
-    let all_cleanup_proven = rollback
-        .find("if destination_routes_removed && routes_restored && process_stopped {")
-        .expect("config removal is guarded by destination, bypass, and process cleanup proof");
+    let all_cleanup_failure_guard = rollback
+        .find("if !(destination_routes_removed && routes_restored && process_stopped) {")
+        .expect("config removal has a destination, bypass, and process cleanup failure guard");
+    let guard_rollback = all_cleanup_failure_guard
+        + rollback[all_cleanup_failure_guard..]
+            .find("return rollback_error();")
+            .expect("failed cleanup returns rollback failure before config removal");
     let config_removal = rollback
         .find("if fs::remove_file(config_path).is_ok() {")
         .expect("failed-start rollback removes its direct-child config only after proof");
-    let original_return = config_removal
-        + rollback[config_removal..]
-            .find("return original;")
-            .expect("successful config removal returns the original failure");
-    assert!(all_cleanup_proven < config_removal);
-    assert!(config_removal < original_return);
+    assert!(all_cleanup_failure_guard < guard_rollback);
+    assert!(guard_rollback < config_removal);
+    assert!(
+        rollback[config_removal..].contains(
+            "if fs::remove_file(config_path).is_ok() {\n            original\n        } else {\n            rollback_error()\n        }"
+        ),
+        "config removal returns the original error only after the all-cleanup failure guard"
+    );
 
     let unproven_capture_start = source
         .find("    fn rollback_unproven_destination_capture(")

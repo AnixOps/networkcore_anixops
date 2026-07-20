@@ -678,12 +678,14 @@ where
             StartProcessCleanup::Owned(handle) => self.process_runner.stop(handle).is_ok(),
             StartProcessCleanup::Unproven => false,
         };
-        if destination_routes_removed && routes_restored && process_stopped {
-            if fs::remove_file(config_path).is_ok() {
-                return original;
-            }
+        if !(destination_routes_removed && routes_restored && process_stopped) {
+            return rollback_error();
         }
-        rollback_error()
+        if fs::remove_file(config_path).is_ok() {
+            original
+        } else {
+            rollback_error()
+        }
     }
 
     fn rollback_unproven_destination_capture(
