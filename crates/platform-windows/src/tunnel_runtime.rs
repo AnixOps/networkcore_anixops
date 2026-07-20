@@ -67,9 +67,9 @@ pub trait EasyTierProcessRunner {
     fn recover(&mut self, spec: &EasyTierRecoverySpec) -> DomainResult<RecoveredEasyTierProcess>;
     fn recover_for_cleanup(
         &mut self,
-        spec: &EasyTierRecoverySpec,
+        _spec: &EasyTierCleanupRecoverySpec,
     ) -> DomainResult<EasyTierCleanupRecovery> {
-        self.recover(spec).map(EasyTierCleanupRecovery::Present)
+        Err(ownership_error())
     }
     fn stop(&mut self, handle: &OwnedProcessHandle) -> DomainResult<()>;
 }
@@ -84,6 +84,14 @@ pub struct EasyTierRecoverySpec {
     pub cli_file_name: String,
 }
 
+/// Exact persisted core-process proof required only while reconciling cleanup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EasyTierCleanupRecoverySpec {
+    pub expected_process: OwnedProcessHandle,
+    pub expected_binary_sha256: String,
+    pub config_path: PathBuf,
+}
+
 /// A process proven by the injected platform runner for a persisted session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RecoveredEasyTierProcess {
@@ -92,10 +100,17 @@ pub struct RecoveredEasyTierProcess {
     pub cli_path: PathBuf,
 }
 
+/// A running core process proven by the platform runner during cleanup reconciliation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecoveredEasyTierCleanupProcess {
+    pub process: OwnedProcessHandle,
+    pub binary_path: PathBuf,
+}
+
 /// Exact cleanup recovery result for a persisted EasyTier process proof.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EasyTierCleanupRecovery {
-    Present(RecoveredEasyTierProcess),
+    Present(RecoveredEasyTierCleanupProcess),
     Absent,
 }
 
@@ -750,12 +765,10 @@ where
         if ownership.process.session_id != state.session_id {
             return Err(ownership_error());
         }
-        let spec = EasyTierRecoverySpec {
+        let spec = EasyTierCleanupRecoverySpec {
             expected_process: ownership.process.clone(),
             expected_binary_sha256: ownership.binary_sha256.clone(),
-            expected_cli_sha256: ownership.cli_sha256.clone(),
             config_path: state_directory.join(&state.config_path),
-            cli_file_name: ownership.cli_file_name.clone(),
         };
         let recovery = self
             .process_runner
@@ -768,7 +781,7 @@ where
                 if config_path.is_none() {
                     return Err(ownership_error());
                 }
-                Some(Self::validate_recovered_process(
+                Some(Self::validate_cleanup_recovered_process(
                     state, &ownership, &spec, recovered,
                 )?)
             }
@@ -783,11 +796,11 @@ where
         })
     }
 
-    fn validate_recovered_process(
+    fn validate_cleanup_recovered_process(
         state: &WindowsTunnelState,
         ownership: &WindowsTunnelRuntimeOwnership,
-        spec: &EasyTierRecoverySpec,
-        recovered: RecoveredEasyTierProcess,
+        spec: &EasyTierCleanupRecoverySpec,
+        recovered: RecoveredEasyTierCleanupProcess,
     ) -> DomainResult<OwnedProcessHandle> {
         if recovered.process.process_id != ownership.process.process_id
             || recovered.process.creation_marker != ownership.process.creation_marker
@@ -796,15 +809,15 @@ where
         {
             return Err(ownership_error());
         }
-        let (binary_path, cli_path) =
-            canonical_sibling_artifacts(&recovered.binary_path, &recovered.cli_path)
-                .ok_or_else(ownership_error)?;
+        let binary_file_name =
+            safe_file_name_from_path(&recovered.binary_path).ok_or_else(ownership_error)?;
+        let binary_directory = recovered
+            .binary_path
+            .parent()
+            .ok_or_else(ownership_error)?;
+        let binary_path = canonical_file_under_directory(binary_directory, &binary_file_name)
+            .ok_or_else(ownership_error)?;
         if verify_file_sha256(&binary_path, &spec.expected_binary_sha256).is_err() {
-            return Err(ownership_error());
-        }
-        let recovered_cli_file_name =
-            safe_file_name_from_path(&cli_path).ok_or_else(ownership_error)?;
-        if recovered_cli_file_name != ownership.cli_file_name {
             return Err(ownership_error());
         }
         Ok(recovered.process)
@@ -1356,11 +1369,8 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
 
     fn recover_for_cleanup(
         &mut self,
-        spec: &EasyTierRecoverySpec,
+        spec: &EasyTierCleanupRecoverySpec,
     ) -> DomainResult<EasyTierCleanupRecovery> {
-        if !is_safe_tunnel_file_name(&spec.cli_file_name) {
-            return Err(ownership_error());
-        }
         let config_file_name =
             safe_file_name_from_path(&spec.config_path).ok_or_else(ownership_error)?;
         let inspection = native_inspect_process_for_cleanup(spec.expected_process.process_id)?;
@@ -1381,21 +1391,15 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
         let _verified_handle =
             NativeVerifiedProcessHandle::open(proof.process.process_id, proof.creation_filetime)
                 .ok_or_else(ownership_error)?;
-        let binary_directory = proof.binary_path.parent().ok_or_else(ownership_error)?;
         let trusted_binary_path =
             native_windows_validate_existing_easytier_artifact(&proof.binary_path)
                 .map_err(|_| ownership_error())?;
         if trusted_binary_path != proof.binary_path {
             return Err(ownership_error());
         }
-        let cli_path = canonical_file_under_directory(binary_directory, &spec.cli_file_name)
-            .ok_or_else(ownership_error)?;
-        let cli_path = native_windows_validate_existing_easytier_artifact(&cli_path)
-            .map_err(|_| ownership_error())?;
-        let recovered = RecoveredEasyTierProcess {
+        let recovered = RecoveredEasyTierCleanupProcess {
             process: proof.process.clone(),
             binary_path: proof.binary_path.clone(),
-            cli_path,
         };
         self.proofs
             .insert(native_process_key(&proof.process), proof);

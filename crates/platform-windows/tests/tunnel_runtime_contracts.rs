@@ -4,7 +4,8 @@ use platform_windows::tunnel_config::{
     WindowsTunnelRuntimeOwnership, WindowsTunnelState, WINDOWS_TUNNEL_STATE_SCHEMA_VERSION,
 };
 use platform_windows::tunnel_runtime::{
-    EasyTierCleanupRecovery, EasyTierCliRunner, EasyTierProcessRunner, EasyTierRecoverySpec,
+    EasyTierCleanupRecovery, EasyTierCleanupRecoverySpec, EasyTierCliRunner,
+    EasyTierProcessRunner, EasyTierRecoverySpec, RecoveredEasyTierCleanupProcess,
     RecoveredEasyTierProcess, WindowsRoutePort, WindowsTunnelSessionService,
     WindowsTunnelStartRequest, WindowsTunnelStatePort, WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE,
     WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE, WINDOWS_TUNNEL_OWNERSHIP_MISMATCH_CODE,
@@ -472,13 +473,24 @@ impl EasyTierProcessRunner for CleanupFakeProcessRunner {
 
     fn recover_for_cleanup(
         &mut self,
-        spec: &EasyTierRecoverySpec,
+        spec: &EasyTierCleanupRecoverySpec,
     ) -> DomainResult<EasyTierCleanupRecovery> {
         self.events.push("process.cleanup_recover");
         if self.cleanup_absent {
             Ok(EasyTierCleanupRecovery::Absent)
         } else {
-            self.recover(spec).map(EasyTierCleanupRecovery::Present)
+            let binary_path = self.recovered_binary_path.clone().ok_or_else(|| {
+                DomainError::new(
+                    "fixture.recovery_proof_failed",
+                    "fixture process recovery proof is unavailable",
+                )
+            })?;
+            Ok(EasyTierCleanupRecovery::Present(
+                RecoveredEasyTierCleanupProcess {
+                    process: spec.expected_process.clone(),
+                    binary_path,
+                },
+            ))
         }
     }
 
@@ -2195,6 +2207,39 @@ fn stopping_cleanup_does_not_require_the_cli_artifact() {
 }
 
 #[test]
+fn cleanup_recovery_contract_does_not_carry_cli_identity() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+    let cleanup_marker = "    fn recover_cleanup_session(";
+    let cleanup_start = source
+        .find(cleanup_marker)
+        .expect("generic cleanup recovery implementation exists");
+    let cleanup_end = source[cleanup_start..]
+        .find("\n    fn validate_cleanup_recovered_process(")
+        .expect("cleanup recovery validation follows its generic recovery");
+    let cleanup = &source[cleanup_start..cleanup_start + cleanup_end];
+    assert!(cleanup.contains("EasyTierCleanupRecoverySpec"));
+    assert!(!cleanup.contains("expected_cli_sha256"));
+    assert!(!cleanup.contains("cli_file_name"));
+    assert!(!cleanup.contains("canonical_sibling_artifacts"));
+
+    let native_marker =
+        "#[cfg(windows)]\nimpl EasyTierProcessRunner for NativeEasyTierProcessRunner {";
+    let native_start = source
+        .find(native_marker)
+        .expect("native process runner implementation exists");
+    let native = &source[native_start..];
+    let native_cleanup_start = native
+        .find("    fn recover_for_cleanup(")
+        .expect("native cleanup recovery implementation exists");
+    let native_cleanup_end = native[native_cleanup_start..]
+        .find("\n    fn stop(")
+        .expect("native cleanup recovery ends before stop");
+    let native_cleanup = &native[native_cleanup_start..native_cleanup_start + native_cleanup_end];
+    assert!(native_cleanup.contains("EasyTierCleanupRecoverySpec"));
+    assert!(!native_cleanup.contains("cli_"));
+}
+
+#[test]
 fn running_recovery_rejects_missing_route_tuple_before_stopping_write() {
     let events = SharedEvents::new();
     let (binary, cli, state_path, _config_path, state) = cleanup_fixture(
@@ -2344,6 +2389,8 @@ fn lifecycle_cleanup_uses_injected_state_port_and_leaves_retryable_intent() {
     let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
     assert!(source.contains("pub trait WindowsTunnelStatePort"));
     assert!(source.contains("pub enum EasyTierCleanupRecovery"));
+    assert!(source.contains("pub struct EasyTierCleanupRecoverySpec"));
+    assert!(source.contains("pub struct RecoveredEasyTierCleanupProcess"));
     assert!(source.contains("fn recover_for_cleanup("));
     assert!(source.contains("fn recover_cleanup_bypass("));
     assert!(source.contains("fn recover_cleanup_destination_routes("));
