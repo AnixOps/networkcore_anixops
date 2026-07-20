@@ -130,6 +130,7 @@ struct FakeRoutePort {
     destination_capture_error: Option<DomainError>,
     destination_remove_error: Option<DomainError>,
     strict_destination_recovery_available: Option<Rc<RefCell<bool>>>,
+    shared_bypass_owned: Option<Rc<RefCell<bool>>>,
 }
 
 impl FakeRoutePort {
@@ -142,6 +143,7 @@ impl FakeRoutePort {
             destination_capture_error: None,
             destination_remove_error: None,
             strict_destination_recovery_available: None,
+            shared_bypass_owned: None,
         }
     }
 
@@ -157,6 +159,7 @@ impl FakeRoutePort {
             destination_capture_error: None,
             destination_remove_error: None,
             strict_destination_recovery_available: None,
+            shared_bypass_owned: None,
         }
     }
 
@@ -166,6 +169,13 @@ impl FakeRoutePort {
     ) -> Self {
         Self {
             strict_destination_recovery_available: Some(recovery_available),
+            ..Self::ready(events)
+        }
+    }
+
+    fn shared_endpoint_bypass(events: SharedEvents, bypass_owned: Rc<RefCell<bool>>) -> Self {
+        Self {
+            shared_bypass_owned: Some(bypass_owned),
             ..Self::ready(events)
         }
     }
@@ -186,6 +196,7 @@ impl FakeRoutePort {
             )),
             destination_remove_error: None,
             strict_destination_recovery_available: None,
+            shared_bypass_owned: None,
         }
     }
 
@@ -204,6 +215,7 @@ impl FakeRoutePort {
             )),
             destination_remove_error: None,
             strict_destination_recovery_available: None,
+            shared_bypass_owned: None,
         }
     }
 
@@ -219,6 +231,7 @@ impl FakeRoutePort {
             destination_capture_error: None,
             destination_remove_error: None,
             strict_destination_recovery_available: None,
+            shared_bypass_owned: None,
         }
     }
 
@@ -234,6 +247,7 @@ impl FakeRoutePort {
                 "fixture destination removal failed",
             )),
             strict_destination_recovery_available: None,
+            shared_bypass_owned: None,
         }
     }
 
@@ -338,15 +352,32 @@ impl WindowsRoutePort for FakeRoutePort {
     fn add_endpoint_bypass(&mut self, endpoints: &[IpAddr]) -> DomainResult<()> {
         self.events
             .push(format!("route.bypass:{}", endpoints.len()));
-        match &self.bypass_error {
-            Some(error) => Err(error.clone()),
-            None => Ok(()),
+        if let Some(error) = &self.bypass_error {
+            return Err(error.clone());
         }
+        if let Some(bypass_owned) = &self.shared_bypass_owned {
+            if *bypass_owned.borrow() {
+                return Err(DomainError::new(
+                    WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
+                    "fixture shared endpoint bypass is already owned",
+                ));
+            }
+            *bypass_owned.borrow_mut() = true;
+        }
+        Ok(())
     }
 
     fn recover_owned_bypass(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()> {
         self.events
             .push(format!("route.recover:{}", route_snapshot_key(snapshot)));
+        if let Some(bypass_owned) = &self.shared_bypass_owned {
+            if !*bypass_owned.borrow() {
+                return Err(DomainError::new(
+                    WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
+                    "fixture shared endpoint bypass is no longer owned",
+                ));
+            }
+        }
         match &self.recovery_error {
             Some(error) => Err(error.clone()),
             None => Ok(()),
@@ -356,10 +387,13 @@ impl WindowsRoutePort for FakeRoutePort {
     fn restore(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()> {
         self.events
             .push(format!("route.restore:{}", route_snapshot_key(snapshot)));
-        match &self.restore_error {
-            Some(error) => Err(error.clone()),
-            None => Ok(()),
+        if let Some(error) = &self.restore_error {
+            return Err(error.clone());
         }
+        if let Some(bypass_owned) = &self.shared_bypass_owned {
+            *bypass_owned.borrow_mut() = false;
+        }
+        Ok(())
     }
 }
 
@@ -1168,12 +1202,95 @@ fn start_preserves_route_port_rollback_failure_from_endpoint_bypass_installation
 
     let events = events.snapshot();
     assert!(event_index(&events, "route.snapshot") < event_index(&events, "route.bypass"));
-    assert!(event_index(&events, "route.bypass") < event_index(&events, "route.restore"));
+    assert!(
+        !events
+            .iter()
+            .any(|event| event.starts_with("route.restore")),
+        "a failed bypass acquisition retains route-port-local cleanup responsibility"
+    );
     assert!(
         !events
             .iter()
             .any(|event| event.starts_with("process.start")),
         "endpoint-bypass failure prevents process launch"
+    );
+}
+
+#[test]
+fn same_service_duplicate_endpoint_bypass_keeps_first_session_owned_until_stop() {
+    let events = SharedEvents::new();
+    let bypass_owned = Rc::new(RefCell::new(false));
+    let (binary, cli, secret) = fixture_paths("same-service-duplicate-endpoint-bypass");
+    let state_path_a = binary.parent().expect("fixture parent").join("session-a.json");
+    let state_path_b = binary.parent().expect("fixture parent").join("session-b.json");
+    let recovered_binary = binary.clone();
+    let recovered_cli = fs::canonicalize(&cli).expect("fixture CLI path is canonical");
+    let mut service = WindowsTunnelSessionService::new(
+        fake_process_runner(events.clone(), Some(recovered_binary), Some(recovered_cli)),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        FakeRoutePort::shared_endpoint_bypass(events.clone(), bypass_owned.clone()),
+    );
+
+    service
+        .start(start_request(
+            binary.clone(),
+            cli.clone(),
+            secret.clone(),
+            state_path_a.clone(),
+        ))
+        .expect("first session owns the shared endpoint bypass");
+    assert!(*bypass_owned.borrow(), "first session holds the shared bypass");
+
+    events.clear();
+    let mut second_request = start_request(binary, cli, secret, state_path_b);
+    second_request.plan.session_id = "fixture-session-b".to_string();
+    let error = service
+        .start(second_request)
+        .expect_err("duplicate endpoint bypass fails before a second process starts");
+    assert_eq!(error.code, WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE);
+    assert!(
+        *bypass_owned.borrow(),
+        "a failed second acquisition cannot release the first session's bypass"
+    );
+    let failed_start_events = events.snapshot();
+    assert!(
+        failed_start_events
+            .iter()
+            .any(|event| event.starts_with("route.bypass")),
+        "second start reaches the duplicate bypass acquisition"
+    );
+    assert!(
+        !failed_start_events
+            .iter()
+            .any(|event| event.starts_with("route.restore")),
+        "the service does not restore a bypass after its add failed"
+    );
+    assert!(
+        !failed_start_events
+            .iter()
+            .any(|event| event.starts_with("process.start")),
+        "second process does not launch after duplicate bypass rejection"
+    );
+
+    events.clear();
+    let stopped = service
+        .stop(&state_path_a, true)
+        .expect("first session can release its own bypass during normal stop");
+    assert_eq!(stopped.state, WindowsTunnelLifecycleState::Stopped);
+    assert!(
+        !*bypass_owned.borrow(),
+        "first session's normal cleanup releases the shared bypass"
+    );
+    assert!(
+        events
+            .snapshot()
+            .iter()
+            .any(|event| event.starts_with("route.restore")),
+        "owner stop performs the route restoration"
     );
 }
 
