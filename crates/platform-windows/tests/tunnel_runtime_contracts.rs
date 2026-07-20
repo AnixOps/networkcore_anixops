@@ -1140,7 +1140,9 @@ fn stop_removes_destination_before_persisting_stopping_state() {
     let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
     let stop_marker =
         "    pub fn stop(&mut self, state_path: &Path, confirm: bool) -> DomainResult<WindowsTunnelState> {";
-    let stop_start = source.find(stop_marker).expect("stop implementation exists");
+    let stop_start = source
+        .find(stop_marker)
+        .expect("stop implementation exists");
     let stop_end = source[stop_start..]
         .find("\n    fn prepare_start(")
         .expect("stop implementation ends before start preparation");
