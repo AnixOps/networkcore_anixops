@@ -10,6 +10,29 @@
   TestFlight upload、App Store upload、App Review submission 或 iOS release asset。当前 release workflow 仅允许
   `ios-upload-readiness` blocked placeholder 读取这些 marker，输出 source tree preflight 和 safe summary。
 
+## Windows Foreground Tunnel Manual Acceptance
+
+The following elevated-Windows record is required before the foreground EasyTier tunnel can be
+considered operational. GitHub-hosted CI cannot supply this host, adapter, ACL, TUN, or data-plane
+evidence; it verifies source and injected contracts only.
+
+1. Secure ProgramData root evidence: owner and exact SYSTEM/Administrators-only ACL for
+   `AnixOps\WindowsTunnel`, `state`, and `secrets`, with no reparse point.
+2. Delivery-ledger floor values for the verified client and POP identities before and after the
+   accepted start reservation.
+3. `Find-NetRoute` and `Get-NetAdapter -Physical` evidence that the selected endpoint underlay is
+   the same up physical interface, not a virtual or VPN adapter.
+4. Before/after `ActiveStore` tuples for every endpoint bypass and planned destination route,
+   including destination prefix, next hop, interface index, and route metric. Record only in the
+   protected operator evidence, not a CLI report or repository fixture.
+5. Successful EasyTier peer and route readiness plus `ping` to the overlay address and `ping` and
+   `curl` to the POP test subnet.
+6. Stop evidence that both exact virtual destination routes and endpoint-bypass routes were removed
+   before the owned EasyTier process ended.
+7. A controlled missing and ambiguous tuple proof that leaves the owned process, state/config, and
+   unrelated routes unchanged while `tunnel stop` fails closed; restore the fixture before normal
+   cleanup.
+
 ## 已完成的人工/外部事项
 
 1. 已确认 GitHub 远端地址：`https://github.com/AnixOps/networkcore_anixops.git`。

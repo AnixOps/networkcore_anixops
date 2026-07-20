@@ -112,13 +112,17 @@ version-pinned EasyTier installation and an explicit executable path.
 
 5. A fail-closed route safety sequence:
 
-   - resolve and preserve a physical-interface bypass route to every EasyTier control/peer
-     endpoint before enabling the virtual network route;
-   - do not request a default route or destination route until the EasyTier peer and route
-     readiness checks succeed;
-   - if readiness fails, stop the owned EasyTier process and restore the pre-session route
-     snapshot;
-   - on explicit stop, remove the session-owned virtual route and then terminate EasyTier;
+   - snapshot each planned destination prefix from `ActiveStore`, then resolve and preserve a
+     physical-interface bypass route to every EasyTier control/peer endpoint before launch;
+   - accept the selected endpoint underlay only when `Find-NetRoute` resolves to an up adapter
+     proven by `Get-NetAdapter -Physical`; virtual or VPN-only underlays fail before mutation;
+   - after explicit peer and route readiness, capture exactly one newly added nonphysical
+     `ActiveStore` tuple for every planned destination prefix; the full destination, next-hop,
+     interface-index, and metric tuple is the only virtual-route ownership token;
+   - if that capture cannot be proven, do not delete an unproven destination route; restore the
+     endpoint bypass, stop the owned process, and return `rollback_failed` for manual recovery;
+   - on explicit stop, re-prove and remove each owned virtual route before restoring the endpoint
+     bypass and terminating EasyTier;
    - report `rollback_failed` separately when cleanup cannot be proven complete.
 
 6. A manual Windows/Linux POP acceptance record in `docs/manual-intervention.md` covering
@@ -193,15 +197,18 @@ failed-cleanup path for manual recovery. It contains the selected peer, network 
 virtual address, and destination route settings derived from the verified plan. The adapter
 accepts only the configured EasyTier version/hash and refuses to launch an unpinned executable.
 
-Persisted foreground state uses schema v2. It records an owned PID, a nonempty UTC creation-marker
-string, the pinned binary hash, a single CLI file name, a single redacted config file name, and
-destination CIDRs, but never an absolute executable, CLI, config path, raw command line, or numeric
-creation FILETIME. Schema-v1 records are unrecoverable. Start canonicalizes the supplied core and
-CLI files before version/hash checks and accepts them only when their canonical parents are equal.
-The configuration artifact is created with exclusive-create semantics, then must be a canonical
-direct child of the canonical state directory before process start. Fresh recovery applies the same
-direct-child config rule before invoking the process port, and accepts a canonical recovered CLI
-only when its persisted filename and canonical parent exactly match the canonical, hash-proven core.
+Persisted foreground state uses schema v3; schema v2 and earlier records are unrecoverable. It
+records an owned PID, a nonempty UTC creation-marker string, the pinned binary hash, a single CLI
+file name, a single redacted config file name, planned destination CIDRs, exact captured virtual
+route tuples, and the secret-free client/pop bundle IDs and sequences plus configured EasyTier
+version. It never records an absolute executable, CLI, config path, raw command line, raw envelope,
+network secret, exact child output, or numeric creation FILETIME. Start canonicalizes the supplied
+core and CLI files before version/hash checks and accepts them only when their canonical parents are
+equal. The configuration artifact is created with exclusive-create semantics, then must be a
+canonical direct child of the canonical state directory before process start. Fresh recovery applies
+the same direct-child config rule before invoking the process port, and accepts a canonical recovered
+CLI only when its persisted filename and canonical parent exactly match the canonical, hash-proven
+core.
 
 Native proof is an exact `Get-CimInstance Win32_Process -Filter "ProcessId = <u32>"` lookup paired
 with the persisted UTC creation-marker, canonical core path and hash pin, and a
@@ -212,18 +219,19 @@ in-memory native proof. Before accepting a start or fresh recovery proof, and ag
 before termination, the runner opens the exact PID with query, terminate, and synchronize access
 and requires `GetProcessTimes` to match that FILETIME. It calls `TerminateProcess` and waits on that
 same owned handle; RAII closes the handle. It never uses `taskkill`, descendant-tree termination,
-process-name scanning, or candidate enumeration. Service boundaries convert process-start and
-recovered bypass-port failures to fixed redacted diagnostics, preserving the fixed cleanup failure
-diagnostic when rollback cannot be proven. Native endpoint-bypass ownership is normalized before
-every mutation as an IPv4 endpoint `/32`, IPv4 gateway, nonzero interface index, and `u16` metric.
-Fresh native recovery accepts each persisted tuple only when `Get-NetRoute -PolicyStore ActiveStore`
-finds exactly one route matching all four fields; zero or multiple matches fail closed before service
-cleanup can mutate running state, configuration, routes, or the EasyTier process. Initial installation
-uses `route.exe ADD` with that normalized tuple. Exact cleanup reruns the bounded ActiveStore query and
-uses `Remove-NetRoute -InputObject $matches[0] -Confirm:$false -ErrorAction Stop`, so it removes only
-the one proven route rather than scanning route names or issuing a broad deletion. Native route add,
-proof, and exact removal commands discard child stdin, stdout, and stderr, exposing only fixed
-diagnostics at the adapter boundary.
+process-name scanning, or candidate enumeration. Service boundaries convert process-start and route
+proof failures to fixed redacted diagnostics, preserving the fixed cleanup failure diagnostic when
+rollback cannot be proven. Native endpoint-bypass ownership is normalized before every mutation as
+an IPv4 endpoint `/32`, IPv4 gateway, nonzero interface index, and `u16` metric. The endpoint route
+is accepted only when its selected interface is an up physical adapter. Virtual destination ownership
+is captured as the exact difference between bounded pre-launch and post-readiness `ActiveStore`
+queries for each planned prefix. A captured destination route must be nonphysical, and fresh recovery
+or removal requires exactly one `ActiveStore` match for destination prefix, next hop, interface index,
+and route metric. Removal uses only the exact
+`Remove-NetRoute -InputObject $matches[0] -Confirm:$false -ErrorAction Stop`; it never synthesizes a
+deletion from a CIDR, scans broadly, or deletes a default
+route. Native route add, proof, and exact removal commands discard child stdin, stdout, and stderr,
+exposing only fixed diagnostics at the adapter boundary.
 
 The native secure-storage boundary has two distinct operations. Elevated `prepare-storage --confirm`
 creates the `AnixOps`, `WindowsTunnel`, `state`, and `secrets` components in that order when they
@@ -249,8 +257,8 @@ secure-path-policy-approved operator paths to the native platform session servic
 and JSON with the same stable fields:
 
 - `session_id`, `state`, `selected_pop_id`, `selected_endpoint`;
-- `delivery_bundle_id`, `delivery_sequence`, `plan_digest`;
-- `easytier_version`, `peer_ready`, `route_ready`, `route_count`;
+- `client_bundle_id`, `client_sequence`, `pop_bundle_id`, `pop_sequence`, and `plan_digest`;
+- `easytier_version`, `peer_ready`, `route_ready`, and `route_count`;
 - `system_mutation_policy`, `rollback_status`, and redacted diagnostics.
 
 The CLI must refuse `prepare-storage` and `start` without `--confirm`. It must refuse `start`
@@ -295,17 +303,20 @@ process ownership proof. There is no non-elevated live status mode.
    lock permits it to trim only that detected partial tail back to the last complete-record offset;
    it never compacts or truncates a complete journal record.
 4. The Windows adapter validates administrator context, executable hashes, secret-file ACL
-   expectations, and the physical endpoint bypass route.
+   expectations, each planned destination snapshot, and a physical endpoint bypass route.
 5. The adapter writes a session-owned EasyTier configuration artifact under the state
    directory, launches the explicit EasyTier binary, and waits for peer/route readiness from
    the explicit EasyTier CLI.
-6. Only after readiness does the adapter expose `state=running` and allow the operator to run
-   traffic tests.
-7. `status` reads a schema-v2 session record and, for a fresh service instance, first requires an
+6. After readiness, the adapter captures exactly one new nonphysical virtual-route tuple per
+   planned destination and persists schema-v3 ownership/audit state before it exposes
+   `state=running` and allows the operator to run traffic tests.
+7. `status` reads a schema-v3 session record and, for a fresh service instance, first requires an
    exact injected ownership proof before performing an explicit EasyTier CLI health query. It does
    not scan arbitrary processes or infer liveness from a stale PID.
-8. `stop` requires the same proof before it removes the session-owned route or terminates the
-   owned EasyTier process. The state record is retained as redacted audit evidence.
+8. `stop` requires the same process proof plus exact endpoint-bypass and virtual-route proof before
+   it removes virtual routes, restores the bypass, and terminates the owned process. A virtual-route
+   removal failure retains redacted failed state and process ownership without later cleanup. The
+   state record is retained as redacted audit evidence.
 
 ## Error and Security Model
 
@@ -367,7 +378,10 @@ GitHub Actions must cover:
   from a trailing partial journal record;
 - deterministic EasyTier command/config generation with secret redaction;
 - executable version/hash mismatch and missing-secret diagnostics;
-- endpoint bypass transaction ordering and rollback on process/readiness failure;
+- destination snapshot/capture ordering, endpoint-bypass transaction ordering, and rollback on
+  process/readiness or unproven destination-capture failure;
+- exact ActiveStore virtual-route recovery/removal before bypass restoration and process stop,
+  including missing/ambiguous tuple rejection and nonphysical virtual-adapter proof;
 - status/stop ownership checks and stale-session refusal;
 - injected bridge ordering: unconfirmed or unelevated preparation invokes no path, delivery, or
   lifecycle operation; confirmed elevated preparation invokes only the input-path policy;
@@ -392,20 +406,22 @@ The operator provides one Linux POP and one Windows 11 x64 host. The POP adverti
 CIDR behind it and uses the same EasyTier network identity as the client. The acceptance record
 must show:
 
-1. Pre-start route/process snapshot.
-2. Successful `tunnel start` output with the selected POP and redacted plan digest.
-3. EasyTier peer and route readiness.
-4. Successful `ping` to the EasyTier virtual address.
-5. Successful `ping` and `curl` to a host in the POP test CIDR.
+1. Secure ProgramData root owner/DACL evidence and delivery-ledger floors before and after start.
+2. Pre-start endpoint and destination ActiveStore tuple snapshots plus proof that the selected
+   endpoint adapter is up and physical.
+3. Successful `tunnel start` output with the selected POP and redacted plan digest.
+4. EasyTier peer and route readiness, followed by exact post-start virtual-route tuples.
+5. Successful `ping` to the EasyTier virtual address and successful `ping` and `curl` to a host in
+   the POP test CIDR.
 6. A negative route test proving an unadvertised CIDR is not sent through the POP.
 7. Successful `tunnel status` output.
-8. `tunnel stop` output and a post-stop route/process snapshot matching the pre-start state.
+8. `tunnel stop` output and a post-stop route/process snapshot matching the pre-start state, with
+   each exact virtual and endpoint-bypass tuple absent.
 9. After a fresh service restart and before `tunnel stop`, record the one ActiveStore route matching
-   endpoint `/32`, gateway, interface index, and metric; after stop, record that this exact route is
-   absent.
-10. In an isolated test environment, make that proof missing or ambiguous and record that fresh
-    `tunnel stop` fails while the EasyTier process, state, config, and any unrelated route remain
-    unchanged; restore the controlled fixture before cleanup.
+   every persisted tuple field; after stop, record that only those exact routes were removed.
+10. In an isolated test environment, make a virtual or endpoint tuple proof missing or ambiguous and
+    record that fresh `tunnel stop` fails while the EasyTier process, state, config, and unrelated
+    routes remain unchanged; restore the controlled fixture before cleanup.
 
 The first slice is considered usable only when all ten records are present. A green CI run
 alone is not sufficient evidence of Windows packet forwarding.

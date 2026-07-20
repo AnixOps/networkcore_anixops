@@ -705,11 +705,17 @@ pub struct WindowsTunnelReport {
     pub selected_pop_id: String,
     pub selected_endpoint: String,
     pub plan_digest: String,
+    pub client_bundle_id: String,
+    pub client_sequence: u64,
+    pub pop_bundle_id: String,
+    pub pop_sequence: u64,
+    pub easytier_version: String,
     pub state: WindowsTunnelLifecycleState,
     pub peer_ready: bool,
     pub route_ready: bool,
     pub route_count: usize,
     pub rollback_status: String,
+    pub system_mutation_policy: &'static str,
 }
 
 impl From<WindowsTunnelCommandResult> for WindowsTunnelReport {
@@ -719,11 +725,17 @@ impl From<WindowsTunnelCommandResult> for WindowsTunnelReport {
             selected_pop_id: result.state.selected_pop_id,
             selected_endpoint: result.state.selected_endpoint,
             plan_digest: result.state.plan_digest,
+            client_bundle_id: result.state.client_bundle_id,
+            client_sequence: result.state.client_sequence,
+            pop_bundle_id: result.state.pop_bundle_id,
+            pop_sequence: result.state.pop_sequence,
+            easytier_version: result.state.easytier_version,
             state: result.state.state,
             peer_ready: result.peer_ready,
             route_ready: result.route_ready,
             route_count: result.route_count,
             rollback_status: result.state.rollback_status,
+            system_mutation_policy: WINDOWS_SYSTEM_MUTATION_POLICY,
         }
     }
 }
@@ -1512,11 +1524,20 @@ fn render_text_response(response: &WindowsCliResponse) -> String {
         lines.push(format!("selected_pop_id: {}", tunnel.selected_pop_id));
         lines.push(format!("selected_endpoint: {}", tunnel.selected_endpoint));
         lines.push(format!("plan_digest: {}", tunnel.plan_digest));
+        lines.push(format!("client_bundle_id: {}", tunnel.client_bundle_id));
+        lines.push(format!("client_sequence: {}", tunnel.client_sequence));
+        lines.push(format!("pop_bundle_id: {}", tunnel.pop_bundle_id));
+        lines.push(format!("pop_sequence: {}", tunnel.pop_sequence));
+        lines.push(format!("easytier_version: {}", tunnel.easytier_version));
         lines.push(format!("state: {}", tunnel_state_name(tunnel.state)));
         lines.push(format!("peer_ready: {}", tunnel.peer_ready));
         lines.push(format!("route_ready: {}", tunnel.route_ready));
         lines.push(format!("route_count: {}", tunnel.route_count));
         lines.push(format!("rollback_status: {}", tunnel.rollback_status));
+        lines.push(format!(
+            "system_mutation_policy: {}",
+            tunnel.system_mutation_policy
+        ));
     }
 
     if !response.diagnostics.is_empty() {

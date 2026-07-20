@@ -91,6 +91,23 @@ pub trait WindowsRoutePort {
     fn add_endpoint_bypass(&mut self, endpoints: &[IpAddr]) -> DomainResult<()>;
     fn recover_owned_bypass(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()>;
     fn restore(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()>;
+    fn snapshot_destination_routes(
+        &mut self,
+        destination_cidrs: &[String],
+    ) -> DomainResult<Vec<WindowsRouteSnapshotEntry>>;
+    fn capture_owned_destination_routes(
+        &mut self,
+        before: &[WindowsRouteSnapshotEntry],
+        destination_cidrs: &[String],
+    ) -> DomainResult<Vec<WindowsRouteSnapshotEntry>>;
+    fn recover_owned_destination_routes(
+        &mut self,
+        owned: &[WindowsRouteSnapshotEntry],
+    ) -> DomainResult<()>;
+    fn remove_owned_destination_routes(
+        &mut self,
+        owned: &[WindowsRouteSnapshotEntry],
+    ) -> DomainResult<()>;
 }
 
 /// Explicit operator inputs for a foreground EasyTier session.
@@ -139,6 +156,10 @@ where
     ) -> DomainResult<WindowsTunnelState> {
         let mut prepared = self.prepare_start(request)?;
 
+        let destination_before = self
+            .route_port
+            .snapshot_destination_routes(&prepared.route_cidrs)
+            .map_err(|_| start_error("destination route snapshot could not be captured"))?;
         let route_snapshot = self
             .route_port
             .snapshot(&[prepared.endpoint])
@@ -162,6 +183,7 @@ where
                 return Err(self.rollback_failed_start(
                     &route_snapshot,
                     None,
+                    None,
                     &prepared.config_path,
                     start_error("EasyTier session configuration could not be written"),
                 ));
@@ -177,6 +199,7 @@ where
                 None => {
                     return Err(self.rollback_failed_start(
                         &route_snapshot,
+                        None,
                         None,
                         &prepared.config_path,
                         start_error("EasyTier session configuration path is invalid"),
@@ -199,6 +222,7 @@ where
                 return Err(self.rollback_failed_start(
                     &route_snapshot,
                     None,
+                    None,
                     &prepared.config_path,
                     start_error("EasyTier process could not be started"),
                 ));
@@ -207,6 +231,7 @@ where
         if process_handle.session_id != spec.session_id {
             return Err(self.rollback_failed_start(
                 &route_snapshot,
+                None,
                 Some(&process_handle),
                 &prepared.config_path,
                 start_error("EasyTier process session identity does not match the tunnel plan"),
@@ -217,11 +242,26 @@ where
         if let Err(error) = readiness {
             return Err(self.rollback_failed_start(
                 &route_snapshot,
+                None,
                 Some(&process_handle),
                 &prepared.config_path,
                 error,
             ));
         }
+
+        let virtual_route_snapshot = match self
+            .route_port
+            .capture_owned_destination_routes(&destination_before, &prepared.route_cidrs)
+        {
+            Ok(snapshot) => snapshot,
+            Err(_) => {
+                return Err(self.rollback_unproven_destination_capture(
+                    &route_snapshot,
+                    &process_handle,
+                    &prepared.config_path,
+                ));
+            }
+        };
 
         let state = WindowsTunnelState {
             schema_version: crate::tunnel_config::WINDOWS_TUNNEL_STATE_SCHEMA_VERSION,
@@ -233,6 +273,11 @@ where
             config_path: prepared.config_file_name.clone(),
             last_client_sequence: prepared.plan.client_sequence,
             last_pop_sequence: prepared.plan.pop_sequence,
+            client_bundle_id: prepared.plan.client_bundle_id.clone(),
+            client_sequence: prepared.plan.client_sequence,
+            pop_bundle_id: prepared.plan.pop_bundle_id.clone(),
+            pop_sequence: prepared.plan.pop_sequence,
+            easytier_version: prepared.expected_version.clone(),
             route_snapshot: route_snapshot.clone(),
             rollback_status: "clean".to_string(),
             runtime_ownership: WindowsTunnelRuntimeOwnership {
@@ -240,11 +285,13 @@ where
                 binary_sha256: prepared.expected_sha256.clone(),
                 cli_file_name: prepared.cli_file_name.clone(),
                 route_cidrs: prepared.route_cidrs.clone(),
+                virtual_route_snapshot: virtual_route_snapshot.clone(),
             },
         };
         if let Err(error) = write_tunnel_state(&prepared.state_path, &state) {
             return Err(self.rollback_failed_start(
                 &route_snapshot,
+                Some(&virtual_route_snapshot),
                 Some(&process_handle),
                 &prepared.config_path,
                 error,
@@ -259,8 +306,10 @@ where
                 cli_path: prepared.cli_path,
                 route_snapshot,
                 route_cidrs: prepared.route_cidrs,
+                virtual_route_snapshot,
                 config_path: prepared.config_path,
-                route_recovery_required: false,
+                bypass_recovery_required: false,
+                destination_recovery_required: false,
             },
         );
 
@@ -314,12 +363,12 @@ where
             return Err(stop_error("tunnel state is not running"));
         }
         self.ensure_owned_session(&state_path, &state)?;
-        let route_recovery_required = self
+        let bypass_recovery_required = self
             .owned_sessions
             .get(&state_path)
-            .map(|owned| owned.route_recovery_required)
+            .map(|owned| owned.bypass_recovery_required)
             .expect("owned tunnel session was checked before route recovery");
-        if route_recovery_required {
+        if bypass_recovery_required {
             let route_snapshot = self
                 .owned_sessions
                 .get(&state_path)
@@ -333,7 +382,26 @@ where
             self.owned_sessions
                 .get_mut(&state_path)
                 .expect("owned tunnel session was checked before route recovery")
-                .route_recovery_required = false;
+                .bypass_recovery_required = false;
+        }
+        let destination_recovery_required = self
+            .owned_sessions
+            .get(&state_path)
+            .map(|owned| owned.destination_recovery_required)
+            .expect("owned tunnel session was checked before destination route recovery");
+        if destination_recovery_required {
+            let virtual_route_snapshot = self
+                .owned_sessions
+                .get(&state_path)
+                .map(|owned| owned.virtual_route_snapshot.clone())
+                .expect("owned tunnel session was checked before destination route recovery");
+            self.route_port
+                .recover_owned_destination_routes(&virtual_route_snapshot)
+                .map_err(|_| rollback_error())?;
+            self.owned_sessions
+                .get_mut(&state_path)
+                .expect("owned tunnel session was checked before destination route recovery")
+                .destination_recovery_required = false;
         }
         let owned = self
             .owned_sessions
@@ -348,10 +416,22 @@ where
             return Err(error);
         }
 
-        let route_result = self.route_port.restore(&owned.route_snapshot);
+        let destination_result = self
+            .route_port
+            .remove_owned_destination_routes(&owned.virtual_route_snapshot);
+        if destination_result.is_err() {
+            let mut failed = stopping;
+            failed.state = WindowsTunnelLifecycleState::Failed;
+            failed.rollback_status = "rollback_failed".to_string();
+            let _ = write_tunnel_state(&state_path, &failed);
+            self.owned_sessions.insert(state_path.clone(), owned);
+            return Err(rollback_error());
+        }
+
+        let bypass_result = self.route_port.restore(&owned.route_snapshot);
         let process_result = self.process_runner.stop(&owned.process_handle);
         let config_result = fs::remove_file(&owned.config_path);
-        if route_result.is_err() || process_result.is_err() || config_result.is_err() {
+        if bypass_result.is_err() || process_result.is_err() || config_result.is_err() {
             let mut failed = stopping;
             failed.state = WindowsTunnelLifecycleState::Failed;
             failed.rollback_status = "rollback_failed".to_string();
@@ -521,8 +601,10 @@ where
             cli_path,
             route_snapshot: state.route_snapshot.clone(),
             route_cidrs: ownership.route_cidrs,
+            virtual_route_snapshot: ownership.virtual_route_snapshot,
             config_path,
-            route_recovery_required: true,
+            bypass_recovery_required: true,
+            destination_recovery_required: true,
         })
     }
 
@@ -565,20 +647,36 @@ where
     fn rollback_failed_start(
         &mut self,
         snapshot: &[WindowsRouteSnapshotEntry],
+        virtual_route_snapshot: Option<&[WindowsRouteSnapshotEntry]>,
         process_handle: Option<&OwnedProcessHandle>,
         config_path: &Path,
         original: DomainError,
     ) -> DomainError {
+        let destination_routes_removed = virtual_route_snapshot
+            .map(|routes| self.route_port.remove_owned_destination_routes(routes).is_ok())
+            .unwrap_or(true);
         let routes_restored = self.route_port.restore(snapshot).is_ok();
         let process_stopped = process_handle
             .map(|handle| self.process_runner.stop(handle).is_ok())
             .unwrap_or(true);
         let config_removed = fs::remove_file(config_path).is_ok();
-        if routes_restored && process_stopped && config_removed {
+        if destination_routes_removed && routes_restored && process_stopped && config_removed {
             original
         } else {
             rollback_error()
         }
+    }
+
+    fn rollback_unproven_destination_capture(
+        &mut self,
+        snapshot: &[WindowsRouteSnapshotEntry],
+        process_handle: &OwnedProcessHandle,
+        config_path: &Path,
+    ) -> DomainError {
+        let _ = self.route_port.restore(snapshot);
+        let _ = self.process_runner.stop(process_handle);
+        let _ = fs::remove_file(config_path);
+        rollback_error()
     }
 }
 
@@ -588,8 +686,10 @@ struct OwnedTunnelSession {
     cli_path: PathBuf,
     route_snapshot: Vec<WindowsRouteSnapshotEntry>,
     route_cidrs: Vec<String>,
+    virtual_route_snapshot: Vec<WindowsRouteSnapshotEntry>,
     config_path: PathBuf,
-    route_recovery_required: bool,
+    bypass_recovery_required: bool,
+    destination_recovery_required: bool,
 }
 
 struct PreparedStart {
@@ -1276,6 +1376,7 @@ impl EasyTierCliRunner for NativeEasyTierCliRunner {
 pub struct NativeWindowsRoutePort {
     pending_snapshot: Option<Vec<WindowsRouteSnapshotEntry>>,
     owned_bypasses: BTreeMap<String, Vec<NativeBypassRoute>>,
+    owned_destination_routes: BTreeMap<String, Vec<NativeDestinationRoute>>,
 }
 
 #[cfg(windows)]
@@ -1285,6 +1386,15 @@ struct NativeBypassRoute {
     gateway: Ipv4Addr,
     interface_index: u32,
     metric: u16,
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeDestinationRoute {
+    destination_cidr: String,
+    gateway: String,
+    interface_index: u32,
+    metric: u32,
 }
 
 #[cfg(windows)]
@@ -1375,6 +1485,111 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
             self.owned_bypasses.insert(key, remaining);
             return Err(endpoint_bypass_error(
                 "one or more underlay bypass routes remain",
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn snapshot_destination_routes(
+        &mut self,
+        destination_cidrs: &[String],
+    ) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
+        native_destination_route_snapshots(destination_cidrs)
+    }
+
+    fn capture_owned_destination_routes(
+        &mut self,
+        before: &[WindowsRouteSnapshotEntry],
+        destination_cidrs: &[String],
+    ) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
+        let destination_cidrs = native_normalize_destination_cidrs(destination_cidrs)?;
+        let before = native_destination_routes_from_snapshot(before)?;
+        if before
+            .iter()
+            .any(|route| !destination_cidrs.contains(&route.destination_cidr))
+        {
+            return Err(endpoint_bypass_error(
+                "destination route snapshot contains an unrequested destination",
+            ));
+        }
+        let before_keys = before
+            .iter()
+            .map(native_destination_route_tuple_key)
+            .collect::<BTreeSet<_>>();
+        let mut owned = Vec::with_capacity(destination_cidrs.len());
+        for destination_cidr in destination_cidrs {
+            let after = native_destination_route_snapshot(&destination_cidr)?;
+            let after = native_destination_routes_from_snapshot(&after)?;
+            let mut created = after
+                .into_iter()
+                .filter(|route| {
+                    route.destination_cidr == destination_cidr
+                        && !before_keys.contains(&native_destination_route_tuple_key(route))
+                })
+                .collect::<Vec<_>>();
+            if created.len() != 1 {
+                return Err(endpoint_bypass_error(
+                    "destination route ownership could not be proven exactly",
+                ));
+            }
+            let route = created
+                .pop()
+                .expect("one exact destination route was checked before extraction");
+            native_prove_virtual_destination_route(&route)?;
+            owned.push(route);
+        }
+
+        let key = native_destination_route_key(&owned);
+        if self.owned_destination_routes.contains_key(&key) {
+            return Err(endpoint_bypass_error(
+                "destination route ownership is already held by this session",
+            ));
+        }
+        let snapshot = native_destination_route_snapshot_entries(&owned);
+        self.owned_destination_routes.insert(key, owned);
+        Ok(snapshot)
+    }
+
+    fn recover_owned_destination_routes(
+        &mut self,
+        owned: &[WindowsRouteSnapshotEntry],
+    ) -> DomainResult<()> {
+        let owned = native_destination_routes_from_snapshot(owned)?;
+        let key = native_destination_route_key(&owned);
+        if self.owned_destination_routes.contains_key(&key) {
+            return Err(endpoint_bypass_error(
+                "persisted destination route ownership is already held by this session",
+            ));
+        }
+        for route in &owned {
+            native_prove_virtual_destination_route(route)?;
+        }
+        self.owned_destination_routes.insert(key, owned);
+        Ok(())
+    }
+
+    fn remove_owned_destination_routes(
+        &mut self,
+        owned: &[WindowsRouteSnapshotEntry],
+    ) -> DomainResult<()> {
+        let owned = native_destination_routes_from_snapshot(owned)?;
+        let key = native_destination_route_key(&owned);
+        let Some(owned) = self.owned_destination_routes.remove(&key) else {
+            return Err(endpoint_bypass_error(
+                "destination route is not owned by this session",
+            ));
+        };
+        let mut remaining = Vec::new();
+        for route in owned {
+            if native_remove_destination_route(&route).is_err() {
+                remaining.push(route);
+            }
+        }
+        if !remaining.is_empty() {
+            self.owned_destination_routes.insert(key, remaining);
+            return Err(endpoint_bypass_error(
+                "one or more destination routes remain",
             ));
         }
 
@@ -1563,7 +1778,7 @@ fn native_route_snapshot(endpoint: &IpAddr) -> DomainResult<WindowsRouteSnapshot
         ));
     }
     let script = format!(
-        "$route = Find-NetRoute -RemoteIPAddress '{endpoint}' -ErrorAction Stop | Sort-Object RouteMetric | Select-Object -First 1; if ($null -eq $route) {{ exit 2 }}; [PSCustomObject]@{{ NextHop = $route.NextHop; InterfaceIndex = $route.InterfaceIndex; RouteMetric = $route.RouteMetric }} | ConvertTo-Json -Compress"
+        "$route = Find-NetRoute -RemoteIPAddress '{endpoint}' -ErrorAction Stop | Sort-Object RouteMetric | Select-Object -First 1; if ($null -eq $route) {{ exit 2 }}; $physical = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -Physical -ErrorAction SilentlyContinue | Where-Object {{ $_.Status -eq 'Up' }} | Select-Object -First 1; if ($null -eq $physical) {{ exit 2 }}; [PSCustomObject]@{{ NextHop = $route.NextHop; InterfaceIndex = $route.InterfaceIndex; RouteMetric = $route.RouteMetric }} | ConvertTo-Json -Compress"
     );
     let output = std::process::Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
@@ -1757,6 +1972,255 @@ fn native_bypass_key(routes: &[NativeBypassRoute]) -> String {
     tuples.join("\n")
 }
 
+#[cfg(windows)]
+#[derive(Debug, serde::Deserialize)]
+struct NativeDestinationRouteSnapshotResponse {
+    #[serde(rename = "Routes")]
+    routes: Vec<NativeDestinationRouteLookup>,
+}
+
+#[cfg(windows)]
+#[derive(Debug, serde::Deserialize)]
+struct NativeDestinationRouteLookup {
+    #[serde(rename = "DestinationPrefix")]
+    destination_cidr: String,
+    #[serde(rename = "NextHop")]
+    gateway: String,
+    #[serde(rename = "InterfaceIndex")]
+    interface_index: u32,
+    #[serde(rename = "RouteMetric")]
+    metric: u32,
+}
+
+#[cfg(windows)]
+fn native_destination_route_snapshot(
+    destination_cidr: &str,
+) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
+    let destination_cidr = native_normalize_destination_cidr(destination_cidr)?;
+    let script = format!(
+        "$routes = @(Get-NetRoute -PolicyStore ActiveStore -DestinationPrefix '{destination_cidr}' -ErrorAction Stop); $snapshots = @($routes | ForEach-Object {{ [PSCustomObject]@{{ DestinationPrefix = [string]$_.DestinationPrefix; NextHop = [string]$_.NextHop; InterfaceIndex = [uint32]$_.InterfaceIndex; RouteMetric = [uint32]$_.RouteMetric }} }}); [PSCustomObject]@{{ Routes = @($snapshots) }} | ConvertTo-Json -Compress"
+    );
+    let output = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|_| endpoint_bypass_error("destination route snapshot could not run"))?;
+    if !output.status.success() {
+        return Err(endpoint_bypass_error("destination route snapshot failed"));
+    }
+    let snapshot: NativeDestinationRouteSnapshotResponse =
+        serde_json::from_slice(&output.stdout).map_err(|_| {
+            endpoint_bypass_error("destination route snapshot returned invalid data")
+        })?;
+    snapshot
+        .routes
+        .into_iter()
+        .map(|route| {
+            let destination_cidr = native_normalize_destination_cidr(&route.destination_cidr)?;
+            if destination_cidr != route.destination_cidr
+                || route.gateway.trim().is_empty()
+                || route.interface_index == 0
+            {
+                return Err(endpoint_bypass_error(
+                    "destination route snapshot is incomplete",
+                ));
+            }
+            Ok(WindowsRouteSnapshotEntry {
+                destination_cidr,
+                gateway: Some(route.gateway.trim().to_string()),
+                interface_index: Some(route.interface_index),
+                metric: Some(route.metric),
+            })
+        })
+        .collect()
+}
+
+#[cfg(windows)]
+fn native_destination_route_snapshots(
+    destination_cidrs: &[String],
+) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
+    let destination_cidrs = native_normalize_destination_cidrs(destination_cidrs)?;
+    let mut snapshot = Vec::new();
+    for destination_cidr in destination_cidrs {
+        snapshot.extend(native_destination_route_snapshot(&destination_cidr)?);
+    }
+    Ok(snapshot)
+}
+
+#[cfg(windows)]
+fn native_normalize_destination_cidrs(destination_cidrs: &[String]) -> DomainResult<Vec<String>> {
+    if destination_cidrs.is_empty() {
+        return Err(endpoint_bypass_error(
+            "destination route ownership requires at least one destination",
+        ));
+    }
+
+    let mut seen = BTreeSet::new();
+    let mut normalized = Vec::with_capacity(destination_cidrs.len());
+    for destination_cidr in destination_cidrs {
+        let destination_cidr = native_normalize_destination_cidr(destination_cidr)?;
+        if !seen.insert(destination_cidr.clone()) {
+            return Err(endpoint_bypass_error(
+                "destination route ownership contains a duplicate destination",
+            ));
+        }
+        normalized.push(destination_cidr);
+    }
+    Ok(normalized)
+}
+
+#[cfg(windows)]
+fn native_normalize_destination_cidr(destination_cidr: &str) -> DomainResult<String> {
+    if destination_cidr != destination_cidr.trim() {
+        return Err(endpoint_bypass_error(
+            "destination route prefix is not normalized",
+        ));
+    }
+    let (address, prefix) = destination_cidr.split_once('/').ok_or_else(|| {
+        endpoint_bypass_error("destination route prefix is invalid")
+    })?;
+    let address = IpAddr::from_str(address)
+        .map_err(|_| endpoint_bypass_error("destination route prefix is invalid"))?;
+    let prefix = prefix
+        .parse::<u8>()
+        .map_err(|_| endpoint_bypass_error("destination route prefix is invalid"))?;
+    let maximum_prefix = match address {
+        IpAddr::V4(_) => 32,
+        IpAddr::V6(_) => 128,
+    };
+    if prefix > maximum_prefix {
+        return Err(endpoint_bypass_error(
+            "destination route prefix is invalid",
+        ));
+    }
+    let normalized = format!("{address}/{prefix}");
+    if normalized != destination_cidr {
+        return Err(endpoint_bypass_error(
+            "destination route prefix is not normalized",
+        ));
+    }
+    Ok(normalized)
+}
+
+#[cfg(windows)]
+fn native_destination_routes_from_snapshot(
+    snapshot: &[WindowsRouteSnapshotEntry],
+) -> DomainResult<Vec<NativeDestinationRoute>> {
+    let mut tuples = BTreeSet::new();
+    snapshot
+        .iter()
+        .map(|entry| {
+            let destination_cidr = native_normalize_destination_cidr(&entry.destination_cidr)?;
+            let gateway = entry
+                .gateway
+                .as_deref()
+                .filter(|gateway| gateway == gateway.trim() && !gateway.is_empty())
+                .ok_or_else(|| {
+                    endpoint_bypass_error("destination route gateway is unavailable")
+                })?;
+            let gateway = IpAddr::from_str(gateway)
+                .map_err(|_| endpoint_bypass_error("destination route gateway is invalid"))?
+                .to_string();
+            let interface_index = entry
+                .interface_index
+                .filter(|index| *index != 0)
+                .ok_or_else(|| endpoint_bypass_error("destination route interface is invalid"))?;
+            let metric = entry
+                .metric
+                .ok_or_else(|| endpoint_bypass_error("destination route metric is invalid"))?;
+            let route = NativeDestinationRoute {
+                destination_cidr,
+                gateway,
+                interface_index,
+                metric,
+            };
+            if !tuples.insert(native_destination_route_tuple_key(&route)) {
+                return Err(endpoint_bypass_error(
+                    "destination route snapshot contains a duplicate tuple",
+                ));
+            }
+            Ok(route)
+        })
+        .collect()
+}
+
+#[cfg(windows)]
+fn native_destination_route_snapshot_entries(
+    routes: &[NativeDestinationRoute],
+) -> Vec<WindowsRouteSnapshotEntry> {
+    routes
+        .iter()
+        .map(|route| WindowsRouteSnapshotEntry {
+            destination_cidr: route.destination_cidr.clone(),
+            gateway: Some(route.gateway.clone()),
+            interface_index: Some(route.interface_index),
+            metric: Some(route.metric),
+        })
+        .collect()
+}
+
+#[cfg(windows)]
+fn native_destination_route_tuple_key(route: &NativeDestinationRoute) -> String {
+    format!(
+        "{}|{}|{}|{}",
+        route.destination_cidr, route.gateway, route.interface_index, route.metric
+    )
+}
+
+#[cfg(windows)]
+fn native_destination_route_key(routes: &[NativeDestinationRoute]) -> String {
+    let mut tuples = routes
+        .iter()
+        .map(native_destination_route_tuple_key)
+        .collect::<Vec<_>>();
+    tuples.sort();
+    tuples.join("\n")
+}
+
+#[cfg(windows)]
+fn native_exact_destination_route_proof_script(route: &NativeDestinationRoute) -> String {
+    format!(
+        "$matches = @(Get-NetRoute -PolicyStore ActiveStore -DestinationPrefix '{}' -NextHop '{}' -InterfaceIndex {} -RouteMetric {} -ErrorAction Stop)\nif ($matches.Count -ne 1) {{ exit 2 }}\n$route = $matches[0]\n$physical = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -Physical -ErrorAction SilentlyContinue\nif ($null -ne $physical) {{ exit 2 }}\n$adapter = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction Stop\nif ($adapter.Status -ne 'Up') {{ exit 2 }}",
+        route.destination_cidr, route.gateway, route.interface_index, route.metric
+    )
+}
+
+#[cfg(windows)]
+fn native_exact_destination_route_removal_script(route: &NativeDestinationRoute) -> String {
+    format!(
+        "{}\nRemove-NetRoute -InputObject $matches[0] -Confirm:$false -ErrorAction Stop",
+        native_exact_destination_route_proof_script(route)
+    )
+}
+
+#[cfg(windows)]
+fn native_prove_virtual_destination_route(route: &NativeDestinationRoute) -> DomainResult<()> {
+    let script = native_exact_destination_route_proof_script(route);
+    let status = native_silent_route_command("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .status()
+        .map_err(|_| endpoint_bypass_error("destination route proof could not run"))?;
+    if !status.success() {
+        return Err(endpoint_bypass_error("destination route proof failed"));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn native_remove_destination_route(route: &NativeDestinationRoute) -> DomainResult<()> {
+    let script = native_exact_destination_route_removal_script(route);
+    let status = native_silent_route_command("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .status()
+        .map_err(|_| endpoint_bypass_error("destination route removal could not run"))?;
+    if !status.success() {
+        return Err(endpoint_bypass_error("destination route removal failed"));
+    }
+    Ok(())
+}
+
 #[cfg(not(windows))]
 #[derive(Debug, Default)]
 pub struct NativeWindowsRoutePort;
@@ -1785,6 +2249,43 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
     }
 
     fn restore(&mut self, _snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()> {
+        Err(endpoint_bypass_error(
+            "Windows route operations are unavailable on this platform",
+        ))
+    }
+
+    fn snapshot_destination_routes(
+        &mut self,
+        _destination_cidrs: &[String],
+    ) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
+        Err(endpoint_bypass_error(
+            "Windows route operations are unavailable on this platform",
+        ))
+    }
+
+    fn capture_owned_destination_routes(
+        &mut self,
+        _before: &[WindowsRouteSnapshotEntry],
+        _destination_cidrs: &[String],
+    ) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
+        Err(endpoint_bypass_error(
+            "Windows route operations are unavailable on this platform",
+        ))
+    }
+
+    fn recover_owned_destination_routes(
+        &mut self,
+        _owned: &[WindowsRouteSnapshotEntry],
+    ) -> DomainResult<()> {
+        Err(endpoint_bypass_error(
+            "Windows route operations are unavailable on this platform",
+        ))
+    }
+
+    fn remove_owned_destination_routes(
+        &mut self,
+        _owned: &[WindowsRouteSnapshotEntry],
+    ) -> DomainResult<()> {
         Err(endpoint_bypass_error(
             "Windows route operations are unavailable on this platform",
         ))

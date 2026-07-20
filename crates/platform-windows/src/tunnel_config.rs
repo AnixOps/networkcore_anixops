@@ -7,14 +7,15 @@
 use config_core::windows_tunnel::WindowsTunnelPlan;
 use ring::digest;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
 use std::fmt;
 use std::fs;
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Component, Path, PathBuf};
 
 use control_domain::{DomainError, DomainResult};
 
-pub const WINDOWS_TUNNEL_STATE_SCHEMA_VERSION: u32 = 2;
+pub const WINDOWS_TUNNEL_STATE_SCHEMA_VERSION: u32 = 3;
 pub const WINDOWS_TUNNEL_CONFIG_INVALID_CODE: &str = "windows.tunnel.config_invalid";
 pub const WINDOWS_TUNNEL_EASYTIER_BINARY_INVALID_CODE: &str =
     "windows.tunnel.easytier_binary_invalid";
@@ -147,7 +148,7 @@ pub enum WindowsTunnelLifecycleState {
     Failed,
 }
 
-/// One physical route captured before a session-owned route is added.
+/// One exact route tuple retained for endpoint-bypass or virtual-route ownership.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowsRouteSnapshotEntry {
     pub destination_cidr: String,
@@ -183,6 +184,7 @@ pub struct WindowsTunnelRuntimeOwnership {
     pub binary_sha256: String,
     pub cli_file_name: String,
     pub route_cidrs: Vec<String>,
+    pub virtual_route_snapshot: Vec<WindowsRouteSnapshotEntry>,
 }
 
 /// Redacted state retained for status, stop ownership, and audit output.
@@ -198,6 +200,11 @@ pub struct WindowsTunnelState {
     pub config_path: String,
     pub last_client_sequence: u64,
     pub last_pop_sequence: u64,
+    pub client_bundle_id: String,
+    pub client_sequence: u64,
+    pub pop_bundle_id: String,
+    pub pop_sequence: u64,
+    pub easytier_version: String,
     pub route_snapshot: Vec<WindowsRouteSnapshotEntry>,
     pub rollback_status: String,
     pub runtime_ownership: WindowsTunnelRuntimeOwnership,
@@ -285,24 +292,24 @@ fn validate_state(state: &WindowsTunnelState) -> DomainResult<()> {
             "tunnel state schema is unsupported",
         ));
     }
-    if state.session_id.trim().is_empty()
-        || state.plan_digest.trim().is_empty()
-        || state.selected_pop_id.trim().is_empty()
-        || state.selected_endpoint.trim().is_empty()
+    if !is_normalized_required_text(&state.session_id)
+        || !is_normalized_required_text(&state.plan_digest)
+        || !is_normalized_required_text(&state.selected_pop_id)
+        || !is_normalized_required_text(&state.selected_endpoint)
         || !is_safe_tunnel_file_name(&state.config_path)
-        || state.rollback_status.trim().is_empty()
+        || !is_normalized_required_text(&state.rollback_status)
+        || !is_normalized_required_text(&state.client_bundle_id)
+        || !is_normalized_required_text(&state.pop_bundle_id)
+        || !is_normalized_required_text(&state.easytier_version)
+        || state.last_client_sequence != state.client_sequence
+        || state.last_pop_sequence != state.pop_sequence
     {
         return Err(state_error("tunnel state contains an empty required field"));
     }
-    if state.runtime_ownership.process.session_id.trim().is_empty()
+    if !is_normalized_required_text(&state.runtime_ownership.process.session_id)
         || state.runtime_ownership.process.session_id != state.session_id
         || state.runtime_ownership.process.process_id == 0
-        || state
-            .runtime_ownership
-            .process
-            .creation_marker
-            .trim()
-            .is_empty()
+        || !is_normalized_required_text(&state.runtime_ownership.process.creation_marker)
         || !is_lowercase_sha256(&state.runtime_ownership.binary_sha256)
         || !is_safe_tunnel_file_name(&state.runtime_ownership.cli_file_name)
         || state.runtime_ownership.route_cidrs.is_empty()
@@ -310,11 +317,72 @@ fn validate_state(state: &WindowsTunnelState) -> DomainResult<()> {
             .runtime_ownership
             .route_cidrs
             .iter()
-            .any(|cidr| cidr.trim().is_empty())
+            .any(|cidr| !is_normalized_destination_cidr(cidr))
+        || !has_exact_owned_destination_routes(
+            &state.runtime_ownership.virtual_route_snapshot,
+            &state.runtime_ownership.route_cidrs,
+        )
     {
         return Err(state_error("tunnel state ownership metadata is invalid"));
     }
     Ok(())
+}
+
+fn is_normalized_required_text(value: &str) -> bool {
+    !value.trim().is_empty() && value == value.trim()
+}
+
+fn is_normalized_destination_cidr(value: &str) -> bool {
+    let Some((address, prefix)) = value.split_once('/') else {
+        return false;
+    };
+    let Ok(address) = address.parse::<IpAddr>() else {
+        return false;
+    };
+    let Ok(prefix) = prefix.parse::<u8>() else {
+        return false;
+    };
+    let maximum_prefix = match address {
+        IpAddr::V4(_) => 32,
+        IpAddr::V6(_) => 128,
+    };
+    prefix <= maximum_prefix && value == format!("{address}/{prefix}")
+}
+
+fn is_normalized_ip_address(value: &str) -> bool {
+    value
+        .parse::<IpAddr>()
+        .map(|address| value == address.to_string())
+        .unwrap_or(false)
+}
+
+fn has_exact_owned_destination_routes(
+    routes: &[WindowsRouteSnapshotEntry],
+    expected_destination_cidrs: &[String],
+) -> bool {
+    if routes.len() != expected_destination_cidrs.len() {
+        return false;
+    }
+
+    let expected = expected_destination_cidrs
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    if expected.len() != expected_destination_cidrs.len() {
+        return false;
+    }
+
+    let mut observed = BTreeSet::new();
+    routes.iter().all(|route| {
+        let gateway = route.gateway.as_deref();
+        let has_normalized_gateway = gateway.is_some_and(is_normalized_ip_address);
+        is_normalized_destination_cidr(&route.destination_cidr)
+            && expected.contains(route.destination_cidr.as_str())
+            && has_normalized_gateway
+            && route.interface_index.is_some_and(|index| index != 0)
+            && route.metric.is_some()
+            && observed.insert(route.destination_cidr.as_str())
+    })
 }
 
 pub(crate) fn is_safe_tunnel_file_name(value: &str) -> bool {
