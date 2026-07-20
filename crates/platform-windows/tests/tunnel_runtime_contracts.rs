@@ -837,6 +837,35 @@ fn fresh_service_stop_requires_recovery_proof_before_cleanup() {
 }
 
 #[test]
+fn native_windows_elevation_probe_is_explicit_and_fail_closed() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+    let windows_marker = "#[cfg(windows)]\npub fn native_windows_is_elevated() -> bool {";
+    let windows_start = source
+        .find(windows_marker)
+        .expect("Windows elevation probe exists");
+    let non_windows_marker = "#[cfg(not(windows))]\npub fn native_windows_is_elevated() -> bool {";
+    let non_windows_start = source
+        .find(non_windows_marker)
+        .expect("non-Windows elevation probe exists");
+    let windows_probe = &source[windows_start..non_windows_start];
+
+    assert!(
+        windows_probe.contains("use windows_sys::Win32::UI::Shell::IsUserAnAdmin;"),
+        "Windows elevation probe imports IsUserAnAdmin"
+    );
+    assert!(
+        windows_probe.contains("unsafe { IsUserAnAdmin() != 0 }"),
+        "Windows elevation probe returns IsUserAnAdmin as a Boolean"
+    );
+    assert!(
+        source.contains(
+            "#[cfg(not(windows))]\npub fn native_windows_is_elevated() -> bool {\n    false\n}"
+        ),
+        "non-Windows elevation probe returns literal false"
+    );
+}
+
+#[test]
 fn native_windows_process_start_discards_child_standard_streams() {
     let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
     let command_builder_marker = "#[cfg(windows)]\nfn native_easytier_process_command(";
