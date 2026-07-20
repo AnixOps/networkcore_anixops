@@ -2016,8 +2016,8 @@ fn native_destination_route_snapshot(
     }
     let snapshot: NativeDestinationRouteSnapshotResponse = serde_json::from_slice(&output.stdout)
         .map_err(|_| {
-            endpoint_bypass_error("destination route snapshot returned invalid data")
-        })?;
+        endpoint_bypass_error("destination route snapshot returned invalid data")
+    })?;
     snapshot
         .routes
         .into_iter()
