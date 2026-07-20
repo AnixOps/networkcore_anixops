@@ -2103,7 +2103,10 @@ mod native_process_proof_tests {
             binary_path.display(),
             config_path.display()
         );
-        assert!(!native_command_matches(&extra_argument_command_line, &config_path));
+        assert!(!native_command_matches(
+            &extra_argument_command_line,
+            &config_path
+        ));
     }
 
     #[test]
