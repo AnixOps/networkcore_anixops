@@ -68,8 +68,7 @@ fn existing_state_validation_uses_inspection_only_storage_checks() {
     assert!(!inspection.contains("Set-Acl"));
     assert!(!inspection.contains("SetAccessRuleProtection"));
 
-    let validation_marker =
-        "#[cfg(windows)]\npub fn native_windows_validate_existing_state_path(";
+    let validation_marker = "#[cfg(windows)]\npub fn native_windows_validate_existing_state_path(";
     let validation_start = source
         .find(validation_marker)
         .expect("Windows existing state validation exists");

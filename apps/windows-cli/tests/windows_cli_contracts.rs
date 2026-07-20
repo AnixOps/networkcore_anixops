@@ -359,10 +359,9 @@ impl WindowsTunnelInputPathPolicy for RecordingInputPathPolicy {
         network_secret_file: &Path,
     ) -> DomainResult<TunnelStartInputPaths> {
         self.events.borrow_mut().push("paths.start");
-        self.start_calls.borrow_mut().push((
-            state_path.to_path_buf(),
-            network_secret_file.to_path_buf(),
-        ));
+        self.start_calls
+            .borrow_mut()
+            .push((state_path.to_path_buf(), network_secret_file.to_path_buf()));
         Ok(TunnelStartInputPaths {
             state_path: self.guarded_state_path.clone(),
             network_secret_file: self.guarded_secret_path.clone(),
@@ -434,7 +433,9 @@ impl WindowsTunnelLifecyclePort for OrderedLifecycle {
 
     fn status(&mut self, state_path: &Path) -> DomainResult<WindowsTunnelState> {
         self.events.borrow_mut().push("lifecycle.status");
-        self.status_paths.borrow_mut().push(state_path.to_path_buf());
+        self.status_paths
+            .borrow_mut()
+            .push(state_path.to_path_buf());
         Ok(self.running_state.clone())
     }
 
@@ -1205,10 +1206,7 @@ fn delivery_backed_status_and_stop_validate_existing_state_before_lifecycle_dele
         status_paths.borrow().as_slice(),
         [guarded_state_path.clone()]
     );
-    assert_eq!(
-        stop_calls.borrow().as_slice(),
-        [(guarded_state_path, true)]
-    );
+    assert_eq!(stop_calls.borrow().as_slice(), [(guarded_state_path, true)]);
 }
 
 #[test]
