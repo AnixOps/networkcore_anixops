@@ -670,8 +670,7 @@ impl WindowsRoutePort for CleanupFakeRoutePort {
                 Err(error.clone())
             }
             None => {
-                self.events
-                    .push(format!("route.restore_exact:{remaining}"));
+                self.events.push(format!("route.restore_exact:{remaining}"));
                 self.events.push("route.restore");
                 Ok(())
             }
@@ -1783,13 +1782,13 @@ fn cached_running_stop_reproves_lost_destination_tuple_before_stopping() {
     let destination_recovered = event_index(&events, "route.destination_recover");
     assert!(process_recovered < bypass_recovered);
     assert!(bypass_recovered < destination_recovered);
-    assert!(!events
-        .iter()
-        .any(|event| event == "state.write:Stopping"));
+    assert!(!events.iter().any(|event| event == "state.write:Stopping"));
     assert!(!events
         .iter()
         .any(|event| event.starts_with("route.destination_remove")));
-    assert!(!events.iter().any(|event| event.starts_with("route.restore")));
+    assert!(!events
+        .iter()
+        .any(|event| event.starts_with("route.restore")));
     assert!(!events.iter().any(|event| event.starts_with("process.stop")));
 }
 
@@ -2549,8 +2548,7 @@ fn native_windows_cached_route_recovery_reproves_existing_keys() {
     let destination_end = route_port[destination_start..]
         .find("\n\n    fn remove_owned_destination_routes(")
         .expect("native destination recovery ends before removal");
-    let destination =
-        &route_port[destination_start..destination_start + destination_end];
+    let destination = &route_port[destination_start..destination_start + destination_end];
 
     for (name, recovery, proof, insertion) in [
         (
