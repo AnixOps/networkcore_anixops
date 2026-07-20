@@ -6,10 +6,10 @@ use platform_windows::tunnel_config::{
 use platform_windows::tunnel_runtime::{
     EasyTierCleanupRecovery, EasyTierCliRunner, EasyTierProcessRunner, EasyTierRecoverySpec,
     RecoveredEasyTierProcess, WindowsRoutePort, WindowsTunnelSessionService,
-    WindowsTunnelStartRequest, WindowsTunnelStatePort,
-    WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE, WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
-    WINDOWS_TUNNEL_OWNERSHIP_MISMATCH_CODE, WINDOWS_TUNNEL_PEER_NOT_READY_CODE,
-    WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE, WINDOWS_TUNNEL_START_FAILED_CODE,
+    WindowsTunnelStartRequest, WindowsTunnelStatePort, WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE,
+    WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE, WINDOWS_TUNNEL_OWNERSHIP_MISMATCH_CODE,
+    WINDOWS_TUNNEL_PEER_NOT_READY_CODE, WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE,
+    WINDOWS_TUNNEL_START_FAILED_CODE,
 };
 use platform_windows::{WindowsTunnelPlan, WindowsTunnelRouteIntent};
 use std::cell::RefCell;
@@ -752,8 +752,7 @@ fn cleanup_fixture(
     let state = WindowsTunnelState {
         schema_version: WINDOWS_TUNNEL_STATE_SCHEMA_VERSION,
         session_id: "fixture-session".to_string(),
-        plan_digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-            .to_string(),
+        plan_digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
         selected_pop_id: "pop-a".to_string(),
         selected_endpoint: "198.51.100.10:11010".to_string(),
         state: lifecycle,
@@ -1636,8 +1635,10 @@ fn fresh_service_stop_requires_recovery_proof_before_cleanup() {
 #[test]
 fn running_cleanup_persists_stopping_before_partial_destination_failure_and_resumes() {
     let events = SharedEvents::new();
-    let (binary, cli, state_path, config_path, state) =
-        cleanup_fixture("cleanup-partial-destination", WindowsTunnelLifecycleState::Running);
+    let (binary, cli, state_path, config_path, state) = cleanup_fixture(
+        "cleanup-partial-destination",
+        WindowsTunnelLifecycleState::Running,
+    );
     let state_port = FakeStatePort::seeded(state, events.clone());
     state_port.fail_next_write_for(WindowsTunnelLifecycleState::Failed);
     let mut first = WindowsTunnelSessionService::new_with_state_port(
@@ -1686,15 +1687,20 @@ fn running_cleanup_persists_stopping_before_partial_destination_failure_and_resu
         .stop(&state_path, true)
         .expect("fresh Stopping service reconciles the remaining exact resources");
     assert_eq!(stopped.state, WindowsTunnelLifecycleState::Stopped);
-    assert_eq!(state_port.current().state, WindowsTunnelLifecycleState::Stopped);
+    assert_eq!(
+        state_port.current().state,
+        WindowsTunnelLifecycleState::Stopped
+    );
     assert!(!config_path.exists());
 }
 
 #[test]
 fn running_cleanup_persists_failed_after_process_stop_failure_and_resumes() {
     let events = SharedEvents::new();
-    let (binary, cli, state_path, config_path, state) =
-        cleanup_fixture("cleanup-process-stop-failure", WindowsTunnelLifecycleState::Running);
+    let (binary, cli, state_path, config_path, state) = cleanup_fixture(
+        "cleanup-process-stop-failure",
+        WindowsTunnelLifecycleState::Running,
+    );
     let state_port = FakeStatePort::seeded(state, events.clone());
     let mut first = WindowsTunnelSessionService::new_with_state_port(
         CleanupFakeProcessRunner::present(
@@ -1719,12 +1725,12 @@ fn running_cleanup_persists_failed_after_process_stop_failure_and_resumes() {
         .stop(&state_path, true)
         .expect_err("process stop failure must retain a retryable failed cleanup state");
     assert_eq!(error.code, WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE);
-    assert_eq!(state_port.current().state, WindowsTunnelLifecycleState::Failed);
-    let first_events = events.snapshot();
-    assert!(
-        event_index(&first_events, "route.restore")
-            < event_index(&first_events, "process.stop")
+    assert_eq!(
+        state_port.current().state,
+        WindowsTunnelLifecycleState::Failed
     );
+    let first_events = events.snapshot();
+    assert!(event_index(&first_events, "route.restore") < event_index(&first_events, "process.stop"));
     assert!(config_path.is_file());
 
     events.clear();
@@ -1746,21 +1752,28 @@ fn running_cleanup_persists_failed_after_process_stop_failure_and_resumes() {
         .stop(&state_path, true)
         .expect("fresh Failed service reconciles absent routes and stops the exact process");
     assert_eq!(stopped.state, WindowsTunnelLifecycleState::Stopped);
-    assert_eq!(state_port.current().state, WindowsTunnelLifecycleState::Stopped);
+    assert_eq!(
+        state_port.current().state,
+        WindowsTunnelLifecycleState::Stopped
+    );
     assert!(!config_path.exists());
     let retry_events = events.snapshot();
     assert!(!retry_events
         .iter()
         .any(|event| event.starts_with("route.destination_remove")));
     assert!(!retry_events.iter().any(|event| event == "route.restore"));
-    assert!(retry_events.iter().any(|event| event.starts_with("process.stop")));
+    assert!(retry_events
+        .iter()
+        .any(|event| event.starts_with("process.stop")));
 }
 
 #[test]
 fn stopped_write_failure_releases_session_for_absent_resource_reconciliation() {
     let events = SharedEvents::new();
-    let (binary, cli, state_path, config_path, state) =
-        cleanup_fixture("cleanup-stopped-write-failure", WindowsTunnelLifecycleState::Running);
+    let (binary, cli, state_path, config_path, state) = cleanup_fixture(
+        "cleanup-stopped-write-failure",
+        WindowsTunnelLifecycleState::Running,
+    );
     let state_port = FakeStatePort::seeded(state, events.clone());
     state_port.fail_next_write_for(WindowsTunnelLifecycleState::Stopped);
     let mut first = WindowsTunnelSessionService::new_with_state_port(
@@ -1777,7 +1790,10 @@ fn stopped_write_failure_releases_session_for_absent_resource_reconciliation() {
     first
         .stop(&state_path, true)
         .expect_err("a failed Stopped write leaves durable cleanup intent for retry");
-    assert_eq!(state_port.current().state, WindowsTunnelLifecycleState::Stopping);
+    assert_eq!(
+        state_port.current().state,
+        WindowsTunnelLifecycleState::Stopping
+    );
     assert!(!config_path.exists());
 
     events.clear();
@@ -1799,20 +1815,27 @@ fn stopped_write_failure_releases_session_for_absent_resource_reconciliation() {
         .stop(&state_path, true)
         .expect("fresh Stopping service writes Stopped without deleting absent resources");
     assert_eq!(stopped.state, WindowsTunnelLifecycleState::Stopped);
-    assert_eq!(state_port.current().state, WindowsTunnelLifecycleState::Stopped);
+    assert_eq!(
+        state_port.current().state,
+        WindowsTunnelLifecycleState::Stopped
+    );
     let retry_events = events.snapshot();
     assert!(!retry_events
         .iter()
         .any(|event| event.starts_with("route.destination_remove")));
     assert!(!retry_events.iter().any(|event| event == "route.restore"));
-    assert!(!retry_events.iter().any(|event| event.starts_with("process.stop")));
+    assert!(!retry_events
+        .iter()
+        .any(|event| event.starts_with("process.stop")));
 }
 
 #[test]
 fn running_recovery_rejects_missing_route_tuple_before_stopping_write() {
     let events = SharedEvents::new();
-    let (binary, cli, state_path, _config_path, state) =
-        cleanup_fixture("cleanup-running-strict-missing", WindowsTunnelLifecycleState::Running);
+    let (binary, cli, state_path, _config_path, state) = cleanup_fixture(
+        "cleanup-running-strict-missing",
+        WindowsTunnelLifecycleState::Running,
+    );
     let state_port = FakeStatePort::seeded(state, events.clone());
     let mut service = WindowsTunnelSessionService::new_with_state_port(
         CleanupFakeProcessRunner::present(events.clone(), binary, cli, None),
@@ -1833,7 +1856,10 @@ fn running_recovery_rejects_missing_route_tuple_before_stopping_write() {
         .stop(&state_path, true)
         .expect_err("Running state rejects a missing exact destination tuple");
     assert_eq!(error.code, WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE);
-    assert_eq!(state_port.current().state, WindowsTunnelLifecycleState::Running);
+    assert_eq!(
+        state_port.current().state,
+        WindowsTunnelLifecycleState::Running
+    );
     assert!(!events
         .snapshot()
         .iter()
@@ -1867,7 +1893,10 @@ fn cleanup_recovery_rejects_ambiguous_tuple_before_deletion() {
         .stop(&state_path, true)
         .expect_err("Stopping state accepts only zero-or-one exact result for each tuple");
     assert_eq!(error.code, WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE);
-    assert_eq!(state_port.current().state, WindowsTunnelLifecycleState::Failed);
+    assert_eq!(
+        state_port.current().state,
+        WindowsTunnelLifecycleState::Failed
+    );
     let events = events.snapshot();
     assert!(!events
         .iter()
