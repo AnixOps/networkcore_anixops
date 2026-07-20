@@ -666,6 +666,9 @@ where
         if verify_file_sha256(&binary_path, &spec.expected_binary_sha256).is_err() {
             return Err(ownership_error());
         }
+        if verify_file_sha256(&cli_path, &spec.expected_cli_sha256).is_err() {
+            return Err(ownership_error());
+        }
         let recovered_cli_file_name =
             safe_file_name_from_path(&cli_path).ok_or_else(ownership_error)?;
         if recovered_cli_file_name != ownership.cli_file_name {
