@@ -5,8 +5,8 @@ use platform_windows::tunnel_config::{
 use platform_windows::tunnel_runtime::{
     EasyTierCliRunner, EasyTierProcessRunner, EasyTierRecoverySpec, RecoveredEasyTierProcess,
     WindowsRoutePort, WindowsTunnelSessionService, WindowsTunnelStartRequest,
-    WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE, WINDOWS_TUNNEL_OWNERSHIP_MISMATCH_CODE,
-    WINDOWS_TUNNEL_PEER_NOT_READY_CODE,
+    WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE, WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
+    WINDOWS_TUNNEL_OWNERSHIP_MISMATCH_CODE, WINDOWS_TUNNEL_PEER_NOT_READY_CODE,
 };
 use platform_windows::{WindowsTunnelPlan, WindowsTunnelRouteIntent};
 use std::cell::RefCell;
@@ -115,6 +115,30 @@ impl EasyTierCliRunner for FakeCliRunner {
 
 struct FakeRoutePort {
     events: SharedEvents,
+    recovery_error: Option<DomainError>,
+}
+
+impl FakeRoutePort {
+    fn ready(events: SharedEvents) -> Self {
+        Self {
+            events,
+            recovery_error: None,
+        }
+    }
+
+    fn failing_recovery(events: SharedEvents) -> Self {
+        Self {
+            events,
+            recovery_error: Some(DomainError::new(
+                WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
+                "fixture route recovery proof failed",
+            )),
+        }
+    }
+
+    fn recovery_is_configured_to_fail(&self) -> bool {
+        self.recovery_error.is_some()
+    }
 }
 
 impl WindowsRoutePort for FakeRoutePort {
@@ -251,9 +275,7 @@ fn start_orders_snapshot_bypass_process_and_readiness() {
             peer_ready: true,
             routes: vec!["203.0.113.0/24".to_string()],
         },
-        FakeRoutePort {
-            events: events.clone(),
-        },
+        FakeRoutePort::ready(events.clone()),
     );
 
     let state = service
@@ -285,9 +307,7 @@ fn readiness_failure_restores_routes_and_stops_owned_process() {
             peer_ready: false,
             routes: Vec::new(),
         },
-        FakeRoutePort {
-            events: events.clone(),
-        },
+        FakeRoutePort::ready(events.clone()),
     );
 
     let error = service
@@ -315,9 +335,7 @@ fn stop_rejects_missing_confirmation() {
             peer_ready: true,
             routes: Vec::new(),
         },
-        FakeRoutePort {
-            events: events.clone(),
-        },
+        FakeRoutePort::ready(events.clone()),
     );
 
     let error = service
@@ -340,9 +358,7 @@ fn status_queries_explicit_easytier_cli() {
             peer_ready: true,
             routes: vec!["203.0.113.0/24".to_string()],
         },
-        FakeRoutePort {
-            events: events.clone(),
-        },
+        FakeRoutePort::ready(events.clone()),
     );
     service
         .start(start_request(binary, cli, secret, state_path.clone()))
@@ -367,9 +383,7 @@ fn stale_state_cannot_stop_another_session() {
             peer_ready: true,
             routes: vec!["203.0.113.0/24".to_string()],
         },
-        FakeRoutePort {
-            events: owner_events.clone(),
-        },
+        FakeRoutePort::ready(owner_events.clone()),
     );
     owner
         .start(start_request(binary, cli, secret, state_path.clone()))
@@ -383,9 +397,7 @@ fn stale_state_cannot_stop_another_session() {
             peer_ready: true,
             routes: vec!["203.0.113.0/24".to_string()],
         },
-        FakeRoutePort {
-            events: stale_events.clone(),
-        },
+        FakeRoutePort::ready(stale_events.clone()),
     );
 
     let error = stale
@@ -409,9 +421,7 @@ fn fresh_service_status_requires_recovery_proof() {
             peer_ready: true,
             routes: vec!["203.0.113.0/24".to_string()],
         },
-        FakeRoutePort {
-            events: owner_events,
-        },
+        FakeRoutePort::ready(owner_events),
     );
     owner
         .start(start_request(binary, cli, secret, state_path.clone()))
@@ -425,9 +435,7 @@ fn fresh_service_status_requires_recovery_proof() {
             peer_ready: true,
             routes: vec!["203.0.113.0/24".to_string()],
         },
-        FakeRoutePort {
-            events: failed_events.clone(),
-        },
+        FakeRoutePort::ready(failed_events.clone()),
     );
     unproven
         .status(&state_path)
@@ -446,9 +454,7 @@ fn fresh_service_status_requires_recovery_proof() {
             peer_ready: true,
             routes: vec!["203.0.113.0/24".to_string()],
         },
-        FakeRoutePort {
-            events: recovered_events.clone(),
-        },
+        FakeRoutePort::ready(recovered_events.clone()),
     );
     recovered
         .status(&state_path)
@@ -474,9 +480,7 @@ fn fresh_service_rejects_recovered_cli_outside_proven_binary_directory() {
             peer_ready: true,
             routes: vec!["203.0.113.0/24".to_string()],
         },
-        FakeRoutePort {
-            events: owner_events,
-        },
+        FakeRoutePort::ready(owner_events),
     );
     owner
         .start(start_request(binary, cli, secret, state_path.clone()))
@@ -494,9 +498,7 @@ fn fresh_service_rejects_recovered_cli_outside_proven_binary_directory() {
             peer_ready: true,
             routes: vec!["203.0.113.0/24".to_string()],
         },
-        FakeRoutePort {
-            events: recovered_events.clone(),
-        },
+        FakeRoutePort::ready(recovered_events.clone()),
     );
 
     let error = recovered
@@ -504,6 +506,69 @@ fn fresh_service_rejects_recovered_cli_outside_proven_binary_directory() {
         .expect_err("recovered CLI outside the proven binary directory is rejected");
     assert_eq!(error.code, WINDOWS_TUNNEL_OWNERSHIP_MISMATCH_CODE);
     assert_eq!(recovered_events.snapshot(), vec!["process.recover"]);
+}
+
+#[test]
+fn fresh_stop_requires_route_recovery_after_process_proof() {
+    let owner_events = SharedEvents::new();
+    let (binary, cli, secret) = fixture_paths("fresh-stop-route-recovery");
+    let state_path = binary.parent().expect("fixture parent").join("state.json");
+    let recovered_binary = binary.clone();
+    let recovered_cli = cli.clone();
+    let mut owner = WindowsTunnelSessionService::new(
+        fake_process_runner(owner_events.clone(), None, None),
+        FakeCliRunner {
+            events: owner_events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        FakeRoutePort::ready(owner_events),
+    );
+    let persisted = owner
+        .start(start_request(binary, cli, secret, state_path.clone()))
+        .expect("owner starts a persisted session");
+    let config_path = state_path
+        .parent()
+        .expect("state path has a parent")
+        .join(&persisted.config_path);
+    assert!(config_path.is_file());
+
+    let recovered_events = SharedEvents::new();
+    let route_port = FakeRoutePort::failing_recovery(recovered_events.clone());
+    assert!(route_port.recovery_is_configured_to_fail());
+    let mut recovered = WindowsTunnelSessionService::new(
+        fake_process_runner(
+            recovered_events.clone(),
+            Some(recovered_binary),
+            Some(recovered_cli),
+        ),
+        FakeCliRunner {
+            events: recovered_events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        route_port,
+    );
+    let recovered_route_event = format!(
+        "route.recover:{}",
+        route_snapshot_key(&persisted.route_snapshot)
+    );
+
+    let error = recovered
+        .stop(&state_path, true)
+        .expect_err("fresh stop requires a recovered endpoint-bypass proof");
+    assert_eq!(error.code, WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE);
+    assert_eq!(
+        recovered_events.snapshot(),
+        vec!["process.recover".to_string(), recovered_route_event]
+    );
+    assert_eq!(
+        read_tunnel_state(&state_path)
+            .expect("route recovery failure preserves state")
+            .state,
+        WindowsTunnelLifecycleState::Running
+    );
+    assert!(config_path.is_file());
 }
 
 #[test]
@@ -520,9 +585,7 @@ fn fresh_service_stop_requires_recovery_proof_before_cleanup() {
             peer_ready: true,
             routes: vec!["203.0.113.0/24".to_string()],
         },
-        FakeRoutePort {
-            events: owner_events,
-        },
+        FakeRoutePort::ready(owner_events),
     );
     let persisted = owner
         .start(start_request(binary, cli, secret, state_path.clone()))
@@ -536,9 +599,7 @@ fn fresh_service_stop_requires_recovery_proof_before_cleanup() {
             peer_ready: true,
             routes: vec!["203.0.113.0/24".to_string()],
         },
-        FakeRoutePort {
-            events: failed_events.clone(),
-        },
+        FakeRoutePort::ready(failed_events.clone()),
     );
     unproven
         .stop(&state_path, true)
@@ -557,17 +618,24 @@ fn fresh_service_stop_requires_recovery_proof_before_cleanup() {
             peer_ready: true,
             routes: vec!["203.0.113.0/24".to_string()],
         },
-        FakeRoutePort {
-            events: recovered_events.clone(),
-        },
+        FakeRoutePort::ready(recovered_events.clone()),
     );
     recovered
         .stop(&state_path, true)
         .expect("proven fresh stop completes cleanup");
 
     let events = recovered_events.snapshot();
-    assert!(event_index(&events, "process.recover") < event_index(&events, "route.restore"));
-    assert!(event_index(&events, "route.restore") < event_index(&events, "process.stop"));
+    let process_recovered = event_index(&events, "process.recover");
+    let route_recovered = event_index(&events, "route.recover");
+    let route_restored = event_index(&events, "route.restore");
+    let process_stopped = event_index(&events, "process.stop");
+    assert!(process_recovered < route_recovered);
+    assert!(route_recovered < route_restored);
+    assert!(route_restored < process_stopped);
+    assert!(events.contains(&format!(
+        "route.recover:{}",
+        route_snapshot_key(&persisted.route_snapshot)
+    )));
     assert!(events.contains(&format!(
         "route.restore:{}",
         route_snapshot_key(&persisted.route_snapshot)

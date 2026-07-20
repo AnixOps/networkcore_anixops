@@ -3,8 +3,8 @@ use platform_windows::tunnel_config::{
     deserialize_tunnel_state, render_easytier_config, serialize_tunnel_state, verify_file_sha256,
     EasyTierConfigRequest, OwnedProcessHandle, WindowsRouteSnapshotEntry,
     WindowsTunnelLifecycleState, WindowsTunnelRuntimeOwnership, WindowsTunnelState,
-    WINDOWS_TUNNEL_BINARY_HASH_INVALID_CODE, WINDOWS_TUNNEL_STATE_SCHEMA_UNSUPPORTED_CODE,
-    WINDOWS_TUNNEL_STATE_SCHEMA_VERSION,
+    WINDOWS_TUNNEL_BINARY_HASH_INVALID_CODE, WINDOWS_TUNNEL_STATE_INVALID_CODE,
+    WINDOWS_TUNNEL_STATE_SCHEMA_UNSUPPORTED_CODE, WINDOWS_TUNNEL_STATE_SCHEMA_VERSION,
 };
 use std::path::Path;
 
@@ -163,4 +163,18 @@ fn refuses_unknown_state_schema() {
     let error = deserialize_tunnel_state(&unknown_schema)
         .expect_err("unknown state schema must be rejected");
     assert_eq!(error.code, WINDOWS_TUNNEL_STATE_SCHEMA_UNSUPPORTED_CODE);
+}
+
+#[test]
+fn state_rejects_process_session_id_that_differs_from_state() {
+    let mut state = fixture_state();
+    let different_process_session_id = "different-process-session";
+    state.runtime_ownership.process.session_id = different_process_session_id.to_string();
+    let serialized = serde_json::to_vec(&state).expect("fixture state JSON");
+
+    let error = deserialize_tunnel_state(&serialized)
+        .expect_err("state must bind the owned process to its session ID");
+    assert_eq!(error.code, WINDOWS_TUNNEL_STATE_INVALID_CODE);
+    assert!(!error.message.contains("windows-easytier-fixture-session"));
+    assert!(!error.message.contains(different_process_session_id));
 }
