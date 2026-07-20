@@ -1926,6 +1926,17 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
 
         let mut attempted = Vec::with_capacity(bypasses.len());
         for bypass in &bypasses {
+            match native_cleanup_bypass_presence(bypass) {
+                Ok(false) => {}
+                Ok(true) | Err(_) => {
+                    return Err(native_reconcile_attempted_bypasses(
+                        &attempted,
+                        endpoint_bypass_error(
+                            "underlay bypass ownership could not be proven before installation",
+                        ),
+                    ));
+                }
+            }
             attempted.push(bypass.clone());
             if let Err(error) = native_add_bypass(bypass) {
                 return Err(native_reconcile_attempted_bypasses(&attempted, error));

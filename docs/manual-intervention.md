@@ -34,7 +34,9 @@ evidence; it verifies source and injected contracts only.
    endpoint-bypass add or proof failure, record bounded per-tuple reconciliation: either a proven
    absence, or exact removal followed by a proven absence. An ambiguous inspection, inspection or
    removal failure, or a still-present tuple must remain a `rollback_failed` manual-recovery
-   outcome.
+   outcome. Before every add, record a bounded exact absence proof; a pre-existing or ambiguous
+   exact tuple is not session-owned, must not be deleted, and may only cause reconciliation of
+   earlier tuples that already had that pre-add absence proof.
 5. Successful EasyTier peer and route readiness plus `ping` to the overlay address and `ping` and
    `curl` to the POP test subnet.
 6. Stop evidence that both exact virtual destination routes and endpoint-bypass routes were removed

@@ -129,6 +129,9 @@ paths plus independent hashes.
      physical-interface bypass route to every EasyTier control/peer endpoint before launch;
    - accept the selected endpoint underlay only when `Find-NetRoute` resolves to an up adapter
      proven by `Get-NetAdapter -Physical`; virtual or VPN-only underlays fail before mutation;
+   - require a bounded exact absence proof before each endpoint-bypass add. A pre-existing or
+     ambiguous exact tuple is not owned, is never deleted, and fails the start while reconciling
+     only earlier tuples that had pre-add absence proof;
    - immediately exact-prove every successfully added endpoint-bypass `ActiveStore` tuple before
      it becomes owned; if an add or proof fails, reconcile every attempted exact tuple through a
      bounded presence inspection, accepting only proven absence or exact removal followed by
@@ -272,6 +275,9 @@ absence. Ambiguity, inspection failure, removal failure, or a still-present tupl
 `rollback_failed` diagnostic; only after complete reconciliation is the original fixed
 endpoint-bypass failure retained. The start service preserves a route-port `rollback_failed` result
 through its route-restoration step rather than replacing it with a normal endpoint-bypass failure.
+Before an add, the adapter must prove the exact tuple absent. A pre-existing or ambiguous exact
+tuple is not session-owned, must never be deleted, and can only trigger reconciliation of earlier
+tuples that already had pre-add absence proof.
 
 `Running` remains strict: the process and every persisted route tuple must satisfy all ownership
 proofs before the service writes `Stopping` or mutates a resource. Native Windows recovery for an
