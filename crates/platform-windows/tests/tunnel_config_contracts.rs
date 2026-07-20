@@ -364,3 +364,23 @@ fn state_writer_uses_synced_unique_sibling_and_atomic_replacement() {
     let non_windows_replace = &source[non_windows_replace_start..];
     assert!(non_windows_replace.contains("fs::rename(temporary_path, destination)"));
 }
+
+#[test]
+fn stop_source_never_writes_transient_stopping_state() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+    let stop_marker =
+        "    pub fn stop(&mut self, state_path: &Path, confirm: bool) -> DomainResult<WindowsTunnelState> {";
+    let stop_start = source
+        .find(stop_marker)
+        .expect("stop implementation exists");
+    let stop_end = source[stop_start..]
+        .find("\n    fn prepare_start(")
+        .expect("stop implementation ends before start preparation");
+    let stop = &source[stop_start..stop_start + stop_end];
+
+    assert!(stop.contains("stopping.state = WindowsTunnelLifecycleState::Stopping"));
+    assert!(
+        !stop.contains("write_tunnel_state(&state_path, &stopping)"),
+        "a post-removal stopping write can leave an unrecoverable running record"
+    );
+}
