@@ -126,6 +126,7 @@ struct FakeRoutePort {
     restore_error: Option<DomainError>,
     destination_capture_error: Option<DomainError>,
     destination_remove_error: Option<DomainError>,
+    strict_destination_recovery_available: Option<Rc<RefCell<bool>>>,
 }
 
 impl FakeRoutePort {
@@ -136,6 +137,7 @@ impl FakeRoutePort {
             restore_error: None,
             destination_capture_error: None,
             destination_remove_error: None,
+            strict_destination_recovery_available: None,
         }
     }
 
@@ -149,6 +151,17 @@ impl FakeRoutePort {
             restore_error: None,
             destination_capture_error: None,
             destination_remove_error: None,
+            strict_destination_recovery_available: None,
+        }
+    }
+
+    fn destination_tuple_can_be_lost_after_start(
+        events: SharedEvents,
+        recovery_available: Rc<RefCell<bool>>,
+    ) -> Self {
+        Self {
+            strict_destination_recovery_available: Some(recovery_available),
+            ..Self::ready(events)
         }
     }
 
@@ -166,6 +179,7 @@ impl FakeRoutePort {
                 "fixture destination capture failed",
             )),
             destination_remove_error: None,
+            strict_destination_recovery_available: None,
         }
     }
 
@@ -182,6 +196,7 @@ impl FakeRoutePort {
                 "fixture destination capture failed",
             )),
             destination_remove_error: None,
+            strict_destination_recovery_available: None,
         }
     }
 
@@ -195,6 +210,7 @@ impl FakeRoutePort {
             )),
             destination_capture_error: None,
             destination_remove_error: None,
+            strict_destination_recovery_available: None,
         }
     }
 
@@ -208,6 +224,7 @@ impl FakeRoutePort {
                 WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
                 "fixture destination removal failed",
             )),
+            strict_destination_recovery_available: None,
         }
     }
 }
@@ -263,6 +280,14 @@ impl WindowsRoutePort for FakeRoutePort {
             "route.destination_recover:{}",
             route_snapshot_key(snapshot)
         ));
+        if let Some(recovery_available) = &self.strict_destination_recovery_available {
+            if !*recovery_available.borrow() {
+                return Err(DomainError::new(
+                    WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
+                    "fixture exact destination tuple was lost or replaced",
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -468,6 +493,50 @@ impl EasyTierProcessRunner for CleanupFakeProcessRunner {
     }
 }
 
+struct StrictRunningProcessRunner {
+    events: SharedEvents,
+    binary_path: PathBuf,
+    cli_path: PathBuf,
+    recovery_available: Rc<RefCell<bool>>,
+}
+
+impl EasyTierProcessRunner for StrictRunningProcessRunner {
+    fn start(
+        &mut self,
+        _spec: &platform_windows::tunnel_config::EasyTierLaunchSpec,
+    ) -> DomainResult<OwnedProcessHandle> {
+        self.events.push("process.start");
+        Ok(OwnedProcessHandle {
+            session_id: "fixture-session".to_string(),
+            process_id: 41001,
+            creation_marker: "fixture-creation-marker".to_string(),
+        })
+    }
+
+    fn recover(&mut self, spec: &EasyTierRecoverySpec) -> DomainResult<RecoveredEasyTierProcess> {
+        self.events.push("process.recover");
+        if !*self.recovery_available.borrow() {
+            return Err(DomainError::new(
+                "fixture.recovery_proof_failed",
+                "fixture process ownership proof is unavailable",
+            ));
+        }
+        Ok(RecoveredEasyTierProcess {
+            process: spec.expected_process.clone(),
+            binary_path: self.binary_path.clone(),
+            cli_path: self.cli_path.clone(),
+        })
+    }
+
+    fn stop(&mut self, handle: &OwnedProcessHandle) -> DomainResult<()> {
+        self.events.push(format!(
+            "process.stop:{}:{}:{}",
+            handle.session_id, handle.process_id, handle.creation_marker
+        ));
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 enum CleanupRouteProof {
     Exact(Vec<bool>),
@@ -489,7 +558,7 @@ impl CleanupFakeRoutePort {
         Self {
             events,
             destination_proof: CleanupRouteProof::Exact(vec![true, true]),
-            bypass_proof: CleanupRouteProof::Exact(vec![true]),
+            bypass_proof: CleanupRouteProof::Exact(vec![true, true]),
             destination_remove_error: None,
             restore_error: None,
             destination_remaining: None,
@@ -502,6 +571,16 @@ impl CleanupFakeRoutePort {
             destination_remove_error: Some(DomainError::new(
                 WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE,
                 "fixture destination removal was interrupted after one exact tuple",
+            )),
+            ..Self::complete(events)
+        }
+    }
+
+    fn partial_bypass_restoration_fails(events: SharedEvents) -> Self {
+        Self {
+            restore_error: Some(DomainError::new(
+                WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE,
+                "fixture bypass restoration was interrupted after one exact tuple",
             )),
             ..Self::complete(events)
         }
@@ -585,10 +664,17 @@ impl WindowsRoutePort for CleanupFakeRoutePort {
             self.events.push("route.bypass_skip_absent");
             return Ok(());
         }
-        self.events.push("route.restore");
         match &self.restore_error {
-            Some(error) => Err(error.clone()),
-            None => Ok(()),
+            Some(error) => {
+                self.events.push("route.restore_partial");
+                Err(error.clone())
+            }
+            None => {
+                self.events
+                    .push(format!("route.restore_exact:{remaining}"));
+                self.events.push("route.restore");
+                Ok(())
+            }
         }
     }
 
@@ -764,12 +850,20 @@ fn cleanup_fixture(
         pop_bundle_id: "fixture-pop-bundle".to_string(),
         pop_sequence: 4,
         easytier_version: "2.6.1".to_string(),
-        route_snapshot: vec![WindowsRouteSnapshotEntry {
-            destination_cidr: "198.51.100.10/32".to_string(),
-            gateway: Some("192.0.2.1".to_string()),
-            interface_index: Some(12),
-            metric: Some(25),
-        }],
+        route_snapshot: vec![
+            WindowsRouteSnapshotEntry {
+                destination_cidr: "198.51.100.10/32".to_string(),
+                gateway: Some("192.0.2.1".to_string()),
+                interface_index: Some(12),
+                metric: Some(25),
+            },
+            WindowsRouteSnapshotEntry {
+                destination_cidr: "198.51.100.11/32".to_string(),
+                gateway: Some("192.0.2.1".to_string()),
+                interface_index: Some(12),
+                metric: Some(25),
+            },
+        ],
         rollback_status: rollback_status.to_string(),
         runtime_ownership: WindowsTunnelRuntimeOwnership {
             process: OwnedProcessHandle {
@@ -1633,6 +1727,73 @@ fn fresh_service_stop_requires_recovery_proof_before_cleanup() {
 }
 
 #[test]
+fn cached_running_stop_reproves_lost_destination_tuple_before_stopping() {
+    let events = SharedEvents::new();
+    let (binary, cli, state_path, config_path, state) = cleanup_fixture(
+        "cached-running-strict-destination",
+        WindowsTunnelLifecycleState::Running,
+    );
+    fs::remove_file(&config_path).expect("stale fixture config is removed before start");
+    let secret = binary
+        .parent()
+        .expect("fixture binary has a parent")
+        .join("network-secret.txt");
+    let state_port = FakeStatePort::seeded(state, events.clone());
+    let process_recovery_available = Rc::new(RefCell::new(true));
+    let destination_recovery_available = Rc::new(RefCell::new(true));
+    let mut service = WindowsTunnelSessionService::new_with_state_port(
+        StrictRunningProcessRunner {
+            events: events.clone(),
+            binary_path: binary.clone(),
+            cli_path: cli.clone(),
+            recovery_available: process_recovery_available,
+        },
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        FakeRoutePort::destination_tuple_can_be_lost_after_start(
+            events.clone(),
+            destination_recovery_available.clone(),
+        ),
+        state_port.clone(),
+    );
+    service
+        .start(start_request(binary, cli, secret, state_path.clone()))
+        .expect("start creates the same-service cached Running session");
+    assert!(config_path.is_file());
+
+    events.clear();
+    *destination_recovery_available.borrow_mut() = false;
+
+    let error = service
+        .stop(&state_path, true)
+        .expect_err("cached Running stop must re-prove the altered exact destination tuple");
+    assert_eq!(error.code, WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE);
+    assert_eq!(
+        state_port.current().state,
+        WindowsTunnelLifecycleState::Running
+    );
+    assert!(config_path.is_file());
+
+    let events = events.snapshot();
+    let process_recovered = event_index(&events, "process.recover");
+    let bypass_recovered = event_index(&events, "route.recover");
+    let destination_recovered = event_index(&events, "route.destination_recover");
+    assert!(process_recovered < bypass_recovered);
+    assert!(bypass_recovered < destination_recovered);
+    assert!(!events
+        .iter()
+        .any(|event| event == "state.write:Stopping"));
+    assert!(!events
+        .iter()
+        .any(|event| event.starts_with("route.destination_remove")));
+    assert!(!events.iter().any(|event| event.starts_with("route.restore")));
+    assert!(!events.iter().any(|event| event.starts_with("process.stop")));
+}
+
+#[test]
 fn running_cleanup_persists_stopping_before_partial_destination_failure_and_resumes() {
     let events = SharedEvents::new();
     let (binary, cli, state_path, config_path, state) = cleanup_fixture(
@@ -1679,7 +1840,7 @@ fn running_cleanup_persists_stopping_before_partial_destination_failure_and_resu
         CleanupFakeRoutePort::reconciled(
             events.clone(),
             CleanupRouteProof::Exact(vec![false, true]),
-            CleanupRouteProof::Exact(vec![true]),
+            CleanupRouteProof::Exact(vec![true, true]),
         ),
         state_port.clone(),
     );
@@ -1692,6 +1853,84 @@ fn running_cleanup_persists_stopping_before_partial_destination_failure_and_resu
         WindowsTunnelLifecycleState::Stopped
     );
     assert!(!config_path.exists());
+}
+
+#[test]
+fn failed_cleanup_removes_only_the_remaining_exact_bypass_before_process_and_config() {
+    let events = SharedEvents::new();
+    let (binary, cli, state_path, config_path, state) = cleanup_fixture(
+        "cleanup-partial-bypass",
+        WindowsTunnelLifecycleState::Running,
+    );
+    let state_port = FakeStatePort::seeded(state, events.clone());
+    let mut first = WindowsTunnelSessionService::new_with_state_port(
+        CleanupFakeProcessRunner::present(events.clone(), binary.clone(), cli.clone(), None),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string(), "203.0.114.0/24".to_string()],
+        },
+        CleanupFakeRoutePort::partial_bypass_restoration_fails(events.clone()),
+        state_port.clone(),
+    );
+
+    let error = first
+        .stop(&state_path, true)
+        .expect_err("partial bypass removal must retain Failed cleanup intent");
+    assert_eq!(error.code, WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE);
+    assert_eq!(
+        state_port.current().state,
+        WindowsTunnelLifecycleState::Failed
+    );
+    assert!(config_path.is_file());
+    let first_events = events.snapshot();
+    assert!(
+        event_index(&first_events, "route.destination_remove")
+            < event_index(&first_events, "route.restore_partial")
+    );
+    assert!(!first_events
+        .iter()
+        .any(|event| event.starts_with("process.stop")));
+
+    events.clear();
+    let mut retry = WindowsTunnelSessionService::new_with_state_port(
+        CleanupFakeProcessRunner::present(events.clone(), binary, cli, None),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string(), "203.0.114.0/24".to_string()],
+        },
+        CleanupFakeRoutePort::reconciled(
+            events.clone(),
+            CleanupRouteProof::Exact(vec![false, false]),
+            CleanupRouteProof::Exact(vec![false, true]),
+        ),
+        state_port.clone(),
+    );
+    let stopped = retry
+        .stop(&state_path, true)
+        .expect("fresh Failed cleanup removes only the remaining exact bypass");
+    assert_eq!(stopped.state, WindowsTunnelLifecycleState::Stopped);
+    assert_eq!(
+        state_port.current().state,
+        WindowsTunnelLifecycleState::Stopped
+    );
+    assert!(!config_path.exists());
+
+    let retry_events = events.snapshot();
+    assert!(retry_events
+        .iter()
+        .any(|event| event == "route.destination_skip_absent"));
+    assert!(!retry_events
+        .iter()
+        .any(|event| event.starts_with("route.destination_remove")));
+    assert!(retry_events
+        .iter()
+        .any(|event| event == "route.restore_exact:1"));
+    assert!(
+        event_index(&retry_events, "route.restore_exact:1")
+            < event_index(&retry_events, "process.stop")
+    );
 }
 
 #[test]
@@ -1782,7 +2021,7 @@ fn running_cleanup_persists_failed_after_process_stop_failure_and_resumes() {
         CleanupFakeRoutePort::reconciled(
             events.clone(),
             CleanupRouteProof::Exact(vec![false, false]),
-            CleanupRouteProof::Exact(vec![false]),
+            CleanupRouteProof::Exact(vec![false, false]),
         ),
         state_port.clone(),
     );
@@ -1845,7 +2084,7 @@ fn stopped_write_failure_releases_session_for_absent_resource_reconciliation() {
         CleanupFakeRoutePort::reconciled(
             events.clone(),
             CleanupRouteProof::Exact(vec![false, false]),
-            CleanupRouteProof::Exact(vec![false]),
+            CleanupRouteProof::Exact(vec![false, false]),
         ),
         state_port.clone(),
     );
@@ -1885,7 +2124,7 @@ fn running_recovery_rejects_missing_route_tuple_before_stopping_write() {
         CleanupFakeRoutePort::reconciled(
             events.clone(),
             CleanupRouteProof::Exact(vec![false, false]),
-            CleanupRouteProof::Exact(vec![true]),
+            CleanupRouteProof::Exact(vec![true, true]),
         ),
         state_port.clone(),
     );
@@ -1922,7 +2161,7 @@ fn cleanup_recovery_rejects_ambiguous_tuple_before_deletion() {
         CleanupFakeRoutePort::reconciled(
             events.clone(),
             CleanupRouteProof::Ambiguous,
-            CleanupRouteProof::Exact(vec![true]),
+            CleanupRouteProof::Exact(vec![true, true]),
         ),
         state_port.clone(),
     );
@@ -2282,6 +2521,66 @@ fn native_windows_recovery_and_removal_require_exact_bypass_proof() {
     );
     assert!(!removal.contains("route.exe"));
     assert!(!removal.contains("DELETE"));
+}
+
+#[test]
+fn native_windows_cached_route_recovery_reproves_existing_keys() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+    let route_port_marker = "#[cfg(windows)]\nimpl WindowsRoutePort for NativeWindowsRoutePort {";
+    let route_port_start = source
+        .find(route_port_marker)
+        .expect("Windows route port implementation exists");
+    let route_port_end = source[route_port_start..]
+        .find("\n#[cfg(all(test, windows))]\nmod native_process_proof_tests")
+        .expect("Windows route port implementation ends before native unit tests");
+    let route_port = &source[route_port_start..route_port_start + route_port_end];
+
+    let bypass_start = route_port
+        .find("    fn recover_owned_bypass(")
+        .expect("native bypass recovery exists");
+    let bypass_end = route_port[bypass_start..]
+        .find("\n\n    fn restore(")
+        .expect("native bypass recovery ends before restore");
+    let bypass = &route_port[bypass_start..bypass_start + bypass_end];
+
+    let destination_start = route_port
+        .find("    fn recover_owned_destination_routes(")
+        .expect("native destination recovery exists");
+    let destination_end = route_port[destination_start..]
+        .find("\n\n    fn remove_owned_destination_routes(")
+        .expect("native destination recovery ends before removal");
+    let destination =
+        &route_port[destination_start..destination_start + destination_end];
+
+    for (name, recovery, proof, insertion) in [
+        (
+            "bypass",
+            bypass,
+            "native_prove_bypass(bypass)",
+            "self.owned_bypasses.insert(key, bypasses)",
+        ),
+        (
+            "destination",
+            destination,
+            "native_prove_virtual_destination_route(route)",
+            "self.owned_destination_routes.insert(key, owned)",
+        ),
+    ] {
+        assert!(
+            !recovery.contains("contains_key(&key)"),
+            "cached native {name} ownership must not reject or skip exact re-proof"
+        );
+        let proof = recovery
+            .find(proof)
+            .expect("native route recovery invokes its exact proof");
+        let insertion = recovery
+            .find(insertion)
+            .expect("native route recovery retains its proven ownership key");
+        assert!(
+            proof < insertion,
+            "cached native {name} ownership is re-proven before its map is refreshed"
+        );
+    }
 }
 
 #[test]
