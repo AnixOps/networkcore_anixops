@@ -1739,7 +1739,7 @@ fn native_cli_output(
     let working_directory = path
         .parent()
         .ok_or_else(|| status_error("explicit EasyTier CLI could not be executed"))?;
-    let mut command = native_windows_hardened_command(path)
+    let mut command = native_windows_hardened_command(&path)
         .map_err(|_| status_error("explicit EasyTier CLI could not be executed"))?;
     let output = command
         .current_dir(working_directory)

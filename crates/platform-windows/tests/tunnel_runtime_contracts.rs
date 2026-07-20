@@ -2476,7 +2476,7 @@ fn native_windows_cli_and_recovery_reverify_trusted_cli_artifacts() {
 
     assert!(source.contains("pub easytier_cli_sha256: String,"));
     assert!(source.contains("pub expected_cli_sha256: String,"));
-    assert!(source.contains("pub cli_sha256: String,"));
+    assert!(source.contains("    cli_sha256: String,"));
     assert!(source.contains("fn version(&mut self, path: &Path, expected_sha256: &str)"));
     assert!(source.contains("fn peer_ready(&mut self, path: &Path, expected_sha256: &str)"));
     assert!(source.contains("fn route_cidrs(&mut self, path: &Path, expected_sha256: &str)"));
