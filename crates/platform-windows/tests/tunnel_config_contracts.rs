@@ -40,6 +40,11 @@ fn fixture_state() -> WindowsTunnelState {
         config_path: "fixture-state.easytier.toml".to_string(),
         last_client_sequence: 3,
         last_pop_sequence: 4,
+        client_bundle_id: "fixture-easytier-client-bundle-1".to_string(),
+        client_sequence: 3,
+        pop_bundle_id: "fixture-easytier-pop-bundle-1".to_string(),
+        pop_sequence: 4,
+        easytier_version: "2.6.1".to_string(),
         route_snapshot: vec![WindowsRouteSnapshotEntry {
             destination_cidr: "198.51.100.10/32".to_string(),
             gateway: Some("192.0.2.1".to_string()),
@@ -57,6 +62,12 @@ fn fixture_state() -> WindowsTunnelState {
                 .to_string(),
             cli_file_name: "easytier-cli.exe".to_string(),
             route_cidrs: vec!["203.0.113.0/24".to_string()],
+            virtual_route_snapshot: vec![WindowsRouteSnapshotEntry {
+                destination_cidr: "203.0.113.0/24".to_string(),
+                gateway: Some("10.10.0.1".to_string()),
+                interface_index: Some(42),
+                metric: Some(7),
+            }],
         },
     }
 }
@@ -124,16 +135,22 @@ fn rejects_invalid_binary_hash() {
 }
 
 #[test]
-fn serializes_schema_v2_runtime_ownership_without_paths_or_secrets() {
+fn serializes_schema_v3_runtime_ownership_without_paths_or_secrets() {
     let state = fixture_state();
     let first = serialize_tunnel_state(&state).expect("state serializes");
     let second = serialize_tunnel_state(&state).expect("state serializes deterministically");
 
     assert_eq!(first, second);
-    assert!(first.contains("\"schema_version\": 2"));
+    assert!(first.contains("\"schema_version\": 3"));
     assert!(first.contains("\"selected_pop_id\": \"pop-a\""));
     assert!(first.contains("\"creation_marker\": \"fixture-creation-marker\""));
     assert!(first.contains("\"cli_file_name\": \"easytier-cli.exe\""));
+    assert!(first.contains("\"virtual_route_snapshot\""));
+    assert!(first.contains("\"client_bundle_id\": \"fixture-easytier-client-bundle-1\""));
+    assert!(first.contains("\"client_sequence\": 3"));
+    assert!(first.contains("\"pop_bundle_id\": \"fixture-easytier-pop-bundle-1\""));
+    assert!(first.contains("\"pop_sequence\": 4"));
+    assert!(first.contains("\"easytier_version\": \"2.6.1\""));
     assert!(!first.contains("fixture-secret-never-commit"));
     assert!(!first.contains("C:/fixture/runtime/easytier-core.exe"));
     assert!(!first.contains("C:/fixture/runtime/easytier-cli.exe"));
@@ -142,12 +159,12 @@ fn serializes_schema_v2_runtime_ownership_without_paths_or_secrets() {
         state
     );
 
-    let mut schema_v1: serde_json::Value =
+    let mut schema_v2: serde_json::Value =
         serde_json::from_str(&first).expect("serialized state is JSON");
-    schema_v1["schema_version"] = serde_json::Value::from(1_u64);
-    let schema_v1 = serde_json::to_vec(&schema_v1).expect("schema-v1 record is JSON");
-    let error = deserialize_tunnel_state(&schema_v1)
-        .expect_err("schema-v1 state records must be unrecoverable");
+    schema_v2["schema_version"] = serde_json::Value::from(2_u64);
+    let schema_v2 = serde_json::to_vec(&schema_v2).expect("schema-v2 record is JSON");
+    let error = deserialize_tunnel_state(&schema_v2)
+        .expect_err("schema-v2 state records must be unrecoverable");
     assert_eq!(error.code, WINDOWS_TUNNEL_STATE_SCHEMA_UNSUPPORTED_CODE);
 }
 

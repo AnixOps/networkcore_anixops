@@ -81,6 +81,11 @@ fn fixture_tunnel_state() -> WindowsTunnelState {
         config_path: "fixture.easytier.toml".to_string(),
         last_client_sequence: 3,
         last_pop_sequence: 4,
+        client_bundle_id: "fixture-client-bundle".to_string(),
+        client_sequence: 3,
+        pop_bundle_id: "fixture-pop-bundle".to_string(),
+        pop_sequence: 4,
+        easytier_version: "2.6.1".to_string(),
         route_snapshot: vec![WindowsRouteSnapshotEntry {
             destination_cidr: "198.51.100.10/32".to_string(),
             gateway: Some("192.0.2.1".to_string()),
@@ -98,6 +103,12 @@ fn fixture_tunnel_state() -> WindowsTunnelState {
                 .to_string(),
             cli_file_name: "easytier-cli.exe".to_string(),
             route_cidrs: vec!["203.0.113.0/24".to_string()],
+            virtual_route_snapshot: vec![WindowsRouteSnapshotEntry {
+                destination_cidr: "203.0.113.0/24".to_string(),
+                gateway: Some("10.10.0.1".to_string()),
+                interface_index: Some(42),
+                metric: Some(7),
+            }],
         },
     }
 }
@@ -192,6 +203,12 @@ fn assert_redacted_tunnel_success_response(response: &WindowsCliResponse, state_
     assert_eq!(tunnel_json["session_id"], "fixture-session");
     assert_eq!(tunnel_json["state"], "running");
     assert_eq!(tunnel_json["selected_pop_id"], "pop-a");
+    assert_eq!(tunnel_json["client_bundle_id"], "fixture-client-bundle");
+    assert_eq!(tunnel_json["client_sequence"].as_u64(), Some(3));
+    assert_eq!(tunnel_json["pop_bundle_id"], "fixture-pop-bundle");
+    assert_eq!(tunnel_json["pop_sequence"].as_u64(), Some(4));
+    assert_eq!(tunnel_json["easytier_version"], "2.6.1");
+    assert_eq!(tunnel_json["system_mutation_policy"], "none");
     assert_eq!(
         tunnel_json["plan_digest"],
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -203,6 +220,12 @@ fn assert_redacted_tunnel_success_response(response: &WindowsCliResponse, state_
     assert!(text_rendered.contains("session_id: fixture-session"));
     assert!(text_rendered.contains("state: running"));
     assert!(text_rendered.contains("selected_pop_id: pop-a"));
+    assert!(text_rendered.contains("client_bundle_id: fixture-client-bundle"));
+    assert!(text_rendered.contains("client_sequence: 3"));
+    assert!(text_rendered.contains("pop_bundle_id: fixture-pop-bundle"));
+    assert!(text_rendered.contains("pop_sequence: 4"));
+    assert!(text_rendered.contains("easytier_version: 2.6.1"));
+    assert!(text_rendered.contains("system_mutation_policy: none"));
     assert!(text_rendered
         .contains("plan_digest: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"));
     assert!(text_rendered.contains("peer_ready: true"));
@@ -228,6 +251,7 @@ fn assert_redacted_tunnel_success_response(response: &WindowsCliResponse, state_
         EASYTIER_CLI_COMMAND_FRAGMENT,
         state_path,
         "fixture.easytier.toml",
+        "10.10.0.1",
     ] {
         assert!(
             !json_rendered.contains(sensitive_value),

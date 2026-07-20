@@ -7,7 +7,7 @@ use platform_windows::tunnel_runtime::{
     WindowsRoutePort, WindowsTunnelSessionService, WindowsTunnelStartRequest,
     WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE, WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
     WINDOWS_TUNNEL_OWNERSHIP_MISMATCH_CODE, WINDOWS_TUNNEL_PEER_NOT_READY_CODE,
-    WINDOWS_TUNNEL_START_FAILED_CODE,
+    WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE, WINDOWS_TUNNEL_START_FAILED_CODE,
 };
 use platform_windows::{WindowsTunnelPlan, WindowsTunnelRouteIntent};
 use std::cell::RefCell;
@@ -121,6 +121,8 @@ impl EasyTierCliRunner for FakeCliRunner {
 struct FakeRoutePort {
     events: SharedEvents,
     recovery_error: Option<DomainError>,
+    destination_capture_error: Option<DomainError>,
+    destination_remove_error: Option<DomainError>,
 }
 
 impl FakeRoutePort {
@@ -128,6 +130,8 @@ impl FakeRoutePort {
         Self {
             events,
             recovery_error: None,
+            destination_capture_error: None,
+            destination_remove_error: None,
         }
     }
 
@@ -138,15 +142,104 @@ impl FakeRoutePort {
                 WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
                 "fixture route recovery proof failed",
             )),
+            destination_capture_error: None,
+            destination_remove_error: None,
         }
     }
 
     fn recovery_is_configured_to_fail(&self) -> bool {
         self.recovery_error.is_some()
     }
+
+    fn destination_capture_fails(events: SharedEvents) -> Self {
+        Self {
+            events,
+            recovery_error: None,
+            destination_capture_error: Some(DomainError::new(
+                WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
+                "fixture destination capture failed",
+            )),
+            destination_remove_error: None,
+        }
+    }
+
+    fn destination_removal_fails(events: SharedEvents) -> Self {
+        Self {
+            events,
+            recovery_error: None,
+            destination_capture_error: None,
+            destination_remove_error: Some(DomainError::new(
+                WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
+                "fixture destination removal failed",
+            )),
+        }
+    }
 }
 
 impl WindowsRoutePort for FakeRoutePort {
+    fn snapshot_destination_routes(
+        &mut self,
+        destination_cidrs: &[String],
+    ) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
+        self.events
+            .push(format!("route.destination_snapshot:{}", destination_cidrs.len()));
+        Ok(destination_cidrs
+            .iter()
+            .map(|destination_cidr| WindowsRouteSnapshotEntry {
+                destination_cidr: destination_cidr.clone(),
+                gateway: Some("10.10.0.254".to_string()),
+                interface_index: Some(7),
+                metric: Some(25),
+            })
+            .collect())
+    }
+
+    fn capture_owned_destination_routes(
+        &mut self,
+        _before: &[WindowsRouteSnapshotEntry],
+        destination_cidrs: &[String],
+    ) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
+        self.events
+            .push(format!("route.destination_capture:{}", destination_cidrs.len()));
+        if let Some(error) = &self.destination_capture_error {
+            return Err(error.clone());
+        }
+        Ok(destination_cidrs
+            .iter()
+            .map(|destination_cidr| WindowsRouteSnapshotEntry {
+                destination_cidr: destination_cidr.clone(),
+                gateway: Some("10.10.0.1".to_string()),
+                interface_index: Some(42),
+                metric: Some(7),
+            })
+            .collect())
+    }
+
+    fn recover_owned_destination_routes(
+        &mut self,
+        snapshot: &[WindowsRouteSnapshotEntry],
+    ) -> DomainResult<()> {
+        self.events.push(format!(
+            "route.destination_recover:{}",
+            route_snapshot_key(snapshot)
+        ));
+        Ok(())
+    }
+
+    fn remove_owned_destination_routes(
+        &mut self,
+        snapshot: &[WindowsRouteSnapshotEntry],
+    ) -> DomainResult<()> {
+        self.events.push(format!(
+            "route.destination_remove:{}",
+            route_snapshot_key(snapshot)
+        ));
+        match &self.destination_remove_error {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
+        }
+    }
+
     fn snapshot(&mut self, endpoints: &[IpAddr]) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
         self.events
             .push(format!("route.snapshot:{}", endpoints.len()));
@@ -344,7 +437,7 @@ fn start_redacts_process_runner_paths_from_the_service_diagnostic() {
 }
 
 #[test]
-fn start_orders_snapshot_bypass_process_and_readiness() {
+fn start_orders_destination_snapshot_bypass_process_readiness_capture_and_state() {
     let events = SharedEvents::new();
     let (binary, cli, secret) = fixture_paths("start-order");
     let state_path = binary.parent().expect("fixture parent").join("state.json");
@@ -369,10 +462,85 @@ fn start_orders_snapshot_bypass_process_and_readiness() {
 
     let events = events.snapshot();
     assert!(event_index(&events, "cli.version") < event_index(&events, "route.snapshot"));
+    assert!(event_index(&events, "route.destination_snapshot") < event_index(&events, "route.snapshot"));
     assert!(event_index(&events, "route.snapshot") < event_index(&events, "route.bypass"));
     assert!(event_index(&events, "route.bypass") < event_index(&events, "process.start"));
     assert!(event_index(&events, "process.start") < event_index(&events, "cli.peer_ready"));
     assert!(event_index(&events, "cli.peer_ready") < event_index(&events, "cli.route_cidrs"));
+    assert!(event_index(&events, "cli.route_cidrs") < event_index(&events, "route.destination_capture"));
+}
+
+#[test]
+fn destination_capture_failure_returns_rollback_without_unproven_removal() {
+    let events = SharedEvents::new();
+    let (binary, cli, secret) = fixture_paths("destination-capture-failure");
+    let state_path = binary.parent().expect("fixture parent").join("state.json");
+    let mut service = WindowsTunnelSessionService::new(
+        fake_process_runner(events.clone(), None, None),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        FakeRoutePort::destination_capture_fails(events.clone()),
+    );
+
+    let error = service
+        .start(start_request(binary, cli, secret, state_path))
+        .expect_err("destination ownership capture failure must abort cleanup");
+    assert_eq!(error.code, WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE);
+    let events = events.snapshot();
+    assert!(event_index(&events, "route.destination_capture") < event_index(&events, "route.restore"));
+    assert!(event_index(&events, "route.restore") < event_index(&events, "process.stop"));
+    assert!(!events.iter().any(|event| event.starts_with("route.destination_remove")));
+}
+
+#[test]
+fn destination_removal_failure_retains_owned_state_and_skips_later_cleanup() {
+    let owner_events = SharedEvents::new();
+    let (binary, cli, secret) = fixture_paths("destination-removal-failure");
+    let state_path = binary.parent().expect("fixture parent").join("state.json");
+    let mut owner = WindowsTunnelSessionService::new(
+        fake_process_runner(owner_events.clone(), None, None),
+        FakeCliRunner {
+            events: owner_events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        FakeRoutePort::ready(owner_events.clone()),
+    );
+    owner
+        .start(start_request(binary.clone(), cli.clone(), secret, state_path.clone()))
+        .expect("owner starts a session");
+
+    let events = SharedEvents::new();
+    let mut recovered = WindowsTunnelSessionService::new(
+        fake_process_runner(events.clone(), Some(binary), Some(cli)),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        FakeRoutePort::destination_removal_fails(events.clone()),
+    );
+    let error = recovered
+        .stop(&state_path, true)
+        .expect_err("destination removal failure must stop cleanup");
+    assert_eq!(error.code, WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE);
+    let events = events.snapshot();
+    let destination_remove = event_index(&events, "route.destination_remove");
+    assert!(!events.iter().any(|event| event.starts_with("route.restore")));
+    assert!(!events.iter().any(|event| event.starts_with("process.stop")));
+    assert!(destination_remove > event_index(&events, "route.destination_recover"));
+    assert_eq!(
+        read_tunnel_state(&state_path)
+            .expect("failed cleanup state remains persisted")
+            .state,
+        WindowsTunnelLifecycleState::Failed
+    );
+    recovered
+        .stop(&state_path, true)
+        .expect_err("owned failed session must remain available for a later retry");
 }
 
 #[test]
@@ -818,10 +986,14 @@ fn fresh_service_stop_requires_recovery_proof_before_cleanup() {
     let events = recovered_events.snapshot();
     let process_recovered = event_index(&events, "process.recover");
     let route_recovered = event_index(&events, "route.recover");
+    let destination_recovered = event_index(&events, "route.destination_recover");
+    let destination_removed = event_index(&events, "route.destination_remove");
     let route_restored = event_index(&events, "route.restore");
     let process_stopped = event_index(&events, "process.stop");
     assert!(process_recovered < route_recovered);
-    assert!(route_recovered < route_restored);
+    assert!(route_recovered < destination_recovered);
+    assert!(destination_recovered < destination_removed);
+    assert!(destination_removed < route_restored);
     assert!(route_restored < process_stopped);
     assert!(events.contains(&format!(
         "route.recover:{}",
@@ -987,6 +1159,47 @@ fn native_windows_recovery_and_removal_require_exact_bypass_proof() {
     );
     assert!(!removal.contains("route.exe"));
     assert!(!removal.contains("DELETE"));
+}
+
+#[test]
+fn native_windows_route_snapshot_requires_up_physical_adapter_proof() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+    let snapshot_start = source
+        .find("fn native_route_snapshot(")
+        .expect("native endpoint route snapshot exists");
+    let snapshot = &source[snapshot_start..];
+    assert!(
+        snapshot.contains("Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -Physical"),
+        "selected underlay interface must be proven physical"
+    );
+    assert!(snapshot.contains("Status -eq 'Up'"));
+    assert!(snapshot.contains("if ($null -eq $physical)"));
+}
+
+#[test]
+fn native_windows_destination_routes_use_bounded_active_store_exact_tuple_proof() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+    let destination_start = source
+        .find("fn native_destination_route_snapshot(")
+        .expect("native destination route snapshot exists");
+    let destination_end = source[destination_start..]
+        .find("\n#[cfg(not(windows))]")
+        .expect("native destination route helpers are bounded");
+    let destination = &source[destination_start..destination_start + destination_end];
+    for fragment in [
+        "Get-NetRoute -PolicyStore ActiveStore",
+        "-DestinationPrefix",
+        "-NextHop",
+        "-InterfaceIndex",
+        "-RouteMetric",
+        "$matches.Count -ne 1",
+        "Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -Physical",
+        "Remove-NetRoute -InputObject $matches[0]",
+    ] {
+        assert!(destination.contains(fragment), "destination proof contains {fragment}");
+    }
+    assert!(!destination.contains("route.exe DELETE"));
+    assert!(!destination.contains("-DestinationPrefix '*"));
 }
 
 #[test]
