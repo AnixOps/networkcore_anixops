@@ -344,6 +344,9 @@ fn state_writer_uses_synced_unique_sibling_and_atomic_replacement() {
     assert!(temporary.contains("directory.join("));
     assert!(temporary.contains(".create_new(true)"));
     assert!(temporary.contains("file.metadata()?.is_file()"));
+    assert!(!temporary.contains("file_name().and_then(|name| name.to_str())"));
+    assert!(temporary.contains("let file_name = path.file_name().ok_or_else("));
+    assert!(temporary.contains("temporary_name.push(file_name)"));
 
     let windows_replace = "#[cfg(windows)]\nfn replace_state_file(";
     let windows_replace_start = source

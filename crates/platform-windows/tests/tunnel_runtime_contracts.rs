@@ -1175,6 +1175,26 @@ fn stop_removes_destination_before_persisting_stopping_state() {
 }
 
 #[test]
+fn stop_never_persists_transient_stopping_state() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+    let stop_marker =
+        "    pub fn stop(&mut self, state_path: &Path, confirm: bool) -> DomainResult<WindowsTunnelState> {";
+    let stop_start = source
+        .find(stop_marker)
+        .expect("stop implementation exists");
+    let stop_end = source[stop_start..]
+        .find("\n    fn prepare_start(")
+        .expect("stop implementation ends before start preparation");
+    let stop = &source[stop_start..stop_start + stop_end];
+
+    assert!(stop.contains("stopping.state = WindowsTunnelLifecycleState::Stopping"));
+    assert!(
+        !stop.contains("write_tunnel_state(&state_path, &stopping)"),
+        "a post-removal stopping write can leave an unrecoverable running record"
+    );
+}
+
+#[test]
 fn native_windows_elevation_probe_is_explicit_and_fail_closed() {
     let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
     let windows_marker = "#[cfg(windows)]\npub fn native_windows_is_elevated() -> bool {";
