@@ -2399,7 +2399,7 @@ fn native_windows_elevation_probe_is_explicit_and_fail_closed() {
 }
 
 #[test]
-fn native_windows_process_start_discards_child_standard_streams() {
+fn native_windows_process_start_uses_hardened_child_factory_and_discards_streams() {
     let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
     let command_builder_marker = "#[cfg(windows)]\nfn native_easytier_process_command(";
     let command_builder_start = source
@@ -2413,6 +2413,9 @@ fn native_windows_process_start_discards_child_standard_streams() {
     let command_builder =
         &source[command_builder_start..command_builder_start + command_builder_end];
 
+    let hardened_factory = command_builder
+        .find("native_windows_hardened_command(binary_path)")
+        .expect("core process command uses the hardened child factory");
     let config_flag = command_builder
         .find(".arg(\"--config-file\")")
         .expect("command builder preserves the config-file flag");
@@ -2423,7 +2426,9 @@ fn native_windows_process_start_discards_child_standard_streams() {
         .find(".arg(\"--disable-env-parsing\")")
         .expect("command builder preserves disabled environment parsing");
     assert!(
-        config_flag < config_path && config_path < disable_environment_parsing,
+        hardened_factory < config_flag
+            && config_flag < config_path
+            && config_path < disable_environment_parsing,
         "command builder preserves the canonical EasyTier argument order"
     );
 
@@ -2460,6 +2465,65 @@ fn native_windows_process_start_discards_child_standard_streams() {
         command_builder_call < spawn,
         "native process start configures the command before spawning it"
     );
+}
+
+#[test]
+fn native_windows_runtime_child_commands_use_only_trusted_factories() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+
+    assert!(
+        source.contains(
+            "use crate::tunnel_security::{\n    native_windows_hardened_command, native_windows_system_command, NativeWindowsSystemTool,\n};"
+        ),
+        "runtime imports the trusted child command factories"
+    );
+    for forbidden in [
+        "Command::new(\"powershell.exe\")",
+        "Command::new(\"route.exe\")",
+        "std::process::Command::new(\"powershell.exe\")",
+        "native_silent_route_command(&str)",
+        "native_silent_route_command(\"route.exe\")",
+        "native_silent_route_command(\"powershell.exe\")",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "runtime child creation must not use {forbidden}"
+        );
+    }
+
+    for required in [
+        "native_windows_hardened_command(binary_path)",
+        "native_windows_hardened_command(path)",
+        "native_windows_system_command(NativeWindowsSystemTool::PowerShell)",
+        "native_windows_system_command(NativeWindowsSystemTool::Route)",
+    ] {
+        assert!(
+            source.contains(required),
+            "runtime native child creation includes {required}"
+        );
+    }
+
+    let route_helper_marker = "#[cfg(windows)]\nfn native_silent_system_command(";
+    let route_helper_start = source
+        .find(route_helper_marker)
+        .expect("typed silent system-command helper exists");
+    let route_helper_end = source[route_helper_start..]
+        .find("\n#[cfg(windows)]\nfn native_add_bypass(")
+        .expect("typed silent system-command helper ends before route addition");
+    let route_helper = &source[route_helper_start..route_helper_start + route_helper_end];
+    let trusted_factory = route_helper
+        .find("native_windows_system_command(tool)")
+        .expect("silent helper delegates to the trusted system factory");
+    let stdin = route_helper
+        .find(".stdin(Stdio::null())")
+        .expect("silent helper retains null stdin");
+    let stdout = route_helper
+        .find(".stdout(Stdio::null())")
+        .expect("silent helper discards child stdout");
+    let stderr = route_helper
+        .find(".stderr(Stdio::null())")
+        .expect("silent helper discards child stderr");
+    assert!(trusted_factory < stdin && stdin < stdout && stdout < stderr);
 }
 
 #[test]
@@ -2696,29 +2760,29 @@ fn native_windows_destination_normalization_uses_canonical_ipv4_policy() {
 }
 
 #[test]
-fn native_windows_bypass_commands_discard_child_standard_streams() {
+fn native_windows_bypass_commands_use_typed_trusted_tools_and_discard_child_streams() {
     let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
     let command_marker =
-        "#[cfg(windows)]\nfn native_silent_route_command(program: &str) -> Command {";
+        "#[cfg(windows)]\nfn native_silent_system_command(tool: NativeWindowsSystemTool)";
     let command_start = source
         .find(command_marker)
-        .expect("native silent route command helper exists");
+        .expect("native typed silent system command helper exists");
     let command_end = source[command_start..]
         .find("\n#[cfg(windows)]\nfn native_add_bypass(")
-        .expect("native silent route command helper ends before route addition");
+        .expect("native typed silent system command helper ends before route addition");
     let command = &source[command_start..command_start + command_end];
     let stdin = command
         .find(".stdin(Stdio::null())")
-        .expect("native route commands discard child stdin");
+        .expect("native system commands discard child stdin");
     let stdout = command
         .find(".stdout(Stdio::null())")
-        .expect("native route commands discard child stdout");
+        .expect("native system commands discard child stdout");
     let stderr = command
         .find(".stderr(Stdio::null())")
-        .expect("native route commands discard child stderr");
+        .expect("native system commands discard child stderr");
     assert!(
         stdin < stdout && stdout < stderr,
-        "native route command helper configures every child standard stream"
+        "native system command helper configures every child standard stream"
     );
 
     for (name, marker, end_marker) in [
@@ -2744,14 +2808,14 @@ fn native_windows_bypass_commands_discard_child_standard_streams() {
             .expect("native bypass helper has a bounded source slice");
         let helper = &source[start..start + end];
         let silent_command = helper
-            .find("native_silent_route_command(")
-            .expect("native bypass helper uses the silent route command helper");
+            .find("native_silent_system_command(")
+            .expect("native bypass helper uses the typed trusted system command helper");
         let status = helper
             .find(".status()")
             .expect("native bypass helper executes its configured command");
         assert!(
             silent_command < status,
-            "native {name} bypass helper configures silent streams before status"
+            "native {name} bypass helper configures trusted silent streams before status"
         );
     }
 }

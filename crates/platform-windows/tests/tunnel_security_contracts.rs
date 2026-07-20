@@ -88,6 +88,83 @@ fn native_windows_prepare_uses_trusted_programdata_and_exact_storage_ownership()
 }
 
 #[test]
+fn native_windows_system_commands_resolve_trusted_tools_and_clear_environment() {
+    let source = include_str!("../src/tunnel_security.rs").replace("\r\n", "\n");
+
+    assert!(
+        source.contains("Win32::System::SystemInformation::GetSystemDirectoryW"),
+        "trusted system tools are rooted in the Win32 system-directory API"
+    );
+    assert!(source.contains("pub(crate) enum NativeWindowsSystemTool"));
+    assert!(source.contains("PowerShell,"));
+    assert!(source.contains("Route,"));
+
+    let system_factory = native_function(&source, "native_windows_system_command");
+    for required in [
+        "native_windows_system_directory()?",
+        "NativeWindowsSystemTool::PowerShell",
+        "WindowsPowerShell",
+        "powershell.exe",
+        "route.exe",
+        "fs::canonicalize(executable)?",
+        "native_windows_command_with_trusted_environment",
+    ] {
+        assert!(
+            system_factory.contains(required),
+            "system command factory contains {required}"
+        );
+    }
+
+    let hardened_factory = native_function(&source, "native_windows_hardened_command");
+    assert!(
+        hardened_factory.contains("fs::canonicalize(executable)?"),
+        "explicit child executables are canonicalized before command creation"
+    );
+    assert!(hardened_factory.contains("native_windows_command_with_trusted_environment"));
+
+    let environment = native_function(&source, "native_windows_command_with_trusted_environment");
+    for required in [
+        ".env_clear()",
+        ".env(\"PATH\", &system_directory)",
+        ".env(\"PSModulePath\", powershell_module_root)",
+        ".current_dir(&system_directory)",
+        ".stdin(Stdio::null())",
+    ] {
+        assert!(
+            environment.contains(required),
+            "trusted child environment contains {required}"
+        );
+    }
+    assert!(
+        environment.contains("system_root.join(\"System32\")"),
+        "PowerShell module root is derived from the Win32 system root"
+    );
+
+    for forbidden in [
+        "Command::new(\"powershell.exe\")",
+        "Command::new(\"route.exe\")",
+        ".env(\"SystemRoot\"",
+        ".env(\"PSModulePath\", std::env",
+        "std::env::var(\"PATH\")",
+        "std::env::var(\"SystemRoot\")",
+        "std::env::var(\"PSModulePath\")",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "trusted command boundary must not inherit {forbidden}"
+        );
+    }
+
+    assert_eq!(
+        source
+            .matches("native_windows_system_command(NativeWindowsSystemTool::PowerShell)")
+            .count(),
+        3,
+        "every security PowerShell invocation uses the trusted system command factory"
+    );
+}
+
+#[test]
 fn existing_state_validation_uses_inspection_only_storage_checks() {
     let source = include_str!("../src/tunnel_security.rs").replace("\r\n", "\n");
     let inspection = native_script(&source, "NATIVE_WINDOWS_TUNNEL_INSPECT_SCRIPT");
@@ -138,6 +215,19 @@ fn native_script<'a>(source: &'a str, name: &str) -> &'a str {
         .unwrap_or_else(|| panic!("{name} is bounded"));
 
     &source[start..start + end]
+}
+
+fn native_function<'a>(source: &'a str, name: &str) -> &'a str {
+    let marker = format!("fn {name}(");
+    let start = source
+        .find(&marker)
+        .unwrap_or_else(|| panic!("{name} exists"));
+    let next = source[start + marker.len()..]
+        .find("\n#[cfg(windows)]\nfn ")
+        .map(|offset| start + marker.len() + offset)
+        .unwrap_or(source.len());
+
+    &source[start..next]
 }
 
 #[cfg(not(windows))]
