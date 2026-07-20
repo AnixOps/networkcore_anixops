@@ -2517,7 +2517,7 @@ fn native_destination_route_key(routes: &[NativeDestinationRoute]) -> String {
 #[cfg(windows)]
 fn native_exact_destination_route_proof_script(route: &NativeDestinationRoute) -> String {
     format!(
-        "$matches = @(Get-NetRoute -PolicyStore ActiveStore -DestinationPrefix '{}' -NextHop '{}' -InterfaceIndex {} -RouteMetric {} -ErrorAction Stop)\nif ($matches.Count -ne 1) {{ exit 2 }}\n$route = $matches[0]\n$physical = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -Physical -ErrorAction SilentlyContinue\nif ($null -ne $physical) {{ exit 2 }}\n$adapter = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction Stop\nif ($adapter.Status -ne 'Up') {{ exit 2 }}",
+        "$matches = @(Get-NetRoute -PolicyStore ActiveStore -DestinationPrefix '{}' -NextHop '{}' -InterfaceIndex {} -RouteMetric {} -ErrorAction Stop)\nif ($matches.Count -ne 1) {{ exit 2 }}\n$route = $matches[0]\n$physical = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -Physical -ErrorAction Stop\nif ($null -ne $physical) {{ exit 2 }}\n$adapter = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction Stop\nif ($adapter.Status -ne 'Up') {{ exit 2 }}",
         route.destination_cidr, route.gateway, route.interface_index, route.metric
     )
 }
@@ -2533,7 +2533,7 @@ fn native_exact_destination_route_removal_script(route: &NativeDestinationRoute)
 #[cfg(windows)]
 fn native_cleanup_destination_presence(route: &NativeDestinationRoute) -> DomainResult<bool> {
     let script = format!(
-        "$ErrorActionPreference = 'Stop'\ntry {{\n$matches = @(Get-NetRoute -PolicyStore ActiveStore -DestinationPrefix '{}' -NextHop '{}' -InterfaceIndex {} -RouteMetric {} -ErrorAction Stop)\nif ($matches.Count -eq 0) {{ exit 3 }}\nif ($matches.Count -ne 1) {{ exit 2 }}\n$route = $matches[0]\n$physical = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -Physical -ErrorAction SilentlyContinue\nif ($null -ne $physical) {{ exit 2 }}\n$adapter = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction Stop\nif ($adapter.Status -ne 'Up') {{ exit 2 }}\n}}",
+        "$ErrorActionPreference = 'Stop'\ntry {{\n$matches = @(Get-NetRoute -PolicyStore ActiveStore -DestinationPrefix '{}' -NextHop '{}' -InterfaceIndex {} -RouteMetric {} -ErrorAction Stop)\nif ($matches.Count -eq 0) {{ exit 3 }}\nif ($matches.Count -ne 1) {{ exit 2 }}\n$route = $matches[0]\n$physical = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -Physical -ErrorAction Stop\nif ($null -ne $physical) {{ exit 2 }}\n$adapter = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction Stop\nif ($adapter.Status -ne 'Up') {{ exit 2 }}\n}}",
         route.destination_cidr, route.gateway, route.interface_index, route.metric
     ) + "\ncatch { exit 2 }";
     let status = native_silent_route_command("powershell.exe")
