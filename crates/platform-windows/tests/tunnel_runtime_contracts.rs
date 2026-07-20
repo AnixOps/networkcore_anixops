@@ -1493,7 +1493,12 @@ fn fresh_service_rejects_recovered_cli_that_no_longer_matches_its_pin() {
         FakeRoutePort::ready(owner_events),
     );
     owner
-        .start(start_request(binary, cli.clone(), secret, state_path.clone()))
+        .start(start_request(
+            binary,
+            cli.clone(),
+            secret,
+            state_path.clone(),
+        ))
         .expect("owner starts a persisted session");
     fs::write(&cli, b"fixture-easytier-cli-replaced")
         .expect("recovered CLI fixture can be replaced after state persistence");
