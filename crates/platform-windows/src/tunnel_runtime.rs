@@ -2057,7 +2057,7 @@ mod native_process_proof_tests {
         "d33d1d119b40c768c4d96c66236ba1c033e72a9c041e88aa9c84bd67a38d04a5";
 
     #[test]
-    fn native_process_proof_requires_exact_arguments_and_records_creation_filetime() {
+    fn native_process_proof_rejects_untrusted_binary_and_requires_exact_arguments() {
         let root = std::env::temp_dir().join(format!(
             "networkcore-windows-native-proof-{}",
             std::process::id()
@@ -2082,6 +2082,7 @@ mod native_process_proof_tests {
             binary_path.display(),
             config_path.display()
         );
+        assert!(native_command_matches(&exact_command_line, &config_path));
         let proof = native_process_proof_from_inspection(
             NativeProcessInspection {
                 process_id: process.process_id,
@@ -2094,29 +2095,15 @@ mod native_process_proof_tests {
             Some(&binary_path),
             FIXTURE_BINARY_SHA256,
             &config_path,
-        )
-        .expect("exact synthetic native inspection is accepted");
-        assert_eq!(proof.creation_filetime, creation_filetime);
+        );
+        assert!(proof.is_none());
 
         let extra_argument_command_line = format!(
             "\"{}\" --config-file \"{}\" --disable-env-parsing --unexpected",
             binary_path.display(),
             config_path.display()
         );
-        let extra_argument_proof = native_process_proof_from_inspection(
-            NativeProcessInspection {
-                process_id: process.process_id,
-                creation_marker: process.creation_marker.clone(),
-                creation_filetime,
-                executable_path: binary_path.to_string_lossy().into_owned(),
-                command_line: extra_argument_command_line,
-            },
-            &process,
-            Some(&binary_path),
-            FIXTURE_BINARY_SHA256,
-            &config_path,
-        );
-        assert!(extra_argument_proof.is_none());
+        assert!(!native_command_matches(&extra_argument_command_line, &config_path));
     }
 
     #[test]
