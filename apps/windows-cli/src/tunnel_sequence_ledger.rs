@@ -146,6 +146,7 @@ impl SequenceLedgerStore {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(&self.path)
             .map_err(|_| delivery_invalid_error())?;
         file.lock_exclusive()
