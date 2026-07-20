@@ -433,8 +433,7 @@ where
         let state = self.state_port.read(&state_path)?;
         let (cleanup_state, cleanup_result) = match state.state {
             WindowsTunnelLifecycleState::Running => {
-                self.ensure_owned_session(&state_path, &state)?;
-                self.recover_running_routes(&state_path)?;
+                self.recover_running_session(&state_path, &state)?;
 
                 let mut stopping = state.clone();
                 stopping.state = WindowsTunnelLifecycleState::Stopping;
@@ -584,6 +583,16 @@ where
         let recovered = self.recover_owned_session(&state_path, state)?;
         self.owned_sessions.insert(state_path, recovered);
         Ok(())
+    }
+
+    fn recover_running_session(
+        &mut self,
+        state_path: &Path,
+        state: &WindowsTunnelState,
+    ) -> DomainResult<()> {
+        let recovered = self.recover_owned_session(state_path, state)?;
+        self.owned_sessions.insert(state_path.to_path_buf(), recovered);
+        self.recover_running_routes(state_path)
     }
 
     fn recover_owned_session(
@@ -1686,11 +1695,6 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
     fn recover_owned_bypass(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()> {
         let bypasses = native_bypass_routes_from_snapshot(snapshot)?;
         let key = native_bypass_key(&bypasses);
-        if self.owned_bypasses.contains_key(&key) {
-            return Err(endpoint_bypass_error(
-                "persisted endpoint bypass is already owned by this session",
-            ));
-        }
         for bypass in &bypasses {
             native_prove_bypass(bypass)?;
         }
@@ -1786,11 +1790,6 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
     ) -> DomainResult<()> {
         let owned = native_destination_routes_from_snapshot(owned)?;
         let key = native_destination_route_key(&owned);
-        if self.owned_destination_routes.contains_key(&key) {
-            return Err(endpoint_bypass_error(
-                "persisted destination route ownership is already held by this session",
-            ));
-        }
         for route in &owned {
             native_prove_virtual_destination_route(route)?;
         }
