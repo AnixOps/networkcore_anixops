@@ -3,7 +3,9 @@ use networkcore_windows::{
     cli_help_text, handle_entrypoint, handle_entrypoint_with_tunnel, handle_parse_error,
     parse_args, render_response, OutputFormat, WindowsCliCommand, WindowsCliExitCode,
     WindowsCliResponse, WindowsTunnelCommandResult, WindowsTunnelCommandService,
+    WindowsTunnelDeliveryLoader, WindowsTunnelLifecyclePort, WindowsTunnelPrivilegePort,
     WindowsTunnelStartArgs, WindowsTunnelStatusArgs, WindowsTunnelStopArgs,
+    DeliveryBackedWindowsTunnelCommandService,
     CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE, CLI_WINDOWS_ARTIFACT_READY_CODE,
     CLI_WINDOWS_SYSTEM_MUTATION_BLOCKED_CODE, COMMAND_NAME,
     WINDOWS_CLI_SUBSCRIPTION_COMPATIBILITY_STATUS,
@@ -12,12 +14,16 @@ use platform_windows::tunnel_config::{
     OwnedProcessHandle, WindowsRouteSnapshotEntry, WindowsTunnelLifecycleState,
     WindowsTunnelRuntimeOwnership, WindowsTunnelState, WINDOWS_TUNNEL_STATE_SCHEMA_VERSION,
 };
-use platform_windows::tunnel_runtime::WINDOWS_TUNNEL_STATUS_UNAVAILABLE_CODE;
+use platform_windows::tunnel_runtime::{
+    WindowsTunnelStartRequest, WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE,
+    WINDOWS_TUNNEL_STATUS_UNAVAILABLE_CODE,
+};
 use platform_windows::{
     ReadOnlyWindowsPlatformCapabilityService, WINDOWS_ACTIVE_STATUS, WINDOWS_BLOCKED_STATUS,
-    WINDOWS_CLI_ARTIFACT_GATE, WINDOWS_CLI_RELEASE_ASSETS_STATUS, WINDOWS_CLI_SOURCE_IDENTITY,
+    WindowsTunnelPlan, WindowsTunnelRouteIntent, WINDOWS_CLI_ARTIFACT_GATE,
+    WINDOWS_CLI_RELEASE_ASSETS_STATUS, WINDOWS_CLI_SOURCE_IDENTITY,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const FOREGROUND_TUNNEL_MUTATION_POLICY: &str = "explicit-confirm-external-easytier-only";
 const EASYTIER_CORE_COMMAND_FRAGMENT: &str = "easytier-core.exe --config-file";
@@ -100,6 +106,68 @@ fn fixture_tunnel_command_result() -> WindowsTunnelCommandResult {
         peer_ready: true,
         route_ready: true,
         route_count: 1,
+    }
+}
+
+fn fixture_stopped_state() -> WindowsTunnelState {
+    let mut state = fixture_tunnel_state();
+    state.state = WindowsTunnelLifecycleState::Stopped;
+    state
+}
+
+fn fixture_tunnel_plan() -> WindowsTunnelPlan {
+    WindowsTunnelPlan {
+        session_id: "fixture-session".to_string(),
+        tenant_id: "fixture-tenant".to_string(),
+        client_bundle_id: "fixture-client-bundle".to_string(),
+        pop_bundle_id: "fixture-pop-bundle".to_string(),
+        client_sequence: 3,
+        pop_sequence: 4,
+        selected_pop_id: "pop-a".to_string(),
+        selected_endpoint: "198.51.100.10:11010".to_string(),
+        route_intents: vec![WindowsTunnelRouteIntent {
+            route_id: "fixture-route".to_string(),
+            destination_cidr: "203.0.113.0/24".to_string(),
+            service_chain_id: "fixture-chain".to_string(),
+            direct_fallback: false,
+        }],
+        endpoint_bypass_required: true,
+        plan_digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            .to_string(),
+    }
+}
+
+fn fixture_tunnel_start_args() -> WindowsTunnelStartArgs {
+    match parse_args(tunnel_start_arguments(true, true, true)).expect("fixture tunnel start") {
+        WindowsCliCommand::TunnelStart(args) => args,
+        command => panic!("expected tunnel start command, got {command:?}"),
+    }
+}
+
+fn fixture_tunnel_status_args() -> WindowsTunnelStatusArgs {
+    match parse_args([
+        "tunnel",
+        "status",
+        "C:/ProgramData/AnixOps/tunnel-state.json",
+    ])
+    .expect("fixture tunnel status")
+    {
+        WindowsCliCommand::TunnelStatus(args) => args,
+        command => panic!("expected tunnel status command, got {command:?}"),
+    }
+}
+
+fn fixture_tunnel_stop_args() -> WindowsTunnelStopArgs {
+    match parse_args([
+        "tunnel",
+        "stop",
+        "C:/ProgramData/AnixOps/tunnel-state.json",
+        "--confirm",
+    ])
+    .expect("fixture tunnel stop")
+    {
+        WindowsCliCommand::TunnelStop(args) => args,
+        command => panic!("expected tunnel stop command, got {command:?}"),
     }
 }
 
@@ -250,6 +318,79 @@ impl WindowsTunnelCommandService for RecordingTunnelCommandService {
             confirm: args.confirm,
         });
         Ok(fixture_tunnel_command_result())
+    }
+}
+
+#[derive(Clone)]
+struct FixedPrivilege(bool);
+
+impl WindowsTunnelPrivilegePort for FixedPrivilege {
+    fn is_elevated(&self) -> bool {
+        self.0
+    }
+}
+
+#[derive(Clone)]
+struct RecordingDeliveryLoader {
+    plan: WindowsTunnelPlan,
+    calls: std::rc::Rc<std::cell::Cell<usize>>,
+}
+
+impl WindowsTunnelDeliveryLoader for RecordingDeliveryLoader {
+    fn load_plan(&self, _args: &WindowsTunnelStartArgs) -> DomainResult<WindowsTunnelPlan> {
+        self.calls.set(self.calls.get() + 1);
+        Ok(self.plan.clone())
+    }
+}
+
+#[derive(Default)]
+struct LifecycleEvents {
+    started: Vec<WindowsTunnelStartRequest>,
+    status_calls: Vec<PathBuf>,
+    stop_calls: Vec<(PathBuf, bool)>,
+}
+
+#[derive(Clone)]
+struct RecordingLifecyclePort {
+    events: std::rc::Rc<std::cell::RefCell<LifecycleEvents>>,
+    running_state: WindowsTunnelState,
+    stopped_state: WindowsTunnelState,
+}
+
+impl RecordingLifecyclePort {
+    fn with_states(
+        events: std::rc::Rc<std::cell::RefCell<LifecycleEvents>>,
+        running_state: WindowsTunnelState,
+        stopped_state: WindowsTunnelState,
+    ) -> Self {
+        Self {
+            events,
+            running_state,
+            stopped_state,
+        }
+    }
+}
+
+impl WindowsTunnelLifecyclePort for RecordingLifecyclePort {
+    fn start(&mut self, request: WindowsTunnelStartRequest) -> DomainResult<WindowsTunnelState> {
+        self.events.borrow_mut().started.push(request);
+        Ok(self.running_state.clone())
+    }
+
+    fn status(&mut self, state_path: &Path) -> DomainResult<WindowsTunnelState> {
+        self.events
+            .borrow_mut()
+            .status_calls
+            .push(state_path.to_path_buf());
+        Ok(self.running_state.clone())
+    }
+
+    fn stop(&mut self, state_path: &Path, confirm: bool) -> DomainResult<WindowsTunnelState> {
+        self.events
+            .borrow_mut()
+            .stop_calls
+            .push((state_path.to_path_buf(), confirm));
+        Ok(self.stopped_state.clone())
     }
 }
 
@@ -737,4 +878,137 @@ fn confirmed_tunnel_stop_delegates_typed_args_without_launching_process() {
     let stop = &tunnel.stop_calls[0];
     assert_eq!(stop.state_path, PathBuf::from(state_path));
     assert!(stop.confirm);
+}
+
+#[test]
+fn delivery_backed_tunnel_start_requires_elevation_before_delivery_load() {
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+    let events = std::rc::Rc::new(std::cell::RefCell::new(LifecycleEvents::default()));
+    let lifecycle = RecordingLifecyclePort::with_states(
+        events.clone(),
+        fixture_tunnel_state(),
+        fixture_stopped_state(),
+    );
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        lifecycle,
+        RecordingDeliveryLoader {
+            plan: fixture_tunnel_plan(),
+            calls: calls.clone(),
+        },
+        FixedPrivilege(false),
+    );
+
+    let error = service
+        .start(&fixture_tunnel_start_args())
+        .expect_err("unelevated start is denied");
+
+    assert_eq!(error.code, WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE);
+    assert_eq!(calls.get(), 0);
+    assert!(events.borrow().started.is_empty());
+}
+
+#[test]
+fn delivery_backed_tunnel_stop_requires_elevation_before_lifecycle_stop() {
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+    let events = std::rc::Rc::new(std::cell::RefCell::new(LifecycleEvents::default()));
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        RecordingLifecyclePort::with_states(
+            events.clone(),
+            fixture_tunnel_state(),
+            fixture_stopped_state(),
+        ),
+        RecordingDeliveryLoader {
+            plan: fixture_tunnel_plan(),
+            calls,
+        },
+        FixedPrivilege(false),
+    );
+
+    let error = service
+        .stop(&fixture_tunnel_stop_args())
+        .expect_err("unelevated stop is denied");
+
+    assert_eq!(error.code, WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE);
+    assert!(events.borrow().stop_calls.is_empty());
+}
+
+#[test]
+fn delivery_backed_tunnel_service_delegates_verified_plan_and_reports_readiness() {
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+    let expected_plan = fixture_tunnel_plan();
+    let events = std::rc::Rc::new(std::cell::RefCell::new(LifecycleEvents::default()));
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        RecordingLifecyclePort::with_states(
+            events.clone(),
+            fixture_tunnel_state(),
+            fixture_stopped_state(),
+        ),
+        RecordingDeliveryLoader {
+            plan: expected_plan.clone(),
+            calls: calls.clone(),
+        },
+        FixedPrivilege(true),
+    );
+
+    let result = service
+        .start(&fixture_tunnel_start_args())
+        .expect("elevated verified start delegates");
+
+    assert_eq!(calls.get(), 1);
+    assert_eq!(events.borrow().started.len(), 1);
+    assert_eq!(events.borrow().started[0].plan, expected_plan);
+    assert_eq!(result.state, fixture_tunnel_state());
+    assert!(result.peer_ready);
+    assert!(result.route_ready);
+    assert_eq!(result.route_count, 1);
+}
+
+#[test]
+fn delivery_backed_tunnel_status_and_stop_render_runtime_evidence() {
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+    let events = std::rc::Rc::new(std::cell::RefCell::new(LifecycleEvents::default()));
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        RecordingLifecyclePort::with_states(
+            events.clone(),
+            fixture_tunnel_state(),
+            fixture_stopped_state(),
+        ),
+        RecordingDeliveryLoader {
+            plan: fixture_tunnel_plan(),
+            calls,
+        },
+        FixedPrivilege(true),
+    );
+
+    let status = service
+        .status(&fixture_tunnel_status_args())
+        .expect("status is read-only");
+    assert!(status.peer_ready);
+    assert!(status.route_ready);
+    assert_eq!(status.route_count, 1);
+
+    let stopped = service
+        .stop(&fixture_tunnel_stop_args())
+        .expect("elevated stop delegates");
+    assert!(!stopped.peer_ready);
+    assert!(!stopped.route_ready);
+    assert_eq!(stopped.route_count, 0);
+    assert_eq!(events.borrow().status_calls.len(), 1);
+    assert_eq!(
+        events.borrow().stop_calls,
+        vec![(fixture_tunnel_stop_args().state_path, true)]
+    );
+}
+
+#[test]
+fn native_main_routes_tunnel_commands_to_the_native_service() {
+    let source = include_str!("../src/main.rs").replace("\r\n", "\n");
+
+    assert!(source.contains("native_windows_tunnel_command_service()"));
+    assert!(source.contains("handle_entrypoint_with_tunnel"));
+    assert!(source.contains("WindowsCliCommand::TunnelStart"));
+    assert!(source.contains("WindowsCliCommand::TunnelStatus"));
+    assert!(source.contains("WindowsCliCommand::TunnelStop"));
+    assert_eq!(source.matches("native_windows_tunnel_command_service()").count(), 1);
+    assert_eq!(source.matches("handle_entrypoint_with_tunnel").count(), 1);
 }
