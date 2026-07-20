@@ -275,12 +275,15 @@ fn create_state_temporary_file(path: &Path) -> std::io::Result<(PathBuf, fs::Fil
             "tunnel state path has no parent directory",
         )
     })?;
-    let file_name = path.file_name().and_then(|name| name.to_str()).ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "tunnel state path has no file name",
-        )
-    })?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "tunnel state path has no file name",
+            )
+        })?;
 
     for _ in 0..64 {
         let sequence = STATE_TEMPORARY_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
@@ -398,7 +401,9 @@ pub(crate) fn canonical_destination_ipv4_cidrs<'a>(
     for destination_cidr in destination_cidrs {
         let destination_cidr = canonical_destination_ipv4_cidr(destination_cidr)?;
         if !seen.insert(destination_cidr.clone()) {
-            return Err(config_error("destination route prefixes contain a duplicate"));
+            return Err(config_error(
+                "destination route prefixes contain a duplicate",
+            ));
         }
         canonical.push(destination_cidr);
     }

@@ -22,8 +22,8 @@ use std::process::{Command, Stdio};
 use crate::tunnel_config::{
     canonical_destination_ipv4_cidrs, is_safe_tunnel_file_name, read_tunnel_state,
     render_easytier_config, verify_file_sha256, write_tunnel_state, EasyTierConfigRequest,
-    EasyTierLaunchSpec, OwnedProcessHandle, WindowsRouteSnapshotEntry,
-    WindowsTunnelLifecycleState, WindowsTunnelRuntimeOwnership, WindowsTunnelState,
+    EasyTierLaunchSpec, OwnedProcessHandle, WindowsRouteSnapshotEntry, WindowsTunnelLifecycleState,
+    WindowsTunnelRuntimeOwnership, WindowsTunnelState,
 };
 use crate::WindowsTunnelPlan;
 
