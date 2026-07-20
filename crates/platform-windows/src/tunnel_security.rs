@@ -172,16 +172,14 @@ pub struct NativeWindowsTunnelSecurePaths {
 }
 
 /// Creates and protects the fixed Windows tunnel storage root for an elevated start.
-pub fn native_windows_prepare_tunnel_secure_paths() -> DomainResult<
-    NativeWindowsTunnelSecurePaths,
-> {
+pub fn native_windows_prepare_tunnel_secure_paths() -> DomainResult<NativeWindowsTunnelSecurePaths>
+{
     native_windows_prepare_tunnel_secure_paths_impl()
 }
 
 #[cfg(windows)]
-fn native_windows_prepare_tunnel_secure_paths_impl() -> DomainResult<
-    NativeWindowsTunnelSecurePaths,
-> {
+fn native_windows_prepare_tunnel_secure_paths_impl() -> DomainResult<NativeWindowsTunnelSecurePaths>
+{
     let output = Command::new("powershell.exe")
         .arg("-NoProfile")
         .arg("-NonInteractive")
@@ -196,9 +194,8 @@ fn native_windows_prepare_tunnel_secure_paths_impl() -> DomainResult<
 }
 
 #[cfg(windows)]
-fn native_windows_inspect_tunnel_secure_paths_impl() -> DomainResult<
-    NativeWindowsTunnelSecurePaths,
-> {
+fn native_windows_inspect_tunnel_secure_paths_impl() -> DomainResult<NativeWindowsTunnelSecurePaths>
+{
     let output = Command::new("powershell.exe")
         .arg("-NoProfile")
         .arg("-NonInteractive")
@@ -213,9 +210,8 @@ fn native_windows_inspect_tunnel_secure_paths_impl() -> DomainResult<
 }
 
 #[cfg(not(windows))]
-fn native_windows_prepare_tunnel_secure_paths_impl() -> DomainResult<
-    NativeWindowsTunnelSecurePaths,
-> {
+fn native_windows_prepare_tunnel_secure_paths_impl() -> DomainResult<NativeWindowsTunnelSecurePaths>
+{
     Err(secure_path_error())
 }
 
@@ -324,7 +320,8 @@ fn native_windows_validate_state_path_in_directory(
     let candidate = canonical_directory.join(file_name);
     match fs::symlink_metadata(&candidate) {
         Ok(metadata) => {
-            if native_windows_metadata_is_reparse_point(&metadata) || !metadata.file_type().is_file()
+            if native_windows_metadata_is_reparse_point(&metadata)
+                || !metadata.file_type().is_file()
             {
                 return Err(secure_path_error());
             }
@@ -367,7 +364,11 @@ fn native_windows_protect_secret_file(path: &Path) -> DomainResult<()> {
         .stderr(Stdio::piped())
         .output()
         .map_err(|_| secure_path_error())?;
-    output.status.success().then_some(()).ok_or_else(secure_path_error)
+    output
+        .status
+        .success()
+        .then_some(())
+        .ok_or_else(secure_path_error)
 }
 
 fn secure_path_error() -> DomainError {

@@ -313,9 +313,7 @@ where
         args: &WindowsTunnelStatusArgs,
     ) -> DomainResult<WindowsTunnelCommandResult> {
         let state_path = self.paths.validate_existing_state(&args.state_path)?;
-        self.session
-            .status(&state_path)
-            .map(running_tunnel_result)
+        self.session.status(&state_path).map(running_tunnel_result)
     }
 
     fn stop(&mut self, args: &WindowsTunnelStopArgs) -> DomainResult<WindowsTunnelCommandResult> {
