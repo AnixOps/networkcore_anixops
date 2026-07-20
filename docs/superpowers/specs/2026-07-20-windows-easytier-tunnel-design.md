@@ -183,7 +183,13 @@ A fresh invocation resolves the redacted config filename only under the canonica
 It requires matching PID and creation-marker proof, then verifies the recovered core executable
 against the persisted hash before accepting a CLI with the persisted filename as a sibling under
 the same canonical core-binary directory. Neither recovered runtime path is persisted. Native
-recovery remains fail-closed until a later slice supplies the platform-specific proof.
+proof is an exact `Get-CimInstance Win32_Process -Filter "ProcessId = <u32>"` lookup paired with
+the UTC creation marker, canonical core path and hash pin, and a `CommandLineToArgvW` parse whose
+complete non-executable argument vector is exactly `--config-file <canonical-state-config>`
+followed by `--disable-env-parsing`, with no duplicate or additional arguments. It does not scan
+processes, enumerate candidates, persist raw command lines, or expose runtime paths in
+diagnostics. A fresh native stop remains fail-closed at the
+endpoint-bypass recovery gate until a later slice can prove the persisted bypass route.
 
 ### CLI layer
 

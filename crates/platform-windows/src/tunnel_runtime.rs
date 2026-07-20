@@ -68,6 +68,7 @@ pub trait EasyTierCliRunner {
 pub trait WindowsRoutePort {
     fn snapshot(&mut self, endpoints: &[IpAddr]) -> DomainResult<Vec<WindowsRouteSnapshotEntry>>;
     fn add_endpoint_bypass(&mut self, endpoints: &[IpAddr]) -> DomainResult<()>;
+    fn recover_owned_bypass(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()>;
     fn restore(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()>;
 }
 
@@ -136,6 +137,7 @@ where
         }
 
         let spec = EasyTierLaunchSpec {
+            session_id: prepared.plan.session_id.clone(),
             binary_path: prepared.binary_path.clone(),
             cli_path: prepared.cli_path.clone(),
             config_path: prepared.config_path.clone(),
@@ -144,15 +146,23 @@ where
         };
         let process_handle = match self.process_runner.start(&spec) {
             Ok(handle) => handle,
-            Err(_) => {
+            Err(error) => {
                 return Err(self.rollback_failed_start(
                     &route_snapshot,
                     None,
                     &prepared.config_path,
-                    start_error("EasyTier process could not be started"),
+                    error,
                 ));
             }
         };
+        if process_handle.session_id != spec.session_id {
+            return Err(self.rollback_failed_start(
+                &route_snapshot,
+                Some(&process_handle),
+                &prepared.config_path,
+                start_error("EasyTier process session identity does not match the tunnel plan"),
+            ));
+        }
 
         let readiness = self.verify_readiness(&prepared.cli_path, &prepared.plan);
         if let Err(error) = readiness {
@@ -201,6 +211,7 @@ where
                 route_snapshot,
                 route_cidrs: prepared.route_cidrs,
                 config_path: prepared.config_path,
+                route_recovery_required: false,
             },
         );
 
@@ -254,6 +265,23 @@ where
             return Err(stop_error("tunnel state is not running"));
         }
         self.ensure_owned_session(&state_path, &state)?;
+        let route_recovery_required = self
+            .owned_sessions
+            .get(&state_path)
+            .map(|owned| owned.route_recovery_required)
+            .expect("owned tunnel session was checked before route recovery");
+        if route_recovery_required {
+            let route_snapshot = self
+                .owned_sessions
+                .get(&state_path)
+                .map(|owned| owned.route_snapshot.clone())
+                .expect("owned tunnel session was checked before route recovery");
+            self.route_port.recover_owned_bypass(&route_snapshot)?;
+            self.owned_sessions
+                .get_mut(&state_path)
+                .expect("owned tunnel session was checked before route recovery")
+                .route_recovery_required = false;
+        }
         let owned = self
             .owned_sessions
             .remove(&state_path)
@@ -408,6 +436,9 @@ where
         }
         let config_path = state_directory.join(&state.config_path);
         let ownership = state.runtime_ownership.clone();
+        if ownership.process.session_id != state.session_id {
+            return Err(ownership_error());
+        }
         let spec = EasyTierRecoverySpec {
             expected_process: ownership.process.clone(),
             expected_binary_sha256: ownership.binary_sha256.clone(),
@@ -421,6 +452,7 @@ where
         if recovered.process.process_id != ownership.process.process_id
             || recovered.process.creation_marker != ownership.process.creation_marker
             || recovered.process.session_id != ownership.process.session_id
+            || recovered.process.session_id != state.session_id
         {
             return Err(ownership_error());
         }
@@ -452,6 +484,7 @@ where
             route_snapshot: state.route_snapshot.clone(),
             route_cidrs: ownership.route_cidrs,
             config_path,
+            route_recovery_required: true,
         })
     }
 
@@ -518,6 +551,7 @@ struct OwnedTunnelSession {
     route_snapshot: Vec<WindowsRouteSnapshotEntry>,
     route_cidrs: Vec<String>,
     config_path: PathBuf,
+    route_recovery_required: bool,
 }
 
 struct PreparedStart {
@@ -649,43 +683,321 @@ fn ownership_error() -> DomainError {
 }
 
 /// Production process port for an explicitly supplied EasyTier executable.
-#[derive(Debug, Default)]
-pub struct NativeEasyTierProcessRunner;
+#[derive(Default)]
+pub struct NativeEasyTierProcessRunner {
+    #[cfg(windows)]
+    proofs: BTreeMap<(u32, String), NativeEasyTierProcessProof>,
+}
+
+#[cfg(windows)]
+#[derive(Clone)]
+struct NativeEasyTierProcessProof {
+    process: OwnedProcessHandle,
+    binary_path: PathBuf,
+    config_path: PathBuf,
+    expected_sha256: String,
+}
+
+#[cfg(windows)]
+#[derive(serde::Deserialize)]
+struct NativeProcessInspection {
+    #[serde(rename = "ProcessId")]
+    process_id: u32,
+    #[serde(rename = "CreationDate")]
+    creation_marker: String,
+    #[serde(rename = "ExecutablePath")]
+    executable_path: String,
+    #[serde(rename = "CommandLine")]
+    command_line: String,
+}
 
 #[cfg(windows)]
 impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
     fn start(&mut self, spec: &EasyTierLaunchSpec) -> DomainResult<OwnedProcessHandle> {
         use std::process::Command;
 
-        let child = Command::new(&spec.binary_path)
+        if spec.session_id.trim().is_empty() {
+            return Err(start_error("EasyTier launch session identity is invalid"));
+        }
+        let binary_path = fs::canonicalize(&spec.binary_path)
+            .map_err(|_| start_error("explicit EasyTier executable path is invalid"))?;
+        let config_path = fs::canonicalize(&spec.config_path)
+            .map_err(|_| start_error("EasyTier session configuration path is invalid"))?;
+        if verify_file_sha256(&binary_path, &spec.expected_sha256).is_err() {
+            return Err(start_error(
+                "explicit EasyTier executable does not match its pin",
+            ));
+        }
+
+        let child = Command::new(&binary_path)
             .arg("--config-file")
-            .arg(&spec.config_path)
+            .arg(&config_path)
             .arg("--disable-env-parsing")
             .spawn()
             .map_err(|_| start_error("explicit EasyTier executable could not be started"))?;
+        let process_id = child.id();
+        let mut proof = None;
+        for attempt in 0..5 {
+            proof = native_start_proof(
+                process_id,
+                &spec.session_id,
+                &binary_path,
+                &config_path,
+                &spec.expected_sha256,
+            );
+            if proof.is_some() {
+                break;
+            }
+            if attempt < 4 {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
+        let Some(proof) = proof else {
+            return match native_terminate_child(child) {
+                Ok(()) => Err(start_error(
+                    "started EasyTier process ownership proof failed",
+                )),
+                Err(_) => Err(rollback_error()),
+            };
+        };
 
-        Ok(OwnedProcessHandle {
-            session_id: safe_file_name_from_path(&spec.config_path)
-                .unwrap_or_else(|| "easytier-session.toml".to_string()),
-            process_id: child.id(),
-            creation_marker: format!("launch-{}", child.id()),
-        })
+        let process = proof.process.clone();
+        self.proofs.insert(native_process_key(&process), proof);
+        Ok(process)
     }
 
-    fn recover(&mut self, _spec: &EasyTierRecoverySpec) -> DomainResult<RecoveredEasyTierProcess> {
-        Err(ownership_error())
+    fn recover(&mut self, spec: &EasyTierRecoverySpec) -> DomainResult<RecoveredEasyTierProcess> {
+        if !is_safe_tunnel_file_name(&spec.cli_file_name) {
+            return Err(ownership_error());
+        }
+        let config_path = fs::canonicalize(&spec.config_path).map_err(|_| ownership_error())?;
+        let proof = native_process_proof(
+            &spec.expected_process,
+            None,
+            &spec.expected_binary_sha256,
+            &config_path,
+        )
+        .ok_or_else(ownership_error)?;
+        let binary_directory = proof.binary_path.parent().ok_or_else(ownership_error)?;
+        let cli_path = binary_directory.join(&spec.cli_file_name);
+        if !cli_path.is_file() {
+            return Err(ownership_error());
+        }
+
+        let recovered = RecoveredEasyTierProcess {
+            process: proof.process.clone(),
+            binary_path: proof.binary_path.clone(),
+            cli_path,
+        };
+        self.proofs
+            .insert(native_process_key(&proof.process), proof);
+        Ok(recovered)
     }
 
     fn stop(&mut self, handle: &OwnedProcessHandle) -> DomainResult<()> {
-        let status = std::process::Command::new("taskkill.exe")
-            .args(["/PID", &handle.process_id.to_string(), "/T", "/F"])
-            .status()
-            .map_err(|_| stop_error("owned EasyTier process could not be terminated"))?;
-        if !status.success() {
-            return Err(stop_error("owned EasyTier process could not be terminated"));
+        let key = native_process_key(handle);
+        let proof = self.proofs.get(&key).cloned().ok_or_else(ownership_error)?;
+        if proof.process != *handle
+            || native_process_proof(
+                handle,
+                Some(&proof.binary_path),
+                &proof.expected_sha256,
+                &proof.config_path,
+            )
+            .is_none()
+        {
+            return Err(ownership_error());
         }
 
+        native_taskkill(handle.process_id)?;
+        self.proofs.remove(&key);
         Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn native_start_proof(
+    process_id: u32,
+    session_id: &str,
+    expected_binary_path: &Path,
+    expected_config_path: &Path,
+    expected_sha256: &str,
+) -> Option<NativeEasyTierProcessProof> {
+    let inspection = native_inspect_process(process_id)?;
+    if inspection.process_id != process_id || inspection.creation_marker.trim().is_empty() {
+        return None;
+    }
+    let process = OwnedProcessHandle {
+        session_id: session_id.to_string(),
+        process_id,
+        creation_marker: inspection.creation_marker.clone(),
+    };
+    native_process_proof_from_inspection(
+        inspection,
+        &process,
+        Some(expected_binary_path),
+        expected_sha256,
+        expected_config_path,
+    )
+}
+
+#[cfg(windows)]
+fn native_process_proof(
+    expected_process: &OwnedProcessHandle,
+    expected_binary_path: Option<&Path>,
+    expected_sha256: &str,
+    expected_config_path: &Path,
+) -> Option<NativeEasyTierProcessProof> {
+    let inspection = native_inspect_process(expected_process.process_id)?;
+    native_process_proof_from_inspection(
+        inspection,
+        expected_process,
+        expected_binary_path,
+        expected_sha256,
+        expected_config_path,
+    )
+}
+
+#[cfg(windows)]
+fn native_process_proof_from_inspection(
+    inspection: NativeProcessInspection,
+    expected_process: &OwnedProcessHandle,
+    expected_binary_path: Option<&Path>,
+    expected_sha256: &str,
+    expected_config_path: &Path,
+) -> Option<NativeEasyTierProcessProof> {
+    if inspection.process_id != expected_process.process_id
+        || inspection.creation_marker != expected_process.creation_marker
+    {
+        return None;
+    }
+    let binary_path = fs::canonicalize(&inspection.executable_path).ok()?;
+    match expected_binary_path {
+        Some(expected_binary_path) if binary_path != expected_binary_path => return None,
+        _ => {}
+    }
+    if verify_file_sha256(&binary_path, expected_sha256).is_err() {
+        return None;
+    }
+    let config_path = fs::canonicalize(expected_config_path).ok()?;
+    if !native_command_matches(&inspection.command_line, &config_path) {
+        return None;
+    }
+
+    Some(NativeEasyTierProcessProof {
+        process: expected_process.clone(),
+        binary_path,
+        config_path,
+        expected_sha256: expected_sha256.to_string(),
+    })
+}
+
+#[cfg(windows)]
+fn native_process_key(handle: &OwnedProcessHandle) -> (u32, String) {
+    (handle.process_id, handle.creation_marker.clone())
+}
+
+#[cfg(windows)]
+fn native_inspect_process(process_id: u32) -> Option<NativeProcessInspection> {
+    let script = format!(
+        "$process = Get-CimInstance Win32_Process -Filter \"ProcessId = {process_id}\" -ErrorAction SilentlyContinue; if ($null -eq $process) {{ exit 2 }}; [PSCustomObject]@{{ ProcessId = [uint32]$process.ProcessId; CreationDate = $process.CreationDate.ToUniversalTime().ToString('o'); ExecutablePath = $process.ExecutablePath; CommandLine = $process.CommandLine }} | ConvertTo-Json -Compress"
+    );
+    let output = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    serde_json::from_slice(&output.stdout).ok()
+}
+
+#[cfg(windows)]
+fn native_command_matches(command_line: &str, expected_config_path: &Path) -> bool {
+    let Some(arguments) = native_command_line_arguments(command_line) else {
+        return false;
+    };
+    let expected_config = expected_config_path.to_string_lossy();
+    arguments.len() == 3
+        && arguments[0] == "--config-file"
+        && arguments[1] == expected_config.as_ref()
+        && arguments[2] == "--disable-env-parsing"
+}
+
+#[cfg(windows)]
+fn native_command_line_arguments(command_line: &str) -> Option<Vec<String>> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::UI::Shell::CommandLineToArgvW;
+
+    let command_line = std::ffi::OsStr::new(command_line)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let mut argument_count = 0;
+    let raw_arguments = unsafe { CommandLineToArgvW(command_line.as_ptr(), &mut argument_count) };
+    if raw_arguments.is_null() {
+        return None;
+    }
+    let arguments = if argument_count < 1 {
+        None
+    } else {
+        unsafe {
+            std::slice::from_raw_parts(raw_arguments, argument_count as usize)
+                .iter()
+                .map(|argument| native_wide_argument(*argument))
+                .collect::<Option<Vec<_>>>()
+        }
+    };
+    unsafe {
+        let _ = LocalFree(raw_arguments as _);
+    }
+    arguments.map(|arguments| arguments.into_iter().skip(1).collect())
+}
+
+#[cfg(windows)]
+fn native_wide_argument(argument: *const u16) -> Option<String> {
+    if argument.is_null() {
+        return None;
+    }
+    let mut length = 0;
+    unsafe {
+        while *argument.add(length) != 0 {
+            length += 1;
+        }
+        String::from_utf16(std::slice::from_raw_parts(argument, length)).ok()
+    }
+}
+
+#[cfg(windows)]
+fn native_taskkill(process_id: u32) -> DomainResult<()> {
+    let status = std::process::Command::new("taskkill.exe")
+        .args(["/PID", &process_id.to_string(), "/T", "/F"])
+        .status()
+        .map_err(|_| stop_error("owned EasyTier process could not be terminated"))?;
+    if !status.success() {
+        return Err(stop_error("owned EasyTier process could not be terminated"));
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn native_terminate_child(mut child: std::process::Child) -> DomainResult<()> {
+    match child
+        .try_wait()
+        .map_err(|_| stop_error("owned EasyTier process could not be terminated"))?
+    {
+        Some(_) => Ok(()),
+        None => {
+            child
+                .kill()
+                .map_err(|_| stop_error("owned EasyTier process could not be terminated"))?;
+            child
+                .wait()
+                .map_err(|_| stop_error("owned EasyTier process could not be terminated"))?;
+            Ok(())
+        }
     }
 }
 
@@ -855,6 +1167,15 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
         Ok(())
     }
 
+    fn recover_owned_bypass(
+        &mut self,
+        _snapshot: &[WindowsRouteSnapshotEntry],
+    ) -> DomainResult<()> {
+        Err(endpoint_bypass_error(
+            "persisted endpoint-bypass recovery proof is unavailable",
+        ))
+    }
+
     fn restore(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()> {
         let Some(bypasses) = self.owned_bypasses.remove(&native_snapshot_key(snapshot)) else {
             return Ok(());
@@ -966,6 +1287,15 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
     }
 
     fn add_endpoint_bypass(&mut self, _endpoints: &[IpAddr]) -> DomainResult<()> {
+        Err(endpoint_bypass_error(
+            "Windows route operations are unavailable on this platform",
+        ))
+    }
+
+    fn recover_owned_bypass(
+        &mut self,
+        _snapshot: &[WindowsRouteSnapshotEntry],
+    ) -> DomainResult<()> {
         Err(endpoint_bypass_error(
             "Windows route operations are unavailable on this platform",
         ))

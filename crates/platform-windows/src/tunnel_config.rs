@@ -159,6 +159,7 @@ pub struct WindowsRouteSnapshotEntry {
 /// Explicit paths and pins used by a later EasyTier process adapter.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EasyTierLaunchSpec {
+    pub session_id: String,
     pub binary_path: PathBuf,
     pub cli_path: PathBuf,
     pub config_path: PathBuf,
@@ -294,6 +295,7 @@ fn validate_state(state: &WindowsTunnelState) -> DomainResult<()> {
         return Err(state_error("tunnel state contains an empty required field"));
     }
     if state.runtime_ownership.process.session_id.trim().is_empty()
+        || state.runtime_ownership.process.session_id != state.session_id
         || state.runtime_ownership.process.process_id == 0
         || state
             .runtime_ownership

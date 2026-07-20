@@ -162,6 +162,15 @@ impl WindowsRoutePort for FakeRoutePort {
         Ok(())
     }
 
+    fn recover_owned_bypass(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()> {
+        self.events
+            .push(format!("route.recover:{}", route_snapshot_key(snapshot)));
+        match &self.recovery_error {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
+        }
+    }
+
     fn restore(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()> {
         self.events
             .push(format!("route.restore:{}", route_snapshot_key(snapshot)));
