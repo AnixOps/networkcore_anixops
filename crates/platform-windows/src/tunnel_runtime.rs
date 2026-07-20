@@ -653,7 +653,11 @@ where
         original: DomainError,
     ) -> DomainError {
         let destination_routes_removed = virtual_route_snapshot
-            .map(|routes| self.route_port.remove_owned_destination_routes(routes).is_ok())
+            .map(|routes| {
+                self.route_port
+                    .remove_owned_destination_routes(routes)
+                    .is_ok()
+            })
             .unwrap_or(true);
         let routes_restored = self.route_port.restore(snapshot).is_ok();
         let process_stopped = process_handle
@@ -2010,8 +2014,8 @@ fn native_destination_route_snapshot(
     if !output.status.success() {
         return Err(endpoint_bypass_error("destination route snapshot failed"));
     }
-    let snapshot: NativeDestinationRouteSnapshotResponse =
-        serde_json::from_slice(&output.stdout).map_err(|_| {
+    let snapshot: NativeDestinationRouteSnapshotResponse = serde_json::from_slice(&output.stdout)
+        .map_err(|_| {
             endpoint_bypass_error("destination route snapshot returned invalid data")
         })?;
     snapshot
@@ -2078,9 +2082,9 @@ fn native_normalize_destination_cidr(destination_cidr: &str) -> DomainResult<Str
             "destination route prefix is not normalized",
         ));
     }
-    let (address, prefix) = destination_cidr.split_once('/').ok_or_else(|| {
-        endpoint_bypass_error("destination route prefix is invalid")
-    })?;
+    let (address, prefix) = destination_cidr
+        .split_once('/')
+        .ok_or_else(|| endpoint_bypass_error("destination route prefix is invalid"))?;
     let address = IpAddr::from_str(address)
         .map_err(|_| endpoint_bypass_error("destination route prefix is invalid"))?;
     let prefix = prefix
@@ -2091,9 +2095,7 @@ fn native_normalize_destination_cidr(destination_cidr: &str) -> DomainResult<Str
         IpAddr::V6(_) => 128,
     };
     if prefix > maximum_prefix {
-        return Err(endpoint_bypass_error(
-            "destination route prefix is invalid",
-        ));
+        return Err(endpoint_bypass_error("destination route prefix is invalid"));
     }
     let normalized = format!("{address}/{prefix}");
     if normalized != destination_cidr {
@@ -2117,9 +2119,7 @@ fn native_destination_routes_from_snapshot(
                 .gateway
                 .as_deref()
                 .filter(|gateway| gateway == gateway.trim() && !gateway.is_empty())
-                .ok_or_else(|| {
-                    endpoint_bypass_error("destination route gateway is unavailable")
-                })?;
+                .ok_or_else(|| endpoint_bypass_error("destination route gateway is unavailable"))?;
             let gateway = IpAddr::from_str(gateway)
                 .map_err(|_| endpoint_bypass_error("destination route gateway is invalid"))?
                 .to_string();
