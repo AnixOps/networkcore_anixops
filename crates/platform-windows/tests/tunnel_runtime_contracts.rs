@@ -2928,8 +2928,7 @@ fn manual_cleanup_recovery_requires_durable_state_failure_and_fresh_convergence_
         "State-write denial",
         "disk-full",
         "native state move failure",
-        "fresh cleanup convergence",
-        "only exact still-present tuples",
+        "convergence: it removes only exact still-present tuples",
         "proven-absent resources",
     ] {
         assert!(manual.contains(fact), "manual record requires {fact}");
