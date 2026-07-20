@@ -449,12 +449,12 @@ where
                 )
             }
             WindowsTunnelLifecycleState::Stopping | WindowsTunnelLifecycleState::Failed => {
-                let cleanup_result = self
-                    .recover_cleanup_session(&state_path, &state)
-                    .and_then(|owned| {
-                        self.recover_cleanup_routes(&owned)?;
-                        self.cleanup_owned_resources(&owned)
-                    });
+                let cleanup_result =
+                    self.recover_cleanup_session(&state_path, &state)
+                        .and_then(|owned| {
+                            self.recover_cleanup_routes(&owned)?;
+                            self.cleanup_owned_resources(&owned)
+                        });
                 (state.clone(), cleanup_result)
             }
             WindowsTunnelLifecycleState::Starting | WindowsTunnelLifecycleState::Stopped => {
@@ -766,10 +766,7 @@ where
         Ok(recovered.process)
     }
 
-    fn recover_cleanup_routes(
-        &mut self,
-        owned: &CleanupOwnedTunnelSession,
-    ) -> DomainResult<()> {
+    fn recover_cleanup_routes(&mut self, owned: &CleanupOwnedTunnelSession) -> DomainResult<()> {
         self.route_port
             .recover_cleanup_bypass(&owned.route_snapshot)
             .map_err(|_| {

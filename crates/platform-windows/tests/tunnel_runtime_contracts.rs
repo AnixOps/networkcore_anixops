@@ -2022,7 +2022,9 @@ fn lifecycle_cleanup_uses_injected_state_port_and_leaves_retryable_intent() {
     assert!(source.contains("fn recover_cleanup_destination_routes("));
     let start_marker =
         "    pub fn start(\n        &mut self,\n        request: WindowsTunnelStartRequest,\n    ) -> DomainResult<WindowsTunnelState> {";
-    let start_start = source.find(start_marker).expect("start implementation exists");
+    let start_start = source
+        .find(start_marker)
+        .expect("start implementation exists");
     let start_end = source[start_start..]
         .find("\n    /// Queries readiness")
         .expect("start implementation ends before status");
@@ -2030,7 +2032,9 @@ fn lifecycle_cleanup_uses_injected_state_port_and_leaves_retryable_intent() {
     assert!(start.contains("self.state_port.write(&prepared.state_path, &state)"));
     let status_marker =
         "    pub fn status(&mut self, state_path: &Path) -> DomainResult<WindowsTunnelState> {";
-    let status_start = source.find(status_marker).expect("status implementation exists");
+    let status_start = source
+        .find(status_marker)
+        .expect("status implementation exists");
     let status_end = source[status_start..]
         .find("\n    /// Removes session-owned route state")
         .expect("status implementation ends before stop");
