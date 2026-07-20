@@ -311,10 +311,13 @@ fn sequence_replayed_error() -> DomainError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
     use std::fs::{self, OpenOptions};
     use std::io::Write;
     use std::path::Path;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, Barrier};
+    use std::thread;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
@@ -355,6 +358,27 @@ mod tests {
 
     fn test_ledger(path: &Path) -> SequenceLedgerStore {
         NativeWindowsTunnelSequenceLedger::for_test_path(path.to_path_buf())
+    }
+
+    fn valid_record(
+        client: &DeliverySequenceIdentity,
+        client_sequence: u64,
+        pop: &DeliverySequenceIdentity,
+        pop_sequence: u64,
+    ) -> Vec<u8> {
+        let mut floors = BTreeMap::new();
+        floors.insert(client.clone(), client_sequence);
+        floors.insert(pop.clone(), pop_sequence);
+        serde_json::to_vec(&LedgerDocument {
+            schema_version: LEDGER_SCHEMA_VERSION,
+            floors,
+        })
+        .expect("valid ledger fixture serializes")
+    }
+
+    fn assert_delivery_invalid(result: DomainResult<DeliverySequenceFloors>) {
+        let error = result.expect_err("malformed ledger is rejected");
+        assert_eq!(error.code, WINDOWS_TUNNEL_DELIVERY_INVALID_CODE);
     }
 
     #[test]
@@ -408,7 +432,7 @@ mod tests {
         for alternate_client in [
             identity("tenant-b", "client", "device-a"),
             identity("tenant-a", "client", "device-b"),
-            identity("tenant-a", "client-alt", "device-a"),
+            identity("tenant-a", "pop", "device-a"),
         ] {
             let floors = ledger
                 .read_floors(&alternate_client, &base_pop)
@@ -456,6 +480,122 @@ mod tests {
         let floors = reopened
             .read_floors(&client, &pop)
             .expect("trailing partial record is ignored");
+        assert_eq!(floors.client, Some(3));
+        assert_eq!(floors.pop, Some(4));
+    }
+
+    #[test]
+    fn no_newline_garbage_fails_closed() {
+        let path = TemporaryLedgerPath::new();
+        fs::write(path.path(), b"not a delivery sequence ledger")
+            .expect("test can write unterminated garbage");
+        let client = identity("tenant-a", "client", "device-a");
+        let pop = identity("tenant-a", "pop", "pop-a");
+
+        assert_delivery_invalid(test_ledger(path.path()).read_floors(&client, &pop));
+    }
+
+    #[test]
+    fn complete_invalid_schema_without_newline_fails_closed() {
+        let path = TemporaryLedgerPath::new();
+        fs::write(path.path(), br#"{"schema_version":2,"floors":[]}"#)
+            .expect("test can write an unterminated schema fixture");
+        let client = identity("tenant-a", "client", "device-a");
+        let pop = identity("tenant-a", "pop", "pop-a");
+
+        assert_delivery_invalid(test_ledger(path.path()).read_floors(&client, &pop));
+    }
+
+    #[test]
+    fn unknown_identity_fields_fail_closed() {
+        let path = TemporaryLedgerPath::new();
+        fs::write(
+            path.path(),
+            br#"{"schema_version":1,"floors":[{"identity":{"tenant_id":"tenant-a","bundle_kind":"client","target_id":"device-a","unexpected":"value"},"sequence":3}]}"#,
+        )
+        .expect("test can write an unknown-field fixture");
+        let client = identity("tenant-a", "client", "device-a");
+        let pop = identity("tenant-a", "pop", "pop-a");
+
+        assert_delivery_invalid(test_ledger(path.path()).read_floors(&client, &pop));
+    }
+
+    #[test]
+    fn unsupported_bundle_kind_fails_closed() {
+        let path = TemporaryLedgerPath::new();
+        fs::write(
+            path.path(),
+            br#"{"schema_version":1,"floors":[{"identity":{"tenant_id":"tenant-a","bundle_kind":"gateway","target_id":"device-a"},"sequence":3}]}"#,
+        )
+        .expect("test can write an unsupported-bundle fixture");
+        let client = identity("tenant-a", "client", "device-a");
+        let pop = identity("tenant-a", "pop", "pop-a");
+
+        assert_delivery_invalid(test_ledger(path.path()).read_floors(&client, &pop));
+    }
+
+    #[test]
+    fn boundary_whitespace_in_identity_fields_fails_closed() {
+        let path = TemporaryLedgerPath::new();
+        let client = identity("tenant-a", "client", "device-a");
+        let pop = identity("tenant-a", "pop", "pop-a");
+
+        for (tenant_id, bundle_kind, target_id) in [
+            (" tenant-a", "client", "device-a"),
+            ("tenant-a", "client ", "device-a"),
+            ("tenant-a", "client", "device-a "),
+        ] {
+            let record = format!(
+                r#"{{"schema_version":1,"floors":[{{"identity":{{"tenant_id":"{tenant_id}","bundle_kind":"{bundle_kind}","target_id":"{target_id}"}},"sequence":3}}]}}"#
+            );
+            fs::write(path.path(), record).expect("test can write a whitespace fixture");
+
+            assert_delivery_invalid(test_ledger(path.path()).read_floors(&client, &pop));
+        }
+    }
+
+    #[test]
+    fn complete_valid_v1_record_without_final_newline_recovers_its_floors() {
+        let path = TemporaryLedgerPath::new();
+        let client = identity("tenant-a", "client", "device-a");
+        let pop = identity("tenant-a", "pop", "pop-a");
+        fs::write(path.path(), valid_record(&client, 3, &pop, 4))
+            .expect("test can write a complete unterminated record");
+
+        let floors = test_ledger(path.path())
+            .read_floors(&client, &pop)
+            .expect("complete unterminated record remains a replay floor");
+        assert_eq!(floors.client, Some(3));
+        assert_eq!(floors.pop, Some(4));
+
+        test_ledger(path.path())
+            .reserve_pair((&client, 5), (&pop, 6))
+            .expect("newer pair replaces only the known unterminated tail");
+        let bytes = fs::read(path.path()).expect("test can inspect recovered record");
+        assert!(bytes.ends_with(b"\n"));
+        assert_eq!(bytes.iter().filter(|byte| **byte == b'\n').count(), 1);
+    }
+
+    #[test]
+    fn eof_only_json_prefix_recovers_the_last_complete_record() {
+        let path = TemporaryLedgerPath::new();
+        let client = identity("tenant-a", "client", "device-a");
+        let pop = identity("tenant-a", "pop", "pop-a");
+        test_ledger(path.path())
+            .reserve_pair((&client, 3), (&pop, 4))
+            .expect("initial reservation succeeds");
+
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(path.path())
+            .expect("test can append an EOF-only JSON prefix");
+        file.write_all(b"{\"schema_version\":1")
+            .expect("test can write an EOF-only JSON prefix");
+        drop(file);
+
+        let floors = test_ledger(path.path())
+            .read_floors(&client, &pop)
+            .expect("EOF-only prefix does not erase the prior replay floor");
         assert_eq!(floors.client, Some(3));
         assert_eq!(floors.pop, Some(4));
     }
@@ -512,5 +652,43 @@ mod tests {
             config_core::windows_tunnel::WINDOWS_TUNNEL_DELIVERY_INVALID_CODE
         );
         assert!(!error.message.contains(&path.path().display().to_string()));
+    }
+
+    #[test]
+    fn concurrent_same_pair_reservations_admit_once_and_replay_once() {
+        let path = TemporaryLedgerPath::new();
+        let ledger = Arc::new(test_ledger(path.path()));
+        let client = identity("tenant-a", "client", "device-a");
+        let pop = identity("tenant-a", "pop", "pop-a");
+        let barrier = Arc::new(Barrier::new(3));
+        let mut handles = Vec::new();
+
+        for _ in 0..2 {
+            let ledger = Arc::clone(&ledger);
+            let client = client.clone();
+            let pop = pop.clone();
+            let barrier = Arc::clone(&barrier);
+            handles.push(thread::spawn(move || {
+                barrier.wait();
+                ledger.reserve_pair((&client, 3), (&pop, 4))
+            }));
+        }
+        barrier.wait();
+
+        let outcomes = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("reservation thread completes"))
+            .collect::<Vec<_>>();
+        let successful_reservations = outcomes.iter().filter(|outcome| outcome.is_ok()).count();
+        let replayed_reservations = outcomes
+            .iter()
+            .filter(|outcome| match outcome {
+                Ok(()) => false,
+                Err(error) => error.code == WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE,
+            })
+            .count();
+
+        assert_eq!(successful_reservations, 1);
+        assert_eq!(replayed_reservations, 1);
     }
 }

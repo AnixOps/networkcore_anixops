@@ -1561,6 +1561,14 @@ fn native_tunnel_input_policy_is_limited_to_platform_secure_path_operations() {
 fn native_delivery_loader_persists_verified_sequence_floors_before_lifecycle_start() {
     let source = include_str!("../src/lib.rs").replace("\r\n", "\n");
     let ledger_source = include_str!("../src/tunnel_sequence_ledger.rs").replace("\r\n", "\n");
+    assert!(source.contains("mod tunnel_sequence_ledger;"));
+    assert!(!source.contains("pub mod tunnel_sequence_ledger;"));
+    assert!(!ledger_source.contains("pub struct DeliverySequenceIdentity"));
+    assert!(!ledger_source.contains("pub struct NativeWindowsTunnelSequenceLedger"));
+    assert!(!ledger_source.contains("pub fn read_floors"));
+    assert!(!ledger_source.contains("pub fn reserve_pair"));
+    assert!(!ledger_source.contains("pub fn new("));
+    assert!(ledger_source.contains("#[serde(deny_unknown_fields)]\nstruct DeliverySequenceIdentity"));
     assert!(ledger_source.contains("lock_exclusive"));
     assert!(ledger_source.contains("SeekFrom::End(0)"));
     assert!(ledger_source.contains("write_all(b\"\\n\")"));
@@ -1580,6 +1588,12 @@ fn native_delivery_loader_persists_verified_sequence_floors_before_lifecycle_sta
     let ledger = loader
         .find("NativeWindowsTunnelSequenceLedger")
         .expect("native loader owns the sequence ledger");
+    let client_verified = loader
+        .find("let client = verifier")
+        .expect("native loader verifies the client envelope");
+    let pop_verified = loader
+        .find("let pop = verifier")
+        .expect("native loader verifies the POP envelope");
     let read = loader
         .find("read_floors")
         .expect("native loader reads persisted floors");
@@ -1589,11 +1603,13 @@ fn native_delivery_loader_persists_verified_sequence_floors_before_lifecycle_sta
     let reserve = loader
         .find("reserve_pair")
         .expect("native loader reserves after planning");
+    assert!(client_verified < pop_verified && pop_verified < ledger);
     assert!(ledger < read && read < plan && plan < reserve);
     assert!(loader.contains("last_client_sequence: floors.client"));
     assert!(loader.contains("last_pop_sequence: floors.pop"));
-    assert!(loader.contains("DeliverySequenceIdentity::new(&client)"));
-    assert!(loader.contains("DeliverySequenceIdentity::new(&pop)"));
+    assert!(loader.contains("read_floors(&client, &pop)"));
+    assert!(loader.contains("reserve_pair(&client, &pop)"));
+    assert!(!loader.contains("DeliverySequenceIdentity"));
     assert!(loader.contains("WINDOWS_TUNNEL_DELIVERY_INVALID_CODE"));
     assert!(loader.contains("WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE"));
     assert!(loader.contains("if error.code == WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE"));
