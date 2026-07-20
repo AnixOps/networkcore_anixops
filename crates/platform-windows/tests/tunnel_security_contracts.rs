@@ -125,6 +125,7 @@ fn native_windows_system_commands_resolve_trusted_tools_and_clear_environment() 
     let environment = native_function(&source, "native_windows_command_with_trusted_environment");
     for required in [
         ".env_clear()",
+        ".env(\"SystemRoot\", system_root)",
         ".env(\"PATH\", &system_directory)",
         ".env(\"PSModulePath\", powershell_module_root)",
         ".current_dir(&system_directory)",
@@ -135,15 +136,15 @@ fn native_windows_system_commands_resolve_trusted_tools_and_clear_environment() 
             "trusted child environment contains {required}"
         );
     }
+    assert!(environment.contains("let system_root ="));
     assert!(
-        environment.contains("system_root.join(\"System32\")"),
+        environment.contains(".join(\"System32\")"),
         "PowerShell module root is derived from the Win32 system root"
     );
 
     for forbidden in [
         "Command::new(\"powershell.exe\")",
         "Command::new(\"route.exe\")",
-        ".env(\"SystemRoot\"",
         ".env(\"PSModulePath\", std::env",
         "std::env::var(\"PATH\")",
         "std::env::var(\"SystemRoot\")",

@@ -2495,7 +2495,7 @@ fn native_windows_runtime_child_commands_use_only_trusted_factories() {
         "native_windows_hardened_command(binary_path)",
         "native_windows_hardened_command(path)",
         "native_windows_system_command(NativeWindowsSystemTool::PowerShell)",
-        "native_windows_system_command(NativeWindowsSystemTool::Route)",
+        "native_silent_system_command(NativeWindowsSystemTool::Route)",
     ] {
         assert!(
             source.contains(required),
@@ -2579,8 +2579,8 @@ fn native_windows_recovery_and_removal_require_exact_bypass_proof() {
         "removal uses the exact bounded PowerShell removal script"
     );
     assert!(
-        removal.contains("powershell.exe"),
-        "removal executes the bounded PowerShell script"
+        removal.contains("native_silent_system_command(NativeWindowsSystemTool::PowerShell)"),
+        "removal executes the bounded PowerShell script through the trusted system factory"
     );
     assert!(!removal.contains("route.exe"));
     assert!(!removal.contains("DELETE"));

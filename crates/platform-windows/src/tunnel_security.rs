@@ -19,6 +19,99 @@ use std::os::windows::fs::MetadataExt;
 use std::process::{Command, Stdio};
 
 #[cfg(windows)]
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum NativeWindowsSystemTool {
+    PowerShell,
+    Route,
+}
+
+#[cfg(windows)]
+pub(crate) fn native_windows_system_command(
+    tool: NativeWindowsSystemTool,
+) -> std::io::Result<Command> {
+    let system_directory = native_windows_system_directory()?;
+    let executable = match tool {
+        NativeWindowsSystemTool::PowerShell => system_directory
+            .join("WindowsPowerShell")
+            .join("v1.0")
+            .join("powershell.exe"),
+        NativeWindowsSystemTool::Route => system_directory.join("route.exe"),
+    };
+    let executable = fs::canonicalize(executable)?;
+    native_windows_command_with_trusted_environment(&executable, system_directory)
+}
+
+#[cfg(windows)]
+pub(crate) fn native_windows_hardened_command(executable: &Path) -> std::io::Result<Command> {
+    let executable = fs::canonicalize(executable)?;
+    let system_directory = native_windows_system_directory()?;
+    native_windows_command_with_trusted_environment(&executable, system_directory)
+}
+
+#[cfg(windows)]
+fn native_windows_command_with_trusted_environment(
+    executable: &Path,
+    system_directory: PathBuf,
+) -> std::io::Result<Command> {
+    if !executable.is_file() {
+        return Err(native_windows_command_error());
+    }
+    let system_root = system_directory
+        .parent()
+        .ok_or_else(native_windows_command_error)?;
+    let powershell_module_root = system_root
+        .join("System32")
+        .join("WindowsPowerShell")
+        .join("v1.0")
+        .join("Modules");
+
+    let mut command = Command::new(executable);
+    command
+        .env_clear()
+        .env("SystemRoot", system_root)
+        .env("PATH", &system_directory)
+        .env("PSModulePath", powershell_module_root)
+        .current_dir(&system_directory)
+        .stdin(Stdio::null());
+    Ok(command)
+}
+
+#[cfg(windows)]
+fn native_windows_system_directory() -> std::io::Result<PathBuf> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
+
+    let mut buffer = vec![0_u16; 260];
+    let mut length = unsafe { GetSystemDirectoryW(buffer.as_mut_ptr(), buffer.len() as u32) };
+    if length == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if length as usize >= buffer.len() {
+        buffer.resize(length as usize + 1, 0);
+        length = unsafe { GetSystemDirectoryW(buffer.as_mut_ptr(), buffer.len() as u32) };
+        if length == 0 || length as usize >= buffer.len() {
+            return Err(native_windows_command_error());
+        }
+    }
+
+    let system_directory = PathBuf::from(OsString::from_wide(&buffer[..length as usize]));
+    let system_directory = fs::canonicalize(system_directory)?;
+    if !system_directory.is_dir() {
+        return Err(native_windows_command_error());
+    }
+    Ok(system_directory)
+}
+
+#[cfg(windows)]
+fn native_windows_command_error() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        "trusted Windows command path is invalid",
+    )
+}
+
+#[cfg(windows)]
 const NATIVE_WINDOWS_TUNNEL_PREPARE_SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
 $base = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
@@ -236,7 +329,9 @@ pub fn native_windows_prepare_tunnel_secure_paths() -> DomainResult<NativeWindow
 #[cfg(windows)]
 fn native_windows_prepare_tunnel_secure_paths_impl() -> DomainResult<NativeWindowsTunnelSecurePaths>
 {
-    let output = Command::new("powershell.exe")
+    let mut command = native_windows_system_command(NativeWindowsSystemTool::PowerShell)
+        .map_err(|_| secure_path_error())?;
+    let output = command
         .arg("-NoProfile")
         .arg("-NonInteractive")
         .arg("-Command")
@@ -252,7 +347,9 @@ fn native_windows_prepare_tunnel_secure_paths_impl() -> DomainResult<NativeWindo
 #[cfg(windows)]
 fn native_windows_inspect_tunnel_secure_paths_impl() -> DomainResult<NativeWindowsTunnelSecurePaths>
 {
-    let output = Command::new("powershell.exe")
+    let mut command = native_windows_system_command(NativeWindowsSystemTool::PowerShell)
+        .map_err(|_| secure_path_error())?;
+    let output = command
         .arg("-NoProfile")
         .arg("-NonInteractive")
         .arg("-Command")
@@ -415,7 +512,9 @@ fn native_windows_metadata_is_reparse_point(metadata: &fs::Metadata) -> bool {
 
 #[cfg(windows)]
 fn native_windows_protect_secret_file(path: &Path) -> DomainResult<()> {
-    let output = Command::new("powershell.exe")
+    let mut command = native_windows_system_command(NativeWindowsSystemTool::PowerShell)
+        .map_err(|_| secure_path_error())?;
+    let output = command
         .arg("-NoProfile")
         .arg("-NonInteractive")
         .arg("-Command")

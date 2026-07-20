@@ -184,6 +184,16 @@ single entry POP in this first slice.
 - `WindowsRoutePort` owns the endpoint bypass and session-owned route transaction. It never
   accepts a route mutation without a session token produced by `WindowsTunnelPlan`.
 
+Every native child command crosses one trusted execution boundary. System commands accept only the
+typed `PowerShell` and `route.exe` tools; their executable paths are derived from
+`GetSystemDirectoryW` and canonicalized before launch. The boundary clears the inherited
+environment, then restores only the Win32-derived `SystemRoot`, a System32-derived `PATH`, and the
+SystemRoot-derived PowerShell module root; it starts in the canonical System32 directory and
+always supplies null stdin. It never resolves a command from the caller's `PATH`, inherits
+`PSModulePath`, or uses the caller's working directory. Explicit EasyTier core and CLI commands
+first canonicalize the executable, receive the same clean baseline, and change to their direct
+artifact directory only after the caller has completed its artifact-root validation.
+
 The native foreground EasyTier command builder discards child stdin, stdout, and stderr at the
 process boundary. Operator status comes only through the explicitly supplied `easytier-cli` path
 and fixed redacted diagnostics, never inherited child output.
@@ -250,8 +260,8 @@ already match. Elevated `start` uses the same guarded preparation before accepti
 state or secret path. `status` and the path-validation portion of `stop` use a separate
 inspection-only path: it checks the existing directories, ACL rules, reparse attributes, and
 direct-child state file, but never calls `New-Item`, `Set-Acl`, or another host-mutating operation.
-Every native PowerShell invocation captures its standard streams internally and maps failure to a
-fixed, path-free diagnostic.
+Every native PowerShell invocation uses the same trusted system-command boundary, captures its
+standard streams internally, and maps failure to a fixed, path-free diagnostic.
 
 ### CLI layer
 

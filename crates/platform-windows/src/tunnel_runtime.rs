@@ -15,6 +15,8 @@ use std::str::FromStr;
 #[cfg(windows)]
 use std::collections::BTreeSet;
 #[cfg(windows)]
+use std::io;
+#[cfg(windows)]
 use std::net::Ipv4Addr;
 #[cfg(windows)]
 use std::process::{Command, Stdio};
@@ -24,6 +26,10 @@ use crate::tunnel_config::{
     render_easytier_config, verify_file_sha256, write_tunnel_state, EasyTierConfigRequest,
     EasyTierLaunchSpec, OwnedProcessHandle, WindowsRouteSnapshotEntry, WindowsTunnelLifecycleState,
     WindowsTunnelRuntimeOwnership, WindowsTunnelState,
+};
+#[cfg(windows)]
+use crate::tunnel_security::{
+    native_windows_hardened_command, native_windows_system_command, NativeWindowsSystemTool,
 };
 use crate::WindowsTunnelPlan;
 
@@ -1184,16 +1190,24 @@ struct NativeProcessInspection {
 }
 
 #[cfg(windows)]
-fn native_easytier_process_command(binary_path: &Path, config_path: &Path) -> Command {
-    let mut command = Command::new(binary_path);
+fn native_easytier_process_command(
+    binary_path: &Path,
+    config_path: &Path,
+) -> DomainResult<Command> {
+    let working_directory = binary_path.parent().ok_or_else(|| {
+        start_error("explicit EasyTier executable path is invalid")
+    })?;
+    let mut command = native_windows_hardened_command(binary_path)
+        .map_err(|_| start_error("explicit EasyTier executable could not be started"))?;
     command
+        .current_dir(working_directory)
         .arg("--config-file")
         .arg(config_path)
         .arg("--disable-env-parsing")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    command
+    Ok(command)
 }
 
 #[cfg(windows)]
@@ -1218,7 +1232,7 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
             ));
         }
 
-        let child = native_easytier_process_command(&binary_path, &config_path)
+        let child = native_easytier_process_command(&binary_path, &config_path)?
             .spawn()
             .map_err(|_| start_error("explicit EasyTier executable could not be started"))?;
         let process_id = child.id();
@@ -1448,8 +1462,12 @@ fn native_inspect_process(process_id: u32) -> Option<NativeProcessInspection> {
     let script = format!(
         "$process = Get-CimInstance Win32_Process -Filter \"ProcessId = {process_id}\" -ErrorAction SilentlyContinue; if ($null -eq $process) {{ exit 2 }}; [PSCustomObject]@{{ ProcessId = [uint32]$process.ProcessId; CreationDate = $process.CreationDate.ToUniversalTime().ToString('o'); CreationFileTime = [uint64]$process.CreationDate.ToUniversalTime().ToFileTimeUtc(); ExecutablePath = $process.ExecutablePath; CommandLine = $process.CommandLine }} | ConvertTo-Json -Compress"
     );
-    let output = std::process::Command::new("powershell.exe")
+    let mut command = native_windows_system_command(NativeWindowsSystemTool::PowerShell).ok()?;
+    let output = command
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
         .output()
         .ok()?;
     if !output.status.success() {
@@ -1468,7 +1486,9 @@ fn native_inspect_process_for_cleanup(
     let script = format!(
         "$ErrorActionPreference = 'Stop'\ntry {{\n$processes = @(Get-CimInstance Win32_Process -Filter \"ProcessId = {process_id}\" -ErrorAction Stop)\nif ($processes.Count -eq 0) {{ exit 3 }}\nif ($processes.Count -ne 1) {{ exit 2 }}\n$process = $processes[0]\n[PSCustomObject]@{{ ProcessId = [uint32]$process.ProcessId; CreationDate = $process.CreationDate.ToUniversalTime().ToString('o'); CreationFileTime = [uint64]$process.CreationDate.ToUniversalTime().ToFileTimeUtc(); ExecutablePath = $process.ExecutablePath; CommandLine = $process.CommandLine }} | ConvertTo-Json -Compress\n}}"
     ) + "\ncatch { exit 2 }";
-    let output = Command::new("powershell.exe")
+    let mut command = native_windows_system_command(NativeWindowsSystemTool::PowerShell)
+        .map_err(|_| ownership_error())?;
+    let output = command
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -1640,10 +1660,17 @@ impl EasyTierCliRunner for NativeEasyTierCliRunner {
 
 #[cfg(windows)]
 fn native_cli_output(path: &Path, arguments: &[&str]) -> DomainResult<String> {
-    use std::process::Command;
-
-    let output = Command::new(path)
+    let working_directory = path
+        .parent()
+        .ok_or_else(|| status_error("explicit EasyTier CLI could not be executed"))?;
+    let mut command = native_windows_hardened_command(path)
+        .map_err(|_| status_error("explicit EasyTier CLI could not be executed"))?;
+    let output = command
+        .current_dir(working_directory)
         .args(arguments)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
         .output()
         .map_err(|_| status_error("explicit EasyTier CLI could not be executed"))?;
     if !output.status.success() {
@@ -2125,8 +2152,13 @@ fn native_route_snapshot(endpoint: &IpAddr) -> DomainResult<WindowsRouteSnapshot
     let script = format!(
         "$route = Find-NetRoute -RemoteIPAddress '{endpoint}' -ErrorAction Stop | Sort-Object RouteMetric | Select-Object -First 1; if ($null -eq $route) {{ exit 2 }}; $physical = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -Physical -ErrorAction SilentlyContinue | Where-Object {{ $_.Status -eq 'Up' }} | Select-Object -First 1; if ($null -eq $physical) {{ exit 2 }}; [PSCustomObject]@{{ NextHop = $route.NextHop; InterfaceIndex = $route.InterfaceIndex; RouteMetric = $route.RouteMetric }} | ConvertTo-Json -Compress"
     );
-    let output = std::process::Command::new("powershell.exe")
+    let mut command = native_windows_system_command(NativeWindowsSystemTool::PowerShell)
+        .map_err(|_| endpoint_bypass_error("physical route lookup could not be executed"))?;
+    let output = command
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
         .output()
         .map_err(|_| endpoint_bypass_error("physical route lookup could not be executed"))?;
     if !output.status.success() {
@@ -2222,13 +2254,13 @@ fn native_bypass_routes_from_snapshot(
 }
 
 #[cfg(windows)]
-fn native_silent_route_command(program: &str) -> Command {
-    let mut command = Command::new(program);
+fn native_silent_system_command(tool: NativeWindowsSystemTool) -> io::Result<Command> {
+    let mut command = native_windows_system_command(tool)?;
     command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    command
+    Ok(command)
 }
 
 #[cfg(windows)]
@@ -2237,7 +2269,8 @@ fn native_add_bypass(route: &NativeBypassRoute) -> DomainResult<()> {
     let gateway = route.gateway.to_string();
     let interface_index = route.interface_index.to_string();
     let metric = route.metric.to_string();
-    let status = native_silent_route_command("route.exe")
+    let status = native_silent_system_command(NativeWindowsSystemTool::Route)
+        .map_err(|_| endpoint_bypass_error("underlay bypass command could not run"))?
         .args([
             "ADD",
             &endpoint,
@@ -2280,7 +2313,8 @@ fn native_cleanup_bypass_presence(route: &NativeBypassRoute) -> DomainResult<boo
         "$ErrorActionPreference = 'Stop'\ntry {{\n$matches = @(Get-NetRoute -PolicyStore ActiveStore -DestinationPrefix '{}/32' -NextHop '{}' -InterfaceIndex {} -RouteMetric {} -ErrorAction Stop)\nif ($matches.Count -eq 0) {{ exit 3 }}\nif ($matches.Count -ne 1) {{ exit 2 }}\n}}",
         route.endpoint, route.gateway, route.interface_index, route.metric
     ) + "\ncatch { exit 2 }";
-    let status = native_silent_route_command("powershell.exe")
+    let status = native_silent_system_command(NativeWindowsSystemTool::PowerShell)
+        .map_err(|_| endpoint_bypass_error("underlay bypass cleanup inspection could not run"))?
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .status()
         .map_err(|_| endpoint_bypass_error("underlay bypass cleanup inspection could not run"))?;
@@ -2296,7 +2330,8 @@ fn native_cleanup_bypass_presence(route: &NativeBypassRoute) -> DomainResult<boo
 #[cfg(windows)]
 fn native_prove_bypass(route: &NativeBypassRoute) -> DomainResult<()> {
     let script = native_exact_bypass_proof_script(route);
-    let status = native_silent_route_command("powershell.exe")
+    let status = native_silent_system_command(NativeWindowsSystemTool::PowerShell)
+        .map_err(|_| endpoint_bypass_error("underlay bypass proof could not run"))?
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .status()
         .map_err(|_| endpoint_bypass_error("underlay bypass proof could not run"))?;
@@ -2310,7 +2345,8 @@ fn native_prove_bypass(route: &NativeBypassRoute) -> DomainResult<()> {
 #[cfg(windows)]
 fn native_remove_bypass(route: &NativeBypassRoute) -> DomainResult<()> {
     let script = native_exact_bypass_removal_script(route);
-    let status = native_silent_route_command("powershell.exe")
+    let status = native_silent_system_command(NativeWindowsSystemTool::PowerShell)
+        .map_err(|_| endpoint_bypass_error("underlay bypass removal could not run"))?
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .status()
         .map_err(|_| endpoint_bypass_error("underlay bypass removal could not run"))?;
@@ -2364,7 +2400,9 @@ fn native_destination_route_snapshot(
     let script = format!(
         "$routes = @(Get-NetRoute -PolicyStore ActiveStore -DestinationPrefix '{destination_cidr}' -ErrorAction Stop); $snapshots = @($routes | ForEach-Object {{ [PSCustomObject]@{{ DestinationPrefix = [string]$_.DestinationPrefix; NextHop = [string]$_.NextHop; InterfaceIndex = [uint32]$_.InterfaceIndex; RouteMetric = [uint32]$_.RouteMetric }} }}); [PSCustomObject]@{{ Routes = @($snapshots) }} | ConvertTo-Json -Compress"
     );
-    let output = Command::new("powershell.exe")
+    let mut command = native_windows_system_command(NativeWindowsSystemTool::PowerShell)
+        .map_err(|_| endpoint_bypass_error("destination route snapshot could not run"))?;
+    let output = command
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -2536,7 +2574,8 @@ fn native_cleanup_destination_presence(route: &NativeDestinationRoute) -> Domain
         "$ErrorActionPreference = 'Stop'\ntry {{\n$matches = @(Get-NetRoute -PolicyStore ActiveStore -DestinationPrefix '{}' -NextHop '{}' -InterfaceIndex {} -RouteMetric {} -ErrorAction Stop)\nif ($matches.Count -eq 0) {{ exit 3 }}\nif ($matches.Count -ne 1) {{ exit 2 }}\n$route = $matches[0]\n$physical = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -Physical -ErrorAction Stop\nif ($null -ne $physical) {{ exit 2 }}\n$adapter = Get-NetAdapter -InterfaceIndex $route.InterfaceIndex -ErrorAction Stop\nif ($adapter.Status -ne 'Up') {{ exit 2 }}\n}}",
         route.destination_cidr, route.gateway, route.interface_index, route.metric
     ) + "\ncatch { exit 2 }";
-    let status = native_silent_route_command("powershell.exe")
+    let status = native_silent_system_command(NativeWindowsSystemTool::PowerShell)
+        .map_err(|_| endpoint_bypass_error("destination route cleanup inspection could not run"))?
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .status()
         .map_err(|_| endpoint_bypass_error("destination route cleanup inspection could not run"))?;
@@ -2552,7 +2591,8 @@ fn native_cleanup_destination_presence(route: &NativeDestinationRoute) -> Domain
 #[cfg(windows)]
 fn native_prove_virtual_destination_route(route: &NativeDestinationRoute) -> DomainResult<()> {
     let script = native_exact_destination_route_proof_script(route);
-    let status = native_silent_route_command("powershell.exe")
+    let status = native_silent_system_command(NativeWindowsSystemTool::PowerShell)
+        .map_err(|_| endpoint_bypass_error("destination route proof could not run"))?
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .status()
         .map_err(|_| endpoint_bypass_error("destination route proof could not run"))?;
@@ -2565,7 +2605,8 @@ fn native_prove_virtual_destination_route(route: &NativeDestinationRoute) -> Dom
 #[cfg(windows)]
 fn native_remove_destination_route(route: &NativeDestinationRoute) -> DomainResult<()> {
     let script = native_exact_destination_route_removal_script(route);
-    let status = native_silent_route_command("powershell.exe")
+    let status = native_silent_system_command(NativeWindowsSystemTool::PowerShell)
+        .map_err(|_| endpoint_bypass_error("destination route removal could not run"))?
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .status()
         .map_err(|_| endpoint_bypass_error("destination route removal could not run"))?;
