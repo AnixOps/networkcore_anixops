@@ -1269,7 +1269,7 @@ fn delivery_backed_status_and_stop_validate_existing_state_before_lifecycle_dele
     );
     assert_eq!(
         status_paths.borrow().as_slice(),
-        [guarded_state_path.clone()]
+        std::slice::from_ref(&guarded_state_path)
     );
     assert_eq!(stop_calls.borrow().as_slice(), [(guarded_state_path, true)]);
 }
