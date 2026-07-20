@@ -1194,6 +1194,77 @@ impl WindowsRoutePort for NativeWindowsRoutePort {
     }
 }
 
+#[cfg(all(test, windows))]
+mod native_process_proof_tests {
+    use super::*;
+
+    const FIXTURE_BINARY_SHA256: &str =
+        "d33d1d119b40c768c4d96c66236ba1c033e72a9c041e88aa9c84bd67a38d04a5";
+
+    #[test]
+    fn native_process_proof_requires_exact_arguments_and_records_creation_filetime() {
+        let root = std::env::temp_dir().join(format!(
+            "networkcore-windows-native-proof-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("native proof fixture directory exists");
+        let binary_path = root.join("easytier-core.exe");
+        let config_path = root.join("state.easytier.toml");
+        fs::write(&binary_path, b"fixture-easytier-binary")
+            .expect("native proof core fixture exists");
+        fs::write(&config_path, "instance_name = 'fixture'")
+            .expect("native proof config fixture exists");
+        let binary_path = fs::canonicalize(&binary_path).expect("core fixture is canonical");
+        let config_path = fs::canonicalize(&config_path).expect("config fixture is canonical");
+        let process = OwnedProcessHandle {
+            session_id: "fixture-session".to_string(),
+            process_id: 41001,
+            creation_marker: "2026-07-20T00:00:00Z".to_string(),
+        };
+        let creation_filetime = 133_713_371_337_u64;
+        let exact_command_line = format!(
+            "\"{}\" --config-file \"{}\" --disable-env-parsing",
+            binary_path.display(),
+            config_path.display()
+        );
+        let proof = native_process_proof_from_inspection(
+            NativeProcessInspection {
+                process_id: process.process_id,
+                creation_marker: process.creation_marker.clone(),
+                creation_filetime,
+                executable_path: binary_path.to_string_lossy().into_owned(),
+                command_line: exact_command_line,
+            },
+            &process,
+            Some(&binary_path),
+            FIXTURE_BINARY_SHA256,
+            &config_path,
+        )
+        .expect("exact synthetic native inspection is accepted");
+        assert_eq!(proof.creation_filetime, creation_filetime);
+
+        let extra_argument_command_line = format!(
+            "\"{}\" --config-file \"{}\" --disable-env-parsing --unexpected",
+            binary_path.display(),
+            config_path.display()
+        );
+        let extra_argument_proof = native_process_proof_from_inspection(
+            NativeProcessInspection {
+                process_id: process.process_id,
+                creation_marker: process.creation_marker.clone(),
+                creation_filetime,
+                executable_path: binary_path.to_string_lossy().into_owned(),
+                command_line: extra_argument_command_line,
+            },
+            &process,
+            Some(&binary_path),
+            FIXTURE_BINARY_SHA256,
+            &config_path,
+        );
+        assert!(extra_argument_proof.is_none());
+    }
+}
+
 #[cfg(windows)]
 fn native_route_snapshot(endpoint: &IpAddr) -> DomainResult<WindowsRouteSnapshotEntry> {
     if !endpoint.is_ipv4() {

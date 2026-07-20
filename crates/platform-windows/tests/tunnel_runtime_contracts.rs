@@ -7,6 +7,7 @@ use platform_windows::tunnel_runtime::{
     WindowsRoutePort, WindowsTunnelSessionService, WindowsTunnelStartRequest,
     WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE, WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
     WINDOWS_TUNNEL_OWNERSHIP_MISMATCH_CODE, WINDOWS_TUNNEL_PEER_NOT_READY_CODE,
+    WINDOWS_TUNNEL_START_FAILED_CODE,
 };
 use platform_windows::{WindowsTunnelPlan, WindowsTunnelRouteIntent};
 use std::cell::RefCell;
@@ -43,6 +44,7 @@ struct FakeProcessRunner {
     events: SharedEvents,
     recovered_binary_path: Option<PathBuf>,
     recovered_cli_path: Option<PathBuf>,
+    start_error: Option<DomainError>,
 }
 
 impl EasyTierProcessRunner for FakeProcessRunner {
@@ -51,6 +53,9 @@ impl EasyTierProcessRunner for FakeProcessRunner {
         _spec: &platform_windows::tunnel_config::EasyTierLaunchSpec,
     ) -> DomainResult<OwnedProcessHandle> {
         self.events.push("process.start");
+        if let Some(error) = &self.start_error {
+            return Err(error.clone());
+        }
         Ok(OwnedProcessHandle {
             session_id: "fixture-session".to_string(),
             process_id: 41001,
@@ -187,6 +192,16 @@ fn fake_process_runner(
         events,
         recovered_binary_path,
         recovered_cli_path,
+        start_error: None,
+    }
+}
+
+fn failing_start_process_runner(events: SharedEvents, error: DomainError) -> FakeProcessRunner {
+    FakeProcessRunner {
+        events,
+        recovered_binary_path: None,
+        recovered_cli_path: None,
+        start_error: Some(error),
     }
 }
 
@@ -270,6 +285,62 @@ fn fixture_cli_outside_binary_directory(cli: &Path) -> PathBuf {
     fs::write(&recovered_cli, b"fixture-recovered-easytier-cli")
         .expect("recovered EasyTier CLI fixture exists");
     recovered_cli
+}
+
+#[test]
+fn start_rejects_cli_outside_hash_verified_core_directory_before_version_call() {
+    let events = SharedEvents::new();
+    let (binary, cli, secret) = fixture_paths("start-cli-outside-core-directory");
+    let state_path = binary.parent().expect("fixture parent").join("state.json");
+    let outside_cli = fixture_cli_outside_binary_directory(&cli);
+    let mut service = WindowsTunnelSessionService::new(
+        fake_process_runner(events.clone(), None, None),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        FakeRoutePort::ready(events.clone()),
+    );
+
+    let error = service
+        .start(start_request(binary, outside_cli, secret, state_path))
+        .expect_err("CLI outside the hash-verified core directory is rejected");
+    assert_eq!(error.code, WINDOWS_TUNNEL_START_FAILED_CODE);
+    assert!(events.snapshot().is_empty());
+}
+
+#[test]
+fn start_redacts_process_runner_paths_from_the_service_diagnostic() {
+    let events = SharedEvents::new();
+    let (binary, cli, secret) = fixture_paths("start-redacts-process-runner-paths");
+    let state_path = binary.parent().expect("fixture parent").join("state.json");
+    let raw_binary_path = binary.display().to_string();
+    let raw_state_path = state_path.display().to_string();
+    let raw_error = DomainError::new(
+        "fixture.process_start_failed",
+        format!(
+            "fixture process runner failed for binary {raw_binary_path} and state {raw_state_path}"
+        ),
+    );
+    let mut service = WindowsTunnelSessionService::new(
+        failing_start_process_runner(events.clone(), raw_error),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        FakeRoutePort::ready(events),
+    );
+
+    let error = service
+        .start(start_request(binary, cli, secret, state_path))
+        .expect_err("process-runner start failures are redacted by the service");
+    assert_eq!(error.code, WINDOWS_TUNNEL_START_FAILED_CODE);
+    assert_eq!(error.message, "EasyTier process could not be started");
+    assert!(!error.message.contains(&raw_binary_path));
+    assert!(!error.message.contains(&raw_state_path));
+    assert!(!error.message.contains("fixture process runner failed"));
 }
 
 #[test]
@@ -513,6 +584,117 @@ fn fresh_service_rejects_recovered_cli_outside_proven_binary_directory() {
     let error = recovered
         .status(&state_path)
         .expect_err("recovered CLI outside the proven binary directory is rejected");
+    assert_eq!(error.code, WINDOWS_TUNNEL_OWNERSHIP_MISMATCH_CODE);
+    assert_eq!(recovered_events.snapshot(), vec!["process.recover"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn fresh_service_rejects_recovered_config_symlink_outside_state_directory_before_process_recovery()
+{
+    use std::os::unix::fs::symlink;
+
+    let owner_events = SharedEvents::new();
+    let (binary, cli, secret) = fixture_paths("fresh-config-symlink-outside-state-directory");
+    let state_path = binary.parent().expect("fixture parent").join("state.json");
+    let recovered_binary = binary.clone();
+    let recovered_cli = cli.clone();
+    let mut owner = WindowsTunnelSessionService::new(
+        fake_process_runner(owner_events.clone(), None, None),
+        FakeCliRunner {
+            events: owner_events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        FakeRoutePort::ready(owner_events),
+    );
+    let persisted = owner
+        .start(start_request(binary, cli, secret, state_path.clone()))
+        .expect("owner starts a persisted session");
+    let config_path = state_path
+        .parent()
+        .expect("state path has a parent")
+        .join(&persisted.config_path);
+    let outside_config = std::env::temp_dir().join(format!(
+        "networkcore-windows-tunnel-outside-config-{}.toml",
+        std::process::id()
+    ));
+    fs::write(&outside_config, "fixture outside configuration")
+        .expect("outside configuration fixture exists");
+    fs::remove_file(&config_path).expect("owned configuration is removed before link swap");
+    symlink(&outside_config, &config_path).expect("config path becomes an outside symlink");
+
+    let recovered_events = SharedEvents::new();
+    let mut recovered = WindowsTunnelSessionService::new(
+        fake_process_runner(
+            recovered_events.clone(),
+            Some(recovered_binary),
+            Some(recovered_cli),
+        ),
+        FakeCliRunner {
+            events: recovered_events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        FakeRoutePort::ready(recovered_events.clone()),
+    );
+
+    let error = recovered
+        .status(&state_path)
+        .expect_err("fresh recovery rejects a configuration symlink outside the state directory");
+    assert_eq!(error.code, WINDOWS_TUNNEL_OWNERSHIP_MISMATCH_CODE);
+    assert!(recovered_events.snapshot().is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn fresh_service_rejects_recovered_cli_symlink_outside_core_directory_before_readiness() {
+    use std::os::unix::fs::symlink;
+
+    let owner_events = SharedEvents::new();
+    let (binary, cli, secret) = fixture_paths("fresh-cli-symlink-outside-core-directory");
+    let state_path = binary.parent().expect("fixture parent").join("state.json");
+    let recovered_binary = binary.clone();
+    let mut owner = WindowsTunnelSessionService::new(
+        fake_process_runner(owner_events.clone(), None, None),
+        FakeCliRunner {
+            events: owner_events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        FakeRoutePort::ready(owner_events),
+    );
+    owner
+        .start(start_request(
+            binary,
+            cli.clone(),
+            secret,
+            state_path.clone(),
+        ))
+        .expect("owner starts a persisted session");
+    let outside_cli = std::env::temp_dir().join(format!(
+        "networkcore-windows-tunnel-outside-cli-{}",
+        std::process::id()
+    ));
+    fs::write(&outside_cli, b"fixture outside EasyTier CLI")
+        .expect("outside EasyTier CLI fixture exists");
+    fs::remove_file(&cli).expect("owned CLI fixture is removed before link swap");
+    symlink(&outside_cli, &cli).expect("CLI path becomes an outside symlink");
+
+    let recovered_events = SharedEvents::new();
+    let mut recovered = WindowsTunnelSessionService::new(
+        fake_process_runner(recovered_events.clone(), Some(recovered_binary), Some(cli)),
+        FakeCliRunner {
+            events: recovered_events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string()],
+        },
+        FakeRoutePort::ready(recovered_events.clone()),
+    );
+
+    let error = recovered
+        .status(&state_path)
+        .expect_err("fresh recovery rejects a same-name CLI symlink outside the core directory");
     assert_eq!(error.code, WINDOWS_TUNNEL_OWNERSHIP_MISMATCH_CODE);
     assert_eq!(recovered_events.snapshot(), vec!["process.recover"]);
 }
