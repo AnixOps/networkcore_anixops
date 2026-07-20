@@ -300,8 +300,8 @@ fn read_document(file: &mut File) -> DomainResult<LedgerJournal> {
 }
 
 fn read_ledger_document(record: &[u8]) -> DomainResult<LedgerDocument> {
-    let document = serde_json::from_slice::<LedgerDocument>(record)
-        .map_err(|_| delivery_invalid_error())?;
+    let document =
+        serde_json::from_slice::<LedgerDocument>(record).map_err(|_| delivery_invalid_error())?;
     validate_ledger_document(document)
 }
 

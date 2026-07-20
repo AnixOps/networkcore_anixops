@@ -438,18 +438,16 @@ impl WindowsTunnelDeliveryLoader for NativeWindowsTunnelDeliveryLoader {
             .map_err(map_delivery_verification_error)?;
 
         let ledger = NativeWindowsTunnelSequenceLedger;
-        let floors = ledger
-            .read_floors(&client, &pop)
-            .map_err(|error| {
-                if error.code == WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE {
-                    error
-                } else {
-                    DomainError::new(
-                        WINDOWS_TUNNEL_DELIVERY_INVALID_CODE,
-                        "signed tunnel delivery is invalid",
-                    )
-                }
-            })?;
+        let floors = ledger.read_floors(&client, &pop).map_err(|error| {
+            if error.code == WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE {
+                error
+            } else {
+                DomainError::new(
+                    WINDOWS_TUNNEL_DELIVERY_INVALID_CODE,
+                    "signed tunnel delivery is invalid",
+                )
+            }
+        })?;
         let plan = plan_windows_tunnel(WindowsTunnelPlanRequest {
             client: &client,
             pop: &pop,
@@ -459,18 +457,16 @@ impl WindowsTunnelDeliveryLoader for NativeWindowsTunnelDeliveryLoader {
             last_pop_sequence: floors.pop,
             now,
         })?;
-        ledger
-            .reserve_pair(&client, &pop)
-            .map_err(|error| {
-                if error.code == WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE {
-                    error
-                } else {
-                    DomainError::new(
-                        WINDOWS_TUNNEL_DELIVERY_INVALID_CODE,
-                        "signed tunnel delivery is invalid",
-                    )
-                }
-            })?;
+        ledger.reserve_pair(&client, &pop).map_err(|error| {
+            if error.code == WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE {
+                error
+            } else {
+                DomainError::new(
+                    WINDOWS_TUNNEL_DELIVERY_INVALID_CODE,
+                    "signed tunnel delivery is invalid",
+                )
+            }
+        })?;
         Ok(plan)
     }
 }
