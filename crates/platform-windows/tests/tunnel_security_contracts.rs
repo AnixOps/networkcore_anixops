@@ -1,8 +1,11 @@
+#[cfg(not(windows))]
 use platform_windows::tunnel_runtime::WINDOWS_TUNNEL_START_FAILED_CODE;
+#[cfg(not(windows))]
 use platform_windows::tunnel_security::{
     native_windows_prepare_secret_file, native_windows_prepare_state_path,
     native_windows_prepare_tunnel_secure_paths, native_windows_validate_existing_state_path,
 };
+#[cfg(not(windows))]
 use std::path::Path;
 
 #[test]
