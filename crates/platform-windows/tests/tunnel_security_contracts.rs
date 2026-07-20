@@ -110,7 +110,7 @@ fn native_windows_easytier_artifacts_require_a_protected_direct_child_root() {
     assert!(source.contains("let easytier_directory = fs::canonicalize(paths[5])"));
     assert!(source.contains("easytier_directory.parent() != Some(root.as_path())"));
     assert!(source.contains(
-        "easytier_directory.file_name().and_then(|name| name.to_str()) != Some(\"easytier\")"
+        "easytier_directory\n            .file_name()\n            .and_then(|name| name.to_str())\n            != Some(\"easytier\")"
     ));
     assert!(source.contains("pub fn native_windows_prepare_easytier_artifact("));
     assert!(source.contains("pub fn native_windows_validate_existing_easytier_artifact("));
