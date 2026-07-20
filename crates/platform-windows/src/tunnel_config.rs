@@ -8,6 +8,7 @@ use config_core::windows_tunnel::WindowsTunnelPlan;
 use ring::digest;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+use std::ffi::OsString;
 use std::fmt;
 use std::fs;
 use std::io::Write;
@@ -275,23 +276,19 @@ fn create_state_temporary_file(path: &Path) -> std::io::Result<(PathBuf, fs::Fil
             "tunnel state path has no parent directory",
         )
     })?;
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "tunnel state path has no file name",
-            )
-        })?;
+    let file_name = path.file_name().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "tunnel state path has no file name",
+        )
+    })?;
 
     for _ in 0..64 {
         let sequence = STATE_TEMPORARY_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let temporary_path = directory.join(format!(
-            ".{file_name}.{}.{}.tmp",
-            std::process::id(),
-            sequence
-        ));
+        let mut temporary_name = OsString::from(".");
+        temporary_name.push(file_name);
+        temporary_name.push(format!(".{}.{}.tmp", std::process::id(), sequence));
+        let temporary_path = directory.join(temporary_name);
         match fs::OpenOptions::new()
             .write(true)
             .create_new(true)

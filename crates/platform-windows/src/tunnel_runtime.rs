@@ -423,10 +423,6 @@ where
         let mut stopping = state.clone();
         stopping.state = WindowsTunnelLifecycleState::Stopping;
         stopping.rollback_status = "pending".to_string();
-        if let Err(error) = write_tunnel_state(&state_path, &stopping) {
-            self.owned_sessions.insert(state_path.clone(), owned);
-            return Err(error);
-        }
 
         let bypass_result = self.route_port.restore(&owned.route_snapshot);
         let process_result = self.process_runner.stop(&owned.process_handle);
