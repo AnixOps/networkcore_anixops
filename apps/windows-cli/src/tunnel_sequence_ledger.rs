@@ -1,12 +1,323 @@
-//! Test contracts for the identity-keyed Windows tunnel delivery sequence ledger.
+//! Persistent identity-keyed floors for verified Windows tunnel deliveries.
+
+use config_core::sdwan_delivery::VerifiedDeliveryEnvelope;
+use config_core::windows_tunnel::{
+    WINDOWS_TUNNEL_DELIVERY_INVALID_CODE, WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE,
+};
+use control_domain::{DomainError, DomainResult};
+use fs2::FileExt;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::PathBuf;
+
+const LEDGER_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Serialize, Deserialize)]
+pub struct DeliverySequenceIdentity {
+    tenant_id: String,
+    bundle_kind: String,
+    target_id: String,
+}
+
+impl DeliverySequenceIdentity {
+    /// Creates an identity only from fields exposed by a verified envelope.
+    pub fn new(envelope: &VerifiedDeliveryEnvelope) -> Self {
+        Self {
+            tenant_id: envelope.tenant_id().to_string(),
+            bundle_kind: envelope.bundle_kind().to_string(),
+            target_id: envelope.target_id().to_string(),
+        }
+    }
+
+    #[cfg(test)]
+    fn for_test(tenant_id: &str, bundle_kind: &str, target_id: &str) -> Self {
+        Self {
+            tenant_id: tenant_id.to_string(),
+            bundle_kind: bundle_kind.to_string(),
+            target_id: target_id.to_string(),
+        }
+    }
+
+    fn is_valid(&self) -> bool {
+        !self.tenant_id.trim().is_empty()
+            && !self.bundle_kind.trim().is_empty()
+            && !self.target_id.trim().is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeliverySequenceFloors {
+    pub client: Option<u64>,
+    pub pop: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NativeWindowsTunnelSequenceLedger;
+
+impl NativeWindowsTunnelSequenceLedger {
+    pub fn read_floors(
+        &self,
+        client: &DeliverySequenceIdentity,
+        pop: &DeliverySequenceIdentity,
+    ) -> DomainResult<DeliverySequenceFloors> {
+        self.store()?.read_floors(client, pop)
+    }
+
+    pub fn reserve_pair(
+        &self,
+        client: (&DeliverySequenceIdentity, u64),
+        pop: (&DeliverySequenceIdentity, u64),
+    ) -> DomainResult<()> {
+        self.store()?.reserve_pair(client, pop)
+    }
+
+    fn store(&self) -> DomainResult<SequenceLedgerStore> {
+        let paths = platform_windows::tunnel_security::native_windows_prepare_tunnel_secure_paths()
+            .map_err(|_| delivery_invalid_error())?;
+        Ok(SequenceLedgerStore {
+            path: paths.delivery_ledger_path,
+        })
+    }
+
+    #[cfg(test)]
+    fn for_test_path(path: PathBuf) -> SequenceLedgerStore {
+        SequenceLedgerStore { path }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct SequenceLedgerStore {
+    path: PathBuf,
+}
+
+impl SequenceLedgerStore {
+    fn read_floors(
+        &self,
+        client: &DeliverySequenceIdentity,
+        pop: &DeliverySequenceIdentity,
+    ) -> DomainResult<DeliverySequenceFloors> {
+        self.with_locked_file(|file| {
+            let journal = read_document(file)?;
+            Ok(DeliverySequenceFloors {
+                client: journal.document.floors.get(client).copied(),
+                pop: journal.document.floors.get(pop).copied(),
+            })
+        })
+    }
+
+    fn reserve_pair(
+        &self,
+        client: (&DeliverySequenceIdentity, u64),
+        pop: (&DeliverySequenceIdentity, u64),
+    ) -> DomainResult<()> {
+        self.with_locked_file(|file| {
+            if client.0 == pop.0 || client.1 == 0 || pop.1 == 0 {
+                return Err(delivery_invalid_error());
+            }
+
+            let mut journal = read_document(file)?;
+            if journal
+                .document
+                .floors
+                .get(client.0)
+                .is_some_and(|floor| client.1 <= *floor)
+                || journal
+                    .document
+                    .floors
+                    .get(pop.0)
+                    .is_some_and(|floor| pop.1 <= *floor)
+            {
+                return Err(sequence_replayed_error());
+            }
+
+            journal.document.floors.insert(client.0.clone(), client.1);
+            journal.document.floors.insert(pop.0.clone(), pop.1);
+            append_document(file, &journal)
+        })
+    }
+
+    fn with_locked_file<T>(
+        &self,
+        operation: impl FnOnce(&mut File) -> DomainResult<T>,
+    ) -> DomainResult<T> {
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(&self.path)
+            .map_err(|_| delivery_invalid_error())?;
+        file.lock_exclusive()
+            .map_err(|_| delivery_invalid_error())?;
+
+        let result = operation(&mut file);
+        if file.unlock().is_err() {
+            return Err(delivery_invalid_error());
+        }
+        result
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LedgerDocument {
+    schema_version: u32,
+    // Structured identities serialize as ordered entries because JSON object keys are strings.
+    #[serde(with = "sequence_floor_map")]
+    floors: BTreeMap<DeliverySequenceIdentity, u64>,
+}
+
+struct LedgerJournal {
+    document: LedgerDocument,
+    last_complete_end: u64,
+    has_trailing_partial: bool,
+}
+
+impl LedgerDocument {
+    fn empty() -> Self {
+        Self {
+            schema_version: LEDGER_SCHEMA_VERSION,
+            floors: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LedgerFloorEntry {
+    identity: DeliverySequenceIdentity,
+    sequence: u64,
+}
+
+mod sequence_floor_map {
+    use super::{DeliverySequenceIdentity, LedgerFloorEntry};
+    use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+    use std::collections::BTreeMap;
+
+    pub(super) fn serialize<S>(
+        floors: &BTreeMap<DeliverySequenceIdentity, u64>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let entries = floors
+            .iter()
+            .map(|(identity, sequence)| LedgerFloorEntry {
+                identity: identity.clone(),
+                sequence: *sequence,
+            })
+            .collect::<Vec<_>>();
+        entries.serialize(serializer)
+    }
+
+    pub(super) fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<BTreeMap<DeliverySequenceIdentity, u64>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let entries = Vec::<LedgerFloorEntry>::deserialize(deserializer)?;
+        let mut floors = BTreeMap::new();
+        for entry in entries {
+            if entry.sequence == 0 || !entry.identity.is_valid() {
+                return Err(D::Error::custom("invalid delivery sequence floor"));
+            }
+            if floors
+                .insert(entry.identity, entry.sequence)
+                .is_some()
+            {
+                return Err(D::Error::custom("duplicate delivery sequence identity"));
+            }
+        }
+        Ok(floors)
+    }
+}
+
+fn read_document(file: &mut File) -> DomainResult<LedgerJournal> {
+    file.seek(SeekFrom::Start(0))
+        .map_err(|_| delivery_invalid_error())?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .map_err(|_| delivery_invalid_error())?;
+    if bytes.is_empty() {
+        return Ok(LedgerJournal {
+            document: LedgerDocument::empty(),
+            last_complete_end: 0,
+            has_trailing_partial: false,
+        });
+    }
+
+    let mut latest = None;
+    let mut record_start = 0;
+    let mut last_complete_end = 0u64;
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte != b'\n' {
+            continue;
+        }
+
+        let record = &bytes[record_start..index];
+        if record.is_empty() {
+            return Err(delivery_invalid_error());
+        }
+        let document = serde_json::from_slice::<LedgerDocument>(record)
+            .map_err(|_| delivery_invalid_error())?;
+        if document.schema_version != LEDGER_SCHEMA_VERSION {
+            return Err(delivery_invalid_error());
+        }
+        latest = Some(document);
+        record_start = index + 1;
+        last_complete_end = u64::try_from(record_start).map_err(|_| delivery_invalid_error())?;
+    }
+    Ok(LedgerJournal {
+        document: latest.unwrap_or_else(LedgerDocument::empty),
+        last_complete_end,
+        has_trailing_partial: record_start < bytes.len(),
+    })
+}
+
+fn append_document(file: &mut File, journal: &LedgerJournal) -> DomainResult<()> {
+    let bytes = serde_json::to_vec(&journal.document).map_err(|_| delivery_invalid_error())?;
+    if journal.has_trailing_partial {
+        file.set_len(journal.last_complete_end)
+            .map_err(|_| delivery_invalid_error())?;
+        file.seek(SeekFrom::Start(journal.last_complete_end))
+            .map_err(|_| delivery_invalid_error())?;
+    } else {
+        file.seek(SeekFrom::End(0))
+            .map_err(|_| delivery_invalid_error())?;
+    }
+    file.write_all(&bytes)
+        .map_err(|_| delivery_invalid_error())?;
+    file.write_all(b"\n")
+        .map_err(|_| delivery_invalid_error())?;
+    file.flush().map_err(|_| delivery_invalid_error())?;
+    file.sync_all().map_err(|_| delivery_invalid_error())
+}
+
+fn delivery_invalid_error() -> DomainError {
+    DomainError::new(
+        WINDOWS_TUNNEL_DELIVERY_INVALID_CODE,
+        "signed tunnel delivery is invalid",
+    )
+}
+
+fn sequence_replayed_error() -> DomainError {
+    DomainError::new(
+        WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE,
+        "delivery sequence is not newer than the persisted floor",
+    )
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use config_core::windows_tunnel::WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE;
-    use std::fs;
-    use std::path::PathBuf;
+    use std::fs::{self, OpenOptions};
+    use std::io::Write;
+    use std::path::Path;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
 
@@ -17,15 +328,19 @@ mod tests {
     impl TemporaryLedgerPath {
         fn new() -> Self {
             let suffix = NEXT_TEST_PATH.fetch_add(1, Ordering::Relaxed);
+            let timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
             Self {
                 path: std::env::temp_dir().join(format!(
-                    "networkcore-windows-sequence-ledger-{}-{suffix}.json",
+                    "networkcore-windows-sequence-ledger-{}-{timestamp}-{suffix}.json",
                     std::process::id()
                 )),
             }
         }
 
-        fn path(&self) -> &std::path::Path {
+        fn path(&self) -> &Path {
             &self.path
         }
     }
@@ -40,36 +355,46 @@ mod tests {
         DeliverySequenceIdentity::for_test(tenant_id, bundle_kind, target_id)
     }
 
-    fn test_ledger(path: &std::path::Path) -> NativeWindowsTunnelSequenceLedger {
+    fn test_ledger(path: &Path) -> SequenceLedgerStore {
         NativeWindowsTunnelSequenceLedger::for_test_path(path.to_path_buf())
     }
 
     #[test]
-    fn independent_client_and_pop_identities_reserve_first_sequences_and_reject_replay() {
+    fn independent_client_and_pop_identities_reject_equal_and_lower_sequences() {
         let path = TemporaryLedgerPath::new();
         let ledger = test_ledger(path.path());
         let client = identity("tenant-a", "client", "device-a");
         let pop = identity("tenant-a", "pop", "pop-a");
 
         ledger
-            .reserve_pair((&client, 1), (&pop, 1))
+            .reserve_pair((&client, 3), (&pop, 4))
             .expect("first client/POP pair is accepted");
 
         let floors = ledger
             .read_floors(&client, &pop)
             .expect("persisted floors can be read");
-        assert_eq!(floors.client, Some(1));
-        assert_eq!(floors.pop, Some(1));
+        assert_eq!(floors.client, Some(3));
+        assert_eq!(floors.pop, Some(4));
 
         let client_replay = ledger
-            .reserve_pair((&client, 1), (&pop, 2))
+            .reserve_pair((&client, 3), (&pop, 5))
             .expect_err("equal client sequence is rejected");
         assert_eq!(client_replay.code, WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE);
 
+        let client_lower = ledger
+            .reserve_pair((&client, 2), (&pop, 5))
+            .expect_err("lower client sequence is rejected");
+        assert_eq!(client_lower.code, WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE);
+
         let pop_replay = ledger
-            .reserve_pair((&client, 2), (&pop, 1))
+            .reserve_pair((&client, 4), (&pop, 4))
             .expect_err("equal POP sequence is rejected");
         assert_eq!(pop_replay.code, WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE);
+
+        let pop_lower = ledger
+            .reserve_pair((&client, 4), (&pop, 3))
+            .expect_err("lower POP sequence is rejected");
+        assert_eq!(pop_lower.code, WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE);
     }
 
     #[test]
@@ -113,9 +438,70 @@ mod tests {
     }
 
     #[test]
-    fn malformed_ledger_fails_closed_without_exposing_its_path() {
+    fn trailing_partial_record_does_not_erase_the_last_durable_floor() {
         let path = TemporaryLedgerPath::new();
-        fs::write(path.path(), b"{ malformed ledger")
+        let client = identity("tenant-a", "client", "device-a");
+        let pop = identity("tenant-a", "pop", "pop-a");
+        test_ledger(path.path())
+            .reserve_pair((&client, 3), (&pop, 4))
+            .expect("initial reservation succeeds");
+
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(path.path())
+            .expect("test can append a partial record");
+        file.write_all(b"{\"schema_version\":1")
+            .expect("test can write a trailing partial record");
+        drop(file);
+
+        let reopened = test_ledger(path.path());
+        let floors = reopened
+            .read_floors(&client, &pop)
+            .expect("trailing partial record is ignored");
+        assert_eq!(floors.client, Some(3));
+        assert_eq!(floors.pop, Some(4));
+    }
+
+    #[test]
+    fn new_reservation_recovers_a_trailing_partial_without_losing_the_prior_floor() {
+        let path = TemporaryLedgerPath::new();
+        let client = identity("tenant-a", "client", "device-a");
+        let pop = identity("tenant-a", "pop", "pop-a");
+        test_ledger(path.path())
+            .reserve_pair((&client, 3), (&pop, 4))
+            .expect("initial reservation succeeds");
+
+        let mut file = OpenOptions::new()
+            .append(true)
+            .open(path.path())
+            .expect("test can append a partial record");
+        file.write_all(b"{\"schema_version\":1")
+            .expect("test can write a trailing partial record");
+        drop(file);
+
+        let replay = test_ledger(path.path())
+            .reserve_pair((&client, 3), (&pop, 4))
+            .expect_err("prior complete record remains the replay floor");
+        assert_eq!(replay.code, WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE);
+
+        test_ledger(path.path())
+            .reserve_pair((&client, 5), (&pop, 6))
+            .expect("newer reservation replaces only the trailing partial record");
+        let floors = test_ledger(path.path())
+            .read_floors(&client, &pop)
+            .expect("recovered journal remains readable");
+        assert_eq!(floors.client, Some(5));
+        assert_eq!(floors.pop, Some(6));
+
+        let bytes = fs::read(path.path()).expect("test can inspect the recovered journal");
+        assert!(bytes.ends_with(b"\n"));
+        assert_eq!(bytes.iter().filter(|byte| **byte == b'\n').count(), 2);
+    }
+
+    #[test]
+    fn malformed_complete_record_fails_closed_without_exposing_its_path() {
+        let path = TemporaryLedgerPath::new();
+        fs::write(path.path(), b"{ malformed ledger\n")
             .expect("test can write malformed ledger fixture");
         let client = identity("tenant-a", "client", "device-a");
         let pop = identity("tenant-a", "pop", "pop-a");
@@ -123,7 +509,10 @@ mod tests {
         let error = test_ledger(path.path())
             .read_floors(&client, &pop)
             .expect_err("malformed ledger is rejected");
-        assert_eq!(error.code, config_core::windows_tunnel::WINDOWS_TUNNEL_DELIVERY_INVALID_CODE);
+        assert_eq!(
+            error.code,
+            config_core::windows_tunnel::WINDOWS_TUNNEL_DELIVERY_INVALID_CODE
+        );
         assert!(!error.message.contains(&path.path().display().to_string()));
     }
 }

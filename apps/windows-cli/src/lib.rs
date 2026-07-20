@@ -8,7 +8,7 @@
 use config_core::sdwan_delivery::{SdwanDeliveryVerifier, SDWAN_DELIVERY_EXPIRED_CODE};
 use config_core::windows_tunnel::{
     plan_windows_tunnel, WindowsTunnelPlanRequest, WINDOWS_TUNNEL_DELIVERY_EXPIRED_CODE,
-    WINDOWS_TUNNEL_DELIVERY_INVALID_CODE,
+    WINDOWS_TUNNEL_DELIVERY_INVALID_CODE, WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE,
 };
 use control_domain::{DomainError, DomainResult};
 use platform_windows::{
@@ -31,6 +31,10 @@ use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use time::OffsetDateTime;
+
+pub mod tunnel_sequence_ledger;
+
+use tunnel_sequence_ledger::{DeliverySequenceIdentity, NativeWindowsTunnelSequenceLedger};
 
 pub const COMMAND_NAME: &str = "networkcore-windows";
 pub const PLATFORM_NAME: &str = "windows";
@@ -433,15 +437,44 @@ impl WindowsTunnelDeliveryLoader for NativeWindowsTunnelDeliveryLoader {
             .verify_json(&pop_bytes, now)
             .map_err(map_delivery_verification_error)?;
 
-        plan_windows_tunnel(WindowsTunnelPlanRequest {
+        let ledger = NativeWindowsTunnelSequenceLedger;
+        let client_identity = DeliverySequenceIdentity::new(&client);
+        let pop_identity = DeliverySequenceIdentity::new(&pop);
+        let floors = ledger.read_floors(&client_identity, &pop_identity).map_err(|error| {
+            if error.code == WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE {
+                error
+            } else {
+                DomainError::new(
+                    WINDOWS_TUNNEL_DELIVERY_INVALID_CODE,
+                    "signed tunnel delivery is invalid",
+                )
+            }
+        })?;
+        let plan = plan_windows_tunnel(WindowsTunnelPlanRequest {
             client: &client,
             pop: &pop,
             device_id: &args.device_id,
             selected_pop_id: &args.pop_id,
-            last_client_sequence: None,
-            last_pop_sequence: None,
+            last_client_sequence: floors.client,
+            last_pop_sequence: floors.pop,
             now,
-        })
+        })?;
+        ledger
+            .reserve_pair(
+                (&client_identity, client.sequence()),
+                (&pop_identity, pop.sequence()),
+            )
+            .map_err(|error| {
+                if error.code == WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE {
+                    error
+                } else {
+                    DomainError::new(
+                        WINDOWS_TUNNEL_DELIVERY_INVALID_CODE,
+                        "signed tunnel delivery is invalid",
+                    )
+                }
+            })?;
+        Ok(plan)
     }
 }
 

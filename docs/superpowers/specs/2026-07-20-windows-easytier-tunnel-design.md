@@ -281,8 +281,19 @@ process ownership proof. There is no non-elevated live status mode.
    For `stop` and live `status`, it checks elevation before it performs inspection-only state-path
    validation or lifecycle access; status remains non-mutating but elevation is required for the
    storage/config/process ownership proof.
-3. The pure planner checks identity, expiry, sequence, transport, POP selection, and route
-   intent. It emits a redacted plan or a stable rejection diagnostic.
+3. After both envelopes verify, the native loader derives client and POP identities only from
+   verified envelope accessors and reads their independent floors from the protected delivery
+   ledger. The pure planner checks identity, expiry, sequence, transport, POP selection, and route
+   intent against those floors. A successful signature and plan validation is accepted only after
+   the loader durably reserves both newer sequences under the ledger lock, before any process or
+   route mutation. The reservation is never rolled back: if a later lifecycle launch fails, those
+   sequences are consumed and the controller must issue a newer delivery. The schema-v1 ledger is
+   an append-only newline-delimited journal: each reservation appends and syncs a complete floor
+   document while holding the exclusive lock. Readers use the last complete record, fail closed on
+   malformed complete records, and ignore only a non-newline-terminated trailing partial record so
+   a crash cannot erase an earlier durable floor. Before a later reservation appends, the same
+   lock permits it to trim only that detected partial tail back to the last complete-record offset;
+   it never compacts or truncates a complete journal record.
 4. The Windows adapter validates administrator context, executable hashes, secret-file ACL
    expectations, and the physical endpoint bypass route.
 5. The adapter writes a session-owned EasyTier configuration artifact under the state
@@ -351,7 +362,9 @@ GitHub Actions must cover:
 
 - command parsing and `--confirm`/path requirements, including storage-only preparation;
 - client/POP identity, expiry, sequence, transport, and POP-selection rejection paths;
-- independent per-bundle sequence replay rejection and persisted sequence-floor handling;
+- independent per-bundle sequence replay rejection, persisted identity-keyed floors, atomic pair
+  reservation, malformed-ledger fail-closed behavior, reopening persistence, and safe recovery
+  from a trailing partial journal record;
 - deterministic EasyTier command/config generation with secret redaction;
 - executable version/hash mismatch and missing-secret diagnostics;
 - endpoint bypass transaction ordering and rollback on process/readiness failure;

@@ -1560,6 +1560,14 @@ fn native_tunnel_input_policy_is_limited_to_platform_secure_path_operations() {
 #[test]
 fn native_delivery_loader_persists_verified_sequence_floors_before_lifecycle_start() {
     let source = include_str!("../src/lib.rs").replace("\r\n", "\n");
+    let ledger_source = include_str!("../src/tunnel_sequence_ledger.rs").replace("\r\n", "\n");
+    assert!(ledger_source.contains("lock_exclusive"));
+    assert!(ledger_source.contains("SeekFrom::End(0)"));
+    assert!(ledger_source.contains("write_all(b\"\\n\")"));
+    assert!(ledger_source.contains("sync_all"));
+    assert!(ledger_source.contains("set_len(journal.last_complete_end)"));
+    assert!(!ledger_source.contains("set_len(0)"));
+
     let loader_start = source
         .find("impl WindowsTunnelDeliveryLoader for NativeWindowsTunnelDeliveryLoader")
         .expect("native delivery loader implementation exists");
@@ -1588,6 +1596,8 @@ fn native_delivery_loader_persists_verified_sequence_floors_before_lifecycle_sta
     assert!(loader.contains("DeliverySequenceIdentity::new(&pop)"));
     assert!(loader.contains("WINDOWS_TUNNEL_DELIVERY_INVALID_CODE"));
     assert!(loader.contains("WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE"));
+    assert!(loader.contains("if error.code == WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE"));
+    assert!(loader.contains("DomainError::new("));
     assert!(loader.contains("Ok(plan)"));
 
     let service_start = source
