@@ -1,10 +1,12 @@
 use control_domain::{DomainError, DomainResult};
 use platform_windows::tunnel_config::{
     read_tunnel_state, OwnedProcessHandle, WindowsRouteSnapshotEntry, WindowsTunnelLifecycleState,
+    WindowsTunnelRuntimeOwnership, WindowsTunnelState, WINDOWS_TUNNEL_STATE_SCHEMA_VERSION,
 };
 use platform_windows::tunnel_runtime::{
-    EasyTierCliRunner, EasyTierProcessRunner, EasyTierRecoverySpec, RecoveredEasyTierProcess,
-    WindowsRoutePort, WindowsTunnelSessionService, WindowsTunnelStartRequest,
+    EasyTierCleanupRecovery, EasyTierCliRunner, EasyTierProcessRunner, EasyTierRecoverySpec,
+    RecoveredEasyTierProcess, WindowsRoutePort, WindowsTunnelSessionService,
+    WindowsTunnelStartRequest, WindowsTunnelStatePort,
     WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE, WINDOWS_TUNNEL_ENDPOINT_BYPASS_FAILED_CODE,
     WINDOWS_TUNNEL_OWNERSHIP_MISMATCH_CODE, WINDOWS_TUNNEL_PEER_NOT_READY_CODE,
     WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE, WINDOWS_TUNNEL_START_FAILED_CODE,
@@ -317,6 +319,338 @@ impl WindowsRoutePort for FakeRoutePort {
     }
 }
 
+#[derive(Clone)]
+struct FakeStatePort {
+    data: Rc<RefCell<FakeStatePortData>>,
+    events: SharedEvents,
+}
+
+struct FakeStatePortData {
+    state: WindowsTunnelState,
+    failed_writes: Vec<WindowsTunnelLifecycleState>,
+}
+
+impl FakeStatePort {
+    fn seeded(state: WindowsTunnelState, events: SharedEvents) -> Self {
+        Self {
+            data: Rc::new(RefCell::new(FakeStatePortData {
+                state,
+                failed_writes: Vec::new(),
+            })),
+            events,
+        }
+    }
+
+    fn fail_next_write_for(&self, lifecycle: WindowsTunnelLifecycleState) {
+        self.data.borrow_mut().failed_writes.push(lifecycle);
+    }
+
+    fn current(&self) -> WindowsTunnelState {
+        self.data.borrow().state.clone()
+    }
+}
+
+impl WindowsTunnelStatePort for FakeStatePort {
+    fn read(&mut self, _path: &Path) -> DomainResult<WindowsTunnelState> {
+        self.events.push("state.read");
+        Ok(self.current())
+    }
+
+    fn write(&mut self, _path: &Path, state: &WindowsTunnelState) -> DomainResult<()> {
+        self.events.push(format!("state.write:{:?}", state.state));
+        let mut data = self.data.borrow_mut();
+        if let Some(position) = data
+            .failed_writes
+            .iter()
+            .position(|lifecycle| *lifecycle == state.state)
+        {
+            data.failed_writes.remove(position);
+            self.events
+                .push(format!("state.write_failed:{:?}", state.state));
+            return Err(DomainError::new(
+                "fixture.state_write_failed",
+                "fixture state transition could not be persisted",
+            ));
+        }
+        data.state = state.clone();
+        Ok(())
+    }
+}
+
+struct CleanupFakeProcessRunner {
+    events: SharedEvents,
+    recovered_binary_path: Option<PathBuf>,
+    recovered_cli_path: Option<PathBuf>,
+    cleanup_absent: bool,
+    stop_error: Option<DomainError>,
+}
+
+impl CleanupFakeProcessRunner {
+    fn present(
+        events: SharedEvents,
+        binary_path: PathBuf,
+        cli_path: PathBuf,
+        stop_error: Option<DomainError>,
+    ) -> Self {
+        Self {
+            events,
+            recovered_binary_path: Some(binary_path),
+            recovered_cli_path: Some(cli_path),
+            cleanup_absent: false,
+            stop_error,
+        }
+    }
+
+    fn absent(events: SharedEvents) -> Self {
+        Self {
+            events,
+            recovered_binary_path: None,
+            recovered_cli_path: None,
+            cleanup_absent: true,
+            stop_error: None,
+        }
+    }
+}
+
+impl EasyTierProcessRunner for CleanupFakeProcessRunner {
+    fn start(
+        &mut self,
+        _spec: &platform_windows::tunnel_config::EasyTierLaunchSpec,
+    ) -> DomainResult<OwnedProcessHandle> {
+        Err(DomainError::new(
+            "fixture.start_not_expected",
+            "cleanup lifecycle tests do not start a process",
+        ))
+    }
+
+    fn recover(&mut self, spec: &EasyTierRecoverySpec) -> DomainResult<RecoveredEasyTierProcess> {
+        self.events.push("process.recover");
+        let binary_path = self.recovered_binary_path.clone().ok_or_else(|| {
+            DomainError::new(
+                "fixture.recovery_proof_failed",
+                "fixture process recovery proof is unavailable",
+            )
+        })?;
+        let cli_path = self.recovered_cli_path.clone().ok_or_else(|| {
+            DomainError::new(
+                "fixture.recovery_proof_failed",
+                "fixture process recovery proof is unavailable",
+            )
+        })?;
+        Ok(RecoveredEasyTierProcess {
+            process: spec.expected_process.clone(),
+            binary_path,
+            cli_path,
+        })
+    }
+
+    fn recover_for_cleanup(
+        &mut self,
+        spec: &EasyTierRecoverySpec,
+    ) -> DomainResult<EasyTierCleanupRecovery> {
+        self.events.push("process.cleanup_recover");
+        if self.cleanup_absent {
+            Ok(EasyTierCleanupRecovery::Absent)
+        } else {
+            self.recover(spec).map(EasyTierCleanupRecovery::Present)
+        }
+    }
+
+    fn stop(&mut self, handle: &OwnedProcessHandle) -> DomainResult<()> {
+        self.events.push(format!(
+            "process.stop:{}:{}:{}",
+            handle.session_id, handle.process_id, handle.creation_marker
+        ));
+        match &self.stop_error {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
+        }
+    }
+}
+
+#[derive(Clone)]
+enum CleanupRouteProof {
+    Exact(Vec<bool>),
+    Ambiguous,
+}
+
+struct CleanupFakeRoutePort {
+    events: SharedEvents,
+    destination_proof: CleanupRouteProof,
+    bypass_proof: CleanupRouteProof,
+    destination_remove_error: Option<DomainError>,
+    restore_error: Option<DomainError>,
+    destination_remaining: Option<usize>,
+    bypass_remaining: Option<usize>,
+}
+
+impl CleanupFakeRoutePort {
+    fn complete(events: SharedEvents) -> Self {
+        Self {
+            events,
+            destination_proof: CleanupRouteProof::Exact(vec![true, true]),
+            bypass_proof: CleanupRouteProof::Exact(vec![true]),
+            destination_remove_error: None,
+            restore_error: None,
+            destination_remaining: None,
+            bypass_remaining: None,
+        }
+    }
+
+    fn partial_destination_removal_fails(events: SharedEvents) -> Self {
+        Self {
+            destination_remove_error: Some(DomainError::new(
+                WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE,
+                "fixture destination removal was interrupted after one exact tuple",
+            )),
+            ..Self::complete(events)
+        }
+    }
+
+    fn reconciled(
+        events: SharedEvents,
+        destination_proof: CleanupRouteProof,
+        bypass_proof: CleanupRouteProof,
+    ) -> Self {
+        Self {
+            events,
+            destination_proof,
+            bypass_proof,
+            destination_remove_error: None,
+            restore_error: None,
+            destination_remaining: None,
+            bypass_remaining: None,
+        }
+    }
+
+    fn strict_proof(proof: &CleanupRouteProof, expected: usize) -> DomainResult<()> {
+        match proof {
+            CleanupRouteProof::Exact(matches)
+                if matches.len() == expected && matches.iter().all(|match_| *match_) =>
+            {
+                Ok(())
+            }
+            CleanupRouteProof::Exact(_) | CleanupRouteProof::Ambiguous => Err(DomainError::new(
+                WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE,
+                "fixture strict route recovery could not prove every tuple",
+            )),
+        }
+    }
+
+    fn cleanup_proof(proof: &CleanupRouteProof, expected: usize) -> DomainResult<usize> {
+        match proof {
+            CleanupRouteProof::Exact(matches) if matches.len() == expected => {
+                Ok(matches.iter().filter(|match_| **match_).count())
+            }
+            CleanupRouteProof::Exact(_) | CleanupRouteProof::Ambiguous => Err(DomainError::new(
+                WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE,
+                "fixture cleanup route recovery found an ambiguous tuple",
+            )),
+        }
+    }
+}
+
+impl WindowsRoutePort for CleanupFakeRoutePort {
+    fn snapshot(&mut self, _endpoints: &[IpAddr]) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
+        Err(DomainError::new(
+            "fixture.snapshot_not_expected",
+            "cleanup lifecycle tests do not capture routes",
+        ))
+    }
+
+    fn add_endpoint_bypass(&mut self, _endpoints: &[IpAddr]) -> DomainResult<()> {
+        Err(DomainError::new(
+            "fixture.bypass_not_expected",
+            "cleanup lifecycle tests do not add bypasses",
+        ))
+    }
+
+    fn recover_owned_bypass(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()> {
+        self.events.push("route.bypass_recover_strict");
+        Self::strict_proof(&self.bypass_proof, snapshot.len())
+    }
+
+    fn recover_cleanup_bypass(
+        &mut self,
+        snapshot: &[WindowsRouteSnapshotEntry],
+    ) -> DomainResult<()> {
+        self.events.push("route.bypass_recover_cleanup");
+        self.bypass_remaining = Some(Self::cleanup_proof(&self.bypass_proof, snapshot.len())?);
+        Ok(())
+    }
+
+    fn restore(&mut self, snapshot: &[WindowsRouteSnapshotEntry]) -> DomainResult<()> {
+        let remaining = self.bypass_remaining.unwrap_or(snapshot.len());
+        if remaining == 0 {
+            self.events.push("route.bypass_skip_absent");
+            return Ok(());
+        }
+        self.events.push("route.restore");
+        match &self.restore_error {
+            Some(error) => Err(error.clone()),
+            None => Ok(()),
+        }
+    }
+
+    fn snapshot_destination_routes(
+        &mut self,
+        _destination_cidrs: &[String],
+    ) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
+        Err(DomainError::new(
+            "fixture.destination_snapshot_not_expected",
+            "cleanup lifecycle tests do not capture destination routes",
+        ))
+    }
+
+    fn capture_owned_destination_routes(
+        &mut self,
+        _before: &[WindowsRouteSnapshotEntry],
+        _destination_cidrs: &[String],
+    ) -> DomainResult<Vec<WindowsRouteSnapshotEntry>> {
+        Err(DomainError::new(
+            "fixture.destination_capture_not_expected",
+            "cleanup lifecycle tests do not capture destination routes",
+        ))
+    }
+
+    fn recover_owned_destination_routes(
+        &mut self,
+        snapshot: &[WindowsRouteSnapshotEntry],
+    ) -> DomainResult<()> {
+        self.events.push("route.destination_recover_strict");
+        Self::strict_proof(&self.destination_proof, snapshot.len())
+    }
+
+    fn recover_cleanup_destination_routes(
+        &mut self,
+        snapshot: &[WindowsRouteSnapshotEntry],
+    ) -> DomainResult<()> {
+        self.events.push("route.destination_recover_cleanup");
+        self.destination_remaining = Some(Self::cleanup_proof(
+            &self.destination_proof,
+            snapshot.len(),
+        )?);
+        Ok(())
+    }
+
+    fn remove_owned_destination_routes(
+        &mut self,
+        snapshot: &[WindowsRouteSnapshotEntry],
+    ) -> DomainResult<()> {
+        let remaining = self.destination_remaining.unwrap_or(snapshot.len());
+        if remaining == 0 {
+            self.events.push("route.destination_skip_absent");
+            return Ok(());
+        }
+        if let Some(error) = &self.destination_remove_error {
+            self.events.push("route.destination_remove_partial");
+            return Err(error.clone());
+        }
+        self.events.push("route.destination_remove");
+        Ok(())
+    }
+}
+
 fn fake_process_runner(
     events: SharedEvents,
     recovered_binary_path: Option<PathBuf>,
@@ -381,6 +715,76 @@ fn fixture_paths(name: &str) -> (PathBuf, PathBuf, PathBuf) {
     fs::write(&cli, b"fixture-easytier-cli").expect("fixture EasyTier CLI");
     fs::write(&secret, b"fixture-network-secret").expect("fixture network secret");
     (binary, cli, secret)
+}
+
+fn cleanup_fixture(
+    name: &str,
+    lifecycle: WindowsTunnelLifecycleState,
+) -> (PathBuf, PathBuf, PathBuf, PathBuf, WindowsTunnelState) {
+    let (binary, cli, _secret) = fixture_paths(name);
+    let state_path = binary.parent().expect("fixture parent").join("state.json");
+    let config_path = state_path
+        .parent()
+        .expect("fixture state path has a parent")
+        .join("state.easytier.toml");
+    fs::write(&config_path, "fixture cleanup configuration")
+        .expect("fixture cleanup configuration exists");
+    let rollback_status = match lifecycle {
+        WindowsTunnelLifecycleState::Running => "clean",
+        WindowsTunnelLifecycleState::Stopping => "pending",
+        WindowsTunnelLifecycleState::Failed => "rollback_failed",
+        WindowsTunnelLifecycleState::Starting | WindowsTunnelLifecycleState::Stopped => "clean",
+    };
+    let destination_routes = vec![
+        WindowsRouteSnapshotEntry {
+            destination_cidr: "203.0.113.0/24".to_string(),
+            gateway: Some("10.10.0.1".to_string()),
+            interface_index: Some(42),
+            metric: Some(7),
+        },
+        WindowsRouteSnapshotEntry {
+            destination_cidr: "203.0.114.0/24".to_string(),
+            gateway: Some("10.10.0.1".to_string()),
+            interface_index: Some(42),
+            metric: Some(7),
+        },
+    ];
+    let state = WindowsTunnelState {
+        schema_version: WINDOWS_TUNNEL_STATE_SCHEMA_VERSION,
+        session_id: "fixture-session".to_string(),
+        plan_digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+            .to_string(),
+        selected_pop_id: "pop-a".to_string(),
+        selected_endpoint: "198.51.100.10:11010".to_string(),
+        state: lifecycle,
+        config_path: "state.easytier.toml".to_string(),
+        last_client_sequence: 3,
+        last_pop_sequence: 4,
+        client_bundle_id: "fixture-client-bundle".to_string(),
+        client_sequence: 3,
+        pop_bundle_id: "fixture-pop-bundle".to_string(),
+        pop_sequence: 4,
+        easytier_version: "2.6.1".to_string(),
+        route_snapshot: vec![WindowsRouteSnapshotEntry {
+            destination_cidr: "198.51.100.10/32".to_string(),
+            gateway: Some("192.0.2.1".to_string()),
+            interface_index: Some(12),
+            metric: Some(25),
+        }],
+        rollback_status: rollback_status.to_string(),
+        runtime_ownership: WindowsTunnelRuntimeOwnership {
+            process: OwnedProcessHandle {
+                session_id: "fixture-session".to_string(),
+                process_id: 41001,
+                creation_marker: "fixture-creation-marker".to_string(),
+            },
+            binary_sha256: FIXTURE_BINARY_SHA256.to_string(),
+            cli_file_name: "easytier-cli.exe".to_string(),
+            route_cidrs: vec!["203.0.113.0/24".to_string(), "203.0.114.0/24".to_string()],
+            virtual_route_snapshot: destination_routes,
+        },
+    };
+    (binary, cli, state_path, config_path, state)
 }
 
 fn start_request(
@@ -1230,46 +1634,249 @@ fn fresh_service_stop_requires_recovery_proof_before_cleanup() {
 }
 
 #[test]
-fn stop_removes_destination_before_persisting_stopping_state() {
-    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
-    let stop_marker =
-        "    pub fn stop(&mut self, state_path: &Path, confirm: bool) -> DomainResult<WindowsTunnelState> {";
-    let stop_start = source
-        .find(stop_marker)
-        .expect("stop implementation exists");
-    let stop_end = source[stop_start..]
-        .find("\n    fn prepare_start(")
-        .expect("stop implementation ends before start preparation");
-    let stop = &source[stop_start..stop_start + stop_end];
-
-    let destination_remove = stop
-        .find(".remove_owned_destination_routes(&owned.virtual_route_snapshot)")
-        .expect("stop removes exact owned destination routes");
-    let stopping_state = stop
-        .find("stopping.state = WindowsTunnelLifecycleState::Stopping")
-        .expect("stop persists an explicit stopping state after route removal");
-    assert!(
-        destination_remove < stopping_state,
-        "destination removal must precede every persisted stopping state"
+fn running_cleanup_persists_stopping_before_partial_destination_failure_and_resumes() {
+    let events = SharedEvents::new();
+    let (binary, cli, state_path, config_path, state) =
+        cleanup_fixture("cleanup-partial-destination", WindowsTunnelLifecycleState::Running);
+    let state_port = FakeStatePort::seeded(state, events.clone());
+    state_port.fail_next_write_for(WindowsTunnelLifecycleState::Failed);
+    let mut first = WindowsTunnelSessionService::new_with_state_port(
+        CleanupFakeProcessRunner::present(events.clone(), binary.clone(), cli.clone(), None),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string(), "203.0.114.0/24".to_string()],
+        },
+        CleanupFakeRoutePort::partial_destination_removal_fails(events.clone()),
+        state_port.clone(),
     );
 
-    let destination_failure = stop
-        .find("if destination_result.is_err() {")
-        .expect("destination removal failure remains explicit");
-    let stopping_after_failure = stop[destination_failure..]
-        .find("\n        let mut stopping = state.clone();")
-        .expect("stopping state is constructed only after destination removal succeeds");
-    let destination_failure =
-        &stop[destination_failure..destination_failure + stopping_after_failure];
-    assert!(destination_failure.contains("let mut failed = state.clone()"));
-    assert!(destination_failure.contains("write_tunnel_state(&state_path, &failed)"));
-    assert!(!destination_failure.contains("route_port.restore("));
-    assert!(!destination_failure.contains("process_runner.stop("));
-    assert!(!destination_failure.contains("fs::remove_file("));
+    let error = first
+        .stop(&state_path, true)
+        .expect_err("partial destination removal requires retryable cleanup intent");
+    assert_eq!(error.code, WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE);
+    assert_eq!(
+        state_port.current().state,
+        WindowsTunnelLifecycleState::Stopping,
+        "a failed Failed write preserves the durable Stopping record"
+    );
+    let first_events = events.snapshot();
+    assert!(
+        event_index(&first_events, "state.write:Stopping")
+            < event_index(&first_events, "route.destination_remove_partial")
+    );
+    assert!(config_path.is_file());
+
+    events.clear();
+    let mut retry = WindowsTunnelSessionService::new_with_state_port(
+        CleanupFakeProcessRunner::present(events.clone(), binary, cli, None),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string(), "203.0.114.0/24".to_string()],
+        },
+        CleanupFakeRoutePort::reconciled(
+            events.clone(),
+            CleanupRouteProof::Exact(vec![false, true]),
+            CleanupRouteProof::Exact(vec![true]),
+        ),
+        state_port.clone(),
+    );
+    let stopped = retry
+        .stop(&state_path, true)
+        .expect("fresh Stopping service reconciles the remaining exact resources");
+    assert_eq!(stopped.state, WindowsTunnelLifecycleState::Stopped);
+    assert_eq!(state_port.current().state, WindowsTunnelLifecycleState::Stopped);
+    assert!(!config_path.exists());
 }
 
 #[test]
-fn stop_never_persists_transient_stopping_state() {
+fn running_cleanup_persists_failed_after_process_stop_failure_and_resumes() {
+    let events = SharedEvents::new();
+    let (binary, cli, state_path, config_path, state) =
+        cleanup_fixture("cleanup-process-stop-failure", WindowsTunnelLifecycleState::Running);
+    let state_port = FakeStatePort::seeded(state, events.clone());
+    let mut first = WindowsTunnelSessionService::new_with_state_port(
+        CleanupFakeProcessRunner::present(
+            events.clone(),
+            binary.clone(),
+            cli.clone(),
+            Some(DomainError::new(
+                WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE,
+                "fixture process stop failed",
+            )),
+        ),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string(), "203.0.114.0/24".to_string()],
+        },
+        CleanupFakeRoutePort::complete(events.clone()),
+        state_port.clone(),
+    );
+
+    let error = first
+        .stop(&state_path, true)
+        .expect_err("process stop failure must retain a retryable failed cleanup state");
+    assert_eq!(error.code, WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE);
+    assert_eq!(state_port.current().state, WindowsTunnelLifecycleState::Failed);
+    let first_events = events.snapshot();
+    assert!(
+        event_index(&first_events, "route.restore")
+            < event_index(&first_events, "process.stop")
+    );
+    assert!(config_path.is_file());
+
+    events.clear();
+    let mut retry = WindowsTunnelSessionService::new_with_state_port(
+        CleanupFakeProcessRunner::present(events.clone(), binary, cli, None),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string(), "203.0.114.0/24".to_string()],
+        },
+        CleanupFakeRoutePort::reconciled(
+            events.clone(),
+            CleanupRouteProof::Exact(vec![false, false]),
+            CleanupRouteProof::Exact(vec![false]),
+        ),
+        state_port.clone(),
+    );
+    let stopped = retry
+        .stop(&state_path, true)
+        .expect("fresh Failed service reconciles absent routes and stops the exact process");
+    assert_eq!(stopped.state, WindowsTunnelLifecycleState::Stopped);
+    assert_eq!(state_port.current().state, WindowsTunnelLifecycleState::Stopped);
+    assert!(!config_path.exists());
+    let retry_events = events.snapshot();
+    assert!(!retry_events
+        .iter()
+        .any(|event| event.starts_with("route.destination_remove")));
+    assert!(!retry_events.iter().any(|event| event == "route.restore"));
+    assert!(retry_events.iter().any(|event| event.starts_with("process.stop")));
+}
+
+#[test]
+fn stopped_write_failure_releases_session_for_absent_resource_reconciliation() {
+    let events = SharedEvents::new();
+    let (binary, cli, state_path, config_path, state) =
+        cleanup_fixture("cleanup-stopped-write-failure", WindowsTunnelLifecycleState::Running);
+    let state_port = FakeStatePort::seeded(state, events.clone());
+    state_port.fail_next_write_for(WindowsTunnelLifecycleState::Stopped);
+    let mut first = WindowsTunnelSessionService::new_with_state_port(
+        CleanupFakeProcessRunner::present(events.clone(), binary, cli, None),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string(), "203.0.114.0/24".to_string()],
+        },
+        CleanupFakeRoutePort::complete(events.clone()),
+        state_port.clone(),
+    );
+
+    first
+        .stop(&state_path, true)
+        .expect_err("a failed Stopped write leaves durable cleanup intent for retry");
+    assert_eq!(state_port.current().state, WindowsTunnelLifecycleState::Stopping);
+    assert!(!config_path.exists());
+
+    events.clear();
+    let mut retry = WindowsTunnelSessionService::new_with_state_port(
+        CleanupFakeProcessRunner::absent(events.clone()),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string(), "203.0.114.0/24".to_string()],
+        },
+        CleanupFakeRoutePort::reconciled(
+            events.clone(),
+            CleanupRouteProof::Exact(vec![false, false]),
+            CleanupRouteProof::Exact(vec![false]),
+        ),
+        state_port.clone(),
+    );
+    let stopped = retry
+        .stop(&state_path, true)
+        .expect("fresh Stopping service writes Stopped without deleting absent resources");
+    assert_eq!(stopped.state, WindowsTunnelLifecycleState::Stopped);
+    assert_eq!(state_port.current().state, WindowsTunnelLifecycleState::Stopped);
+    let retry_events = events.snapshot();
+    assert!(!retry_events
+        .iter()
+        .any(|event| event.starts_with("route.destination_remove")));
+    assert!(!retry_events.iter().any(|event| event == "route.restore"));
+    assert!(!retry_events.iter().any(|event| event.starts_with("process.stop")));
+}
+
+#[test]
+fn running_recovery_rejects_missing_route_tuple_before_stopping_write() {
+    let events = SharedEvents::new();
+    let (binary, cli, state_path, _config_path, state) =
+        cleanup_fixture("cleanup-running-strict-missing", WindowsTunnelLifecycleState::Running);
+    let state_port = FakeStatePort::seeded(state, events.clone());
+    let mut service = WindowsTunnelSessionService::new_with_state_port(
+        CleanupFakeProcessRunner::present(events.clone(), binary, cli, None),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string(), "203.0.114.0/24".to_string()],
+        },
+        CleanupFakeRoutePort::reconciled(
+            events.clone(),
+            CleanupRouteProof::Exact(vec![false, false]),
+            CleanupRouteProof::Exact(vec![true]),
+        ),
+        state_port.clone(),
+    );
+
+    let error = service
+        .stop(&state_path, true)
+        .expect_err("Running state rejects a missing exact destination tuple");
+    assert_eq!(error.code, WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE);
+    assert_eq!(state_port.current().state, WindowsTunnelLifecycleState::Running);
+    assert!(!events
+        .snapshot()
+        .iter()
+        .any(|event| event == "state.write:Stopping"));
+}
+
+#[test]
+fn cleanup_recovery_rejects_ambiguous_tuple_before_deletion() {
+    let events = SharedEvents::new();
+    let (_binary, _cli, state_path, _config_path, state) = cleanup_fixture(
+        "cleanup-stopping-ambiguous-route",
+        WindowsTunnelLifecycleState::Stopping,
+    );
+    let state_port = FakeStatePort::seeded(state, events.clone());
+    let mut service = WindowsTunnelSessionService::new_with_state_port(
+        CleanupFakeProcessRunner::absent(events.clone()),
+        FakeCliRunner {
+            events: events.clone(),
+            peer_ready: true,
+            routes: vec!["203.0.113.0/24".to_string(), "203.0.114.0/24".to_string()],
+        },
+        CleanupFakeRoutePort::reconciled(
+            events.clone(),
+            CleanupRouteProof::Ambiguous,
+            CleanupRouteProof::Exact(vec![true]),
+        ),
+        state_port.clone(),
+    );
+
+    let error = service
+        .stop(&state_path, true)
+        .expect_err("Stopping state accepts only zero-or-one exact result for each tuple");
+    assert_eq!(error.code, WINDOWS_TUNNEL_ROLLBACK_FAILED_CODE);
+    assert_eq!(state_port.current().state, WindowsTunnelLifecycleState::Failed);
+    let events = events.snapshot();
+    assert!(!events
+        .iter()
+        .any(|event| event.starts_with("route.destination_remove")));
+    assert!(!events.iter().any(|event| event == "route.restore"));
+}
+
+#[test]
+fn stop_persists_durable_stopping_before_first_destination_mutation() {
     let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
     let stop_marker =
         "    pub fn stop(&mut self, state_path: &Path, confirm: bool) -> DomainResult<WindowsTunnelState> {";
@@ -1281,10 +1888,54 @@ fn stop_never_persists_transient_stopping_state() {
         .expect("stop implementation ends before start preparation");
     let stop = &source[stop_start..stop_start + stop_end];
 
-    assert!(stop.contains("stopping.state = WindowsTunnelLifecycleState::Stopping"));
+    let stopping_state = stop
+        .find("self.state_port.write(&state_path, &stopping)?;")
+        .expect("stop durably writes Stopping through the state port");
+    let destination_remove = stop
+        .find(".remove_owned_destination_routes(&owned.virtual_route_snapshot)")
+        .expect("stop removes exact owned destination routes");
     assert!(
-        !stop.contains("write_tunnel_state(&state_path, &stopping)"),
-        "a post-removal stopping write can leave an unrecoverable running record"
+        stopping_state < destination_remove,
+        "durable Stopping intent must precede the first destination deletion"
+    );
+}
+
+#[test]
+fn lifecycle_cleanup_uses_injected_state_port_and_leaves_retryable_intent() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+    assert!(source.contains("pub trait WindowsTunnelStatePort"));
+    assert!(source.contains("pub enum EasyTierCleanupRecovery"));
+    assert!(source.contains("fn recover_for_cleanup("));
+    assert!(source.contains("fn recover_cleanup_bypass("));
+    assert!(source.contains("fn recover_cleanup_destination_routes("));
+    let stop_marker =
+        "    pub fn stop(&mut self, state_path: &Path, confirm: bool) -> DomainResult<WindowsTunnelState> {";
+    let stop_start = source
+        .find(stop_marker)
+        .expect("stop implementation exists");
+    let stop_end = source[stop_start..]
+        .find("\n    fn prepare_start(")
+        .expect("stop implementation ends before start preparation");
+    let stop = &source[stop_start..stop_start + stop_end];
+
+    assert!(stop.contains("self.state_port.read(&state_path)?;"));
+    assert!(
+        stop.contains("self.state_port.write(&state_path, &failed)"),
+        "cleanup failures attempt durable Failed persistence through the injected port"
+    );
+    assert!(
+        stop.contains("self.state_port.write(&state_path, &stopped)?;"),
+        "a final Stopped transition is also written through the injected port"
+    );
+    let stopped_write = stop
+        .find("self.state_port.write(&state_path, &stopped)?;")
+        .expect("final Stopped transition exists");
+    let released_session = stop[..stopped_write]
+        .rfind("self.owned_sessions.remove(&state_path)")
+        .expect("session is released before a failed Stopped write can return");
+    assert!(
+        released_session < stopped_write,
+        "failed Stopped persistence must leave the next stop to reconcile fresh state"
     );
 }
 
