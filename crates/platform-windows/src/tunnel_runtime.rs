@@ -2118,7 +2118,7 @@ fn native_destination_routes_from_snapshot(
             let gateway = entry
                 .gateway
                 .as_deref()
-                .filter(|gateway| gateway == gateway.trim() && !gateway.is_empty())
+                .filter(|gateway| *gateway == gateway.trim() && !gateway.is_empty())
                 .ok_or_else(|| endpoint_bypass_error("destination route gateway is unavailable"))?;
             let gateway = IpAddr::from_str(gateway)
                 .map_err(|_| endpoint_bypass_error("destination route gateway is invalid"))?
