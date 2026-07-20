@@ -29,7 +29,8 @@ use crate::tunnel_config::{
 };
 #[cfg(windows)]
 use crate::tunnel_security::{
-    native_windows_hardened_command, native_windows_system_command, NativeWindowsSystemTool,
+    native_windows_hardened_command, native_windows_system_command,
+    native_windows_validate_existing_easytier_artifact, NativeWindowsSystemTool,
 };
 use crate::WindowsTunnelPlan;
 
@@ -78,6 +79,7 @@ pub trait EasyTierProcessRunner {
 pub struct EasyTierRecoverySpec {
     pub expected_process: OwnedProcessHandle,
     pub expected_binary_sha256: String,
+    pub expected_cli_sha256: String,
     pub config_path: PathBuf,
     pub cli_file_name: String,
 }
@@ -99,9 +101,9 @@ pub enum EasyTierCleanupRecovery {
 
 /// Queries one explicitly configured EasyTier CLI executable.
 pub trait EasyTierCliRunner {
-    fn version(&mut self, path: &Path) -> DomainResult<String>;
-    fn peer_ready(&mut self, path: &Path) -> DomainResult<bool>;
-    fn route_cidrs(&mut self, path: &Path) -> DomainResult<Vec<String>>;
+    fn version(&mut self, path: &Path, expected_sha256: &str) -> DomainResult<String>;
+    fn peer_ready(&mut self, path: &Path, expected_sha256: &str) -> DomainResult<bool>;
+    fn route_cidrs(&mut self, path: &Path, expected_sha256: &str) -> DomainResult<Vec<String>>;
 }
 
 /// Owns the physical underlay bypass route transaction for a foreground session.
@@ -168,6 +170,7 @@ pub struct WindowsTunnelStartRequest {
     pub easytier_cli: PathBuf,
     pub easytier_version: String,
     pub easytier_sha256: String,
+    pub easytier_cli_sha256: String,
     pub network_name: String,
     pub network_secret_file: PathBuf,
     pub state_path: PathBuf,
@@ -290,6 +293,7 @@ where
             config_path: prepared.config_path.clone(),
             expected_version: prepared.expected_version.clone(),
             expected_sha256: prepared.expected_sha256.clone(),
+            expected_cli_sha256: prepared.expected_cli_sha256.clone(),
         };
         let process_handle = match self.process_runner.start(&spec) {
             Ok(handle) => handle,
@@ -318,7 +322,11 @@ where
             ));
         }
 
-        let readiness = self.verify_readiness(&prepared.cli_path, &prepared.plan);
+        let readiness = self.verify_readiness(
+            &prepared.cli_path,
+            &prepared.expected_cli_sha256,
+            &prepared.plan,
+        );
         if let Err(error) = readiness {
             return Err(self.rollback_failed_start(
                 &route_snapshot,
@@ -362,6 +370,7 @@ where
                 process: process_handle.clone(),
                 binary_sha256: prepared.expected_sha256.clone(),
                 cli_file_name: prepared.cli_file_name.clone(),
+                cli_sha256: prepared.expected_cli_sha256.clone(),
                 route_cidrs: prepared.route_cidrs.clone(),
                 virtual_route_snapshot: virtual_route_snapshot.clone(),
             },
@@ -382,6 +391,7 @@ where
                 session_id: state.session_id.clone(),
                 process_handle,
                 cli_path: prepared.cli_path,
+                cli_sha256: prepared.expected_cli_sha256,
                 route_snapshot,
                 route_cidrs: prepared.route_cidrs,
                 virtual_route_snapshot,
@@ -403,19 +413,29 @@ where
             return Err(status_error("tunnel state is not running"));
         }
         self.ensure_owned_session(&state_path, &state)?;
-        let (cli_path, expected_route_cidrs) = self
+        let (cli_path, cli_sha256, expected_route_cidrs) = self
             .owned_sessions
             .get(&state_path)
-            .map(|owned| (owned.cli_path.clone(), owned.route_cidrs.clone()))
+            .map(|owned| {
+                (
+                    owned.cli_path.clone(),
+                    owned.cli_sha256.clone(),
+                    owned.route_cidrs.clone(),
+                )
+            })
             .expect("owned tunnel session was checked before CLI readiness");
 
+        verify_file_sha256(&cli_path, &cli_sha256)
+            .map_err(|_| status_error("EasyTier peer readiness is unavailable"))?;
         let peer_ready = self
             .cli_runner
-            .peer_ready(&cli_path)
+            .peer_ready(&cli_path, &cli_sha256)
             .map_err(|_| status_error("EasyTier peer readiness is unavailable"))?;
+        verify_file_sha256(&cli_path, &cli_sha256)
+            .map_err(|_| status_error("EasyTier route readiness is unavailable"))?;
         let route_cidrs = self
             .cli_runner
-            .route_cidrs(&cli_path)
+            .route_cidrs(&cli_path, &cli_sha256)
             .map_err(|_| status_error("EasyTier route readiness is unavailable"))?;
         if !peer_ready
             || !expected_route_cidrs
@@ -520,11 +540,12 @@ where
         let cli_file_name = safe_file_name_from_path(&cli_path)
             .ok_or_else(|| start_error("configured EasyTier CLI file name is invalid"))?;
         verify_file_sha256(&binary_path, &request.easytier_sha256)?;
+        verify_file_sha256(&cli_path, &request.easytier_cli_sha256)?;
 
         let configured_version = required_text(&request.easytier_version, "EasyTier version")?;
         let runtime_version = self
             .cli_runner
-            .version(&cli_path)
+            .version(&cli_path, &request.easytier_cli_sha256)
             .map_err(|_| start_error("EasyTier CLI version query failed"))?;
         if runtime_version.trim() != configured_version {
             return Err(DomainError::new(
@@ -563,6 +584,7 @@ where
             cli_path,
             expected_version: configured_version,
             expected_sha256: request.easytier_sha256,
+            expected_cli_sha256: request.easytier_cli_sha256,
             state_path,
             config_path,
             config_file_name,
@@ -623,6 +645,7 @@ where
         let spec = EasyTierRecoverySpec {
             expected_process: ownership.process.clone(),
             expected_binary_sha256: ownership.binary_sha256.clone(),
+            expected_cli_sha256: ownership.cli_sha256.clone(),
             config_path: config_path.clone(),
             cli_file_name: ownership.cli_file_name.clone(),
         };
@@ -653,6 +676,7 @@ where
             session_id: state.session_id.clone(),
             process_handle: recovered.process,
             cli_path,
+            cli_sha256: ownership.cli_sha256,
             route_snapshot: state.route_snapshot.clone(),
             route_cidrs: ownership.route_cidrs,
             virtual_route_snapshot: ownership.virtual_route_snapshot,
@@ -726,6 +750,7 @@ where
         let spec = EasyTierRecoverySpec {
             expected_process: ownership.process.clone(),
             expected_binary_sha256: ownership.binary_sha256.clone(),
+            expected_cli_sha256: ownership.cli_sha256.clone(),
             config_path: state_directory.join(&state.config_path),
             cli_file_name: ownership.cli_file_name.clone(),
         };
@@ -811,18 +836,27 @@ where
         Ok(())
     }
 
-    fn verify_readiness(&mut self, cli_path: &Path, plan: &WindowsTunnelPlan) -> DomainResult<()> {
+    fn verify_readiness(
+        &mut self,
+        cli_path: &Path,
+        expected_cli_sha256: &str,
+        plan: &WindowsTunnelPlan,
+    ) -> DomainResult<()> {
+        verify_file_sha256(cli_path, expected_cli_sha256)
+            .map_err(|_| peer_not_ready_error())?;
         let peer_ready = self
             .cli_runner
-            .peer_ready(cli_path)
+            .peer_ready(cli_path, expected_cli_sha256)
             .map_err(|_| peer_not_ready_error())?;
         if !peer_ready {
             return Err(peer_not_ready_error());
         }
 
+        verify_file_sha256(cli_path, expected_cli_sha256)
+            .map_err(|_| route_not_ready_error())?;
         let route_cidrs = self
             .cli_runner
-            .route_cidrs(cli_path)
+            .route_cidrs(cli_path, expected_cli_sha256)
             .map_err(|_| route_not_ready_error())?;
         if !plan
             .route_intents
@@ -893,6 +927,7 @@ struct OwnedTunnelSession {
     session_id: String,
     process_handle: OwnedProcessHandle,
     cli_path: PathBuf,
+    cli_sha256: String,
     route_snapshot: Vec<WindowsRouteSnapshotEntry>,
     route_cidrs: Vec<String>,
     virtual_route_snapshot: Vec<WindowsRouteSnapshotEntry>,
@@ -925,6 +960,7 @@ struct PreparedStart {
     cli_path: PathBuf,
     expected_version: String,
     expected_sha256: String,
+    expected_cli_sha256: String,
     state_path: PathBuf,
     config_path: PathBuf,
     config_file_name: String,
@@ -1216,8 +1252,13 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
         if spec.session_id.trim().is_empty() {
             return Err(start_error("EasyTier launch session identity is invalid"));
         }
-        let (binary_path, _) = canonical_sibling_artifacts(&spec.binary_path, &spec.cli_path)
-            .ok_or_else(|| start_error("explicit EasyTier executable path is invalid"))?;
+        let binary_path = native_windows_validate_existing_easytier_artifact(&spec.binary_path)
+            .map_err(|_| start_error("explicit EasyTier executable path is invalid"))?;
+        let cli_path = native_windows_validate_existing_easytier_artifact(&spec.cli_path)
+            .map_err(|_| start_error("explicit EasyTier CLI path is invalid"))?;
+        if binary_path.parent() != cli_path.parent() {
+            return Err(start_error("EasyTier executable paths are not trusted siblings"));
+        }
         let config_file_name = safe_file_name_from_path(&spec.config_path)
             .ok_or_else(|| start_error("EasyTier session configuration path is invalid"))?;
         let config_directory = spec
@@ -1230,6 +1271,9 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
             return Err(start_error(
                 "explicit EasyTier executable does not match its pin",
             ));
+        }
+        if verify_file_sha256(&cli_path, &spec.expected_cli_sha256).is_err() {
+            return Err(start_error("explicit EasyTier CLI does not match its pin"));
         }
 
         let child = native_easytier_process_command(&binary_path, &config_path)?
@@ -1283,8 +1327,18 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
         )
         .ok_or_else(ownership_error)?;
         let binary_directory = proof.binary_path.parent().ok_or_else(ownership_error)?;
+        let trusted_binary_path = native_windows_validate_existing_easytier_artifact(&proof.binary_path)
+            .map_err(|_| ownership_error())?;
+        if trusted_binary_path != proof.binary_path {
+            return Err(ownership_error());
+        }
         let cli_path = canonical_file_under_directory(binary_directory, &spec.cli_file_name)
             .ok_or_else(ownership_error)?;
+        let cli_path = native_windows_validate_existing_easytier_artifact(&cli_path)
+            .map_err(|_| ownership_error())?;
+        if verify_file_sha256(&cli_path, &spec.expected_cli_sha256).is_err() {
+            return Err(ownership_error());
+        }
 
         let recovered = RecoveredEasyTierProcess {
             process: proof.process.clone(),
@@ -1324,8 +1378,15 @@ impl EasyTierProcessRunner for NativeEasyTierProcessRunner {
             NativeVerifiedProcessHandle::open(proof.process.process_id, proof.creation_filetime)
                 .ok_or_else(ownership_error)?;
         let binary_directory = proof.binary_path.parent().ok_or_else(ownership_error)?;
+        let trusted_binary_path = native_windows_validate_existing_easytier_artifact(&proof.binary_path)
+            .map_err(|_| ownership_error())?;
+        if trusted_binary_path != proof.binary_path {
+            return Err(ownership_error());
+        }
         let cli_path = canonical_file_under_directory(binary_directory, &spec.cli_file_name)
             .ok_or_else(ownership_error)?;
+        let cli_path = native_windows_validate_existing_easytier_artifact(&cli_path)
+            .map_err(|_| ownership_error())?;
         let recovered = RecoveredEasyTierProcess {
             process: proof.process.clone(),
             binary_path: proof.binary_path.clone(),
@@ -1427,6 +1488,10 @@ fn native_process_proof_from_inspection(
     }
     let binary_path = fs::canonicalize(&inspection.executable_path).ok()?;
     if !binary_path.is_file() {
+        return None;
+    }
+    let trusted_binary_path = native_windows_validate_existing_easytier_artifact(&binary_path).ok()?;
+    if trusted_binary_path != binary_path {
         return None;
     }
     match expected_binary_path {
@@ -1634,17 +1699,17 @@ pub struct NativeEasyTierCliRunner;
 
 #[cfg(windows)]
 impl EasyTierCliRunner for NativeEasyTierCliRunner {
-    fn version(&mut self, path: &Path) -> DomainResult<String> {
-        native_cli_output(path, &["--version"])
+    fn version(&mut self, path: &Path, expected_sha256: &str) -> DomainResult<String> {
+        native_cli_output(path, expected_sha256, &["--version"])
     }
 
-    fn peer_ready(&mut self, path: &Path) -> DomainResult<bool> {
-        let output = native_cli_output(path, &["peer"])?;
+    fn peer_ready(&mut self, path: &Path, expected_sha256: &str) -> DomainResult<bool> {
+        let output = native_cli_output(path, expected_sha256, &["peer"])?;
         Ok(output.lines().skip(1).any(|line| !line.trim().is_empty()))
     }
 
-    fn route_cidrs(&mut self, path: &Path) -> DomainResult<Vec<String>> {
-        let output = native_cli_output(path, &["route"])?;
+    fn route_cidrs(&mut self, path: &Path, expected_sha256: &str) -> DomainResult<Vec<String>> {
+        let output = native_cli_output(path, expected_sha256, &["route"])?;
         let mut cidrs = Vec::new();
         for token in output.split_whitespace() {
             let token = token.trim_matches(|character: char| {
@@ -1659,7 +1724,15 @@ impl EasyTierCliRunner for NativeEasyTierCliRunner {
 }
 
 #[cfg(windows)]
-fn native_cli_output(path: &Path, arguments: &[&str]) -> DomainResult<String> {
+fn native_cli_output(
+    path: &Path,
+    expected_sha256: &str,
+    arguments: &[&str],
+) -> DomainResult<String> {
+    let path = native_windows_validate_existing_easytier_artifact(path)
+        .map_err(|_| status_error("explicit EasyTier CLI could not be executed"))?;
+    verify_file_sha256(&path, expected_sha256)
+        .map_err(|_| status_error("explicit EasyTier CLI does not match its pin"))?;
     let working_directory = path
         .parent()
         .ok_or_else(|| status_error("explicit EasyTier CLI could not be executed"))?;
@@ -1683,19 +1756,23 @@ fn native_cli_output(path: &Path, arguments: &[&str]) -> DomainResult<String> {
 
 #[cfg(not(windows))]
 impl EasyTierCliRunner for NativeEasyTierCliRunner {
-    fn version(&mut self, _path: &Path) -> DomainResult<String> {
+    fn version(&mut self, _path: &Path, _expected_sha256: &str) -> DomainResult<String> {
         Err(status_error(
             "Windows EasyTier CLI execution is unavailable on this platform",
         ))
     }
 
-    fn peer_ready(&mut self, _path: &Path) -> DomainResult<bool> {
+    fn peer_ready(&mut self, _path: &Path, _expected_sha256: &str) -> DomainResult<bool> {
         Err(status_error(
             "Windows EasyTier CLI execution is unavailable on this platform",
         ))
     }
 
-    fn route_cidrs(&mut self, _path: &Path) -> DomainResult<Vec<String>> {
+    fn route_cidrs(
+        &mut self,
+        _path: &Path,
+        _expected_sha256: &str,
+    ) -> DomainResult<Vec<String>> {
         Err(status_error(
             "Windows EasyTier CLI execution is unavailable on this platform",
         ))

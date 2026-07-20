@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use control_domain::{DomainError, DomainResult};
 
-pub const WINDOWS_TUNNEL_STATE_SCHEMA_VERSION: u32 = 3;
+pub const WINDOWS_TUNNEL_STATE_SCHEMA_VERSION: u32 = 4;
 pub const WINDOWS_TUNNEL_CONFIG_INVALID_CODE: &str = "windows.tunnel.config_invalid";
 pub const WINDOWS_TUNNEL_EASYTIER_BINARY_INVALID_CODE: &str =
     "windows.tunnel.easytier_binary_invalid";
@@ -172,6 +172,7 @@ pub struct EasyTierLaunchSpec {
     pub config_path: PathBuf,
     pub expected_version: String,
     pub expected_sha256: String,
+    pub expected_cli_sha256: String,
 }
 
 /// Ownership token for a process started by one tunnel session.
@@ -189,6 +190,7 @@ pub struct WindowsTunnelRuntimeOwnership {
     pub process: OwnedProcessHandle,
     pub binary_sha256: String,
     pub cli_file_name: String,
+    pub cli_sha256: String,
     pub route_cidrs: Vec<String>,
     pub virtual_route_snapshot: Vec<WindowsRouteSnapshotEntry>,
 }
@@ -469,6 +471,7 @@ fn validate_state(state: &WindowsTunnelState) -> DomainResult<()> {
         || !is_normalized_required_text(&state.runtime_ownership.process.creation_marker)
         || !is_lowercase_sha256(&state.runtime_ownership.binary_sha256)
         || !is_safe_tunnel_file_name(&state.runtime_ownership.cli_file_name)
+        || !is_lowercase_sha256(&state.runtime_ownership.cli_sha256)
         || state.runtime_ownership.route_cidrs.is_empty()
         || state
             .runtime_ownership

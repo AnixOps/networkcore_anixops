@@ -40,7 +40,9 @@ fn native_windows_prepare_uses_trusted_programdata_and_exact_storage_ownership()
     assert!(prepare.contains("if (-not $created) { Assert-ExistingProtectedDirectory $Path }"));
     assert!(prepare.contains("SetOwner"));
     assert!(prepare.contains("Set-Acl"));
-    assert!(prepare.contains("@($vendorDirectory, $root, $stateDirectory, $secretDirectory)"));
+    assert!(prepare.contains(
+        "@($vendorDirectory, $root, $stateDirectory, $secretDirectory, $easytierDirectory)"
+    ));
 
     assert!(secret_protection.contains("SetOwner"));
     assert!(secret_protection
@@ -74,7 +76,7 @@ fn native_windows_prepare_uses_trusted_programdata_and_exact_storage_ownership()
         .expect("secure path preparation captures command output");
     assert!(stdin < stdout && stdout < stderr && stderr < output);
 
-    assert!(source.contains("if paths.len() != 5"));
+    assert!(source.contains("if paths.len() != 6"));
     assert!(source.contains("let base = fs::canonicalize(paths[0])"));
     assert!(source.contains("let vendor = fs::canonicalize(paths[1])"));
     assert!(source.contains("let root = fs::canonicalize(paths[2])"));

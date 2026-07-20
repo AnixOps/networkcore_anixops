@@ -120,6 +120,7 @@ $vendorDirectory = Join-Path $base 'AnixOps'
 $root = Join-Path $vendorDirectory 'WindowsTunnel'
 $stateDirectory = Join-Path $root 'state'
 $secretDirectory = Join-Path $root 'secrets'
+$easytierDirectory = Join-Path $root 'easytier'
 
 function Assert-NoReparsePoint {
     param([string]$Path)
@@ -191,15 +192,17 @@ function Ensure-ProtectedDirectory {
     if (-not $created) { Assert-ExistingProtectedDirectory $Path }
 }
 
-foreach ($directory in @($vendorDirectory, $root, $stateDirectory, $secretDirectory)) {
+foreach ($directory in @($vendorDirectory, $root, $stateDirectory, $secretDirectory, $easytierDirectory)) {
     Ensure-ProtectedDirectory $directory
 }
+Assert-ExistingProtectedDirectory $easytierDirectory
 
 [Console]::Out.WriteLine((Get-Item -LiteralPath $base -Force -ErrorAction Stop).FullName)
 [Console]::Out.WriteLine((Get-Item -LiteralPath $vendorDirectory -Force -ErrorAction Stop).FullName)
 [Console]::Out.WriteLine((Get-Item -LiteralPath $root -Force -ErrorAction Stop).FullName)
 [Console]::Out.WriteLine((Get-Item -LiteralPath $stateDirectory -Force -ErrorAction Stop).FullName)
 [Console]::Out.WriteLine((Get-Item -LiteralPath $secretDirectory -Force -ErrorAction Stop).FullName)
+[Console]::Out.WriteLine((Get-Item -LiteralPath $easytierDirectory -Force -ErrorAction Stop).FullName)
 "#;
 
 #[cfg(windows)]
@@ -211,6 +214,7 @@ $vendorDirectory = Join-Path $base 'AnixOps'
 $root = Join-Path $vendorDirectory 'WindowsTunnel'
 $stateDirectory = Join-Path $root 'state'
 $secretDirectory = Join-Path $root 'secrets'
+$easytierDirectory = Join-Path $root 'easytier'
 
 function Assert-ExistingProtectedDirectory {
     param([string]$Path)
@@ -238,15 +242,17 @@ function Assert-ExistingProtectedDirectory {
     }
 }
 
-foreach ($directory in @($vendorDirectory, $root, $stateDirectory, $secretDirectory)) {
+foreach ($directory in @($vendorDirectory, $root, $stateDirectory, $secretDirectory, $easytierDirectory)) {
     Assert-ExistingProtectedDirectory $directory
 }
+Assert-ExistingProtectedDirectory $easytierDirectory
 
 [Console]::Out.WriteLine((Get-Item -LiteralPath $base -Force -ErrorAction Stop).FullName)
 [Console]::Out.WriteLine((Get-Item -LiteralPath $vendorDirectory -Force -ErrorAction Stop).FullName)
 [Console]::Out.WriteLine((Get-Item -LiteralPath $root -Force -ErrorAction Stop).FullName)
 [Console]::Out.WriteLine((Get-Item -LiteralPath $stateDirectory -Force -ErrorAction Stop).FullName)
 [Console]::Out.WriteLine((Get-Item -LiteralPath $secretDirectory -Force -ErrorAction Stop).FullName)
+[Console]::Out.WriteLine((Get-Item -LiteralPath $easytierDirectory -Force -ErrorAction Stop).FullName)
 "#;
 
 #[cfg(windows)]
@@ -317,6 +323,7 @@ Assert-ExactProtectedSecretFile $path
 pub struct NativeWindowsTunnelSecurePaths {
     pub state_directory: PathBuf,
     pub secret_directory: PathBuf,
+    pub easytier_directory: PathBuf,
     pub delivery_ledger_path: PathBuf,
 }
 
@@ -397,6 +404,18 @@ pub fn native_windows_prepare_secret_file(path: &Path) -> DomainResult<PathBuf> 
     )
 }
 
+/// Prepares and validates an existing EasyTier artifact under the fixed install root.
+#[cfg(windows)]
+pub fn native_windows_prepare_easytier_artifact(path: &Path) -> DomainResult<PathBuf> {
+    let secure_paths = native_windows_prepare_tunnel_secure_paths_impl()?;
+    native_windows_validate_easytier_artifact_in_directory(path, &secure_paths.easytier_directory)
+}
+
+#[cfg(not(windows))]
+pub fn native_windows_prepare_easytier_artifact(_path: &Path) -> DomainResult<PathBuf> {
+    Err(secure_path_error())
+}
+
 #[cfg(not(windows))]
 pub fn native_windows_prepare_secret_file(_path: &Path) -> DomainResult<PathBuf> {
     Err(secure_path_error())
@@ -407,6 +426,18 @@ pub fn native_windows_prepare_secret_file(_path: &Path) -> DomainResult<PathBuf>
 pub fn native_windows_validate_existing_state_path(path: &Path) -> DomainResult<PathBuf> {
     let secure_paths = native_windows_inspect_tunnel_secure_paths_impl()?;
     native_windows_validate_state_path_in_directory(path, &secure_paths.state_directory, true)
+}
+
+/// Inspects one existing EasyTier artifact without changing the protected root.
+#[cfg(windows)]
+pub fn native_windows_validate_existing_easytier_artifact(path: &Path) -> DomainResult<PathBuf> {
+    let secure_paths = native_windows_inspect_tunnel_secure_paths_impl()?;
+    native_windows_validate_easytier_artifact_in_directory(path, &secure_paths.easytier_directory)
+}
+
+#[cfg(not(windows))]
+pub fn native_windows_validate_existing_easytier_artifact(_path: &Path) -> DomainResult<PathBuf> {
+    Err(secure_path_error())
 }
 
 #[cfg(not(windows))]
@@ -423,7 +454,7 @@ fn native_windows_secure_paths_from_output(
     }
     let output = String::from_utf8(output.stdout).map_err(|_| secure_path_error())?;
     let paths = output.lines().collect::<Vec<_>>();
-    if paths.len() != 5 || paths.iter().any(|path| path.trim().is_empty()) {
+    if paths.len() != 6 || paths.iter().any(|path| path.trim().is_empty()) {
         return Err(secure_path_error());
     }
 
@@ -432,14 +463,17 @@ fn native_windows_secure_paths_from_output(
     let root = fs::canonicalize(paths[2]).map_err(|_| secure_path_error())?;
     let state_directory = fs::canonicalize(paths[3]).map_err(|_| secure_path_error())?;
     let secret_directory = fs::canonicalize(paths[4]).map_err(|_| secure_path_error())?;
+    let easytier_directory = fs::canonicalize(paths[5]).map_err(|_| secure_path_error())?;
     if vendor.parent() != Some(base.as_path())
         || vendor.file_name().and_then(|name| name.to_str()) != Some("AnixOps")
         || root.parent() != Some(vendor.as_path())
         || root.file_name().and_then(|name| name.to_str()) != Some("WindowsTunnel")
         || state_directory.parent() != Some(root.as_path())
         || secret_directory.parent() != Some(root.as_path())
+        || easytier_directory.parent() != Some(root.as_path())
         || state_directory.file_name().and_then(|name| name.to_str()) != Some("state")
         || secret_directory.file_name().and_then(|name| name.to_str()) != Some("secrets")
+        || easytier_directory.file_name().and_then(|name| name.to_str()) != Some("easytier")
     {
         return Err(secure_path_error());
     }
@@ -448,8 +482,44 @@ fn native_windows_secure_paths_from_output(
     Ok(NativeWindowsTunnelSecurePaths {
         state_directory,
         secret_directory,
+        easytier_directory,
         delivery_ledger_path,
     })
+}
+
+#[cfg(windows)]
+fn native_windows_validate_easytier_artifact_in_directory(
+    path: &Path,
+    expected_directory: &Path,
+) -> DomainResult<PathBuf> {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| is_safe_tunnel_file_name(name))
+        .ok_or_else(secure_path_error)?;
+    let supplied_parent = path.parent().ok_or_else(secure_path_error)?;
+    if native_windows_is_reparse_point(supplied_parent)? {
+        return Err(secure_path_error());
+    }
+    let canonical_parent = fs::canonicalize(supplied_parent).map_err(|_| secure_path_error())?;
+    let canonical_directory =
+        fs::canonicalize(expected_directory).map_err(|_| secure_path_error())?;
+    if canonical_parent != canonical_directory
+        || native_windows_is_reparse_point(&canonical_directory)?
+    {
+        return Err(secure_path_error());
+    }
+
+    let candidate = canonical_directory.join(file_name);
+    let metadata = fs::symlink_metadata(&candidate).map_err(|_| secure_path_error())?;
+    if native_windows_metadata_is_reparse_point(&metadata) || !metadata.file_type().is_file() {
+        return Err(secure_path_error());
+    }
+    let canonical_file = fs::canonicalize(&candidate).map_err(|_| secure_path_error())?;
+    if !canonical_file.is_file() || canonical_file.parent() != Some(canonical_directory.as_path()) {
+        return Err(secure_path_error());
+    }
+    Ok(canonical_file)
 }
 
 #[cfg(windows)]

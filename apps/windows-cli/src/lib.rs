@@ -20,6 +20,7 @@ use platform_windows::{
         WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE, WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE,
     },
     tunnel_security::{
+        native_windows_prepare_easytier_artifact,
         native_windows_prepare_secret_file, native_windows_prepare_state_path,
         native_windows_prepare_tunnel_secure_paths, native_windows_validate_existing_state_path,
     },
@@ -158,6 +159,7 @@ pub struct WindowsTunnelStartArgs {
     pub easytier_cli: PathBuf,
     pub easytier_version: String,
     pub easytier_sha256: String,
+    pub easytier_cli_sha256: String,
     pub network_name: String,
     pub network_secret_file: PathBuf,
     pub state_path: PathBuf,
@@ -260,6 +262,8 @@ pub trait WindowsTunnelPrivilegePort {
 pub struct TunnelStartInputPaths {
     pub state_path: PathBuf,
     pub network_secret_file: PathBuf,
+    pub easytier_binary: PathBuf,
+    pub easytier_cli: PathBuf,
 }
 
 /// Separates native input storage authority from the delivery and lifecycle ports.
@@ -270,6 +274,8 @@ pub trait WindowsTunnelInputPathPolicy {
         &self,
         state_path: &Path,
         network_secret_file: &Path,
+        easytier_binary: &Path,
+        easytier_cli: &Path,
     ) -> DomainResult<TunnelStartInputPaths>;
 
     fn validate_existing_state(&self, state_path: &Path) -> DomainResult<PathBuf>;
@@ -323,14 +329,20 @@ where
 
         let guarded = self
             .paths
-            .prepare_start(&args.state_path, &args.network_secret_file)?;
+            .prepare_start(
+                &args.state_path,
+                &args.network_secret_file,
+                &args.easytier_binary,
+                &args.easytier_cli,
+            )?;
         let plan = self.delivery.load_plan(args)?;
         let state = self.session.start(WindowsTunnelStartRequest {
             plan,
-            easytier_binary: args.easytier_binary.clone(),
-            easytier_cli: args.easytier_cli.clone(),
+            easytier_binary: guarded.easytier_binary,
+            easytier_cli: guarded.easytier_cli,
             easytier_version: args.easytier_version.clone(),
             easytier_sha256: args.easytier_sha256.clone(),
+            easytier_cli_sha256: args.easytier_cli_sha256.clone(),
             network_name: args.network_name.clone(),
             network_secret_file: guarded.network_secret_file,
             state_path: guarded.state_path,
@@ -494,10 +506,14 @@ impl WindowsTunnelInputPathPolicy for NativeWindowsTunnelInputPathPolicy {
         &self,
         state_path: &Path,
         network_secret_file: &Path,
+        easytier_binary: &Path,
+        easytier_cli: &Path,
     ) -> DomainResult<TunnelStartInputPaths> {
         Ok(TunnelStartInputPaths {
             state_path: native_windows_prepare_state_path(state_path)?,
             network_secret_file: native_windows_prepare_secret_file(network_secret_file)?,
+            easytier_binary: native_windows_prepare_easytier_artifact(easytier_binary)?,
+            easytier_cli: native_windows_prepare_easytier_artifact(easytier_cli)?,
         })
     }
 
@@ -936,6 +952,7 @@ fn parse_tunnel_start_command(
     let mut easytier_cli = None;
     let mut easytier_version = None;
     let mut easytier_sha256 = None;
+    let mut easytier_cli_sha256 = None;
     let mut network_name = None;
     let mut network_secret_file = None;
     let mut state_path = None;
@@ -981,6 +998,12 @@ fn parse_tunnel_start_command(
                 values,
                 &mut index,
                 "--easytier-sha256",
+            )?,
+            "--easytier-cli-sha256" => take_tunnel_option_value(
+                &mut easytier_cli_sha256,
+                values,
+                &mut index,
+                "--easytier-cli-sha256",
             )?,
             "--network-name" => {
                 take_tunnel_option_value(&mut network_name, values, &mut index, "--network-name")?
@@ -1069,6 +1092,11 @@ fn parse_tunnel_start_command(
             false,
         )?,
         easytier_sha256: require_tunnel_start_option(easytier_sha256, "--easytier-sha256", false)?,
+        easytier_cli_sha256: require_tunnel_start_option(
+            easytier_cli_sha256,
+            "--easytier-cli-sha256",
+            false,
+        )?,
         network_name: require_tunnel_start_option(network_name, "--network-name", false)?,
         network_secret_file: PathBuf::from(network_secret_file),
         state_path: PathBuf::from(state_path),
@@ -1318,7 +1346,7 @@ pub fn cli_help_text() -> String {
         "  networkcore-windows status [--format text|json]",
         "  networkcore-windows diagnostics [--format text|json]",
         "  networkcore-windows tunnel prepare-storage --confirm [--format text|json]",
-        "  networkcore-windows tunnel start <client-envelope> <pop-envelope> --pop-id <id> --device-id <id> --delivery-public-key-file <path> --easytier-bin <path> --easytier-cli <path> --easytier-version <version> --easytier-sha256 <sha256> --network-name <name> --network-secret-file <path> --state-path <path> --confirm [--format text|json]",
+        "  networkcore-windows tunnel start <client-envelope> <pop-envelope> --pop-id <id> --device-id <id> --delivery-public-key-file <path> --easytier-bin <path> --easytier-cli <path> --easytier-version <version> --easytier-sha256 <sha256> --easytier-cli-sha256 <sha256> --network-name <name> --network-secret-file <path> --state-path <path> --confirm [--format text|json]",
         "  networkcore-windows tunnel status <state-path> [--format text|json]",
         "  networkcore-windows tunnel stop <state-path> --confirm [--format text|json]",
         "",

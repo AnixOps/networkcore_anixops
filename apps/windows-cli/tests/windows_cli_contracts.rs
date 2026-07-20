@@ -55,6 +55,8 @@ fn tunnel_start_arguments(
         "2.6.1",
         "--easytier-sha256",
         "d33d1d119b40c768c4d96c66236ba1c033e72a9c041e88aa9c84bd67a38d04a5",
+        "--easytier-cli-sha256",
+        "1a83ab65ea2cc02bbcd58f5bc8b24cd3942cbe9c4ac1b9cb2acd9881410bfcd3",
         "--network-name",
         "fixture-network",
     ];
@@ -67,6 +69,20 @@ fn tunnel_start_arguments(
     if include_confirm {
         arguments.push("--confirm");
     }
+    arguments
+}
+
+fn tunnel_start_arguments_without_cli_sha256(
+    include_confirm: bool,
+    include_secret_file: bool,
+    include_state_path: bool,
+) -> Vec<&'static str> {
+    let mut arguments = tunnel_start_arguments(include_confirm, include_secret_file, include_state_path);
+    let option = arguments
+        .iter()
+        .position(|value| *value == "--easytier-cli-sha256")
+        .expect("fixture CLI SHA-256 option exists");
+    arguments.drain(option..=option + 1);
     arguments
 }
 
@@ -102,6 +118,8 @@ fn fixture_tunnel_state() -> WindowsTunnelState {
             binary_sha256: "d33d1d119b40c768c4d96c66236ba1c033e72a9c041e88aa9c84bd67a38d04a5"
                 .to_string(),
             cli_file_name: "easytier-cli.exe".to_string(),
+            cli_sha256:
+                "1a83ab65ea2cc02bbcd58f5bc8b24cd3942cbe9c4ac1b9cb2acd9881410bfcd3".to_string(),
             route_cidrs: vec!["203.0.113.0/24".to_string()],
             virtual_route_snapshot: vec![WindowsRouteSnapshotEntry {
                 destination_cidr: "203.0.113.0/24".to_string(),
@@ -275,6 +293,7 @@ struct RecordedTunnelStart {
     easytier_cli: PathBuf,
     easytier_version: String,
     easytier_sha256: String,
+    easytier_cli_sha256: String,
     network_name: String,
     network_secret_file: PathBuf,
     state_path: PathBuf,
@@ -331,6 +350,7 @@ impl WindowsTunnelCommandService for RecordingTunnelCommandService {
             easytier_cli: args.easytier_cli.clone(),
             easytier_version: args.easytier_version.clone(),
             easytier_sha256: args.easytier_sha256.clone(),
+            easytier_cli_sha256: args.easytier_cli_sha256.clone(),
             network_name: args.network_name.clone(),
             network_secret_file: args.network_secret_file.clone(),
             state_path: args.state_path.clone(),
@@ -379,6 +399,8 @@ struct RecordingInputPathPolicy {
     state_calls: Rc<RefCell<Vec<PathBuf>>>,
     guarded_state_path: PathBuf,
     guarded_secret_path: PathBuf,
+    guarded_binary_path: PathBuf,
+    guarded_cli_path: PathBuf,
 }
 
 impl RecordingInputPathPolicy {
@@ -390,6 +412,8 @@ impl RecordingInputPathPolicy {
             state_calls: Rc::new(RefCell::new(Vec::new())),
             guarded_state_path: PathBuf::from("C:/guarded/state/fixture-state.json"),
             guarded_secret_path: PathBuf::from("C:/guarded/secrets/fixture-secret.txt"),
+            guarded_binary_path: PathBuf::from("C:/guarded/easytier/easytier-core.exe"),
+            guarded_cli_path: PathBuf::from("C:/guarded/easytier/easytier-cli.exe"),
         }
     }
 }
@@ -405,6 +429,8 @@ impl WindowsTunnelInputPathPolicy for RecordingInputPathPolicy {
         &self,
         state_path: &Path,
         network_secret_file: &Path,
+        _easytier_binary: &Path,
+        _easytier_cli: &Path,
     ) -> DomainResult<TunnelStartInputPaths> {
         self.events.borrow_mut().push("paths.start");
         self.start_calls
@@ -413,6 +439,8 @@ impl WindowsTunnelInputPathPolicy for RecordingInputPathPolicy {
         Ok(TunnelStartInputPaths {
             state_path: self.guarded_state_path.clone(),
             network_secret_file: self.guarded_secret_path.clone(),
+            easytier_binary: self.guarded_binary_path.clone(),
+            easytier_cli: self.guarded_cli_path.clone(),
         })
     }
 
@@ -435,10 +463,14 @@ impl WindowsTunnelInputPathPolicy for AllowAllInputPathPolicy {
         &self,
         state_path: &Path,
         network_secret_file: &Path,
+        easytier_binary: &Path,
+        easytier_cli: &Path,
     ) -> DomainResult<TunnelStartInputPaths> {
         Ok(TunnelStartInputPaths {
             state_path: state_path.to_path_buf(),
             network_secret_file: network_secret_file.to_path_buf(),
+            easytier_binary: easytier_binary.to_path_buf(),
+            easytier_cli: easytier_cli.to_path_buf(),
         })
     }
 
@@ -773,6 +805,10 @@ fn parses_tunnel_start_with_all_explicit_paths() {
                 args.easytier_sha256,
                 "d33d1d119b40c768c4d96c66236ba1c033e72a9c041e88aa9c84bd67a38d04a5"
             );
+            assert_eq!(
+                args.easytier_cli_sha256,
+                "1a83ab65ea2cc02bbcd58f5bc8b24cd3942cbe9c4ac1b9cb2acd9881410bfcd3"
+            );
             assert_eq!(args.network_name, "fixture-network");
             assert_eq!(
                 args.network_secret_file,
@@ -877,7 +913,7 @@ fn rejects_tunnel_start_without_state_path() {
 
 #[test]
 fn rejects_tunnel_start_without_cli_sha256() {
-    let error = parse_args(tunnel_start_arguments(true, true, true))
+    let error = parse_args(tunnel_start_arguments_without_cli_sha256(true, true, true))
         .expect_err("tunnel start must require an explicit EasyTier CLI SHA-256 pin");
     let response = handle_parse_error(error.into_diagnostic());
     let rendered = render_response(&response, OutputFormat::Text);
@@ -889,14 +925,8 @@ fn rejects_tunnel_start_without_cli_sha256() {
 
 #[test]
 fn parses_tunnel_start_with_explicit_cli_sha256() {
-    let mut arguments = tunnel_start_arguments(true, true, true);
-    arguments.extend([
-        "--easytier-cli-sha256",
-        "d1e5061f7c995b142056ccfe154fd8d6700841b9fa488c253d5135790db52311",
-    ]);
-
-    let command =
-        parse_args(arguments).expect("tunnel start accepts one explicit EasyTier CLI SHA-256 pin");
+    let command = parse_args(tunnel_start_arguments(true, true, true))
+        .expect("tunnel start accepts one explicit EasyTier CLI SHA-256 pin");
     let source = include_str!("../src/lib.rs").replace("\r\n", "\n");
 
     assert!(source.contains("pub easytier_cli_sha256: String,"));
@@ -907,12 +937,12 @@ fn parses_tunnel_start_with_explicit_cli_sha256() {
 
 #[test]
 fn rejects_duplicate_tunnel_start_cli_sha256() {
-    let mut arguments = tunnel_start_arguments(true, true, true);
+    let mut arguments = tunnel_start_arguments_without_cli_sha256(true, true, true);
     arguments.extend([
         "--easytier-cli-sha256",
-        "d1e5061f7c995b142056ccfe154fd8d6700841b9fa488c253d5135790db52311",
+        "1a83ab65ea2cc02bbcd58f5bc8b24cd3942cbe9c4ac1b9cb2acd9881410bfcd3",
         "--easytier-cli-sha256",
-        "2e0e8cf40cab344ddd9e04a906bb99c71deaa602b5ce1bde7315d23d61b0ea83",
+        "2a83ab65ea2cc02bbcd58f5bc8b24cd3942cbe9c4ac1b9cb2acd9881410bfcd3",
     ]);
 
     let error = parse_args(arguments)
@@ -971,6 +1001,10 @@ fn confirmed_tunnel_start_delegates_typed_args_without_launching_process() {
     assert_eq!(
         start.easytier_sha256,
         "d33d1d119b40c768c4d96c66236ba1c033e72a9c041e88aa9c84bd67a38d04a5"
+    );
+    assert_eq!(
+        start.easytier_cli_sha256,
+        "1a83ab65ea2cc02bbcd58f5bc8b24cd3942cbe9c4ac1b9cb2acd9881410bfcd3"
     );
     assert_eq!(start.network_name, "fixture-network");
     assert_eq!(

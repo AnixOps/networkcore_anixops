@@ -17,7 +17,10 @@ considered operational. GitHub-hosted CI cannot supply this host, adapter, ACL, 
 evidence; it verifies source and injected contracts only.
 
 1. Secure ProgramData root evidence: owner and exact SYSTEM/Administrators-only ACL for
-   `AnixOps\WindowsTunnel`, `state`, and `secrets`, with no reparse point.
+   `AnixOps\WindowsTunnel`, `state`, `secrets`, and `easytier`, with no reparse point. Stage the
+   approved EasyTier core and CLI as existing non-reparse direct children of `easytier`; record
+   their independently verified lower-case SHA-256 values before starting the tunnel. NetworkCore
+   never copies or downloads either executable.
 2. Delivery-ledger floor values for the verified client and POP identities before and after the
    accepted start reservation.
 3. `Find-NetRoute` and `Get-NetAdapter -Physical` evidence that the selected endpoint underlay is

@@ -39,8 +39,10 @@ The repository rules remain in force:
 EasyTier is treated as an external runtime dependency in this first slice. Its upstream
 project documents Windows support, administrator-required startup, encrypted overlay nodes,
 subnet proxying, and route inspection through `easytier-cli`. The NetworkCore package will not
-copy or redistribute EasyTier or a Wintun binary yet; the operator supplies an approved,
-version-pinned EasyTier installation and an explicit executable path.
+copy, download, or redistribute EasyTier or a Wintun binary yet; the operator stages approved,
+version-pinned EasyTier core and CLI files in the protected
+`CommonApplicationData\AnixOps\WindowsTunnel\easytier` directory and supplies their direct-child
+paths plus independent hashes.
 
 ## Scope
 
@@ -59,6 +61,7 @@ version-pinned EasyTier installation and an explicit executable path.
      --easytier-cli <path>
      --easytier-version <version>
      --easytier-sha256 <hex>
+     --easytier-cli-sha256 <hex>
      --network-name <name>
      --network-secret-file <path>
      --state-path <path>
@@ -88,10 +91,15 @@ version-pinned EasyTier installation and an explicit executable path.
 
 4. A Windows platform adapter that:
 
-   - validates the explicit EasyTier executable and CLI paths without downloading anything;
-   - checks the executable version and configured SHA-256 pin before launch;
+   - creates or inspects the protected `easytier` install directory with the same exact owner,
+     ACL, and non-reparse policy as the other WindowsTunnel directories;
+   - accepts only existing non-reparse regular files that are direct children of `easytier` for
+     `--easytier-bin` and `--easytier-cli`, without copying or downloading executable content;
+   - checks the core and CLI SHA-256 pins before version, peer, route, and strict Running recovery
+     commands, and rechecks the CLI immediately before every native CLI invocation;
    - treats `CommonApplicationData` as trusted, then creates or validates the fixed
-     `CommonApplicationData\AnixOps\WindowsTunnel` hierarchy with direct `state` and `secrets`
+     `CommonApplicationData\AnixOps\WindowsTunnel` hierarchy with direct `state`, `secrets`, and
+     `easytier`
      children only; each owned directory rejects reparse points and must have owner
      BUILTIN\Administrators (`S-1-5-32-544`) with exactly SYSTEM (`S-1-5-18`) and
      BUILTIN\Administrators full-control ACL rules;
@@ -207,14 +215,15 @@ failed-cleanup path for manual recovery. It contains the selected peer, network 
 virtual address, and destination route settings derived from the verified plan. The adapter
 accepts only the configured EasyTier version/hash and refuses to launch an unpinned executable.
 
-Persisted foreground state uses schema v3; schema v2 and earlier records are unrecoverable. It
-records an owned PID, a nonempty UTC creation-marker string, the pinned binary hash, a single CLI
+Persisted foreground state uses schema v4; schema v3 and earlier records are unrecoverable. It
+records an owned PID, a nonempty UTC creation-marker string, independently pinned core and CLI
+hashes, a single CLI
 file name, a single redacted config file name, planned destination CIDRs, exact captured virtual
 route tuples, and the secret-free client/pop bundle IDs and sequences plus configured EasyTier
 version. It never records an absolute executable, CLI, config path, raw command line, raw envelope,
 network secret, exact child output, or numeric creation FILETIME. Start canonicalizes the supplied
 core and CLI files before version/hash checks and accepts them only when their canonical parents are
-equal. The configuration artifact is created with exclusive-create semantics, then must be a
+equal and that parent is the protected `easytier` directory. The configuration artifact is created with exclusive-create semantics, then must be a
 canonical direct child of the canonical state directory before process start. Fresh recovery applies
 the same direct-child config rule before invoking the process port, and accepts a canonical recovered
 CLI only when its persisted filename and canonical parent exactly match the canonical, hash-proven
@@ -288,9 +297,11 @@ The supported first-run procedure is:
 
 ```text
 1. Run elevated: networkcore-windows tunnel prepare-storage --confirm
-2. From an elevated terminal, create one safe-name secret file under
-   %ProgramData%\AnixOps\WindowsTunnel\secrets\.
-3. Run elevated tunnel start with that direct-child secret path and a direct-child state path.
+2. From an elevated terminal, stage the approved EasyTier core and CLI as direct children under
+   `%ProgramData%\AnixOps\WindowsTunnel\easytier\`; verify and record each lower-case SHA-256.
+3. Create one safe-name secret file under `%ProgramData%\AnixOps\WindowsTunnel\secrets\`.
+4. Run elevated tunnel start with the two protected direct-child artifact paths, both hashes, that
+   direct-child secret path, and a direct-child state path.
 ```
 
 Live `tunnel status` also requires elevation because it performs storage, configuration, and
@@ -299,12 +310,13 @@ process ownership proof. There is no non-elevated live status mode.
 ## Data Flow
 
 1. Operator supplies signed client and POP envelope files, the local device identity, a public
-   key file, pinned EasyTier paths/version/hash, a network name, a secret file, and an explicit
+   key file, protected direct-child EasyTier paths/version plus independent core/CLI hashes, a network name, a secret file, and an explicit
    state path.
 2. For `prepare-storage`, the native bridge checks elevation and confirmation before it creates or
    validates only the fixed storage hierarchy. For `start`, it checks elevation before it reads the
    public key, either envelope, state path, or secret path, then performs guarded preparation and
-   validates both direct-child paths before it verifies either envelope at one trusted `now` value.
+   validates the protected EasyTier direct-child paths before it verifies either envelope at one
+   trusted `now` value.
    For `stop` and live `status`, it checks elevation before it performs inspection-only state-path
    validation or lifecycle access; status remains non-mutating but elevation is required for the
    storage/config/process ownership proof.
@@ -321,15 +333,15 @@ process ownership proof. There is no non-elevated live status mode.
    a crash cannot erase an earlier durable floor. Before a later reservation appends, the same
    lock permits it to trim only that detected partial tail back to the last complete-record offset;
    it never compacts or truncates a complete journal record.
-4. The Windows adapter validates administrator context, executable hashes, secret-file ACL
+4. The Windows adapter validates administrator context, protected artifact roots, both executable hashes, secret-file ACL
    expectations, each planned destination snapshot, and a physical endpoint bypass route.
 5. The adapter writes a session-owned EasyTier configuration artifact under the state
    directory, launches the explicit EasyTier binary, and waits for peer/route readiness from
    the explicit EasyTier CLI.
 6. After readiness, the adapter captures exactly one new nonphysical virtual-route tuple per
-   planned destination and persists schema-v3 ownership/audit state before it exposes
+   planned destination and persists schema-v4 ownership/audit state before it exposes
    `state=running` and allows the operator to run traffic tests.
-7. `status` reads a schema-v3 session record and, for a fresh service instance, first requires an
+7. `status` reads a schema-v4 session record and, for a fresh service instance, first requires an
    exact injected ownership proof before performing an explicit EasyTier CLI health query. It does
    not scan arbitrary processes or infer liveness from a stale PID.
 8. `stop` requires the same process proof plus exact endpoint-bypass and virtual-route proof before

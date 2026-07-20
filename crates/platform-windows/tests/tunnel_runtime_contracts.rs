@@ -20,6 +20,8 @@ use std::rc::Rc;
 
 const FIXTURE_BINARY_SHA256: &str =
     "d33d1d119b40c768c4d96c66236ba1c033e72a9c041e88aa9c84bd67a38d04a5";
+const FIXTURE_CLI_SHA256: &str =
+    "1a83ab65ea2cc02bbcd58f5bc8b24cd3942cbe9c4ac1b9cb2acd9881410bfcd3";
 
 #[derive(Clone)]
 struct SharedEvents(Rc<RefCell<Vec<String>>>);
@@ -102,18 +104,18 @@ struct FakeCliRunner {
 }
 
 impl EasyTierCliRunner for FakeCliRunner {
-    fn version(&mut self, path: &Path) -> DomainResult<String> {
+    fn version(&mut self, path: &Path, _expected_sha256: &str) -> DomainResult<String> {
         self.events.push(format!("cli.version:{}", path.display()));
         Ok("2.6.1".to_string())
     }
 
-    fn peer_ready(&mut self, path: &Path) -> DomainResult<bool> {
+    fn peer_ready(&mut self, path: &Path, _expected_sha256: &str) -> DomainResult<bool> {
         self.events
             .push(format!("cli.peer_ready:{}", path.display()));
         Ok(self.peer_ready)
     }
 
-    fn route_cidrs(&mut self, path: &Path) -> DomainResult<Vec<String>> {
+    fn route_cidrs(&mut self, path: &Path, _expected_sha256: &str) -> DomainResult<Vec<String>> {
         self.events
             .push(format!("cli.route_cidrs:{}", path.display()));
         Ok(self.routes.clone())
@@ -872,6 +874,7 @@ fn cleanup_fixture(
             },
             binary_sha256: FIXTURE_BINARY_SHA256.to_string(),
             cli_file_name: "easytier-cli.exe".to_string(),
+            cli_sha256: FIXTURE_CLI_SHA256.to_string(),
             route_cidrs: vec!["203.0.113.0/24".to_string(), "203.0.114.0/24".to_string()],
             virtual_route_snapshot: destination_routes,
         },
@@ -891,6 +894,7 @@ fn start_request(
         easytier_cli: cli,
         easytier_version: "2.6.1".to_string(),
         easytier_sha256: FIXTURE_BINARY_SHA256.to_string(),
+        easytier_cli_sha256: FIXTURE_CLI_SHA256.to_string(),
         network_name: "fixture-network".to_string(),
         network_secret_file: secret,
         state_path,
@@ -2517,9 +2521,11 @@ fn native_windows_runtime_child_commands_use_only_trusted_factories() {
     let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
 
     assert!(
-        source.contains(
-            "use crate::tunnel_security::{\n    native_windows_hardened_command, native_windows_system_command, NativeWindowsSystemTool,\n};"
-        ),
+        source.contains("use crate::tunnel_security::{")
+            && source.contains("native_windows_hardened_command")
+            && source.contains("native_windows_system_command")
+            && source.contains("native_windows_validate_existing_easytier_artifact")
+            && source.contains("NativeWindowsSystemTool"),
         "runtime imports the trusted child command factories"
     );
     for forbidden in [
