@@ -2,10 +2,11 @@ use control_domain::{DomainError, DomainResult};
 use networkcore_windows::{
     cli_help_text, handle_entrypoint, handle_entrypoint_with_tunnel, handle_parse_error,
     parse_args, render_response, DeliveryBackedWindowsTunnelCommandService, OutputFormat,
-    WindowsCliCommand, WindowsCliExitCode, WindowsCliResponse, WindowsTunnelCommandResult,
-    WindowsTunnelCommandService, WindowsTunnelDeliveryLoader, WindowsTunnelLifecyclePort,
-    WindowsTunnelPrivilegePort, WindowsTunnelStartArgs, WindowsTunnelStatusArgs,
-    WindowsTunnelStopArgs, CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE, CLI_WINDOWS_ARTIFACT_READY_CODE,
+    TunnelStartInputPaths, WindowsCliCommand, WindowsCliExitCode, WindowsCliResponse,
+    WindowsTunnelCommandResult, WindowsTunnelCommandService, WindowsTunnelDeliveryLoader,
+    WindowsTunnelInputPathPolicy, WindowsTunnelLifecyclePort, WindowsTunnelPrivilegePort,
+    WindowsTunnelStartArgs, WindowsTunnelStatusArgs, WindowsTunnelStopArgs,
+    CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE, CLI_WINDOWS_ARTIFACT_READY_CODE,
     CLI_WINDOWS_SYSTEM_MUTATION_BLOCKED_CODE, COMMAND_NAME,
     WINDOWS_CLI_SUBSCRIPTION_COMPATIBILITY_STATUS,
 };
@@ -22,7 +23,9 @@ use platform_windows::{
     WINDOWS_ACTIVE_STATUS, WINDOWS_BLOCKED_STATUS, WINDOWS_CLI_ARTIFACT_GATE,
     WINDOWS_CLI_RELEASE_ASSETS_STATUS, WINDOWS_CLI_SOURCE_IDENTITY,
 };
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 const FOREGROUND_TUNNEL_MUTATION_POLICY: &str = "explicit-confirm-external-easytier-only";
 const EASYTIER_CORE_COMMAND_FRAGMENT: &str = "easytier-core.exe --config-file";
@@ -325,6 +328,122 @@ struct FixedPrivilege(bool);
 impl WindowsTunnelPrivilegePort for FixedPrivilege {
     fn is_elevated(&self) -> bool {
         self.0
+    }
+}
+
+#[derive(Clone)]
+struct RecordingInputPathPolicy {
+    events: Rc<RefCell<Vec<&'static str>>>,
+    start_calls: Rc<RefCell<Vec<(PathBuf, PathBuf)>>>,
+    state_calls: Rc<RefCell<Vec<PathBuf>>>,
+    guarded_state_path: PathBuf,
+    guarded_secret_path: PathBuf,
+}
+
+impl RecordingInputPathPolicy {
+    fn new(events: Rc<RefCell<Vec<&'static str>>>) -> Self {
+        Self {
+            events,
+            start_calls: Rc::new(RefCell::new(Vec::new())),
+            state_calls: Rc::new(RefCell::new(Vec::new())),
+            guarded_state_path: PathBuf::from("C:/guarded/state/fixture-state.json"),
+            guarded_secret_path: PathBuf::from("C:/guarded/secrets/fixture-secret.txt"),
+        }
+    }
+}
+
+impl WindowsTunnelInputPathPolicy for RecordingInputPathPolicy {
+    fn prepare_start(
+        &self,
+        state_path: &Path,
+        network_secret_file: &Path,
+    ) -> DomainResult<TunnelStartInputPaths> {
+        self.events.borrow_mut().push("paths.start");
+        self.start_calls.borrow_mut().push((
+            state_path.to_path_buf(),
+            network_secret_file.to_path_buf(),
+        ));
+        Ok(TunnelStartInputPaths {
+            state_path: self.guarded_state_path.clone(),
+            network_secret_file: self.guarded_secret_path.clone(),
+        })
+    }
+
+    fn validate_existing_state(&self, state_path: &Path) -> DomainResult<PathBuf> {
+        self.events.borrow_mut().push("paths.state");
+        self.state_calls.borrow_mut().push(state_path.to_path_buf());
+        Ok(self.guarded_state_path.clone())
+    }
+}
+
+#[derive(Clone)]
+struct OrderedDeliveryLoader {
+    events: Rc<RefCell<Vec<&'static str>>>,
+    plan: WindowsTunnelPlan,
+}
+
+impl OrderedDeliveryLoader {
+    fn new(events: Rc<RefCell<Vec<&'static str>>>, plan: WindowsTunnelPlan) -> Self {
+        Self { events, plan }
+    }
+}
+
+impl WindowsTunnelDeliveryLoader for OrderedDeliveryLoader {
+    fn load_plan(&self, _args: &WindowsTunnelStartArgs) -> DomainResult<WindowsTunnelPlan> {
+        self.events.borrow_mut().push("delivery.load");
+        Ok(self.plan.clone())
+    }
+}
+
+#[derive(Clone)]
+struct OrderedLifecycle {
+    events: Rc<RefCell<Vec<&'static str>>>,
+    start_requests: Rc<RefCell<Vec<WindowsTunnelStartRequest>>>,
+    status_paths: Rc<RefCell<Vec<PathBuf>>>,
+    stop_calls: Rc<RefCell<Vec<(PathBuf, bool)>>>,
+    running_state: WindowsTunnelState,
+    stopped_state: WindowsTunnelState,
+}
+
+impl OrderedLifecycle {
+    fn new(
+        events: Rc<RefCell<Vec<&'static str>>>,
+        start_requests: Rc<RefCell<Vec<WindowsTunnelStartRequest>>>,
+        status_paths: Rc<RefCell<Vec<PathBuf>>>,
+        stop_calls: Rc<RefCell<Vec<(PathBuf, bool)>>>,
+        running_state: WindowsTunnelState,
+        stopped_state: WindowsTunnelState,
+    ) -> Self {
+        Self {
+            events,
+            start_requests,
+            status_paths,
+            stop_calls,
+            running_state,
+            stopped_state,
+        }
+    }
+}
+
+impl WindowsTunnelLifecyclePort for OrderedLifecycle {
+    fn start(&mut self, request: WindowsTunnelStartRequest) -> DomainResult<WindowsTunnelState> {
+        self.events.borrow_mut().push("lifecycle.start");
+        self.start_requests.borrow_mut().push(request);
+        Ok(self.running_state.clone())
+    }
+
+    fn status(&mut self, state_path: &Path) -> DomainResult<WindowsTunnelState> {
+        self.events.borrow_mut().push("lifecycle.status");
+        self.status_paths.borrow_mut().push(state_path.to_path_buf());
+        Ok(self.running_state.clone())
+    }
+
+    fn stop(&mut self, state_path: &Path, confirm: bool) -> DomainResult<WindowsTunnelState> {
+        self.events.borrow_mut().push("lifecycle.stop");
+        self.stop_calls
+            .borrow_mut()
+            .push((state_path.to_path_buf(), confirm));
+        Ok(self.stopped_state.clone())
     }
 }
 
@@ -996,6 +1115,110 @@ fn delivery_backed_tunnel_status_and_stop_render_runtime_evidence() {
         events.borrow().stop_calls,
         vec![(fixture_tunnel_stop_args().state_path, true)]
     );
+}
+
+#[test]
+fn delivery_backed_start_validates_secure_paths_before_delivery_load() {
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let policy = RecordingInputPathPolicy::new(events.clone());
+    let start_calls = policy.start_calls.clone();
+    let guarded_state_path = policy.guarded_state_path.clone();
+    let guarded_secret_path = policy.guarded_secret_path.clone();
+    let start_requests = Rc::new(RefCell::new(Vec::new()));
+    let status_paths = Rc::new(RefCell::new(Vec::new()));
+    let stop_calls = Rc::new(RefCell::new(Vec::new()));
+    let lifecycle = OrderedLifecycle::new(
+        events.clone(),
+        start_requests.clone(),
+        status_paths,
+        stop_calls,
+        fixture_tunnel_state(),
+        fixture_stopped_state(),
+    );
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        lifecycle,
+        OrderedDeliveryLoader::new(events.clone(), fixture_tunnel_plan()),
+        FixedPrivilege(true),
+        policy,
+    );
+
+    let start_args = fixture_tunnel_start_args();
+    service.start(&start_args).expect("guarded start");
+
+    assert_eq!(
+        events.borrow().as_slice(),
+        ["paths.start", "delivery.load", "lifecycle.start"]
+    );
+    assert_eq!(
+        start_calls.borrow().as_slice(),
+        [(start_args.state_path, start_args.network_secret_file)]
+    );
+    assert_eq!(start_requests.borrow().len(), 1);
+    let request = &start_requests.borrow()[0];
+    assert_eq!(request.state_path, guarded_state_path);
+    assert_eq!(request.network_secret_file, guarded_secret_path);
+}
+
+#[test]
+fn delivery_backed_status_and_stop_validate_existing_state_before_lifecycle_delegation() {
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let policy = RecordingInputPathPolicy::new(events.clone());
+    let state_calls = policy.state_calls.clone();
+    let guarded_state_path = policy.guarded_state_path.clone();
+    let start_requests = Rc::new(RefCell::new(Vec::new()));
+    let status_paths = Rc::new(RefCell::new(Vec::new()));
+    let stop_calls = Rc::new(RefCell::new(Vec::new()));
+    let lifecycle = OrderedLifecycle::new(
+        events.clone(),
+        start_requests,
+        status_paths.clone(),
+        stop_calls.clone(),
+        fixture_tunnel_state(),
+        fixture_stopped_state(),
+    );
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        lifecycle,
+        OrderedDeliveryLoader::new(events.clone(), fixture_tunnel_plan()),
+        FixedPrivilege(true),
+        policy,
+    );
+
+    let status_args = fixture_tunnel_status_args();
+    service.status(&status_args).expect("guarded status");
+    let stop_args = fixture_tunnel_stop_args();
+    service.stop(&stop_args).expect("guarded stop");
+
+    assert_eq!(
+        events.borrow().as_slice(),
+        [
+            "paths.state",
+            "lifecycle.status",
+            "paths.state",
+            "lifecycle.stop",
+        ]
+    );
+    assert_eq!(
+        state_calls.borrow().as_slice(),
+        [status_args.state_path, stop_args.state_path]
+    );
+    assert_eq!(
+        status_paths.borrow().as_slice(),
+        [guarded_state_path.clone()]
+    );
+    assert_eq!(
+        stop_calls.borrow().as_slice(),
+        [(guarded_state_path, true)]
+    );
+}
+
+#[test]
+fn native_tunnel_input_policy_is_limited_to_platform_secure_path_operations() {
+    let source = include_str!("../src/lib.rs").replace("\r\n", "\n");
+
+    assert!(source.contains("pub struct NativeWindowsTunnelInputPathPolicy"));
+    assert!(source.contains("native_windows_prepare_state_path"));
+    assert!(source.contains("native_windows_prepare_secret_file"));
+    assert!(source.contains("native_windows_validate_existing_state_path"));
 }
 
 #[test]
