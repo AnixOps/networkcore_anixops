@@ -591,7 +591,8 @@ where
         state: &WindowsTunnelState,
     ) -> DomainResult<()> {
         let recovered = self.recover_owned_session(state_path, state)?;
-        self.owned_sessions.insert(state_path.to_path_buf(), recovered);
+        self.owned_sessions
+            .insert(state_path.to_path_buf(), recovered);
         self.recover_running_routes(state_path)
     }
 
