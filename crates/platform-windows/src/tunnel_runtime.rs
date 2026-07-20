@@ -2539,9 +2539,7 @@ fn native_cleanup_destination_presence(route: &NativeDestinationRoute) -> Domain
     let status = native_silent_route_command("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .status()
-        .map_err(|_| {
-            endpoint_bypass_error("destination route cleanup inspection could not run")
-        })?;
+        .map_err(|_| endpoint_bypass_error("destination route cleanup inspection could not run"))?;
     match status.code() {
         Some(0) => Ok(true),
         Some(3) => Ok(false),
