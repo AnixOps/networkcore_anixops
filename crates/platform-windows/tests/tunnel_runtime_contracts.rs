@@ -2860,9 +2860,9 @@ fn native_windows_bypass_installation_requires_exact_proof_and_reconciliation() 
         .expect("native bypass installation ends before recovery");
     let addition = &route_port[addition_start..addition_start + addition_end];
 
-    let attempted = addition
-        .find("let mut attempted = Vec::with_capacity(bypasses.len());")
-        .expect("native bypass installation records every attempted tuple before mutation");
+    let added_after_success = addition
+        .find("let mut added_after_success = Vec::with_capacity(bypasses.len());")
+        .expect("native bypass installation records only successful adds for reconciliation");
     let add = addition
         .find("if let Err(error) = native_add_bypass(bypass)")
         .expect("native bypass installation handles exact add failure");
@@ -2873,28 +2873,28 @@ fn native_windows_bypass_installation_requires_exact_proof_and_reconciliation() 
         .find("self.owned_bypasses.insert(key, bypasses)")
         .expect("native bypass ownership insertion exists");
     assert!(
-        attempted < add && add < proof && proof < ownership,
-        "attempted tuples are added, exact-proven, then owned only after all proofs"
+        added_after_success < add && add < proof && proof < ownership,
+        "successful adds are exact-proven, then owned only after all proofs"
     );
     assert_eq!(
         addition
-            .matches("native_reconcile_attempted_bypasses(&attempted, error)")
+            .matches("native_reconcile_added_bypasses(&added_after_success, error)")
             .count(),
         2,
-        "both native add and proof failures reconcile every attempted exact tuple"
+        "both native add and proof failures reconcile only successfully added exact tuples"
     );
 
-    let reconciliation_marker = "#[cfg(windows)]\nfn native_reconcile_attempted_bypasses(";
+    let reconciliation_marker = "#[cfg(windows)]\nfn native_reconcile_added_bypasses(";
     let reconciliation_start = source
         .find(reconciliation_marker)
-        .expect("native attempted-bypass reconciliation helper exists");
+        .expect("native successful-add reconciliation helper exists");
     let reconciliation_end = source[reconciliation_start..]
         .find("\n#[cfg(windows)]\nfn native_bypass_key(")
         .expect("native attempted-bypass reconciliation ends before key normalization");
     let reconciliation = &source[reconciliation_start..reconciliation_start + reconciliation_end];
     let reconciliation_loop = reconciliation
-        .find("for bypass in attempted")
-        .expect("reconciliation processes every attempted bypass tuple");
+        .find("for bypass in added_after_success")
+        .expect("reconciliation processes every successfully added bypass tuple");
     let inspection = reconciliation
         .find("native_cleanup_bypass_presence(bypass)")
         .expect("reconciliation first performs bounded exact presence inspection");
@@ -2942,21 +2942,21 @@ fn native_windows_bypass_installation_requires_preadd_exact_absence_proof() {
         .expect("native bypass installation ends before recovery");
     let addition = &route_port[addition_start..addition_start + addition_end];
 
-    let attempted = addition
-        .find("let mut attempted = Vec::with_capacity(bypasses.len());")
-        .expect("native bypass installation tracks only preflight-proven tuples");
+    let added_after_success = addition
+        .find("let mut added_after_success = Vec::with_capacity(bypasses.len());")
+        .expect("native bypass installation tracks only successful adds for reconciliation");
     let preflight = addition
         .find("match native_cleanup_bypass_presence(bypass)")
         .expect("every bypass has a bounded exact pre-add absence proof");
-    let attempted_push = addition
-        .find("attempted.push(bypass.clone());")
-        .expect("only a preflight-proven tuple becomes reconcilable");
+    let added_push = addition
+        .find("added_after_success.push(bypass.clone());")
+        .expect("only a successful add becomes reconcilable");
     let add = addition
         .find("if let Err(error) = native_add_bypass(bypass)")
         .expect("native bypass installation handles exact add failure");
     assert!(
-        attempted < preflight && preflight < attempted_push && attempted_push < add,
-        "pre-add exact absence is required before a tuple enters the cleanup set or mutates routes"
+        added_after_success < preflight && preflight < add && add < added_push,
+        "pre-add exact absence is required before mutation, and only a successful add enters the cleanup set"
     );
 
     let preflight_failure_start = addition
@@ -2964,18 +2964,70 @@ fn native_windows_bypass_installation_requires_preadd_exact_absence_proof() {
         .expect("pre-existing or ambiguous preflight fails closed");
     let preflight_failure_end = preflight_failure_start
         + addition[preflight_failure_start..]
-            .find("\n        attempted.push(bypass.clone());")
+            .find("\n            if let Err(error) = native_add_bypass(bypass)")
             .expect("preflight failure ends before the current tuple can become reconcilable");
     let preflight_failure = &addition[preflight_failure_start..preflight_failure_end];
     assert!(
-        preflight_failure.contains("native_reconcile_attempted_bypasses(")
-            && preflight_failure.contains("&attempted,"),
-        "a preflight failure reconciles only previously proven attempted tuples"
+        preflight_failure.contains("native_reconcile_added_bypasses(")
+            && preflight_failure.contains("&added_after_success,"),
+        "a preflight failure reconciles only previously successful tuples"
     );
     assert!(
-        !preflight_failure.contains("attempted.push(bypass.clone())")
+        !preflight_failure.contains("added_after_success.push(bypass.clone())")
             && !preflight_failure.contains("native_add_bypass(bypass)"),
         "an unproven current tuple is neither added nor eligible for exact removal"
+    );
+}
+
+#[test]
+fn native_windows_failed_bypass_add_retains_the_current_tuple() {
+    let source = include_str!("../src/tunnel_runtime.rs").replace("\r\n", "\n");
+    let route_port_marker = "#[cfg(windows)]\nimpl WindowsRoutePort for NativeWindowsRoutePort {";
+    let route_port_start = source
+        .find(route_port_marker)
+        .expect("Windows route port implementation exists");
+    let route_port_end = source[route_port_start..]
+        .find("\n#[cfg(all(test, windows))]\nmod native_process_proof_tests")
+        .expect("Windows route port implementation ends before native unit tests");
+    let route_port = &source[route_port_start..route_port_start + route_port_end];
+    let addition_start = route_port
+        .find("    fn add_endpoint_bypass(")
+        .expect("native bypass installation exists");
+    let addition_end = route_port[addition_start..]
+        .find("\n\n    fn recover_owned_bypass(")
+        .expect("native bypass installation ends before recovery");
+    let addition = &route_port[addition_start..addition_start + addition_end];
+
+    let add_failure_start = addition
+        .find("if let Err(error) = native_add_bypass(bypass)")
+        .expect("native bypass add failure is handled explicitly");
+    let add_failure_end = add_failure_start
+        + addition[add_failure_start..]
+            .find("\n            added_after_success.push(bypass.clone());")
+            .expect("add failure returns before the current tuple can enter the cleanup set");
+    let add_failure = &addition[add_failure_start..add_failure_end];
+
+    let prior_reconciliation = add_failure
+        .find("native_reconcile_added_bypasses(&added_after_success, error)")
+        .expect("add failure reconciles only prior successful adds");
+    let current_presence = add_failure
+        .find("matches!(native_cleanup_bypass_presence(bypass), Ok(false))")
+        .expect("add failure performs only a bounded exact current-tuple presence check");
+    let outcome = add_failure
+        .find("return Err(if current_is_absent {")
+        .expect("only proven current absence can retain the original add failure");
+    assert!(
+        prior_reconciliation < current_presence && current_presence < outcome,
+        "prior successful routes reconcile before the failed current tuple is classified"
+    );
+    assert!(
+        add_failure.contains("prior_reconciliation") && add_failure.contains("rollback_error()"),
+        "proven absence preserves the original endpoint error while present or ambiguous tuples fail closed"
+    );
+    assert!(
+        !add_failure.contains("added_after_success.push(bypass.clone())")
+            && !add_failure.contains("native_remove_bypass(bypass)"),
+        "a current tuple whose add returned an error is never added to, or removed from, the owned cleanup set"
     );
 }
 
