@@ -1,12 +1,11 @@
 use control_domain::{DomainError, DomainResult};
 use networkcore_windows::{
     cli_help_text, handle_entrypoint, handle_entrypoint_with_tunnel, handle_parse_error,
-    parse_args, render_response, OutputFormat, WindowsCliCommand, WindowsCliExitCode,
-    WindowsCliResponse, WindowsTunnelCommandResult, WindowsTunnelCommandService,
-    WindowsTunnelDeliveryLoader, WindowsTunnelLifecyclePort, WindowsTunnelPrivilegePort,
-    WindowsTunnelStartArgs, WindowsTunnelStatusArgs, WindowsTunnelStopArgs,
-    DeliveryBackedWindowsTunnelCommandService,
-    CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE, CLI_WINDOWS_ARTIFACT_READY_CODE,
+    parse_args, render_response, DeliveryBackedWindowsTunnelCommandService, OutputFormat,
+    WindowsCliCommand, WindowsCliExitCode, WindowsCliResponse, WindowsTunnelCommandResult,
+    WindowsTunnelCommandService, WindowsTunnelDeliveryLoader, WindowsTunnelLifecyclePort,
+    WindowsTunnelPrivilegePort, WindowsTunnelStartArgs, WindowsTunnelStatusArgs,
+    WindowsTunnelStopArgs, CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE, CLI_WINDOWS_ARTIFACT_READY_CODE,
     CLI_WINDOWS_SYSTEM_MUTATION_BLOCKED_CODE, COMMAND_NAME,
     WINDOWS_CLI_SUBSCRIPTION_COMPATIBILITY_STATUS,
 };
@@ -19,8 +18,8 @@ use platform_windows::tunnel_runtime::{
     WINDOWS_TUNNEL_STATUS_UNAVAILABLE_CODE,
 };
 use platform_windows::{
-    ReadOnlyWindowsPlatformCapabilityService, WINDOWS_ACTIVE_STATUS, WINDOWS_BLOCKED_STATUS,
-    WindowsTunnelPlan, WindowsTunnelRouteIntent, WINDOWS_CLI_ARTIFACT_GATE,
+    ReadOnlyWindowsPlatformCapabilityService, WindowsTunnelPlan, WindowsTunnelRouteIntent,
+    WINDOWS_ACTIVE_STATUS, WINDOWS_BLOCKED_STATUS, WINDOWS_CLI_ARTIFACT_GATE,
     WINDOWS_CLI_RELEASE_ASSETS_STATUS, WINDOWS_CLI_SOURCE_IDENTITY,
 };
 use std::path::{Path, PathBuf};
@@ -132,8 +131,7 @@ fn fixture_tunnel_plan() -> WindowsTunnelPlan {
             direct_fallback: false,
         }],
         endpoint_bypass_required: true,
-        plan_digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-            .to_string(),
+        plan_digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
     }
 }
 
@@ -1009,6 +1007,11 @@ fn native_main_routes_tunnel_commands_to_the_native_service() {
     assert!(source.contains("WindowsCliCommand::TunnelStart"));
     assert!(source.contains("WindowsCliCommand::TunnelStatus"));
     assert!(source.contains("WindowsCliCommand::TunnelStop"));
-    assert_eq!(source.matches("native_windows_tunnel_command_service()").count(), 1);
+    assert_eq!(
+        source
+            .matches("native_windows_tunnel_command_service()")
+            .count(),
+        1
+    );
     assert_eq!(source.matches("handle_entrypoint_with_tunnel").count(), 1);
 }
