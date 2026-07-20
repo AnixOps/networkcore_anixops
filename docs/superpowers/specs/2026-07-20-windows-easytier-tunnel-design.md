@@ -208,7 +208,9 @@ finds exactly one route matching all four fields; zero or multiple matches fail 
 cleanup can mutate running state, configuration, routes, or the EasyTier process. Initial installation
 uses `route.exe ADD` with that normalized tuple. Exact cleanup reruns the bounded ActiveStore query and
 uses `Remove-NetRoute -InputObject $matches[0] -Confirm:$false -ErrorAction Stop`, so it removes only
-the one proven route rather than scanning route names or issuing a broad deletion.
+the one proven route rather than scanning route names or issuing a broad deletion. Native route add,
+proof, and exact removal commands discard child stdin, stdout, and stderr, exposing only fixed
+diagnostics at the adapter boundary.
 
 ### CLI layer
 

@@ -1649,12 +1649,22 @@ fn native_bypass_routes_from_snapshot(
 }
 
 #[cfg(windows)]
+fn native_silent_route_command(program: &str) -> Command {
+    let mut command = Command::new(program);
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    command
+}
+
+#[cfg(windows)]
 fn native_add_bypass(route: &NativeBypassRoute) -> DomainResult<()> {
     let endpoint = route.endpoint.to_string();
     let gateway = route.gateway.to_string();
     let interface_index = route.interface_index.to_string();
     let metric = route.metric.to_string();
-    let status = Command::new("route.exe")
+    let status = native_silent_route_command("route.exe")
         .args([
             "ADD",
             &endpoint,
@@ -1694,7 +1704,7 @@ fn native_exact_bypass_removal_script(route: &NativeBypassRoute) -> String {
 #[cfg(windows)]
 fn native_prove_bypass(route: &NativeBypassRoute) -> DomainResult<()> {
     let script = native_exact_bypass_proof_script(route);
-    let status = Command::new("powershell.exe")
+    let status = native_silent_route_command("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .status()
         .map_err(|_| endpoint_bypass_error("underlay bypass proof could not run"))?;
@@ -1708,7 +1718,7 @@ fn native_prove_bypass(route: &NativeBypassRoute) -> DomainResult<()> {
 #[cfg(windows)]
 fn native_remove_bypass(route: &NativeBypassRoute) -> DomainResult<()> {
     let script = native_exact_bypass_removal_script(route);
-    let status = Command::new("powershell.exe")
+    let status = native_silent_route_command("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command", &script])
         .status()
         .map_err(|_| endpoint_bypass_error("underlay bypass removal could not run"))?;
