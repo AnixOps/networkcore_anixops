@@ -27,7 +27,7 @@
                   Name="AnixOps NetworkCore"
                   Description="Open the NetworkCore Windows client"
                   WorkingDirectory="INSTALLFOLDER"
-                  Advertise="no" />
+                  Advertise="yes" />
             </File>
           </Component>
 
