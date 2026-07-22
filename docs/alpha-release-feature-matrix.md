@@ -332,7 +332,7 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ### `v0.2.0-alpha.1`
 
-状态：当前 Windows managed-client prerelease；用户可下载 MSI、sha256、schema-version-2 manifest 和 manifest sha256。
+状态：当前 Windows managed client prerelease；用户可下载 MSI、sha256、schema-version-2 manifest 和 manifest sha256。
 
 主要特性：
 
