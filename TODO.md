@@ -1,5 +1,13 @@
 # TODO
 
+- [x] 启动 Windows managed client vertical slice：新增原生 Win32 GUI、SCM service
+  宿主、schema-versioned ProgramData managed config/state、signed INF driver
+  package apply/rollback、WinINet/WinHTTP system proxy apply/restore、CryptoAPI
+  LocalMachine ROOT certificate apply/remove、WiX 4.0.6 per-machine MSI，以及
+  GitHub Actions Windows MSI build/validation/attestation path。历史 CLI-only ZIP
+  合同仍保留作 `v0.1.1-alpha.2` 审计记录；当前实现合同见
+  `docs/architecture/windows-managed-client-source-release-contract.md`。
+
 本文件记录当前最小增量级待办。长期方向见 [ROADMAP.md](ROADMAP.md)，所有验证规则见 [docs/ci-cd-policy.md](docs/ci-cd-policy.md)。
 
 ## 当前

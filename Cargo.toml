@@ -2,6 +2,8 @@
 members = [
     "apps/linux-cli",
     "apps/windows-cli",
+    "apps/windows-gui",
+    "apps/windows-service",
     "crates/config-core",
     "crates/control-domain",
     "crates/control-runtime",

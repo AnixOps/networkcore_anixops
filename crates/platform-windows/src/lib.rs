@@ -1,10 +1,7 @@
-//! Windows platform capability boundary for the first NetworkCore Windows CLI artifact.
-//!
-//! This crate reports read-only artifact/package state and an explicitly confirmed foreground
-//! tunnel capability. Windows service, driver, installer, system proxy mutation, trust store
-//! mutation, script dispatch, and managed daemon lifecycle remain blocked for the v0.1.1 alpha
-//! packaging path.
+//! Windows platform integration for NetworkCore clients and managed runtime hosts.
 
+pub mod managed;
+pub mod system_integration;
 pub mod tunnel_config;
 pub mod tunnel_runtime;
 pub mod tunnel_security;
@@ -13,18 +10,18 @@ pub use config_core::windows_tunnel::{
     WindowsTunnelPlan, WindowsTunnelPlanRequest, WindowsTunnelRouteIntent,
 };
 
-pub const WINDOWS_PLATFORM_ADAPTER_STATUS: &str =
-    "read-only-artifact-capability-active/system-mutation-blocked";
-pub const WINDOWS_CLI_ARTIFACT_GATE: &str = "package-windows-active/system-mutation-blocked";
+pub const WINDOWS_PLATFORM_ADAPTER_STATUS: &str = "managed-client-platform-active";
+pub const WINDOWS_CLI_ARTIFACT_GATE: &str = "windows-managed-client-active";
 pub const WINDOWS_CLI_SOURCE_IDENTITY: &str = "apps/windows-cli";
 pub const WINDOWS_CLI_PACKAGE_STATUS: &str = "defined";
 pub const WINDOWS_CLI_RELEASE_ASSETS_STATUS: &str = "enabled-after-attestation-and-publish-gate";
-pub const WINDOWS_SYSTEM_MUTATION_POLICY: &str = "none";
+pub const WINDOWS_SYSTEM_MUTATION_POLICY: &str = "managed-apply-and-rollback";
 pub const WINDOWS_BLOCKED_STATUS: &str = "blocked";
 pub const WINDOWS_DEFERRED_STATUS: &str = "deferred";
 pub const WINDOWS_ACTIVE_STATUS: &str = "active";
 pub const WINDOWS_FOREGROUND_TUNNEL_MUTATION_POLICY: &str =
     "explicit-confirm-external-easytier-only";
+pub const WINDOWS_MANAGED_MUTATION_POLICY: &str = "service-owned-managed-apply-and-rollback";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowsFeatureStatus {
@@ -78,7 +75,7 @@ pub struct WindowsPlatformSnapshot {
 }
 
 impl WindowsPlatformSnapshot {
-    pub const fn alpha_cli_artifact() -> Self {
+    pub const fn managed_client() -> Self {
         Self {
             adapter_status: WINDOWS_PLATFORM_ADAPTER_STATUS,
             artifact_gate: WINDOWS_CLI_ARTIFACT_GATE,
@@ -93,14 +90,42 @@ impl WindowsPlatformSnapshot {
                 status: WINDOWS_ACTIVE_STATUS,
                 mutation_policy: WINDOWS_FOREGROUND_TUNNEL_MUTATION_POLICY,
             },
-            service: WindowsFeatureStatus::blocked("windows-service"),
-            driver: WindowsFeatureStatus::blocked("windows-driver"),
-            installer: WindowsFeatureStatus::blocked("windows-installer"),
-            system_proxy_mutation: WindowsFeatureStatus::blocked("system-proxy-mutation"),
-            trust_store_mutation: WindowsFeatureStatus::blocked("system-trust-store-mutation"),
+            service: WindowsFeatureStatus {
+                name: "windows-service",
+                status: WINDOWS_ACTIVE_STATUS,
+                mutation_policy: WINDOWS_MANAGED_MUTATION_POLICY,
+            },
+            driver: WindowsFeatureStatus {
+                name: "windows-driver",
+                status: WINDOWS_ACTIVE_STATUS,
+                mutation_policy: WINDOWS_MANAGED_MUTATION_POLICY,
+            },
+            installer: WindowsFeatureStatus {
+                name: "windows-installer",
+                status: WINDOWS_ACTIVE_STATUS,
+                mutation_policy: WINDOWS_MANAGED_MUTATION_POLICY,
+            },
+            system_proxy_mutation: WindowsFeatureStatus {
+                name: "system-proxy-mutation",
+                status: WINDOWS_ACTIVE_STATUS,
+                mutation_policy: WINDOWS_MANAGED_MUTATION_POLICY,
+            },
+            trust_store_mutation: WindowsFeatureStatus {
+                name: "system-trust-store-mutation",
+                status: WINDOWS_ACTIVE_STATUS,
+                mutation_policy: WINDOWS_MANAGED_MUTATION_POLICY,
+            },
             script_dispatch: WindowsFeatureStatus::blocked("javascript-script-dispatch"),
-            managed_lifecycle: WindowsFeatureStatus::blocked("managed-daemon-lifecycle"),
+            managed_lifecycle: WindowsFeatureStatus {
+                name: "managed-daemon-lifecycle",
+                status: WINDOWS_ACTIVE_STATUS,
+                mutation_policy: WINDOWS_MANAGED_MUTATION_POLICY,
+            },
         }
+    }
+
+    pub const fn alpha_cli_artifact() -> Self {
+        Self::managed_client()
     }
 }
 
@@ -119,6 +144,6 @@ impl ReadOnlyWindowsPlatformCapabilityService {
 
 impl WindowsPlatformCapabilityService for ReadOnlyWindowsPlatformCapabilityService {
     fn snapshot(&self) -> WindowsPlatformSnapshot {
-        WindowsPlatformSnapshot::alpha_cli_artifact()
+        WindowsPlatformSnapshot::managed_client()
     }
 }

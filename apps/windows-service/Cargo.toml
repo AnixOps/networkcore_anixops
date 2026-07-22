@@ -1,0 +1,26 @@
+[package]
+name = "networkcore-windows-service"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Windows service host for the AnixOps NetworkCore managed client."
+
+[dependencies]
+control-domain = { path = "../../crates/control-domain" }
+networkcore-windows = { path = "../windows-cli" }
+platform-windows = { path = "../../crates/platform-windows" }
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_System_Services",
+] }
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "networkcore-windows-service"
+path = "src/main.rs"

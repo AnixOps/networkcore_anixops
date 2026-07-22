@@ -7,7 +7,7 @@ use networkcore_windows::{
     WindowsTunnelInputPathPolicy, WindowsTunnelLifecyclePort, WindowsTunnelPrepareStorageArgs,
     WindowsTunnelPrivilegePort, WindowsTunnelStartArgs, WindowsTunnelStatusArgs,
     WindowsTunnelStopArgs, CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE, CLI_WINDOWS_ARTIFACT_READY_CODE,
-    CLI_WINDOWS_SYSTEM_MUTATION_BLOCKED_CODE, COMMAND_NAME,
+    CLI_WINDOWS_SYSTEM_INTEGRATION_ACTIVE_CODE, COMMAND_NAME,
     WINDOWS_CLI_SUBSCRIPTION_COMPATIBILITY_STATUS,
 };
 use platform_windows::tunnel_config::{
@@ -227,7 +227,10 @@ fn assert_redacted_tunnel_success_response(response: &WindowsCliResponse, state_
     assert_eq!(tunnel_json["pop_bundle_id"], "fixture-pop-bundle");
     assert_eq!(tunnel_json["pop_sequence"].as_u64(), Some(4));
     assert_eq!(tunnel_json["easytier_version"], "2.6.1");
-    assert_eq!(tunnel_json["system_mutation_policy"], "none");
+    assert_eq!(
+        tunnel_json["system_mutation_policy"],
+        "managed-apply-and-rollback"
+    );
     assert_eq!(
         tunnel_json["plan_digest"],
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -244,7 +247,7 @@ fn assert_redacted_tunnel_success_response(response: &WindowsCliResponse, state_
     assert!(text_rendered.contains("pop_bundle_id: fixture-pop-bundle"));
     assert!(text_rendered.contains("pop_sequence: 4"));
     assert!(text_rendered.contains("easytier_version: 2.6.1"));
-    assert!(text_rendered.contains("system_mutation_policy: none"));
+    assert!(text_rendered.contains("system_mutation_policy: managed-apply-and-rollback"));
     assert!(text_rendered
         .contains("plan_digest: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"));
     assert!(text_rendered.contains("peer_ready: true"));
@@ -618,14 +621,14 @@ impl WindowsTunnelLifecyclePort for RecordingLifecyclePort {
 }
 
 #[test]
-fn windows_cli_help_declares_package_boundary_and_explicit_easytier_tunnel() {
+fn windows_cli_help_declares_managed_client_and_explicit_easytier_tunnel() {
     let help = cli_help_text();
 
     assert!(help.contains("NetworkCore Windows CLI"));
     assert!(help.contains(COMMAND_NAME));
     assert!(help.contains(WINDOWS_CLI_ARTIFACT_GATE));
     assert!(help.contains(WINDOWS_CLI_SOURCE_IDENTITY));
-    assert!(help.contains("system_mutation_policy: none"));
+    assert!(help.contains("system_mutation_policy: managed-apply-and-rollback"));
     assert!(help.contains("system-proxy-mutation"));
     assert!(help.contains("system-trust-store-mutation"));
     assert!(help.contains("javascript-script-dispatch"));
@@ -637,7 +640,7 @@ fn windows_cli_help_declares_package_boundary_and_explicit_easytier_tunnel() {
 }
 
 #[test]
-fn windows_cli_capabilities_json_reports_foreground_tunnel_active_and_legacy_mutations_blocked() {
+fn windows_cli_capabilities_json_reports_managed_windows_integration_active() {
     let command = parse_args(["capabilities", "--format", "json"]).expect("valid command");
     let platform = ReadOnlyWindowsPlatformCapabilityService::new();
     let response = handle_entrypoint(command, &platform);
@@ -673,23 +676,23 @@ fn windows_cli_capabilities_json_reports_foreground_tunnel_active_and_legacy_mut
     );
     assert_eq!(
         json["capabilities"]["service"]["status"],
-        WINDOWS_BLOCKED_STATUS
+        WINDOWS_ACTIVE_STATUS
     );
     assert_eq!(
         json["capabilities"]["driver"]["status"],
-        WINDOWS_BLOCKED_STATUS
+        WINDOWS_ACTIVE_STATUS
     );
     assert_eq!(
         json["capabilities"]["installer"]["status"],
-        WINDOWS_BLOCKED_STATUS
+        WINDOWS_ACTIVE_STATUS
     );
     assert_eq!(
         json["capabilities"]["system_proxy_mutation"]["status"],
-        WINDOWS_BLOCKED_STATUS
+        WINDOWS_ACTIVE_STATUS
     );
     assert_eq!(
         json["capabilities"]["trust_store_mutation"]["status"],
-        WINDOWS_BLOCKED_STATUS
+        WINDOWS_ACTIVE_STATUS
     );
     assert_eq!(
         json["capabilities"]["script_dispatch"]["status"],
@@ -698,7 +701,7 @@ fn windows_cli_capabilities_json_reports_foreground_tunnel_active_and_legacy_mut
 }
 
 #[test]
-fn windows_cli_capabilities_text_lists_release_assets_and_blocked_lifecycle() {
+fn windows_cli_capabilities_text_lists_release_assets_and_active_lifecycle() {
     let command = parse_args(["capabilities"]).expect("valid command");
     let platform = ReadOnlyWindowsPlatformCapabilityService::new();
     let response = handle_entrypoint(command, &platform);
@@ -707,13 +710,13 @@ fn windows_cli_capabilities_text_lists_release_assets_and_blocked_lifecycle() {
     let release_assets_line = format!("release_assets: {WINDOWS_CLI_RELEASE_ASSETS_STATUS}");
     assert!(rendered.contains(&release_assets_line));
     assert!(rendered.contains("foreground_tunnel: active"));
-    assert!(rendered.contains("driver: blocked"));
-    assert!(rendered.contains("installer: blocked"));
-    assert!(rendered.contains("managed_lifecycle: blocked"));
+    assert!(rendered.contains("driver: active"));
+    assert!(rendered.contains("installer: active"));
+    assert!(rendered.contains("managed_lifecycle: active"));
 }
 
 #[test]
-fn windows_cli_status_reports_foreground_tunnel_and_legacy_blocked_lifecycle() {
+fn windows_cli_status_reports_foreground_tunnel_and_managed_lifecycle() {
     let platform = ReadOnlyWindowsPlatformCapabilityService::new();
     let response = handle_entrypoint(
         WindowsCliCommand::Status {
@@ -730,17 +733,17 @@ fn windows_cli_status_reports_foreground_tunnel_and_legacy_blocked_lifecycle() {
     assert!(rendered.contains(&release_assets_line));
     assert!(rendered.contains(&subscription_line));
     assert!(rendered.contains("foreground_tunnel: active"));
-    assert!(rendered.contains("service: blocked"));
-    assert!(rendered.contains("driver: blocked"));
-    assert!(rendered.contains("installer: blocked"));
-    assert!(rendered.contains("system_proxy_mutation: blocked"));
-    assert!(rendered.contains("trust_store_mutation: blocked"));
+    assert!(rendered.contains("service: active"));
+    assert!(rendered.contains("driver: active"));
+    assert!(rendered.contains("installer: active"));
+    assert!(rendered.contains("system_proxy_mutation: active"));
+    assert!(rendered.contains("trust_store_mutation: active"));
     assert!(rendered.contains("script_dispatch: blocked"));
-    assert!(rendered.contains("managed_lifecycle: blocked"));
+    assert!(rendered.contains("managed_lifecycle: active"));
 }
 
 #[test]
-fn windows_cli_diagnostics_report_artifact_ready_and_system_mutation_blocked() {
+fn windows_cli_diagnostics_report_artifact_and_system_integration_ready() {
     let command = parse_args(["diagnostics", "--format", "json"]).expect("valid command");
     let platform = ReadOnlyWindowsPlatformCapabilityService::new();
     let response = handle_entrypoint(command, &platform);
@@ -754,7 +757,7 @@ fn windows_cli_diagnostics_report_artifact_ready_and_system_mutation_blocked() {
         .any(|item| item["code"] == CLI_WINDOWS_ARTIFACT_READY_CODE));
     assert!(diagnostics
         .iter()
-        .any(|item| item["code"] == CLI_WINDOWS_SYSTEM_MUTATION_BLOCKED_CODE));
+        .any(|item| item["code"] == CLI_WINDOWS_SYSTEM_INTEGRATION_ACTIVE_CODE));
 }
 
 #[test]

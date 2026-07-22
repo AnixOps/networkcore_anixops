@@ -1,7 +1,7 @@
 # networkcore-windows
 
-`networkcore-windows` is the Windows CLI source identity for the
-`v0.1.1-alpha.2` package/publish path.
+`networkcore-windows` is the command-line companion to the managed Windows
+client introduced in `v0.2.0-alpha.1`.
 
 Current boundary:
 
@@ -9,14 +9,15 @@ Current boundary:
 - Package source: `apps/windows-cli`.
 - Platform capability source: `crates/platform-windows`.
 - Release artifact target: `x86_64-pc-windows-gnu`.
-- Release archive: `networkcore-windows-${version}-x86_64-pc-windows-gnu.zip`.
-- Install model: manual extract.
-- System mutation policy: none.
+- Release installer: `networkcore-windows-${version}-x86_64-pc-windows-gnu.msi`.
+- Install model: per-machine WiX MSI.
+- System mutation policy: managed apply and rollback.
 
-The current command surface is intentionally conservative: `help`, `version`,
-`capabilities`, `status`, and `diagnostics`. Shared parser gates may
+The CLI command surface includes `help`, `version`, `capabilities`, `status`,
+`diagnostics`, and the explicit EasyTier tunnel lifecycle. Shared parser gates may
 catalog-import Trojan/VLESS/VMess URLs, Clash YAML, sing-box JSON, Surge proxy
-lines, Loon proxy lines, and Quantumult X proxy/server lines in `config-core`, but Windows subscription run
-compatibility, Windows service, driver, installer, `system-proxy-mutation`,
-`system-trust-store-mutation`, JavaScript script dispatch, and managed daemon
-lifecycle remain blocked or deferred for later slices.
+lines, Loon proxy lines, and Quantumult X proxy/server lines in `config-core`.
+The companion GUI and service activate Windows service control, signed INF
+driver package lifecycle, the MSI installer, `system-proxy-mutation`,
+`system-trust-store-mutation`, and managed daemon lifecycle. JavaScript script
+dispatch and Windows subscription run compatibility remain deferred.

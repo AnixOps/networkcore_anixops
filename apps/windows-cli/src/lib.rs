@@ -1,9 +1,8 @@
 //! Windows CLI entrypoint contracts for NetworkCore.
 //!
-//! The first Windows CLI artifact is a conservative package/publish surface. It reports
-//! source identity and blocked system mutation boundaries, but it does not install services,
-//! drivers, system proxy settings, trust store entries, JavaScript dispatch, or managed
-//! daemon lifecycle state.
+//! The Windows CLI is the command surface for the managed client package. Service, driver,
+//! installer, system proxy, trust-store, and managed lifecycle operations are implemented by
+//! the GUI, SCM host, and `platform-windows`; JavaScript dispatch remains deferred.
 
 use config_core::sdwan_delivery::{SdwanDeliveryVerifier, SDWAN_DELIVERY_EXPIRED_CODE};
 use config_core::windows_tunnel::{
@@ -40,7 +39,7 @@ use tunnel_sequence_ledger::NativeWindowsTunnelSequenceLedger;
 pub const COMMAND_NAME: &str = "networkcore-windows";
 pub const PLATFORM_NAME: &str = "windows";
 pub const WINDOWS_CLI_SOURCE_CONTRACT_STATUS: &str = "active";
-pub const WINDOWS_CLI_VERSION_SCOPE: &str = "v0.1.1-alpha.2";
+pub const WINDOWS_CLI_VERSION_SCOPE: &str = "v0.2.0-alpha.1";
 pub const WINDOWS_CLI_SUBSCRIPTION_COMPATIBILITY_STATUS: &str =
     "parser-gates-active-run-compat-deferred";
 
@@ -49,7 +48,8 @@ pub const CLI_WINDOWS_ARGUMENT_VALUE_MISSING_CODE: &str = "cli.windows.argument.
 pub const CLI_WINDOWS_OUTPUT_FORMAT_UNSUPPORTED_CODE: &str =
     "cli.windows.output.format_unsupported";
 pub const CLI_WINDOWS_ARTIFACT_READY_CODE: &str = "cli.windows.artifact.package_ready";
-pub const CLI_WINDOWS_SYSTEM_MUTATION_BLOCKED_CODE: &str = "cli.windows.system_mutation.blocked";
+pub const CLI_WINDOWS_SYSTEM_INTEGRATION_ACTIVE_CODE: &str =
+    "cli.windows.system_integration.active";
 pub const CLI_WINDOWS_SUBSCRIPTION_DEFERRED_CODE: &str =
     "cli.windows.subscription_compatibility.deferred";
 pub const CLI_WINDOWS_TUNNEL_UNAVAILABLE_CODE: &str = "cli.windows.tunnel.unavailable";
@@ -1349,10 +1349,10 @@ pub fn cli_help_text() -> String {
         "  networkcore-windows tunnel stop <state-path> --confirm [--format text|json]",
         "",
         "Current boundary:",
-        "  artifact_gate: package-windows-active/system-mutation-blocked",
+        "  artifact_gate: windows-managed-client-active",
         "  source_identity: apps/windows-cli",
-        "  install_model: manual-extract",
-        "  system_mutation_policy: none",
+        "  install_model: wix-per-machine-msi",
+        "  system_mutation_policy: managed-apply-and-rollback",
         "",
         "Foreground tunnel boundary:",
         "  Requires a preinstalled EasyTier installation and elevated execution.",
@@ -1360,9 +1360,10 @@ pub fn cli_help_text() -> String {
         "  Prepare storage before creating the direct-child secret file.",
         "  Tunnel status requires elevated execution for live ownership proof.",
         "",
-        "Blocked:",
-        "  windows-service, windows-driver, windows-installer, system-proxy-mutation,",
-        "  system-trust-store-mutation, javascript-script-dispatch, managed-daemon-lifecycle",
+        "Managed client:",
+        "  windows-service, signed-inf-driver-package, windows-installer, system-proxy-mutation,",
+        "  system-trust-store-mutation, and managed-daemon-lifecycle are active.",
+        "  javascript-script-dispatch remains blocked.",
     ]
     .join("\n")
 }
@@ -1440,8 +1441,8 @@ fn windows_cli_diagnostics(snapshot: &WindowsPlatformSnapshot) -> Vec<WindowsCli
         ),
         WindowsCliDiagnostic::new(
             WindowsCliDiagnosticSeverity::Info,
-            CLI_WINDOWS_SYSTEM_MUTATION_BLOCKED_CODE,
-            "Windows service, driver, installer, system proxy mutation, trust store mutation, script dispatch, and managed daemon lifecycle are blocked.",
+            CLI_WINDOWS_SYSTEM_INTEGRATION_ACTIVE_CODE,
+            "Windows GUI, service, signed INF driver package lifecycle, MSI installer, system proxy mutation, trust store mutation, and managed daemon lifecycle are active.",
             "cli.windows.system",
         ),
         WindowsCliDiagnostic::new(

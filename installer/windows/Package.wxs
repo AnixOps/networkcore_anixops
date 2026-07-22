@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="AnixOps NetworkCore"
+      Manufacturer="AnixOps"
+      Version="$(ProductVersion)"
+      UpgradeCode="8B5A5235-4D18-4AD5-9C64-37A29C6E2D1C"
+      Scope="perMachine"
+      InstallerVersion="500"
+      Compressed="yes">
+    <SummaryInformation Description="AnixOps NetworkCore managed Windows client" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="ManufacturerFolder" Name="AnixOps">
+        <Directory Id="INSTALLFOLDER" Name="NetworkCore">
+          <Component Id="GuiComponent" Guid="*">
+            <File
+                Id="GuiExe"
+                Source="$(GuiExe)"
+                Name="networkcore-windows-gui.exe"
+                KeyPath="yes">
+              <Shortcut
+                  Id="NetworkCoreStartMenuShortcut"
+                  Directory="ProgramMenuFolder"
+                  Name="AnixOps NetworkCore"
+                  Description="Open the NetworkCore Windows client"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Advertise="no" />
+            </File>
+          </Component>
+
+          <Component Id="CliComponent" Guid="*">
+            <File
+                Id="CliExe"
+                Source="$(CliExe)"
+                Name="networkcore-windows.exe"
+                KeyPath="yes" />
+          </Component>
+
+          <Component Id="ServiceComponent" Guid="*">
+            <File
+                Id="ServiceExe"
+                Source="$(ServiceExe)"
+                Name="networkcore-windows-service.exe"
+                KeyPath="yes" />
+            <ServiceInstall
+                Id="NetworkCoreServiceInstall"
+                Name="AnixOpsNetworkCore"
+                DisplayName="AnixOps NetworkCore"
+                Description="Manages the AnixOps NetworkCore tunnel and Windows network integration."
+                Arguments="service"
+                Type="ownProcess"
+                Start="auto"
+                ErrorControl="normal"
+                Account="LocalSystem"
+                Vital="yes" />
+            <ServiceControl
+                Id="NetworkCoreServiceControl"
+                Name="AnixOpsNetworkCore"
+                Start="install"
+                Stop="both"
+                Remove="uninstall"
+                Wait="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="ProgramDataManufacturerFolder" Name="AnixOps">
+        <Directory Id="MANAGEDDATADIR" Name="NetworkCore">
+          <Component Id="ManagedConfigurationComponent" Guid="*" NeverOverwrite="yes">
+            <File
+                Id="DefaultManagedConfiguration"
+                Source="$(DefaultConfig)"
+                Name="managed-config.json"
+                KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Complete" Title="AnixOps NetworkCore" Level="1">
+      <ComponentRef Id="GuiComponent" />
+      <ComponentRef Id="CliComponent" />
+      <ComponentRef Id="ServiceComponent" />
+      <ComponentRef Id="ManagedConfigurationComponent" />
+    </Feature>
+
+    <CustomAction
+        Id="PurgeManagedNetworkState"
+        FileRef="ServiceExe"
+        ExeCommand="purge"
+        Execute="deferred"
+        Impersonate="no"
+        Return="check" />
+    <InstallExecuteSequence>
+      <Custom
+          Action="PurgeManagedNetworkState"
+          After="StopServices"
+          Condition="Installed AND REMOVE=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
+  </Package>
+</Wix>

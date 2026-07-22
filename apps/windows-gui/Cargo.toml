@@ -1,0 +1,25 @@
+[package]
+name = "networkcore-windows-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Native Windows GUI client for AnixOps NetworkCore."
+
+[dependencies]
+platform-windows = { path = "../../crates/platform-windows" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[[bin]]
+name = "networkcore-windows-gui"
+path = "src/main.rs"

@@ -2,11 +2,12 @@ use platform_windows::{
     ReadOnlyWindowsPlatformCapabilityService, WindowsPlatformCapabilityService,
     WINDOWS_ACTIVE_STATUS, WINDOWS_BLOCKED_STATUS, WINDOWS_CLI_ARTIFACT_GATE,
     WINDOWS_CLI_RELEASE_ASSETS_STATUS, WINDOWS_CLI_SOURCE_IDENTITY, WINDOWS_DEFERRED_STATUS,
-    WINDOWS_FOREGROUND_TUNNEL_MUTATION_POLICY, WINDOWS_PLATFORM_ADAPTER_STATUS,
+    WINDOWS_FOREGROUND_TUNNEL_MUTATION_POLICY, WINDOWS_MANAGED_MUTATION_POLICY,
+    WINDOWS_PLATFORM_ADAPTER_STATUS,
 };
 
 #[test]
-fn windows_platform_snapshot_reports_package_path_active_without_system_mutation() {
+fn windows_platform_snapshot_reports_managed_client_system_integration_active() {
     let service = ReadOnlyWindowsPlatformCapabilityService::new();
     let snapshot = service.snapshot();
 
@@ -33,14 +34,35 @@ fn windows_platform_snapshot_reports_package_path_active_without_system_mutation
         snapshot.foreground_tunnel.mutation_policy,
         WINDOWS_FOREGROUND_TUNNEL_MUTATION_POLICY
     );
-    assert_eq!(snapshot.service.status, WINDOWS_BLOCKED_STATUS);
-    assert_eq!(snapshot.driver.status, WINDOWS_BLOCKED_STATUS);
-    assert_eq!(snapshot.installer.status, WINDOWS_BLOCKED_STATUS);
+    assert_eq!(snapshot.service.status, WINDOWS_ACTIVE_STATUS);
+    assert_eq!(snapshot.driver.status, WINDOWS_ACTIVE_STATUS);
+    assert_eq!(snapshot.installer.status, WINDOWS_ACTIVE_STATUS);
+    assert_eq!(snapshot.system_proxy_mutation.status, WINDOWS_ACTIVE_STATUS);
+    assert_eq!(snapshot.trust_store_mutation.status, WINDOWS_ACTIVE_STATUS);
     assert_eq!(
-        snapshot.system_proxy_mutation.status,
-        WINDOWS_BLOCKED_STATUS
+        snapshot.service.mutation_policy,
+        WINDOWS_MANAGED_MUTATION_POLICY
     );
-    assert_eq!(snapshot.trust_store_mutation.status, WINDOWS_BLOCKED_STATUS);
+    assert_eq!(
+        snapshot.driver.mutation_policy,
+        WINDOWS_MANAGED_MUTATION_POLICY
+    );
+    assert_eq!(
+        snapshot.installer.mutation_policy,
+        WINDOWS_MANAGED_MUTATION_POLICY
+    );
+    assert_eq!(
+        snapshot.system_proxy_mutation.mutation_policy,
+        WINDOWS_MANAGED_MUTATION_POLICY
+    );
+    assert_eq!(
+        snapshot.trust_store_mutation.mutation_policy,
+        WINDOWS_MANAGED_MUTATION_POLICY
+    );
     assert_eq!(snapshot.script_dispatch.status, WINDOWS_BLOCKED_STATUS);
-    assert_eq!(snapshot.managed_lifecycle.status, WINDOWS_BLOCKED_STATUS);
+    assert_eq!(snapshot.managed_lifecycle.status, WINDOWS_ACTIVE_STATUS);
+    assert_eq!(
+        snapshot.managed_lifecycle.mutation_policy,
+        WINDOWS_MANAGED_MUTATION_POLICY
+    );
 }

@@ -550,8 +550,19 @@ where
         let state_path = canonical_state_path(&request.state_path).map_err(|_| {
             start_error("state path must use an existing directory and safe file name")
         })?;
-        if self.owned_sessions.contains_key(&state_path) || state_path.exists() {
+        if self.owned_sessions.contains_key(&state_path) {
             return Err(start_error("state path is already owned or occupied"));
+        }
+        if state_path.exists() {
+            let previous = self
+                .state_port
+                .read(&state_path)
+                .map_err(|_| start_error("existing tunnel state could not be read"))?;
+            if previous.state != WindowsTunnelLifecycleState::Stopped
+                || previous.rollback_status != "clean"
+            {
+                return Err(start_error("state path is already owned or occupied"));
+            }
         }
         let (binary_path, cli_path) =
             canonical_sibling_artifacts(&request.easytier_binary, &request.easytier_cli)

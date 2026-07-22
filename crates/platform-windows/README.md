@@ -1,17 +1,18 @@
 # platform-windows
 
-`platform-windows` is the read-only Windows platform capability boundary used by
-the first `networkcore-windows` CLI artifact.
+`platform-windows` provides the native system-integration boundary shared by the
+NetworkCore GUI, service, installer, and CLI.
 
 Current status:
 
-- `WINDOWS_CLI_ARTIFACT_GATE=package-windows-active/system-mutation-blocked`
+- `WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active`
 - `windows-cli-artifact-source-identity=apps/windows-cli`
 - `windows-cli-artifact-package-windows=defined`
-- Windows service, driver, installer, system proxy mutation, system trust store
-  mutation, JavaScript script dispatch, and managed daemon lifecycle remain
-  blocked.
+- Windows service, signed INF driver package lifecycle, WiX MSI installer,
+  system proxy mutation, system trust store mutation, and managed daemon
+  lifecycle are active.
+- JavaScript script dispatch remains blocked.
 
-This crate does not modify Windows system state. It only reports the alpha CLI
-artifact/package status and the blocked operations that must stay out of
-`v0.1.1-alpha.2`.
+`managed` owns the schema-versioned ProgramData configuration and state records.
+`system_integration` calls SCM, WinINet/WinHTTP, CryptoAPI, and NewDev directly
+and exposes apply, status, rollback, and uninstall operations.

@@ -816,6 +816,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "networkcore-windows-gui"
+version = "0.1.0"
+dependencies = [
+ "platform-windows",
+ "serde",
+ "serde_json",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "networkcore-windows-service"
+version = "0.1.0"
+dependencies = [
+ "control-domain",
+ "networkcore-windows",
+ "platform-windows",
+ "serde_json",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "nohash-hasher"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

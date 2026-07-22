@@ -2,6 +2,23 @@
 
 本文件记录当前无法由本地自动化完成、需要人工处理的事项。
 
+## Windows managed client
+
+The managed Windows client is implemented and its MSI is built and validated in
+GitHub Actions. The current alpha MSI is intentionally unsigned because an
+Authenticode certificate/private key must be supplied by the maintainer through
+a protected GitHub Actions secret or an external signing service; signing
+material must never be committed. Until that secret is configured, Windows may
+show the normal unsigned-installer warning, but the MSI, service, GUI, proxy,
+certificate, and driver lifecycle remain functional.
+
+The driver lifecycle accepts an operator-provided signed INF package. A driver
+vendor or maintainer must provide the package and its license/NOTICE evidence;
+the Windows service installs and removes it through NewDev only after Windows
+validates the package signature. After the package and optional Authenticode
+secret are configured, rerun the Windows MSI CI/release workflow; no local
+installer or signing validation is allowed.
+
 ## 当前待处理
 
 - iOS App Review manual confirmation 仍为 pending；完成前不得启用 TestFlight upload、App Store upload、

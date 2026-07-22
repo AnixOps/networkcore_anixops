@@ -25,11 +25,10 @@ env:
   LINUX_RUST_TOOLCHAIN: stable
   LINUX_RUST_PROFILE: minimal
   WINDOWS_TARGET: x86_64-pc-windows-gnu
-  WINDOWS_PACKAGE: networkcore-windows
-  WINDOWS_BINARY: networkcore-windows
   WINDOWS_RUST_TOOLCHAIN: stable
   WINDOWS_RUST_PROFILE: minimal
-  WINDOWS_ARCHIVE_FORMAT: zip
+  WINDOWS_INSTALLER_FORMAT: msi
+  WINDOWS_WIX_VERSION: 4.0.6
 
 jobs:
   release-policy:
@@ -377,7 +376,7 @@ jobs:
           echo "ios-upload-readiness=blocked-placeholder"
 
   windows-cli-artifact-readiness:
-    name: Windows CLI artifact package/release readiness
+    name: Windows managed client package/release readiness
     runs-on: ubuntu-latest
     needs:
       - release-rollback-contract
@@ -396,10 +395,10 @@ jobs:
         shell: bash
         env:
           WINDOWS_TARGET: ${{ env.WINDOWS_TARGET }}
-          WINDOWS_ARCHIVE_FORMAT: ${{ env.WINDOWS_ARCHIVE_FORMAT }}
+          WINDOWS_INSTALLER_FORMAT: ${{ env.WINDOWS_INSTALLER_FORMAT }}
         run: |
           set -euo pipefail
-          test -f docs/architecture/windows-cli-artifact-source-release-contract.md
+          test -f docs/architecture/windows-managed-client-source-release-contract.md
           test -f docs/release-strategy.md
           test -f docs/alpha-release-feature-matrix.md
           test -f apps/linux-cli/Cargo.toml
@@ -407,41 +406,48 @@ jobs:
           test -f apps/windows-cli/src/main.rs
           test -f apps/windows-cli/src/lib.rs
           test -f apps/windows-cli/tests/windows_cli_contracts.rs
+          test -f apps/windows-gui/Cargo.toml
+          test -f apps/windows-gui/src/main.rs
+          test -f apps/windows-service/Cargo.toml
+          test -f apps/windows-service/src/main.rs
+          test -f apps/windows-service/src/lib.rs
           test -f crates/platform-windows/Cargo.toml
           test -f crates/platform-windows/src/lib.rs
+          test -f crates/platform-windows/src/managed.rs
+          test -f crates/platform-windows/src/system_integration.rs
           test -f crates/platform-windows/tests/platform_windows_contracts.rs
+          test -f installer/windows/Package.wxs
+          test -f installer/windows/default-managed-config.json
           test -f .github/workflows/release.yml
 
-          grep -q '^windows-cli-artifact-source-release-contract=present$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-release-state=package-path-active$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-version-scope=v0.1.1-alpha.2$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^WINDOWS_CLI_ARTIFACT_GATE=package-windows-active/system-mutation-blocked$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-runner=windows-latest$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-runner-kind=github-hosted$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-rust-toolchain=stable$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-rust-profile=minimal$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-target-triple=x86_64-pc-windows-gnu$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-package-format=zip$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-checksum-algorithm=sha256$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-manifest-schema-version=1$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-install-model=manual-extract$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-system-mutation-policy=none$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-source-identity=apps/windows-cli$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-service=blocked$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-driver=blocked$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-installer=blocked$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-system-proxy-mutation=blocked$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-trust-store-mutation=blocked$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-script-dispatch=blocked$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-authenticode-policy=unsigned-no-authenticode-for-alpha-cli-zip$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-attestation-policy=github-artifact-attestation-required$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-package-windows=defined$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-release-assets=enabled-after-attestation-and-publish-gate$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q '^windows-cli-artifact-next-action=subscription-run-preview-and-node-selection$' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q 'networkcore-linux.exe' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q 'networkcore-windows.exe' docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q "${WINDOWS_TARGET}" docs/architecture/windows-cli-artifact-source-release-contract.md
-          grep -q "${WINDOWS_ARCHIVE_FORMAT}" docs/architecture/windows-cli-artifact-source-release-contract.md
+          contract=docs/architecture/windows-managed-client-source-release-contract.md
+          grep -q '^windows-managed-client-source-release-contract=present$' "${contract}"
+          grep -q '^windows-managed-client-release-state=implementation-active$' "${contract}"
+          grep -q '^windows-managed-client-version-scope=v0.2.0-alpha.1$' "${contract}"
+          grep -q '^WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active$' "${contract}"
+          grep -q '^windows-managed-client-runner=windows-latest$' "${contract}"
+          grep -q '^windows-managed-client-target-triple=x86_64-pc-windows-gnu$' "${contract}"
+          grep -q '^windows-managed-client-package-format=msi$' "${contract}"
+          grep -q '^windows-managed-client-wix-version=4.0.6$' "${contract}"
+          grep -q '^windows-managed-client-checksum-algorithm=sha256$' "${contract}"
+          grep -q '^windows-managed-client-manifest-schema-version=2$' "${contract}"
+          grep -q '^windows-managed-client-install-model=wix-per-machine-msi$' "${contract}"
+          grep -q '^windows-managed-client-system-mutation-policy=managed-apply-and-rollback$' "${contract}"
+          grep -q '^windows-managed-client-service=active$' "${contract}"
+          grep -q '^windows-managed-client-driver-package-lifecycle=active$' "${contract}"
+          grep -q '^windows-managed-client-installer=active$' "${contract}"
+          grep -q '^windows-managed-client-system-proxy-mutation=active$' "${contract}"
+          grep -q '^windows-managed-client-trust-store-mutation=active$' "${contract}"
+          grep -q '^windows-managed-client-managed-lifecycle=active$' "${contract}"
+          grep -q '^windows-managed-client-gui=active$' "${contract}"
+          grep -q '^windows-managed-client-script-dispatch=blocked$' "${contract}"
+          grep -q '^windows-managed-client-attestation-policy=github-artifact-attestation-required$' "${contract}"
+          grep -q '^windows-managed-client-release-assets=enabled-after-attestation-and-publish-gate$' "${contract}"
+          grep -q 'networkcore-windows-gui.exe' "${contract}"
+          grep -q 'networkcore-windows-service.exe' "${contract}"
+          grep -q 'networkcore-windows.exe' "${contract}"
+          grep -q "${WINDOWS_TARGET}" "${contract}"
+          grep -q "${WINDOWS_INSTALLER_FORMAT}" "${contract}"
           grep -Fq '`v0.1.1-alpha.1`：Windows CLI artifact source/release contract' docs/alpha-release-feature-matrix.md
           grep -Fq '`v0.1.1-alpha.2`：Windows CLI package/publish path' docs/alpha-release-feature-matrix.md
           grep -q "Windows CLI package/publish path" docs/release-strategy.md
@@ -449,11 +455,13 @@ jobs:
           grep -q 'platform-linux' apps/linux-cli/Cargo.toml
           grep -q '^name = "networkcore-windows"$' apps/windows-cli/Cargo.toml
           grep -q 'platform-windows' apps/windows-cli/Cargo.toml
+          grep -q '^name = "networkcore-windows-gui"$' apps/windows-gui/Cargo.toml
+          grep -q '^name = "networkcore-windows-service"$' apps/windows-service/Cargo.toml
           grep -q '^  package-windows:' .github/workflows/release.yml
 
           echo "source_contract_status=present" >> "${GITHUB_OUTPUT}"
-          echo "artifact_gate=package-windows-active/system-mutation-blocked" >> "${GITHUB_OUTPUT}"
-          echo "source_identity=apps/windows-cli" >> "${GITHUB_OUTPUT}"
+          echo "artifact_gate=windows-managed-client-active" >> "${GITHUB_OUTPUT}"
+          echo "source_identity=apps/windows-gui+apps/windows-service+apps/windows-cli+platform-windows+installer/windows" >> "${GITHUB_OUTPUT}"
           echo "package_windows_status=defined" >> "${GITHUB_OUTPUT}"
           echo "release_assets_status=enabled-after-attestation-and-publish-gate" >> "${GITHUB_OUTPUT}"
 
@@ -774,7 +782,7 @@ jobs:
           if-no-files-found: error
 
   package-windows:
-    name: Package Windows CLI
+    name: Package Windows managed client
     runs-on: windows-latest
     needs:
       - release-policy
@@ -824,16 +832,24 @@ jobs:
           "AR_x86_64_pc_windows_gnu=$MingwPrefix\bin\ar.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=$MingwPrefix\bin\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Build, package, checksum, and manifest Windows CLI
+      - name: Install pinned WiX toolset
+        shell: pwsh
+        env:
+          WIX_VERSION: ${{ env.WINDOWS_WIX_VERSION }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          dotnet tool install --global wix --version $env:WIX_VERSION
+          wix --version
+
+      - name: Build, validate, checksum, and manifest Windows managed client
         id: package
         shell: pwsh
         env:
           VERSION: ${{ needs.release-policy.outputs.version }}
           TARGET: ${{ env.WINDOWS_TARGET }}
-          PACKAGE: ${{ env.WINDOWS_PACKAGE }}
-          BINARY: ${{ env.WINDOWS_BINARY }}
           RUST_TOOLCHAIN: ${{ env.WINDOWS_RUST_TOOLCHAIN }}
           RUST_PROFILE: ${{ env.WINDOWS_RUST_PROFILE }}
+          WIX_VERSION: ${{ env.WINDOWS_WIX_VERSION }}
           CI_RUN_URL: ${{ needs.release-ci-gate.outputs.ci_run_url }}
           RELEASE_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RELEASE_SHA: ${{ github.sha }}
@@ -852,95 +868,83 @@ jobs:
           if (-not (Test-Path -Path Cargo.lock -PathType Leaf)) {
             throw "Cargo.lock must be checked in before creating release artifacts."
           }
-          cargo build --locked --release --package $env:PACKAGE --bin $env:BINARY --target $env:TARGET
+          cargo build --locked --release `
+            --package networkcore-windows `
+            --package networkcore-windows-gui `
+            --package networkcore-windows-service `
+            --target $env:TARGET
 
-          $binaryPath = Join-Path "target\$env:TARGET\release" "$env:BINARY.exe"
-          if (-not (Test-Path -Path $binaryPath -PathType Leaf)) {
-            throw "Windows release binary not found: $binaryPath"
+          $releaseDir = "target\$env:TARGET\release"
+          $cliPath = Join-Path $releaseDir "networkcore-windows.exe"
+          $guiPath = Join-Path $releaseDir "networkcore-windows-gui.exe"
+          $servicePath = Join-Path $releaseDir "networkcore-windows-service.exe"
+          foreach ($binaryPath in @($cliPath, $guiPath, $servicePath)) {
+            if (-not (Test-Path -Path $binaryPath -PathType Leaf)) {
+              throw "Windows release binary not found: $binaryPath"
+            }
           }
+          $cliPath = (Resolve-Path $cliPath).Path
+          $guiPath = (Resolve-Path $guiPath).Path
+          $servicePath = (Resolve-Path $servicePath).Path
+          $defaultConfigPath = (Resolve-Path "installer\windows\default-managed-config.json").Path
 
           $version = $env:VERSION
           $target = $env:TARGET
-          $topLevelDir = "networkcore-windows-$version-$target"
+          if ($version -notmatch '^v([0-9]+)\.([0-9]+)\.([0-9]+)(?:-(alpha|rc)\.([0-9]+))?$') {
+            throw "Windows MSI version source is invalid: $version"
+          }
+          $major = [int]$Matches[1]
+          $minor = [int]$Matches[2]
+          $patch = [int]$Matches[3]
+          $channel = $Matches[4]
+          $sequence = if ($Matches[5]) { [int]$Matches[5] } else { 0 }
+          $msiBuild = $patch * 1000
+          if ($channel -eq "alpha") {
+            $msiBuild += $sequence
+          } elseif ($channel -eq "rc") {
+            $msiBuild += 900 + $sequence
+          } else {
+            $msiBuild += 999
+          }
+          if ($major -gt 255 -or $minor -gt 255 -or $msiBuild -gt 65535) {
+            throw "Mapped MSI product version exceeds Windows Installer limits."
+          }
+          $productVersion = "$major.$minor.$msiBuild"
+          $artifactStem = "networkcore-windows-$version-$target"
           $distDir = "dist\windows\$target"
-          $stagingRoot = Join-Path $distDir "staging"
-          $stagingDir = Join-Path $stagingRoot $topLevelDir
           $outputDir = Join-Path $distDir "artifacts"
-          $archiveName = "$topLevelDir.zip"
+          $archiveName = "$artifactStem.msi"
           $archivePath = Join-Path $outputDir $archiveName
           $archiveChecksumName = "$archiveName.sha256"
           $archiveChecksumPath = Join-Path $outputDir $archiveChecksumName
-          $manifestName = "$topLevelDir.manifest.json"
+          $manifestName = "$artifactStem.manifest.json"
           $manifestPath = Join-Path $outputDir $manifestName
           $manifestChecksumName = "$manifestName.sha256"
           $manifestChecksumPath = Join-Path $outputDir $manifestChecksumName
-          $bundleName = "$topLevelDir-release-bundle"
+          $bundleName = "$artifactStem-release-bundle"
 
           Remove-Item -Recurse -Force $distDir -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path (Join-Path $stagingDir "bin") | Out-Null
           New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
-          Copy-Item $binaryPath (Join-Path (Join-Path $stagingDir "bin") "$env:BINARY.exe")
-          Copy-Item "LICENSE" (Join-Path $stagingDir "LICENSE")
-          Copy-Item "CHANGELOG.md" (Join-Path $stagingDir "CHANGELOG.md")
-          $installText = @"
-          # networkcore-windows $version
-
-          This archive is generated by GitHub Actions for $version.
-
-          ## Install
-
-          1. Verify $archiveChecksumName.
-          2. Extract $archiveName into a versioned directory you control.
-          3. Run bin\networkcore-windows.exe directly or add that bin directory to PATH.
-
-          This artifact does not install a Windows service, driver, installer, system proxy,
-          certificate trust store entry, JavaScript dispatch runtime, or managed daemon state.
-
-          ## Uninstall
-
-          Stop any foreground networkcore-windows process, remove the extracted directory,
-          and remove any user-created shortcut, alias, or PATH entry.
-
-          ## Rollback
-
-          Stop the current foreground process, switch PATH or shortcut back to a previous
-          extracted version, verify that older version's checksum, and run
-          networkcore-windows version.
-          "@
-          $installText | Set-Content -Path (Join-Path $stagingDir "INSTALL.md") -Encoding utf8
-
-          $stagingDirPath = (Resolve-Path $stagingDir).Path
-          $actualFiles = Get-ChildItem -Path $stagingDirPath -Recurse -File | ForEach-Object {
-            $_.FullName.Substring($stagingDirPath.Length + 1).Replace('\', '/')
-          } | Sort-Object
-          $expectedFiles = @("CHANGELOG.md", "INSTALL.md", "LICENSE", "bin/$env:BINARY.exe") | Sort-Object
-          if (($actualFiles -join ',') -ne ($expectedFiles -join ',')) {
-            throw "Unexpected Windows archive staging files: $($actualFiles -join ',')"
-          }
-
-          $outputDirPath = (Resolve-Path $outputDir).Path
-          $archiveDestination = Join-Path $outputDirPath $archiveName
-          Push-Location $stagingRoot
-          Compress-Archive -Path $topLevelDir -DestinationPath $archiveDestination -Force
-          Pop-Location
-
-          $extractDir = Join-Path $distDir "verify"
-          Expand-Archive -Path $archivePath -DestinationPath $extractDir -Force
-          $topLevels = @(Get-ChildItem -Path $extractDir | ForEach-Object { $_.Name })
-          if ($topLevels.Count -ne 1 -or $topLevels[0] -ne $topLevelDir) {
-            throw "Windows zip must contain exactly one top-level directory named $topLevelDir."
-          }
+          wix build installer/windows/Package.wxs `
+            -arch x64 `
+            -d "ProductVersion=$productVersion" `
+            -d "CliExe=$cliPath" `
+            -d "GuiExe=$guiPath" `
+            -d "ServiceExe=$servicePath" `
+            -d "DefaultConfig=$defaultConfigPath" `
+            -o $archivePath
+          wix msi validate $archivePath
 
           $checksumValue = (Get-FileHash -Algorithm SHA256 -Path $archivePath).Hash.ToLowerInvariant()
           if ($checksumValue -notmatch '^[0-9a-f]{64}$') {
-            throw "Archive checksum is not a sha256 digest."
+            throw "MSI checksum is not a sha256 digest."
           }
           "$checksumValue  $archiveName" | Set-Content -Path $archiveChecksumPath -Encoding ascii
           $archiveSize = (Get-Item $archivePath).Length
           $manifest = [ordered]@{
-            schema_version = 1
-            artifact_kind = "windows-cli-zip"
-            package_format = "zip"
+            schema_version = 2
+            artifact_kind = "windows-managed-client-msi"
+            package_format = "msi"
             artifact_name = $archiveName
             target_triple = $target
             version = $version
@@ -950,7 +954,9 @@ jobs:
             release_run_url = $env:RELEASE_RUN_URL
             runner = "windows-latest"
             rust_toolchain = $env:RUST_TOOLCHAIN
-            archive = [ordered]@{
+            wix_version = $env:WIX_VERSION
+            product_version = $productVersion
+            installer = [ordered]@{
               file_name = $archiveName
               relative_path = "dist/windows/$target/artifacts/$archiveName"
               size_bytes = $archiveSize
@@ -961,27 +967,29 @@ jobs:
               value = $checksumValue
             }
             included_files = @(
-              [ordered]@{ path = "bin/networkcore-windows.exe"; kind = "binary"; required = $true; source = "apps/windows-cli" },
-              [ordered]@{ path = "INSTALL.md"; kind = "documentation"; required = $true; source = "generated-from-windows-cli-artifact-contract" },
-              [ordered]@{ path = "LICENSE"; kind = "license"; required = $true; source = "LICENSE" },
-              [ordered]@{ path = "CHANGELOG.md"; kind = "changelog"; required = $true; source = "CHANGELOG.md" }
+              [ordered]@{ path = "networkcore-windows-gui.exe"; kind = "binary"; required = $true; source = "apps/windows-gui" },
+              [ordered]@{ path = "networkcore-windows-service.exe"; kind = "binary"; required = $true; source = "apps/windows-service" },
+              [ordered]@{ path = "networkcore-windows.exe"; kind = "binary"; required = $true; source = "apps/windows-cli" },
+              [ordered]@{ path = "managed-config.json"; kind = "configuration"; required = $true; source = "installer/windows/default-managed-config.json" }
             )
-            install_model = "manual-extract"
-            system_mutation_policy = "none"
-            source_identity = "apps/windows-cli"
+            install_model = "wix-per-machine-msi"
+            system_mutation_policy = "managed-apply-and-rollback"
+            source_identity = "apps/windows-gui+apps/windows-service+apps/windows-cli+platform-windows+installer/windows"
             capability_anchor = "windows-release-assets"
             subscription_compatibility = "parser-gates-active-run-compat-deferred"
-            blocked_operations = @(
+            active_operations = @(
               "install-windows-service",
-              "install-driver",
-              "run-installer",
+              "install-signed-inf-driver-package",
+              "run-wix-installer",
               "mutate-system-proxy",
               "mutate-system-trust-store",
-              "execute-javascript-dispatch",
               "managed-daemon-lifecycle"
             )
+            blocked_operations = @(
+              "execute-javascript-dispatch"
+            )
             signing = [ordered]@{
-              signing_policy = "unsigned-no-authenticode-for-alpha-cli-zip"
+              signing_policy = "unsigned-alpha-msi-with-github-attestation"
               signing_status = "not-signed-by-policy"
               attestation_policy = "github-artifact-attestation-required"
               attestation_status = "required-before-publish"
@@ -989,9 +997,9 @@ jobs:
               provenance_file = "github-artifact-attestation"
             }
             rollback = [ordered]@{
-              rollback_policy = "manual-extract-version-switch"
+              rollback_policy = "msi-uninstall-purge-and-version-reinstall"
               rollback_status = "summarized-before-publish"
-              rollback_scope = "windows-cli-artifact"
+              rollback_scope = "windows-managed-client"
               rollback_trigger = "checksum-install-runtime-security-or-provenance-defect"
               rollback_steps = "withdraw-release-asset-and-publish-replacement-version"
               replacement_version = "next-version-required"
@@ -1030,18 +1038,18 @@ jobs:
           ) | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
           @(
-            "### Windows CLI Artifact",
+            "### Windows Managed Client MSI",
             "",
             "| Item | Value |",
             "| --- | --- |",
-            "| Archive | $archiveName |",
-            "| Archive sha256 | $checksumValue |",
+            "| Installer | $archiveName |",
+            "| Installer sha256 | $checksumValue |",
             "| Manifest | $manifestName |",
             "| Manifest sha256 | $manifestChecksumValue |",
             "| Target | $target |",
-            "| Source identity | apps/windows-cli |",
-            "| Install model | manual-extract |",
-            "| System mutation policy | none |"
+            "| Source identity | GUI + service + CLI + platform + WiX |",
+            "| Install model | wix-per-machine-msi |",
+            "| System mutation policy | managed-apply-and-rollback |"
           ) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 
       - name: Upload Windows release bundle
@@ -1115,7 +1123,7 @@ jobs:
           echo "linux-package-artifact-attestation-execution-status=attested"
 
   attest-windows:
-    name: Attest Windows CLI bundle
+    name: Attest Windows managed client bundle
     runs-on: ubuntu-latest
     needs:
       - release-policy
@@ -1250,8 +1258,8 @@ jobs:
           test -n "${MANIFEST_CHECKSUM_VALUE}"
           test -n "${CI_RUN_URL}"
           test "${ATTESTATION_STATUS}" = "attested"
-          test "${WINDOWS_ARTIFACT_GATE}" = "package-windows-active/system-mutation-blocked"
-          test "${WINDOWS_SOURCE_IDENTITY}" = "apps/windows-cli"
+          test "${WINDOWS_ARTIFACT_GATE}" = "windows-managed-client-active"
+          test "${WINDOWS_SOURCE_IDENTITY}" = "apps/windows-gui+apps/windows-service+apps/windows-cli+platform-windows+installer/windows"
           test "${PACKAGE_WINDOWS_STATUS}" = "defined"
           test "${WINDOWS_RELEASE_ASSETS_STATUS}" = "enabled-after-attestation-and-publish-gate"
           echo "release_notes_status=ready" >> "${GITHUB_OUTPUT}"
@@ -1333,8 +1341,8 @@ jobs:
         run: |
           set -euo pipefail
           test "${CI_CONCLUSION}" = "success"
-          test "${WINDOWS_ARTIFACT_GATE}" = "package-windows-active/system-mutation-blocked"
-          test "${WINDOWS_SOURCE_IDENTITY}" = "apps/windows-cli"
+          test "${WINDOWS_ARTIFACT_GATE}" = "windows-managed-client-active"
+          test "${WINDOWS_SOURCE_IDENTITY}" = "apps/windows-gui+apps/windows-service+apps/windows-cli+platform-windows+installer/windows"
           test "${PACKAGE_WINDOWS_STATUS}" = "defined"
           test "${WINDOWS_RELEASE_ASSETS_STATUS}" = "enabled-after-attestation-and-publish-gate"
           test -n "${ARTIFACT_NAME}"
@@ -1345,7 +1353,7 @@ jobs:
           test "${RELEASE_NOTES_STATUS}" = "ready"
           test "${ROLLBACK_STATUS}" = "summarized"
           echo "package_publish_eligibility_status=eligible" >> "${GITHUB_OUTPUT}"
-          echo "package_publish_eligibility_required_gates=source_identity,ci,runner_toolchain,archive_staging,checksum_manifest,artifact_manifest,publish_upload,signing_attestation,release_notes_rollback,system_mutation_blocked" >> "${GITHUB_OUTPUT}"
+          echo "package_publish_eligibility_required_gates=source_identity,ci,runner_toolchain,wix_validation,checksum_manifest,artifact_manifest,publish_upload,signing_attestation,release_notes_rollback,managed_system_mutation" >> "${GITHUB_OUTPUT}"
 
   publish-github-release:
     name: Publish GitHub Release
@@ -1466,7 +1474,7 @@ jobs:
           - Install model: manual-extract
           - System mutation policy: none
 
-          ## Windows CLI
+          ## Windows Managed Client
 
           - Artifact: ${WINDOWS_ARTIFACT_NAME}
           - Archive sha256: ${WINDOWS_CHECKSUM_VALUE}
@@ -1478,15 +1486,16 @@ jobs:
           - Source identity: ${WINDOWS_SOURCE_IDENTITY}
           - Package Windows: ${PACKAGE_WINDOWS_STATUS}
           - Windows release assets: ${WINDOWS_RELEASE_ASSETS_STATUS}
-          - Install model: manual-extract
-          - System mutation policy: none
+          - Install model: wix-per-machine-msi
+          - System mutation policy: managed-apply-and-rollback
           - Subscription compatibility: parser-gates-active-run-compat-deferred
-          - Blocked: service, driver, installer, system proxy mutation, system trust store mutation, JavaScript script dispatch, managed daemon lifecycle
+          - Active: native GUI, Windows service, signed INF driver package lifecycle, MSI installer, system proxy mutation, system trust store mutation, managed daemon lifecycle
+          - Blocked: JavaScript script dispatch
 
           ## Rollback
 
           - Linux scope: linux-cli-artifact
-          - Windows scope: windows-cli-artifact
+          - Windows scope: windows-managed-client
           - Trigger: checksum-install-runtime-security-or-provenance-defect
           - Steps: withdraw-release-asset-and-publish-replacement-version
           - Replacement version: next-version-required

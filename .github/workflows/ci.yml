@@ -50,6 +50,17 @@ jobs:
             apps/linux-cli/src/main.rs
             apps/linux-cli/src/lib.rs
             apps/linux-cli/tests/linux_cli_contracts.rs
+            apps/windows-cli/Cargo.toml
+            apps/windows-cli/src/main.rs
+            apps/windows-gui/Cargo.toml
+            apps/windows-gui/src/main.rs
+            apps/windows-service/Cargo.toml
+            apps/windows-service/src/lib.rs
+            apps/windows-service/src/main.rs
+            crates/platform-windows/src/managed.rs
+            crates/platform-windows/src/system_integration.rs
+            installer/windows/Package.wxs
+            installer/windows/default-managed-config.json
             crates/config-core/README.md
             crates/control-domain/README.md
             crates/control-runtime/README.md
@@ -146,6 +157,7 @@ jobs:
             docs/architecture/subscription-catalog-runtime-orchestration.md
             docs/architecture/third-party-plugin-onboarding-process.md
             docs/architecture/windows-cli-artifact-source-release-contract.md
+            docs/architecture/windows-managed-client-source-release-contract.md
           )
 
           for file in "${required_architecture_files[@]}"; do
@@ -225,10 +237,23 @@ jobs:
           grep -Fq "windows-cli-artifact-package-windows=defined" docs/architecture/windows-cli-artifact-source-release-contract.md
           grep -Fq "windows-cli-artifact-release-assets=enabled-after-attestation-and-publish-gate" docs/architecture/windows-cli-artifact-source-release-contract.md
           grep -Fq "windows-cli-artifact-source-release-contract.md" docs/release-strategy.md
+          grep -Fq "windows-managed-client-source-release-contract=present" docs/architecture/windows-managed-client-source-release-contract.md
+          grep -Fq "WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active" docs/architecture/windows-managed-client-source-release-contract.md
+          grep -Fq "windows-managed-client-package-format=msi" docs/architecture/windows-managed-client-source-release-contract.md
+          grep -Fq "windows-managed-client-wix-version=4.0.6" docs/architecture/windows-managed-client-source-release-contract.md
+          grep -Fq "windows-managed-client-gui=active" docs/architecture/windows-managed-client-source-release-contract.md
+          grep -Fq "windows-managed-client-service=active" docs/architecture/windows-managed-client-source-release-contract.md
+          grep -Fq "windows-managed-client-driver-package-lifecycle=active" docs/architecture/windows-managed-client-source-release-contract.md
+          grep -Fq "windows-managed-client-installer=active" docs/architecture/windows-managed-client-source-release-contract.md
+          grep -Fq "windows-managed-client-system-proxy-mutation=active" docs/architecture/windows-managed-client-source-release-contract.md
+          grep -Fq "windows-managed-client-trust-store-mutation=active" docs/architecture/windows-managed-client-source-release-contract.md
+          grep -Fq "windows-managed-client-managed-lifecycle=active" docs/architecture/windows-managed-client-source-release-contract.md
           grep -Fq "networkcore-windows" apps/windows-cli/README.md
-          grep -Fq "WINDOWS_CLI_ARTIFACT_GATE=package-windows-active/system-mutation-blocked" crates/platform-windows/README.md
+          grep -Fq "WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active" crates/platform-windows/README.md
           grep -Fq "system-proxy-mutation" apps/windows-cli/README.md
           grep -Fq "system-trust-store-mutation" apps/windows-cli/README.md
+          grep -Fq "Windows managed client" docs/alpha-release-feature-matrix.md
+          grep -Fq "Windows managed client MSI" docs/release-strategy.md
           grep -Fq "JavaScript script dispatch" docs/alpha-release-feature-matrix.md
           grep -Fq "system trust store mutation" docs/alpha-release-feature-matrix.md
           grep -Fq "system proxy mutation" docs/alpha-release-feature-matrix.md
@@ -1388,15 +1413,18 @@ jobs:
             exit 1
           fi
           grep -Fq 'cargo build --locked --release --package "${PACKAGE}" --bin "${BINARY}" --target "${TARGET}"' "${release_workflow}"
-          grep -Fq 'cargo build --locked --release --package $env:PACKAGE --bin $env:BINARY --target $env:TARGET' "${release_workflow}"
+          grep -Fq -- '--package networkcore-windows-gui `' "${release_workflow}"
+          grep -Fq -- '--package networkcore-windows-service `' "${release_workflow}"
+          grep -Fq 'wix build installer/windows/Package.wxs' "${release_workflow}"
+          grep -Fq 'wix msi validate $archivePath' "${release_workflow}"
           grep -Fq 'script_runner_source="third_party/mitm_anixops/mitm_anixops/e2e/script_runtime/anixops_runner.js"' "${release_workflow}"
           grep -Fq 'libexec/anixops-runner.js' "${release_workflow}"
           grep -Fq 'top_level_dir="networkcore-linux-${version}-${target}"' "${release_workflow}"
           grep -Fq 'archive_name="${top_level_dir}.tar.gz"' "${release_workflow}"
           grep -Fq 'manifest_name="${top_level_dir}.manifest.json"' "${release_workflow}"
-          grep -Fq '$topLevelDir = "networkcore-windows-$version-$target"' "${release_workflow}"
-          grep -Fq '$archiveName = "$topLevelDir.zip"' "${release_workflow}"
-          grep -Fq '$manifestName = "$topLevelDir.manifest.json"' "${release_workflow}"
+          grep -Fq '$artifactStem = "networkcore-windows-$version-$target"' "${release_workflow}"
+          grep -Fq '$archiveName = "$artifactStem.msi"' "${release_workflow}"
+          grep -Fq '$manifestName = "$artifactStem.manifest.json"' "${release_workflow}"
           grep -q 'linux-artifact-license-notice-status=confirmed' "${release_workflow}"
           grep -q 'package_publish_eligibility_status=eligible' "${release_workflow}"
           grep -q 'windows-release-assets' "${release_workflow}"
@@ -1639,6 +1667,76 @@ jobs:
         shell: bash
         run: cargo build --locked --workspace --all-targets
 
+  windows-managed-client-installer:
+    name: Windows managed client MSI
+    runs-on: windows-latest
+    needs:
+      - policy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: true
+
+      - name: Setup Windows C toolchain
+        uses: msys2/setup-msys2@v2
+        id: windows-msys2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-libsystre
+
+      - name: Configure Windows Rust GNU target
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $MsysRoot = "${{ steps.windows-msys2.outputs.msys2-location }}"
+          $MingwPrefix = Join-Path $MsysRoot "mingw64"
+          "$MingwPrefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "CARGO_BUILD_TARGET=x86_64-pc-windows-gnu" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CC_x86_64_pc_windows_gnu=$MingwPrefix\bin\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "AR_x86_64_pc_windows_gnu=$MingwPrefix\bin\ar.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=$MingwPrefix\bin\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build Windows binaries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add x86_64-pc-windows-gnu
+          cargo build --locked `
+            --package networkcore-windows `
+            --package networkcore-windows-gui `
+            --package networkcore-windows-service `
+            --target x86_64-pc-windows-gnu
+
+      - name: Build and validate WiX MSI
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          dotnet tool install --global wix --version 4.0.6
+          New-Item -ItemType Directory -Force -Path dist\windows-ci | Out-Null
+          $releaseDir = (Resolve-Path "target\x86_64-pc-windows-gnu\debug").Path
+          $defaultConfig = (Resolve-Path "installer\windows\default-managed-config.json").Path
+          wix build installer/windows/Package.wxs `
+            -arch x64 `
+            -d "ProductVersion=0.2.1" `
+            -d "CliExe=$releaseDir\networkcore-windows.exe" `
+            -d "GuiExe=$releaseDir\networkcore-windows-gui.exe" `
+            -d "ServiceExe=$releaseDir\networkcore-windows-service.exe" `
+            -d "DefaultConfig=$defaultConfig" `
+            -o dist\windows-ci\networkcore-windows-ci.msi
+          wix msi validate dist\windows-ci\networkcore-windows-ci.msi
+          if (-not (Test-Path dist\windows-ci\networkcore-windows-ci.msi -PathType Leaf)) {
+            throw "Windows managed client MSI was not created."
+          }
+          if ((Get-Item dist\windows-ci\networkcore-windows-ci.msi).Length -le 0) {
+            throw "Windows managed client MSI is empty."
+          }
+
   rust-security-audit:
     name: Rust dependency security audit
     runs-on: ubuntu-latest
@@ -1765,6 +1863,7 @@ jobs:
       - workspace-smoke
       - go-build-test
       - rust-build-test
+      - windows-managed-client-installer
       - rust-security-audit
       - node-build-test
       - swift-build-test
@@ -1781,6 +1880,7 @@ jobs:
             echo "| --- | --- | --- |"
             echo "| Go | ${{ needs.detect-projects.outputs.go }} | ${{ needs.go-build-test.result }} |"
             echo "| Rust | ${{ needs.detect-projects.outputs.rust }} | build/test: ${{ needs.rust-build-test.result }}; audit: ${{ needs.rust-security-audit.result }} |"
+            echo "| Windows MSI | true | ${{ needs.windows-managed-client-installer.result }} |"
             echo "| Node | ${{ needs.detect-projects.outputs.node }} | ${{ needs.node-build-test.result }} |"
             echo "| Swift | ${{ needs.detect-projects.outputs.swift }} | ${{ needs.swift-build-test.result }} |"
             echo "| Apple | ${{ needs.detect-projects.outputs.apple }} | ${{ needs.apple-project-smoke.result }} |"
@@ -1801,6 +1901,7 @@ jobs:
           echo "workspace-smoke=${{ needs.workspace-smoke.result }}"
           echo "go-build-test=${{ needs.go-build-test.result }}"
           echo "rust-build-test=${{ needs.rust-build-test.result }}"
+          echo "windows-managed-client-installer=${{ needs.windows-managed-client-installer.result }}"
           echo "rust-security-audit=${{ needs.rust-security-audit.result }}"
           echo "node-build-test=${{ needs.node-build-test.result }}"
           echo "swift-build-test=${{ needs.swift-build-test.result }}"
@@ -1815,6 +1916,7 @@ jobs:
             test "${{ needs.rust-build-test.result }}" = "success"
             test "${{ needs.rust-security-audit.result }}" = "success"
           fi
+          test "${{ needs.windows-managed-client-installer.result }}" = "success"
           if [ "${{ needs.detect-projects.outputs.node }}" = "true" ]; then
             test "${{ needs.node-build-test.result }}" = "success"
           fi
