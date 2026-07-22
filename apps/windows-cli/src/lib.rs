@@ -139,7 +139,7 @@ impl WindowsCliParseError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowsTunnelPrepareStorageArgs {
     pub confirm: bool,
-    format: OutputFormat,
+    pub format: OutputFormat,
 }
 
 impl WindowsTunnelPrepareStorageArgs {
@@ -176,7 +176,7 @@ impl WindowsTunnelStartArgs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowsTunnelStatusArgs {
     pub state_path: PathBuf,
-    format: OutputFormat,
+    pub format: OutputFormat,
 }
 
 impl WindowsTunnelStatusArgs {
@@ -189,7 +189,7 @@ impl WindowsTunnelStatusArgs {
 pub struct WindowsTunnelStopArgs {
     pub state_path: PathBuf,
     pub confirm: bool,
-    format: OutputFormat,
+    pub format: OutputFormat,
 }
 
 impl WindowsTunnelStopArgs {
