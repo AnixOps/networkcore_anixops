@@ -720,7 +720,7 @@ mod native {
         if value_type != REG_SZ || size == 0 {
             return Ok(String::new());
         }
-        let mut value = vec![0u16; (size as usize + 1) / 2];
+        let mut value = vec![0u16; (size as usize).div_ceil(2)];
         let result = unsafe {
             RegQueryValueExW(
                 key.0,

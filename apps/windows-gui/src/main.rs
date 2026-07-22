@@ -29,18 +29,19 @@ mod gui {
     use std::path::{Path, PathBuf};
     use std::ptr::{null, null_mut};
     use windows_sys::Win32::Foundation::{GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
-    use windows_sys::Win32::Graphics::Gdi::{GetStockObject, DEFAULT_GUI_FONT};
+    use windows_sys::Win32::Graphics::Gdi::{
+        GetStockObject, UpdateWindow, COLOR_WINDOW, DEFAULT_GUI_FONT,
+    };
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::Shell::{IsUserAnAdmin, ShellExecuteW};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
         GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, LoadCursorW, MessageBoxW,
         PostQuitMessage, RegisterClassW, SendMessageW, SetWindowLongPtrW, SetWindowTextW,
-        ShowWindow, TranslateMessage, UpdateWindow, BS_GROUPBOX, COLOR_WINDOW, CW_USEDEFAULT,
-        ES_AUTOHSCROLL, GWLP_USERDATA, HMENU, IDC_ARROW, MB_ICONERROR, MB_OK, MSG, SW_SHOWNORMAL,
-        WM_CLOSE, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_NCDESTROY, WM_SETFONT, WNDCLASSW,
-        WS_BORDER, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP,
-        WS_VISIBLE,
+        ShowWindow, TranslateMessage, BS_GROUPBOX, CW_USEDEFAULT, ES_AUTOHSCROLL, GWLP_USERDATA,
+        HMENU, IDC_ARROW, MB_ICONERROR, MB_OK, MSG, SW_SHOWNORMAL, WM_CLOSE, WM_COMMAND, WM_CREATE,
+        WM_DESTROY, WM_NCDESTROY, WM_SETFONT, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD,
+        WS_CLIPCHILDREN, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
     };
 
     const APP_CLASS: &str = "AnixOpsNetworkCoreWindow";
@@ -175,7 +176,7 @@ mod gui {
             WM_CREATE => match create_interface(window) {
                 Ok(state) => {
                     SetWindowLongPtrW(window, GWLP_USERDATA, Box::into_raw(state) as isize);
-                    with_state(window, refresh);
+                    with_state(window, |state| refresh(state));
                     0
                 }
                 Err(error) => {
