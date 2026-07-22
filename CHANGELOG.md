@@ -6,17 +6,20 @@
 
 ### Added
 
-- Started the Windows managed client implementation: native Win32 GUI, SCM
-  service host, schema-versioned managed configuration/state, signed INF driver
-  package lifecycle, WinINet/WinHTTP system proxy apply/restore, CryptoAPI
-  LocalMachine ROOT certificate apply/remove, and WiX 4.0.6 per-machine MSI.
-- Added GitHub Actions Windows MSI build, WiX validation, checksum/manifest, and
-  artifact-attestation gates. The historical `v0.1.1-alpha.2` CLI-only ZIP
-  contract remains available for release audit history.
+- Future maintenance entries belong here until the next tagged release.
 
 - 固定 `mitm_anixops` distribution release `v1.4.6` 的 source commit `6382f0147e02a8653343571791ef61b8cc885cb1`，保留 linked C core version `0.45.10`，并新增纯 `ManagedSdwanMitmPolicyGate`。它只接收 verifier 产生的不可变 Plan B client delivery capability，公开构造只快照 linked C core，并在每次授权时以调用方提供的受信任当前时钟重新检查 expiry；V1 capability query、client/profile coherence、exact DNS suffix boundary、用户 consent、trusted certificate、非 QUIC 和无 pinned TLS observation 条件全部满足时返回非秘密 admission grant；不启动代理、不连接 POP、不执行脚本、不安装或信任 CA、不改变主机状态。GitHub Actions 覆盖 ABI、拒绝、expiry 和无 payload 泄漏合同。
 - 完成 `v0.1.2-alpha.2` managed foreground status `rollback_status` 源切片：新增 `ManagedForegroundSessionStatusRollbackRequest`、`ManagedForegroundSessionStatusRollbackReport` 和 `CommandManagedForegroundSessionStore::rollback_status`，仅在显式 status/snapshot 路径不同、current state 匹配 expected state 且 snapshot session/engine identity 匹配时，将 snapshot 原始 JSON 写回 status record 并保留 snapshot；report 固定 previous/restored state、`snapshot_retained=true` 与 `liveness_verified=false`。stale state 返回 state-conflict，snapshot 无法读取或解析返回 snapshot-read-failed，不控制 runtime；合同测试已通过 GitHub Actions 全量 CI。
 - 完成 `v0.1.2-alpha.2` managed foreground status rollback CLI 切片：新增 `LinuxCliCommand::ManagedStatusRollback`、`networkcore-linux managed-status rollback <status-record-path> <snapshot-path> <expected-state>`、`handle_managed_foreground_status_rollback` 和 `managed_foreground_session_status_cli_rolls_back_matching_snapshot` 合同测试，调用同一 expected-state/identity-protected snapshot restore，输出 text/JSON previous/restored state、`snapshot_retained=true` 与 `liveness_verified=false`；stale expected state 保留 state-conflict 且不修改 record 或 snapshot，不检查 live process 或控制 runtime；合同测试已通过 GitHub Actions 全量 CI。
+
+## v0.2.0-alpha.1 - 2026-07-23
+
+### Added
+
+- 发布 Windows managed client：原生 Win32 GUI、SCM service host、schema-versioned ProgramData 配置/状态、signed INF driver package lifecycle、WinINet/WinHTTP system proxy apply/restore、CryptoAPI LocalMachine ROOT certificate apply/remove，以及 WiX 4.0.6 per-machine MSI。
+- GitHub Actions 新增 Windows GNU 构建、MSI/WiX validation、checksum、schema-version-2 manifest 和 artifact attestation；GitHub Release 上传 Linux CLI 四件套和 Windows managed-client MSI 四件套。
+- Windows service 在 stop/purge 路径执行托管 apply/rollback；JavaScript script dispatch、Windows subscription runnable path 和远程订阅拉取仍不在本版本范围内。
+- 历史 `v0.1.1-alpha.2` manual-extract Windows CLI ZIP 保留为审计记录，不再作为当前安装入口。
 
 ## v0.1.2-alpha.3 - 2026-07-10
 
