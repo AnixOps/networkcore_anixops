@@ -934,6 +934,9 @@ jobs:
             -d "DefaultConfig=$defaultConfigPath" `
             -o $archivePath
           wix msi validate $archivePath
+          # WiX emits a .wixpdb beside the MSI; it is a build symbol, not a release asset.
+          $wixPdbPath = [System.IO.Path]::ChangeExtension($archivePath, ".wixpdb")
+          Remove-Item -Force $wixPdbPath -ErrorAction SilentlyContinue
 
           $checksumValue = (Get-FileHash -Algorithm SHA256 -Path $archivePath).Hash.ToLowerInvariant()
           if ($checksumValue -notmatch '^[0-9a-f]{64}$') {
@@ -1020,7 +1023,8 @@ jobs:
           }
           $fileCount = @(Get-ChildItem -Path $outputDir -File).Count
           if ($fileCount -ne 4) {
-            throw "Windows artifact output dir must contain exactly four files."
+            $fileNames = @(Get-ChildItem -Path $outputDir -File | Select-Object -ExpandProperty Name) -join ", "
+            throw "Windows artifact output dir must contain exactly four files. Found: $fileNames"
           }
 
           @(
