@@ -3,9 +3,10 @@
 use control_domain::{DomainError, DomainResult};
 use serde::{Deserialize, Serialize};
 use std::env;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION: u32 = 1;
 pub const WINDOWS_MANAGED_STATE_SCHEMA_VERSION: u32 = 1;
@@ -15,6 +16,7 @@ pub const WINDOWS_MANAGED_STATE_IO_CODE: &str = "windows.managed.state_io_failed
 pub const WINDOWS_MANAGED_PRODUCT_DIRECTORY: &str = "AnixOps\\NetworkCore";
 pub const WINDOWS_MANAGED_CONFIG_FILE_NAME: &str = "managed-config.json";
 pub const WINDOWS_MANAGED_STATE_FILE_NAME: &str = "managed-state.json";
+pub const WINDOWS_MANAGED_LOG_DIRECTORY: &str = "logs";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowsProxySettings {
@@ -217,6 +219,28 @@ pub fn windows_managed_config_path() -> PathBuf {
 
 pub fn windows_managed_state_path() -> PathBuf {
     windows_managed_data_directory().join(WINDOWS_MANAGED_STATE_FILE_NAME)
+}
+
+pub fn windows_managed_log_directory() -> PathBuf {
+    windows_managed_data_directory().join(WINDOWS_MANAGED_LOG_DIRECTORY)
+}
+
+pub fn windows_managed_log_path(component: &str) -> PathBuf {
+    windows_managed_log_directory().join(format!("{component}.log"))
+}
+
+/// Append a human-readable diagnostic line without making logging a prerequisite for runtime work.
+pub fn append_managed_log(component: &str, message: &str) -> std::io::Result<()> {
+    let path = windows_managed_log_path(component);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    writeln!(file, "[unix_ms={timestamp}] {message}")
 }
 
 pub fn read_managed_config(path: &Path) -> DomainResult<WindowsManagedConfig> {

@@ -8,7 +8,8 @@ fn main() {
 
 #[cfg(windows)]
 fn main() {
-    if let Err(error) = gui::run() {
+    let debug = std::env::args().any(|argument| argument == "--debug" || argument == "-d");
+    if let Err(error) = gui::run(debug) {
         gui::show_fatal_error(&error);
     }
 }
@@ -16,8 +17,9 @@ fn main() {
 #[cfg(windows)]
 mod gui {
     use platform_windows::managed::{
-        read_managed_config, windows_managed_config_path, windows_managed_data_directory,
-        write_managed_config, WindowsProxySettings, WindowsProxySnapshot,
+        append_managed_log, read_managed_config, windows_managed_config_path,
+        windows_managed_data_directory, windows_managed_log_directory, write_managed_config,
+        WindowsProxySettings, WindowsProxySnapshot,
     };
     use platform_windows::system_integration::{
         NativeWindowsSystemIntegration, WindowsServiceState, WindowsSystemIntegration,
@@ -60,18 +62,23 @@ mod gui {
     const ID_REMOVE_CERTIFICATE: usize = 131;
     const ID_INSTALL_DRIVER: usize = 140;
     const ID_REMOVE_DRIVER: usize = 141;
+    const ID_TOGGLE_DEBUG: usize = 150;
+    const ID_OPEN_LOGS: usize = 151;
 
     #[derive(Debug, Default, Serialize, Deserialize)]
     struct DesktopState {
         proxy_snapshot: Option<WindowsProxySnapshot>,
         certificate_sha1: Option<String>,
         driver_inf_path: Option<PathBuf>,
+        #[serde(default)]
+        debug_enabled: bool,
     }
 
     struct AppState {
         integration: NativeWindowsSystemIntegration,
         service_status: HWND,
         activity: HWND,
+        debug_status: HWND,
         config_path: HWND,
         proxy_server: HWND,
         proxy_bypass: HWND,
@@ -80,9 +87,10 @@ mod gui {
         desktop: DesktopState,
     }
 
-    pub fn run() -> Result<(), String> {
+    pub fn run(debug: bool) -> Result<(), String> {
+        let _ = append_managed_log("gui", &format!("startup debug={debug}"));
         if unsafe { IsUserAnAdmin() } == 0 {
-            elevate()?;
+            elevate(debug)?;
             return Ok(());
         }
 
@@ -120,7 +128,7 @@ mod gui {
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
                 980,
-                700,
+                760,
                 null_mut(),
                 null_mut(),
                 instance,
@@ -154,6 +162,7 @@ mod gui {
     }
 
     pub fn show_fatal_error(message: &str) {
+        let _ = append_managed_log("gui", &format!("fatal: {message}"));
         let title = wide(APP_TITLE);
         let message = wide(message);
         unsafe {
@@ -219,6 +228,10 @@ mod gui {
     unsafe fn create_interface(window: HWND) -> Result<Box<AppState>, String> {
         let instance = GetModuleHandleW(null());
         let font = GetStockObject(DEFAULT_GUI_FONT);
+        let mut desktop = load_desktop_state();
+        if std::env::args().any(|argument| argument == "--debug" || argument == "-d") {
+            desktop.debug_enabled = true;
+        }
 
         create_label(window, instance, font, "NetworkCore", 24, 16, 600, 32);
         create_label(
@@ -412,19 +425,71 @@ mod gui {
         );
 
         let activity = create_label(window, instance, font, "Ready", 24, 620, 910, 26);
+        let debug_status = create_label(
+            window,
+            instance,
+            font,
+            &format!(
+                "Debug logging: {}",
+                if desktop.debug_enabled {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
+            ),
+            24,
+            652,
+            360,
+            24,
+        );
+        create_button(
+            window,
+            instance,
+            font,
+            "Toggle debug",
+            ID_TOGGLE_DEBUG,
+            400,
+            648,
+            130,
+            30,
+        );
+        create_button(
+            window,
+            instance,
+            font,
+            "Open log folder",
+            ID_OPEN_LOGS,
+            540,
+            648,
+            140,
+            30,
+        );
+        create_label(
+            window,
+            instance,
+            font,
+            &format!("Logs: {}", windows_managed_log_directory().display()),
+            24,
+            688,
+            900,
+            24,
+        );
 
         let mut state = Box::new(AppState {
             integration: NativeWindowsSystemIntegration::new(),
             service_status,
             activity,
+            debug_status,
             config_path,
             proxy_server,
             proxy_bypass,
             certificate_path,
             driver_path,
-            desktop: load_desktop_state(),
+            desktop,
         });
+        let _ = save_desktop_state(&state.desktop);
         load_configuration_fields(&mut state);
+        update_debug_status(&mut state);
         Ok(state)
     }
 
@@ -446,6 +511,8 @@ mod gui {
             }
             ID_INSTALL_DRIVER => run_action(state, "Driver installed", install_driver),
             ID_REMOVE_DRIVER => run_action(state, "Driver removed", remove_driver),
+            ID_TOGGLE_DEBUG => toggle_debug(state),
+            ID_OPEN_LOGS => run_action(state, "Log folder opened", open_log_directory),
             _ => {}
         }
     }
@@ -457,10 +524,14 @@ mod gui {
     ) {
         match action(state) {
             Ok(()) => {
+                if state.desktop.debug_enabled {
+                    let _ = append_managed_log("gui", &format!("debug: success: {success}"));
+                }
                 set_text(state.activity, success);
                 refresh(state);
             }
             Err(error) => {
+                let _ = append_managed_log("gui", &format!("error: {error}"));
                 set_text(state.activity, &error);
                 let title = wide(APP_TITLE);
                 let message = wide(&error);
@@ -487,9 +558,61 @@ mod gui {
                     WindowsServiceState::Unknown => "Unknown".to_string(),
                 };
                 set_text(state.service_status, &format!("Service status: {label}"));
+                if state.desktop.debug_enabled {
+                    let _ = append_managed_log("gui", &format!("debug: service status: {label}"));
+                }
             }
-            Err(error) => set_text(state.service_status, &format!("Service status: {error}")),
+            Err(error) => {
+                let message = format!("Service status: {error}");
+                let _ = append_managed_log("gui", &message);
+                set_text(state.service_status, &message);
+            }
         }
+    }
+
+    unsafe fn toggle_debug(state: &mut AppState) {
+        state.desktop.debug_enabled = !state.desktop.debug_enabled;
+        let message = if state.desktop.debug_enabled {
+            "Debug logging enabled"
+        } else {
+            "Debug logging disabled"
+        };
+        let _ = append_managed_log("gui", message);
+        if let Err(error) = save_desktop_state(&state.desktop) {
+            set_text(state.activity, &error);
+            let _ = append_managed_log("gui", &format!("error: {error}"));
+            return;
+        }
+        set_text(state.activity, message);
+        update_debug_status(state);
+    }
+
+    fn open_log_directory(_state: &mut AppState) -> Result<(), String> {
+        let verb = wide("open");
+        let path = wide_os(&windows_managed_log_directory());
+        let result = unsafe {
+            ShellExecuteW(
+                null_mut(),
+                verb.as_ptr(),
+                path.as_ptr(),
+                null(),
+                null(),
+                SW_SHOWNORMAL,
+            )
+        } as isize;
+        if result <= 32 {
+            return Err(last_error("log directory could not be opened"));
+        }
+        Ok(())
+    }
+
+    unsafe fn update_debug_status(state: &mut AppState) {
+        let status = if state.desktop.debug_enabled {
+            "Debug logging: enabled"
+        } else {
+            "Debug logging: disabled"
+        };
+        set_text(state.debug_status, status);
     }
 
     fn install_service(state: &mut AppState) -> Result<(), String> {
@@ -679,16 +802,17 @@ mod gui {
         fs::write(path, bytes).map_err(|error| error.to_string())
     }
 
-    fn elevate() -> Result<(), String> {
+    fn elevate(debug: bool) -> Result<(), String> {
         let executable = env::current_exe().map_err(|error| error.to_string())?;
         let executable = wide_os(&executable);
         let verb = wide("runas");
+        let arguments = if debug { wide("--debug") } else { wide("") };
         let result = unsafe {
             ShellExecuteW(
                 null_mut(),
                 verb.as_ptr(),
                 executable.as_ptr(),
-                null(),
+                arguments.as_ptr(),
                 null(),
                 SW_SHOWNORMAL,
             )

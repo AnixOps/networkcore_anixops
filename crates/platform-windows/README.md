@@ -16,3 +16,10 @@ Current status:
 `managed` owns the schema-versioned ProgramData configuration and state records.
 `system_integration` calls SCM, WinINet/WinHTTP, CryptoAPI, and NewDev directly
 and exposes apply, status, rollback, and uninstall operations.
+
+The installed default configuration is intentionally inert: all optional
+operations are `null` until an operator supplies absolute paths or proxy
+settings. The GUI and service append diagnostics under
+`%ProgramData%\\AnixOps\\NetworkCore\\logs`; errors are always recorded, while
+verbose GUI status logging can be toggled from the desktop client or enabled
+with `networkcore-windows-gui.exe --debug`.

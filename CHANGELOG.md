@@ -7,6 +7,12 @@
 ### Added
 
 - Future maintenance entries belong here until the next tagged release.
+- Windows managed client follow-up: MSI now uses the WiX standard install-directory
+  wizard and completion page; GUI/service diagnostics are persisted under
+  `%ProgramData%\\AnixOps\\NetworkCore\\logs`, with GUI debug toggle and
+  `networkcore-windows-gui.exe --debug` entrypoint.
+- Installer documentation now includes the inert default configuration and a
+  minimal system-proxy JSON example, including the required absolute-path rules.
 
 - 固定 `mitm_anixops` distribution release `v1.4.6` 的 source commit `6382f0147e02a8653343571791ef61b8cc885cb1`，保留 linked C core version `0.45.10`，并新增纯 `ManagedSdwanMitmPolicyGate`。它只接收 verifier 产生的不可变 Plan B client delivery capability，公开构造只快照 linked C core，并在每次授权时以调用方提供的受信任当前时钟重新检查 expiry；V1 capability query、client/profile coherence、exact DNS suffix boundary、用户 consent、trusted certificate、非 QUIC 和无 pinned TLS observation 条件全部满足时返回非秘密 admission grant；不启动代理、不连接 POP、不执行脚本、不安装或信任 CA、不改变主机状态。GitHub Actions 覆盖 ABI、拒绝、expiry 和无 payload 泄漏合同。
 - 完成 `v0.1.2-alpha.2` managed foreground status `rollback_status` 源切片：新增 `ManagedForegroundSessionStatusRollbackRequest`、`ManagedForegroundSessionStatusRollbackReport` 和 `CommandManagedForegroundSessionStore::rollback_status`，仅在显式 status/snapshot 路径不同、current state 匹配 expected state 且 snapshot session/engine identity 匹配时，将 snapshot 原始 JSON 写回 status record 并保留 snapshot；report 固定 previous/restored state、`snapshot_retained=true` 与 `liveness_verified=false`。stale state 返回 state-conflict，snapshot 无法读取或解析返回 snapshot-read-failed，不控制 runtime；合同测试已通过 GitHub Actions 全量 CI。

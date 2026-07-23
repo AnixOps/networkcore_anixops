@@ -839,6 +839,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           dotnet tool install --global wix --version $env:WIX_VERSION
+          wix extension add -g "WixToolset.UI.wixext/$env:WIX_VERSION"
           wix --version
 
       - name: Build, validate, checksum, and manifest Windows managed client
@@ -926,6 +927,7 @@ jobs:
           Remove-Item -Recurse -Force $distDir -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
           wix build installer/windows/Package.wxs `
+            -ext WixToolset.UI.wixext `
             -arch x64 `
             -d "ProductVersion=$productVersion" `
             -d "CliExe=$cliPath" `

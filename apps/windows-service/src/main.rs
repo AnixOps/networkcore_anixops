@@ -1,6 +1,8 @@
 use networkcore_windows::native_windows_tunnel_command_service;
 use networkcore_windows_service::{copy_managed_configuration, WindowsManagedRuntime};
-use platform_windows::managed::{windows_managed_config_path, windows_managed_state_path};
+use platform_windows::managed::{
+    append_managed_log, windows_managed_config_path, windows_managed_state_path,
+};
 #[cfg(windows)]
 use platform_windows::system_integration::NETWORKCORE_WINDOWS_SERVICE_NAME;
 use platform_windows::system_integration::{
@@ -11,6 +13,7 @@ use std::path::PathBuf;
 
 fn main() {
     if let Err(error) = run() {
+        let _ = append_managed_log("service", &format!("fatal: {error}"));
         eprintln!("{}", error);
         std::process::exit(1);
     }
@@ -18,7 +21,9 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut arguments = env::args().skip(1);
-    match arguments.next().as_deref() {
+    let command = arguments.next();
+    let _ = append_managed_log("service", &format!("command={command:?}"));
+    match command.as_deref() {
         Some("service") => run_service_dispatcher(),
         Some("install") => {
             let executable = env::current_exe()?;
@@ -120,6 +125,7 @@ mod windows_service_host {
     static STOP_REQUESTED: AtomicBool = AtomicBool::new(false);
 
     pub fn dispatch() -> Result<(), Box<dyn std::error::Error>> {
+        let _ = append_managed_log("service", "SCM dispatcher started");
         let mut service_name = wide(NETWORKCORE_WINDOWS_SERVICE_NAME);
         let entries = [
             SERVICE_TABLE_ENTRYW {
@@ -132,11 +138,13 @@ mod windows_service_host {
             },
         ];
         if unsafe { StartServiceCtrlDispatcherW(entries.as_ptr()) } == 0 {
-            return Err(format!("service dispatcher failed (win32={})", unsafe {
+            let error = format!("service dispatcher failed (win32={})", unsafe {
                 GetLastError()
-            })
-            .into());
+            });
+            let _ = append_managed_log("service", &format!("error: {error}"));
+            return Err(error.into());
         }
+        let _ = append_managed_log("service", "SCM dispatcher stopped");
         Ok(())
     }
 
@@ -148,14 +156,24 @@ mod windows_service_host {
             null(),
         );
         if status_handle.is_null() {
+            let _ = append_managed_log(
+                "service",
+                "error: service control handler registration failed",
+            );
             return;
         }
         report_status(status_handle, SERVICE_START_PENDING, 0, 10_000);
 
         let mut runtime = native_runtime();
-        if runtime.start().is_err() {
-            report_status(status_handle, SERVICE_STOPPED, 1, 0);
-            return;
+        match runtime.start() {
+            Ok(_) => {
+                let _ = append_managed_log("service", "managed runtime started");
+            }
+            Err(error) => {
+                let _ = append_managed_log("service", &format!("runtime start failed: {error}"));
+                report_status(status_handle, SERVICE_STOPPED, 1, 0);
+                return;
+            }
         }
 
         report_status(status_handle, SERVICE_RUNNING, 0, 0);
@@ -164,7 +182,16 @@ mod windows_service_host {
         }
 
         report_status(status_handle, SERVICE_STOP_PENDING, 0, 30_000);
-        let exit_code = u32::from(runtime.stop().is_err());
+        let exit_code = match runtime.stop() {
+            Ok(_) => {
+                let _ = append_managed_log("service", "managed runtime stopped");
+                0
+            }
+            Err(error) => {
+                let _ = append_managed_log("service", &format!("runtime stop failed: {error}"));
+                1
+            }
+        };
         report_status(status_handle, SERVICE_STOPPED, exit_code, 0);
     }
 
