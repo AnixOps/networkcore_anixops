@@ -7,7 +7,7 @@
 
 ## 当前发布状态
 
-`v0.2.0-alpha.15` 是当前待发布 Windows managed-client source slice；Linux `v0.1.2-alpha.3` 仍是当前 Linux source slice。Windows MSI 与 portable ZIP 只在同名 tag 的 GitHub Actions 中生成。
+`v0.2.0-alpha.20` 是当前已发布 Windows managed-client source/release slice；Linux `v0.1.2-alpha.3` 仍是当前 Linux source slice。Windows MSI 与 portable ZIP 只在同名 tag 的 GitHub Actions 中生成。
 
 服务先完成 SCM `Running` handoff，再应用 managed runtime configuration；GUI/CLI `start` 立即返回观察到的 SCM state，因此坏配置只记录到 service log 并使服务停止，不能阻塞 MSI 或 Start。GUI 的 `Profile / URL` 允许手动导入本地 profile 或 HTTP(S) 地址，`Load nodes` 展示 NodeCatalog 节点。NodeCatalog 导入会生成包含全部可翻译节点的 sing-box `selector`，导入时选择默认 outbound；运行中的服务可由 `Switch active` 通过 `127.0.0.1:9091` 回环 Clash API 显式切换并读回确认。原生 sing-box JSON 保持 pass-through。该切片不启用 LAN controller、Clash Web UI、`urltest`、自动延迟选择、后台更新或自动服务重启。GUI 仍提供不变更系统状态的 `sing-box check -c` 预检和本地 diagnostics。GUI HTTPS MITM、Hysteria2/TUIC、V2Ray compatibility subset 与 native `mixed-in` snapshot/restore 的既有边界保持不变。没有本机打包或本机发布路径，用户可下载状态以 tag workflow 成功结果为准。
 
@@ -26,7 +26,7 @@ linux-artifact-publish-scope=tag-release-after-all-gates
 ```
 
 当前最新已发布 Linux artifact 是 `v0.1.0` 正式版 stable CLI 四件套；当前最新 Windows prerelease tag release 是
-`v0.2.0-alpha.17`，当前 Windows source release 目标是 `v0.2.0-alpha.20`。该发布路径始终同时产出 Linux CLI 四件套、Windows managed-client MSI 四件套和 Windows portable ZIP 四件套。MSI 在安装期请求异步 service start，不等待 runtime ready；服务在配置 runtime 前完成 SCM handoff，CLI 继续只返回即时状态。GUI 日常 `Connect` 在后台验证 SCM 和 service-owned core PID 后才应用当前 interactive-user proxy；GUI 仍保留明确的 official sing-box core install、`check -c` 预检、本地 diagnostics、HTTP(S) profile import/update、NodeCatalog selector、`Check core`、手动 delay test 和明确 runtime switch；native JSON 保持 service-owned pass-through。MSI/portable ZIP 不捆绑或静默下载第三方 core，且不启用后台 refresh、自动 service restart、LAN controller/Web UI、`urltest`、XHTTP/ECH/multiplex 推断、HTTP/2/HTTP/3/QUIC MITM、streaming、多 request CONNECT 或 JavaScript dispatch。历史 `v0.1.1-alpha.2` Windows manual-extract CLI zip 仅保留为审计记录。Linux CLI
+`v0.2.0-alpha.20`，也是当前 Windows source release。该发布路径始终同时产出 Linux CLI 四件套、Windows managed-client MSI 四件套和 Windows portable ZIP 四件套。MSI 在安装期请求异步 service start，不等待 runtime ready；服务在配置 runtime 前完成 SCM handoff，CLI 继续只返回即时状态。GUI 日常 `Connect` 在后台验证 SCM 和 service-owned core PID 后才应用当前 interactive-user proxy；GUI 仍保留明确的 official sing-box core install、`check -c` 预检、本地 diagnostics、HTTP(S) profile import/update、NodeCatalog selector、`Check core`、手动 delay test 和明确 runtime switch；native JSON 保持 service-owned pass-through。MSI/portable ZIP 不捆绑或静默下载第三方 core，且不启用后台 refresh、自动 service restart、LAN controller/Web UI、`urltest`、XHTTP/ECH/multiplex 推断、HTTP/2/HTTP/3/QUIC MITM、streaming、多 request CONNECT 或 JavaScript dispatch。历史 `v0.1.1-alpha.2` Windows manual-extract CLI zip 仅保留为审计记录。Linux CLI
 `mitm http-rewrite preview --confirm --url https://... --phase request` 的合同测试固定 caller-provided
 HTTPS request preview 只能输出 preview/reject 边界，继续保持 `tls_decryption_ready=false`、
 `https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`；Windows path 已新增 `apps/windows-cli`、

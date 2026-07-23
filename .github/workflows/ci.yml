@@ -555,6 +555,11 @@ jobs:
           grep -q "managed-foreground-session-event-write-operation=event-write" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-cli-read-operation=managed-event" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-cli-init-operation=managed-event-init" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "managed-foreground-session-event-history-operation=event-history" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "managed-foreground-session-event-cli-history-operation=managed-event-list" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "managed-foreground-session-event-history-max-limit=100" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "managed-foreground-session-event-history-max-records=256" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "managed-foreground-session-event-history-max-record-bytes=65536" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-liveness-verification=blocked" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "ManagedForegroundSessionEventRequest" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "ManagedForegroundSessionEventReport" docs/architecture/managed-foreground-session-event-source-contract.md
@@ -562,6 +567,10 @@ jobs:
           grep -q "ManagedForegroundSessionEventWriteRequest" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "ManagedForegroundSessionEventWriteReport" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "CommandManagedForegroundSessionEventStore::write_event" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "ManagedForegroundSessionEventHistoryRequest" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "ManagedForegroundSessionEventHistoryReport" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "CommandManagedForegroundSessionEventStore::list_event_history" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "networkcore-linux managed-event list" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "ManagedForegroundSessionStatusRequest" apps/linux-cli/src/lib.rs
           grep -q "ManagedForegroundSessionStatusReport" apps/linux-cli/src/lib.rs
           grep -q "fn read_status" apps/linux-cli/src/lib.rs
@@ -596,14 +605,23 @@ jobs:
           grep -q "ManagedForegroundSessionEventWriteRequest" apps/linux-cli/src/lib.rs
           grep -q "ManagedForegroundSessionEventWriteReport" apps/linux-cli/src/lib.rs
           grep -q "fn write_event" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionEventHistoryRequest" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionEventHistoryReport" apps/linux-cli/src/lib.rs
+          grep -q "fn list_event_history" apps/linux-cli/src/lib.rs
+          grep -q "fn read_managed_foreground_session_event_history_file" apps/linux-cli/src/lib.rs
+          grep -q "MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES + 1" apps/linux-cli/src/lib.rs
           grep -q "managed_foreground_session_event_reads_explicit_record_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "managed_foreground_session_event_write_persists_non_overwriting_record" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "managed_foreground_session_event_history_filters_pages_and_bounds_explicit_directory" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "ManagedEvent" apps/linux-cli/src/lib.rs
           grep -q "fn handle_managed_foreground_event" apps/linux-cli/src/lib.rs
           grep -q "managed_foreground_session_event_cli_reads_explicit_record_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "ManagedEventInit" apps/linux-cli/src/lib.rs
           grep -q "fn handle_managed_foreground_event_init" apps/linux-cli/src/lib.rs
           grep -q "managed_foreground_session_event_cli_initializes_non_overwriting_record" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "ManagedEventList" apps/linux-cli/src/lib.rs
+          grep -q "fn handle_managed_foreground_event_history" apps/linux-cli/src/lib.rs
+          grep -q "managed_foreground_session_event_cli_lists_bounded_filtered_history" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "v0.1.2-alpha.1" README.md
           grep -q "v0.1.2-alpha.1" ROADMAP.md
           grep -q "v0.1.2-alpha.1" TODO.md
@@ -659,6 +677,15 @@ jobs:
           grep -q "networkcore-linux managed-event init" TODO.md
           grep -q "networkcore-linux managed-event init" CHANGELOG.md
           grep -q "networkcore-linux managed-event init" apps/linux-cli/README.md
+          grep -q "CommandManagedForegroundSessionEventStore::list_event_history" TODO.md
+          grep -q "CommandManagedForegroundSessionEventStore::list_event_history" CHANGELOG.md
+          grep -q "CommandManagedForegroundSessionEventStore::list_event_history" apps/linux-cli/README.md
+          grep -q "networkcore-linux managed-event list" README.md
+          grep -q "networkcore-linux managed-event list" ROADMAP.md
+          grep -q "networkcore-linux managed-event list" TODO.md
+          grep -q "networkcore-linux managed-event list" CHANGELOG.md
+          grep -q "networkcore-linux managed-event list" apps/linux-cli/README.md
+          grep -q "networkcore-linux managed-event list" docs/alpha-release-feature-matrix.md
           grep -q "handle_entrypoint_with_runtime_lifecycle_and_sing_box" apps/linux-cli/src/main.rs
           git submodule status third_party/mitm_anixops | grep -q "6382f0147e02a8653343571791ef61b8cc885cb1"
           grep -Fq "MITM_ANIXOPS_RELEASE_TAG=v1.4.6" docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md

@@ -32,6 +32,15 @@
 
 ### Added
 
+- Linux managed foreground event history now has an explicit bounded audit query:
+  `CommandManagedForegroundSessionEventStore::list_event_history` and
+  `networkcore-linux managed-event list <event-directory> [--session-id <id>]
+  [--event-kind <kind>] [--state <state>] [--cursor <offset>] [--limit <1-100>]`.
+  It validates direct regular JSON records before exact filtering, sorts by
+  `(recorded_at, event_id, event_path)`, returns offset pages, and caps page,
+  directory, and record sizes at 100, 256, and 65536 bytes. It remains an
+  explicit read-only history interface, not a liveness check, runtime event
+  stream, daemon, or control surface.
 - Windows GUI now exposes `Check core` for generated NodeCatalog profiles. It
   makes one read-only loopback Clash API selector request, displays the active
   outbound plus node count, and records the result in the local GUI log. It does

@@ -58,7 +58,7 @@ use networkcore_linux::{
     LinuxBrowserCaptureVerifyOutcome, LinuxBrowserCaptureVerifyRequest, LinuxCliCommand,
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
-    LinuxNativeMitmRuntimeFileConfig, ManagedForegroundSessionEventListRequest,
+    LinuxNativeMitmRuntimeFileConfig, ManagedForegroundSessionEventHistoryRequest,
     ManagedForegroundSessionEventRequest, ManagedForegroundSessionEventWriteRequest,
     ManagedForegroundSessionStatusRequest, ManagedForegroundSessionStatusRollbackRequest,
     ManagedForegroundSessionStatusTransitionRequest, ManagedForegroundSessionStatusWriteRequest,
@@ -102,9 +102,9 @@ use networkcore_linux::{
     CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE, CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE,
     CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
     CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
-    MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR, MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH,
-    MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME, MITM_BROWSER_CAPTURE_GATE,
-    MITM_BROWSER_CAPTURE_GATE_STATUS, MITM_BROWSER_CAPTURE_MODE,
+    MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES, MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR,
+    MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH, MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME,
+    MITM_BROWSER_CAPTURE_GATE, MITM_BROWSER_CAPTURE_GATE_STATUS, MITM_BROWSER_CAPTURE_MODE,
     MITM_BROWSER_CAPTURE_MUTATION_READY, MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME,
     MITM_BROWSER_CAPTURE_PROOF_QUERY_PARAM, MITM_BROWSER_CAPTURE_PROXY_HOST,
     MITM_BROWSER_CAPTURE_PROXY_PORT, MITM_BROWSER_CAPTURE_SOURCE_CONTRACT_STATUS,
@@ -361,17 +361,18 @@ fn managed_foreground_session_event_reads_explicit_record_without_liveness_claim
 }
 
 #[test]
-fn managed_foreground_session_event_list_reads_explicit_directory_deterministically() {
+fn managed_foreground_session_event_history_filters_pages_and_bounds_explicit_directory() {
     let root = std::env::temp_dir().join(format!(
-        "networkcore-managed-foreground-event-list-contract-{}",
+        "networkcore-managed-foreground-event-history-contract-{}",
         std::process::id()
     ));
     let _ = std::fs::remove_dir_all(&root);
     let event_directory = root.join("events");
     std::fs::create_dir_all(&event_directory)
-        .expect("managed event list directory should be created");
+        .expect("managed event history directory should be created");
     let first_path = event_directory.join("event-a.json");
     let second_path = event_directory.join("event-b.json");
+    let third_path = event_directory.join("event-c.json");
     let first_record = r#"{
   "schema_version": 1,
   "session_id": "session-list",
@@ -390,15 +391,26 @@ fn managed_foreground_session_event_list_reads_explicit_directory_deterministica
   "state": "running",
   "recorded_at": "2026-07-10T00:01:00Z"
 }"#;
+    let third_record = r#"{
+  "schema_version": 1,
+  "session_id": "other-session",
+  "engine_id": "native",
+  "event_id": "event-c",
+  "event_kind": "session_failed",
+  "state": "failed",
+  "recorded_at": "2026-07-10T00:02:00Z"
+}"#;
     std::fs::write(&second_path, second_record)
         .expect("second managed event record should be written");
     std::fs::write(&first_path, first_record)
         .expect("first managed event record should be written");
+    std::fs::write(&third_path, third_record)
+        .expect("third managed event record should be written");
     std::fs::write(event_directory.join("ignored.txt"), "not an event")
         .expect("non-event file should be written");
     let nested_directory = event_directory.join("nested");
     std::fs::create_dir_all(&nested_directory).expect("nested event directory should be created");
-    std::fs::write(nested_directory.join("event-c.json"), second_record)
+    std::fs::write(nested_directory.join("event-nested.json"), "not valid JSON")
         .expect("nested managed event record should be written");
     let before_first = std::fs::read_to_string(&first_path)
         .expect("first managed event record should be readable");
@@ -406,31 +418,85 @@ fn managed_foreground_session_event_list_reads_explicit_directory_deterministica
         .expect("second managed event record should be readable");
 
     let store = CommandManagedForegroundSessionEventStore::new();
-    let report = store
-        .list_events(&ManagedForegroundSessionEventListRequest {
+    let first_page = store
+        .list_event_history(&ManagedForegroundSessionEventHistoryRequest {
             event_directory: format!(" {} ", event_directory.display()),
+            session_id: Some(" session-list ".to_string()),
+            event_kind: None,
+            state: None,
+            cursor: 0,
+            limit: 1,
         })
-        .expect("managed event directory should be listed");
+        .expect("managed event history should be listed");
 
     assert_eq!(
-        report.event_directory,
+        first_page.event_directory,
         event_directory.display().to_string()
     );
-    assert_eq!(report.event_count, 2);
-    assert!(!report.liveness_verified);
-    assert_eq!(report.events[0].event_id, "event-a");
-    assert_eq!(report.events[0].event_kind, "session_started");
-    assert_eq!(report.events[0].state, "starting");
-    assert_eq!(report.events[1].event_id, "event-b");
-    assert_eq!(report.events[1].event_kind, "status_transition");
-    assert_eq!(report.events[1].state, "running");
+    assert_eq!(first_page.session_id.as_deref(), Some("session-list"));
+    assert_eq!(first_page.matching_event_count, 2);
+    assert_eq!(first_page.cursor, 0);
+    assert_eq!(first_page.next_cursor, Some(1));
+    assert!(!first_page.liveness_verified);
+    assert_eq!(first_page.events.len(), 1);
+    assert_eq!(first_page.events[0].event_id, "event-a");
+    assert_eq!(first_page.events[0].event_kind, "session_started");
+    assert_eq!(first_page.events[0].state, "starting");
     assert_eq!(
-        report.events[0].event_path,
+        first_page.events[0].event_path,
         first_path.display().to_string()
     );
+
+    let second_page = store
+        .list_event_history(&ManagedForegroundSessionEventHistoryRequest {
+            event_directory: event_directory.display().to_string(),
+            session_id: Some("session-list".to_string()),
+            event_kind: None,
+            state: None,
+            cursor: 1,
+            limit: 1,
+        })
+        .expect("second managed event history page should be listed");
+    assert_eq!(second_page.matching_event_count, 2);
+    assert_eq!(second_page.cursor, 1);
+    assert_eq!(second_page.next_cursor, None);
+    assert_eq!(second_page.events.len(), 1);
+    assert_eq!(second_page.events[0].event_id, "event-b");
+    assert_eq!(second_page.events[0].event_kind, "status_transition");
+    assert_eq!(second_page.events[0].state, "running");
     assert_eq!(
-        report.events[1].event_path,
+        second_page.events[0].event_path,
         second_path.display().to_string()
+    );
+
+    let failed = store
+        .list_event_history(&ManagedForegroundSessionEventHistoryRequest {
+            event_directory: event_directory.display().to_string(),
+            session_id: None,
+            event_kind: Some(" session_failed ".to_string()),
+            state: Some(" failed ".to_string()),
+            cursor: 0,
+            limit: 10,
+        })
+        .expect("managed event history should honor kind and state filters");
+    assert_eq!(failed.event_kind.as_deref(), Some("session_failed"));
+    assert_eq!(failed.state.as_deref(), Some("failed"));
+    assert_eq!(failed.matching_event_count, 1);
+    assert_eq!(failed.events[0].event_id, "event-c");
+
+    let invalid_limit = store
+        .list_event_history(&ManagedForegroundSessionEventHistoryRequest {
+            event_directory: event_directory.display().to_string(),
+            session_id: None,
+            event_kind: None,
+            state: None,
+            cursor: 0,
+            limit: 0,
+        })
+        .expect_err("zero event history page size should be rejected");
+    assert_eq!(
+        invalid_limit.code,
+        "cli.linux.managed_foreground_event.history_query_invalid"
     );
     assert_eq!(
         std::fs::read_to_string(&first_path)
@@ -443,13 +509,41 @@ fn managed_foreground_session_event_list_reads_explicit_directory_deterministica
         before_second
     );
 
+    let oversized_path = event_directory.join("oversized.json");
+    std::fs::write(
+        &oversized_path,
+        "x".repeat((MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES + 1) as usize),
+    )
+    .expect("oversized managed event record should be written");
+    let oversized = store
+        .list_event_history(&ManagedForegroundSessionEventHistoryRequest {
+            event_directory: event_directory.display().to_string(),
+            session_id: None,
+            event_kind: None,
+            state: None,
+            cursor: 0,
+            limit: 1,
+        })
+        .expect_err("oversized event record should reject the bounded history query");
+    assert_eq!(
+        oversized.code,
+        "cli.linux.managed_foreground_event.history_limit_exceeded"
+    );
+    std::fs::remove_file(&oversized_path)
+        .expect("oversized managed event record should be removed");
+
     std::fs::write(event_directory.join("broken.json"), "not valid JSON")
         .expect("broken managed event record should be written");
     let broken = store
-        .list_events(&ManagedForegroundSessionEventListRequest {
+        .list_event_history(&ManagedForegroundSessionEventHistoryRequest {
             event_directory: event_directory.display().to_string(),
+            session_id: Some("session-list".to_string()),
+            event_kind: None,
+            state: None,
+            cursor: 0,
+            limit: 1,
         })
-        .expect_err("broken event record should reject the list");
+        .expect_err("broken event record should reject the history query");
     assert_eq!(
         broken.code,
         "cli.linux.managed_foreground_event.read_failed"
@@ -465,7 +559,7 @@ fn managed_foreground_session_event_list_reads_explicit_directory_deterministica
         before_second
     );
 
-    std::fs::remove_dir_all(&root).expect("managed event list directory should be removed");
+    std::fs::remove_dir_all(&root).expect("managed event history directory should be removed");
 }
 
 #[test]
@@ -743,6 +837,137 @@ fn managed_foreground_session_event_cli_reads_explicit_record_without_liveness_c
     );
 
     std::fs::remove_dir_all(&root).expect("managed event CLI test directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_event_cli_lists_bounded_filtered_history() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-event-cli-history-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    let event_directory = root.join("events");
+    std::fs::create_dir_all(&event_directory)
+        .expect("managed event CLI history directory should be created");
+    let first_path = event_directory.join("event-cli-a.json");
+    let second_path = event_directory.join("event-cli-b.json");
+    std::fs::write(
+        &first_path,
+        r#"{
+  "schema_version": 1,
+  "session_id": "session-cli-list",
+  "engine_id": "native",
+  "event_id": "event-cli-a",
+  "event_kind": "session_started",
+  "state": "starting",
+  "recorded_at": "2026-07-10T00:00:00Z"
+}"#,
+    )
+    .expect("first managed event CLI history record should be written");
+    std::fs::write(
+        &second_path,
+        r#"{
+  "schema_version": 1,
+  "session_id": "session-cli-list",
+  "engine_id": "native",
+  "event_id": "event-cli-b",
+  "event_kind": "status_transition",
+  "state": "running",
+  "recorded_at": "2026-07-10T00:01:00Z"
+}"#,
+    )
+    .expect("second managed event CLI history record should be written");
+    std::fs::write(
+        event_directory.join("event-cli-c.json"),
+        r#"{
+  "schema_version": 1,
+  "session_id": "other-session",
+  "engine_id": "native",
+  "event_id": "event-cli-c",
+  "event_kind": "status_transition",
+  "state": "running",
+  "recorded_at": "2026-07-10T00:02:00Z"
+}"#,
+    )
+    .expect("third managed event CLI history record should be written");
+    let command = parse_args([
+        "managed-event",
+        "list",
+        event_directory
+            .to_str()
+            .expect("managed event history directory should be UTF-8"),
+        "--session-id",
+        "session-cli-list",
+        "--state",
+        "running",
+        "--cursor",
+        "0",
+        "--limit",
+        "1",
+        "--format",
+        "json",
+    ])
+    .expect("managed-event list command should parse");
+    assert!(matches!(
+        &command,
+        LinuxCliCommand::ManagedEventList {
+            cursor: 0,
+            limit: 1,
+            format: OutputFormat::Json,
+            ..
+        }
+    ));
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let before_first = std::fs::read_to_string(&first_path)
+        .expect("first managed event CLI history record should be readable");
+    let response = handle_entrypoint(command, &platform);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "managed-event list");
+    let report = response
+        .managed_foreground_event_history
+        .as_ref()
+        .expect("managed event list response should include the history report");
+    assert_eq!(report.session_id.as_deref(), Some("session-cli-list"));
+    assert_eq!(report.state.as_deref(), Some("running"));
+    assert_eq!(report.cursor, 0);
+    assert_eq!(report.next_cursor, None);
+    assert_eq!(report.matching_event_count, 1);
+    assert_eq!(report.events.len(), 1);
+    assert_eq!(report.events[0].event_id, "event-cli-b");
+    assert!(!report.liveness_verified);
+    assert_eq!(
+        std::fs::read_to_string(&first_path)
+            .expect("first managed event CLI history record should be readable"),
+        before_first
+    );
+    let text = render_response(&response, OutputFormat::Text);
+    assert!(text.contains("managed foreground event history cursor: 0"));
+    assert!(text.contains("managed foreground event history matching count: 1"));
+    assert!(text.contains("managed foreground event history entry 0: id=event-cli-b"));
+    assert!(text.contains("managed foreground liveness verified: false"));
+    let json: serde_json::Value =
+        serde_json::from_str(&render_response(&response, OutputFormat::Json))
+            .expect("managed event list response should render JSON");
+    assert_eq!(
+        json["managed_foreground_event_history"]["session_id"],
+        "session-cli-list"
+    );
+    assert_eq!(
+        json["managed_foreground_event_history"]["matching_event_count"],
+        1
+    );
+    assert_eq!(
+        json["managed_foreground_event_history"]["events"][0]["event_id"],
+        "event-cli-b"
+    );
+    assert_eq!(
+        json["managed_foreground_event_history"]["liveness_verified"].as_bool(),
+        Some(false)
+    );
+
+    std::fs::remove_dir_all(&root).expect("managed event CLI history directory should be removed");
 }
 
 #[test]

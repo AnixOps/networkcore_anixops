@@ -41,8 +41,13 @@ event kind, recorded state, and a caller-recorded timestamp, while reporting `re
 `networkcore-linux managed-event <event-record-path>` exposes that one explicit record through text/JSON without
 claiming liveness. `networkcore-linux managed-event init <event-record-path> <session-id> <engine-id> <event-id>
 <event-kind> <state> <recorded-at>` non-overwritingly creates the explicit record and reports `record_written=true`
-without claiming liveness. It does not expose event list or scan commands; it does not expose a runtime event
-stream; and it does not read logs or control a runtime. Its contract tests have passed GitHub Actions.
+without claiming liveness. Current `main` also exposes the untagged bounded audit query `networkcore-linux
+managed-event list <event-directory> [--session-id <id>] [--event-kind <kind>] [--state <state>] [--cursor
+<offset>] [--limit <1-100>]`: it reads only direct regular JSON records from the explicit directory, validates every
+candidate before exact filtering, sorts by `(recorded_at, event_id, event_path)`, and returns one page plus an offset
+cursor. The query caps each page at 100 entries, the directory at 256 records, and each record at 65536 bytes; it
+does not create a default path, recurse, include event-record symlinks discovered during enumeration, tail a file, claim liveness, read logs, or control a
+runtime. Its contract tests are verified only by GitHub Actions.
 
 The crate currently provides:
 

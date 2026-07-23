@@ -1008,8 +1008,13 @@ mutation 和 system proxy mutation。
   event record 的允许 event kind、recorded state 和 recorded_at，写入结果固定 `record_written=true` 与
   `liveness_verified=false`；`networkcore-linux managed-event <event-record-path>` 已只读输出同一 record，`networkcore-linux
   managed-event init <event-record-path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at>` 已非覆盖创建
-  record 并输出 `record_written=true`；不扫描 event，不接入实时 stream 或 runtime control。后续新增 managed
-  `events/logs/reload` 与 runtime rollback 命令面；仍不默认安装 daemon/service。
+  record 并输出 `record_written=true`。当前 main 的未发布 source-only 增量还包含
+  `CommandManagedForegroundSessionEventStore::list_event_history` 与 `networkcore-linux managed-event list
+  <event-directory> [--session-id <id>] [--event-kind <kind>] [--state <state>] [--cursor <offset>] [--limit
+  <1-100>]`：它只读取显式目录的直接常规 JSON record，先完整校验、再 exact 过滤，按
+  `(recorded_at, event_id, event_path)` 确定排序并返回 offset page，单页/目录/单 record 分别限为
+  100/256/65536；它不是实时 stream、liveness 检查或 runtime control。后续新增 managed
+  `logs/reload` 与 runtime rollback 命令面；仍不默认安装 daemon/service。
   同一 alpha.2 status source 还包含 `CommandManagedForegroundSessionStore::rollback_status`：仅在 explicit
   status/snapshot 路径不同、current expected state 与 snapshot 的 trim 后 session/engine identity 匹配时，恢复
   snapshot 原始内容并保留 snapshot，输出 `snapshot_retained=true` 与 `liveness_verified=false`；

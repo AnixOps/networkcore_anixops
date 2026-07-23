@@ -133,6 +133,10 @@ pub const CLI_MANAGED_FOREGROUND_EVENT_SCHEMA_UNSUPPORTED_CODE: &str =
     "cli.linux.managed_foreground_event.schema_unsupported";
 pub const CLI_MANAGED_FOREGROUND_EVENT_RECORD_INVALID_CODE: &str =
     "cli.linux.managed_foreground_event.record_invalid";
+pub const CLI_MANAGED_FOREGROUND_EVENT_HISTORY_QUERY_INVALID_CODE: &str =
+    "cli.linux.managed_foreground_event.history_query_invalid";
+pub const CLI_MANAGED_FOREGROUND_EVENT_HISTORY_LIMIT_EXCEEDED_CODE: &str =
+    "cli.linux.managed_foreground_event.history_limit_exceeded";
 pub const CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE: &str =
     "cli.linux.stop.unavailable_without_daemon";
 pub const CLI_STATUS_NO_RUNTIME_CONTEXT_CODE: &str = "cli.linux.status.no_runtime_context";
@@ -306,6 +310,10 @@ pub const SOURCE_CLI_RUNTIME: &str = "cli.runtime";
 pub const SUBSCRIPTION_CATALOG_SCHEMA_VERSION: u32 = 1;
 pub const MANAGED_FOREGROUND_SESSION_STATUS_SCHEMA_VERSION: u32 = 1;
 pub const MANAGED_FOREGROUND_SESSION_EVENT_SCHEMA_VERSION: u32 = 1;
+pub const MANAGED_FOREGROUND_EVENT_HISTORY_DEFAULT_LIMIT: usize = 50;
+pub const MANAGED_FOREGROUND_EVENT_HISTORY_MAX_LIMIT: usize = 100;
+pub const MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORDS: usize = 256;
+pub const MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OutputFormat {
@@ -410,6 +418,15 @@ pub enum LinuxCliCommand {
     },
     ManagedEvent {
         event_path: String,
+        format: OutputFormat,
+    },
+    ManagedEventList {
+        event_directory: String,
+        session_id: Option<String>,
+        event_kind: Option<String>,
+        state: Option<String>,
+        cursor: usize,
+        limit: usize,
         format: OutputFormat,
     },
     ManagedEventInit {
@@ -549,6 +566,7 @@ impl LinuxCliCommand {
             Self::ManagedStatusTransition { .. } => "managed-status transition",
             Self::ManagedStatusRollback { .. } => "managed-status rollback",
             Self::ManagedEvent { .. } => "managed-event",
+            Self::ManagedEventList { .. } => "managed-event list",
             Self::ManagedEventInit { .. } => "managed-event init",
             Self::Diagnostics { .. } => "diagnostics",
             Self::MitmStatus { .. } => "mitm status",
@@ -586,6 +604,7 @@ impl LinuxCliCommand {
             | Self::ManagedStatusTransition { format, .. }
             | Self::ManagedStatusRollback { format, .. }
             | Self::ManagedEvent { format, .. }
+            | Self::ManagedEventList { format, .. }
             | Self::ManagedEventInit { format, .. }
             | Self::Diagnostics { format }
             | Self::MitmStatus { format }
@@ -647,6 +666,7 @@ pub struct LinuxCliResponse {
         Option<ManagedForegroundSessionStatusTransitionReport>,
     pub managed_foreground_status_rollback: Option<ManagedForegroundSessionStatusRollbackReport>,
     pub managed_foreground_event: Option<ManagedForegroundSessionEventReport>,
+    pub managed_foreground_event_history: Option<ManagedForegroundSessionEventHistoryReport>,
     pub managed_foreground_event_write: Option<ManagedForegroundSessionEventWriteReport>,
     pub sing_box_install: Option<LinuxSingBoxInstallStatus>,
     pub sing_box_run: Option<LinuxSingBoxRunStatus>,
@@ -672,6 +692,7 @@ impl LinuxCliResponse {
             managed_foreground_status_transition: None,
             managed_foreground_status_rollback: None,
             managed_foreground_event: None,
+            managed_foreground_event_history: None,
             managed_foreground_event_write: None,
             sing_box_install: None,
             sing_box_run: None,
@@ -701,6 +722,7 @@ impl LinuxCliResponse {
             managed_foreground_status_transition: None,
             managed_foreground_status_rollback: None,
             managed_foreground_event: None,
+            managed_foreground_event_history: None,
             managed_foreground_event_write: None,
             sing_box_install: None,
             sing_box_run: None,
@@ -768,6 +790,14 @@ impl LinuxCliResponse {
         report: ManagedForegroundSessionEventReport,
     ) -> Self {
         self.managed_foreground_event = Some(report);
+        self
+    }
+
+    pub fn with_managed_foreground_event_history(
+        mut self,
+        report: ManagedForegroundSessionEventHistoryReport,
+    ) -> Self {
+        self.managed_foreground_event_history = Some(report);
         self
     }
 
@@ -1813,8 +1843,13 @@ pub struct ManagedForegroundSessionEventRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ManagedForegroundSessionEventListRequest {
+pub struct ManagedForegroundSessionEventHistoryRequest {
     pub event_directory: String,
+    pub session_id: Option<String>,
+    pub event_kind: Option<String>,
+    pub state: Option<String>,
+    pub cursor: usize,
+    pub limit: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1841,7 +1876,7 @@ pub struct ManagedForegroundSessionEventReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ManagedForegroundSessionEventListEntry {
+pub struct ManagedForegroundSessionEventHistoryEntry {
     pub event_path: String,
     pub session_id: String,
     pub engine_id: String,
@@ -1852,10 +1887,15 @@ pub struct ManagedForegroundSessionEventListEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ManagedForegroundSessionEventListReport {
+pub struct ManagedForegroundSessionEventHistoryReport {
     pub event_directory: String,
-    pub event_count: usize,
-    pub events: Vec<ManagedForegroundSessionEventListEntry>,
+    pub session_id: Option<String>,
+    pub event_kind: Option<String>,
+    pub state: Option<String>,
+    pub cursor: usize,
+    pub next_cursor: Option<usize>,
+    pub matching_event_count: usize,
+    pub events: Vec<ManagedForegroundSessionEventHistoryEntry>,
     pub liveness_verified: bool,
 }
 
@@ -2094,76 +2134,82 @@ impl CommandManagedForegroundSessionEventStore {
         })
     }
 
-    pub fn list_events(
+    pub fn list_event_history(
         &self,
-        request: &ManagedForegroundSessionEventListRequest,
-    ) -> DomainResult<ManagedForegroundSessionEventListReport> {
+        request: &ManagedForegroundSessionEventHistoryRequest,
+    ) -> DomainResult<ManagedForegroundSessionEventHistoryReport> {
         let event_directory =
             required_managed_foreground_event_directory_path(&request.event_directory)?;
-        let entries = std::fs::read_dir(&event_directory).map_err(|error| {
-            DomainError::new(
-                CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
-                format!(
-                    "failed to read managed foreground event directory {event_directory}: {error}"
-                ),
-            )
-        })?;
-        let mut event_paths = Vec::new();
-        for entry in entries {
-            let entry = entry.map_err(|error| {
+        let session_id =
+            optional_managed_foreground_event_history_session_id(request.session_id.as_deref())?;
+        let event_kind =
+            optional_managed_foreground_event_history_kind(request.event_kind.as_deref())?;
+        let state = optional_managed_foreground_event_history_state(request.state.as_deref())?;
+        let limit = required_managed_foreground_event_history_limit(request.limit)?;
+        let event_paths = managed_foreground_event_history_paths(&event_directory)?;
+        let mut events = Vec::with_capacity(event_paths.len());
+
+        for path in event_paths {
+            let event_path = path.to_str().ok_or_else(|| {
                 DomainError::new(
                     CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
                     format!(
-                        "failed to enumerate managed foreground event directory {event_directory}: {error}"
+                        "managed foreground event record path is not valid UTF-8: {}",
+                        path.display()
                     ),
                 )
             })?;
-            let file_type = entry.file_type().map_err(|error| {
-                DomainError::new(
-                    CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
-                    format!(
-                        "failed to inspect managed foreground event directory {event_directory}: {error}"
-                    ),
-                )
-            })?;
-            let path = entry.path();
-            if !file_type.is_file()
-                || path.extension().and_then(|extension| extension.to_str()) != Some("json")
+            let record = read_managed_foreground_session_event_history_file(event_path)?;
+            let entry = ManagedForegroundSessionEventHistoryEntry {
+                event_path: event_path.to_string(),
+                session_id: record.session_id.trim().to_string(),
+                engine_id: record.engine_id.trim().to_string(),
+                event_id: record.event_id.trim().to_string(),
+                event_kind: record.event_kind.trim().to_string(),
+                state: record.state.trim().to_string(),
+                recorded_at: record.recorded_at.trim().to_string(),
+            };
+            if session_id
+                .as_ref()
+                .is_none_or(|requested| entry.session_id == *requested)
+                && event_kind
+                    .as_ref()
+                    .is_none_or(|requested| entry.event_kind == *requested)
+                && state
+                    .as_ref()
+                    .is_none_or(|requested| entry.state == *requested)
             {
-                continue;
+                events.push(entry);
             }
-            event_paths.push(path);
         }
-        event_paths.sort();
 
-        let events = event_paths
-            .into_iter()
-            .map(|path| {
-                let event_path = path.to_str().ok_or_else(|| {
-                    DomainError::new(
-                        CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
-                        format!(
-                            "managed foreground event record path is not valid UTF-8: {}",
-                            path.display()
-                        ),
-                    )
-                })?;
-                let record = read_managed_foreground_session_event_file(event_path)?;
-                Ok(ManagedForegroundSessionEventListEntry {
-                    event_path: event_path.to_string(),
-                    session_id: record.session_id.trim().to_string(),
-                    engine_id: record.engine_id.trim().to_string(),
-                    event_id: record.event_id.trim().to_string(),
-                    event_kind: record.event_kind.trim().to_string(),
-                    state: record.state.trim().to_string(),
-                    recorded_at: record.recorded_at.trim().to_string(),
-                })
-            })
-            .collect::<DomainResult<Vec<_>>>()?;
+        events.sort_by(|left, right| {
+            (
+                left.recorded_at.as_str(),
+                left.event_id.as_str(),
+                left.event_path.as_str(),
+            )
+                .cmp(&(
+                    right.recorded_at.as_str(),
+                    right.event_id.as_str(),
+                    right.event_path.as_str(),
+                ))
+        });
 
-        Ok(ManagedForegroundSessionEventListReport {
+        let matching_event_count = events.len();
+        let cursor = request.cursor.min(matching_event_count);
+        let end = cursor.saturating_add(limit).min(matching_event_count);
+        let next_cursor = (end < matching_event_count).then_some(end);
+        let events = events[cursor..end].to_vec();
+
+        Ok(ManagedForegroundSessionEventHistoryReport {
             event_directory,
-            event_count: events.len(),
+            session_id,
+            event_kind,
+            state,
+            cursor,
+            next_cursor,
+            matching_event_count,
             events,
             liveness_verified: false,
         })
@@ -2679,6 +2725,117 @@ fn required_managed_foreground_event_directory_path(path: &str) -> DomainResult<
     Ok(path.to_string())
 }
 
+fn optional_managed_foreground_event_history_session_id(
+    session_id: Option<&str>,
+) -> DomainResult<Option<String>> {
+    session_id
+        .map(|value| {
+            let value = value.trim();
+            if value.is_empty() {
+                return Err(DomainError::new(
+                    CLI_MANAGED_FOREGROUND_EVENT_HISTORY_QUERY_INVALID_CODE,
+                    "managed foreground event history session filter cannot be empty",
+                ));
+            }
+            Ok(value.to_string())
+        })
+        .transpose()
+}
+
+fn optional_managed_foreground_event_history_kind(
+    event_kind: Option<&str>,
+) -> DomainResult<Option<String>> {
+    event_kind
+        .map(|value| {
+            let value = value.trim();
+            if !matches!(
+                value,
+                "session_started" | "status_transition" | "session_stopped" | "session_failed"
+            ) {
+                return Err(DomainError::new(
+                    CLI_MANAGED_FOREGROUND_EVENT_HISTORY_QUERY_INVALID_CODE,
+                    "managed foreground event history kind filter is unsupported",
+                ));
+            }
+            Ok(value.to_string())
+        })
+        .transpose()
+}
+
+fn optional_managed_foreground_event_history_state(
+    state: Option<&str>,
+) -> DomainResult<Option<String>> {
+    state
+        .map(|value| {
+            required_managed_foreground_status_state(
+                value,
+                CLI_MANAGED_FOREGROUND_EVENT_HISTORY_QUERY_INVALID_CODE,
+                "managed foreground event history state filter is unsupported",
+            )
+        })
+        .transpose()
+}
+
+fn required_managed_foreground_event_history_limit(limit: usize) -> DomainResult<usize> {
+    if !(1..=MANAGED_FOREGROUND_EVENT_HISTORY_MAX_LIMIT).contains(&limit) {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_HISTORY_QUERY_INVALID_CODE,
+            format!(
+                "managed foreground event history limit must be between 1 and {MANAGED_FOREGROUND_EVENT_HISTORY_MAX_LIMIT}"
+            ),
+        ));
+    }
+    Ok(limit)
+}
+
+fn managed_foreground_event_history_paths(
+    event_directory: &str,
+) -> DomainResult<Vec<std::path::PathBuf>> {
+    let entries = std::fs::read_dir(event_directory).map_err(|error| {
+        DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+            format!("failed to read managed foreground event directory {event_directory}: {error}"),
+        )
+    })?;
+    let mut event_paths = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+                format!(
+                    "failed to enumerate managed foreground event directory {event_directory}: {error}"
+                ),
+            )
+        })?;
+        let file_type = entry.file_type().map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+                format!(
+                    "failed to inspect managed foreground event directory {event_directory}: {error}"
+                ),
+            )
+        })?;
+        let path = entry.path();
+        if !file_type.is_file()
+            || path.extension().and_then(|extension| extension.to_str()) != Some("json")
+        {
+            continue;
+        }
+        if event_paths.len() == MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORDS {
+            return Err(DomainError::new(
+                CLI_MANAGED_FOREGROUND_EVENT_HISTORY_LIMIT_EXCEEDED_CODE,
+                format!(
+                    "managed foreground event directory {event_directory} exceeds the {} record history limit",
+                    MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORDS
+                ),
+            ));
+        }
+        event_paths.push(path);
+    }
+    event_paths.sort();
+    Ok(event_paths)
+}
+
 fn read_managed_foreground_session_status_file(
     path: &str,
 ) -> DomainResult<(ManagedForegroundSessionStatusFile, String)> {
@@ -2728,8 +2885,52 @@ fn read_managed_foreground_session_event_file(
             format!("failed to read managed foreground event record {path}: {error}"),
         )
     })?;
+    parse_managed_foreground_session_event_contents(path, &contents)
+}
+
+fn read_managed_foreground_session_event_history_file(
+    path: &str,
+) -> DomainResult<ManagedForegroundSessionEventFile> {
+    let file = std::fs::File::open(path).map_err(|error| {
+        DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+            format!("failed to read managed foreground event record {path}: {error}"),
+        )
+    })?;
+    let mut contents =
+        Vec::with_capacity((MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES + 1) as usize);
+    file.take(MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES + 1)
+        .read_to_end(&mut contents)
+        .map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+                format!("failed to read managed foreground event record {path}: {error}"),
+            )
+        })?;
+    if contents.len() as u64 > MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_HISTORY_LIMIT_EXCEEDED_CODE,
+            format!(
+                "managed foreground event record {path} exceeds the {} byte history limit",
+                MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES
+            ),
+        ));
+    }
+    let contents = String::from_utf8(contents).map_err(|error| {
+        DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+            format!("failed to read managed foreground event record {path}: {error}"),
+        )
+    })?;
+    parse_managed_foreground_session_event_contents(path, &contents)
+}
+
+fn parse_managed_foreground_session_event_contents(
+    path: &str,
+    contents: &str,
+) -> DomainResult<ManagedForegroundSessionEventFile> {
     let record =
-        serde_json::from_str::<ManagedForegroundSessionEventFile>(&contents).map_err(|error| {
+        serde_json::from_str::<ManagedForegroundSessionEventFile>(contents).map_err(|error| {
             DomainError::new(
                 CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
                 format!("failed to parse managed foreground event record {path}: {error}"),
@@ -4397,6 +4598,11 @@ struct ParsedOptions {
     proof_token: Option<String>,
     proof_log_path: Option<String>,
     proxy_scheme: Option<String>,
+    managed_event_session_id: Option<String>,
+    managed_event_kind: Option<String>,
+    managed_event_state: Option<String>,
+    managed_event_cursor: Option<usize>,
+    managed_event_limit: Option<usize>,
     install_dir: Option<String>,
     listen_host: Option<String>,
     listen_port: Option<u16>,
@@ -4566,6 +4772,22 @@ where
         LinuxCliCommand::ManagedEvent { event_path, .. } => {
             handle_managed_foreground_event(&event_path)
         }
+        LinuxCliCommand::ManagedEventList {
+            event_directory,
+            session_id,
+            event_kind,
+            state,
+            cursor,
+            limit,
+            ..
+        } => handle_managed_foreground_event_history(
+            &event_directory,
+            session_id.as_deref(),
+            event_kind.as_deref(),
+            state.as_deref(),
+            cursor,
+            limit,
+        ),
         LinuxCliCommand::ManagedEventInit {
             event_path,
             session_id,
@@ -5128,6 +5350,7 @@ where
             managed_foreground_status_transition: None,
             managed_foreground_status_rollback: None,
             managed_foreground_event: None,
+            managed_foreground_event_history: None,
             managed_foreground_event_write: None,
             sing_box_install: None,
             sing_box_run: None,
@@ -5157,6 +5380,7 @@ where
         managed_foreground_status_transition: None,
         managed_foreground_status_rollback: None,
         managed_foreground_event: None,
+        managed_foreground_event_history: None,
         managed_foreground_event_write: None,
         sing_box_install: None,
         sing_box_run: None,
@@ -5421,6 +5645,46 @@ pub fn handle_managed_foreground_event(event_path: &str) -> LinuxCliResponse {
             };
             domain_error_response(
                 "managed-event",
+                exit_code,
+                error,
+                SOURCE_CLI_MANAGED_FOREGROUND_EVENT,
+            )
+        }
+    }
+}
+
+pub fn handle_managed_foreground_event_history(
+    event_directory: &str,
+    session_id: Option<&str>,
+    event_kind: Option<&str>,
+    state: Option<&str>,
+    cursor: usize,
+    limit: usize,
+) -> LinuxCliResponse {
+    let store = CommandManagedForegroundSessionEventStore::new();
+    match store.list_event_history(&ManagedForegroundSessionEventHistoryRequest {
+        event_directory: event_directory.to_string(),
+        session_id: session_id.map(str::to_string),
+        event_kind: event_kind.map(str::to_string),
+        state: state.map(str::to_string),
+        cursor,
+        limit,
+    }) {
+        Ok(report) => LinuxCliResponse::success("managed-event list")
+            .with_managed_foreground_event_history(report),
+        Err(error) => {
+            let exit_code = if error.code == CLI_MANAGED_FOREGROUND_EVENT_DIRECTORY_MISSING_CODE {
+                LinuxCliExitCode::ArgumentOrConfig
+            } else if error.code == CLI_MANAGED_FOREGROUND_EVENT_HISTORY_QUERY_INVALID_CODE
+                || error.code == CLI_MANAGED_FOREGROUND_EVENT_SCHEMA_UNSUPPORTED_CODE
+                || error.code == CLI_MANAGED_FOREGROUND_EVENT_RECORD_INVALID_CODE
+            {
+                LinuxCliExitCode::ConfigValidation
+            } else {
+                LinuxCliExitCode::GeneralFailure
+            };
+            domain_error_response(
+                "managed-event list",
                 exit_code,
                 error,
                 SOURCE_CLI_MANAGED_FOREGROUND_EVENT,
@@ -9435,6 +9699,56 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.proxy_scheme = Some(parse_browser_capture_proxy_scheme(value)?);
             }
+            "--session-id" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--session-id requires a managed event session id",
+                    ));
+                };
+                options.managed_event_session_id = Some(value.clone());
+            }
+            "--event-kind" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--event-kind requires a managed event kind",
+                    ));
+                };
+                options.managed_event_kind = Some(value.clone());
+            }
+            "--state" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--state requires a managed event state",
+                    ));
+                };
+                options.managed_event_state = Some(value.clone());
+            }
+            "--cursor" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--cursor requires a non-negative managed event history offset",
+                    ));
+                };
+                options.managed_event_cursor = Some(parse_managed_event_history_cursor(value)?);
+            }
+            "--limit" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--limit requires a managed event history page size",
+                    ));
+                };
+                options.managed_event_limit = Some(parse_managed_event_history_limit(value)?);
+            }
             "--install-dir" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -9706,6 +10020,9 @@ fn parse_managed_event_command(args: &[String]) -> Result<LinuxCliCommand, Linux
         if subcommand == "init" {
             return parse_managed_event_init_command(&args[1..]);
         }
+        if subcommand == "list" {
+            return parse_managed_event_list_command(&args[1..]);
+        }
     }
 
     let Some(event_path) = args.first() else {
@@ -9724,6 +10041,36 @@ fn parse_managed_event_command(args: &[String]) -> Result<LinuxCliCommand, Linux
 
     Ok(LinuxCliCommand::ManagedEvent {
         event_path: event_path.clone(),
+        format: options.format,
+    })
+}
+
+fn parse_managed_event_list_command(
+    args: &[String],
+) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(event_directory) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event list requires an explicit event directory path",
+        ));
+    };
+    if event_directory.starts_with("--") {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event list requires an event directory path before options",
+        ));
+    }
+    let options = parse_options(&args[1..])?;
+
+    Ok(LinuxCliCommand::ManagedEventList {
+        event_directory: event_directory.clone(),
+        session_id: options.managed_event_session_id,
+        event_kind: options.managed_event_kind,
+        state: options.managed_event_state,
+        cursor: options.managed_event_cursor.unwrap_or(0),
+        limit: options
+            .managed_event_limit
+            .unwrap_or(MANAGED_FOREGROUND_EVENT_HISTORY_DEFAULT_LIMIT),
         format: options.format,
     })
 }
@@ -10155,6 +10502,31 @@ fn parse_http_status_code(value: &str) -> Result<u16, LinuxCliParseError> {
     Ok(parsed)
 }
 
+fn parse_managed_event_history_cursor(value: &str) -> Result<usize, LinuxCliParseError> {
+    value.parse::<usize>().map_err(|_| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "--cursor requires a non-negative managed event history offset",
+        )
+    })
+}
+
+fn parse_managed_event_history_limit(value: &str) -> Result<usize, LinuxCliParseError> {
+    let limit = value.parse::<usize>().map_err(|_| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            format!("--limit must be between 1 and {MANAGED_FOREGROUND_EVENT_HISTORY_MAX_LIMIT}"),
+        )
+    })?;
+    if !(1..=MANAGED_FOREGROUND_EVENT_HISTORY_MAX_LIMIT).contains(&limit) {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            format!("--limit must be between 1 and {MANAGED_FOREGROUND_EVENT_HISTORY_MAX_LIMIT}"),
+        ));
+    }
+    Ok(limit)
+}
+
 fn parse_http_rewrite_phase_name(value: &str) -> Result<String, LinuxCliParseError> {
     let normalized = value.to_ascii_lowercase();
     match normalized.as_str() {
@@ -10203,6 +10575,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux managed-status transition <status-record-path> <snapshot-path> <expected-state> <next-state> [--format text|json]\n",
         "  networkcore-linux managed-status rollback <status-record-path> <snapshot-path> <expected-state> [--format text|json]\n",
         "  networkcore-linux managed-event <event-record-path> [--format text|json]\n",
+        "  networkcore-linux managed-event list <event-directory> [--session-id <id>] [--event-kind <kind>] [--state <state>] [--cursor <offset>] [--limit <1-100>] [--format text|json]\n",
         "  networkcore-linux managed-event init <event-record-path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at> [--format text|json]\n",
         "  networkcore-linux diagnostics [--format text|json]\n",
         "  networkcore-linux mitm [status|diagnostics|certificate-plan|browser-plan] [--format text|json]\n",
@@ -10226,6 +10599,7 @@ pub const fn cli_help_text() -> &'static str {
         "  managed-status transition Move one explicit record through an expected-state transition.\n",
         "  managed-status rollback Restore one explicit record from a matching expected-state snapshot.\n",
         "  managed-event     Read one explicit managed foreground event record.\n",
+        "  managed-event list Query bounded, filtered event history from one explicit directory.\n",
         "  managed-event init Create one explicit managed foreground event record without overwriting it.\n",
         "  diagnostics       Print platform diagnostics.\n",
         "  mitm              Report MITM plugin policy status, certificate/browser plans, and deferred browser hijack gates.\n",
@@ -10632,6 +11006,62 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
         lines.push(format!(
             "managed foreground liveness verified: {}",
             event.liveness_verified
+        ));
+    }
+
+    if let Some(history) = &response.managed_foreground_event_history {
+        lines.push(format!(
+            "managed foreground event history directory: {}",
+            history.event_directory
+        ));
+        lines.push(format!(
+            "managed foreground event history session filter: {}",
+            history.session_id.as_deref().unwrap_or("none")
+        ));
+        lines.push(format!(
+            "managed foreground event history kind filter: {}",
+            history.event_kind.as_deref().unwrap_or("none")
+        ));
+        lines.push(format!(
+            "managed foreground event history state filter: {}",
+            history.state.as_deref().unwrap_or("none")
+        ));
+        lines.push(format!(
+            "managed foreground event history cursor: {}",
+            history.cursor
+        ));
+        lines.push(format!(
+            "managed foreground event history next cursor: {}",
+            history
+                .next_cursor
+                .map(|cursor| cursor.to_string())
+                .as_deref()
+                .unwrap_or("none")
+        ));
+        lines.push(format!(
+            "managed foreground event history matching count: {}",
+            history.matching_event_count
+        ));
+        lines.push(format!(
+            "managed foreground event history returned count: {}",
+            history.events.len()
+        ));
+        for (offset, event) in history.events.iter().enumerate() {
+            let index = history.cursor + offset;
+            lines.push(format!(
+                "managed foreground event history entry {index}: id={} kind={} state={} recorded_at={} session={} engine={} path={}",
+                event.event_id,
+                event.event_kind,
+                event.state,
+                event.recorded_at,
+                event.session_id,
+                event.engine_id,
+                event.event_path
+            ));
+        }
+        lines.push(format!(
+            "managed foreground liveness verified: {}",
+            history.liveness_verified
         ));
     }
 
@@ -11243,6 +11673,7 @@ struct JsonCliResponse {
         Option<JsonManagedForegroundSessionStatusTransitionReport>,
     managed_foreground_status_rollback: Option<JsonManagedForegroundSessionStatusRollbackReport>,
     managed_foreground_event: Option<JsonManagedForegroundSessionEventReport>,
+    managed_foreground_event_history: Option<JsonManagedForegroundSessionEventHistoryReport>,
     managed_foreground_event_write: Option<JsonManagedForegroundSessionEventWriteReport>,
     sing_box_install: Option<JsonSingBoxInstallStatus>,
     sing_box_run: Option<JsonSingBoxRunStatus>,
@@ -11287,6 +11718,10 @@ impl From<&LinuxCliResponse> for JsonCliResponse {
                 .managed_foreground_event
                 .as_ref()
                 .map(JsonManagedForegroundSessionEventReport::from),
+            managed_foreground_event_history: response
+                .managed_foreground_event_history
+                .as_ref()
+                .map(JsonManagedForegroundSessionEventHistoryReport::from),
             managed_foreground_event_write: response
                 .managed_foreground_event_write
                 .as_ref()
@@ -11442,6 +11877,68 @@ impl From<&ManagedForegroundSessionEventReport> for JsonManagedForegroundSession
             event_kind: report.event_kind.clone(),
             state: report.state.clone(),
             recorded_at: report.recorded_at.clone(),
+            liveness_verified: report.liveness_verified,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonManagedForegroundSessionEventHistoryEntry {
+    event_path: String,
+    session_id: String,
+    engine_id: String,
+    event_id: String,
+    event_kind: String,
+    state: String,
+    recorded_at: String,
+}
+
+impl From<&ManagedForegroundSessionEventHistoryEntry>
+    for JsonManagedForegroundSessionEventHistoryEntry
+{
+    fn from(entry: &ManagedForegroundSessionEventHistoryEntry) -> Self {
+        Self {
+            event_path: entry.event_path.clone(),
+            session_id: entry.session_id.clone(),
+            engine_id: entry.engine_id.clone(),
+            event_id: entry.event_id.clone(),
+            event_kind: entry.event_kind.clone(),
+            state: entry.state.clone(),
+            recorded_at: entry.recorded_at.clone(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonManagedForegroundSessionEventHistoryReport {
+    event_directory: String,
+    session_id: Option<String>,
+    event_kind: Option<String>,
+    state: Option<String>,
+    cursor: usize,
+    next_cursor: Option<usize>,
+    matching_event_count: usize,
+    events: Vec<JsonManagedForegroundSessionEventHistoryEntry>,
+    liveness_verified: bool,
+}
+
+impl From<&ManagedForegroundSessionEventHistoryReport>
+    for JsonManagedForegroundSessionEventHistoryReport
+{
+    fn from(report: &ManagedForegroundSessionEventHistoryReport) -> Self {
+        Self {
+            event_directory: report.event_directory.clone(),
+            session_id: report.session_id.clone(),
+            event_kind: report.event_kind.clone(),
+            state: report.state.clone(),
+            cursor: report.cursor,
+            next_cursor: report.next_cursor,
+            matching_event_count: report.matching_event_count,
+            events: report
+                .events
+                .iter()
+                .map(JsonManagedForegroundSessionEventHistoryEntry::from)
+                .collect(),
             liveness_verified: report.liveness_verified,
         }
     }
