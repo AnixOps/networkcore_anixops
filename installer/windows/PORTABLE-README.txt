@@ -13,7 +13,9 @@ AnixOps NetworkCore Windows portable package
    the native HTTP(S) proxy listens on 127.0.0.1:7890.
 6. Click Install service, then Start, only when a Windows service is wanted.
 
-The portable ZIP does not register or start the service during extraction.
+The portable ZIP does not register or start the service during extraction. It
+is included with every Windows tag release alongside the MSI and its own
+SHA-256 and manifest files.
 Managed configuration, state, and logs are stored under:
 
   %ProgramData%\AnixOps\NetworkCore

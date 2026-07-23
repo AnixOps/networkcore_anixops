@@ -4,6 +4,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- Windows service startup now completes the SCM `Running` handshake before
+  applying managed runtime configuration. GUI/CLI `start` returns the immediate
+  observed SCM state instead of waiting up to 30 seconds for runtime readiness;
+  invalid configuration is logged and returns the service to `Stopped`. The
+  Windows CI smoke test covers this regression path.
+
 ### Added
 
 - V2Ray share-link compatibility subset: operator-selected Windows local

@@ -27,12 +27,14 @@ removal commands.
 ## First run and configuration
 
 The MSI installs the files, registers `AnixOpsNetworkCore`, and requests an
-asynchronous first start. It does not wait for a preserved managed configuration
-to reach `Running`, so an invalid previous configuration cannot leave the
-installer stuck at service startup. The shipped `managed-config.json`
-deliberately contains only `null` values. That default is safe and does not
-change the system proxy, certificate store, driver state, or tunnel. Edit this
-file as Administrator:
+asynchronous first start. The service completes its SCM startup handshake before
+it applies managed configuration, and GUI/CLI start commands return the
+immediately observed SCM state instead of waiting for the runtime. An invalid
+previous configuration therefore cannot leave the installer or Start action
+stuck; the service returns to `Stopped` and records the error in `service.log`.
+The shipped `managed-config.json` deliberately contains only `null` values.
+That default is safe and does not change the system proxy, certificate store,
+driver state, or tunnel. Edit this file as Administrator:
 
 `C:\ProgramData\AnixOps\NetworkCore\managed-config.json`
 
@@ -183,5 +185,6 @@ log` expose GUI and core diagnostics, or launch `networkcore-windows-gui.exe
 --debug` to start with verbose logging enabled.
 
 The MSI and portable ZIP are built and validated only by GitHub Actions. CI
-also performs a bounded silent MSI install/uninstall smoke test. Do not invoke
-WiX or Windows Installer locally.
+also performs a bounded silent MSI install/uninstall smoke test and confirms
+that a deliberately invalid managed configuration cannot block a service start
+request. Do not invoke WiX or Windows Installer locally.

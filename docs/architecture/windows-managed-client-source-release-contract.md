@@ -8,7 +8,7 @@ current Windows package.
 ```text
 windows-managed-client-source-release-contract=present
 windows-managed-client-release-state=implementation-active
-windows-managed-client-version-scope=v0.2.0-alpha.9
+windows-managed-client-version-scope=v0.2.0-alpha.10
 WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active
 windows-managed-client-runner=windows-latest
 windows-managed-client-runner-kind=github-hosted
@@ -26,6 +26,7 @@ windows-managed-client-service=active
 windows-managed-client-driver-package-lifecycle=active
 windows-managed-client-installer=active
 windows-managed-client-msi-service-start=asynchronous-on-install
+windows-managed-client-service-start-handoff=immediate-scm-running-then-managed-runtime
 windows-managed-client-system-proxy-mutation=active
 windows-managed-client-trust-store-mutation=active
 windows-managed-client-managed-lifecycle=active
@@ -108,10 +109,14 @@ stdout/stderr to an explicit log. The GUI can directly open that core log in
 addition to the general log folder.
 
 The installer registers an automatic SCM service, but its install-time start is
-asynchronous. MSI completion therefore does not wait for a preserved managed
-configuration to reach `Running`; the GUI and `%ProgramData%\\AnixOps\\NetworkCore\\logs`
-remain the operator-visible service diagnostics. Stop and uninstall operations
-continue to wait so the `purge` rollback order stays deterministic.
+asynchronous. The service completes its SCM `Running` handshake before it
+applies a potentially slow or invalid managed configuration, and GUI/CLI
+`start` returns the immediately observed SCM state instead of polling for
+runtime readiness. MSI completion therefore does not wait for a preserved
+managed configuration to reach `Running`; a configuration failure is recorded
+in `%ProgramData%\\AnixOps\\NetworkCore\\logs\\service.log` and returns the
+service to `Stopped`. Stop and uninstall operations continue to wait so the
+`purge` rollback order stays deterministic.
 
 Every Windows tag release also contains a portable ZIP with the GUI, service,
 CLI, inert `managed-config.json`, and portable README. Extracting the ZIP does
@@ -143,7 +148,8 @@ the package signature.
 
 GitHub Actions builds all Rust binaries for `x86_64-pc-windows-gnu`, pins WiX
 4.0.6, builds and validates the MSI, performs bounded real MSI
-install/uninstall smoke, creates SHA-256 and schema-version-2 manifest files
+install/uninstall smoke plus an invalid-managed-configuration nonblocking-start
+regression, creates SHA-256 and schema-version-2 manifest files
 for the MSI and portable ZIP, and attests all eight Windows release-bundle
 files before publication. No local build, test, installer, or release
 validation is permitted.

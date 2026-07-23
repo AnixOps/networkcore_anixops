@@ -248,6 +248,7 @@ jobs:
           grep -Fq "windows-managed-client-driver-package-lifecycle=active" docs/architecture/windows-managed-client-source-release-contract.md
           grep -Fq "windows-managed-client-installer=active" docs/architecture/windows-managed-client-source-release-contract.md
           grep -Fq "windows-managed-client-msi-service-start=asynchronous-on-install" docs/architecture/windows-managed-client-source-release-contract.md
+          grep -Fq "windows-managed-client-service-start-handoff=immediate-scm-running-then-managed-runtime" docs/architecture/windows-managed-client-source-release-contract.md
           grep -Fq "windows-managed-client-system-proxy-mutation=active" docs/architecture/windows-managed-client-source-release-contract.md
           grep -Fq "windows-managed-client-trust-store-mutation=active" docs/architecture/windows-managed-client-source-release-contract.md
           grep -Fq "windows-managed-client-managed-lifecycle=active" docs/architecture/windows-managed-client-source-release-contract.md
@@ -1806,6 +1807,59 @@ jobs:
           $service = Get-Service -Name "AnixOpsNetworkCore" -ErrorAction SilentlyContinue
           if ($null -eq $service) {
             throw "Windows managed client MSI did not register AnixOpsNetworkCore."
+          }
+
+          $serviceExe = Join-Path $env:ProgramFiles "AnixOps\NetworkCore\networkcore-windows-service.exe"
+          $managedConfigPath = Join-Path $env:ProgramData "AnixOps\NetworkCore\managed-config.json"
+          if (-not (Test-Path $serviceExe -PathType Leaf)) {
+            throw "Windows managed client MSI did not install the service executable."
+          }
+          if (-not (Test-Path $managedConfigPath -PathType Leaf)) {
+            throw "Windows managed client MSI did not install managed-config.json."
+          }
+
+          $service = Get-Service -Name "AnixOpsNetworkCore" -ErrorAction Stop
+          if ($service.Status -ne "Stopped") {
+            Stop-Service -Name "AnixOpsNetworkCore" -ErrorAction Stop
+            $service.WaitForStatus("Stopped", [TimeSpan]::FromSeconds(30))
+          }
+
+          $originalManagedConfig = Get-Content -Path $managedConfigPath -Raw
+          try {
+            Set-Content -Path $managedConfigPath -Value "{ invalid managed configuration" -Encoding utf8
+            $startOutput = Join-Path $env:RUNNER_TEMP "networkcore-service-start-invalid-config.out"
+            $startError = Join-Path $env:RUNNER_TEMP "networkcore-service-start-invalid-config.err"
+            $startProcess = Start-Process -FilePath $serviceExe -ArgumentList "start" -PassThru -RedirectStandardOutput $startOutput -RedirectStandardError $startError
+            if (-not $startProcess.WaitForExit(10000)) {
+              Stop-Process -Id $startProcess.Id -Force -ErrorAction SilentlyContinue
+              if (Test-Path $startOutput) { Get-Content $startOutput }
+              if (Test-Path $startError) { Get-Content $startError }
+              throw "Windows service start waited for an invalid managed configuration."
+            }
+            if ($startProcess.ExitCode -ne 0) {
+              if (Test-Path $startOutput) { Get-Content $startOutput }
+              if (Test-Path $startError) { Get-Content $startError }
+              throw "Windows service start request failed for an invalid managed configuration."
+            }
+
+            $deadline = [DateTime]::UtcNow.AddSeconds(15)
+            do {
+              $service = Get-Service -Name "AnixOpsNetworkCore" -ErrorAction Stop
+              if ($service.Status -eq "Stopped") { break }
+              Start-Sleep -Milliseconds 250
+            } while ([DateTime]::UtcNow -lt $deadline)
+            if ($service.Status -ne "Stopped") {
+              throw "Windows service did not report failure after invalid managed configuration."
+            }
+          } finally {
+            Set-Content -Path $managedConfigPath -Value $originalManagedConfig -Encoding utf8
+          }
+          $serviceLog = Join-Path $env:ProgramData "AnixOps\NetworkCore\logs\service.log"
+          if (-not (Test-Path $serviceLog -PathType Leaf)) {
+            throw "Windows service did not write a startup diagnostic log."
+          }
+          if (-not (Select-String -Path $serviceLog -SimpleMatch "runtime start failed" -Quiet)) {
+            throw "Windows service did not record the invalid managed configuration failure."
           }
 
           Invoke-MsiTransaction `

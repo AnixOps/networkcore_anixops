@@ -232,7 +232,7 @@ mod native {
 
     const INTERNET_SETTINGS_KEY: &str =
         r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
-    const SERVICE_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
+    const SERVICE_STOP_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 
     struct ServiceHandle(SC_HANDLE);
 
@@ -358,7 +358,10 @@ mod native {
                 return Err(service_win32_error("service could not be started", error));
             }
         }
-        wait_for_service_state(&service, WindowsServiceState::Running)
+        // StartServiceW only submits the request to SCM. Returning the observed
+        // state keeps GUI/CLI startup responsive while the service applies its
+        // managed configuration in the background.
+        query_service(&service)
     }
 
     pub fn stop_service() -> DomainResult<WindowsServiceStatus> {
@@ -631,7 +634,7 @@ mod native {
         service: &ServiceHandle,
         target: WindowsServiceState,
     ) -> DomainResult<WindowsServiceStatus> {
-        let deadline = Instant::now() + SERVICE_WAIT_TIMEOUT;
+        let deadline = Instant::now() + SERVICE_STOP_WAIT_TIMEOUT;
         loop {
             let status = query_service(service)?;
             if status.state == target {

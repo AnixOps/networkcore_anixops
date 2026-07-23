@@ -149,6 +149,7 @@ mod windows_service_host {
     }
 
     unsafe extern "system" fn service_main(_count: u32, _arguments: *mut *mut u16) {
+        STOP_REQUESTED.store(false, Ordering::SeqCst);
         let service_name = wide(NETWORKCORE_WINDOWS_SERVICE_NAME);
         let status_handle = RegisterServiceCtrlHandlerExW(
             service_name.as_ptr(),
@@ -164,6 +165,15 @@ mod windows_service_host {
         }
         report_status(status_handle, SERVICE_START_PENDING, 0, 10_000);
 
+        // Complete the SCM handshake before any managed mutation can block on
+        // a core, certificate, driver, proxy, or tunnel operation. The runtime
+        // still records failures and moves the service back to Stopped.
+        report_status(status_handle, SERVICE_RUNNING, 0, 0);
+        let _ = append_managed_log(
+            "service",
+            "SCM startup acknowledged; applying managed runtime configuration",
+        );
+
         let mut runtime = native_runtime();
         match runtime.start() {
             Ok(_) => {
@@ -176,7 +186,6 @@ mod windows_service_host {
             }
         }
 
-        report_status(status_handle, SERVICE_RUNNING, 0, 0);
         while !STOP_REQUESTED.load(Ordering::SeqCst) {
             thread::sleep(Duration::from_millis(500));
         }
