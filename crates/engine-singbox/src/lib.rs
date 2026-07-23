@@ -1235,13 +1235,15 @@ fn extract_sing_box_zip(
         let mut executable = Vec::with_capacity(uncompressed_size);
         match compression {
             0 => executable.extend_from_slice(compressed),
-            8 => DeflateDecoder::new(Cursor::new(compressed))
-                .read_to_end(&mut executable)
-                .map_err(|error| {
-                    zip_extract_error(&format!(
-                        "failed to inflate sing-box ZIP executable: {error}"
-                    ))
-                })?,
+            8 => {
+                DeflateDecoder::new(Cursor::new(compressed))
+                    .read_to_end(&mut executable)
+                    .map_err(|error| {
+                        zip_extract_error(&format!(
+                            "failed to inflate sing-box ZIP executable: {error}"
+                        ))
+                    })?;
+            }
             _ => {
                 return Err(zip_extract_error(
                     "sing-box ZIP executable uses an unsupported compression method",
