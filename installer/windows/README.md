@@ -84,11 +84,18 @@ ID selects the first supported node.
 The local profile may use the existing supported NodeCatalog inputs, including
 an `ss://`, `trojan://`, `vless://`, or `vmess://` node, a supported Clash YAML
 `proxies` list, supported sing-box JSON `outbounds`, or supported Surge, Loon,
-or Quantumult X proxy lines. Rendering is intentionally narrower: it produces
-basic Shadowsocks, Trojan, VLESS, and VMess outbounds. Trojan enables TLS;
-VLESS and VMess are basic TCP only. TLS/REALITY/WebSocket/gRPC/multiplex/DNS/
-route fields are not retained by this import path, so use explicit native
-sing-box JSON rather than GUI import when those fields are required.
+or Quantumult X proxy lines. Link/catalog inputs render basic Shadowsocks,
+Trojan, VLESS, and VMess outbounds. Trojan enables TLS; VLESS and VMess are
+basic TCP only. A native sing-box JSON document with top-level `inbounds` or
+`outbounds` instead bypasses that renderer and is copied unchanged to the
+managed `config.json`, preserving TLS/REALITY/WebSocket/gRPC/multiplex/DNS/
+route fields. When the native document has a local or wildcard `mixed`/`http`
+inbound, its port is used for the managed system proxy; without one, the import
+does not configure a system proxy.
+
+Use the basic GUI profile path for `Enable HTTPS MITM`: that action owns the
+`mixed-in` listener and moves it between ports 7890 and 7891. An imported
+native sing-box document is intentionally not rewritten for that operation.
 
 Only set `system_proxy.enabled` to `true` after the configured sing-box inbound
 is listening at `server`. After editing, open the GUI, click `Apply configuration`,
@@ -157,9 +164,10 @@ available.
 
 The GUI shows the current service state and action errors. It writes diagnostics
 to `C:\ProgramData\AnixOps\NetworkCore\logs\gui.log` and the service writes to
-`service.log`. Errors are always recorded; `Toggle debug` and
-`Open log folder` add verbose GUI action/status lines, or launch
-`networkcore-windows-gui.exe --debug` to start with verbose logging enabled.
+`service.log`; sing-box check and runtime stdout/stderr use `sing-box.log`.
+Errors are always recorded; `Toggle debug`, `Open log folder`, and `Open core
+log` expose GUI and core diagnostics, or launch `networkcore-windows-gui.exe
+--debug` to start with verbose logging enabled.
 
 The MSI and portable ZIP are built and validated only by GitHub Actions. CI
 also performs a bounded silent MSI install/uninstall smoke test. Do not invoke

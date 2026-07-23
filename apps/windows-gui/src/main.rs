@@ -19,9 +19,9 @@ mod gui {
     use config_core::CoreSubscriptionService;
     use control_domain::{SubscriptionService, SubscriptionSource};
     use engine_singbox::{
-        render_sing_box_local_proxy_config, GithubSingBoxReleaseInstaller, SingBoxInstallRequest,
-        SingBoxLocalProxyConfigRequest, SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch,
-        SingBoxTargetOs,
+        inspect_sing_box_native_config, render_sing_box_local_proxy_config,
+        GithubSingBoxReleaseInstaller, SingBoxInstallRequest, SingBoxLocalProxyConfigRequest,
+        SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
     };
     use platform_windows::managed::{
         append_managed_log, read_managed_config, read_managed_state, windows_managed_config_path,
@@ -81,6 +81,7 @@ mod gui {
     const ID_REMOVE_DRIVER: usize = 141;
     const ID_TOGGLE_DEBUG: usize = 150;
     const ID_OPEN_LOGS: usize = 151;
+    const ID_OPEN_CORE_LOG: usize = 152;
 
     const SING_BOX_DIRECT_LISTEN_PORT: u16 = 7890;
     const SING_BOX_MITM_UPSTREAM_PORT: u16 = 7891;
@@ -115,6 +116,13 @@ mod gui {
         certificate_path: HWND,
         driver_path: HWND,
         desktop: DesktopState,
+    }
+
+    struct ImportedSingBoxProfile {
+        executable_path: PathBuf,
+        config_path: PathBuf,
+        config_parent: PathBuf,
+        local_http_proxy: Option<String>,
     }
 
     pub fn run(debug: bool) -> Result<(), String> {
@@ -587,6 +595,17 @@ mod gui {
             140,
             30,
         );
+        create_button(
+            window,
+            instance,
+            font,
+            "Open core log",
+            ID_OPEN_CORE_LOG,
+            690,
+            828,
+            140,
+            30,
+        );
         create_label(
             window,
             instance,
@@ -642,6 +661,7 @@ mod gui {
             ID_REMOVE_DRIVER => run_action(state, "Driver removed", remove_driver),
             ID_TOGGLE_DEBUG => toggle_debug(state),
             ID_OPEN_LOGS => run_action(state, "Log folder opened", open_log_directory),
+            ID_OPEN_CORE_LOG => run_action(state, "sing-box log opened", open_sing_box_log),
             _ => {}
         }
     }
@@ -775,6 +795,35 @@ mod gui {
         Ok(())
     }
 
+    fn open_sing_box_log(_state: &mut AppState) -> Result<(), String> {
+        let path = read_managed_config(&windows_managed_config_path())
+            .ok()
+            .and_then(|config| config.sing_box.map(|config| config.log_path))
+            .unwrap_or_else(|| windows_managed_log_directory().join("sing-box.log"));
+        if !path.exists() {
+            return Err(format!(
+                "sing-box log is not available yet: {}",
+                path.display()
+            ));
+        }
+        let verb = wide("open");
+        let path_wide = wide_os(&path);
+        let result = unsafe {
+            ShellExecuteW(
+                null_mut(),
+                verb.as_ptr(),
+                path_wide.as_ptr(),
+                null(),
+                null(),
+                SW_SHOWNORMAL,
+            )
+        } as isize;
+        if result <= 32 {
+            return Err(last_error("sing-box log could not be opened"));
+        }
+        Ok(())
+    }
+
     unsafe fn update_debug_status(state: &mut AppState) {
         let status = if state.desktop.debug_enabled {
             "Debug logging: enabled"
@@ -857,18 +906,26 @@ mod gui {
             Some(native_mitm) if native_mitm.enabled => SING_BOX_MITM_UPSTREAM_PORT,
             _ => SING_BOX_DIRECT_LISTEN_PORT,
         };
-        let (executable_path, config_path, config_parent) =
-            render_local_profile_config(state, listen_port)?;
-        managed.system_proxy = Some(WindowsProxySettings {
-            enabled: true,
-            server: format!("127.0.0.1:{NATIVE_MITM_LISTEN_PORT}"),
-            bypass: "<local>".to_string(),
-        });
+        let imported = render_local_profile_config(state, listen_port, true)?;
+        managed.system_proxy = match managed.native_mitm.as_ref() {
+            Some(native_mitm) if native_mitm.enabled => Some(WindowsProxySettings {
+                enabled: true,
+                server: format!("127.0.0.1:{NATIVE_MITM_LISTEN_PORT}"),
+                bypass: "<local>".to_string(),
+            }),
+            _ => imported
+                .local_http_proxy
+                .map(|server| WindowsProxySettings {
+                    enabled: true,
+                    server,
+                    bypass: "<local>".to_string(),
+                }),
+        };
         managed.sing_box = Some(WindowsManagedSingBoxConfig {
             enabled: true,
-            executable_path,
-            config_path,
-            working_directory: Some(config_parent),
+            executable_path: imported.executable_path,
+            config_path: imported.config_path,
+            working_directory: Some(imported.config_parent),
             log_path: windows_managed_log_directory().join("sing-box.log"),
         });
         write_managed_config(&windows_managed_config_path(), &managed)
@@ -878,9 +935,8 @@ mod gui {
     }
 
     fn enable_https_mitm(state: &mut AppState) -> Result<(), String> {
+        let imported = render_local_profile_config(state, SING_BOX_MITM_UPSTREAM_PORT, false)?;
         let restart = stop_running_service_for_reconfigure(state)?;
-        let (executable_path, config_path, config_parent) =
-            render_local_profile_config(state, SING_BOX_MITM_UPSTREAM_PORT)?;
         let (certificate_path, private_key_path) = ensure_mitm_ca_material()?;
         let mut managed = managed_config_or_default()?;
         managed.system_proxy = Some(WindowsProxySettings {
@@ -890,9 +946,9 @@ mod gui {
         });
         managed.sing_box = Some(WindowsManagedSingBoxConfig {
             enabled: true,
-            executable_path,
-            config_path,
-            working_directory: Some(config_parent),
+            executable_path: imported.executable_path,
+            config_path: imported.config_path,
+            working_directory: Some(imported.config_parent),
             log_path: windows_managed_log_directory().join("sing-box.log"),
         });
         managed.native_mitm = Some(WindowsManagedNativeMitmConfig {
@@ -963,7 +1019,8 @@ mod gui {
     fn render_local_profile_config(
         state: &mut AppState,
         listen_port: u16,
-    ) -> Result<(PathBuf, PathBuf, PathBuf), String> {
+        allow_native_config: bool,
+    ) -> Result<ImportedSingBoxProfile, String> {
         let executable_path = state
             .desktop
             .sing_box_executable_path
@@ -976,6 +1033,35 @@ mod gui {
         }
         let payload = fs::read_to_string(&source_path)
             .map_err(|error| format!("Profile file could not be read: {error}"))?;
+        let config_path = windows_managed_data_directory()
+            .join("sing-box")
+            .join("config.json");
+        let config_parent = config_path
+            .parent()
+            .ok_or_else(|| "sing-box config path has no parent directory".to_string())?
+            .to_path_buf();
+        fs::create_dir_all(&config_parent).map_err(|error| error.to_string())?;
+
+        if let Some(native_config) = inspect_sing_box_native_config(&payload) {
+            if !allow_native_config {
+                return Err(
+                    "HTTPS MITM requires a basic GUI profile; native sing-box JSON is imported without changing its inbounds"
+                        .to_string(),
+                );
+            }
+            let local_http_proxy = native_config.local_http_proxy.map(|proxy| proxy.endpoint());
+            fs::write(&config_path, native_config.json).map_err(|error| error.to_string())?;
+            state.desktop.profile_source_path = Some(source_path);
+            state.desktop.profile_node_id = None;
+            save_desktop_state(&state.desktop)?;
+            return Ok(ImportedSingBoxProfile {
+                executable_path,
+                config_path,
+                config_parent,
+                local_http_proxy,
+            });
+        }
+
         let subscription = CoreSubscriptionService::new();
         let source = SubscriptionSource {
             id: "windows-gui-local-profile".to_string(),
@@ -999,21 +1085,18 @@ mod gui {
             listen_port,
         })
         .map_err(|error| error.to_string())?;
-        let config_path = windows_managed_data_directory()
-            .join("sing-box")
-            .join("config.json");
-        let config_parent = config_path
-            .parent()
-            .ok_or_else(|| "sing-box config path has no parent directory".to_string())?
-            .to_path_buf();
-        fs::create_dir_all(&config_parent).map_err(|error| error.to_string())?;
         fs::write(&config_path, rendered.json).map_err(|error| error.to_string())?;
 
         state.desktop.profile_source_path = Some(source_path);
         state.desktop.profile_node_id =
             (!selected_node_id.trim().is_empty()).then_some(selected_node_id);
         save_desktop_state(&state.desktop)?;
-        Ok((executable_path, config_path, config_parent))
+        Ok(ImportedSingBoxProfile {
+            executable_path,
+            config_path,
+            config_parent,
+            local_http_proxy: Some(format!("127.0.0.1:{listen_port}")),
+        })
     }
 
     fn rewrite_managed_sing_box_listen_port(

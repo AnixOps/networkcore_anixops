@@ -12,6 +12,8 @@ The crate currently provides source contracts for:
 - Extracting only the `sing-box` executable from `.tar.gz` archives into a NetworkCore-owned engine cache.
 - Rendering a deterministic local `mixed` inbound `sing-box` JSON config from a
   basic Shadowsocks, Trojan, VLESS, or VMess `NodeDescriptor`.
+- Recognizing a native sing-box JSON configuration without transforming it and
+  locating a local `mixed` or `http` inbound for Windows system-proxy setup.
 - Running `sing-box run -c <config>` through an injectable foreground process runner.
 - A managed process supervisor that executes `check -c` before `run -c`, owns the
   child process, captures stdout/stderr into an explicit log file, and reports
@@ -27,9 +29,10 @@ selecting only the `sing-box.exe` entry; service-side download and release
 packaging remain separate policy decisions.
 
 The Windows GUI explicitly installs the verified official core and imports an
-operator-selected local profile into native sing-box JSON at the configured
-`config_path`. The generated path supports basic Shadowsocks, Trojan, VLESS,
-and VMess outbounds; Trojan enables TLS while VLESS and VMess are basic TCP
-only. It does not retain TLS/REALITY/transport/multiplex/route/DNS fields. The
+operator-selected local profile at the configured `config_path`. A native
+sing-box document with top-level `inbounds` or `outbounds` is retained verbatim,
+including TLS/REALITY/transport/multiplex/route/DNS fields. Other inputs use
+the generated path, which supports basic Shadowsocks, Trojan, VLESS, and VMess
+outbounds; Trojan enables TLS while VLESS and VMess are basic TCP only. The
 wrapper `managed-config.json` only supplies process paths and lifecycle policy;
 it is not itself a sing-box configuration.

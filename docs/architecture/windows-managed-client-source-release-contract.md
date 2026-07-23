@@ -8,7 +8,7 @@ current Windows package.
 ```text
 windows-managed-client-source-release-contract=present
 windows-managed-client-release-state=implementation-active
-windows-managed-client-version-scope=v0.2.0-alpha.5
+windows-managed-client-version-scope=v0.2.0-alpha.6
 WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active
 windows-managed-client-runner=windows-latest
 windows-managed-client-runner-kind=github-hosted
@@ -33,6 +33,7 @@ windows-managed-client-sing-box-managed-process=active
 windows-managed-client-sing-box-bundled=blocked
 windows-managed-client-sing-box-gui-install=active
 windows-managed-client-local-profile-import=active
+windows-managed-client-sing-box-native-json-import=active
 windows-managed-client-remote-subscription-fetch=blocked
 windows-managed-client-sing-box-basic-protocols=shadowsocks-trojan-vless-vmess
 windows-managed-client-sing-box-advanced-transport-rendering=blocked
@@ -62,14 +63,18 @@ provides one, extracts `sing-box.exe` under `%ProgramData%`, and persists its
 path for profile import. The MSI itself neither bundles nor silently downloads
 the third-party core.
 
-The GUI `Import profile` action reads only an operator-selected local file,
-passes its content through `CoreSubscriptionService`, renders a native
-`sing-box/config.json`, and writes the matching managed `sing_box` process
-block. It supports basic Shadowsocks, Trojan, VLESS, and VMess node fields.
-Trojan receives required TLS enablement; VLESS and VMess render basic TCP only.
-TLS, REALITY, WebSocket, gRPC, multiplex, routing, DNS, remote subscription
-fetching, and all other transport-specific source fields are not preserved by
-this path and remain blocked.
+The GUI `Import profile` action reads only an operator-selected local file. A
+native sing-box JSON object with `inbounds` or `outbounds` is copied verbatim to
+`sing-box/config.json`, so its TLS, REALITY, WebSocket, gRPC, multiplex,
+routing, DNS, and other sing-box-owned fields are retained. A loopback or
+wildcard `mixed`/`http` inbound is detected to configure the Windows system
+proxy endpoint; a native document without one leaves system-proxy configuration
+unset. Other supported local inputs pass through `CoreSubscriptionService` and
+render the basic Shadowsocks, Trojan, VLESS, and VMess node fields. Trojan
+receives required TLS enablement; VLESS and VMess render basic TCP only.
+Remote subscription fetching remains blocked. GUI-controlled HTTPS MITM uses
+the basic-profile renderer because it owns and changes the `mixed-in` listener
+port; it does not mutate an imported native config.
 
 The GUI `Enable HTTPS MITM` action generates a service-owned CA key pair below
 `%ProgramData%\\AnixOps\\NetworkCore\\mitm`, moves sing-box to the loopback
@@ -83,7 +88,8 @@ ROOT entry, and deletes the generated private key.
 
 The service validates the generated or operator-supplied native JSON with
 `check -c`, owns `run -c`, persists PID/exit state, and redirects core
-stdout/stderr to an explicit log.
+stdout/stderr to an explicit log. The GUI can directly open that core log in
+addition to the general log folder.
 
 The installer registers an automatic SCM service, but its install-time start is
 asynchronous. MSI completion therefore does not wait for a preserved managed

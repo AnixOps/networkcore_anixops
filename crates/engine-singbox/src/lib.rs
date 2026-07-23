@@ -15,7 +15,7 @@ use control_domain::{
 use flate2::read::{DeflateDecoder, GzDecoder};
 use reqwest::blocking::Client;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{Cursor, Read, Write};
@@ -340,6 +340,79 @@ pub struct SingBoxLocalProxyConfig {
     pub listen_host: String,
     pub listen_port: u16,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+/// An operator-provided sing-box document that can be used without reducing it
+/// to NetworkCore's basic node catalog. The original JSON is retained so
+/// transport, DNS, routing, and experimental fields remain owned by sing-box.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingBoxNativeConfigImport {
+    pub json: String,
+    pub local_http_proxy: Option<SingBoxLocalHttpProxy>,
+}
+
+/// A local HTTP-compatible inbound that the Windows system-proxy integration
+/// can point to after a native sing-box configuration is imported.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingBoxLocalHttpProxy {
+    pub server: String,
+    pub port: u16,
+}
+
+impl SingBoxLocalHttpProxy {
+    pub fn endpoint(&self) -> String {
+        format!("{}:{}", self.server, self.port)
+    }
+}
+
+/// Recognize a native sing-box document while preserving its original content.
+///
+/// A node URL or a VMess share link JSON object is intentionally not treated as
+/// a native config. Those inputs continue through the basic catalog renderer.
+pub fn inspect_sing_box_native_config(content: &str) -> Option<SingBoxNativeConfigImport> {
+    let json = content.trim();
+    let value: Value = serde_json::from_str(json).ok()?;
+    let object = value.as_object()?;
+    if !object.contains_key("inbounds") && !object.contains_key("outbounds") {
+        return None;
+    }
+
+    Some(SingBoxNativeConfigImport {
+        json: json.to_string(),
+        local_http_proxy: find_local_http_proxy(&value),
+    })
+}
+
+fn find_local_http_proxy(config: &Value) -> Option<SingBoxLocalHttpProxy> {
+    let inbounds = config.get("inbounds")?.as_array()?;
+    for inbound in inbounds {
+        let Some(inbound_type) = inbound.get("type").and_then(Value::as_str) else {
+            continue;
+        };
+        if !matches!(inbound_type, "mixed" | "http") {
+            continue;
+        }
+        let Some(port) = inbound
+            .get("listen_port")
+            .and_then(Value::as_u64)
+            .and_then(|port| u16::try_from(port).ok())
+        else {
+            continue;
+        };
+        if port == 0 {
+            continue;
+        }
+        let server = match inbound.get("listen").and_then(Value::as_str) {
+            None | Some("") | Some("0.0.0.0") | Some("127.0.0.1") => "127.0.0.1",
+            Some("localhost") => "localhost",
+            _ => continue,
+        };
+        return Some(SingBoxLocalHttpProxy {
+            server: server.to_string(),
+            port,
+        });
+    }
+    None
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

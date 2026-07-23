@@ -4,10 +4,10 @@ use control_domain::{
     NODE_METADATA_TROJAN_PASSWORD, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_UUID,
 };
 use engine_singbox::{
-    GithubSingBoxReleaseInstaller, SingBoxHttpClient, SingBoxInstallRequest,
-    SingBoxLocalProxyConfigRequest, SingBoxManagedProcessState, SingBoxManagedProcessSupervisor,
-    SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
-    DEFAULT_SING_BOX_ENGINE_ID, ENGINE_SINGBOX_CONFIG_RENDERED_CODE,
+    inspect_sing_box_native_config, GithubSingBoxReleaseInstaller, SingBoxHttpClient,
+    SingBoxInstallRequest, SingBoxLocalProxyConfigRequest, SingBoxManagedProcessState,
+    SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch,
+    SingBoxTargetOs, DEFAULT_SING_BOX_ENGINE_ID, ENGINE_SINGBOX_CONFIG_RENDERED_CODE,
     ENGINE_SINGBOX_DOWNLOAD_ASSET_SELECTED_CODE, ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE,
     ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE,
     ENGINE_SINGBOX_DOWNLOAD_LATEST_VERSION_RESOLVED_CODE,
@@ -185,6 +185,81 @@ fn latest_installer_extracts_windows_sing_box_zip_entry() {
     );
     assert!(report.downloaded);
     let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn native_config_import_preserves_advanced_sing_box_fields_and_finds_mixed_inbound() {
+    let raw = r#"
+{
+  "log": { "level": "debug" },
+  "inbounds": [
+    { "type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": 2080 }
+  ],
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "reality-ws",
+      "server": "edge.example.test",
+      "server_port": 443,
+      "uuid": "00000000-0000-0000-0000-000000000001",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "cdn.example.test",
+        "reality": { "enabled": true, "public_key": "fixture", "short_id": "abcd" }
+      },
+      "transport": { "type": "ws", "path": "/gateway" }
+    }
+  ],
+  "route": { "final": "reality-ws" },
+  "dns": { "servers": [{ "tag": "local", "address": "local" }] }
+}
+"#;
+
+    let imported = inspect_sing_box_native_config(raw).expect("native sing-box config is detected");
+
+    assert_eq!(imported.json, raw.trim());
+    assert_eq!(
+        imported
+            .local_http_proxy
+            .as_ref()
+            .map(|proxy| proxy.endpoint()),
+        Some("127.0.0.1:2080".to_string())
+    );
+    assert!(imported.json.contains("\"reality\""));
+    assert!(imported.json.contains("\"transport\""));
+    assert!(imported.json.contains("\"dns\""));
+}
+
+#[test]
+fn native_config_import_leaves_share_link_json_for_the_profile_parser() {
+    let vmess_share = r#"{ "v": "2", "ps": "fixture", "add": "edge.example.test", "port": "443" }"#;
+
+    assert_eq!(inspect_sing_box_native_config(vmess_share), None);
+}
+
+#[test]
+fn native_config_import_selects_a_later_loopback_http_inbound() {
+    let raw = r#"
+{
+  "inbounds": [
+    { "type": "mixed", "listen": "192.0.2.5", "listen_port": 1080 },
+    { "type": "socks", "listen": "127.0.0.1", "listen_port": 1081 },
+    { "type": "http", "listen": "0.0.0.0", "listen_port": 2080 }
+  ],
+  "outbounds": [{ "type": "direct", "tag": "direct" }]
+}
+"#;
+
+    let imported = inspect_sing_box_native_config(raw).expect("native sing-box config is detected");
+
+    assert_eq!(
+        imported
+            .local_http_proxy
+            .as_ref()
+            .map(|proxy| proxy.endpoint()),
+        Some("127.0.0.1:2080".to_string())
+    );
 }
 
 #[test]

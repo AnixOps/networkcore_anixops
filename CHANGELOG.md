@@ -21,6 +21,13 @@
 - Windows capability/status output now exposes active controlled HTTPS MITM;
   the service contract test owns the native listener lifecycle and CA trust
   action.
+- Windows GUI now detects an operator-selected native sing-box JSON document,
+  copies it unchanged into the managed service config, and discovers a local
+  `mixed` or `http` inbound for the system proxy. This preserves sing-box-owned
+  TLS/REALITY/WebSocket/gRPC/multiplex/routing/DNS fields instead of reducing
+  them to the basic node renderer.
+- Windows GUI now has an `Open core log` action for the managed sing-box
+  `check -c` and runtime stdout/stderr log.
 
 ### Changed
 
@@ -29,6 +36,9 @@
   non-silent third-party-core boundary. Remote subscription fetch, advanced
   transport rendering, JavaScript dispatch, HTTP/2, HTTP/3/QUIC, streaming,
   and multi-request CONNECT remain unavailable.
+- Native sing-box JSON import is explicitly documented as pass-through. The
+  basic-profile renderer still has its narrower protocol boundary, and the GUI
+  MITM action intentionally does not rewrite a native config listener.
 
 ## v0.2.0-alpha.3 - 2026-07-23
 
