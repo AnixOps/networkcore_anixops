@@ -1507,6 +1507,7 @@ fn render_text_response(response: &WindowsCliResponse) -> String {
             "trust_store_mutation: {}",
             capabilities.trust_store_mutation.status
         ));
+        lines.push(format!("https_mitm: {}", capabilities.https_mitm.status));
         lines.push(format!(
             "script_dispatch: {}",
             capabilities.script_dispatch.status
@@ -1542,6 +1543,7 @@ fn render_text_response(response: &WindowsCliResponse) -> String {
             "trust_store_mutation: {}",
             status.trust_store_mutation
         ));
+        lines.push(format!("https_mitm: {}", status.https_mitm));
         lines.push(format!("script_dispatch: {}", status.script_dispatch));
         lines.push(format!("managed_lifecycle: {}", status.managed_lifecycle));
         lines.push(format!(
