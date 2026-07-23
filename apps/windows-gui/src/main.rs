@@ -1526,45 +1526,6 @@ mod gui {
         format!("{name} [{}]", node.id)
     }
 
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use control_domain::{Endpoint, Protocol};
-
-        fn node(id: &str, name: &str) -> NodeDescriptor {
-            NodeDescriptor {
-                id: id.to_string(),
-                name: name.to_string(),
-                protocol: Protocol::Shadowsocks,
-                endpoint: Endpoint {
-                    host: "edge.example.test".to_string(),
-                    port: 443,
-                },
-                tags: Vec::new(),
-                metadata: Vec::new(),
-            }
-        }
-
-        #[test]
-        fn profile_selector_maps_display_label_to_stable_node_id() {
-            let nodes = vec![
-                node("primary-node", "Primary\nnode"),
-                node("backup-node", "Backup"),
-            ];
-            let options = profile_node_options(&nodes);
-
-            assert_eq!(options[0].label, "Primary node [primary-node]");
-            assert_eq!(
-                selected_profile_node_id_from_value(&options, &options[0].label),
-                "primary-node"
-            );
-            assert_eq!(
-                selected_profile_node_id_from_value(&options, "manual-node-id"),
-                "manual-node-id"
-            );
-        }
-    }
-
     fn is_remote_subscription_url(location: &str) -> bool {
         location.trim().split_once(':').is_some_and(|(scheme, _)| {
             scheme.eq_ignore_ascii_case("https") || scheme.eq_ignore_ascii_case("http")
@@ -2050,5 +2011,44 @@ mod gui {
 
     fn last_error(message: &str) -> String {
         format!("{message} (win32={})", unsafe { GetLastError() })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use control_domain::{Endpoint, Protocol};
+
+        fn node(id: &str, name: &str) -> NodeDescriptor {
+            NodeDescriptor {
+                id: id.to_string(),
+                name: name.to_string(),
+                protocol: Protocol::Shadowsocks,
+                endpoint: Endpoint {
+                    host: "edge.example.test".to_string(),
+                    port: 443,
+                },
+                tags: Vec::new(),
+                metadata: Vec::new(),
+            }
+        }
+
+        #[test]
+        fn profile_selector_maps_display_label_to_stable_node_id() {
+            let nodes = vec![
+                node("primary-node", "Primary\nnode"),
+                node("backup-node", "Backup"),
+            ];
+            let options = profile_node_options(&nodes);
+
+            assert_eq!(options[0].label, "Primary node [primary-node]");
+            assert_eq!(
+                selected_profile_node_id_from_value(&options, &options[0].label),
+                "primary-node"
+            );
+            assert_eq!(
+                selected_profile_node_id_from_value(&options, "manual-node-id"),
+                "manual-node-id"
+            );
+        }
     }
 }
