@@ -7,6 +7,11 @@
 ### Added
 
 - Future maintenance entries belong here until the next tagged release.
+
+## v0.2.0-alpha.2 - 2026-07-23
+
+### Added
+
 - Windows managed client follow-up: MSI now uses the WiX standard install-directory
   wizard and completion page; GUI/service diagnostics are persisted under
   `%ProgramData%\\AnixOps\\NetworkCore\\logs`, with GUI debug toggle and

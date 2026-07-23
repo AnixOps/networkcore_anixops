@@ -330,9 +330,26 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 最新已发布切片
 
+### `v0.2.0-alpha.2`
+
+状态：Windows managed client prerelease；用户可下载状态以同名 tag 的
+GitHub Actions release workflow 结果为准。
+
+主要特性：
+
+- Windows service 可从 `managed-config.json.sing_box` 托管 operator-staged
+  `sing-box.exe`，启动前执行 `check -c`，再执行 `run -c`，持久化 PID/exit
+  code，并将 core stdout/stderr 写入显式日志。
+- Adapter 可选择、校验并安全提取官方 Windows ZIP 中的 `sing-box.exe`；MSI
+  不捆绑或静默下载第三方 core。
+- GUI 显示 service 与 sing-box 状态/PID/exit code，并提供持久诊断和 debug
+  toggle；MSI 使用标准安装目录向导与完成页。
+- `root_certificate_path` 仍只负责 LocalMachine ROOT trust-store 生命周期；
+  Windows live HTTPS MITM listener、动态叶子证书、TLS 解密和 rewrite 未启用。
+
 ### `v0.2.0-alpha.1`
 
-状态：当前 Windows managed client prerelease；用户可下载 MSI、sha256、schema-version-2 manifest 和 manifest sha256。
+状态：已发布的首个 Windows managed client prerelease；用户可下载 MSI、sha256、schema-version-2 manifest 和 manifest sha256。
 
 主要特性：
 
@@ -469,11 +486,11 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前 main source 状态
 
-当前 Windows release 切片是 `v0.2.0-alpha.1`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
+当前 Windows release 切片是 `v0.2.0-alpha.2`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
 `v0.1.1-alpha.2` 的 Linux/Windows package、checksum、manifest、attestation 和 publish gate，并把
 受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI；Windows path 已切换到
 managed-client MSI，service、driver、installer、system proxy mutation、system trust store mutation 和 managed lifecycle
-已 active，JavaScript script dispatch 仍 blocked。用户可下载状态仍以 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。
+已 active，并增加 operator-staged sing-box managed process；automatic core install、Windows live HTTPS MITM 和 JavaScript script dispatch 仍 blocked。用户可下载状态仍以 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。
 
 ## 已拍板后续版本节奏
 
