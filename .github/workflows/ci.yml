@@ -28,6 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          trap 'status=$?; echo "::error::Repository policy failed at line ${LINENO}: ${BASH_COMMAND} (exit ${status})"; exit ${status}' ERR
 
           required_files=(
             AGENT.md
