@@ -14,6 +14,10 @@
 
 ### Added
 
+- Windows GUI now provides `Update URL` for a successful HTTP(S) `Profile / URL`
+  import. It explicitly refetches only that saved URL through the existing
+  parser/native JSON pipeline; a failed update retains the current configuration
+  and does not trigger a background refresh or service restart.
 - Windows GUI `Profile / URL` now accepts an operator-entered HTTP(S)
   subscription URL as well as a local file. Import downloads that payload only
   for the explicit action and reuses the native sing-box JSON/NodeCatalog

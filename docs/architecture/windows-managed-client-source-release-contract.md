@@ -8,7 +8,7 @@ current Windows package.
 ```text
 windows-managed-client-source-release-contract=present
 windows-managed-client-release-state=implementation-active
-windows-managed-client-version-scope=v0.2.0-alpha.12
+windows-managed-client-version-scope=v0.2.0-alpha.13
 WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active
 windows-managed-client-runner=windows-latest
 windows-managed-client-runner-kind=github-hosted
@@ -37,7 +37,8 @@ windows-managed-client-sing-box-gui-install=active
 windows-managed-client-local-profile-import=active
 windows-managed-client-sing-box-native-json-import=active
 windows-managed-client-sing-box-native-json-mitm=controlled-mixed-in-snapshot-restore-active
-windows-managed-client-remote-subscription-fetch=operator-initiated-http-s-profile-import-active
+windows-managed-client-remote-subscription-fetch=operator-initiated-http-s-profile-import-and-update-active
+windows-managed-client-remote-subscription-update=single-saved-url-explicit-only
 windows-managed-client-sing-box-basic-protocols=shadowsocks-trojan-vless-vmess-hysteria2-tuic
 windows-managed-client-sing-box-quic-share-link-import=hysteria2-tuic-local-file-active
 windows-managed-client-sing-box-v2ray-share-link-compatibility=tls-reality-ws-grpc-http-httpupgrade-quic-local-file-active
@@ -72,7 +73,10 @@ The GUI `Import profile` action accepts either an operator-selected local file
 or an operator-entered `http://`/`https://` subscription URL. A URL is
 downloaded only for that explicit action, with a bounded client timeout, then
 uses the same native JSON inspection and `CoreSubscriptionService` parser as a
-local file. A native sing-box JSON object with `inbounds` or `outbounds` is
+local file. After a successful URL import, `Update URL` explicitly fetches that
+single saved URL through the same pipeline. It does not use unsaved input text;
+a failed download or parse leaves the saved source and current managed config
+unchanged. A native sing-box JSON object with `inbounds` or `outbounds` is
 copied verbatim to `sing-box/config.json`, so its TLS, REALITY, WebSocket, gRPC,
 multiplex, routing, DNS, and other sing-box-owned fields are retained. A
 loopback or wildcard `mixed`/`http` inbound is detected to configure the Windows
@@ -88,8 +92,9 @@ Hysteria2 `hysteria2://`/`hy2://` inputs retain password, supported obfuscation,
 port hopping, and TLS metadata; TUIC `tuic://` inputs retain UUID, optional
 password, congestion control, and TLS metadata. Hysteria2/TUIC and V2Ray QUIC
 transport are direct proxy-core paths, not HTTPS or HTTP/3 MITM traffic. The URL
-is retained only as the next manual import value; there is no background refresh,
-subscription group/catalog, automatic service restart, or route/rule fetch.
+is retained only for the next explicit import or update; there is no background
+refresh, subscription group/catalog, automatic service restart, or route/rule
+fetch.
 GUI-controlled HTTPS MITM can
 also use a native document only when it contains a `type: mixed`,
 `tag: mixed-in` inbound. The GUI snapshots the original imported JSON below

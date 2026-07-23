@@ -78,6 +78,7 @@ mod gui {
     const ID_IMPORT_PROFILE: usize = 116;
     const ID_ENABLE_HTTPS_MITM: usize = 117;
     const ID_DISABLE_HTTPS_MITM: usize = 118;
+    const ID_UPDATE_PROFILE: usize = 119;
     const ID_ENABLE_PROXY: usize = 120;
     const ID_RESTORE_PROXY: usize = 121;
     const ID_INSTALL_CERTIFICATE: usize = 130;
@@ -473,17 +474,28 @@ mod gui {
             desktop.profile_node_id.as_deref().unwrap_or(""),
             140,
             394,
-            500,
+            380,
             28,
+        );
+        create_button(
+            window,
+            instance,
+            font,
+            "Update URL",
+            ID_UPDATE_PROFILE,
+            535,
+            393,
+            120,
+            30,
         );
         create_label(
             window,
             instance,
             font,
-            "Blank uses the first supported node",
-            655,
+            "Blank: first node",
+            665,
             398,
-            270,
+            260,
             22,
         );
         create_label(window, instance, font, "HTTPS MITM", 40, 442, 100, 22);
@@ -706,6 +718,7 @@ mod gui {
             }
             ID_INSTALL_SING_BOX => run_action(state, "sing-box core installed", install_sing_box),
             ID_IMPORT_PROFILE => run_action(state, "sing-box profile imported", import_profile),
+            ID_UPDATE_PROFILE => run_action(state, "Subscription URL updated", update_profile),
             ID_ENABLE_HTTPS_MITM => run_action(state, "HTTPS MITM configured", enable_https_mitm),
             ID_DISABLE_HTTPS_MITM => run_action(state, "HTTPS MITM disabled", disable_https_mitm),
             ID_ENABLE_PROXY => run_action(state, "System proxy enabled", enable_proxy),
@@ -1140,6 +1153,21 @@ mod gui {
             .map_err(|error| error.to_string())?;
         load_configuration_fields(state);
         Ok(())
+    }
+
+    fn update_profile(state: &mut AppState) -> Result<(), String> {
+        let location = state
+            .desktop
+            .profile_source_url
+            .clone()
+            .filter(|location| !location.trim().is_empty())
+            .ok_or_else(|| {
+                "Import an HTTP or HTTPS subscription URL before updating it".to_string()
+            })?;
+        unsafe {
+            set_text(state.profile_source, &location);
+        }
+        import_profile(state)
     }
 
     fn enable_https_mitm(state: &mut AppState) -> Result<(), String> {

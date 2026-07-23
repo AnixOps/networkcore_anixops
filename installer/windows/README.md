@@ -77,18 +77,20 @@ For the normal managed workflow, run the elevated GUI and follow this order:
 1. Click `Install core` in the `sing-box profile` section.
 2. Enter a local profile file path or an `http://`/`https://` subscription URL,
    and optionally a Node ID.
-3. Click `Import profile`, then `Install service` and `Start`.
+3. Click `Import profile`, then `Install service` and `Start`. After a successful
+   URL import, click `Update URL` to explicitly refresh that saved URL.
 
 The importer writes `C:\\ProgramData\\AnixOps\\NetworkCore\\sing-box\\config.json`
 and updates `managed-config.json` with the verified core path, local mixed proxy
 at `127.0.0.1:7890`, service working directory, and core log path. A blank Node
 ID selects the first supported node.
 
-An HTTP(S) URL is downloaded once only when `Import profile` is clicked. Its
-payload follows the same parser and native sing-box JSON pass-through path as a
-local profile; the URL remains in the GUI only as the next manual import value.
-It does not create a background update task, a subscription catalog/group, a
-route/rule fetch, or an automatic service restart.
+An HTTP(S) URL is downloaded only when `Import profile` or `Update URL` is
+clicked. `Update URL` reads the last successfully imported URL and follows the
+same parser and native sing-box JSON pass-through path as a local profile. A
+failed update leaves the current managed configuration unchanged. It does not
+create a background update task, a subscription catalog/group, a route/rule
+fetch, or an automatic service restart.
 
 The local profile or downloaded payload may use the existing supported
 NodeCatalog inputs, including
