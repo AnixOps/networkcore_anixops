@@ -31,8 +31,11 @@ use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use tar::{Builder, Header};
+
+static TEMP_ROOT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[test]
 fn sing_box_descriptor_announces_public_engine_capabilities() {
@@ -1033,9 +1036,10 @@ fn unique_temp_root() -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system time should be after unix epoch")
         .as_nanos();
+    let sequence = TEMP_ROOT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!(
-        "networkcore-engine-singbox-test-{}-{unique}",
-        std::process::id()
+        "networkcore-engine-singbox-test-{}-{unique}-{sequence}",
+        std::process::id(),
     ))
 }
 
