@@ -2031,12 +2031,8 @@ mod gui {
     }
 
     unsafe fn toggle_theme(state: &mut AppState) {
-        state.desktop.dark_theme = !state.desktop.dark_theme;
-        let mode = if state.desktop.dark_theme {
-            ThemeMode::Dark
-        } else {
-            ThemeMode::Light
-        };
+        let mode = state.theme.toggled();
+        state.desktop.dark_theme = mode == ThemeMode::Dark;
         if let Err(error) = save_desktop_state(&state.desktop) {
             set_text(state.activity, &error);
             return;
@@ -2558,7 +2554,12 @@ mod gui {
             return;
         };
         set_text(shell.status_summary, &runtime.status_line());
-        set_text(shell.home_connection, runtime.connection.label());
+        let connection = if runtime.connection.is_connected() {
+            "Connected: service, core, and proxy are ready"
+        } else {
+            runtime.connection.label()
+        };
+        set_text(shell.home_connection, connection);
         set_text(shell.home_service, &service);
         set_text(shell.home_core, &runtime.sing_box.label());
         let proxy = match runtime.system_proxy_enabled {
@@ -2664,6 +2665,8 @@ mod gui {
         open_path(&path, "managed configuration")
     }
 
+    // Retained while the daily command dispatcher completes the legacy-action migration.
+    #[allow(dead_code)]
     fn validate_configuration(state: &mut AppState) -> Result<(), String> {
         let path = PathBuf::from(unsafe { get_text(state.config_path) });
         validate_managed_configuration(&path)?;
@@ -2679,7 +2682,7 @@ mod gui {
     }
 
     fn validate_managed_configuration(path: &Path) -> Result<(), String> {
-        let config = read_managed_config(&path).map_err(|error| error.to_string())?;
+        let config = read_managed_config(path).map_err(|error| error.to_string())?;
         if let Some(sing_box) = config.sing_box.filter(|sing_box| sing_box.enabled) {
             let log_path = sing_box.log_path.clone();
             SingBoxManagedProcessSupervisor::check_configuration(&SingBoxManagedProcessRequest {
@@ -2735,19 +2738,11 @@ mod gui {
             }
             return Err(last_error("Clipboard could not be opened"));
         }
-        let result = unsafe {
-            if EmptyClipboard() == 0 {
-                0
-            } else if SetClipboardData(13, memory).is_null() {
-                0
-            } else {
-                1
-            }
-        };
+        let copied = unsafe { EmptyClipboard() != 0 && !SetClipboardData(13, memory).is_null() };
         unsafe {
             CloseClipboard();
         }
-        if result == 0 {
+        if !copied {
             unsafe {
                 GlobalFree(memory);
             }
@@ -2774,7 +2769,7 @@ mod gui {
             Err(error) => report.push_str(&format!("service_status_error={error}\n")),
         }
 
-        let config = match read_managed_config(&config_path) {
+        let config = match read_managed_config(config_path) {
             Ok(config) => {
                 report.push_str(&format!(
                     "managed_config_schema_version={} sing_box_enabled={} native_mitm_enabled={}\n",
@@ -2911,6 +2906,8 @@ mod gui {
         restore_proxy(state)
     }
 
+    // Retained while the daily command dispatcher completes the legacy-action migration.
+    #[allow(dead_code)]
     fn restart_service(state: &mut AppState) -> Result<(), String> {
         state
             .integration
@@ -2933,6 +2930,8 @@ mod gui {
         Ok(())
     }
 
+    // Retained while the daily command dispatcher completes the legacy-action migration.
+    #[allow(dead_code)]
     fn install_sing_box(state: &mut AppState) -> Result<(), String> {
         let installer = GithubSingBoxReleaseInstaller::new().map_err(|error| error.to_string())?;
         let report = installer
@@ -2948,6 +2947,8 @@ mod gui {
         save_desktop_state(&state.desktop)
     }
 
+    // Retained while the daily command dispatcher completes the legacy-action migration.
+    #[allow(dead_code)]
     fn import_profile(state: &mut AppState) -> Result<(), String> {
         let mut managed = managed_config_or_default()?;
         let native_mitm_enabled = managed
@@ -3046,6 +3047,8 @@ mod gui {
         Ok(())
     }
 
+    // Retained while the daily command dispatcher completes the legacy-action migration.
+    #[allow(dead_code)]
     fn update_profile(state: &mut AppState) -> Result<(), String> {
         let location = state
             .desktop
@@ -3297,6 +3300,8 @@ mod gui {
         })
     }
 
+    // Retained while the daily command dispatcher completes the legacy-action migration.
+    #[allow(dead_code)]
     fn load_profile_nodes(state: &mut AppState) -> Result<(), String> {
         let location = unsafe { get_text(state.profile_source) };
         let location = location.trim();
@@ -3317,6 +3322,8 @@ mod gui {
         Ok(())
     }
 
+    // Retained while the daily command dispatcher completes the legacy-action migration.
+    #[allow(dead_code)]
     fn switch_profile_node(state: &mut AppState) -> Result<(), String> {
         let selected_node_id = unsafe { selected_profile_node_id(state) };
         let (selected_node_id, outbound_tag) = state
@@ -3347,6 +3354,8 @@ mod gui {
         Ok(())
     }
 
+    // Retained while the daily command dispatcher completes the legacy-action migration.
+    #[allow(dead_code)]
     fn test_profile_node_delay(state: &mut AppState) -> Result<(), String> {
         let selected_node_id = unsafe { selected_profile_node_id(state) };
         let outbound_tag = state
@@ -3384,6 +3393,8 @@ mod gui {
         Ok(())
     }
 
+    // Retained while the daily command dispatcher completes the legacy-action migration.
+    #[allow(dead_code)]
     fn check_profile_runtime(state: &mut AppState) -> Result<(), String> {
         let status = match read_sing_box_clash_api_selector(
             &SingBoxLocalControllerConfig::loopback_selector(),
