@@ -42,6 +42,9 @@ pub const ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE: &str =
     "engine.singbox.config.node_unsupported";
 pub const ENGINE_SINGBOX_CONFIG_SECRET_MISSING_CODE: &str = "engine.singbox.config.secret_missing";
 pub const ENGINE_SINGBOX_CONFIG_RENDERED_CODE: &str = "engine.singbox.config.rendered";
+pub const ENGINE_SINGBOX_CONFIG_NATIVE_INVALID_CODE: &str = "engine.singbox.config.native_invalid";
+pub const ENGINE_SINGBOX_CONFIG_MIXED_INBOUND_MISSING_CODE: &str =
+    "engine.singbox.config.mixed_inbound_missing";
 pub const ENGINE_SINGBOX_DOWNLOAD_TARGET_UNSUPPORTED_CODE: &str =
     "engine.singbox.download.target_unsupported";
 pub const ENGINE_SINGBOX_DOWNLOAD_RELEASE_FETCH_FAILED_CODE: &str =
@@ -380,6 +383,56 @@ pub fn inspect_sing_box_native_config(content: &str) -> Option<SingBoxNativeConf
     Some(SingBoxNativeConfigImport {
         json: json.to_string(),
         local_http_proxy: find_local_http_proxy(&value),
+    })
+}
+
+/// Render a native sing-box document with its GUI-controlled `mixed-in`
+/// inbound redirected to a local listener.
+///
+/// This only changes the listener fields on an inbound explicitly marked with
+/// both `tag: mixed-in` and `type: mixed`. Callers that need the original
+/// document must retain it separately before committing the returned JSON.
+pub fn rewrite_sing_box_mixed_inbound_listener(
+    content: &str,
+    listen_host: &str,
+    listen_port: u16,
+) -> DomainResult<String> {
+    if listen_host.trim().is_empty() || listen_port == 0 {
+        return Err(DomainError::new(
+            ENGINE_SINGBOX_CONFIG_NATIVE_INVALID_CODE,
+            "sing-box mixed inbound listener endpoint must be explicit",
+        ));
+    }
+
+    let mut config: Value = serde_json::from_str(content).map_err(|error| {
+        DomainError::new(
+            ENGINE_SINGBOX_CONFIG_NATIVE_INVALID_CODE,
+            format!("native sing-box config is not valid JSON: {error}"),
+        )
+    })?;
+    let inbound = config
+        .get_mut("inbounds")
+        .and_then(Value::as_array_mut)
+        .and_then(|inbounds| {
+            inbounds.iter_mut().find(|inbound| {
+                inbound.get("tag").and_then(Value::as_str) == Some("mixed-in")
+                    && inbound.get("type").and_then(Value::as_str) == Some("mixed")
+            })
+        })
+        .ok_or_else(|| {
+            DomainError::new(
+                ENGINE_SINGBOX_CONFIG_MIXED_INBOUND_MISSING_CODE,
+                "native sing-box config needs a type=mixed inbound tagged mixed-in for GUI HTTPS MITM",
+            )
+        })?;
+    inbound["listen"] = Value::String(listen_host.to_string());
+    inbound["listen_port"] = Value::from(listen_port);
+
+    serde_json::to_string_pretty(&config).map_err(|error| {
+        DomainError::new(
+            ENGINE_SINGBOX_CONFIG_NATIVE_INVALID_CODE,
+            format!("native sing-box config could not be serialized: {error}"),
+        )
     })
 }
 

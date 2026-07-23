@@ -202,6 +202,10 @@ pub struct WindowsManagedNativeMitmConfig {
     pub ca_certificate_path: PathBuf,
     pub ca_private_key_path: PathBuf,
     pub log_path: PathBuf,
+    /// Original operator-provided sing-box JSON retained while GUI MITM changes
+    /// the managed `mixed-in` listener to its local SOCKS upstream port.
+    #[serde(default)]
+    pub sing_box_config_snapshot_path: Option<PathBuf>,
 }
 
 impl WindowsManagedNativeMitmConfig {
@@ -226,6 +230,16 @@ impl WindowsManagedNativeMitmConfig {
             return Err(DomainError::new(
                 WINDOWS_MANAGED_NATIVE_MITM_CONFIG_INVALID_CODE,
                 "native MITM certificate, private key, and log paths must be explicit",
+            ));
+        }
+        if self
+            .sing_box_config_snapshot_path
+            .as_ref()
+            .is_some_and(|path| path.as_os_str().is_empty())
+        {
+            return Err(DomainError::new(
+                WINDOWS_MANAGED_NATIVE_MITM_CONFIG_INVALID_CODE,
+                "native MITM sing-box snapshot path must not be empty when provided",
             ));
         }
         Ok(())
@@ -395,18 +409,28 @@ pub fn write_managed_state(path: &Path, state: &WindowsManagedState) -> DomainRe
     write_json_atomic(path, state, WINDOWS_MANAGED_STATE_IO_CODE)
 }
 
+/// Atomically replace a service-owned text artifact such as a native sing-box
+/// configuration or its rollback snapshot.
+pub fn write_managed_text_atomic(path: &Path, content: &str) -> DomainResult<()> {
+    write_bytes_atomic(path, content.as_bytes(), WINDOWS_MANAGED_CONFIG_IO_CODE)
+}
+
 fn write_json_atomic<T: Serialize>(path: &Path, value: &T, code: &str) -> DomainResult<()> {
+    let bytes = serde_json::to_vec_pretty(value)
+        .map_err(|_| DomainError::new(code, "managed JSON could not be serialized"))?;
+    write_bytes_atomic(path, &bytes, code)
+}
+
+fn write_bytes_atomic(path: &Path, bytes: &[u8], code: &str) -> DomainResult<()> {
     let parent = path
         .parent()
         .ok_or_else(|| DomainError::new(code, "managed path has no parent"))?;
     fs::create_dir_all(parent)
         .map_err(|_| DomainError::new(code, "managed data directory could not be created"))?;
-    let bytes = serde_json::to_vec_pretty(value)
-        .map_err(|_| DomainError::new(code, "managed JSON could not be serialized"))?;
     let temporary = path.with_extension("json.tmp");
     let mut file = fs::File::create(&temporary)
         .map_err(|_| DomainError::new(code, "managed temporary file could not be created"))?;
-    file.write_all(&bytes)
+    file.write_all(bytes)
         .and_then(|_| file.sync_all())
         .map_err(|_| DomainError::new(code, "managed temporary file could not be written"))?;
     replace_managed_file(&temporary, path)

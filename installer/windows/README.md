@@ -93,9 +93,12 @@ route fields. When the native document has a local or wildcard `mixed`/`http`
 inbound, its port is used for the managed system proxy; without one, the import
 does not configure a system proxy.
 
-Use the basic GUI profile path for `Enable HTTPS MITM`: that action owns the
-`mixed-in` listener and moves it between ports 7890 and 7891. An imported
-native sing-box document is intentionally not rewritten for that operation.
+`Enable HTTPS MITM` also supports an imported native sing-box document when it
+has a `type: "mixed"`, `tag: "mixed-in"` inbound. The GUI records the original
+JSON under `%ProgramData%\\AnixOps\\NetworkCore\\mitm`, changes only that inbound
+to loopback port 7891 for the native SOCKS upstream, and restores the snapshot
+when HTTPS MITM is disabled. Native documents without that exact controlled
+inbound are not changed by the MITM action.
 
 Only set `system_proxy.enabled` to `true` after the configured sing-box inbound
 is listening at `server`. After editing, open the GUI, click `Apply configuration`,
@@ -153,7 +156,9 @@ The optional fields are:
 - `native_mitm`: a service-owned loopback HTTP proxy, CA certificate/key paths,
   and a local SOCKS upstream. The GUI writes this block when `Enable HTTPS
   MITM` is selected, with native HTTP(S) at `127.0.0.1:7890` and sing-box SOCKS
-  at `127.0.0.1:7891`.
+  at `127.0.0.1:7891`. When a supported native JSON profile is in use, the GUI
+  also records its private `sing_box_config_snapshot_path`; do not hand-author
+  that path because it is removed after the GUI restores the original profile.
 
 `root_certificate_path` only imports an existing certificate into the Windows
 LocalMachine ROOT store. The GUI HTTPS MITM action instead creates its own CA,

@@ -28,6 +28,10 @@
   them to the basic node renderer.
 - Windows GUI now has an `Open core log` action for the managed sing-box
   `check -c` and runtime stdout/stderr log.
+- Native sing-box JSON with an explicit `type: mixed`, `tag: mixed-in` inbound
+  can now enter the GUI HTTPS MITM lifecycle. The original JSON is snapshotted
+  before only that listener is moved to `127.0.0.1:7891`, then restored when
+  HTTPS MITM is disabled.
 
 ### Changed
 
@@ -36,9 +40,9 @@
   non-silent third-party-core boundary. Remote subscription fetch, advanced
   transport rendering, JavaScript dispatch, HTTP/2, HTTP/3/QUIC, streaming,
   and multi-request CONNECT remain unavailable.
-- Native sing-box JSON import is explicitly documented as pass-through. The
-  basic-profile renderer still has its narrower protocol boundary, and the GUI
-  MITM action intentionally does not rewrite a native config listener.
+- Native sing-box JSON remains pass-through for normal import. The only GUI
+  MITM mutation is a documented, reversible rewrite of a native
+  `type: mixed`, `tag: mixed-in` listener.
 
 ## v0.2.0-alpha.3 - 2026-07-23
 

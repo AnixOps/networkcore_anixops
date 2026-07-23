@@ -193,13 +193,32 @@ fn managed_configuration_accepts_native_https_mitm_with_explicit_socks_upstream(
                 r"C:\ProgramData\AnixOps\NetworkCore\mitm\root-ca-key.pem",
             ),
             log_path: PathBuf::from(r"C:\ProgramData\AnixOps\NetworkCore\logs\native-mitm.log"),
+            sing_box_config_snapshot_path: Some(PathBuf::from(
+                r"C:\ProgramData\AnixOps\NetworkCore\mitm\sing-box-config.before-mitm.json",
+            )),
         }),
     };
 
     config.validate().expect("native MITM config is valid");
-    let json = serde_json::to_value(&config).expect("native MITM config serializes");
+    let mut json = serde_json::to_value(&config).expect("native MITM config serializes");
     assert_eq!(json["native_mitm"]["listen_port"], 7890);
     assert_eq!(json["native_mitm"]["upstream_socks_port"], 7891);
+    assert_eq!(
+        json["native_mitm"]["sing_box_config_snapshot_path"],
+        r"C:\ProgramData\AnixOps\NetworkCore\mitm\sing-box-config.before-mitm.json"
+    );
+    json["native_mitm"]
+        .as_object_mut()
+        .expect("native MITM config serializes as an object")
+        .remove("sing_box_config_snapshot_path");
+    let legacy: WindowsManagedConfig =
+        serde_json::from_value(json).expect("pre-snapshot native MITM config remains readable");
+    assert_eq!(
+        legacy
+            .native_mitm
+            .and_then(|native_mitm| native_mitm.sing_box_config_snapshot_path),
+        None
+    );
 }
 
 #[test]

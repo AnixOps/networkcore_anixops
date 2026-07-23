@@ -20,13 +20,14 @@ mod gui {
     use control_domain::{SubscriptionService, SubscriptionSource};
     use engine_singbox::{
         inspect_sing_box_native_config, render_sing_box_local_proxy_config,
-        GithubSingBoxReleaseInstaller, SingBoxInstallRequest, SingBoxLocalProxyConfigRequest,
-        SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
+        rewrite_sing_box_mixed_inbound_listener, GithubSingBoxReleaseInstaller,
+        SingBoxInstallRequest, SingBoxLocalProxyConfigRequest, SingBoxReleaseInstaller,
+        SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
     };
     use platform_windows::managed::{
         append_managed_log, read_managed_config, read_managed_state, windows_managed_config_path,
         windows_managed_data_directory, windows_managed_log_directory, windows_managed_state_path,
-        write_managed_config, write_managed_state, WindowsManagedConfig,
+        write_managed_config, write_managed_state, write_managed_text_atomic, WindowsManagedConfig,
         WindowsManagedNativeMitmConfig, WindowsManagedSingBoxConfig, WindowsProxySettings,
         WindowsProxySnapshot, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
     };
@@ -123,6 +124,13 @@ mod gui {
         config_path: PathBuf,
         config_parent: PathBuf,
         local_http_proxy: Option<String>,
+        sing_box_config_snapshot_path: Option<PathBuf>,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum ProfileRenderMode {
+        Direct,
+        NativeMitm,
     }
 
     pub fn run(debug: bool) -> Result<(), String> {
@@ -902,25 +910,37 @@ mod gui {
 
     fn import_profile(state: &mut AppState) -> Result<(), String> {
         let mut managed = managed_config_or_default()?;
-        let listen_port = match managed.native_mitm.as_ref() {
-            Some(native_mitm) if native_mitm.enabled => SING_BOX_MITM_UPSTREAM_PORT,
-            _ => SING_BOX_DIRECT_LISTEN_PORT,
+        let native_mitm_enabled = managed
+            .native_mitm
+            .as_ref()
+            .is_some_and(|native_mitm| native_mitm.enabled);
+        let (listen_port, mode) = if native_mitm_enabled {
+            (SING_BOX_MITM_UPSTREAM_PORT, ProfileRenderMode::NativeMitm)
+        } else {
+            (SING_BOX_DIRECT_LISTEN_PORT, ProfileRenderMode::Direct)
         };
-        let imported = render_local_profile_config(state, listen_port, true)?;
-        managed.system_proxy = match managed.native_mitm.as_ref() {
-            Some(native_mitm) if native_mitm.enabled => Some(WindowsProxySettings {
+        let imported = render_local_profile_config(state, listen_port, mode)?;
+        managed.system_proxy = if native_mitm_enabled {
+            Some(WindowsProxySettings {
                 enabled: true,
                 server: format!("127.0.0.1:{NATIVE_MITM_LISTEN_PORT}"),
                 bypass: "<local>".to_string(),
-            }),
-            _ => imported
+            })
+        } else {
+            imported
                 .local_http_proxy
                 .map(|server| WindowsProxySettings {
                     enabled: true,
                     server,
                     bypass: "<local>".to_string(),
-                }),
+                })
         };
+        if native_mitm_enabled {
+            if let Some(native_mitm) = managed.native_mitm.as_mut() {
+                native_mitm.sing_box_config_snapshot_path =
+                    imported.sing_box_config_snapshot_path.clone();
+            }
+        }
         managed.sing_box = Some(WindowsManagedSingBoxConfig {
             enabled: true,
             executable_path: imported.executable_path,
@@ -935,7 +955,11 @@ mod gui {
     }
 
     fn enable_https_mitm(state: &mut AppState) -> Result<(), String> {
-        let imported = render_local_profile_config(state, SING_BOX_MITM_UPSTREAM_PORT, false)?;
+        let imported = render_local_profile_config(
+            state,
+            SING_BOX_MITM_UPSTREAM_PORT,
+            ProfileRenderMode::NativeMitm,
+        )?;
         let restart = stop_running_service_for_reconfigure(state)?;
         let (certificate_path, private_key_path) = ensure_mitm_ca_material()?;
         let mut managed = managed_config_or_default()?;
@@ -960,6 +984,7 @@ mod gui {
             ca_certificate_path: certificate_path.clone(),
             ca_private_key_path: private_key_path,
             log_path: windows_managed_log_directory().join("native-mitm.log"),
+            sing_box_config_snapshot_path: imported.sing_box_config_snapshot_path,
         });
         write_managed_config(&windows_managed_config_path(), &managed)
             .map_err(|error| error.to_string())?;
@@ -980,7 +1005,6 @@ mod gui {
     }
 
     fn disable_https_mitm(state: &mut AppState) -> Result<(), String> {
-        let restart = stop_running_service_for_reconfigure(state)?;
         let mut managed = managed_config_or_default()?;
         let native_mitm = managed
             .native_mitm
@@ -989,14 +1013,49 @@ mod gui {
         let sing_box = managed.sing_box.as_mut().ok_or_else(|| {
             "Managed sing-box configuration is required to disable HTTPS MITM".to_string()
         })?;
-        rewrite_managed_sing_box_listen_port(sing_box, SING_BOX_DIRECT_LISTEN_PORT)?;
-        managed.system_proxy = Some(WindowsProxySettings {
+        let native_snapshot = native_mitm
+            .sing_box_config_snapshot_path
+            .as_ref()
+            .map(|path| {
+                let content = fs::read_to_string(path).map_err(|error| {
+                    format!("Native sing-box MITM rollback snapshot could not be read: {error}")
+                })?;
+                let local_http_proxy = inspect_sing_box_native_config(&content)
+                    .and_then(|config| config.local_http_proxy)
+                    .map(|proxy| proxy.endpoint());
+                Ok::<_, String>((path.clone(), content, local_http_proxy))
+            })
+            .transpose()?;
+        let restart = stop_running_service_for_reconfigure(state)?;
+        let direct_proxy_server = if let Some((_, content, local_http_proxy)) = &native_snapshot {
+            write_managed_text_atomic(&sing_box.config_path, content).map_err(|error| {
+                format!(
+                    "Native sing-box configuration could not be restored after HTTPS MITM: {error}"
+                )
+            })?;
+            local_http_proxy.clone()
+        } else {
+            rewrite_managed_sing_box_listen_port(sing_box, SING_BOX_DIRECT_LISTEN_PORT)?;
+            Some(format!("127.0.0.1:{SING_BOX_DIRECT_LISTEN_PORT}"))
+        };
+        managed.system_proxy = direct_proxy_server.map(|server| WindowsProxySettings {
             enabled: true,
-            server: format!("127.0.0.1:{SING_BOX_DIRECT_LISTEN_PORT}"),
+            server,
             bypass: "<local>".to_string(),
         });
         write_managed_config(&windows_managed_config_path(), &managed)
             .map_err(|error| error.to_string())?;
+        if let Some((path, _, _)) = native_snapshot {
+            if let Err(error) = fs::remove_file(&path) {
+                let _ = append_managed_log(
+                    "gui",
+                    &format!(
+                        "native sing-box MITM rollback snapshot retained at {}: {error}",
+                        path.display()
+                    ),
+                );
+            }
+        }
 
         if let Ok(mut runtime_state) = read_managed_state(&windows_managed_state_path()) {
             if let Some(thumbprint) = runtime_state.native_mitm_certificate_sha1.take() {
@@ -1019,7 +1078,7 @@ mod gui {
     fn render_local_profile_config(
         state: &mut AppState,
         listen_port: u16,
-        allow_native_config: bool,
+        mode: ProfileRenderMode,
     ) -> Result<ImportedSingBoxProfile, String> {
         let executable_path = state
             .desktop
@@ -1043,14 +1102,19 @@ mod gui {
         fs::create_dir_all(&config_parent).map_err(|error| error.to_string())?;
 
         if let Some(native_config) = inspect_sing_box_native_config(&payload) {
-            if !allow_native_config {
-                return Err(
-                    "HTTPS MITM requires a basic GUI profile; native sing-box JSON is imported without changing its inbounds"
-                        .to_string(),
-                );
-            }
             let local_http_proxy = native_config.local_http_proxy.map(|proxy| proxy.endpoint());
-            fs::write(&config_path, native_config.json).map_err(|error| error.to_string())?;
+            let sing_box_config_snapshot_path = match mode {
+                ProfileRenderMode::Direct => {
+                    write_managed_text_atomic(&config_path, &native_config.json)
+                        .map_err(|error| error.to_string())?;
+                    None
+                }
+                ProfileRenderMode::NativeMitm => Some(stage_native_sing_box_mitm_config(
+                    &config_path,
+                    &native_config.json,
+                    listen_port,
+                )?),
+            };
             state.desktop.profile_source_path = Some(source_path);
             state.desktop.profile_node_id = None;
             save_desktop_state(&state.desktop)?;
@@ -1059,6 +1123,7 @@ mod gui {
                 config_path,
                 config_parent,
                 local_http_proxy,
+                sing_box_config_snapshot_path,
             });
         }
 
@@ -1085,7 +1150,8 @@ mod gui {
             listen_port,
         })
         .map_err(|error| error.to_string())?;
-        fs::write(&config_path, rendered.json).map_err(|error| error.to_string())?;
+        write_managed_text_atomic(&config_path, &rendered.json)
+            .map_err(|error| error.to_string())?;
 
         state.desktop.profile_source_path = Some(source_path);
         state.desktop.profile_node_id =
@@ -1096,42 +1162,42 @@ mod gui {
             config_path,
             config_parent,
             local_http_proxy: Some(format!("127.0.0.1:{listen_port}")),
+            sing_box_config_snapshot_path: None,
         })
+    }
+
+    fn stage_native_sing_box_mitm_config(
+        config_path: &Path,
+        original_json: &str,
+        listen_port: u16,
+    ) -> Result<PathBuf, String> {
+        let rewritten =
+            rewrite_sing_box_mixed_inbound_listener(original_json, "127.0.0.1", listen_port)
+                .map_err(|error| error.to_string())?;
+        let snapshot_path = windows_managed_data_directory()
+            .join("mitm")
+            .join("sing-box-config.before-mitm.json");
+        write_managed_text_atomic(&snapshot_path, original_json).map_err(|error| {
+            format!("Native sing-box MITM rollback snapshot could not be written: {error}")
+        })?;
+        write_managed_text_atomic(config_path, &rewritten).map_err(|error| {
+            format!("Native sing-box configuration could not be prepared for HTTPS MITM: {error}")
+        })?;
+        Ok(snapshot_path)
     }
 
     fn rewrite_managed_sing_box_listen_port(
         sing_box: &mut WindowsManagedSingBoxConfig,
         listen_port: u16,
     ) -> Result<(), String> {
-        let raw = fs::read(&sing_box.config_path).map_err(|error| {
+        let raw = fs::read_to_string(&sing_box.config_path).map_err(|error| {
             format!(
                 "Managed sing-box config could not be read for HTTPS MITM reconfiguration: {error}"
             )
         })?;
-        let mut config: serde_json::Value = serde_json::from_slice(&raw).map_err(|error| {
-            format!(
-                "Managed sing-box config is not valid JSON for HTTPS MITM reconfiguration: {error}"
-            )
-        })?;
-        let inbound = config
-            .get_mut("inbounds")
-            .and_then(serde_json::Value::as_array_mut)
-            .and_then(|inbounds| {
-                inbounds.iter_mut().find(|inbound| {
-                    inbound.get("tag").and_then(serde_json::Value::as_str) == Some("mixed-in")
-                })
-            })
-            .ok_or_else(|| {
-                "Managed sing-box config has no GUI-owned mixed-in inbound for HTTPS MITM reconfiguration"
-                    .to_string()
-            })?;
-        inbound["listen"] = serde_json::Value::String("127.0.0.1".to_string());
-        inbound["listen_port"] = serde_json::Value::from(listen_port);
-        fs::write(
-            &sing_box.config_path,
-            serde_json::to_vec_pretty(&config).map_err(|error| error.to_string())?,
-        )
-        .map_err(|error| {
+        let rewritten = rewrite_sing_box_mixed_inbound_listener(&raw, "127.0.0.1", listen_port)
+            .map_err(|error| error.to_string())?;
+        write_managed_text_atomic(&sing_box.config_path, &rewritten).map_err(|error| {
             format!(
                 "Managed sing-box config could not be written for HTTPS MITM reconfiguration: {error}"
             )

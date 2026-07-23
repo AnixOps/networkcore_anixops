@@ -330,7 +330,7 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前待发布切片
 
-### `v0.2.0-alpha.6`
+### `v0.2.0-alpha.7`
 
 状态：Windows managed client source slice；必须通过同 commit GitHub Actions CI、
 MSI install/uninstall smoke、package、attestation、publish eligibility 和 tag release
@@ -342,6 +342,9 @@ MSI install/uninstall smoke、package、attestation、publish eligibility 和 ta
   原样导入 service-owned `config.json`，不丢弃 TLS/REALITY/WebSocket/gRPC/multiplex/
   route/DNS 字段；local/wildcard `mixed` 或 `http` inbound 会提供系统代理端口，GUI 还可直接
   打开 `sing-box.log` 查看 `check -c` 与 runtime 输出。
+- 当 native JSON 明确包含 `type: mixed`、`tag: mixed-in` inbound 时，GUI HTTPS MITM
+  会将原始 JSON 保存为 rollback snapshot，只把该 inbound 改为 `127.0.0.1:7891` 的
+  SOCKS upstream listener；disable 后恢复原始 JSON 和其本地 mixed/http proxy endpoint。
 - GUI 的明确 `Enable HTTPS MITM` 动作生成受管 CA，配置 native HTTP(S) listener
   `127.0.0.1:7890`，并将 GUI 导入的 sing-box mixed inbound 转为本地 SOCKS upstream
   `127.0.0.1:7891`。`Disable HTTPS MITM` 停止 listener、恢复 direct mixed inbound、
@@ -356,12 +359,20 @@ MSI install/uninstall smoke、package、attestation、publish eligibility 和 ta
 
 - 不提供 remote subscription fetch 或完整多节点 selector；基础 profile renderer 仍不生成
   advanced transport，但 native sing-box JSON 作为不变的 core config 可保留这些字段。
-- GUI-controlled MITM 不会改写 imported native JSON 的 listener；该操作继续要求基础 GUI profile。
+- 不会改写没有明确 `type: mixed`、`tag: mixed-in` inbound 的 native JSON，也不会改写
+  其他 native inbound、outbound、route 或 DNS 字段。
 - 不支持 HTTP/2、HTTP/3/QUIC、chunked/streaming exchange、多 request CONNECT session、
   arbitrary plugin loading、remote script、JavaScript script dispatch、TUN、DNS interception、
   firewall mutation 或 transparent capture。
 
 ## 最新已发布切片
+
+### `v0.2.0-alpha.6`
+
+Windows managed client release：原生 sing-box JSON 可不经基础 renderer 原样导入
+service-owned config，保留 advanced transport、routing 和 DNS 字段，并检测 local/wildcard
+`mixed`/`http` inbound 作为系统代理端口；GUI 也提供直接打开 `sing-box.log` 的诊断入口。
+该 release 已包含 MSI 与 portable ZIP。
 
 ### `v0.2.0-alpha.5`
 
@@ -566,11 +577,11 @@ GitHub Actions release workflow 结果为准。
 
 ## 当前 main source 状态
 
-当前 Windows source release 切片是 `v0.2.0-alpha.6`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
+当前 Windows source release 切片是 `v0.2.0-alpha.7`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
 `v0.1.1-alpha.2` 的 Linux/Windows package、checksum、manifest、attestation 和 publish gate，并把
 受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI；Windows path 已切换到
 managed-client MSI，service、driver、installer、system proxy mutation、system trust store mutation 和 managed lifecycle
-已 active，并增加 operator-staged sing-box managed process、非阻塞 MSI service start、受 attestation 的 portable ZIP、GUI-controlled HTTP/1.1 HTTPS MITM/CA lifecycle、native sing-box JSON pass-through import 和 core-log access；remote subscription、HTTP/2/HTTP/3/QUIC、streaming、多 request CONNECT 和 JavaScript script dispatch 仍 blocked。用户可下载状态仍以 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。
+已 active，并增加 operator-staged sing-box managed process、非阻塞 MSI service start、受 attestation 的 portable ZIP、GUI-controlled HTTP/1.1 HTTPS MITM/CA lifecycle、native sing-box JSON pass-through import、core-log access，以及受控 `mixed-in` listener 的 snapshot/restore；remote subscription、HTTP/2/HTTP/3/QUIC、streaming、多 request CONNECT 和 JavaScript script dispatch 仍 blocked。用户可下载状态仍以 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。
 
 ## 已拍板后续版本节奏
 

@@ -8,7 +8,7 @@ current Windows package.
 ```text
 windows-managed-client-source-release-contract=present
 windows-managed-client-release-state=implementation-active
-windows-managed-client-version-scope=v0.2.0-alpha.6
+windows-managed-client-version-scope=v0.2.0-alpha.7
 WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active
 windows-managed-client-runner=windows-latest
 windows-managed-client-runner-kind=github-hosted
@@ -34,6 +34,7 @@ windows-managed-client-sing-box-bundled=blocked
 windows-managed-client-sing-box-gui-install=active
 windows-managed-client-local-profile-import=active
 windows-managed-client-sing-box-native-json-import=active
+windows-managed-client-sing-box-native-json-mitm=controlled-mixed-in-snapshot-restore-active
 windows-managed-client-remote-subscription-fetch=blocked
 windows-managed-client-sing-box-basic-protocols=shadowsocks-trojan-vless-vmess
 windows-managed-client-sing-box-advanced-transport-rendering=blocked
@@ -72,9 +73,12 @@ proxy endpoint; a native document without one leaves system-proxy configuration
 unset. Other supported local inputs pass through `CoreSubscriptionService` and
 render the basic Shadowsocks, Trojan, VLESS, and VMess node fields. Trojan
 receives required TLS enablement; VLESS and VMess render basic TCP only.
-Remote subscription fetching remains blocked. GUI-controlled HTTPS MITM uses
-the basic-profile renderer because it owns and changes the `mixed-in` listener
-port; it does not mutate an imported native config.
+Remote subscription fetching remains blocked. GUI-controlled HTTPS MITM can
+also use a native document only when it contains a `type: mixed`,
+`tag: mixed-in` inbound. The GUI snapshots the original imported JSON below
+`%ProgramData%\\AnixOps\\NetworkCore\\mitm`, changes only that inbound to the
+loopback SOCKS upstream listener, and restores the snapshot on disable. Native
+documents without that explicit controlled inbound are not modified for MITM.
 
 The GUI `Enable HTTPS MITM` action generates a service-owned CA key pair below
 `%ProgramData%\\AnixOps\\NetworkCore\\mitm`, moves sing-box to the loopback
@@ -83,8 +87,9 @@ SOCKS upstream at `127.0.0.1:7891`, and writes a native MITM listener at
 starts sing-box before the native listener, issues authority-bound leaf
 certificates, terminates downstream TLS, verifies upstream TLS, and applies the
 built-in policy hook to a bounded HTTP/1.1 request/response exchange. Disable
-stops the listener, returns sing-box to `127.0.0.1:7890`, removes the managed
-ROOT entry, and deletes the generated private key.
+stops the listener, restores a recorded native JSON snapshot when present (or
+returns a basic renderer config to `127.0.0.1:7890`), removes the managed ROOT
+entry, and deletes the generated private key.
 
 The service validates the generated or operator-supplied native JSON with
 `check -c`, owns `run -c`, persists PID/exit state, and redirects core

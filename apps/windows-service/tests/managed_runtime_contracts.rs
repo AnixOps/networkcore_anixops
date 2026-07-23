@@ -388,6 +388,7 @@ fn managed_runtime_owns_native_https_mitm_lifecycle() {
         ca_certificate_path: certificate_path,
         ca_private_key_path: private_key_path,
         log_path: root.join("native-mitm.log"),
+        sing_box_config_snapshot_path: None,
     });
     write_managed_config(&config_path, &config).expect("config writes");
     let events = Rc::new(RefCell::new(Vec::new()));

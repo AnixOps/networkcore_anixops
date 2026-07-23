@@ -28,8 +28,10 @@ The profile importer renders basic Shadowsocks, Trojan, VLESS, and VMess nodes.
 Trojan enables TLS; VLESS and VMess are basic TCP only. A native sing-box JSON
 file with top-level inbounds or outbounds is instead copied unchanged, so
 TLS/REALITY/WebSocket/gRPC/multiplex/DNS/route fields are preserved. Use the
-basic profile path for Enable HTTPS MITM because that action owns the mixed
-listener port.
+basic profile path or a native config with type "mixed" and tag "mixed-in" for
+Enable HTTPS MITM. For that exact native inbound, the GUI saves an original JSON
+snapshot, moves only the listener to 127.0.0.1:7891, and restores it when MITM
+is disabled. Other native inbounds are not modified.
 
 sing-box is not bundled. The HTTPS MITM path handles explicit HTTP proxy
 traffic and controlled HTTP/1.1 TLS sessions only. It does not support HTTP/2,

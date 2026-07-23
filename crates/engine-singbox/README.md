@@ -14,6 +14,9 @@ The crate currently provides source contracts for:
   basic Shadowsocks, Trojan, VLESS, or VMess `NodeDescriptor`.
 - Recognizing a native sing-box JSON configuration without transforming it and
   locating a local `mixed` or `http` inbound for Windows system-proxy setup.
+- Rewriting only a native `type: mixed`, `tag: mixed-in` listener for the
+  Windows GUI's controlled MITM SOCKS upstream, while leaving snapshot and
+  restoration ownership to the Windows managed-client lifecycle.
 - Running `sing-box run -c <config>` through an injectable foreground process runner.
 - A managed process supervisor that executes `check -c` before `run -c`, owns the
   child process, captures stdout/stderr into an explicit log file, and reports

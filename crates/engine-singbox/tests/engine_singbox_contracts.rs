@@ -4,12 +4,13 @@ use control_domain::{
     NODE_METADATA_TROJAN_PASSWORD, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_UUID,
 };
 use engine_singbox::{
-    inspect_sing_box_native_config, GithubSingBoxReleaseInstaller, SingBoxHttpClient,
-    SingBoxInstallRequest, SingBoxLocalProxyConfigRequest, SingBoxManagedProcessState,
-    SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch,
-    SingBoxTargetOs, DEFAULT_SING_BOX_ENGINE_ID, ENGINE_SINGBOX_CONFIG_RENDERED_CODE,
-    ENGINE_SINGBOX_DOWNLOAD_ASSET_SELECTED_CODE, ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE,
-    ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE,
+    inspect_sing_box_native_config, rewrite_sing_box_mixed_inbound_listener,
+    GithubSingBoxReleaseInstaller, SingBoxHttpClient, SingBoxInstallRequest,
+    SingBoxLocalProxyConfigRequest, SingBoxManagedProcessState, SingBoxManagedProcessSupervisor,
+    SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
+    DEFAULT_SING_BOX_ENGINE_ID, ENGINE_SINGBOX_CONFIG_MIXED_INBOUND_MISSING_CODE,
+    ENGINE_SINGBOX_CONFIG_RENDERED_CODE, ENGINE_SINGBOX_DOWNLOAD_ASSET_SELECTED_CODE,
+    ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE, ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE,
     ENGINE_SINGBOX_DOWNLOAD_LATEST_VERSION_RESOLVED_CODE,
 };
 use flate2::{write::DeflateEncoder, write::GzEncoder, Compression};
@@ -260,6 +261,59 @@ fn native_config_import_selects_a_later_loopback_http_inbound() {
             .map(|proxy| proxy.endpoint()),
         Some("127.0.0.1:2080".to_string())
     );
+}
+
+#[test]
+fn native_mitm_rewrite_only_changes_the_controlled_mixed_inbound_listener() {
+    let raw = r#"
+{
+  "inbounds": [
+    { "type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": 2080 },
+    { "type": "tun", "tag": "tun-in", "mtu": 9000 }
+  ],
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "reality-ws",
+      "server": "edge.example.test",
+      "server_port": 443,
+      "uuid": "00000000-0000-0000-0000-000000000001",
+      "tls": { "enabled": true, "reality": { "enabled": true, "public_key": "fixture" } },
+      "transport": { "type": "ws", "path": "/gateway" }
+    }
+  ],
+  "route": { "final": "reality-ws" },
+  "dns": { "servers": [{ "tag": "local", "address": "local" }] }
+}
+"#;
+
+    let rewritten = rewrite_sing_box_mixed_inbound_listener(raw, "127.0.0.1", 7891)
+        .expect("controlled mixed inbound can be rewritten");
+    let json: serde_json::Value =
+        serde_json::from_str(&rewritten).expect("rewritten config remains valid JSON");
+
+    assert_eq!(json["inbounds"][0]["listen"], "127.0.0.1");
+    assert_eq!(json["inbounds"][0]["listen_port"], 7891);
+    assert_eq!(json["inbounds"][1]["mtu"], 9000);
+    assert_eq!(
+        json["outbounds"][0]["tls"]["reality"]["public_key"],
+        "fixture"
+    );
+    assert_eq!(json["outbounds"][0]["transport"]["path"], "/gateway");
+    assert_eq!(json["route"]["final"], "reality-ws");
+    assert_eq!(json["dns"]["servers"][0]["address"], "local");
+}
+
+#[test]
+fn native_mitm_rewrite_rejects_configs_without_a_controlled_mixed_inbound() {
+    let error = rewrite_sing_box_mixed_inbound_listener(
+        r#"{ "inbounds": [{ "type": "http", "tag": "mixed-in", "listen_port": 7890 }] }"#,
+        "127.0.0.1",
+        7891,
+    )
+    .expect_err("an HTTP-only or untagged inbound cannot be a SOCKS upstream");
+
+    assert_eq!(error.code, ENGINE_SINGBOX_CONFIG_MIXED_INBOUND_MISSING_CODE);
 }
 
 #[test]
