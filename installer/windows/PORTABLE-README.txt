@@ -1,26 +1,28 @@
 AnixOps NetworkCore Windows portable package
 
 1. Extract the entire directory to a writable location.
-2. Run networkcore-windows-gui.exe. Approve the administrator prompt when
-   using service, proxy, certificate, or driver operations.
-3. Click Install core in the sing-box profile section when a proxy core is
+2. Run networkcore-windows-gui.exe. Approve the administrator prompt with the
+   shown reason when using service, proxy, certificate, or driver operations.
+3. In Settings, click Install sing-box when a proxy core is
    needed. This explicitly downloads the official Windows core; the ZIP itself
    does not contain a third-party core.
-4. Enter a local profile file path or HTTP(S) subscription URL, click Load nodes,
-   choose a node, then click Import profile. A blank selector uses the first
-   supported node. After installing and starting the service, Load nodes can be
-   used again with Check core to confirm the active generated outbound, then
-   Test delay to make one selected-node measurement through an editable HTTPS
-   Delay URL, then Switch active to make an explicit runtime node change. The
+4. In Subscriptions, enter a local profile file path or HTTP(S) URL, click Load
+   nodes, choose a node in Nodes, then click Import profile. A blank selector
+   uses the first supported node. After importing, Home shows the selected
+   node, subscription, core, service, and current-user proxy states. Nodes can
+   use Check core to confirm the active generated outbound, Test delay to make
+   one selected-node measurement through an editable HTTPS Delay URL, then
+   Switch active to make an explicit runtime node change. The
    generated selector uses only the local 127.0.0.1:9091 Clash API
    controller; it has no LAN listener, Web UI, automatic latency selection,
    background update, or automatic restart. Native sing-box JSON stays pass-through. After a successful
    URL import, Update URL explicitly refreshes that saved address; it does not
    run in the background or restart the service.
-5. Click Enable HTTPS MITM when the explicit local HTTP(S) proxy and managed
+5. In Advanced, click Enable HTTPS MITM when the explicit local HTTP(S) proxy and managed
    CA are required. The core then runs as a SOCKS upstream on 127.0.0.1:7891;
    the native HTTP(S) proxy listens on 127.0.0.1:7890.
-6. Click Install service, then Start, only when a Windows service is wanted.
+6. In Advanced, click Install service. Then use Home Connect; it verifies the
+   service and core before applying the current user's proxy setting.
 
 The portable ZIP does not register or start the service during extraction. It
 is included with every Windows tag release alongside the MSI and its own

@@ -28,14 +28,16 @@ removal commands.
 
 The MSI installs the files, registers `AnixOpsNetworkCore`, and requests an
 asynchronous first start. The service completes its SCM startup handshake before
-it applies managed configuration, and GUI/CLI start commands return the
+it applies managed configuration, and the CLI start command returns the
 immediately observed SCM state instead of waiting for the runtime. An invalid
-previous configuration therefore cannot leave the installer or Start action
+previous configuration therefore cannot leave the installer or service request
 stuck; the service returns to `Stopped` and records the error in `service.log`.
-GUI `Start` and `Restart` do not pre-apply `system_proxy`; the service captures
-and owns the managed runtime proxy snapshot so a later core failure rolls back
-to the actual pre-service settings. The manual GUI `Enable proxy` and `Restore
-proxy` actions remain separate from that service-owned lifecycle.
+The GUI Home `Connect` command waits off the UI thread for SCM and the
+service-owned sing-box PID, then applies the configured proxy only for the
+interactive user. It does not pre-apply `system_proxy`; its separate desktop
+snapshot is restored before disconnect and on a later observed core/config
+failure. The manual GUI `Enable proxy` and `Restore proxy` actions remain
+explicit recovery controls.
 While the service is running, it polls its owned sing-box process. An unexpected
 core exit is written to the managed runtime state and `service.log`; the service
 stops runtime resources, restores its proxy snapshot, and returns SCM to

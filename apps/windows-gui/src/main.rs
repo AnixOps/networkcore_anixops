@@ -16,6 +16,17 @@ fn main() {
 
 #[cfg(windows)]
 mod gui {
+    mod commands;
+    mod runtime_status;
+    mod theme;
+    mod ui_state;
+
+    use self::commands::{dispatch as dispatch_command, CommandCompletion};
+    use self::runtime_status::{read_runtime_status, WindowsRuntimeStatus};
+    use self::theme::ThemeMode;
+    use self::ui_state::{
+        can_start_operation, user_facing_error, ConnectionState, OperationKind, UiPage,
+    };
     use config_core::CoreSubscriptionService;
     use control_domain::{NodeDescriptor, SubscriptionService, SubscriptionSource};
     use engine_singbox::{
@@ -49,22 +60,35 @@ mod gui {
     use std::mem::zeroed;
     use std::path::{Path, PathBuf};
     use std::ptr::{null, null_mut};
-    use std::time::Duration;
-    use windows_sys::Win32::Foundation::{GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
+    use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+    use std::time::{Duration, Instant};
+    use windows_sys::Win32::Foundation::{
+        GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, SYSTEMTIME, WPARAM,
+    };
     use windows_sys::Win32::Graphics::Gdi::{
-        GetStockObject, UpdateWindow, COLOR_WINDOW, DEFAULT_GUI_FONT,
+        CreateSolidBrush, DeleteObject, GetStockObject, InvalidateRect, SetBkColor, SetTextColor,
+        UpdateWindow, COLOR_WINDOW, DEFAULT_GUI_FONT, HBRUSH,
+    };
+    use windows_sys::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
     };
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::System::Memory::{
+        GlobalAlloc, GlobalFree, GlobalLock, GlobalUnlock, GMEM_MOVEABLE,
+    };
+    use windows_sys::Win32::System::SystemInformation::GetLocalTime;
     use windows_sys::Win32::UI::Shell::{IsUserAnAdmin, ShellExecuteW};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
-        GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, LoadCursorW, MessageBoxW,
-        PostQuitMessage, RegisterClassW, SendMessageW, SetWindowLongPtrW, SetWindowTextW,
-        ShowWindow, TranslateMessage, BS_GROUPBOX, CBS_DROPDOWN, CB_ADDSTRING, CB_RESETCONTENT,
-        CB_SETCURSEL, CW_USEDEFAULT, ES_AUTOHSCROLL, GWLP_USERDATA, HMENU, IDC_ARROW, MB_ICONERROR,
-        MB_OK, MSG, SW_SHOWNORMAL, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_NCDESTROY,
-        WM_SETFONT, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN, WS_OVERLAPPED,
-        WS_SYSMENU, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, EnableWindow,
+        GetMessageW, GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, KillTimer,
+        LoadCursorW, MessageBoxW, PostQuitMessage, RegisterClassW, SendMessageW, SetTimer,
+        SetWindowLongPtrW, SetWindowTextW, ShowWindow, TranslateMessage, BS_GROUPBOX, CBS_DROPDOWN,
+        CB_ADDSTRING, CB_RESETCONTENT, CB_SETCURSEL, CW_USEDEFAULT, ES_AUTOHSCROLL, GWLP_USERDATA,
+        HMENU, IDC_ARROW, MB_ICONERROR, MB_OK, MINMAXINFO, MSG, SW_HIDE, SW_SHOW, SW_SHOWNORMAL,
+        WM_CLOSE, WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX,
+        WM_CTLCOLORSTATIC, WM_DESTROY, WM_GETMINMAXINFO, WM_NCDESTROY, WM_SETFONT, WM_TIMER,
+        WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN, WS_MAXIMIZEBOX, WS_OVERLAPPED,
+        WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE, WS_VSCROLL,
     };
 
     const APP_CLASS: &str = "AnixOpsNetworkCoreWindow";
@@ -98,13 +122,26 @@ mod gui {
     const ID_OPEN_LOGS: usize = 151;
     const ID_OPEN_CORE_LOG: usize = 152;
     const ID_SHOW_DIAGNOSTICS: usize = 153;
+    const ID_COPY_DIAGNOSTICS: usize = 154;
+    const ID_CONNECT: usize = 160;
+    const ID_DISCONNECT: usize = 161;
+    const ID_NAV_HOME: usize = 170;
+    const ID_NAV_NODES: usize = 171;
+    const ID_NAV_SUBSCRIPTIONS: usize = 172;
+    const ID_NAV_SETTINGS: usize = 173;
+    const ID_NAV_DIAGNOSTICS: usize = 174;
+    const ID_NAV_ADVANCED: usize = 175;
+    const ID_TOGGLE_THEME: usize = 176;
+    const ID_FILTER_PROFILE_NODES: usize = 177;
+    const BACKGROUND_TIMER_ID: usize = 1;
+    const BACKGROUND_TIMER_INTERVAL_MILLIS: u32 = 150;
 
     const SING_BOX_DIRECT_LISTEN_PORT: u16 = 7890;
     const SING_BOX_MITM_UPSTREAM_PORT: u16 = 7891;
     const NATIVE_MITM_LISTEN_PORT: u16 = 7890;
     const MITM_CA_SUBJECT: &str = "AnixOps NetworkCore Windows HTTPS MITM CA";
 
-    #[derive(Debug, Default, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
     struct DesktopState {
         proxy_snapshot: Option<WindowsProxySnapshot>,
         certificate_sha1: Option<String>,
@@ -121,9 +158,76 @@ mod gui {
         delay_test_url: Option<String>,
         #[serde(default)]
         debug_enabled: bool,
+        #[serde(default)]
+        dark_theme: bool,
+        #[serde(default)]
+        profile_last_successful_update: Option<String>,
+        #[serde(default)]
+        profile_last_update_error: Option<String>,
+    }
+
+    struct PagePanels {
+        home: HWND,
+        nodes: HWND,
+        subscriptions: HWND,
+        settings: HWND,
+        diagnostics: HWND,
+        advanced: HWND,
+    }
+
+    struct DailyShell {
+        panels: PagePanels,
+        page_title: HWND,
+        status_summary: HWND,
+        theme_button: HWND,
+        home_connection: HWND,
+        home_node: HWND,
+        home_subscription: HWND,
+        home_core: HWND,
+        home_service: HWND,
+        home_proxy: HWND,
+        home_failure: HWND,
+        subscriptions_status: HWND,
+        nodes_search: HWND,
+        nodes_protocol_filter: HWND,
+        config_path: HWND,
+        profile_source: HWND,
+        profile_node_id: HWND,
+        delay_test_url: HWND,
+        profile_delay_status: HWND,
+        profile_runtime_status: HWND,
+        proxy_server: HWND,
+        proxy_bypass: HWND,
+        activity: HWND,
+        debug_status: HWND,
+        certificate_path: HWND,
+        driver_path: HWND,
+    }
+
+    struct ThemeBrushes {
+        surface: HBRUSH,
+    }
+
+    impl ThemeBrushes {
+        unsafe fn new(mode: ThemeMode) -> Self {
+            Self {
+                surface: CreateSolidBrush(self::theme::palette(mode).surface),
+            }
+        }
+    }
+
+    impl Drop for ThemeBrushes {
+        fn drop(&mut self) {
+            if !self.surface.is_null() {
+                unsafe {
+                    DeleteObject(self.surface as _);
+                }
+            }
+        }
     }
 
     struct AppState {
+        window: HWND,
         integration: NativeWindowsSystemIntegration,
         service_status: HWND,
         activity: HWND,
@@ -140,6 +244,15 @@ mod gui {
         driver_path: HWND,
         desktop: DesktopState,
         profile_nodes: Vec<ProfileNodeOption>,
+        profile_node_catalog: Vec<ProfileNodeOption>,
+        current_page: UiPage,
+        daily: Option<DailyShell>,
+        theme: ThemeMode,
+        theme_brushes: ThemeBrushes,
+        pending_operation: Option<OperationKind>,
+        command_sender: Sender<CommandCompletion<BackgroundPayload>>,
+        command_receiver: Receiver<CommandCompletion<BackgroundPayload>>,
+        last_runtime_refresh: Instant,
     }
 
     struct ImportedSingBoxProfile {
@@ -156,10 +269,25 @@ mod gui {
         source_url: Option<String>,
     }
 
+    #[derive(Clone)]
     struct ProfileNodeOption {
         id: String,
         label: String,
+        protocol: String,
         selector_outbound_tag: Option<String>,
+    }
+
+    enum BackgroundPayload {
+        Connected(WindowsProxySnapshot),
+        Service(String),
+        CoreInstalled(PathBuf),
+        ConfigurationValidated,
+        NodesLoaded(Vec<ProfileNodeOption>),
+        ProfileLoaded(ProfilePayload),
+        NodeSwitched(String),
+        DelayMeasured(String),
+        CoreChecked(String),
+        DiagnosticReport(PathBuf),
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -205,11 +333,16 @@ mod gui {
                 0,
                 class_name.as_ptr(),
                 title.as_ptr(),
-                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_CLIPCHILDREN,
+                WS_OVERLAPPED
+                    | WS_CAPTION
+                    | WS_SYSMENU
+                    | WS_THICKFRAME
+                    | WS_MAXIMIZEBOX
+                    | WS_CLIPCHILDREN,
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
-                980,
-                1_090,
+                1_180,
+                820,
                 null_mut(),
                 null_mut(),
                 instance,
@@ -266,6 +399,12 @@ mod gui {
             WM_CREATE => match create_interface(window) {
                 Ok(state) => {
                     SetWindowLongPtrW(window, GWLP_USERDATA, Box::into_raw(state) as isize);
+                    SetTimer(
+                        window,
+                        BACKGROUND_TIMER_ID,
+                        BACKGROUND_TIMER_INTERVAL_MILLIS,
+                        None,
+                    );
                     with_state(window, |state| refresh(state));
                     0
                 }
@@ -279,11 +418,33 @@ mod gui {
                 with_state(window, |state| handle_command(state, id));
                 0
             }
+            WM_TIMER if wparam == BACKGROUND_TIMER_ID => {
+                with_state(window, |state| poll_background_commands(state));
+                0
+            }
+            WM_GETMINMAXINFO => {
+                let info = &mut *(lparam as *mut MINMAXINFO);
+                info.ptMinTrackSize.x = 1_100;
+                info.ptMinTrackSize.y = 760;
+                0
+            }
+            WM_CTLCOLORSTATIC | WM_CTLCOLORBTN | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX => {
+                let pointer = GetWindowLongPtrW(window, GWLP_USERDATA) as *mut AppState;
+                if pointer.is_null() {
+                    return DefWindowProcW(window, message, wparam, lparam);
+                }
+                let state = &mut *pointer;
+                let palette = self::theme::palette(state.theme);
+                SetTextColor(wparam as _, palette.text);
+                SetBkColor(wparam as _, palette.surface);
+                state.theme_brushes.surface as isize
+            }
             WM_CLOSE => {
                 DestroyWindow(window);
                 0
             }
             WM_DESTROY => {
+                KillTimer(window, BACKGROUND_TIMER_ID);
                 PostQuitMessage(0);
                 0
             }
@@ -313,6 +474,1004 @@ mod gui {
         if std::env::args().any(|argument| argument == "--debug" || argument == "-d") {
             desktop.debug_enabled = true;
         }
+        let theme = if desktop.dark_theme {
+            ThemeMode::Dark
+        } else {
+            ThemeMode::Light
+        };
+        let (command_sender, command_receiver) = mpsc::channel();
+        let shell = create_daily_shell(window, instance, font, &desktop);
+        let mut state = Box::new(AppState {
+            window,
+            integration: NativeWindowsSystemIntegration::new(),
+            service_status: shell.home_service,
+            activity: shell.activity,
+            debug_status: shell.debug_status,
+            config_path: shell.config_path,
+            profile_source: shell.profile_source,
+            profile_node_id: shell.profile_node_id,
+            delay_test_url: shell.delay_test_url,
+            profile_delay_status: shell.profile_delay_status,
+            profile_runtime_status: shell.profile_runtime_status,
+            proxy_server: shell.proxy_server,
+            proxy_bypass: shell.proxy_bypass,
+            certificate_path: shell.certificate_path,
+            driver_path: shell.driver_path,
+            desktop,
+            profile_nodes: Vec::new(),
+            profile_node_catalog: Vec::new(),
+            current_page: UiPage::Home,
+            daily: Some(shell),
+            theme,
+            theme_brushes: ThemeBrushes::new(theme),
+            pending_operation: None,
+            command_sender,
+            command_receiver,
+            last_runtime_refresh: Instant::now(),
+        });
+        let _ = save_desktop_state(&state.desktop);
+        load_configuration_fields(&mut state);
+        update_debug_status(&mut state);
+        switch_page(&mut state, UiPage::Home);
+        refresh(&mut state);
+        Ok(state)
+    }
+
+    unsafe fn create_daily_shell(
+        window: HWND,
+        instance: HINSTANCE,
+        font: *mut std::ffi::c_void,
+        desktop: &DesktopState,
+    ) -> DailyShell {
+        create_group(window, instance, font, "", 14, 14, 190, 740);
+        create_label(window, instance, font, "ANIXOPS", 32, 36, 150, 20);
+        create_label(window, instance, font, "NetworkCore", 32, 58, 150, 26);
+        create_label(
+            window,
+            instance,
+            font,
+            "Windows proxy client",
+            32,
+            86,
+            150,
+            20,
+        );
+        create_button(
+            window,
+            instance,
+            font,
+            "Home",
+            ID_NAV_HOME,
+            28,
+            126,
+            160,
+            34,
+        );
+        create_button(
+            window,
+            instance,
+            font,
+            "Nodes",
+            ID_NAV_NODES,
+            28,
+            170,
+            160,
+            34,
+        );
+        create_button(
+            window,
+            instance,
+            font,
+            "Subscriptions",
+            ID_NAV_SUBSCRIPTIONS,
+            28,
+            214,
+            160,
+            34,
+        );
+        create_button(
+            window,
+            instance,
+            font,
+            "Settings",
+            ID_NAV_SETTINGS,
+            28,
+            258,
+            160,
+            34,
+        );
+        create_button(
+            window,
+            instance,
+            font,
+            "Diagnostics",
+            ID_NAV_DIAGNOSTICS,
+            28,
+            302,
+            160,
+            34,
+        );
+        create_button(
+            window,
+            instance,
+            font,
+            "Advanced",
+            ID_NAV_ADVANCED,
+            28,
+            346,
+            160,
+            34,
+        );
+        let theme_button = create_button(
+            window,
+            instance,
+            font,
+            if desktop.dark_theme {
+                "Use light mode"
+            } else {
+                "Use dark mode"
+            },
+            ID_TOGGLE_THEME,
+            28,
+            688,
+            160,
+            32,
+        );
+
+        let page_title = create_label(window, instance, font, "Home", 228, 22, 550, 28);
+        let status_summary = create_label(
+            window,
+            instance,
+            font,
+            "Reading Windows runtime status...",
+            228,
+            52,
+            900,
+            22,
+        );
+        let panels = PagePanels {
+            home: create_page_panel(window, instance, 220, 88),
+            nodes: create_page_panel(window, instance, 220, 88),
+            subscriptions: create_page_panel(window, instance, 220, 88),
+            settings: create_page_panel(window, instance, 220, 88),
+            diagnostics: create_page_panel(window, instance, 220, 88),
+            advanced: create_page_panel(window, instance, 220, 88),
+        };
+
+        create_label(panels.home, instance, font, "Connection", 24, 20, 220, 22);
+        let home_connection = create_label(
+            panels.home,
+            instance,
+            font,
+            "Not connected",
+            24,
+            48,
+            360,
+            34,
+        );
+        create_button(
+            panels.home,
+            instance,
+            font,
+            "Connect",
+            ID_CONNECT,
+            24,
+            96,
+            160,
+            38,
+        );
+        create_button(
+            panels.home,
+            instance,
+            font,
+            "Disconnect",
+            ID_DISCONNECT,
+            196,
+            96,
+            160,
+            38,
+        );
+        create_button(
+            panels.home,
+            instance,
+            font,
+            "Refresh",
+            ID_REFRESH,
+            368,
+            96,
+            120,
+            38,
+        );
+        create_button(
+            panels.home,
+            instance,
+            font,
+            "Restore network settings",
+            ID_RESTORE_PROXY,
+            500,
+            96,
+            200,
+            38,
+        );
+        let home_failure = create_label(panels.home, instance, font, "", 24, 150, 850, 42);
+        create_group(
+            panels.home,
+            instance,
+            font,
+            "Current session",
+            20,
+            208,
+            860,
+            242,
+        );
+        create_label(
+            panels.home,
+            instance,
+            font,
+            "Current node",
+            42,
+            242,
+            150,
+            22,
+        );
+        let home_node = create_label(
+            panels.home,
+            instance,
+            font,
+            "Not selected",
+            210,
+            242,
+            630,
+            22,
+        );
+        create_label(
+            panels.home,
+            instance,
+            font,
+            "Subscription",
+            42,
+            282,
+            150,
+            22,
+        );
+        let home_subscription = create_label(
+            panels.home,
+            instance,
+            font,
+            "Not imported",
+            210,
+            282,
+            630,
+            22,
+        );
+        create_label(
+            panels.home,
+            instance,
+            font,
+            "sing-box core",
+            42,
+            322,
+            150,
+            22,
+        );
+        let home_core = create_label(
+            panels.home,
+            instance,
+            font,
+            "Not configured",
+            210,
+            322,
+            630,
+            22,
+        );
+        create_label(
+            panels.home,
+            instance,
+            font,
+            "Windows service",
+            42,
+            362,
+            150,
+            22,
+        );
+        let home_service = create_label(panels.home, instance, font, "Loading", 210, 362, 630, 22);
+        create_label(
+            panels.home,
+            instance,
+            font,
+            "System proxy",
+            42,
+            402,
+            150,
+            22,
+        );
+        let home_proxy = create_label(panels.home, instance, font, "Loading", 210, 402, 630, 22);
+
+        create_label(panels.nodes, instance, font, "Nodes", 24, 20, 300, 26);
+        create_label(
+            panels.nodes,
+            instance,
+            font,
+            "Only imported NodeCatalog profiles expose runtime selector controls. Native sing-box JSON remains pass-through.",
+            24,
+            50,
+            850,
+            36,
+        );
+        create_label(panels.nodes, instance, font, "Search", 24, 110, 80, 22);
+        let nodes_search = create_edit(panels.nodes, instance, font, "", 106, 106, 290, 28);
+        create_label(panels.nodes, instance, font, "Protocol", 414, 110, 80, 22);
+        let nodes_protocol_filter =
+            create_profile_node_selector(panels.nodes, instance, font, "All", 488, 106, 180, 28);
+        for value in [
+            "All",
+            "Shadowsocks",
+            "Trojan",
+            "VLESS",
+            "VMess",
+            "Hysteria2",
+            "TUIC",
+        ] {
+            let value = wide(value);
+            SendMessageW(
+                nodes_protocol_filter,
+                CB_ADDSTRING,
+                0,
+                value.as_ptr() as isize,
+            );
+        }
+        SendMessageW(nodes_protocol_filter, CB_SETCURSEL, 0, 0);
+        create_button(
+            panels.nodes,
+            instance,
+            font,
+            "Filter",
+            ID_FILTER_PROFILE_NODES,
+            684,
+            106,
+            100,
+            30,
+        );
+        create_label(
+            panels.nodes,
+            instance,
+            font,
+            "Selected node",
+            24,
+            162,
+            110,
+            22,
+        );
+        let profile_node_id =
+            create_profile_node_selector(panels.nodes, instance, font, "", 140, 158, 540, 28);
+        create_button(
+            panels.nodes,
+            instance,
+            font,
+            "Switch active",
+            ID_SWITCH_PROFILE_NODE,
+            694,
+            158,
+            150,
+            30,
+        );
+        create_label(panels.nodes, instance, font, "Delay URL", 24, 214, 100, 22);
+        let delay_test_url = create_edit(
+            panels.nodes,
+            instance,
+            font,
+            desktop
+                .delay_test_url
+                .as_deref()
+                .unwrap_or(DEFAULT_SING_BOX_CLASH_API_DELAY_TEST_URL),
+            140,
+            210,
+            440,
+            28,
+        );
+        create_button(
+            panels.nodes,
+            instance,
+            font,
+            "Test delay",
+            ID_TEST_PROFILE_NODE_DELAY,
+            594,
+            210,
+            120,
+            30,
+        );
+        let profile_delay_status = create_label(
+            panels.nodes,
+            instance,
+            font,
+            "Not tested",
+            730,
+            214,
+            130,
+            22,
+        );
+        create_button(
+            panels.nodes,
+            instance,
+            font,
+            "Check core",
+            ID_CHECK_PROFILE_RUNTIME,
+            24,
+            266,
+            120,
+            30,
+        );
+        let profile_runtime_status = create_label(
+            panels.nodes,
+            instance,
+            font,
+            "Core has not been checked",
+            160,
+            270,
+            690,
+            22,
+        );
+
+        create_label(
+            panels.subscriptions,
+            instance,
+            font,
+            "Subscription",
+            24,
+            20,
+            300,
+            26,
+        );
+        create_label(
+            panels.subscriptions,
+            instance,
+            font,
+            "Import a local profile or explicitly update one HTTP(S) URL. Failed updates keep the current working profile.",
+            24,
+            50,
+            850,
+            36,
+        );
+        create_label(
+            panels.subscriptions,
+            instance,
+            font,
+            "Profile / URL",
+            24,
+            110,
+            100,
+            22,
+        );
+        let profile_source_text = desktop
+            .profile_source_url
+            .clone()
+            .or_else(|| {
+                desktop
+                    .profile_source_path
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().into_owned())
+            })
+            .unwrap_or_default();
+        let profile_source = create_edit(
+            panels.subscriptions,
+            instance,
+            font,
+            &profile_source_text,
+            132,
+            106,
+            620,
+            28,
+        );
+        create_button(
+            panels.subscriptions,
+            instance,
+            font,
+            "Load nodes",
+            ID_LOAD_PROFILE_NODES,
+            24,
+            160,
+            130,
+            32,
+        );
+        create_button(
+            panels.subscriptions,
+            instance,
+            font,
+            "Import profile",
+            ID_IMPORT_PROFILE,
+            166,
+            160,
+            140,
+            32,
+        );
+        create_button(
+            panels.subscriptions,
+            instance,
+            font,
+            "Update saved URL",
+            ID_UPDATE_PROFILE,
+            318,
+            160,
+            160,
+            32,
+        );
+        let subscriptions_status = create_label(
+            panels.subscriptions,
+            instance,
+            font,
+            "No subscription has been imported.",
+            24,
+            216,
+            830,
+            46,
+        );
+        create_group(
+            panels.subscriptions,
+            instance,
+            font,
+            "Supported import formats",
+            20,
+            290,
+            860,
+            126,
+        );
+        create_label(
+            panels.subscriptions,
+            instance,
+            font,
+            "Shadowsocks, Trojan, VLESS, VMess, Hysteria2, TUIC, supported Clash/Sing-box/Surge/Loon/Quantumult X catalogs, and native sing-box JSON.",
+            40,
+            324,
+            810,
+            42,
+        );
+        create_label(
+            panels.subscriptions,
+            instance,
+            font,
+            "Scheduled refresh, subscription groups, route/rule fetching, and automatic node selection are not available.",
+            40,
+            374,
+            810,
+            22,
+        );
+
+        create_label(panels.settings, instance, font, "Settings", 24, 20, 300, 26);
+        create_label(
+            panels.settings,
+            instance,
+            font,
+            "Managed configuration",
+            24,
+            62,
+            230,
+            22,
+        );
+        let config_path = create_edit(
+            panels.settings,
+            instance,
+            font,
+            windows_managed_config_path().to_string_lossy().as_ref(),
+            24,
+            92,
+            560,
+            28,
+        );
+        create_button(
+            panels.settings,
+            instance,
+            font,
+            "Open JSON",
+            ID_OPEN_MANAGED_CONFIG,
+            596,
+            92,
+            110,
+            30,
+        );
+        create_button(
+            panels.settings,
+            instance,
+            font,
+            "Validate",
+            ID_VALIDATE_CONFIGURATION,
+            718,
+            92,
+            110,
+            30,
+        );
+        create_button(
+            panels.settings,
+            instance,
+            font,
+            "Apply",
+            ID_APPLY_CONFIG,
+            24,
+            138,
+            110,
+            30,
+        );
+        create_button(
+            panels.settings,
+            instance,
+            font,
+            "Install sing-box",
+            ID_INSTALL_SING_BOX,
+            146,
+            138,
+            150,
+            30,
+        );
+        create_label(
+            panels.settings,
+            instance,
+            font,
+            "Startup and automatic connect are not configured yet. The service start type remains the installer-managed Windows setting.",
+            24,
+            184,
+            820,
+            34,
+        );
+        create_group(
+            panels.settings,
+            instance,
+            font,
+            "Manual system proxy recovery",
+            20,
+            238,
+            860,
+            146,
+        );
+        create_label(panels.settings, instance, font, "Server", 40, 274, 80, 22);
+        let proxy_server = create_edit(
+            panels.settings,
+            instance,
+            font,
+            "127.0.0.1:7890",
+            124,
+            270,
+            250,
+            28,
+        );
+        create_label(panels.settings, instance, font, "Bypass", 396, 274, 80, 22);
+        let proxy_bypass = create_edit(
+            panels.settings,
+            instance,
+            font,
+            "<local>",
+            472,
+            270,
+            330,
+            28,
+        );
+        create_button(
+            panels.settings,
+            instance,
+            font,
+            "Enable proxy",
+            ID_ENABLE_PROXY,
+            40,
+            322,
+            140,
+            30,
+        );
+        create_button(
+            panels.settings,
+            instance,
+            font,
+            "Restore proxy",
+            ID_RESTORE_PROXY,
+            192,
+            322,
+            140,
+            30,
+        );
+        create_label(
+            panels.settings,
+            instance,
+            font,
+            "Manual proxy controls are only for recovery or an explicit local-proxy workflow. Connect uses the managed service lifecycle.",
+            40,
+            354,
+            800,
+            22,
+        );
+
+        create_label(
+            panels.diagnostics,
+            instance,
+            font,
+            "Logs and diagnostics",
+            24,
+            20,
+            320,
+            26,
+        );
+        let activity = create_label(panels.diagnostics, instance, font, "Ready", 24, 60, 840, 42);
+        create_button(
+            panels.diagnostics,
+            instance,
+            font,
+            "Open log folder",
+            ID_OPEN_LOGS,
+            24,
+            122,
+            150,
+            32,
+        );
+        create_button(
+            panels.diagnostics,
+            instance,
+            font,
+            "Open core log",
+            ID_OPEN_CORE_LOG,
+            186,
+            122,
+            140,
+            32,
+        );
+        create_button(
+            panels.diagnostics,
+            instance,
+            font,
+            "Create report",
+            ID_SHOW_DIAGNOSTICS,
+            338,
+            122,
+            140,
+            32,
+        );
+        create_button(
+            panels.diagnostics,
+            instance,
+            font,
+            "Copy summary",
+            ID_COPY_DIAGNOSTICS,
+            490,
+            122,
+            140,
+            32,
+        );
+        create_label(
+            panels.diagnostics,
+            instance,
+            font,
+            "Reports include GUI, service, sing-box, and native MITM log tails, configuration preflight facts, SCM state, and the last managed runtime error.",
+            24,
+            182,
+            830,
+            42,
+        );
+        let debug_status = create_label(
+            panels.diagnostics,
+            instance,
+            font,
+            "Debug logging: disabled",
+            24,
+            246,
+            320,
+            22,
+        );
+        create_button(
+            panels.diagnostics,
+            instance,
+            font,
+            "Toggle GUI debug",
+            ID_TOGGLE_DEBUG,
+            356,
+            242,
+            150,
+            30,
+        );
+        create_label(
+            panels.diagnostics,
+            instance,
+            font,
+            &format!(
+                "Log directory: {}",
+                windows_managed_log_directory().display()
+            ),
+            24,
+            294,
+            830,
+            22,
+        );
+
+        create_label(
+            panels.advanced,
+            instance,
+            font,
+            "Advanced and experimental",
+            24,
+            20,
+            400,
+            26,
+        );
+        create_label(
+            panels.advanced,
+            instance,
+            font,
+            "These actions change certificates, driver state, or the local HTTPS interception path. Review diagnostics and use only when you understand the effect.",
+            24,
+            50,
+            830,
+            42,
+        );
+        create_group(
+            panels.advanced,
+            instance,
+            font,
+            "HTTPS MITM (explicit HTTP/1.1 only)",
+            20,
+            112,
+            860,
+            94,
+        );
+        create_button(
+            panels.advanced,
+            instance,
+            font,
+            "Enable HTTPS MITM",
+            ID_ENABLE_HTTPS_MITM,
+            40,
+            152,
+            180,
+            32,
+        );
+        create_button(
+            panels.advanced,
+            instance,
+            font,
+            "Disable HTTPS MITM",
+            ID_DISABLE_HTTPS_MITM,
+            232,
+            152,
+            180,
+            32,
+        );
+        create_group(
+            panels.advanced,
+            instance,
+            font,
+            "Certificate and driver lifecycle",
+            20,
+            228,
+            860,
+            178,
+        );
+        create_label(panels.advanced, instance, font, "Root CA", 40, 262, 80, 22);
+        let certificate_path = create_edit(panels.advanced, instance, font, "", 124, 258, 520, 28);
+        create_button(
+            panels.advanced,
+            instance,
+            font,
+            "Install CA",
+            ID_INSTALL_CERTIFICATE,
+            658,
+            258,
+            94,
+            30,
+        );
+        create_button(
+            panels.advanced,
+            instance,
+            font,
+            "Remove CA",
+            ID_REMOVE_CERTIFICATE,
+            762,
+            258,
+            94,
+            30,
+        );
+        create_label(
+            panels.advanced,
+            instance,
+            font,
+            "Driver INF",
+            40,
+            314,
+            80,
+            22,
+        );
+        let driver_path = create_edit(panels.advanced, instance, font, "", 124, 310, 520, 28);
+        create_button(
+            panels.advanced,
+            instance,
+            font,
+            "Install driver",
+            ID_INSTALL_DRIVER,
+            658,
+            310,
+            94,
+            30,
+        );
+        create_button(
+            panels.advanced,
+            instance,
+            font,
+            "Remove driver",
+            ID_REMOVE_DRIVER,
+            762,
+            310,
+            94,
+            30,
+        );
+        create_button(
+            panels.advanced,
+            instance,
+            font,
+            "Install service",
+            ID_INSTALL_SERVICE,
+            40,
+            362,
+            140,
+            30,
+        );
+        create_button(
+            panels.advanced,
+            instance,
+            font,
+            "Restart service",
+            ID_RESTART_SERVICE,
+            192,
+            362,
+            140,
+            30,
+        );
+
+        DailyShell {
+            panels,
+            page_title,
+            status_summary,
+            theme_button,
+            home_connection,
+            home_node,
+            home_subscription,
+            home_core,
+            home_service,
+            home_proxy,
+            home_failure,
+            subscriptions_status,
+            nodes_search,
+            nodes_protocol_filter,
+            config_path,
+            profile_source,
+            profile_node_id,
+            delay_test_url,
+            profile_delay_status,
+            profile_runtime_status,
+            proxy_server,
+            proxy_bypass,
+            activity,
+            debug_status,
+            certificate_path,
+            driver_path,
+        }
+    }
+
+    unsafe fn create_page_panel(parent: HWND, instance: HINSTANCE, x: i32, y: i32) -> HWND {
+        create_control(
+            parent,
+            instance,
+            "STATIC",
+            "",
+            WS_CHILD | WS_VISIBLE | WS_BORDER,
+            0,
+            x,
+            y,
+            900,
+            620,
+            0,
+        )
+    }
+
+    unsafe fn create_legacy_interface(window: HWND) -> Result<Box<AppState>, String> {
+        let instance = GetModuleHandleW(null());
+        let font = GetStockObject(DEFAULT_GUI_FONT);
+        let mut desktop = load_desktop_state();
+        if std::env::args().any(|argument| argument == "--debug" || argument == "-d") {
+            desktop.debug_enabled = true;
+        }
+        let (command_sender, command_receiver) = mpsc::channel();
 
         create_label(window, instance, font, "NetworkCore", 24, 16, 600, 32);
         create_label(
@@ -763,6 +1922,7 @@ mod gui {
         );
 
         let mut state = Box::new(AppState {
+            window,
             integration: NativeWindowsSystemIntegration::new(),
             service_status,
             activity,
@@ -779,6 +1939,23 @@ mod gui {
             driver_path,
             desktop,
             profile_nodes: Vec::new(),
+            profile_node_catalog: Vec::new(),
+            current_page: UiPage::Home,
+            daily: None,
+            theme: if desktop.dark_theme {
+                ThemeMode::Dark
+            } else {
+                ThemeMode::Light
+            },
+            theme_brushes: ThemeBrushes::new(if desktop.dark_theme {
+                ThemeMode::Dark
+            } else {
+                ThemeMode::Light
+            }),
+            pending_operation: None,
+            command_sender,
+            command_receiver,
+            last_runtime_refresh: Instant::now(),
         });
         let _ = save_desktop_state(&state.desktop);
         load_configuration_fields(&mut state);
@@ -788,35 +1965,31 @@ mod gui {
 
     unsafe fn handle_command(state: &mut AppState, id: usize) {
         match id {
+            ID_NAV_HOME => switch_page(state, UiPage::Home),
+            ID_NAV_NODES => switch_page(state, UiPage::Nodes),
+            ID_NAV_SUBSCRIPTIONS => switch_page(state, UiPage::Subscriptions),
+            ID_NAV_SETTINGS => switch_page(state, UiPage::Settings),
+            ID_NAV_DIAGNOSTICS => switch_page(state, UiPage::Diagnostics),
+            ID_NAV_ADVANCED => switch_page(state, UiPage::Advanced),
+            ID_TOGGLE_THEME => toggle_theme(state),
+            ID_FILTER_PROFILE_NODES => filter_profile_nodes(state),
+            ID_CONNECT | ID_START_SERVICE => submit_service_start(state),
+            ID_DISCONNECT | ID_STOP_SERVICE => submit_service_stop(state),
+            ID_RESTART_SERVICE => submit_service_restart(state),
             ID_REFRESH => refresh(state),
             ID_INSTALL_SERVICE => run_action(state, "Service installed", install_service),
-            ID_START_SERVICE => run_action(state, "Service started", start_service),
-            ID_STOP_SERVICE => run_action(state, "Service stopped", stop_service),
-            ID_RESTART_SERVICE => run_action(state, "Service restarted", restart_service),
             ID_APPLY_CONFIG => run_action(state, "Configuration applied", apply_configuration),
             ID_OPEN_MANAGED_CONFIG => {
                 run_action(state, "Configuration opened", open_managed_config)
             }
-            ID_VALIDATE_CONFIGURATION => {
-                run_action(state, "Configuration validated", validate_configuration)
-            }
-            ID_INSTALL_SING_BOX => run_action(state, "sing-box core installed", install_sing_box),
-            ID_LOAD_PROFILE_NODES => {
-                run_action(state, "Subscription nodes loaded", load_profile_nodes)
-            }
-            ID_IMPORT_PROFILE => run_action(state, "sing-box profile imported", import_profile),
-            ID_SWITCH_PROFILE_NODE => {
-                run_action(state, "Active sing-box node switched", switch_profile_node)
-            }
-            ID_TEST_PROFILE_NODE_DELAY => run_action(
-                state,
-                "Selected node delay measured",
-                test_profile_node_delay,
-            ),
-            ID_CHECK_PROFILE_RUNTIME => {
-                run_action(state, "sing-box core reachable", check_profile_runtime)
-            }
-            ID_UPDATE_PROFILE => run_action(state, "Subscription URL updated", update_profile),
+            ID_VALIDATE_CONFIGURATION => submit_configuration_validation(state),
+            ID_INSTALL_SING_BOX => submit_core_install(state),
+            ID_LOAD_PROFILE_NODES => submit_profile_node_load(state),
+            ID_IMPORT_PROFILE => submit_profile_import(state, false),
+            ID_SWITCH_PROFILE_NODE => submit_profile_node_switch(state),
+            ID_TEST_PROFILE_NODE_DELAY => submit_profile_node_delay_test(state),
+            ID_CHECK_PROFILE_RUNTIME => submit_profile_runtime_check(state),
+            ID_UPDATE_PROFILE => submit_profile_import(state, true),
             ID_ENABLE_HTTPS_MITM => run_action(state, "HTTPS MITM configured", enable_https_mitm),
             ID_DISABLE_HTTPS_MITM => run_action(state, "HTTPS MITM disabled", disable_https_mitm),
             ID_ENABLE_PROXY => run_action(state, "System proxy enabled", enable_proxy),
@@ -832,9 +2005,485 @@ mod gui {
             ID_TOGGLE_DEBUG => toggle_debug(state),
             ID_OPEN_LOGS => run_action(state, "Log folder opened", open_log_directory),
             ID_OPEN_CORE_LOG => run_action(state, "sing-box log opened", open_sing_box_log),
-            ID_SHOW_DIAGNOSTICS => run_action(state, "Diagnostics opened", show_diagnostics),
+            ID_SHOW_DIAGNOSTICS => submit_diagnostics(state),
+            ID_COPY_DIAGNOSTICS => {
+                run_action(state, "Diagnostic summary copied", copy_diagnostic_summary)
+            }
             _ => {}
         }
+    }
+
+    unsafe fn switch_page(state: &mut AppState, page: UiPage) {
+        let Some(shell) = state.daily.as_ref() else {
+            return;
+        };
+        for (candidate, panel) in [
+            (UiPage::Home, shell.panels.home),
+            (UiPage::Nodes, shell.panels.nodes),
+            (UiPage::Subscriptions, shell.panels.subscriptions),
+            (UiPage::Settings, shell.panels.settings),
+            (UiPage::Diagnostics, shell.panels.diagnostics),
+            (UiPage::Advanced, shell.panels.advanced),
+        ] {
+            ShowWindow(panel, if candidate == page { SW_SHOW } else { SW_HIDE });
+        }
+        state.current_page = page;
+        set_text(shell.page_title, page.title());
+    }
+
+    unsafe fn toggle_theme(state: &mut AppState) {
+        state.desktop.dark_theme = !state.desktop.dark_theme;
+        let mode = if state.desktop.dark_theme {
+            ThemeMode::Dark
+        } else {
+            ThemeMode::Light
+        };
+        if let Err(error) = save_desktop_state(&state.desktop) {
+            set_text(state.activity, &error);
+            return;
+        }
+        if let Some(shell) = state.daily.as_ref() {
+            set_text(
+                shell.theme_button,
+                if mode == ThemeMode::Dark {
+                    "Use light mode"
+                } else {
+                    "Use dark mode"
+                },
+            );
+        }
+        state.theme = mode;
+        state.theme_brushes = ThemeBrushes::new(mode);
+        InvalidateRect(state.window, null(), 1);
+        set_text(state.activity, &format!("{} mode applied.", mode.label()));
+    }
+
+    unsafe fn filter_profile_nodes(state: &mut AppState) {
+        let Some(shell) = state.daily.as_ref() else {
+            return;
+        };
+        let search = get_text(shell.nodes_search).to_ascii_lowercase();
+        let protocol = get_text(shell.nodes_protocol_filter).to_ascii_lowercase();
+        let visible = state
+            .profile_node_catalog
+            .iter()
+            .filter(|node| {
+                (search.is_empty() || node.label.to_ascii_lowercase().contains(&search))
+                    && (protocol == "all" || node.protocol.to_ascii_lowercase() == protocol)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        replace_profile_node_selector_items(state, visible);
+        set_text(
+            state.activity,
+            &format!("Showing {} matching node(s)", state.profile_nodes.len()),
+        );
+    }
+
+    unsafe fn submit_service_start(state: &mut AppState) {
+        let config_path = PathBuf::from(get_text(state.config_path));
+        let managed_config_path = windows_managed_config_path();
+        if config_path != managed_config_path {
+            set_text(
+                state.activity,
+                "Apply this configuration before connecting so the Windows service uses the validated file.",
+            );
+            return;
+        }
+        submit_background(state, OperationKind::Connect, move || {
+            validate_managed_configuration(&config_path)?;
+            let managed = read_managed_config(&config_path).map_err(|error| error.to_string())?;
+            let proxy = managed
+                .system_proxy
+                .filter(|proxy| proxy.enabled)
+                .ok_or_else(|| {
+                    "Connection requires an enabled managed system proxy. Import a profile or configure one first."
+                        .to_string()
+                })?;
+            let integration = NativeWindowsSystemIntegration::new();
+            integration
+                .start_service()
+                .map_err(|error| error.to_string())?;
+            let deadline = Instant::now() + Duration::from_secs(30);
+            loop {
+                let runtime = read_runtime_status();
+                if runtime.service_state == WindowsServiceState::Running
+                    && matches!(
+                        &runtime.sing_box,
+                        self::runtime_status::SingBoxProcessStatus::Running { .. }
+                    )
+                {
+                    match integration.apply_system_proxy(&proxy) {
+                        Ok(snapshot) => return Ok(BackgroundPayload::Connected(snapshot)),
+                        Err(error) => {
+                            let _ = integration.stop_service();
+                            return Err(format!(
+                                "system proxy could not be applied after core verification: {error}"
+                            ));
+                        }
+                    }
+                }
+                if matches!(
+                    runtime.connection,
+                    ConnectionState::CoreError | ConnectionState::ConfigurationError
+                ) {
+                    let message = runtime
+                        .last_error
+                        .or(runtime.configuration_error)
+                        .unwrap_or_else(|| {
+                            "managed runtime failed before the core was ready".to_string()
+                        });
+                    let _ = integration.stop_service();
+                    return Err(message);
+                }
+                if Instant::now() >= deadline {
+                    let _ = integration.stop_service();
+                    return Err(
+                        "timed out waiting for the managed service and sing-box core".to_string(),
+                    );
+                }
+                std::thread::sleep(Duration::from_millis(250));
+            }
+        });
+    }
+
+    unsafe fn submit_service_stop(state: &mut AppState) {
+        let snapshot = state.desktop.proxy_snapshot.clone();
+        submit_background(state, OperationKind::Disconnect, move || {
+            let integration = NativeWindowsSystemIntegration::new();
+            if let Some(snapshot) = snapshot {
+                integration
+                    .restore_system_proxy(&snapshot)
+                    .map_err(|error| error.to_string())?;
+            }
+            integration
+                .stop_service()
+                .map_err(|error| error.to_string())?;
+            Ok(BackgroundPayload::Service(
+                "Service stopped and the desktop proxy snapshot was restored.".to_string(),
+            ))
+        });
+    }
+
+    unsafe fn submit_service_restart(state: &mut AppState) {
+        submit_background(state, OperationKind::Service, move || {
+            NativeWindowsSystemIntegration::new()
+                .restart_service()
+                .map_err(|error| error.to_string())?;
+            Ok(BackgroundPayload::Service(
+                "Service restart request submitted. Waiting for verification.".to_string(),
+            ))
+        });
+    }
+
+    unsafe fn submit_configuration_validation(state: &mut AppState) {
+        let config_path = PathBuf::from(get_text(state.config_path));
+        submit_background(state, OperationKind::ConfigurationCheck, move || {
+            validate_managed_configuration(&config_path)?;
+            Ok(BackgroundPayload::ConfigurationValidated)
+        });
+    }
+
+    unsafe fn submit_core_install(state: &mut AppState) {
+        submit_background(state, OperationKind::CoreInstall, move || {
+            let installer =
+                GithubSingBoxReleaseInstaller::new().map_err(|error| error.to_string())?;
+            let report = installer
+                .install_latest(&SingBoxInstallRequest {
+                    install_root: windows_managed_data_directory()
+                        .join("sing-box")
+                        .join("engine"),
+                    target: SingBoxTarget::new(SingBoxTargetOs::Windows, SingBoxTargetArch::Amd64),
+                    force: false,
+                })
+                .map_err(|error| error.to_string())?;
+            Ok(BackgroundPayload::CoreInstalled(report.executable_path))
+        });
+    }
+
+    unsafe fn submit_profile_node_load(state: &mut AppState) {
+        let location = get_text(state.profile_source).trim().to_string();
+        submit_background(state, OperationKind::NodeCatalogLoad, move || {
+            if location.is_empty() {
+                return Err("Profile file path or subscription URL is required".to_string());
+            }
+            let profile = load_profile_payload(&location)?;
+            if inspect_sing_box_native_config(&profile.payload).is_some() {
+                return Err(
+                    "Native sing-box JSON is passed through unchanged and has no generated node selector"
+                        .to_string(),
+                );
+            }
+            let nodes = parse_profile_nodes(&profile.payload)?;
+            Ok(BackgroundPayload::NodesLoaded(profile_node_options(&nodes)))
+        });
+    }
+
+    unsafe fn submit_profile_import(state: &mut AppState, update_saved_url: bool) {
+        let location = if update_saved_url {
+            match state
+                .desktop
+                .profile_source_url
+                .clone()
+                .filter(|location| !location.trim().is_empty())
+            {
+                Some(location) => location,
+                None => {
+                    set_text(
+                        state.activity,
+                        "Import an HTTP or HTTPS subscription URL before updating it.",
+                    );
+                    return;
+                }
+            }
+        } else {
+            get_text(state.profile_source).trim().to_string()
+        };
+        let operation = if update_saved_url {
+            OperationKind::SubscriptionUpdate
+        } else {
+            OperationKind::ProfileImport
+        };
+        submit_background(state, operation, move || {
+            if location.is_empty() {
+                return Err("Profile file path or subscription URL is required".to_string());
+            }
+            load_profile_payload(&location).map(BackgroundPayload::ProfileLoaded)
+        });
+    }
+
+    unsafe fn submit_profile_node_switch(state: &mut AppState) {
+        let selected_node_id = selected_profile_node_id(state);
+        let outbound_tag = state
+            .profile_nodes
+            .iter()
+            .find(|node| node.id == selected_node_id)
+            .and_then(|node| node.selector_outbound_tag.clone());
+        submit_background(state, OperationKind::NodeSwitch, move || {
+            let outbound_tag = outbound_tag.ok_or_else(|| {
+                "Load nodes from the current profile before switching the active node".to_string()
+            })?;
+            let status = select_sing_box_clash_api_outbound(
+                &SingBoxLocalControllerConfig::loopback_selector(),
+                &outbound_tag,
+            )
+            .map_err(|error| error.to_string())?;
+            if status.current_outbound_tag != outbound_tag {
+                return Err("sing-box did not confirm the selected active node".to_string());
+            }
+            Ok(BackgroundPayload::NodeSwitched(selected_node_id))
+        });
+    }
+
+    unsafe fn submit_profile_node_delay_test(state: &mut AppState) {
+        let selected_node_id = selected_profile_node_id(state);
+        let outbound_tag = state
+            .profile_nodes
+            .iter()
+            .find(|node| node.id == selected_node_id)
+            .and_then(|node| node.selector_outbound_tag.clone());
+        let test_url = get_text(state.delay_test_url);
+        submit_background(state, OperationKind::DelayTest, move || {
+            let outbound_tag = outbound_tag.ok_or_else(|| {
+                "Load nodes from the current profile before testing the selected node".to_string()
+            })?;
+            let report = measure_sing_box_clash_api_outbound_delay(
+                &SingBoxLocalControllerConfig::loopback_selector(),
+                &outbound_tag,
+                &test_url,
+                DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS,
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(BackgroundPayload::DelayMeasured(format!(
+                "{} ms|{}",
+                report.delay_millis, report.test_url
+            )))
+        });
+    }
+
+    unsafe fn submit_profile_runtime_check(state: &mut AppState) {
+        let nodes = state.profile_node_catalog.clone();
+        submit_background(state, OperationKind::Diagnostics, move || {
+            let status = read_sing_box_clash_api_selector(
+                &SingBoxLocalControllerConfig::loopback_selector(),
+            )
+            .map_err(|error| error.to_string())?;
+            if !status
+                .outbound_tags
+                .iter()
+                .any(|outbound_tag| outbound_tag == &status.current_outbound_tag)
+            {
+                return Err(
+                    "sing-box controller returned an active outbound outside the generated selector"
+                        .to_string(),
+                );
+            }
+            let active = nodes
+                .iter()
+                .find(|node| {
+                    node.selector_outbound_tag.as_deref()
+                        == Some(status.current_outbound_tag.as_str())
+                })
+                .map(|node| node.label.clone())
+                .unwrap_or(status.current_outbound_tag);
+            Ok(BackgroundPayload::CoreChecked(format!(
+                "Ready: {active} ({} nodes)",
+                status.outbound_tags.len()
+            )))
+        });
+    }
+
+    unsafe fn submit_diagnostics(state: &mut AppState) {
+        let config_path = PathBuf::from(get_text(state.config_path));
+        submit_background(state, OperationKind::Diagnostics, move || {
+            write_diagnostic_report_at(&config_path).map(BackgroundPayload::DiagnosticReport)
+        });
+    }
+
+    unsafe fn submit_background<F>(state: &mut AppState, operation: OperationKind, task: F)
+    where
+        F: FnOnce() -> Result<BackgroundPayload, String> + Send + 'static,
+    {
+        if !can_start_operation(state.pending_operation) {
+            let active = state
+                .pending_operation
+                .expect("operation presence was checked");
+            set_text(
+                state.activity,
+                &format!("{} is already in progress", active.label()),
+            );
+            return;
+        }
+        state.pending_operation = Some(operation);
+        EnableWindow(state.window, 0);
+        set_text(state.activity, &format!("{}...", operation.label()));
+        if let Some(shell) = state.daily.as_ref() {
+            set_text(shell.status_summary, &format!("{}...", operation.label()));
+        }
+        dispatch_command(state.command_sender.clone(), operation, task);
+    }
+
+    unsafe fn poll_background_commands(state: &mut AppState) {
+        loop {
+            match state.command_receiver.try_recv() {
+                Ok(completion) => apply_background_completion(state, completion),
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => break,
+            }
+        }
+        if state.pending_operation.is_none()
+            && state.last_runtime_refresh.elapsed() >= Duration::from_secs(2)
+        {
+            refresh(state);
+            state.last_runtime_refresh = Instant::now();
+        }
+    }
+
+    unsafe fn apply_background_completion(
+        state: &mut AppState,
+        completion: CommandCompletion<BackgroundPayload>,
+    ) {
+        state.pending_operation = None;
+        EnableWindow(state.window, 1);
+        match completion.result {
+            Ok(BackgroundPayload::Connected(snapshot)) => {
+                state.desktop.proxy_snapshot = Some(snapshot);
+                let _ = save_desktop_state(&state.desktop);
+                set_text(
+                    state.activity,
+                    "Connected. The managed core and current-user system proxy were verified.",
+                );
+            }
+            Ok(BackgroundPayload::Service(message)) => {
+                if completion.operation == OperationKind::Disconnect {
+                    state.desktop.proxy_snapshot = None;
+                    let _ = save_desktop_state(&state.desktop);
+                }
+                set_text(state.activity, &message);
+            }
+            Ok(BackgroundPayload::CoreInstalled(path)) => {
+                state.desktop.sing_box_executable_path = Some(path.clone());
+                let _ = save_desktop_state(&state.desktop);
+                set_text(
+                    state.activity,
+                    &format!("sing-box installed at {}", path.display()),
+                );
+            }
+            Ok(BackgroundPayload::ConfigurationValidated) => {
+                set_text(
+                    state.activity,
+                    "Configuration is valid. sing-box preflight completed when enabled.",
+                );
+            }
+            Ok(BackgroundPayload::NodesLoaded(nodes)) => {
+                replace_profile_node_options_from_options(state, nodes);
+                set_text(
+                    state.activity,
+                    "Subscription nodes loaded. Select a node before importing or switching.",
+                );
+            }
+            Ok(BackgroundPayload::ProfileLoaded(profile)) => {
+                match import_profile_payload(state, profile) {
+                    Ok(()) => set_text(state.activity, "sing-box profile imported."),
+                    Err(error) => {
+                        if completion.operation == OperationKind::SubscriptionUpdate {
+                            state.desktop.profile_last_update_error = Some(error.clone());
+                            let _ = save_desktop_state(&state.desktop);
+                        }
+                        let message = user_facing_error(completion.operation, &error);
+                        set_text(state.activity, &message);
+                        if let Some(shell) = state.daily.as_ref() {
+                            set_text(shell.home_failure, &message);
+                        }
+                    }
+                }
+            }
+            Ok(BackgroundPayload::NodeSwitched(node_id)) => {
+                state.desktop.profile_node_id = Some(node_id);
+                let _ = save_desktop_state(&state.desktop);
+                set_text(
+                    state.activity,
+                    "Active sing-box node switched and verified.",
+                );
+            }
+            Ok(BackgroundPayload::DelayMeasured(value)) => {
+                let (delay, url) = value.split_once('|').unwrap_or((&value, ""));
+                set_text(state.profile_delay_status, delay);
+                state.desktop.delay_test_url = (!url.is_empty()).then_some(url.to_string());
+                let _ = save_desktop_state(&state.desktop);
+                set_text(state.activity, "Selected node delay measured.");
+            }
+            Ok(BackgroundPayload::CoreChecked(status)) => {
+                set_text(state.profile_runtime_status, &status);
+                set_text(state.activity, "sing-box core selector is reachable.");
+            }
+            Ok(BackgroundPayload::DiagnosticReport(path)) => {
+                match open_path(&path, "diagnostic report") {
+                    Ok(()) => set_text(
+                        state.activity,
+                        &format!("Diagnostics opened: {}", path.display()),
+                    ),
+                    Err(error) => set_text(
+                        state.activity,
+                        &user_facing_error(OperationKind::Diagnostics, &error),
+                    ),
+                }
+            }
+            Err(error) => {
+                if matches!(completion.operation, OperationKind::SubscriptionUpdate) {
+                    state.desktop.profile_last_update_error = Some(error.clone());
+                    let _ = save_desktop_state(&state.desktop);
+                }
+                let message = user_facing_error(completion.operation, &error);
+                set_text(state.activity, &message);
+                if let Some(shell) = state.daily.as_ref() {
+                    set_text(shell.home_failure, &message);
+                }
+                let _ = append_managed_log("gui", &format!("background error: {error}"));
+            }
+        }
+        refresh(state);
+        state.last_runtime_refresh = Instant::now();
     }
 
     unsafe fn run_action(
@@ -853,87 +2502,118 @@ mod gui {
             Err(error) => {
                 let _ = append_managed_log("gui", &format!("error: {error}"));
                 let report = write_diagnostic_report(state).ok();
-                let message = match report {
-                    Some(path) => format!("{error}\n\nDiagnostics: {}", path.display()),
-                    None => error,
+                let mut message = user_facing_error(OperationKind::Advanced, &error);
+                if let Some(path) = report {
+                    message.push_str(&format!(" Report: {}", path.display()));
+                }
+                if let Some(shell) = state.daily.as_ref() {
+                    set_text(shell.home_failure, &message);
+                }
+                if state.desktop.debug_enabled {
+                    let _ = append_managed_log("gui", &format!("diagnostics surfaced: {message}"));
                 };
                 set_text(state.activity, &message);
                 refresh(state);
-                let title = wide(APP_TITLE);
-                let message = wide(&message);
-                MessageBoxW(
-                    null_mut(),
-                    message.as_ptr(),
-                    title.as_ptr(),
-                    MB_OK | MB_ICONERROR,
-                );
             }
         }
     }
 
     unsafe fn refresh(state: &mut AppState) {
-        match state.integration.service_status() {
-            Ok(status) => {
-                let label = match status.state {
-                    WindowsServiceState::NotInstalled => "Not installed".to_string(),
-                    WindowsServiceState::Stopped => "Stopped".to_string(),
-                    WindowsServiceState::StartPending => "Starting".to_string(),
-                    WindowsServiceState::Running => format!("Running (PID {})", status.process_id),
-                    WindowsServiceState::StopPending => "Stopping".to_string(),
-                    WindowsServiceState::Paused => "Paused".to_string(),
-                    WindowsServiceState::Unknown => "Unknown".to_string(),
-                };
-                let core = match read_managed_state(&windows_managed_state_path()) {
-                    Ok(managed) => {
-                        let sing_box = if managed.sing_box_running {
-                            format!(
-                                "sing-box running (PID {})",
-                                managed
-                                    .sing_box_process_id
-                                    .map(|pid| pid.to_string())
-                                    .unwrap_or_else(|| "unknown".to_string())
-                            )
-                        } else {
-                            format!(
-                                "sing-box stopped{}",
-                                managed
-                                    .sing_box_exit_code
-                                    .map(|code| format!(" (exit {code})"))
-                                    .unwrap_or_default()
-                            )
-                        };
-                        if managed.native_mitm_running {
-                            format!(
-                                "{sing_box}; HTTPS MITM listening {}",
-                                managed
-                                    .native_mitm_listener
-                                    .unwrap_or_else(|| "unknown".to_string())
-                            )
-                        } else if let Some(error) = managed.native_mitm_last_error {
-                            format!("{sing_box}; HTTPS MITM failed: {error}")
-                        } else {
-                            format!("{sing_box}; HTTPS MITM stopped")
-                        }
-                    }
-                    Err(error) => format!("managed runtime state unavailable: {error}"),
-                };
-                set_text(
-                    state.service_status,
-                    &format!("Service status: {label}; {core}"),
+        let runtime = read_runtime_status();
+        render_runtime_status(state, &runtime);
+        if state.desktop.debug_enabled {
+            let _ = append_managed_log("gui", &format!("debug: {}", runtime.status_line()));
+        }
+    }
+
+    unsafe fn render_runtime_status(state: &mut AppState, runtime: &WindowsRuntimeStatus) {
+        if state.desktop.proxy_snapshot.is_some()
+            && matches!(
+                runtime.connection,
+                ConnectionState::Disconnected
+                    | ConnectionState::CoreError
+                    | ConnectionState::ConfigurationError
+            )
+        {
+            if let Err(error) = restore_proxy(state) {
+                let _ = append_managed_log(
+                    "gui",
+                    &format!("automatic desktop proxy recovery failed: {error}"),
                 );
-                if state.desktop.debug_enabled {
-                    let _ = append_managed_log(
-                        "gui",
-                        &format!("debug: service status: {label}; {core}"),
-                    );
-                }
-            }
-            Err(error) => {
-                let message = format!("Service status: {error}");
-                let _ = append_managed_log("gui", &message);
-                set_text(state.service_status, &message);
             }
         }
+        let service = match runtime.service_state {
+            WindowsServiceState::NotInstalled => "Not installed".to_string(),
+            WindowsServiceState::Stopped => "Stopped".to_string(),
+            WindowsServiceState::StartPending => "Starting".to_string(),
+            WindowsServiceState::Running => format!("Running (PID {})", runtime.service_process_id),
+            WindowsServiceState::StopPending => "Stopping".to_string(),
+            WindowsServiceState::Paused => "Paused".to_string(),
+            WindowsServiceState::Unknown => runtime
+                .service_detail
+                .clone()
+                .unwrap_or_else(|| "Unavailable".to_string()),
+        };
+        set_text(state.service_status, &service);
+        let Some(shell) = state.daily.as_ref() else {
+            return;
+        };
+        set_text(shell.status_summary, &runtime.status_line());
+        set_text(shell.home_connection, runtime.connection.label());
+        set_text(shell.home_service, &service);
+        set_text(shell.home_core, &runtime.sing_box.label());
+        let proxy = match runtime.system_proxy_enabled {
+            Some(true) => format!(
+                "Enabled{}",
+                runtime
+                    .system_proxy_server
+                    .as_deref()
+                    .filter(|server| !server.is_empty())
+                    .map(|server| format!(" ({server})"))
+                    .unwrap_or_default()
+            ),
+            Some(false) => "Disabled".to_string(),
+            None => "Could not read the current user setting".to_string(),
+        };
+        set_text(shell.home_proxy, &proxy);
+
+        let selected = state
+            .desktop
+            .profile_node_id
+            .as_deref()
+            .and_then(|id| state.profile_node_catalog.iter().find(|node| node.id == id))
+            .map(|node| format!("{} ({})", node.label, node.protocol))
+            .or_else(|| state.desktop.profile_node_id.clone())
+            .unwrap_or_else(|| "Not selected".to_string());
+        set_text(shell.home_node, &selected);
+        let subscription = state
+            .desktop
+            .profile_source_url
+            .clone()
+            .or_else(|| {
+                state
+                    .desktop
+                    .profile_source_path
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().into_owned())
+            })
+            .unwrap_or_else(|| "Not imported".to_string());
+        set_text(shell.home_subscription, &subscription);
+        let subscription_status = match (
+            state.desktop.profile_last_successful_update.as_deref(),
+            state.desktop.profile_last_update_error.as_deref(),
+        ) {
+            (_, Some(error)) => format!("Last update failed: {error}"),
+            (Some(updated), None) => format!("Last successful import: {updated}"),
+            (None, None) => "No successful import has been recorded.".to_string(),
+        };
+        set_text(shell.subscriptions_status, &subscription_status);
+        let failure = runtime
+            .configuration_error
+            .as_deref()
+            .or(runtime.last_error.as_deref())
+            .unwrap_or("");
+        set_text(shell.home_failure, failure);
     }
 
     unsafe fn toggle_debug(state: &mut AppState) {
@@ -987,6 +2667,19 @@ mod gui {
 
     fn validate_configuration(state: &mut AppState) -> Result<(), String> {
         let path = PathBuf::from(unsafe { get_text(state.config_path) });
+        validate_managed_configuration(&path)?;
+        let report = write_diagnostic_report(state)?;
+        let _ = append_managed_log(
+            "gui",
+            &format!(
+                "configuration preflight succeeded report={}",
+                report.display()
+            ),
+        );
+        Ok(())
+    }
+
+    fn validate_managed_configuration(path: &Path) -> Result<(), String> {
         let config = read_managed_config(&path).map_err(|error| error.to_string())?;
         if let Some(sing_box) = config.sing_box.filter(|sing_box| sing_box.enabled) {
             let log_path = sing_box.log_path.clone();
@@ -1003,28 +2696,78 @@ mod gui {
                 )
             })?;
         }
-        let report = write_diagnostic_report(state)?;
-        let _ = append_managed_log(
-            "gui",
-            &format!(
-                "configuration preflight succeeded report={}",
-                report.display()
-            ),
-        );
         Ok(())
     }
 
-    fn show_diagnostics(state: &mut AppState) -> Result<(), String> {
-        let path = write_diagnostic_report(state)?;
-        open_path(&path, "diagnostic report")
+    fn copy_diagnostic_summary(_state: &mut AppState) -> Result<(), String> {
+        let runtime = read_runtime_status();
+        let mut summary = format!(
+            "AnixOps NetworkCore\n{}\nconnection_state={}\n",
+            runtime.status_line(),
+            runtime.connection.label()
+        );
+        if let Some(error) = runtime.configuration_error.or(runtime.last_error) {
+            summary.push_str(&format!("last_error={error}\n"));
+        }
+        copy_unicode_text_to_clipboard(&summary)
+    }
+
+    fn copy_unicode_text_to_clipboard(text: &str) -> Result<(), String> {
+        let mut encoded = text.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
+        let bytes = encoded.len() * std::mem::size_of::<u16>();
+        let memory = unsafe { GlobalAlloc(GMEM_MOVEABLE, bytes) };
+        if memory.is_null() {
+            return Err(last_error("Clipboard memory could not be allocated"));
+        }
+        let target = unsafe { GlobalLock(memory) } as *mut u16;
+        if target.is_null() {
+            unsafe {
+                GlobalFree(memory);
+            }
+            return Err(last_error("Clipboard memory could not be locked"));
+        }
+        unsafe {
+            std::ptr::copy_nonoverlapping(encoded.as_ptr(), target, encoded.len());
+            GlobalUnlock(memory);
+        }
+        if unsafe { OpenClipboard(null_mut()) } == 0 {
+            unsafe {
+                GlobalFree(memory);
+            }
+            return Err(last_error("Clipboard could not be opened"));
+        }
+        let result = unsafe {
+            if EmptyClipboard() == 0 {
+                0
+            } else if SetClipboardData(13, memory).is_null() {
+                0
+            } else {
+                1
+            }
+        };
+        unsafe {
+            CloseClipboard();
+        }
+        if result == 0 {
+            unsafe {
+                GlobalFree(memory);
+            }
+            return Err(last_error("Diagnostic summary could not be copied"));
+        }
+        encoded.clear();
+        Ok(())
     }
 
     fn write_diagnostic_report(state: &mut AppState) -> Result<PathBuf, String> {
         let config_path = PathBuf::from(unsafe { get_text(state.config_path) });
+        write_diagnostic_report_at(&config_path)
+    }
+
+    fn write_diagnostic_report_at(config_path: &Path) -> Result<PathBuf, String> {
         let mut report = String::from("AnixOps NetworkCore Windows diagnostics\n");
         report.push_str(&format!("managed_config_path={}\n", config_path.display()));
 
-        match state.integration.service_status() {
+        match NativeWindowsSystemIntegration::new().service_status() {
             Ok(status) => report.push_str(&format!(
                 "service_state={:?} service_process_id={}\n",
                 status.state, status.process_id
@@ -1248,6 +2991,58 @@ mod gui {
         });
         write_managed_config(&windows_managed_config_path(), &managed)
             .map_err(|error| error.to_string())?;
+        state.desktop.profile_last_successful_update = Some(current_local_timestamp());
+        state.desktop.profile_last_update_error = None;
+        save_desktop_state(&state.desktop)?;
+        load_configuration_fields(state);
+        Ok(())
+    }
+
+    fn import_profile_payload(state: &mut AppState, profile: ProfilePayload) -> Result<(), String> {
+        let mut managed = managed_config_or_default()?;
+        let native_mitm_enabled = managed
+            .native_mitm
+            .as_ref()
+            .is_some_and(|native_mitm| native_mitm.enabled);
+        let (listen_port, mode) = if native_mitm_enabled {
+            (SING_BOX_MITM_UPSTREAM_PORT, ProfileRenderMode::NativeMitm)
+        } else {
+            (SING_BOX_DIRECT_LISTEN_PORT, ProfileRenderMode::Direct)
+        };
+        let imported = render_local_profile_config_from_payload(state, profile, listen_port, mode)?;
+        managed.system_proxy = if native_mitm_enabled {
+            Some(WindowsProxySettings {
+                enabled: true,
+                server: format!("127.0.0.1:{NATIVE_MITM_LISTEN_PORT}"),
+                bypass: "<local>".to_string(),
+            })
+        } else {
+            imported
+                .local_http_proxy
+                .map(|server| WindowsProxySettings {
+                    enabled: true,
+                    server,
+                    bypass: "<local>".to_string(),
+                })
+        };
+        if native_mitm_enabled {
+            if let Some(native_mitm) = managed.native_mitm.as_mut() {
+                native_mitm.sing_box_config_snapshot_path =
+                    imported.sing_box_config_snapshot_path.clone();
+            }
+        }
+        managed.sing_box = Some(WindowsManagedSingBoxConfig {
+            enabled: true,
+            executable_path: imported.executable_path,
+            config_path: imported.config_path,
+            working_directory: Some(imported.config_parent),
+            log_path: windows_managed_log_directory().join("sing-box.log"),
+        });
+        write_managed_config(&windows_managed_config_path(), &managed)
+            .map_err(|error| error.to_string())?;
+        state.desktop.profile_last_successful_update = Some(current_local_timestamp());
+        state.desktop.profile_last_update_error = None;
+        save_desktop_state(&state.desktop)?;
         load_configuration_fields(state);
         Ok(())
     }
@@ -1264,7 +3059,14 @@ mod gui {
         unsafe {
             set_text(state.profile_source, &location);
         }
-        import_profile(state)
+        match import_profile(state) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                state.desktop.profile_last_update_error = Some(error.clone());
+                let _ = save_desktop_state(&state.desktop);
+                Err(error)
+            }
+        }
     }
 
     fn enable_https_mitm(state: &mut AppState) -> Result<(), String> {
@@ -1393,22 +3195,35 @@ mod gui {
         listen_port: u16,
         mode: ProfileRenderMode,
     ) -> Result<ImportedSingBoxProfile, String> {
+        let location = unsafe { get_text(state.profile_source) };
+        let location = location.trim();
+        if location.is_empty() {
+            return Err("Profile file path or subscription URL is required".to_string());
+        }
+        render_local_profile_config_from_payload(
+            state,
+            load_profile_payload(location)?,
+            listen_port,
+            mode,
+        )
+    }
+
+    fn render_local_profile_config_from_payload(
+        state: &mut AppState,
+        ProfilePayload {
+            payload,
+            source_path,
+            source_url,
+        }: ProfilePayload,
+        listen_port: u16,
+        mode: ProfileRenderMode,
+    ) -> Result<ImportedSingBoxProfile, String> {
         let executable_path = state
             .desktop
             .sing_box_executable_path
             .clone()
             .filter(|path| path.exists())
             .ok_or_else(|| "Install sing-box before importing a profile".to_string())?;
-        let location = unsafe { get_text(state.profile_source) };
-        let location = location.trim();
-        if location.is_empty() {
-            return Err("Profile file path or subscription URL is required".to_string());
-        }
-        let ProfilePayload {
-            payload,
-            source_path,
-            source_url,
-        } = load_profile_payload(location)?;
         let config_path = windows_managed_data_directory()
             .join("sing-box")
             .join("config.json");
@@ -1675,6 +3490,14 @@ mod gui {
         state: &mut AppState,
         profile_nodes: Vec<ProfileNodeOption>,
     ) {
+        state.profile_node_catalog = profile_nodes;
+        replace_profile_node_selector_items(state, state.profile_node_catalog.clone());
+    }
+
+    unsafe fn replace_profile_node_selector_items(
+        state: &mut AppState,
+        profile_nodes: Vec<ProfileNodeOption>,
+    ) {
         let selected_node_id = selected_profile_node_id(state);
         state.profile_nodes = profile_nodes;
         SendMessageW(state.profile_node_id, CB_RESETCONTENT, 0, 0);
@@ -1701,6 +3524,7 @@ mod gui {
 
     unsafe fn clear_profile_node_options(state: &mut AppState) {
         state.profile_nodes.clear();
+        state.profile_node_catalog.clear();
         SendMessageW(state.profile_node_id, CB_RESETCONTENT, 0, 0);
         set_text(state.profile_node_id, "");
     }
@@ -1716,6 +3540,7 @@ mod gui {
             .map(|(index, node)| ProfileNodeOption {
                 id: node.id.clone(),
                 label: profile_node_label(node),
+                protocol: format!("{:?}", node.protocol),
                 selector_outbound_tag: Some(sing_box_local_selector_outbound_tag(index)),
             })
             .collect()
@@ -1723,12 +3548,27 @@ mod gui {
 
     fn profile_node_options_from_selector(
         nodes: &[SingBoxLocalProxySelectableNode],
+        source_nodes: &[ProfileNodeOption],
     ) -> Vec<ProfileNodeOption> {
         nodes
             .iter()
             .map(|node| ProfileNodeOption {
                 id: node.id.clone(),
-                label: format!("{} [{}]", node.name.replace(['\r', '\n'], " "), node.id),
+                label: format!(
+                    "{} [{}] ({})",
+                    node.name.replace(['\r', '\n'], " "),
+                    node.id,
+                    source_nodes
+                        .iter()
+                        .find(|source| source.id == node.id)
+                        .map(|source| source.protocol.as_str())
+                        .unwrap_or("Unknown")
+                ),
+                protocol: source_nodes
+                    .iter()
+                    .find(|source| source.id == node.id)
+                    .map(|source| source.protocol.clone())
+                    .unwrap_or_else(|| "Unknown".to_string()),
                 selector_outbound_tag: Some(node.outbound_tag.clone()),
             })
             .collect()
@@ -1738,7 +3578,11 @@ mod gui {
         state: &mut AppState,
         nodes: &[SingBoxLocalProxySelectableNode],
     ) {
-        replace_profile_node_options_from_options(state, profile_node_options_from_selector(nodes));
+        let source_nodes = state.profile_node_catalog.clone();
+        replace_profile_node_options_from_options(
+            state,
+            profile_node_options_from_selector(nodes, &source_nodes),
+        );
     }
 
     fn selected_profile_node_id_from_value(options: &[ProfileNodeOption], value: &str) -> String {
@@ -1751,7 +3595,7 @@ mod gui {
 
     fn profile_node_label(node: &NodeDescriptor) -> String {
         let name = node.name.replace(['\r', '\n'], " ");
-        format!("{name} [{}]", node.id)
+        format!("{name} [{}] ({:?})", node.id, node.protocol)
     }
 
     fn is_remote_subscription_url(location: &str) -> bool {
@@ -2005,6 +3849,22 @@ mod gui {
         fs::write(path, bytes).map_err(|error| error.to_string())
     }
 
+    fn current_local_timestamp() -> String {
+        let mut local_time: SYSTEMTIME = unsafe { zeroed() };
+        unsafe {
+            GetLocalTime(&mut local_time);
+        }
+        format!(
+            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+            local_time.wYear,
+            local_time.wMonth,
+            local_time.wDay,
+            local_time.wHour,
+            local_time.wMinute,
+            local_time.wSecond
+        )
+    }
+
     fn elevate(debug: bool) -> Result<(), String> {
         let executable = env::current_exe().map_err(|error| error.to_string())?;
         let executable = wide_os(&executable);
@@ -2251,7 +4111,10 @@ mod gui {
             ];
             let options = profile_node_options(&nodes);
 
-            assert_eq!(options[0].label, "Primary node [primary-node]");
+            assert_eq!(
+                options[0].label,
+                "Primary node [primary-node] (Shadowsocks)"
+            );
             assert_eq!(
                 options[0].selector_outbound_tag.as_deref(),
                 Some("networkcore-node-0")

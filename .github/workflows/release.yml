@@ -424,7 +424,10 @@ jobs:
           contract=docs/architecture/windows-managed-client-source-release-contract.md
           grep -q '^windows-managed-client-source-release-contract=present$' "${contract}"
           grep -q '^windows-managed-client-release-state=implementation-active$' "${contract}"
-          grep -q '^windows-managed-client-version-scope=v0.2.0-alpha.19$' "${contract}"
+          grep -q '^windows-managed-client-version-scope=v0.2.0-alpha.20$' "${contract}"
+          grep -q '^windows-managed-client-gui-daily-usability=home-nodes-subscriptions-settings-diagnostics-advanced-active$' "${contract}"
+          grep -q '^windows-managed-client-gui-runtime-status=scm-core-pid-current-user-proxy-active$' "${contract}"
+          grep -q '^windows-managed-client-gui-background-commands=active$' "${contract}"
           grep -q '^WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active$' "${contract}"
           grep -q '^windows-managed-client-runner=windows-latest$' "${contract}"
           grep -q '^windows-managed-client-target-triple=x86_64-pc-windows-gnu$' "${contract}"

@@ -4,6 +4,16 @@
 
 ## Unreleased
 
+### Changed
+
+- Windows GUI daily usability has been reorganized into Home, Nodes,
+  Subscriptions, Settings, Diagnostics, and Advanced. Runtime connection state
+  now combines SCM, service-owned sing-box PID, and current interactive-user
+  proxy observations rather than trusting managed JSON or desktop state.
+- Service/core/profile/node/delay operations use a single background command
+  dispatcher with duplicate-operation protection. Failed HTTP(S) subscription
+  updates persist their error while retaining the previous managed profile.
+
 ### Fixed
 
 - Windows service now supervises its owned sing-box process after SCM startup.

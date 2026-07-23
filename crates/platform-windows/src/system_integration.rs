@@ -16,6 +16,13 @@ pub const WINDOWS_CERTIFICATE_OPERATION_FAILED_CODE: &str = "windows.certificate
 pub const WINDOWS_DRIVER_OPERATION_FAILED_CODE: &str = "windows.driver.operation_failed";
 pub const WINDOWS_PLATFORM_REQUIRED_CODE: &str = "windows.platform.required";
 
+/// Reads the current interactive user's WinINet proxy settings without changing
+/// either WinINet or WinHTTP. GUI status surfaces use this as an observation,
+/// never as evidence that a managed runtime successfully started.
+pub fn read_current_user_system_proxy() -> DomainResult<WindowsProxySettings> {
+    native::read_current_user_system_proxy()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum WindowsServiceState {
@@ -150,6 +157,10 @@ mod native {
     }
 
     pub fn service_status() -> DomainResult<WindowsServiceStatus> {
+        Err(unsupported())
+    }
+
+    pub fn read_current_user_system_proxy() -> DomainResult<WindowsProxySettings> {
         Err(unsupported())
     }
 
@@ -399,6 +410,15 @@ mod native {
             ));
         }
         query_service(&ServiceHandle(raw))
+    }
+
+    pub fn read_current_user_system_proxy() -> DomainResult<WindowsProxySettings> {
+        let key = open_internet_settings_key()?;
+        Ok(WindowsProxySettings {
+            enabled: read_registry_dword(&key, "ProxyEnable")? != 0,
+            server: read_registry_string(&key, "ProxyServer")?,
+            bypass: read_registry_string(&key, "ProxyOverride")?,
+        })
     }
 
     pub fn apply_system_proxy(

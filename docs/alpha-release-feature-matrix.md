@@ -330,6 +330,32 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前 Windows 发布切片
 
+### `v0.2.0-alpha.20`
+
+状态：Windows managed client daily-usability source slice；必须通过同 commit
+GitHub Actions CI、MSI install/uninstall smoke、package、attestation、publish
+eligibility 和 tag release 后，才可称为用户可下载版本。
+
+主要特性：
+
+- 原生 Win32 GUI 以 Home、Nodes、Subscriptions、Settings、Diagnostics 和
+  Advanced 组织日常操作。高级页保留 MITM、证书、驱动和 service mutation；它们不进入普通连接路径。
+- Home 只在 SCM `Running`、service-owned sing-box child PID 仍运行、并且当前
+  interactive-user system proxy 已启用时显示 `Connected`。预检、核心或服务错误
+  以独立的 Configuration/Core/Connection failure 状态显示，不能从 JSON marker 推断连接。
+- service start/stop/restart、`sing-box check -c`、core install、显式订阅 fetch、
+  NodeCatalog load、selector switch 和一次性 delay test 都离开 UI message loop；重复请求在
+  进行中被拒绝。失败订阅更新不会覆盖现有 managed config 或已保存选择。
+- 保留 NodeCatalog 搜索/协议过滤、显式 selector switch/readback、loopback-only
+  controller health、native sing-box JSON pass-through、手动 HTTP(S) URL update、
+  diagnostics copy/report、portable ZIP 和 MSI release path。
+
+明确不包含：
+
+- 不提供后台订阅刷新、订阅目录/组、自动 latency/`urltest`、自动服务重启、启动后自动连接、
+  TUN/DNS interception、HTTP/2/HTTP/3/QUIC MITM、JavaScript dispatch 或 native JSON group editing。
+- 没有把 MITM、certificate trust 或 driver 操作默认启用；它们继续要求既有显式授权、快照和回滚。
+
 ### `v0.2.0-alpha.19`
 
 状态：Windows managed client source slice；必须通过同 commit GitHub Actions CI、
@@ -883,7 +909,7 @@ GitHub Actions release workflow 结果为准。
 
 ## 当前 main source 状态
 
-当前 Windows source release 切片是 `v0.2.0-alpha.19`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
+当前 Windows source release 切片是 `v0.2.0-alpha.20`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
 `v0.1.1-alpha.2` 的 Linux/Windows package、checksum、manifest、attestation 和 publish gate，并把
 受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI；Windows path 已切换到
 managed-client MSI，service、driver、installer、system proxy mutation、system trust store mutation 和 managed lifecycle

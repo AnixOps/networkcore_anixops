@@ -8,7 +8,7 @@ current Windows package.
 ```text
 windows-managed-client-source-release-contract=present
 windows-managed-client-release-state=implementation-active
-windows-managed-client-version-scope=v0.2.0-alpha.19
+windows-managed-client-version-scope=v0.2.0-alpha.20
 WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active
 windows-managed-client-runner=windows-latest
 windows-managed-client-runner-kind=github-hosted
@@ -22,6 +22,9 @@ windows-managed-client-manifest-schema-version=2
 windows-managed-client-install-model=wix-per-machine-msi
 windows-managed-client-system-mutation-policy=managed-apply-and-rollback
 windows-managed-client-gui=active
+windows-managed-client-gui-daily-usability=home-nodes-subscriptions-settings-diagnostics-advanced-active
+windows-managed-client-gui-runtime-status=scm-core-pid-current-user-proxy-active
+windows-managed-client-gui-background-commands=active
 windows-managed-client-service=active
 windows-managed-client-driver-package-lifecycle=active
 windows-managed-client-installer=active
@@ -75,6 +78,15 @@ Windows sing-box release, verifies the published `sha256:` digest when GitHub
 provides one, extracts `sing-box.exe` under `%ProgramData%`, and persists its
 path for profile import. The MSI itself neither bundles nor silently downloads
 the third-party core.
+
+`v0.2.0-alpha.20` retains the native Rust/Win32 GUI and splits daily UI state,
+runtime observation, background command dispatch, and theme into dedicated GUI
+modules. Its six daily pages are Home, Nodes, Subscriptions, Settings,
+Diagnostics, and Advanced. `Connected` requires independent SCM,
+service-owned sing-box PID, and current interactive-user proxy observations;
+managed JSON or a persisted state record alone cannot report a connection. The
+exact UI control and unavailable-feature boundary is documented in
+[Windows GUI Daily Usability](windows-gui-daily-usability.md).
 
 The GUI `Import profile` action accepts either an operator-selected local file
 or an operator-entered `http://`/`https://` subscription URL. `Load nodes`

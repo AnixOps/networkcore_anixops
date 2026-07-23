@@ -19,6 +19,38 @@ validates the package signature. After the package and optional Authenticode
 secret are configured, rerun the Windows MSI CI/release workflow; no local
 installer or signing validation is allowed.
 
+## Windows GUI Daily Usability Acceptance
+
+The headless GitHub Actions Windows runner verifies source, Rust tests, MSI
+install/uninstall, and portable ZIP contents. It cannot verify visual layout,
+DPI, shell ownership, interactive-user proxy state, or suspend/resume. Record
+the following from an elevated Windows desktop before calling the daily GUI
+experience production-ready:
+
+1. At 100%, 125%, 150%, and 200% DPI, resize the window to its normal and
+   minimum useful size. Check light and dark modes, long node names, long
+   errors, empty subscription state, and a catalog with several hundred nodes.
+2. Import a local NodeCatalog profile and an HTTP(S) URL. Confirm the Nodes
+   page search/filter/selection, a successful explicit update, and a failed
+   update retaining the prior managed config and displaying its error.
+3. With a running generated profile, confirm `Check core`, one delay test, and
+   a successful selector switch. Force a rejected switch and verify the former
+   selected node remains displayed.
+4. Confirm Home reports `Connected` only after SCM is running, the
+   service-owned sing-box child exists, and the interactive user's proxy has
+   been applied. Test missing service/core, invalid config, occupied port, no
+   network, and a non-administrator launch/elevation rejection.
+5. Stop the service, force a core exit, close/reopen the GUI, sleep/resume, and
+   reboot Windows. For each case verify the interactive-user proxy is restored
+   or an explicit recovery failure is shown; capture the GUI, service, and core
+   diagnostic report paths.
+6. Verify MSI upgrade/uninstall and portable extraction separately. The
+   portable ZIP must not register or start a service on extraction; its GUI must
+   still expose the explicit service-install path.
+7. Capture before/after screenshots on the same Windows/DPI/theme setup for
+   the release evidence. Source-only and headless CI runs cannot produce an
+   authoritative desktop screenshot.
+
 ## 当前待处理
 
 - iOS App Review manual confirmation 仍为 pending；完成前不得启用 TestFlight upload、App Store upload、
