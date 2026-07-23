@@ -4,10 +4,15 @@ use control_domain::{
     NODE_METADATA_HYSTERIA2_OBFS_PASSWORD, NODE_METADATA_HYSTERIA2_OBFS_TYPE,
     NODE_METADATA_HYSTERIA2_PASSWORD, NODE_METADATA_HYSTERIA2_SERVER_PORTS,
     NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_TLS_ALPN,
-    NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256, NODE_METADATA_TLS_INSECURE,
-    NODE_METADATA_TLS_SERVER_NAME, NODE_METADATA_TROJAN_PASSWORD,
+    NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256, NODE_METADATA_TLS_ENABLED,
+    NODE_METADATA_TLS_INSECURE, NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
+    NODE_METADATA_TLS_REALITY_SHORT_ID, NODE_METADATA_TLS_SERVER_NAME,
+    NODE_METADATA_TLS_UTLS_FINGERPRINT, NODE_METADATA_TROJAN_PASSWORD,
     NODE_METADATA_TUIC_CONGESTION_CONTROL, NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID,
-    NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_UUID,
+    NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_PATH,
+    NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
+    NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
+    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
 };
 use engine_singbox::{
     inspect_sing_box_native_config, rewrite_sing_box_mixed_inbound_listener,
@@ -401,6 +406,160 @@ fn renders_basic_trojan_vless_and_vmess_outbounds() {
 }
 
 #[test]
+fn renders_v2ray_tls_reality_and_transport_options() {
+    let mut vless = vless_node();
+    vless.metadata.extend([
+        metadata_entry(NODE_METADATA_VLESS_FLOW, "xtls-rprx-vision"),
+        metadata_entry(NODE_METADATA_TLS_ENABLED, "true"),
+        metadata_entry(NODE_METADATA_TLS_SERVER_NAME, "cdn.vless.example.test"),
+        metadata_entry(NODE_METADATA_TLS_INSECURE, "true"),
+        metadata_entry(NODE_METADATA_TLS_ALPN, "h2,http/1.1"),
+        metadata_entry(NODE_METADATA_TLS_UTLS_FINGERPRINT, "chrome"),
+        metadata_entry(NODE_METADATA_TLS_REALITY_PUBLIC_KEY, "reality-public-key"),
+        metadata_entry(NODE_METADATA_TLS_REALITY_SHORT_ID, "abcd"),
+        metadata_entry(NODE_METADATA_V2RAY_TRANSPORT_TYPE, "ws"),
+        metadata_entry(NODE_METADATA_V2RAY_TRANSPORT_HOST, "cdn.vless.example.test"),
+        metadata_entry(NODE_METADATA_V2RAY_TRANSPORT_PATH, "/gateway"),
+    ]);
+    let vless =
+        engine_singbox::render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
+            nodes: vec![vless],
+            selected_node_id: None,
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7890,
+        })
+        .expect("VLESS Reality WebSocket node should render");
+    let vless_json: serde_json::Value =
+        serde_json::from_str(&vless.json).expect("rendered config should be valid json");
+    let vless_outbound = &vless_json["outbounds"][0];
+    assert_eq!(vless_outbound["flow"], "xtls-rprx-vision");
+    assert_eq!(vless_outbound["tls"]["enabled"], true);
+    assert_eq!(
+        vless_outbound["tls"]["server_name"],
+        "cdn.vless.example.test"
+    );
+    assert_eq!(vless_outbound["tls"]["insecure"], true);
+    assert_eq!(vless_outbound["tls"]["alpn"][0], "h2");
+    assert_eq!(vless_outbound["tls"]["utls"]["fingerprint"], "chrome");
+    assert_eq!(
+        vless_outbound["tls"]["reality"]["public_key"],
+        "reality-public-key"
+    );
+    assert_eq!(vless_outbound["tls"]["reality"]["short_id"], "abcd");
+    assert_eq!(vless_outbound["transport"]["type"], "ws");
+    assert_eq!(
+        vless_outbound["transport"]["headers"]["Host"][0],
+        "cdn.vless.example.test"
+    );
+    assert_eq!(vless_outbound["transport"]["path"], "/gateway");
+
+    let mut vmess = vmess_node();
+    vmess.metadata.extend([
+        metadata_entry(NODE_METADATA_VMESS_SECURITY, "chacha20-poly1305"),
+        metadata_entry(NODE_METADATA_VMESS_ALTER_ID, "0"),
+        metadata_entry(NODE_METADATA_TLS_ENABLED, "true"),
+        metadata_entry(NODE_METADATA_TLS_SERVER_NAME, "cdn.vmess.example.test"),
+        metadata_entry(NODE_METADATA_V2RAY_TRANSPORT_TYPE, "grpc"),
+        metadata_entry(NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, "TunService"),
+    ]);
+    let vmess =
+        engine_singbox::render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
+            nodes: vec![vmess],
+            selected_node_id: None,
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7890,
+        })
+        .expect("VMess gRPC node should render");
+    let vmess_json: serde_json::Value =
+        serde_json::from_str(&vmess.json).expect("rendered config should be valid json");
+    let vmess_outbound = &vmess_json["outbounds"][0];
+    assert_eq!(vmess_outbound["security"], "chacha20-poly1305");
+    assert_eq!(vmess_outbound["alter_id"], 0);
+    assert_eq!(
+        vmess_outbound["tls"]["server_name"],
+        "cdn.vmess.example.test"
+    );
+    assert_eq!(vmess_outbound["transport"]["type"], "grpc");
+    assert_eq!(vmess_outbound["transport"]["service_name"], "TunService");
+
+    let mut trojan = trojan_node();
+    trojan.metadata.extend([
+        metadata_entry(NODE_METADATA_TLS_ENABLED, "true"),
+        metadata_entry(NODE_METADATA_V2RAY_TRANSPORT_TYPE, "httpupgrade"),
+        metadata_entry(
+            NODE_METADATA_V2RAY_TRANSPORT_HOST,
+            "cdn.trojan.example.test",
+        ),
+        metadata_entry(NODE_METADATA_V2RAY_TRANSPORT_PATH, "/upgrade"),
+    ]);
+    let trojan =
+        engine_singbox::render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
+            nodes: vec![trojan],
+            selected_node_id: None,
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7890,
+        })
+        .expect("Trojan HTTPUpgrade node should render");
+    let trojan_json: serde_json::Value =
+        serde_json::from_str(&trojan.json).expect("rendered config should be valid json");
+    let trojan_outbound = &trojan_json["outbounds"][0];
+    assert_eq!(trojan_outbound["transport"]["type"], "httpupgrade");
+    assert_eq!(
+        trojan_outbound["transport"]["host"],
+        "cdn.trojan.example.test"
+    );
+    assert_eq!(trojan_outbound["transport"]["path"], "/upgrade");
+}
+
+#[test]
+fn renders_v2ray_http_and_quic_transport_options() {
+    let mut vless = vless_node();
+    vless.metadata.extend([
+        metadata_entry(NODE_METADATA_TLS_ENABLED, "true"),
+        metadata_entry(NODE_METADATA_V2RAY_TRANSPORT_TYPE, "http"),
+        metadata_entry(
+            NODE_METADATA_V2RAY_TRANSPORT_HOST,
+            "cdn-a.example.test,cdn-b.example.test",
+        ),
+        metadata_entry(NODE_METADATA_V2RAY_TRANSPORT_PATH, "/h2"),
+    ]);
+    let vless =
+        engine_singbox::render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
+            nodes: vec![vless],
+            selected_node_id: None,
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7890,
+        })
+        .expect("VLESS HTTP node should render");
+    let vless_json: serde_json::Value =
+        serde_json::from_str(&vless.json).expect("rendered config should be valid json");
+    let vless_transport = &vless_json["outbounds"][0]["transport"];
+    assert_eq!(vless_transport["type"], "http");
+    assert_eq!(vless_transport["host"][0], "cdn-a.example.test");
+    assert_eq!(vless_transport["host"][1], "cdn-b.example.test");
+    assert_eq!(vless_transport["path"], "/h2");
+
+    let mut vmess = vmess_node();
+    vmess
+        .metadata
+        .push(metadata_entry(NODE_METADATA_V2RAY_TRANSPORT_TYPE, "quic"));
+    let vmess =
+        engine_singbox::render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
+            nodes: vec![vmess],
+            selected_node_id: None,
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7890,
+        })
+        .expect("VMess QUIC node should render");
+    let vmess_json: serde_json::Value =
+        serde_json::from_str(&vmess.json).expect("rendered config should be valid json");
+    assert_eq!(
+        vmess_json["outbounds"][0]["transport"],
+        serde_json::json!({ "type": "quic" })
+    );
+}
+
+#[test]
 fn renders_hysteria2_and_tuic_outbounds_with_quic_tls_options() {
     let hysteria2 =
         engine_singbox::render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
@@ -642,6 +801,13 @@ fn node_with_metadata(
             key: metadata_key.to_string(),
             value: metadata_value.to_string(),
         }],
+    }
+}
+
+fn metadata_entry(key: &str, value: &str) -> MetadataEntry {
+    MetadataEntry {
+        key: key.to_string(),
+        value: value.to_string(),
     }
 }
 

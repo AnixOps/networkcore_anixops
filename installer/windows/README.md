@@ -85,12 +85,15 @@ The local profile may use the existing supported NodeCatalog inputs, including
 an `ss://`, `trojan://`, `vless://`, `vmess://`, `hysteria2://`/`hy2://`, or
 `tuic://` node, a supported Clash YAML `proxies` list, supported sing-box JSON
 `outbounds`, or supported Surge, Loon, or Quantumult X proxy lines.
-Link/catalog inputs render basic Shadowsocks, Trojan, VLESS, VMess, Hysteria2,
-and TUIC outbounds. Trojan enables TLS; VLESS and VMess are basic TCP only.
-Hysteria2 retains the supported password, port-hopping, obfuscation, and TLS
-share-link fields; TUIC retains UUID, optional password, congestion control,
-and TLS share-link fields. The generated Hysteria2/TUIC paths are core proxy
-traffic and are not intercepted by the HTTP/1.1 HTTPS MITM listener. A native
+Link/catalog inputs render Shadowsocks, Trojan, VLESS, VMess, Hysteria2, and
+TUIC outbounds. The explicit local V2Ray share-link subset retains TLS/ALPN/
+certificate pins/uTLS, VLESS Vision/REALITY, VMess security/alter-id, and
+WebSocket/gRPC/HTTP/HTTPUpgrade/V2Ray-QUIC transport fields. It does not infer
+XHTTP, ECH, multiplex, routing, or DNS. Hysteria2 retains the supported
+password, port-hopping, obfuscation, and TLS share-link fields; TUIC retains
+UUID, optional password, congestion control, and TLS share-link fields. The
+generated Hysteria2/TUIC and V2Ray QUIC paths are core proxy traffic and are
+not intercepted by the HTTP/1.1 HTTPS MITM listener. A native
 sing-box JSON document with top-level `inbounds` or
 `outbounds` instead bypasses that renderer and is copied unchanged to the
 managed `config.json`, preserving TLS/REALITY/WebSocket/gRPC/multiplex/DNS/

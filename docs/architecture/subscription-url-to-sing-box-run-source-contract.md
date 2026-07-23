@@ -70,18 +70,11 @@ with `NODE_METADATA_TROJAN_PASSWORD` and `NODE_METADATA_SOURCE_FORMAT=trojan-url
 inside `SubscriptionDocument`/`NodeCatalog`. `vless://uuid@host:port?...#name`
 may be imported as `Protocol::Vless` with `NODE_METADATA_VLESS_UUID` and
 `NODE_METADATA_SOURCE_FORMAT=vless-url` inside `SubscriptionDocument`/
-`NodeCatalog`. VLESS query parameters such as `encryption=none` or `type=tcp`
-are accepted by this parser gate but not interpreted as runnable adapter
-configuration. `vmess://base64(json)` may be imported as `Protocol::Vmess`
+`NodeCatalog`. `vmess://base64(json)` may be imported as `Protocol::Vmess`
 when the decoded JSON contains `add`, `port`, and `id`; `ps` may provide the
 display name, and `NODE_METADATA_VMESS_UUID` plus
-`NODE_METADATA_SOURCE_FORMAT=vmess-url` carry catalog metadata. VMess transport
-fields such as `net`, `tls`, `host`, `path`, `aid`, or `scy` are accepted by
-this parser gate but not interpreted as runnable adapter configuration. Linux
-`run-url` remains Shadowsocks-only. The Windows GUI local-profile import may
-render the basic Trojan, VLESS, and VMess node fields through the shared
-adapter, but it does not carry query, transport, or TLS details into the
-generated config.
+`NODE_METADATA_SOURCE_FORMAT=vmess-url` carry catalog metadata. Linux `run-url`
+remains Shadowsocks-only.
 
 `v0.2.0-alpha.8` extends the Windows local-profile import path with the current
 sing-box/v2rayN QUIC share-link subset. Hysteria2 and TUIC may be imported as
@@ -98,6 +91,18 @@ The shared sing-box adapter renders a TLS-enabled outbound for the selected
 node. Linux `run-url` remains Shadowsocks-only, and share-link parsing does
 not enable remote fetch, TUN, DNS, firewall, transparent capture, or QUIC
 MITM.
+
+`v0.2.0-alpha.9` activates a deterministic local-file V2Ray compatibility
+subset for the Windows GUI. Trojan, VLESS, and VMess share links now retain
+explicit TLS enablement, SNI, insecure, ALPN, certificate public-key pins, and
+uTLS fingerprints. VLESS additionally retains Vision flow and REALITY public
+key/short-id; VMess retains `security` and `alter_id`. The supported transport
+subset is WebSocket, gRPC, HTTP/HTTP2 (`type=http`/`h2`), HTTPUpgrade, and
+V2Ray QUIC, with the corresponding host/path/service-name values. The same
+subset is normalized from compatible native sing-box Trojan/VLESS/VMess
+outbounds for catalog conversion and rendered back into a generated sing-box
+config. It does not add remote fetching, multi-node selectors, XHTTP/ECH or
+multiplex inference, arbitrary native-field translation, or HTTP/2/HTTP/3 MITM.
 
 Clash YAML may be imported as a catalog-only parser gate when the payload has a
 top-level `proxies` list. The initial supported proxy subset reads only
@@ -120,7 +125,9 @@ has a top-level `outbounds` list. The supported outbound subset reads `type`,
 `tag`, `server`, `server_port`, `method`, `password`, and `uuid`; it accepts
 `shadowsocks`/`ss`, `trojan`, `vless`, `vmess`, `hysteria2`, and `tuic`
 outbound types and maps them to the corresponding `Protocol` plus the same
-per-protocol metadata used by URL imports. Hysteria2 additionally reads
+per-protocol metadata used by URL imports. Trojan/VLESS/VMess additionally read
+their retained `flow`, VMess security/alter-id, TLS (including uTLS/REALITY),
+and supported V2Ray transport subset. Hysteria2 additionally reads
 `server_ports`, `obfs`, and the retained TLS subset; TUIC additionally reads
 `congestion_control` and the retained TLS subset. A Hysteria2 `server_ports`
 range provides the normalized node endpoint from its first range boundary and
@@ -131,8 +138,8 @@ must include `NODE_METADATA_SOURCE_FORMAT=sing-box-json`; unsupported sing-box
 proxy outbounds must fail with `subscription.core.sing_box_json_unsupported`,
 and malformed supported outbounds must fail with
 `subscription.core.sing_box_json_invalid` without echoing raw subscription
-content or secrets. For catalog conversion, only the documented Hysteria2/TUIC
-TLS and QUIC metadata subset is retained; other sing-box TLS, transport,
+content or secrets. For catalog conversion, only the documented V2Ray-family
+and Hysteria2/TUIC subsets are retained; other sing-box TLS, transport,
 multiplex, route, DNS, inbound, experimental, and adapter fields remain
 deferred. This does not make Linux `run-url` render or run sing-box JSON. A
 native sing-box JSON document selected in the Windows GUI still bypasses this
@@ -203,8 +210,9 @@ translation. The renderer must produce:
 - a `direct` outbound;
 - a route `final` pointing at the selected node tag.
 
-Trojan uses a TLS block with its server name. VLESS and VMess use basic TCP
-fields only. Hysteria2 and TUIC use a TLS-enabled outbound and only render the
+Trojan, VLESS, and VMess render only retained TLS, REALITY, uTLS, Vision,
+security/alter-id, and WebSocket/gRPC/HTTP/HTTPUpgrade/V2Ray-QUIC transport
+metadata. Hysteria2 and TUIC use a TLS-enabled outbound and only render the
 metadata explicitly retained by their parser gate: Hysteria2 password, optional
 port-hopping range and obfuscation; TUIC UUID, optional password, and optional
 congestion control; both share SNI, ALPN, certificate pin, and insecure TLS

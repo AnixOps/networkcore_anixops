@@ -25,11 +25,12 @@ service-owned sing-box process configured in `managed-config.json`. The service
 validates the native sing-box JSON with `check -c` before starting it and writes
 core stdout/stderr to the configured log. The GUI now explicitly installs the
 verified official Windows core and imports a selected local profile into a
-service-ready config using basic Shadowsocks, Trojan, VLESS, VMess, Hysteria2,
-or TUIC output. Hysteria2 and TUIC are direct proxy-core QUIC paths and do not
-enable HTTP/3 MITM.
+service-ready config using Shadowsocks, Trojan, VLESS, VMess, Hysteria2, or
+TUIC output. Trojan/VLESS/VMess retain the documented V2Ray TLS/REALITY/uTLS/
+transport subset; Hysteria2, TUIC, and V2Ray QUIC transport are direct proxy-core
+paths and do not enable HTTP/3 MITM.
 The CLI itself has no core-install or subscription-run command. The GUI/service
 provide explicit controlled HTTP/1.1 HTTPS MITM with a service-owned CA and
-local sing-box SOCKS upstream. Remote subscription fetch, advanced transport
-rendering, HTTP/2, QUIC, streaming, JavaScript script dispatch, and CLI MITM
-configuration remain unavailable.
+local sing-box SOCKS upstream. Remote subscription fetch, generic XHTTP/ECH/
+multiplex transport rendering, HTTP/2 or QUIC MITM, streaming, JavaScript script
+dispatch, and CLI MITM configuration remain unavailable.

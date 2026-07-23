@@ -358,6 +358,11 @@ jobs:
           grep -q "SUBSCRIPTION_TUIC_LINK_INVALID_CODE" crates/config-core/src/lib.rs
           grep -q "parses_hysteria2_and_tuic_share_links_with_quic_tls_options" crates/config-core/tests/config_core_contracts.rs
           grep -q "parses_hysteria2_and_tuic_sing_box_outbounds_into_node_catalog" crates/config-core/tests/config_core_contracts.rs
+          grep -q "parses_v2ray_share_links_with_tls_reality_and_transports" crates/config-core/tests/config_core_contracts.rs
+          grep -q "parses_v2ray_http_and_quic_share_link_transports" crates/config-core/tests/config_core_contracts.rs
+          grep -q "parses_v2ray_family_sing_box_outbounds_with_tls_reality_and_transport" crates/config-core/tests/config_core_contracts.rs
+          grep -q "renders_v2ray_tls_reality_and_transport_options" crates/engine-singbox/tests/engine_singbox_contracts.rs
+          grep -q "renders_v2ray_http_and_quic_transport_options" crates/engine-singbox/tests/engine_singbox_contracts.rs
           grep -q "Hysteria2/TUIC share-link parser gate" README.md
           grep -q "Hysteria2/TUIC share-link parser gate" ROADMAP.md
           grep -q "Hysteria2/TUIC share-link parser gate" TODO.md

@@ -1,3 +1,4 @@
+use base64::Engine as _;
 use config_core::{
     parse_config_document, CoreConfigurationService, CoreSubscriptionService,
     CONFIG_LISTENER_BIND_PORT_INVALID_CODE, CONFIG_LISTENER_NETWORK_UNSUPPORTED_CODE,
@@ -17,10 +18,15 @@ use control_domain::{
     NODE_METADATA_HYSTERIA2_OBFS_TYPE, NODE_METADATA_HYSTERIA2_PASSWORD,
     NODE_METADATA_HYSTERIA2_SERVER_PORTS, NODE_METADATA_SHADOWSOCKS_METHOD,
     NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SOURCE_FORMAT, NODE_METADATA_TLS_ALPN,
-    NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256, NODE_METADATA_TLS_INSECURE,
-    NODE_METADATA_TLS_SERVER_NAME, NODE_METADATA_TROJAN_PASSWORD,
+    NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256, NODE_METADATA_TLS_ENABLED,
+    NODE_METADATA_TLS_INSECURE, NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
+    NODE_METADATA_TLS_REALITY_SHORT_ID, NODE_METADATA_TLS_SERVER_NAME,
+    NODE_METADATA_TLS_UTLS_FINGERPRINT, NODE_METADATA_TROJAN_PASSWORD,
     NODE_METADATA_TUIC_CONGESTION_CONTROL, NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID,
-    NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_UUID,
+    NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_PATH,
+    NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
+    NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
+    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
 };
 
 #[test]
@@ -282,6 +288,162 @@ fn parses_single_vmess_url_subscription_into_node_catalog() {
     );
     assert_metadata(&node.metadata, NODE_METADATA_SOURCE_FORMAT, "vmess-url");
     assert_metadata(&node.metadata, "subscription.source_id", "vmess-url");
+}
+
+#[test]
+fn parses_v2ray_share_links_with_tls_reality_and_transports() {
+    let vmess_payload = r#"{
+  "v": "2",
+  "ps": "VMess WS",
+  "add": "vmess.example.test",
+  "port": "443",
+  "id": "00000000-0000-0000-0000-000000000003",
+  "aid": "0",
+  "scy": "chacha20-poly1305",
+  "net": "ws",
+  "type": "none",
+  "host": "cdn.vmess.example.test",
+  "path": "/ws",
+  "tls": "tls",
+  "sni": "edge.vmess.example.test",
+  "alpn": "h2,http/1.1",
+  "allowInsecure": "1",
+  "fp": "firefox"
+}"#;
+    let vmess = base64::engine::general_purpose::STANDARD.encode(vmess_payload);
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "advanced-v2ray-links".to_string(),
+        content: format!(
+            concat!(
+                "trojan://trojan-password@trojan.example.test:443?security=tls&sni=cdn.trojan.example.test&alpn=h2%2Chttp%2F1.1&allowInsecure=1&type=grpc&serviceName=TunService#Trojan%20gRPC\n",
+                "vless://00000000-0000-0000-0000-000000000002@vless.example.test:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=cdn.vless.example.test&fp=chrome&pbk=reality-public-key&sid=abcd&type=ws&host=cdn.vless.example.test&path=%2Fedge#VLESS%20Reality\n",
+                "vmess://{}"
+            ),
+            vmess
+        ),
+    };
+
+    let document = service
+        .parse(&raw)
+        .expect("advanced V2Ray share links should parse");
+    let catalog = service
+        .normalize(&document)
+        .expect("advanced V2Ray share links should normalize");
+
+    assert_eq!(catalog.nodes.len(), 3);
+    let trojan = &catalog.nodes[0];
+    assert_metadata(&trojan.metadata, NODE_METADATA_TLS_ENABLED, "true");
+    assert_metadata(
+        &trojan.metadata,
+        NODE_METADATA_TLS_SERVER_NAME,
+        "cdn.trojan.example.test",
+    );
+    assert_metadata(&trojan.metadata, NODE_METADATA_TLS_INSECURE, "true");
+    assert_metadata(&trojan.metadata, NODE_METADATA_TLS_ALPN, "h2,http/1.1");
+    assert_metadata(&trojan.metadata, NODE_METADATA_V2RAY_TRANSPORT_TYPE, "grpc");
+    assert_metadata(
+        &trojan.metadata,
+        NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME,
+        "TunService",
+    );
+
+    let vless = &catalog.nodes[1];
+    assert_metadata(
+        &vless.metadata,
+        NODE_METADATA_VLESS_FLOW,
+        "xtls-rprx-vision",
+    );
+    assert_metadata(&vless.metadata, NODE_METADATA_TLS_ENABLED, "true");
+    assert_metadata(
+        &vless.metadata,
+        NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
+        "reality-public-key",
+    );
+    assert_metadata(&vless.metadata, NODE_METADATA_TLS_REALITY_SHORT_ID, "abcd");
+    assert_metadata(
+        &vless.metadata,
+        NODE_METADATA_TLS_UTLS_FINGERPRINT,
+        "chrome",
+    );
+    assert_metadata(&vless.metadata, NODE_METADATA_V2RAY_TRANSPORT_TYPE, "ws");
+    assert_metadata(
+        &vless.metadata,
+        NODE_METADATA_V2RAY_TRANSPORT_HOST,
+        "cdn.vless.example.test",
+    );
+    assert_metadata(&vless.metadata, NODE_METADATA_V2RAY_TRANSPORT_PATH, "/edge");
+
+    let vmess = &catalog.nodes[2];
+    assert_eq!(vmess.name, "VMess WS");
+    assert_metadata(
+        &vmess.metadata,
+        NODE_METADATA_VMESS_SECURITY,
+        "chacha20-poly1305",
+    );
+    assert_metadata(&vmess.metadata, NODE_METADATA_VMESS_ALTER_ID, "0");
+    assert_metadata(&vmess.metadata, NODE_METADATA_TLS_ENABLED, "true");
+    assert_metadata(
+        &vmess.metadata,
+        NODE_METADATA_TLS_SERVER_NAME,
+        "edge.vmess.example.test",
+    );
+    assert_metadata(
+        &vmess.metadata,
+        NODE_METADATA_TLS_UTLS_FINGERPRINT,
+        "firefox",
+    );
+    assert_metadata(&vmess.metadata, NODE_METADATA_V2RAY_TRANSPORT_TYPE, "ws");
+    assert_metadata(
+        &vmess.metadata,
+        NODE_METADATA_V2RAY_TRANSPORT_HOST,
+        "cdn.vmess.example.test",
+    );
+    assert_metadata(&vmess.metadata, NODE_METADATA_V2RAY_TRANSPORT_PATH, "/ws");
+}
+
+#[test]
+fn parses_v2ray_http_and_quic_share_link_transports() {
+    let vmess_payload = r#"{
+  "ps": "VMess QUIC",
+  "add": "vmess-quic.example.test",
+  "port": "443",
+  "id": "00000000-0000-0000-0000-000000000006",
+  "scy": "auto",
+  "net": "quic"
+}"#;
+    let vmess = base64::engine::general_purpose::STANDARD.encode(vmess_payload);
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "v2ray-http-quic-links".to_string(),
+        content: format!(
+            concat!(
+                "vless://00000000-0000-0000-0000-000000000007@vless-http.example.test:443?security=tls&type=http&host=cdn-a.example.test%2Ccdn-b.example.test&path=%2Fh2#VLESS%20HTTP\n",
+                "vmess://{}"
+            ),
+            vmess
+        ),
+    };
+
+    let document = service
+        .parse(&raw)
+        .expect("V2Ray HTTP and QUIC share links should parse");
+    let catalog = service
+        .normalize(&document)
+        .expect("V2Ray HTTP and QUIC share links should normalize");
+
+    assert_eq!(catalog.nodes.len(), 2);
+    let vless = &catalog.nodes[0];
+    assert_metadata(&vless.metadata, NODE_METADATA_V2RAY_TRANSPORT_TYPE, "http");
+    assert_metadata(
+        &vless.metadata,
+        NODE_METADATA_V2RAY_TRANSPORT_HOST,
+        "cdn-a.example.test,cdn-b.example.test",
+    );
+    assert_metadata(&vless.metadata, NODE_METADATA_V2RAY_TRANSPORT_PATH, "/h2");
+
+    let vmess = &catalog.nodes[1];
+    assert_metadata(&vmess.metadata, NODE_METADATA_V2RAY_TRANSPORT_TYPE, "quic");
 }
 
 #[test]
@@ -594,6 +756,111 @@ fn parses_hysteria2_and_tuic_sing_box_outbounds_into_node_catalog() {
     );
     assert_metadata(&tuic.metadata, NODE_METADATA_TUIC_CONGESTION_CONTROL, "bbr");
     assert_metadata(&tuic.metadata, NODE_METADATA_TLS_INSECURE, "false");
+}
+
+#[test]
+fn parses_v2ray_family_sing_box_outbounds_with_tls_reality_and_transport() {
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "sing-box-v2ray-family".to_string(),
+        content: r#"
+{
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "Reality WS",
+      "server": "vless.example.test",
+      "server_port": 443,
+      "uuid": "00000000-0000-0000-0000-000000000004",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "cdn.vless.example.test",
+        "utls": { "enabled": true, "fingerprint": "chrome" },
+        "reality": { "enabled": true, "public_key": "reality-public-key", "short_id": "abcd" }
+      },
+      "transport": { "type": "ws", "path": "/gateway", "headers": { "Host": "cdn.vless.example.test" } }
+    },
+    {
+      "type": "vmess",
+      "tag": "VMess gRPC",
+      "server": "vmess.example.test",
+      "server_port": 443,
+      "uuid": "00000000-0000-0000-0000-000000000005",
+      "security": "aes-128-gcm",
+      "alter_id": 0,
+      "tls": { "enabled": true, "server_name": "cdn.vmess.example.test" },
+      "transport": { "type": "grpc", "service_name": "TunService" }
+    },
+    {
+      "type": "trojan",
+      "tag": "Trojan Upgrade",
+      "server": "trojan.example.test",
+      "server_port": 443,
+      "password": "trojan-password",
+      "tls": { "enabled": true, "server_name": "cdn.trojan.example.test" },
+      "transport": { "type": "httpupgrade", "host": "cdn.trojan.example.test", "path": "/upgrade" }
+    }
+  ]
+}
+"#
+        .to_string(),
+    };
+
+    let document = service
+        .parse(&raw)
+        .expect("V2Ray-family sing-box outbounds should parse");
+    let catalog = service
+        .normalize(&document)
+        .expect("V2Ray-family sing-box outbounds should normalize");
+
+    assert_eq!(catalog.nodes.len(), 3);
+    let vless = &catalog.nodes[0];
+    assert_metadata(
+        &vless.metadata,
+        NODE_METADATA_VLESS_FLOW,
+        "xtls-rprx-vision",
+    );
+    assert_metadata(&vless.metadata, NODE_METADATA_TLS_ENABLED, "true");
+    assert_metadata(
+        &vless.metadata,
+        NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
+        "reality-public-key",
+    );
+    assert_metadata(
+        &vless.metadata,
+        NODE_METADATA_TLS_UTLS_FINGERPRINT,
+        "chrome",
+    );
+    assert_metadata(&vless.metadata, NODE_METADATA_V2RAY_TRANSPORT_TYPE, "ws");
+    assert_metadata(
+        &vless.metadata,
+        NODE_METADATA_V2RAY_TRANSPORT_HOST,
+        "cdn.vless.example.test",
+    );
+
+    let vmess = &catalog.nodes[1];
+    assert_metadata(&vmess.metadata, NODE_METADATA_VMESS_SECURITY, "aes-128-gcm");
+    assert_metadata(&vmess.metadata, NODE_METADATA_VMESS_ALTER_ID, "0");
+    assert_metadata(&vmess.metadata, NODE_METADATA_V2RAY_TRANSPORT_TYPE, "grpc");
+    assert_metadata(
+        &vmess.metadata,
+        NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME,
+        "TunService",
+    );
+
+    let trojan = &catalog.nodes[2];
+    assert_metadata(&trojan.metadata, NODE_METADATA_TLS_ENABLED, "true");
+    assert_metadata(
+        &trojan.metadata,
+        NODE_METADATA_V2RAY_TRANSPORT_TYPE,
+        "httpupgrade",
+    );
+    assert_metadata(
+        &trojan.metadata,
+        NODE_METADATA_V2RAY_TRANSPORT_PATH,
+        "/upgrade",
+    );
 }
 
 #[test]

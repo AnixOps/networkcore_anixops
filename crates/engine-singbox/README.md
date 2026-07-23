@@ -35,10 +35,13 @@ The Windows GUI explicitly installs the verified official core and imports an
 operator-selected local profile at the configured `config_path`. A native
 sing-box document with top-level `inbounds` or `outbounds` is retained verbatim,
 including TLS/REALITY/transport/multiplex/route/DNS fields. Other inputs use
-the generated path, which supports basic Shadowsocks, Trojan, VLESS, VMess,
-Hysteria2, and TUIC outbounds. Trojan enables TLS while VLESS and VMess are
-basic TCP only. Hysteria2 and TUIC retain only their explicit catalog metadata:
-credentials, TLS options, Hysteria2 port hopping/obfuscation, and TUIC
-congestion control. They are direct proxy-core QUIC paths, not the GUI HTTPS
-MITM path. The wrapper `managed-config.json` only supplies process paths and
-lifecycle policy; it is not itself a sing-box configuration.
+the generated path, which supports Shadowsocks, Trojan, VLESS, VMess,
+Hysteria2, and TUIC outbounds. The V2Ray-family local-file subset renders
+explicit TLS/ALPN/pins/uTLS, VLESS Vision/REALITY, VMess security/alter-id, and
+WebSocket/gRPC/HTTP/HTTPUpgrade/V2Ray-QUIC transport metadata. It does not
+infer unsupported XHTTP, ECH, multiplex, routing, or DNS fields. Hysteria2 and
+TUIC retain only their explicit catalog metadata: credentials, TLS options,
+Hysteria2 port hopping/obfuscation, and TUIC congestion control. They are direct
+proxy-core QUIC paths, not the GUI HTTPS MITM path. The wrapper
+`managed-config.json` only supplies process paths and lifecycle policy; it is
+not itself a sing-box configuration.

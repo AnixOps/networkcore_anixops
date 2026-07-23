@@ -6,6 +6,13 @@
 
 ### Added
 
+- V2Ray share-link compatibility subset: operator-selected Windows local
+  `trojan://`, `vless://`, and `vmess://` profiles, plus catalog-imported
+  sing-box outbounds, now retain the explicit TLS, REALITY, uTLS, VLESS Vision,
+  VMess security/alter-id, and WebSocket/gRPC/HTTP/HTTPUpgrade/V2Ray QUIC
+  fields supported by the managed sing-box renderer. This does not infer
+  arbitrary XHTTP/ECH/multiplex transport fields and does not enable HTTP/3
+  MITM.
 - Hysteria2/TUIC share-link parser gate: operator-selected Windows local profiles
   may now import `hysteria2://`/`hy2://` and `tuic://` nodes, including the
   documented credential, TLS, Hysteria2 port-hopping/obfuscation, and TUIC
@@ -20,8 +27,8 @@
 - Windows GUI can explicitly import an operator-selected local profile file,
   select a node, render its managed sing-box JSON, and configure the service
   owned core plus `127.0.0.1:7890` system proxy.
-- The sing-box adapter now renders basic Shadowsocks, Trojan, VLESS, and VMess
-  outbounds. Trojan enables TLS; VLESS and VMess only render basic TCP fields.
+- The sing-box adapter renders basic Shadowsocks plus the documented
+  Trojan/VLESS/VMess TLS and transport compatibility subset.
 - Windows GUI can explicitly enable a service-owned HTTPS MITM path. It
   generates a local CA, moves sing-box to `127.0.0.1:7891` as a SOCKS upstream,
   starts the native HTTP listener on `127.0.0.1:7890`, and installs/removes the
@@ -45,9 +52,9 @@
 
 - Windows documentation and release readiness contract now distinguish the
   explicit GUI core install/profile import path from the MSI's non-bundled,
-  non-silent third-party-core boundary. Remote subscription fetch, advanced
-  transport rendering, JavaScript dispatch, HTTP/2, HTTP/3/QUIC MITM, streaming,
-  and multi-request CONNECT remain unavailable.
+  non-silent third-party-core boundary. Remote subscription fetch,
+  XHTTP/ECH/multiplex transport inference, JavaScript dispatch, HTTP/2,
+  HTTP/3/QUIC MITM, streaming, and multi-request CONNECT remain unavailable.
 - Native sing-box JSON remains pass-through for normal import. The only GUI
   MITM mutation is a documented, reversible rewrite of a native
   `type: mixed`, `tag: mixed-in` listener.

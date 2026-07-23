@@ -13,10 +13,15 @@ use control_domain::{
     NODE_METADATA_HYSTERIA2_OBFS_PASSWORD, NODE_METADATA_HYSTERIA2_OBFS_TYPE,
     NODE_METADATA_HYSTERIA2_PASSWORD, NODE_METADATA_HYSTERIA2_SERVER_PORTS,
     NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_TLS_ALPN,
-    NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256, NODE_METADATA_TLS_INSECURE,
-    NODE_METADATA_TLS_SERVER_NAME, NODE_METADATA_TROJAN_PASSWORD,
+    NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256, NODE_METADATA_TLS_ENABLED,
+    NODE_METADATA_TLS_INSECURE, NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
+    NODE_METADATA_TLS_REALITY_SHORT_ID, NODE_METADATA_TLS_SERVER_NAME,
+    NODE_METADATA_TLS_UTLS_FINGERPRINT, NODE_METADATA_TROJAN_PASSWORD,
     NODE_METADATA_TUIC_CONGESTION_CONTROL, NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID,
-    NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_UUID,
+    NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_PATH,
+    NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
+    NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
+    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
 };
 use flate2::read::{DeflateDecoder, GzDecoder};
 use reqwest::blocking::Client;
@@ -1021,54 +1026,9 @@ fn render_sing_box_outbound(node: &NodeDescriptor) -> DomainResult<serde_json::V
                 "password": password,
             }))
         }
-        Protocol::Trojan => {
-            let password = required_node_metadata(
-                node,
-                NODE_METADATA_TROJAN_PASSWORD,
-                "trojan node is missing password metadata",
-            )?;
-            Ok(json!({
-                "type": "trojan",
-                "tag": node.id.as_str(),
-                "server": node.endpoint.host.as_str(),
-                "server_port": node.endpoint.port,
-                "password": password,
-                "tls": {
-                    "enabled": true,
-                    "server_name": node.endpoint.host.as_str(),
-                },
-            }))
-        }
-        Protocol::Vless => {
-            let uuid = required_node_metadata(
-                node,
-                NODE_METADATA_VLESS_UUID,
-                "vless node is missing uuid metadata",
-            )?;
-            Ok(json!({
-                "type": "vless",
-                "tag": node.id.as_str(),
-                "server": node.endpoint.host.as_str(),
-                "server_port": node.endpoint.port,
-                "uuid": uuid,
-            }))
-        }
-        Protocol::Vmess => {
-            let uuid = required_node_metadata(
-                node,
-                NODE_METADATA_VMESS_UUID,
-                "vmess node is missing uuid metadata",
-            )?;
-            Ok(json!({
-                "type": "vmess",
-                "tag": node.id.as_str(),
-                "server": node.endpoint.host.as_str(),
-                "server_port": node.endpoint.port,
-                "uuid": uuid,
-                "security": "auto",
-                "alter_id": 0,
-            }))
-        }
+        Protocol::Trojan => render_trojan_outbound(node),
+        Protocol::Vless => render_vless_outbound(node),
+        Protocol::Vmess => render_vmess_outbound(node),
         Protocol::Hysteria2 => render_hysteria2_outbound(node),
         Protocol::Tuic => render_tuic_outbound(node),
         Protocol::Http | Protocol::Socks | Protocol::Hysteria | Protocol::Other(_) => {
@@ -1081,6 +1041,237 @@ fn render_sing_box_outbound(node: &NodeDescriptor) -> DomainResult<serde_json::V
             ))
         }
     }
+}
+
+fn render_trojan_outbound(node: &NodeDescriptor) -> DomainResult<Value> {
+    let password = required_node_metadata(
+        node,
+        NODE_METADATA_TROJAN_PASSWORD,
+        "trojan node is missing password metadata",
+    )?;
+    let mut outbound = json!({
+        "type": "trojan",
+        "tag": node.id.as_str(),
+        "server": node.endpoint.host.as_str(),
+        "server_port": node.endpoint.port,
+        "password": password,
+    });
+    append_v2ray_outbound_options(&mut outbound, node, true)?;
+    Ok(outbound)
+}
+
+fn render_vless_outbound(node: &NodeDescriptor) -> DomainResult<Value> {
+    let uuid = required_node_metadata(
+        node,
+        NODE_METADATA_VLESS_UUID,
+        "vless node is missing uuid metadata",
+    )?;
+    let mut outbound = json!({
+        "type": "vless",
+        "tag": node.id.as_str(),
+        "server": node.endpoint.host.as_str(),
+        "server_port": node.endpoint.port,
+        "uuid": uuid,
+    });
+    if let Some(flow) = metadata_value(node, NODE_METADATA_VLESS_FLOW) {
+        if !flow.trim().is_empty() {
+            outbound
+                .as_object_mut()
+                .expect("vless outbound must be a JSON object")
+                .insert("flow".to_string(), json!(flow));
+        }
+    }
+    append_v2ray_outbound_options(&mut outbound, node, false)?;
+    Ok(outbound)
+}
+
+fn render_vmess_outbound(node: &NodeDescriptor) -> DomainResult<Value> {
+    let uuid = required_node_metadata(
+        node,
+        NODE_METADATA_VMESS_UUID,
+        "vmess node is missing uuid metadata",
+    )?;
+    let security = metadata_value(node, NODE_METADATA_VMESS_SECURITY).unwrap_or("auto");
+    if !matches!(
+        security,
+        "auto" | "none" | "zero" | "aes-128-gcm" | "chacha20-poly1305" | "aes-128-ctr"
+    ) {
+        return Err(DomainError::new(
+            ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE,
+            "vmess security metadata is not supported by sing-box",
+        ));
+    }
+    let alter_id = optional_nonnegative_u32_node_metadata(
+        node,
+        NODE_METADATA_VMESS_ALTER_ID,
+        "vmess alter_id metadata must be a non-negative integer",
+    )?
+    .unwrap_or(0);
+    let mut outbound = json!({
+        "type": "vmess",
+        "tag": node.id.as_str(),
+        "server": node.endpoint.host.as_str(),
+        "server_port": node.endpoint.port,
+        "uuid": uuid,
+        "security": security,
+        "alter_id": alter_id,
+    });
+    append_v2ray_outbound_options(&mut outbound, node, false)?;
+    Ok(outbound)
+}
+
+fn append_v2ray_outbound_options(
+    outbound: &mut Value,
+    node: &NodeDescriptor,
+    default_tls_enabled: bool,
+) -> DomainResult<()> {
+    let fields = outbound
+        .as_object_mut()
+        .expect("sing-box V2Ray-family outbound must be a JSON object");
+    if let Some(tls) = render_v2ray_tls(node, default_tls_enabled)? {
+        fields.insert("tls".to_string(), tls);
+    }
+    if let Some(transport) = render_v2ray_transport(node)? {
+        fields.insert("transport".to_string(), transport);
+    }
+    Ok(())
+}
+
+fn render_v2ray_tls(node: &NodeDescriptor, default_enabled: bool) -> DomainResult<Option<Value>> {
+    let enabled = optional_boolean_node_metadata(
+        node,
+        NODE_METADATA_TLS_ENABLED,
+        "tls enabled metadata must be true or false",
+    )?
+    .unwrap_or(default_enabled);
+    if !enabled {
+        return Ok(None);
+    }
+    let server_name = metadata_value(node, NODE_METADATA_TLS_SERVER_NAME)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(node.endpoint.host.as_str());
+    let insecure = optional_boolean_node_metadata(
+        node,
+        NODE_METADATA_TLS_INSECURE,
+        "tls insecure metadata must be true or false",
+    )?
+    .unwrap_or(false);
+    let mut tls = json!({
+        "enabled": true,
+        "server_name": server_name,
+        "insecure": insecure,
+    });
+    let fields = tls
+        .as_object_mut()
+        .expect("tls configuration must be a JSON object");
+    if let Some(alpn) = optional_node_metadata_list(node, NODE_METADATA_TLS_ALPN) {
+        fields.insert("alpn".to_string(), json!(alpn));
+    }
+    if let Some(pins) =
+        optional_node_metadata_list(node, NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256)
+    {
+        fields.insert("certificate_public_key_sha256".to_string(), json!(pins));
+    }
+    if let Some(fingerprint) = metadata_value(node, NODE_METADATA_TLS_UTLS_FINGERPRINT) {
+        if !fingerprint.trim().is_empty() {
+            fields.insert(
+                "utls".to_string(),
+                json!({ "enabled": true, "fingerprint": fingerprint }),
+            );
+        }
+    }
+    if let Some(public_key) = metadata_value(node, NODE_METADATA_TLS_REALITY_PUBLIC_KEY) {
+        if public_key.trim().is_empty() {
+            return Err(DomainError::new(
+                ENGINE_SINGBOX_CONFIG_SECRET_MISSING_CODE,
+                "tls reality public_key metadata cannot be empty",
+            ));
+        }
+        let mut reality = json!({
+            "enabled": true,
+            "public_key": public_key,
+        });
+        if let Some(short_id) = metadata_value(node, NODE_METADATA_TLS_REALITY_SHORT_ID) {
+            if !short_id.trim().is_empty() {
+                reality
+                    .as_object_mut()
+                    .expect("tls reality configuration must be a JSON object")
+                    .insert("short_id".to_string(), json!(short_id));
+            }
+        }
+        fields.insert("reality".to_string(), reality);
+    }
+    Ok(Some(tls))
+}
+
+fn render_v2ray_transport(node: &NodeDescriptor) -> DomainResult<Option<Value>> {
+    let Some(kind) = metadata_value(node, NODE_METADATA_V2RAY_TRANSPORT_TYPE) else {
+        return Ok(None);
+    };
+    let hosts = optional_node_metadata_list(node, NODE_METADATA_V2RAY_TRANSPORT_HOST);
+    let path = metadata_value(node, NODE_METADATA_V2RAY_TRANSPORT_PATH)
+        .filter(|value| !value.trim().is_empty());
+    let service_name = metadata_value(node, NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME)
+        .filter(|value| !value.trim().is_empty());
+    let transport = match kind.trim().to_ascii_lowercase().as_str() {
+        "ws" => {
+            let mut value = json!({ "type": "ws" });
+            let fields = value
+                .as_object_mut()
+                .expect("websocket transport must be a JSON object");
+            if let Some(path) = path {
+                fields.insert("path".to_string(), json!(path));
+            }
+            if let Some(hosts) = hosts {
+                fields.insert("headers".to_string(), json!({ "Host": hosts }));
+            }
+            value
+        }
+        "grpc" => {
+            let mut value = json!({ "type": "grpc" });
+            if let Some(service_name) = service_name {
+                value
+                    .as_object_mut()
+                    .expect("grpc transport must be a JSON object")
+                    .insert("service_name".to_string(), json!(service_name));
+            }
+            value
+        }
+        "http" => {
+            let mut value = json!({ "type": "http" });
+            let fields = value
+                .as_object_mut()
+                .expect("http transport must be a JSON object");
+            if let Some(hosts) = hosts {
+                fields.insert("host".to_string(), json!(hosts));
+            }
+            if let Some(path) = path {
+                fields.insert("path".to_string(), json!(path));
+            }
+            value
+        }
+        "httpupgrade" => {
+            let mut value = json!({ "type": "httpupgrade" });
+            let fields = value
+                .as_object_mut()
+                .expect("httpupgrade transport must be a JSON object");
+            if let Some(host) = hosts.and_then(|hosts| hosts.into_iter().next()) {
+                fields.insert("host".to_string(), json!(host));
+            }
+            if let Some(path) = path {
+                fields.insert("path".to_string(), json!(path));
+            }
+            value
+        }
+        "quic" => json!({ "type": "quic" }),
+        _ => {
+            return Err(DomainError::new(
+                ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE,
+                "V2Ray transport metadata is not supported by sing-box",
+            ));
+        }
+    };
+    Ok(Some(transport))
 }
 
 fn render_hysteria2_outbound(node: &NodeDescriptor) -> DomainResult<Value> {
@@ -1268,6 +1459,21 @@ fn optional_positive_u64_node_metadata(
         ));
     }
     Ok(Some(value))
+}
+
+fn optional_nonnegative_u32_node_metadata(
+    node: &NodeDescriptor,
+    key: &str,
+    message: &'static str,
+) -> DomainResult<Option<u32>> {
+    let Some(value) = metadata_value(node, key) else {
+        return Ok(None);
+    };
+    value
+        .trim()
+        .parse::<u32>()
+        .map(Some)
+        .map_err(|_| DomainError::new(ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE, message))
 }
 
 pub fn default_sing_box_install_root() -> PathBuf {

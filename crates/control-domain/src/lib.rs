@@ -99,6 +99,9 @@ pub const NODE_METADATA_SHADOWSOCKS_PASSWORD: &str = "shadowsocks.password";
 pub const NODE_METADATA_TROJAN_PASSWORD: &str = "trojan.password";
 pub const NODE_METADATA_VLESS_UUID: &str = "vless.uuid";
 pub const NODE_METADATA_VMESS_UUID: &str = "vmess.uuid";
+pub const NODE_METADATA_VMESS_SECURITY: &str = "vmess.security";
+pub const NODE_METADATA_VMESS_ALTER_ID: &str = "vmess.alter_id";
+pub const NODE_METADATA_VLESS_FLOW: &str = "vless.flow";
 pub const NODE_METADATA_HYSTERIA2_PASSWORD: &str = "hysteria2.password";
 pub const NODE_METADATA_HYSTERIA2_SERVER_PORTS: &str = "hysteria2.server_ports";
 pub const NODE_METADATA_HYSTERIA2_OBFS_TYPE: &str = "hysteria2.obfs.type";
@@ -109,10 +112,18 @@ pub const NODE_METADATA_TUIC_UUID: &str = "tuic.uuid";
 pub const NODE_METADATA_TUIC_PASSWORD: &str = "tuic.password";
 pub const NODE_METADATA_TUIC_CONGESTION_CONTROL: &str = "tuic.congestion_control";
 pub const NODE_METADATA_TLS_SERVER_NAME: &str = "tls.server_name";
+pub const NODE_METADATA_TLS_ENABLED: &str = "tls.enabled";
 pub const NODE_METADATA_TLS_INSECURE: &str = "tls.insecure";
 pub const NODE_METADATA_TLS_ALPN: &str = "tls.alpn";
 pub const NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256: &str =
     "tls.certificate_public_key_sha256";
+pub const NODE_METADATA_TLS_UTLS_FINGERPRINT: &str = "tls.utls.fingerprint";
+pub const NODE_METADATA_TLS_REALITY_PUBLIC_KEY: &str = "tls.reality.public_key";
+pub const NODE_METADATA_TLS_REALITY_SHORT_ID: &str = "tls.reality.short_id";
+pub const NODE_METADATA_V2RAY_TRANSPORT_TYPE: &str = "v2ray.transport.type";
+pub const NODE_METADATA_V2RAY_TRANSPORT_HOST: &str = "v2ray.transport.host";
+pub const NODE_METADATA_V2RAY_TRANSPORT_PATH: &str = "v2ray.transport.path";
+pub const NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME: &str = "v2ray.transport.service_name";
 pub const NODE_METADATA_SOURCE_FORMAT: &str = "subscription.source_format";
 
 /// Operating system capability target.

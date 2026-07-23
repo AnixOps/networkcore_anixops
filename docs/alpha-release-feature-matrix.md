@@ -330,6 +330,34 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前待发布切片
 
+### `v0.2.0-alpha.9`
+
+状态：Windows managed client source slice；必须通过同 commit GitHub Actions CI、
+MSI install/uninstall smoke、package、attestation、publish eligibility 和 tag release
+后，才可称为用户可下载版本。
+
+主要特性：
+
+- V2Ray share-link compatibility subset：GUI 的 operator-selected local profile
+  import 可把 `trojan://`、`vless://`、`vmess://` 及 sing-box outbound catalog
+  中明确提供的 TLS、ALPN、certificate pins、uTLS、REALITY、VLESS Vision、VMess
+  security/alter-id 和 WebSocket/gRPC/HTTP/HTTPUpgrade/V2Ray QUIC 信息保留到
+  managed sing-box outbound。
+- 此渲染是确定性的本地文件兼容子集。native sing-box JSON 直通路径不受影响，仍会保留
+  NodeCatalog 未覆盖的 sing-box 字段；Hysteria2/TUIC 仍是独立的 direct QUIC proxy
+  outbound path。
+- V2Ray QUIC transport 与 Hysteria2/TUIC 都是 sing-box 直接代理 core 的数据路径，不进入
+  GUI 的 HTTP/1.1 HTTPS MITM listener、CA 或 native `mixed-in` snapshot/restore 生命周期。
+
+明确不包含：
+
+- 不提供 remote subscription fetch、完整多节点 selector、任意 native transport 推断、
+  XHTTP、ECH、multiplex 或 Hysteria v1；未由 NodeCatalog 明确保留的字段不由基础 renderer
+  猜测或改写。
+- 不支持 HTTP/2、HTTP/3/QUIC MITM、chunked/streaming exchange、多 request CONNECT
+  session、arbitrary plugin loading、remote script、JavaScript script dispatch、TUN、
+  DNS interception、firewall mutation 或 transparent capture。
+
 ### `v0.2.0-alpha.8`
 
 状态：Windows managed client source slice；必须通过同 commit GitHub Actions CI、
@@ -604,11 +632,11 @@ GitHub Actions release workflow 结果为准。
 
 ## 当前 main source 状态
 
-当前 Windows source release 切片是 `v0.2.0-alpha.8`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
+当前 Windows source release 切片是 `v0.2.0-alpha.9`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
 `v0.1.1-alpha.2` 的 Linux/Windows package、checksum、manifest、attestation 和 publish gate，并把
 受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI；Windows path 已切换到
 managed-client MSI，service、driver、installer、system proxy mutation、system trust store mutation 和 managed lifecycle
-已 active，并增加 operator-staged sing-box managed process、非阻塞 MSI service start、受 attestation 的 portable ZIP、GUI-controlled HTTP/1.1 HTTPS MITM/CA lifecycle、native sing-box JSON pass-through import、core-log access、受控 `mixed-in` listener 的 snapshot/restore，以及 Hysteria2/TUIC local-file share-link and native-outbound import；remote subscription、general advanced transport rendering、HTTP/2/HTTP/3 QUIC MITM、streaming、多 request CONNECT 和 JavaScript script dispatch 仍 blocked。用户可下载状态仍以 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。
+已 active，并增加 operator-staged sing-box managed process、非阻塞 MSI service start、受 attestation 的 portable ZIP、GUI-controlled HTTP/1.1 HTTPS MITM/CA lifecycle、native sing-box JSON pass-through import、core-log access、受控 `mixed-in` listener 的 snapshot/restore、Hysteria2/TUIC local-file share-link and native-outbound import，以及本地 V2Ray TLS/REALITY/uTLS/Vision/transport compatibility subset；remote subscription、XHTTP/ECH/multiplex transport inference、HTTP/2/HTTP/3 QUIC MITM、streaming、多 request CONNECT 和 JavaScript script dispatch 仍 blocked。用户可下载状态仍以 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。
 
 ## 已拍板后续版本节奏
 

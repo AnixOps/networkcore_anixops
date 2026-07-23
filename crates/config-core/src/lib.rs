@@ -18,10 +18,15 @@ use control_domain::{
     NODE_METADATA_HYSTERIA2_OBFS_TYPE, NODE_METADATA_HYSTERIA2_PASSWORD,
     NODE_METADATA_HYSTERIA2_SERVER_PORTS, NODE_METADATA_SHADOWSOCKS_METHOD,
     NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SOURCE_FORMAT, NODE_METADATA_TLS_ALPN,
-    NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256, NODE_METADATA_TLS_INSECURE,
-    NODE_METADATA_TLS_SERVER_NAME, NODE_METADATA_TROJAN_PASSWORD,
+    NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256, NODE_METADATA_TLS_ENABLED,
+    NODE_METADATA_TLS_INSECURE, NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
+    NODE_METADATA_TLS_REALITY_SHORT_ID, NODE_METADATA_TLS_SERVER_NAME,
+    NODE_METADATA_TLS_UTLS_FINGERPRINT, NODE_METADATA_TROJAN_PASSWORD,
     NODE_METADATA_TUIC_CONGESTION_CONTROL, NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID,
-    NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_UUID,
+    NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_PATH,
+    NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
+    NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
+    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
 };
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -164,9 +169,13 @@ struct RawSingBoxOutbound {
     method: Option<RawSingBoxScalar>,
     password: Option<RawSingBoxScalar>,
     uuid: Option<RawSingBoxScalar>,
+    flow: Option<RawSingBoxScalar>,
+    security: Option<RawSingBoxScalar>,
+    alter_id: Option<RawSingBoxScalar>,
     congestion_control: Option<RawSingBoxScalar>,
     obfs: Option<RawSingBoxHysteria2Obfs>,
     tls: Option<RawSingBoxTls>,
+    transport: Option<RawSingBoxTransport>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -180,10 +189,42 @@ struct RawSingBoxHysteria2Obfs {
 
 #[derive(Debug, Deserialize)]
 struct RawSingBoxTls {
+    enabled: Option<bool>,
     server_name: Option<RawSingBoxScalar>,
     insecure: Option<bool>,
     alpn: Option<RawSingBoxStringList>,
     certificate_public_key_sha256: Option<RawSingBoxStringList>,
+    utls: Option<RawSingBoxUtls>,
+    reality: Option<RawSingBoxReality>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawSingBoxUtls {
+    enabled: Option<bool>,
+    fingerprint: Option<RawSingBoxScalar>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawSingBoxReality {
+    enabled: Option<bool>,
+    public_key: Option<RawSingBoxScalar>,
+    short_id: Option<RawSingBoxScalar>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawSingBoxTransport {
+    #[serde(rename = "type")]
+    kind: Option<RawSingBoxScalar>,
+    host: Option<RawSingBoxStringList>,
+    path: Option<RawSingBoxScalar>,
+    service_name: Option<RawSingBoxScalar>,
+    headers: Option<RawSingBoxTransportHeaders>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawSingBoxTransportHeaders {
+    #[serde(rename = "Host")]
+    host: Option<RawSingBoxStringList>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -887,9 +928,13 @@ fn parse_sing_box_outbound(
         method,
         password,
         uuid,
+        flow,
+        security,
+        alter_id,
         congestion_control,
         obfs,
         tls,
+        transport,
     } = raw;
     let protocol =
         required_sing_box_scalar_field(protocol, "sing-box outbound type cannot be empty")?;
@@ -935,36 +980,51 @@ fn parse_sing_box_outbound(
                 password,
                 "sing-box trojan password cannot be empty",
             )?;
-            (
-                Protocol::Trojan,
-                "trojan",
-                vec![MetadataEntry {
-                    key: NODE_METADATA_TROJAN_PASSWORD.to_string(),
-                    value: password,
-                }],
-            )
+            let mut metadata = vec![MetadataEntry {
+                key: NODE_METADATA_TROJAN_PASSWORD.to_string(),
+                value: password,
+            }];
+            metadata.extend(sing_box_v2ray_tls_metadata(tls, &host, false)?);
+            append_sing_box_v2ray_transport_metadata(&mut metadata, transport)?;
+            (Protocol::Trojan, "trojan", metadata)
         }
         "vless" => {
             let uuid = required_sing_box_scalar_field(uuid, "sing-box vless uuid cannot be empty")?;
-            (
-                Protocol::Vless,
-                "vless",
-                vec![MetadataEntry {
-                    key: NODE_METADATA_VLESS_UUID.to_string(),
-                    value: uuid,
-                }],
-            )
+            let mut metadata = vec![MetadataEntry {
+                key: NODE_METADATA_VLESS_UUID.to_string(),
+                value: uuid,
+            }];
+            if let Some(flow) = optional_sing_box_scalar_field(flow) {
+                metadata.push(MetadataEntry {
+                    key: NODE_METADATA_VLESS_FLOW.to_string(),
+                    value: flow,
+                });
+            }
+            metadata.extend(sing_box_v2ray_tls_metadata(tls, &host, false)?);
+            append_sing_box_v2ray_transport_metadata(&mut metadata, transport)?;
+            (Protocol::Vless, "vless", metadata)
         }
         "vmess" => {
             let uuid = required_sing_box_scalar_field(uuid, "sing-box vmess uuid cannot be empty")?;
-            (
-                Protocol::Vmess,
-                "vmess",
-                vec![MetadataEntry {
-                    key: NODE_METADATA_VMESS_UUID.to_string(),
-                    value: uuid,
-                }],
-            )
+            let mut metadata = vec![MetadataEntry {
+                key: NODE_METADATA_VMESS_UUID.to_string(),
+                value: uuid,
+            }];
+            if let Some(security) = optional_sing_box_scalar_field(security) {
+                metadata.push(MetadataEntry {
+                    key: NODE_METADATA_VMESS_SECURITY.to_string(),
+                    value: security,
+                });
+            }
+            if let Some(alter_id) = optional_sing_box_scalar_field(alter_id) {
+                metadata.push(MetadataEntry {
+                    key: NODE_METADATA_VMESS_ALTER_ID.to_string(),
+                    value: alter_id,
+                });
+            }
+            metadata.extend(sing_box_v2ray_tls_metadata(tls, &host, false)?);
+            append_sing_box_v2ray_transport_metadata(&mut metadata, transport)?;
+            (Protocol::Vmess, "vmess", metadata)
         }
         "hysteria2" | "hy2" => {
             let password = required_sing_box_scalar_field(
@@ -1098,6 +1158,150 @@ fn parse_sing_box_outbound_port(
     )?;
 
     Ok((port, None))
+}
+
+fn sing_box_v2ray_tls_metadata(
+    raw: Option<RawSingBoxTls>,
+    host: &str,
+    default_enabled: bool,
+) -> DomainResult<Metadata> {
+    let Some(raw) = raw else {
+        return Ok(vec![MetadataEntry {
+            key: NODE_METADATA_TLS_ENABLED.to_string(),
+            value: default_enabled.to_string(),
+        }]);
+    };
+    let RawSingBoxTls {
+        enabled,
+        server_name,
+        insecure,
+        alpn,
+        certificate_public_key_sha256,
+        utls,
+        reality,
+    } = raw;
+    let reality_enabled = reality
+        .as_ref()
+        .and_then(|reality| reality.enabled)
+        .unwrap_or(false);
+    let enabled = enabled.unwrap_or(default_enabled) || reality_enabled;
+    let mut metadata = vec![
+        MetadataEntry {
+            key: NODE_METADATA_TLS_ENABLED.to_string(),
+            value: enabled.to_string(),
+        },
+        MetadataEntry {
+            key: NODE_METADATA_TLS_SERVER_NAME.to_string(),
+            value: optional_sing_box_scalar_field(server_name).unwrap_or_else(|| host.to_string()),
+        },
+        MetadataEntry {
+            key: NODE_METADATA_TLS_INSECURE.to_string(),
+            value: insecure.unwrap_or(false).to_string(),
+        },
+    ];
+    if let Some(alpn) = normalize_non_empty_metadata_values(
+        alpn.map(RawSingBoxStringList::into_values),
+        "sing-box tls alpn values cannot be empty",
+    )? {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_TLS_ALPN.to_string(),
+            value: alpn.join(","),
+        });
+    }
+    if let Some(pins) = normalize_non_empty_metadata_values(
+        certificate_public_key_sha256.map(RawSingBoxStringList::into_values),
+        "sing-box tls certificate_public_key_sha256 values cannot be empty",
+    )? {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256.to_string(),
+            value: pins.join(","),
+        });
+    }
+    if let Some(utls) = utls.filter(|utls| utls.enabled.unwrap_or(false)) {
+        let fingerprint = required_sing_box_scalar_field(
+            utls.fingerprint,
+            "sing-box tls utls fingerprint cannot be empty when utls is enabled",
+        )?;
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_TLS_UTLS_FINGERPRINT.to_string(),
+            value: fingerprint,
+        });
+    }
+    if let Some(reality) = reality.filter(|reality| reality.enabled.unwrap_or(false)) {
+        let public_key = required_sing_box_scalar_field(
+            reality.public_key,
+            "sing-box tls reality public_key cannot be empty when reality is enabled",
+        )?;
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_TLS_REALITY_PUBLIC_KEY.to_string(),
+            value: public_key,
+        });
+        if let Some(short_id) = optional_sing_box_scalar_field(reality.short_id) {
+            metadata.push(MetadataEntry {
+                key: NODE_METADATA_TLS_REALITY_SHORT_ID.to_string(),
+                value: short_id,
+            });
+        }
+    }
+    Ok(metadata)
+}
+
+fn append_sing_box_v2ray_transport_metadata(
+    metadata: &mut Metadata,
+    raw: Option<RawSingBoxTransport>,
+) -> DomainResult<()> {
+    let Some(raw) = raw else {
+        return Ok(());
+    };
+    let RawSingBoxTransport {
+        kind,
+        host,
+        path,
+        service_name,
+        headers,
+    } = raw;
+    let kind = required_sing_box_scalar_field(kind, "sing-box transport type cannot be empty")?;
+    let kind = match normalized_token(&kind).as_str() {
+        "ws" | "websocket" => "ws",
+        "grpc" => "grpc",
+        "http" | "h2" => "http",
+        "httpupgrade" | "http_upgrade" => "httpupgrade",
+        "quic" => "quic",
+        "tcp" | "raw" | "none" => return Ok(()),
+        _ => {
+            return Err(domain_error(
+                SUBSCRIPTION_SING_BOX_JSON_UNSUPPORTED_CODE,
+                "sing-box outbound transport must be ws, grpc, http, httpupgrade, or quic for catalog import",
+            ));
+        }
+    };
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_V2RAY_TRANSPORT_TYPE.to_string(),
+        value: kind.to_string(),
+    });
+    let host = host.or_else(|| headers.and_then(|headers| headers.host));
+    if let Some(host) = normalize_non_empty_metadata_values(
+        host.map(RawSingBoxStringList::into_values),
+        "sing-box transport host values cannot be empty",
+    )? {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_V2RAY_TRANSPORT_HOST.to_string(),
+            value: host.join(","),
+        });
+    }
+    if let Some(path) = optional_sing_box_scalar_field(path) {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_V2RAY_TRANSPORT_PATH.to_string(),
+            value: path,
+        });
+    }
+    if let Some(service_name) = optional_sing_box_scalar_field(service_name) {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME.to_string(),
+            value: service_name,
+        });
+    }
+    Ok(())
 }
 
 fn sing_box_tls_metadata(raw: Option<RawSingBoxTls>, host: &str) -> DomainResult<Metadata> {
@@ -2179,7 +2383,7 @@ fn parse_trojan_link(link: &str) -> DomainResult<NodeDescriptor> {
     let name = fragment
         .and_then(|fragment| percent_decode(fragment).ok())
         .filter(|name| !name.trim().is_empty());
-    let (main_without_query, _) = split_once_optional(without_fragment, '?');
+    let (main_without_query, query) = split_once_optional(without_fragment, '?');
     let (password, host_port) = main_without_query.rsplit_once('@').ok_or_else(|| {
         domain_error(
             SUBSCRIPTION_TROJAN_LINK_INVALID_CODE,
@@ -2203,22 +2407,31 @@ fn parse_trojan_link(link: &str) -> DomainResult<NodeDescriptor> {
     let id = format!("trojan-{}-{port}", host_id);
     let name = name.unwrap_or_else(|| id.clone());
 
+    let query = parse_share_link_query(query, SUBSCRIPTION_TROJAN_LINK_INVALID_CODE, "trojan")?;
+    let mut metadata = vec![MetadataEntry {
+        key: NODE_METADATA_TROJAN_PASSWORD.to_string(),
+        value: password,
+    }];
+    append_v2ray_share_link_metadata(
+        &mut metadata,
+        &query,
+        &host,
+        true,
+        SUBSCRIPTION_TROJAN_LINK_INVALID_CODE,
+        "trojan",
+    )?;
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_SOURCE_FORMAT.to_string(),
+        value: "trojan-url".to_string(),
+    });
+
     Ok(NodeDescriptor {
         id,
         name,
         protocol: Protocol::Trojan,
         endpoint: Endpoint { host, port },
         tags: vec!["subscription".to_string(), "trojan".to_string()],
-        metadata: vec![
-            MetadataEntry {
-                key: NODE_METADATA_TROJAN_PASSWORD.to_string(),
-                value: password,
-            },
-            MetadataEntry {
-                key: NODE_METADATA_SOURCE_FORMAT.to_string(),
-                value: "trojan-url".to_string(),
-            },
-        ],
+        metadata,
     })
 }
 
@@ -2233,7 +2446,7 @@ fn parse_vless_link(link: &str) -> DomainResult<NodeDescriptor> {
     let name = fragment
         .and_then(|fragment| percent_decode(fragment).ok())
         .filter(|name| !name.trim().is_empty());
-    let (main_without_query, _) = split_once_optional(without_fragment, '?');
+    let (main_without_query, query) = split_once_optional(without_fragment, '?');
     let (uuid, host_port) = main_without_query.rsplit_once('@').ok_or_else(|| {
         domain_error(
             SUBSCRIPTION_VLESS_LINK_INVALID_CODE,
@@ -2257,22 +2470,39 @@ fn parse_vless_link(link: &str) -> DomainResult<NodeDescriptor> {
     let id = format!("vless-{}-{port}", host_id);
     let name = name.unwrap_or_else(|| id.clone());
 
+    let query = parse_share_link_query(query, SUBSCRIPTION_VLESS_LINK_INVALID_CODE, "vless")?;
+    let mut metadata = vec![MetadataEntry {
+        key: NODE_METADATA_VLESS_UUID.to_string(),
+        value: uuid,
+    }];
+    if let Some(flow) = query.get("flow").filter(|value| !value.trim().is_empty()) {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_VLESS_FLOW.to_string(),
+            value: flow.trim().to_string(),
+        });
+    }
+    append_v2ray_share_link_metadata(
+        &mut metadata,
+        &query,
+        &host,
+        false,
+        SUBSCRIPTION_VLESS_LINK_INVALID_CODE,
+        "vless",
+    )?;
+
     Ok(NodeDescriptor {
         id,
         name,
         protocol: Protocol::Vless,
         endpoint: Endpoint { host, port },
         tags: vec!["subscription".to_string(), "vless".to_string()],
-        metadata: vec![
-            MetadataEntry {
-                key: NODE_METADATA_VLESS_UUID.to_string(),
-                value: uuid,
-            },
-            MetadataEntry {
+        metadata: {
+            metadata.push(MetadataEntry {
                 key: NODE_METADATA_SOURCE_FORMAT.to_string(),
                 value: "vless-url".to_string(),
-            },
-        ],
+            });
+            metadata
+        },
     })
 }
 
@@ -2333,22 +2563,63 @@ fn parse_vmess_link(link: &str) -> DomainResult<NodeDescriptor> {
     let id = format!("vmess-{}-{port}", host_id);
     let name = optional_json_text_field(&value, "ps").unwrap_or_else(|| id.clone());
 
+    let mut query = BTreeMap::new();
+    for (json_key, query_key) in [
+        ("tls", "tls"),
+        ("sni", "sni"),
+        ("alpn", "alpn"),
+        ("allowInsecure", "allowinsecure"),
+        ("insecure", "insecure"),
+        ("fp", "fp"),
+        ("pbk", "pbk"),
+        ("sid", "sid"),
+        ("net", "type"),
+        ("host", "host"),
+        ("path", "path"),
+        ("serviceName", "servicename"),
+    ] {
+        if let Some(field) = optional_json_text_field(&value, json_key) {
+            query.insert(query_key.to_string(), field);
+        }
+    }
+    let mut metadata = vec![MetadataEntry {
+        key: NODE_METADATA_VMESS_UUID.to_string(),
+        value: uuid,
+    }];
+    if let Some(security) = optional_json_text_field(&value, "scy") {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_VMESS_SECURITY.to_string(),
+            value: security,
+        });
+    }
+    if let Some(alter_id) = optional_json_text_field(&value, "aid") {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_VMESS_ALTER_ID.to_string(),
+            value: alter_id,
+        });
+    }
+    append_v2ray_share_link_metadata(
+        &mut metadata,
+        &query,
+        &host,
+        false,
+        SUBSCRIPTION_VMESS_LINK_INVALID_CODE,
+        "vmess",
+    )?;
+
     Ok(NodeDescriptor {
         id,
         name,
         protocol: Protocol::Vmess,
         endpoint: Endpoint { host, port },
         tags: vec!["subscription".to_string(), "vmess".to_string()],
-        metadata: vec![
-            MetadataEntry {
-                key: NODE_METADATA_VMESS_UUID.to_string(),
-                value: uuid,
-            },
-            MetadataEntry {
+        metadata: {
+            metadata.push(MetadataEntry {
                 key: NODE_METADATA_SOURCE_FORMAT.to_string(),
                 value: "vmess-url".to_string(),
-            },
-        ],
+            });
+            metadata
+        },
     })
 }
 
@@ -2666,6 +2937,118 @@ fn append_query_tls_metadata(
         metadata.push(MetadataEntry {
             key: NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256.to_string(),
             value: pins.join(","),
+        });
+    }
+    Ok(())
+}
+
+fn append_v2ray_share_link_metadata(
+    metadata: &mut Metadata,
+    query: &BTreeMap<String, String>,
+    host: &str,
+    default_tls_enabled: bool,
+    code: &'static str,
+    protocol_name: &'static str,
+) -> DomainResult<()> {
+    let security = query
+        .get("security")
+        .or_else(|| query.get("tls"))
+        .map(|value| value.trim().to_ascii_lowercase());
+    let (tls_enabled, reality_enabled) = match security.as_deref() {
+        None | Some("") => (default_tls_enabled, false),
+        Some("tls") => (true, false),
+        Some("reality") => (true, true),
+        Some("none") => (false, false),
+        Some(_) => {
+            return Err(domain_error(
+                code,
+                format!("{protocol_name} security must be none, tls, or reality"),
+            ));
+        }
+    };
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_TLS_ENABLED.to_string(),
+        value: tls_enabled.to_string(),
+    });
+    if tls_enabled {
+        append_query_tls_metadata(metadata, query, host, code)?;
+        if let Some(fingerprint) = query.get("fp").filter(|value| !value.trim().is_empty()) {
+            metadata.push(MetadataEntry {
+                key: NODE_METADATA_TLS_UTLS_FINGERPRINT.to_string(),
+                value: fingerprint.trim().to_string(),
+            });
+        }
+    }
+    if reality_enabled {
+        let public_key = required_query_value(
+            query,
+            "pbk",
+            code,
+            "reality public key cannot be empty when security=reality",
+        )?;
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_TLS_REALITY_PUBLIC_KEY.to_string(),
+            value: public_key,
+        });
+        if let Some(short_id) = query.get("sid").filter(|value| !value.trim().is_empty()) {
+            metadata.push(MetadataEntry {
+                key: NODE_METADATA_TLS_REALITY_SHORT_ID.to_string(),
+                value: short_id.trim().to_string(),
+            });
+        }
+    }
+    append_v2ray_share_link_transport_metadata(metadata, query, code, protocol_name)
+}
+
+fn append_v2ray_share_link_transport_metadata(
+    metadata: &mut Metadata,
+    query: &BTreeMap<String, String>,
+    code: &'static str,
+    protocol_name: &'static str,
+) -> DomainResult<()> {
+    let Some(raw_type) = query.get("type") else {
+        return Ok(());
+    };
+    let kind = match normalized_token(raw_type).as_str() {
+        "" | "tcp" | "raw" | "none" => return Ok(()),
+        "ws" | "websocket" => "ws",
+        "grpc" => "grpc",
+        "http" | "h2" => "http",
+        "httpupgrade" | "http_upgrade" => "httpupgrade",
+        "quic" => "quic",
+        _ => {
+            return Err(domain_error(
+                code,
+                format!(
+                    "{protocol_name} transport must be tcp, ws, grpc, http, httpupgrade, or quic"
+                ),
+            ));
+        }
+    };
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_V2RAY_TRANSPORT_TYPE.to_string(),
+        value: kind.to_string(),
+    });
+    if let Some(host) = query.get("host").filter(|value| !value.trim().is_empty()) {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_V2RAY_TRANSPORT_HOST.to_string(),
+            value: split_share_link_list(host, code, "transport host")?.join(","),
+        });
+    }
+    if let Some(path) = query.get("path").filter(|value| !value.trim().is_empty()) {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_V2RAY_TRANSPORT_PATH.to_string(),
+            value: path.trim().to_string(),
+        });
+    }
+    if let Some(service_name) = query
+        .get("servicename")
+        .or_else(|| query.get("service_name"))
+        .filter(|value| !value.trim().is_empty())
+    {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME.to_string(),
+            value: service_name.trim().to_string(),
         });
     }
     Ok(())
