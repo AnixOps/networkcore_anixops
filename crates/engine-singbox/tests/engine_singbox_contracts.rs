@@ -435,6 +435,57 @@ fn rejects_non_loopback_clash_controller_for_generated_selector() {
 }
 
 #[test]
+fn reads_generated_selector_state_through_the_loopback_clash_api() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("test controller should bind");
+    let port = listener
+        .local_addr()
+        .expect("test controller address should resolve")
+        .port();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener
+            .accept()
+            .expect("test controller should accept the selector request");
+        let mut request = [0_u8; 2_048];
+        let length = stream
+            .read(&mut request)
+            .expect("test controller should read the selector request");
+        let request = String::from_utf8_lossy(&request[..length]);
+        assert!(request.starts_with("GET /proxies/networkcore-selector HTTP/1.1"));
+
+        let body =
+            r#"{"now":"networkcore-node-1","all":["networkcore-node-0","networkcore-node-1"]}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        stream
+            .write_all(response.as_bytes())
+            .expect("test controller should return the selector response");
+    });
+
+    let status = engine_singbox::read_sing_box_clash_api_selector(&SingBoxLocalControllerConfig {
+        host: "127.0.0.1".to_string(),
+        port,
+        selector_tag: "networkcore-selector".to_string(),
+        interrupt_exist_connections: true,
+    })
+    .expect("loopback controller should return the active selector state");
+
+    assert_eq!(status.selector_tag, "networkcore-selector");
+    assert_eq!(status.current_outbound_tag, "networkcore-node-1");
+    assert_eq!(
+        status.outbound_tags,
+        vec![
+            "networkcore-node-0".to_string(),
+            "networkcore-node-1".to_string()
+        ]
+    );
+    server
+        .join()
+        .expect("test controller assertions should succeed");
+}
+
+#[test]
 fn measures_one_generated_outbound_through_the_loopback_clash_api() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("test controller should bind");
     let port = listener

@@ -14,6 +14,12 @@
 
 ### Added
 
+- Windows GUI now exposes `Check core` for generated NodeCatalog profiles. It
+  makes one read-only loopback Clash API selector request, displays the active
+  outbound plus node count, and records the result in the local GUI log. It does
+  not persist a node choice, switch the selector, alter managed configuration,
+  or change the service lifecycle; native pass-through sing-box JSON remains
+  outside this generated selector control surface.
 - Windows GUI now exposes an editable HTTPS `Delay URL` and `Test delay` action
   for the selected generated sing-box outbound. It makes one loopback Clash API
   `/proxies/{tag}/delay` request with a 10-second timeout, displays the returned

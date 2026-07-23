@@ -81,9 +81,10 @@ For the normal managed workflow, run the elevated GUI and follow this order:
 3. Click `Import profile`, then `Install service` and `Start`. After a successful
    URL import, click `Update URL` to explicitly refresh that saved URL.
 4. With the managed service running, click `Load nodes`, choose an imported
-   node, optionally replace the HTTPS `Delay URL`, then click `Test delay` for
-   one measurement. Click `Switch active` only when that selected node should
-   become the runtime selector choice.
+   node, then click `Check core` to read the generated selector's active
+   outbound. Optionally replace the HTTPS `Delay URL`, then click `Test delay`
+   for one measurement. Click `Switch active` only when that selected node
+   should become the runtime selector choice.
 
 The importer writes `C:\\ProgramData\\AnixOps\\NetworkCore\\sing-box\\config.json`
 and updates `managed-config.json` with the verified core path, local mixed proxy
@@ -95,13 +96,14 @@ not modify the managed configuration. It exposes the parsed NodeCatalog names
 and stable IDs for deterministic import. For these generated NodeCatalog
 profiles, `Import profile` emits all translatable nodes behind a sing-box
 `selector`, selects the chosen entry as its default, and exposes the selector
-only through a loopback Clash API controller at `127.0.0.1:9091`. `Switch active`
-is explicit: it PATCHes the selected node and then reads the controller state
-back. `Test delay` is also explicit: it calls the selected generated outbound's
+only through a loopback Clash API controller at `127.0.0.1:9091`. `Check core`
+is read-only: it gets the generated selector once and shows its active outbound
+plus available node count. `Switch active` is explicit: it PATCHes the selected
+node and then reads the controller state back. `Test delay` is also explicit: it calls the selected generated outbound's
 loopback `/delay` endpoint once with the editable HTTPS `Delay URL` (default
 `https://www.gstatic.com/generate_204`) and a 10-second timeout, then shows the
-returned milliseconds. It neither changes the active selector nor writes the
-managed config or restarts the service. These actions require the imported
+returned milliseconds. `Check core` and `Test delay` neither change the active
+selector nor write the managed config or restart the service. These actions require the imported
 managed service to be running, never open the controller on the network, and
 do not add a Web UI, automatic latency/URLTest, or automatic restart. `Import
 profile` and `Update URL` download HTTP(S) URLs

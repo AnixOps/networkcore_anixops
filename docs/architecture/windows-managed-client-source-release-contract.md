@@ -8,7 +8,7 @@ current Windows package.
 ```text
 windows-managed-client-source-release-contract=present
 windows-managed-client-release-state=implementation-active
-windows-managed-client-version-scope=v0.2.0-alpha.16
+windows-managed-client-version-scope=v0.2.0-alpha.17
 WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active
 windows-managed-client-runner=windows-latest
 windows-managed-client-runner-kind=github-hosted
@@ -42,6 +42,7 @@ windows-managed-client-remote-subscription-update=single-saved-url-explicit-only
 windows-managed-client-profile-node-selector=generated-clash-api-runtime-selector-active
 windows-managed-client-sing-box-clash-api=loopback-explicit-switch-active
 windows-managed-client-sing-box-manual-delay-test=loopback-explicit-single-node-https-active
+windows-managed-client-sing-box-runtime-health=loopback-explicit-selector-read-active
 windows-managed-client-sing-box-urltest=blocked
 windows-managed-client-sing-box-basic-protocols=shadowsocks-trojan-vless-vmess-hysteria2-tuic
 windows-managed-client-sing-box-quic-share-link-import=hysteria2-tuic-local-file-active
@@ -102,7 +103,12 @@ selector; changing its outbound/selector groups remains the operator's native
 sing-box configuration choice. The generated selector does not configure
 `urltest`, automatic latency selection, scheduled subscription refresh, or an
 automatic service restart. The explicit delay action is not scheduled, does
-not select an outbound, and is unavailable for native pass-through documents. A
+not select an outbound, and is unavailable for native pass-through documents.
+`Check core` reads that generated selector once through the same loopback
+`GET /proxies/{selector}` endpoint and displays its active outbound plus node
+count. It is read-only: it does not persist a selected node, change managed
+configuration, or start, stop, or restart the service. It is unavailable for
+native pass-through documents that do not provide the generated selector. A
 loopback or wildcard `mixed`/`http` inbound is detected to configure the Windows
 system proxy endpoint; a native document without one leaves system-proxy
 configuration unset. Other supported inputs render the basic Shadowsocks,

@@ -20,13 +20,14 @@ mod gui {
     use control_domain::{NodeDescriptor, SubscriptionService, SubscriptionSource};
     use engine_singbox::{
         inspect_sing_box_native_config, measure_sing_box_clash_api_outbound_delay,
-        render_sing_box_local_proxy_selector_config, rewrite_sing_box_mixed_inbound_listener,
-        select_sing_box_clash_api_outbound, sing_box_local_selector_outbound_tag,
-        GithubSingBoxReleaseInstaller, SingBoxInstallRequest, SingBoxLocalControllerConfig,
-        SingBoxLocalProxyConfigRequest, SingBoxLocalProxySelectableNode,
-        SingBoxManagedProcessRequest, SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller,
-        SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
-        DEFAULT_SING_BOX_CLASH_API_DELAY_TEST_URL, DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS,
+        read_sing_box_clash_api_selector, render_sing_box_local_proxy_selector_config,
+        rewrite_sing_box_mixed_inbound_listener, select_sing_box_clash_api_outbound,
+        sing_box_local_selector_outbound_tag, GithubSingBoxReleaseInstaller, SingBoxInstallRequest,
+        SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest,
+        SingBoxLocalProxySelectableNode, SingBoxManagedProcessRequest,
+        SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch,
+        SingBoxTargetOs, DEFAULT_SING_BOX_CLASH_API_DELAY_TEST_URL,
+        DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS,
     };
     use platform_windows::managed::{
         append_managed_log, read_managed_config, read_managed_state, windows_managed_config_path,
@@ -88,6 +89,7 @@ mod gui {
     const ID_ENABLE_PROXY: usize = 120;
     const ID_RESTORE_PROXY: usize = 121;
     const ID_TEST_PROFILE_NODE_DELAY: usize = 122;
+    const ID_CHECK_PROFILE_RUNTIME: usize = 123;
     const ID_INSTALL_CERTIFICATE: usize = 130;
     const ID_REMOVE_CERTIFICATE: usize = 131;
     const ID_INSTALL_DRIVER: usize = 140;
@@ -131,6 +133,7 @@ mod gui {
         profile_node_id: HWND,
         delay_test_url: HWND,
         profile_delay_status: HWND,
+        profile_runtime_status: HWND,
         proxy_server: HWND,
         proxy_bypass: HWND,
         certificate_path: HWND,
@@ -206,7 +209,7 @@ mod gui {
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
                 980,
-                1_050,
+                1_090,
                 null_mut(),
                 null_mut(),
                 instance,
@@ -445,7 +448,7 @@ mod gui {
             20,
             320,
             925,
-            220,
+            260,
         );
         let profile_source_text = desktop
             .profile_source_url
@@ -561,7 +564,21 @@ mod gui {
         );
         let profile_delay_status =
             create_label(window, instance, font, "Not tested", 785, 442, 130, 22);
-        create_label(window, instance, font, "HTTPS MITM", 40, 488, 100, 22);
+        create_label(window, instance, font, "Runtime", 40, 488, 100, 22);
+        create_button(
+            window,
+            instance,
+            font,
+            "Check core",
+            ID_CHECK_PROFILE_RUNTIME,
+            140,
+            484,
+            120,
+            30,
+        );
+        let profile_runtime_status =
+            create_label(window, instance, font, "Not checked", 270, 488, 655, 22);
+        create_label(window, instance, font, "HTTPS MITM", 40, 528, 100, 22);
         create_button(
             window,
             instance,
@@ -569,7 +586,7 @@ mod gui {
             "Enable HTTPS MITM",
             ID_ENABLE_HTTPS_MITM,
             140,
-            484,
+            524,
             175,
             30,
         );
@@ -580,16 +597,16 @@ mod gui {
             "Disable HTTPS MITM",
             ID_DISABLE_HTTPS_MITM,
             325,
-            484,
+            524,
             175,
             30,
         );
 
-        create_group(window, instance, font, "System proxy", 20, 550, 925, 130);
-        create_label(window, instance, font, "Server", 40, 580, 90, 22);
-        let proxy_server = create_edit(window, instance, font, "127.0.0.1:7890", 130, 576, 300, 28);
-        create_label(window, instance, font, "Bypass", 450, 580, 90, 22);
-        let proxy_bypass = create_edit(window, instance, font, "<local>", 540, 576, 365, 28);
+        create_group(window, instance, font, "System proxy", 20, 590, 925, 130);
+        create_label(window, instance, font, "Server", 40, 620, 90, 22);
+        let proxy_server = create_edit(window, instance, font, "127.0.0.1:7890", 130, 616, 300, 28);
+        create_label(window, instance, font, "Bypass", 450, 620, 90, 22);
+        let proxy_bypass = create_edit(window, instance, font, "<local>", 540, 616, 365, 28);
         create_button(
             window,
             instance,
@@ -597,7 +614,7 @@ mod gui {
             "Enable proxy",
             ID_ENABLE_PROXY,
             40,
-            624,
+            664,
             130,
             30,
         );
@@ -608,7 +625,7 @@ mod gui {
             "Restore proxy",
             ID_RESTORE_PROXY,
             180,
-            624,
+            664,
             130,
             30,
         );
@@ -619,12 +636,12 @@ mod gui {
             font,
             "Trust and driver",
             20,
-            690,
+            730,
             925,
             142,
         );
-        create_label(window, instance, font, "Root CA", 40, 722, 90, 22);
-        let certificate_path = create_edit(window, instance, font, "", 130, 718, 575, 28);
+        create_label(window, instance, font, "Root CA", 40, 762, 90, 22);
+        let certificate_path = create_edit(window, instance, font, "", 130, 758, 575, 28);
         create_button(
             window,
             instance,
@@ -632,7 +649,7 @@ mod gui {
             "Install CA",
             ID_INSTALL_CERTIFICATE,
             720,
-            717,
+            757,
             95,
             30,
         );
@@ -643,12 +660,12 @@ mod gui {
             "Remove CA",
             ID_REMOVE_CERTIFICATE,
             825,
-            717,
+            757,
             100,
             30,
         );
-        create_label(window, instance, font, "Driver INF", 40, 772, 90, 22);
-        let driver_path = create_edit(window, instance, font, "", 130, 768, 575, 28);
+        create_label(window, instance, font, "Driver INF", 40, 812, 90, 22);
+        let driver_path = create_edit(window, instance, font, "", 130, 808, 575, 28);
         create_button(
             window,
             instance,
@@ -656,7 +673,7 @@ mod gui {
             "Install driver",
             ID_INSTALL_DRIVER,
             720,
-            767,
+            807,
             95,
             30,
         );
@@ -667,12 +684,12 @@ mod gui {
             "Remove driver",
             ID_REMOVE_DRIVER,
             825,
-            767,
+            807,
             100,
             30,
         );
 
-        let activity = create_label(window, instance, font, "Ready", 24, 850, 910, 26);
+        let activity = create_label(window, instance, font, "Ready", 24, 890, 910, 26);
         let debug_status = create_label(
             window,
             instance,
@@ -686,7 +703,7 @@ mod gui {
                 }
             ),
             24,
-            882,
+            922,
             360,
             24,
         );
@@ -697,7 +714,7 @@ mod gui {
             "Toggle debug",
             ID_TOGGLE_DEBUG,
             390,
-            878,
+            918,
             120,
             30,
         );
@@ -708,7 +725,7 @@ mod gui {
             "Open log folder",
             ID_OPEN_LOGS,
             520,
-            878,
+            918,
             130,
             30,
         );
@@ -719,7 +736,7 @@ mod gui {
             "Open core log",
             ID_OPEN_CORE_LOG,
             660,
-            878,
+            918,
             120,
             30,
         );
@@ -730,7 +747,7 @@ mod gui {
             "Diagnostics",
             ID_SHOW_DIAGNOSTICS,
             790,
-            878,
+            918,
             135,
             30,
         );
@@ -740,7 +757,7 @@ mod gui {
             font,
             &format!("Logs: {}", windows_managed_log_directory().display()),
             24,
-            918,
+            958,
             900,
             24,
         );
@@ -755,6 +772,7 @@ mod gui {
             profile_node_id,
             delay_test_url,
             profile_delay_status,
+            profile_runtime_status,
             proxy_server,
             proxy_bypass,
             certificate_path,
@@ -795,6 +813,9 @@ mod gui {
                 "Selected node delay measured",
                 test_profile_node_delay,
             ),
+            ID_CHECK_PROFILE_RUNTIME => {
+                run_action(state, "sing-box core reachable", check_profile_runtime)
+            }
             ID_UPDATE_PROFILE => run_action(state, "Subscription URL updated", update_profile),
             ID_ENABLE_HTTPS_MITM => run_action(state, "HTTPS MITM configured", enable_https_mitm),
             ID_DISABLE_HTTPS_MITM => run_action(state, "HTTPS MITM disabled", disable_https_mitm),
@@ -1546,6 +1567,64 @@ mod gui {
                 state.profile_delay_status,
                 format!("{} ms", report.delay_millis).as_str(),
             );
+        }
+        Ok(())
+    }
+
+    fn check_profile_runtime(state: &mut AppState) -> Result<(), String> {
+        let status = match read_sing_box_clash_api_selector(
+            &SingBoxLocalControllerConfig::loopback_selector(),
+        ) {
+            Ok(status) => status,
+            Err(error) => {
+                unsafe {
+                    set_text(
+                        state.profile_runtime_status,
+                        "Unavailable: controller did not respond",
+                    );
+                }
+                return Err(error.to_string());
+            }
+        };
+        if !status
+            .outbound_tags
+            .iter()
+            .any(|outbound_tag| outbound_tag == &status.current_outbound_tag)
+        {
+            unsafe {
+                set_text(
+                    state.profile_runtime_status,
+                    "Unavailable: invalid selector response",
+                );
+            }
+            return Err(
+                "sing-box controller returned an active outbound outside the generated selector"
+                    .to_string(),
+            );
+        }
+        let active_node = state
+            .profile_nodes
+            .iter()
+            .find(|node| {
+                node.selector_outbound_tag.as_deref() == Some(status.current_outbound_tag.as_str())
+            })
+            .map(|node| node.label.clone())
+            .unwrap_or_else(|| status.current_outbound_tag.clone());
+        let status_text = format!(
+            "Ready: {active_node} ({} nodes)",
+            status.outbound_tags.len()
+        );
+        let _ = append_managed_log(
+            "gui",
+            &format!(
+                "manual sing-box runtime check selector={} active={} outbound_count={}",
+                status.selector_tag,
+                status.current_outbound_tag,
+                status.outbound_tags.len()
+            ),
+        );
+        unsafe {
+            set_text(state.profile_runtime_status, &status_text);
         }
         Ok(())
     }
