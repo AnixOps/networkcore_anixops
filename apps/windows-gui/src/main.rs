@@ -1522,7 +1522,7 @@ mod gui {
     }
 
     fn profile_node_label(node: &NodeDescriptor) -> String {
-        let name = node.name.replace('\r', " ").replace('\n', " ");
+        let name = node.name.replace(['\r', '\n'], " ");
         format!("{name} [{}]", node.id)
     }
 
