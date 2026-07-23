@@ -418,12 +418,13 @@ jobs:
           test -f crates/platform-windows/tests/platform_windows_contracts.rs
           test -f installer/windows/Package.wxs
           test -f installer/windows/default-managed-config.json
+          test -f installer/windows/PORTABLE-README.txt
           test -f .github/workflows/release.yml
 
           contract=docs/architecture/windows-managed-client-source-release-contract.md
           grep -q '^windows-managed-client-source-release-contract=present$' "${contract}"
           grep -q '^windows-managed-client-release-state=implementation-active$' "${contract}"
-          grep -q '^windows-managed-client-version-scope=v0.2.0-alpha.2$' "${contract}"
+          grep -q '^windows-managed-client-version-scope=v0.2.0-alpha.3$' "${contract}"
           grep -q '^WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active$' "${contract}"
           grep -q '^windows-managed-client-runner=windows-latest$' "${contract}"
           grep -q '^windows-managed-client-target-triple=x86_64-pc-windows-gnu$' "${contract}"
@@ -436,6 +437,7 @@ jobs:
           grep -q '^windows-managed-client-service=active$' "${contract}"
           grep -q '^windows-managed-client-driver-package-lifecycle=active$' "${contract}"
           grep -q '^windows-managed-client-installer=active$' "${contract}"
+          grep -q '^windows-managed-client-msi-service-start=asynchronous-on-install$' "${contract}"
           grep -q '^windows-managed-client-system-proxy-mutation=active$' "${contract}"
           grep -q '^windows-managed-client-trust-store-mutation=active$' "${contract}"
           grep -q '^windows-managed-client-managed-lifecycle=active$' "${contract}"
@@ -446,6 +448,8 @@ jobs:
           grep -q '^windows-managed-client-script-dispatch=blocked$' "${contract}"
           grep -q '^windows-managed-client-attestation-policy=github-artifact-attestation-required$' "${contract}"
           grep -q '^windows-managed-client-release-assets=enabled-after-attestation-and-publish-gate$' "${contract}"
+          grep -q '^windows-managed-client-portable-zip=active$' "${contract}"
+          grep -q '^windows-managed-client-portable-release-assets=enabled-after-attestation-and-publish-gate$' "${contract}"
           grep -q 'networkcore-windows-gui.exe' "${contract}"
           grep -q 'networkcore-windows-service.exe' "${contract}"
           grep -q 'networkcore-windows.exe' "${contract}"
@@ -803,6 +807,14 @@ jobs:
       artifact_manifest_path: ${{ steps.package.outputs.artifact_manifest_path }}
       artifact_manifest_checksum_file: ${{ steps.package.outputs.artifact_manifest_checksum_file }}
       artifact_manifest_checksum_value: ${{ steps.package.outputs.artifact_manifest_checksum_value }}
+      portable_artifact_name: ${{ steps.package.outputs.portable_artifact_name }}
+      portable_artifact_path: ${{ steps.package.outputs.portable_artifact_path }}
+      portable_checksum_file: ${{ steps.package.outputs.portable_checksum_file }}
+      portable_checksum_value: ${{ steps.package.outputs.portable_checksum_value }}
+      portable_manifest_name: ${{ steps.package.outputs.portable_manifest_name }}
+      portable_manifest_path: ${{ steps.package.outputs.portable_manifest_path }}
+      portable_manifest_checksum_file: ${{ steps.package.outputs.portable_manifest_checksum_file }}
+      portable_manifest_checksum_value: ${{ steps.package.outputs.portable_manifest_checksum_value }}
       bundle_name: ${{ steps.package.outputs.bundle_name }}
       output_dir: ${{ steps.package.outputs.output_dir }}
     steps:
@@ -891,6 +903,7 @@ jobs:
           $guiPath = (Resolve-Path $guiPath).Path
           $servicePath = (Resolve-Path $servicePath).Path
           $defaultConfigPath = (Resolve-Path "installer\windows\default-managed-config.json").Path
+          $portableReadmePath = (Resolve-Path "installer\windows\PORTABLE-README.txt").Path
 
           $version = $env:VERSION
           $target = $env:TARGET
@@ -925,6 +938,16 @@ jobs:
           $manifestPath = Join-Path $outputDir $manifestName
           $manifestChecksumName = "$manifestName.sha256"
           $manifestChecksumPath = Join-Path $outputDir $manifestChecksumName
+          $portableStem = "networkcore-windows-portable-$version-$target"
+          $portableArchiveName = "$portableStem.zip"
+          $portableArchivePath = Join-Path $outputDir $portableArchiveName
+          $portableChecksumName = "$portableArchiveName.sha256"
+          $portableChecksumPath = Join-Path $outputDir $portableChecksumName
+          $portableManifestName = "$portableStem.manifest.json"
+          $portableManifestPath = Join-Path $outputDir $portableManifestName
+          $portableManifestChecksumName = "$portableManifestName.sha256"
+          $portableManifestChecksumPath = Join-Path $outputDir $portableManifestChecksumName
+          $portableStageDir = Join-Path $distDir "portable\$portableStem"
           $bundleName = "$artifactStem-release-bundle"
 
           Remove-Item -Recurse -Force $distDir -ErrorAction SilentlyContinue
@@ -942,6 +965,14 @@ jobs:
           # WiX emits a .wixpdb beside the MSI; it is a build symbol, not a release asset.
           $wixPdbPath = [System.IO.Path]::ChangeExtension($archivePath, ".wixpdb")
           Remove-Item -Force $wixPdbPath -ErrorAction SilentlyContinue
+
+          New-Item -ItemType Directory -Force -Path $portableStageDir | Out-Null
+          Copy-Item -Path $cliPath -Destination (Join-Path $portableStageDir "networkcore-windows.exe")
+          Copy-Item -Path $guiPath -Destination (Join-Path $portableStageDir "networkcore-windows-gui.exe")
+          Copy-Item -Path $servicePath -Destination (Join-Path $portableStageDir "networkcore-windows-service.exe")
+          Copy-Item -Path $defaultConfigPath -Destination (Join-Path $portableStageDir "managed-config.json")
+          Copy-Item -Path $portableReadmePath -Destination (Join-Path $portableStageDir "README.txt")
+          Compress-Archive -Path $portableStageDir -DestinationPath $portableArchivePath -CompressionLevel Optimal
 
           $checksumValue = (Get-FileHash -Algorithm SHA256 -Path $archivePath).Hash.ToLowerInvariant()
           if ($checksumValue -notmatch '^[0-9a-f]{64}$') {
@@ -1018,7 +1049,90 @@ jobs:
           $manifestChecksumValue = (Get-FileHash -Algorithm SHA256 -Path $manifestPath).Hash.ToLowerInvariant()
           "$manifestChecksumValue  $manifestName" | Set-Content -Path $manifestChecksumPath -Encoding ascii
 
-          foreach ($file in @($archivePath, $archiveChecksumPath, $manifestPath, $manifestChecksumPath)) {
+          $portableChecksumValue = (Get-FileHash -Algorithm SHA256 -Path $portableArchivePath).Hash.ToLowerInvariant()
+          if ($portableChecksumValue -notmatch '^[0-9a-f]{64}$') {
+            throw "Portable ZIP checksum is not a sha256 digest."
+          }
+          "$portableChecksumValue  $portableArchiveName" | Set-Content -Path $portableChecksumPath -Encoding ascii
+          $portableArchiveSize = (Get-Item $portableArchivePath).Length
+          $portableManifest = [ordered]@{
+            schema_version = 2
+            artifact_kind = "windows-managed-client-portable-zip"
+            package_format = "zip"
+            artifact_name = $portableArchiveName
+            target_triple = $target
+            version = $version
+            commit_sha = $env:RELEASE_SHA
+            source_ref = $env:SOURCE_REF
+            ci_run_url = $env:CI_RUN_URL
+            release_run_url = $env:RELEASE_RUN_URL
+            runner = "windows-latest"
+            rust_toolchain = $env:RUST_TOOLCHAIN
+            archive = [ordered]@{
+              file_name = $portableArchiveName
+              relative_path = "dist/windows/$target/artifacts/$portableArchiveName"
+              size_bytes = $portableArchiveSize
+            }
+            checksum = [ordered]@{
+              algorithm = "sha256"
+              file_name = $portableChecksumName
+              value = $portableChecksumValue
+            }
+            included_files = @(
+              [ordered]@{ path = "$portableStem/networkcore-windows-gui.exe"; kind = "binary"; required = $true; source = "apps/windows-gui" },
+              [ordered]@{ path = "$portableStem/networkcore-windows-service.exe"; kind = "binary"; required = $true; source = "apps/windows-service" },
+              [ordered]@{ path = "$portableStem/networkcore-windows.exe"; kind = "binary"; required = $true; source = "apps/windows-cli" },
+              [ordered]@{ path = "$portableStem/managed-config.json"; kind = "configuration"; required = $true; source = "installer/windows/default-managed-config.json" },
+              [ordered]@{ path = "$portableStem/README.txt"; kind = "documentation"; required = $true; source = "installer/windows/PORTABLE-README.txt" }
+            )
+            install_model = "manual-extract"
+            system_mutation_policy = "explicit-gui-or-service-command-only"
+            source_identity = "apps/windows-gui+apps/windows-service+apps/windows-cli+platform-windows+installer/windows"
+            capability_anchor = "windows-portable-release-assets"
+            active_operations = @(
+              "run-native-gui",
+              "explicit-install-windows-service",
+              "explicit-system-proxy-mutation",
+              "explicit-system-trust-store-mutation",
+              "explicit-managed-daemon-lifecycle"
+            )
+            blocked_operations = @(
+              "automatic-service-registration-on-extract",
+              "automatic-service-start-on-extract",
+              "execute-javascript-dispatch"
+            )
+            signing = [ordered]@{
+              signing_policy = "unsigned-alpha-portable-zip-with-github-attestation"
+              signing_status = "not-signed-by-policy"
+              attestation_policy = "github-artifact-attestation-required"
+              attestation_status = "required-before-publish"
+              provenance_policy = "github-build-provenance-required"
+              provenance_file = "github-artifact-attestation"
+            }
+            rollback = [ordered]@{
+              rollback_policy = "purge-uninstall-service-delete-extracted-directory"
+              rollback_status = "summarized-before-publish"
+              rollback_scope = "windows-managed-client-portable"
+              rollback_trigger = "checksum-runtime-security-or-provenance-defect"
+              rollback_steps = "purge-uninstall-delete-and-publish-replacement-version"
+              replacement_version = "next-version-required"
+              rollback_owner = "maintainer"
+            }
+          }
+          $portableManifest | ConvertTo-Json -Depth 20 | Set-Content -Path $portableManifestPath -Encoding utf8
+          $portableManifestChecksumValue = (Get-FileHash -Algorithm SHA256 -Path $portableManifestPath).Hash.ToLowerInvariant()
+          "$portableManifestChecksumValue  $portableManifestName" | Set-Content -Path $portableManifestChecksumPath -Encoding ascii
+
+          foreach ($file in @(
+            $archivePath,
+            $archiveChecksumPath,
+            $manifestPath,
+            $manifestChecksumPath,
+            $portableArchivePath,
+            $portableChecksumPath,
+            $portableManifestPath,
+            $portableManifestChecksumPath
+          )) {
             if (-not (Test-Path -Path $file -PathType Leaf)) {
               throw "Missing Windows artifact output file: $file"
             }
@@ -1027,9 +1141,9 @@ jobs:
             }
           }
           $fileCount = @(Get-ChildItem -Path $outputDir -File).Count
-          if ($fileCount -ne 4) {
+          if ($fileCount -ne 8) {
             $fileNames = @(Get-ChildItem -Path $outputDir -File | Select-Object -ExpandProperty Name) -join ", "
-            throw "Windows artifact output dir must contain exactly four files. Found: $fileNames"
+            throw "Windows artifact output dir must contain exactly eight files. Found: $fileNames"
           }
 
           @(
@@ -1042,6 +1156,14 @@ jobs:
             "artifact_manifest_path=$manifestPath",
             "artifact_manifest_checksum_file=$manifestChecksumPath",
             "artifact_manifest_checksum_value=$manifestChecksumValue",
+            "portable_artifact_name=$portableArchiveName",
+            "portable_artifact_path=$portableArchivePath",
+            "portable_checksum_file=$portableChecksumPath",
+            "portable_checksum_value=$portableChecksumValue",
+            "portable_manifest_name=$portableManifestName",
+            "portable_manifest_path=$portableManifestPath",
+            "portable_manifest_checksum_file=$portableManifestChecksumPath",
+            "portable_manifest_checksum_value=$portableManifestChecksumValue",
             "bundle_name=$bundleName",
             "output_dir=$outputDir"
           ) | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
@@ -1058,7 +1180,18 @@ jobs:
             "| Target | $target |",
             "| Source identity | GUI + service + CLI + platform + WiX |",
             "| Install model | wix-per-machine-msi |",
-            "| System mutation policy | managed-apply-and-rollback |"
+            "| System mutation policy | managed-apply-and-rollback |",
+            "",
+            "### Windows Portable ZIP",
+            "",
+            "| Item | Value |",
+            "| --- | --- |",
+            "| Archive | $portableArchiveName |",
+            "| Archive sha256 | $portableChecksumValue |",
+            "| Manifest | $portableManifestName |",
+            "| Manifest sha256 | $portableManifestChecksumValue |",
+            "| Install model | manual-extract |",
+            "| System mutation policy | explicit-gui-or-service-command-only |"
           ) | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 
       - name: Upload Windows release bundle
@@ -1070,6 +1203,10 @@ jobs:
             ${{ steps.package.outputs.checksum_file }}
             ${{ steps.package.outputs.artifact_manifest_path }}
             ${{ steps.package.outputs.artifact_manifest_checksum_file }}
+            ${{ steps.package.outputs.portable_artifact_path }}
+            ${{ steps.package.outputs.portable_checksum_file }}
+            ${{ steps.package.outputs.portable_manifest_path }}
+            ${{ steps.package.outputs.portable_manifest_checksum_file }}
           retention-days: 14
           if-no-files-found: error
 
@@ -1158,17 +1295,31 @@ jobs:
           ARCHIVE_CHECKSUM_NAME: ${{ needs.package-windows.outputs.artifact_name }}.sha256
           MANIFEST_NAME: ${{ needs.package-windows.outputs.artifact_manifest_name }}
           MANIFEST_CHECKSUM_NAME: ${{ needs.package-windows.outputs.artifact_manifest_name }}.sha256
+          PORTABLE_ARCHIVE_NAME: ${{ needs.package-windows.outputs.portable_artifact_name }}
+          PORTABLE_ARCHIVE_CHECKSUM_NAME: ${{ needs.package-windows.outputs.portable_artifact_name }}.sha256
+          PORTABLE_MANIFEST_NAME: ${{ needs.package-windows.outputs.portable_manifest_name }}
+          PORTABLE_MANIFEST_CHECKSUM_NAME: ${{ needs.package-windows.outputs.portable_manifest_name }}.sha256
         run: |
           set -euo pipefail
-          for file in "${ARCHIVE_NAME}" "${ARCHIVE_CHECKSUM_NAME}" "${MANIFEST_NAME}" "${MANIFEST_CHECKSUM_NAME}"; do
+          for file in \
+            "${ARCHIVE_NAME}" \
+            "${ARCHIVE_CHECKSUM_NAME}" \
+            "${MANIFEST_NAME}" \
+            "${MANIFEST_CHECKSUM_NAME}" \
+            "${PORTABLE_ARCHIVE_NAME}" \
+            "${PORTABLE_ARCHIVE_CHECKSUM_NAME}" \
+            "${PORTABLE_MANIFEST_NAME}" \
+            "${PORTABLE_MANIFEST_CHECKSUM_NAME}"; do
             test -f "dist/windows-attestation/${file}"
             test -s "dist/windows-attestation/${file}"
           done
-          test "$(find dist/windows-attestation -maxdepth 1 -type f | wc -l | tr -d ' ')" = "4"
+          test "$(find dist/windows-attestation -maxdepth 1 -type f | wc -l | tr -d ' ')" = "8"
           (
             cd dist/windows-attestation
             sha256sum -c "${ARCHIVE_CHECKSUM_NAME}"
             sha256sum -c "${MANIFEST_CHECKSUM_NAME}"
+            sha256sum -c "${PORTABLE_ARCHIVE_CHECKSUM_NAME}"
+            sha256sum -c "${PORTABLE_MANIFEST_CHECKSUM_NAME}"
           )
 
       - name: Generate Windows artifact attestation
@@ -1179,6 +1330,10 @@ jobs:
             dist/windows-attestation/${{ needs.package-windows.outputs.artifact_name }}.sha256
             dist/windows-attestation/${{ needs.package-windows.outputs.artifact_manifest_name }}
             dist/windows-attestation/${{ needs.package-windows.outputs.artifact_manifest_name }}.sha256
+            dist/windows-attestation/${{ needs.package-windows.outputs.portable_artifact_name }}
+            dist/windows-attestation/${{ needs.package-windows.outputs.portable_artifact_name }}.sha256
+            dist/windows-attestation/${{ needs.package-windows.outputs.portable_manifest_name }}
+            dist/windows-attestation/${{ needs.package-windows.outputs.portable_manifest_name }}.sha256
 
       - name: Emit Windows attestation status
         id: attestation-output
@@ -1252,6 +1407,10 @@ jobs:
           CHECKSUM_VALUE: ${{ needs.package-windows.outputs.checksum_value }}
           MANIFEST_NAME: ${{ needs.package-windows.outputs.artifact_manifest_name }}
           MANIFEST_CHECKSUM_VALUE: ${{ needs.package-windows.outputs.artifact_manifest_checksum_value }}
+          PORTABLE_ARTIFACT_NAME: ${{ needs.package-windows.outputs.portable_artifact_name }}
+          PORTABLE_CHECKSUM_VALUE: ${{ needs.package-windows.outputs.portable_checksum_value }}
+          PORTABLE_MANIFEST_NAME: ${{ needs.package-windows.outputs.portable_manifest_name }}
+          PORTABLE_MANIFEST_CHECKSUM_VALUE: ${{ needs.package-windows.outputs.portable_manifest_checksum_value }}
           CI_RUN_URL: ${{ needs.release-ci-gate.outputs.ci_run_url }}
           ATTESTATION_STATUS: ${{ needs.attest-windows.outputs.attestation_status }}
           WINDOWS_ARTIFACT_GATE: ${{ needs.windows-cli-artifact-readiness.outputs.artifact_gate }}
@@ -1265,6 +1424,10 @@ jobs:
           test -n "${CHECKSUM_VALUE}"
           test -n "${MANIFEST_NAME}"
           test -n "${MANIFEST_CHECKSUM_VALUE}"
+          test -n "${PORTABLE_ARTIFACT_NAME}"
+          test -n "${PORTABLE_CHECKSUM_VALUE}"
+          test -n "${PORTABLE_MANIFEST_NAME}"
+          test -n "${PORTABLE_MANIFEST_CHECKSUM_VALUE}"
           test -n "${CI_RUN_URL}"
           test "${ATTESTATION_STATUS}" = "attested"
           test "${WINDOWS_ARTIFACT_GATE}" = "windows-managed-client-active"
@@ -1344,6 +1507,10 @@ jobs:
           CHECKSUM_VALUE: ${{ needs.package-windows.outputs.checksum_value }}
           MANIFEST_NAME: ${{ needs.package-windows.outputs.artifact_manifest_name }}
           MANIFEST_CHECKSUM_VALUE: ${{ needs.package-windows.outputs.artifact_manifest_checksum_value }}
+          PORTABLE_ARTIFACT_NAME: ${{ needs.package-windows.outputs.portable_artifact_name }}
+          PORTABLE_CHECKSUM_VALUE: ${{ needs.package-windows.outputs.portable_checksum_value }}
+          PORTABLE_MANIFEST_NAME: ${{ needs.package-windows.outputs.portable_manifest_name }}
+          PORTABLE_MANIFEST_CHECKSUM_VALUE: ${{ needs.package-windows.outputs.portable_manifest_checksum_value }}
           ATTESTATION_STATUS: ${{ needs.attest-windows.outputs.attestation_status }}
           RELEASE_NOTES_STATUS: ${{ needs.windows-release-summary.outputs.release_notes_status }}
           ROLLBACK_STATUS: ${{ needs.windows-release-summary.outputs.rollback_status }}
@@ -1358,6 +1525,10 @@ jobs:
           test -n "${CHECKSUM_VALUE}"
           test -n "${MANIFEST_NAME}"
           test -n "${MANIFEST_CHECKSUM_VALUE}"
+          test -n "${PORTABLE_ARTIFACT_NAME}"
+          test -n "${PORTABLE_CHECKSUM_VALUE}"
+          test -n "${PORTABLE_MANIFEST_NAME}"
+          test -n "${PORTABLE_MANIFEST_CHECKSUM_VALUE}"
           test "${ATTESTATION_STATUS}" = "attested"
           test "${RELEASE_NOTES_STATUS}" = "ready"
           test "${ROLLBACK_STATUS}" = "summarized"
@@ -1418,6 +1589,10 @@ jobs:
           WINDOWS_CHECKSUM_VALUE: ${{ needs.package-windows.outputs.checksum_value }}
           WINDOWS_MANIFEST_NAME: ${{ needs.package-windows.outputs.artifact_manifest_name }}
           WINDOWS_MANIFEST_CHECKSUM_VALUE: ${{ needs.package-windows.outputs.artifact_manifest_checksum_value }}
+          WINDOWS_PORTABLE_ARTIFACT_NAME: ${{ needs.package-windows.outputs.portable_artifact_name }}
+          WINDOWS_PORTABLE_CHECKSUM_VALUE: ${{ needs.package-windows.outputs.portable_checksum_value }}
+          WINDOWS_PORTABLE_MANIFEST_NAME: ${{ needs.package-windows.outputs.portable_manifest_name }}
+          WINDOWS_PORTABLE_MANIFEST_CHECKSUM_VALUE: ${{ needs.package-windows.outputs.portable_manifest_checksum_value }}
           CI_RUN_URL: ${{ needs.release-ci-gate.outputs.ci_run_url }}
           ATTESTATION_STATUS: ${{ needs.attest-linux.outputs.attestation_status }}
           WINDOWS_ATTESTATION_STATUS: ${{ needs.attest-windows.outputs.attestation_status }}
@@ -1445,11 +1620,19 @@ jobs:
           windows_archive_checksum_path="${windows_archive_path}.sha256"
           windows_manifest_path="dist/windows-release/${WINDOWS_MANIFEST_NAME}"
           windows_manifest_checksum_path="${windows_manifest_path}.sha256"
+          windows_portable_archive_path="dist/windows-release/${WINDOWS_PORTABLE_ARTIFACT_NAME}"
+          windows_portable_archive_checksum_path="${windows_portable_archive_path}.sha256"
+          windows_portable_manifest_path="dist/windows-release/${WINDOWS_PORTABLE_MANIFEST_NAME}"
+          windows_portable_manifest_checksum_path="${windows_portable_manifest_path}.sha256"
           for file in "${archive_path}" "${archive_checksum_path}" "${manifest_path}" "${manifest_checksum_path}"; do
             test -f "${file}"
             test -s "${file}"
           done
           for file in "${windows_archive_path}" "${windows_archive_checksum_path}" "${windows_manifest_path}" "${windows_manifest_checksum_path}"; do
+            test -f "${file}"
+            test -s "${file}"
+          done
+          for file in "${windows_portable_archive_path}" "${windows_portable_archive_checksum_path}" "${windows_portable_manifest_path}" "${windows_portable_manifest_checksum_path}"; do
             test -f "${file}"
             test -s "${file}"
           done
@@ -1462,6 +1645,8 @@ jobs:
             cd dist/windows-release
             sha256sum -c "${WINDOWS_ARTIFACT_NAME}.sha256"
             sha256sum -c "${WINDOWS_MANIFEST_NAME}.sha256"
+            sha256sum -c "${WINDOWS_PORTABLE_ARTIFACT_NAME}.sha256"
+            sha256sum -c "${WINDOWS_PORTABLE_MANIFEST_NAME}.sha256"
           )
           if gh release view "${VERSION}" >/dev/null 2>&1; then
             echo "::error::Release ${VERSION} already exists. Asset overwrite is forbidden."
@@ -1502,6 +1687,17 @@ jobs:
           - External core boundary: sing-box is not bundled or silently downloaded by the MSI
           - Blocked: automatic core install, Windows subscription runnable path, Windows live HTTPS MITM data plane, JavaScript script dispatch
 
+          ## Windows Portable Client
+
+          - Artifact: ${WINDOWS_PORTABLE_ARTIFACT_NAME}
+          - Archive sha256: ${WINDOWS_PORTABLE_CHECKSUM_VALUE}
+          - Manifest: ${WINDOWS_PORTABLE_MANIFEST_NAME}
+          - Manifest sha256: ${WINDOWS_PORTABLE_MANIFEST_CHECKSUM_VALUE}
+          - CI: ${CI_RUN_URL}
+          - Attestation: ${WINDOWS_ATTESTATION_STATUS} via GitHub artifact attestation
+          - Install model: manual-extract; no service registration or start occurs on extraction
+          - System mutation policy: explicit GUI or service command only
+
           ## Rollback
 
           - Linux scope: linux-cli-artifact
@@ -1532,6 +1728,10 @@ jobs:
             "${windows_archive_checksum_path}" \
             "${windows_manifest_path}" \
             "${windows_manifest_checksum_path}" \
+            "${windows_portable_archive_path}" \
+            "${windows_portable_archive_checksum_path}" \
+            "${windows_portable_manifest_path}" \
+            "${windows_portable_manifest_checksum_path}" \
             --title "${VERSION}" \
             --notes-file "${body_path}" \
             --verify-tag \
@@ -1596,6 +1796,10 @@ jobs:
           WINDOWS_CHECKSUM_VALUE: ${{ needs.package-windows.outputs.checksum_value }}
           WINDOWS_MANIFEST_NAME: ${{ needs.package-windows.outputs.artifact_manifest_name }}
           WINDOWS_MANIFEST_CHECKSUM_VALUE: ${{ needs.package-windows.outputs.artifact_manifest_checksum_value }}
+          WINDOWS_PORTABLE_ARTIFACT_NAME: ${{ needs.package-windows.outputs.portable_artifact_name }}
+          WINDOWS_PORTABLE_CHECKSUM_VALUE: ${{ needs.package-windows.outputs.portable_checksum_value }}
+          WINDOWS_PORTABLE_MANIFEST_NAME: ${{ needs.package-windows.outputs.portable_manifest_name }}
+          WINDOWS_PORTABLE_MANIFEST_CHECKSUM_VALUE: ${{ needs.package-windows.outputs.portable_manifest_checksum_value }}
           RELEASE_URL: ${{ needs.publish-github-release.outputs.release_url }}
         run: |
           set -euo pipefail
@@ -1633,5 +1837,9 @@ jobs:
             echo "| Windows artifact sha256 | ${WINDOWS_CHECKSUM_VALUE} |"
             echo "| Windows manifest | ${WINDOWS_MANIFEST_NAME} |"
             echo "| Windows manifest sha256 | ${WINDOWS_MANIFEST_CHECKSUM_VALUE} |"
+            echo "| Windows portable archive | ${WINDOWS_PORTABLE_ARTIFACT_NAME} |"
+            echo "| Windows portable archive sha256 | ${WINDOWS_PORTABLE_CHECKSUM_VALUE} |"
+            echo "| Windows portable manifest | ${WINDOWS_PORTABLE_MANIFEST_NAME} |"
+            echo "| Windows portable manifest sha256 | ${WINDOWS_PORTABLE_MANIFEST_CHECKSUM_VALUE} |"
             echo "| GitHub Release | ${RELEASE_URL} |"
           } >> "${GITHUB_STEP_SUMMARY}"

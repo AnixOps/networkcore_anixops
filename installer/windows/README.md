@@ -8,19 +8,31 @@ The installer:
 
 - installs `networkcore-windows-gui.exe`, `networkcore-windows.exe`, and
   `networkcore-windows-service.exe` under Program Files;
-- installs and starts the `AnixOpsNetworkCore` automatic Windows service;
+- registers the `AnixOpsNetworkCore` automatic Windows service and requests its
+  first start without making the MSI wait for the service to reach `Running`;
 - preserves `managed-config.json` under ProgramData across upgrades;
 - creates an AnixOps NetworkCore Start Menu shortcut;
 - runs `networkcore-windows-service.exe purge` as LocalSystem after stopping the
   service and before a full uninstall so managed proxy, certificate, driver, and
   tunnel state is removed.
 
+## Portable package
+
+Each Windows tag release also includes a portable ZIP and its SHA-256 and
+manifest files. Extract the ZIP, keep its files together, and run
+`networkcore-windows-gui.exe`. Extraction does not register or start a Windows
+service. The bundled `README.txt` describes the explicit service install and
+removal commands.
+
 ## First run and configuration
 
-The MSI installs the files and starts `AnixOpsNetworkCore`, but the shipped
-`managed-config.json` deliberately contains only `null` values. That default is
-safe and does not change the system proxy, certificate store, driver state, or
-tunnel. Edit this file as Administrator:
+The MSI installs the files, registers `AnixOpsNetworkCore`, and requests an
+asynchronous first start. It does not wait for a preserved managed configuration
+to reach `Running`, so an invalid previous configuration cannot leave the
+installer stuck at service startup. The shipped `managed-config.json`
+deliberately contains only `null` values. That default is safe and does not
+change the system proxy, certificate store, driver state, or tunnel. Edit this
+file as Administrator:
 
 `C:\ProgramData\AnixOps\NetworkCore\managed-config.json`
 
@@ -119,5 +131,6 @@ to `C:\ProgramData\AnixOps\NetworkCore\logs\gui.log` and the service writes to
 `Open log folder` add verbose GUI action/status lines, or launch
 `networkcore-windows-gui.exe --debug` to start with verbose logging enabled.
 
-The MSI is built and validated only by GitHub Actions. Do not invoke WiX or
-Windows Installer locally.
+The MSI and portable ZIP are built and validated only by GitHub Actions. CI
+also performs a bounded silent MSI install/uninstall smoke test. Do not invoke
+WiX or Windows Installer locally.

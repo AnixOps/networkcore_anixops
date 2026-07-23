@@ -330,6 +330,22 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 最新已发布切片
 
+### `v0.2.0-alpha.3`
+
+状态：Windows managed client prerelease；用户可下载状态以同名 tag 的
+GitHub Actions release workflow 结果为准。
+
+主要特性：
+
+- MSI 的首次 service start 改为 asynchronous：安装不会等待
+  `AnixOpsNetworkCore` 到达 `Running`，保留的错误配置不会卡住安装界面；stop
+  与 uninstall 仍等待并保持 `purge` 回滚顺序。
+- 每次 Windows tag release 同时发布 managed-client MSI 四件套与 portable ZIP
+  四件套。便携 ZIP 包含 GUI、service、CLI、inert managed config 和 README；
+  解压不会注册或启动 service。
+- CI 在 WiX validation 之外执行有 120 秒上限的 silent MSI install/uninstall
+  smoke，并检查 SCM service 注册和删除。
+
 ### `v0.2.0-alpha.2`
 
 状态：Windows managed client prerelease；用户可下载状态以同名 tag 的
@@ -486,11 +502,11 @@ GitHub Actions release workflow 结果为准。
 
 ## 当前 main source 状态
 
-当前 Windows release 切片是 `v0.2.0-alpha.2`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
+当前 Windows release 切片是 `v0.2.0-alpha.3`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
 `v0.1.1-alpha.2` 的 Linux/Windows package、checksum、manifest、attestation 和 publish gate，并把
 受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI；Windows path 已切换到
 managed-client MSI，service、driver、installer、system proxy mutation、system trust store mutation 和 managed lifecycle
-已 active，并增加 operator-staged sing-box managed process；automatic core install、Windows live HTTPS MITM 和 JavaScript script dispatch 仍 blocked。用户可下载状态仍以 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。
+已 active，并增加 operator-staged sing-box managed process、非阻塞 MSI service start 和受 attestation 的 portable ZIP；automatic core install、Windows live HTTPS MITM 和 JavaScript script dispatch 仍 blocked。用户可下载状态仍以 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。
 
 ## 已拍板后续版本节奏
 

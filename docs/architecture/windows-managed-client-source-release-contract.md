@@ -8,7 +8,7 @@ current Windows package.
 ```text
 windows-managed-client-source-release-contract=present
 windows-managed-client-release-state=implementation-active
-windows-managed-client-version-scope=v0.2.0-alpha.2
+windows-managed-client-version-scope=v0.2.0-alpha.3
 WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active
 windows-managed-client-runner=windows-latest
 windows-managed-client-runner-kind=github-hosted
@@ -25,6 +25,7 @@ windows-managed-client-gui=active
 windows-managed-client-service=active
 windows-managed-client-driver-package-lifecycle=active
 windows-managed-client-installer=active
+windows-managed-client-msi-service-start=asynchronous-on-install
 windows-managed-client-system-proxy-mutation=active
 windows-managed-client-trust-store-mutation=active
 windows-managed-client-managed-lifecycle=active
@@ -35,6 +36,8 @@ windows-managed-client-script-dispatch=blocked
 windows-managed-client-authenticode-policy=unsigned-alpha-msi-with-github-attestation
 windows-managed-client-attestation-policy=github-artifact-attestation-required
 windows-managed-client-release-assets=enabled-after-attestation-and-publish-gate
+windows-managed-client-portable-zip=active
+windows-managed-client-portable-release-assets=enabled-after-attestation-and-publish-gate
 ```
 
 ## Payload
@@ -50,6 +53,17 @@ The managed configuration may reference an operator-staged `sing-box.exe` and
 native sing-box JSON. The service validates it with `check -c`, owns `run -c`,
 persists PID/exit state, and redirects core stdout/stderr to an explicit log.
 The MSI does not bundle or silently download the third-party core.
+
+The installer registers an automatic SCM service, but its install-time start is
+asynchronous. MSI completion therefore does not wait for a preserved managed
+configuration to reach `Running`; the GUI and `%ProgramData%\\AnixOps\\NetworkCore\\logs`
+remain the operator-visible service diagnostics. Stop and uninstall operations
+continue to wait so the `purge` rollback order stays deterministic.
+
+Every Windows tag release also contains a portable ZIP with the GUI, service,
+CLI, inert `managed-config.json`, and portable README. Extracting the ZIP does
+not register or start a service; service and system-mutation operations remain
+explicit GUI or service-command actions.
 
 The GUI requests UAC elevation and controls SCM service state, configuration
 import, the current-user WinINet proxy, machine WinHTTP proxy, LocalMachine ROOT
@@ -71,6 +85,8 @@ the package signature.
 ## CI And Release
 
 GitHub Actions builds all Rust binaries for `x86_64-pc-windows-gnu`, pins WiX
-4.0.6, builds and validates the MSI, creates SHA-256 and schema-version-2
-manifest files, and attests all four release-bundle files before publication.
-No local build, test, installer, or release validation is permitted.
+4.0.6, builds and validates the MSI, performs bounded real MSI
+install/uninstall smoke, creates SHA-256 and schema-version-2 manifest files
+for the MSI and portable ZIP, and attests all eight Windows release-bundle
+files before publication. No local build, test, installer, or release
+validation is permitted.

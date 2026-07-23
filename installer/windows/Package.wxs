@@ -59,9 +59,13 @@
                 Account="LocalSystem"
                 Vital="yes" />
             <ServiceControl
-                Id="NetworkCoreServiceControl"
+                Id="NetworkCoreServiceStartControl"
                 Name="AnixOpsNetworkCore"
                 Start="install"
+                Wait="no" />
+            <ServiceControl
+                Id="NetworkCoreServiceLifecycleControl"
+                Name="AnixOpsNetworkCore"
                 Stop="both"
                 Remove="uninstall"
                 Wait="yes" />

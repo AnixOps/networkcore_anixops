@@ -8,6 +8,22 @@
 
 - Future maintenance entries belong here until the next tagged release.
 
+## v0.2.0-alpha.3 - 2026-07-23
+
+### Fixed
+
+- Windows MSI no longer waits for `AnixOpsNetworkCore` to reach `Running` during
+  installation. The service start request remains automatic but asynchronous;
+  stop and uninstall still wait before `purge` runs.
+
+### Added
+
+- Every Windows tag release now includes an independent portable ZIP containing
+  the GUI, service, CLI, inert managed configuration, and portable instructions,
+  plus its SHA-256, manifest, manifest SHA-256, and GitHub artifact attestation.
+- GitHub Actions now performs bounded silent MSI install/uninstall smoke in the
+  Windows validation job, including SCM registration and removal checks.
+
 ## v0.2.0-alpha.2 - 2026-07-23
 
 ### Added
