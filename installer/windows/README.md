@@ -80,8 +80,10 @@ For the normal managed workflow, run the elevated GUI and follow this order:
    the first supported node.
 3. Click `Import profile`, then `Install service` and `Start`. After a successful
    URL import, click `Update URL` to explicitly refresh that saved URL.
-4. With the managed service running, click `Load nodes`, choose another imported
-   node, then click `Switch active` for an explicit runtime selector change.
+4. With the managed service running, click `Load nodes`, choose an imported
+   node, optionally replace the HTTPS `Delay URL`, then click `Test delay` for
+   one measurement. Click `Switch active` only when that selected node should
+   become the runtime selector choice.
 
 The importer writes `C:\\ProgramData\\AnixOps\\NetworkCore\\sing-box\\config.json`
 and updates `managed-config.json` with the verified core path, local mixed proxy
@@ -95,9 +97,14 @@ profiles, `Import profile` emits all translatable nodes behind a sing-box
 `selector`, selects the chosen entry as its default, and exposes the selector
 only through a loopback Clash API controller at `127.0.0.1:9091`. `Switch active`
 is explicit: it PATCHes the selected node and then reads the controller state
-back. It requires the imported managed service to be running, never opens the
-controller on the network, and does not add a Web UI, automatic latency/URLTest,
-or automatic restart. `Import profile` and `Update URL` download HTTP(S) URLs
+back. `Test delay` is also explicit: it calls the selected generated outbound's
+loopback `/delay` endpoint once with the editable HTTPS `Delay URL` (default
+`https://www.gstatic.com/generate_204`) and a 10-second timeout, then shows the
+returned milliseconds. It neither changes the active selector nor writes the
+managed config or restarts the service. These actions require the imported
+managed service to be running, never open the controller on the network, and
+do not add a Web UI, automatic latency/URLTest, or automatic restart. `Import
+profile` and `Update URL` download HTTP(S) URLs
 only when clicked; `Update URL` reads the last successfully imported URL. A
 failed load, update, import, or runtime switch leaves the current managed
 configuration unchanged. Native sing-box JSON stays pass-through and has no

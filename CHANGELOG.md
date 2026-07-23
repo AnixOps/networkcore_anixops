@@ -14,6 +14,12 @@
 
 ### Added
 
+- Windows GUI now exposes an editable HTTPS `Delay URL` and `Test delay` action
+  for the selected generated sing-box outbound. It makes one loopback Clash API
+  `/proxies/{tag}/delay` request with a 10-second timeout, displays the returned
+  milliseconds, and records the action in the local GUI log. It does not change
+  the active selector, managed config, or service lifecycle, and does not add
+  `urltest`, automatic latency selection, or background measurement.
 - NodeCatalog-based Windows profile imports now retain every translatable node
   behind a generated sing-box `selector`. The GUI can explicitly switch the
   active node through a `127.0.0.1:9091` Clash API controller and confirms the

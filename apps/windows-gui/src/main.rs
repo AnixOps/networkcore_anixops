@@ -19,13 +19,14 @@ mod gui {
     use config_core::CoreSubscriptionService;
     use control_domain::{NodeDescriptor, SubscriptionService, SubscriptionSource};
     use engine_singbox::{
-        inspect_sing_box_native_config, render_sing_box_local_proxy_selector_config,
-        rewrite_sing_box_mixed_inbound_listener, select_sing_box_clash_api_outbound,
-        sing_box_local_selector_outbound_tag, GithubSingBoxReleaseInstaller, SingBoxInstallRequest,
-        SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest,
-        SingBoxLocalProxySelectableNode, SingBoxManagedProcessRequest,
-        SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch,
-        SingBoxTargetOs,
+        inspect_sing_box_native_config, measure_sing_box_clash_api_outbound_delay,
+        render_sing_box_local_proxy_selector_config, rewrite_sing_box_mixed_inbound_listener,
+        select_sing_box_clash_api_outbound, sing_box_local_selector_outbound_tag,
+        GithubSingBoxReleaseInstaller, SingBoxInstallRequest, SingBoxLocalControllerConfig,
+        SingBoxLocalProxyConfigRequest, SingBoxLocalProxySelectableNode,
+        SingBoxManagedProcessRequest, SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller,
+        SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
+        DEFAULT_SING_BOX_CLASH_API_DELAY_TEST_URL, DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS,
     };
     use platform_windows::managed::{
         append_managed_log, read_managed_config, read_managed_state, windows_managed_config_path,
@@ -86,6 +87,7 @@ mod gui {
     const ID_UPDATE_PROFILE: usize = 119;
     const ID_ENABLE_PROXY: usize = 120;
     const ID_RESTORE_PROXY: usize = 121;
+    const ID_TEST_PROFILE_NODE_DELAY: usize = 122;
     const ID_INSTALL_CERTIFICATE: usize = 130;
     const ID_REMOVE_CERTIFICATE: usize = 131;
     const ID_INSTALL_DRIVER: usize = 140;
@@ -114,6 +116,8 @@ mod gui {
         #[serde(default)]
         profile_node_id: Option<String>,
         #[serde(default)]
+        delay_test_url: Option<String>,
+        #[serde(default)]
         debug_enabled: bool,
     }
 
@@ -125,6 +129,8 @@ mod gui {
         config_path: HWND,
         profile_source: HWND,
         profile_node_id: HWND,
+        delay_test_url: HWND,
+        profile_delay_status: HWND,
         proxy_server: HWND,
         proxy_bypass: HWND,
         certificate_path: HWND,
@@ -200,7 +206,7 @@ mod gui {
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
                 980,
-                980,
+                1_050,
                 null_mut(),
                 null_mut(),
                 instance,
@@ -439,7 +445,7 @@ mod gui {
             20,
             320,
             925,
-            170,
+            220,
         );
         let profile_source_text = desktop
             .profile_source_url
@@ -528,7 +534,34 @@ mod gui {
             155,
             30,
         );
-        create_label(window, instance, font, "HTTPS MITM", 40, 442, 100, 22);
+        create_label(window, instance, font, "Delay URL", 40, 442, 100, 22);
+        let delay_test_url = create_edit(
+            window,
+            instance,
+            font,
+            desktop
+                .delay_test_url
+                .as_deref()
+                .unwrap_or(DEFAULT_SING_BOX_CLASH_API_DELAY_TEST_URL),
+            140,
+            438,
+            500,
+            28,
+        );
+        create_button(
+            window,
+            instance,
+            font,
+            "Test delay",
+            ID_TEST_PROFILE_NODE_DELAY,
+            650,
+            437,
+            120,
+            30,
+        );
+        let profile_delay_status =
+            create_label(window, instance, font, "Not tested", 785, 442, 130, 22);
+        create_label(window, instance, font, "HTTPS MITM", 40, 488, 100, 22);
         create_button(
             window,
             instance,
@@ -536,7 +569,7 @@ mod gui {
             "Enable HTTPS MITM",
             ID_ENABLE_HTTPS_MITM,
             140,
-            438,
+            484,
             175,
             30,
         );
@@ -547,16 +580,16 @@ mod gui {
             "Disable HTTPS MITM",
             ID_DISABLE_HTTPS_MITM,
             325,
-            438,
+            484,
             175,
             30,
         );
 
-        create_group(window, instance, font, "System proxy", 20, 500, 925, 130);
-        create_label(window, instance, font, "Server", 40, 530, 90, 22);
-        let proxy_server = create_edit(window, instance, font, "127.0.0.1:7890", 130, 526, 300, 28);
-        create_label(window, instance, font, "Bypass", 450, 530, 90, 22);
-        let proxy_bypass = create_edit(window, instance, font, "<local>", 540, 526, 365, 28);
+        create_group(window, instance, font, "System proxy", 20, 550, 925, 130);
+        create_label(window, instance, font, "Server", 40, 580, 90, 22);
+        let proxy_server = create_edit(window, instance, font, "127.0.0.1:7890", 130, 576, 300, 28);
+        create_label(window, instance, font, "Bypass", 450, 580, 90, 22);
+        let proxy_bypass = create_edit(window, instance, font, "<local>", 540, 576, 365, 28);
         create_button(
             window,
             instance,
@@ -564,7 +597,7 @@ mod gui {
             "Enable proxy",
             ID_ENABLE_PROXY,
             40,
-            574,
+            624,
             130,
             30,
         );
@@ -575,7 +608,7 @@ mod gui {
             "Restore proxy",
             ID_RESTORE_PROXY,
             180,
-            574,
+            624,
             130,
             30,
         );
@@ -586,12 +619,12 @@ mod gui {
             font,
             "Trust and driver",
             20,
-            640,
+            690,
             925,
             142,
         );
-        create_label(window, instance, font, "Root CA", 40, 672, 90, 22);
-        let certificate_path = create_edit(window, instance, font, "", 130, 668, 575, 28);
+        create_label(window, instance, font, "Root CA", 40, 722, 90, 22);
+        let certificate_path = create_edit(window, instance, font, "", 130, 718, 575, 28);
         create_button(
             window,
             instance,
@@ -599,7 +632,7 @@ mod gui {
             "Install CA",
             ID_INSTALL_CERTIFICATE,
             720,
-            667,
+            717,
             95,
             30,
         );
@@ -610,12 +643,12 @@ mod gui {
             "Remove CA",
             ID_REMOVE_CERTIFICATE,
             825,
-            667,
+            717,
             100,
             30,
         );
-        create_label(window, instance, font, "Driver INF", 40, 722, 90, 22);
-        let driver_path = create_edit(window, instance, font, "", 130, 718, 575, 28);
+        create_label(window, instance, font, "Driver INF", 40, 772, 90, 22);
+        let driver_path = create_edit(window, instance, font, "", 130, 768, 575, 28);
         create_button(
             window,
             instance,
@@ -623,7 +656,7 @@ mod gui {
             "Install driver",
             ID_INSTALL_DRIVER,
             720,
-            717,
+            767,
             95,
             30,
         );
@@ -634,12 +667,12 @@ mod gui {
             "Remove driver",
             ID_REMOVE_DRIVER,
             825,
-            717,
+            767,
             100,
             30,
         );
 
-        let activity = create_label(window, instance, font, "Ready", 24, 800, 910, 26);
+        let activity = create_label(window, instance, font, "Ready", 24, 850, 910, 26);
         let debug_status = create_label(
             window,
             instance,
@@ -653,7 +686,7 @@ mod gui {
                 }
             ),
             24,
-            832,
+            882,
             360,
             24,
         );
@@ -664,7 +697,7 @@ mod gui {
             "Toggle debug",
             ID_TOGGLE_DEBUG,
             390,
-            828,
+            878,
             120,
             30,
         );
@@ -675,7 +708,7 @@ mod gui {
             "Open log folder",
             ID_OPEN_LOGS,
             520,
-            828,
+            878,
             130,
             30,
         );
@@ -686,7 +719,7 @@ mod gui {
             "Open core log",
             ID_OPEN_CORE_LOG,
             660,
-            828,
+            878,
             120,
             30,
         );
@@ -697,7 +730,7 @@ mod gui {
             "Diagnostics",
             ID_SHOW_DIAGNOSTICS,
             790,
-            828,
+            878,
             135,
             30,
         );
@@ -707,7 +740,7 @@ mod gui {
             font,
             &format!("Logs: {}", windows_managed_log_directory().display()),
             24,
-            868,
+            918,
             900,
             24,
         );
@@ -720,6 +753,8 @@ mod gui {
             config_path,
             profile_source,
             profile_node_id,
+            delay_test_url,
+            profile_delay_status,
             proxy_server,
             proxy_bypass,
             certificate_path,
@@ -755,6 +790,11 @@ mod gui {
             ID_SWITCH_PROFILE_NODE => {
                 run_action(state, "Active sing-box node switched", switch_profile_node)
             }
+            ID_TEST_PROFILE_NODE_DELAY => run_action(
+                state,
+                "Selected node delay measured",
+                test_profile_node_delay,
+            ),
             ID_UPDATE_PROFILE => run_action(state, "Subscription URL updated", update_profile),
             ID_ENABLE_HTTPS_MITM => run_action(state, "HTTPS MITM configured", enable_https_mitm),
             ID_DISABLE_HTTPS_MITM => run_action(state, "HTTPS MITM disabled", disable_https_mitm),
@@ -1470,6 +1510,43 @@ mod gui {
 
         state.desktop.profile_node_id = Some(selected_node_id);
         save_desktop_state(&state.desktop)?;
+        Ok(())
+    }
+
+    fn test_profile_node_delay(state: &mut AppState) -> Result<(), String> {
+        let selected_node_id = unsafe { selected_profile_node_id(state) };
+        let outbound_tag = state
+            .profile_nodes
+            .iter()
+            .find(|node| node.id == selected_node_id)
+            .and_then(|node| node.selector_outbound_tag.clone())
+            .ok_or_else(|| {
+                "Load nodes from the current profile before testing the selected node".to_string()
+            })?;
+        let test_url = unsafe { get_text(state.delay_test_url) };
+        let report = measure_sing_box_clash_api_outbound_delay(
+            &SingBoxLocalControllerConfig::loopback_selector(),
+            &outbound_tag,
+            &test_url,
+            DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS,
+        )
+        .map_err(|error| error.to_string())?;
+
+        state.desktop.delay_test_url = Some(report.test_url.clone());
+        save_desktop_state(&state.desktop)?;
+        let _ = append_managed_log(
+            "gui",
+            &format!(
+                "manual sing-box delay test node={} outbound={} url={} delay_ms={}",
+                selected_node_id, report.outbound_tag, report.test_url, report.delay_millis
+            ),
+        );
+        unsafe {
+            set_text(
+                state.profile_delay_status,
+                format!("{} ms", report.delay_millis).as_str(),
+            );
+        }
         Ok(())
     }
 

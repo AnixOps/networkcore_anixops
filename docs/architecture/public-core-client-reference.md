@@ -62,6 +62,10 @@
   不能从分享链接推断。
 - Windows GUI 读取 managed state，显示 service 与 sing-box PID/退出码；日志
   位于 `%ProgramData%\\AnixOps\\NetworkCore\\logs`。
+- Windows NodeCatalog import 生成回环 `127.0.0.1:9091` Clash API selector；GUI
+  可显式切换 active outbound，或以用户填写的 HTTPS URL 对当前选择节点执行一次
+  delay test 并显示毫秒结果。它不创建 `urltest` outbound、后台测速或自动选节点；
+  原生 sing-box JSON 仍由 operator 自行管理。
 - Trojan 强制启用 TLS；VLESS/VMess 只生成基础 TCP。REALITY、WebSocket、gRPC、
   TLS/transport/multiplex、DNS 与 route parser fields 不会被导入器保留，因此不
   等价于完整 Windows runnable compatibility。

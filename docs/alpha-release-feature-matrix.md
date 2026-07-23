@@ -330,7 +330,7 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前待发布切片
 
-### `v0.2.0-alpha.15`
+### `v0.2.0-alpha.16`
 
 状态：Windows managed client source slice；必须通过同 commit GitHub Actions CI、
 MSI install/uninstall smoke、package、attestation、publish eligibility 和 tag release
@@ -347,6 +347,10 @@ MSI install/uninstall smoke、package、attestation、publish eligibility 和 ta
 - GUI 的 `Switch active` 对当前 `Load nodes` 目录执行显式 Clash API PATCH，并读取
   selector 返回的 active outbound 后才保存选择。它需要已经运行的 managed service，
   不重写 profile、不下载订阅，也不重启 service。
+- GUI 的 `Test delay` 对当前选择的 generated outbound 发出一次 loopback Clash API
+  `GET /proxies/{tag}/delay`。用户可编辑 HTTPS target，默认
+  `https://www.gstatic.com/generate_204`；请求使用 10-second timeout，结果以毫秒回显并
+  记入本地 GUI log。该动作不切换 selector、不改写 managed config，亦不重启 service。
 - 每个 Windows tag release 继续要求 managed-client MSI 四件套和 portable ZIP 四件套同时
   通过 checksum、manifest、attestation 与 publish gate。portable ZIP 解压不注册或启动 service。
 
@@ -359,6 +363,29 @@ MSI install/uninstall smoke、package、attestation、publish eligibility 和 ta
 - 不支持 HTTP/2、HTTP/3/QUIC MITM、chunked/streaming exchange、多 request CONNECT
   session、arbitrary plugin loading、remote script、JavaScript script dispatch、TUN、
   DNS interception、firewall mutation 或 transparent capture。
+
+### `v0.2.0-alpha.15`
+
+状态：已发布 Windows managed-client prerelease；保留为 `v0.2.0-alpha.16` 单次手动测速
+切片之前的显式 runtime selector 基线。
+
+主要特性：
+
+- 对 GUI 导入的 NodeCatalog profile，基础 renderer 生成全部可翻译节点的 sing-box
+  `selector`，并将导入时选择的节点写为默认 outbound。各节点使用稳定内部 tag，
+  `route.final` 指向该 selector，不再在导入期丢弃其余可用节点。
+- renderer 只在 GUI 明确请求时写入 `experimental.clash_api`，固定为
+  `127.0.0.1:9091`、`networkcore-selector` 和 `interrupt_exist_connections=true`。
+  非 Windows 调用保持既有单节点 renderer；非回环 controller 会被拒绝。
+- GUI 的 `Switch active` 对当前 `Load nodes` 目录执行显式 Clash API PATCH，并读取
+  selector 返回的 active outbound 后才保存选择。它需要已经运行的 managed service，
+  不重写 profile、不下载订阅，也不重启 service。
+
+明确不包含：
+
+- 不提供单次或自动 latency/`urltest`、scheduled/background remote refresh、persistent
+  remote catalog/group、remote route/rule fetch、Clash Web UI、LAN controller 或 automatic
+  service restart。
 
 ### `v0.2.0-alpha.14`
 
@@ -790,11 +817,11 @@ GitHub Actions release workflow 结果为准。
 
 ## 当前 main source 状态
 
-当前 Windows source release 切片是 `v0.2.0-alpha.15`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
+当前 Windows source release 切片是 `v0.2.0-alpha.16`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
 `v0.1.1-alpha.2` 的 Linux/Windows package、checksum、manifest、attestation 和 publish gate，并把
 受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI；Windows path 已切换到
 managed-client MSI，service、driver、installer、system proxy mutation、system trust store mutation 和 managed lifecycle
-已 active，并增加 operator-staged sing-box managed process、非阻塞 MSI service start、即时 SCM handoff 与 GUI/CLI start 状态返回、受 attestation 的 portable ZIP、GUI-controlled HTTP/1.1 HTTPS MITM/CA lifecycle、native sing-box JSON pass-through import、GUI `check -c` preflight/local diagnostics report、core-log access、受控 `mixed-in` listener 的 snapshot/restore、Hysteria2/TUIC local-file share-link and native-outbound import、本地 V2Ray TLS/REALITY/uTLS/Vision/transport compatibility subset、显式 NodeCatalog 节点选择、单个保存 URL 的显式 HTTP(S) profile update，以及对 generated profile 的 loopback Clash API runtime selector。自动 latency/urltest、scheduled remote subscription、persistent catalog/group、remote route/rule fetch、Clash Web UI/LAN controller、自动 service restart、XHTTP/ECH/multiplex transport inference、HTTP/2/HTTP/3 QUIC MITM、streaming、多 request CONNECT 和 JavaScript script dispatch 仍 blocked。用户可下载状态仍以 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。
+已 active，并增加 operator-staged sing-box managed process、非阻塞 MSI service start、即时 SCM handoff 与 GUI/CLI start 状态返回、受 attestation 的 portable ZIP、GUI-controlled HTTP/1.1 HTTPS MITM/CA lifecycle、native sing-box JSON pass-through import、GUI `check -c` preflight/local diagnostics report、core-log access、受控 `mixed-in` listener 的 snapshot/restore、Hysteria2/TUIC local-file share-link and native-outbound import、本地 V2Ray TLS/REALITY/uTLS/Vision/transport compatibility subset、显式 NodeCatalog 节点选择、单个保存 URL 的显式 HTTP(S) profile update、generated profile 的 loopback Clash API runtime selector，以及对当前选择节点的一次性 HTTPS delay test。自动 latency/urltest、scheduled remote subscription、persistent catalog/group、remote route/rule fetch、Clash Web UI/LAN controller、自动 service restart、XHTTP/ECH/multiplex transport inference、HTTP/2/HTTP/3 QUIC MITM、streaming、多 request CONNECT 和 JavaScript script dispatch 仍 blocked。用户可下载状态仍以 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。
 
 ## 已拍板后续版本节奏
 

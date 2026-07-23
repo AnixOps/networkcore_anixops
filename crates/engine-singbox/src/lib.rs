@@ -62,6 +62,8 @@ pub const ENGINE_SINGBOX_CLASH_API_REQUEST_FAILED_CODE: &str =
     "engine.singbox.clash_api.request_failed";
 pub const ENGINE_SINGBOX_CLASH_API_SELECTOR_MISMATCH_CODE: &str =
     "engine.singbox.clash_api.selector_mismatch";
+pub const ENGINE_SINGBOX_CLASH_API_DELAY_INVALID_CODE: &str =
+    "engine.singbox.clash_api.delay_invalid";
 pub const ENGINE_SINGBOX_DOWNLOAD_TARGET_UNSUPPORTED_CODE: &str =
     "engine.singbox.download.target_unsupported";
 pub const ENGINE_SINGBOX_DOWNLOAD_RELEASE_FETCH_FAILED_CODE: &str =
@@ -367,6 +369,8 @@ pub struct SingBoxLocalProxyConfig {
 pub const DEFAULT_SING_BOX_LOCAL_CONTROLLER_HOST: &str = "127.0.0.1";
 pub const DEFAULT_SING_BOX_LOCAL_CONTROLLER_PORT: u16 = 9091;
 pub const DEFAULT_SING_BOX_LOCAL_SELECTOR_TAG: &str = "networkcore-selector";
+pub const DEFAULT_SING_BOX_CLASH_API_DELAY_TEST_URL: &str = "https://www.gstatic.com/generate_204";
+pub const DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS: u16 = 10_000;
 
 /// A local-only sing-box Clash API controller used for explicit runtime
 /// selector changes by a desktop client. It never exposes the controller on a
@@ -390,7 +394,12 @@ impl SingBoxLocalControllerConfig {
     }
 
     pub fn endpoint(&self) -> String {
-        format!("{}:{}", self.host, self.port)
+        let host = self.host.trim();
+        if host == "::1" {
+            format!("[{host}]:{}", self.port)
+        } else {
+            format!("{host}:{}", self.port)
+        }
     }
 
     pub fn base_url(&self) -> String {
@@ -414,6 +423,13 @@ pub struct SingBoxClashApiSelectorStatus {
     pub selector_tag: String,
     pub current_outbound_tag: String,
     pub outbound_tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingBoxClashApiDelayResult {
+    pub outbound_tag: String,
+    pub test_url: String,
+    pub delay_millis: u64,
 }
 
 /// An operator-provided sing-box document that can be used without reducing it
@@ -1227,12 +1243,7 @@ pub fn select_sing_box_clash_api_outbound(
     controller: &SingBoxLocalControllerConfig,
     outbound_tag: &str,
 ) -> DomainResult<SingBoxClashApiSelectorStatus> {
-    if outbound_tag.trim().is_empty() {
-        return Err(DomainError::new(
-            ENGINE_SINGBOX_CONFIG_SELECTOR_INVALID_CODE,
-            "sing-box selector outbound tag must not be empty",
-        ));
-    }
+    validate_sing_box_clash_api_outbound_tag(outbound_tag)?;
     validate_loopback_controller(controller)?;
     let url = sing_box_clash_api_selector_url(controller)?;
     let client = sing_box_clash_api_client()?;
@@ -1257,12 +1268,90 @@ pub fn select_sing_box_clash_api_outbound(
     Ok(status)
 }
 
+/// Measures one generated outbound through the local sing-box Clash API.
+///
+/// This is deliberately an operator-triggered request. It does not create a
+/// sing-box `urltest` outbound or schedule background measurements.
+pub fn measure_sing_box_clash_api_outbound_delay(
+    controller: &SingBoxLocalControllerConfig,
+    outbound_tag: &str,
+    test_url: &str,
+    timeout_millis: u16,
+) -> DomainResult<SingBoxClashApiDelayResult> {
+    validate_sing_box_clash_api_outbound_tag(outbound_tag)?;
+    validate_loopback_controller(controller)?;
+    if timeout_millis == 0 {
+        return Err(DomainError::new(
+            ENGINE_SINGBOX_CLASH_API_DELAY_INVALID_CODE,
+            "sing-box delay test timeout must be greater than zero",
+        ));
+    }
+    let test_url = reqwest::Url::parse(test_url.trim()).map_err(|_| {
+        DomainError::new(
+            ENGINE_SINGBOX_CLASH_API_DELAY_INVALID_CODE,
+            "sing-box delay test URL must be an absolute HTTPS URL",
+        )
+    })?;
+    if test_url.scheme() != "https" {
+        return Err(DomainError::new(
+            ENGINE_SINGBOX_CLASH_API_DELAY_INVALID_CODE,
+            "sing-box delay test URL must use HTTPS",
+        ));
+    }
+
+    let mut url = sing_box_clash_api_proxy_url(controller, outbound_tag)?;
+    url.path_segments_mut()
+        .map_err(|_| sing_box_clash_api_error("sing-box delay URL cannot accept a path"))?
+        .push("delay");
+    url.query_pairs_mut()
+        .append_pair("url", test_url.as_str())
+        .append_pair("timeout", &timeout_millis.to_string());
+
+    let response = sing_box_clash_api_client_with_timeout(std::time::Duration::from_millis(
+        u64::from(timeout_millis) + 2_000,
+    ))?
+    .get(url)
+    .send()
+    .map_err(|_| sing_box_clash_api_error("sing-box delay test could not be completed"))?
+    .error_for_status()
+    .map_err(|_| sing_box_clash_api_error("sing-box delay test could not be completed"))?
+    .text()
+    .map_err(|_| sing_box_clash_api_error("sing-box delay test response could not be read"))?;
+    let payload: SingBoxClashApiDelayResponse = serde_json::from_str(&response)
+        .map_err(|_| sing_box_clash_api_error("sing-box delay test response was invalid"))?;
+    let delay_millis = payload.delay.filter(|delay| *delay > 0).ok_or_else(|| {
+        sing_box_clash_api_error("sing-box delay test response did not include a positive delay")
+    })?;
+
+    Ok(SingBoxClashApiDelayResult {
+        outbound_tag: outbound_tag.to_string(),
+        test_url: test_url.to_string(),
+        delay_millis,
+    })
+}
+
 #[derive(Debug, Deserialize)]
 struct SingBoxClashApiSelectorResponse {
     #[serde(default)]
     now: Option<String>,
     #[serde(default)]
     all: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SingBoxClashApiDelayResponse {
+    #[serde(default)]
+    delay: Option<u64>,
+}
+
+fn validate_sing_box_clash_api_outbound_tag(outbound_tag: &str) -> DomainResult<()> {
+    if outbound_tag.trim().is_empty() {
+        return Err(DomainError::new(
+            ENGINE_SINGBOX_CONFIG_SELECTOR_INVALID_CODE,
+            "sing-box selector outbound tag must not be empty",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_loopback_controller(controller: &SingBoxLocalControllerConfig) -> DomainResult<()> {
@@ -1283,6 +1372,13 @@ fn validate_loopback_controller(controller: &SingBoxLocalControllerConfig) -> Do
 fn sing_box_clash_api_selector_url(
     controller: &SingBoxLocalControllerConfig,
 ) -> DomainResult<reqwest::Url> {
+    sing_box_clash_api_proxy_url(controller, &controller.selector_tag)
+}
+
+fn sing_box_clash_api_proxy_url(
+    controller: &SingBoxLocalControllerConfig,
+    outbound_tag: &str,
+) -> DomainResult<reqwest::Url> {
     let mut url = reqwest::Url::parse(&controller.base_url()).map_err(|_| {
         DomainError::new(
             ENGINE_SINGBOX_CONFIG_SELECTOR_INVALID_CODE,
@@ -1296,13 +1392,17 @@ fn sing_box_clash_api_selector_url(
                 "sing-box Clash API controller URL cannot accept a selector path",
             )
         })?
-        .extend(["proxies", controller.selector_tag.as_str()]);
+        .extend(["proxies", outbound_tag]);
     Ok(url)
 }
 
 fn sing_box_clash_api_client() -> DomainResult<Client> {
+    sing_box_clash_api_client_with_timeout(std::time::Duration::from_secs(10))
+}
+
+fn sing_box_clash_api_client_with_timeout(timeout: std::time::Duration) -> DomainResult<Client> {
     Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(timeout)
         .user_agent(NETWORKCORE_SING_BOX_USER_AGENT)
         .build()
         .map_err(|_| sing_box_clash_api_error("sing-box Clash API client could not be created"))

@@ -8,7 +8,7 @@ current Windows package.
 ```text
 windows-managed-client-source-release-contract=present
 windows-managed-client-release-state=implementation-active
-windows-managed-client-version-scope=v0.2.0-alpha.15
+windows-managed-client-version-scope=v0.2.0-alpha.16
 WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active
 windows-managed-client-runner=windows-latest
 windows-managed-client-runner-kind=github-hosted
@@ -41,6 +41,7 @@ windows-managed-client-remote-subscription-fetch=operator-initiated-http-s-profi
 windows-managed-client-remote-subscription-update=single-saved-url-explicit-only
 windows-managed-client-profile-node-selector=generated-clash-api-runtime-selector-active
 windows-managed-client-sing-box-clash-api=loopback-explicit-switch-active
+windows-managed-client-sing-box-manual-delay-test=loopback-explicit-single-node-https-active
 windows-managed-client-sing-box-urltest=blocked
 windows-managed-client-sing-box-basic-protocols=shadowsocks-trojan-vless-vmess-hysteria2-tuic
 windows-managed-client-sing-box-quic-share-link-import=hysteria2-tuic-local-file-active
@@ -81,8 +82,13 @@ behind a generated sing-box `selector`, sets the chosen node as its explicit
 default, and enables a Clash API controller only at `127.0.0.1:9091`. `Switch
 active` makes an explicit PATCH through that loopback controller and reads the
 selector state back before persisting the active node ID. The controller is not
-listened on a LAN address and has no bundled Web UI. A blank selector uses the
-first supported node. A URL is
+listened on a LAN address and has no bundled Web UI. `Test delay` makes one
+explicit `GET /proxies/{generated-outbound}/delay` request through that same
+loopback controller for the selected loaded node. Its editable HTTPS target is
+stored only in desktop state, defaults to `https://www.gstatic.com/generate_204`,
+uses a 10-second request timeout, and reports the returned milliseconds without
+changing the active selector, managed config, or service lifecycle. A blank
+selector uses the first supported node. A URL is
 downloaded only for that explicit action, with a bounded client timeout, then
 uses the same native JSON inspection and `CoreSubscriptionService` parser as a
 local file. After a successful URL import, `Update URL` explicitly fetches that
@@ -95,7 +101,8 @@ native document remains pass-through and does not expose a generated NodeCatalog
 selector; changing its outbound/selector groups remains the operator's native
 sing-box configuration choice. The generated selector does not configure
 `urltest`, automatic latency selection, scheduled subscription refresh, or an
-automatic service restart. A
+automatic service restart. The explicit delay action is not scheduled, does
+not select an outbound, and is unavailable for native pass-through documents. A
 loopback or wildcard `mixed`/`http` inbound is detected to configure the Windows
 system proxy endpoint; a native document without one leaves system-proxy
 configuration unset. Other supported inputs render the basic Shadowsocks,

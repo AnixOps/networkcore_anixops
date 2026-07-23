@@ -13,7 +13,8 @@ The crate currently provides source contracts for:
 - Rendering a deterministic local `mixed` inbound `sing-box` JSON config from a
   basic Shadowsocks, Trojan, VLESS, VMess, Hysteria2, or TUIC `NodeDescriptor`.
 - Rendering a GUI-requested multi-node `selector` config with a loopback-only
-  Clash API controller, then reading and explicitly switching that selector.
+  Clash API controller, then reading, explicitly switching, and manually
+  measuring one selected generated outbound through that controller.
 - Recognizing a native sing-box JSON configuration without transforming it and
   locating a local `mixed` or `http` inbound for Windows system-proxy setup.
 - Rewriting only a native `type: mixed`, `tag: mixed-in` listener for the
@@ -53,5 +54,7 @@ into the selector renderer only for NodeCatalog imports: it emits all
 translatable nodes, assigns stable internal outbound tags, routes through
 `networkcore-selector`, and exposes the controller only at `127.0.0.1:9091`.
 The adapter verifies a requested runtime switch by reading the selector back.
-It does not configure a Clash Web UI, LAN listener, `urltest`, automatic
-latency selection, scheduled refresh, or native sing-box JSON rewriting.
+Its manual delay API calls `GET /proxies/{outbound}/delay` once with an
+operator-selected HTTPS target and returns the controller's milliseconds. It
+does not configure a Clash Web UI, LAN listener, `urltest`, automatic latency
+selection, scheduled refresh, or native sing-box JSON rewriting.

@@ -15,19 +15,23 @@ use control_domain::{
     NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
 };
 use engine_singbox::{
-    inspect_sing_box_native_config, rewrite_sing_box_mixed_inbound_listener,
-    GithubSingBoxReleaseInstaller, SingBoxHttpClient, SingBoxInstallRequest,
-    SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest, SingBoxManagedProcessState,
-    SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch,
-    SingBoxTargetOs, DEFAULT_SING_BOX_ENGINE_ID, ENGINE_SINGBOX_CONFIG_MIXED_INBOUND_MISSING_CODE,
-    ENGINE_SINGBOX_CONFIG_RENDERED_CODE, ENGINE_SINGBOX_DOWNLOAD_ASSET_SELECTED_CODE,
-    ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE, ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE,
+    inspect_sing_box_native_config, measure_sing_box_clash_api_outbound_delay,
+    rewrite_sing_box_mixed_inbound_listener, GithubSingBoxReleaseInstaller, SingBoxHttpClient,
+    SingBoxInstallRequest, SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest,
+    SingBoxManagedProcessState, SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller,
+    SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
+    DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS, DEFAULT_SING_BOX_ENGINE_ID,
+    ENGINE_SINGBOX_CONFIG_MIXED_INBOUND_MISSING_CODE, ENGINE_SINGBOX_CONFIG_RENDERED_CODE,
+    ENGINE_SINGBOX_DOWNLOAD_ASSET_SELECTED_CODE, ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE,
+    ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE,
     ENGINE_SINGBOX_DOWNLOAD_LATEST_VERSION_RESOLVED_CODE,
 };
 use flate2::{write::DeflateEncoder, write::GzEncoder, Compression};
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::path::PathBuf;
+use std::thread;
 use tar::{Builder, Header};
 
 #[test]
@@ -425,6 +429,53 @@ fn rejects_non_loopback_clash_controller_for_generated_selector() {
         error.code,
         engine_singbox::ENGINE_SINGBOX_CONFIG_SELECTOR_INVALID_CODE
     );
+}
+
+#[test]
+fn measures_one_generated_outbound_through_the_loopback_clash_api() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("test controller should bind");
+    let port = listener
+        .local_addr()
+        .expect("test controller address should resolve")
+        .port();
+    let server = thread::spawn(move || {
+        let (mut stream, _) = listener
+            .accept()
+            .expect("test controller should accept the delay request");
+        let mut request = [0_u8; 2_048];
+        let length = stream
+            .read(&mut request)
+            .expect("test controller should read the delay request");
+        let request = String::from_utf8_lossy(&request[..length]);
+        assert!(request.starts_with("GET /proxies/networkcore-node-1/delay?"));
+        assert!(request.contains("url=https%3A%2F%2Fexample.com%2Fdelay"));
+        assert!(request.contains("timeout=10000"));
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 12\r\nConnection: close\r\n\r\n{\"delay\":42}",
+            )
+            .expect("test controller should return the delay response");
+    });
+
+    let report = measure_sing_box_clash_api_outbound_delay(
+        &SingBoxLocalControllerConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            selector_tag: "networkcore-selector".to_string(),
+            interrupt_exist_connections: true,
+        },
+        "networkcore-node-1",
+        "https://example.com/delay",
+        DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS,
+    )
+    .expect("loopback controller should return a delay result");
+
+    assert_eq!(report.outbound_tag, "networkcore-node-1");
+    assert_eq!(report.test_url, "https://example.com/delay");
+    assert_eq!(report.delay_millis, 42);
+    server
+        .join()
+        .expect("test controller assertions should succeed");
 }
 
 #[test]
