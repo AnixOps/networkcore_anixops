@@ -819,6 +819,9 @@ dependencies = [
 name = "networkcore-windows-gui"
 version = "0.1.0"
 dependencies = [
+ "config-core",
+ "control-domain",
+ "engine-singbox",
  "platform-windows",
  "serde",
  "serde_json",
