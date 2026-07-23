@@ -14,6 +14,11 @@
 
 ### Added
 
+- Windows GUI `Profile / URL` now accepts an operator-entered HTTP(S)
+  subscription URL as well as a local file. Import downloads that payload only
+  for the explicit action and reuses the native sing-box JSON/NodeCatalog
+  pipeline. It does not add background refresh, subscription catalog/group,
+  remote route/rule fetch, or automatic service restart.
 - Windows GUI now exposes `Open JSON`, a non-mutating `Validate` action, and
   `Diagnostics`. Validation uses the same managed JSON parsing and
   `sing-box check -c` preflight as the service without starting it or changing

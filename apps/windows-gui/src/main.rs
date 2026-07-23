@@ -45,6 +45,7 @@ mod gui {
     use std::mem::zeroed;
     use std::path::{Path, PathBuf};
     use std::ptr::{null, null_mut};
+    use std::time::Duration;
     use windows_sys::Win32::Foundation::{GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
     use windows_sys::Win32::Graphics::Gdi::{
         GetStockObject, UpdateWindow, COLOR_WINDOW, DEFAULT_GUI_FONT,
@@ -102,6 +103,8 @@ mod gui {
         sing_box_executable_path: Option<PathBuf>,
         #[serde(default)]
         profile_source_path: Option<PathBuf>,
+        #[serde(default)]
+        profile_source_url: Option<String>,
         #[serde(default)]
         profile_node_id: Option<String>,
         #[serde(default)]
@@ -419,17 +422,22 @@ mod gui {
             925,
             170,
         );
-        create_label(window, instance, font, "Profile file", 40, 352, 100, 22);
+        let profile_source_text = desktop
+            .profile_source_url
+            .clone()
+            .or_else(|| {
+                desktop
+                    .profile_source_path
+                    .as_ref()
+                    .map(|path| path.to_string_lossy().into_owned())
+            })
+            .unwrap_or_default();
+        create_label(window, instance, font, "Profile / URL", 40, 352, 100, 22);
         let profile_source = create_edit(
             window,
             instance,
             font,
-            desktop
-                .profile_source_path
-                .as_ref()
-                .map(|path| path.to_string_lossy().to_string())
-                .unwrap_or_default()
-                .as_str(),
+            &profile_source_text,
             140,
             348,
             500,
@@ -1266,12 +1274,23 @@ mod gui {
             .clone()
             .filter(|path| path.exists())
             .ok_or_else(|| "Install sing-box before importing a profile".to_string())?;
-        let source_path = PathBuf::from(unsafe { get_text(state.profile_source) });
-        if source_path.as_os_str().is_empty() {
-            return Err("Profile file path is required".to_string());
+        let location = unsafe { get_text(state.profile_source) };
+        let location = location.trim();
+        if location.is_empty() {
+            return Err("Profile file path or subscription URL is required".to_string());
         }
-        let payload = fs::read_to_string(&source_path)
-            .map_err(|error| format!("Profile file could not be read: {error}"))?;
+        let (payload, source_path, source_url) = if is_remote_subscription_url(location) {
+            (
+                download_remote_subscription(location)?,
+                None,
+                Some(location.to_string()),
+            )
+        } else {
+            let source_path = PathBuf::from(location);
+            let payload = fs::read_to_string(&source_path)
+                .map_err(|error| format!("Profile file could not be read: {error}"))?;
+            (payload, Some(source_path), None)
+        };
         let config_path = windows_managed_data_directory()
             .join("sing-box")
             .join("config.json");
@@ -1295,7 +1314,8 @@ mod gui {
                     listen_port,
                 )?),
             };
-            state.desktop.profile_source_path = Some(source_path);
+            state.desktop.profile_source_path = source_path;
+            state.desktop.profile_source_url = source_url;
             state.desktop.profile_node_id = None;
             save_desktop_state(&state.desktop)?;
             return Ok(ImportedSingBoxProfile {
@@ -1333,7 +1353,8 @@ mod gui {
         write_managed_text_atomic(&config_path, &rendered.json)
             .map_err(|error| error.to_string())?;
 
-        state.desktop.profile_source_path = Some(source_path);
+        state.desktop.profile_source_path = source_path;
+        state.desktop.profile_source_url = source_url;
         state.desktop.profile_node_id =
             (!selected_node_id.trim().is_empty()).then_some(selected_node_id);
         save_desktop_state(&state.desktop)?;
@@ -1344,6 +1365,36 @@ mod gui {
             local_http_proxy: Some(format!("127.0.0.1:{listen_port}")),
             sing_box_config_snapshot_path: None,
         })
+    }
+
+    fn is_remote_subscription_url(location: &str) -> bool {
+        location.trim().split_once(':').is_some_and(|(scheme, _)| {
+            scheme.eq_ignore_ascii_case("https") || scheme.eq_ignore_ascii_case("http")
+        })
+    }
+
+    fn download_remote_subscription(location: &str) -> Result<String, String> {
+        let url =
+            reqwest::Url::parse(location).map_err(|_| "Subscription URL is invalid".to_string())?;
+        if !matches!(url.scheme(), "https" | "http") {
+            return Err("Subscription URL must use HTTP or HTTPS".to_string());
+        }
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .user_agent("AnixOps-NetworkCore/Windows")
+            .build()
+            .map_err(|_| "Subscription download client could not be created".to_string())?;
+        let payload = client
+            .get(url)
+            .send()
+            .and_then(reqwest::blocking::Response::error_for_status)
+            .map_err(|_| "Subscription download failed".to_string())?
+            .text()
+            .map_err(|_| "Subscription response could not be read".to_string())?;
+        if payload.trim().is_empty() {
+            return Err("Subscription response is empty".to_string());
+        }
+        Ok(payload)
     }
 
     fn stage_native_sing_box_mitm_config(

@@ -8,7 +8,7 @@ current Windows package.
 ```text
 windows-managed-client-source-release-contract=present
 windows-managed-client-release-state=implementation-active
-windows-managed-client-version-scope=v0.2.0-alpha.11
+windows-managed-client-version-scope=v0.2.0-alpha.12
 WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active
 windows-managed-client-runner=windows-latest
 windows-managed-client-runner-kind=github-hosted
@@ -37,7 +37,7 @@ windows-managed-client-sing-box-gui-install=active
 windows-managed-client-local-profile-import=active
 windows-managed-client-sing-box-native-json-import=active
 windows-managed-client-sing-box-native-json-mitm=controlled-mixed-in-snapshot-restore-active
-windows-managed-client-remote-subscription-fetch=blocked
+windows-managed-client-remote-subscription-fetch=operator-initiated-http-s-profile-import-active
 windows-managed-client-sing-box-basic-protocols=shadowsocks-trojan-vless-vmess-hysteria2-tuic
 windows-managed-client-sing-box-quic-share-link-import=hysteria2-tuic-local-file-active
 windows-managed-client-sing-box-v2ray-share-link-compatibility=tls-reality-ws-grpc-http-httpupgrade-quic-local-file-active
@@ -68,25 +68,29 @@ provides one, extracts `sing-box.exe` under `%ProgramData%`, and persists its
 path for profile import. The MSI itself neither bundles nor silently downloads
 the third-party core.
 
-The GUI `Import profile` action reads only an operator-selected local file. A
-native sing-box JSON object with `inbounds` or `outbounds` is copied verbatim to
-`sing-box/config.json`, so its TLS, REALITY, WebSocket, gRPC, multiplex,
-routing, DNS, and other sing-box-owned fields are retained. A loopback or
-wildcard `mixed`/`http` inbound is detected to configure the Windows system
-proxy endpoint; a native document without one leaves system-proxy configuration
-unset. Other supported local inputs pass through `CoreSubscriptionService` and
-render the basic Shadowsocks, Trojan, VLESS, VMess, Hysteria2, and TUIC node
-fields. The local V2Ray-family renderer preserves the selected explicit
-share-link/catalog fields: Trojan, VLESS, and VMess TLS, ALPN, certificate pins,
-uTLS fingerprint, VLESS Vision flow and REALITY public-key/short-id metadata;
-VMess security and alter-id; and WebSocket, gRPC, HTTP, HTTPUpgrade, or V2Ray
-QUIC transport details. This is a deterministic local-file compatibility subset,
-not inference for arbitrary native fields. Hysteria2 local `hysteria2://`/`hy2://`
-inputs retain password, supported obfuscation, port hopping, and TLS metadata;
-TUIC local `tuic://` inputs retain UUID, optional password, congestion control,
-and TLS metadata. Hysteria2/TUIC and V2Ray QUIC transport are direct proxy-core
-paths, not HTTPS or HTTP/3 MITM traffic. Remote subscription fetching remains
-blocked. GUI-controlled HTTPS MITM can
+The GUI `Import profile` action accepts either an operator-selected local file
+or an operator-entered `http://`/`https://` subscription URL. A URL is
+downloaded only for that explicit action, with a bounded client timeout, then
+uses the same native JSON inspection and `CoreSubscriptionService` parser as a
+local file. A native sing-box JSON object with `inbounds` or `outbounds` is
+copied verbatim to `sing-box/config.json`, so its TLS, REALITY, WebSocket, gRPC,
+multiplex, routing, DNS, and other sing-box-owned fields are retained. A
+loopback or wildcard `mixed`/`http` inbound is detected to configure the Windows
+system proxy endpoint; a native document without one leaves system-proxy
+configuration unset. Other supported inputs render the basic Shadowsocks,
+Trojan, VLESS, VMess, Hysteria2, and TUIC node fields. The V2Ray-family renderer
+preserves the selected explicit share-link/catalog fields: Trojan, VLESS, and
+VMess TLS, ALPN, certificate pins, uTLS fingerprint, VLESS Vision flow and
+REALITY public-key/short-id metadata; VMess security and alter-id; and
+WebSocket, gRPC, HTTP, HTTPUpgrade, or V2Ray QUIC transport details. This is a
+deterministic compatibility subset, not inference for arbitrary native fields.
+Hysteria2 `hysteria2://`/`hy2://` inputs retain password, supported obfuscation,
+port hopping, and TLS metadata; TUIC `tuic://` inputs retain UUID, optional
+password, congestion control, and TLS metadata. Hysteria2/TUIC and V2Ray QUIC
+transport are direct proxy-core paths, not HTTPS or HTTP/3 MITM traffic. The URL
+is retained only as the next manual import value; there is no background refresh,
+subscription group/catalog, automatic service restart, or route/rule fetch.
+GUI-controlled HTTPS MITM can
 also use a native document only when it contains a `type: mixed`,
 `tag: mixed-in` inbound. The GUI snapshots the original imported JSON below
 `%ProgramData%\\AnixOps\\NetworkCore\\mitm`, changes only that inbound to the
@@ -153,8 +157,9 @@ operation. Native MITM supports explicit loopback HTTP proxy clients and
 controlled HTTP/1.1 TLS exchanges only. HTTP/2 and HTTP/3/QUIC MITM, chunked
 or streaming exchanges, multi-request CONNECT sessions, arbitrary plugin
 loading, XHTTP/ECH/multiplex inference for generated link profiles, remote
-scripts, remote subscriptions, TUN, DNS interception, firewall changes, and
-transparent capture remain unavailable.
+scripts, TUN, DNS interception, firewall changes, and transparent capture remain
+unavailable. Scheduled remote subscriptions, persistent remote subscription
+catalogs, and remote route/rule fetch remain unavailable.
 
 The driver capability installs and removes a caller-configured signed INF by
 using NewDev `DiInstallDriverW` and `DiUninstallDriverW`. A kernel driver binary

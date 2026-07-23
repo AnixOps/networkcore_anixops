@@ -75,7 +75,8 @@ Windows `sing-box.exe` and import this managed configuration yourself.
 For the normal managed workflow, run the elevated GUI and follow this order:
 
 1. Click `Install core` in the `sing-box profile` section.
-2. Enter an explicit local profile file path and optionally a Node ID.
+2. Enter a local profile file path or an `http://`/`https://` subscription URL,
+   and optionally a Node ID.
 3. Click `Import profile`, then `Install service` and `Start`.
 
 The importer writes `C:\\ProgramData\\AnixOps\\NetworkCore\\sing-box\\config.json`
@@ -83,7 +84,14 @@ and updates `managed-config.json` with the verified core path, local mixed proxy
 at `127.0.0.1:7890`, service working directory, and core log path. A blank Node
 ID selects the first supported node.
 
-The local profile may use the existing supported NodeCatalog inputs, including
+An HTTP(S) URL is downloaded once only when `Import profile` is clicked. Its
+payload follows the same parser and native sing-box JSON pass-through path as a
+local profile; the URL remains in the GUI only as the next manual import value.
+It does not create a background update task, a subscription catalog/group, a
+route/rule fetch, or an automatic service restart.
+
+The local profile or downloaded payload may use the existing supported
+NodeCatalog inputs, including
 an `ss://`, `trojan://`, `vless://`, `vmess://`, `hysteria2://`/`hy2://`, or
 `tuic://` node, a supported Clash YAML `proxies` list, supported sing-box JSON
 `outbounds`, or supported Surge, Loon, or Quantumult X proxy lines.

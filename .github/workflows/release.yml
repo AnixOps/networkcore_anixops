@@ -424,7 +424,7 @@ jobs:
           contract=docs/architecture/windows-managed-client-source-release-contract.md
           grep -q '^windows-managed-client-source-release-contract=present$' "${contract}"
           grep -q '^windows-managed-client-release-state=implementation-active$' "${contract}"
-          grep -q '^windows-managed-client-version-scope=v0.2.0-alpha.11$' "${contract}"
+          grep -q '^windows-managed-client-version-scope=v0.2.0-alpha.12$' "${contract}"
           grep -q '^WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active$' "${contract}"
           grep -q '^windows-managed-client-runner=windows-latest$' "${contract}"
           grep -q '^windows-managed-client-target-triple=x86_64-pc-windows-gnu$' "${contract}"
@@ -449,7 +449,7 @@ jobs:
           grep -q '^windows-managed-client-local-profile-import=active$' "${contract}"
           grep -q '^windows-managed-client-sing-box-native-json-import=active$' "${contract}"
           grep -q '^windows-managed-client-sing-box-native-json-mitm=controlled-mixed-in-snapshot-restore-active$' "${contract}"
-          grep -q '^windows-managed-client-remote-subscription-fetch=blocked$' "${contract}"
+          grep -q '^windows-managed-client-remote-subscription-fetch=operator-initiated-http-s-profile-import-active$' "${contract}"
           grep -q '^windows-managed-client-sing-box-basic-protocols=shadowsocks-trojan-vless-vmess-hysteria2-tuic$' "${contract}"
           grep -q '^windows-managed-client-sing-box-quic-share-link-import=hysteria2-tuic-local-file-active$' "${contract}"
           grep -q '^windows-managed-client-sing-box-v2ray-share-link-compatibility=tls-reality-ws-grpc-http-httpupgrade-quic-local-file-active$' "${contract}"
@@ -1695,10 +1695,10 @@ jobs:
           - Windows release assets: ${WINDOWS_RELEASE_ASSETS_STATUS}
           - Install model: wix-per-machine-msi
           - System mutation policy: managed-apply-and-rollback
-          - Subscription compatibility: explicit-local-profile-import-v2ray-tls-reality-ws-grpc-http-httpupgrade-quic-hysteria2-tuic-active
-          - Active: native GUI, Windows service, signed INF driver package lifecycle, MSI installer, system proxy mutation, system trust store mutation, managed daemon lifecycle, explicit GUI sing-box core install, local profile import, sing-box check/run/PID/exit/log lifecycle, explicit controlled HTTP/1.1 HTTPS MITM with service-owned CA lifecycle and sing-box SOCKS upstream
+          - Subscription compatibility: explicit-local-and-operator-initiated-http-s-profile-import-v2ray-tls-reality-ws-grpc-http-httpupgrade-quic-hysteria2-tuic-active
+          - Active: native GUI, Windows service, signed INF driver package lifecycle, MSI installer, system proxy mutation, system trust store mutation, managed daemon lifecycle, explicit GUI sing-box core install, local and operator-initiated HTTP(S) profile import, sing-box check/run/PID/exit/log lifecycle, explicit controlled HTTP/1.1 HTTPS MITM with service-owned CA lifecycle and sing-box SOCKS upstream
           - External core boundary: sing-box is not bundled or silently downloaded by the MSI; GUI installation is an explicit operator action
-          - Blocked: remote subscription fetch, XHTTP/ECH/multiplex transport inference, HTTP/2 and HTTP/3/QUIC MITM, chunked or streaming exchanges, multi-request CONNECT sessions, remote scripts, and JavaScript script dispatch
+          - Blocked: scheduled remote subscription refresh, persistent subscription catalog/group, remote route/rule fetch, XHTTP/ECH/multiplex transport inference, HTTP/2 and HTTP/3/QUIC MITM, chunked or streaming exchanges, multi-request CONNECT sessions, remote scripts, and JavaScript script dispatch
 
           ## Windows Portable Client
 
