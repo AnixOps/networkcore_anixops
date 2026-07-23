@@ -1222,7 +1222,7 @@ fn required_node_metadata<'a>(
         .ok_or_else(|| DomainError::new(ENGINE_SINGBOX_CONFIG_SECRET_MISSING_CODE, message))
 }
 
-fn optional_node_metadata_list(node: &NodeDescriptor, key: &str) -> Option<Vec<&str>> {
+fn optional_node_metadata_list<'a>(node: &'a NodeDescriptor, key: &str) -> Option<Vec<&'a str>> {
     let values = metadata_value(node, key)?
         .split(',')
         .map(str::trim)
