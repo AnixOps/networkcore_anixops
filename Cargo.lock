@@ -830,6 +830,7 @@ name = "networkcore-windows-service"
 version = "0.1.0"
 dependencies = [
  "control-domain",
+ "engine-singbox",
  "networkcore-windows",
  "platform-windows",
  "serde_json",

@@ -19,5 +19,10 @@ catalog-import Trojan/VLESS/VMess URLs, Clash YAML, sing-box JSON, Surge proxy
 lines, Loon proxy lines, and Quantumult X proxy/server lines in `config-core`.
 The companion GUI and service activate Windows service control, signed INF
 driver package lifecycle, the MSI installer, `system-proxy-mutation`,
-`system-trust-store-mutation`, and managed daemon lifecycle. JavaScript script
-dispatch and Windows subscription run compatibility remain deferred.
+`system-trust-store-mutation`, managed daemon lifecycle, and the optional
+service-owned sing-box process configured in `managed-config.json`. The service
+validates the native sing-box JSON with `check -c` before starting it and writes
+core stdout/stderr to the configured log. Windows-targeted official ZIP
+selection/extraction is available in the adapter, while GUI install orchestration,
+JavaScript script dispatch, and Windows subscription run compatibility remain
+deferred.

@@ -13,6 +13,8 @@ pub const WINDOWS_MANAGED_STATE_SCHEMA_VERSION: u32 = 1;
 pub const WINDOWS_MANAGED_CONFIG_INVALID_CODE: &str = "windows.managed.config_invalid";
 pub const WINDOWS_MANAGED_CONFIG_IO_CODE: &str = "windows.managed.config_io_failed";
 pub const WINDOWS_MANAGED_STATE_IO_CODE: &str = "windows.managed.state_io_failed";
+pub const WINDOWS_MANAGED_SING_BOX_CONFIG_INVALID_CODE: &str =
+    "windows.managed.sing_box_config_invalid";
 pub const WINDOWS_MANAGED_PRODUCT_DIRECTORY: &str = "AnixOps\\NetworkCore";
 pub const WINDOWS_MANAGED_CONFIG_FILE_NAME: &str = "managed-config.json";
 pub const WINDOWS_MANAGED_STATE_FILE_NAME: &str = "managed-state.json";
@@ -146,12 +148,55 @@ impl WindowsManagedTunnelConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowsManagedSingBoxConfig {
+    pub enabled: bool,
+    pub executable_path: PathBuf,
+    pub config_path: PathBuf,
+    pub working_directory: Option<PathBuf>,
+    pub log_path: PathBuf,
+}
+
+impl WindowsManagedSingBoxConfig {
+    pub fn validate(&self) -> DomainResult<()> {
+        let required_paths = [self.executable_path.as_path(), self.config_path.as_path()];
+        if required_paths
+            .iter()
+            .any(|path| path.as_os_str().is_empty())
+        {
+            return Err(DomainError::new(
+                WINDOWS_MANAGED_SING_BOX_CONFIG_INVALID_CODE,
+                "sing-box executable and config paths must not be empty",
+            ));
+        }
+        if self.log_path.as_os_str().is_empty() {
+            return Err(DomainError::new(
+                WINDOWS_MANAGED_SING_BOX_CONFIG_INVALID_CODE,
+                "sing-box log path must not be empty",
+            ));
+        }
+        if self
+            .working_directory
+            .as_ref()
+            .is_some_and(|path| path.as_os_str().is_empty())
+        {
+            return Err(DomainError::new(
+                WINDOWS_MANAGED_SING_BOX_CONFIG_INVALID_CODE,
+                "sing-box working directory must not be empty when provided",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowsManagedConfig {
     pub schema_version: u32,
     pub system_proxy: Option<WindowsProxySettings>,
     pub root_certificate_path: Option<PathBuf>,
     pub driver_package: Option<WindowsDriverPackageConfig>,
     pub tunnel: Option<WindowsManagedTunnelConfig>,
+    #[serde(default)]
+    pub sing_box: Option<WindowsManagedSingBoxConfig>,
 }
 
 impl WindowsManagedConfig {
@@ -177,6 +222,9 @@ impl WindowsManagedConfig {
         if let Some(tunnel) = &self.tunnel {
             tunnel.validate()?;
         }
+        if let Some(sing_box) = &self.sing_box {
+            sing_box.validate()?;
+        }
         Ok(())
     }
 }
@@ -189,6 +237,14 @@ pub struct WindowsManagedState {
     pub driver_inf_path: Option<PathBuf>,
     pub driver_reboot_required: bool,
     pub tunnel_running: bool,
+    #[serde(default)]
+    pub sing_box_running: bool,
+    #[serde(default)]
+    pub sing_box_process_id: Option<u32>,
+    #[serde(default)]
+    pub sing_box_exit_code: Option<i32>,
+    #[serde(default)]
+    pub sing_box_log_path: Option<PathBuf>,
     pub last_transition: String,
 }
 
@@ -201,6 +257,10 @@ impl Default for WindowsManagedState {
             driver_inf_path: None,
             driver_reboot_required: false,
             tunnel_running: false,
+            sing_box_running: false,
+            sing_box_process_id: None,
+            sing_box_exit_code: None,
+            sing_box_log_path: None,
             last_transition: "created".to_string(),
         }
     }

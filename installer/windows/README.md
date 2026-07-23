@@ -36,14 +36,66 @@ The smallest useful configuration for a local HTTP proxy is:
   },
   "root_certificate_path": null,
   "driver_package": null,
-  "tunnel": null
+  "tunnel": null,
+  "sing_box": {
+    "enabled": true,
+    "executable_path": "C:\\Program Files\\AnixOps\\NetworkCore\\bin\\sing-box.exe",
+    "config_path": "C:\\ProgramData\\AnixOps\\NetworkCore\\sing-box\\config.json",
+    "working_directory": "C:\\ProgramData\\AnixOps\\NetworkCore\\sing-box",
+    "log_path": "C:\\ProgramData\\AnixOps\\NetworkCore\\logs\\sing-box.log"
+  }
 }
 ```
 
-Only set `enabled` to `true` when a listener is already running at `server`.
-After editing, open the GUI, click `Apply configuration`, then `Restart`.
+`sing_box` is optional. When enabled, the service first runs
+`sing-box.exe check -c <config_path>`, then starts
+`sing-box.exe run -c <config_path>` as a service-owned child process and writes
+both stdout and stderr to `log_path`. The executable must already be present;
+the current MSI does not silently download third-party binaries. Use the
+Windows-targeted adapter/installer path to download and verify the official ZIP,
+or stage a verified Windows `sing-box.exe`, before enabling this block.
+
+Only set `system_proxy.enabled` to `true` after the configured sing-box inbound
+is listening at `server`. After editing, open the GUI, click `Apply configuration`,
+then `Restart`.
 The service reads this file under `LocalSystem`; paths must be absolute and
 readable by that account.
+
+`config_path` points to a second file containing native sing-box JSON. It is not
+the managed wrapper above. For a minimal local mixed proxy backed by one
+Shadowsocks server, create
+`C:\\ProgramData\\AnixOps\\NetworkCore\\sing-box\\config.json`:
+
+```json
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "127.0.0.1",
+      "listen_port": 7890
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "shadowsocks",
+      "tag": "proxy",
+      "server": "YOUR_SERVER_HOST",
+      "server_port": 443,
+      "method": "aes-256-gcm",
+      "password": "YOUR_PASSWORD"
+    },
+    { "type": "direct", "tag": "direct" }
+  ],
+  "route": { "final": "proxy" }
+}
+```
+
+Replace the server, port, method, and password with the values from the node
+you control. The service writes schema or credential errors from `sing-box check`
+to `log_path`; it does not silently invent a node or enable HTTPS
+interception.
 
 The optional fields are:
 
@@ -53,6 +105,13 @@ The optional fields are:
 - `tunnel`: all explicit delivery, EasyTier, secret, and state paths required by
   the Windows tunnel command. Leave it `null` until those signed delivery
   artifacts exist.
+- `sing_box`: explicit executable/config/working-directory/log paths for the
+  service-owned sing-box process. This is a proxy core integration, not an
+  HTTPS MITM configuration.
+
+`root_certificate_path` still only imports an existing certificate into the
+Windows LocalMachine ROOT store. It does not create an HTTP listener or enable
+HTTPS interception. Windows MITM remains a separate data-plane integration.
 
 The GUI shows the current service state and action errors. It writes diagnostics
 to `C:\ProgramData\AnixOps\NetworkCore\logs\gui.log` and the service writes to

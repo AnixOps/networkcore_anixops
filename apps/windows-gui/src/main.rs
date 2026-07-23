@@ -17,9 +17,9 @@ fn main() {
 #[cfg(windows)]
 mod gui {
     use platform_windows::managed::{
-        append_managed_log, read_managed_config, windows_managed_config_path,
-        windows_managed_data_directory, windows_managed_log_directory, write_managed_config,
-        WindowsProxySettings, WindowsProxySnapshot,
+        append_managed_log, read_managed_config, read_managed_state, windows_managed_config_path,
+        windows_managed_data_directory, windows_managed_log_directory, windows_managed_state_path,
+        write_managed_config, WindowsProxySettings, WindowsProxySnapshot,
     };
     use platform_windows::system_integration::{
         NativeWindowsSystemIntegration, WindowsServiceState, WindowsSystemIntegration,
@@ -557,9 +557,32 @@ mod gui {
                     WindowsServiceState::Paused => "Paused".to_string(),
                     WindowsServiceState::Unknown => "Unknown".to_string(),
                 };
-                set_text(state.service_status, &format!("Service status: {label}"));
+                let core = match read_managed_state(&windows_managed_state_path()) {
+                    Ok(managed) if managed.sing_box_running => format!(
+                        "sing-box running (PID {})",
+                        managed
+                            .sing_box_process_id
+                            .map(|pid| pid.to_string())
+                            .unwrap_or_else(|| "unknown".to_string())
+                    ),
+                    Ok(managed) => format!(
+                        "sing-box stopped{}",
+                        managed
+                            .sing_box_exit_code
+                            .map(|code| format!(" (exit {code})"))
+                            .unwrap_or_default()
+                    ),
+                    Err(error) => format!("sing-box state unavailable: {error}"),
+                };
+                set_text(
+                    state.service_status,
+                    &format!("Service status: {label}; {core}"),
+                );
                 if state.desktop.debug_enabled {
-                    let _ = append_managed_log("gui", &format!("debug: service status: {label}"));
+                    let _ = append_managed_log(
+                        "gui",
+                        &format!("debug: service status: {label}; {core}"),
+                    );
                 }
             }
             Err(error) => {

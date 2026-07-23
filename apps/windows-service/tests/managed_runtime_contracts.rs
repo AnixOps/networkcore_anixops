@@ -239,6 +239,7 @@ fn fixture_config(with_tunnel: bool) -> WindowsManagedConfig {
             network_secret_file: PathBuf::from("secret.txt"),
             state_path: PathBuf::from("tunnel-state.json"),
         }),
+        sing_box: None,
     }
 }
 

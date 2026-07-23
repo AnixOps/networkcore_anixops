@@ -12,9 +12,20 @@ The crate currently provides source contracts for:
 - Extracting only the `sing-box` executable from `.tar.gz` archives into a NetworkCore-owned engine cache.
 - Rendering a deterministic local `mixed` inbound `sing-box` JSON config from a Shadowsocks `NodeDescriptor`.
 - Running `sing-box run -c <config>` through an injectable foreground process runner.
+- A managed process supervisor that executes `check -c` before `run -c`, owns the
+  child process, captures stdout/stderr into an explicit log file, and reports
+  running/stopped/failed state with PID and exit code.
 
 The crate does not bundle `sing-box` in NetworkCore release artifacts. It downloads into an operator-visible cache directory at runtime and records version, asset, digest, archive path, executable path, and diagnostics so the control layer can report provenance without leaking host paths outside explicit CLI output.
 
-The foreground runner is intentionally not a daemon supervisor. It does not provide cross-process stop, background status, managed logs, reload, TUN/DNS mutation, firewall mutation, or MITM state.
+The existing foreground runner is intentionally a simple blocking runner. The
+managed supervisor is the lifecycle primitive used by the Windows service, but
+it still requires an explicit executable path and does not claim TUN/DNS,
+firewall, or MITM behavior. The installer extracts the Windows official ZIP by
+selecting only the `sing-box.exe` entry; service-side download and release
+packaging remain separate policy decisions.
 
-Windows `.zip` extraction is intentionally not active in this Linux CLI increment. Linux and macOS `.tar.gz` assets are the supported extraction shape for this source contract.
+The Windows managed service expects native sing-box JSON at the configured
+`config_path` (for example, a `mixed` inbound on `127.0.0.1:7890` plus a
+Shadowsocks outbound). The wrapper `managed-config.json` only supplies process
+paths and lifecycle policy; it is not itself a sing-box configuration.

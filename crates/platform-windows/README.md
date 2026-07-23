@@ -11,6 +11,14 @@ Current status:
 - Windows service, signed INF driver package lifecycle, WiX MSI installer,
   system proxy mutation, system trust store mutation, and managed daemon
   lifecycle are active.
+- The managed schema now has an optional `sing_box` block. The service owns a
+  configured `sing-box.exe` child, runs `check -c` before `run -c`, persists
+  its PID/exit status, and appends core stdout/stderr to the configured log path.
+- Windows `root_certificate_path` remains trust-store installation only. It is
+  not a MITM listener, CONNECT handler, TLS termination path, or request/response
+  rewrite engine.
+- When the `sing_box` block is removed or disabled, the service uses the persisted
+  core log path to stop the previous service-owned child before rollback.
 - JavaScript script dispatch remains blocked.
 
 `managed` owns the schema-versioned ProgramData configuration and state records.

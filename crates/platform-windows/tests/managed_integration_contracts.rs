@@ -1,6 +1,6 @@
 use platform_windows::managed::{
-    WindowsDriverPackageConfig, WindowsManagedConfig, WindowsManagedState,
-    WindowsManagedTunnelConfig, WindowsProxySettings, WindowsProxySnapshot,
+    WindowsDriverPackageConfig, WindowsManagedConfig, WindowsManagedSingBoxConfig,
+    WindowsManagedState, WindowsManagedTunnelConfig, WindowsProxySettings, WindowsProxySnapshot,
     WINDOWS_MANAGED_CONFIG_INVALID_CODE, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
     WINDOWS_MANAGED_STATE_SCHEMA_VERSION,
 };
@@ -45,6 +45,7 @@ fn managed_configuration_activates_proxy_certificate_driver_and_tunnel() {
             inf_path: PathBuf::from(r"C:\Program Files\AnixOps\NetworkCore\driver\netcore.inf"),
         }),
         tunnel: Some(fixture_tunnel()),
+        sing_box: None,
     };
 
     config.validate().expect("managed configuration is valid");
@@ -81,6 +82,36 @@ fn managed_tunnel_renders_existing_cli_start_and_stop_contracts() {
 }
 
 #[test]
+fn managed_configuration_accepts_explicit_sing_box_process_paths() {
+    let config = WindowsManagedConfig {
+        schema_version: WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
+        system_proxy: None,
+        root_certificate_path: None,
+        driver_package: None,
+        tunnel: None,
+        sing_box: Some(WindowsManagedSingBoxConfig {
+            enabled: true,
+            executable_path: PathBuf::from(
+                r"C:\Program Files\AnixOps\NetworkCore\bin\sing-box.exe",
+            ),
+            config_path: PathBuf::from(r"C:\ProgramData\AnixOps\NetworkCore\sing-box\config.json"),
+            working_directory: Some(PathBuf::from(
+                r"C:\ProgramData\AnixOps\NetworkCore\sing-box",
+            )),
+            log_path: PathBuf::from(r"C:\ProgramData\AnixOps\NetworkCore\logs\sing-box.log"),
+        }),
+    };
+
+    config.validate().expect("sing-box process paths are valid");
+    let json = serde_json::to_value(&config).expect("sing-box config serializes");
+    assert_eq!(json["sing_box"]["enabled"], true);
+    assert_eq!(
+        json["sing_box"]["executable_path"],
+        r"C:\Program Files\AnixOps\NetworkCore\bin\sing-box.exe"
+    );
+}
+
+#[test]
 fn managed_configuration_rejects_enabled_proxy_without_endpoint() {
     let config = WindowsManagedConfig {
         schema_version: WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
@@ -92,6 +123,7 @@ fn managed_configuration_rejects_enabled_proxy_without_endpoint() {
         root_certificate_path: None,
         driver_package: None,
         tunnel: None,
+        sing_box: None,
     };
 
     let error = config.validate().expect_err("proxy endpoint is required");
@@ -114,6 +146,10 @@ fn managed_state_retains_rollback_material_for_system_mutations() {
         driver_inf_path: Some(PathBuf::from(r"C:\driver\netcore.inf")),
         driver_reboot_required: false,
         tunnel_running: true,
+        sing_box_running: false,
+        sing_box_process_id: None,
+        sing_box_exit_code: None,
+        sing_box_log_path: None,
         last_transition: "running".to_string(),
     };
 

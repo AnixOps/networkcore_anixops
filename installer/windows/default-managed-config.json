@@ -3,5 +3,6 @@
   "system_proxy": null,
   "root_certificate_path": null,
   "driver_package": null,
-  "tunnel": null
+  "tunnel": null,
+  "sing_box": null
 }

@@ -1,6 +1,9 @@
 //! Managed Windows runtime shared by the SCM entrypoint and contract tests.
 
 use control_domain::{DomainError, DomainResult};
+use engine_singbox::{
+    SingBoxManagedProcessRequest, SingBoxManagedProcessState, SingBoxManagedProcessSupervisor,
+};
 use networkcore_windows::{
     parse_args, OutputFormat, WindowsCliCommand, WindowsTunnelCommandService,
     WindowsTunnelPrepareStorageArgs, WindowsTunnelStatusArgs,
@@ -17,6 +20,7 @@ pub const WINDOWS_MANAGED_RUNTIME_FAILED_CODE: &str = "windows.managed.runtime_f
 pub struct WindowsManagedRuntime<I, T> {
     integration: I,
     tunnel: T,
+    sing_box: SingBoxManagedProcessSupervisor,
     config_path: PathBuf,
     state_path: PathBuf,
 }
@@ -30,6 +34,7 @@ where
         Self {
             integration,
             tunnel,
+            sing_box: SingBoxManagedProcessSupervisor::default(),
             config_path,
             state_path,
         }
@@ -63,6 +68,14 @@ where
         let mut state = self.read_state_or_default()?;
         state.last_transition = "stopping".to_string();
         self.persist(&state)?;
+
+        self.stop_sing_box(
+            &mut state,
+            config
+                .sing_box
+                .as_ref()
+                .map(|sing_box| sing_box.log_path.clone()),
+        )?;
 
         if state.tunnel_running {
             if let Some(tunnel) = &config.tunnel {
@@ -129,6 +142,37 @@ where
             }
         }
 
+        if config
+            .sing_box
+            .as_ref()
+            .map(|sing_box| !sing_box.enabled)
+            .unwrap_or(true)
+            && state.sing_box_running
+        {
+            self.stop_sing_box(state, None)?;
+        }
+
+        if let Some(sing_box) = &config.sing_box {
+            if sing_box.enabled {
+                let current_status = self.sing_box.status()?;
+                let status = if current_status.state == SingBoxManagedProcessState::Running {
+                    current_status
+                } else {
+                    self.sing_box.start(&SingBoxManagedProcessRequest {
+                        executable_path: sing_box.executable_path.clone(),
+                        config_path: sing_box.config_path.clone(),
+                        working_directory: sing_box.working_directory.clone(),
+                        log_path: sing_box.log_path.clone(),
+                    })?
+                };
+                state.sing_box_running = status.state == SingBoxManagedProcessState::Running;
+                state.sing_box_process_id = status.process_id;
+                state.sing_box_exit_code = status.exit_code;
+                state.sing_box_log_path = Some(sing_box.log_path.clone());
+                self.persist(state)?;
+            }
+        }
+
         if state.proxy_snapshot.is_none() {
             if let Some(proxy) = &config.system_proxy {
                 state.proxy_snapshot = Some(self.integration.apply_system_proxy(proxy)?);
@@ -142,33 +186,63 @@ where
                     state_path: tunnel.state_path.clone(),
                     format: OutputFormat::Json,
                 };
-                if self.tunnel.status(&status).is_ok() {
-                    return Ok(());
+                if self.tunnel.status(&status).is_err() {
+                    state.tunnel_running = false;
+                    self.persist(state)?;
                 }
-                state.tunnel_running = false;
-                self.persist(state)?;
             }
 
-            self.tunnel
-                .prepare_storage(&WindowsTunnelPrepareStorageArgs {
-                    confirm: true,
-                    format: OutputFormat::Json,
-                })?;
-            let command = parse_managed_command(tunnel.start_arguments())?;
-            match command {
-                WindowsCliCommand::TunnelStart(args) => {
-                    self.tunnel.start(&args)?;
+            if !state.tunnel_running {
+                self.tunnel
+                    .prepare_storage(&WindowsTunnelPrepareStorageArgs {
+                        confirm: true,
+                        format: OutputFormat::Json,
+                    })?;
+                let command = parse_managed_command(tunnel.start_arguments())?;
+                match command {
+                    WindowsCliCommand::TunnelStart(args) => {
+                        self.tunnel.start(&args)?;
+                    }
+                    _ => return Err(runtime_error("managed start command is invalid")),
                 }
-                _ => return Err(runtime_error("managed start command is invalid")),
+                state.tunnel_running = true;
+                self.persist(state)?;
             }
-            state.tunnel_running = true;
-            self.persist(state)?;
         }
 
         Ok(())
     }
 
+    fn stop_sing_box(
+        &mut self,
+        state: &mut WindowsManagedState,
+        configured_log_path: Option<PathBuf>,
+    ) -> DomainResult<()> {
+        if !state.sing_box_running {
+            return Ok(());
+        }
+        let log_path = configured_log_path
+            .or_else(|| state.sing_box_log_path.clone())
+            .ok_or_else(|| runtime_error("sing-box stop log path is unavailable"))?;
+        if self.sing_box.status()?.state == SingBoxManagedProcessState::Running {
+            self.sing_box.stop(&log_path)?;
+        }
+        state.sing_box_running = false;
+        state.sing_box_process_id = None;
+        state.sing_box_exit_code = self.sing_box.status()?.exit_code;
+        state.sing_box_log_path = None;
+        self.persist(state)
+    }
+
     fn rollback_start(&mut self, state: &mut WindowsManagedState, previous: &WindowsManagedState) {
+        if state.sing_box_running && !previous.sing_box_running {
+            let log_path = read_managed_config(&self.config_path)
+                .ok()
+                .and_then(|config| config.sing_box.map(|sing_box| sing_box.log_path));
+            if self.stop_sing_box(state, log_path).is_err() {
+                // Preserve the running state when rollback cannot stop the child.
+            }
+        }
         if state.tunnel_running && !previous.tunnel_running {
             if let Ok(config) = read_managed_config(&self.config_path) {
                 if let Some(tunnel) = config.tunnel {

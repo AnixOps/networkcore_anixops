@@ -11,15 +11,15 @@ use control_domain::{
     ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
     NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD,
 };
-use flate2::read::GzDecoder;
+use flate2::read::{DeflateDecoder, GzDecoder};
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
-use std::io::Cursor;
+use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use tar::Archive;
 
 pub const DEFAULT_SING_BOX_ENGINE_ID: &str = "sing-box";
@@ -74,6 +74,9 @@ pub const ENGINE_SINGBOX_RUNTIME_UNWIRED_CODE: &str = "engine.singbox.runtime.un
 pub const ENGINE_SINGBOX_PROCESS_START_FAILED_CODE: &str = "engine.singbox.process.start_failed";
 pub const ENGINE_SINGBOX_PROCESS_STARTED_CODE: &str = "engine.singbox.process.started";
 pub const ENGINE_SINGBOX_PROCESS_EXITED_CODE: &str = "engine.singbox.process.exited";
+pub const ENGINE_SINGBOX_CONFIG_CHECK_FAILED_CODE: &str = "engine.singbox.config.check_failed";
+pub const ENGINE_SINGBOX_RUNTIME_ALREADY_RUNNING_CODE: &str =
+    "engine.singbox.runtime.already_running";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SingBoxProxyEngineService;
@@ -93,10 +96,6 @@ impl ProxyEngineService for SingBoxProxyEngineService {
             capabilities: vec![
                 ProxyEngineCapability::TcpProxy,
                 ProxyEngineCapability::UdpProxy,
-                ProxyEngineCapability::Tun,
-                ProxyEngineCapability::Dns,
-                ProxyEngineCapability::HotReload,
-                ProxyEngineCapability::HealthCheck,
             ],
         }]
     }
@@ -352,6 +351,251 @@ pub struct SingBoxProcessRunRequest {
 pub struct SingBoxProcessRunReport {
     pub exit_code: Option<i32>,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingBoxManagedProcessRequest {
+    pub executable_path: PathBuf,
+    pub config_path: PathBuf,
+    pub working_directory: Option<PathBuf>,
+    pub log_path: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SingBoxManagedProcessState {
+    Stopped,
+    Running,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingBoxManagedProcessStatus {
+    pub state: SingBoxManagedProcessState,
+    pub process_id: Option<u32>,
+    pub exit_code: Option<i32>,
+}
+
+/// Owns one sing-box child process and keeps its stdout/stderr in an operator-visible log.
+/// The supervisor deliberately accepts an explicit executable path; downloading and provenance
+/// remain the responsibility of the release installer boundary.
+pub struct SingBoxManagedProcessSupervisor {
+    child: Option<Child>,
+    last_status: SingBoxManagedProcessStatus,
+}
+
+impl Default for SingBoxManagedProcessSupervisor {
+    fn default() -> Self {
+        Self {
+            child: None,
+            last_status: SingBoxManagedProcessStatus {
+                state: SingBoxManagedProcessState::Stopped,
+                process_id: None,
+                exit_code: None,
+            },
+        }
+    }
+}
+
+impl SingBoxManagedProcessSupervisor {
+    pub fn start(
+        &mut self,
+        request: &SingBoxManagedProcessRequest,
+    ) -> DomainResult<SingBoxManagedProcessStatus> {
+        if let Some(status) = self.reap_if_exited()? {
+            if status.state == SingBoxManagedProcessState::Running {
+                return Err(DomainError::new(
+                    ENGINE_SINGBOX_RUNTIME_ALREADY_RUNNING_CODE,
+                    "sing-box managed process is already running",
+                ));
+            }
+        }
+
+        self.check_configuration(request)?;
+        ensure_log_parent(&request.log_path)?;
+        let working_directory = request
+            .working_directory
+            .as_deref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "<inherit>".to_string());
+        append_process_log(
+            &request.log_path,
+            &format!(
+                "starting sing-box executable={} config={} cwd={}",
+                request.executable_path.display(),
+                request.config_path.display(),
+                working_directory
+            ),
+        )?;
+
+        let stdout = File::options()
+            .create(true)
+            .append(true)
+            .open(&request.log_path)
+            .map_err(|error| process_error("sing-box stdout log could not be opened", error))?;
+        let stderr = stdout
+            .try_clone()
+            .map_err(|error| process_error("sing-box stderr log could not be opened", error))?;
+        let mut command = Command::new(&request.executable_path);
+        command
+            .arg("run")
+            .arg("-c")
+            .arg(&request.config_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(stdout))
+            .stderr(Stdio::from(stderr));
+        if let Some(working_directory) = &request.working_directory {
+            command.current_dir(working_directory);
+        }
+
+        let child = command.spawn().map_err(|error| {
+            process_error("sing-box managed process could not be started", error)
+        })?;
+        let process_id = child.id();
+        self.child = Some(child);
+        self.last_status = SingBoxManagedProcessStatus {
+            state: SingBoxManagedProcessState::Running,
+            process_id: Some(process_id),
+            exit_code: None,
+        };
+        append_process_log(
+            &request.log_path,
+            &format!("sing-box managed process started pid={process_id}"),
+        )?;
+        Ok(self.last_status.clone())
+    }
+
+    pub fn status(&mut self) -> DomainResult<SingBoxManagedProcessStatus> {
+        let _ = self.reap_if_exited()?;
+        Ok(self.last_status.clone())
+    }
+
+    pub fn stop(&mut self, log_path: &Path) -> DomainResult<SingBoxManagedProcessStatus> {
+        let Some(mut child) = self.child.take() else {
+            self.last_status.state = SingBoxManagedProcessState::Stopped;
+            self.last_status.process_id = None;
+            return Ok(self.last_status.clone());
+        };
+
+        let process_id = child.id();
+        child.kill().map_err(|error| {
+            process_error("sing-box managed process could not be stopped", error)
+        })?;
+        let status = child.wait().map_err(|error| {
+            process_error(
+                "sing-box managed process exit could not be collected",
+                error,
+            )
+        })?;
+        let exit_code = status.code();
+        self.last_status = SingBoxManagedProcessStatus {
+            state: SingBoxManagedProcessState::Stopped,
+            process_id: None,
+            exit_code,
+        };
+        append_process_log(
+            log_path,
+            &format!("sing-box managed process stopped pid={process_id} exit_code={exit_code:?}"),
+        )?;
+        Ok(self.last_status.clone())
+    }
+
+    fn check_configuration(&self, request: &SingBoxManagedProcessRequest) -> DomainResult<()> {
+        let mut command = Command::new(&request.executable_path);
+        command
+            .arg("check")
+            .arg("-c")
+            .arg(&request.config_path)
+            .stdin(Stdio::null());
+        if let Some(working_directory) = &request.working_directory {
+            command.current_dir(working_directory);
+        }
+        let output = command.output().map_err(|error| {
+            process_error("sing-box configuration check could not be started", error)
+        })?;
+        ensure_log_parent(&request.log_path)?;
+        append_process_log(
+            &request.log_path,
+            &format!(
+                "check sing-box config exit_code={:?}\nstdout={}\nstderr={}",
+                output.status.code(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ),
+        )?;
+        if output.status.success() {
+            return Ok(());
+        }
+        Err(DomainError::new(
+            ENGINE_SINGBOX_CONFIG_CHECK_FAILED_CODE,
+            format!(
+                "sing-box configuration check failed with exit code {:?}",
+                output.status.code()
+            ),
+        ))
+    }
+
+    fn reap_if_exited(&mut self) -> DomainResult<Option<SingBoxManagedProcessStatus>> {
+        let Some(child) = self.child.as_mut() else {
+            return Ok(Some(self.last_status.clone()));
+        };
+        let Some(status) = child
+            .try_wait()
+            .map_err(|error| process_error("sing-box process status could not be read", error))?
+        else {
+            return Ok(Some(self.last_status.clone()));
+        };
+        let process_id = child.id();
+        let exit_code = status.code();
+        self.child = None;
+        self.last_status = SingBoxManagedProcessStatus {
+            state: if status.success() {
+                SingBoxManagedProcessState::Stopped
+            } else {
+                SingBoxManagedProcessState::Failed
+            },
+            process_id: None,
+            exit_code,
+        };
+        Ok(Some(SingBoxManagedProcessStatus {
+            state: self.last_status.state,
+            process_id: Some(process_id),
+            exit_code,
+        }))
+    }
+}
+
+impl Drop for SingBoxManagedProcessSupervisor {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+fn ensure_log_parent(path: &Path) -> DomainResult<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| process_error("sing-box log directory could not be created", error))?;
+    }
+    Ok(())
+}
+
+fn append_process_log(path: &Path, message: &str) -> DomainResult<()> {
+    let mut file = File::options()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|error| process_error("sing-box log could not be opened", error))?;
+    writeln!(file, "{message}")
+        .map_err(|error| process_error("sing-box log could not be written", error))
+}
+
+fn process_error(message: &str, error: impl std::fmt::Display) -> DomainError {
+    DomainError::new(
+        ENGINE_SINGBOX_PROCESS_START_FAILED_CODE,
+        format!("{message}: {error}"),
+    )
 }
 
 pub trait SingBoxHttpClient {
@@ -772,13 +1016,6 @@ where
         });
     }
 
-    if plan.archive_kind != SingBoxArchiveKind::TarGz {
-        return Err(DomainError::new(
-            ENGINE_SINGBOX_DOWNLOAD_ARCHIVE_UNSUPPORTED_CODE,
-            "sing-box installer currently supports official .tar.gz assets only",
-        ));
-    }
-
     let archive_parent = archive_path.parent().ok_or_else(|| {
         DomainError::new(
             ENGINE_SINGBOX_DOWNLOAD_ASSET_FETCH_FAILED_CODE,
@@ -824,11 +1061,18 @@ where
         SOURCE_ENGINE_SINGBOX_DOWNLOAD,
     ));
 
-    extract_sing_box_tar_gz(
-        &archive_bytes,
-        plan.target.executable_name(),
-        &executable_path,
-    )?;
+    match plan.archive_kind {
+        SingBoxArchiveKind::TarGz => extract_sing_box_tar_gz(
+            &archive_bytes,
+            plan.target.executable_name(),
+            &executable_path,
+        )?,
+        SingBoxArchiveKind::Zip => extract_sing_box_zip(
+            &archive_bytes,
+            plan.target.executable_name(),
+            &executable_path,
+        )?,
+    }
     mark_executable(&executable_path)?;
     diagnostics.push(sing_box_diagnostic(
         DiagnosticSeverity::Info,
@@ -904,6 +1148,144 @@ fn extract_sing_box_tar_gz(
         ENGINE_SINGBOX_DOWNLOAD_EXTRACT_FAILED_CODE,
         "sing-box executable was not found in the release archive",
     ))
+}
+
+fn extract_sing_box_zip(
+    archive_bytes: &[u8],
+    executable_name: &str,
+    executable_path: &Path,
+) -> DomainResult<()> {
+    const END_OF_CENTRAL_DIRECTORY_SIGNATURE: u32 = 0x0605_4b50;
+    const CENTRAL_DIRECTORY_SIGNATURE: u32 = 0x0201_4b50;
+    const LOCAL_FILE_HEADER_SIGNATURE: u32 = 0x0403_4b50;
+
+    let eocd_offset = archive_bytes
+        .windows(4)
+        .rposition(|window| {
+            u32::from_le_bytes(window.try_into().unwrap()) == END_OF_CENTRAL_DIRECTORY_SIGNATURE
+        })
+        .ok_or_else(|| {
+            zip_extract_error("sing-box ZIP end-of-central-directory record is missing")
+        })?;
+    let entry_count = read_zip_u16(archive_bytes, eocd_offset + 10)? as usize;
+    let central_directory_offset = read_zip_u32(archive_bytes, eocd_offset + 16)? as usize;
+    let mut cursor = central_directory_offset;
+
+    for _ in 0..entry_count {
+        if read_zip_u32(archive_bytes, cursor)? != CENTRAL_DIRECTORY_SIGNATURE {
+            return Err(zip_extract_error(
+                "sing-box ZIP central-directory entry signature is invalid",
+            ));
+        }
+        let flags = read_zip_u16(archive_bytes, cursor + 8)?;
+        let compression = read_zip_u16(archive_bytes, cursor + 10)?;
+        let compressed_size = read_zip_u32(archive_bytes, cursor + 20)? as usize;
+        let uncompressed_size = read_zip_u32(archive_bytes, cursor + 24)? as usize;
+        let name_length = read_zip_u16(archive_bytes, cursor + 28)? as usize;
+        let extra_length = read_zip_u16(archive_bytes, cursor + 30)? as usize;
+        let comment_length = read_zip_u16(archive_bytes, cursor + 32)? as usize;
+        let local_header_offset = read_zip_u32(archive_bytes, cursor + 42)? as usize;
+        let name_start = cursor
+            .checked_add(46)
+            .ok_or_else(|| zip_extract_error("sing-box ZIP entry name offset overflowed"))?;
+        let name_end = name_start
+            .checked_add(name_length)
+            .ok_or_else(|| zip_extract_error("sing-box ZIP entry name length overflowed"))?;
+        let name = archive_bytes
+            .get(name_start..name_end)
+            .ok_or_else(|| zip_extract_error("sing-box ZIP entry name is truncated"))?;
+        let matches_executable = name
+            .rsplit(|byte| *byte == b'/' || *byte == b'\\')
+            .next()
+            .and_then(|value| std::str::from_utf8(value).ok())
+            == Some(executable_name);
+
+        let next_cursor = name_end
+            .checked_add(extra_length)
+            .and_then(|value| value.checked_add(comment_length))
+            .ok_or_else(|| zip_extract_error("sing-box ZIP central-directory offset overflowed"))?;
+        cursor = next_cursor;
+        if !matches_executable {
+            continue;
+        }
+        if flags & 0x0001 != 0 {
+            return Err(zip_extract_error(
+                "sing-box ZIP executable entry is encrypted",
+            ));
+        }
+
+        if read_zip_u32(archive_bytes, local_header_offset)? != LOCAL_FILE_HEADER_SIGNATURE {
+            return Err(zip_extract_error(
+                "sing-box ZIP local-file header signature is invalid",
+            ));
+        }
+        let local_name_length = read_zip_u16(archive_bytes, local_header_offset + 26)? as usize;
+        let local_extra_length = read_zip_u16(archive_bytes, local_header_offset + 28)? as usize;
+        let data_start = local_header_offset
+            .checked_add(30)
+            .and_then(|value| value.checked_add(local_name_length))
+            .and_then(|value| value.checked_add(local_extra_length))
+            .ok_or_else(|| zip_extract_error("sing-box ZIP data offset overflowed"))?;
+        let data_end = data_start
+            .checked_add(compressed_size)
+            .ok_or_else(|| zip_extract_error("sing-box ZIP data length overflowed"))?;
+        let compressed = archive_bytes
+            .get(data_start..data_end)
+            .ok_or_else(|| zip_extract_error("sing-box ZIP executable data is truncated"))?;
+        let mut executable = Vec::with_capacity(uncompressed_size);
+        match compression {
+            0 => executable.extend_from_slice(compressed),
+            8 => DeflateDecoder::new(Cursor::new(compressed))
+                .read_to_end(&mut executable)
+                .map_err(|error| {
+                    zip_extract_error(&format!(
+                        "failed to inflate sing-box ZIP executable: {error}"
+                    ))
+                })?,
+            _ => {
+                return Err(zip_extract_error(
+                    "sing-box ZIP executable uses an unsupported compression method",
+                ));
+            }
+        }
+        if executable.len() != uncompressed_size {
+            return Err(zip_extract_error(
+                "sing-box ZIP executable size does not match its central-directory record",
+            ));
+        }
+        fs::write(executable_path, executable).map_err(|error| {
+            zip_extract_error(&format!("failed to write sing-box ZIP executable: {error}"))
+        })?;
+        return Ok(());
+    }
+
+    Err(zip_extract_error(
+        "sing-box executable was not found in the ZIP release archive",
+    ))
+}
+
+fn read_zip_u16(bytes: &[u8], offset: usize) -> DomainResult<u16> {
+    let end = offset
+        .checked_add(2)
+        .ok_or_else(|| zip_extract_error("sing-box ZIP record offset overflowed"))?;
+    let value = bytes
+        .get(offset..end)
+        .ok_or_else(|| zip_extract_error("sing-box ZIP record is truncated"))?;
+    Ok(u16::from_le_bytes(value.try_into().unwrap()))
+}
+
+fn read_zip_u32(bytes: &[u8], offset: usize) -> DomainResult<u32> {
+    let end = offset
+        .checked_add(4)
+        .ok_or_else(|| zip_extract_error("sing-box ZIP record offset overflowed"))?;
+    let value = bytes
+        .get(offset..end)
+        .ok_or_else(|| zip_extract_error("sing-box ZIP record is truncated"))?;
+    Ok(u32::from_le_bytes(value.try_into().unwrap()))
+}
+
+fn zip_extract_error(message: &str) -> DomainError {
+    DomainError::new(ENGINE_SINGBOX_DOWNLOAD_EXTRACT_FAILED_CODE, message)
 }
 
 fn verify_sha256_digest(

@@ -4,8 +4,9 @@ use control_domain::{
 };
 use engine_singbox::{
     GithubSingBoxReleaseInstaller, SingBoxHttpClient, SingBoxInstallRequest,
-    SingBoxLocalProxyConfigRequest, SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch,
-    SingBoxTargetOs, DEFAULT_SING_BOX_ENGINE_ID, ENGINE_SINGBOX_CONFIG_RENDERED_CODE,
+    SingBoxLocalProxyConfigRequest, SingBoxManagedProcessState, SingBoxManagedProcessSupervisor,
+    SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
+    DEFAULT_SING_BOX_ENGINE_ID, ENGINE_SINGBOX_CONFIG_RENDERED_CODE,
     ENGINE_SINGBOX_DOWNLOAD_ASSET_SELECTED_CODE, ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE,
     ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE,
     ENGINE_SINGBOX_DOWNLOAD_LATEST_VERSION_RESOLVED_CODE,
@@ -26,6 +27,18 @@ fn sing_box_descriptor_announces_public_engine_capabilities() {
     assert_eq!(descriptors[0].kind, ProxyEngineKind::SingBox);
     assert!(descriptors[0].version.is_some());
     assert!(!descriptors[0].capabilities.is_empty());
+}
+
+#[test]
+fn managed_process_supervisor_starts_stopped() {
+    let mut supervisor = SingBoxManagedProcessSupervisor::default();
+
+    let status = supervisor
+        .status()
+        .expect("managed supervisor status should be readable");
+
+    assert_eq!(status.state, SingBoxManagedProcessState::Stopped);
+    assert_eq!(status.process_id, None);
 }
 
 #[test]
@@ -133,6 +146,46 @@ fn latest_installer_downloads_verifies_and_extracts_sing_box_tarball() {
 }
 
 #[test]
+fn latest_installer_extracts_windows_sing_box_zip_entry() {
+    let zip = sing_box_zip();
+    let digest = sha256_hex(&zip);
+    let release_json = format!(
+        r#"{{
+  "tag_name": "v1.2.3",
+  "assets": [
+    {{
+      "name": "sing-box-1.2.3-windows-amd64.zip",
+      "browser_download_url": "https://example.invalid/sing-box-1.2.3-windows-amd64.zip",
+      "size": {},
+      "digest": "sha256:{}"
+    }}
+  ]
+}}"#,
+        zip.len(),
+        digest
+    );
+    let installer = GithubSingBoxReleaseInstaller::with_http_client(MemorySingBoxHttpClient {
+        release_json,
+        asset_bytes: zip,
+    });
+    let root = unique_temp_root();
+    let report = installer
+        .install_latest(&SingBoxInstallRequest {
+            install_root: root.clone(),
+            target: SingBoxTarget::new(SingBoxTargetOs::Windows, SingBoxTargetArch::Amd64),
+            force: false,
+        })
+        .expect("installer should extract the Windows sing-box executable");
+
+    assert_eq!(
+        fs::read(&report.executable_path).expect("Windows executable should exist"),
+        b"fake-windows-sing-box"
+    );
+    assert!(report.downloaded);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn renders_local_mixed_inbound_config_from_shadowsocks_node_catalog() {
     let rendered =
         engine_singbox::render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
@@ -221,6 +274,65 @@ fn sing_box_tarball() -> Vec<u8> {
     encoder
         .finish()
         .expect("tarball fixture should finish gzip stream")
+}
+
+fn sing_box_zip() -> Vec<u8> {
+    let content = b"fake-windows-sing-box";
+    let name = b"sing-box-1.2.3-windows-amd64/sing-box.exe";
+    let mut zip = Vec::new();
+    push_u32(&mut zip, 0x0403_4b50);
+    push_u16(&mut zip, 20);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u32(&mut zip, 0);
+    push_u32(&mut zip, content.len() as u32);
+    push_u32(&mut zip, content.len() as u32);
+    push_u16(&mut zip, name.len() as u16);
+    push_u16(&mut zip, 0);
+    zip.extend_from_slice(name);
+    zip.extend_from_slice(content);
+
+    let central_offset = zip.len() as u32;
+    push_u32(&mut zip, 0x0201_4b50);
+    push_u16(&mut zip, 20);
+    push_u16(&mut zip, 20);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u32(&mut zip, 0);
+    push_u32(&mut zip, content.len() as u32);
+    push_u32(&mut zip, content.len() as u32);
+    push_u16(&mut zip, name.len() as u16);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u32(&mut zip, 0);
+    push_u32(&mut zip, 0);
+    push_u32(&mut zip, 0);
+    zip.extend_from_slice(name);
+
+    let central_size = zip.len() as u32 - central_offset;
+    push_u32(&mut zip, 0x0605_4b50);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 1);
+    push_u16(&mut zip, 1);
+    push_u32(&mut zip, central_size);
+    push_u32(&mut zip, central_offset);
+    push_u16(&mut zip, 0);
+    zip
+}
+
+fn push_u16(bytes: &mut Vec<u8>, value: u16) {
+    bytes.extend_from_slice(&value.to_le_bytes());
+}
+
+fn push_u32(bytes: &mut Vec<u8>, value: u32) {
+    bytes.extend_from_slice(&value.to_le_bytes());
 }
 
 fn unique_temp_root() -> PathBuf {

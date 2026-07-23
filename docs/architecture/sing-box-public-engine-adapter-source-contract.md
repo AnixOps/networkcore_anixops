@@ -30,6 +30,9 @@ through `networkcore-linux`.
 - `apps/linux-cli/src/main.rs`: binary entrypoint wiring that creates the
   GitHub downloader for install/run-url commands and the command process runner
   for foreground `sing-box run`.
+- `apps/windows-service/src/lib.rs`: Windows managed service wiring for the
+  explicit `sing_box` block, `check -c`, service-owned `run -c`, PID/exit-code
+  persistence, and core log redirection.
 
 ## Release Metadata Contract
 
@@ -58,9 +61,10 @@ For Linux x64, the preferred official asset order is:
 3. `sing-box-{version}-linux-amd64-musl.tar.gz`
 
 The same generic-first pattern applies to Linux arm64. macOS uses the official
-`darwin-{arch}.tar.gz` assets. Windows asset discovery can select
-`windows-{arch}.zip`, but ZIP extraction is not active in this Linux CLI
-increment.
+`darwin-{arch}.tar.gz` assets. Windows asset discovery selects
+`windows-{arch}.zip`; the adapter extracts only the exact `sing-box.exe`
+basename from stored or deflate-compressed entries and rejects encrypted or
+unsupported entries.
 
 Unsupported host OS or CPU values must fail with
 `engine.singbox.download.target_unsupported`.
@@ -130,12 +134,18 @@ NetworkCore-owned files unless a later third-party binary packaging contract
 adds license, NOTICE, checksum, provenance, attestation, rollback, and release
 notes gates.
 
-`run-url` starts `sing-box` only as a foreground child process for the current
-CLI invocation. It does not supervise a daemon, implement cross-process stop,
-persist background status, tail logs, hot reload, or mutate TUN/DNS/firewall
-state. `SingBoxProxyEngineService` lifecycle methods remain unwired until a
-later managed-service source contract covers process ownership, status/events,
-logs, reload, redaction, and rollback.
+`run-url` still starts `sing-box` as a foreground child process for the current
+CLI invocation. The Windows managed service now consumes
+`SingBoxManagedProcessSupervisor` through an explicit `managed-config.json`
+`sing_box` block: it executes `check -c` before `run -c`, owns one child,
+persists PID/exit code, and redirects stdout/stderr to an operator-selected log
+path. This managed path requires an already staged Windows executable; the MSI
+does not download third-party binaries silently. Cross-process recovery after a
+service crash, automatic core install orchestration, hot reload, TUN/DNS/
+firewall mutation, and `SingBoxProxyEngineService`'s generic domain lifecycle
+remain future adapter work. The Windows path is intentionally separate from
+the stateless `ProxyEngineService` trait until that domain port can carry an
+explicit executable/config ownership contract.
 
 ## Diagnostics
 
@@ -155,6 +165,8 @@ Stable diagnostic anchors include:
 - `engine.singbox.config.rendered`
 - `engine.singbox.process.started`
 - `engine.singbox.process.exited`
+- `engine.singbox.config.check_failed`
+- `engine.singbox.runtime.already_running`
 - `cli.linux.sing_box.install_failed`
 - `cli.linux.run_url.parse_failed`
 - `cli.linux.run_url.config_failed`
@@ -169,5 +181,6 @@ required verification remains GitHub Actions:
 - Dependency security audit after lockfile generation.
 - Repository policy checks for this source contract, `engine-singbox` workspace
   membership, `install-sing-box`/`run-url` CLI anchors, `sing_box_run` response
-  fields, config rendering anchors, foreground process runner anchors, and no
-  committed local build or package output.
+  fields, config rendering anchors, foreground/managed process supervisor
+  anchors, Windows ZIP extraction anchors, and no committed local build or
+  package output.

@@ -152,6 +152,7 @@ jobs:
             docs/architecture/release-ci-gate-api-implementation-plan.md
             docs/architecture/release-ci-gate-execution-validation-contract.md
             docs/architecture/release-ci-success-source-contract.md
+            docs/architecture/public-core-client-reference.md
             docs/architecture/sing-box-public-engine-adapter-source-contract.md
             docs/architecture/subscription-url-to-sing-box-run-source-contract.md
             docs/architecture/subscription-catalog-runtime-orchestration.md
@@ -328,6 +329,10 @@ jobs:
           grep -q "render_sing_box_local_proxy_config" crates/engine-singbox/src/lib.rs
           grep -q "ENGINE_SINGBOX_CONFIG_RENDERED_CODE" crates/engine-singbox/src/lib.rs
           grep -q "SingBoxProcessRunner" crates/engine-singbox/src/lib.rs
+          grep -q "SingBoxManagedProcessSupervisor" crates/engine-singbox/src/lib.rs
+          grep -q "WindowsManagedSingBoxConfig" crates/platform-windows/src/managed.rs
+          grep -q "sing_box" apps/windows-service/src/lib.rs
+          grep -q "public-core-client-reference" README.md
           grep -q "NODE_METADATA_SHADOWSOCKS_METHOD" crates/control-domain/src/lib.rs
           grep -q "SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE" crates/config-core/src/lib.rs
           grep -q "SUBSCRIPTION_CLASH_YAML_INVALID_CODE" crates/config-core/src/lib.rs
