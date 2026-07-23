@@ -6,6 +6,10 @@
 
 ### Fixed
 
+- Windows service now supervises its owned sing-box process after SCM startup.
+  An unexpected exit records a durable failed transition and error, rolls back
+  runtime resources including the service-owned proxy snapshot, and returns SCM
+  to `Stopped` instead of leaving a dead loopback proxy enabled.
 - Windows GUI `Start` and `Restart` no longer apply managed system-proxy
   settings before the SCM request. The service remains the single owner of the
   managed runtime proxy snapshot, so an asynchronous core startup failure rolls

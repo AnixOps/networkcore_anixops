@@ -31,7 +31,9 @@ Managed configuration, state, and logs are stored under:
 
 Start and Restart only request the Windows service. The service owns the managed
 system-proxy snapshot and restores it if runtime setup fails or the service
-stops. Enable proxy and Restore proxy remain separate manual GUI actions.
+stops. While running, it also detects an owned sing-box process exit, records
+the failure in service.log and managed state, restores that snapshot, and stops
+the service. Enable proxy and Restore proxy remain separate manual GUI actions.
 
 To remove a service installed from the portable package, run this command from
 an Administrator terminal before deleting the extracted directory:

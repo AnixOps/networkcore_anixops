@@ -187,6 +187,30 @@ mod windows_service_host {
         }
 
         while !STOP_REQUESTED.load(Ordering::SeqCst) {
+            if let Err(error) = runtime.poll_health() {
+                let _ = append_managed_log(
+                    "service",
+                    &format!("managed runtime health failure: {error}"),
+                );
+                match runtime.stop_after_runtime_failure(&error) {
+                    Ok(_) => {
+                        let _ = append_managed_log(
+                            "service",
+                            "managed runtime rollback completed after health failure",
+                        );
+                    }
+                    Err(cleanup_error) => {
+                        let _ = append_managed_log(
+                            "service",
+                            &format!(
+                                "managed runtime rollback failed after health failure: {cleanup_error}"
+                            ),
+                        );
+                    }
+                }
+                report_status(status_handle, SERVICE_STOPPED, 1, 0);
+                return;
+            }
             thread::sleep(Duration::from_millis(500));
         }
 

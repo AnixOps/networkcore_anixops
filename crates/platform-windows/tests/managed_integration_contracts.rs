@@ -157,6 +157,7 @@ fn managed_state_retains_rollback_material_for_system_mutations() {
         native_mitm_listener: Some("127.0.0.1:7890".to_string()),
         native_mitm_certificate_sha1: Some("102132435465768798A9BACBDCEDFE0F10213243".to_string()),
         native_mitm_last_error: None,
+        last_error: None,
         last_transition: "running".to_string(),
     };
 
@@ -165,6 +166,7 @@ fn managed_state_retains_rollback_material_for_system_mutations() {
     assert_eq!(json["tunnel_running"], true);
     assert!(json["proxy_snapshot"].is_object());
     assert_eq!(json["native_mitm_listener"], "127.0.0.1:7890");
+    assert!(json["last_error"].is_null());
 }
 
 #[test]

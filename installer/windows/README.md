@@ -36,6 +36,10 @@ GUI `Start` and `Restart` do not pre-apply `system_proxy`; the service captures
 and owns the managed runtime proxy snapshot so a later core failure rolls back
 to the actual pre-service settings. The manual GUI `Enable proxy` and `Restore
 proxy` actions remain separate from that service-owned lifecycle.
+While the service is running, it polls its owned sing-box process. An unexpected
+core exit is written to the managed runtime state and `service.log`; the service
+stops runtime resources, restores its proxy snapshot, and returns SCM to
+`Stopped` rather than leaving a system proxy pointed at an unavailable listener.
 The shipped `managed-config.json` deliberately contains only `null` values.
 That default is safe and does not change the system proxy, certificate store,
 driver state, or tunnel. Edit this file as Administrator:

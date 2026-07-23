@@ -8,7 +8,7 @@ current Windows package.
 ```text
 windows-managed-client-source-release-contract=present
 windows-managed-client-release-state=implementation-active
-windows-managed-client-version-scope=v0.2.0-alpha.18
+windows-managed-client-version-scope=v0.2.0-alpha.19
 WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active
 windows-managed-client-runner=windows-latest
 windows-managed-client-runner-kind=github-hosted
@@ -33,6 +33,7 @@ windows-managed-client-system-proxy-lifecycle=service-owned-runtime-snapshot-act
 windows-managed-client-trust-store-mutation=active
 windows-managed-client-managed-lifecycle=active
 windows-managed-client-sing-box-managed-process=active
+windows-managed-client-sing-box-process-supervision=service-poll-failure-rollback-active
 windows-managed-client-sing-box-bundled=blocked
 windows-managed-client-sing-box-gui-install=active
 windows-managed-client-local-profile-import=active
@@ -146,8 +147,11 @@ entry, and deletes the generated private key.
 
 The service validates the generated or operator-supplied native JSON with
 `check -c`, owns `run -c`, persists PID/exit state, and redirects core
-stdout/stderr to an explicit log. The GUI can directly open that core log in
-addition to the general log folder.
+stdout/stderr to an explicit log. While SCM is `Running`, the service polls the
+owned core process. An unexpected exit records `last_transition=failed`, its
+exit detail in `last_error`, stops runtime resources, restores the service-owned
+proxy snapshot, then reports SCM `Stopped`. The GUI can directly open that core
+log in addition to the general log folder.
 
 The installer registers an automatic SCM service, but its install-time start is
 asynchronous. The service completes its SCM `Running` handshake before it
@@ -166,9 +170,10 @@ same `sing-box check -c <config>` preflight used by the managed process without
 starting a proxy, service, tunnel, certificate, driver, or system-proxy mutation.
 The check output remains in the configured sing-box log. `Diagnostics` writes and
 opens `%ProgramData%\\AnixOps\\NetworkCore\\logs\\diagnostics.txt`, containing the
-current SCM status, managed runtime state, and bounded tails of the local GUI,
-service, sing-box, and native MITM logs. Failed GUI actions generate the same
-report automatically and show its path in the error dialog.
+current SCM status, managed runtime transition and failure detail, and bounded
+tails of the local GUI, service, sing-box, and native MITM logs. Failed GUI
+actions generate the same report automatically and show its path in the error
+dialog.
 
 The GUI debug toggle records detailed GUI activity only and does not rewrite an
 operator-owned sing-box JSON profile. Core debug logging remains an explicit
@@ -206,8 +211,8 @@ the package signature.
 
 GitHub Actions builds all Rust binaries for `x86_64-pc-windows-gnu`, pins WiX
 4.0.6, builds and validates the MSI, performs bounded real MSI
-install/uninstall smoke plus an invalid-managed-configuration nonblocking-start
-regression, creates SHA-256 and schema-version-2 manifest files
+install/uninstall smoke plus invalid-managed-configuration nonblocking-start
+and core-exit proxy-rollback regressions, creates SHA-256 and schema-version-2 manifest files
 for the MSI and portable ZIP, and attests all eight Windows release-bundle
 files before publication. No local build, test, installer, or release
 validation is permitted.

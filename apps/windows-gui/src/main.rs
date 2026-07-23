@@ -1056,8 +1056,9 @@ mod gui {
 
         match read_managed_state(&windows_managed_state_path()) {
             Ok(managed) => report.push_str(&format!(
-                "runtime_transition={} sing_box_running={} sing_box_pid={} sing_box_exit_code={} native_mitm_running={} native_mitm_listener={} native_mitm_error={}\n",
+                "runtime_transition={} runtime_error={} sing_box_running={} sing_box_pid={} sing_box_exit_code={} native_mitm_running={} native_mitm_listener={} native_mitm_error={}\n",
                 managed.last_transition,
+                managed.last_error.unwrap_or_else(|| "none".to_string()),
                 managed.sing_box_running,
                 managed
                     .sing_box_process_id

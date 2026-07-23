@@ -3,8 +3,8 @@
 use control_domain::{
     ConfigSnapshot, DomainError, DomainResult, Endpoint, GrantedPermissions, ListenerBind,
     ListenerDescriptor, ListenerKind, ListenerNetwork, ListenerRoute, MitmPluginService,
-    NodeDescriptor, Protocol, ProxyEngineConfig, ProxyEngineService, RouteAction, RuleSet,
-    SchemaVersion,
+    NodeDescriptor, Protocol, ProxyEngineConfig, ProxyEngineLifecycleState, ProxyEngineService,
+    RouteAction, RuleSet, SchemaVersion,
 };
 use engine_native::{
     NativeHttpMitmPluginHook, NativeProxyEngineService, NativeTlsMitmCaMaterial,
@@ -59,18 +59,21 @@ where
         let mut state = self.read_state_or_default()?;
         let previous = state.clone();
         state.last_transition = "starting".to_string();
+        state.last_error = None;
         self.persist(&state)?;
 
         let result = self.apply_configuration(&config, &mut state);
         match result {
             Ok(()) => {
                 state.last_transition = "running".to_string();
+                state.last_error = None;
                 self.persist(&state)?;
                 Ok(state)
             }
             Err(error) => {
                 self.rollback_start(&mut state, &previous);
                 state.last_transition = "failed".to_string();
+                state.last_error = Some(error.message.clone());
                 let _ = self.persist(&state);
                 Err(error)
             }
@@ -81,6 +84,7 @@ where
         let config = read_managed_config(&self.config_path)?;
         let mut state = self.read_state_or_default()?;
         state.last_transition = "stopping".to_string();
+        state.last_error = None;
         self.persist(&state)?;
 
         self.stop_native_mitm(&mut state, config.native_mitm.as_ref())?;
@@ -116,6 +120,102 @@ where
         Ok(state)
     }
 
+    /// Polls the long-lived components that the Windows service owns.
+    ///
+    /// sing-box has no SCM process relationship, so a child exit would otherwise
+    /// leave the service marked Running and a managed system proxy pointing at a
+    /// dead loopback listener. This method records a durable failure before the
+    /// host asks `stop_after_runtime_failure` to roll back runtime resources.
+    pub fn poll_health(&mut self) -> DomainResult<()> {
+        let config = read_managed_config(&self.config_path)?;
+        let mut state = self.read_state_or_default()?;
+        let previous = state.clone();
+
+        if config
+            .sing_box
+            .as_ref()
+            .is_some_and(|sing_box| sing_box.enabled)
+        {
+            let status = self.sing_box.status()?;
+            state.sing_box_running = status.state == SingBoxManagedProcessState::Running;
+            state.sing_box_process_id = status.process_id;
+            state.sing_box_exit_code = status.exit_code;
+
+            if status.state != SingBoxManagedProcessState::Running {
+                return self.record_runtime_failure(
+                    &mut state,
+                    format!(
+                        "managed sing-box process exited unexpectedly state={:?} exit_code={:?}",
+                        status.state, status.exit_code
+                    ),
+                );
+            }
+        }
+
+        if config
+            .native_mitm
+            .as_ref()
+            .is_some_and(|native_mitm| native_mitm.enabled)
+        {
+            let status = match self.native_mitm.as_ref() {
+                Some(service) => service.status(DEFAULT_NATIVE_ENGINE_ID)?,
+                None => {
+                    state.native_mitm_running = false;
+                    state.native_mitm_listener = None;
+                    return self.record_runtime_failure(
+                        &mut state,
+                        "managed native HTTPS MITM runtime is unavailable".to_string(),
+                    );
+                }
+            };
+            state.native_mitm_running = status.state == ProxyEngineLifecycleState::Running;
+            if status.state != ProxyEngineLifecycleState::Running {
+                state.native_mitm_listener = None;
+                return self.record_runtime_failure(
+                    &mut state,
+                    format!(
+                        "managed native HTTPS MITM runtime exited unexpectedly state={:?}",
+                        status.state
+                    ),
+                );
+            }
+        }
+
+        if state != previous {
+            self.persist(&state)?;
+        }
+        Ok(())
+    }
+
+    /// Stops runtime resources after a health poll failure while keeping a
+    /// machine-readable failed transition and its original cause on disk.
+    pub fn stop_after_runtime_failure(
+        &mut self,
+        failure: &DomainError,
+    ) -> DomainResult<WindowsManagedState> {
+        match self.stop() {
+            Ok(mut state) => {
+                state.last_transition = "failed".to_string();
+                state.last_error = Some(failure.message.clone());
+                self.persist(&state)?;
+                Ok(state)
+            }
+            Err(cleanup_error) => {
+                let mut state = self.read_state_or_default()?;
+                state.last_transition = "failed".to_string();
+                state.last_error = Some(format!(
+                    "{}; runtime rollback failed: {}",
+                    failure.message, cleanup_error.message
+                ));
+                self.persist(&state)?;
+                Err(DomainError::new(
+                    WINDOWS_MANAGED_RUNTIME_FAILED_CODE,
+                    state.last_error.clone().unwrap_or_default(),
+                ))
+            }
+        }
+    }
+
     pub fn purge(&mut self) -> DomainResult<WindowsManagedState> {
         let mut state = self.stop()?;
         if let Some(thumbprint) = state.certificate_sha1.take() {
@@ -137,6 +237,20 @@ where
 
     pub fn current_state(&self) -> DomainResult<WindowsManagedState> {
         self.read_state_or_default()
+    }
+
+    fn record_runtime_failure(
+        &self,
+        state: &mut WindowsManagedState,
+        message: String,
+    ) -> DomainResult<()> {
+        state.last_transition = "failed".to_string();
+        state.last_error = Some(message.clone());
+        self.persist(state)?;
+        Err(DomainError::new(
+            WINDOWS_MANAGED_RUNTIME_FAILED_CODE,
+            message,
+        ))
     }
 
     fn apply_configuration(

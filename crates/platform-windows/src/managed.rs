@@ -316,6 +316,10 @@ pub struct WindowsManagedState {
     pub native_mitm_certificate_sha1: Option<String>,
     #[serde(default)]
     pub native_mitm_last_error: Option<String>,
+    /// Last service-owned runtime failure retained after cleanup so the GUI
+    /// diagnostics can distinguish an operator-requested stop from a core exit.
+    #[serde(default)]
+    pub last_error: Option<String>,
     pub last_transition: String,
 }
 
@@ -336,6 +340,7 @@ impl Default for WindowsManagedState {
             native_mitm_listener: None,
             native_mitm_certificate_sha1: None,
             native_mitm_last_error: None,
+            last_error: None,
             last_transition: "created".to_string(),
         }
     }
