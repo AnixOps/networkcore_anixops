@@ -330,6 +330,31 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前待发布切片
 
+### `v0.2.0-alpha.14`
+
+状态：Windows managed client source slice；必须通过同 commit GitHub Actions CI、
+MSI install/uninstall smoke、package、attestation、publish eligibility 和 tag release
+后，才可称为用户可下载版本。
+
+主要特性：
+
+- GUI 的 `Load nodes` 显式读取当前 local profile 或 HTTP(S) URL，但不写 managed config。
+  对已解析的 NodeCatalog，它会显示节点名和稳定 ID，使用户可以在 `Import profile` 前选择
+  确定性出口；成功导入保存实际选择的节点 ID。
+- 原生 sing-box JSON 继续完全 pass-through，不将 `selector`、`urltest` 或其他原生配置组
+  降级成基础 renderer 的单节点配置。改变这些原生 group 仍是 operator-owned config 的选择。
+- 每个 Windows tag release 继续要求 managed-client MSI 四件套和 portable ZIP 四件套同时
+  通过 checksum、manifest、attestation 与 publish gate。portable ZIP 解压不注册或启动 service。
+
+明确不包含：
+
+- 不提供 sing-box Clash API controller、运行期 selector 切换、自动 latency/urltest、
+  scheduled/background remote refresh、persistent remote catalog/group、remote route/rule fetch
+  或 automatic service restart。
+- 不支持 HTTP/2、HTTP/3/QUIC MITM、chunked/streaming exchange、多 request CONNECT
+  session、arbitrary plugin loading、remote script、JavaScript script dispatch、TUN、
+  DNS interception、firewall mutation 或 transparent capture。
+
 ### `v0.2.0-alpha.13`
 
 状态：Windows managed client source slice；必须通过同 commit GitHub Actions CI、
@@ -736,11 +761,11 @@ GitHub Actions release workflow 结果为准。
 
 ## 当前 main source 状态
 
-当前 Windows source release 切片是 `v0.2.0-alpha.13`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
+当前 Windows source release 切片是 `v0.2.0-alpha.14`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
 `v0.1.1-alpha.2` 的 Linux/Windows package、checksum、manifest、attestation 和 publish gate，并把
 受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI；Windows path 已切换到
 managed-client MSI，service、driver、installer、system proxy mutation、system trust store mutation 和 managed lifecycle
-已 active，并增加 operator-staged sing-box managed process、非阻塞 MSI service start、即时 SCM handoff 与 GUI/CLI start 状态返回、受 attestation 的 portable ZIP、GUI-controlled HTTP/1.1 HTTPS MITM/CA lifecycle、native sing-box JSON pass-through import、GUI `check -c` preflight/local diagnostics report、core-log access、受控 `mixed-in` listener 的 snapshot/restore、Hysteria2/TUIC local-file share-link and native-outbound import、本地 V2Ray TLS/REALITY/uTLS/Vision/transport compatibility subset，以及单个保存 URL 的显式 HTTP(S) profile update；scheduled remote subscription、persistent catalog/group、remote route/rule fetch、自动 service restart、XHTTP/ECH/multiplex transport inference、HTTP/2/HTTP/3 QUIC MITM、streaming、多 request CONNECT 和 JavaScript script dispatch 仍 blocked。用户可下载状态仍以 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。
+已 active，并增加 operator-staged sing-box managed process、非阻塞 MSI service start、即时 SCM handoff 与 GUI/CLI start 状态返回、受 attestation 的 portable ZIP、GUI-controlled HTTP/1.1 HTTPS MITM/CA lifecycle、native sing-box JSON pass-through import、GUI `check -c` preflight/local diagnostics report、core-log access、受控 `mixed-in` listener 的 snapshot/restore、Hysteria2/TUIC local-file share-link and native-outbound import、本地 V2Ray TLS/REALITY/uTLS/Vision/transport compatibility subset、显式 NodeCatalog 节点选择，以及单个保存 URL 的显式 HTTP(S) profile update；sing-box Clash API controller、自动 latency/urltest、scheduled remote subscription、persistent catalog/group、remote route/rule fetch、自动 service restart、XHTTP/ECH/multiplex transport inference、HTTP/2/HTTP/3 QUIC MITM、streaming、多 request CONNECT 和 JavaScript script dispatch 仍 blocked。用户可下载状态仍以 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。
 
 ## 已拍板后续版本节奏
 

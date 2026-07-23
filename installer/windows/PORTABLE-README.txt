@@ -6,10 +6,11 @@ AnixOps NetworkCore Windows portable package
 3. Click Install core in the sing-box profile section when a proxy core is
    needed. This explicitly downloads the official Windows core; the ZIP itself
    does not contain a third-party core.
-4. Enter a local profile file path or HTTP(S) subscription URL, optionally enter
-   a Node ID, then click Import profile. A blank Node ID uses the first supported
-   node. After a successful URL import, Update URL explicitly refreshes that
-   saved address; it does not run in the background or restart the service.
+4. Enter a local profile file path or HTTP(S) subscription URL, click Load nodes,
+   choose a node, then click Import profile. A blank selector uses the first
+   supported node. Native sing-box JSON stays pass-through. After a successful
+   URL import, Update URL explicitly refreshes that saved address; it does not
+   run in the background or restart the service.
 5. Click Enable HTTPS MITM when the explicit local HTTP(S) proxy and managed
    CA are required. The core then runs as a SOCKS upstream on 127.0.0.1:7891;
    the native HTTP(S) proxy listens on 127.0.0.1:7890.

@@ -76,7 +76,8 @@ For the normal managed workflow, run the elevated GUI and follow this order:
 
 1. Click `Install core` in the `sing-box profile` section.
 2. Enter a local profile file path or an `http://`/`https://` subscription URL,
-   and optionally a Node ID.
+   then click `Load nodes` and select the desired entry. A blank selector uses
+   the first supported node.
 3. Click `Import profile`, then `Install service` and `Start`. After a successful
    URL import, click `Update URL` to explicitly refresh that saved URL.
 
@@ -85,12 +86,14 @@ and updates `managed-config.json` with the verified core path, local mixed proxy
 at `127.0.0.1:7890`, service working directory, and core log path. A blank Node
 ID selects the first supported node.
 
-An HTTP(S) URL is downloaded only when `Import profile` or `Update URL` is
-clicked. `Update URL` reads the last successfully imported URL and follows the
-same parser and native sing-box JSON pass-through path as a local profile. A
-failed update leaves the current managed configuration unchanged. It does not
-create a background update task, a subscription catalog/group, a route/rule
-fetch, or an automatic service restart.
+`Load nodes` reads the local source or HTTP(S) URL only when clicked and does
+not modify the managed configuration. It exposes the parsed NodeCatalog names
+and stable IDs for deterministic import. `Import profile` and `Update URL`
+download HTTP(S) URLs only when clicked; `Update URL` reads the last successfully
+imported URL. A failed load, update, or import leaves the current managed
+configuration unchanged. Native sing-box JSON stays pass-through and has no
+generated node selector. The GUI does not create a background update task, a
+subscription catalog/group, a route/rule fetch, or an automatic service restart.
 
 The local profile or downloaded payload may use the existing supported
 NodeCatalog inputs, including

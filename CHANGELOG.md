@@ -14,6 +14,10 @@
 
 ### Added
 
+- Windows GUI now exposes `Load nodes` for local profiles and explicit HTTP(S)
+  subscription URLs. It shows parsed NodeCatalog names and stable IDs in the
+  profile selector without changing managed configuration; import persists the
+  selected node. Native sing-box JSON remains pass-through.
 - Windows GUI now provides `Update URL` for a successful HTTP(S) `Profile / URL`
   import. It explicitly refetches only that saved URL through the existing
   parser/native JSON pipeline; a failed update retains the current configuration

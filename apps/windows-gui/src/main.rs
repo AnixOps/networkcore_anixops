@@ -17,7 +17,7 @@ fn main() {
 #[cfg(windows)]
 mod gui {
     use config_core::CoreSubscriptionService;
-    use control_domain::{SubscriptionService, SubscriptionSource};
+    use control_domain::{NodeDescriptor, SubscriptionService, SubscriptionSource};
     use engine_singbox::{
         inspect_sing_box_native_config, render_sing_box_local_proxy_config,
         rewrite_sing_box_mixed_inbound_listener, GithubSingBoxReleaseInstaller,
@@ -56,10 +56,11 @@ mod gui {
         CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
         GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, LoadCursorW, MessageBoxW,
         PostQuitMessage, RegisterClassW, SendMessageW, SetWindowLongPtrW, SetWindowTextW,
-        ShowWindow, TranslateMessage, BS_GROUPBOX, CW_USEDEFAULT, ES_AUTOHSCROLL, GWLP_USERDATA,
-        HMENU, IDC_ARROW, MB_ICONERROR, MB_OK, MSG, SW_SHOWNORMAL, WM_CLOSE, WM_COMMAND, WM_CREATE,
-        WM_DESTROY, WM_NCDESTROY, WM_SETFONT, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD,
-        WS_CLIPCHILDREN, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
+        ShowWindow, TranslateMessage, BS_GROUPBOX, CBS_DROPDOWN, CB_ADDSTRING, CB_RESETCONTENT,
+        CB_SETCURSEL, CW_USEDEFAULT, ES_AUTOHSCROLL, GWLP_USERDATA, HMENU, IDC_ARROW, MB_ICONERROR,
+        MB_OK, MSG, SW_SHOWNORMAL, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_NCDESTROY,
+        WM_SETFONT, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN, WS_OVERLAPPED,
+        WS_SYSMENU, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
     };
 
     const APP_CLASS: &str = "AnixOpsNetworkCoreWindow";
@@ -74,6 +75,7 @@ mod gui {
     const ID_APPLY_CONFIG: usize = 110;
     const ID_OPEN_MANAGED_CONFIG: usize = 111;
     const ID_VALIDATE_CONFIGURATION: usize = 112;
+    const ID_LOAD_PROFILE_NODES: usize = 114;
     const ID_INSTALL_SING_BOX: usize = 115;
     const ID_IMPORT_PROFILE: usize = 116;
     const ID_ENABLE_HTTPS_MITM: usize = 117;
@@ -125,6 +127,7 @@ mod gui {
         certificate_path: HWND,
         driver_path: HWND,
         desktop: DesktopState,
+        profile_nodes: Vec<ProfileNodeOption>,
     }
 
     struct ImportedSingBoxProfile {
@@ -133,6 +136,17 @@ mod gui {
         config_parent: PathBuf,
         local_http_proxy: Option<String>,
         sing_box_config_snapshot_path: Option<PathBuf>,
+    }
+
+    struct ProfilePayload {
+        payload: String,
+        source_path: Option<PathBuf>,
+        source_url: Option<String>,
+    }
+
+    struct ProfileNodeOption {
+        id: String,
+        label: String,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -467,15 +481,26 @@ mod gui {
             30,
         );
         create_label(window, instance, font, "Node ID", 40, 398, 100, 22);
-        let profile_node_id = create_edit(
+        let profile_node_id = create_profile_node_selector(
             window,
             instance,
             font,
             desktop.profile_node_id.as_deref().unwrap_or(""),
             140,
             394,
-            380,
+            350,
             28,
+        );
+        create_button(
+            window,
+            instance,
+            font,
+            "Load nodes",
+            ID_LOAD_PROFILE_NODES,
+            500,
+            393,
+            130,
+            30,
         );
         create_button(
             window,
@@ -483,7 +508,7 @@ mod gui {
             font,
             "Update URL",
             ID_UPDATE_PROFILE,
-            535,
+            640,
             393,
             120,
             30,
@@ -493,9 +518,9 @@ mod gui {
             instance,
             font,
             "Blank: first node",
-            665,
+            770,
             398,
-            260,
+            155,
             22,
         );
         create_label(window, instance, font, "HTTPS MITM", 40, 442, 100, 22);
@@ -695,6 +720,7 @@ mod gui {
             certificate_path,
             driver_path,
             desktop,
+            profile_nodes: Vec::new(),
         });
         let _ = save_desktop_state(&state.desktop);
         load_configuration_fields(&mut state);
@@ -717,6 +743,9 @@ mod gui {
                 run_action(state, "Configuration validated", validate_configuration)
             }
             ID_INSTALL_SING_BOX => run_action(state, "sing-box core installed", install_sing_box),
+            ID_LOAD_PROFILE_NODES => {
+                run_action(state, "Subscription nodes loaded", load_profile_nodes)
+            }
             ID_IMPORT_PROFILE => run_action(state, "sing-box profile imported", import_profile),
             ID_UPDATE_PROFILE => run_action(state, "Subscription URL updated", update_profile),
             ID_ENABLE_HTTPS_MITM => run_action(state, "HTTPS MITM configured", enable_https_mitm),
@@ -1307,18 +1336,11 @@ mod gui {
         if location.is_empty() {
             return Err("Profile file path or subscription URL is required".to_string());
         }
-        let (payload, source_path, source_url) = if is_remote_subscription_url(location) {
-            (
-                download_remote_subscription(location)?,
-                None,
-                Some(location.to_string()),
-            )
-        } else {
-            let source_path = PathBuf::from(location);
-            let payload = fs::read_to_string(&source_path)
-                .map_err(|error| format!("Profile file could not be read: {error}"))?;
-            (payload, Some(source_path), None)
-        };
+        let ProfilePayload {
+            payload,
+            source_path,
+            source_url,
+        } = load_profile_payload(location)?;
         let config_path = windows_managed_data_directory()
             .join("sing-box")
             .join("config.json");
@@ -1329,6 +1351,9 @@ mod gui {
         fs::create_dir_all(&config_parent).map_err(|error| error.to_string())?;
 
         if let Some(native_config) = inspect_sing_box_native_config(&payload) {
+            unsafe {
+                clear_profile_node_options(state);
+            }
             let local_http_proxy = native_config.local_http_proxy.map(|proxy| proxy.endpoint());
             let sing_box_config_snapshot_path = match mode {
                 ProfileRenderMode::Direct => {
@@ -1355,6 +1380,74 @@ mod gui {
             });
         }
 
+        let nodes = parse_profile_nodes(&payload)?;
+        unsafe {
+            replace_profile_node_options(state, &nodes);
+        }
+        let selected_node_id = unsafe { selected_profile_node_id(state) };
+        let rendered = render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
+            nodes,
+            selected_node_id: (!selected_node_id.trim().is_empty())
+                .then_some(selected_node_id.clone()),
+            listen_host: "127.0.0.1".to_string(),
+            listen_port,
+        })
+        .map_err(|error| error.to_string())?;
+        write_managed_text_atomic(&config_path, &rendered.json)
+            .map_err(|error| error.to_string())?;
+
+        state.desktop.profile_source_path = source_path;
+        state.desktop.profile_source_url = source_url;
+        state.desktop.profile_node_id = Some(rendered.selected_node_id);
+        save_desktop_state(&state.desktop)?;
+        Ok(ImportedSingBoxProfile {
+            executable_path,
+            config_path,
+            config_parent,
+            local_http_proxy: Some(format!("127.0.0.1:{listen_port}")),
+            sing_box_config_snapshot_path: None,
+        })
+    }
+
+    fn load_profile_nodes(state: &mut AppState) -> Result<(), String> {
+        let location = unsafe { get_text(state.profile_source) };
+        let location = location.trim();
+        if location.is_empty() {
+            return Err("Profile file path or subscription URL is required".to_string());
+        }
+        let profile = load_profile_payload(location)?;
+        if inspect_sing_box_native_config(&profile.payload).is_some() {
+            return Err(
+                "Native sing-box JSON is passed through unchanged and has no generated node selector"
+                    .to_string(),
+            );
+        }
+        let nodes = parse_profile_nodes(&profile.payload)?;
+        unsafe {
+            replace_profile_node_options(state, &nodes);
+        }
+        Ok(())
+    }
+
+    fn load_profile_payload(location: &str) -> Result<ProfilePayload, String> {
+        if is_remote_subscription_url(location) {
+            return Ok(ProfilePayload {
+                payload: download_remote_subscription(location)?,
+                source_path: None,
+                source_url: Some(location.to_string()),
+            });
+        }
+        let source_path = PathBuf::from(location);
+        let payload = fs::read_to_string(&source_path)
+            .map_err(|error| format!("Profile file could not be read: {error}"))?;
+        Ok(ProfilePayload {
+            payload,
+            source_path: Some(source_path),
+            source_url: None,
+        })
+    }
+
+    fn parse_profile_nodes(payload: &str) -> Result<Vec<NodeDescriptor>, String> {
         let subscription = CoreSubscriptionService::new();
         let source = SubscriptionSource {
             id: "windows-gui-local-profile".to_string(),
@@ -1369,30 +1462,107 @@ mod gui {
         let catalog = subscription
             .normalize(&document)
             .map_err(|error| error.to_string())?;
-        let selected_node_id = unsafe { get_text(state.profile_node_id) };
-        let rendered = render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
-            nodes: catalog.nodes,
-            selected_node_id: (!selected_node_id.trim().is_empty())
-                .then_some(selected_node_id.clone()),
-            listen_host: "127.0.0.1".to_string(),
-            listen_port,
-        })
-        .map_err(|error| error.to_string())?;
-        write_managed_text_atomic(&config_path, &rendered.json)
-            .map_err(|error| error.to_string())?;
+        if catalog.nodes.is_empty() {
+            return Err("Profile did not contain a supported proxy node".to_string());
+        }
+        Ok(catalog.nodes)
+    }
 
-        state.desktop.profile_source_path = source_path;
-        state.desktop.profile_source_url = source_url;
-        state.desktop.profile_node_id =
-            (!selected_node_id.trim().is_empty()).then_some(selected_node_id);
-        save_desktop_state(&state.desktop)?;
-        Ok(ImportedSingBoxProfile {
-            executable_path,
-            config_path,
-            config_parent,
-            local_http_proxy: Some(format!("127.0.0.1:{listen_port}")),
-            sing_box_config_snapshot_path: None,
-        })
+    unsafe fn replace_profile_node_options(state: &mut AppState, nodes: &[NodeDescriptor]) {
+        let selected_node_id = selected_profile_node_id(state);
+        state.profile_nodes = profile_node_options(nodes);
+        SendMessageW(state.profile_node_id, CB_RESETCONTENT, 0, 0);
+        for option in &state.profile_nodes {
+            let label = wide(&option.label);
+            SendMessageW(
+                state.profile_node_id,
+                CB_ADDSTRING,
+                0,
+                label.as_ptr() as isize,
+            );
+        }
+        let selected_index = state
+            .profile_nodes
+            .iter()
+            .position(|option| option.id == selected_node_id)
+            .or_else(|| selected_node_id.trim().is_empty().then_some(0));
+        if let Some(index) = selected_index {
+            SendMessageW(state.profile_node_id, CB_SETCURSEL, index, 0);
+        } else {
+            set_text(state.profile_node_id, &selected_node_id);
+        }
+    }
+
+    unsafe fn clear_profile_node_options(state: &mut AppState) {
+        state.profile_nodes.clear();
+        SendMessageW(state.profile_node_id, CB_RESETCONTENT, 0, 0);
+        set_text(state.profile_node_id, "");
+    }
+
+    unsafe fn selected_profile_node_id(state: &AppState) -> String {
+        selected_profile_node_id_from_value(&state.profile_nodes, &get_text(state.profile_node_id))
+    }
+
+    fn profile_node_options(nodes: &[NodeDescriptor]) -> Vec<ProfileNodeOption> {
+        nodes
+            .iter()
+            .map(|node| ProfileNodeOption {
+                id: node.id.clone(),
+                label: profile_node_label(node),
+            })
+            .collect()
+    }
+
+    fn selected_profile_node_id_from_value(options: &[ProfileNodeOption], value: &str) -> String {
+        options
+            .iter()
+            .find(|option| option.label == value)
+            .map(|option| option.id.clone())
+            .unwrap_or_else(|| value.to_string())
+    }
+
+    fn profile_node_label(node: &NodeDescriptor) -> String {
+        let name = node.name.replace('\r', " ").replace('\n', " ");
+        format!("{name} [{}]", node.id)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use control_domain::{Endpoint, Protocol};
+
+        fn node(id: &str, name: &str) -> NodeDescriptor {
+            NodeDescriptor {
+                id: id.to_string(),
+                name: name.to_string(),
+                protocol: Protocol::Shadowsocks,
+                endpoint: Endpoint {
+                    host: "edge.example.test".to_string(),
+                    port: 443,
+                },
+                tags: Vec::new(),
+                metadata: Vec::new(),
+            }
+        }
+
+        #[test]
+        fn profile_selector_maps_display_label_to_stable_node_id() {
+            let nodes = vec![
+                node("primary-node", "Primary\nnode"),
+                node("backup-node", "Backup"),
+            ];
+            let options = profile_node_options(&nodes);
+
+            assert_eq!(options[0].label, "Primary node [primary-node]");
+            assert_eq!(
+                selected_profile_node_id_from_value(&options, &options[0].label),
+                "primary-node"
+            );
+            assert_eq!(
+                selected_profile_node_id_from_value(&options, "manual-node-id"),
+                "manual-node-id"
+            );
+        }
     }
 
     fn is_remote_subscription_url(location: &str) -> bool {
@@ -1791,6 +1961,34 @@ mod gui {
             y,
             width,
             height,
+            0,
+        );
+        SendMessageW(control, WM_SETFONT, font as usize, 1);
+        control
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn create_profile_node_selector(
+        parent: HWND,
+        instance: HINSTANCE,
+        font: *mut std::ffi::c_void,
+        text: &str,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    ) -> HWND {
+        let control = create_control(
+            parent,
+            instance,
+            "COMBOBOX",
+            text,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWN as u32,
+            0,
+            x,
+            y,
+            width,
+            height + 160,
             0,
         );
         SendMessageW(control, WM_SETFONT, font as usize, 1);
