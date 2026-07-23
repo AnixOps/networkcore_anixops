@@ -139,6 +139,7 @@ pub fn connection_state(facts: &RuntimeFacts) -> ConnectionState {
 
 pub fn user_facing_error(operation: OperationKind, error: &str) -> String {
     let compact = error.trim().replace(['\r', '\n'], " ");
+    let action = operation.label();
     let prefix = if is_configuration_failure(Some(&compact)) {
         "Configuration needs attention"
     } else if compact.contains("service") || compact.contains("SCM") {
@@ -150,7 +151,7 @@ pub fn user_facing_error(operation: OperationKind, error: &str) -> String {
     } else {
         "The operation did not complete"
     };
-    format!("{prefix}: {compact}. See Diagnostics for technical details.")
+    format!("{action} failed. {prefix}: {compact}. See Diagnostics for technical details.")
 }
 
 fn is_configuration_failure(error: Option<&str>) -> bool {

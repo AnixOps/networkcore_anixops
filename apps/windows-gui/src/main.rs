@@ -63,7 +63,7 @@ mod gui {
     use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
     use std::time::{Duration, Instant};
     use windows_sys::Win32::Foundation::{
-        GetLastError, HINSTANCE, HWND, LPARAM, LRESULT, SYSTEMTIME, WPARAM,
+        GetLastError, GlobalFree, HINSTANCE, HWND, LPARAM, LRESULT, SYSTEMTIME, WPARAM,
     };
     use windows_sys::Win32::Graphics::Gdi::{
         CreateSolidBrush, DeleteObject, GetStockObject, InvalidateRect, SetBkColor, SetTextColor,
@@ -74,18 +74,19 @@ mod gui {
     };
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::System::Memory::{
-        GlobalAlloc, GlobalFree, GlobalLock, GlobalUnlock, GMEM_MOVEABLE,
+        GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE,
     };
     use windows_sys::Win32::System::SystemInformation::GetLocalTime;
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::EnableWindow;
     use windows_sys::Win32::UI::Shell::{IsUserAnAdmin, ShellExecuteW};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, EnableWindow,
-        GetMessageW, GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, KillTimer,
-        LoadCursorW, MessageBoxW, PostQuitMessage, RegisterClassW, SendMessageW, SetTimer,
-        SetWindowLongPtrW, SetWindowTextW, ShowWindow, TranslateMessage, BS_GROUPBOX, CBS_DROPDOWN,
-        CB_ADDSTRING, CB_RESETCONTENT, CB_SETCURSEL, CW_USEDEFAULT, ES_AUTOHSCROLL, GWLP_USERDATA,
-        HMENU, IDC_ARROW, MB_ICONERROR, MB_OK, MINMAXINFO, MSG, SW_HIDE, SW_SHOW, SW_SHOWNORMAL,
-        WM_CLOSE, WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX,
+        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
+        GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, KillTimer, LoadCursorW,
+        MessageBoxW, PostQuitMessage, RegisterClassW, SendMessageW, SetTimer, SetWindowLongPtrW,
+        SetWindowTextW, ShowWindow, TranslateMessage, BS_GROUPBOX, CBS_DROPDOWN, CB_ADDSTRING,
+        CB_RESETCONTENT, CB_SETCURSEL, CW_USEDEFAULT, ES_AUTOHSCROLL, GWLP_USERDATA, HMENU,
+        IDC_ARROW, MB_ICONERROR, MB_OK, MINMAXINFO, MSG, SW_HIDE, SW_SHOW, SW_SHOWNORMAL, WM_CLOSE,
+        WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX,
         WM_CTLCOLORSTATIC, WM_DESTROY, WM_GETMINMAXINFO, WM_NCDESTROY, WM_SETFONT, WM_TIMER,
         WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN, WS_MAXIMIZEBOX, WS_OVERLAPPED,
         WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE, WS_VSCROLL,
@@ -1464,6 +1465,7 @@ mod gui {
         )
     }
 
+    #[allow(dead_code)]
     unsafe fn create_legacy_interface(window: HWND) -> Result<Box<AppState>, String> {
         let instance = GetModuleHandleW(null());
         let font = GetStockObject(DEFAULT_GUI_FONT);
@@ -1472,6 +1474,11 @@ mod gui {
             desktop.debug_enabled = true;
         }
         let (command_sender, command_receiver) = mpsc::channel();
+        let theme = if desktop.dark_theme {
+            ThemeMode::Dark
+        } else {
+            ThemeMode::Light
+        };
 
         create_label(window, instance, font, "NetworkCore", 24, 16, 600, 32);
         create_label(
@@ -1942,16 +1949,8 @@ mod gui {
             profile_node_catalog: Vec::new(),
             current_page: UiPage::Home,
             daily: None,
-            theme: if desktop.dark_theme {
-                ThemeMode::Dark
-            } else {
-                ThemeMode::Light
-            },
-            theme_brushes: ThemeBrushes::new(if desktop.dark_theme {
-                ThemeMode::Dark
-            } else {
-                ThemeMode::Light
-            }),
+            theme,
+            theme_brushes: ThemeBrushes::new(theme),
             pending_operation: None,
             command_sender,
             command_receiver,
