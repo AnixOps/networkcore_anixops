@@ -17,9 +17,9 @@ use control_domain::{
 use engine_singbox::{
     inspect_sing_box_native_config, rewrite_sing_box_mixed_inbound_listener,
     GithubSingBoxReleaseInstaller, SingBoxHttpClient, SingBoxInstallRequest,
-    SingBoxLocalProxyConfigRequest, SingBoxManagedProcessState, SingBoxManagedProcessSupervisor,
-    SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
-    DEFAULT_SING_BOX_ENGINE_ID, ENGINE_SINGBOX_CONFIG_MIXED_INBOUND_MISSING_CODE,
+    SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest, SingBoxManagedProcessState,
+    SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch,
+    SingBoxTargetOs, DEFAULT_SING_BOX_ENGINE_ID, ENGINE_SINGBOX_CONFIG_MIXED_INBOUND_MISSING_CODE,
     ENGINE_SINGBOX_CONFIG_RENDERED_CODE, ENGINE_SINGBOX_DOWNLOAD_ASSET_SELECTED_CODE,
     ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE, ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE,
     ENGINE_SINGBOX_DOWNLOAD_LATEST_VERSION_RESOLVED_CODE,
@@ -354,7 +354,77 @@ fn renders_local_mixed_inbound_config_from_shadowsocks_node_catalog() {
         "f43c0eee-13b9-4f07-bec9-d4b744141503"
     );
     assert_eq!(json["route"]["final"], "ss-hk");
+    assert!(json.get("experimental").is_none());
     assert_diagnostic(&rendered.diagnostics, ENGINE_SINGBOX_CONFIG_RENDERED_CODE);
+}
+
+#[test]
+fn renders_loopback_clash_selector_for_explicit_runtime_node_switching() {
+    let rendered = engine_singbox::render_sing_box_local_proxy_selector_config(
+        &SingBoxLocalProxyConfigRequest {
+            nodes: vec![shadowsocks_node(), trojan_node()],
+            selected_node_id: Some("trojan-us".to_string()),
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7890,
+        },
+        &SingBoxLocalControllerConfig::loopback_selector(),
+    )
+    .expect("supported nodes should render behind a selector");
+
+    let json: serde_json::Value = serde_json::from_str(&rendered.json)
+        .expect("rendered selector config should be valid json");
+    assert_eq!(rendered.selected_node_id, "trojan-us");
+    assert_eq!(
+        rendered
+            .controller
+            .as_ref()
+            .map(|controller| controller.endpoint()),
+        Some("127.0.0.1:9091".to_string())
+    );
+    assert_eq!(rendered.selectable_nodes.len(), 2);
+    assert_eq!(
+        rendered.selectable_nodes[0].outbound_tag,
+        "networkcore-node-0"
+    );
+    assert_eq!(
+        rendered.selectable_nodes[1].outbound_tag,
+        "networkcore-node-1"
+    );
+    assert_eq!(json["outbounds"][0]["type"], "selector");
+    assert_eq!(json["outbounds"][0]["tag"], "networkcore-selector");
+    assert_eq!(json["outbounds"][0]["default"], "networkcore-node-1");
+    assert_eq!(json["outbounds"][0]["outbounds"][0], "networkcore-node-0");
+    assert_eq!(json["outbounds"][1]["tag"], "networkcore-node-0");
+    assert_eq!(json["outbounds"][2]["tag"], "networkcore-node-1");
+    assert_eq!(json["route"]["final"], "networkcore-selector");
+    assert_eq!(
+        json["experimental"]["clash_api"]["external_controller"],
+        "127.0.0.1:9091"
+    );
+}
+
+#[test]
+fn rejects_non_loopback_clash_controller_for_generated_selector() {
+    let error = engine_singbox::render_sing_box_local_proxy_selector_config(
+        &SingBoxLocalProxyConfigRequest {
+            nodes: vec![shadowsocks_node()],
+            selected_node_id: None,
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7890,
+        },
+        &SingBoxLocalControllerConfig {
+            host: "0.0.0.0".to_string(),
+            port: 9091,
+            selector_tag: "networkcore-selector".to_string(),
+            interrupt_exist_connections: true,
+        },
+    )
+    .expect_err("a generated runtime controller must remain loopback-only");
+
+    assert_eq!(
+        error.code,
+        engine_singbox::ENGINE_SINGBOX_CONFIG_SELECTOR_INVALID_CODE
+    );
 }
 
 #[test]

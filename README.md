@@ -107,7 +107,7 @@ P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成，当前阶
   失败 fail-open；它不是 sandbox，也不下载远程脚本。默认启动、系统/浏览器信任和代理 mutation 仍保持关闭。
   该版本是否可下载只由同名 tag 的 GitHub Actions release workflow 决定。
 
-- 当前 Windows 客户端待发布切片是 `v0.2.0-alpha.14`：`apps/windows-gui`
+- 当前 Windows 客户端待发布切片是 `v0.2.0-alpha.15`：`apps/windows-gui`
   提供原生 Win32 GUI，`apps/windows-service` 注册 SCM service 并托管
   EasyTier 生命周期，`platform-windows` 直接接入 SCM、WinINet/WinHTTP、
   CryptoAPI 和 NewDev，WiX 4.0.6 生成 per-machine MSI。GUI/service 已激活
@@ -119,6 +119,10 @@ P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成，当前阶
   使用受限节点渲染；MSI 不捆绑或静默下载 core。
   MSI 安装期 service start 不等待 runtime ready：服务先完成 SCM `Running` 握手，GUI/CLI Start 只返回即时 SCM 状态，随后才应用配置；坏配置会写入 `service.log` 并回到 `Stopped`，不能卡住安装或 Start 动作。GUI 现在可在不启动服务或修改系统的前提下验证 managed JSON 和启用的 `sing-box check -c`，并生成可直接打开的本地诊断报告。每次 Windows tag release 都附带不注册服务的 portable ZIP 四件套。`Profile / URL` 可以是本地文件或用户手动输入的 HTTP(S) 订阅地址；`Load nodes` 显式显示解析出的节点名和稳定 ID，用户选择后由 `Import profile` 生成确定性出口。成功导入 URL 后，`Update URL` 才会下载保存的单个地址。失败保留当前配置；不创建后台更新、订阅组/目录、route/rule 拉取或自动重启。原生 sing-box JSON 继续直通，不通过该 selector 改写其原生 group。导入器支持基础 Shadowsocks/Trojan/VLESS/VMess/Hysteria2/TUIC；Hysteria2/TUIC share-link parser gate 保留受控凭据、TLS 和 QUIC 元数据，生成 direct sing-box proxy outbound，不代表 HTTP/3 MITM。Trojan/VLESS/VMess 分享链接和 sing-box outbound catalog 还会保留 TLS、REALITY、uTLS、VLESS Vision、VMess security/alter-id 及 WebSocket/gRPC/HTTP/HTTPUpgrade/V2Ray QUIC 的受控子集。明确的 `Enable HTTPS MITM` 动作会生成服务管理的 CA，在 `127.0.0.1:7890` 启动受控 HTTP/1.1 native listener，并将 sing-box 调整为 `127.0.0.1:7891` SOCKS upstream。原生 JSON 只有明确 `type: mixed`、`tag: mixed-in` inbound 时才会进入这一 MITM 路径，GUI 会保存原始 JSON 快照并在关闭时恢复；其他原生字段和入站不改写。XHTTP/ECH/multiplex 等泛化推断、HTTP/2 和 HTTP/3/QUIC MITM、streaming、多 request CONNECT 和 JavaScript dispatch 仍未激活。发布合同见
   [Windows Managed Client Source Release Contract](docs/architecture/windows-managed-client-source-release-contract.md)。
+
+  NodeCatalog 导入会保留所有可翻译节点并生成 sing-box `selector`；导入选择写入默认
+  outbound，运行中的服务可由 GUI `Switch active` 通过仅回环的 `127.0.0.1:9091` Clash API
+  显式切换并读回确认。该路径不提供 LAN controller、Web UI、`urltest`、自动延迟选择或自动重启。
 
 - 当前阶段源：P4 Client And Platform Integration。
 - P3 是已完成历史基线，不再作为当前仓库阶段描述；后续迭代、TODO、release 说明和架构合同都按 P4 backlog 推进。

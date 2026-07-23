@@ -12,6 +12,8 @@ The crate currently provides source contracts for:
 - Extracting only the `sing-box` executable from `.tar.gz` archives into a NetworkCore-owned engine cache.
 - Rendering a deterministic local `mixed` inbound `sing-box` JSON config from a
   basic Shadowsocks, Trojan, VLESS, VMess, Hysteria2, or TUIC `NodeDescriptor`.
+- Rendering a GUI-requested multi-node `selector` config with a loopback-only
+  Clash API controller, then reading and explicitly switching that selector.
 - Recognizing a native sing-box JSON configuration without transforming it and
   locating a local `mixed` or `http` inbound for Windows system-proxy setup.
 - Rewriting only a native `type: mixed`, `tag: mixed-in` listener for the
@@ -45,3 +47,11 @@ Hysteria2 port hopping/obfuscation, and TUIC congestion control. They are direct
 proxy-core QUIC paths, not the GUI HTTPS MITM path. The wrapper
 `managed-config.json` only supplies process paths and lifecycle policy; it is
 not itself a sing-box configuration.
+
+The single-node renderer remains the default public API. The Windows GUI opts
+into the selector renderer only for NodeCatalog imports: it emits all
+translatable nodes, assigns stable internal outbound tags, routes through
+`networkcore-selector`, and exposes the controller only at `127.0.0.1:9091`.
+The adapter verifies a requested runtime switch by reading the selector back.
+It does not configure a Clash Web UI, LAN listener, `urltest`, automatic
+latency selection, scheduled refresh, or native sing-box JSON rewriting.

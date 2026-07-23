@@ -80,6 +80,8 @@ For the normal managed workflow, run the elevated GUI and follow this order:
    the first supported node.
 3. Click `Import profile`, then `Install service` and `Start`. After a successful
    URL import, click `Update URL` to explicitly refresh that saved URL.
+4. With the managed service running, click `Load nodes`, choose another imported
+   node, then click `Switch active` for an explicit runtime selector change.
 
 The importer writes `C:\\ProgramData\\AnixOps\\NetworkCore\\sing-box\\config.json`
 and updates `managed-config.json` with the verified core path, local mixed proxy
@@ -88,9 +90,16 @@ ID selects the first supported node.
 
 `Load nodes` reads the local source or HTTP(S) URL only when clicked and does
 not modify the managed configuration. It exposes the parsed NodeCatalog names
-and stable IDs for deterministic import. `Import profile` and `Update URL`
-download HTTP(S) URLs only when clicked; `Update URL` reads the last successfully
-imported URL. A failed load, update, or import leaves the current managed
+and stable IDs for deterministic import. For these generated NodeCatalog
+profiles, `Import profile` emits all translatable nodes behind a sing-box
+`selector`, selects the chosen entry as its default, and exposes the selector
+only through a loopback Clash API controller at `127.0.0.1:9091`. `Switch active`
+is explicit: it PATCHes the selected node and then reads the controller state
+back. It requires the imported managed service to be running, never opens the
+controller on the network, and does not add a Web UI, automatic latency/URLTest,
+or automatic restart. `Import profile` and `Update URL` download HTTP(S) URLs
+only when clicked; `Update URL` reads the last successfully imported URL. A
+failed load, update, import, or runtime switch leaves the current managed
 configuration unchanged. Native sing-box JSON stays pass-through and has no
 generated node selector. The GUI does not create a background update task, a
 subscription catalog/group, a route/rule fetch, or an automatic service restart.

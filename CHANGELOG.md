@@ -14,6 +14,12 @@
 
 ### Added
 
+- NodeCatalog-based Windows profile imports now retain every translatable node
+  behind a generated sing-box `selector`. The GUI can explicitly switch the
+  active node through a `127.0.0.1:9091` Clash API controller and confirms the
+  selected outbound after the switch. Native sing-box JSON remains pass-through;
+  no LAN controller, Web UI, `urltest`, automatic latency selection, background
+  refresh, or automatic service restart is enabled.
 - Windows GUI now exposes `Load nodes` for local profiles and explicit HTTP(S)
   subscription URLs. It shows parsed NodeCatalog names and stable IDs in the
   profile selector without changing managed configuration; import persists the

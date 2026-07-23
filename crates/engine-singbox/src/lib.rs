@@ -56,6 +56,12 @@ pub const ENGINE_SINGBOX_CONFIG_RENDERED_CODE: &str = "engine.singbox.config.ren
 pub const ENGINE_SINGBOX_CONFIG_NATIVE_INVALID_CODE: &str = "engine.singbox.config.native_invalid";
 pub const ENGINE_SINGBOX_CONFIG_MIXED_INBOUND_MISSING_CODE: &str =
     "engine.singbox.config.mixed_inbound_missing";
+pub const ENGINE_SINGBOX_CONFIG_SELECTOR_INVALID_CODE: &str =
+    "engine.singbox.config.selector_invalid";
+pub const ENGINE_SINGBOX_CLASH_API_REQUEST_FAILED_CODE: &str =
+    "engine.singbox.clash_api.request_failed";
+pub const ENGINE_SINGBOX_CLASH_API_SELECTOR_MISMATCH_CODE: &str =
+    "engine.singbox.clash_api.selector_mismatch";
 pub const ENGINE_SINGBOX_DOWNLOAD_TARGET_UNSUPPORTED_CODE: &str =
     "engine.singbox.download.target_unsupported";
 pub const ENGINE_SINGBOX_DOWNLOAD_RELEASE_FETCH_FAILED_CODE: &str =
@@ -353,7 +359,61 @@ pub struct SingBoxLocalProxyConfig {
     pub selected_node_name: String,
     pub listen_host: String,
     pub listen_port: u16,
+    pub selectable_nodes: Vec<SingBoxLocalProxySelectableNode>,
+    pub controller: Option<SingBoxLocalControllerConfig>,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+pub const DEFAULT_SING_BOX_LOCAL_CONTROLLER_HOST: &str = "127.0.0.1";
+pub const DEFAULT_SING_BOX_LOCAL_CONTROLLER_PORT: u16 = 9091;
+pub const DEFAULT_SING_BOX_LOCAL_SELECTOR_TAG: &str = "networkcore-selector";
+
+/// A local-only sing-box Clash API controller used for explicit runtime
+/// selector changes by a desktop client. It never exposes the controller on a
+/// non-loopback address.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingBoxLocalControllerConfig {
+    pub host: String,
+    pub port: u16,
+    pub selector_tag: String,
+    pub interrupt_exist_connections: bool,
+}
+
+impl SingBoxLocalControllerConfig {
+    pub fn loopback_selector() -> Self {
+        Self {
+            host: DEFAULT_SING_BOX_LOCAL_CONTROLLER_HOST.to_string(),
+            port: DEFAULT_SING_BOX_LOCAL_CONTROLLER_PORT,
+            selector_tag: DEFAULT_SING_BOX_LOCAL_SELECTOR_TAG.to_string(),
+            interrupt_exist_connections: true,
+        }
+    }
+
+    pub fn endpoint(&self) -> String {
+        format!("{}:{}", self.host, self.port)
+    }
+
+    pub fn base_url(&self) -> String {
+        format!("http://{}", self.endpoint())
+    }
+}
+
+pub fn sing_box_local_selector_outbound_tag(index: usize) -> String {
+    format!("networkcore-node-{index}")
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingBoxLocalProxySelectableNode {
+    pub id: String,
+    pub name: String,
+    pub outbound_tag: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingBoxClashApiSelectorStatus {
+    pub selector_tag: String,
+    pub current_outbound_tag: String,
+    pub outbound_tags: Vec<String>,
 }
 
 /// An operator-provided sing-box document that can be used without reducing it
@@ -960,10 +1020,135 @@ pub fn select_sing_box_asset(
 pub fn render_sing_box_local_proxy_config(
     request: &SingBoxLocalProxyConfigRequest,
 ) -> DomainResult<SingBoxLocalProxyConfig> {
-    let node = select_node(&request.nodes, request.selected_node_id.as_deref())?;
-    let outbound = render_sing_box_outbound(node)?;
+    render_sing_box_local_proxy_config_with_controller(request, None)
+}
 
-    let config = json!({
+/// Render a local proxy configuration with all translatable catalog nodes
+/// behind a sing-box selector and a local-only Clash API controller.
+pub fn render_sing_box_local_proxy_selector_config(
+    request: &SingBoxLocalProxyConfigRequest,
+    controller: &SingBoxLocalControllerConfig,
+) -> DomainResult<SingBoxLocalProxyConfig> {
+    render_sing_box_local_proxy_config_with_controller(request, Some(controller))
+}
+
+fn render_sing_box_local_proxy_config_with_controller(
+    request: &SingBoxLocalProxyConfigRequest,
+    controller: Option<&SingBoxLocalControllerConfig>,
+) -> DomainResult<SingBoxLocalProxyConfig> {
+    let node = select_node(&request.nodes, request.selected_node_id.as_deref())?;
+    let mut diagnostics = Vec::new();
+    let (outbounds, route_final, selectable_nodes, controller, experimental) =
+        if let Some(controller) = controller {
+            validate_loopback_controller(controller)?;
+            let mut rendered_nodes = Vec::new();
+            let mut selectable_nodes = Vec::new();
+
+            for (index, candidate) in request.nodes.iter().enumerate() {
+                if !supports_local_proxy_protocol(&candidate.protocol) {
+                    diagnostics.push(sing_box_diagnostic(
+                        DiagnosticSeverity::Warning,
+                        ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE,
+                        format!(
+                            "skipped unsupported node {} while rendering sing-box selector",
+                            candidate.id
+                        ),
+                        SOURCE_ENGINE_SINGBOX_CONFIG,
+                    ));
+                    continue;
+                }
+                let mut outbound = match render_sing_box_outbound(candidate) {
+                    Ok(outbound) => outbound,
+                    Err(error) => {
+                        diagnostics.push(sing_box_diagnostic(
+                            DiagnosticSeverity::Warning,
+                            error.code,
+                            format!(
+                                "skipped node {} while rendering sing-box selector",
+                                candidate.id
+                            ),
+                            SOURCE_ENGINE_SINGBOX_CONFIG,
+                        ));
+                        continue;
+                    }
+                };
+                let outbound_tag = sing_box_local_selector_outbound_tag(index);
+                outbound["tag"] = Value::String(outbound_tag.clone());
+                rendered_nodes.push(outbound);
+                selectable_nodes.push(SingBoxLocalProxySelectableNode {
+                    id: candidate.id.clone(),
+                    name: candidate.name.clone(),
+                    outbound_tag,
+                });
+            }
+
+            let selected = selectable_nodes
+                .iter()
+                .find(|candidate| candidate.id == node.id)
+                .ok_or_else(|| {
+                    DomainError::new(
+                        ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE,
+                        "selected node could not be rendered for the sing-box selector",
+                    )
+                })?;
+            if selectable_nodes.is_empty() {
+                return Err(DomainError::new(
+                    ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE,
+                    "node catalog has no sing-box selector-compatible node",
+                ));
+            }
+
+            let selector = json!({
+                "type": "selector",
+                "tag": controller.selector_tag.as_str(),
+                "outbounds": selectable_nodes
+                    .iter()
+                    .map(|candidate| candidate.outbound_tag.as_str())
+                    .collect::<Vec<_>>(),
+                "default": selected.outbound_tag.as_str(),
+                "interrupt_exist_connections": controller.interrupt_exist_connections,
+            });
+            let mut outbounds = Vec::with_capacity(rendered_nodes.len() + 2);
+            outbounds.push(selector);
+            outbounds.extend(rendered_nodes);
+            outbounds.push(json!({
+                "type": "direct",
+                "tag": "direct"
+            }));
+            let experimental = json!({
+                "clash_api": {
+                    "external_controller": controller.endpoint(),
+                }
+            });
+            (
+                outbounds,
+                controller.selector_tag.clone(),
+                selectable_nodes,
+                Some(controller.clone()),
+                Some(experimental),
+            )
+        } else {
+            let outbound = render_sing_box_outbound(node)?;
+            (
+                vec![
+                    outbound,
+                    json!({
+                        "type": "direct",
+                        "tag": "direct"
+                    }),
+                ],
+                node.id.clone(),
+                vec![SingBoxLocalProxySelectableNode {
+                    id: node.id.clone(),
+                    name: node.name.clone(),
+                    outbound_tag: node.id.clone(),
+                }],
+                None,
+                None,
+            )
+        };
+
+    let mut config = json!({
         "log": {
             "level": "info"
         },
@@ -975,17 +1160,14 @@ pub fn render_sing_box_local_proxy_config(
                 "listen_port": request.listen_port
             }
         ],
-        "outbounds": [
-            outbound,
-            {
-                "type": "direct",
-                "tag": "direct"
-            }
-        ],
+        "outbounds": outbounds,
         "route": {
-            "final": node.id.as_str()
+            "final": route_final
         }
     });
+    if let Some(experimental) = experimental {
+        config["experimental"] = experimental;
+    }
     let json = serde_json::to_string_pretty(&config).map_err(|error| {
         DomainError::new(
             ENGINE_SINGBOX_CONFIG_RENDERED_CODE,
@@ -999,13 +1181,130 @@ pub fn render_sing_box_local_proxy_config(
         selected_node_name: node.name.clone(),
         listen_host: request.listen_host.clone(),
         listen_port: request.listen_port,
-        diagnostics: vec![sing_box_diagnostic(
-            DiagnosticSeverity::Info,
-            ENGINE_SINGBOX_CONFIG_RENDERED_CODE,
-            "rendered sing-box local mixed inbound config from NetworkCore node catalog",
-            SOURCE_ENGINE_SINGBOX_CONFIG,
-        )],
+        selectable_nodes,
+        controller,
+        diagnostics: {
+            diagnostics.push(sing_box_diagnostic(
+                DiagnosticSeverity::Info,
+                ENGINE_SINGBOX_CONFIG_RENDERED_CODE,
+                "rendered sing-box local mixed inbound config from NetworkCore node catalog",
+                SOURCE_ENGINE_SINGBOX_CONFIG,
+            ));
+            diagnostics
+        },
     })
+}
+
+pub fn read_sing_box_clash_api_selector(
+    controller: &SingBoxLocalControllerConfig,
+) -> DomainResult<SingBoxClashApiSelectorStatus> {
+    validate_loopback_controller(controller)?;
+    let url = sing_box_clash_api_selector_url(controller)?;
+    let client = sing_box_clash_api_client()?;
+    let response = client
+        .get(url)
+        .send()
+        .map_err(|_| sing_box_clash_api_error("sing-box selector could not be read"))?
+        .error_for_status()
+        .map_err(|_| sing_box_clash_api_error("sing-box selector could not be read"))?;
+    let payload: SingBoxClashApiSelectorResponse = response
+        .json()
+        .map_err(|_| sing_box_clash_api_error("sing-box selector response was invalid"))?;
+    let current_outbound_tag = payload.now.ok_or_else(|| {
+        sing_box_clash_api_error("sing-box selector response did not include the active outbound")
+    })?;
+
+    Ok(SingBoxClashApiSelectorStatus {
+        selector_tag: controller.selector_tag.clone(),
+        current_outbound_tag,
+        outbound_tags: payload.all,
+    })
+}
+
+pub fn select_sing_box_clash_api_outbound(
+    controller: &SingBoxLocalControllerConfig,
+    outbound_tag: &str,
+) -> DomainResult<SingBoxClashApiSelectorStatus> {
+    if outbound_tag.trim().is_empty() {
+        return Err(DomainError::new(
+            ENGINE_SINGBOX_CONFIG_SELECTOR_INVALID_CODE,
+            "sing-box selector outbound tag must not be empty",
+        ));
+    }
+    validate_loopback_controller(controller)?;
+    let url = sing_box_clash_api_selector_url(controller)?;
+    let client = sing_box_clash_api_client()?;
+    client
+        .patch(url)
+        .json(&json!({ "name": outbound_tag }))
+        .send()
+        .map_err(|_| sing_box_clash_api_error("sing-box selector could not be updated"))?
+        .error_for_status()
+        .map_err(|_| sing_box_clash_api_error("sing-box selector could not be updated"))?;
+
+    let status = read_sing_box_clash_api_selector(controller)?;
+    if status.current_outbound_tag != outbound_tag {
+        return Err(DomainError::new(
+            ENGINE_SINGBOX_CLASH_API_SELECTOR_MISMATCH_CODE,
+            "sing-box selector did not report the requested active outbound",
+        ));
+    }
+    Ok(status)
+}
+
+#[derive(Debug, Deserialize)]
+struct SingBoxClashApiSelectorResponse {
+    #[serde(default)]
+    now: Option<String>,
+    #[serde(default)]
+    all: Vec<String>,
+}
+
+fn validate_loopback_controller(controller: &SingBoxLocalControllerConfig) -> DomainResult<()> {
+    let host = controller.host.trim();
+    let loopback = host.eq_ignore_ascii_case("localhost")
+        || host == "127.0.0.1"
+        || host == "::1"
+        || host == "[::1]";
+    if !loopback || controller.port == 0 || controller.selector_tag.trim().is_empty() {
+        return Err(DomainError::new(
+            ENGINE_SINGBOX_CONFIG_SELECTOR_INVALID_CODE,
+            "sing-box runtime selector requires an explicit loopback controller and selector tag",
+        ));
+    }
+    Ok(())
+}
+
+fn sing_box_clash_api_selector_url(
+    controller: &SingBoxLocalControllerConfig,
+) -> DomainResult<reqwest::Url> {
+    let mut url = reqwest::Url::parse(&controller.base_url()).map_err(|_| {
+        DomainError::new(
+            ENGINE_SINGBOX_CONFIG_SELECTOR_INVALID_CODE,
+            "sing-box Clash API controller URL is invalid",
+        )
+    })?;
+    url.path_segments_mut()
+        .map_err(|_| {
+            DomainError::new(
+                ENGINE_SINGBOX_CONFIG_SELECTOR_INVALID_CODE,
+                "sing-box Clash API controller URL cannot accept a selector path",
+            )
+        })?
+        .extend(["proxies", controller.selector_tag.as_str()]);
+    Ok(url)
+}
+
+fn sing_box_clash_api_client() -> DomainResult<Client> {
+    Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .user_agent(NETWORKCORE_SING_BOX_USER_AGENT)
+        .build()
+        .map_err(|_| sing_box_clash_api_error("sing-box Clash API client could not be created"))
+}
+
+fn sing_box_clash_api_error(message: &str) -> DomainError {
+    DomainError::new(ENGINE_SINGBOX_CLASH_API_REQUEST_FAILED_CODE, message)
 }
 
 fn render_sing_box_outbound(node: &NodeDescriptor) -> DomainResult<serde_json::Value> {

@@ -19,9 +19,11 @@ mod gui {
     use config_core::CoreSubscriptionService;
     use control_domain::{NodeDescriptor, SubscriptionService, SubscriptionSource};
     use engine_singbox::{
-        inspect_sing_box_native_config, render_sing_box_local_proxy_config,
-        rewrite_sing_box_mixed_inbound_listener, GithubSingBoxReleaseInstaller,
-        SingBoxInstallRequest, SingBoxLocalProxyConfigRequest, SingBoxManagedProcessRequest,
+        inspect_sing_box_native_config, render_sing_box_local_proxy_selector_config,
+        rewrite_sing_box_mixed_inbound_listener, select_sing_box_clash_api_outbound,
+        sing_box_local_selector_outbound_tag, GithubSingBoxReleaseInstaller, SingBoxInstallRequest,
+        SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest,
+        SingBoxLocalProxySelectableNode, SingBoxManagedProcessRequest,
         SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch,
         SingBoxTargetOs,
     };
@@ -75,6 +77,7 @@ mod gui {
     const ID_APPLY_CONFIG: usize = 110;
     const ID_OPEN_MANAGED_CONFIG: usize = 111;
     const ID_VALIDATE_CONFIGURATION: usize = 112;
+    const ID_SWITCH_PROFILE_NODE: usize = 113;
     const ID_LOAD_PROFILE_NODES: usize = 114;
     const ID_INSTALL_SING_BOX: usize = 115;
     const ID_IMPORT_PROFILE: usize = 116;
@@ -147,6 +150,7 @@ mod gui {
     struct ProfileNodeOption {
         id: String,
         label: String,
+        selector_outbound_tag: Option<String>,
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -513,15 +517,16 @@ mod gui {
             120,
             30,
         );
-        create_label(
+        create_button(
             window,
             instance,
             font,
-            "Blank: first node",
+            "Switch active",
+            ID_SWITCH_PROFILE_NODE,
             770,
-            398,
+            393,
             155,
-            22,
+            30,
         );
         create_label(window, instance, font, "HTTPS MITM", 40, 442, 100, 22);
         create_button(
@@ -747,6 +752,9 @@ mod gui {
                 run_action(state, "Subscription nodes loaded", load_profile_nodes)
             }
             ID_IMPORT_PROFILE => run_action(state, "sing-box profile imported", import_profile),
+            ID_SWITCH_PROFILE_NODE => {
+                run_action(state, "Active sing-box node switched", switch_profile_node)
+            }
             ID_UPDATE_PROFILE => run_action(state, "Subscription URL updated", update_profile),
             ID_ENABLE_HTTPS_MITM => run_action(state, "HTTPS MITM configured", enable_https_mitm),
             ID_DISABLE_HTTPS_MITM => run_action(state, "HTTPS MITM disabled", disable_https_mitm),
@@ -1385,17 +1393,23 @@ mod gui {
             replace_profile_node_options(state, &nodes);
         }
         let selected_node_id = unsafe { selected_profile_node_id(state) };
-        let rendered = render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
-            nodes,
-            selected_node_id: (!selected_node_id.trim().is_empty())
-                .then_some(selected_node_id.clone()),
-            listen_host: "127.0.0.1".to_string(),
-            listen_port,
-        })
+        let rendered = render_sing_box_local_proxy_selector_config(
+            &SingBoxLocalProxyConfigRequest {
+                nodes,
+                selected_node_id: (!selected_node_id.trim().is_empty())
+                    .then_some(selected_node_id.clone()),
+                listen_host: "127.0.0.1".to_string(),
+                listen_port,
+            },
+            &SingBoxLocalControllerConfig::loopback_selector(),
+        )
         .map_err(|error| error.to_string())?;
         write_managed_text_atomic(&config_path, &rendered.json)
             .map_err(|error| error.to_string())?;
 
+        unsafe {
+            replace_profile_node_options_from_selector(state, &rendered.selectable_nodes);
+        }
         state.desktop.profile_source_path = source_path;
         state.desktop.profile_source_url = source_url;
         state.desktop.profile_node_id = Some(rendered.selected_node_id);
@@ -1426,6 +1440,36 @@ mod gui {
         unsafe {
             replace_profile_node_options(state, &nodes);
         }
+        Ok(())
+    }
+
+    fn switch_profile_node(state: &mut AppState) -> Result<(), String> {
+        let selected_node_id = unsafe { selected_profile_node_id(state) };
+        let (selected_node_id, outbound_tag) = state
+            .profile_nodes
+            .iter()
+            .find(|node| node.id == selected_node_id)
+            .map(|node| {
+                let outbound_tag = node.selector_outbound_tag.clone().ok_or_else(|| {
+                    "The selected node is not available in the managed sing-box selector"
+                        .to_string()
+                })?;
+                Ok::<_, String>((node.id.clone(), outbound_tag))
+            })
+            .ok_or_else(|| {
+                "Load nodes from the current profile before switching the active node".to_string()
+            })??;
+        let status = select_sing_box_clash_api_outbound(
+            &SingBoxLocalControllerConfig::loopback_selector(),
+            &outbound_tag,
+        )
+        .map_err(|error| error.to_string())?;
+        if status.current_outbound_tag != outbound_tag {
+            return Err("sing-box did not confirm the selected active node".to_string());
+        }
+
+        state.desktop.profile_node_id = Some(selected_node_id);
+        save_desktop_state(&state.desktop)?;
         Ok(())
     }
 
@@ -1469,8 +1513,15 @@ mod gui {
     }
 
     unsafe fn replace_profile_node_options(state: &mut AppState, nodes: &[NodeDescriptor]) {
+        replace_profile_node_options_from_options(state, profile_node_options(nodes));
+    }
+
+    unsafe fn replace_profile_node_options_from_options(
+        state: &mut AppState,
+        profile_nodes: Vec<ProfileNodeOption>,
+    ) {
         let selected_node_id = selected_profile_node_id(state);
-        state.profile_nodes = profile_node_options(nodes);
+        state.profile_nodes = profile_nodes;
         SendMessageW(state.profile_node_id, CB_RESETCONTENT, 0, 0);
         for option in &state.profile_nodes {
             let label = wide(&option.label);
@@ -1506,11 +1557,33 @@ mod gui {
     fn profile_node_options(nodes: &[NodeDescriptor]) -> Vec<ProfileNodeOption> {
         nodes
             .iter()
-            .map(|node| ProfileNodeOption {
+            .enumerate()
+            .map(|(index, node)| ProfileNodeOption {
                 id: node.id.clone(),
                 label: profile_node_label(node),
+                selector_outbound_tag: Some(sing_box_local_selector_outbound_tag(index)),
             })
             .collect()
+    }
+
+    fn profile_node_options_from_selector(
+        nodes: &[SingBoxLocalProxySelectableNode],
+    ) -> Vec<ProfileNodeOption> {
+        nodes
+            .iter()
+            .map(|node| ProfileNodeOption {
+                id: node.id.clone(),
+                label: format!("{} [{}]", node.name.replace(['\r', '\n'], " "), node.id),
+                selector_outbound_tag: Some(node.outbound_tag.clone()),
+            })
+            .collect()
+    }
+
+    unsafe fn replace_profile_node_options_from_selector(
+        state: &mut AppState,
+        nodes: &[SingBoxLocalProxySelectableNode],
+    ) {
+        replace_profile_node_options_from_options(state, profile_node_options_from_selector(nodes));
     }
 
     fn selected_profile_node_id_from_value(options: &[ProfileNodeOption], value: &str) -> String {
@@ -2041,6 +2114,10 @@ mod gui {
             let options = profile_node_options(&nodes);
 
             assert_eq!(options[0].label, "Primary node [primary-node]");
+            assert_eq!(
+                options[0].selector_outbound_tag.as_deref(),
+                Some("networkcore-node-0")
+            );
             assert_eq!(
                 selected_profile_node_id_from_value(&options, &options[0].label),
                 "primary-node"

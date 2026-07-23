@@ -8,7 +8,7 @@ current Windows package.
 ```text
 windows-managed-client-source-release-contract=present
 windows-managed-client-release-state=implementation-active
-windows-managed-client-version-scope=v0.2.0-alpha.14
+windows-managed-client-version-scope=v0.2.0-alpha.15
 WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active
 windows-managed-client-runner=windows-latest
 windows-managed-client-runner-kind=github-hosted
@@ -39,7 +39,9 @@ windows-managed-client-sing-box-native-json-import=active
 windows-managed-client-sing-box-native-json-mitm=controlled-mixed-in-snapshot-restore-active
 windows-managed-client-remote-subscription-fetch=operator-initiated-http-s-profile-import-and-update-active
 windows-managed-client-remote-subscription-update=single-saved-url-explicit-only
-windows-managed-client-profile-node-selector=explicit-catalog-load-active
+windows-managed-client-profile-node-selector=generated-clash-api-runtime-selector-active
+windows-managed-client-sing-box-clash-api=loopback-explicit-switch-active
+windows-managed-client-sing-box-urltest=blocked
 windows-managed-client-sing-box-basic-protocols=shadowsocks-trojan-vless-vmess-hysteria2-tuic
 windows-managed-client-sing-box-quic-share-link-import=hysteria2-tuic-local-file-active
 windows-managed-client-sing-box-v2ray-share-link-compatibility=tls-reality-ws-grpc-http-httpupgrade-quic-local-file-active
@@ -74,8 +76,13 @@ The GUI `Import profile` action accepts either an operator-selected local file
 or an operator-entered `http://`/`https://` subscription URL. `Load nodes`
 explicitly reads that same operator-selected source without changing the managed
 configuration and fills a selector with the parsed NodeCatalog names and stable
-IDs. The selected ID is persisted after import; a blank selector uses the first
-supported node. A URL is
+IDs. For NodeCatalog imports, `Import profile` writes every translatable node
+behind a generated sing-box `selector`, sets the chosen node as its explicit
+default, and enables a Clash API controller only at `127.0.0.1:9091`. `Switch
+active` makes an explicit PATCH through that loopback controller and reads the
+selector state back before persisting the active node ID. The controller is not
+listened on a LAN address and has no bundled Web UI. A blank selector uses the
+first supported node. A URL is
 downloaded only for that explicit action, with a bounded client timeout, then
 uses the same native JSON inspection and `CoreSubscriptionService` parser as a
 local file. After a successful URL import, `Update URL` explicitly fetches that
@@ -86,7 +93,9 @@ copied verbatim to `sing-box/config.json`, so its TLS, REALITY, WebSocket, gRPC,
 multiplex, routing, DNS, and other sing-box-owned fields are retained. A
 native document remains pass-through and does not expose a generated NodeCatalog
 selector; changing its outbound/selector groups remains the operator's native
-sing-box configuration choice. A
+sing-box configuration choice. The generated selector does not configure
+`urltest`, automatic latency selection, scheduled subscription refresh, or an
+automatic service restart. A
 loopback or wildcard `mixed`/`http` inbound is detected to configure the Windows
 system proxy endpoint; a native document without one leaves system-proxy
 configuration unset. Other supported inputs render the basic Shadowsocks,
