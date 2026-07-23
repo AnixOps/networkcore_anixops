@@ -424,7 +424,7 @@ jobs:
           contract=docs/architecture/windows-managed-client-source-release-contract.md
           grep -q '^windows-managed-client-source-release-contract=present$' "${contract}"
           grep -q '^windows-managed-client-release-state=implementation-active$' "${contract}"
-          grep -q '^windows-managed-client-version-scope=v0.2.0-alpha.4$' "${contract}"
+          grep -q '^windows-managed-client-version-scope=v0.2.0-alpha.5$' "${contract}"
           grep -q '^WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active$' "${contract}"
           grep -q '^windows-managed-client-runner=windows-latest$' "${contract}"
           grep -q '^windows-managed-client-target-triple=x86_64-pc-windows-gnu$' "${contract}"
@@ -448,7 +448,9 @@ jobs:
           grep -q '^windows-managed-client-remote-subscription-fetch=blocked$' "${contract}"
           grep -q '^windows-managed-client-sing-box-basic-protocols=shadowsocks-trojan-vless-vmess$' "${contract}"
           grep -q '^windows-managed-client-sing-box-advanced-transport-rendering=blocked$' "${contract}"
-          grep -q '^windows-managed-client-mitm-data-plane=blocked$' "${contract}"
+          grep -q '^windows-managed-client-mitm-data-plane=active$' "${contract}"
+          grep -q '^windows-managed-client-mitm-certificate-lifecycle=active$' "${contract}"
+          grep -q '^windows-managed-client-mitm-protocol=http1-controlled-tls$' "${contract}"
           grep -q '^windows-managed-client-gui=active$' "${contract}"
           grep -q '^windows-managed-client-script-dispatch=blocked$' "${contract}"
           grep -q '^windows-managed-client-attestation-policy=github-artifact-attestation-required$' "${contract}"
@@ -1688,9 +1690,9 @@ jobs:
           - Install model: wix-per-machine-msi
           - System mutation policy: managed-apply-and-rollback
           - Subscription compatibility: explicit-local-profile-import-basic-protocols-active
-          - Active: native GUI, Windows service, signed INF driver package lifecycle, MSI installer, system proxy mutation, system trust store mutation, managed daemon lifecycle, explicit GUI sing-box core install, local profile import, sing-box check/run/PID/exit/log lifecycle
+          - Active: native GUI, Windows service, signed INF driver package lifecycle, MSI installer, system proxy mutation, system trust store mutation, managed daemon lifecycle, explicit GUI sing-box core install, local profile import, sing-box check/run/PID/exit/log lifecycle, explicit controlled HTTP/1.1 HTTPS MITM with service-owned CA lifecycle and sing-box SOCKS upstream
           - External core boundary: sing-box is not bundled or silently downloaded by the MSI; GUI installation is an explicit operator action
-          - Blocked: remote subscription fetch, advanced transport rendering, Windows live HTTPS MITM data plane, JavaScript script dispatch
+          - Blocked: remote subscription fetch, advanced transport rendering, HTTP/2, HTTP/3/QUIC, chunked or streaming exchanges, multi-request CONNECT sessions, remote scripts, and JavaScript script dispatch
 
           ## Windows Portable Client
 

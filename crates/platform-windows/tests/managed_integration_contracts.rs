@@ -1,8 +1,8 @@
 use platform_windows::managed::{
-    WindowsDriverPackageConfig, WindowsManagedConfig, WindowsManagedSingBoxConfig,
-    WindowsManagedState, WindowsManagedTunnelConfig, WindowsProxySettings, WindowsProxySnapshot,
-    WINDOWS_MANAGED_CONFIG_INVALID_CODE, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
-    WINDOWS_MANAGED_STATE_SCHEMA_VERSION,
+    WindowsDriverPackageConfig, WindowsManagedConfig, WindowsManagedNativeMitmConfig,
+    WindowsManagedSingBoxConfig, WindowsManagedState, WindowsManagedTunnelConfig,
+    WindowsProxySettings, WindowsProxySnapshot, WINDOWS_MANAGED_CONFIG_INVALID_CODE,
+    WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION, WINDOWS_MANAGED_STATE_SCHEMA_VERSION,
 };
 use platform_windows::system_integration::{WindowsServiceState, NETWORKCORE_WINDOWS_SERVICE_NAME};
 use std::path::PathBuf;
@@ -46,6 +46,7 @@ fn managed_configuration_activates_proxy_certificate_driver_and_tunnel() {
         }),
         tunnel: Some(fixture_tunnel()),
         sing_box: None,
+        native_mitm: None,
     };
 
     config.validate().expect("managed configuration is valid");
@@ -100,6 +101,7 @@ fn managed_configuration_accepts_explicit_sing_box_process_paths() {
             )),
             log_path: PathBuf::from(r"C:\ProgramData\AnixOps\NetworkCore\logs\sing-box.log"),
         }),
+        native_mitm: None,
     };
 
     config.validate().expect("sing-box process paths are valid");
@@ -124,6 +126,7 @@ fn managed_configuration_rejects_enabled_proxy_without_endpoint() {
         driver_package: None,
         tunnel: None,
         sing_box: None,
+        native_mitm: None,
     };
 
     let error = config.validate().expect_err("proxy endpoint is required");
@@ -150,6 +153,10 @@ fn managed_state_retains_rollback_material_for_system_mutations() {
         sing_box_process_id: None,
         sing_box_exit_code: None,
         sing_box_log_path: None,
+        native_mitm_running: true,
+        native_mitm_listener: Some("127.0.0.1:7890".to_string()),
+        native_mitm_certificate_sha1: Some("102132435465768798A9BACBDCEDFE0F10213243".to_string()),
+        native_mitm_last_error: None,
         last_transition: "running".to_string(),
     };
 
@@ -157,6 +164,42 @@ fn managed_state_retains_rollback_material_for_system_mutations() {
     assert_eq!(json["last_transition"], "running");
     assert_eq!(json["tunnel_running"], true);
     assert!(json["proxy_snapshot"].is_object());
+    assert_eq!(json["native_mitm_listener"], "127.0.0.1:7890");
+}
+
+#[test]
+fn managed_configuration_accepts_native_https_mitm_with_explicit_socks_upstream() {
+    let config = WindowsManagedConfig {
+        schema_version: WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
+        system_proxy: Some(WindowsProxySettings {
+            enabled: true,
+            server: "127.0.0.1:7890".to_string(),
+            bypass: "<local>".to_string(),
+        }),
+        root_certificate_path: None,
+        driver_package: None,
+        tunnel: None,
+        sing_box: None,
+        native_mitm: Some(WindowsManagedNativeMitmConfig {
+            enabled: true,
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7890,
+            upstream_socks_host: "127.0.0.1".to_string(),
+            upstream_socks_port: 7891,
+            ca_certificate_path: PathBuf::from(
+                r"C:\ProgramData\AnixOps\NetworkCore\mitm\root-ca.pem",
+            ),
+            ca_private_key_path: PathBuf::from(
+                r"C:\ProgramData\AnixOps\NetworkCore\mitm\root-ca-key.pem",
+            ),
+            log_path: PathBuf::from(r"C:\ProgramData\AnixOps\NetworkCore\logs\native-mitm.log"),
+        }),
+    };
+
+    config.validate().expect("native MITM config is valid");
+    let json = serde_json::to_value(&config).expect("native MITM config serializes");
+    assert_eq!(json["native_mitm"]["listen_port"], 7890);
+    assert_eq!(json["native_mitm"]["upstream_socks_port"], 7891);
 }
 
 #[test]

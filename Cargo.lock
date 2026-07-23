@@ -823,6 +823,7 @@ dependencies = [
  "control-domain",
  "engine-singbox",
  "platform-windows",
+ "rcgen",
  "serde",
  "serde_json",
  "windows-sys 0.61.2",
@@ -833,9 +834,12 @@ name = "networkcore-windows-service"
 version = "0.1.0"
 dependencies = [
  "control-domain",
+ "engine-native",
  "engine-singbox",
+ "mitm-policy",
  "networkcore-windows",
  "platform-windows",
+ "rcgen",
  "serde_json",
  "windows-sys 0.61.2",
 ]

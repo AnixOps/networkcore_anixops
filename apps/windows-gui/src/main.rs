@@ -26,11 +26,16 @@ mod gui {
     use platform_windows::managed::{
         append_managed_log, read_managed_config, read_managed_state, windows_managed_config_path,
         windows_managed_data_directory, windows_managed_log_directory, windows_managed_state_path,
-        write_managed_config, WindowsManagedConfig, WindowsManagedSingBoxConfig,
-        WindowsProxySettings, WindowsProxySnapshot, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
+        write_managed_config, write_managed_state, WindowsManagedConfig,
+        WindowsManagedNativeMitmConfig, WindowsManagedSingBoxConfig, WindowsProxySettings,
+        WindowsProxySnapshot, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
     };
     use platform_windows::system_integration::{
         NativeWindowsSystemIntegration, WindowsServiceState, WindowsSystemIntegration,
+    };
+    use rcgen::{
+        BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair,
+        KeyUsagePurpose,
     };
     use serde::{Deserialize, Serialize};
     use std::env;
@@ -66,6 +71,8 @@ mod gui {
     const ID_APPLY_CONFIG: usize = 110;
     const ID_INSTALL_SING_BOX: usize = 115;
     const ID_IMPORT_PROFILE: usize = 116;
+    const ID_ENABLE_HTTPS_MITM: usize = 117;
+    const ID_DISABLE_HTTPS_MITM: usize = 118;
     const ID_ENABLE_PROXY: usize = 120;
     const ID_RESTORE_PROXY: usize = 121;
     const ID_INSTALL_CERTIFICATE: usize = 130;
@@ -74,6 +81,11 @@ mod gui {
     const ID_REMOVE_DRIVER: usize = 141;
     const ID_TOGGLE_DEBUG: usize = 150;
     const ID_OPEN_LOGS: usize = 151;
+
+    const SING_BOX_DIRECT_LISTEN_PORT: u16 = 7890;
+    const SING_BOX_MITM_UPSTREAM_PORT: u16 = 7891;
+    const NATIVE_MITM_LISTEN_PORT: u16 = 7890;
+    const MITM_CA_SUBJECT: &str = "AnixOps NetworkCore Windows HTTPS MITM CA";
 
     #[derive(Debug, Default, Serialize, Deserialize)]
     struct DesktopState {
@@ -146,7 +158,7 @@ mod gui {
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
                 980,
-                920,
+                980,
                 null_mut(),
                 null_mut(),
                 instance,
@@ -363,7 +375,7 @@ mod gui {
             20,
             320,
             925,
-            125,
+            170,
         );
         create_label(window, instance, font, "Profile file", 40, 352, 100, 22);
         let profile_source = create_edit(
@@ -424,12 +436,35 @@ mod gui {
             270,
             22,
         );
+        create_label(window, instance, font, "HTTPS MITM", 40, 442, 100, 22);
+        create_button(
+            window,
+            instance,
+            font,
+            "Enable HTTPS MITM",
+            ID_ENABLE_HTTPS_MITM,
+            140,
+            438,
+            175,
+            30,
+        );
+        create_button(
+            window,
+            instance,
+            font,
+            "Disable HTTPS MITM",
+            ID_DISABLE_HTTPS_MITM,
+            325,
+            438,
+            175,
+            30,
+        );
 
-        create_group(window, instance, font, "System proxy", 20, 455, 925, 130);
-        create_label(window, instance, font, "Server", 40, 485, 90, 22);
-        let proxy_server = create_edit(window, instance, font, "127.0.0.1:7890", 130, 481, 300, 28);
-        create_label(window, instance, font, "Bypass", 450, 485, 90, 22);
-        let proxy_bypass = create_edit(window, instance, font, "<local>", 540, 481, 365, 28);
+        create_group(window, instance, font, "System proxy", 20, 500, 925, 130);
+        create_label(window, instance, font, "Server", 40, 530, 90, 22);
+        let proxy_server = create_edit(window, instance, font, "127.0.0.1:7890", 130, 526, 300, 28);
+        create_label(window, instance, font, "Bypass", 450, 530, 90, 22);
+        let proxy_bypass = create_edit(window, instance, font, "<local>", 540, 526, 365, 28);
         create_button(
             window,
             instance,
@@ -437,7 +472,7 @@ mod gui {
             "Enable proxy",
             ID_ENABLE_PROXY,
             40,
-            529,
+            574,
             130,
             30,
         );
@@ -448,7 +483,7 @@ mod gui {
             "Restore proxy",
             ID_RESTORE_PROXY,
             180,
-            529,
+            574,
             130,
             30,
         );
@@ -459,12 +494,12 @@ mod gui {
             font,
             "Trust and driver",
             20,
-            595,
+            640,
             925,
             142,
         );
-        create_label(window, instance, font, "Root CA", 40, 627, 90, 22);
-        let certificate_path = create_edit(window, instance, font, "", 130, 623, 575, 28);
+        create_label(window, instance, font, "Root CA", 40, 672, 90, 22);
+        let certificate_path = create_edit(window, instance, font, "", 130, 668, 575, 28);
         create_button(
             window,
             instance,
@@ -472,7 +507,7 @@ mod gui {
             "Install CA",
             ID_INSTALL_CERTIFICATE,
             720,
-            622,
+            667,
             95,
             30,
         );
@@ -483,12 +518,12 @@ mod gui {
             "Remove CA",
             ID_REMOVE_CERTIFICATE,
             825,
-            622,
+            667,
             100,
             30,
         );
-        create_label(window, instance, font, "Driver INF", 40, 677, 90, 22);
-        let driver_path = create_edit(window, instance, font, "", 130, 673, 575, 28);
+        create_label(window, instance, font, "Driver INF", 40, 722, 90, 22);
+        let driver_path = create_edit(window, instance, font, "", 130, 718, 575, 28);
         create_button(
             window,
             instance,
@@ -496,7 +531,7 @@ mod gui {
             "Install driver",
             ID_INSTALL_DRIVER,
             720,
-            672,
+            717,
             95,
             30,
         );
@@ -507,12 +542,12 @@ mod gui {
             "Remove driver",
             ID_REMOVE_DRIVER,
             825,
-            672,
+            717,
             100,
             30,
         );
 
-        let activity = create_label(window, instance, font, "Ready", 24, 755, 910, 26);
+        let activity = create_label(window, instance, font, "Ready", 24, 800, 910, 26);
         let debug_status = create_label(
             window,
             instance,
@@ -526,7 +561,7 @@ mod gui {
                 }
             ),
             24,
-            787,
+            832,
             360,
             24,
         );
@@ -537,7 +572,7 @@ mod gui {
             "Toggle debug",
             ID_TOGGLE_DEBUG,
             400,
-            783,
+            828,
             130,
             30,
         );
@@ -548,7 +583,7 @@ mod gui {
             "Open log folder",
             ID_OPEN_LOGS,
             540,
-            783,
+            828,
             140,
             30,
         );
@@ -558,7 +593,7 @@ mod gui {
             font,
             &format!("Logs: {}", windows_managed_log_directory().display()),
             24,
-            823,
+            868,
             900,
             24,
         );
@@ -593,6 +628,8 @@ mod gui {
             ID_APPLY_CONFIG => run_action(state, "Configuration applied", apply_configuration),
             ID_INSTALL_SING_BOX => run_action(state, "sing-box core installed", install_sing_box),
             ID_IMPORT_PROFILE => run_action(state, "sing-box profile imported", import_profile),
+            ID_ENABLE_HTTPS_MITM => run_action(state, "HTTPS MITM configured", enable_https_mitm),
+            ID_DISABLE_HTTPS_MITM => run_action(state, "HTTPS MITM disabled", disable_https_mitm),
             ID_ENABLE_PROXY => run_action(state, "System proxy enabled", enable_proxy),
             ID_RESTORE_PROXY => run_action(state, "System proxy restored", restore_proxy),
             ID_INSTALL_CERTIFICATE => {
@@ -650,21 +687,38 @@ mod gui {
                     WindowsServiceState::Unknown => "Unknown".to_string(),
                 };
                 let core = match read_managed_state(&windows_managed_state_path()) {
-                    Ok(managed) if managed.sing_box_running => format!(
-                        "sing-box running (PID {})",
-                        managed
-                            .sing_box_process_id
-                            .map(|pid| pid.to_string())
-                            .unwrap_or_else(|| "unknown".to_string())
-                    ),
-                    Ok(managed) => format!(
-                        "sing-box stopped{}",
-                        managed
-                            .sing_box_exit_code
-                            .map(|code| format!(" (exit {code})"))
-                            .unwrap_or_default()
-                    ),
-                    Err(error) => format!("sing-box state unavailable: {error}"),
+                    Ok(managed) => {
+                        let sing_box = if managed.sing_box_running {
+                            format!(
+                                "sing-box running (PID {})",
+                                managed
+                                    .sing_box_process_id
+                                    .map(|pid| pid.to_string())
+                                    .unwrap_or_else(|| "unknown".to_string())
+                            )
+                        } else {
+                            format!(
+                                "sing-box stopped{}",
+                                managed
+                                    .sing_box_exit_code
+                                    .map(|code| format!(" (exit {code})"))
+                                    .unwrap_or_default()
+                            )
+                        };
+                        if managed.native_mitm_running {
+                            format!(
+                                "{sing_box}; HTTPS MITM listening {}",
+                                managed
+                                    .native_mitm_listener
+                                    .unwrap_or_else(|| "unknown".to_string())
+                            )
+                        } else if let Some(error) = managed.native_mitm_last_error {
+                            format!("{sing_box}; HTTPS MITM failed: {error}")
+                        } else {
+                            format!("{sing_box}; HTTPS MITM stopped")
+                        }
+                    }
+                    Err(error) => format!("managed runtime state unavailable: {error}"),
                 };
                 set_text(
                     state.service_status,
@@ -798,6 +852,118 @@ mod gui {
     }
 
     fn import_profile(state: &mut AppState) -> Result<(), String> {
+        let mut managed = managed_config_or_default()?;
+        let listen_port = match managed.native_mitm.as_ref() {
+            Some(native_mitm) if native_mitm.enabled => SING_BOX_MITM_UPSTREAM_PORT,
+            _ => SING_BOX_DIRECT_LISTEN_PORT,
+        };
+        let (executable_path, config_path, config_parent) =
+            render_local_profile_config(state, listen_port)?;
+        managed.system_proxy = Some(WindowsProxySettings {
+            enabled: true,
+            server: format!("127.0.0.1:{NATIVE_MITM_LISTEN_PORT}"),
+            bypass: "<local>".to_string(),
+        });
+        managed.sing_box = Some(WindowsManagedSingBoxConfig {
+            enabled: true,
+            executable_path,
+            config_path,
+            working_directory: Some(config_parent),
+            log_path: windows_managed_log_directory().join("sing-box.log"),
+        });
+        write_managed_config(&windows_managed_config_path(), &managed)
+            .map_err(|error| error.to_string())?;
+        load_configuration_fields(state);
+        Ok(())
+    }
+
+    fn enable_https_mitm(state: &mut AppState) -> Result<(), String> {
+        let restart = stop_running_service_for_reconfigure(state)?;
+        let (executable_path, config_path, config_parent) =
+            render_local_profile_config(state, SING_BOX_MITM_UPSTREAM_PORT)?;
+        let (certificate_path, private_key_path) = ensure_mitm_ca_material()?;
+        let mut managed = managed_config_or_default()?;
+        managed.system_proxy = Some(WindowsProxySettings {
+            enabled: true,
+            server: format!("127.0.0.1:{NATIVE_MITM_LISTEN_PORT}"),
+            bypass: "<local>".to_string(),
+        });
+        managed.sing_box = Some(WindowsManagedSingBoxConfig {
+            enabled: true,
+            executable_path,
+            config_path,
+            working_directory: Some(config_parent),
+            log_path: windows_managed_log_directory().join("sing-box.log"),
+        });
+        managed.native_mitm = Some(WindowsManagedNativeMitmConfig {
+            enabled: true,
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: NATIVE_MITM_LISTEN_PORT,
+            upstream_socks_host: "127.0.0.1".to_string(),
+            upstream_socks_port: SING_BOX_MITM_UPSTREAM_PORT,
+            ca_certificate_path: certificate_path.clone(),
+            ca_private_key_path: private_key_path,
+            log_path: windows_managed_log_directory().join("native-mitm.log"),
+        });
+        write_managed_config(&windows_managed_config_path(), &managed)
+            .map_err(|error| error.to_string())?;
+        unsafe {
+            set_text(
+                state.certificate_path,
+                certificate_path.to_string_lossy().as_ref(),
+            );
+            set_text(
+                state.proxy_server,
+                format!("127.0.0.1:{NATIVE_MITM_LISTEN_PORT}").as_str(),
+            );
+        }
+        if restart {
+            start_service(state)?;
+        }
+        Ok(())
+    }
+
+    fn disable_https_mitm(state: &mut AppState) -> Result<(), String> {
+        let restart = stop_running_service_for_reconfigure(state)?;
+        let mut managed = managed_config_or_default()?;
+        let native_mitm = managed
+            .native_mitm
+            .take()
+            .ok_or_else(|| "HTTPS MITM is not configured".to_string())?;
+        let sing_box = managed.sing_box.as_mut().ok_or_else(|| {
+            "Managed sing-box configuration is required to disable HTTPS MITM".to_string()
+        })?;
+        rewrite_managed_sing_box_listen_port(sing_box, SING_BOX_DIRECT_LISTEN_PORT)?;
+        managed.system_proxy = Some(WindowsProxySettings {
+            enabled: true,
+            server: format!("127.0.0.1:{SING_BOX_DIRECT_LISTEN_PORT}"),
+            bypass: "<local>".to_string(),
+        });
+        write_managed_config(&windows_managed_config_path(), &managed)
+            .map_err(|error| error.to_string())?;
+
+        if let Ok(mut runtime_state) = read_managed_state(&windows_managed_state_path()) {
+            if let Some(thumbprint) = runtime_state.native_mitm_certificate_sha1.take() {
+                state
+                    .integration
+                    .remove_root_certificate(&thumbprint)
+                    .map_err(|error| error.to_string())?;
+                write_managed_state(&windows_managed_state_path(), &runtime_state)
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+        let _ = fs::remove_file(native_mitm.ca_private_key_path);
+        if restart {
+            start_service(state)?;
+        }
+        load_configuration_fields(state);
+        Ok(())
+    }
+
+    fn render_local_profile_config(
+        state: &mut AppState,
+        listen_port: u16,
+    ) -> Result<(PathBuf, PathBuf, PathBuf), String> {
         let executable_path = state
             .desktop
             .sing_box_executable_path
@@ -830,42 +996,106 @@ mod gui {
             selected_node_id: (!selected_node_id.trim().is_empty())
                 .then_some(selected_node_id.clone()),
             listen_host: "127.0.0.1".to_string(),
-            listen_port: 7890,
+            listen_port,
         })
         .map_err(|error| error.to_string())?;
-
         let config_path = windows_managed_data_directory()
             .join("sing-box")
             .join("config.json");
         let config_parent = config_path
             .parent()
-            .ok_or_else(|| "sing-box config path has no parent directory".to_string())?;
-        fs::create_dir_all(config_parent).map_err(|error| error.to_string())?;
+            .ok_or_else(|| "sing-box config path has no parent directory".to_string())?
+            .to_path_buf();
+        fs::create_dir_all(&config_parent).map_err(|error| error.to_string())?;
         fs::write(&config_path, rendered.json).map_err(|error| error.to_string())?;
-
-        let mut managed = managed_config_or_default()?;
-        managed.system_proxy = Some(WindowsProxySettings {
-            enabled: true,
-            server: "127.0.0.1:7890".to_string(),
-            bypass: "<local>".to_string(),
-        });
-        let working_directory = config_parent.to_path_buf();
-        managed.sing_box = Some(WindowsManagedSingBoxConfig {
-            enabled: true,
-            executable_path,
-            config_path,
-            working_directory: Some(working_directory),
-            log_path: windows_managed_log_directory().join("sing-box.log"),
-        });
-        write_managed_config(&windows_managed_config_path(), &managed)
-            .map_err(|error| error.to_string())?;
 
         state.desktop.profile_source_path = Some(source_path);
         state.desktop.profile_node_id =
             (!selected_node_id.trim().is_empty()).then_some(selected_node_id);
         save_desktop_state(&state.desktop)?;
-        load_configuration_fields(state);
+        Ok((executable_path, config_path, config_parent))
+    }
+
+    fn rewrite_managed_sing_box_listen_port(
+        sing_box: &mut WindowsManagedSingBoxConfig,
+        listen_port: u16,
+    ) -> Result<(), String> {
+        let raw = fs::read(&sing_box.config_path).map_err(|error| {
+            format!(
+                "Managed sing-box config could not be read for HTTPS MITM reconfiguration: {error}"
+            )
+        })?;
+        let mut config: serde_json::Value = serde_json::from_slice(&raw).map_err(|error| {
+            format!(
+                "Managed sing-box config is not valid JSON for HTTPS MITM reconfiguration: {error}"
+            )
+        })?;
+        let inbound = config
+            .get_mut("inbounds")
+            .and_then(serde_json::Value::as_array_mut)
+            .and_then(|inbounds| {
+                inbounds.iter_mut().find(|inbound| {
+                    inbound.get("tag").and_then(serde_json::Value::as_str) == Some("mixed-in")
+                })
+            })
+            .ok_or_else(|| {
+                "Managed sing-box config has no GUI-owned mixed-in inbound for HTTPS MITM reconfiguration"
+                    .to_string()
+            })?;
+        inbound["listen"] = serde_json::Value::String("127.0.0.1".to_string());
+        inbound["listen_port"] = serde_json::Value::from(listen_port);
+        fs::write(
+            &sing_box.config_path,
+            serde_json::to_vec_pretty(&config).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| {
+            format!(
+                "Managed sing-box config could not be written for HTTPS MITM reconfiguration: {error}"
+            )
+        })?;
+        sing_box.enabled = true;
         Ok(())
+    }
+
+    fn ensure_mitm_ca_material() -> Result<(PathBuf, PathBuf), String> {
+        let directory = windows_managed_data_directory().join("mitm");
+        let certificate_path = directory.join("root-ca.pem");
+        let private_key_path = directory.join("root-ca-key.pem");
+        if certificate_path.exists() && private_key_path.exists() {
+            return Ok((certificate_path, private_key_path));
+        }
+        fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+        let mut distinguished_name = DistinguishedName::new();
+        distinguished_name.push(DnType::CommonName, MITM_CA_SUBJECT);
+        distinguished_name.push(DnType::OrganizationName, "AnixOps NetworkCore");
+        let mut params = CertificateParams::default();
+        params.distinguished_name = distinguished_name;
+        params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        params.key_usages = vec![
+            KeyUsagePurpose::KeyCertSign,
+            KeyUsagePurpose::CrlSign,
+            KeyUsagePurpose::DigitalSignature,
+        ];
+        let key_pair = KeyPair::generate().map_err(|error| error.to_string())?;
+        let certificate = params
+            .self_signed(&key_pair)
+            .map_err(|error| error.to_string())?;
+        fs::write(&certificate_path, certificate.pem()).map_err(|error| error.to_string())?;
+        fs::write(&private_key_path, key_pair.serialize_pem())
+            .map_err(|error| error.to_string())?;
+        Ok((certificate_path, private_key_path))
+    }
+
+    fn stop_running_service_for_reconfigure(state: &mut AppState) -> Result<bool, String> {
+        let status = state
+            .integration
+            .service_status()
+            .map_err(|error| error.to_string())?;
+        if status.state == WindowsServiceState::Running {
+            stop_service(state)?;
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     fn managed_config_or_default() -> Result<WindowsManagedConfig, String> {
@@ -880,6 +1110,7 @@ mod gui {
             driver_package: None,
             tunnel: None,
             sing_box: None,
+            native_mitm: None,
         })
     }
 
@@ -985,6 +1216,12 @@ mod gui {
                     set_text(
                         state.certificate_path,
                         certificate.to_string_lossy().as_ref(),
+                    );
+                }
+                if let Some(native_mitm) = config.native_mitm {
+                    set_text(
+                        state.certificate_path,
+                        native_mitm.ca_certificate_path.to_string_lossy().as_ref(),
                     );
                 }
                 if let Some(driver) = config.driver_package {

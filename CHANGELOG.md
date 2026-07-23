@@ -14,13 +14,21 @@
   owned core plus `127.0.0.1:7890` system proxy.
 - The sing-box adapter now renders basic Shadowsocks, Trojan, VLESS, and VMess
   outbounds. Trojan enables TLS; VLESS and VMess only render basic TCP fields.
+- Windows GUI can explicitly enable a service-owned HTTPS MITM path. It
+  generates a local CA, moves sing-box to `127.0.0.1:7891` as a SOCKS upstream,
+  starts the native HTTP listener on `127.0.0.1:7890`, and installs/removes the
+  matching LocalMachine ROOT certificate through the managed lifecycle.
+- Windows capability/status output now exposes active controlled HTTPS MITM;
+  the service contract test owns the native listener lifecycle and CA trust
+  action.
 
 ### Changed
 
 - Windows documentation and release readiness contract now distinguish the
   explicit GUI core install/profile import path from the MSI's non-bundled,
   non-silent third-party-core boundary. Remote subscription fetch, advanced
-  transport rendering, and Windows HTTPS MITM remain blocked.
+  transport rendering, JavaScript dispatch, HTTP/2, HTTP/3/QUIC, streaming,
+  and multi-request CONNECT remain unavailable.
 
 ## v0.2.0-alpha.3 - 2026-07-23
 

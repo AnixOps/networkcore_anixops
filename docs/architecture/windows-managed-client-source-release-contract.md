@@ -8,7 +8,7 @@ current Windows package.
 ```text
 windows-managed-client-source-release-contract=present
 windows-managed-client-release-state=implementation-active
-windows-managed-client-version-scope=v0.2.0-alpha.4
+windows-managed-client-version-scope=v0.2.0-alpha.5
 WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active
 windows-managed-client-runner=windows-latest
 windows-managed-client-runner-kind=github-hosted
@@ -36,7 +36,9 @@ windows-managed-client-local-profile-import=active
 windows-managed-client-remote-subscription-fetch=blocked
 windows-managed-client-sing-box-basic-protocols=shadowsocks-trojan-vless-vmess
 windows-managed-client-sing-box-advanced-transport-rendering=blocked
-windows-managed-client-mitm-data-plane=blocked
+windows-managed-client-mitm-data-plane=active
+windows-managed-client-mitm-certificate-lifecycle=active
+windows-managed-client-mitm-protocol=http1-controlled-tls
 windows-managed-client-script-dispatch=blocked
 windows-managed-client-authenticode-policy=unsigned-alpha-msi-with-github-attestation
 windows-managed-client-attestation-policy=github-artifact-attestation-required
@@ -69,6 +71,16 @@ TLS, REALITY, WebSocket, gRPC, multiplex, routing, DNS, remote subscription
 fetching, and all other transport-specific source fields are not preserved by
 this path and remain blocked.
 
+The GUI `Enable HTTPS MITM` action generates a service-owned CA key pair below
+`%ProgramData%\\AnixOps\\NetworkCore\\mitm`, moves sing-box to the loopback
+SOCKS upstream at `127.0.0.1:7891`, and writes a native MITM listener at
+`127.0.0.1:7890`. The managed service imports that CA into LocalMachine ROOT,
+starts sing-box before the native listener, issues authority-bound leaf
+certificates, terminates downstream TLS, verifies upstream TLS, and applies the
+built-in policy hook to a bounded HTTP/1.1 request/response exchange. Disable
+stops the listener, returns sing-box to `127.0.0.1:7890`, removes the managed
+ROOT entry, and deletes the generated private key.
+
 The service validates the generated or operator-supplied native JSON with
 `check -c`, owns `run -c`, persists PID/exit state, and redirects core
 stdout/stderr to an explicit log.
@@ -92,9 +104,12 @@ restores the captured proxy state on stop. Full MSI uninstall runs the service
 `purge` command after `StopServices`, removing managed proxy, certificate,
 driver, and tunnel state.
 
-`root_certificate_path` remains a trust-store lifecycle operation. This release
-does not provide a Windows HTTPS MITM listener, dynamic leaf issuance, live TLS
-decryption, or request/response rewrite data plane.
+`root_certificate_path` remains a separate generic trust-store lifecycle
+operation. Native MITM supports explicit loopback HTTP proxy clients and
+controlled HTTP/1.1 TLS exchanges only. HTTP/2, HTTP/3/QUIC, chunked or
+streaming exchanges, multi-request CONNECT sessions, arbitrary plugin loading,
+remote scripts, remote subscriptions, TUN, DNS interception, firewall changes,
+and transparent capture remain unavailable.
 
 The driver capability installs and removes a caller-configured signed INF by
 using NewDev `DiInstallDriverW` and `DiUninstallDriverW`. A kernel driver binary

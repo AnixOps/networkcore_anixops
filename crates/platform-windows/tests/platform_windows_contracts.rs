@@ -39,6 +39,7 @@ fn windows_platform_snapshot_reports_managed_client_system_integration_active() 
     assert_eq!(snapshot.installer.status, WINDOWS_ACTIVE_STATUS);
     assert_eq!(snapshot.system_proxy_mutation.status, WINDOWS_ACTIVE_STATUS);
     assert_eq!(snapshot.trust_store_mutation.status, WINDOWS_ACTIVE_STATUS);
+    assert_eq!(snapshot.https_mitm.status, WINDOWS_ACTIVE_STATUS);
     assert_eq!(
         snapshot.service.mutation_policy,
         WINDOWS_MANAGED_MUTATION_POLICY
@@ -57,6 +58,10 @@ fn windows_platform_snapshot_reports_managed_client_system_integration_active() 
     );
     assert_eq!(
         snapshot.trust_store_mutation.mutation_policy,
+        WINDOWS_MANAGED_MUTATION_POLICY
+    );
+    assert_eq!(
+        snapshot.https_mitm.mutation_policy,
         WINDOWS_MANAGED_MUTATION_POLICY
     );
     assert_eq!(snapshot.script_dispatch.status, WINDOWS_BLOCKED_STATUS);

@@ -39,7 +39,7 @@ use tunnel_sequence_ledger::NativeWindowsTunnelSequenceLedger;
 pub const COMMAND_NAME: &str = "networkcore-windows";
 pub const PLATFORM_NAME: &str = "windows";
 pub const WINDOWS_CLI_SOURCE_CONTRACT_STATUS: &str = "active";
-pub const WINDOWS_CLI_VERSION_SCOPE: &str = "v0.2.0-alpha.1";
+pub const WINDOWS_CLI_VERSION_SCOPE: &str = "v0.2.0-alpha.5";
 pub const WINDOWS_CLI_SUBSCRIPTION_COMPATIBILITY_STATUS: &str =
     "parser-gates-active-run-compat-deferred";
 
@@ -642,6 +642,7 @@ pub struct WindowsCliCapabilities {
     pub installer: WindowsFeatureReport,
     pub system_proxy_mutation: WindowsFeatureReport,
     pub trust_store_mutation: WindowsFeatureReport,
+    pub https_mitm: WindowsFeatureReport,
     pub script_dispatch: WindowsFeatureReport,
     pub managed_lifecycle: WindowsFeatureReport,
     pub system_mutation_policy: &'static str,
@@ -667,6 +668,7 @@ impl WindowsCliCapabilities {
             installer: WindowsFeatureReport::from(&snapshot.installer),
             system_proxy_mutation: WindowsFeatureReport::from(&snapshot.system_proxy_mutation),
             trust_store_mutation: WindowsFeatureReport::from(&snapshot.trust_store_mutation),
+            https_mitm: WindowsFeatureReport::from(&snapshot.https_mitm),
             script_dispatch: WindowsFeatureReport::from(&snapshot.script_dispatch),
             managed_lifecycle: WindowsFeatureReport::from(&snapshot.managed_lifecycle),
             system_mutation_policy: WINDOWS_SYSTEM_MUTATION_POLICY,
@@ -687,6 +689,7 @@ pub struct WindowsCliStatus {
     pub installer: &'static str,
     pub system_proxy_mutation: &'static str,
     pub trust_store_mutation: &'static str,
+    pub https_mitm: &'static str,
     pub script_dispatch: &'static str,
     pub managed_lifecycle: &'static str,
     pub system_mutation_policy: &'static str,
@@ -706,6 +709,7 @@ impl WindowsCliStatus {
             installer: snapshot.installer.status,
             system_proxy_mutation: snapshot.system_proxy_mutation.status,
             trust_store_mutation: snapshot.trust_store_mutation.status,
+            https_mitm: snapshot.https_mitm.status,
             script_dispatch: snapshot.script_dispatch.status,
             managed_lifecycle: snapshot.managed_lifecycle.status,
             system_mutation_policy: WINDOWS_SYSTEM_MUTATION_POLICY,
@@ -1362,7 +1366,7 @@ pub fn cli_help_text() -> String {
         "",
         "Managed client:",
         "  windows-service, signed-inf-driver-package, windows-installer, system-proxy-mutation,",
-        "  system-trust-store-mutation, and managed-daemon-lifecycle are active.",
+        "  system-trust-store-mutation, controlled-http1-https-mitm, and managed-daemon-lifecycle are active.",
         "  javascript-script-dispatch remains blocked.",
     ]
     .join("\n")
@@ -1442,7 +1446,7 @@ fn windows_cli_diagnostics(snapshot: &WindowsPlatformSnapshot) -> Vec<WindowsCli
         WindowsCliDiagnostic::new(
             WindowsCliDiagnosticSeverity::Info,
             CLI_WINDOWS_SYSTEM_INTEGRATION_ACTIVE_CODE,
-            "Windows GUI, service, signed INF driver package lifecycle, MSI installer, system proxy mutation, trust store mutation, and managed daemon lifecycle are active.",
+            "Windows GUI, service, signed INF driver package lifecycle, MSI installer, system proxy mutation, trust store mutation, controlled HTTP/1.1 HTTPS MITM, and managed daemon lifecycle are active.",
             "cli.windows.system",
         ),
         WindowsCliDiagnostic::new(

@@ -15,6 +15,8 @@ pub const WINDOWS_MANAGED_CONFIG_IO_CODE: &str = "windows.managed.config_io_fail
 pub const WINDOWS_MANAGED_STATE_IO_CODE: &str = "windows.managed.state_io_failed";
 pub const WINDOWS_MANAGED_SING_BOX_CONFIG_INVALID_CODE: &str =
     "windows.managed.sing_box_config_invalid";
+pub const WINDOWS_MANAGED_NATIVE_MITM_CONFIG_INVALID_CODE: &str =
+    "windows.managed.native_mitm_config_invalid";
 pub const WINDOWS_MANAGED_PRODUCT_DIRECTORY: &str = "AnixOps\\NetworkCore";
 pub const WINDOWS_MANAGED_CONFIG_FILE_NAME: &str = "managed-config.json";
 pub const WINDOWS_MANAGED_STATE_FILE_NAME: &str = "managed-state.json";
@@ -188,6 +190,48 @@ impl WindowsManagedSingBoxConfig {
     }
 }
 
+/// Native explicit HTTP proxy that terminates controlled HTTPS sessions before
+/// relaying them through a local SOCKS outbound such as sing-box.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowsManagedNativeMitmConfig {
+    pub enabled: bool,
+    pub listen_host: String,
+    pub listen_port: u16,
+    pub upstream_socks_host: String,
+    pub upstream_socks_port: u16,
+    pub ca_certificate_path: PathBuf,
+    pub ca_private_key_path: PathBuf,
+    pub log_path: PathBuf,
+}
+
+impl WindowsManagedNativeMitmConfig {
+    pub fn validate(&self) -> DomainResult<()> {
+        if !self.enabled {
+            return Ok(());
+        }
+        if self.listen_host.trim().is_empty()
+            || self.listen_port == 0
+            || self.upstream_socks_host.trim().is_empty()
+            || self.upstream_socks_port == 0
+        {
+            return Err(DomainError::new(
+                WINDOWS_MANAGED_NATIVE_MITM_CONFIG_INVALID_CODE,
+                "native MITM listener and SOCKS upstream endpoints must be explicit",
+            ));
+        }
+        if self.ca_certificate_path.as_os_str().is_empty()
+            || self.ca_private_key_path.as_os_str().is_empty()
+            || self.log_path.as_os_str().is_empty()
+        {
+            return Err(DomainError::new(
+                WINDOWS_MANAGED_NATIVE_MITM_CONFIG_INVALID_CODE,
+                "native MITM certificate, private key, and log paths must be explicit",
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowsManagedConfig {
     pub schema_version: u32,
@@ -197,6 +241,8 @@ pub struct WindowsManagedConfig {
     pub tunnel: Option<WindowsManagedTunnelConfig>,
     #[serde(default)]
     pub sing_box: Option<WindowsManagedSingBoxConfig>,
+    #[serde(default)]
+    pub native_mitm: Option<WindowsManagedNativeMitmConfig>,
 }
 
 impl WindowsManagedConfig {
@@ -225,6 +271,9 @@ impl WindowsManagedConfig {
         if let Some(sing_box) = &self.sing_box {
             sing_box.validate()?;
         }
+        if let Some(native_mitm) = &self.native_mitm {
+            native_mitm.validate()?;
+        }
         Ok(())
     }
 }
@@ -245,6 +294,14 @@ pub struct WindowsManagedState {
     pub sing_box_exit_code: Option<i32>,
     #[serde(default)]
     pub sing_box_log_path: Option<PathBuf>,
+    #[serde(default)]
+    pub native_mitm_running: bool,
+    #[serde(default)]
+    pub native_mitm_listener: Option<String>,
+    #[serde(default)]
+    pub native_mitm_certificate_sha1: Option<String>,
+    #[serde(default)]
+    pub native_mitm_last_error: Option<String>,
     pub last_transition: String,
 }
 
@@ -261,6 +318,10 @@ impl Default for WindowsManagedState {
             sing_box_process_id: None,
             sing_box_exit_code: None,
             sing_box_log_path: None,
+            native_mitm_running: false,
+            native_mitm_listener: None,
+            native_mitm_certificate_sha1: None,
+            native_mitm_last_error: None,
             last_transition: "created".to_string(),
         }
     }

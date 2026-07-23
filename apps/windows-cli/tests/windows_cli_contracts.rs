@@ -695,6 +695,10 @@ fn windows_cli_capabilities_json_reports_managed_windows_integration_active() {
         WINDOWS_ACTIVE_STATUS
     );
     assert_eq!(
+        json["capabilities"]["https_mitm"]["status"],
+        WINDOWS_ACTIVE_STATUS
+    );
+    assert_eq!(
         json["capabilities"]["script_dispatch"]["status"],
         WINDOWS_BLOCKED_STATUS
     );
@@ -712,6 +716,7 @@ fn windows_cli_capabilities_text_lists_release_assets_and_active_lifecycle() {
     assert!(rendered.contains("foreground_tunnel: active"));
     assert!(rendered.contains("driver: active"));
     assert!(rendered.contains("installer: active"));
+    assert!(rendered.contains("https_mitm: active"));
     assert!(rendered.contains("managed_lifecycle: active"));
 }
 
@@ -738,6 +743,7 @@ fn windows_cli_status_reports_foreground_tunnel_and_managed_lifecycle() {
     assert!(rendered.contains("installer: active"));
     assert!(rendered.contains("system_proxy_mutation: active"));
     assert!(rendered.contains("trust_store_mutation: active"));
+    assert!(rendered.contains("https_mitm: active"));
     assert!(rendered.contains("script_dispatch: blocked"));
     assert!(rendered.contains("managed_lifecycle: active"));
 }

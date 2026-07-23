@@ -6,7 +6,7 @@ use networkcore_windows::{
 use networkcore_windows_service::WindowsManagedRuntime;
 use platform_windows::managed::{
     read_managed_state, write_managed_config, WindowsDriverPackageConfig, WindowsManagedConfig,
-    WindowsProxySettings, WindowsProxySnapshot,
+    WindowsManagedNativeMitmConfig, WindowsProxySettings, WindowsProxySnapshot,
 };
 use platform_windows::system_integration::{
     WindowsDriverInstallResult, WindowsServiceState, WindowsServiceStatus, WindowsSystemIntegration,
@@ -15,8 +15,12 @@ use platform_windows::tunnel_config::{
     OwnedProcessHandle, WindowsRouteSnapshotEntry, WindowsTunnelLifecycleState,
     WindowsTunnelRuntimeOwnership, WindowsTunnelState,
 };
+use rcgen::{
+    BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, KeyUsagePurpose,
+};
 use std::cell::RefCell;
 use std::fs;
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -240,6 +244,7 @@ fn fixture_config(with_tunnel: bool) -> WindowsManagedConfig {
             state_path: PathBuf::from("tunnel-state.json"),
         }),
         sing_box: None,
+        native_mitm: None,
     }
 }
 
@@ -255,6 +260,33 @@ fn fixture_paths(name: &str) -> (PathBuf, PathBuf, PathBuf) {
         root.join("managed-state.json"),
         root,
     )
+}
+
+fn write_mitm_ca(root: &Path) -> (PathBuf, PathBuf) {
+    let certificate_path = root.join("root-ca.pem");
+    let private_key_path = root.join("root-ca-key.pem");
+    let mut distinguished_name = DistinguishedName::new();
+    distinguished_name.push(DnType::CommonName, "NetworkCore Windows service test CA");
+    let mut params = CertificateParams::default();
+    params.distinguished_name = distinguished_name;
+    params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    params.key_usages = vec![
+        KeyUsagePurpose::KeyCertSign,
+        KeyUsagePurpose::CrlSign,
+        KeyUsagePurpose::DigitalSignature,
+    ];
+    let key_pair = KeyPair::generate().expect("test CA key generates");
+    let certificate = params
+        .self_signed(&key_pair)
+        .expect("test CA cert generates");
+    fs::write(&certificate_path, certificate.pem()).expect("test CA cert writes");
+    fs::write(&private_key_path, key_pair.serialize_pem()).expect("test CA key writes");
+    (certificate_path, private_key_path)
+}
+
+fn unused_loopback_port() -> u16 {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("test listener binds");
+    listener.local_addr().expect("test listener address").port()
 }
 
 #[test]
@@ -336,5 +368,48 @@ fn managed_runtime_owns_tunnel_start_and_stop_lifecycle() {
     assert!(events.borrow().contains(&"prepare-storage".to_string()));
     assert!(events.borrow().contains(&"start-tunnel".to_string()));
     assert!(events.borrow().contains(&"stop-tunnel".to_string()));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn managed_runtime_owns_native_https_mitm_lifecycle() {
+    let (config_path, state_path, root) = fixture_paths("native-mitm");
+    let (certificate_path, private_key_path) = write_mitm_ca(&root);
+    let listener_port = unused_loopback_port();
+    let mut config = fixture_config(false);
+    config.root_certificate_path = None;
+    config.driver_package = None;
+    config.native_mitm = Some(WindowsManagedNativeMitmConfig {
+        enabled: true,
+        listen_host: "127.0.0.1".to_string(),
+        listen_port: listener_port,
+        upstream_socks_host: "127.0.0.1".to_string(),
+        upstream_socks_port: unused_loopback_port(),
+        ca_certificate_path: certificate_path,
+        ca_private_key_path: private_key_path,
+        log_path: root.join("native-mitm.log"),
+    });
+    write_managed_config(&config_path, &config).expect("config writes");
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let integration = FakeIntegration {
+        events: events.clone(),
+        fail_proxy: false,
+    };
+    let tunnel = FakeTunnel {
+        events: events.clone(),
+    };
+    let mut runtime = WindowsManagedRuntime::new(integration, tunnel, config_path, state_path);
+
+    let running = runtime.start().expect("managed native MITM starts");
+    assert!(running.native_mitm_running);
+    let expected_listener = format!("127.0.0.1:{listener_port}");
+    assert_eq!(
+        running.native_mitm_listener.as_deref(),
+        Some(expected_listener.as_str())
+    );
+    assert!(events.borrow().contains(&"install-certificate".to_string()));
+
+    let stopped = runtime.stop().expect("managed native MITM stops");
+    assert!(!stopped.native_mitm_running);
     let _ = fs::remove_dir_all(root);
 }

@@ -70,6 +70,7 @@ pub struct WindowsPlatformSnapshot {
     pub installer: WindowsFeatureStatus,
     pub system_proxy_mutation: WindowsFeatureStatus,
     pub trust_store_mutation: WindowsFeatureStatus,
+    pub https_mitm: WindowsFeatureStatus,
     pub script_dispatch: WindowsFeatureStatus,
     pub managed_lifecycle: WindowsFeatureStatus,
 }
@@ -112,6 +113,11 @@ impl WindowsPlatformSnapshot {
             },
             trust_store_mutation: WindowsFeatureStatus {
                 name: "system-trust-store-mutation",
+                status: WINDOWS_ACTIVE_STATUS,
+                mutation_policy: WINDOWS_MANAGED_MUTATION_POLICY,
+            },
+            https_mitm: WindowsFeatureStatus {
+                name: "https-mitm",
                 status: WINDOWS_ACTIVE_STATUS,
                 mutation_policy: WINDOWS_MANAGED_MUTATION_POLICY,
             },

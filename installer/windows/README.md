@@ -143,10 +143,17 @@ The optional fields are:
 - `sing_box`: explicit executable/config/working-directory/log paths for the
   service-owned sing-box process. This is a proxy core integration, not an
   HTTPS MITM configuration.
+- `native_mitm`: a service-owned loopback HTTP proxy, CA certificate/key paths,
+  and a local SOCKS upstream. The GUI writes this block when `Enable HTTPS
+  MITM` is selected, with native HTTP(S) at `127.0.0.1:7890` and sing-box SOCKS
+  at `127.0.0.1:7891`.
 
-`root_certificate_path` still only imports an existing certificate into the
-Windows LocalMachine ROOT store. It does not create an HTTP listener or enable
-HTTPS interception. Windows MITM remains a separate data-plane integration.
+`root_certificate_path` only imports an existing certificate into the Windows
+LocalMachine ROOT store. The GUI HTTPS MITM action instead creates its own CA,
+has the service trust it, and starts the native listener. It handles explicit
+HTTP proxy traffic and controlled HTTP/1.1 TLS sessions; HTTP/2, QUIC,
+streaming/chunked exchanges, TUN, DNS interception, and remote scripts are not
+available.
 
 The GUI shows the current service state and action errors. It writes diagnostics
 to `C:\ProgramData\AnixOps\NetworkCore\logs\gui.log` and the service writes to

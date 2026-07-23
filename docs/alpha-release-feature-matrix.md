@@ -328,6 +328,33 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 - 不承诺 HTTP/2、chunked/streaming body、压缩 response body 或完整通用 HTTP 兼容。
 - 不代表 Windows artifact、跨平台 parity 或 managed lifecycle 已进入 release。
 
+## 当前待发布切片
+
+### `v0.2.0-alpha.5`
+
+状态：Windows managed client source slice；必须通过同 commit GitHub Actions CI、
+MSI install/uninstall smoke、package、attestation、publish eligibility 和 tag release
+后，才可称为用户可下载版本。
+
+主要特性：
+
+- GUI 的明确 `Enable HTTPS MITM` 动作生成受管 CA，配置 native HTTP(S) listener
+  `127.0.0.1:7890`，并将 GUI 导入的 sing-box mixed inbound 转为本地 SOCKS upstream
+  `127.0.0.1:7891`。`Disable HTTPS MITM` 停止 listener、恢复 direct mixed inbound、
+  删除受管 ROOT 条目和 CA 私钥。
+- Windows service 在启动 sing-box 后启动 native proxy；native path 按 CONNECT
+  authority 签发 leaf、终止下游 TLS、以 web PKI 验证上游 TLS，并通过内置 policy hook
+  处理一个有界 HTTP/1.1 request/response exchange。
+- capability/status 明确报告 `https_mitm: active`；service lifecycle contract 覆盖
+  loopback native listener 的 start/stop 和 CA trust action。
+
+明确不包含：
+
+- 不提供 remote subscription fetch、完整多节点 selector 或 advanced transport rendering。
+- 不支持 HTTP/2、HTTP/3/QUIC、chunked/streaming exchange、多 request CONNECT session、
+  arbitrary plugin loading、remote script、JavaScript script dispatch、TUN、DNS interception、
+  firewall mutation 或 transparent capture。
+
 ## 最新已发布切片
 
 ### `v0.2.0-alpha.4`
@@ -526,11 +553,11 @@ GitHub Actions release workflow 结果为准。
 
 ## 当前 main source 状态
 
-当前 Windows release 切片是 `v0.2.0-alpha.3`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
+当前 Windows source release 切片是 `v0.2.0-alpha.5`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
 `v0.1.1-alpha.2` 的 Linux/Windows package、checksum、manifest、attestation 和 publish gate，并把
 受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI；Windows path 已切换到
 managed-client MSI，service、driver、installer、system proxy mutation、system trust store mutation 和 managed lifecycle
-已 active，并增加 operator-staged sing-box managed process、非阻塞 MSI service start 和受 attestation 的 portable ZIP；automatic core install、Windows live HTTPS MITM 和 JavaScript script dispatch 仍 blocked。用户可下载状态仍以 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。
+已 active，并增加 operator-staged sing-box managed process、非阻塞 MSI service start、受 attestation 的 portable ZIP 和 GUI-controlled HTTP/1.1 HTTPS MITM/CA lifecycle；remote subscription、advanced transport、HTTP/2/HTTP/3/QUIC、streaming、多 request CONNECT 和 JavaScript script dispatch 仍 blocked。用户可下载状态仍以 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。
 
 ## 已拍板后续版本节奏
 

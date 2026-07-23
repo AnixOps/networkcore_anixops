@@ -8,7 +8,10 @@ AnixOps NetworkCore Windows portable package
    does not contain a third-party core.
 4. Enter a local profile file path, optionally enter a Node ID, then click
    Import profile. A blank Node ID uses the first supported node.
-5. Click Install service, then Start, only when a Windows service is wanted.
+5. Click Enable HTTPS MITM when the explicit local HTTP(S) proxy and managed
+   CA are required. The core then runs as a SOCKS upstream on 127.0.0.1:7891;
+   the native HTTP(S) proxy listens on 127.0.0.1:7890.
+6. Click Install service, then Start, only when a Windows service is wanted.
 
 The portable ZIP does not register or start the service during extraction.
 Managed configuration, state, and logs are stored under:
@@ -26,5 +29,6 @@ nodes. Trojan enables TLS; VLESS and VMess are basic TCP only. It does not
 preserve TLS/REALITY/WebSocket/gRPC/multiplex/DNS/route fields. Use explicit
 native sing-box JSON for those configurations.
 
-sing-box is not bundled. root_certificate_path only manages Windows trust; this
-build does not provide a Windows HTTPS MITM data plane.
+sing-box is not bundled. The HTTPS MITM path handles explicit HTTP proxy
+traffic and controlled HTTP/1.1 TLS sessions only. It does not support HTTP/2,
+QUIC, streaming/chunked exchanges, TUN, DNS interception, or remote scripts.

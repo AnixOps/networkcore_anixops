@@ -79,9 +79,13 @@ TLS 重建、HTTP/2/HTTP/1.1/WebSocket 处理、证书回滚和用户授权。
               v
     sing-box mixed/HTTP/SOCKS outbound
 
-当前 Windows `root_certificate_path` 只执行 LocalMachine ROOT 导入；它不会
-创建 MITM listener，也不会自动解密 HTTPS。Windows MITM 必须在后续变更中把
-listener、动态证书、显式授权、浏览器/系统信任和 rollback 一起接入 service。
+Windows `root_certificate_path` 仍只执行 generic LocalMachine ROOT 导入；它不会
+创建 MITM listener。Windows GUI 的独立 `native_mitm` action 已将 listener、动态
+authority leaf、显式操作、LocalMachine ROOT trust 和 service lifecycle 接入：系统代理
+指向 native HTTP listener `127.0.0.1:7890`，该 listener 经本地 sing-box SOCKS
+`127.0.0.1:7891` 转发。实现仅覆盖 controlled HTTP/1.1 TLS exchange；HTTP/2、QUIC、
+流式 body、多 request CONNECT、transparent capture、TUN/DNS/firewall mutation 和
+remote script 仍不在此路径中。
 
 “Suger”未找到与该目标对应的权威代理客户端；当前按用户给出的 SagerNet
 sing-box 项目处理，避免把无关的 Suger SaaS/GitHub 集成产品当成代理参考。

@@ -1,18 +1,30 @@
 //! Managed Windows runtime shared by the SCM entrypoint and contract tests.
 
-use control_domain::{DomainError, DomainResult};
+use control_domain::{
+    ConfigSnapshot, DomainError, DomainResult, Endpoint, GrantedPermissions, ListenerBind,
+    ListenerDescriptor, ListenerKind, ListenerNetwork, ListenerRoute, MitmPluginService,
+    NodeDescriptor, Protocol, ProxyEngineConfig, ProxyEngineService, RouteAction, RuleSet,
+    SchemaVersion,
+};
+use engine_native::{
+    NativeHttpMitmPluginHook, NativeProxyEngineService, NativeTlsMitmCaMaterial,
+    DEFAULT_NATIVE_ENGINE_ID,
+};
 use engine_singbox::{
     SingBoxManagedProcessRequest, SingBoxManagedProcessState, SingBoxManagedProcessSupervisor,
 };
+use mitm_policy::{builtin_ad_block_plugin_package, AnixOpsMitmPluginService};
 use networkcore_windows::{
     parse_args, OutputFormat, WindowsCliCommand, WindowsTunnelCommandService,
     WindowsTunnelPrepareStorageArgs, WindowsTunnelStatusArgs,
 };
 use platform_windows::managed::{
     read_managed_config, read_managed_state, write_managed_state, WindowsManagedConfig,
-    WindowsManagedState,
+    WindowsManagedNativeMitmConfig, WindowsManagedState,
 };
 use platform_windows::system_integration::WindowsSystemIntegration;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 pub const WINDOWS_MANAGED_RUNTIME_FAILED_CODE: &str = "windows.managed.runtime_failed";
@@ -21,6 +33,7 @@ pub struct WindowsManagedRuntime<I, T> {
     integration: I,
     tunnel: T,
     sing_box: SingBoxManagedProcessSupervisor,
+    native_mitm: Option<NativeProxyEngineService>,
     config_path: PathBuf,
     state_path: PathBuf,
 }
@@ -35,6 +48,7 @@ where
             integration,
             tunnel,
             sing_box: SingBoxManagedProcessSupervisor::default(),
+            native_mitm: None,
             config_path,
             state_path,
         }
@@ -69,6 +83,7 @@ where
         state.last_transition = "stopping".to_string();
         self.persist(&state)?;
 
+        self.stop_native_mitm(&mut state, config.native_mitm.as_ref())?;
         self.stop_sing_box(
             &mut state,
             config
@@ -104,6 +119,10 @@ where
     pub fn purge(&mut self) -> DomainResult<WindowsManagedState> {
         let mut state = self.stop()?;
         if let Some(thumbprint) = state.certificate_sha1.take() {
+            self.integration.remove_root_certificate(&thumbprint)?;
+            self.persist(&state)?;
+        }
+        if let Some(thumbprint) = state.native_mitm_certificate_sha1.take() {
             self.integration.remove_root_certificate(&thumbprint)?;
             self.persist(&state)?;
         }
@@ -152,6 +171,16 @@ where
             self.stop_sing_box(state, None)?;
         }
 
+        if config
+            .native_mitm
+            .as_ref()
+            .map(|native_mitm| !native_mitm.enabled)
+            .unwrap_or(true)
+            && state.native_mitm_running
+        {
+            self.stop_native_mitm(state, config.native_mitm.as_ref())?;
+        }
+
         if let Some(sing_box) = &config.sing_box {
             if sing_box.enabled {
                 let current_status = self.sing_box.status()?;
@@ -170,6 +199,12 @@ where
                 state.sing_box_exit_code = status.exit_code;
                 state.sing_box_log_path = Some(sing_box.log_path.clone());
                 self.persist(state)?;
+            }
+        }
+
+        if let Some(native_mitm) = &config.native_mitm {
+            if native_mitm.enabled {
+                self.start_native_mitm(native_mitm, state)?;
             }
         }
 
@@ -234,7 +269,85 @@ where
         self.persist(state)
     }
 
+    fn start_native_mitm(
+        &mut self,
+        config: &WindowsManagedNativeMitmConfig,
+        state: &mut WindowsManagedState,
+    ) -> DomainResult<()> {
+        if self.native_mitm.is_some() && state.native_mitm_running {
+            return Ok(());
+        }
+
+        if state.native_mitm_certificate_sha1.is_none() {
+            state.native_mitm_certificate_sha1 = Some(
+                self.integration
+                    .install_root_certificate(&config.ca_certificate_path)?,
+            );
+            self.persist(state)?;
+        }
+
+        let service = build_native_mitm_service(config)?;
+        let engine_config = native_mitm_proxy_engine_config(config);
+        match service.start(&engine_config) {
+            Ok(_) => {
+                state.native_mitm_running = true;
+                state.native_mitm_listener =
+                    Some(format!("{}:{}", config.listen_host, config.listen_port));
+                state.native_mitm_last_error = None;
+                self.native_mitm = Some(service);
+                append_native_mitm_log(
+                    &config.log_path,
+                    &format!(
+                        "native HTTPS MITM started listener={}:{} upstream_socks={}:{}",
+                        config.listen_host,
+                        config.listen_port,
+                        config.upstream_socks_host,
+                        config.upstream_socks_port
+                    ),
+                );
+                self.persist(state)
+            }
+            Err(error) => {
+                state.native_mitm_running = false;
+                state.native_mitm_listener = None;
+                state.native_mitm_last_error = Some(error.message.clone());
+                append_native_mitm_log(
+                    &config.log_path,
+                    &format!("native HTTPS MITM start failed: {}", error.message),
+                );
+                self.persist(state)?;
+                Err(error)
+            }
+        }
+    }
+
+    fn stop_native_mitm(
+        &mut self,
+        state: &mut WindowsManagedState,
+        configured: Option<&WindowsManagedNativeMitmConfig>,
+    ) -> DomainResult<()> {
+        if let Some(service) = self.native_mitm.take() {
+            service.stop(DEFAULT_NATIVE_ENGINE_ID)?;
+        }
+        if state.native_mitm_running {
+            if let Some(config) = configured {
+                append_native_mitm_log(&config.log_path, "native HTTPS MITM stopped");
+            }
+            state.native_mitm_running = false;
+            state.native_mitm_listener = None;
+            state.native_mitm_last_error = None;
+            self.persist(state)?;
+        }
+        Ok(())
+    }
+
     fn rollback_start(&mut self, state: &mut WindowsManagedState, previous: &WindowsManagedState) {
+        if state.native_mitm_running && !previous.native_mitm_running {
+            let native_mitm = read_managed_config(&self.config_path)
+                .ok()
+                .and_then(|config| config.native_mitm);
+            let _ = self.stop_native_mitm(state, native_mitm.as_ref());
+        }
         if state.sing_box_running && !previous.sing_box_running {
             let log_path = read_managed_config(&self.config_path)
                 .ok()
@@ -276,6 +389,18 @@ where
                 }
             }
         }
+        if previous.native_mitm_certificate_sha1.is_none() {
+            let thumbprint = state.native_mitm_certificate_sha1.take();
+            if let Some(thumbprint) = thumbprint {
+                if self
+                    .integration
+                    .remove_root_certificate(&thumbprint)
+                    .is_err()
+                {
+                    state.native_mitm_certificate_sha1 = Some(thumbprint);
+                }
+            }
+        }
         if previous.driver_inf_path.is_none() {
             let inf_path = state.driver_inf_path.take();
             if let Some(inf_path) = inf_path {
@@ -298,6 +423,96 @@ where
     fn persist(&self, state: &WindowsManagedState) -> DomainResult<()> {
         write_managed_state(&self.state_path, state)
     }
+}
+
+fn build_native_mitm_service(
+    config: &WindowsManagedNativeMitmConfig,
+) -> DomainResult<NativeProxyEngineService> {
+    let certificate_pem = fs::read_to_string(&config.ca_certificate_path)
+        .map_err(|_| runtime_error("native MITM CA certificate material could not be read"))?;
+    let private_key_pem = fs::read_to_string(&config.ca_private_key_path)
+        .map_err(|_| runtime_error("native MITM CA private key material could not be read"))?;
+    if certificate_pem.trim().is_empty() || private_key_pem.trim().is_empty() {
+        return Err(runtime_error(
+            "native MITM CA certificate and private key material must not be empty",
+        ));
+    }
+
+    let package = builtin_ad_block_plugin_package();
+    let policy_service = AnixOpsMitmPluginService::new();
+    let plugin_instance = policy_service.load(
+        &package,
+        &GrantedPermissions {
+            permissions: package.manifest.permissions.clone(),
+        },
+    )?;
+    let hook = NativeHttpMitmPluginHook::new(plugin_instance, std::sync::Arc::new(policy_service));
+
+    Ok(NativeProxyEngineService::new()
+        .with_http_mitm_hook(hook)
+        .with_tls_mitm_ca_material(NativeTlsMitmCaMaterial::new(
+            certificate_pem,
+            private_key_pem,
+        )))
+}
+
+fn native_mitm_proxy_engine_config(config: &WindowsManagedNativeMitmConfig) -> ProxyEngineConfig {
+    let outbound_id = "windows-managed-mitm-socks-out".to_string();
+    ProxyEngineConfig {
+        engine_id: DEFAULT_NATIVE_ENGINE_ID.to_string(),
+        config: ConfigSnapshot {
+            version: SchemaVersion::new(1),
+            profiles: vec!["windows-managed-mitm".to_string()],
+            listeners: vec![ListenerDescriptor {
+                id: "windows-managed-mitm-http".to_string(),
+                enabled: true,
+                kind: ListenerKind::Http,
+                bind: ListenerBind {
+                    host: config.listen_host.clone(),
+                    port: config.listen_port,
+                },
+                network: ListenerNetwork::Tcp,
+                route: ListenerRoute::DefaultAction(RouteAction::Proxy {
+                    node_id: outbound_id.clone(),
+                }),
+                tags: vec!["windows-managed-mitm".to_string()],
+                metadata: Vec::new(),
+            }],
+            nodes: vec![NodeDescriptor {
+                id: outbound_id,
+                name: "Windows managed sing-box SOCKS upstream".to_string(),
+                protocol: Protocol::Socks,
+                endpoint: Endpoint {
+                    host: config.upstream_socks_host.clone(),
+                    port: config.upstream_socks_port,
+                },
+                tags: vec!["windows-managed-mitm".to_string()],
+                metadata: Vec::new(),
+            }],
+            policies: vec![RuleSet {
+                id: "windows-managed-mitm-route".to_string(),
+                rules: Vec::new(),
+                default_action: RouteAction::Proxy {
+                    node_id: "windows-managed-mitm-socks-out".to_string(),
+                },
+            }],
+            dns: Vec::new(),
+            plugins: Vec::new(),
+        },
+        nodes: Vec::new(),
+        metadata: Vec::new(),
+    }
+}
+
+fn append_native_mitm_log(path: &Path, message: &str) {
+    let result = (|| -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+        writeln!(file, "{message}")
+    })();
+    let _ = result;
 }
 
 pub fn copy_managed_configuration(source: &Path, destination: &Path) -> DomainResult<()> {

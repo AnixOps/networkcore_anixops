@@ -4,5 +4,6 @@
   "root_certificate_path": null,
   "driver_package": null,
   "tunnel": null,
-  "sing_box": null
+  "sing_box": null,
+  "native_mitm": null
 }
