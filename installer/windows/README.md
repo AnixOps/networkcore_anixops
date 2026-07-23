@@ -111,8 +111,12 @@ when HTTPS MITM is disabled. Native documents without that exact controlled
 inbound are not changed by the MITM action.
 
 Only set `system_proxy.enabled` to `true` after the configured sing-box inbound
-is listening at `server`. After editing, open the GUI, click `Apply configuration`,
-then `Restart`.
+is listening at `server`. After editing, open the elevated GUI, click `Open JSON`
+to inspect the selected file, then `Validate`. The validation parses the managed
+JSON and, when `sing_box.enabled` is true, runs the same non-mutating
+`sing-box.exe check -c <config_path>` used by the service. It does not start the
+service or change proxy, certificate, driver, or tunnel state. Click `Apply
+configuration`, then `Restart` only after validation succeeds.
 The service reads this file under `LocalSystem`; paths must be absolute and
 readable by that account.
 
@@ -180,9 +184,21 @@ available.
 The GUI shows the current service state and action errors. It writes diagnostics
 to `C:\ProgramData\AnixOps\NetworkCore\logs\gui.log` and the service writes to
 `service.log`; sing-box check and runtime stdout/stderr use `sing-box.log`.
-Errors are always recorded; `Toggle debug`, `Open log folder`, and `Open core
-log` expose GUI and core diagnostics, or launch `networkcore-windows-gui.exe
---debug` to start with verbose logging enabled.
+`Diagnostics` creates and opens `diagnostics.txt`, containing SCM/runtime status
+and bounded local log tails; an action failure writes the same report and shows
+its path. `Toggle debug` and `networkcore-windows-gui.exe --debug` add verbose
+GUI activity records only. To make the core itself verbose, set this explicit
+block in the operator-owned sing-box JSON, then run `Validate`:
+
+```json
+{
+  "log": {
+    "level": "debug"
+  }
+}
+```
+
+The service captures that core output in the configured `sing_box.log_path`.
 
 The MSI and portable ZIP are built and validated only by GitHub Actions. CI
 also performs a bounded silent MSI install/uninstall smoke test and confirms

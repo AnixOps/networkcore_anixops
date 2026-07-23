@@ -330,6 +330,34 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前待发布切片
 
+### `v0.2.0-alpha.11`
+
+状态：Windows managed client source slice；必须通过同 commit GitHub Actions CI、
+MSI install/uninstall smoke、package、attestation、publish eligibility 和 tag release
+后，才可称为用户可下载版本。
+
+主要特性：
+
+- GUI 新增 `Open JSON`、`Validate` 和 `Diagnostics`。`Validate` 先按服务同一 schema
+  解析 managed JSON；启用 `sing_box` 时，再执行同一 `sing-box check -c` 预检。
+  预检不启动 service/proxy/tunnel，也不修改证书、driver 或系统代理。
+- `Diagnostics` 写入并打开本地 `diagnostics.txt`，其中包含当前 SCM 状态、managed runtime
+  状态和 GUI/service/sing-box/native MITM log 的有界尾部；GUI action 失败会自动生成同一报告。
+- `Toggle debug` 和 GUI `--debug` 只增加 GUI activity log。core debug 必须由
+  operator-owned sing-box JSON 明确设置 `"log": { "level": "debug" }`，输出仍进入
+  `sing_box.log_path`。
+- 每个 Windows tag release 继续要求 managed-client MSI 四件套和 portable ZIP 四件套同时
+  通过 checksum、manifest、attestation 与 publish gate。portable ZIP 解压不注册或启动 service。
+
+明确不包含：
+
+- 不提供 remote subscription fetch、完整多节点 selector、任意 native transport 推断、
+  XHTTP、ECH、multiplex 或 Hysteria v1；未由 NodeCatalog 明确保留的字段不由基础 renderer
+  猜测或改写。
+- 不支持 HTTP/2、HTTP/3/QUIC MITM、chunked/streaming exchange、多 request CONNECT
+  session、arbitrary plugin loading、remote script、JavaScript script dispatch、TUN、
+  DNS interception、firewall mutation 或 transparent capture。
+
 ### `v0.2.0-alpha.10`
 
 状态：Windows managed client source slice；必须通过同 commit GitHub Actions CI、
@@ -658,11 +686,11 @@ GitHub Actions release workflow 结果为准。
 
 ## 当前 main source 状态
 
-当前 Windows source release 切片是 `v0.2.0-alpha.10`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
+当前 Windows source release 切片是 `v0.2.0-alpha.11`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
 `v0.1.1-alpha.2` 的 Linux/Windows package、checksum、manifest、attestation 和 publish gate，并把
 受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI；Windows path 已切换到
 managed-client MSI，service、driver、installer、system proxy mutation、system trust store mutation 和 managed lifecycle
-已 active，并增加 operator-staged sing-box managed process、非阻塞 MSI service start、即时 SCM handoff 与 GUI/CLI start 状态返回、受 attestation 的 portable ZIP、GUI-controlled HTTP/1.1 HTTPS MITM/CA lifecycle、native sing-box JSON pass-through import、core-log access、受控 `mixed-in` listener 的 snapshot/restore、Hysteria2/TUIC local-file share-link and native-outbound import，以及本地 V2Ray TLS/REALITY/uTLS/Vision/transport compatibility subset；remote subscription、XHTTP/ECH/multiplex transport inference、HTTP/2/HTTP/3 QUIC MITM、streaming、多 request CONNECT 和 JavaScript script dispatch 仍 blocked。用户可下载状态仍以 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。
+已 active，并增加 operator-staged sing-box managed process、非阻塞 MSI service start、即时 SCM handoff 与 GUI/CLI start 状态返回、受 attestation 的 portable ZIP、GUI-controlled HTTP/1.1 HTTPS MITM/CA lifecycle、native sing-box JSON pass-through import、GUI `check -c` preflight/local diagnostics report、core-log access、受控 `mixed-in` listener 的 snapshot/restore、Hysteria2/TUIC local-file share-link and native-outbound import，以及本地 V2Ray TLS/REALITY/uTLS/Vision/transport compatibility subset；remote subscription、XHTTP/ECH/multiplex transport inference、HTTP/2/HTTP/3 QUIC MITM、streaming、多 request CONNECT 和 JavaScript script dispatch 仍 blocked。用户可下载状态仍以 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。
 
 ## 已拍板后续版本节奏
 

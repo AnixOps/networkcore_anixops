@@ -548,7 +548,7 @@ impl SingBoxManagedProcessSupervisor {
             }
         }
 
-        self.check_configuration(request)?;
+        Self::check_configuration(request)?;
         ensure_log_parent(&request.log_path)?;
         let working_directory = request
             .working_directory
@@ -637,7 +637,11 @@ impl SingBoxManagedProcessSupervisor {
         Ok(self.last_status.clone())
     }
 
-    fn check_configuration(&self, request: &SingBoxManagedProcessRequest) -> DomainResult<()> {
+    /// Runs the same `sing-box check -c` preflight used before the managed process starts.
+    ///
+    /// Callers can use this to expose a non-mutating configuration check before submitting a
+    /// service start request. stdout and stderr are retained in the explicit managed log path.
+    pub fn check_configuration(request: &SingBoxManagedProcessRequest) -> DomainResult<()> {
         let mut command = Command::new(&request.executable_path);
         command
             .arg("check")

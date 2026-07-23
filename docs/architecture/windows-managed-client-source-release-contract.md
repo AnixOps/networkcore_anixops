@@ -8,7 +8,7 @@ current Windows package.
 ```text
 windows-managed-client-source-release-contract=present
 windows-managed-client-release-state=implementation-active
-windows-managed-client-version-scope=v0.2.0-alpha.10
+windows-managed-client-version-scope=v0.2.0-alpha.11
 WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active
 windows-managed-client-runner=windows-latest
 windows-managed-client-runner-kind=github-hosted
@@ -27,6 +27,7 @@ windows-managed-client-driver-package-lifecycle=active
 windows-managed-client-installer=active
 windows-managed-client-msi-service-start=asynchronous-on-install
 windows-managed-client-service-start-handoff=immediate-scm-running-then-managed-runtime
+windows-managed-client-diagnostics=gui-config-preflight-and-local-report-active
 windows-managed-client-system-proxy-mutation=active
 windows-managed-client-trust-store-mutation=active
 windows-managed-client-managed-lifecycle=active
@@ -117,6 +118,22 @@ managed configuration to reach `Running`; a configuration failure is recorded
 in `%ProgramData%\\AnixOps\\NetworkCore\\logs\\service.log` and returns the
 service to `Stopped`. Stop and uninstall operations continue to wait so the
 `purge` rollback order stays deterministic.
+
+The elevated GUI provides `Open JSON`, `Validate`, and `Diagnostics` actions.
+`Validate` first parses the selected managed JSON with the same schema validation
+as the service. When an enabled `sing_box` block is present, it then calls the
+same `sing-box check -c <config>` preflight used by the managed process without
+starting a proxy, service, tunnel, certificate, driver, or system-proxy mutation.
+The check output remains in the configured sing-box log. `Diagnostics` writes and
+opens `%ProgramData%\\AnixOps\\NetworkCore\\logs\\diagnostics.txt`, containing the
+current SCM status, managed runtime state, and bounded tails of the local GUI,
+service, sing-box, and native MITM logs. Failed GUI actions generate the same
+report automatically and show its path in the error dialog.
+
+The GUI debug toggle records detailed GUI activity only and does not rewrite an
+operator-owned sing-box JSON profile. Core debug logging remains an explicit
+sing-box setting such as `"log": { "level": "debug" }`; its output is captured
+by the configured managed sing-box log path.
 
 Every Windows tag release also contains a portable ZIP with the GUI, service,
 CLI, inert `managed-config.json`, and portable README. Extracting the ZIP does

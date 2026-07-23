@@ -249,6 +249,7 @@ jobs:
           grep -Fq "windows-managed-client-installer=active" docs/architecture/windows-managed-client-source-release-contract.md
           grep -Fq "windows-managed-client-msi-service-start=asynchronous-on-install" docs/architecture/windows-managed-client-source-release-contract.md
           grep -Fq "windows-managed-client-service-start-handoff=immediate-scm-running-then-managed-runtime" docs/architecture/windows-managed-client-source-release-contract.md
+          grep -Fq "windows-managed-client-diagnostics=gui-config-preflight-and-local-report-active" docs/architecture/windows-managed-client-source-release-contract.md
           grep -Fq "windows-managed-client-system-proxy-mutation=active" docs/architecture/windows-managed-client-source-release-contract.md
           grep -Fq "windows-managed-client-trust-store-mutation=active" docs/architecture/windows-managed-client-source-release-contract.md
           grep -Fq "windows-managed-client-managed-lifecycle=active" docs/architecture/windows-managed-client-source-release-contract.md
@@ -260,7 +261,10 @@ jobs:
           grep -Fq "system-proxy-mutation" apps/windows-cli/README.md
           grep -Fq "system-trust-store-mutation" apps/windows-cli/README.md
           grep -Fq "Windows managed client" docs/alpha-release-feature-matrix.md
+          grep -Fq "v0.2.0-alpha.11" docs/alpha-release-feature-matrix.md
           grep -Fq "Windows managed client MSI" docs/release-strategy.md
+          grep -Fq "v0.2.0-alpha.11" docs/release-strategy.md
+          grep -Fq "v0.2.0-alpha.11" README.md
           grep -Fq "JavaScript script dispatch" docs/alpha-release-feature-matrix.md
           grep -Fq "system trust store mutation" docs/alpha-release-feature-matrix.md
           grep -Fq "system proxy mutation" docs/alpha-release-feature-matrix.md
@@ -336,8 +340,12 @@ jobs:
           grep -q "ENGINE_SINGBOX_CONFIG_RENDERED_CODE" crates/engine-singbox/src/lib.rs
           grep -q "SingBoxProcessRunner" crates/engine-singbox/src/lib.rs
           grep -q "SingBoxManagedProcessSupervisor" crates/engine-singbox/src/lib.rs
+          grep -q "pub fn check_configuration" crates/engine-singbox/src/lib.rs
           grep -q "WindowsManagedSingBoxConfig" crates/platform-windows/src/managed.rs
           grep -q "sing_box" apps/windows-service/src/lib.rs
+          grep -q "ID_VALIDATE_CONFIGURATION" apps/windows-gui/src/main.rs
+          grep -q "write_diagnostic_report" apps/windows-gui/src/main.rs
+          grep -q "SingBoxManagedProcessSupervisor::check_configuration" apps/windows-gui/src/main.rs
           grep -q "public-core-client-reference" README.md
           grep -q "NODE_METADATA_SHADOWSOCKS_METHOD" crates/control-domain/src/lib.rs
           grep -q "SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE" crates/config-core/src/lib.rs

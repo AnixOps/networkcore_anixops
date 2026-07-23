@@ -21,8 +21,9 @@ mod gui {
     use engine_singbox::{
         inspect_sing_box_native_config, render_sing_box_local_proxy_config,
         rewrite_sing_box_mixed_inbound_listener, GithubSingBoxReleaseInstaller,
-        SingBoxInstallRequest, SingBoxLocalProxyConfigRequest, SingBoxReleaseInstaller,
-        SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
+        SingBoxInstallRequest, SingBoxLocalProxyConfigRequest, SingBoxManagedProcessRequest,
+        SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch,
+        SingBoxTargetOs,
     };
     use platform_windows::managed::{
         append_managed_log, read_managed_config, read_managed_state, windows_managed_config_path,
@@ -70,6 +71,8 @@ mod gui {
     const ID_STOP_SERVICE: usize = 103;
     const ID_RESTART_SERVICE: usize = 104;
     const ID_APPLY_CONFIG: usize = 110;
+    const ID_OPEN_MANAGED_CONFIG: usize = 111;
+    const ID_VALIDATE_CONFIGURATION: usize = 112;
     const ID_INSTALL_SING_BOX: usize = 115;
     const ID_IMPORT_PROFILE: usize = 116;
     const ID_ENABLE_HTTPS_MITM: usize = 117;
@@ -83,6 +86,7 @@ mod gui {
     const ID_TOGGLE_DEBUG: usize = 150;
     const ID_OPEN_LOGS: usize = 151;
     const ID_OPEN_CORE_LOG: usize = 152;
+    const ID_SHOW_DIAGNOSTICS: usize = 153;
 
     const SING_BOX_DIRECT_LISTEN_PORT: u16 = 7890;
     const SING_BOX_MITM_UPSTREAM_PORT: u16 = 7891;
@@ -368,8 +372,30 @@ mod gui {
             windows_managed_config_path().to_string_lossy().as_ref(),
             140,
             238,
-            635,
+            440,
             28,
+        );
+        create_button(
+            window,
+            instance,
+            font,
+            "Open JSON",
+            ID_OPEN_MANAGED_CONFIG,
+            590,
+            237,
+            95,
+            30,
+        );
+        create_button(
+            window,
+            instance,
+            font,
+            "Validate",
+            ID_VALIDATE_CONFIGURATION,
+            695,
+            237,
+            95,
+            30,
         );
         create_button(
             window,
@@ -377,9 +403,9 @@ mod gui {
             font,
             "Apply configuration",
             ID_APPLY_CONFIG,
-            790,
+            800,
             237,
-            135,
+            125,
             30,
         );
 
@@ -587,9 +613,9 @@ mod gui {
             font,
             "Toggle debug",
             ID_TOGGLE_DEBUG,
-            400,
+            390,
             828,
-            130,
+            120,
             30,
         );
         create_button(
@@ -598,9 +624,9 @@ mod gui {
             font,
             "Open log folder",
             ID_OPEN_LOGS,
-            540,
+            520,
             828,
-            140,
+            130,
             30,
         );
         create_button(
@@ -609,9 +635,20 @@ mod gui {
             font,
             "Open core log",
             ID_OPEN_CORE_LOG,
-            690,
+            660,
             828,
-            140,
+            120,
+            30,
+        );
+        create_button(
+            window,
+            instance,
+            font,
+            "Diagnostics",
+            ID_SHOW_DIAGNOSTICS,
+            790,
+            828,
+            135,
             30,
         );
         create_label(
@@ -653,6 +690,12 @@ mod gui {
             ID_STOP_SERVICE => run_action(state, "Service stopped", stop_service),
             ID_RESTART_SERVICE => run_action(state, "Service restarted", restart_service),
             ID_APPLY_CONFIG => run_action(state, "Configuration applied", apply_configuration),
+            ID_OPEN_MANAGED_CONFIG => {
+                run_action(state, "Configuration opened", open_managed_config)
+            }
+            ID_VALIDATE_CONFIGURATION => {
+                run_action(state, "Configuration validated", validate_configuration)
+            }
             ID_INSTALL_SING_BOX => run_action(state, "sing-box core installed", install_sing_box),
             ID_IMPORT_PROFILE => run_action(state, "sing-box profile imported", import_profile),
             ID_ENABLE_HTTPS_MITM => run_action(state, "HTTPS MITM configured", enable_https_mitm),
@@ -670,6 +713,7 @@ mod gui {
             ID_TOGGLE_DEBUG => toggle_debug(state),
             ID_OPEN_LOGS => run_action(state, "Log folder opened", open_log_directory),
             ID_OPEN_CORE_LOG => run_action(state, "sing-box log opened", open_sing_box_log),
+            ID_SHOW_DIAGNOSTICS => run_action(state, "Diagnostics opened", show_diagnostics),
             _ => {}
         }
     }
@@ -689,9 +733,15 @@ mod gui {
             }
             Err(error) => {
                 let _ = append_managed_log("gui", &format!("error: {error}"));
-                set_text(state.activity, &error);
+                let report = write_diagnostic_report(state).ok();
+                let message = match report {
+                    Some(path) => format!("{error}\n\nDiagnostics: {}", path.display()),
+                    None => error,
+                };
+                set_text(state.activity, &message);
+                refresh(state);
                 let title = wide(APP_TITLE);
-                let message = wide(&error);
+                let message = wide(&message);
                 MessageBoxW(
                     null_mut(),
                     message.as_ptr(),
@@ -785,22 +835,7 @@ mod gui {
     }
 
     fn open_log_directory(_state: &mut AppState) -> Result<(), String> {
-        let verb = wide("open");
-        let path = wide_os(&windows_managed_log_directory());
-        let result = unsafe {
-            ShellExecuteW(
-                null_mut(),
-                verb.as_ptr(),
-                path.as_ptr(),
-                null(),
-                null(),
-                SW_SHOWNORMAL,
-            )
-        } as isize;
-        if result <= 32 {
-            return Err(last_error("log directory could not be opened"));
-        }
-        Ok(())
+        open_path(&windows_managed_log_directory(), "log directory")
     }
 
     fn open_sing_box_log(_state: &mut AppState) -> Result<(), String> {
@@ -814,20 +849,165 @@ mod gui {
                 path.display()
             ));
         }
+        open_path(&path, "sing-box log")
+    }
+
+    fn open_managed_config(state: &mut AppState) -> Result<(), String> {
+        let path = PathBuf::from(unsafe { get_text(state.config_path) });
+        if path.as_os_str().is_empty() {
+            return Err("Managed configuration path is required".to_string());
+        }
+        if !path.exists() {
+            return Err(format!(
+                "Managed configuration is not available yet: {}",
+                path.display()
+            ));
+        }
+        open_path(&path, "managed configuration")
+    }
+
+    fn validate_configuration(state: &mut AppState) -> Result<(), String> {
+        let path = PathBuf::from(unsafe { get_text(state.config_path) });
+        let config = read_managed_config(&path).map_err(|error| error.to_string())?;
+        if let Some(sing_box) = config.sing_box.filter(|sing_box| sing_box.enabled) {
+            let log_path = sing_box.log_path.clone();
+            SingBoxManagedProcessSupervisor::check_configuration(&SingBoxManagedProcessRequest {
+                executable_path: sing_box.executable_path,
+                config_path: sing_box.config_path,
+                working_directory: sing_box.working_directory,
+                log_path: log_path.clone(),
+            })
+            .map_err(|error| {
+                format!(
+                    "{error}; inspect the sing-box check output in {}",
+                    log_path.display()
+                )
+            })?;
+        }
+        let report = write_diagnostic_report(state)?;
+        let _ = append_managed_log(
+            "gui",
+            &format!(
+                "configuration preflight succeeded report={}",
+                report.display()
+            ),
+        );
+        Ok(())
+    }
+
+    fn show_diagnostics(state: &mut AppState) -> Result<(), String> {
+        let path = write_diagnostic_report(state)?;
+        open_path(&path, "diagnostic report")
+    }
+
+    fn write_diagnostic_report(state: &mut AppState) -> Result<PathBuf, String> {
+        let config_path = PathBuf::from(unsafe { get_text(state.config_path) });
+        let mut report = String::from("AnixOps NetworkCore Windows diagnostics\n");
+        report.push_str(&format!("managed_config_path={}\n", config_path.display()));
+
+        match state.integration.service_status() {
+            Ok(status) => report.push_str(&format!(
+                "service_state={:?} service_process_id={}\n",
+                status.state, status.process_id
+            )),
+            Err(error) => report.push_str(&format!("service_status_error={error}\n")),
+        }
+
+        let config = match read_managed_config(&config_path) {
+            Ok(config) => {
+                report.push_str(&format!(
+                    "managed_config_schema_version={} sing_box_enabled={} native_mitm_enabled={}\n",
+                    config.schema_version,
+                    config
+                        .sing_box
+                        .as_ref()
+                        .is_some_and(|sing_box| sing_box.enabled),
+                    config
+                        .native_mitm
+                        .as_ref()
+                        .is_some_and(|native_mitm| native_mitm.enabled)
+                ));
+                Some(config)
+            }
+            Err(error) => {
+                report.push_str(&format!("managed_config_error={error}\n"));
+                None
+            }
+        };
+
+        match read_managed_state(&windows_managed_state_path()) {
+            Ok(managed) => report.push_str(&format!(
+                "runtime_transition={} sing_box_running={} sing_box_pid={} sing_box_exit_code={} native_mitm_running={} native_mitm_listener={} native_mitm_error={}\n",
+                managed.last_transition,
+                managed.sing_box_running,
+                managed
+                    .sing_box_process_id
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "none".to_string()),
+                managed
+                    .sing_box_exit_code
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "none".to_string()),
+                managed.native_mitm_running,
+                managed.native_mitm_listener.unwrap_or_else(|| "none".to_string()),
+                managed.native_mitm_last_error.unwrap_or_else(|| "none".to_string())
+            )),
+            Err(error) => report.push_str(&format!("managed_state_error={error}\n")),
+        }
+
+        let mut logs = vec![
+            windows_managed_log_directory().join("gui.log"),
+            windows_managed_log_directory().join("service.log"),
+        ];
+        if let Some(config) = config {
+            if let Some(sing_box) = config.sing_box {
+                logs.push(sing_box.log_path);
+            }
+            if let Some(native_mitm) = config.native_mitm {
+                logs.push(native_mitm.log_path);
+            }
+        }
+        logs.sort();
+        logs.dedup();
+        for path in logs {
+            report.push_str(&format!("\n--- log: {} ---\n", path.display()));
+            match read_log_tail(&path, 80) {
+                Ok(content) if content.is_empty() => report.push_str("(empty)\n"),
+                Ok(content) => report.push_str(&content),
+                Err(error) => report.push_str(&format!("(unavailable: {error})\n")),
+            }
+        }
+
+        let path = windows_managed_log_directory().join("diagnostics.txt");
+        write_managed_text_atomic(&path, &report).map_err(|error| error.to_string())?;
+        Ok(path)
+    }
+
+    fn read_log_tail(path: &Path, line_limit: usize) -> Result<String, String> {
+        let content = fs::read_to_string(path).map_err(|error| error.to_string())?;
+        let lines = content.lines().collect::<Vec<_>>();
+        let start = lines.len().saturating_sub(line_limit);
+        if start == lines.len() {
+            return Ok(String::new());
+        }
+        Ok(format!("{}\n", lines[start..].join("\n")))
+    }
+
+    fn open_path(path: &Path, description: &str) -> Result<(), String> {
         let verb = wide("open");
-        let path_wide = wide_os(&path);
+        let path = wide_os(path);
         let result = unsafe {
             ShellExecuteW(
                 null_mut(),
                 verb.as_ptr(),
-                path_wide.as_ptr(),
+                path.as_ptr(),
                 null(),
                 null(),
                 SW_SHOWNORMAL,
             )
         } as isize;
         if result <= 32 {
-            return Err(last_error("sing-box log could not be opened"));
+            return Err(last_error(&format!("{description} could not be opened")));
         }
         Ok(())
     }

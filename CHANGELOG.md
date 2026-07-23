@@ -14,6 +14,12 @@
 
 ### Added
 
+- Windows GUI now exposes `Open JSON`, a non-mutating `Validate` action, and
+  `Diagnostics`. Validation uses the same managed JSON parsing and
+  `sing-box check -c` preflight as the service without starting it or changing
+  system state. Diagnostics writes a local status/log-tail report; failed GUI
+  actions create the same report and surface its path. GUI debug activity and
+  explicit sing-box core debug configuration are now documented separately.
 - V2Ray share-link compatibility subset: operator-selected Windows local
   `trojan://`, `vless://`, and `vmess://` profiles, plus catalog-imported
   sing-box outbounds, now retain the explicit TLS, REALITY, uTLS, VLESS Vision,
