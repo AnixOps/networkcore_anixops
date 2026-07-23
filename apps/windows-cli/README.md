@@ -15,8 +15,9 @@ Current boundary:
 
 The CLI command surface includes `help`, `version`, `capabilities`, `status`,
 `diagnostics`, and the explicit EasyTier tunnel lifecycle. Shared parser gates may
-catalog-import Trojan/VLESS/VMess URLs, Clash YAML, sing-box JSON, Surge proxy
-lines, Loon proxy lines, and Quantumult X proxy/server lines in `config-core`.
+catalog-import Trojan/VLESS/VMess/Hysteria2/TUIC URLs, Clash YAML, sing-box JSON,
+Surge proxy lines, Loon proxy lines, and Quantumult X proxy/server lines in
+`config-core`.
 The companion GUI and service activate Windows service control, signed INF
 driver package lifecycle, the MSI installer, `system-proxy-mutation`,
 `system-trust-store-mutation`, managed daemon lifecycle, and the optional
@@ -24,7 +25,9 @@ service-owned sing-box process configured in `managed-config.json`. The service
 validates the native sing-box JSON with `check -c` before starting it and writes
 core stdout/stderr to the configured log. The GUI now explicitly installs the
 verified official Windows core and imports a selected local profile into a
-service-ready config using basic Shadowsocks, Trojan, VLESS, or VMess output.
+service-ready config using basic Shadowsocks, Trojan, VLESS, VMess, Hysteria2,
+or TUIC output. Hysteria2 and TUIC are direct proxy-core QUIC paths and do not
+enable HTTP/3 MITM.
 The CLI itself has no core-install or subscription-run command. The GUI/service
 provide explicit controlled HTTP/1.1 HTTPS MITM with a service-owned CA and
 local sing-box SOCKS upstream. Remote subscription fetch, advanced transport

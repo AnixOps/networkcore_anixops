@@ -6,6 +6,14 @@
 
 ### Added
 
+- Hysteria2/TUIC share-link parser gate: operator-selected Windows local profiles
+  may now import `hysteria2://`/`hy2://` and `tuic://` nodes, including the
+  documented credential, TLS, Hysteria2 port-hopping/obfuscation, and TUIC
+  congestion-control fields. The sing-box adapter renders only those retained
+  fields into direct QUIC proxy outbounds; this does not enable HTTP/3 MITM.
+- Native sing-box JSON catalog import now recognizes Hysteria2 and TUIC
+  outbounds. Direct native JSON GUI import remains pass-through and is never
+  rewritten by this catalog conversion path.
 - Windows GUI can explicitly install the official sing-box Windows core through
   the existing release/digest/extraction adapter, then persist the executable
   path under `%ProgramData%\\AnixOps\\NetworkCore` for the managed service.
@@ -38,7 +46,7 @@
 - Windows documentation and release readiness contract now distinguish the
   explicit GUI core install/profile import path from the MSI's non-bundled,
   non-silent third-party-core boundary. Remote subscription fetch, advanced
-  transport rendering, JavaScript dispatch, HTTP/2, HTTP/3/QUIC, streaming,
+  transport rendering, JavaScript dispatch, HTTP/2, HTTP/3/QUIC MITM, streaming,
   and multi-request CONNECT remain unavailable.
 - Native sing-box JSON remains pass-through for normal import. The only GUI
   MITM mutation is a documented, reversible rewrite of a native

@@ -11,7 +11,7 @@ The crate currently provides source contracts for:
 - Verifying the GitHub release asset `sha256:` digest when present.
 - Extracting only the `sing-box` executable from `.tar.gz` archives into a NetworkCore-owned engine cache.
 - Rendering a deterministic local `mixed` inbound `sing-box` JSON config from a
-  basic Shadowsocks, Trojan, VLESS, or VMess `NodeDescriptor`.
+  basic Shadowsocks, Trojan, VLESS, VMess, Hysteria2, or TUIC `NodeDescriptor`.
 - Recognizing a native sing-box JSON configuration without transforming it and
   locating a local `mixed` or `http` inbound for Windows system-proxy setup.
 - Rewriting only a native `type: mixed`, `tag: mixed-in` listener for the
@@ -35,7 +35,10 @@ The Windows GUI explicitly installs the verified official core and imports an
 operator-selected local profile at the configured `config_path`. A native
 sing-box document with top-level `inbounds` or `outbounds` is retained verbatim,
 including TLS/REALITY/transport/multiplex/route/DNS fields. Other inputs use
-the generated path, which supports basic Shadowsocks, Trojan, VLESS, and VMess
-outbounds; Trojan enables TLS while VLESS and VMess are basic TCP only. The
-wrapper `managed-config.json` only supplies process paths and lifecycle policy;
-it is not itself a sing-box configuration.
+the generated path, which supports basic Shadowsocks, Trojan, VLESS, VMess,
+Hysteria2, and TUIC outbounds. Trojan enables TLS while VLESS and VMess are
+basic TCP only. Hysteria2 and TUIC retain only their explicit catalog metadata:
+credentials, TLS options, Hysteria2 port hopping/obfuscation, and TUIC
+congestion control. They are direct proxy-core QUIC paths, not the GUI HTTPS
+MITM path. The wrapper `managed-config.json` only supplies process paths and
+lifecycle policy; it is not itself a sing-box configuration.

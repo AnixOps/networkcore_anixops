@@ -1,7 +1,13 @@
 use control_domain::{
     Endpoint, MetadataEntry, NodeDescriptor, Protocol, ProxyEngineKind, ProxyEngineService,
-    NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD,
-    NODE_METADATA_TROJAN_PASSWORD, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_UUID,
+    NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE, NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE,
+    NODE_METADATA_HYSTERIA2_OBFS_PASSWORD, NODE_METADATA_HYSTERIA2_OBFS_TYPE,
+    NODE_METADATA_HYSTERIA2_PASSWORD, NODE_METADATA_HYSTERIA2_SERVER_PORTS,
+    NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_TLS_ALPN,
+    NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256, NODE_METADATA_TLS_INSECURE,
+    NODE_METADATA_TLS_SERVER_NAME, NODE_METADATA_TROJAN_PASSWORD,
+    NODE_METADATA_TUIC_CONGESTION_CONTROL, NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID,
+    NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_UUID,
 };
 use engine_singbox::{
     inspect_sing_box_native_config, rewrite_sing_box_mixed_inbound_listener,
@@ -395,6 +401,64 @@ fn renders_basic_trojan_vless_and_vmess_outbounds() {
 }
 
 #[test]
+fn renders_hysteria2_and_tuic_outbounds_with_quic_tls_options() {
+    let hysteria2 =
+        engine_singbox::render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
+            nodes: vec![hysteria2_node()],
+            selected_node_id: None,
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7890,
+        })
+        .expect("hysteria2 node should render to a sing-box config");
+    let hysteria2_json: serde_json::Value =
+        serde_json::from_str(&hysteria2.json).expect("rendered config should be valid json");
+    let hysteria2_outbound = &hysteria2_json["outbounds"][0];
+    assert_eq!(hysteria2_outbound["type"], "hysteria2");
+    assert_eq!(hysteria2_outbound["server"], "hy2.example.test");
+    assert!(hysteria2_outbound["server_port"].is_null());
+    assert_eq!(hysteria2_outbound["server_ports"][0], "3000:3002");
+    assert_eq!(hysteria2_outbound["password"], "hy2-password");
+    assert_eq!(hysteria2_outbound["obfs"]["type"], "gecko");
+    assert_eq!(hysteria2_outbound["obfs"]["password"], "mask");
+    assert_eq!(hysteria2_outbound["obfs"]["min_packet_size"], 512);
+    assert_eq!(hysteria2_outbound["obfs"]["max_packet_size"], 1200);
+    assert_eq!(hysteria2_outbound["tls"]["enabled"], true);
+    assert_eq!(
+        hysteria2_outbound["tls"]["server_name"],
+        "cdn.hy2.example.test"
+    );
+    assert_eq!(hysteria2_outbound["tls"]["insecure"], true);
+    assert_eq!(hysteria2_outbound["tls"]["alpn"][0], "h3");
+    assert_eq!(hysteria2_outbound["tls"]["alpn"][1], "h2");
+    assert_eq!(
+        hysteria2_outbound["tls"]["certificate_public_key_sha256"][0],
+        "pin-A"
+    );
+
+    let tuic =
+        engine_singbox::render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
+            nodes: vec![tuic_node()],
+            selected_node_id: None,
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7890,
+        })
+        .expect("tuic node should render to a sing-box config");
+    let tuic_json: serde_json::Value =
+        serde_json::from_str(&tuic.json).expect("rendered config should be valid json");
+    let tuic_outbound = &tuic_json["outbounds"][0];
+    assert_eq!(tuic_outbound["type"], "tuic");
+    assert_eq!(
+        tuic_outbound["uuid"],
+        "00000000-0000-0000-0000-000000000001"
+    );
+    assert_eq!(tuic_outbound["password"], "tuic-password");
+    assert_eq!(tuic_outbound["congestion_control"], "bbr");
+    assert_eq!(tuic_outbound["tls"]["server_name"], "cdn.tuic.example.test");
+    assert_eq!(tuic_outbound["tls"]["alpn"][0], "h3");
+    assert_eq!(tuic_json["route"]["final"], "tuic-us");
+}
+
+#[test]
 fn blank_node_selection_skips_unsupported_protocols() {
     let unsupported = node_with_metadata(
         "hysteria-us",
@@ -467,6 +531,96 @@ fn vmess_node() -> NodeDescriptor {
         NODE_METADATA_VMESS_UUID,
         "253db8e4-23c9-46bd-81f3-e5a1212177d8",
     )
+}
+
+fn hysteria2_node() -> NodeDescriptor {
+    NodeDescriptor {
+        id: "hysteria2-us".to_string(),
+        name: "Hysteria2 US".to_string(),
+        protocol: Protocol::Hysteria2,
+        endpoint: Endpoint {
+            host: "hy2.example.test".to_string(),
+            port: 3000,
+        },
+        tags: vec!["subscription".to_string(), "hysteria2".to_string()],
+        metadata: vec![
+            MetadataEntry {
+                key: NODE_METADATA_HYSTERIA2_PASSWORD.to_string(),
+                value: "hy2-password".to_string(),
+            },
+            MetadataEntry {
+                key: NODE_METADATA_HYSTERIA2_SERVER_PORTS.to_string(),
+                value: "3000:3002".to_string(),
+            },
+            MetadataEntry {
+                key: NODE_METADATA_HYSTERIA2_OBFS_TYPE.to_string(),
+                value: "gecko".to_string(),
+            },
+            MetadataEntry {
+                key: NODE_METADATA_HYSTERIA2_OBFS_PASSWORD.to_string(),
+                value: "mask".to_string(),
+            },
+            MetadataEntry {
+                key: NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE.to_string(),
+                value: "512".to_string(),
+            },
+            MetadataEntry {
+                key: NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE.to_string(),
+                value: "1200".to_string(),
+            },
+            MetadataEntry {
+                key: NODE_METADATA_TLS_SERVER_NAME.to_string(),
+                value: "cdn.hy2.example.test".to_string(),
+            },
+            MetadataEntry {
+                key: NODE_METADATA_TLS_INSECURE.to_string(),
+                value: "true".to_string(),
+            },
+            MetadataEntry {
+                key: NODE_METADATA_TLS_ALPN.to_string(),
+                value: "h3,h2".to_string(),
+            },
+            MetadataEntry {
+                key: NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256.to_string(),
+                value: "pin-A".to_string(),
+            },
+        ],
+    }
+}
+
+fn tuic_node() -> NodeDescriptor {
+    NodeDescriptor {
+        id: "tuic-us".to_string(),
+        name: "TUIC US".to_string(),
+        protocol: Protocol::Tuic,
+        endpoint: Endpoint {
+            host: "tuic.example.test".to_string(),
+            port: 443,
+        },
+        tags: vec!["subscription".to_string(), "tuic".to_string()],
+        metadata: vec![
+            MetadataEntry {
+                key: NODE_METADATA_TUIC_UUID.to_string(),
+                value: "00000000-0000-0000-0000-000000000001".to_string(),
+            },
+            MetadataEntry {
+                key: NODE_METADATA_TUIC_PASSWORD.to_string(),
+                value: "tuic-password".to_string(),
+            },
+            MetadataEntry {
+                key: NODE_METADATA_TUIC_CONGESTION_CONTROL.to_string(),
+                value: "bbr".to_string(),
+            },
+            MetadataEntry {
+                key: NODE_METADATA_TLS_SERVER_NAME.to_string(),
+                value: "cdn.tuic.example.test".to_string(),
+            },
+            MetadataEntry {
+                key: NODE_METADATA_TLS_ALPN.to_string(),
+                value: "h3".to_string(),
+            },
+        ],
+    }
 }
 
 fn node_with_metadata(

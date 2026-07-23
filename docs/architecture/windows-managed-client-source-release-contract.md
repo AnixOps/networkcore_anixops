@@ -8,7 +8,7 @@ current Windows package.
 ```text
 windows-managed-client-source-release-contract=present
 windows-managed-client-release-state=implementation-active
-windows-managed-client-version-scope=v0.2.0-alpha.7
+windows-managed-client-version-scope=v0.2.0-alpha.8
 WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active
 windows-managed-client-runner=windows-latest
 windows-managed-client-runner-kind=github-hosted
@@ -36,7 +36,8 @@ windows-managed-client-local-profile-import=active
 windows-managed-client-sing-box-native-json-import=active
 windows-managed-client-sing-box-native-json-mitm=controlled-mixed-in-snapshot-restore-active
 windows-managed-client-remote-subscription-fetch=blocked
-windows-managed-client-sing-box-basic-protocols=shadowsocks-trojan-vless-vmess
+windows-managed-client-sing-box-basic-protocols=shadowsocks-trojan-vless-vmess-hysteria2-tuic
+windows-managed-client-sing-box-quic-share-link-import=hysteria2-tuic-local-file-active
 windows-managed-client-sing-box-advanced-transport-rendering=blocked
 windows-managed-client-mitm-data-plane=active
 windows-managed-client-mitm-certificate-lifecycle=active
@@ -71,8 +72,12 @@ routing, DNS, and other sing-box-owned fields are retained. A loopback or
 wildcard `mixed`/`http` inbound is detected to configure the Windows system
 proxy endpoint; a native document without one leaves system-proxy configuration
 unset. Other supported local inputs pass through `CoreSubscriptionService` and
-render the basic Shadowsocks, Trojan, VLESS, and VMess node fields. Trojan
-receives required TLS enablement; VLESS and VMess render basic TCP only.
+render the basic Shadowsocks, Trojan, VLESS, VMess, Hysteria2, and TUIC node
+fields. Trojan receives required TLS enablement; VLESS and VMess render basic
+TCP only. Hysteria2 local `hysteria2://`/`hy2://` inputs retain password,
+supported obfuscation, port hopping, and TLS metadata; TUIC local `tuic://`
+inputs retain UUID, optional password, congestion control, and TLS metadata.
+These generated outbounds are proxy-core QUIC paths, not HTTPS MITM traffic.
 Remote subscription fetching remains blocked. GUI-controlled HTTPS MITM can
 also use a native document only when it contains a `type: mixed`,
 `tag: mixed-in` inbound. The GUI snapshots the original imported JSON below

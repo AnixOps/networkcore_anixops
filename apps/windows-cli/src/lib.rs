@@ -39,7 +39,7 @@ use tunnel_sequence_ledger::NativeWindowsTunnelSequenceLedger;
 pub const COMMAND_NAME: &str = "networkcore-windows";
 pub const PLATFORM_NAME: &str = "windows";
 pub const WINDOWS_CLI_SOURCE_CONTRACT_STATUS: &str = "active";
-pub const WINDOWS_CLI_VERSION_SCOPE: &str = "v0.2.0-alpha.7";
+pub const WINDOWS_CLI_VERSION_SCOPE: &str = "v0.2.0-alpha.8";
 pub const WINDOWS_CLI_SUBSCRIPTION_COMPATIBILITY_STATUS: &str =
     "parser-gates-active-run-compat-deferred";
 

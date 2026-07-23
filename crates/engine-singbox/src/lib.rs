@@ -9,8 +9,14 @@ use control_domain::{
     Diagnostic, DiagnosticSeverity, DomainError, DomainResult, NodeDescriptor, Protocol,
     ProxyEngineCapability, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
     ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
-    NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD,
-    NODE_METADATA_TROJAN_PASSWORD, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_UUID,
+    NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE, NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE,
+    NODE_METADATA_HYSTERIA2_OBFS_PASSWORD, NODE_METADATA_HYSTERIA2_OBFS_TYPE,
+    NODE_METADATA_HYSTERIA2_PASSWORD, NODE_METADATA_HYSTERIA2_SERVER_PORTS,
+    NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_TLS_ALPN,
+    NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256, NODE_METADATA_TLS_INSECURE,
+    NODE_METADATA_TLS_SERVER_NAME, NODE_METADATA_TROJAN_PASSWORD,
+    NODE_METADATA_TUIC_CONGESTION_CONTROL, NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID,
+    NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_UUID,
 };
 use flate2::read::{DeflateDecoder, GzDecoder};
 use reqwest::blocking::Client;
@@ -1063,6 +1069,8 @@ fn render_sing_box_outbound(node: &NodeDescriptor) -> DomainResult<serde_json::V
                 "alter_id": 0,
             }))
         }
+        Protocol::Hysteria2 => render_hysteria2_outbound(node),
+        Protocol::Tuic => render_tuic_outbound(node),
         Protocol::Http | Protocol::Socks | Protocol::Hysteria | Protocol::Other(_) => {
             Err(DomainError::new(
                 ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE,
@@ -1075,6 +1083,136 @@ fn render_sing_box_outbound(node: &NodeDescriptor) -> DomainResult<serde_json::V
     }
 }
 
+fn render_hysteria2_outbound(node: &NodeDescriptor) -> DomainResult<Value> {
+    let password = required_node_metadata(
+        node,
+        NODE_METADATA_HYSTERIA2_PASSWORD,
+        "hysteria2 node is missing password metadata",
+    )?;
+    let mut outbound = json!({
+        "type": "hysteria2",
+        "tag": node.id.as_str(),
+        "server": node.endpoint.host.as_str(),
+        "server_port": node.endpoint.port,
+        "password": password,
+        "tls": render_quic_tls(node)?,
+    });
+    if let Some(server_ports) =
+        optional_node_metadata_list(node, NODE_METADATA_HYSTERIA2_SERVER_PORTS)
+    {
+        let fields = outbound
+            .as_object_mut()
+            .expect("hysteria2 outbound must be a JSON object");
+        fields.remove("server_port");
+        fields.insert("server_ports".to_string(), json!(server_ports));
+    }
+    if let Some(kind) = metadata_value(node, NODE_METADATA_HYSTERIA2_OBFS_TYPE) {
+        let password = required_node_metadata(
+            node,
+            NODE_METADATA_HYSTERIA2_OBFS_PASSWORD,
+            "hysteria2 obfs metadata is missing password",
+        )?;
+        let mut obfs = json!({
+            "type": kind,
+            "password": password,
+        });
+        match kind {
+            "salamander" => {}
+            "gecko" => {
+                if let Some(value) = optional_positive_u64_node_metadata(
+                    node,
+                    NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE,
+                    "hysteria2 gecko min_packet_size metadata must be a positive integer",
+                )? {
+                    obfs.as_object_mut()
+                        .expect("hysteria2 obfs must be a JSON object")
+                        .insert("min_packet_size".to_string(), json!(value));
+                }
+                if let Some(value) = optional_positive_u64_node_metadata(
+                    node,
+                    NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE,
+                    "hysteria2 gecko max_packet_size metadata must be a positive integer",
+                )? {
+                    obfs.as_object_mut()
+                        .expect("hysteria2 obfs must be a JSON object")
+                        .insert("max_packet_size".to_string(), json!(value));
+                }
+            }
+            _ => {
+                return Err(DomainError::new(
+                    ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE,
+                    "hysteria2 obfs metadata type must be salamander or gecko",
+                ));
+            }
+        }
+        outbound
+            .as_object_mut()
+            .expect("hysteria2 outbound must be a JSON object")
+            .insert("obfs".to_string(), obfs);
+    }
+    Ok(outbound)
+}
+
+fn render_tuic_outbound(node: &NodeDescriptor) -> DomainResult<Value> {
+    let uuid = required_node_metadata(
+        node,
+        NODE_METADATA_TUIC_UUID,
+        "tuic node is missing uuid metadata",
+    )?;
+    let mut outbound = json!({
+        "type": "tuic",
+        "tag": node.id.as_str(),
+        "server": node.endpoint.host.as_str(),
+        "server_port": node.endpoint.port,
+        "uuid": uuid,
+        "tls": render_quic_tls(node)?,
+    });
+    let fields = outbound
+        .as_object_mut()
+        .expect("tuic outbound must be a JSON object");
+    if let Some(password) = metadata_value(node, NODE_METADATA_TUIC_PASSWORD) {
+        if !password.trim().is_empty() {
+            fields.insert("password".to_string(), json!(password));
+        }
+    }
+    if let Some(congestion_control) = metadata_value(node, NODE_METADATA_TUIC_CONGESTION_CONTROL) {
+        if !congestion_control.trim().is_empty() {
+            fields.insert("congestion_control".to_string(), json!(congestion_control));
+        }
+    }
+    Ok(outbound)
+}
+
+fn render_quic_tls(node: &NodeDescriptor) -> DomainResult<Value> {
+    let server_name = metadata_value(node, NODE_METADATA_TLS_SERVER_NAME)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(node.endpoint.host.as_str());
+    let insecure = optional_boolean_node_metadata(
+        node,
+        NODE_METADATA_TLS_INSECURE,
+        "tls insecure metadata must be true or false",
+    )?
+    .unwrap_or(false);
+    let mut tls = json!({
+        "enabled": true,
+        "server_name": server_name,
+        "insecure": insecure,
+    });
+    if let Some(alpn) = optional_node_metadata_list(node, NODE_METADATA_TLS_ALPN) {
+        tls.as_object_mut()
+            .expect("tls configuration must be a JSON object")
+            .insert("alpn".to_string(), json!(alpn));
+    }
+    if let Some(pins) =
+        optional_node_metadata_list(node, NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256)
+    {
+        tls.as_object_mut()
+            .expect("tls configuration must be a JSON object")
+            .insert("certificate_public_key_sha256".to_string(), json!(pins));
+    }
+    Ok(tls)
+}
+
 fn required_node_metadata<'a>(
     node: &'a NodeDescriptor,
     key: &str,
@@ -1082,6 +1220,54 @@ fn required_node_metadata<'a>(
 ) -> DomainResult<&'a str> {
     metadata_value(node, key)
         .ok_or_else(|| DomainError::new(ENGINE_SINGBOX_CONFIG_SECRET_MISSING_CODE, message))
+}
+
+fn optional_node_metadata_list(node: &NodeDescriptor, key: &str) -> Option<Vec<&str>> {
+    let values = metadata_value(node, key)?
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    (!values.is_empty()).then_some(values)
+}
+
+fn optional_boolean_node_metadata(
+    node: &NodeDescriptor,
+    key: &str,
+    message: &'static str,
+) -> DomainResult<Option<bool>> {
+    let Some(value) = metadata_value(node, key) else {
+        return Ok(None);
+    };
+    match value.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" => Ok(Some(true)),
+        "false" | "0" | "" => Ok(Some(false)),
+        _ => Err(DomainError::new(
+            ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE,
+            message,
+        )),
+    }
+}
+
+fn optional_positive_u64_node_metadata(
+    node: &NodeDescriptor,
+    key: &str,
+    message: &'static str,
+) -> DomainResult<Option<u64>> {
+    let Some(value) = metadata_value(node, key) else {
+        return Ok(None);
+    };
+    let value = value
+        .trim()
+        .parse::<u64>()
+        .map_err(|_| DomainError::new(ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE, message))?;
+    if value == 0 {
+        return Err(DomainError::new(
+            ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE,
+            message,
+        ));
+    }
+    Ok(Some(value))
 }
 
 pub fn default_sing_box_install_root() -> PathBuf {
@@ -1157,7 +1343,12 @@ fn select_node<'a>(
 fn supports_local_proxy_protocol(protocol: &Protocol) -> bool {
     matches!(
         protocol,
-        Protocol::Shadowsocks | Protocol::Trojan | Protocol::Vless | Protocol::Vmess
+        Protocol::Shadowsocks
+            | Protocol::Trojan
+            | Protocol::Vless
+            | Protocol::Vmess
+            | Protocol::Hysteria2
+            | Protocol::Tuic
     )
 }
 

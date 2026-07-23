@@ -24,8 +24,12 @@ an Administrator terminal before deleting the extracted directory:
   networkcore-windows-service.exe purge
   networkcore-windows-service.exe uninstall
 
-The profile importer renders basic Shadowsocks, Trojan, VLESS, and VMess nodes.
-Trojan enables TLS; VLESS and VMess are basic TCP only. A native sing-box JSON
+The profile importer renders basic Shadowsocks, Trojan, VLESS, VMess, Hysteria2,
+and TUIC nodes. Trojan enables TLS; VLESS and VMess are basic TCP only.
+Hysteria2 local hysteria2:// or hy2:// links retain supported password, port
+hopping, obfuscation, and TLS fields. TUIC local tuic:// links retain UUID,
+optional password, congestion control, and TLS fields. These QUIC core paths
+are not HTTP/1.1 HTTPS MITM traffic. A native sing-box JSON
 file with top-level inbounds or outbounds is instead copied unchanged, so
 TLS/REALITY/WebSocket/gRPC/multiplex/DNS/route fields are preserved. Use the
 basic profile path or a native config with type "mixed" and tag "mixed-in" for

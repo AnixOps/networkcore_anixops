@@ -83,6 +83,22 @@ render the basic Trojan, VLESS, and VMess node fields through the shared
 adapter, but it does not carry query, transport, or TLS details into the
 generated config.
 
+`v0.2.0-alpha.8` extends the Windows local-profile import path with the current
+sing-box/v2rayN QUIC share-link subset. Hysteria2 and TUIC may be imported as
+local-file share-link parser gates. `hysteria2://` and `hy2://` links are
+normalized as `Protocol::Hysteria2`; they retain the password, optional
+`mport` port-hopping range, `sni`, `alpn`, certificate public-key pin,
+`insecure`, and `salamander` or `gecko` obfuscation fields. Gecko packet-size
+fields are retained when present. `tuic://` links are normalized as
+`Protocol::Tuic`; they retain UUID, optional password, `sni`, `alpn`,
+`allowInsecure`/`insecure`, and the current `cubic`, `new_reno`, or `bbr`
+congestion-control values. These inputs use stable Hysteria2/TUIC and generic
+TLS metadata plus `NODE_METADATA_SOURCE_FORMAT=hysteria2-url` or `tuic-url`.
+The shared sing-box adapter renders a TLS-enabled outbound for the selected
+node. Linux `run-url` remains Shadowsocks-only, and share-link parsing does
+not enable remote fetch, TUN, DNS, firewall, transparent capture, or QUIC
+MITM.
+
 Clash YAML may be imported as a catalog-only parser gate when the payload has a
 top-level `proxies` list. The initial supported proxy subset reads only
 `name`, `type`, `server`, `port`, `cipher`, `password`, and `uuid`; it accepts
@@ -100,21 +116,27 @@ import, but unsupported transport and TLS fields remain absent from generated
 config.
 
 sing-box JSON may be imported as a catalog-only parser gate when the payload
-has a top-level `outbounds` list. The initial supported outbound subset reads
-only `type`, `tag`, `server`, `server_port`, `method`, `password`, and `uuid`;
-it accepts `shadowsocks`/`ss`, `trojan`, `vless`, and `vmess` outbound types and
-maps them to the corresponding `Protocol` plus the same per-protocol metadata
-used by URL imports. Non-proxy orchestration outbounds such as `direct`,
+has a top-level `outbounds` list. The supported outbound subset reads `type`,
+`tag`, `server`, `server_port`, `method`, `password`, and `uuid`; it accepts
+`shadowsocks`/`ss`, `trojan`, `vless`, `vmess`, `hysteria2`, and `tuic`
+outbound types and maps them to the corresponding `Protocol` plus the same
+per-protocol metadata used by URL imports. Hysteria2 additionally reads
+`server_ports`, `obfs`, and the retained TLS subset; TUIC additionally reads
+`congestion_control` and the retained TLS subset. A Hysteria2 `server_ports`
+range provides the normalized node endpoint from its first range boundary and
+is rendered back as `server_ports`, not as a conflicting `server_port`.
+Non-proxy orchestration outbounds such as `direct`,
 `block`, `dns`, `selector`, and `urltest` are ignored. Imported sing-box nodes
 must include `NODE_METADATA_SOURCE_FORMAT=sing-box-json`; unsupported sing-box
 proxy outbounds must fail with `subscription.core.sing_box_json_unsupported`,
 and malformed supported outbounds must fail with
 `subscription.core.sing_box_json_invalid` without echoing raw subscription
-content or secrets. sing-box TLS, transport, multiplex, route, DNS, inbound,
-experimental, and adapter rendering fields remain deferred. This does not make
-Linux `run-url` render or run sing-box JSON. The Windows GUI may consume basic
-supported outbound nodes through local-profile import, but does not preserve
-sing-box TLS, transport, multiplex, route, DNS, or inbound settings.
+content or secrets. For catalog conversion, only the documented Hysteria2/TUIC
+TLS and QUIC metadata subset is retained; other sing-box TLS, transport,
+multiplex, route, DNS, inbound, experimental, and adapter fields remain
+deferred. This does not make Linux `run-url` render or run sing-box JSON. A
+native sing-box JSON document selected in the Windows GUI still bypasses this
+catalog converter and is copied unchanged.
 
 Surge proxy line may be imported as a catalog-only parser gate when the payload
 has a `[Proxy]` section. The initial supported line subset reads
@@ -166,7 +188,7 @@ subscription fetching, and adapter rendering remain deferred. This does not
 make Linux `run-url` render or run Quantumult X. The Windows GUI can use the
 basic normalized node through local-profile import only.
 
-Hysteria and other non-listed formats remain follow-up formats.
+Hysteria v1 and other non-listed formats remain follow-up formats.
 They must still enter through `SubscriptionService` and `NodeCatalog`, not
 through platform-specific parsers.
 
@@ -176,12 +198,17 @@ The `engine-singbox` crate owns deterministic `NodeCatalog` to `sing-box` JSON
 translation. The renderer must produce:
 
 - a `mixed` inbound on the requested local host and port;
-- a basic Shadowsocks, Trojan, VLESS, or VMess outbound from the selected node;
+- a basic Shadowsocks, Trojan, VLESS, VMess, Hysteria2, or TUIC outbound from
+  the selected node;
 - a `direct` outbound;
 - a route `final` pointing at the selected node tag.
 
 Trojan uses a TLS block with its server name. VLESS and VMess use basic TCP
-fields only. The renderer must reject unsupported protocols and must not invent
+fields only. Hysteria2 and TUIC use a TLS-enabled outbound and only render the
+metadata explicitly retained by their parser gate: Hysteria2 password, optional
+port-hopping range and obfuscation; TUIC UUID, optional password, and optional
+congestion control; both share SNI, ALPN, certificate pin, and insecure TLS
+metadata. The renderer must reject unsupported protocols and must not invent
 TLS/REALITY/transport/multiplex/route/DNS settings that the NodeCatalog did not
 retain.
 
@@ -243,7 +270,10 @@ Local machines must not run build, test, package, or release validation. GitHub
 Actions must verify:
 
 - `control-domain` metadata fields for per-protocol node parameters;
-- `config-core` parsing for `ss://`, `trojan://`, `vless://`, `vmess://`, Clash YAML `proxies`, sing-box JSON `outbounds`, Surge `[Proxy]` lines, Loon `[Proxy]` lines, plaintext link list, and base64 link list;
+- `config-core` parsing for `ss://`, `trojan://`, `vless://`, `vmess://`,
+  `hysteria2://`/`hy2://`, `tuic://`, Clash YAML `proxies`, sing-box JSON
+  `outbounds`, Surge `[Proxy]` lines, Loon `[Proxy]` lines, plaintext link
+  list, and base64 link list;
 - `engine-singbox` deterministic local proxy config rendering;
 - `networkcore-linux run-url` parsing, response fields, config writing, and
   injected process runner behavior;

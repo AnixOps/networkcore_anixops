@@ -99,6 +99,20 @@ pub const NODE_METADATA_SHADOWSOCKS_PASSWORD: &str = "shadowsocks.password";
 pub const NODE_METADATA_TROJAN_PASSWORD: &str = "trojan.password";
 pub const NODE_METADATA_VLESS_UUID: &str = "vless.uuid";
 pub const NODE_METADATA_VMESS_UUID: &str = "vmess.uuid";
+pub const NODE_METADATA_HYSTERIA2_PASSWORD: &str = "hysteria2.password";
+pub const NODE_METADATA_HYSTERIA2_SERVER_PORTS: &str = "hysteria2.server_ports";
+pub const NODE_METADATA_HYSTERIA2_OBFS_TYPE: &str = "hysteria2.obfs.type";
+pub const NODE_METADATA_HYSTERIA2_OBFS_PASSWORD: &str = "hysteria2.obfs.password";
+pub const NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE: &str = "hysteria2.obfs.min_packet_size";
+pub const NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE: &str = "hysteria2.obfs.max_packet_size";
+pub const NODE_METADATA_TUIC_UUID: &str = "tuic.uuid";
+pub const NODE_METADATA_TUIC_PASSWORD: &str = "tuic.password";
+pub const NODE_METADATA_TUIC_CONGESTION_CONTROL: &str = "tuic.congestion_control";
+pub const NODE_METADATA_TLS_SERVER_NAME: &str = "tls.server_name";
+pub const NODE_METADATA_TLS_INSECURE: &str = "tls.insecure";
+pub const NODE_METADATA_TLS_ALPN: &str = "tls.alpn";
+pub const NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256: &str =
+    "tls.certificate_public_key_sha256";
 pub const NODE_METADATA_SOURCE_FORMAT: &str = "subscription.source_format";
 
 /// Operating system capability target.
@@ -321,6 +335,8 @@ pub enum Protocol {
     Vless,
     Trojan,
     Hysteria,
+    Hysteria2,
+    Tuic,
     Other(String),
 }
 

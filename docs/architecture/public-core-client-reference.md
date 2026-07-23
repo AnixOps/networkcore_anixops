@@ -56,7 +56,10 @@
 当前实现映射：
 
 - NetworkCore 的 `config-core` `NodeCatalog` 已由 GUI 的显式本地 profile import
-  消费，生成基础 Shadowsocks、Trojan、VLESS 和 VMess sing-box outbounds。
+  消费，生成基础 Shadowsocks、Trojan、VLESS、VMess、Hysteria2 和 TUIC sing-box
+  outbounds。Hysteria2/TUIC 分享链接保留可生成 core 配置的密码/UUID、TLS 和
+  对应 QUIC 元数据；其他 transport、selector、测速、订阅、DNS 和路由模型仍
+  不能从分享链接推断。
 - Windows GUI 读取 managed state，显示 service 与 sing-box PID/退出码；日志
   位于 `%ProgramData%\\AnixOps\\NetworkCore\\logs`。
 - Trojan 强制启用 TLS；VLESS/VMess 只生成基础 TCP。REALITY、WebSocket、gRPC、

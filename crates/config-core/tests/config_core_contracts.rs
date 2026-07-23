@@ -12,8 +12,14 @@ use config_core::{
 use control_domain::{
     ConfigurationService, Diagnostic, ListenerKind, ListenerNetwork, ListenerRoute, MetadataEntry,
     OperatingSystem, PlatformCapabilities, Protocol, RawSubscription, RouteAction, SchemaVersion,
-    SubscriptionService, SubscriptionSource, NODE_METADATA_SHADOWSOCKS_METHOD,
-    NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SOURCE_FORMAT, NODE_METADATA_TROJAN_PASSWORD,
+    SubscriptionService, SubscriptionSource, NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE,
+    NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE, NODE_METADATA_HYSTERIA2_OBFS_PASSWORD,
+    NODE_METADATA_HYSTERIA2_OBFS_TYPE, NODE_METADATA_HYSTERIA2_PASSWORD,
+    NODE_METADATA_HYSTERIA2_SERVER_PORTS, NODE_METADATA_SHADOWSOCKS_METHOD,
+    NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SOURCE_FORMAT, NODE_METADATA_TLS_ALPN,
+    NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256, NODE_METADATA_TLS_INSECURE,
+    NODE_METADATA_TLS_SERVER_NAME, NODE_METADATA_TROJAN_PASSWORD,
+    NODE_METADATA_TUIC_CONGESTION_CONTROL, NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID,
     NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_UUID,
 };
 
@@ -400,6 +406,197 @@ fn parses_sing_box_json_subscription_into_node_catalog() {
 }
 
 #[test]
+fn parses_hysteria2_and_tuic_share_links_with_quic_tls_options() {
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "quic-share-links".to_string(),
+        content: concat!(
+            "hysteria2://hy2%2Dpassword@edge.example.test:443?mport=2000-2002&sni=cdn.example.test&alpn=h3%2Ch2&insecure=1&pinSHA256=pin-A&obfs=gecko&obfs-password=mask&minPacketSize=512&maxPacketSize=1200#Hysteria%202\n",
+            "tuic://00000000-0000-0000-0000-000000000001:tuic%2Dpassword@tuic.example.test:443?sni=cdn.tuic.example.test&alpn=h3&allowInsecure=1&congestion_control=bbr#TUIC%20Node"
+        )
+        .to_string(),
+    };
+
+    let document = service
+        .parse(&raw)
+        .expect("Hysteria2 and TUIC share links should parse");
+    let catalog = service
+        .normalize(&document)
+        .expect("QUIC share link document should normalize");
+
+    assert_eq!(catalog.nodes.len(), 2);
+    let hysteria2 = &catalog.nodes[0];
+    assert_eq!(hysteria2.id, "hysteria2-edge-example-test-443");
+    assert_eq!(hysteria2.name, "Hysteria 2");
+    assert_eq!(hysteria2.protocol, Protocol::Hysteria2);
+    assert_eq!(hysteria2.endpoint.host, "edge.example.test");
+    assert_eq!(hysteria2.endpoint.port, 443);
+    assert_eq!(
+        hysteria2.tags,
+        vec!["subscription".to_string(), "hysteria2".to_string()]
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_HYSTERIA2_PASSWORD,
+        "hy2-password",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_HYSTERIA2_SERVER_PORTS,
+        "2000:2002",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_HYSTERIA2_OBFS_TYPE,
+        "gecko",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_HYSTERIA2_OBFS_PASSWORD,
+        "mask",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE,
+        "512",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE,
+        "1200",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_TLS_SERVER_NAME,
+        "cdn.example.test",
+    );
+    assert_metadata(&hysteria2.metadata, NODE_METADATA_TLS_INSECURE, "true");
+    assert_metadata(&hysteria2.metadata, NODE_METADATA_TLS_ALPN, "h3,h2");
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256,
+        "pin-A",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_SOURCE_FORMAT,
+        "hysteria2-url",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        "subscription.source_id",
+        "quic-share-links",
+    );
+
+    let tuic = &catalog.nodes[1];
+    assert_eq!(tuic.id, "tuic-tuic-example-test-443");
+    assert_eq!(tuic.name, "TUIC Node");
+    assert_eq!(tuic.protocol, Protocol::Tuic);
+    assert_metadata(
+        &tuic.metadata,
+        NODE_METADATA_TUIC_UUID,
+        "00000000-0000-0000-0000-000000000001",
+    );
+    assert_metadata(&tuic.metadata, NODE_METADATA_TUIC_PASSWORD, "tuic-password");
+    assert_metadata(&tuic.metadata, NODE_METADATA_TUIC_CONGESTION_CONTROL, "bbr");
+    assert_metadata(
+        &tuic.metadata,
+        NODE_METADATA_TLS_SERVER_NAME,
+        "cdn.tuic.example.test",
+    );
+    assert_metadata(&tuic.metadata, NODE_METADATA_TLS_INSECURE, "true");
+    assert_metadata(&tuic.metadata, NODE_METADATA_TLS_ALPN, "h3");
+    assert_metadata(&tuic.metadata, NODE_METADATA_SOURCE_FORMAT, "tuic-url");
+    assert_metadata(&tuic.metadata, "subscription.source_id", "quic-share-links");
+}
+
+#[test]
+fn parses_hysteria2_and_tuic_sing_box_outbounds_into_node_catalog() {
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "sing-box-quic".to_string(),
+        content: r#"
+{
+  "outbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "Hysteria2 JSON",
+      "server": "hy2.example.test",
+      "server_ports": ["3000:3002"],
+      "password": "hy2-password",
+      "obfs": {
+        "type": "gecko",
+        "password": "mask",
+        "min_packet_size": 512,
+        "max_packet_size": 1200
+      },
+      "tls": {
+        "server_name": "cdn.hy2.example.test",
+        "insecure": true,
+        "alpn": ["h3", "h2"],
+        "certificate_public_key_sha256": ["pin-A"]
+      }
+    },
+    {
+      "type": "tuic",
+      "tag": "TUIC JSON",
+      "server": "tuic.example.test",
+      "server_port": 443,
+      "uuid": "00000000-0000-0000-0000-000000000002",
+      "password": "tuic-password",
+      "congestion_control": "bbr",
+      "tls": {
+        "server_name": "cdn.tuic.example.test",
+        "alpn": "h3"
+      }
+    }
+  ]
+}
+"#
+        .to_string(),
+    };
+
+    let document = service
+        .parse(&raw)
+        .expect("sing-box QUIC outbounds should parse");
+    let catalog = service
+        .normalize(&document)
+        .expect("sing-box QUIC document should normalize");
+
+    assert_eq!(catalog.nodes.len(), 2);
+    let hysteria2 = &catalog.nodes[0];
+    assert_eq!(hysteria2.id, "sing-box-hysteria2-hysteria2-json");
+    assert_eq!(hysteria2.endpoint.port, 3000);
+    assert_eq!(hysteria2.protocol, Protocol::Hysteria2);
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_HYSTERIA2_SERVER_PORTS,
+        "3000:3002",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256,
+        "pin-A",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        "subscription.source_id",
+        "sing-box-quic",
+    );
+
+    let tuic = &catalog.nodes[1];
+    assert_eq!(tuic.id, "sing-box-tuic-tuic-json");
+    assert_eq!(tuic.protocol, Protocol::Tuic);
+    assert_metadata(
+        &tuic.metadata,
+        NODE_METADATA_TUIC_UUID,
+        "00000000-0000-0000-0000-000000000002",
+    );
+    assert_metadata(&tuic.metadata, NODE_METADATA_TUIC_CONGESTION_CONTROL, "bbr");
+    assert_metadata(&tuic.metadata, NODE_METADATA_TLS_INSECURE, "false");
+}
+
+#[test]
 fn parses_quantumult_x_proxy_line_subscription_into_node_catalog() {
     let service = CoreSubscriptionService::new();
     let raw = RawSubscription {
@@ -588,7 +785,7 @@ fn unsupported_proxy_link_returns_stable_subscription_diagnostic() {
     let service = CoreSubscriptionService::new();
     let raw = RawSubscription {
         source_id: "unsupported".to_string(),
-        content: "tuic://example".to_string(),
+        content: "wireguard://example".to_string(),
     };
 
     let error = service

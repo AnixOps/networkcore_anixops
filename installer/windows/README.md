@@ -82,11 +82,16 @@ at `127.0.0.1:7890`, service working directory, and core log path. A blank Node
 ID selects the first supported node.
 
 The local profile may use the existing supported NodeCatalog inputs, including
-an `ss://`, `trojan://`, `vless://`, or `vmess://` node, a supported Clash YAML
-`proxies` list, supported sing-box JSON `outbounds`, or supported Surge, Loon,
-or Quantumult X proxy lines. Link/catalog inputs render basic Shadowsocks,
-Trojan, VLESS, and VMess outbounds. Trojan enables TLS; VLESS and VMess are
-basic TCP only. A native sing-box JSON document with top-level `inbounds` or
+an `ss://`, `trojan://`, `vless://`, `vmess://`, `hysteria2://`/`hy2://`, or
+`tuic://` node, a supported Clash YAML `proxies` list, supported sing-box JSON
+`outbounds`, or supported Surge, Loon, or Quantumult X proxy lines.
+Link/catalog inputs render basic Shadowsocks, Trojan, VLESS, VMess, Hysteria2,
+and TUIC outbounds. Trojan enables TLS; VLESS and VMess are basic TCP only.
+Hysteria2 retains the supported password, port-hopping, obfuscation, and TLS
+share-link fields; TUIC retains UUID, optional password, congestion control,
+and TLS share-link fields. The generated Hysteria2/TUIC paths are core proxy
+traffic and are not intercepted by the HTTP/1.1 HTTPS MITM listener. A native
+sing-box JSON document with top-level `inbounds` or
 `outbounds` instead bypasses that renderer and is copied unchanged to the
 managed `config.json`, preserving TLS/REALITY/WebSocket/gRPC/multiplex/DNS/
 route fields. When the native document has a local or wildcard `mixed`/`http`
