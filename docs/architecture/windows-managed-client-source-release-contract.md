@@ -8,7 +8,7 @@ current Windows package.
 ```text
 windows-managed-client-source-release-contract=present
 windows-managed-client-release-state=implementation-active
-windows-managed-client-version-scope=v0.2.0-alpha.17
+windows-managed-client-version-scope=v0.2.0-alpha.18
 WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active
 windows-managed-client-runner=windows-latest
 windows-managed-client-runner-kind=github-hosted
@@ -29,6 +29,7 @@ windows-managed-client-msi-service-start=asynchronous-on-install
 windows-managed-client-service-start-handoff=immediate-scm-running-then-managed-runtime
 windows-managed-client-diagnostics=gui-config-preflight-and-local-report-active
 windows-managed-client-system-proxy-mutation=active
+windows-managed-client-system-proxy-lifecycle=service-owned-runtime-snapshot-active
 windows-managed-client-trust-store-mutation=active
 windows-managed-client-managed-lifecycle=active
 windows-managed-client-sing-box-managed-process=active

@@ -9,9 +9,10 @@ AnixOps NetworkCore Windows portable package
 4. Enter a local profile file path or HTTP(S) subscription URL, click Load nodes,
    choose a node, then click Import profile. A blank selector uses the first
    supported node. After installing and starting the service, Load nodes can be
-   used again with Test delay to make one selected-node measurement through an
-   editable HTTPS Delay URL, then Switch active to make an explicit runtime node
-   change. The generated selector uses only the local 127.0.0.1:9091 Clash API
+   used again with Check core to confirm the active generated outbound, then
+   Test delay to make one selected-node measurement through an editable HTTPS
+   Delay URL, then Switch active to make an explicit runtime node change. The
+   generated selector uses only the local 127.0.0.1:9091 Clash API
    controller; it has no LAN listener, Web UI, automatic latency selection,
    background update, or automatic restart. Native sing-box JSON stays pass-through. After a successful
    URL import, Update URL explicitly refreshes that saved address; it does not
@@ -27,6 +28,10 @@ SHA-256 and manifest files.
 Managed configuration, state, and logs are stored under:
 
   %ProgramData%\AnixOps\NetworkCore
+
+Start and Restart only request the Windows service. The service owns the managed
+system-proxy snapshot and restores it if runtime setup fails or the service
+stops. Enable proxy and Restore proxy remain separate manual GUI actions.
 
 To remove a service installed from the portable package, run this command from
 an Administrator terminal before deleting the extracted directory:

@@ -1153,11 +1153,10 @@ mod gui {
     }
 
     fn start_service(state: &mut AppState) -> Result<(), String> {
-        apply_user_proxy_from_config(state)?;
-        if let Err(error) = state.integration.start_service() {
-            let _ = restore_proxy(state);
-            return Err(error.to_string());
-        }
+        state
+            .integration
+            .start_service()
+            .map_err(|error| error.to_string())?;
         Ok(())
     }
 
@@ -1175,7 +1174,6 @@ mod gui {
             .stop_service()
             .map_err(|error| error.to_string())?;
         restore_proxy(state)?;
-        apply_user_proxy_from_config(state)?;
         state
             .integration
             .start_service()
@@ -1880,23 +1878,6 @@ mod gui {
             sing_box: None,
             native_mitm: None,
         })
-    }
-
-    fn apply_user_proxy_from_config(state: &mut AppState) -> Result<(), String> {
-        let config = read_managed_config(&windows_managed_config_path())
-            .map_err(|error| error.to_string())?;
-        if let Some(proxy) = config.system_proxy {
-            if state.desktop.proxy_snapshot.is_none() {
-                state.desktop.proxy_snapshot = Some(
-                    state
-                        .integration
-                        .apply_system_proxy(&proxy)
-                        .map_err(|error| error.to_string())?,
-                );
-                save_desktop_state(&state.desktop)?;
-            }
-        }
-        Ok(())
     }
 
     fn enable_proxy(state: &mut AppState) -> Result<(), String> {

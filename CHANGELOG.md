@@ -6,6 +6,10 @@
 
 ### Fixed
 
+- Windows GUI `Start` and `Restart` no longer apply managed system-proxy
+  settings before the SCM request. The service remains the single owner of the
+  managed runtime proxy snapshot, so an asynchronous core startup failure rolls
+  back the actual pre-service settings instead of a GUI-preapplied proxy.
 - Windows service startup now completes the SCM `Running` handshake before
   applying managed runtime configuration. GUI/CLI `start` returns the immediate
   observed SCM state instead of waiting up to 30 seconds for runtime readiness;

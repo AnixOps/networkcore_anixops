@@ -32,6 +32,10 @@ it applies managed configuration, and GUI/CLI start commands return the
 immediately observed SCM state instead of waiting for the runtime. An invalid
 previous configuration therefore cannot leave the installer or Start action
 stuck; the service returns to `Stopped` and records the error in `service.log`.
+GUI `Start` and `Restart` do not pre-apply `system_proxy`; the service captures
+and owns the managed runtime proxy snapshot so a later core failure rolls back
+to the actual pre-service settings. The manual GUI `Enable proxy` and `Restore
+proxy` actions remain separate from that service-owned lifecycle.
 The shipped `managed-config.json` deliberately contains only `null` values.
 That default is safe and does not change the system proxy, certificate store,
 driver state, or tunnel. Edit this file as Administrator:

@@ -424,7 +424,7 @@ jobs:
           contract=docs/architecture/windows-managed-client-source-release-contract.md
           grep -q '^windows-managed-client-source-release-contract=present$' "${contract}"
           grep -q '^windows-managed-client-release-state=implementation-active$' "${contract}"
-          grep -q '^windows-managed-client-version-scope=v0.2.0-alpha.17$' "${contract}"
+          grep -q '^windows-managed-client-version-scope=v0.2.0-alpha.18$' "${contract}"
           grep -q '^WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active$' "${contract}"
           grep -q '^windows-managed-client-runner=windows-latest$' "${contract}"
           grep -q '^windows-managed-client-target-triple=x86_64-pc-windows-gnu$' "${contract}"
@@ -455,6 +455,7 @@ jobs:
           grep -q '^windows-managed-client-sing-box-clash-api=loopback-explicit-switch-active$' "${contract}"
           grep -q '^windows-managed-client-sing-box-manual-delay-test=loopback-explicit-single-node-https-active$' "${contract}"
           grep -q '^windows-managed-client-sing-box-runtime-health=loopback-explicit-selector-read-active$' "${contract}"
+          grep -q '^windows-managed-client-system-proxy-lifecycle=service-owned-runtime-snapshot-active$' "${contract}"
           grep -q '^windows-managed-client-sing-box-urltest=blocked$' "${contract}"
           grep -q '^windows-managed-client-sing-box-basic-protocols=shadowsocks-trojan-vless-vmess-hysteria2-tuic$' "${contract}"
           grep -q '^windows-managed-client-sing-box-quic-share-link-import=hysteria2-tuic-local-file-active$' "${contract}"
