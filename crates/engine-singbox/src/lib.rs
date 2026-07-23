@@ -1207,8 +1207,10 @@ pub fn read_sing_box_clash_api_selector(
         .map_err(|_| sing_box_clash_api_error("sing-box selector could not be read"))?
         .error_for_status()
         .map_err(|_| sing_box_clash_api_error("sing-box selector could not be read"))?;
-    let payload: SingBoxClashApiSelectorResponse = response
-        .json()
+    let response = response
+        .text()
+        .map_err(|_| sing_box_clash_api_error("sing-box selector response could not be read"))?;
+    let payload: SingBoxClashApiSelectorResponse = serde_json::from_str(&response)
         .map_err(|_| sing_box_clash_api_error("sing-box selector response was invalid"))?;
     let current_outbound_tag = payload.now.ok_or_else(|| {
         sing_box_clash_api_error("sing-box selector response did not include the active outbound")
@@ -1234,9 +1236,12 @@ pub fn select_sing_box_clash_api_outbound(
     validate_loopback_controller(controller)?;
     let url = sing_box_clash_api_selector_url(controller)?;
     let client = sing_box_clash_api_client()?;
+    let request_body = serde_json::to_string(&json!({ "name": outbound_tag }))
+        .map_err(|_| sing_box_clash_api_error("sing-box selector request could not be encoded"))?;
     client
         .patch(url)
-        .json(&json!({ "name": outbound_tag }))
+        .header("Content-Type", "application/json")
+        .body(request_body)
         .send()
         .map_err(|_| sing_box_clash_api_error("sing-box selector could not be updated"))?
         .error_for_status()
