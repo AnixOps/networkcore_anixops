@@ -11,8 +11,9 @@ use engine_singbox::{
     ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE,
     ENGINE_SINGBOX_DOWNLOAD_LATEST_VERSION_RESOLVED_CODE,
 };
-use flate2::{write::GzEncoder, Compression};
+use flate2::{write::DeflateEncoder, write::GzEncoder, Compression};
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use tar::{Builder, Header};
 
@@ -279,38 +280,42 @@ fn sing_box_tarball() -> Vec<u8> {
 fn sing_box_zip() -> Vec<u8> {
     let content = b"fake-windows-sing-box";
     let name = b"sing-box-1.2.3-windows-amd64/sing-box.exe";
+    let mut encoder = DeflateEncoder::new(Vec::new(), Compression::default());
+    encoder
+        .write_all(content)
+        .expect("ZIP fixture should compress executable");
+    let compressed = encoder.finish().expect("ZIP fixture should finish deflate");
     let mut zip = Vec::new();
     push_u32(&mut zip, 0x0403_4b50);
     push_u16(&mut zip, 20);
     push_u16(&mut zip, 0);
-    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 8);
     push_u16(&mut zip, 0);
     push_u16(&mut zip, 0);
     push_u32(&mut zip, 0);
-    push_u32(&mut zip, content.len() as u32);
+    push_u32(&mut zip, compressed.len() as u32);
     push_u32(&mut zip, content.len() as u32);
     push_u16(&mut zip, name.len() as u16);
     push_u16(&mut zip, 0);
     zip.extend_from_slice(name);
-    zip.extend_from_slice(content);
+    zip.extend_from_slice(&compressed);
 
     let central_offset = zip.len() as u32;
     push_u32(&mut zip, 0x0201_4b50);
     push_u16(&mut zip, 20);
     push_u16(&mut zip, 20);
     push_u16(&mut zip, 0);
-    push_u16(&mut zip, 0);
+    push_u16(&mut zip, 8);
     push_u16(&mut zip, 0);
     push_u16(&mut zip, 0);
     push_u32(&mut zip, 0);
-    push_u32(&mut zip, content.len() as u32);
+    push_u32(&mut zip, compressed.len() as u32);
     push_u32(&mut zip, content.len() as u32);
     push_u16(&mut zip, name.len() as u16);
     push_u16(&mut zip, 0);
     push_u16(&mut zip, 0);
     push_u16(&mut zip, 0);
     push_u16(&mut zip, 0);
-    push_u32(&mut zip, 0);
     push_u32(&mut zip, 0);
     push_u32(&mut zip, 0);
     zip.extend_from_slice(name);
