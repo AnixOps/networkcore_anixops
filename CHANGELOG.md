@@ -6,7 +6,21 @@
 
 ### Added
 
-- Future maintenance entries belong here until the next tagged release.
+- Windows GUI can explicitly install the official sing-box Windows core through
+  the existing release/digest/extraction adapter, then persist the executable
+  path under `%ProgramData%\\AnixOps\\NetworkCore` for the managed service.
+- Windows GUI can explicitly import an operator-selected local profile file,
+  select a node, render its managed sing-box JSON, and configure the service
+  owned core plus `127.0.0.1:7890` system proxy.
+- The sing-box adapter now renders basic Shadowsocks, Trojan, VLESS, and VMess
+  outbounds. Trojan enables TLS; VLESS and VMess only render basic TCP fields.
+
+### Changed
+
+- Windows documentation and release readiness contract now distinguish the
+  explicit GUI core install/profile import path from the MSI's non-bundled,
+  non-silent third-party-core boundary. Remote subscription fetch, advanced
+  transport rendering, and Windows HTTPS MITM remain blocked.
 
 ## v0.2.0-alpha.3 - 2026-07-23
 

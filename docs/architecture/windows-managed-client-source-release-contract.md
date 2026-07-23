@@ -8,7 +8,7 @@ current Windows package.
 ```text
 windows-managed-client-source-release-contract=present
 windows-managed-client-release-state=implementation-active
-windows-managed-client-version-scope=v0.2.0-alpha.3
+windows-managed-client-version-scope=v0.2.0-alpha.4
 WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active
 windows-managed-client-runner=windows-latest
 windows-managed-client-runner-kind=github-hosted
@@ -31,6 +31,11 @@ windows-managed-client-trust-store-mutation=active
 windows-managed-client-managed-lifecycle=active
 windows-managed-client-sing-box-managed-process=active
 windows-managed-client-sing-box-bundled=blocked
+windows-managed-client-sing-box-gui-install=active
+windows-managed-client-local-profile-import=active
+windows-managed-client-remote-subscription-fetch=blocked
+windows-managed-client-sing-box-basic-protocols=shadowsocks-trojan-vless-vmess
+windows-managed-client-sing-box-advanced-transport-rendering=blocked
 windows-managed-client-mitm-data-plane=blocked
 windows-managed-client-script-dispatch=blocked
 windows-managed-client-authenticode-policy=unsigned-alpha-msi-with-github-attestation
@@ -49,10 +54,24 @@ The MSI contains:
 - `networkcore-windows.exe` from `apps/windows-cli`;
 - schema-version-1 `managed-config.json` from `installer/windows`.
 
-The managed configuration may reference an operator-staged `sing-box.exe` and
-native sing-box JSON. The service validates it with `check -c`, owns `run -c`,
-persists PID/exit state, and redirects core stdout/stderr to an explicit log.
-The MSI does not bundle or silently download the third-party core.
+The GUI has an explicit `Install core` action that resolves the official
+Windows sing-box release, verifies the published `sha256:` digest when GitHub
+provides one, extracts `sing-box.exe` under `%ProgramData%`, and persists its
+path for profile import. The MSI itself neither bundles nor silently downloads
+the third-party core.
+
+The GUI `Import profile` action reads only an operator-selected local file,
+passes its content through `CoreSubscriptionService`, renders a native
+`sing-box/config.json`, and writes the matching managed `sing_box` process
+block. It supports basic Shadowsocks, Trojan, VLESS, and VMess node fields.
+Trojan receives required TLS enablement; VLESS and VMess render basic TCP only.
+TLS, REALITY, WebSocket, gRPC, multiplex, routing, DNS, remote subscription
+fetching, and all other transport-specific source fields are not preserved by
+this path and remain blocked.
+
+The service validates the generated or operator-supplied native JSON with
+`check -c`, owns `run -c`, persists PID/exit state, and redirects core
+stdout/stderr to an explicit log.
 
 The installer registers an automatic SCM service, but its install-time start is
 asynchronous. MSI completion therefore does not wait for a preserved managed

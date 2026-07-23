@@ -7,6 +7,9 @@ repository.workspace = true
 description = "Native Windows GUI client for AnixOps NetworkCore."
 
 [dependencies]
+config-core = { path = "../../crates/config-core" }
+control-domain = { path = "../../crates/control-domain" }
+engine-singbox = { path = "../../crates/engine-singbox" }
 platform-windows = { path = "../../crates/platform-windows" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

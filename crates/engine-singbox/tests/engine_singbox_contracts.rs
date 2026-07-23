@@ -1,6 +1,7 @@
 use control_domain::{
     Endpoint, MetadataEntry, NodeDescriptor, Protocol, ProxyEngineKind, ProxyEngineService,
     NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD,
+    NODE_METADATA_TROJAN_PASSWORD, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_UUID,
 };
 use engine_singbox::{
     GithubSingBoxReleaseInstaller, SingBoxHttpClient, SingBoxInstallRequest,
@@ -216,6 +217,74 @@ fn renders_local_mixed_inbound_config_from_shadowsocks_node_catalog() {
     assert_diagnostic(&rendered.diagnostics, ENGINE_SINGBOX_CONFIG_RENDERED_CODE);
 }
 
+#[test]
+fn renders_basic_trojan_vless_and_vmess_outbounds() {
+    for (node, expected_type, expected_secret_key) in [
+        (trojan_node(), "trojan", "password"),
+        (vless_node(), "vless", "uuid"),
+        (vmess_node(), "vmess", "uuid"),
+    ] {
+        let rendered =
+            engine_singbox::render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
+                nodes: vec![node],
+                selected_node_id: None,
+                listen_host: "127.0.0.1".to_string(),
+                listen_port: 7890,
+            })
+            .expect("basic supported protocol should render to sing-box config");
+        let json: serde_json::Value =
+            serde_json::from_str(&rendered.json).expect("rendered config should be valid json");
+
+        assert_eq!(json["outbounds"][0]["type"], expected_type);
+        assert!(json["outbounds"][0][expected_secret_key].is_string());
+    }
+
+    let trojan =
+        engine_singbox::render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
+            nodes: vec![trojan_node()],
+            selected_node_id: None,
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7890,
+        })
+        .expect("trojan node should render");
+    let trojan_json: serde_json::Value =
+        serde_json::from_str(&trojan.json).expect("rendered config should be valid json");
+    assert_eq!(trojan_json["outbounds"][0]["tls"]["enabled"], true);
+
+    let vmess =
+        engine_singbox::render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
+            nodes: vec![vmess_node()],
+            selected_node_id: None,
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7890,
+        })
+        .expect("vmess node should render");
+    let vmess_json: serde_json::Value =
+        serde_json::from_str(&vmess.json).expect("rendered config should be valid json");
+    assert_eq!(vmess_json["outbounds"][0]["security"], "auto");
+    assert_eq!(vmess_json["outbounds"][0]["alter_id"], 0);
+}
+
+#[test]
+fn blank_node_selection_skips_unsupported_protocols() {
+    let unsupported = node_with_metadata(
+        "hysteria-us",
+        Protocol::Hysteria,
+        "hysteria.password",
+        "not-rendered",
+    );
+    let rendered =
+        engine_singbox::render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
+            nodes: vec![unsupported, trojan_node()],
+            selected_node_id: None,
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7890,
+        })
+        .expect("blank selection should choose the first supported node");
+
+    assert_eq!(rendered.selected_node_id, "trojan-us");
+}
+
 struct MemorySingBoxHttpClient {
     release_json: String,
     asset_bytes: Vec<u8>,
@@ -241,6 +310,55 @@ fn shadowsocks_node() -> NodeDescriptor {
                 value: "f43c0eee-13b9-4f07-bec9-d4b744141503".to_string(),
             },
         ],
+    }
+}
+
+fn trojan_node() -> NodeDescriptor {
+    node_with_metadata(
+        "trojan-us",
+        Protocol::Trojan,
+        NODE_METADATA_TROJAN_PASSWORD,
+        "trojan-password",
+    )
+}
+
+fn vless_node() -> NodeDescriptor {
+    node_with_metadata(
+        "vless-us",
+        Protocol::Vless,
+        NODE_METADATA_VLESS_UUID,
+        "58ea5aee-98d8-4f2d-a56c-e691ddc96931",
+    )
+}
+
+fn vmess_node() -> NodeDescriptor {
+    node_with_metadata(
+        "vmess-us",
+        Protocol::Vmess,
+        NODE_METADATA_VMESS_UUID,
+        "253db8e4-23c9-46bd-81f3-e5a1212177d8",
+    )
+}
+
+fn node_with_metadata(
+    id: &str,
+    protocol: Protocol,
+    metadata_key: &str,
+    metadata_value: &str,
+) -> NodeDescriptor {
+    NodeDescriptor {
+        id: id.to_string(),
+        name: id.to_string(),
+        protocol,
+        endpoint: Endpoint {
+            host: "example.test".to_string(),
+            port: 443,
+        },
+        tags: vec!["subscription".to_string()],
+        metadata: vec![MetadataEntry {
+            key: metadata_key.to_string(),
+            value: metadata_value.to_string(),
+        }],
     }
 }
 

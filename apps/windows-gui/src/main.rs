@@ -16,10 +16,18 @@ fn main() {
 
 #[cfg(windows)]
 mod gui {
+    use config_core::CoreSubscriptionService;
+    use control_domain::{SubscriptionService, SubscriptionSource};
+    use engine_singbox::{
+        render_sing_box_local_proxy_config, GithubSingBoxReleaseInstaller, SingBoxInstallRequest,
+        SingBoxLocalProxyConfigRequest, SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch,
+        SingBoxTargetOs,
+    };
     use platform_windows::managed::{
         append_managed_log, read_managed_config, read_managed_state, windows_managed_config_path,
         windows_managed_data_directory, windows_managed_log_directory, windows_managed_state_path,
-        write_managed_config, WindowsProxySettings, WindowsProxySnapshot,
+        write_managed_config, WindowsManagedConfig, WindowsManagedSingBoxConfig,
+        WindowsProxySettings, WindowsProxySnapshot, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
     };
     use platform_windows::system_integration::{
         NativeWindowsSystemIntegration, WindowsServiceState, WindowsSystemIntegration,
@@ -56,6 +64,8 @@ mod gui {
     const ID_STOP_SERVICE: usize = 103;
     const ID_RESTART_SERVICE: usize = 104;
     const ID_APPLY_CONFIG: usize = 110;
+    const ID_INSTALL_SING_BOX: usize = 115;
+    const ID_IMPORT_PROFILE: usize = 116;
     const ID_ENABLE_PROXY: usize = 120;
     const ID_RESTORE_PROXY: usize = 121;
     const ID_INSTALL_CERTIFICATE: usize = 130;
@@ -71,6 +81,12 @@ mod gui {
         certificate_sha1: Option<String>,
         driver_inf_path: Option<PathBuf>,
         #[serde(default)]
+        sing_box_executable_path: Option<PathBuf>,
+        #[serde(default)]
+        profile_source_path: Option<PathBuf>,
+        #[serde(default)]
+        profile_node_id: Option<String>,
+        #[serde(default)]
         debug_enabled: bool,
     }
 
@@ -80,6 +96,8 @@ mod gui {
         activity: HWND,
         debug_status: HWND,
         config_path: HWND,
+        profile_source: HWND,
+        profile_node_id: HWND,
         proxy_server: HWND,
         proxy_bypass: HWND,
         certificate_path: HWND,
@@ -128,7 +146,7 @@ mod gui {
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
                 980,
-                760,
+                920,
                 null_mut(),
                 null_mut(),
                 instance,
@@ -337,11 +355,81 @@ mod gui {
             30,
         );
 
-        create_group(window, instance, font, "System proxy", 20, 320, 925, 130);
-        create_label(window, instance, font, "Server", 40, 350, 90, 22);
-        let proxy_server = create_edit(window, instance, font, "127.0.0.1:7890", 130, 346, 300, 28);
-        create_label(window, instance, font, "Bypass", 450, 350, 90, 22);
-        let proxy_bypass = create_edit(window, instance, font, "<local>", 540, 346, 365, 28);
+        create_group(
+            window,
+            instance,
+            font,
+            "sing-box profile",
+            20,
+            320,
+            925,
+            125,
+        );
+        create_label(window, instance, font, "Profile file", 40, 352, 100, 22);
+        let profile_source = create_edit(
+            window,
+            instance,
+            font,
+            desktop
+                .profile_source_path
+                .as_ref()
+                .map(|path| path.to_string_lossy().to_string())
+                .unwrap_or_default()
+                .as_str(),
+            140,
+            348,
+            500,
+            28,
+        );
+        create_button(
+            window,
+            instance,
+            font,
+            "Install core",
+            ID_INSTALL_SING_BOX,
+            655,
+            347,
+            120,
+            30,
+        );
+        create_button(
+            window,
+            instance,
+            font,
+            "Import profile",
+            ID_IMPORT_PROFILE,
+            785,
+            347,
+            140,
+            30,
+        );
+        create_label(window, instance, font, "Node ID", 40, 398, 100, 22);
+        let profile_node_id = create_edit(
+            window,
+            instance,
+            font,
+            desktop.profile_node_id.as_deref().unwrap_or(""),
+            140,
+            394,
+            500,
+            28,
+        );
+        create_label(
+            window,
+            instance,
+            font,
+            "Blank uses the first supported node",
+            655,
+            398,
+            270,
+            22,
+        );
+
+        create_group(window, instance, font, "System proxy", 20, 455, 925, 130);
+        create_label(window, instance, font, "Server", 40, 485, 90, 22);
+        let proxy_server = create_edit(window, instance, font, "127.0.0.1:7890", 130, 481, 300, 28);
+        create_label(window, instance, font, "Bypass", 450, 485, 90, 22);
+        let proxy_bypass = create_edit(window, instance, font, "<local>", 540, 481, 365, 28);
         create_button(
             window,
             instance,
@@ -349,7 +437,7 @@ mod gui {
             "Enable proxy",
             ID_ENABLE_PROXY,
             40,
-            394,
+            529,
             130,
             30,
         );
@@ -360,7 +448,7 @@ mod gui {
             "Restore proxy",
             ID_RESTORE_PROXY,
             180,
-            394,
+            529,
             130,
             30,
         );
@@ -371,12 +459,12 @@ mod gui {
             font,
             "Trust and driver",
             20,
-            460,
+            595,
             925,
             142,
         );
-        create_label(window, instance, font, "Root CA", 40, 492, 90, 22);
-        let certificate_path = create_edit(window, instance, font, "", 130, 488, 575, 28);
+        create_label(window, instance, font, "Root CA", 40, 627, 90, 22);
+        let certificate_path = create_edit(window, instance, font, "", 130, 623, 575, 28);
         create_button(
             window,
             instance,
@@ -384,7 +472,7 @@ mod gui {
             "Install CA",
             ID_INSTALL_CERTIFICATE,
             720,
-            487,
+            622,
             95,
             30,
         );
@@ -395,12 +483,12 @@ mod gui {
             "Remove CA",
             ID_REMOVE_CERTIFICATE,
             825,
-            487,
+            622,
             100,
             30,
         );
-        create_label(window, instance, font, "Driver INF", 40, 542, 90, 22);
-        let driver_path = create_edit(window, instance, font, "", 130, 538, 575, 28);
+        create_label(window, instance, font, "Driver INF", 40, 677, 90, 22);
+        let driver_path = create_edit(window, instance, font, "", 130, 673, 575, 28);
         create_button(
             window,
             instance,
@@ -408,7 +496,7 @@ mod gui {
             "Install driver",
             ID_INSTALL_DRIVER,
             720,
-            537,
+            672,
             95,
             30,
         );
@@ -419,12 +507,12 @@ mod gui {
             "Remove driver",
             ID_REMOVE_DRIVER,
             825,
-            537,
+            672,
             100,
             30,
         );
 
-        let activity = create_label(window, instance, font, "Ready", 24, 620, 910, 26);
+        let activity = create_label(window, instance, font, "Ready", 24, 755, 910, 26);
         let debug_status = create_label(
             window,
             instance,
@@ -438,7 +526,7 @@ mod gui {
                 }
             ),
             24,
-            652,
+            787,
             360,
             24,
         );
@@ -449,7 +537,7 @@ mod gui {
             "Toggle debug",
             ID_TOGGLE_DEBUG,
             400,
-            648,
+            783,
             130,
             30,
         );
@@ -460,7 +548,7 @@ mod gui {
             "Open log folder",
             ID_OPEN_LOGS,
             540,
-            648,
+            783,
             140,
             30,
         );
@@ -470,7 +558,7 @@ mod gui {
             font,
             &format!("Logs: {}", windows_managed_log_directory().display()),
             24,
-            688,
+            823,
             900,
             24,
         );
@@ -481,6 +569,8 @@ mod gui {
             activity,
             debug_status,
             config_path,
+            profile_source,
+            profile_node_id,
             proxy_server,
             proxy_bypass,
             certificate_path,
@@ -501,6 +591,8 @@ mod gui {
             ID_STOP_SERVICE => run_action(state, "Service stopped", stop_service),
             ID_RESTART_SERVICE => run_action(state, "Service restarted", restart_service),
             ID_APPLY_CONFIG => run_action(state, "Configuration applied", apply_configuration),
+            ID_INSTALL_SING_BOX => run_action(state, "sing-box core installed", install_sing_box),
+            ID_IMPORT_PROFILE => run_action(state, "sing-box profile imported", import_profile),
             ID_ENABLE_PROXY => run_action(state, "System proxy enabled", enable_proxy),
             ID_RESTORE_PROXY => run_action(state, "System proxy restored", restore_proxy),
             ID_INSTALL_CERTIFICATE => {
@@ -688,6 +780,107 @@ mod gui {
             .map_err(|error| error.to_string())?;
         load_configuration_fields(state);
         Ok(())
+    }
+
+    fn install_sing_box(state: &mut AppState) -> Result<(), String> {
+        let installer = GithubSingBoxReleaseInstaller::new().map_err(|error| error.to_string())?;
+        let report = installer
+            .install_latest(&SingBoxInstallRequest {
+                install_root: windows_managed_data_directory()
+                    .join("sing-box")
+                    .join("engine"),
+                target: SingBoxTarget::new(SingBoxTargetOs::Windows, SingBoxTargetArch::Amd64),
+                force: false,
+            })
+            .map_err(|error| error.to_string())?;
+        state.desktop.sing_box_executable_path = Some(report.executable_path);
+        save_desktop_state(&state.desktop)
+    }
+
+    fn import_profile(state: &mut AppState) -> Result<(), String> {
+        let executable_path = state
+            .desktop
+            .sing_box_executable_path
+            .clone()
+            .filter(|path| path.exists())
+            .ok_or_else(|| "Install sing-box before importing a profile".to_string())?;
+        let source_path = PathBuf::from(unsafe { get_text(state.profile_source) });
+        if source_path.as_os_str().is_empty() {
+            return Err("Profile file path is required".to_string());
+        }
+        let payload = fs::read_to_string(&source_path)
+            .map_err(|error| format!("Profile file could not be read: {error}"))?;
+        let subscription = CoreSubscriptionService::new();
+        let source = SubscriptionSource {
+            id: "windows-gui-local-profile".to_string(),
+            location: format!("inline:{payload}"),
+        };
+        let raw = subscription
+            .fetch(&source)
+            .map_err(|error| error.to_string())?;
+        let document = subscription
+            .parse(&raw)
+            .map_err(|error| error.to_string())?;
+        let catalog = subscription
+            .normalize(&document)
+            .map_err(|error| error.to_string())?;
+        let selected_node_id = unsafe { get_text(state.profile_node_id) };
+        let rendered = render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
+            nodes: catalog.nodes,
+            selected_node_id: (!selected_node_id.trim().is_empty())
+                .then_some(selected_node_id.clone()),
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7890,
+        })
+        .map_err(|error| error.to_string())?;
+
+        let config_path = windows_managed_data_directory()
+            .join("sing-box")
+            .join("config.json");
+        let config_parent = config_path
+            .parent()
+            .ok_or_else(|| "sing-box config path has no parent directory".to_string())?;
+        fs::create_dir_all(config_parent).map_err(|error| error.to_string())?;
+        fs::write(&config_path, rendered.json).map_err(|error| error.to_string())?;
+
+        let mut managed = managed_config_or_default()?;
+        managed.system_proxy = Some(WindowsProxySettings {
+            enabled: true,
+            server: "127.0.0.1:7890".to_string(),
+            bypass: "<local>".to_string(),
+        });
+        let working_directory = config_parent.to_path_buf();
+        managed.sing_box = Some(WindowsManagedSingBoxConfig {
+            enabled: true,
+            executable_path,
+            config_path,
+            working_directory: Some(working_directory),
+            log_path: windows_managed_log_directory().join("sing-box.log"),
+        });
+        write_managed_config(&windows_managed_config_path(), &managed)
+            .map_err(|error| error.to_string())?;
+
+        state.desktop.profile_source_path = Some(source_path);
+        state.desktop.profile_node_id =
+            (!selected_node_id.trim().is_empty()).then_some(selected_node_id);
+        save_desktop_state(&state.desktop)?;
+        load_configuration_fields(state);
+        Ok(())
+    }
+
+    fn managed_config_or_default() -> Result<WindowsManagedConfig, String> {
+        let path = windows_managed_config_path();
+        if path.exists() {
+            return read_managed_config(&path).map_err(|error| error.to_string());
+        }
+        Ok(WindowsManagedConfig {
+            schema_version: WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
+            system_proxy: None,
+            root_certificate_path: None,
+            driver_package: None,
+            tunnel: None,
+            sing_box: None,
+        })
     }
 
     fn apply_user_proxy_from_config(state: &mut AppState) -> Result<(), String> {

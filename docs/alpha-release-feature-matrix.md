@@ -330,6 +330,30 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 最新已发布切片
 
+### `v0.2.0-alpha.4`
+
+状态：Windows managed client prerelease；用户可下载状态以同名 tag 的
+GitHub Actions release workflow 结果为准。
+
+主要特性：
+
+- GUI 新增显式 `Install core`，通过 sing-box 官方 GitHub release metadata
+  选择 Windows ZIP，并在发布 asset 提供 digest 时校验 `sha256:` 后提取
+  `sing-box.exe` 到 `%ProgramData%\\AnixOps\\NetworkCore`。MSI 和 portable ZIP
+  仍不捆绑、也不会静默下载第三方 core。
+- GUI 新增显式本地 profile file import。它经 `CoreSubscriptionService` 解析并
+  写入服务可用的 `sing-box/config.json` 与 managed `sing_box` block，默认监听
+  `127.0.0.1:7890`；空 Node ID 选择首个可渲染节点。
+- `engine-singbox` renderer 可生成基础 Shadowsocks、Trojan、VLESS、VMess
+  outbound。Trojan 启用 TLS；VLESS/VMess 只生成基础 TCP。REALITY、WebSocket、
+  gRPC、TLS/transport/multiplex、route、DNS 与远程订阅拉取仍不在该路径范围。
+
+明确不包含：
+
+- 不提供 remote subscription fetch、完整多节点 selector、advanced transport
+  rendering、Windows live HTTPS MITM、动态叶子证书、TLS 解密、rewrite 或
+  JavaScript script dispatch。
+
 ### `v0.2.0-alpha.3`
 
 状态：Windows managed client prerelease；用户可下载状态以同名 tag 的

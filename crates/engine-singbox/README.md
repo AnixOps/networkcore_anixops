@@ -10,7 +10,8 @@ The crate currently provides source contracts for:
 - Downloading the latest selected archive from the official SagerNet GitHub release.
 - Verifying the GitHub release asset `sha256:` digest when present.
 - Extracting only the `sing-box` executable from `.tar.gz` archives into a NetworkCore-owned engine cache.
-- Rendering a deterministic local `mixed` inbound `sing-box` JSON config from a Shadowsocks `NodeDescriptor`.
+- Rendering a deterministic local `mixed` inbound `sing-box` JSON config from a
+  basic Shadowsocks, Trojan, VLESS, or VMess `NodeDescriptor`.
 - Running `sing-box run -c <config>` through an injectable foreground process runner.
 - A managed process supervisor that executes `check -c` before `run -c`, owns the
   child process, captures stdout/stderr into an explicit log file, and reports
@@ -25,7 +26,10 @@ firewall, or MITM behavior. The installer extracts the Windows official ZIP by
 selecting only the `sing-box.exe` entry; service-side download and release
 packaging remain separate policy decisions.
 
-The Windows managed service expects native sing-box JSON at the configured
-`config_path` (for example, a `mixed` inbound on `127.0.0.1:7890` plus a
-Shadowsocks outbound). The wrapper `managed-config.json` only supplies process
-paths and lifecycle policy; it is not itself a sing-box configuration.
+The Windows GUI explicitly installs the verified official core and imports an
+operator-selected local profile into native sing-box JSON at the configured
+`config_path`. The generated path supports basic Shadowsocks, Trojan, VLESS,
+and VMess outbounds; Trojan enables TLS while VLESS and VMess are basic TCP
+only. It does not retain TLS/REALITY/transport/multiplex/route/DNS fields. The
+wrapper `managed-config.json` only supplies process paths and lifecycle policy;
+it is not itself a sing-box configuration.

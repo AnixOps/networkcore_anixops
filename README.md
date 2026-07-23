@@ -107,19 +107,20 @@ P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成，当前阶
   失败 fail-open；它不是 sandbox，也不下载远程脚本。默认启动、系统/浏览器信任和代理 mutation 仍保持关闭。
   该版本是否可下载只由同名 tag 的 GitHub Actions release workflow 决定。
 
-- 当前 Windows 客户端切片是 `v0.2.0-alpha.3`：`apps/windows-gui`
+- 当前 Windows 客户端切片是 `v0.2.0-alpha.4`：`apps/windows-gui`
   提供原生 Win32 GUI，`apps/windows-service` 注册 SCM service 并托管
   EasyTier 生命周期，`platform-windows` 直接接入 SCM、WinINet/WinHTTP、
   CryptoAPI 和 NewDev，WiX 4.0.6 生成 per-machine MSI。GUI/service 已激活
   服务、签名 INF 驱动包、安装器、系统代理、LocalMachine ROOT CA 和 managed
-  lifecycle 的 apply/rollback，并可托管 operator-staged `sing-box.exe` 的
+  lifecycle 的 apply/rollback。GUI 可显式安装经官方 release/digest 路径校验的
+  `sing-box.exe`，并把用户指定的本地 profile 导入为 service-owned
   `check -c`/`run -c`/PID/exit/log 生命周期；MSI 不捆绑或静默下载 core。
-  MSI 安装期 service start 不再等待 `Running`，并且每次 Windows tag release 都附带不注册服务的 portable ZIP 四件套。Windows live HTTPS MITM、JavaScript dispatch 与订阅 runnable path 仍未激活。发布合同见
+  MSI 安装期 service start 不再等待 `Running`，并且每次 Windows tag release 都附带不注册服务的 portable ZIP 四件套。导入器支持基础 Shadowsocks/Trojan/VLESS/VMess，remote subscription、advanced transport 和 Windows live HTTPS MITM 仍未激活。发布合同见
   [Windows Managed Client Source Release Contract](docs/architecture/windows-managed-client-source-release-contract.md)。
 
 - 当前阶段源：P4 Client And Platform Integration。
 - P3 是已完成历史基线，不再作为当前仓库阶段描述；后续迭代、TODO、release 说明和架构合同都按 P4 backlog 推进。
-- 当前最新 stable artifact：`v0.1.0` GitHub Release 中的 Linux CLI tarball、sha256、manifest 和 manifest sha256；当前 prerelease/tag release 目标是 `v0.2.0-alpha.3`，由 GitHub Actions 发布 Linux CLI 四件套、Windows managed-client MSI 四件套和 Windows portable ZIP 四件套。历史 `v0.1.1-alpha.2` Windows manual-extract CLI zip 仍保留为审计记录。Linux 二进制可用 `help` 命令表、`install-sing-box`、`run-url <ss://url>` foreground local proxy、MITM status/diagnostics/certificate-plan/browser-plan policy-only 命令面、`mitm certificate apply/rollback` certificate artifact lifecycle、TLS 可消费 CA certificate PEM/private key PEM、dedicated profile CA PEM copy、`mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` 的 explicit proxy browser capture 切片、`mitm http-rewrite plan/preview` 的 caller-provided plain HTTP rewrite foundation、explicit HTTP proxy `http://` live request/response rewrite、explicit HTTP `CONNECT` pass-through tunnel foundation、bounded ClientHello/SNI observation、controlled downstream TLS termination plan/report、caller-provided HTTPS request reject/redirect/header mutation preview、caller-provided HTTPS response header/body mutation preview、`traffic-proof` 的 proof token/proxy/CONNECT authority 绑定 hardening，以及 traffic-proof text CONNECT authority 输出。各 alpha/rc/stable 版本能力边界见 [Alpha Release Feature Matrix](docs/alpha-release-feature-matrix.md)。
+- 当前最新 stable artifact：`v0.1.0` GitHub Release 中的 Linux CLI tarball、sha256、manifest 和 manifest sha256；当前 prerelease/tag release 目标是 `v0.2.0-alpha.4`，由 GitHub Actions 发布 Linux CLI 四件套、Windows managed-client MSI 四件套和 Windows portable ZIP 四件套。历史 `v0.1.1-alpha.2` Windows manual-extract CLI zip 仍保留为审计记录。Linux 二进制可用 `help` 命令表、`install-sing-box`、`run-url <ss://url>` foreground local proxy、MITM status/diagnostics/certificate-plan/browser-plan policy-only 命令面、`mitm certificate apply/rollback` certificate artifact lifecycle、TLS 可消费 CA certificate PEM/private key PEM、dedicated profile CA PEM copy、`mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` 的 explicit proxy browser capture 切片、`mitm http-rewrite plan/preview` 的 caller-provided plain HTTP rewrite foundation、explicit HTTP proxy `http://` live request/response rewrite、explicit HTTP `CONNECT` pass-through tunnel foundation、bounded ClientHello/SNI observation、controlled downstream TLS termination plan/report、caller-provided HTTPS request reject/redirect/header mutation preview、caller-provided HTTPS response header/body mutation preview、`traffic-proof` 的 proof token/proxy/CONNECT authority 绑定 hardening，以及 traffic-proof text CONNECT authority 输出。各 alpha/rc/stable 版本能力边界见 [Alpha Release Feature Matrix](docs/alpha-release-feature-matrix.md)。
 - 当前 main 源码状态：历史 `v0.1.1-alpha.2` Windows CLI package/publish path 仍保留为审计记录；当前 main 的 Windows source identity 已迁移到 managed client，`platform-windows` 不再是只读/blocked boundary，release workflow 的当前 `package-windows` 会生成 WiX MSI 并包含 GUI、service 和 CLI。`v0.1.1-alpha.3` 订阅格式扩展仍只启用 parser gates：`CoreSubscriptionService` 可处理 Trojan/VLESS/VMess URL、Clash YAML、sing-box JSON、Surge/Loon line 和 Quantumult X `[server_local]` line 并归一化到 `SubscriptionDocument`/`NodeCatalog`，但对应 runnable path、节点选择、远程订阅拉取、文件订阅读取和默认路径扫描仍未启用。`MITM_HTTP_TLS_DATA_PLANE_GATE` 仍为 `plain-http-live-data-plane-active/tls-decryption-blocked`，`http_rewrite` report 中 `live_traffic_ready=true`、`controlled_tls_termination_plan_ready=true`、`downstream_tls_termination_plan_ready=true`、`upstream_tls_forwarding_ready=true`、`https_request_rewrite_preview_ready=true`、`https_response_rewrite_preview_ready=true`、`https_response_rewrite_ready=false`、`script_dispatch_ready=false`、`tls_decryption_ready=false`。
 - Linux 当前未启用：完整 live MITM、browser hijack、浏览器/系统代理配置 mutation、CA 安装/信任 mutation、profile trust state mutation、HTTPS 解密、live TLS termination、live CONNECT 后 HTTPS request/response rewrite、完整 live HTTPS response rewrite、daemon/service、TUN/DNS/firewall mutation。Linux 仍只允许写 operator-provided TLS CA certificate PEM、private key PEM、dedicated profile CA PEM copy、PAC artifact、可选 Chromium/Chrome managed proxy policy artifact 和 rollback snapshot，并允许显式 caller-provided plain HTTP preview、显式 caller-provided HTTPS request/response rewrite preview、显式 HTTP proxy listener 的 `http://` live path 应用 rewrite outcome、explicit HTTP proxy `CONNECT` 建立 pass-through tunnel 和 bounded ClientHello/SNI 观察，以及 controlled downstream TLS termination plan/report；不安装或信任 CA，不安装系统 PAC 或浏览器 policy，不解析 live CONNECT 后 HTTPS request/response。native SOCKS5 hook 仍只能在显式 SOCKS5 CONNECT 层应用插件 `Reject` 为 CONNECT failure，不解密 HTTPS。Windows managed client 的 service、driver、installer、system proxy mutation、system trust store mutation 和 managed lifecycle 从 `v0.2.0-alpha.1` 起 active；`v0.2.0-alpha.2` 增加 sing-box managed process，`v0.2.0-alpha.3` 增加 asynchronous MSI service start 与 portable ZIP release assets，但 Windows live HTTPS MITM 和 JavaScript script dispatch 仍 blocked。
 
@@ -142,7 +143,7 @@ P4 backlog buckets：
 - `v0.1.2`：managed lifecycle 版本。新增 persistent subscription catalog、managed foreground status/events/logs/reload/rollback，并在 alpha 切片中相继推出 JavaScript script dispatch、system trust store mutation、system proxy mutation 和 managed MITM session orchestration；所有高风险 mutation 必须显式授权、可检测、可回滚。
 
 Linux/Windows 发布路径已打通：Linux 首个真实发布路径从 `v0.1.0-alpha.2` 开始，Windows managed-client MSI 从 `v0.2.0-alpha.1` 开始；当前 prerelease 目标是
-`v0.2.0-alpha.3`，最新 stable 是 `v0.1.0`。`v0.2.0-alpha.3` 只由 GitHub Actions 构建并发布
+`v0.2.0-alpha.4`，最新 stable 是 `v0.1.0`。`v0.2.0-alpha.4` 只由 GitHub Actions 构建并发布
 `networkcore-linux` Linux tarball、sha256、manifest、manifest sha256，以及 `networkcore-windows` managed-client MSI 四件套和 portable ZIP 四件套；历史 `v0.1.1-alpha.2` manual-extract zip 仅作审计记录，release workflow 同时完成
 同 commit CI gate、artifact checksum、manifest、GitHub artifact attestation、publish eligibility 和
 GitHub Release asset 上传。
@@ -157,7 +158,7 @@ GitHub Release asset 上传。
 `engine-native` 继续保留为自研执行内核实验线，但私有协议实现暂缓，直到 adapter 路线暴露明确缺口。
 
 当前 P4 状态：Linux CLI artifact 已经通过 GitHub Actions tag release workflow 发布到 GitHub Release，
-当前 prerelease 目标是 `v0.2.0-alpha.3`，最新 stable 是 `v0.1.0`；
+当前 prerelease 目标是 `v0.2.0-alpha.4`，最新 stable 是 `v0.1.0`；
 Linux 仍是手动解压和 foreground/CLI 运行模型，不安装 daemon/service，不修改 TUN/DNS/firewall/certificate trust store；Windows 已通过 MSI 提供 managed GUI/service、installer 和可回滚的系统代理/信任库生命周期，并提供不在解压时注册 service 的 portable ZIP。
 iOS 仍只允许 `apps/ios/README.md` source tree governance placeholder 和 upload blocked gates，
 不包含 Swift/Xcode/Network Extension target、签名、TestFlight/App Store upload 或 iOS release asset。

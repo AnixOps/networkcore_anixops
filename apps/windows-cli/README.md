@@ -22,7 +22,9 @@ driver package lifecycle, the MSI installer, `system-proxy-mutation`,
 `system-trust-store-mutation`, managed daemon lifecycle, and the optional
 service-owned sing-box process configured in `managed-config.json`. The service
 validates the native sing-box JSON with `check -c` before starting it and writes
-core stdout/stderr to the configured log. Windows-targeted official ZIP
-selection/extraction is available in the adapter, while GUI install orchestration,
-JavaScript script dispatch, and Windows subscription run compatibility remain
-deferred.
+core stdout/stderr to the configured log. The GUI now explicitly installs the
+verified official Windows core and imports a selected local profile into a
+service-ready config using basic Shadowsocks, Trojan, VLESS, or VMess output.
+The CLI itself has no core-install or subscription-run command. Remote
+subscription fetch, advanced transport rendering, JavaScript script dispatch,
+and Windows HTTPS MITM remain deferred.

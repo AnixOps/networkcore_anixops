@@ -7,7 +7,7 @@
 
 ## 当前发布状态
 
-`v0.2.0-alpha.3` 是当前 Windows managed-client release 切片；Linux `v0.1.2-alpha.3` 仍是当前 Linux source slice。Windows MSI 与 portable ZIP 将在同名 tag 的 GitHub Actions 中生成，
+`v0.2.0-alpha.4` 是当前 Windows managed-client release 切片；Linux `v0.1.2-alpha.3` 仍是当前 Linux source slice。Windows MSI 与 portable ZIP 将在同名 tag 的 GitHub Actions 中生成，
 包含显式 CA/confirm 才启用的 controlled CONNECT TLS termination、web-PKI upstream forwarding、单个有界
 HTTP/1.1 rewrite exchange 和显式 local Node script runner/map。脚本为受信本地代码、失败 fail-open，
 不下载远程脚本；该切片不安装信任、不修改 browser/system proxy 或其他系统网络状态。没有本机打包或
@@ -28,7 +28,7 @@ linux-artifact-publish-scope=tag-release-after-all-gates
 ```
 
 当前最新已发布 Linux artifact 是 `v0.1.0` 正式版 stable CLI 四件套；当前最新 prerelease tag release 是
-`v0.2.0-alpha.3`，它发布 Linux CLI 四件套、Windows managed-client MSI 四件套和 Windows portable ZIP 四件套。MSI 在安装期请求异步 service start，不等待 `Running`；CI 对 MSI 执行 bounded install/uninstall smoke。Windows service 继续托管 operator-staged `sing-box.exe` 的 `check -c`/`run -c`/PID/exit/log，但发布物不捆绑或静默下载第三方 core，Windows live HTTPS MITM 仍未启用。历史 `v0.1.1-alpha.2` Windows manual-extract CLI zip 仅保留为审计记录。`main` 分支已开始 `v0.1.1-alpha.3` 订阅格式扩展，当前源增量是 `CoreSubscriptionService` Trojan/VLESS/VMess URL parser gates、Clash YAML parser gate、sing-box JSON parser gate、Surge proxy line parser gate、Loon proxy line parser gate 和 Quantumult X proxy/server line parser gate，仍不启用 `run-url` Trojan/VLESS/VMess/Clash/sing-box JSON/Surge/Loon/Quantumult X 运行、节点选择、远程订阅拉取、文件订阅读取、默认路径扫描、daemon/service 或系统代理 mutation；Linux CLI
+`v0.2.0-alpha.4`，它发布 Linux CLI 四件套、Windows managed-client MSI 四件套和 Windows portable ZIP 四件套。MSI 在安装期请求异步 service start，不等待 `Running`；CI 对 MSI 执行 bounded install/uninstall smoke。GUI 的明确 `Install core` 动作安装并校验官方 Windows sing-box core，明确 local profile import 可生成基础 Shadowsocks/Trojan/VLESS/VMess service config；MSI/portable ZIP 本身不捆绑或静默下载第三方 core，remote subscription fetch、advanced transport rendering 和 Windows live HTTPS MITM 仍未启用。历史 `v0.1.1-alpha.2` Windows manual-extract CLI zip 仅保留为审计记录。`main` 分支已开始 `v0.1.1-alpha.3` 订阅格式扩展，当前源增量是 `CoreSubscriptionService` Trojan/VLESS/VMess URL parser gates、Clash YAML parser gate、sing-box JSON parser gate、Surge proxy line parser gate、Loon proxy line parser gate 和 Quantumult X proxy/server line parser gate，仍不启用 Linux `run-url` Trojan/VLESS/VMess/Clash/sing-box JSON/Surge/Loon/Quantumult X 运行、节点选择、远程订阅拉取、文件订阅读取、默认路径扫描、daemon/service 或系统代理 mutation；Linux CLI
 `mitm http-rewrite preview --confirm --url https://... --phase request` 的合同测试固定 caller-provided
 HTTPS request preview 只能输出 preview/reject 边界，继续保持 `tls_decryption_ready=false`、
 `https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`；Windows path 已新增 `apps/windows-cli`、
@@ -86,6 +86,10 @@ GitHub artifact attestation、release notes、rollback 和 publish eligibility g
 - `v0.2.0-alpha.3` 保持同一 MSI/attestation/publish path，但将 install-time
   service start 改为 asynchronous，并在每个 Windows tag release 增加 portable
   ZIP、checksum、manifest、attestation 与 bounded MSI install/uninstall smoke。
+- `v0.2.0-alpha.4` 保持同一 MSI/portable/attestation/publish path，并增加 GUI
+  显式官方 sing-box core install 与 local profile import。它只生成基础
+  Shadowsocks/Trojan/VLESS/VMess 配置；remote subscription、advanced transport
+  rendering、Windows live HTTPS MITM 和 JavaScript dispatch 仍 blocked。
 - license/NOTICE marker 当前为 confirmed；若 marker 缺失、非法或回退到 pending，不得生成 release artifact。confirmed 且同 commit CI、checksum、manifest、attestation、release notes、rollback 与 publish eligibility 全部通过后，tag release 可以生成并上传 Linux CLI artifact；符合 Windows eligibility 时也可以上传当前 Windows managed client MSI 四件套。
 - 不在本机打包、签名、测试或发布。
 - 通过 release summary job 输出发布来源、policy、release-ci-gate、release CI success source contract、release CI gate activation validation contract、release CI gate execution validation contract、release CI gate API implementation plan、iOS Swift/Xcode source tree activation preflight contract、iOS Package.swift source ownership activation preflight contract、iOS Package.swift manifest-only activation validation contract、iOS upload workflow activation validation contract、iOS source tree README placeholder/Package.swift ownership/manifest-only activation/marker/protected environment/manual approval/App Store Connect API secret/archive/export/upload/submission/release asset blocked 状态、Linux package artifact job preflight validation contract、Linux package artifact build command validation contract、Linux package artifact staging file validation contract、Linux package artifact archive creation validation contract、Linux package artifact checksum execution validation contract、Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract、Linux package artifact attestation execution validation contract、Linux package release notes/rollback execution validation contract、Linux package publish eligibility execution validation contract、release-artifact-contract、release-signing-contract、release-rollback-contract、linux-artifact-readiness、Linux foreground stop/release contract、Linux artifact manifest contract、Linux artifact manifest output fields、Linux package runner/toolchain/target contract、Linux package archive staging contract、Linux package checksum/manifest checksum contract、Linux package publish/upload boundary contract、Linux package signing/attestation policy binding contract、Linux package release notes/rollback policy binding contract、Linux package publish eligibility aggregate contract、Linux package license/NOTICE transition validation contract、Linux artifact license/NOTICE source contract 与 status、placeholder、artifact 状态和后续 artifact 门禁。

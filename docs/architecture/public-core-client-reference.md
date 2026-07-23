@@ -55,12 +55,13 @@
 
 当前实现映射：
 
-- NetworkCore 已有 `config-core` `NodeCatalog`，sing-box renderer 仍从
-  Shadowsocks 最小路径开始。
+- NetworkCore 的 `config-core` `NodeCatalog` 已由 GUI 的显式本地 profile import
+  消费，生成基础 Shadowsocks、Trojan、VLESS 和 VMess sing-box outbounds。
 - Windows GUI 读取 managed state，显示 service 与 sing-box PID/退出码；日志
   位于 `%ProgramData%\\AnixOps\\NetworkCore\\logs`。
-- VLESS/Trojan/VMess/Clash/sing-box JSON 等 parser gate 尚未等价于
-  Windows runnable path。
+- Trojan 强制启用 TLS；VLESS/VMess 只生成基础 TCP。REALITY、WebSocket、gRPC、
+  TLS/transport/multiplex、DNS 与 route parser fields 不会被导入器保留，因此不
+  等价于完整 Windows runnable compatibility。
 
 ## MITM 边界
 

@@ -77,10 +77,11 @@ when the decoded JSON contains `add`, `port`, and `id`; `ps` may provide the
 display name, and `NODE_METADATA_VMESS_UUID` plus
 `NODE_METADATA_SOURCE_FORMAT=vmess-url` carry catalog metadata. VMess transport
 fields such as `net`, `tls`, `host`, `path`, `aid`, or `scy` are accepted by
-this parser gate but not interpreted as runnable adapter configuration. This
-does not make `run-url` render or run Trojan, VLESS, or VMess through
-`sing-box`; the initial `engine-singbox` renderer remains Shadowsocks-only
-until a later run-preview slice.
+this parser gate but not interpreted as runnable adapter configuration. Linux
+`run-url` remains Shadowsocks-only. The Windows GUI local-profile import may
+render the basic Trojan, VLESS, and VMess node fields through the shared
+adapter, but it does not carry query, transport, or TLS details into the
+generated config.
 
 Clash YAML may be imported as a catalog-only parser gate when the payload has a
 top-level `proxies` list. The initial supported proxy subset reads only
@@ -93,9 +94,10 @@ fail with `subscription.core.clash_yaml_unsupported`, and malformed supported
 proxies must fail with `subscription.core.clash_yaml_invalid` without echoing
 raw subscription content or secrets. Clash `proxy-groups`, `rules`, provider
 URLs, transport options, TLS options, UDP flags, and adapter rendering remain
-deferred. This does not make `run-url` render or run Clash YAML through
-`sing-box`; the current `engine-singbox` renderer remains Shadowsocks URL path
-only until a later run-preview slice.
+deferred. This does not make Linux `run-url` render or run Clash YAML. The
+Windows GUI may consume the basic node catalog through its explicit local-profile
+import, but unsupported transport and TLS fields remain absent from generated
+config.
 
 sing-box JSON may be imported as a catalog-only parser gate when the payload
 has a top-level `outbounds` list. The initial supported outbound subset reads
@@ -110,9 +112,9 @@ and malformed supported outbounds must fail with
 `subscription.core.sing_box_json_invalid` without echoing raw subscription
 content or secrets. sing-box TLS, transport, multiplex, route, DNS, inbound,
 experimental, and adapter rendering fields remain deferred. This does not make
-`run-url` render or run sing-box JSON through `sing-box`; the current
-`engine-singbox` renderer remains Shadowsocks URL path only until a later
-run-preview slice.
+Linux `run-url` render or run sing-box JSON. The Windows GUI may consume basic
+supported outbound nodes through local-profile import, but does not preserve
+sing-box TLS, transport, multiplex, route, DNS, or inbound settings.
 
 Surge proxy line may be imported as a catalog-only parser gate when the payload
 has a `[Proxy]` section. The initial supported line subset reads
@@ -126,8 +128,8 @@ malformed supported proxy lines must fail with
 `subscription.core.surge_proxy_line_invalid` without echoing raw subscription
 content or secrets. Surge proxy groups, rules, policy logic, TLS/transport
 options, UDP flags, and adapter rendering remain deferred. This does not make
-`run-url` render or run Surge through `sing-box`; the current `engine-singbox`
-renderer remains Shadowsocks URL path only until a later run-preview slice.
+Linux `run-url` render or run Surge. The Windows GUI can use the basic
+normalized node through local-profile import only.
 
 Loon proxy line may be imported as a catalog-only parser gate when the payload
 has a `[Proxy]` section and uses positional proxy fields. The initial supported
@@ -142,9 +144,8 @@ malformed supported proxy lines must fail with
 `subscription.core.loon_proxy_line_invalid` without echoing raw subscription
 content or secrets. Loon policy groups, rules, TLS/transport options, UDP
 flags, remote proxy providers, and adapter rendering remain deferred. This does
-not make `run-url` render or run Loon through `sing-box`; the current
-`engine-singbox` renderer remains Shadowsocks URL path only until a later
-run-preview slice.
+not make Linux `run-url` render or run Loon. The Windows GUI can use the basic
+normalized node through local-profile import only.
 
 Quantumult X proxy/server line may be imported as a catalog-only parser gate
 when the payload has a `[server_local]` section. The initial supported line
@@ -162,9 +163,8 @@ proxy/server lines must fail with
 subscription content or secrets. Quantumult X `[server_remote]`, policies,
 filters, rewrite/task sections, TLS/transport/obfs options, UDP flags, remote
 subscription fetching, and adapter rendering remain deferred. This does not
-make `run-url` render or run Quantumult X through `sing-box`; the current
-`engine-singbox` renderer remains Shadowsocks URL path only until a later
-run-preview slice.
+make Linux `run-url` render or run Quantumult X. The Windows GUI can use the
+basic normalized node through local-profile import only.
 
 Hysteria and other non-listed formats remain follow-up formats.
 They must still enter through `SubscriptionService` and `NodeCatalog`, not
@@ -173,12 +173,17 @@ through platform-specific parsers.
 ## sing-box Translation
 
 The `engine-singbox` crate owns deterministic `NodeCatalog` to `sing-box` JSON
-translation. The initial renderer must produce:
+translation. The renderer must produce:
 
 - a `mixed` inbound on the requested local host and port;
-- a Shadowsocks outbound from the selected node;
+- a basic Shadowsocks, Trojan, VLESS, or VMess outbound from the selected node;
 - a `direct` outbound;
 - a route `final` pointing at the selected node tag.
+
+Trojan uses a TLS block with its server name. VLESS and VMess use basic TCP
+fields only. The renderer must reject unsupported protocols and must not invent
+TLS/REALITY/transport/multiplex/route/DNS settings that the NodeCatalog did not
+retain.
 
 The renderer must not print generated JSON in normal CLI output because it
 contains credentials. It may write the config to the runtime cache for

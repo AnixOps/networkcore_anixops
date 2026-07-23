@@ -10,6 +10,7 @@ use control_domain::{
     ProxyEngineCapability, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
     ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
     NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD,
+    NODE_METADATA_TROJAN_PASSWORD, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_UUID,
 };
 use flate2::read::{DeflateDecoder, GzDecoder};
 use reqwest::blocking::Client;
@@ -819,25 +820,7 @@ pub fn render_sing_box_local_proxy_config(
     request: &SingBoxLocalProxyConfigRequest,
 ) -> DomainResult<SingBoxLocalProxyConfig> {
     let node = select_node(&request.nodes, request.selected_node_id.as_deref())?;
-    if node.protocol != Protocol::Shadowsocks {
-        return Err(DomainError::new(
-            ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE,
-            "sing-box alpha local proxy config currently supports shadowsocks nodes only",
-        ));
-    }
-
-    let method = metadata_value(node, NODE_METADATA_SHADOWSOCKS_METHOD).ok_or_else(|| {
-        DomainError::new(
-            ENGINE_SINGBOX_CONFIG_SECRET_MISSING_CODE,
-            "shadowsocks node is missing method metadata",
-        )
-    })?;
-    let password = metadata_value(node, NODE_METADATA_SHADOWSOCKS_PASSWORD).ok_or_else(|| {
-        DomainError::new(
-            ENGINE_SINGBOX_CONFIG_SECRET_MISSING_CODE,
-            "shadowsocks node is missing password metadata",
-        )
-    })?;
+    let outbound = render_sing_box_outbound(node)?;
 
     let config = json!({
         "log": {
@@ -852,14 +835,7 @@ pub fn render_sing_box_local_proxy_config(
             }
         ],
         "outbounds": [
-            {
-                "type": "shadowsocks",
-                "tag": node.id.as_str(),
-                "server": node.endpoint.host.as_str(),
-                "server_port": node.endpoint.port,
-                "method": method,
-                "password": password
-            },
+            outbound,
             {
                 "type": "direct",
                 "tag": "direct"
@@ -889,6 +865,97 @@ pub fn render_sing_box_local_proxy_config(
             SOURCE_ENGINE_SINGBOX_CONFIG,
         )],
     })
+}
+
+fn render_sing_box_outbound(node: &NodeDescriptor) -> DomainResult<serde_json::Value> {
+    match &node.protocol {
+        Protocol::Shadowsocks => {
+            let method = required_node_metadata(
+                node,
+                NODE_METADATA_SHADOWSOCKS_METHOD,
+                "shadowsocks node is missing method metadata",
+            )?;
+            let password = required_node_metadata(
+                node,
+                NODE_METADATA_SHADOWSOCKS_PASSWORD,
+                "shadowsocks node is missing password metadata",
+            )?;
+            Ok(json!({
+                "type": "shadowsocks",
+                "tag": node.id.as_str(),
+                "server": node.endpoint.host.as_str(),
+                "server_port": node.endpoint.port,
+                "method": method,
+                "password": password,
+            }))
+        }
+        Protocol::Trojan => {
+            let password = required_node_metadata(
+                node,
+                NODE_METADATA_TROJAN_PASSWORD,
+                "trojan node is missing password metadata",
+            )?;
+            Ok(json!({
+                "type": "trojan",
+                "tag": node.id.as_str(),
+                "server": node.endpoint.host.as_str(),
+                "server_port": node.endpoint.port,
+                "password": password,
+                "tls": {
+                    "enabled": true,
+                    "server_name": node.endpoint.host.as_str(),
+                },
+            }))
+        }
+        Protocol::Vless => {
+            let uuid = required_node_metadata(
+                node,
+                NODE_METADATA_VLESS_UUID,
+                "vless node is missing uuid metadata",
+            )?;
+            Ok(json!({
+                "type": "vless",
+                "tag": node.id.as_str(),
+                "server": node.endpoint.host.as_str(),
+                "server_port": node.endpoint.port,
+                "uuid": uuid,
+            }))
+        }
+        Protocol::Vmess => {
+            let uuid = required_node_metadata(
+                node,
+                NODE_METADATA_VMESS_UUID,
+                "vmess node is missing uuid metadata",
+            )?;
+            Ok(json!({
+                "type": "vmess",
+                "tag": node.id.as_str(),
+                "server": node.endpoint.host.as_str(),
+                "server_port": node.endpoint.port,
+                "uuid": uuid,
+                "security": "auto",
+                "alter_id": 0,
+            }))
+        }
+        Protocol::Http | Protocol::Socks | Protocol::Hysteria | Protocol::Other(_) => {
+            Err(DomainError::new(
+                ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE,
+                format!(
+                    "sing-box local proxy config does not support {:?} nodes",
+                    node.protocol
+                ),
+            ))
+        }
+    }
+}
+
+fn required_node_metadata<'a>(
+    node: &'a NodeDescriptor,
+    key: &str,
+    message: &str,
+) -> DomainResult<&'a str> {
+    metadata_value(node, key)
+        .ok_or_else(|| DomainError::new(ENGINE_SINGBOX_CONFIG_SECRET_MISSING_CODE, message))
 }
 
 pub fn default_sing_box_install_root() -> PathBuf {
@@ -950,7 +1017,22 @@ fn select_node<'a>(
             });
     }
 
-    Ok(&nodes[0])
+    nodes
+        .iter()
+        .find(|node| supports_local_proxy_protocol(&node.protocol))
+        .ok_or_else(|| {
+            DomainError::new(
+                ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE,
+                "node catalog has no sing-box local proxy supported node",
+            )
+        })
+}
+
+fn supports_local_proxy_protocol(protocol: &Protocol) -> bool {
+    matches!(
+        protocol,
+        Protocol::Shadowsocks | Protocol::Trojan | Protocol::Vless | Protocol::Vmess
+    )
 }
 
 fn metadata_value<'a>(node: &'a NodeDescriptor, key: &str) -> Option<&'a str> {

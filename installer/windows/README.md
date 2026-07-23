@@ -62,10 +62,33 @@ The smallest useful configuration for a local HTTP proxy is:
 `sing_box` is optional. When enabled, the service first runs
 `sing-box.exe check -c <config_path>`, then starts
 `sing-box.exe run -c <config_path>` as a service-owned child process and writes
-both stdout and stderr to `log_path`. The executable must already be present;
-the current MSI does not silently download third-party binaries. Use the
-Windows-targeted adapter/installer path to download and verify the official ZIP,
-or stage a verified Windows `sing-box.exe`, before enabling this block.
+both stdout and stderr to `log_path`. The MSI does not silently download
+third-party binaries. In the GUI, click `Install core` to explicitly download
+the official Windows ZIP, verify its published digest when available, and place
+the executable under `%ProgramData%\\AnixOps\\NetworkCore`; or stage a verified
+Windows `sing-box.exe` and import this managed configuration yourself.
+
+## GUI core and profile workflow
+
+For the normal managed workflow, run the elevated GUI and follow this order:
+
+1. Click `Install core` in the `sing-box profile` section.
+2. Enter an explicit local profile file path and optionally a Node ID.
+3. Click `Import profile`, then `Install service` and `Start`.
+
+The importer writes `C:\\ProgramData\\AnixOps\\NetworkCore\\sing-box\\config.json`
+and updates `managed-config.json` with the verified core path, local mixed proxy
+at `127.0.0.1:7890`, service working directory, and core log path. A blank Node
+ID selects the first supported node.
+
+The local profile may use the existing supported NodeCatalog inputs, including
+an `ss://`, `trojan://`, `vless://`, or `vmess://` node, a supported Clash YAML
+`proxies` list, supported sing-box JSON `outbounds`, or supported Surge, Loon,
+or Quantumult X proxy lines. Rendering is intentionally narrower: it produces
+basic Shadowsocks, Trojan, VLESS, and VMess outbounds. Trojan enables TLS;
+VLESS and VMess are basic TCP only. TLS/REALITY/WebSocket/gRPC/multiplex/DNS/
+route fields are not retained by this import path, so use explicit native
+sing-box JSON rather than GUI import when those fields are required.
 
 Only set `system_proxy.enabled` to `true` after the configured sing-box inbound
 is listening at `server`. After editing, open the GUI, click `Apply configuration`,
