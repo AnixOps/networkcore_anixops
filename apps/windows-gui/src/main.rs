@@ -99,12 +99,12 @@ mod gui {
         MessageBoxW, PostQuitMessage, RegisterClassW, SendMessageW, SetTimer, SetWindowLongPtrW,
         SetWindowTextW, ShowWindow, TranslateMessage, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX,
         BS_GROUPBOX, CBS_DROPDOWN, CB_ADDSTRING, CB_RESETCONTENT, CB_SETCURSEL, CW_USEDEFAULT,
-        ES_AUTOHSCROLL, GWLP_USERDATA, HMENU, IDC_ARROW, MB_ICONERROR, MB_OK, MINMAXINFO, MSG,
-        SW_HIDE, SW_SHOW, SW_SHOWNORMAL, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN,
-        WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC, WM_DESTROY, WM_GETMINMAXINFO,
-        WM_NCDESTROY, WM_SETFONT, WM_TIMER, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD,
-        WS_CLIPCHILDREN, WS_MAXIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME,
-        WS_VISIBLE, WS_VSCROLL,
+        ES_AUTOHSCROLL, GWLP_USERDATA, HMENU, IDC_ARROW, IDOK, MB_ICONERROR, MB_ICONINFORMATION,
+        MB_OK, MB_OKCANCEL, MINMAXINFO, MSG, SW_HIDE, SW_SHOW, SW_SHOWNORMAL, WM_CLOSE, WM_COMMAND,
+        WM_CREATE, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC,
+        WM_DESTROY, WM_GETMINMAXINFO, WM_NCDESTROY, WM_SETFONT, WM_TIMER, WNDCLASSW, WS_BORDER,
+        WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN, WS_MAXIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU,
+        WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE, WS_VSCROLL,
     };
 
     const APP_CLASS: &str = "AnixOpsNetworkCoreWindow";
@@ -298,7 +298,11 @@ mod gui {
     pub fn run(debug: bool) -> Result<(), String> {
         let _ = append_managed_log("gui", &format!("startup debug={debug}"));
         if unsafe { IsUserAnAdmin() } == 0 {
-            elevate(debug)?;
+            let start_after_login =
+                std::env::args().any(|argument| argument == "--start-after-login");
+            if !request_elevation(debug, start_after_login)? {
+                let _ = append_managed_log("gui", "administrator elevation was declined");
+            }
             return Ok(());
         }
 
@@ -3072,11 +3076,31 @@ mod gui {
         )
     }
 
-    fn elevate(debug: bool) -> Result<(), String> {
+    fn request_elevation(debug: bool, start_after_login: bool) -> Result<bool, String> {
+        let title = wide(APP_TITLE);
+        let message = wide(
+            "NetworkCore needs administrator permission to manage the Windows service and its managed configuration. Current-user proxy settings are applied only after the core is ready. Select OK to continue.",
+        );
+        let accepted = unsafe {
+            MessageBoxW(
+                null_mut(),
+                message.as_ptr(),
+                title.as_ptr(),
+                MB_OKCANCEL | MB_ICONINFORMATION,
+            )
+        } == IDOK;
+        if !accepted {
+            return Ok(false);
+        }
+        elevate(debug, start_after_login)?;
+        Ok(true)
+    }
+
+    fn elevate(debug: bool, start_after_login: bool) -> Result<(), String> {
         let executable = env::current_exe().map_err(|error| error.to_string())?;
         let executable = wide_os(&executable);
         let verb = wide("runas");
-        let arguments = if debug { wide("--debug") } else { wide("") };
+        let arguments = wide(elevation_arguments(debug, start_after_login));
         let result = unsafe {
             ShellExecuteW(
                 null_mut(),
@@ -3091,6 +3115,25 @@ mod gui {
             return Err("Administrator elevation was not granted".to_string());
         }
         Ok(())
+    }
+
+    const fn elevation_arguments(debug: bool, start_after_login: bool) -> &'static str {
+        match (debug, start_after_login) {
+            (true, true) => "--debug --start-after-login",
+            (true, false) => "--debug",
+            (false, true) => "--start-after-login",
+            (false, false) => "",
+        }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn elevation_keeps_the_login_startup_argument() {
+        assert_eq!(elevation_arguments(false, true), "--start-after-login");
+        assert_eq!(
+            elevation_arguments(true, true),
+            "--debug --start-after-login"
+        );
     }
 
     #[allow(clippy::too_many_arguments)]
