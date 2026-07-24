@@ -894,6 +894,9 @@ impl Drop for WindowsManagedChildJob {
 #[cfg(all(test, windows))]
 mod windows_managed_child_job_tests {
     use super::*;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT};
+    use windows_sys::Win32::System::Threading::WaitForSingleObject;
 
     #[test]
     fn closes_the_core_when_the_service_handle_closes() {
@@ -906,13 +909,15 @@ mod windows_managed_child_job_tests {
             .expect("fixture core process should start");
         let job = WindowsManagedChildJob::assign(&child)
             .expect("fixture core process should join the service cleanup job");
+        let handle = child.as_raw_handle().cast();
+        assert_eq!(unsafe { WaitForSingleObject(handle, 0) }, WAIT_TIMEOUT);
 
         drop(job);
 
-        let status = child
+        assert_eq!(unsafe { WaitForSingleObject(handle, 2_000) }, WAIT_OBJECT_0);
+        child
             .wait()
             .expect("job closure should collect the fixture core process");
-        assert!(!status.success());
     }
 }
 
