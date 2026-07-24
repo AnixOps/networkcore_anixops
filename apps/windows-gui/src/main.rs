@@ -259,13 +259,12 @@ mod gui {
     }
 
     pub fn run(debug: bool) -> Result<(), String> {
+        let start_after_login = std::env::args().any(|argument| argument == "--start-after-login");
         if self::instance::activate_existing_window(APP_CLASS) {
             return Ok(());
         }
         let _ = append_managed_log("gui", &format!("startup debug={debug}"));
         if unsafe { IsUserAnAdmin() } == 0 {
-            let start_after_login =
-                std::env::args().any(|argument| argument == "--start-after-login");
             if !request_elevation(debug, start_after_login)? {
                 let _ = append_managed_log("gui", "administrator elevation was declined");
             }
@@ -338,7 +337,7 @@ mod gui {
         }
 
         unsafe {
-            ShowWindow(window, SW_SHOWNORMAL);
+            ShowWindow(window, initial_window_show_command(start_after_login));
             UpdateWindow(window);
         }
 
@@ -358,6 +357,14 @@ mod gui {
         }
         drop(instance_guard);
         Ok(())
+    }
+
+    const fn initial_window_show_command(start_after_login: bool) -> i32 {
+        if start_after_login {
+            SW_HIDE
+        } else {
+            SW_SHOWNORMAL
+        }
     }
 
     pub fn show_fatal_error(message: &str) {
@@ -2650,6 +2657,13 @@ mod gui {
             elevation_arguments(true, true),
             "--debug --start-after-login"
         );
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn login_start_hides_the_window_after_the_tray_is_registered() {
+        assert_eq!(initial_window_show_command(true), SW_HIDE);
+        assert_eq!(initial_window_show_command(false), SW_SHOWNORMAL);
     }
 
     #[cfg(test)]

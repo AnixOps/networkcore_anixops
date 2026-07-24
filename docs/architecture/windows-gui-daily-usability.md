@@ -86,7 +86,7 @@ runtime resources.
 | Open logs / report / copy summary | Active | Existing bounded report/log paths; clipboard summary is read-only. |
 | Manual proxy recovery | Active | Existing GUI-owned current-user proxy snapshot/restore. |
 | MITM, CA, driver | Active but advanced | Existing explicit mutation and rollback operations; not part of the connect path. |
-| Start after login | Active | Exact current-user `HKCU\...\Run\AnixOpsNetworkCore` entry, queried from Windows and removed only when its command matches this GUI. |
+| Start after login | Active | Exact current-user `HKCU\...\Run\AnixOpsNetworkCore` entry, queried from Windows and removed only when its command matches this GUI. A Run-entry launch creates the shared tray icon before hiding the main window; a normal launch or tray action restores it. |
 | Auto-connect / one core recovery | Active | Persisted opt-in desktop settings; the existing background preflight/start flow runs once after GUI startup, and a GUI-started core error gets at most one preflight-gated restart. |
 | System tray | Active | Shared GUI state provides open, observed status/node, connect, disconnect, refresh, and safe exit; window close hides instead of terminating. A current-user-session mutex restores that hidden window on a second launch instead of creating a competing GUI. Explorer notification-area rebuilds re-add the same icon and refresh its shared status tooltip. |
 | Subscription groups, scheduled refresh, automatic latency selection | Blocked | No catalog scheduler, `urltest`, or background mutation is added. |

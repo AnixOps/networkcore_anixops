@@ -64,9 +64,10 @@ experience production-ready:
 7. Capture before/after screenshots on the same Windows/DPI/theme setup for
    the release evidence. Source-only and headless CI runs cannot produce an
    authoritative desktop screenshot.
-8. Close the main window to the tray, then launch NetworkCore again from the
-   installed shortcut and from its login-startup entry. Confirm the existing
-   hidden window is restored and no second GUI process can submit a competing
+8. Enable login startup and sign in again. Confirm NetworkCore creates its
+   tray icon before hiding the main window; launch it again from the installed
+   shortcut and from its login-startup entry. Confirm the existing hidden
+   window is restored and no second GUI process can submit a competing
    connect, disconnect, or proxy operation.
 9. While the main window is hidden, restart Explorer or change the primary
    display DPI. Confirm the NetworkCore notification-area icon returns with

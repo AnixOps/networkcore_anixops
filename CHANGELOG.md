@@ -32,6 +32,8 @@ release until the same commit passes the tag release workflow.
 - The Windows GUI now re-adds its notification-area icon when Explorer rebuilds
   the taskbar, including a primary-display DPI rebuild, and refreshes the icon
   from the same runtime state used by the visible window.
+- A login-startup launch now registers the shared tray icon and stays hidden
+  until the user opens it, avoiding a main-window interruption after sign-in.
 
 ### Fixed
 
