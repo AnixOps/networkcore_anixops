@@ -17,10 +17,11 @@ use control_domain::{
 use engine_singbox::{
     inspect_sing_box_local_selector_controller, inspect_sing_box_local_selector_snapshot,
     inspect_sing_box_native_config, measure_sing_box_clash_api_outbound_delay,
-    rewrite_sing_box_mixed_inbound_listener, sing_box_config_sha256, GithubSingBoxReleaseInstaller,
-    SingBoxHttpClient, SingBoxInstallRequest, SingBoxLocalControllerConfig,
-    SingBoxLocalProxyConfigRequest, SingBoxManagedProcessState, SingBoxManagedProcessSupervisor,
-    SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
+    rewrite_sing_box_local_selector_default, rewrite_sing_box_mixed_inbound_listener,
+    sing_box_config_sha256, GithubSingBoxReleaseInstaller, SingBoxHttpClient,
+    SingBoxInstallRequest, SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest,
+    SingBoxManagedProcessState, SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller,
+    SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
     DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS, DEFAULT_SING_BOX_ENGINE_ID,
     ENGINE_SINGBOX_CONFIG_MIXED_INBOUND_MISSING_CODE, ENGINE_SINGBOX_CONFIG_RENDERED_CODE,
     ENGINE_SINGBOX_DOWNLOAD_ASSET_SELECTED_CODE, ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE,
@@ -426,16 +427,35 @@ fn renders_loopback_clash_selector_for_explicit_runtime_node_switching() {
         sing_box_config_sha256(&rendered.json),
         sing_box_config_sha256("{}")
     );
+
+    let updated = rewrite_sing_box_local_selector_default(&rendered.json, "networkcore-node-0")
+        .expect("generated selector default should be persistable");
+    let updated_json: serde_json::Value =
+        serde_json::from_str(&updated).expect("updated selector config should remain valid json");
+    assert_eq!(
+        updated_json["outbounds"][0]["default"],
+        "networkcore-node-0"
+    );
+    assert_eq!(
+        inspect_sing_box_local_selector_snapshot(&updated)
+            .expect("updated selector identity should remain inspectable")
+            .outbound_tags,
+        vec![
+            "networkcore-node-0".to_string(),
+            "networkcore-node-1".to_string()
+        ]
+    );
+    assert!(rewrite_sing_box_local_selector_default(&rendered.json, "missing-node").is_err());
 }
 
 #[test]
 fn does_not_require_a_selector_api_for_native_pass_through_config() {
+    let native_config = r#"{"inbounds":[{"type":"mixed","listen":"127.0.0.1","listen_port":7890}],"outbounds":[{"type":"direct"}]}"#;
     assert_eq!(
-        inspect_sing_box_local_selector_controller(
-            r#"{"inbounds":[{"type":"mixed","listen":"127.0.0.1","listen_port":7890}],"outbounds":[{"type":"direct"}]}"#
-        ),
+        inspect_sing_box_local_selector_controller(native_config),
         None
     );
+    assert!(rewrite_sing_box_local_selector_default(native_config, "networkcore-node-0").is_err());
 }
 
 #[test]

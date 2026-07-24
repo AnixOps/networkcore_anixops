@@ -70,7 +70,7 @@ runtime resources.
 | Refresh | Active | Runtime observation only; no mutation. |
 | Load nodes | Active | Explicit local/HTTP(S) fetch and `CoreSubscriptionService` normalization. |
 | Filter / selected node | Active | The last successfully generated NodeCatalog is restored locally after restart only when the exact managed sing-box JSON SHA-256 and generated selector tag order still match; this never fetches a subscription. |
-| Switch active | Active | Loopback-only generated selector PATCH plus readback verification. |
+| Switch active | Active | Loopback-only generated selector PATCH/readback, then an atomic update of that generated selector's restart default. A failed config commit requests selector rollback to the previously observed outbound. |
 | Test delay | Active | One loopback Clash API delay request with the configured timeout. |
 | Check core | Active | One loopback selector read. |
 | Import profile / Update saved URL | Active | Explicit input fetch followed by the existing generated-profile/native-JSON import path while the service is stopped. Fetch failure leaves current managed config untouched. |
@@ -96,7 +96,9 @@ completion returns to the UI thread to update the selected node, delay, core
 path, desktop snapshot, or concise failure message.
 
 Failed selector switches update neither the persisted selected node nor the
-selector view. A failed subscription fetch produces no config write. Ordinary
+selector view. After a successful selector PATCH, a failed restart-default
+commit requests a rollback to the previously observed outbound. A failed
+subscription fetch produces no config write. Ordinary
 operation failures are displayed in-page with a diagnostics route instead of a
 blocking message box; only startup-fatal errors use a modal dialog.
 

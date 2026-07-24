@@ -21,6 +21,11 @@ release until the same commit passes the tag release workflow.
   when the current managed sing-box JSON has the saved exact SHA-256 and its
   loopback selector still has the saved ordered outbound tags. Native JSON and
   externally changed configs stay unhydrated instead of showing stale nodes.
+- A successful generated-profile node switch now updates the generated
+  sing-box selector's startup default atomically after Clash API readback, so
+  the selected node remains active across a service restart. If that config
+  commit fails, the GUI requests a rollback to the previously observed active
+  outbound and leaves its saved node selection unchanged.
 
 ### Fixed
 

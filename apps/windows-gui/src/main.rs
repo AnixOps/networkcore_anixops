@@ -34,7 +34,7 @@ mod gui {
     mod ui_state;
     mod widgets;
 
-    use self::actions::connection as connection_actions;
+    use self::actions::{connection as connection_actions, nodes as node_actions};
     use self::commands::{dispatch as dispatch_command, CommandCompletion};
     use self::pages::{home as home_page, settings as settings_page};
     use self::runtime_status::{read_runtime_status, WindowsRuntimeStatus};
@@ -53,12 +53,12 @@ mod gui {
         inspect_sing_box_local_selector_snapshot, inspect_sing_box_native_config,
         measure_sing_box_clash_api_outbound_delay, read_sing_box_clash_api_selector,
         render_sing_box_local_proxy_selector_config, rewrite_sing_box_mixed_inbound_listener,
-        select_sing_box_clash_api_outbound, sing_box_config_sha256,
-        sing_box_local_selector_outbound_tag, GithubSingBoxReleaseInstaller, SingBoxInstallRequest,
-        SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest,
-        SingBoxLocalProxySelectableNode, SingBoxManagedProcessRequest,
-        SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch,
-        SingBoxTargetOs, DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS,
+        sing_box_config_sha256, sing_box_local_selector_outbound_tag,
+        GithubSingBoxReleaseInstaller, SingBoxInstallRequest, SingBoxLocalControllerConfig,
+        SingBoxLocalProxyConfigRequest, SingBoxLocalProxySelectableNode,
+        SingBoxManagedProcessRequest, SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller,
+        SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
+        DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS,
     };
     use platform_windows::managed::{
         append_managed_log, read_managed_config, read_managed_state, windows_managed_config_path,
@@ -241,7 +241,7 @@ mod gui {
         ConfigurationValidated,
         NodesLoaded(Vec<DesktopProfileNode>),
         ProfileLoaded(ProfilePayload),
-        NodeSwitched(String),
+        NodeSwitched(node_actions::PersistedNodeSwitch),
         DelayMeasured(String),
         CoreChecked(String),
         DiagnosticReport(PathBuf),
@@ -878,24 +878,39 @@ mod gui {
 
     unsafe fn submit_profile_node_switch(state: &mut AppState) {
         let selected_node_id = selected_profile_node_id(state);
-        let outbound_tag = state
+        let Some(outbound_tag) = state
             .profile_nodes
             .iter()
             .find(|node| node.id == selected_node_id)
-            .map(|node| node.outbound_tag.clone());
+            .filter(|node| {
+                state
+                    .desktop
+                    .profile_node_catalog
+                    .iter()
+                    .any(|saved| saved.id == node.id && saved.outbound_tag == node.outbound_tag)
+            })
+            .map(|node| node.outbound_tag.clone())
+        else {
+            set_text(
+                state.activity,
+                "Import the current generated profile before switching its active node.",
+            );
+            return;
+        };
+        let Some(expected_config_sha256) = state.desktop.profile_config_sha256.clone() else {
+            set_text(
+                state.activity,
+                "Import the current generated profile before switching its active node.",
+            );
+            return;
+        };
         submit_background(state, OperationKind::NodeSwitch, move || {
-            let outbound_tag = outbound_tag.ok_or_else(|| {
-                "Load nodes from the current profile before switching the active node".to_string()
-            })?;
-            let status = select_sing_box_clash_api_outbound(
-                &SingBoxLocalControllerConfig::loopback_selector(),
-                &outbound_tag,
+            node_actions::switch_generated_node(
+                selected_node_id,
+                outbound_tag,
+                expected_config_sha256,
             )
-            .map_err(|error| error.to_string())?;
-            if status.current_outbound_tag != outbound_tag {
-                return Err("sing-box did not confirm the selected active node".to_string());
-            }
-            Ok(BackgroundPayload::NodeSwitched(selected_node_id))
+            .map(BackgroundPayload::NodeSwitched)
         });
     }
 
@@ -1072,13 +1087,24 @@ mod gui {
                     }
                 }
             }
-            Ok(BackgroundPayload::NodeSwitched(node_id)) => {
-                state.desktop.profile_node_id = Some(node_id);
-                let _ = save_desktop_state(&state.desktop);
-                set_text(
-                    state.activity,
-                    "Active sing-box node switched and verified.",
-                );
+            Ok(BackgroundPayload::NodeSwitched(switched)) => {
+                state.desktop.profile_node_id = Some(switched.node_id);
+                state.desktop.profile_config_sha256 = Some(switched.config_sha256);
+                match save_desktop_state(&state.desktop) {
+                    Ok(()) => set_text(
+                        state.activity,
+                        "Active sing-box node switched, verified, and saved for the next service start.",
+                    ),
+                    Err(error) => {
+                        let mut message = format!(
+                            "Active sing-box node switched, but the GUI selection could not be saved: {error}"
+                        );
+                        if let Err(log_error) = append_managed_log("gui", &message) {
+                            message.push_str(&format!("; the GUI log could not be written: {log_error}"));
+                        }
+                        set_text(state.activity, &message);
+                    }
+                }
             }
             Ok(BackgroundPayload::DelayMeasured(value)) => {
                 let (delay, url) = value.split_once('|').unwrap_or((&value, ""));

@@ -1450,6 +1450,69 @@ pub fn sing_box_config_sha256(content: &str) -> String {
     sha256_hex(content.as_bytes())
 }
 
+/// Updates the restart default for an existing NetworkCore-generated local
+/// selector. Native sing-box JSON and selectors outside the local generated
+/// contract are rejected instead of being rewritten.
+pub fn rewrite_sing_box_local_selector_default(
+    content: &str,
+    outbound_tag: &str,
+) -> DomainResult<String> {
+    validate_sing_box_clash_api_outbound_tag(outbound_tag)?;
+    let selector = inspect_sing_box_local_selector_snapshot(content).ok_or_else(|| {
+        DomainError::new(
+            ENGINE_SINGBOX_CONFIG_SELECTOR_INVALID_CODE,
+            "sing-box configuration does not contain the generated local selector",
+        )
+    })?;
+    if !selector
+        .outbound_tags
+        .iter()
+        .any(|candidate| candidate == outbound_tag)
+    {
+        return Err(DomainError::new(
+            ENGINE_SINGBOX_CONFIG_SELECTOR_INVALID_CODE,
+            "requested outbound is not part of the generated local selector",
+        ));
+    }
+
+    let mut config: Value = serde_json::from_str(content).map_err(|_| {
+        DomainError::new(
+            ENGINE_SINGBOX_CONFIG_SELECTOR_INVALID_CODE,
+            "generated sing-box selector configuration is not valid JSON",
+        )
+    })?;
+    let outbounds = config
+        .get_mut("outbounds")
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| {
+            DomainError::new(
+                ENGINE_SINGBOX_CONFIG_SELECTOR_INVALID_CODE,
+                "generated sing-box selector configuration has no outbound list",
+            )
+        })?;
+    let generated_selector = outbounds
+        .iter_mut()
+        .find(|outbound| {
+            outbound.get("type").and_then(Value::as_str) == Some("selector")
+                && outbound.get("tag").and_then(Value::as_str)
+                    == Some(selector.controller.selector_tag.as_str())
+        })
+        .ok_or_else(|| {
+            DomainError::new(
+                ENGINE_SINGBOX_CONFIG_SELECTOR_INVALID_CODE,
+                "generated sing-box selector was not found while updating its default",
+            )
+        })?;
+    generated_selector["default"] = Value::String(outbound_tag.to_string());
+
+    serde_json::to_string_pretty(&config).map_err(|error| {
+        DomainError::new(
+            ENGINE_SINGBOX_CONFIG_SELECTOR_INVALID_CODE,
+            format!("generated sing-box selector configuration could not be serialized: {error}"),
+        )
+    })
+}
+
 pub fn select_sing_box_clash_api_outbound(
     controller: &SingBoxLocalControllerConfig,
     outbound_tag: &str,
