@@ -81,7 +81,7 @@ runtime resources.
 | MITM, CA, driver | Active but advanced | Existing explicit mutation and rollback operations; not part of the connect path. |
 | Start after login | Active | Exact current-user `HKCU\...\Run\AnixOpsNetworkCore` entry, queried from Windows and removed only when its command matches this GUI. |
 | Auto-connect / one core recovery | Active | Persisted opt-in desktop settings; the existing background preflight/start flow runs once after GUI startup, and a GUI-started core error gets at most one preflight-gated restart. |
-| System tray | Active | Shared GUI state provides open, observed status/node, connect, disconnect, refresh, and safe exit; window close hides instead of terminating. |
+| System tray | Active | Shared GUI state provides open, observed status/node, connect, disconnect, refresh, and safe exit; window close hides instead of terminating. A current-user-session mutex restores that hidden window on a second launch instead of creating a competing GUI. |
 | Subscription groups, scheduled refresh, automatic latency selection | Blocked | No catalog scheduler, `urltest`, or background mutation is added. |
 | Native JSON group editing | Not implemented | Native sing-box JSON remains pass-through. |
 | TUN, DNS interception, HTTP/2/HTTP/3 MITM, script dispatch | Blocked | Existing platform and MITM boundaries remain unchanged. |

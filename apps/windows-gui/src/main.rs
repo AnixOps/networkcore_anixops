@@ -25,6 +25,7 @@ fn main() {
 mod gui {
     mod actions;
     mod commands;
+    mod instance;
     mod pages;
     mod runtime_status;
     mod shell;
@@ -255,6 +256,9 @@ mod gui {
     }
 
     pub fn run(debug: bool) -> Result<(), String> {
+        if self::instance::activate_existing_window(APP_CLASS) {
+            return Ok(());
+        }
         let _ = append_managed_log("gui", &format!("startup debug={debug}"));
         if unsafe { IsUserAnAdmin() } == 0 {
             let start_after_login =
@@ -264,6 +268,19 @@ mod gui {
             }
             return Ok(());
         }
+
+        let instance_guard = match self::instance::claim()? {
+            self::instance::InstanceClaim::Primary(guard) => guard,
+            self::instance::InstanceClaim::Existing => {
+                if self::instance::activate_existing_window(APP_CLASS) {
+                    return Ok(());
+                }
+                return Err(
+                    "Another NetworkCore GUI instance is starting in this Windows session. Try opening it again in a moment."
+                        .to_string(),
+                );
+            }
+        };
 
         let instance = unsafe { GetModuleHandleW(null()) };
         if instance.is_null() {
@@ -334,6 +351,7 @@ mod gui {
                 DispatchMessageW(&message);
             }
         }
+        drop(instance_guard);
         Ok(())
     }
 

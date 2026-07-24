@@ -26,6 +26,9 @@ release until the same commit passes the tag release workflow.
   the selected node remains active across a service restart. If that config
   commit fails, the GUI requests a rollback to the previously observed active
   outbound and leaves its saved node selection unchanged.
+- The Windows GUI now permits one instance per current Windows session. A
+  second launch restores the existing tray-hidden window instead of creating a
+  competing GUI that could issue duplicate service or proxy operations.
 
 ### Fixed
 
