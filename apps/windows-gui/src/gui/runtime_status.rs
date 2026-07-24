@@ -156,10 +156,7 @@ where
         },
         Some(state) if sing_box_configured => match state.last_transition.as_str() {
             "starting" => SingBoxProcessStatus::Starting,
-            _ => SingBoxProcessStatus::Exited {
-                process_id: state.sing_box_process_id.unwrap_or_default(),
-                exit_code: state.sing_box_exit_code,
-            },
+            _ => recorded_core_exit(state.sing_box_process_id, state.sing_box_exit_code),
         },
         _ => SingBoxProcessStatus::NotConfigured,
     };
@@ -200,6 +197,19 @@ where
     }
 }
 
+fn recorded_core_exit(process_id: Option<u32>, exit_code: Option<i32>) -> SingBoxProcessStatus {
+    match process_id {
+        Some(process_id) => SingBoxProcessStatus::Exited {
+            process_id,
+            exit_code,
+        },
+        None => SingBoxProcessStatus::Unavailable {
+            process_id: None,
+            reason: "managed state recorded a core exit without a process ID".to_string(),
+        },
+    }
+}
+
 enum ProcessProbe {
     Running,
     Exited(i32),
@@ -226,5 +236,21 @@ fn probe_process(process_id: u32) -> Result<ProcessProbe, String> {
         Ok(ProcessProbe::Running)
     } else {
         Ok(ProcessProbe::Exited(exit_code as i32))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recorded_core_exit_without_pid_is_unavailable_not_pid_zero() {
+        assert!(matches!(
+            recorded_core_exit(None, Some(1)),
+            SingBoxProcessStatus::Unavailable {
+                process_id: None,
+                ..
+            }
+        ));
     }
 }

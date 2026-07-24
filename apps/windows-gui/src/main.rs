@@ -2961,6 +2961,10 @@ mod gui {
                 &runtime.sing_box,
                 self::runtime_status::SingBoxProcessStatus::NotConfigured
                     | self::runtime_status::SingBoxProcessStatus::Exited { .. }
+                    | self::runtime_status::SingBoxProcessStatus::Unavailable {
+                        process_id: None,
+                        ..
+                    }
             )
         {
             return Ok(());
