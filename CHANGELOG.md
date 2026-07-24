@@ -24,6 +24,10 @@ release until the same commit passes the tag release workflow.
   before changing the current-user proxy. The proxy snapshot is atomically
   persisted before a successful connection is reported; persistence failure
   restores the proxy and stops the service.
+- The Windows service now assigns its sing-box child to a private Windows Job
+  Object with kill-on-close semantics. An unexpected Service-process exit
+  therefore terminates that owned core instead of leaving its listener behind
+  for the next managed start.
 - Removed the legacy direct `Enable proxy` controls that bypassed readiness
   checks. `Restore network settings` remains available for a GUI-owned
   snapshot, and a partial Windows proxy write now attempts to restore its

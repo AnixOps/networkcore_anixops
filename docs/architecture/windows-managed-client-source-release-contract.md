@@ -88,6 +88,11 @@ managed JSON or a persisted state record alone cannot report a connection. The
 exact UI control and unavailable-feature boundary is documented in
 [Windows GUI Daily Usability](windows-gui-daily-usability.md).
 
+The Service assigns each managed sing-box child to a private Windows Job Object
+with kill-on-close semantics. If the Service process exits unexpectedly, Windows
+closes that handle and terminates the owned core; normal stop still performs the
+explicit child stop and wait path before reporting SCM `Stopped`.
+
 The GUI `Import profile` action accepts either an operator-selected local file
 or an operator-entered `http://`/`https://` subscription URL. `Load nodes`
 explicitly reads that same operator-selected source without changing the managed

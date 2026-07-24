@@ -345,6 +345,9 @@ Actions CI、MSI install/uninstall smoke、package、attestation、publish eligi
   stale GUI-owned proxy recovery remains available. Direct proxy enable actions are removed.
 - GUI explains required UAC elevation before requesting it and preserves login-startup
   arguments through the elevation handoff.
+- The Service-owned sing-box child is attached to a private Windows Job Object
+  with kill-on-close semantics, so an unexpected Service-process exit does not
+  leave an owned core listener running.
 
 明确不包含：
 

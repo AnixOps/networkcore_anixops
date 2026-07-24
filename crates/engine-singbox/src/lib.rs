@@ -594,6 +594,8 @@ pub struct SingBoxManagedProcessStatus {
 /// remain the responsibility of the release installer boundary.
 pub struct SingBoxManagedProcessSupervisor {
     child: Option<Child>,
+    #[cfg(windows)]
+    child_job: Option<WindowsManagedChildJob>,
     last_status: SingBoxManagedProcessStatus,
 }
 
@@ -601,6 +603,8 @@ impl Default for SingBoxManagedProcessSupervisor {
     fn default() -> Self {
         Self {
             child: None,
+            #[cfg(windows)]
+            child_job: None,
             last_status: SingBoxManagedProcessStatus {
                 state: SingBoxManagedProcessState::Stopped,
                 process_id: None,
@@ -664,8 +668,20 @@ impl SingBoxManagedProcessSupervisor {
         let child = command.spawn().map_err(|error| {
             process_error("sing-box managed process could not be started", error)
         })?;
+        #[cfg(windows)]
+        let child_job = match WindowsManagedChildJob::assign(&child) {
+            Ok(job) => job,
+            Err(error) => {
+                stop_spawned_child(child);
+                return Err(error);
+            }
+        };
         let process_id = child.id();
         self.child = Some(child);
+        #[cfg(windows)]
+        {
+            self.child_job = Some(child_job);
+        }
         self.last_status = SingBoxManagedProcessStatus {
             state: SingBoxManagedProcessState::Running,
             process_id: Some(process_id),
@@ -685,10 +701,17 @@ impl SingBoxManagedProcessSupervisor {
 
     pub fn stop(&mut self, log_path: &Path) -> DomainResult<SingBoxManagedProcessStatus> {
         let Some(mut child) = self.child.take() else {
+            #[cfg(windows)]
+            {
+                self.child_job = None;
+            }
             self.last_status.state = SingBoxManagedProcessState::Stopped;
             self.last_status.process_id = None;
             return Ok(self.last_status.clone());
         };
+
+        #[cfg(windows)]
+        let child_job = self.child_job.take();
 
         let process_id = child.id();
         child.kill().map_err(|error| {
@@ -700,6 +723,8 @@ impl SingBoxManagedProcessSupervisor {
                 error,
             )
         })?;
+        #[cfg(windows)]
+        drop(child_job);
         let exit_code = status.code();
         self.last_status = SingBoxManagedProcessStatus {
             state: SingBoxManagedProcessState::Stopped,
@@ -765,6 +790,10 @@ impl SingBoxManagedProcessSupervisor {
         let process_id = child.id();
         let exit_code = status.code();
         self.child = None;
+        #[cfg(windows)]
+        {
+            self.child_job = None;
+        }
         self.last_status = SingBoxManagedProcessStatus {
             state: if status.success() {
                 SingBoxManagedProcessState::Stopped
@@ -788,6 +817,99 @@ impl Drop for SingBoxManagedProcessSupervisor {
             let _ = child.kill();
             let _ = child.wait();
         }
+        #[cfg(windows)]
+        {
+            self.child_job = None;
+        }
+    }
+}
+
+#[cfg(windows)]
+fn stop_spawned_child(mut child: Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// Holds a Windows Job Object with kill-on-close semantics for one service-owned core.
+/// The job handle lives beside the `Child`, so an unexpected service-process exit closes the
+/// handle and Windows terminates the core instead of leaving a stale listener behind.
+#[cfg(windows)]
+struct WindowsManagedChildJob {
+    handle: windows_sys::Win32::Foundation::HANDLE,
+}
+
+#[cfg(windows)]
+impl WindowsManagedChildJob {
+    fn assign(child: &Child) -> DomainResult<Self> {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::System::JobObjects::{
+            AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+            SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        };
+
+        let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
+        if handle.is_null() {
+            return Err(process_error(
+                "sing-box cleanup job could not be created",
+                std::io::Error::last_os_error(),
+            ));
+        }
+        let job = Self { handle };
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if unsafe {
+            SetInformationJobObject(
+                job.handle,
+                JobObjectExtendedLimitInformation,
+                (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            )
+        } == 0
+        {
+            return Err(process_error(
+                "sing-box cleanup job could not enable kill-on-close",
+                std::io::Error::last_os_error(),
+            ));
+        }
+        if unsafe { AssignProcessToJobObject(job.handle, child.as_raw_handle().cast()) } == 0 {
+            return Err(process_error(
+                "sing-box process could not join its cleanup job",
+                std::io::Error::last_os_error(),
+            ));
+        }
+        Ok(job)
+    }
+}
+
+#[cfg(windows)]
+impl Drop for WindowsManagedChildJob {
+    fn drop(&mut self) {
+        unsafe {
+            windows_sys::Win32::Foundation::CloseHandle(self.handle);
+        }
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_managed_child_job_tests {
+    use super::*;
+
+    #[test]
+    fn closes_the_core_when_the_service_handle_closes() {
+        let mut child = Command::new("cmd")
+            .args(["/C", "ping -n 30 127.0.0.1 > nul"])
+            .spawn()
+            .expect("fixture core process should start");
+        let job = WindowsManagedChildJob::assign(&child)
+            .expect("fixture core process should join the service cleanup job");
+
+        drop(job);
+
+        let status = child
+            .wait()
+            .expect("job closure should collect the fixture core process");
+        assert!(!status.success());
     }
 }
 

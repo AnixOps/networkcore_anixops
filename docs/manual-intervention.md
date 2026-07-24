@@ -43,9 +43,11 @@ experience production-ready:
    ready before the proxy changes. Test missing service/core, invalid config,
    occupied port, no network, and a non-administrator launch/elevation
    rejection.
-5. Stop the service, force a core exit, close/reopen the GUI, sleep/resume, and
-   reboot Windows. For each case verify the interactive-user proxy is restored
-   or an explicit recovery failure is shown; capture the GUI, service, and core
+5. Stop and forcibly terminate the service separately, force a core exit,
+   close/reopen the GUI, sleep/resume, and reboot Windows. After the forced
+   Service exit, verify its owned sing-box PID and listener are gone before the
+   next start. For each case verify the interactive-user proxy is restored or
+   an explicit recovery failure is shown; capture the GUI, service, and core
    diagnostic report paths.
 6. Verify MSI upgrade/uninstall and portable extraction separately. Enable
    login startup first, then confirm MSI uninstall removes only NetworkCore's
