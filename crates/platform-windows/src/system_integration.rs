@@ -3,7 +3,9 @@
 use crate::managed::{WindowsProxySettings, WindowsProxySnapshot};
 use control_domain::{DomainError, DomainResult};
 use serde::{Deserialize, Serialize};
+use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 pub const NETWORKCORE_WINDOWS_SERVICE_NAME: &str = "AnixOpsNetworkCore";
 pub const NETWORKCORE_WINDOWS_SERVICE_DISPLAY_NAME: &str = "AnixOps NetworkCore";
@@ -41,6 +43,83 @@ pub fn disable_current_user_startup(executable: &Path) -> DomainResult<()> {
 /// never as evidence that a managed runtime successfully started.
 pub fn read_current_user_system_proxy() -> DomainResult<WindowsProxySettings> {
     native::read_current_user_system_proxy()
+}
+
+/// Probes the explicit loopback endpoint configured for the managed desktop
+/// proxy. This is an observation only; it never changes proxy settings.
+pub fn managed_proxy_listener_ready(
+    settings: &WindowsProxySettings,
+    timeout: Duration,
+) -> DomainResult<bool> {
+    let endpoint = managed_loopback_proxy_endpoint(settings)?;
+    Ok(TcpStream::connect_timeout(&endpoint, timeout).is_ok())
+}
+
+fn managed_loopback_proxy_endpoint(settings: &WindowsProxySettings) -> DomainResult<SocketAddr> {
+    settings.validate()?;
+    let endpoint = settings.server.trim();
+    let address = if let Ok(address) = endpoint.parse::<SocketAddr>() {
+        address
+    } else if let Some(port) = endpoint.strip_prefix("localhost:") {
+        SocketAddr::from(([127, 0, 0, 1], parse_proxy_port(port)?))
+    } else {
+        return Err(proxy_error(
+            "managed desktop proxy requires an explicit loopback host and port",
+        ));
+    };
+    if address.port() == 0 {
+        return Err(proxy_error(
+            "managed desktop proxy requires a non-zero listener port",
+        ));
+    }
+    if !matches!(address.ip(), IpAddr::V4(ip) if ip.is_loopback())
+        && !matches!(address.ip(), IpAddr::V6(ip) if ip.is_loopback())
+    {
+        return Err(proxy_error(
+            "managed desktop proxy must use a loopback listener",
+        ));
+    }
+    Ok(address)
+}
+
+fn parse_proxy_port(port: &str) -> DomainResult<u16> {
+    port.parse::<u16>()
+        .ok()
+        .filter(|port| *port != 0)
+        .ok_or_else(|| proxy_error("managed desktop proxy requires a non-zero listener port"))
+}
+
+fn proxy_error(message: &str) -> DomainError {
+    DomainError::new(WINDOWS_PROXY_OPERATION_FAILED_CODE, message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings(server: &str) -> WindowsProxySettings {
+        WindowsProxySettings {
+            enabled: true,
+            server: server.to_string(),
+            bypass: "<local>".to_string(),
+        }
+    }
+
+    #[test]
+    fn managed_desktop_proxy_requires_an_explicit_loopback_endpoint() {
+        assert_eq!(
+            managed_loopback_proxy_endpoint(&settings("127.0.0.1:7890"))
+                .expect("IPv4 loopback endpoint is accepted"),
+            SocketAddr::from(([127, 0, 0, 1], 7890))
+        );
+        assert_eq!(
+            managed_loopback_proxy_endpoint(&settings("localhost:7890"))
+                .expect("localhost endpoint is accepted"),
+            SocketAddr::from(([127, 0, 0, 1], 7890))
+        );
+        assert!(managed_loopback_proxy_endpoint(&settings("198.51.100.1:7890")).is_err());
+        assert!(managed_loopback_proxy_endpoint(&settings("127.0.0.1:0")).is_err());
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -509,6 +588,7 @@ mod native {
     pub fn apply_system_proxy(
         settings: &WindowsProxySettings,
     ) -> DomainResult<WindowsProxySnapshot> {
+        settings.validate()?;
         let key = open_internet_settings_key()?;
         let mut snapshot = WindowsProxySnapshot {
             enabled: read_registry_dword(&key, "ProxyEnable")? != 0,
@@ -520,11 +600,22 @@ mod native {
         };
         read_winhttp_snapshot(&mut snapshot)?;
 
-        write_registry_dword(&key, "ProxyEnable", u32::from(settings.enabled))?;
-        write_registry_string(&key, "ProxyServer", &settings.server)?;
-        write_registry_string(&key, "ProxyOverride", &settings.bypass)?;
-        set_winhttp_proxy(settings.enabled, &settings.server, &settings.bypass)?;
-        notify_proxy_change()?;
+        let apply_result = (|| {
+            write_registry_dword(&key, "ProxyEnable", u32::from(settings.enabled))?;
+            write_registry_string(&key, "ProxyServer", &settings.server)?;
+            write_registry_string(&key, "ProxyOverride", &settings.bypass)?;
+            set_winhttp_proxy(settings.enabled, &settings.server, &settings.bypass)?;
+            notify_proxy_change()
+        })();
+        if let Err(error) = apply_result {
+            return match restore_system_proxy(&snapshot) {
+                Ok(()) => Err(error),
+                Err(rollback) => Err(proxy_error(&format!(
+                    "system proxy could not be applied: {}; rollback failed: {}",
+                    error.message, rollback.message
+                ))),
+            };
+        }
         Ok(snapshot)
     }
 

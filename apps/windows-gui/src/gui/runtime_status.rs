@@ -67,6 +67,7 @@ pub struct WindowsRuntimeStatus {
     pub sing_box: SingBoxProcessStatus,
     pub system_proxy_enabled: Option<bool>,
     pub system_proxy_server: Option<String>,
+    pub system_proxy_matches_managed: Option<bool>,
     pub last_transition: Option<String>,
     pub last_error: Option<String>,
     pub configuration_error: Option<String>,
@@ -86,6 +87,11 @@ impl WindowsRuntimeStatus {
             ),
             Some(false) => "System proxy: Off".to_string(),
             None => "System proxy: Unavailable".to_string(),
+        };
+        let proxy = if self.system_proxy_matches_managed == Some(false) {
+            format!("{proxy} (does not match the active profile)")
+        } else {
+            proxy
         };
         format!("{service}; core: {}; {proxy}", self.sing_box.label())
     }
@@ -118,6 +124,11 @@ where
         .ok()
         .and_then(|config| config.sing_box.as_ref())
         .is_some_and(|sing_box| sing_box.enabled);
+    let managed_proxy = config
+        .as_ref()
+        .ok()
+        .and_then(|config| config.system_proxy.as_ref())
+        .filter(|proxy| proxy.enabled);
 
     let (service_state, service_process_id, service_detail) = match integration.service_status() {
         Ok(status) => (status.state, status.process_id, None),
@@ -154,6 +165,13 @@ where
     };
 
     let proxy = read_current_user_system_proxy();
+    let system_proxy_matches_managed = managed_proxy.and_then(|expected| {
+        proxy.as_ref().ok().map(|current| {
+            current.enabled == expected.enabled
+                && current.server == expected.server
+                && current.bypass == expected.bypass
+        })
+    });
     let facts = RuntimeFacts {
         service_state,
         sing_box_configured,
@@ -161,7 +179,7 @@ where
             .as_ref()
             .is_some_and(|state| state.sing_box_running),
         sing_box_process_running: sing_box.process_is_running(),
-        system_proxy_enabled: proxy.as_ref().map(|value| value.enabled).unwrap_or(false),
+        system_proxy_matches_managed: system_proxy_matches_managed == Some(true),
         last_transition: runtime.as_ref().map(|state| state.last_transition.clone()),
         last_error: runtime.as_ref().and_then(|state| state.last_error.clone()),
         configuration_error: configuration_error.clone(),
@@ -175,6 +193,7 @@ where
         sing_box,
         system_proxy_enabled: proxy.as_ref().ok().map(|value| value.enabled),
         system_proxy_server: proxy.ok().map(|value| value.server),
+        system_proxy_matches_managed,
         last_transition: facts.last_transition,
         last_error: facts.last_error,
         configuration_error,

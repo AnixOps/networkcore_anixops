@@ -15,12 +15,12 @@ use control_domain::{
     NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
 };
 use engine_singbox::{
-    inspect_sing_box_native_config, measure_sing_box_clash_api_outbound_delay,
-    rewrite_sing_box_mixed_inbound_listener, GithubSingBoxReleaseInstaller, SingBoxHttpClient,
-    SingBoxInstallRequest, SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest,
-    SingBoxManagedProcessState, SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller,
-    SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
-    DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS, DEFAULT_SING_BOX_ENGINE_ID,
+    inspect_sing_box_local_selector_controller, inspect_sing_box_native_config,
+    measure_sing_box_clash_api_outbound_delay, rewrite_sing_box_mixed_inbound_listener,
+    GithubSingBoxReleaseInstaller, SingBoxHttpClient, SingBoxInstallRequest,
+    SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest, SingBoxManagedProcessState,
+    SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch,
+    SingBoxTargetOs, DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS, DEFAULT_SING_BOX_ENGINE_ID,
     ENGINE_SINGBOX_CONFIG_MIXED_INBOUND_MISSING_CODE, ENGINE_SINGBOX_CONFIG_RENDERED_CODE,
     ENGINE_SINGBOX_DOWNLOAD_ASSET_SELECTED_CODE, ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE,
     ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE,
@@ -407,6 +407,20 @@ fn renders_loopback_clash_selector_for_explicit_runtime_node_switching() {
     assert_eq!(
         json["experimental"]["clash_api"]["external_controller"],
         "127.0.0.1:9091"
+    );
+    assert_eq!(
+        inspect_sing_box_local_selector_controller(&rendered.json),
+        Some(SingBoxLocalControllerConfig::loopback_selector())
+    );
+}
+
+#[test]
+fn does_not_require_a_selector_api_for_native_pass_through_config() {
+    assert_eq!(
+        inspect_sing_box_local_selector_controller(
+            r#"{"inbounds":[{"type":"mixed","listen":"127.0.0.1","listen_port":7890}],"outbounds":[{"type":"direct"}]}"#
+        ),
+        None
     );
 }
 

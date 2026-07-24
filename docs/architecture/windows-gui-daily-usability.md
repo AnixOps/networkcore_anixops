@@ -1,7 +1,7 @@
 # Windows GUI Daily Usability
 
 This document defines the Windows GUI usability slice for
-`v0.2.0-alpha.21` candidate baseline. It preserves the existing Rust/Win32 client, Windows
+the current Windows desktop baseline. It preserves the existing Rust/Win32 client, Windows
 service, managed configuration schema, sing-box adapter, NodeCatalog parser,
 selector API, system integration layer, MSI, and portable package.
 
@@ -38,36 +38,42 @@ and the diagnostic-copy command.
 1. SCM reports `Running` for `AnixOpsNetworkCore`.
 2. The service-owned state records an enabled running sing-box child.
 3. The GUI can query that exact child PID and it is still active.
-4. The current interactive user's WinINet proxy is enabled.
+4. The current interactive user's WinINet proxy exactly matches the enabled
+   managed server and bypass settings.
 
 The managed JSON is never sufficient by itself. Configuration JSON errors map
 to `Configuration error`; a failed transition or an exited PID maps to `Core
 error`; SCM pending states map to `Connecting` or `Disconnecting`.
 
 Connect validates managed JSON and runs the existing `sing-box check -c`
-preflight, submits the service start, waits off the UI thread for SCM and the
-core PID, and only then applies the configured proxy for the interactive user.
-That user proxy snapshot and the exact GUI-applied proxy settings are persisted
-in desktop state. Disconnect restores it before stopping the service only when
-the current proxy still exactly matches the GUI-owned setting. A later GUI
-startup or status refresh uses the same rule after the service/core are no
-longer valid; it never overwrites a user-changed proxy.
+preflight, submits the service start, waits off the UI thread for SCM, the core
+PID, and the configured loopback listener. A NetworkCore-generated NodeCatalog
+profile also requires its loopback Clash selector API to respond. Only then does
+the GUI apply the configured proxy for the interactive user and atomically
+persist its snapshot plus the exact GUI-applied proxy settings. Disconnect
+restores it before stopping the service only when the current proxy still
+exactly matches the GUI-owned setting. A later GUI startup or status refresh
+uses the same rule after the service/core are no longer valid; it never
+overwrites a user-changed proxy.
 
-The service remains responsible for its own LocalSystem-managed proxy snapshot
-and resource cleanup. The GUI does not alter the service configuration schema.
+Managed configuration schema 2 makes proxy ownership explicit. Existing schema
+1 data migrates in memory to `Service`, preserving CLI/service behavior. A GUI
+profile import writes `Desktop`, so the user-session GUI is the sole owner of
+its current-user snapshot while the service continues to own core and other
+runtime resources.
 
 ## Control Map
 
 | Control | Status | Backend |
 | --- | --- | --- |
-| Connect / Disconnect | Active | Managed config preflight, SCM start/stop, core PID observation, current-user proxy snapshot/rollback. |
+| Connect / Disconnect | Active | Managed config preflight, SCM start/stop, core PID, loopback listener and generated selector API observation, then current-user proxy snapshot/rollback. |
 | Refresh | Active | Runtime observation only; no mutation. |
 | Load nodes | Active | Explicit local/HTTP(S) fetch and `CoreSubscriptionService` normalization. |
 | Filter / selected node | Active | In-memory imported NodeCatalog options only. |
 | Switch active | Active | Loopback-only generated selector PATCH plus readback verification. |
 | Test delay | Active | One loopback Clash API delay request with the configured timeout. |
 | Check core | Active | One loopback selector read. |
-| Import profile / Update saved URL | Active | Explicit input fetch followed by the existing generated-profile/native-JSON import path. Fetch failure leaves current managed config untouched. |
+| Import profile / Update saved URL | Active | Explicit input fetch followed by the existing generated-profile/native-JSON import path while the service is stopped. Fetch failure leaves current managed config untouched. |
 | Install sing-box | Active | Existing official-release installer and digest-aware adapter path. |
 | Validate | Active | Managed schema validation and non-mutating `sing-box check -c`. |
 | Open logs / report / copy summary | Active | Existing bounded report/log paths; clipboard summary is read-only. |

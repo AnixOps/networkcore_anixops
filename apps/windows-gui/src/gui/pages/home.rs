@@ -112,8 +112,12 @@ pub const fn connection_summary(connection: ConnectionState) -> &'static str {
     }
 }
 
-pub fn proxy_summary(enabled: Option<bool>, server: Option<&str>) -> String {
-    match enabled {
+pub fn proxy_summary(
+    enabled: Option<bool>,
+    server: Option<&str>,
+    matches_managed: Option<bool>,
+) -> String {
+    let summary = match enabled {
         Some(true) => format!(
             "Enabled{}",
             server
@@ -123,6 +127,11 @@ pub fn proxy_summary(enabled: Option<bool>, server: Option<&str>) -> String {
         ),
         Some(false) => "Disabled".to_string(),
         None => "Could not read the current user setting".to_string(),
+    };
+    if matches_managed == Some(false) {
+        format!("{summary} - does not match the active profile")
+    } else {
+        summary
     }
 }
 
@@ -141,13 +150,16 @@ mod tests {
 
     #[test]
     fn proxy_summary_keeps_an_unavailable_read_distinct_from_off() {
-        assert_eq!(proxy_summary(Some(false), None), "Disabled");
         assert_eq!(
-            proxy_summary(Some(true), Some("127.0.0.1:7890")),
+            proxy_summary(Some(false), None, Some(false)),
+            "Disabled - does not match the active profile"
+        );
+        assert_eq!(
+            proxy_summary(Some(true), Some("127.0.0.1:7890"), Some(true)),
             "Enabled (127.0.0.1:7890)"
         );
         assert_eq!(
-            proxy_summary(None, None),
+            proxy_summary(None, None, None),
             "Could not read the current user setting"
         );
     }

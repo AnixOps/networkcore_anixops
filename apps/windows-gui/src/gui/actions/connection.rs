@@ -1,16 +1,20 @@
 use crate::gui::ui_state::ConnectionState;
 use crate::gui::{
     runtime_status::read_runtime_status,
-    startup::{owns_current_proxy, DesktopState},
+    startup::{owns_current_proxy, save_desktop_state, DesktopState},
     validate_managed_configuration,
+};
+use engine_singbox::{
+    inspect_sing_box_local_selector_controller, read_sing_box_clash_api_selector_with_timeout,
 };
 use platform_windows::managed::{
     read_managed_config, windows_managed_config_path, WindowsProxySettings, WindowsProxySnapshot,
 };
 use platform_windows::system_integration::{
-    read_current_user_system_proxy, NativeWindowsSystemIntegration, WindowsServiceState,
-    WindowsSystemIntegration,
+    managed_proxy_listener_ready, read_current_user_system_proxy, NativeWindowsSystemIntegration,
+    WindowsServiceState, WindowsSystemIntegration,
 };
+use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -47,7 +51,7 @@ pub const fn should_restart_gui_started_core(
         && matches!(connection, ConnectionState::CoreError)
 }
 
-pub fn connect(config_path: PathBuf) -> Result<ConnectedProxy, String> {
+pub fn connect(config_path: PathBuf, desktop: DesktopState) -> Result<ConnectedProxy, String> {
     let managed_config_path = windows_managed_config_path();
     if config_path != managed_config_path {
         return Err(
@@ -57,6 +61,12 @@ pub fn connect(config_path: PathBuf) -> Result<ConnectedProxy, String> {
     }
     validate_managed_configuration(&config_path)?;
     let managed = read_managed_config(&config_path).map_err(|error| error.to_string())?;
+    if managed.system_proxy_owner.is_service_managed() {
+        return Err(
+            "This configuration is managed by the Windows service. Use the explicit advanced workflow or import a daily desktop profile before connecting."
+                .to_string(),
+        );
+    }
     let proxy = managed
         .system_proxy
         .filter(|proxy| proxy.enabled)
@@ -64,11 +74,24 @@ pub fn connect(config_path: PathBuf) -> Result<ConnectedProxy, String> {
             "Connection requires an enabled managed system proxy. Import a profile or configure one first."
                 .to_string()
         })?;
+    let selector_controller = managed
+        .sing_box
+        .as_ref()
+        .filter(|sing_box| sing_box.enabled)
+        .map(|sing_box| {
+            fs::read_to_string(&sing_box.config_path)
+                .map_err(|error| {
+                    format!("managed sing-box configuration could not be read: {error}")
+                })
+                .map(|content| inspect_sing_box_local_selector_controller(&content))
+        })
+        .transpose()?;
     let integration = NativeWindowsSystemIntegration::new();
     integration
         .start_service()
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| rollback_failed_connection(&integration, &desktop, error.to_string()))?;
     let deadline = Instant::now() + Duration::from_secs(30);
+    let mut waiting_for = format!("local proxy listener at {}", proxy.server);
     loop {
         let runtime = read_runtime_status();
         if runtime.service_state == WindowsServiceState::Running
@@ -77,19 +100,27 @@ pub fn connect(config_path: PathBuf) -> Result<ConnectedProxy, String> {
                 crate::gui::runtime_status::SingBoxProcessStatus::Running { .. }
             )
         {
-            match integration.apply_system_proxy(&proxy) {
-                Ok(snapshot) => {
-                    return Ok(ConnectedProxy {
-                        snapshot,
-                        applied_proxy: proxy,
-                    });
+            let listener_ready = managed_proxy_listener_ready(&proxy, Duration::from_millis(500))
+                .map_err(|error| {
+                rollback_failed_connection(&integration, &desktop, error.to_string())
+            })?;
+            if !listener_ready {
+                waiting_for = format!("local proxy listener at {}", proxy.server);
+            } else if let Some(controller) = selector_controller.as_ref() {
+                match read_sing_box_clash_api_selector_with_timeout(
+                    controller,
+                    Duration::from_millis(750),
+                ) {
+                    Ok(_) => return apply_proxy_after_readiness(&integration, proxy, desktop),
+                    Err(error) => {
+                        waiting_for = format!(
+                            "sing-box selector controller at {}: {error}",
+                            controller.endpoint()
+                        );
+                    }
                 }
-                Err(error) => {
-                    let _ = integration.stop_service();
-                    return Err(format!(
-                        "system proxy could not be applied after core verification: {error}"
-                    ));
-                }
+            } else {
+                return apply_proxy_after_readiness(&integration, proxy, desktop);
             }
         }
         if matches!(
@@ -100,14 +131,85 @@ pub fn connect(config_path: PathBuf) -> Result<ConnectedProxy, String> {
                 .last_error
                 .or(runtime.configuration_error)
                 .unwrap_or_else(|| "managed runtime failed before the core was ready".to_string());
-            let _ = integration.stop_service();
-            return Err(message);
+            return Err(rollback_failed_connection(&integration, &desktop, message));
         }
         if Instant::now() >= deadline {
-            let _ = integration.stop_service();
-            return Err("timed out waiting for the managed service and sing-box core".to_string());
+            return Err(rollback_failed_connection(
+                &integration,
+                &desktop,
+                format!("timed out waiting for {waiting_for}"),
+            ));
         }
         std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+fn apply_proxy_after_readiness(
+    integration: &NativeWindowsSystemIntegration,
+    proxy: WindowsProxySettings,
+    mut desktop: DesktopState,
+) -> Result<ConnectedProxy, String> {
+    let current = read_current_user_system_proxy().map_err(|error| {
+        rollback_failed_connection(
+            integration,
+            &desktop,
+            format!("current-user proxy could not be read before connection: {error}"),
+        )
+    })?;
+    let existing_snapshot = owns_current_proxy(&desktop, &current)
+        .then(|| desktop.proxy_snapshot.clone())
+        .flatten();
+    let applied_snapshot = integration.apply_system_proxy(&proxy).map_err(|error| {
+        rollback_failed_connection(
+            integration,
+            &desktop,
+            format!("system proxy could not be applied after core readiness verification: {error}"),
+        )
+    })?;
+    let snapshot = existing_snapshot.unwrap_or(applied_snapshot);
+    desktop.proxy_snapshot = Some(snapshot.clone());
+    desktop.applied_proxy = Some(proxy.clone());
+    if let Err(error) = save_desktop_state(&desktop) {
+        let restore = integration.restore_system_proxy(&snapshot);
+        let stopped = integration.stop_service();
+        return Err(match (restore, stopped) {
+            (Ok(()), Ok(_)) => format!(
+                "proxy ownership could not be saved after connection; the proxy was restored: {error}"
+            ),
+            (restore, stopped) => format!(
+                "proxy ownership could not be saved after connection: {error}; rollback result proxy={restore:?} service={stopped:?}"
+            ),
+        });
+    }
+    Ok(ConnectedProxy {
+        snapshot,
+        applied_proxy: proxy,
+    })
+}
+
+fn rollback_failed_connection(
+    integration: &NativeWindowsSystemIntegration,
+    desktop: &DesktopState,
+    message: String,
+) -> String {
+    let proxy_result = desktop.proxy_snapshot.as_ref().map_or(Ok(()), |snapshot| {
+        let current = read_current_user_system_proxy().map_err(|error| error.to_string())?;
+        if owns_current_proxy(desktop, &current) {
+            integration
+                .restore_system_proxy(snapshot)
+                .map_err(|error| error.to_string())?;
+        }
+        Ok::<(), String>(())
+    });
+    let service_result = integration
+        .stop_service()
+        .map(|_| ())
+        .map_err(|error| error.to_string());
+    match (proxy_result, service_result) {
+        (Ok(()), Ok(())) => message,
+        (proxy, service) => {
+            format!("{message}; cleanup result proxy={proxy:?} service={service:?}")
+        }
     }
 }
 

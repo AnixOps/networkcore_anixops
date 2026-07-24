@@ -7,7 +7,7 @@ use networkcore_windows_service::WindowsManagedRuntime;
 use platform_windows::managed::{
     read_managed_state, write_managed_config, WindowsDriverPackageConfig, WindowsManagedConfig,
     WindowsManagedNativeMitmConfig, WindowsManagedSingBoxConfig, WindowsProxySettings,
-    WindowsProxySnapshot,
+    WindowsProxySnapshot, WindowsSystemProxyOwner, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
 };
 use platform_windows::system_integration::{
     WindowsDriverInstallResult, WindowsServiceState, WindowsServiceStatus, WindowsSystemIntegration,
@@ -221,12 +221,13 @@ fn fixture_tunnel_state(state: WindowsTunnelLifecycleState) -> WindowsTunnelStat
 
 fn fixture_config(with_tunnel: bool) -> WindowsManagedConfig {
     WindowsManagedConfig {
-        schema_version: 1,
+        schema_version: WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
         system_proxy: Some(WindowsProxySettings {
             enabled: true,
             server: "127.0.0.1:7890".to_string(),
             bypass: "<local>".to_string(),
         }),
+        system_proxy_owner: WindowsSystemProxyOwner::Service,
         root_certificate_path: Some(PathBuf::from("ca.pem")),
         driver_package: Some(WindowsDriverPackageConfig {
             inf_path: PathBuf::from("driver.inf"),
@@ -376,6 +377,31 @@ fn managed_runtime_rolls_back_certificate_when_proxy_apply_fails() {
     assert_eq!(state.last_transition, "failed");
     assert!(state.certificate_sha1.is_none());
     assert!(state.driver_inf_path.is_none());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn managed_runtime_leaves_desktop_owned_proxy_to_the_gui_session() {
+    let (config_path, state_path, root) = fixture_paths("desktop-owned-proxy");
+    let mut config = fixture_config(false);
+    config.system_proxy_owner = WindowsSystemProxyOwner::Desktop;
+    config.root_certificate_path = None;
+    config.driver_package = None;
+    write_managed_config(&config_path, &config).expect("config writes");
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let integration = FakeIntegration {
+        events: events.clone(),
+        fail_proxy: false,
+    };
+    let mut runtime =
+        WindowsManagedRuntime::new(integration, FakeTunnel::default(), config_path, state_path);
+
+    let running = runtime.start().expect("managed runtime starts");
+    assert!(running.proxy_snapshot.is_none());
+    assert!(!events.borrow().contains(&"apply-proxy".to_string()));
+
+    runtime.stop().expect("managed runtime stops");
+    assert!(!events.borrow().contains(&"restore-proxy".to_string()));
     let _ = fs::remove_dir_all(root);
 }
 

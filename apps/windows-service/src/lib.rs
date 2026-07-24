@@ -322,7 +322,7 @@ where
             }
         }
 
-        if state.proxy_snapshot.is_none() {
+        if config.system_proxy_owner.is_service_managed() && state.proxy_snapshot.is_none() {
             if let Some(proxy) = &config.system_proxy {
                 state.proxy_snapshot = Some(self.integration.apply_system_proxy(proxy)?);
                 self.persist(state)?;

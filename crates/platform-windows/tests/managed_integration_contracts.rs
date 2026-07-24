@@ -1,7 +1,8 @@
 use platform_windows::managed::{
-    WindowsDriverPackageConfig, WindowsManagedConfig, WindowsManagedNativeMitmConfig,
-    WindowsManagedSingBoxConfig, WindowsManagedState, WindowsManagedTunnelConfig,
-    WindowsProxySettings, WindowsProxySnapshot, WINDOWS_MANAGED_CONFIG_INVALID_CODE,
+    read_managed_config, WindowsDriverPackageConfig, WindowsManagedConfig,
+    WindowsManagedNativeMitmConfig, WindowsManagedSingBoxConfig, WindowsManagedState,
+    WindowsManagedTunnelConfig, WindowsProxySettings, WindowsProxySnapshot,
+    WindowsSystemProxyOwner, WINDOWS_MANAGED_CONFIG_INVALID_CODE,
     WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION, WINDOWS_MANAGED_STATE_SCHEMA_VERSION,
 };
 use platform_windows::system_integration::{WindowsServiceState, NETWORKCORE_WINDOWS_SERVICE_NAME};
@@ -38,6 +39,7 @@ fn managed_configuration_activates_proxy_certificate_driver_and_tunnel() {
             server: "127.0.0.1:7890".to_string(),
             bypass: "<local>".to_string(),
         }),
+        system_proxy_owner: WindowsSystemProxyOwner::Service,
         root_certificate_path: Some(PathBuf::from(
             r"C:\ProgramData\AnixOps\NetworkCore\networkcore-ca.pem",
         )),
@@ -56,6 +58,7 @@ fn managed_configuration_activates_proxy_certificate_driver_and_tunnel() {
         WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION
     );
     assert_eq!(json["system_proxy"]["server"], "127.0.0.1:7890");
+    assert_eq!(json["system_proxy_owner"], "service");
     assert_eq!(
         json["driver_package"]["inf_path"],
         r"C:\Program Files\AnixOps\NetworkCore\driver\netcore.inf"
@@ -87,6 +90,7 @@ fn managed_configuration_accepts_explicit_sing_box_process_paths() {
     let config = WindowsManagedConfig {
         schema_version: WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
         system_proxy: None,
+        system_proxy_owner: WindowsSystemProxyOwner::Service,
         root_certificate_path: None,
         driver_package: None,
         tunnel: None,
@@ -122,6 +126,7 @@ fn managed_configuration_rejects_enabled_proxy_without_endpoint() {
             server: " ".to_string(),
             bypass: String::new(),
         }),
+        system_proxy_owner: WindowsSystemProxyOwner::Service,
         root_certificate_path: None,
         driver_package: None,
         tunnel: None,
@@ -178,6 +183,7 @@ fn managed_configuration_accepts_native_https_mitm_with_explicit_socks_upstream(
             server: "127.0.0.1:7890".to_string(),
             bypass: "<local>".to_string(),
         }),
+        system_proxy_owner: WindowsSystemProxyOwner::Service,
         root_certificate_path: None,
         driver_package: None,
         tunnel: None,
@@ -202,6 +208,9 @@ fn managed_configuration_accepts_native_https_mitm_with_explicit_socks_upstream(
     };
 
     config.validate().expect("native MITM config is valid");
+    let mut desktop_owned = config.clone();
+    desktop_owned.system_proxy_owner = WindowsSystemProxyOwner::Desktop;
+    assert!(desktop_owned.validate().is_err());
     let mut json = serde_json::to_value(&config).expect("native MITM config serializes");
     assert_eq!(json["native_mitm"]["listen_port"], 7890);
     assert_eq!(json["native_mitm"]["upstream_socks_port"], 7891);
@@ -221,6 +230,52 @@ fn managed_configuration_accepts_native_https_mitm_with_explicit_socks_upstream(
             .and_then(|native_mitm| native_mitm.sing_box_config_snapshot_path),
         None
     );
+}
+
+#[test]
+fn legacy_managed_configuration_migrates_to_service_owned_proxy() {
+    let path = std::env::temp_dir().join(format!(
+        "networkcore-managed-config-v1-{}.json",
+        std::process::id()
+    ));
+    std::fs::write(
+        &path,
+        r#"{
+  "schema_version": 1,
+  "system_proxy": {"enabled": true, "server": "127.0.0.1:7890", "bypass": "<local>"},
+  "root_certificate_path": null,
+  "driver_package": null,
+  "tunnel": null
+}"#,
+    )
+    .expect("legacy managed configuration writes");
+
+    let config = read_managed_config(&path).expect("legacy config migrates in memory");
+    assert_eq!(config.schema_version, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION);
+    assert_eq!(config.system_proxy_owner, WindowsSystemProxyOwner::Service);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn current_managed_configuration_requires_an_explicit_proxy_owner() {
+    let path = std::env::temp_dir().join(format!(
+        "networkcore-managed-config-v2-{}.json",
+        std::process::id()
+    ));
+    std::fs::write(
+        &path,
+        r#"{
+  "schema_version": 2,
+  "system_proxy": null,
+  "root_certificate_path": null,
+  "driver_package": null,
+  "tunnel": null
+}"#,
+    )
+    .expect("incomplete configuration writes");
+
+    assert!(read_managed_config(&path).is_err());
+    let _ = std::fs::remove_file(path);
 }
 
 #[test]

@@ -37,9 +37,12 @@ experience production-ready:
    a successful selector switch. Force a rejected switch and verify the former
    selected node remains displayed.
 4. Confirm Home reports `Connected` only after SCM is running, the
-   service-owned sing-box child exists, and the interactive user's proxy has
-   been applied. Test missing service/core, invalid config, occupied port, no
-   network, and a non-administrator launch/elevation rejection.
+   service-owned sing-box child exists, the selected loopback listener accepts
+   connections, and the interactive user's proxy exactly matches the managed
+   setting. For a NodeCatalog profile, also verify the loopback selector API is
+   ready before the proxy changes. Test missing service/core, invalid config,
+   occupied port, no network, and a non-administrator launch/elevation
+   rejection.
 5. Stop the service, force a core exit, close/reopen the GUI, sleep/resume, and
    reboot Windows. For each case verify the interactive-user proxy is restored
    or an explicit recovery failure is shown; capture the GUI, service, and core

@@ -1214,9 +1214,24 @@ fn render_sing_box_local_proxy_config_with_controller(
 pub fn read_sing_box_clash_api_selector(
     controller: &SingBoxLocalControllerConfig,
 ) -> DomainResult<SingBoxClashApiSelectorStatus> {
+    read_sing_box_clash_api_selector_with_timeout(controller, std::time::Duration::from_secs(10))
+}
+
+/// Reads one selector response with a caller-bounded timeout. Connection
+/// readiness uses this after the local proxy listener is reachable; operator
+/// actions continue to use the default ten-second timeout above.
+pub fn read_sing_box_clash_api_selector_with_timeout(
+    controller: &SingBoxLocalControllerConfig,
+    timeout: std::time::Duration,
+) -> DomainResult<SingBoxClashApiSelectorStatus> {
+    if timeout.is_zero() {
+        return Err(sing_box_clash_api_error(
+            "sing-box selector timeout must be greater than zero",
+        ));
+    }
     validate_loopback_controller(controller)?;
     let url = sing_box_clash_api_selector_url(controller)?;
-    let client = sing_box_clash_api_client()?;
+    let client = sing_box_clash_api_client_with_timeout(timeout)?;
     let response = client
         .get(url)
         .send()
@@ -1237,6 +1252,34 @@ pub fn read_sing_box_clash_api_selector(
         current_outbound_tag,
         outbound_tags: payload.all,
     })
+}
+
+/// Identifies the exact loopback selector shape rendered by NetworkCore's
+/// NodeCatalog path. Native sing-box JSON stays pass-through unless it already
+/// contains this same local selector contract.
+pub fn inspect_sing_box_local_selector_controller(
+    content: &str,
+) -> Option<SingBoxLocalControllerConfig> {
+    let controller = SingBoxLocalControllerConfig::loopback_selector();
+    let controller_endpoint = controller.endpoint();
+    let config: Value = serde_json::from_str(content).ok()?;
+    let has_controller = config
+        .pointer("/experimental/clash_api/external_controller")
+        .and_then(Value::as_str)
+        == Some(controller_endpoint.as_str());
+    let has_selector = config
+        .get("outbounds")
+        .and_then(Value::as_array)
+        .is_some_and(|outbounds| {
+            outbounds.iter().any(|outbound| {
+                outbound.get("type").and_then(Value::as_str) == Some("selector")
+                    && outbound.get("tag").and_then(Value::as_str)
+                        == Some(controller.selector_tag.as_str())
+            })
+        });
+    let routes_to_selector = config.pointer("/route/final").and_then(Value::as_str)
+        == Some(controller.selector_tag.as_str());
+    (has_controller && has_selector && routes_to_selector).then_some(controller)
 }
 
 pub fn select_sing_box_clash_api_outbound(

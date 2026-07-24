@@ -8,7 +8,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION: u32 = 1;
+pub const WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION: u32 = 2;
+const WINDOWS_MANAGED_CONFIG_LEGACY_SCHEMA_VERSION: u32 = 1;
 pub const WINDOWS_MANAGED_STATE_SCHEMA_VERSION: u32 = 1;
 pub const WINDOWS_MANAGED_CONFIG_INVALID_CODE: &str = "windows.managed.config_invalid";
 pub const WINDOWS_MANAGED_CONFIG_IO_CODE: &str = "windows.managed.config_io_failed";
@@ -40,6 +41,27 @@ impl WindowsProxySettings {
             ));
         }
         Ok(())
+    }
+}
+
+/// Selects which runtime is allowed to mutate the current user's system
+/// proxy for this managed configuration.
+///
+/// Existing schema-1 configurations intentionally default to `Service` so a
+/// CLI- or service-managed deployment keeps its established rollback
+/// behavior. The Windows GUI writes `Desktop` after importing a daily-use
+/// profile and owns that per-user snapshot itself.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WindowsSystemProxyOwner {
+    #[default]
+    Service,
+    Desktop,
+}
+
+impl WindowsSystemProxyOwner {
+    pub const fn is_service_managed(self) -> bool {
+        matches!(self, Self::Service)
     }
 }
 
@@ -250,6 +272,7 @@ impl WindowsManagedNativeMitmConfig {
 pub struct WindowsManagedConfig {
     pub schema_version: u32,
     pub system_proxy: Option<WindowsProxySettings>,
+    pub system_proxy_owner: WindowsSystemProxyOwner,
     pub root_certificate_path: Option<PathBuf>,
     pub driver_package: Option<WindowsDriverPackageConfig>,
     pub tunnel: Option<WindowsManagedTunnelConfig>,
@@ -287,6 +310,11 @@ impl WindowsManagedConfig {
         }
         if let Some(native_mitm) = &self.native_mitm {
             native_mitm.validate()?;
+            if native_mitm.enabled && !self.system_proxy_owner.is_service_managed() {
+                return Err(config_error(
+                    "enabled native HTTPS MITM requires service-owned system proxy lifecycle",
+                ));
+            }
         }
         Ok(())
     }
@@ -386,7 +414,26 @@ pub fn append_managed_log(component: &str, message: &str) -> std::io::Result<()>
 pub fn read_managed_config(path: &Path) -> DomainResult<WindowsManagedConfig> {
     let bytes =
         fs::read(path).map_err(|_| config_io_error("managed configuration could not be read"))?;
-    let config: WindowsManagedConfig = serde_json::from_slice(&bytes)
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|_| config_error("managed configuration is not valid JSON"))?;
+    if value
+        .get("schema_version")
+        .and_then(serde_json::Value::as_u64)
+        == Some(WINDOWS_MANAGED_CONFIG_LEGACY_SCHEMA_VERSION as u64)
+    {
+        let object = value
+            .as_object_mut()
+            .ok_or_else(|| config_error("managed configuration schema 1 must be a JSON object"))?;
+        object.insert(
+            "schema_version".to_string(),
+            serde_json::Value::from(WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION),
+        );
+        object.insert(
+            "system_proxy_owner".to_string(),
+            serde_json::Value::from("service"),
+        );
+    }
+    let config: WindowsManagedConfig = serde_json::from_value(value)
         .map_err(|_| config_error("managed configuration is not valid JSON"))?;
     config.validate()?;
     Ok(config)

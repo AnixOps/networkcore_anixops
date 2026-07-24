@@ -58,7 +58,7 @@ mod gui {
         windows_managed_data_directory, windows_managed_log_directory, windows_managed_state_path,
         write_managed_config, write_managed_state, write_managed_text_atomic, WindowsManagedConfig,
         WindowsManagedNativeMitmConfig, WindowsManagedSingBoxConfig, WindowsProxySettings,
-        WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
+        WindowsSystemProxyOwner, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
     };
     use platform_windows::system_integration::{
         current_user_startup_enabled, disable_current_user_startup, enable_current_user_startup,
@@ -126,7 +126,6 @@ mod gui {
     const ID_ENABLE_HTTPS_MITM: usize = 117;
     const ID_DISABLE_HTTPS_MITM: usize = 118;
     const ID_UPDATE_PROFILE: usize = 119;
-    const ID_ENABLE_PROXY: usize = 120;
     const ID_RESTORE_PROXY: usize = 121;
     const ID_TEST_PROFILE_NODE_DELAY: usize = 122;
     const ID_CHECK_PROFILE_RUNTIME: usize = 123;
@@ -191,8 +190,6 @@ mod gui {
         delay_test_url: HWND,
         profile_delay_status: HWND,
         profile_runtime_status: HWND,
-        proxy_server: HWND,
-        proxy_bypass: HWND,
         start_after_login: HWND,
         auto_connect: HWND,
         auto_recover_core: HWND,
@@ -236,8 +233,6 @@ mod gui {
         delay_test_url: HWND,
         profile_delay_status: HWND,
         profile_runtime_status: HWND,
-        proxy_server: HWND,
-        proxy_bypass: HWND,
         certificate_path: HWND,
         driver_path: HWND,
         desktop: DesktopState,
@@ -512,8 +507,6 @@ mod gui {
             delay_test_url: shell.delay_test_url,
             profile_delay_status: shell.profile_delay_status,
             profile_runtime_status: shell.profile_runtime_status,
-            proxy_server: shell.proxy_server,
-            proxy_bypass: shell.proxy_bypass,
             certificate_path: shell.certificate_path,
             driver_path: shell.driver_path,
             desktop,
@@ -954,7 +947,6 @@ mod gui {
                 start_after_login: ID_START_AFTER_LOGIN,
                 auto_connect: ID_AUTO_CONNECT,
                 auto_recover_core: ID_AUTO_RECOVER_CORE,
-                enable_proxy: ID_ENABLE_PROXY,
                 restore_proxy: ID_RESTORE_PROXY,
             },
             settings_page::InitialValues {
@@ -1228,8 +1220,6 @@ mod gui {
             delay_test_url,
             profile_delay_status,
             profile_runtime_status,
-            proxy_server: settings.proxy_server,
-            proxy_bypass: settings.proxy_bypass,
             start_after_login: settings.start_after_login,
             auto_connect: settings.auto_connect,
             auto_recover_core: settings.auto_recover_core,
@@ -1254,508 +1244,6 @@ mod gui {
             620,
             0,
         )
-    }
-
-    #[allow(dead_code)]
-    unsafe fn create_legacy_interface(window: HWND) -> Result<Box<AppState>, String> {
-        let instance = GetModuleHandleW(null());
-        let font = GetStockObject(DEFAULT_GUI_FONT);
-        let mut desktop = load_desktop_state()?;
-        if std::env::args().any(|argument| argument == "--debug" || argument == "-d") {
-            desktop.debug_enabled = true;
-        }
-        let (command_sender, command_receiver) = mpsc::channel();
-        let theme = if desktop.dark_theme {
-            ThemeMode::Dark
-        } else {
-            ThemeMode::Light
-        };
-
-        create_label(window, instance, font, "NetworkCore", 24, 16, 600, 32);
-        create_label(
-            window,
-            instance,
-            font,
-            "Managed Windows networking",
-            24,
-            48,
-            600,
-            22,
-        );
-
-        create_group(window, instance, font, "Managed service", 20, 82, 925, 118);
-        let service_status = create_label(
-            window,
-            instance,
-            font,
-            "Service status: loading",
-            40,
-            108,
-            860,
-            24,
-        );
-        create_button(
-            window, instance, font, "Refresh", ID_REFRESH, 40, 150, 110, 30,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Install service",
-            ID_INSTALL_SERVICE,
-            160,
-            150,
-            135,
-            30,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Start",
-            ID_START_SERVICE,
-            305,
-            150,
-            100,
-            30,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Stop",
-            ID_STOP_SERVICE,
-            415,
-            150,
-            100,
-            30,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Restart",
-            ID_RESTART_SERVICE,
-            525,
-            150,
-            100,
-            30,
-        );
-
-        create_group(
-            window,
-            instance,
-            font,
-            "Managed configuration",
-            20,
-            210,
-            925,
-            100,
-        );
-        create_label(window, instance, font, "JSON file", 40, 242, 100, 22);
-        let config_path = create_edit(
-            window,
-            instance,
-            font,
-            windows_managed_config_path().to_string_lossy().as_ref(),
-            140,
-            238,
-            440,
-            28,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Open JSON",
-            ID_OPEN_MANAGED_CONFIG,
-            590,
-            237,
-            95,
-            30,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Validate",
-            ID_VALIDATE_CONFIGURATION,
-            695,
-            237,
-            95,
-            30,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Apply configuration",
-            ID_APPLY_CONFIG,
-            800,
-            237,
-            125,
-            30,
-        );
-
-        create_group(
-            window,
-            instance,
-            font,
-            "sing-box profile",
-            20,
-            320,
-            925,
-            260,
-        );
-        let profile_source_text = desktop
-            .profile_source_url
-            .clone()
-            .or_else(|| {
-                desktop
-                    .profile_source_path
-                    .as_ref()
-                    .map(|path| path.to_string_lossy().into_owned())
-            })
-            .unwrap_or_default();
-        create_label(window, instance, font, "Profile / URL", 40, 352, 100, 22);
-        let profile_source = create_edit(
-            window,
-            instance,
-            font,
-            &profile_source_text,
-            140,
-            348,
-            500,
-            28,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Install core",
-            ID_INSTALL_SING_BOX,
-            655,
-            347,
-            120,
-            30,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Import profile",
-            ID_IMPORT_PROFILE,
-            785,
-            347,
-            140,
-            30,
-        );
-        create_label(window, instance, font, "Node ID", 40, 398, 100, 22);
-        let profile_node_id = create_profile_node_selector(
-            window,
-            instance,
-            font,
-            desktop.profile_node_id.as_deref().unwrap_or(""),
-            140,
-            394,
-            350,
-            28,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Load nodes",
-            ID_LOAD_PROFILE_NODES,
-            500,
-            393,
-            130,
-            30,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Update URL",
-            ID_UPDATE_PROFILE,
-            640,
-            393,
-            120,
-            30,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Switch active",
-            ID_SWITCH_PROFILE_NODE,
-            770,
-            393,
-            155,
-            30,
-        );
-        create_label(window, instance, font, "Delay URL", 40, 442, 100, 22);
-        let delay_test_url = create_edit(
-            window,
-            instance,
-            font,
-            desktop
-                .delay_test_url
-                .as_deref()
-                .unwrap_or(DEFAULT_SING_BOX_CLASH_API_DELAY_TEST_URL),
-            140,
-            438,
-            500,
-            28,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Test delay",
-            ID_TEST_PROFILE_NODE_DELAY,
-            650,
-            437,
-            120,
-            30,
-        );
-        let profile_delay_status =
-            create_label(window, instance, font, "Not tested", 785, 442, 130, 22);
-        create_label(window, instance, font, "Runtime", 40, 488, 100, 22);
-        create_button(
-            window,
-            instance,
-            font,
-            "Check core",
-            ID_CHECK_PROFILE_RUNTIME,
-            140,
-            484,
-            120,
-            30,
-        );
-        let profile_runtime_status =
-            create_label(window, instance, font, "Not checked", 270, 488, 655, 22);
-        create_label(window, instance, font, "HTTPS MITM", 40, 528, 100, 22);
-        create_button(
-            window,
-            instance,
-            font,
-            "Enable HTTPS MITM",
-            ID_ENABLE_HTTPS_MITM,
-            140,
-            524,
-            175,
-            30,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Disable HTTPS MITM",
-            ID_DISABLE_HTTPS_MITM,
-            325,
-            524,
-            175,
-            30,
-        );
-
-        create_group(window, instance, font, "System proxy", 20, 590, 925, 130);
-        create_label(window, instance, font, "Server", 40, 620, 90, 22);
-        let proxy_server = create_edit(window, instance, font, "127.0.0.1:7890", 130, 616, 300, 28);
-        create_label(window, instance, font, "Bypass", 450, 620, 90, 22);
-        let proxy_bypass = create_edit(window, instance, font, "<local>", 540, 616, 365, 28);
-        create_button(
-            window,
-            instance,
-            font,
-            "Enable proxy",
-            ID_ENABLE_PROXY,
-            40,
-            664,
-            130,
-            30,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Restore proxy",
-            ID_RESTORE_PROXY,
-            180,
-            664,
-            130,
-            30,
-        );
-
-        create_group(
-            window,
-            instance,
-            font,
-            "Trust and driver",
-            20,
-            730,
-            925,
-            142,
-        );
-        create_label(window, instance, font, "Root CA", 40, 762, 90, 22);
-        let certificate_path = create_edit(window, instance, font, "", 130, 758, 575, 28);
-        create_button(
-            window,
-            instance,
-            font,
-            "Install CA",
-            ID_INSTALL_CERTIFICATE,
-            720,
-            757,
-            95,
-            30,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Remove CA",
-            ID_REMOVE_CERTIFICATE,
-            825,
-            757,
-            100,
-            30,
-        );
-        create_label(window, instance, font, "Driver INF", 40, 812, 90, 22);
-        let driver_path = create_edit(window, instance, font, "", 130, 808, 575, 28);
-        create_button(
-            window,
-            instance,
-            font,
-            "Install driver",
-            ID_INSTALL_DRIVER,
-            720,
-            807,
-            95,
-            30,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Remove driver",
-            ID_REMOVE_DRIVER,
-            825,
-            807,
-            100,
-            30,
-        );
-
-        let activity = create_label(window, instance, font, "Ready", 24, 890, 910, 26);
-        let debug_status = create_label(
-            window,
-            instance,
-            font,
-            &format!(
-                "Debug logging: {}",
-                if desktop.debug_enabled {
-                    "enabled"
-                } else {
-                    "disabled"
-                }
-            ),
-            24,
-            922,
-            360,
-            24,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Toggle debug",
-            ID_TOGGLE_DEBUG,
-            390,
-            918,
-            120,
-            30,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Open log folder",
-            ID_OPEN_LOGS,
-            520,
-            918,
-            130,
-            30,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Open core log",
-            ID_OPEN_CORE_LOG,
-            660,
-            918,
-            120,
-            30,
-        );
-        create_button(
-            window,
-            instance,
-            font,
-            "Diagnostics",
-            ID_SHOW_DIAGNOSTICS,
-            790,
-            918,
-            135,
-            30,
-        );
-        create_label(
-            window,
-            instance,
-            font,
-            &format!("Logs: {}", windows_managed_log_directory().display()),
-            24,
-            958,
-            900,
-            24,
-        );
-
-        let mut state = Box::new(AppState {
-            window,
-            integration: NativeWindowsSystemIntegration::new(),
-            service_status,
-            activity,
-            debug_status,
-            config_path,
-            profile_source,
-            profile_node_id,
-            delay_test_url,
-            profile_delay_status,
-            profile_runtime_status,
-            proxy_server,
-            proxy_bypass,
-            certificate_path,
-            driver_path,
-            desktop,
-            profile_nodes: Vec::new(),
-            profile_node_catalog: Vec::new(),
-            current_page: UiPage::Home,
-            daily: None,
-            theme,
-            theme_brushes: ThemeBrushes::new(theme),
-            pending_operation: None,
-            command_sender,
-            command_receiver,
-            last_runtime_refresh: Instant::now(),
-            runtime: read_runtime_status(),
-            auto_connect_attempted: false,
-            core_recovery_attempted: false,
-            gui_started_connection: false,
-            exit_after_disconnect: false,
-        });
-        let _ = save_desktop_state(&state.desktop);
-        load_configuration_fields(&mut state);
-        update_debug_status(&mut state);
-        Ok(state)
     }
 
     unsafe fn handle_command(state: &mut AppState, id: usize) {
@@ -1794,8 +1282,7 @@ mod gui {
             ID_UPDATE_PROFILE => submit_profile_import(state, true),
             ID_ENABLE_HTTPS_MITM => run_action(state, "HTTPS MITM configured", enable_https_mitm),
             ID_DISABLE_HTTPS_MITM => run_action(state, "HTTPS MITM disabled", disable_https_mitm),
-            ID_ENABLE_PROXY => run_action(state, "System proxy enabled", enable_proxy),
-            ID_RESTORE_PROXY => run_action(state, "System proxy restored", restore_proxy),
+            ID_RESTORE_PROXY => run_action(state, "Network settings restored", restore_proxy),
             ID_INSTALL_CERTIFICATE => {
                 run_action(state, "Root certificate installed", install_certificate)
             }
@@ -2002,8 +1489,9 @@ mod gui {
             return;
         }
         let config_path = PathBuf::from(get_text(state.config_path));
+        let desktop = state.desktop.clone();
         submit_background(state, OperationKind::Connect, move || {
-            connection_actions::connect(config_path).map(BackgroundPayload::Connected)
+            connection_actions::connect(config_path, desktop).map(BackgroundPayload::Connected)
         });
     }
 
@@ -2080,6 +1568,16 @@ mod gui {
     }
 
     unsafe fn submit_profile_import(state: &mut AppState, update_saved_url: bool) {
+        if !matches!(
+            state.runtime.service_state,
+            WindowsServiceState::NotInstalled | WindowsServiceState::Stopped
+        ) {
+            set_text(
+                state.activity,
+                "Disconnect before importing or updating a profile so the running core keeps its active configuration.",
+            );
+            return;
+        }
         let location = if update_saved_url {
             match state
                 .desktop
@@ -2253,10 +1751,6 @@ mod gui {
                 state.desktop.proxy_snapshot = Some(snapshot);
                 state.desktop.applied_proxy = Some(applied_proxy);
                 state.gui_started_connection = true;
-                if let Err(error) = save_desktop_state(&state.desktop) {
-                    set_text(state.activity, &error);
-                    return;
-                }
                 set_text(
                     state.activity,
                     "Connected. The managed core and current-user system proxy were verified.",
@@ -2488,6 +1982,7 @@ mod gui {
         let proxy = home_page::proxy_summary(
             runtime.system_proxy_enabled,
             runtime.system_proxy_server.as_deref(),
+            runtime.system_proxy_matches_managed,
         );
         set_text(shell.home_proxy, &proxy);
 
@@ -2520,6 +2015,11 @@ mod gui {
             .configuration_error
             .as_deref()
             .or(runtime.last_error.as_deref())
+            .or_else(|| {
+                (runtime.connection == self::ui_state::ConnectionState::ConnectionFailed
+                    && runtime.system_proxy_matches_managed == Some(false))
+                .then_some("The current-user system proxy does not match the active profile.")
+            })
             .unwrap_or("");
         set_text(shell.home_failure, failure);
 
@@ -2605,22 +2105,6 @@ mod gui {
             ));
         }
         open_path(&path, "managed configuration")
-    }
-
-    // Retained while the daily command dispatcher completes the legacy-action migration.
-    #[allow(dead_code)]
-    fn validate_configuration(state: &mut AppState) -> Result<(), String> {
-        let path = PathBuf::from(unsafe { get_text(state.config_path) });
-        validate_managed_configuration(&path)?;
-        let report = write_diagnostic_report(state)?;
-        let _ = append_managed_log(
-            "gui",
-            &format!(
-                "configuration preflight succeeded report={}",
-                report.display()
-            ),
-        );
-        Ok(())
     }
 
     fn validate_managed_configuration(path: &Path) -> Result<(), String> {
@@ -2845,97 +2329,26 @@ mod gui {
             .integration
             .stop_service()
             .map_err(|error| error.to_string())?;
-        restore_proxy(state)
-    }
-
-    // Retained while the daily command dispatcher completes the legacy-action migration.
-    #[allow(dead_code)]
-    fn restart_service(state: &mut AppState) -> Result<(), String> {
-        state
-            .integration
-            .stop_service()
-            .map_err(|error| error.to_string())?;
-        restore_proxy(state)?;
-        state
-            .integration
-            .start_service()
-            .map_err(|error| error.to_string())?;
+        if state.desktop.proxy_snapshot.is_some() {
+            restore_proxy(state)?;
+        }
         Ok(())
     }
 
     fn apply_configuration(state: &mut AppState) -> Result<(), String> {
         let source = PathBuf::from(unsafe { get_text(state.config_path) });
-        let config = read_managed_config(&source).map_err(|error| error.to_string())?;
-        write_managed_config(&windows_managed_config_path(), &config)
-            .map_err(|error| error.to_string())?;
-        load_configuration_fields(state);
-        Ok(())
-    }
-
-    // Retained while the daily command dispatcher completes the legacy-action migration.
-    #[allow(dead_code)]
-    fn install_sing_box(state: &mut AppState) -> Result<(), String> {
-        let installer = GithubSingBoxReleaseInstaller::new().map_err(|error| error.to_string())?;
-        let report = installer
-            .install_latest(&SingBoxInstallRequest {
-                install_root: windows_managed_data_directory()
-                    .join("sing-box")
-                    .join("engine"),
-                target: SingBoxTarget::new(SingBoxTargetOs::Windows, SingBoxTargetArch::Amd64),
-                force: false,
-            })
-            .map_err(|error| error.to_string())?;
-        state.desktop.sing_box_executable_path = Some(report.executable_path);
-        save_desktop_state(&state.desktop)
-    }
-
-    // Retained while the daily command dispatcher completes the legacy-action migration.
-    #[allow(dead_code)]
-    fn import_profile(state: &mut AppState) -> Result<(), String> {
-        let mut managed = managed_config_or_default()?;
-        let native_mitm_enabled = managed
+        let mut config = read_managed_config(&source).map_err(|error| error.to_string())?;
+        config.system_proxy_owner = if config
             .native_mitm
             .as_ref()
-            .is_some_and(|native_mitm| native_mitm.enabled);
-        let (listen_port, mode) = if native_mitm_enabled {
-            (SING_BOX_MITM_UPSTREAM_PORT, ProfileRenderMode::NativeMitm)
+            .is_some_and(|native_mitm| native_mitm.enabled)
+        {
+            WindowsSystemProxyOwner::Service
         } else {
-            (SING_BOX_DIRECT_LISTEN_PORT, ProfileRenderMode::Direct)
+            WindowsSystemProxyOwner::Desktop
         };
-        let imported = render_local_profile_config(state, listen_port, mode)?;
-        managed.system_proxy = if native_mitm_enabled {
-            Some(WindowsProxySettings {
-                enabled: true,
-                server: format!("127.0.0.1:{NATIVE_MITM_LISTEN_PORT}"),
-                bypass: "<local>".to_string(),
-            })
-        } else {
-            imported
-                .local_http_proxy
-                .map(|server| WindowsProxySettings {
-                    enabled: true,
-                    server,
-                    bypass: "<local>".to_string(),
-                })
-        };
-        if native_mitm_enabled {
-            if let Some(native_mitm) = managed.native_mitm.as_mut() {
-                native_mitm.sing_box_config_snapshot_path =
-                    imported.sing_box_config_snapshot_path.clone();
-            }
-        }
-        managed.sing_box = Some(WindowsManagedSingBoxConfig {
-            enabled: true,
-            executable_path: imported.executable_path,
-            config_path: imported.config_path,
-            working_directory: Some(imported.config_parent),
-            log_path: windows_managed_log_directory().join("sing-box.log"),
-        });
-        write_managed_config(&windows_managed_config_path(), &managed)
+        write_managed_config(&windows_managed_config_path(), &config)
             .map_err(|error| error.to_string())?;
-        state.desktop.profile_last_successful_update = Some(current_local_timestamp());
-        state.desktop.profile_last_update_error = None;
-        save_desktop_state(&state.desktop)?;
         load_configuration_fields(state);
         Ok(())
     }
@@ -2967,6 +2380,11 @@ mod gui {
                     bypass: "<local>".to_string(),
                 })
         };
+        managed.system_proxy_owner = if native_mitm_enabled {
+            WindowsSystemProxyOwner::Service
+        } else {
+            WindowsSystemProxyOwner::Desktop
+        };
         if native_mitm_enabled {
             if let Some(native_mitm) = managed.native_mitm.as_mut() {
                 native_mitm.sing_box_config_snapshot_path =
@@ -2989,30 +2407,6 @@ mod gui {
         Ok(())
     }
 
-    // Retained while the daily command dispatcher completes the legacy-action migration.
-    #[allow(dead_code)]
-    fn update_profile(state: &mut AppState) -> Result<(), String> {
-        let location = state
-            .desktop
-            .profile_source_url
-            .clone()
-            .filter(|location| !location.trim().is_empty())
-            .ok_or_else(|| {
-                "Import an HTTP or HTTPS subscription URL before updating it".to_string()
-            })?;
-        unsafe {
-            set_text(state.profile_source, &location);
-        }
-        match import_profile(state) {
-            Ok(()) => Ok(()),
-            Err(error) => {
-                state.desktop.profile_last_update_error = Some(error.clone());
-                let _ = save_desktop_state(&state.desktop);
-                Err(error)
-            }
-        }
-    }
-
     fn enable_https_mitm(state: &mut AppState) -> Result<(), String> {
         let imported = render_local_profile_config(
             state,
@@ -3027,6 +2421,7 @@ mod gui {
             server: format!("127.0.0.1:{NATIVE_MITM_LISTEN_PORT}"),
             bypass: "<local>".to_string(),
         });
+        managed.system_proxy_owner = WindowsSystemProxyOwner::Service;
         managed.sing_box = Some(WindowsManagedSingBoxConfig {
             enabled: true,
             executable_path: imported.executable_path,
@@ -3051,10 +2446,6 @@ mod gui {
             set_text(
                 state.certificate_path,
                 certificate_path.to_string_lossy().as_ref(),
-            );
-            set_text(
-                state.proxy_server,
-                format!("127.0.0.1:{NATIVE_MITM_LISTEN_PORT}").as_str(),
             );
         }
         if restart {
@@ -3102,6 +2493,7 @@ mod gui {
             server,
             bypass: "<local>".to_string(),
         });
+        managed.system_proxy_owner = WindowsSystemProxyOwner::Service;
         write_managed_config(&windows_managed_config_path(), &managed)
             .map_err(|error| error.to_string())?;
         if let Some((path, _, _)) = native_snapshot {
@@ -3240,159 +2632,6 @@ mod gui {
             local_http_proxy: Some(format!("127.0.0.1:{listen_port}")),
             sing_box_config_snapshot_path: None,
         })
-    }
-
-    // Retained while the daily command dispatcher completes the legacy-action migration.
-    #[allow(dead_code)]
-    fn load_profile_nodes(state: &mut AppState) -> Result<(), String> {
-        let location = unsafe { get_text(state.profile_source) };
-        let location = location.trim();
-        if location.is_empty() {
-            return Err("Profile file path or subscription URL is required".to_string());
-        }
-        let profile = load_profile_payload(location)?;
-        if inspect_sing_box_native_config(&profile.payload).is_some() {
-            return Err(
-                "Native sing-box JSON is passed through unchanged and has no generated node selector"
-                    .to_string(),
-            );
-        }
-        let nodes = parse_profile_nodes(&profile.payload)?;
-        unsafe {
-            replace_profile_node_options(state, &nodes);
-        }
-        Ok(())
-    }
-
-    // Retained while the daily command dispatcher completes the legacy-action migration.
-    #[allow(dead_code)]
-    fn switch_profile_node(state: &mut AppState) -> Result<(), String> {
-        let selected_node_id = unsafe { selected_profile_node_id(state) };
-        let (selected_node_id, outbound_tag) = state
-            .profile_nodes
-            .iter()
-            .find(|node| node.id == selected_node_id)
-            .map(|node| {
-                let outbound_tag = node.selector_outbound_tag.clone().ok_or_else(|| {
-                    "The selected node is not available in the managed sing-box selector"
-                        .to_string()
-                })?;
-                Ok::<_, String>((node.id.clone(), outbound_tag))
-            })
-            .ok_or_else(|| {
-                "Load nodes from the current profile before switching the active node".to_string()
-            })??;
-        let status = select_sing_box_clash_api_outbound(
-            &SingBoxLocalControllerConfig::loopback_selector(),
-            &outbound_tag,
-        )
-        .map_err(|error| error.to_string())?;
-        if status.current_outbound_tag != outbound_tag {
-            return Err("sing-box did not confirm the selected active node".to_string());
-        }
-
-        state.desktop.profile_node_id = Some(selected_node_id);
-        save_desktop_state(&state.desktop)?;
-        Ok(())
-    }
-
-    // Retained while the daily command dispatcher completes the legacy-action migration.
-    #[allow(dead_code)]
-    fn test_profile_node_delay(state: &mut AppState) -> Result<(), String> {
-        let selected_node_id = unsafe { selected_profile_node_id(state) };
-        let outbound_tag = state
-            .profile_nodes
-            .iter()
-            .find(|node| node.id == selected_node_id)
-            .and_then(|node| node.selector_outbound_tag.clone())
-            .ok_or_else(|| {
-                "Load nodes from the current profile before testing the selected node".to_string()
-            })?;
-        let test_url = unsafe { get_text(state.delay_test_url) };
-        let report = measure_sing_box_clash_api_outbound_delay(
-            &SingBoxLocalControllerConfig::loopback_selector(),
-            &outbound_tag,
-            &test_url,
-            DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS,
-        )
-        .map_err(|error| error.to_string())?;
-
-        state.desktop.delay_test_url = Some(report.test_url.clone());
-        save_desktop_state(&state.desktop)?;
-        let _ = append_managed_log(
-            "gui",
-            &format!(
-                "manual sing-box delay test node={} outbound={} url={} delay_ms={}",
-                selected_node_id, report.outbound_tag, report.test_url, report.delay_millis
-            ),
-        );
-        unsafe {
-            set_text(
-                state.profile_delay_status,
-                format!("{} ms", report.delay_millis).as_str(),
-            );
-        }
-        Ok(())
-    }
-
-    // Retained while the daily command dispatcher completes the legacy-action migration.
-    #[allow(dead_code)]
-    fn check_profile_runtime(state: &mut AppState) -> Result<(), String> {
-        let status = match read_sing_box_clash_api_selector(
-            &SingBoxLocalControllerConfig::loopback_selector(),
-        ) {
-            Ok(status) => status,
-            Err(error) => {
-                unsafe {
-                    set_text(
-                        state.profile_runtime_status,
-                        "Unavailable: controller did not respond",
-                    );
-                }
-                return Err(error.to_string());
-            }
-        };
-        if !status
-            .outbound_tags
-            .iter()
-            .any(|outbound_tag| outbound_tag == &status.current_outbound_tag)
-        {
-            unsafe {
-                set_text(
-                    state.profile_runtime_status,
-                    "Unavailable: invalid selector response",
-                );
-            }
-            return Err(
-                "sing-box controller returned an active outbound outside the generated selector"
-                    .to_string(),
-            );
-        }
-        let active_node = state
-            .profile_nodes
-            .iter()
-            .find(|node| {
-                node.selector_outbound_tag.as_deref() == Some(status.current_outbound_tag.as_str())
-            })
-            .map(|node| node.label.clone())
-            .unwrap_or_else(|| status.current_outbound_tag.clone());
-        let status_text = format!(
-            "Ready: {active_node} ({} nodes)",
-            status.outbound_tags.len()
-        );
-        let _ = append_managed_log(
-            "gui",
-            &format!(
-                "manual sing-box runtime check selector={} active={} outbound_count={}",
-                status.selector_tag,
-                status.current_outbound_tag,
-                status.outbound_tags.len()
-            ),
-        );
-        unsafe {
-            set_text(state.profile_runtime_status, &status_text);
-        }
-        Ok(())
     }
 
     fn load_profile_payload(location: &str) -> Result<ProfilePayload, String> {
@@ -3669,6 +2908,7 @@ mod gui {
         Ok(WindowsManagedConfig {
             schema_version: WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
             system_proxy: None,
+            system_proxy_owner: WindowsSystemProxyOwner::Service,
             root_certificate_path: None,
             driver_package: None,
             tunnel: None,
@@ -3677,32 +2917,9 @@ mod gui {
         })
     }
 
-    fn enable_proxy(state: &mut AppState) -> Result<(), String> {
-        if state.desktop.proxy_snapshot.is_some() {
-            let current = read_current_user_system_proxy().map_err(|error| error.to_string())?;
-            if owns_current_proxy(&state.desktop, &current) {
-                return Ok(());
-            }
-            clear_gui_proxy_ownership(state)?;
-        }
-        let settings = WindowsProxySettings {
-            enabled: true,
-            server: unsafe { get_text(state.proxy_server) },
-            bypass: unsafe { get_text(state.proxy_bypass) },
-        };
-        state.desktop.proxy_snapshot = Some(
-            state
-                .integration
-                .apply_system_proxy(&settings)
-                .map_err(|error| error.to_string())?,
-        );
-        state.desktop.applied_proxy = Some(settings);
-        save_desktop_state(&state.desktop)
-    }
-
     fn restore_proxy(state: &mut AppState) -> Result<(), String> {
         let Some(snapshot) = state.desktop.proxy_snapshot.clone() else {
-            return Ok(());
+            return Err("no GUI-owned system proxy snapshot is available to restore".to_string());
         };
         let current = read_current_user_system_proxy().map_err(|error| error.to_string())?;
         if !owns_current_proxy(&state.desktop, &current) {
@@ -3813,10 +3030,6 @@ mod gui {
         if let Ok(config) = read_managed_config(&path) {
             unsafe {
                 set_text(state.config_path, path.to_string_lossy().as_ref());
-                if let Some(proxy) = config.system_proxy {
-                    set_text(state.proxy_server, &proxy.server);
-                    set_text(state.proxy_bypass, &proxy.bypass);
-                }
                 if let Some(certificate) = config.root_certificate_path {
                     set_text(
                         state.certificate_path,

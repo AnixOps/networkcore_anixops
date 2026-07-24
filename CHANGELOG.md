@@ -4,6 +4,28 @@
 
 ## Unreleased
 
+### Changed
+
+- Windows managed configuration schema 2 introduces an explicit system-proxy
+  owner. Existing schema 1 files migrate in memory to `service`, preserving
+  CLI/service behavior; GUI profile imports use `desktop`, making the
+  interactive session the sole owner of its current-user proxy snapshot.
+- Windows GUI connection status now requires the observed current-user proxy
+  server and bypass to exactly match the active managed profile, not merely an
+  enabled proxy flag.
+
+### Fixed
+
+- GUI connect now waits in its background task for SCM, the live sing-box PID,
+  the configured loopback listener, and the generated NodeCatalog selector API
+  before changing the current-user proxy. The proxy snapshot is atomically
+  persisted before a successful connection is reported; persistence failure
+  restores the proxy and stops the service.
+- Removed the legacy direct `Enable proxy` controls that bypassed readiness
+  checks. `Restore network settings` remains available for a GUI-owned
+  snapshot, and a partial Windows proxy write now attempts to restore its
+  captured pre-change settings before reporting the failure.
+
 ## v0.2.0-alpha.21 - 2026-07-24
 
 ### Added

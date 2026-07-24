@@ -17,7 +17,6 @@ pub struct CommandIds {
     pub start_after_login: usize,
     pub auto_connect: usize,
     pub auto_recover_core: usize,
-    pub enable_proxy: usize,
     pub restore_proxy: usize,
 }
 
@@ -31,8 +30,6 @@ pub struct InitialValues<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct Controls {
     pub config_path: HWND,
-    pub proxy_server: HWND,
-    pub proxy_bypass: HWND,
     pub start_after_login: HWND,
     pub auto_connect: HWND,
     pub auto_recover_core: HWND,
@@ -148,52 +145,35 @@ pub unsafe fn create(
         parent,
         instance,
         font,
-        "Manual system proxy recovery",
+        "Network recovery",
         20,
         318,
         860,
-        146,
-    );
-    label(parent, instance, font, "Server", 40, 354, 80, 22);
-    let proxy_server = edit(parent, instance, font, "127.0.0.1:7890", 124, 350, 250, 28);
-    label(parent, instance, font, "Bypass", 396, 354, 80, 22);
-    let proxy_bypass = edit(parent, instance, font, "<local>", 472, 350, 330, 28);
-    button(
-        parent,
-        instance,
-        font,
-        "Enable proxy",
-        command.enable_proxy,
-        40,
-        402,
-        140,
-        30,
+        106,
     );
     button(
         parent,
         instance,
         font,
-        "Restore proxy",
+        "Restore network settings",
         command.restore_proxy,
-        192,
-        402,
-        140,
+        40,
+        358,
+        200,
         30,
     );
     label(
         parent,
         instance,
         font,
-        "Manual proxy controls are only for recovery or an explicit local-proxy workflow. Connect uses the managed service lifecycle.",
+        "Restores only a proxy snapshot owned by this GUI. Connect applies the managed proxy after the core is ready.",
         40,
-        434,
+        398,
         800,
         22,
     );
     Controls {
         config_path,
-        proxy_server,
-        proxy_bypass,
         start_after_login,
         auto_connect,
         auto_recover_core,

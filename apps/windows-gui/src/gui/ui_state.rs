@@ -99,7 +99,7 @@ pub struct RuntimeFacts {
     pub sing_box_configured: bool,
     pub sing_box_state_recorded_running: bool,
     pub sing_box_process_running: Option<bool>,
-    pub system_proxy_enabled: bool,
+    pub system_proxy_matches_managed: bool,
     pub last_transition: Option<String>,
     pub last_error: Option<String>,
     pub configuration_error: Option<String>,
@@ -132,7 +132,7 @@ pub fn connection_state(facts: &RuntimeFacts) -> ConnectionState {
         return ConnectionState::Connecting;
     }
     match facts.sing_box_process_running {
-        Some(true) if facts.system_proxy_enabled => ConnectionState::Connected,
+        Some(true) if facts.system_proxy_matches_managed => ConnectionState::Connected,
         Some(true) => ConnectionState::ConnectionFailed,
         Some(false) => ConnectionState::CoreError,
         None => ConnectionState::ConnectionFailed,
@@ -146,6 +146,8 @@ pub fn user_facing_error(operation: OperationKind, error: &str) -> String {
         "Configuration needs attention"
     } else if compact.contains("service") || compact.contains("SCM") {
         "Windows service did not complete the request"
+    } else if compact.contains("listener") || compact.contains("selector controller") {
+        "Proxy core did not become ready"
     } else if compact.contains("sing-box") || compact.contains("core") {
         "Proxy core did not complete the request"
     } else if compact.contains("proxy") {
@@ -178,7 +180,7 @@ mod tests {
             sing_box_configured: true,
             sing_box_state_recorded_running: true,
             sing_box_process_running: Some(true),
-            system_proxy_enabled: true,
+            system_proxy_matches_managed: true,
             last_transition: Some("running".to_string()),
             last_error: None,
             configuration_error: None,
@@ -194,7 +196,7 @@ mod tests {
         assert_eq!(connection_state(&value), ConnectionState::CoreError);
 
         value.sing_box_process_running = Some(true);
-        value.system_proxy_enabled = false;
+        value.system_proxy_matches_managed = false;
         assert_eq!(connection_state(&value), ConnectionState::ConnectionFailed);
     }
 
