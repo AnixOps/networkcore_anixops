@@ -44,9 +44,11 @@ experience production-ready:
    reboot Windows. For each case verify the interactive-user proxy is restored
    or an explicit recovery failure is shown; capture the GUI, service, and core
    diagnostic report paths.
-6. Verify MSI upgrade/uninstall and portable extraction separately. The
-   portable ZIP must not register or start a service on extraction; its GUI must
-   still expose the explicit service-install path.
+6. Verify MSI upgrade/uninstall and portable extraction separately. Enable
+   login startup first, then confirm MSI uninstall removes only NetworkCore's
+   matching Run value. The portable ZIP must not register or start a service on
+   extraction; its GUI still exposes the explicit service-install path and its
+   optional login startup must be disabled before moving the extracted folder.
 7. Capture before/after screenshots on the same Windows/DPI/theme setup for
    the release evidence. Source-only and headless CI runs cannot produce an
    authoritative desktop screenshot.

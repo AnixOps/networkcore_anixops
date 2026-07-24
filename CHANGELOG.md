@@ -32,6 +32,16 @@
 
 ### Added
 
+- Windows GUI now has a system tray with shared real runtime status, node,
+  connect/disconnect, refresh, restore-window, and safe-exit actions. Closing
+  the main window hides it; explicit exit restores a proxy snapshot only while
+  the current setting still exactly matches this GUI session, then stops the
+  service before the process ends.
+- Settings now controls current-user Windows login startup, auto-connect, and
+  one controlled core restart. The Run entry quotes the resolved GUI path,
+  refuses conflicting ownership, and MSI uninstall invokes the restricted GUI
+  cleanup path; portable packages support the same opt-in setting without
+  creating it on extraction.
 - Linux managed foreground event history now has an explicit bounded audit query:
   `CommandManagedForegroundSessionEventStore::list_event_history` and
   `networkcore-linux managed-event list <event-directory> [--session-id <id>]

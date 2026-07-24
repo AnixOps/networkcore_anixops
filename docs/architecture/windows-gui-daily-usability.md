@@ -1,7 +1,7 @@
 # Windows GUI Daily Usability
 
 This document defines the Windows GUI usability slice for
-`v0.2.0-alpha.20`. It preserves the existing Rust/Win32 client, Windows
+`v0.2.0-alpha.20` baseline. It preserves the existing Rust/Win32 client, Windows
 service, managed configuration schema, sing-box adapter, NodeCatalog parser,
 selector API, system integration layer, MSI, and portable package.
 
@@ -47,9 +47,11 @@ error`; SCM pending states map to `Connecting` or `Disconnecting`.
 Connect validates managed JSON and runs the existing `sing-box check -c`
 preflight, submits the service start, waits off the UI thread for SCM and the
 core PID, and only then applies the configured proxy for the interactive user.
-That user proxy snapshot is persisted in desktop state. Disconnect restores it
-before stopping the service. A later GUI status refresh restores the snapshot
-when a managed core/configuration failure has made the connection unusable.
+That user proxy snapshot and the exact GUI-applied proxy settings are persisted
+in desktop state. Disconnect restores it before stopping the service only when
+the current proxy still exactly matches the GUI-owned setting. A later GUI
+startup or status refresh uses the same rule after the service/core are no
+longer valid; it never overwrites a user-changed proxy.
 
 The service remains responsible for its own LocalSystem-managed proxy snapshot
 and resource cleanup. The GUI does not alter the service configuration schema.
@@ -71,7 +73,9 @@ and resource cleanup. The GUI does not alter the service configuration schema.
 | Open logs / report / copy summary | Active | Existing bounded report/log paths; clipboard summary is read-only. |
 | Manual proxy recovery | Active | Existing GUI-owned current-user proxy snapshot/restore. |
 | MITM, CA, driver | Active but advanced | Existing explicit mutation and rollback operations; not part of the connect path. |
-| Startup after login / auto-connect | Not implemented | Displayed as unavailable, with no persisted setting or implied behavior. |
+| Start after login | Active | Exact current-user `HKCU\...\Run\AnixOpsNetworkCore` entry, queried from Windows and removed only when its command matches this GUI. |
+| Auto-connect / one core recovery | Active | Persisted opt-in desktop settings; the existing background preflight/start flow runs once after GUI startup, and a GUI-started core error gets at most one preflight-gated restart. |
+| System tray | Active | Shared GUI state provides open, observed status/node, connect, disconnect, refresh, and safe exit; window close hides instead of terminating. |
 | Subscription groups, scheduled refresh, automatic latency selection | Blocked | No catalog scheduler, `urltest`, or background mutation is added. |
 | Native JSON group editing | Not implemented | Native sing-box JSON remains pass-through. |
 | TUN, DNS interception, HTTP/2/HTTP/3 MITM, script dispatch | Blocked | Existing platform and MITM boundaries remain unchanged. |
@@ -103,6 +107,8 @@ headless GitHub Actions Windows job and are tracked in
   port collision, sleep/resume, and reboot recovery.
 - Interactive-user proxy rollback after a core exit while the GUI is open and
   after reopening the GUI.
+- Tray double-click/menu behavior, login startup toggle, auto-connect once,
+  one-shot core restart, and startup-entry removal during MSI uninstall.
 
 GitHub Actions remains the sole environment for Rust tests/builds, MSI
 install/uninstall, and portable archive validation.

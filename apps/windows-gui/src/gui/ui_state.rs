@@ -65,6 +65,7 @@ pub enum OperationKind {
     DelayTest,
     ConfigurationCheck,
     Diagnostics,
+    Startup,
     Advanced,
 }
 
@@ -82,6 +83,7 @@ impl OperationKind {
             Self::DelayTest => "Testing delay",
             Self::ConfigurationCheck => "Checking configuration",
             Self::Diagnostics => "Creating diagnostics",
+            Self::Startup => "Updating startup settings",
             Self::Advanced => "Applying advanced change",
         }
     }
@@ -148,6 +150,8 @@ pub fn user_facing_error(operation: OperationKind, error: &str) -> String {
         "Proxy core did not complete the request"
     } else if compact.contains("proxy") {
         "System proxy settings were not changed"
+    } else if compact.contains("startup") || compact.contains("Run registry") {
+        "Windows startup setting was not changed"
     } else {
         "The operation did not complete"
     };
@@ -211,6 +215,15 @@ mod tests {
             user_facing_error(OperationKind::NodeSwitch, "sing-box selector rejected node");
         assert!(message.contains("Proxy core"));
         assert!(message.contains("Diagnostics"));
+    }
+
+    #[test]
+    fn startup_errors_are_distinguished_from_service_errors() {
+        let message = user_facing_error(
+            OperationKind::Startup,
+            "the current-user startup entry could not be written",
+        );
+        assert!(message.contains("Windows startup setting"));
     }
 
     #[test]

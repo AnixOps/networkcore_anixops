@@ -8,6 +8,13 @@ fn main() {
 
 #[cfg(windows)]
 fn main() {
+    if std::env::args().any(|argument| argument == "--cleanup-startup") {
+        if let Err(error) = gui::cleanup_current_user_startup() {
+            gui::show_fatal_error(&error);
+            std::process::exit(1);
+        }
+        return;
+    }
     let debug = std::env::args().any(|argument| argument == "--debug" || argument == "-d");
     if let Err(error) = gui::run(debug) {
         gui::show_fatal_error(&error);
@@ -16,14 +23,22 @@ fn main() {
 
 #[cfg(windows)]
 mod gui {
+    mod actions;
     mod commands;
+    mod pages;
     mod runtime_status;
+    mod startup;
     mod theme;
+    mod tray;
     mod ui_state;
 
+    use self::actions::connection as connection_actions;
     use self::commands::{dispatch as dispatch_command, CommandCompletion};
+    use self::pages::{home as home_page, settings as settings_page};
     use self::runtime_status::{read_runtime_status, WindowsRuntimeStatus};
+    use self::startup::{load_desktop_state, owns_current_proxy, save_desktop_state, DesktopState};
     use self::theme::ThemeMode;
+    use self::tray::{TrayCommandIds, TrayMenuState};
     use self::ui_state::{
         can_start_operation, user_facing_error, ConnectionState, OperationKind, UiPage,
     };
@@ -45,16 +60,17 @@ mod gui {
         windows_managed_data_directory, windows_managed_log_directory, windows_managed_state_path,
         write_managed_config, write_managed_state, write_managed_text_atomic, WindowsManagedConfig,
         WindowsManagedNativeMitmConfig, WindowsManagedSingBoxConfig, WindowsProxySettings,
-        WindowsProxySnapshot, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
+        WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
     };
     use platform_windows::system_integration::{
-        NativeWindowsSystemIntegration, WindowsServiceState, WindowsSystemIntegration,
+        current_user_startup_enabled, disable_current_user_startup, enable_current_user_startup,
+        read_current_user_system_proxy, NativeWindowsSystemIntegration, WindowsServiceState,
+        WindowsSystemIntegration,
     };
     use rcgen::{
         BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair,
         KeyUsagePurpose,
     };
-    use serde::{Deserialize, Serialize};
     use std::env;
     use std::fs;
     use std::mem::zeroed;
@@ -83,18 +99,18 @@ mod gui {
         CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
         GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, KillTimer, LoadCursorW,
         MessageBoxW, PostQuitMessage, RegisterClassW, SendMessageW, SetTimer, SetWindowLongPtrW,
-        SetWindowTextW, ShowWindow, TranslateMessage, BS_GROUPBOX, CBS_DROPDOWN, CB_ADDSTRING,
-        CB_RESETCONTENT, CB_SETCURSEL, CW_USEDEFAULT, ES_AUTOHSCROLL, GWLP_USERDATA, HMENU,
-        IDC_ARROW, MB_ICONERROR, MB_OK, MINMAXINFO, MSG, SW_HIDE, SW_SHOW, SW_SHOWNORMAL, WM_CLOSE,
-        WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX,
-        WM_CTLCOLORSTATIC, WM_DESTROY, WM_GETMINMAXINFO, WM_NCDESTROY, WM_SETFONT, WM_TIMER,
-        WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN, WS_MAXIMIZEBOX, WS_OVERLAPPED,
-        WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE, WS_VSCROLL,
+        SetWindowTextW, ShowWindow, TranslateMessage, BM_GETCHECK, BM_SETCHECK, BST_CHECKED,
+        BS_AUTOCHECKBOX, BS_GROUPBOX, CBS_DROPDOWN, CB_ADDSTRING, CB_RESETCONTENT, CB_SETCURSEL,
+        CW_USEDEFAULT, ES_AUTOHSCROLL, GWLP_USERDATA, HMENU, IDC_ARROW, MB_ICONERROR, MB_OK,
+        MINMAXINFO, MSG, SW_HIDE, SW_SHOW, SW_SHOWNORMAL, WM_CLOSE, WM_COMMAND, WM_CREATE,
+        WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC, WM_DESTROY,
+        WM_GETMINMAXINFO, WM_NCDESTROY, WM_SETFONT, WM_TIMER, WNDCLASSW, WS_BORDER, WS_CAPTION,
+        WS_CHILD, WS_CLIPCHILDREN, WS_MAXIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP,
+        WS_THICKFRAME, WS_VISIBLE, WS_VSCROLL,
     };
 
     const APP_CLASS: &str = "AnixOpsNetworkCoreWindow";
     const APP_TITLE: &str = "AnixOps NetworkCore";
-    const DESKTOP_STATE_FILE: &str = "desktop-state.json";
 
     const ID_REFRESH: usize = 100;
     const ID_INSTALL_SERVICE: usize = 101;
@@ -126,6 +142,10 @@ mod gui {
     const ID_COPY_DIAGNOSTICS: usize = 154;
     const ID_CONNECT: usize = 160;
     const ID_DISCONNECT: usize = 161;
+    const ID_EXIT: usize = 162;
+    const ID_START_AFTER_LOGIN: usize = 163;
+    const ID_AUTO_CONNECT: usize = 164;
+    const ID_AUTO_RECOVER_CORE: usize = 165;
     const ID_NAV_HOME: usize = 170;
     const ID_NAV_NODES: usize = 171;
     const ID_NAV_SUBSCRIPTIONS: usize = 172;
@@ -141,31 +161,6 @@ mod gui {
     const SING_BOX_MITM_UPSTREAM_PORT: u16 = 7891;
     const NATIVE_MITM_LISTEN_PORT: u16 = 7890;
     const MITM_CA_SUBJECT: &str = "AnixOps NetworkCore Windows HTTPS MITM CA";
-
-    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-    struct DesktopState {
-        proxy_snapshot: Option<WindowsProxySnapshot>,
-        certificate_sha1: Option<String>,
-        driver_inf_path: Option<PathBuf>,
-        #[serde(default)]
-        sing_box_executable_path: Option<PathBuf>,
-        #[serde(default)]
-        profile_source_path: Option<PathBuf>,
-        #[serde(default)]
-        profile_source_url: Option<String>,
-        #[serde(default)]
-        profile_node_id: Option<String>,
-        #[serde(default)]
-        delay_test_url: Option<String>,
-        #[serde(default)]
-        debug_enabled: bool,
-        #[serde(default)]
-        dark_theme: bool,
-        #[serde(default)]
-        profile_last_successful_update: Option<String>,
-        #[serde(default)]
-        profile_last_update_error: Option<String>,
-    }
 
     struct PagePanels {
         home: HWND,
@@ -199,6 +194,9 @@ mod gui {
         profile_runtime_status: HWND,
         proxy_server: HWND,
         proxy_bypass: HWND,
+        start_after_login: HWND,
+        auto_connect: HWND,
+        auto_recover_core: HWND,
         activity: HWND,
         debug_status: HWND,
         certificate_path: HWND,
@@ -254,6 +252,11 @@ mod gui {
         command_sender: Sender<CommandCompletion<BackgroundPayload>>,
         command_receiver: Receiver<CommandCompletion<BackgroundPayload>>,
         last_runtime_refresh: Instant,
+        runtime: WindowsRuntimeStatus,
+        auto_connect_attempted: bool,
+        core_recovery_attempted: bool,
+        gui_started_connection: bool,
+        exit_after_disconnect: bool,
     }
 
     struct ImportedSingBoxProfile {
@@ -279,7 +282,7 @@ mod gui {
     }
 
     enum BackgroundPayload {
-        Connected(WindowsProxySnapshot),
+        Connected(connection_actions::ConnectedProxy),
         Service(String),
         CoreInstalled(PathBuf),
         ConfigurationValidated,
@@ -289,6 +292,7 @@ mod gui {
         DelayMeasured(String),
         CoreChecked(String),
         DiagnosticReport(PathBuf),
+        StartupConfigured(bool),
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -390,6 +394,11 @@ mod gui {
         }
     }
 
+    pub fn cleanup_current_user_startup() -> Result<(), String> {
+        let executable = env::current_exe().map_err(|error| error.to_string())?;
+        disable_current_user_startup(&executable).map_err(|error| error.to_string())
+    }
+
     unsafe extern "system" fn window_proc(
         window: HWND,
         message: u32,
@@ -406,6 +415,11 @@ mod gui {
                         BACKGROUND_TIMER_INTERVAL_MILLIS,
                         None,
                     );
+                    if let Err(error) = self::tray::add(window) {
+                        show_fatal_error(&error);
+                        DestroyWindow(window);
+                        return -1;
+                    }
                     with_state(window, |state| refresh(state));
                     0
                 }
@@ -417,6 +431,10 @@ mod gui {
             WM_COMMAND => {
                 let id = wparam & 0xffff;
                 with_state(window, |state| handle_command(state, id));
+                0
+            }
+            self::tray::TRAY_CALLBACK_MESSAGE => {
+                with_state(window, |state| handle_tray_callback(state, lparam));
                 0
             }
             WM_TIMER if wparam == BACKGROUND_TIMER_ID => {
@@ -441,11 +459,12 @@ mod gui {
                 state.theme_brushes.surface as isize
             }
             WM_CLOSE => {
-                DestroyWindow(window);
+                ShowWindow(window, SW_HIDE);
                 0
             }
             WM_DESTROY => {
                 KillTimer(window, BACKGROUND_TIMER_ID);
+                self::tray::remove(window);
                 PostQuitMessage(0);
                 0
             }
@@ -471,7 +490,7 @@ mod gui {
     unsafe fn create_interface(window: HWND) -> Result<Box<AppState>, String> {
         let instance = GetModuleHandleW(null());
         let font = GetStockObject(DEFAULT_GUI_FONT);
-        let mut desktop = load_desktop_state();
+        let mut desktop = load_desktop_state()?;
         if std::env::args().any(|argument| argument == "--debug" || argument == "-d") {
             desktop.debug_enabled = true;
         }
@@ -509,8 +528,23 @@ mod gui {
             command_sender,
             command_receiver,
             last_runtime_refresh: Instant::now(),
+            runtime: read_runtime_status(),
+            auto_connect_attempted: false,
+            core_recovery_attempted: false,
+            gui_started_connection: false,
+            exit_after_disconnect: false,
         });
-        let _ = save_desktop_state(&state.desktop);
+        if let Err(error) = sync_startup_state(&mut state) {
+            set_text(
+                state.activity,
+                &format!("Startup setting unavailable: {error}"),
+            );
+            if let Some(shell) = state.daily.as_ref() {
+                EnableWindow(shell.start_after_login, 0);
+            }
+            let _ = append_managed_log("gui", &format!("startup setting query failed: {error}"));
+        }
+        save_desktop_state(&state.desktop)?;
         load_configuration_fields(&mut state);
         update_debug_status(&mut state);
         switch_page(&mut state, UiPage::Home);
@@ -639,154 +673,20 @@ mod gui {
             advanced: create_page_panel(window, instance, 220, 88),
         };
 
-        create_label(panels.home, instance, font, "Connection", 24, 20, 220, 22);
-        let home_connection = create_label(
+        let home = home_page::create(
             panels.home,
             instance,
             font,
-            "Not connected",
-            24,
-            48,
-            360,
-            34,
+            create_label,
+            create_group,
+            create_button,
+            home_page::CommandIds {
+                connect: ID_CONNECT,
+                disconnect: ID_DISCONNECT,
+                refresh: ID_REFRESH,
+                restore_proxy: ID_RESTORE_PROXY,
+            },
         );
-        create_button(
-            panels.home,
-            instance,
-            font,
-            "Connect",
-            ID_CONNECT,
-            24,
-            96,
-            160,
-            38,
-        );
-        create_button(
-            panels.home,
-            instance,
-            font,
-            "Disconnect",
-            ID_DISCONNECT,
-            196,
-            96,
-            160,
-            38,
-        );
-        create_button(
-            panels.home,
-            instance,
-            font,
-            "Refresh",
-            ID_REFRESH,
-            368,
-            96,
-            120,
-            38,
-        );
-        create_button(
-            panels.home,
-            instance,
-            font,
-            "Restore network settings",
-            ID_RESTORE_PROXY,
-            500,
-            96,
-            200,
-            38,
-        );
-        let home_failure = create_label(panels.home, instance, font, "", 24, 150, 850, 42);
-        create_group(
-            panels.home,
-            instance,
-            font,
-            "Current session",
-            20,
-            208,
-            860,
-            242,
-        );
-        create_label(
-            panels.home,
-            instance,
-            font,
-            "Current node",
-            42,
-            242,
-            150,
-            22,
-        );
-        let home_node = create_label(
-            panels.home,
-            instance,
-            font,
-            "Not selected",
-            210,
-            242,
-            630,
-            22,
-        );
-        create_label(
-            panels.home,
-            instance,
-            font,
-            "Subscription",
-            42,
-            282,
-            150,
-            22,
-        );
-        let home_subscription = create_label(
-            panels.home,
-            instance,
-            font,
-            "Not imported",
-            210,
-            282,
-            630,
-            22,
-        );
-        create_label(
-            panels.home,
-            instance,
-            font,
-            "sing-box core",
-            42,
-            322,
-            150,
-            22,
-        );
-        let home_core = create_label(
-            panels.home,
-            instance,
-            font,
-            "Not configured",
-            210,
-            322,
-            630,
-            22,
-        );
-        create_label(
-            panels.home,
-            instance,
-            font,
-            "Windows service",
-            42,
-            362,
-            150,
-            22,
-        );
-        let home_service = create_label(panels.home, instance, font, "Loading", 210, 362, 630, 22);
-        create_label(
-            panels.home,
-            instance,
-            font,
-            "System proxy",
-            42,
-            402,
-            150,
-            22,
-        );
-        let home_proxy = create_label(panels.home, instance, font, "Loading", 210, 402, 630, 22);
 
         create_label(panels.nodes, instance, font, "Nodes", 24, 20, 300, 26);
         create_label(
@@ -1037,144 +937,33 @@ mod gui {
             22,
         );
 
-        create_label(panels.settings, instance, font, "Settings", 24, 20, 300, 26);
-        create_label(
+        let managed_config_path = windows_managed_config_path();
+        let settings = settings_page::create(
             panels.settings,
             instance,
             font,
-            "Managed configuration",
-            24,
-            62,
-            230,
-            22,
-        );
-        let config_path = create_edit(
-            panels.settings,
-            instance,
-            font,
-            windows_managed_config_path().to_string_lossy().as_ref(),
-            24,
-            92,
-            560,
-            28,
-        );
-        create_button(
-            panels.settings,
-            instance,
-            font,
-            "Open JSON",
-            ID_OPEN_MANAGED_CONFIG,
-            596,
-            92,
-            110,
-            30,
-        );
-        create_button(
-            panels.settings,
-            instance,
-            font,
-            "Validate",
-            ID_VALIDATE_CONFIGURATION,
-            718,
-            92,
-            110,
-            30,
-        );
-        create_button(
-            panels.settings,
-            instance,
-            font,
-            "Apply",
-            ID_APPLY_CONFIG,
-            24,
-            138,
-            110,
-            30,
-        );
-        create_button(
-            panels.settings,
-            instance,
-            font,
-            "Install sing-box",
-            ID_INSTALL_SING_BOX,
-            146,
-            138,
-            150,
-            30,
-        );
-        create_label(
-            panels.settings,
-            instance,
-            font,
-            "Startup and automatic connect are not configured yet. The service start type remains the installer-managed Windows setting.",
-            24,
-            184,
-            820,
-            34,
-        );
-        create_group(
-            panels.settings,
-            instance,
-            font,
-            "Manual system proxy recovery",
-            20,
-            238,
-            860,
-            146,
-        );
-        create_label(panels.settings, instance, font, "Server", 40, 274, 80, 22);
-        let proxy_server = create_edit(
-            panels.settings,
-            instance,
-            font,
-            "127.0.0.1:7890",
-            124,
-            270,
-            250,
-            28,
-        );
-        create_label(panels.settings, instance, font, "Bypass", 396, 274, 80, 22);
-        let proxy_bypass = create_edit(
-            panels.settings,
-            instance,
-            font,
-            "<local>",
-            472,
-            270,
-            330,
-            28,
-        );
-        create_button(
-            panels.settings,
-            instance,
-            font,
-            "Enable proxy",
-            ID_ENABLE_PROXY,
-            40,
-            322,
-            140,
-            30,
-        );
-        create_button(
-            panels.settings,
-            instance,
-            font,
-            "Restore proxy",
-            ID_RESTORE_PROXY,
-            192,
-            322,
-            140,
-            30,
-        );
-        create_label(
-            panels.settings,
-            instance,
-            font,
-            "Manual proxy controls are only for recovery or an explicit local-proxy workflow. Connect uses the managed service lifecycle.",
-            40,
-            354,
-            800,
-            22,
+            create_label,
+            create_group,
+            create_button,
+            create_edit,
+            create_checkbox,
+            settings_page::CommandIds {
+                open_config: ID_OPEN_MANAGED_CONFIG,
+                validate_config: ID_VALIDATE_CONFIGURATION,
+                apply_config: ID_APPLY_CONFIG,
+                install_core: ID_INSTALL_SING_BOX,
+                start_after_login: ID_START_AFTER_LOGIN,
+                auto_connect: ID_AUTO_CONNECT,
+                auto_recover_core: ID_AUTO_RECOVER_CORE,
+                enable_proxy: ID_ENABLE_PROXY,
+                restore_proxy: ID_RESTORE_PROXY,
+            },
+            settings_page::InitialValues {
+                config_path: managed_config_path.to_string_lossy().as_ref(),
+                start_after_login: desktop.start_after_login,
+                auto_connect: desktop.auto_connect,
+                auto_recover_core: desktop.auto_recover_core,
+            },
         );
 
         create_label(
@@ -1424,24 +1213,27 @@ mod gui {
             page_title,
             status_summary,
             theme_button,
-            home_connection,
-            home_node,
-            home_subscription,
-            home_core,
-            home_service,
-            home_proxy,
-            home_failure,
+            home_connection: home.connection,
+            home_node: home.node,
+            home_subscription: home.subscription,
+            home_core: home.core,
+            home_service: home.service,
+            home_proxy: home.proxy,
+            home_failure: home.failure,
             subscriptions_status,
             nodes_search,
             nodes_protocol_filter,
-            config_path,
+            config_path: settings.config_path,
             profile_source,
             profile_node_id,
             delay_test_url,
             profile_delay_status,
             profile_runtime_status,
-            proxy_server,
-            proxy_bypass,
+            proxy_server: settings.proxy_server,
+            proxy_bypass: settings.proxy_bypass,
+            start_after_login: settings.start_after_login,
+            auto_connect: settings.auto_connect,
+            auto_recover_core: settings.auto_recover_core,
             activity,
             debug_status,
             certificate_path,
@@ -1469,7 +1261,7 @@ mod gui {
     unsafe fn create_legacy_interface(window: HWND) -> Result<Box<AppState>, String> {
         let instance = GetModuleHandleW(null());
         let font = GetStockObject(DEFAULT_GUI_FONT);
-        let mut desktop = load_desktop_state();
+        let mut desktop = load_desktop_state()?;
         if std::env::args().any(|argument| argument == "--debug" || argument == "-d") {
             desktop.debug_enabled = true;
         }
@@ -1955,6 +1747,11 @@ mod gui {
             command_sender,
             command_receiver,
             last_runtime_refresh: Instant::now(),
+            runtime: read_runtime_status(),
+            auto_connect_attempted: false,
+            core_recovery_attempted: false,
+            gui_started_connection: false,
+            exit_after_disconnect: false,
         });
         let _ = save_desktop_state(&state.desktop);
         load_configuration_fields(&mut state);
@@ -1964,7 +1761,10 @@ mod gui {
 
     unsafe fn handle_command(state: &mut AppState, id: usize) {
         match id {
-            ID_NAV_HOME => switch_page(state, UiPage::Home),
+            ID_NAV_HOME => {
+                ShowWindow(state.window, SW_SHOWNORMAL);
+                switch_page(state, UiPage::Home);
+            }
             ID_NAV_NODES => switch_page(state, UiPage::Nodes),
             ID_NAV_SUBSCRIPTIONS => switch_page(state, UiPage::Subscriptions),
             ID_NAV_SETTINGS => switch_page(state, UiPage::Settings),
@@ -1974,6 +1774,10 @@ mod gui {
             ID_FILTER_PROFILE_NODES => filter_profile_nodes(state),
             ID_CONNECT | ID_START_SERVICE => submit_service_start(state),
             ID_DISCONNECT | ID_STOP_SERVICE => submit_service_stop(state),
+            ID_EXIT => request_exit(state),
+            ID_START_AFTER_LOGIN => submit_startup_toggle(state),
+            ID_AUTO_CONNECT => update_auto_connect_preference(state),
+            ID_AUTO_RECOVER_CORE => update_auto_recovery_preference(state),
             ID_RESTART_SERVICE => submit_service_restart(state),
             ID_REFRESH => refresh(state),
             ID_INSTALL_SERVICE => run_action(state, "Service installed", install_service),
@@ -2010,6 +1814,121 @@ mod gui {
             }
             _ => {}
         }
+    }
+
+    unsafe fn handle_tray_callback(state: &mut AppState, lparam: LPARAM) {
+        let node = selected_node_label(state);
+        let command = self::tray::handle_callback(
+            state.window,
+            lparam,
+            TrayMenuState {
+                connection: state.runtime.connection,
+                busy: state.pending_operation.is_some(),
+                has_gui_owned_proxy: state.desktop.proxy_snapshot.is_some(),
+            },
+            state.runtime.connection.label(),
+            &node,
+            TrayCommandIds {
+                open: ID_NAV_HOME,
+                connect: ID_CONNECT,
+                disconnect: ID_DISCONNECT,
+                refresh: ID_REFRESH,
+                exit: ID_EXIT,
+            },
+        );
+        if let Some(command) = command {
+            handle_command(state, command);
+        }
+    }
+
+    unsafe fn request_exit(state: &mut AppState) {
+        if state.pending_operation.is_some() {
+            set_text(
+                state.activity,
+                "Wait for the current operation before exiting NetworkCore.",
+            );
+            return;
+        }
+        if state.desktop.proxy_snapshot.is_none()
+            && !matches!(
+                state.runtime.service_state,
+                WindowsServiceState::Running
+                    | WindowsServiceState::StartPending
+                    | WindowsServiceState::StopPending
+            )
+        {
+            DestroyWindow(state.window);
+            return;
+        }
+        state.exit_after_disconnect = true;
+        submit_service_stop(state);
+    }
+
+    unsafe fn submit_startup_toggle(state: &mut AppState) {
+        let Some(control) = state.daily.as_ref().map(|shell| shell.start_after_login) else {
+            return;
+        };
+        let enabled = checkbox_checked(control);
+        submit_background(state, OperationKind::Startup, move || {
+            let executable = env::current_exe().map_err(|error| error.to_string())?;
+            if enabled {
+                enable_current_user_startup(&executable).map_err(|error| error.to_string())?;
+            } else {
+                disable_current_user_startup(&executable).map_err(|error| error.to_string())?;
+            }
+            let actual =
+                current_user_startup_enabled(&executable).map_err(|error| error.to_string())?;
+            if actual != enabled {
+                return Err(
+                    "Windows did not retain the requested current-user startup state".to_string(),
+                );
+            }
+            Ok(BackgroundPayload::StartupConfigured(actual))
+        });
+    }
+
+    unsafe fn update_auto_connect_preference(state: &mut AppState) {
+        let Some(control) = state.daily.as_ref().map(|shell| shell.auto_connect) else {
+            return;
+        };
+        let previous = state.desktop.auto_connect;
+        state.desktop.auto_connect = checkbox_checked(control);
+        if let Err(error) = save_desktop_state(&state.desktop) {
+            state.desktop.auto_connect = previous;
+            SendMessageW(control, BM_SETCHECK, usize::from(previous), 0);
+            set_text(state.activity, &error);
+            return;
+        }
+        set_text(
+            state.activity,
+            settings_page::daily_lifecycle_summary(
+                state.desktop.start_after_login,
+                state.desktop.auto_connect,
+                state.desktop.auto_recover_core,
+            ),
+        );
+    }
+
+    unsafe fn update_auto_recovery_preference(state: &mut AppState) {
+        let Some(control) = state.daily.as_ref().map(|shell| shell.auto_recover_core) else {
+            return;
+        };
+        let previous = state.desktop.auto_recover_core;
+        state.desktop.auto_recover_core = checkbox_checked(control);
+        if let Err(error) = save_desktop_state(&state.desktop) {
+            state.desktop.auto_recover_core = previous;
+            SendMessageW(control, BM_SETCHECK, usize::from(previous), 0);
+            set_text(state.activity, &error);
+            return;
+        }
+        set_text(
+            state.activity,
+            settings_page::daily_lifecycle_summary(
+                state.desktop.start_after_login,
+                state.desktop.auto_connect,
+                state.desktop.auto_recover_core,
+            ),
+        );
     }
 
     unsafe fn switch_page(state: &mut AppState, page: UiPage) {
@@ -2076,87 +1995,34 @@ mod gui {
     }
 
     unsafe fn submit_service_start(state: &mut AppState) {
-        let config_path = PathBuf::from(get_text(state.config_path));
-        let managed_config_path = windows_managed_config_path();
-        if config_path != managed_config_path {
+        if !connection_actions::can_connect(state.runtime.connection) {
             set_text(
                 state.activity,
-                "Apply this configuration before connecting so the Windows service uses the validated file.",
+                "NetworkCore is already connected or connecting.",
             );
             return;
         }
+        let config_path = PathBuf::from(get_text(state.config_path));
         submit_background(state, OperationKind::Connect, move || {
-            validate_managed_configuration(&config_path)?;
-            let managed = read_managed_config(&config_path).map_err(|error| error.to_string())?;
-            let proxy = managed
-                .system_proxy
-                .filter(|proxy| proxy.enabled)
-                .ok_or_else(|| {
-                    "Connection requires an enabled managed system proxy. Import a profile or configure one first."
-                        .to_string()
-                })?;
-            let integration = NativeWindowsSystemIntegration::new();
-            integration
-                .start_service()
-                .map_err(|error| error.to_string())?;
-            let deadline = Instant::now() + Duration::from_secs(30);
-            loop {
-                let runtime = read_runtime_status();
-                if runtime.service_state == WindowsServiceState::Running
-                    && matches!(
-                        &runtime.sing_box,
-                        self::runtime_status::SingBoxProcessStatus::Running { .. }
-                    )
-                {
-                    match integration.apply_system_proxy(&proxy) {
-                        Ok(snapshot) => return Ok(BackgroundPayload::Connected(snapshot)),
-                        Err(error) => {
-                            let _ = integration.stop_service();
-                            return Err(format!(
-                                "system proxy could not be applied after core verification: {error}"
-                            ));
-                        }
-                    }
-                }
-                if matches!(
-                    runtime.connection,
-                    ConnectionState::CoreError | ConnectionState::ConfigurationError
-                ) {
-                    let message = runtime
-                        .last_error
-                        .or(runtime.configuration_error)
-                        .unwrap_or_else(|| {
-                            "managed runtime failed before the core was ready".to_string()
-                        });
-                    let _ = integration.stop_service();
-                    return Err(message);
-                }
-                if Instant::now() >= deadline {
-                    let _ = integration.stop_service();
-                    return Err(
-                        "timed out waiting for the managed service and sing-box core".to_string(),
-                    );
-                }
-                std::thread::sleep(Duration::from_millis(250));
-            }
+            connection_actions::connect(config_path).map(BackgroundPayload::Connected)
         });
     }
 
     unsafe fn submit_service_stop(state: &mut AppState) {
-        let snapshot = state.desktop.proxy_snapshot.clone();
-        submit_background(state, OperationKind::Disconnect, move || {
-            let integration = NativeWindowsSystemIntegration::new();
-            if let Some(snapshot) = snapshot {
-                integration
-                    .restore_system_proxy(&snapshot)
-                    .map_err(|error| error.to_string())?;
+        if !connection_actions::can_disconnect(
+            state.runtime.connection,
+            state.desktop.proxy_snapshot.is_some(),
+        ) {
+            if state.exit_after_disconnect {
+                DestroyWindow(state.window);
+            } else {
+                set_text(state.activity, "NetworkCore is already disconnected.");
             }
-            integration
-                .stop_service()
-                .map_err(|error| error.to_string())?;
-            Ok(BackgroundPayload::Service(
-                "Service stopped and the desktop proxy snapshot was restored.".to_string(),
-            ))
+            return;
+        }
+        let desktop = state.desktop.clone();
+        submit_background(state, OperationKind::Disconnect, move || {
+            connection_actions::disconnect(desktop).map(BackgroundPayload::Service)
         });
     }
 
@@ -2381,9 +2247,17 @@ mod gui {
         state.pending_operation = None;
         EnableWindow(state.window, 1);
         match completion.result {
-            Ok(BackgroundPayload::Connected(snapshot)) => {
+            Ok(BackgroundPayload::Connected(connection_actions::ConnectedProxy {
+                snapshot,
+                applied_proxy,
+            })) => {
                 state.desktop.proxy_snapshot = Some(snapshot);
-                let _ = save_desktop_state(&state.desktop);
+                state.desktop.applied_proxy = Some(applied_proxy);
+                state.gui_started_connection = true;
+                if let Err(error) = save_desktop_state(&state.desktop) {
+                    set_text(state.activity, &error);
+                    return;
+                }
                 set_text(
                     state.activity,
                     "Connected. The managed core and current-user system proxy were verified.",
@@ -2392,9 +2266,18 @@ mod gui {
             Ok(BackgroundPayload::Service(message)) => {
                 if completion.operation == OperationKind::Disconnect {
                     state.desktop.proxy_snapshot = None;
-                    let _ = save_desktop_state(&state.desktop);
+                    state.desktop.applied_proxy = None;
+                    state.gui_started_connection = false;
+                    if let Err(error) = save_desktop_state(&state.desktop) {
+                        set_text(state.activity, &error);
+                        return;
+                    }
                 }
                 set_text(state.activity, &message);
+                if state.exit_after_disconnect {
+                    DestroyWindow(state.window);
+                    return;
+                }
             }
             Ok(BackgroundPayload::CoreInstalled(path)) => {
                 state.desktop.sing_box_executable_path = Some(path.clone());
@@ -2464,10 +2347,46 @@ mod gui {
                     ),
                 }
             }
+            Ok(BackgroundPayload::StartupConfigured(enabled)) => {
+                state.desktop.start_after_login = enabled;
+                if let Some(shell) = state.daily.as_ref() {
+                    SendMessageW(
+                        shell.start_after_login,
+                        BM_SETCHECK,
+                        usize::from(enabled),
+                        0,
+                    );
+                }
+                if let Err(error) = save_desktop_state(&state.desktop) {
+                    set_text(state.activity, &error);
+                    return;
+                }
+                set_text(
+                    state.activity,
+                    if enabled {
+                        "NetworkCore will start after this Windows user signs in."
+                    } else {
+                        "NetworkCore will not start automatically after sign-in."
+                    },
+                );
+            }
             Err(error) => {
+                if state.exit_after_disconnect {
+                    state.exit_after_disconnect = false;
+                }
                 if matches!(completion.operation, OperationKind::SubscriptionUpdate) {
                     state.desktop.profile_last_update_error = Some(error.clone());
                     let _ = save_desktop_state(&state.desktop);
+                }
+                if completion.operation == OperationKind::Startup {
+                    if let Some(shell) = state.daily.as_ref() {
+                        SendMessageW(
+                            shell.start_after_login,
+                            BM_SETCHECK,
+                            usize::from(state.desktop.start_after_login),
+                            0,
+                        );
+                    }
                 }
                 let message = user_facing_error(completion.operation, &error);
                 set_text(state.activity, &message);
@@ -2515,27 +2434,34 @@ mod gui {
 
     unsafe fn refresh(state: &mut AppState) {
         let runtime = read_runtime_status();
+        state.runtime = runtime.clone();
         render_runtime_status(state, &runtime);
         if state.desktop.debug_enabled {
             let _ = append_managed_log("gui", &format!("debug: {}", runtime.status_line()));
         }
     }
 
+    unsafe fn sync_startup_state(state: &mut AppState) -> Result<(), String> {
+        let executable = env::current_exe().map_err(|error| error.to_string())?;
+        let enabled =
+            current_user_startup_enabled(&executable).map_err(|error| error.to_string())?;
+        state.desktop.start_after_login = enabled;
+        if let Some(shell) = state.daily.as_ref() {
+            SendMessageW(
+                shell.start_after_login,
+                BM_SETCHECK,
+                usize::from(enabled),
+                0,
+            );
+        }
+        Ok(())
+    }
+
     unsafe fn render_runtime_status(state: &mut AppState, runtime: &WindowsRuntimeStatus) {
-        if state.desktop.proxy_snapshot.is_some()
-            && matches!(
-                runtime.connection,
-                ConnectionState::Disconnected
-                    | ConnectionState::CoreError
-                    | ConnectionState::ConfigurationError
-            )
-        {
-            if let Err(error) = restore_proxy(state) {
-                let _ = append_managed_log(
-                    "gui",
-                    &format!("automatic desktop proxy recovery failed: {error}"),
-                );
-            }
+        if let Err(error) = restore_abandoned_owned_proxy(state, runtime) {
+            let message = format!("NetworkCore proxy recovery failed: {error}");
+            set_text(state.activity, &message);
+            let _ = append_managed_log("gui", &message);
         }
         let service = match runtime.service_state {
             WindowsServiceState::NotInstalled => "Not installed".to_string(),
@@ -2554,38 +2480,21 @@ mod gui {
             return;
         };
         set_text(shell.status_summary, &runtime.status_line());
-        let connection = if runtime.connection.is_connected() {
-            "Connected: service, core, and proxy are ready"
-        } else {
-            runtime.connection.label()
-        };
-        set_text(shell.home_connection, connection);
+        set_text(
+            shell.home_connection,
+            home_page::connection_summary(runtime.connection),
+        );
         set_text(shell.home_service, &service);
         set_text(shell.home_core, &runtime.sing_box.label());
-        let proxy = match runtime.system_proxy_enabled {
-            Some(true) => format!(
-                "Enabled{}",
-                runtime
-                    .system_proxy_server
-                    .as_deref()
-                    .filter(|server| !server.is_empty())
-                    .map(|server| format!(" ({server})"))
-                    .unwrap_or_default()
-            ),
-            Some(false) => "Disabled".to_string(),
-            None => "Could not read the current user setting".to_string(),
-        };
+        let proxy = home_page::proxy_summary(
+            runtime.system_proxy_enabled,
+            runtime.system_proxy_server.as_deref(),
+        );
         set_text(shell.home_proxy, &proxy);
 
-        let selected = state
-            .desktop
-            .profile_node_id
-            .as_deref()
-            .and_then(|id| state.profile_node_catalog.iter().find(|node| node.id == id))
-            .map(|node| format!("{} ({})", node.label, node.protocol))
-            .or_else(|| state.desktop.profile_node_id.clone())
-            .unwrap_or_else(|| "Not selected".to_string());
+        let selected = selected_node_label(state);
         set_text(shell.home_node, &selected);
+        self::tray::update(state.window, runtime.connection, &selected);
         let subscription = state
             .desktop
             .profile_source_url
@@ -2614,6 +2523,40 @@ mod gui {
             .or(runtime.last_error.as_deref())
             .unwrap_or("");
         set_text(shell.home_failure, failure);
+
+        if connection_actions::should_auto_connect(
+            state.desktop.auto_connect,
+            state.auto_connect_attempted,
+            runtime.connection.is_connected(),
+        ) && state.pending_operation.is_none()
+        {
+            state.auto_connect_attempted = true;
+            let _ = append_managed_log("gui", "automatic connection requested after startup");
+            submit_service_start(state);
+        }
+
+        if connection_actions::should_restart_gui_started_core(
+            state.desktop.auto_recover_core,
+            state.core_recovery_attempted,
+            state.gui_started_connection,
+            runtime.connection,
+        ) && state.pending_operation.is_none()
+        {
+            state.core_recovery_attempted = true;
+            let _ = append_managed_log("gui", "one controlled core recovery was requested");
+            submit_service_start(state);
+        }
+    }
+
+    fn selected_node_label(state: &AppState) -> String {
+        state
+            .desktop
+            .profile_node_id
+            .as_deref()
+            .and_then(|id| state.profile_node_catalog.iter().find(|node| node.id == id))
+            .map(|node| format!("{} ({})", node.label, node.protocol))
+            .or_else(|| state.desktop.profile_node_id.clone())
+            .unwrap_or_else(|| "Not selected".to_string())
     }
 
     unsafe fn toggle_debug(state: &mut AppState) {
@@ -3737,7 +3680,11 @@ mod gui {
 
     fn enable_proxy(state: &mut AppState) -> Result<(), String> {
         if state.desktop.proxy_snapshot.is_some() {
-            return Ok(());
+            let current = read_current_user_system_proxy().map_err(|error| error.to_string())?;
+            if owns_current_proxy(&state.desktop, &current) {
+                return Ok(());
+            }
+            clear_gui_proxy_ownership(state)?;
         }
         let settings = WindowsProxySettings {
             enabled: true,
@@ -3750,17 +3697,72 @@ mod gui {
                 .apply_system_proxy(&settings)
                 .map_err(|error| error.to_string())?,
         );
+        state.desktop.applied_proxy = Some(settings);
         save_desktop_state(&state.desktop)
     }
 
     fn restore_proxy(state: &mut AppState) -> Result<(), String> {
-        if let Some(snapshot) = state.desktop.proxy_snapshot.take() {
-            if let Err(error) = state.integration.restore_system_proxy(&snapshot) {
-                state.desktop.proxy_snapshot = Some(snapshot);
-                return Err(error.to_string());
-            }
-            save_desktop_state(&state.desktop)?;
+        let Some(snapshot) = state.desktop.proxy_snapshot.clone() else {
+            return Ok(());
+        };
+        let current = read_current_user_system_proxy().map_err(|error| error.to_string())?;
+        if !owns_current_proxy(&state.desktop, &current) {
+            clear_gui_proxy_ownership(state)?;
+            return Err(
+                "the current-user proxy no longer matches the GUI-applied settings; it was left unchanged"
+                    .to_string(),
+            );
         }
+        state
+            .integration
+            .restore_system_proxy(&snapshot)
+            .map_err(|error| error.to_string())?;
+        clear_gui_proxy_ownership(state)?;
+        Ok(())
+    }
+
+    fn clear_gui_proxy_ownership(state: &mut AppState) -> Result<(), String> {
+        let snapshot = state.desktop.proxy_snapshot.take();
+        let applied_proxy = state.desktop.applied_proxy.take();
+        if let Err(error) = save_desktop_state(&state.desktop) {
+            state.desktop.proxy_snapshot = snapshot;
+            state.desktop.applied_proxy = applied_proxy;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    fn restore_abandoned_owned_proxy(
+        state: &mut AppState,
+        runtime: &WindowsRuntimeStatus,
+    ) -> Result<(), String> {
+        if state.desktop.proxy_snapshot.is_none()
+            || !matches!(
+                runtime.service_state,
+                WindowsServiceState::NotInstalled | WindowsServiceState::Stopped
+            )
+            || !matches!(
+                &runtime.sing_box,
+                self::runtime_status::SingBoxProcessStatus::NotConfigured
+                    | self::runtime_status::SingBoxProcessStatus::Exited { .. }
+            )
+        {
+            return Ok(());
+        }
+        let current = read_current_user_system_proxy().map_err(|error| error.to_string())?;
+        if !owns_current_proxy(&state.desktop, &current) {
+            clear_gui_proxy_ownership(state)?;
+            let _ = append_managed_log(
+                "gui",
+                "cleared stale GUI proxy ownership without changing the current-user proxy",
+            );
+            return Ok(());
+        }
+        restore_proxy(state)?;
+        let _ = append_managed_log(
+            "gui",
+            "restored the GUI-owned current-user proxy after an interrupted runtime",
+        );
         Ok(())
     }
 
@@ -3836,27 +3838,6 @@ mod gui {
                 }
             }
         }
-    }
-
-    fn desktop_state_path() -> PathBuf {
-        windows_managed_data_directory().join(DESKTOP_STATE_FILE)
-    }
-
-    fn load_desktop_state() -> DesktopState {
-        fs::read(desktop_state_path())
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
-    }
-
-    fn save_desktop_state(state: &DesktopState) -> Result<(), String> {
-        let path = desktop_state_path();
-        let parent = path
-            .parent()
-            .ok_or_else(|| "desktop state path has no parent".to_string())?;
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        let bytes = serde_json::to_vec_pretty(state).map_err(|error| error.to_string())?;
-        fs::write(path, bytes).map_err(|error| error.to_string())
     }
 
     fn current_local_timestamp() -> String {
@@ -3979,6 +3960,41 @@ mod gui {
         );
         SendMessageW(control, WM_SETFONT, font as usize, 1);
         control
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn create_checkbox(
+        parent: HWND,
+        instance: HINSTANCE,
+        font: *mut std::ffi::c_void,
+        text: &str,
+        id: usize,
+        checked: bool,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    ) -> HWND {
+        let control = create_control(
+            parent,
+            instance,
+            "BUTTON",
+            text,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX as u32,
+            0,
+            x,
+            y,
+            width,
+            height,
+            id,
+        );
+        SendMessageW(control, WM_SETFONT, font as usize, 1);
+        SendMessageW(control, BM_SETCHECK, usize::from(checked), 0);
+        control
+    }
+
+    unsafe fn checkbox_checked(control: HWND) -> bool {
+        SendMessageW(control, BM_GETCHECK, 0, 0) as u32 == BST_CHECKED
     }
 
     #[allow(clippy::too_many_arguments)]

@@ -1894,6 +1894,7 @@ jobs:
           }
 
           $serviceExe = Join-Path $env:ProgramFiles "AnixOps\NetworkCore\networkcore-windows-service.exe"
+          $guiExe = Join-Path $env:ProgramFiles "AnixOps\NetworkCore\networkcore-windows-gui.exe"
           $managedConfigPath = Join-Path $env:ProgramData "AnixOps\NetworkCore\managed-config.json"
           if (-not (Test-Path $serviceExe -PathType Leaf)) {
             throw "Windows managed client MSI did not install the service executable."
@@ -1901,6 +1902,14 @@ jobs:
           if (-not (Test-Path $managedConfigPath -PathType Leaf)) {
             throw "Windows managed client MSI did not install managed-config.json."
           }
+          if (-not (Test-Path $guiExe -PathType Leaf)) {
+            throw "Windows managed client MSI did not install the GUI executable."
+          }
+
+          $startupKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+          New-Item -Path $startupKey -Force | Out-Null
+          $startupCommand = "`"$guiExe`" --start-after-login"
+          New-ItemProperty -Path $startupKey -Name "AnixOpsNetworkCore" -Value $startupCommand -PropertyType String -Force | Out-Null
 
           $service = Get-Service -Name "AnixOpsNetworkCore" -ErrorAction Stop
           if ($service.Status -ne "Stopped") {
@@ -1953,6 +1962,9 @@ jobs:
 
           if ($null -ne (Get-Service -Name "AnixOpsNetworkCore" -ErrorAction SilentlyContinue)) {
             throw "Windows managed client MSI uninstall left AnixOpsNetworkCore registered."
+          }
+          if ($null -ne (Get-ItemProperty -Path $startupKey -Name "AnixOpsNetworkCore" -ErrorAction SilentlyContinue)) {
+            throw "Windows managed client MSI uninstall left the current-user NetworkCore startup entry."
           }
 
   rust-security-audit:

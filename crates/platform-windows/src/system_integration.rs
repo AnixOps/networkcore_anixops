@@ -14,7 +14,27 @@ pub const WINDOWS_SERVICE_OPERATION_FAILED_CODE: &str = "windows.service.operati
 pub const WINDOWS_PROXY_OPERATION_FAILED_CODE: &str = "windows.proxy.operation_failed";
 pub const WINDOWS_CERTIFICATE_OPERATION_FAILED_CODE: &str = "windows.certificate.operation_failed";
 pub const WINDOWS_DRIVER_OPERATION_FAILED_CODE: &str = "windows.driver.operation_failed";
+pub const WINDOWS_STARTUP_OPERATION_FAILED_CODE: &str = "windows.startup.operation_failed";
 pub const WINDOWS_PLATFORM_REQUIRED_CODE: &str = "windows.platform.required";
+pub const NETWORKCORE_WINDOWS_STARTUP_VALUE_NAME: &str = "AnixOpsNetworkCore";
+
+/// Reads whether the current user's explicit NetworkCore Run entry points to
+/// this GUI executable. A conflicting value is reported as disabled and is
+/// never treated as owned.
+pub fn current_user_startup_enabled(executable: &Path) -> DomainResult<bool> {
+    native::current_user_startup_enabled(executable)
+}
+
+/// Creates the current user's explicit NetworkCore Run entry. This supports
+/// installed and portable GUI locations without registering a service task.
+pub fn enable_current_user_startup(executable: &Path) -> DomainResult<()> {
+    native::enable_current_user_startup(executable)
+}
+
+/// Removes only the current user's owned NetworkCore Run entry.
+pub fn disable_current_user_startup(executable: &Path) -> DomainResult<()> {
+    native::disable_current_user_startup(executable)
+}
 
 /// Reads the current interactive user's WinINet proxy settings without changing
 /// either WinINet or WinHTTP. GUI status surfaces use this as an observation,
@@ -189,6 +209,18 @@ mod native {
     pub fn uninstall_driver(_inf_path: &Path) -> DomainResult<bool> {
         Err(unsupported())
     }
+
+    pub fn current_user_startup_enabled(_executable: &Path) -> DomainResult<bool> {
+        Err(unsupported())
+    }
+
+    pub fn enable_current_user_startup(_executable: &Path) -> DomainResult<()> {
+        Err(unsupported())
+    }
+
+    pub fn disable_current_user_startup(_executable: &Path) -> DomainResult<()> {
+        Err(unsupported())
+    }
 }
 
 #[cfg(windows)]
@@ -227,8 +259,8 @@ mod native {
         CRYPT_INTEGER_BLOB, X509_ASN_ENCODING,
     };
     use windows_sys::Win32::System::Registry::{
-        RegCloseKey, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER,
-        KEY_QUERY_VALUE, KEY_SET_VALUE, REG_DWORD, REG_SZ,
+        RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegOpenKeyExW, RegQueryValueExW,
+        RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_DWORD, REG_SZ,
     };
     use windows_sys::Win32::System::Services::{
         ChangeServiceConfig2W, ChangeServiceConfigW, CloseServiceHandle, ControlService,
@@ -243,6 +275,7 @@ mod native {
 
     const INTERNET_SETTINGS_KEY: &str =
         r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
+    const CURRENT_USER_RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
     const SERVICE_STOP_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 
     struct ServiceHandle(SC_HANDLE);
@@ -419,6 +452,58 @@ mod native {
             server: read_registry_string(&key, "ProxyServer")?,
             bypass: read_registry_string(&key, "ProxyOverride")?,
         })
+    }
+
+    pub fn current_user_startup_enabled(executable: &Path) -> DomainResult<bool> {
+        let expected = current_user_startup_command(executable)?;
+        match read_current_user_run_value()? {
+            None => Ok(false),
+            Some(value) if value == expected => Ok(true),
+            Some(_) => Ok(false),
+        }
+    }
+
+    pub fn enable_current_user_startup(executable: &Path) -> DomainResult<()> {
+        let command = current_user_startup_command(executable)?;
+        match read_current_user_run_value()? {
+            Some(value) if value != command => {
+                return Err(startup_error(
+                    "the current-user NetworkCore startup entry is owned by a different command",
+                ));
+            }
+            Some(_) => return Ok(()),
+            None => {}
+        }
+        let key = create_current_user_run_key()?;
+        write_registry_string(&key, NETWORKCORE_WINDOWS_STARTUP_VALUE_NAME, &command).map_err(
+            |error| {
+                startup_error(&format!(
+                    "the current-user startup entry could not be written: {}",
+                    error.message
+                ))
+            },
+        )
+    }
+
+    pub fn disable_current_user_startup(executable: &Path) -> DomainResult<()> {
+        let expected = current_user_startup_command(executable)?;
+        match read_current_user_run_value()? {
+            None => return Ok(()),
+            Some(value) if value != expected => {
+                return Ok(());
+            }
+            Some(_) => {}
+        }
+        let key = open_current_user_run_key()?;
+        let name = wide(NETWORKCORE_WINDOWS_STARTUP_VALUE_NAME);
+        let result = unsafe { RegDeleteValueW(key.0, name.as_ptr()) };
+        if result != ERROR_SUCCESS && result != ERROR_FILE_NOT_FOUND {
+            return Err(startup_win32_error(
+                "the current-user startup entry could not be removed",
+                result,
+            ));
+        }
+        Ok(())
     }
 
     pub fn apply_system_proxy(
@@ -699,6 +784,137 @@ mod native {
         Ok(RegistryKey(key))
     }
 
+    fn current_user_startup_command(executable: &Path) -> DomainResult<String> {
+        let executable = fs::canonicalize(executable)
+            .map_err(|_| startup_error("the GUI executable could not be resolved"))?;
+        Ok(startup_command_for_path(&executable))
+    }
+
+    fn startup_command_for_path(executable: &Path) -> String {
+        format!("\"{}\" --start-after-login", executable.display())
+    }
+
+    fn open_current_user_run_key() -> DomainResult<RegistryKey> {
+        let path = wide(CURRENT_USER_RUN_KEY);
+        let mut key: HKEY = null_mut();
+        let result = unsafe {
+            RegOpenKeyExW(
+                HKEY_CURRENT_USER,
+                path.as_ptr(),
+                0,
+                KEY_QUERY_VALUE | KEY_SET_VALUE,
+                &mut key,
+            )
+        };
+        if result == ERROR_FILE_NOT_FOUND {
+            return Err(startup_error(
+                "the current-user Run registry key is unavailable",
+            ));
+        }
+        if result != ERROR_SUCCESS {
+            return Err(startup_win32_error(
+                "the current-user Run registry key could not be opened",
+                result,
+            ));
+        }
+        Ok(RegistryKey(key))
+    }
+
+    fn create_current_user_run_key() -> DomainResult<RegistryKey> {
+        let path = wide(CURRENT_USER_RUN_KEY);
+        let mut key: HKEY = null_mut();
+        let mut disposition = 0u32;
+        let result = unsafe {
+            RegCreateKeyExW(
+                HKEY_CURRENT_USER,
+                path.as_ptr(),
+                0,
+                null_mut(),
+                0,
+                KEY_QUERY_VALUE | KEY_SET_VALUE,
+                null(),
+                &mut key,
+                &mut disposition,
+            )
+        };
+        if result != ERROR_SUCCESS {
+            return Err(startup_win32_error(
+                "the current-user Run registry key could not be created",
+                result,
+            ));
+        }
+        Ok(RegistryKey(key))
+    }
+
+    fn read_current_user_run_value() -> DomainResult<Option<String>> {
+        let path = wide(CURRENT_USER_RUN_KEY);
+        let mut key: HKEY = null_mut();
+        let result = unsafe {
+            RegOpenKeyExW(
+                HKEY_CURRENT_USER,
+                path.as_ptr(),
+                0,
+                KEY_QUERY_VALUE,
+                &mut key,
+            )
+        };
+        if result == ERROR_FILE_NOT_FOUND {
+            return Ok(None);
+        }
+        if result != ERROR_SUCCESS {
+            return Err(startup_win32_error(
+                "the current-user Run registry key could not be read",
+                result,
+            ));
+        }
+        let key = RegistryKey(key);
+        let name = wide(NETWORKCORE_WINDOWS_STARTUP_VALUE_NAME);
+        let mut size = 0u32;
+        let mut value_type = 0u32;
+        let first = unsafe {
+            RegQueryValueExW(
+                key.0,
+                name.as_ptr(),
+                null(),
+                &mut value_type,
+                null_mut(),
+                &mut size,
+            )
+        };
+        if first == ERROR_FILE_NOT_FOUND {
+            return Ok(None);
+        }
+        if first != ERROR_SUCCESS || value_type != REG_SZ || size == 0 {
+            return Err(startup_error(
+                "the current-user NetworkCore startup entry is invalid",
+            ));
+        }
+        let mut value = vec![0u16; (size as usize).div_ceil(2)];
+        let result = unsafe {
+            RegQueryValueExW(
+                key.0,
+                name.as_ptr(),
+                null(),
+                &mut value_type,
+                value.as_mut_ptr() as *mut u8,
+                &mut size,
+            )
+        };
+        if result != ERROR_SUCCESS || value_type != REG_SZ {
+            return Err(startup_win32_error(
+                "the current-user NetworkCore startup entry could not be read",
+                result,
+            ));
+        }
+        let value = String::from_utf16_lossy(
+            &value[..value
+                .iter()
+                .position(|value| *value == 0)
+                .unwrap_or(value.len())],
+        );
+        Ok(Some(value))
+    }
+
     fn read_registry_dword(key: &RegistryKey, name: &str) -> DomainResult<u32> {
         let name = wide(name);
         let mut value = 0u32;
@@ -957,6 +1173,17 @@ mod native {
         DomainError::new(WINDOWS_SERVICE_OPERATION_FAILED_CODE, message)
     }
 
+    fn startup_error(message: &str) -> DomainError {
+        DomainError::new(WINDOWS_STARTUP_OPERATION_FAILED_CODE, message)
+    }
+
+    fn startup_win32_error(message: &str, error: u32) -> DomainError {
+        DomainError::new(
+            WINDOWS_STARTUP_OPERATION_FAILED_CODE,
+            format!("{message} (win32={error})"),
+        )
+    }
+
     fn service_win32_error(message: &str, error: u32) -> DomainError {
         DomainError::new(
             WINDOWS_SERVICE_OPERATION_FAILED_CODE,
@@ -999,5 +1226,35 @@ mod native {
             WINDOWS_DRIVER_OPERATION_FAILED_CODE,
             format!("{message} (win32={})", unsafe { GetLastError() }),
         )
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn startup_command_quotes_an_executable_path_with_spaces() {
+            assert_eq!(
+                startup_command_for_path(Path::new(
+                    r"C:\Program Files\AnixOps\NetworkCore\networkcore-windows-gui.exe"
+                )),
+                r#""C:\Program Files\AnixOps\NetworkCore\networkcore-windows-gui.exe" --start-after-login"#,
+            );
+        }
+
+        #[test]
+        fn current_user_startup_can_be_enabled_queried_and_disabled() {
+            let executable = std::env::current_exe().expect("test executable path should exist");
+            assert!(!current_user_startup_enabled(&executable)
+                .expect("startup state should be queryable before enabling"));
+            enable_current_user_startup(&executable)
+                .expect("current-user startup entry should be enabled");
+            assert!(current_user_startup_enabled(&executable)
+                .expect("enabled startup entry should be queryable"));
+            disable_current_user_startup(&executable)
+                .expect("current-user startup entry should be removed");
+            assert!(!current_user_startup_enabled(&executable)
+                .expect("disabled startup entry should be queryable"));
+        }
     }
 }

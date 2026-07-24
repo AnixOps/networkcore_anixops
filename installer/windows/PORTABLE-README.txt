@@ -27,6 +27,11 @@ AnixOps NetworkCore Windows portable package
 The portable ZIP does not register or start the service during extraction. It
 is included with every Windows tag release alongside the MSI and its own
 SHA-256 and manifest files.
+
+Portable use supports the same current-user "Start NetworkCore after I sign
+in" setting from Settings. It is off by default and points to the extracted
+GUI executable, so disable it in Settings before moving or deleting the
+portable directory.
 Managed configuration, state, and logs are stored under:
 
   %ProgramData%\AnixOps\NetworkCore
