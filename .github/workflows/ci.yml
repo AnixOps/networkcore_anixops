@@ -58,8 +58,10 @@ jobs:
             apps/windows-gui/src/main.rs
             apps/windows-gui/src/gui/commands.rs
             apps/windows-gui/src/gui/runtime_status.rs
+            apps/windows-gui/src/gui/shell.rs
             apps/windows-gui/src/gui/theme.rs
             apps/windows-gui/src/gui/ui_state.rs
+            apps/windows-gui/src/gui/widgets.rs
             apps/windows-service/Cargo.toml
             apps/windows-service/src/lib.rs
             apps/windows-service/src/main.rs
@@ -378,7 +380,7 @@ jobs:
           grep -q "submit_profile_import" apps/windows-gui/src/main.rs
           grep -q "ID_LOAD_PROFILE_NODES" apps/windows-gui/src/main.rs
           grep -q "submit_profile_node_load" apps/windows-gui/src/main.rs
-          grep -q "create_profile_node_selector" apps/windows-gui/src/main.rs
+          grep -q "pub unsafe fn selector" apps/windows-gui/src/gui/widgets.rs
           grep -q "ID_SWITCH_PROFILE_NODE" apps/windows-gui/src/main.rs
           grep -q "submit_profile_node_switch" apps/windows-gui/src/main.rs
           grep -q "ID_TEST_PROFILE_NODE_DELAY" apps/windows-gui/src/main.rs
