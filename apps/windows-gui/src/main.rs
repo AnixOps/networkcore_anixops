@@ -39,9 +39,7 @@ mod gui {
     use self::startup::{load_desktop_state, owns_current_proxy, save_desktop_state, DesktopState};
     use self::theme::ThemeMode;
     use self::tray::{TrayCommandIds, TrayMenuState};
-    use self::ui_state::{
-        can_start_operation, user_facing_error, ConnectionState, OperationKind, UiPage,
-    };
+    use self::ui_state::{can_start_operation, user_facing_error, OperationKind, UiPage};
     use config_core::CoreSubscriptionService;
     use control_domain::{NodeDescriptor, SubscriptionService, SubscriptionSource};
     use engine_singbox::{
@@ -99,18 +97,19 @@ mod gui {
         CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
         GetWindowLongPtrW, GetWindowTextLengthW, GetWindowTextW, KillTimer, LoadCursorW,
         MessageBoxW, PostQuitMessage, RegisterClassW, SendMessageW, SetTimer, SetWindowLongPtrW,
-        SetWindowTextW, ShowWindow, TranslateMessage, BM_GETCHECK, BM_SETCHECK, BST_CHECKED,
-        BS_AUTOCHECKBOX, BS_GROUPBOX, CBS_DROPDOWN, CB_ADDSTRING, CB_RESETCONTENT, CB_SETCURSEL,
-        CW_USEDEFAULT, ES_AUTOHSCROLL, GWLP_USERDATA, HMENU, IDC_ARROW, MB_ICONERROR, MB_OK,
-        MINMAXINFO, MSG, SW_HIDE, SW_SHOW, SW_SHOWNORMAL, WM_CLOSE, WM_COMMAND, WM_CREATE,
-        WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC, WM_DESTROY,
-        WM_GETMINMAXINFO, WM_NCDESTROY, WM_SETFONT, WM_TIMER, WNDCLASSW, WS_BORDER, WS_CAPTION,
-        WS_CHILD, WS_CLIPCHILDREN, WS_MAXIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP,
-        WS_THICKFRAME, WS_VISIBLE, WS_VSCROLL,
+        SetWindowTextW, ShowWindow, TranslateMessage, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX,
+        BS_GROUPBOX, CBS_DROPDOWN, CB_ADDSTRING, CB_RESETCONTENT, CB_SETCURSEL, CW_USEDEFAULT,
+        ES_AUTOHSCROLL, GWLP_USERDATA, HMENU, IDC_ARROW, MB_ICONERROR, MB_OK, MINMAXINFO, MSG,
+        SW_HIDE, SW_SHOW, SW_SHOWNORMAL, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_CTLCOLORBTN,
+        WM_CTLCOLOREDIT, WM_CTLCOLORLISTBOX, WM_CTLCOLORSTATIC, WM_DESTROY, WM_GETMINMAXINFO,
+        WM_NCDESTROY, WM_SETFONT, WM_TIMER, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD,
+        WS_CLIPCHILDREN, WS_MAXIMIZEBOX, WS_OVERLAPPED, WS_SYSMENU, WS_TABSTOP, WS_THICKFRAME,
+        WS_VISIBLE, WS_VSCROLL,
     };
 
     const APP_CLASS: &str = "AnixOpsNetworkCoreWindow";
     const APP_TITLE: &str = "AnixOps NetworkCore";
+    const BUTTON_CHECKED: u32 = 1;
 
     const ID_REFRESH: usize = 100;
     const ID_INSTALL_SERVICE: usize = 101;
@@ -3994,7 +3993,7 @@ mod gui {
     }
 
     unsafe fn checkbox_checked(control: HWND) -> bool {
-        SendMessageW(control, BM_GETCHECK, 0, 0) as u32 == BST_CHECKED
+        SendMessageW(control, BM_GETCHECK, 0, 0) as u32 == BUTTON_CHECKED
     }
 
     #[allow(clippy::too_many_arguments)]

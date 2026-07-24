@@ -152,11 +152,8 @@ unsafe fn append(menu: HMENU, flags: u32, id: usize, text: &str) {
 
 fn write_tip(icon: &mut NOTIFYICONDATAW, text: &str) {
     let mut encoded = text.encode_utf16();
-    for slot in icon
-        .szTip
-        .iter_mut()
-        .take(icon.szTip.len().saturating_sub(1))
-    {
+    let capacity = icon.szTip.len().saturating_sub(1);
+    for slot in icon.szTip.iter_mut().take(capacity) {
         let Some(value) = encoded.next() else {
             break;
         };
