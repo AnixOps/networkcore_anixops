@@ -897,8 +897,11 @@ mod windows_managed_child_job_tests {
 
     #[test]
     fn closes_the_core_when_the_service_handle_closes() {
-        let mut child = Command::new("cmd")
-            .args(["/C", "ping -n 30 127.0.0.1 > nul"])
+        let mut child = Command::new("ping")
+            .args(["-n", "30", "127.0.0.1"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn()
             .expect("fixture core process should start");
         let job = WindowsManagedChildJob::assign(&child)
