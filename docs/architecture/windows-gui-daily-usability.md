@@ -1,7 +1,7 @@
 # Windows GUI Daily Usability
 
 This document defines the Windows GUI usability slice for
-`v0.2.0-alpha.20` baseline. It preserves the existing Rust/Win32 client, Windows
+`v0.2.0-alpha.21` candidate baseline. It preserves the existing Rust/Win32 client, Windows
 service, managed configuration schema, sing-box adapter, NodeCatalog parser,
 selector API, system integration layer, MSI, and portable package.
 

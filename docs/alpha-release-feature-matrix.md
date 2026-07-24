@@ -330,6 +330,27 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前 Windows 发布切片
 
+### `v0.2.0-alpha.21`
+
+状态：候选 Windows managed-client 日常生命周期切片；只有同 commit GitHub
+Actions CI、MSI install/uninstall smoke、package、attestation、publish eligibility
+和 tag release 全部成功后，才成为用户可下载版本。
+
+主要特性：
+
+- 主窗口关闭后隐藏到 shared-state system tray；托盘从同一份真实 runtime 聚合状态显示
+  连接状态和当前节点，并提供打开、连接、断开、刷新和安全退出。
+- Settings 可读写当前用户的 Windows Run login startup、启动后自动连接和一次受控 core
+  recovery。Run entry 只接受本 GUI 的精确命令；MSI 完整卸载只清理匹配的 entry；portable
+  ZIP 支持用户显式开启该选项，但不会在解压时创建启动项。
+- 自动连接先做 managed config 与 sing-box 预检；GUI 发起的 core 异常退出最多只恢复一次。
+  GUI 启动会仅在当前代理仍精确属于其快照、PID 已失效且 service 未运行时恢复遗留代理。
+
+明确不包含：
+
+- 不提供后台订阅刷新、订阅目录/组、自动 latency/`urltest`、无限自动重启、TUN/DNS
+  interception、HTTP/2/HTTP/3/QUIC MITM、JavaScript dispatch 或 native JSON group editing。
+
 ### `v0.2.0-alpha.20`
 
 状态：Windows managed client daily-usability source slice；必须通过同 commit
@@ -349,9 +370,6 @@ eligibility 和 tag release 后，才可称为用户可下载版本。
 - 保留 NodeCatalog 搜索/协议过滤、显式 selector switch/readback、loopback-only
   controller health、native sing-box JSON pass-through、手动 HTTP(S) URL update、
   diagnostics copy/report、portable ZIP 和 MSI release path。
-- 当前 main 追加 shared-state tray、current-user Run login startup、opt-in
-  auto-connect、GUI-owned proxy recovery 与一次 preflight-gated core recovery；
-  MSI smoke 还会验证卸载清理 matching Run entry。
 
 明确不包含：
 
@@ -912,7 +930,7 @@ GitHub Actions release workflow 结果为准。
 
 ## 当前 main source 状态
 
-当前 Windows source release 切片是 `v0.2.0-alpha.20`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
+当前 Windows source release 候选切片是 `v0.2.0-alpha.21`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
 `v0.1.1-alpha.2` 的 Linux/Windows package、checksum、manifest、attestation 和 publish gate，并把
 受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI；Windows path 已切换到
 managed-client MSI，service、driver、installer、system proxy mutation、system trust store mutation 和 managed lifecycle

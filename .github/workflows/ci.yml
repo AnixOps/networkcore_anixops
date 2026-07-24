@@ -278,10 +278,10 @@ jobs:
           grep -Fq "system-proxy-mutation" apps/windows-cli/README.md
           grep -Fq "system-trust-store-mutation" apps/windows-cli/README.md
           grep -Fq "Windows managed client" docs/alpha-release-feature-matrix.md
-          grep -Fq "v0.2.0-alpha.20" docs/alpha-release-feature-matrix.md
+          grep -Fq "v0.2.0-alpha.21" docs/alpha-release-feature-matrix.md
           grep -Fq "Windows managed client MSI" docs/release-strategy.md
-          grep -Fq "v0.2.0-alpha.20" docs/release-strategy.md
-          grep -Fq "v0.2.0-alpha.20" README.md
+          grep -Fq "v0.2.0-alpha.21" docs/release-strategy.md
+          grep -Fq "v0.2.0-alpha.21" README.md
           grep -Fq "JavaScript script dispatch" docs/alpha-release-feature-matrix.md
           grep -Fq "system trust store mutation" docs/alpha-release-feature-matrix.md
           grep -Fq "system proxy mutation" docs/alpha-release-feature-matrix.md
