@@ -55,6 +55,10 @@ release until the same commit passes the tag release workflow.
 - Interrupted GUI-owned proxy recovery is now attempted once per connection
   cycle. A failed attempt remains visible with explicit restore and diagnostics
   actions instead of being retried by each periodic status refresh.
+- Advanced `Restart service` now performs the same preflight and readiness
+  checks as daily Connect for a desktop-owned profile. It restores the
+  GUI-owned proxy before stopping the core and reapplies it only after the
+  restarted service, core, listener, and generated selector are ready.
 
 ## v0.2.0-alpha.21 - 2026-07-24
 

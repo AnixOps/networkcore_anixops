@@ -239,6 +239,7 @@ mod gui {
 
     enum BackgroundPayload {
         Connected(connection_actions::ConnectedProxy),
+        ServiceRestarted(connection_actions::RestartedService),
         Service(String),
         CoreInstalled(PathBuf),
         ConfigurationValidated,
@@ -808,20 +809,18 @@ mod gui {
     }
 
     unsafe fn submit_service_restart(state: &mut AppState) {
+        let config_path = PathBuf::from(get_text(state.config_path));
+        let desktop = state.desktop.clone();
         submit_background(state, OperationKind::Service, move || {
-            NativeWindowsSystemIntegration::new()
-                .restart_service()
-                .map_err(|error| error.to_string())?;
-            Ok(BackgroundPayload::Service(
-                "Service restart request submitted. Waiting for verification.".to_string(),
-            ))
+            connection_actions::restart(config_path, desktop)
+                .map(BackgroundPayload::ServiceRestarted)
         });
     }
 
     unsafe fn submit_configuration_validation(state: &mut AppState) {
         let config_path = PathBuf::from(get_text(state.config_path));
         submit_background(state, OperationKind::ConfigurationCheck, move || {
-            validate_managed_configuration(&config_path)?;
+            load_validated_managed_configuration(&config_path)?;
             Ok(BackgroundPayload::ConfigurationValidated)
         });
     }
@@ -1050,20 +1049,24 @@ mod gui {
         state.pending_operation = None;
         EnableWindow(state.window, 1);
         match completion.result {
-            Ok(BackgroundPayload::Connected(connection_actions::ConnectedProxy {
-                snapshot,
-                applied_proxy,
-            })) => {
-                state.desktop.proxy_snapshot = Some(snapshot);
-                state.desktop.applied_proxy = Some(applied_proxy);
-                state.gui_started_connection = true;
-                state.abandoned_proxy_recovery_attempted = false;
-                state.proxy_recovery_error = None;
-                set_text(
-                    state.activity,
-                    "Connected. The managed core and current-user system proxy were verified.",
-                );
-            }
+            Ok(BackgroundPayload::Connected(connection)) => apply_connected_proxy(
+                state,
+                connection,
+                "Connected. The managed core and current-user system proxy were verified.",
+            ),
+            Ok(BackgroundPayload::ServiceRestarted(
+                connection_actions::RestartedService::Desktop(connection),
+            )) => apply_connected_proxy(
+                state,
+                connection,
+                "Service restarted. The managed core and current-user system proxy were verified.",
+            ),
+            Ok(BackgroundPayload::ServiceRestarted(
+                connection_actions::RestartedService::ServiceManaged,
+            )) => set_text(
+                state.activity,
+                "Service restart request submitted. Waiting for service-owned runtime status.",
+            ),
             Ok(BackgroundPayload::Service(message)) => {
                 if completion.operation == OperationKind::Disconnect {
                     state.desktop.proxy_snapshot = None;
@@ -1210,6 +1213,19 @@ mod gui {
         }
         refresh(state);
         state.last_runtime_refresh = Instant::now();
+    }
+
+    unsafe fn apply_connected_proxy(
+        state: &mut AppState,
+        connection: connection_actions::ConnectedProxy,
+        message: &str,
+    ) {
+        state.desktop.proxy_snapshot = Some(connection.snapshot);
+        state.desktop.applied_proxy = Some(connection.applied_proxy);
+        state.gui_started_connection = true;
+        state.abandoned_proxy_recovery_attempted = false;
+        state.proxy_recovery_error = None;
+        set_text(state.activity, message);
     }
 
     unsafe fn run_action(
@@ -1452,14 +1468,16 @@ mod gui {
         open_path(&path, "managed configuration")
     }
 
-    fn validate_managed_configuration(path: &Path) -> Result<(), String> {
+    pub(super) fn load_validated_managed_configuration(
+        path: &Path,
+    ) -> Result<WindowsManagedConfig, String> {
         let config = read_managed_config(path).map_err(|error| error.to_string())?;
-        if let Some(sing_box) = config.sing_box.filter(|sing_box| sing_box.enabled) {
+        if let Some(sing_box) = config.sing_box.as_ref().filter(|sing_box| sing_box.enabled) {
             let log_path = sing_box.log_path.clone();
             SingBoxManagedProcessSupervisor::check_configuration(&SingBoxManagedProcessRequest {
-                executable_path: sing_box.executable_path,
-                config_path: sing_box.config_path,
-                working_directory: sing_box.working_directory,
+                executable_path: sing_box.executable_path.clone(),
+                config_path: sing_box.config_path.clone(),
+                working_directory: sing_box.working_directory.clone(),
                 log_path: log_path.clone(),
             })
             .map_err(|error| {
@@ -1469,7 +1487,7 @@ mod gui {
                 )
             })?;
         }
-        Ok(())
+        Ok(config)
     }
 
     fn copy_diagnostic_summary(_state: &mut AppState) -> Result<(), String> {

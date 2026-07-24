@@ -1,27 +1,39 @@
 use crate::gui::{
+    load_validated_managed_configuration,
     runtime_status::{read_runtime_status, SingBoxProcessStatus},
     startup::{owns_current_proxy, save_desktop_state, DesktopState},
     ui_state::ConnectionState,
-    validate_managed_configuration,
 };
 use engine_singbox::{
     inspect_sing_box_local_selector_controller, read_sing_box_clash_api_selector_with_timeout,
+    SingBoxLocalControllerConfig,
 };
 use platform_windows::managed::{
-    read_managed_config, windows_managed_config_path, WindowsProxySettings, WindowsProxySnapshot,
+    windows_managed_config_path, WindowsManagedConfig, WindowsProxySettings, WindowsProxySnapshot,
 };
 use platform_windows::system_integration::{
     managed_proxy_listener_ready, read_current_user_system_proxy, NativeWindowsSystemIntegration,
     WindowsServiceState, WindowsSystemIntegration,
 };
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub struct ConnectedProxy {
     pub snapshot: WindowsProxySnapshot,
     pub applied_proxy: WindowsProxySettings,
+}
+
+#[derive(Debug)]
+pub enum RestartedService {
+    Desktop(ConnectedProxy),
+    ServiceManaged,
+}
+
+struct DesktopConnectionPlan {
+    proxy: WindowsProxySettings,
+    selector_controller: Option<SingBoxLocalControllerConfig>,
 }
 
 pub const fn can_connect(connection: ConnectionState) -> bool {
@@ -75,28 +87,47 @@ pub fn should_restore_abandoned_owned_proxy(
 }
 
 pub fn connect(config_path: PathBuf, desktop: DesktopState) -> Result<ConnectedProxy, String> {
+    let plan = load_desktop_connection_plan(&config_path)?;
+    start_desktop_connection(plan, desktop)
+}
+
+pub fn restart(config_path: PathBuf, desktop: DesktopState) -> Result<RestartedService, String> {
+    let managed = load_validated_daily_managed_configuration(&config_path)?;
+    if managed.system_proxy_owner.is_service_managed() {
+        NativeWindowsSystemIntegration::new()
+            .restart_service()
+            .map_err(|error| error.to_string())?;
+        return Ok(RestartedService::ServiceManaged);
+    }
+    let plan = desktop_connection_plan(managed)?;
+    disconnect(desktop.clone())?;
+    start_desktop_connection(plan, desktop).map(RestartedService::Desktop)
+}
+
+fn load_desktop_connection_plan(config_path: &Path) -> Result<DesktopConnectionPlan, String> {
+    desktop_connection_plan(load_validated_daily_managed_configuration(config_path)?)
+}
+
+fn load_validated_daily_managed_configuration(
+    config_path: &Path,
+) -> Result<WindowsManagedConfig, String> {
     let managed_config_path = windows_managed_config_path();
-    if config_path != managed_config_path {
+    if config_path != managed_config_path.as_path() {
         return Err(
-            "Apply this configuration before connecting so the Windows service uses the validated file."
+            "Apply this configuration before connecting or restarting so the Windows service uses the validated file."
                 .to_string(),
         );
     }
-    validate_managed_configuration(&config_path)?;
-    let managed = read_managed_config(&config_path).map_err(|error| error.to_string())?;
+    load_validated_managed_configuration(config_path)
+}
+
+fn desktop_connection_plan(managed: WindowsManagedConfig) -> Result<DesktopConnectionPlan, String> {
     if managed.system_proxy_owner.is_service_managed() {
         return Err(
             "This configuration is managed by the Windows service. Use the explicit advanced workflow or import a daily desktop profile before connecting."
                 .to_string(),
         );
     }
-    let proxy = managed
-        .system_proxy
-        .filter(|proxy| proxy.enabled)
-        .ok_or_else(|| {
-            "Connection requires an enabled managed system proxy. Import a profile or configure one first."
-                .to_string()
-        })?;
     let selector_controller = managed
         .sing_box
         .as_ref()
@@ -110,6 +141,27 @@ pub fn connect(config_path: PathBuf, desktop: DesktopState) -> Result<ConnectedP
         })
         .transpose()?
         .flatten();
+    let proxy = managed
+        .system_proxy
+        .filter(|proxy| proxy.enabled)
+        .ok_or_else(|| {
+            "Connection requires an enabled managed system proxy. Import a profile or configure one first."
+                .to_string()
+        })?;
+    Ok(DesktopConnectionPlan {
+        proxy,
+        selector_controller,
+    })
+}
+
+fn start_desktop_connection(
+    plan: DesktopConnectionPlan,
+    desktop: DesktopState,
+) -> Result<ConnectedProxy, String> {
+    let DesktopConnectionPlan {
+        proxy,
+        selector_controller,
+    } = plan;
     let integration = NativeWindowsSystemIntegration::new();
     integration
         .start_service()
@@ -263,6 +315,25 @@ pub fn disconnect(desktop: DesktopState) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use platform_windows::managed::{
+        WindowsSystemProxyOwner, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
+    };
+
+    fn managed_config(
+        owner: WindowsSystemProxyOwner,
+        proxy: Option<WindowsProxySettings>,
+    ) -> WindowsManagedConfig {
+        WindowsManagedConfig {
+            schema_version: WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
+            system_proxy: proxy,
+            system_proxy_owner: owner,
+            root_certificate_path: None,
+            driver_package: None,
+            tunnel: None,
+            sing_box: None,
+            native_mitm: None,
+        }
+    }
 
     #[test]
     fn connection_actions_respect_the_aggregated_runtime_state() {
@@ -322,5 +393,30 @@ mod tests {
             &SingBoxProcessStatus::Running { process_id: 42 },
             false,
         ));
+    }
+
+    #[test]
+    fn daily_desktop_restart_requires_an_owned_enabled_proxy_plan() {
+        let proxy = WindowsProxySettings {
+            enabled: true,
+            server: "127.0.0.1:7890".to_string(),
+            bypass: "<local>".to_string(),
+        };
+        let plan = desktop_connection_plan(managed_config(
+            WindowsSystemProxyOwner::Desktop,
+            Some(proxy.clone()),
+        ))
+        .expect("daily desktop restart should have a readiness plan");
+        assert_eq!(plan.proxy, proxy);
+
+        assert!(
+            desktop_connection_plan(managed_config(WindowsSystemProxyOwner::Desktop, None,))
+                .is_err()
+        );
+        assert!(desktop_connection_plan(managed_config(
+            WindowsSystemProxyOwner::Service,
+            Some(proxy),
+        ))
+        .is_err());
     }
 }

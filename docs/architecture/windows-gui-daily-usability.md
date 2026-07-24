@@ -56,6 +56,12 @@ exactly matches the GUI-owned setting. A later GUI startup or status refresh
 uses the same rule after the service/core are no longer valid; it never
 overwrites a user-changed proxy.
 
+For a desktop-owned daily profile, Advanced `Restart service` runs that same
+preflight before changing the runtime, restores the GUI-owned proxy, stops the
+service, and reuses the full readiness path before applying the proxy again.
+Service-owned advanced configurations keep their existing service lifecycle and
+do not become a GUI-owned desktop connection.
+
 Managed configuration schema 2 makes proxy ownership explicit. Existing schema
 1 data migrates in memory to `Service`, preserving CLI/service behavior. A GUI
 profile import writes `Desktop`, so the user-session GUI is the sole owner of
@@ -67,6 +73,7 @@ runtime resources.
 | Control | Status | Backend |
 | --- | --- | --- |
 | Connect / Disconnect | Active | Managed config preflight, SCM start/stop, core PID, loopback listener and generated selector API observation, then current-user proxy snapshot/rollback. |
+| Restart service | Active | Desktop-owned daily profile: preflight, GUI-owned proxy restore, stop, and the same verified connection path. Service-owned advanced configuration: existing SCM restart path only. |
 | Refresh | Active | Runtime observation only; no mutation. |
 | Load nodes | Active | Explicit local/HTTP(S) fetch and `CoreSubscriptionService` normalization. |
 | Filter / selected node | Active | The last successfully generated NodeCatalog is restored locally after restart only when the exact managed sing-box JSON SHA-256 and generated selector tag order still match; this never fetches a subscription. |

@@ -37,9 +37,12 @@ experience production-ready:
    saved node names/protocols without fetching; after externally changing that
    config, confirm the stale catalog is not restored.
 3. With a running generated profile, confirm `Check core`, one delay test, and
-   a successful selector switch. Disconnect and reconnect (or restart the
-   service) and verify the newly selected node remains active. Force a rejected
-   switch and verify the former selected node remains displayed.
+   a successful selector switch. Disconnect and reconnect, then use `Restart
+   service`; verify the newly selected node remains active and the interactive
+   proxy is restored while the core restarts, then reapplied only after the
+   listener and selector are ready. Make `sing-box check -c` fail and confirm
+   Restart does not stop the existing service or change the interactive proxy.
+   Force a rejected switch and verify the former selected node remains displayed.
 4. Confirm Home reports `Connected` only after SCM is running, the
    service-owned sing-box child exists, the selected loopback listener accepts
    connections, and the interactive user's proxy exactly matches the managed
