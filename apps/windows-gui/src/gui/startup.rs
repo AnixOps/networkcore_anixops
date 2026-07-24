@@ -8,6 +8,14 @@ use std::path::PathBuf;
 
 const DESKTOP_STATE_FILE: &str = "desktop-state.json";
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesktopProfileNode {
+    pub id: String,
+    pub label: String,
+    pub protocol: String,
+    pub outbound_tag: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DesktopState {
     pub proxy_snapshot: Option<WindowsProxySnapshot>,
@@ -23,6 +31,10 @@ pub struct DesktopState {
     pub profile_source_url: Option<String>,
     #[serde(default)]
     pub profile_node_id: Option<String>,
+    #[serde(default)]
+    pub profile_node_catalog: Vec<DesktopProfileNode>,
+    #[serde(default)]
+    pub profile_config_sha256: Option<String>,
     #[serde(default)]
     pub delay_test_url: Option<String>,
     #[serde(default)]
@@ -88,6 +100,30 @@ mod tests {
         assert!(!state.auto_connect);
         assert!(!state.auto_recover_core);
         assert!(state.applied_proxy.is_none());
+        assert!(state.profile_node_catalog.is_empty());
+        assert!(state.profile_config_sha256.is_none());
+    }
+
+    #[test]
+    fn desktop_state_round_trips_generated_selector_catalog_identity() {
+        let state = DesktopState {
+            profile_node_catalog: vec![DesktopProfileNode {
+                id: "primary".to_string(),
+                label: "Primary [primary] (Shadowsocks)".to_string(),
+                protocol: "Shadowsocks".to_string(),
+                outbound_tag: "networkcore-node-0".to_string(),
+            }],
+            profile_config_sha256: Some("a1b2".to_string()),
+            ..DesktopState::default()
+        };
+
+        let decoded: DesktopState = serde_json::from_str(
+            &serde_json::to_string(&state).expect("desktop state should serialize"),
+        )
+        .expect("desktop state should deserialize");
+
+        assert_eq!(decoded.profile_node_catalog, state.profile_node_catalog);
+        assert_eq!(decoded.profile_config_sha256, state.profile_config_sha256);
     }
 
     #[test]

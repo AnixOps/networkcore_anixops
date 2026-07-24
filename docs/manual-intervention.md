@@ -32,7 +32,10 @@ experience production-ready:
    errors, empty subscription state, and a catalog with several hundred nodes.
 2. Import a local NodeCatalog profile and an HTTP(S) URL. Confirm the Nodes
    page search/filter/selection, a successful explicit update, and a failed
-   update retaining the prior managed config and displaying its error.
+   update retaining the prior managed config and displaying its error. Restart
+   with networking disabled and confirm unchanged generated config restores the
+   saved node names/protocols without fetching; after externally changing that
+   config, confirm the stale catalog is not restored.
 3. With a running generated profile, confirm `Check core`, one delay test, and
    a successful selector switch. Force a rejected switch and verify the former
    selected node remains displayed.

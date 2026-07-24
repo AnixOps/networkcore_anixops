@@ -418,6 +418,14 @@ pub struct SingBoxLocalProxySelectableNode {
     pub outbound_tag: String,
 }
 
+/// The generated local selector identity needed by a desktop client to safely
+/// associate a persisted NodeCatalog with its managed sing-box configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SingBoxLocalSelectorSnapshot {
+    pub controller: SingBoxLocalControllerConfig,
+    pub outbound_tags: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SingBoxClashApiSelectorStatus {
     pub selector_tag: String,
@@ -1390,6 +1398,15 @@ pub fn read_sing_box_clash_api_selector_with_timeout(
 pub fn inspect_sing_box_local_selector_controller(
     content: &str,
 ) -> Option<SingBoxLocalControllerConfig> {
+    inspect_sing_box_local_selector_snapshot(content).map(|snapshot| snapshot.controller)
+}
+
+/// Reads the generated loopback selector contract and its exact ordered
+/// outbound tags. Callers use this to reject a persisted NodeCatalog when a
+/// managed configuration was replaced outside the generated-profile path.
+pub fn inspect_sing_box_local_selector_snapshot(
+    content: &str,
+) -> Option<SingBoxLocalSelectorSnapshot> {
     let controller = SingBoxLocalControllerConfig::loopback_selector();
     let controller_endpoint = controller.endpoint();
     let config: Value = serde_json::from_str(content).ok()?;
@@ -1397,19 +1414,40 @@ pub fn inspect_sing_box_local_selector_controller(
         .pointer("/experimental/clash_api/external_controller")
         .and_then(Value::as_str)
         == Some(controller_endpoint.as_str());
-    let has_selector = config
+    let selector_outbounds = config
         .get("outbounds")
         .and_then(Value::as_array)
-        .is_some_and(|outbounds| {
-            outbounds.iter().any(|outbound| {
+        .and_then(|outbounds| {
+            outbounds.iter().find(|outbound| {
                 outbound.get("type").and_then(Value::as_str) == Some("selector")
                     && outbound.get("tag").and_then(Value::as_str)
                         == Some(controller.selector_tag.as_str())
             })
-        });
+        })?
+        .get("outbounds")
+        .and_then(Value::as_array)?
+        .iter()
+        .map(Value::as_str)
+        .collect::<Option<Vec<_>>>()?
+        .into_iter()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if selector_outbounds.is_empty() || selector_outbounds.iter().any(|tag| tag.trim().is_empty()) {
+        return None;
+    }
     let routes_to_selector = config.pointer("/route/final").and_then(Value::as_str)
         == Some(controller.selector_tag.as_str());
-    (has_controller && has_selector && routes_to_selector).then_some(controller)
+    (has_controller && routes_to_selector).then_some(SingBoxLocalSelectorSnapshot {
+        controller,
+        outbound_tags: selector_outbounds,
+    })
+}
+
+/// Returns the SHA-256 of the exact JSON text written to a managed sing-box
+/// configuration. It is intentionally text-sensitive because generated JSON
+/// is atomically written as a canonical local artifact.
+pub fn sing_box_config_sha256(content: &str) -> String {
+    sha256_hex(content.as_bytes())
 }
 
 pub fn select_sing_box_clash_api_outbound(

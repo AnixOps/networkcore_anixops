@@ -16,6 +16,11 @@ release until the same commit passes the tag release workflow.
 - Windows GUI connection status now requires the observed current-user proxy
   server and bypass to exactly match the active managed profile, not merely an
   enabled proxy flag.
+- The Windows GUI now restores the last successfully generated NodeCatalog
+  after restart without re-fetching a local or HTTP(S) subscription, but only
+  when the current managed sing-box JSON has the saved exact SHA-256 and its
+  loopback selector still has the saved ordered outbound tags. Native JSON and
+  externally changed configs stay unhydrated instead of showing stale nodes.
 
 ### Fixed
 
@@ -32,6 +37,10 @@ release until the same commit passes the tag release workflow.
   checks. `Restore network settings` remains available for a GUI-owned
   snapshot, and a partial Windows proxy write now attempts to restore its
   captured pre-change settings before reporting the failure.
+- A profile import now updates GUI desktop state only after managed config
+  persistence succeeds. If that persistence fails after the generated
+  `config.json` write, the prior managed sing-box config is restored; a failed
+  subscription update therefore retains its prior usable profile.
 
 ## v0.2.0-alpha.21 - 2026-07-24
 

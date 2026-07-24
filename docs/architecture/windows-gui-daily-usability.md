@@ -69,7 +69,7 @@ runtime resources.
 | Connect / Disconnect | Active | Managed config preflight, SCM start/stop, core PID, loopback listener and generated selector API observation, then current-user proxy snapshot/rollback. |
 | Refresh | Active | Runtime observation only; no mutation. |
 | Load nodes | Active | Explicit local/HTTP(S) fetch and `CoreSubscriptionService` normalization. |
-| Filter / selected node | Active | In-memory imported NodeCatalog options only. |
+| Filter / selected node | Active | The last successfully generated NodeCatalog is restored locally after restart only when the exact managed sing-box JSON SHA-256 and generated selector tag order still match; this never fetches a subscription. |
 | Switch active | Active | Loopback-only generated selector PATCH plus readback verification. |
 | Test delay | Active | One loopback Clash API delay request with the configured timeout. |
 | Check core | Active | One loopback selector read. |
@@ -115,6 +115,9 @@ headless GitHub Actions Windows job and are tracked in
   after reopening the GUI.
 - Tray double-click/menu behavior, login startup toggle, auto-connect once,
   one-shot core restart, and startup-entry removal during MSI uninstall.
+- Restart after a generated local or HTTP(S) profile import with networking
+  disabled: the unchanged managed config must restore node names/protocols
+  locally; an externally changed config must not restore that stale catalog.
 
 GitHub Actions remains the sole environment for Rust tests/builds, MSI
 install/uninstall, and portable archive validation.

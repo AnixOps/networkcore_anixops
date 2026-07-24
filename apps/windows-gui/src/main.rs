@@ -39,7 +39,10 @@ mod gui {
     use self::pages::{home as home_page, settings as settings_page};
     use self::runtime_status::{read_runtime_status, WindowsRuntimeStatus};
     use self::shell::DailyShell;
-    use self::startup::{load_desktop_state, owns_current_proxy, save_desktop_state, DesktopState};
+    use self::startup::{
+        load_desktop_state, owns_current_proxy, save_desktop_state, DesktopProfileNode,
+        DesktopState,
+    };
     use self::theme::ThemeMode;
     use self::tray::{TrayCommandIds, TrayMenuState};
     use self::ui_state::{can_start_operation, user_facing_error, OperationKind, UiPage};
@@ -47,9 +50,10 @@ mod gui {
     use config_core::CoreSubscriptionService;
     use control_domain::{NodeDescriptor, SubscriptionService, SubscriptionSource};
     use engine_singbox::{
-        inspect_sing_box_native_config, measure_sing_box_clash_api_outbound_delay,
-        read_sing_box_clash_api_selector, render_sing_box_local_proxy_selector_config,
-        rewrite_sing_box_mixed_inbound_listener, select_sing_box_clash_api_outbound,
+        inspect_sing_box_local_selector_snapshot, inspect_sing_box_native_config,
+        measure_sing_box_clash_api_outbound_delay, read_sing_box_clash_api_selector,
+        render_sing_box_local_proxy_selector_config, rewrite_sing_box_mixed_inbound_listener,
+        select_sing_box_clash_api_outbound, sing_box_config_sha256,
         sing_box_local_selector_outbound_tag, GithubSingBoxReleaseInstaller, SingBoxInstallRequest,
         SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest,
         SingBoxLocalProxySelectableNode, SingBoxManagedProcessRequest,
@@ -194,8 +198,8 @@ mod gui {
         certificate_path: HWND,
         driver_path: HWND,
         desktop: DesktopState,
-        profile_nodes: Vec<ProfileNodeOption>,
-        profile_node_catalog: Vec<ProfileNodeOption>,
+        profile_nodes: Vec<DesktopProfileNode>,
+        profile_node_catalog: Vec<DesktopProfileNode>,
         current_page: UiPage,
         daily: Option<DailyShell>,
         theme: ThemeMode,
@@ -217,6 +221,11 @@ mod gui {
         config_parent: PathBuf,
         local_http_proxy: Option<String>,
         sing_box_config_snapshot_path: Option<PathBuf>,
+        source_path: Option<PathBuf>,
+        source_url: Option<String>,
+        selected_node_id: Option<String>,
+        node_catalog: Vec<DesktopProfileNode>,
+        config_sha256: Option<String>,
     }
 
     struct ProfilePayload {
@@ -225,20 +234,12 @@ mod gui {
         source_url: Option<String>,
     }
 
-    #[derive(Clone)]
-    struct ProfileNodeOption {
-        id: String,
-        label: String,
-        protocol: String,
-        selector_outbound_tag: Option<String>,
-    }
-
     enum BackgroundPayload {
         Connected(connection_actions::ConnectedProxy),
         Service(String),
         CoreInstalled(PathBuf),
         ConfigurationValidated,
-        NodesLoaded(Vec<ProfileNodeOption>),
+        NodesLoaded(Vec<DesktopProfileNode>),
         ProfileLoaded(ProfilePayload),
         NodeSwitched(String),
         DelayMeasured(String),
@@ -500,6 +501,11 @@ mod gui {
         }
         save_desktop_state(&state.desktop)?;
         load_configuration_fields(&mut state);
+        if let Err(error) = restore_saved_profile_node_catalog(&mut state) {
+            let message = format!("Saved node catalog could not be restored: {error}");
+            set_text(state.activity, &message);
+            let _ = append_managed_log("gui", &message);
+        }
         update_debug_status(&mut state);
         switch_page(&mut state, UiPage::Home);
         refresh(&mut state);
@@ -876,7 +882,7 @@ mod gui {
             .profile_nodes
             .iter()
             .find(|node| node.id == selected_node_id)
-            .and_then(|node| node.selector_outbound_tag.clone());
+            .map(|node| node.outbound_tag.clone());
         submit_background(state, OperationKind::NodeSwitch, move || {
             let outbound_tag = outbound_tag.ok_or_else(|| {
                 "Load nodes from the current profile before switching the active node".to_string()
@@ -899,7 +905,7 @@ mod gui {
             .profile_nodes
             .iter()
             .find(|node| node.id == selected_node_id)
-            .and_then(|node| node.selector_outbound_tag.clone());
+            .map(|node| node.outbound_tag.clone());
         let test_url = get_text(state.delay_test_url);
         submit_background(state, OperationKind::DelayTest, move || {
             let outbound_tag = outbound_tag.ok_or_else(|| {
@@ -938,10 +944,7 @@ mod gui {
             }
             let active = nodes
                 .iter()
-                .find(|node| {
-                    node.selector_outbound_tag.as_deref()
-                        == Some(status.current_outbound_tag.as_str())
-                })
+                .find(|node| node.outbound_tag == status.current_outbound_tag)
                 .map(|node| node.label.clone())
                 .unwrap_or(status.current_outbound_tag);
             Ok(BackgroundPayload::CoreChecked(format!(
@@ -1624,6 +1627,7 @@ mod gui {
         } else {
             (SING_BOX_DIRECT_LISTEN_PORT, ProfileRenderMode::Direct)
         };
+        let previous_sing_box_config = read_managed_sing_box_config_before_import()?;
         let imported = render_local_profile_config_from_payload(state, profile, listen_port, mode)?;
         managed.system_proxy = if native_mitm_enabled {
             Some(WindowsProxySettings {
@@ -1634,6 +1638,7 @@ mod gui {
         } else {
             imported
                 .local_http_proxy
+                .clone()
                 .map(|server| WindowsProxySettings {
                     enabled: true,
                     server,
@@ -1653,13 +1658,17 @@ mod gui {
         }
         managed.sing_box = Some(WindowsManagedSingBoxConfig {
             enabled: true,
-            executable_path: imported.executable_path,
-            config_path: imported.config_path,
-            working_directory: Some(imported.config_parent),
+            executable_path: imported.executable_path.clone(),
+            config_path: imported.config_path.clone(),
+            working_directory: Some(imported.config_parent.clone()),
             log_path: windows_managed_log_directory().join("sing-box.log"),
         });
-        write_managed_config(&windows_managed_config_path(), &managed)
-            .map_err(|error| error.to_string())?;
+        write_imported_profile_managed_config(
+            &managed,
+            &imported.config_path,
+            previous_sing_box_config.as_deref(),
+        )?;
+        apply_imported_profile_desktop_state(state, &imported);
         state.desktop.profile_last_successful_update = Some(current_local_timestamp());
         state.desktop.profile_last_update_error = None;
         save_desktop_state(&state.desktop)?;
@@ -1668,14 +1677,15 @@ mod gui {
     }
 
     fn enable_https_mitm(state: &mut AppState) -> Result<(), String> {
+        let restart = stop_running_service_for_reconfigure(state)?;
+        let (certificate_path, private_key_path) = ensure_mitm_ca_material()?;
+        let mut managed = managed_config_or_default()?;
+        let previous_sing_box_config = read_managed_sing_box_config_before_import()?;
         let imported = render_local_profile_config(
             state,
             SING_BOX_MITM_UPSTREAM_PORT,
             ProfileRenderMode::NativeMitm,
         )?;
-        let restart = stop_running_service_for_reconfigure(state)?;
-        let (certificate_path, private_key_path) = ensure_mitm_ca_material()?;
-        let mut managed = managed_config_or_default()?;
         managed.system_proxy = Some(WindowsProxySettings {
             enabled: true,
             server: format!("127.0.0.1:{NATIVE_MITM_LISTEN_PORT}"),
@@ -1684,9 +1694,9 @@ mod gui {
         managed.system_proxy_owner = WindowsSystemProxyOwner::Service;
         managed.sing_box = Some(WindowsManagedSingBoxConfig {
             enabled: true,
-            executable_path: imported.executable_path,
-            config_path: imported.config_path,
-            working_directory: Some(imported.config_parent),
+            executable_path: imported.executable_path.clone(),
+            config_path: imported.config_path.clone(),
+            working_directory: Some(imported.config_parent.clone()),
             log_path: windows_managed_log_directory().join("sing-box.log"),
         });
         managed.native_mitm = Some(WindowsManagedNativeMitmConfig {
@@ -1698,10 +1708,15 @@ mod gui {
             ca_certificate_path: certificate_path.clone(),
             ca_private_key_path: private_key_path,
             log_path: windows_managed_log_directory().join("native-mitm.log"),
-            sing_box_config_snapshot_path: imported.sing_box_config_snapshot_path,
+            sing_box_config_snapshot_path: imported.sing_box_config_snapshot_path.clone(),
         });
-        write_managed_config(&windows_managed_config_path(), &managed)
-            .map_err(|error| error.to_string())?;
+        write_imported_profile_managed_config(
+            &managed,
+            &imported.config_path,
+            previous_sing_box_config.as_deref(),
+        )?;
+        apply_imported_profile_desktop_state(state, &imported);
+        save_desktop_state(&state.desktop)?;
         unsafe {
             set_text(
                 state.certificate_path,
@@ -1830,9 +1845,6 @@ mod gui {
         fs::create_dir_all(&config_parent).map_err(|error| error.to_string())?;
 
         if let Some(native_config) = inspect_sing_box_native_config(&payload) {
-            unsafe {
-                clear_profile_node_options(state);
-            }
             let local_http_proxy = native_config.local_http_proxy.map(|proxy| proxy.endpoint());
             let sing_box_config_snapshot_path = match mode {
                 ProfileRenderMode::Direct => {
@@ -1846,24 +1858,23 @@ mod gui {
                     listen_port,
                 )?),
             };
-            state.desktop.profile_source_path = source_path;
-            state.desktop.profile_source_url = source_url;
-            state.desktop.profile_node_id = None;
-            save_desktop_state(&state.desktop)?;
             return Ok(ImportedSingBoxProfile {
                 executable_path,
                 config_path,
                 config_parent,
                 local_http_proxy,
                 sing_box_config_snapshot_path,
+                source_path,
+                source_url,
+                selected_node_id: None,
+                node_catalog: Vec::new(),
+                config_sha256: None,
             });
         }
 
         let nodes = parse_profile_nodes(&payload)?;
-        unsafe {
-            replace_profile_node_options(state, &nodes);
-        }
         let selected_node_id = unsafe { selected_profile_node_id(state) };
+        let source_options = profile_node_options(&nodes);
         let rendered = render_sing_box_local_proxy_selector_config(
             &SingBoxLocalProxyConfigRequest {
                 nodes,
@@ -1875,22 +1886,22 @@ mod gui {
             &SingBoxLocalControllerConfig::loopback_selector(),
         )
         .map_err(|error| error.to_string())?;
+        let selectable_options =
+            profile_node_options_from_selector(&rendered.selectable_nodes, &source_options)?;
         write_managed_text_atomic(&config_path, &rendered.json)
             .map_err(|error| error.to_string())?;
 
-        unsafe {
-            replace_profile_node_options_from_selector(state, &rendered.selectable_nodes);
-        }
-        state.desktop.profile_source_path = source_path;
-        state.desktop.profile_source_url = source_url;
-        state.desktop.profile_node_id = Some(rendered.selected_node_id);
-        save_desktop_state(&state.desktop)?;
         Ok(ImportedSingBoxProfile {
             executable_path,
             config_path,
             config_parent,
             local_http_proxy: Some(format!("127.0.0.1:{listen_port}")),
             sing_box_config_snapshot_path: None,
+            source_path,
+            source_url,
+            selected_node_id: Some(rendered.selected_node_id),
+            node_catalog: selectable_options,
+            config_sha256: Some(sing_box_config_sha256(&rendered.json)),
         })
     }
 
@@ -1933,13 +1944,9 @@ mod gui {
         Ok(catalog.nodes)
     }
 
-    unsafe fn replace_profile_node_options(state: &mut AppState, nodes: &[NodeDescriptor]) {
-        replace_profile_node_options_from_options(state, profile_node_options(nodes));
-    }
-
     unsafe fn replace_profile_node_options_from_options(
         state: &mut AppState,
-        profile_nodes: Vec<ProfileNodeOption>,
+        profile_nodes: Vec<DesktopProfileNode>,
     ) {
         state.profile_node_catalog = profile_nodes;
         replace_profile_node_selector_items(state, state.profile_node_catalog.clone());
@@ -1947,7 +1954,7 @@ mod gui {
 
     unsafe fn replace_profile_node_selector_items(
         state: &mut AppState,
-        profile_nodes: Vec<ProfileNodeOption>,
+        profile_nodes: Vec<DesktopProfileNode>,
     ) {
         let selected_node_id = selected_profile_node_id(state);
         state.profile_nodes = profile_nodes;
@@ -1980,63 +1987,127 @@ mod gui {
         set_text(state.profile_node_id, "");
     }
 
+    fn apply_imported_profile_desktop_state(
+        state: &mut AppState,
+        imported: &ImportedSingBoxProfile,
+    ) {
+        state.desktop.profile_source_path = imported.source_path.clone();
+        state.desktop.profile_source_url = imported.source_url.clone();
+        state.desktop.profile_node_id = imported.selected_node_id.clone();
+        state.desktop.profile_node_catalog = imported.node_catalog.clone();
+        state.desktop.profile_config_sha256 = imported.config_sha256.clone();
+        unsafe {
+            if imported.node_catalog.is_empty() {
+                clear_profile_node_options(state);
+            } else {
+                replace_profile_node_options_from_options(state, imported.node_catalog.clone());
+            }
+        }
+    }
+
+    fn restore_saved_profile_node_catalog(state: &mut AppState) -> Result<bool, String> {
+        let saved_nodes = state.desktop.profile_node_catalog.clone();
+        let Some(expected_digest) = state.desktop.profile_config_sha256.clone() else {
+            return Ok(false);
+        };
+        if saved_nodes.is_empty() {
+            return Ok(false);
+        }
+
+        let managed_path = windows_managed_config_path();
+        if !managed_path.exists() {
+            return Ok(false);
+        }
+        let managed = read_managed_config(&managed_path).map_err(|error| {
+            format!(
+                "managed configuration could not be read from {}: {error}",
+                managed_path.display()
+            )
+        })?;
+        let Some(sing_box) = managed.sing_box.filter(|sing_box| sing_box.enabled) else {
+            return Ok(false);
+        };
+        let content = fs::read_to_string(&sing_box.config_path).map_err(|error| {
+            format!(
+                "managed sing-box configuration could not be read from {}: {error}",
+                sing_box.config_path.display()
+            )
+        })?;
+        if sing_box_config_sha256(&content) != expected_digest {
+            return Ok(false);
+        }
+        let Some(selector) = inspect_sing_box_local_selector_snapshot(&content) else {
+            return Ok(false);
+        };
+        if !selector_tags_match_saved_catalog(&saved_nodes, &selector.outbound_tags) {
+            return Ok(false);
+        }
+
+        unsafe {
+            replace_profile_node_options_from_options(state, saved_nodes);
+        }
+        Ok(true)
+    }
+
+    fn selector_tags_match_saved_catalog(
+        saved_nodes: &[DesktopProfileNode],
+        selector_tags: &[String],
+    ) -> bool {
+        saved_nodes
+            .iter()
+            .map(|node| node.outbound_tag.as_str())
+            .eq(selector_tags.iter().map(String::as_str))
+    }
+
     unsafe fn selected_profile_node_id(state: &AppState) -> String {
         selected_profile_node_id_from_value(&state.profile_nodes, &get_text(state.profile_node_id))
     }
 
-    fn profile_node_options(nodes: &[NodeDescriptor]) -> Vec<ProfileNodeOption> {
+    fn profile_node_options(nodes: &[NodeDescriptor]) -> Vec<DesktopProfileNode> {
         nodes
             .iter()
             .enumerate()
-            .map(|(index, node)| ProfileNodeOption {
+            .map(|(index, node)| DesktopProfileNode {
                 id: node.id.clone(),
                 label: profile_node_label(node),
                 protocol: format!("{:?}", node.protocol),
-                selector_outbound_tag: Some(sing_box_local_selector_outbound_tag(index)),
+                outbound_tag: sing_box_local_selector_outbound_tag(index),
             })
             .collect()
     }
 
     fn profile_node_options_from_selector(
         nodes: &[SingBoxLocalProxySelectableNode],
-        source_nodes: &[ProfileNodeOption],
-    ) -> Vec<ProfileNodeOption> {
+        source_nodes: &[DesktopProfileNode],
+    ) -> Result<Vec<DesktopProfileNode>, String> {
         nodes
             .iter()
-            .map(|node| ProfileNodeOption {
-                id: node.id.clone(),
-                label: format!(
-                    "{} [{}] ({})",
-                    node.name.replace(['\r', '\n'], " "),
-                    node.id,
-                    source_nodes
-                        .iter()
-                        .find(|source| source.id == node.id)
-                        .map(|source| source.protocol.as_str())
-                        .unwrap_or("Unknown")
-                ),
-                protocol: source_nodes
+            .map(|node| {
+                let source = source_nodes
                     .iter()
                     .find(|source| source.id == node.id)
-                    .map(|source| source.protocol.clone())
-                    .unwrap_or_else(|| "Unknown".to_string()),
-                selector_outbound_tag: Some(node.outbound_tag.clone()),
+                    .ok_or_else(|| {
+                        format!(
+                            "Generated sing-box selector node {} was not present in the imported catalog",
+                            node.id
+                        )
+                    })?;
+                Ok(DesktopProfileNode {
+                    id: node.id.clone(),
+                    label: format!(
+                        "{} [{}] ({})",
+                        node.name.replace(['\r', '\n'], " "),
+                        node.id,
+                        source.protocol
+                    ),
+                    protocol: source.protocol.clone(),
+                    outbound_tag: node.outbound_tag.clone(),
+                })
             })
             .collect()
     }
 
-    unsafe fn replace_profile_node_options_from_selector(
-        state: &mut AppState,
-        nodes: &[SingBoxLocalProxySelectableNode],
-    ) {
-        let source_nodes = state.profile_node_catalog.clone();
-        replace_profile_node_options_from_options(
-            state,
-            profile_node_options_from_selector(nodes, &source_nodes),
-        );
-    }
-
-    fn selected_profile_node_id_from_value(options: &[ProfileNodeOption], value: &str) -> String {
+    fn selected_profile_node_id_from_value(options: &[DesktopProfileNode], value: &str) -> String {
         options
             .iter()
             .find(|option| option.label == value)
@@ -2097,6 +2168,69 @@ mod gui {
             format!("Native sing-box configuration could not be prepared for HTTPS MITM: {error}")
         })?;
         Ok(snapshot_path)
+    }
+
+    fn read_managed_sing_box_config_before_import() -> Result<Option<String>, String> {
+        let config_path = windows_managed_data_directory()
+            .join("sing-box")
+            .join("config.json");
+        match fs::read_to_string(&config_path) {
+            Ok(content) => Ok(Some(content)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(format!(
+                "Existing managed sing-box configuration could not be read from {}: {error}",
+                config_path.display()
+            )),
+        }
+    }
+
+    fn write_imported_profile_managed_config(
+        managed: &WindowsManagedConfig,
+        config_path: &Path,
+        previous_config: Option<&str>,
+    ) -> Result<(), String> {
+        if let Err(error) = write_managed_config(&windows_managed_config_path(), managed) {
+            let original_error = error.to_string();
+            if let Err(rollback) = restore_imported_sing_box_config(config_path, previous_config) {
+                return Err(format!(
+                    "Managed configuration update failed: {original_error}; the imported sing-box configuration could not be rolled back: {rollback}"
+                ));
+            }
+            let rollback_message = if previous_config.is_some() {
+                "the prior sing-box configuration was restored"
+            } else {
+                "the newly written sing-box configuration was removed"
+            };
+            return Err(format!(
+                "Managed configuration update failed and {rollback_message}: {original_error}"
+            ));
+        }
+        Ok(())
+    }
+
+    fn restore_imported_sing_box_config(
+        config_path: &Path,
+        previous_config: Option<&str>,
+    ) -> Result<(), String> {
+        match previous_config {
+            Some(content) => write_managed_text_atomic(config_path, content).map_err(|error| {
+                format!(
+                    "prior sing-box configuration could not be written to {}: {error}",
+                    config_path.display()
+                )
+            }),
+            None => {
+                if let Err(error) = fs::remove_file(config_path) {
+                    if error.kind() != std::io::ErrorKind::NotFound {
+                        return Err(format!(
+                            "new sing-box configuration could not be removed from {}: {error}",
+                            config_path.display()
+                        ));
+                    }
+                }
+                Ok(())
+            }
+        }
     }
 
     fn rewrite_managed_sing_box_listen_port(
@@ -2423,10 +2557,7 @@ mod gui {
                 options[0].label,
                 "Primary node [primary-node] (Shadowsocks)"
             );
-            assert_eq!(
-                options[0].selector_outbound_tag.as_deref(),
-                Some("networkcore-node-0")
-            );
+            assert_eq!(options[0].outbound_tag, "networkcore-node-0");
             assert_eq!(
                 selected_profile_node_id_from_value(&options, &options[0].label),
                 "primary-node"
@@ -2435,6 +2566,68 @@ mod gui {
                 selected_profile_node_id_from_value(&options, "manual-node-id"),
                 "manual-node-id"
             );
+        }
+
+        #[test]
+        fn saved_catalog_requires_the_generated_selector_tag_order() {
+            let saved = vec![
+                DesktopProfileNode {
+                    id: "primary-node".to_string(),
+                    label: "Primary".to_string(),
+                    protocol: "Shadowsocks".to_string(),
+                    outbound_tag: "networkcore-node-0".to_string(),
+                },
+                DesktopProfileNode {
+                    id: "backup-node".to_string(),
+                    label: "Backup".to_string(),
+                    protocol: "Shadowsocks".to_string(),
+                    outbound_tag: "networkcore-node-1".to_string(),
+                },
+            ];
+            assert!(selector_tags_match_saved_catalog(
+                &saved,
+                &[
+                    "networkcore-node-0".to_string(),
+                    "networkcore-node-1".to_string()
+                ]
+            ));
+            assert!(!selector_tags_match_saved_catalog(
+                &saved,
+                &[
+                    "networkcore-node-1".to_string(),
+                    "networkcore-node-0".to_string()
+                ]
+            ));
+        }
+
+        #[test]
+        fn failed_profile_update_restores_the_prior_generated_config() {
+            let unique = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock should be after the Unix epoch")
+                .as_nanos();
+            let directory = std::env::temp_dir().join(format!(
+                "networkcore-windows-gui-profile-rollback-{}-{unique}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&directory).expect("test directory should be created");
+            let config_path = directory.join("config.json");
+            fs::write(&config_path, "previous generated configuration")
+                .expect("prior config should be written");
+            fs::write(&config_path, "failed replacement")
+                .expect("replacement config should be written");
+
+            restore_imported_sing_box_config(
+                &config_path,
+                Some("previous generated configuration"),
+            )
+            .expect("prior config should be restored");
+
+            assert_eq!(
+                fs::read_to_string(&config_path).expect("restored config should be readable"),
+                "previous generated configuration"
+            );
+            fs::remove_dir_all(&directory).expect("test directory should be removed");
         }
     }
 }
