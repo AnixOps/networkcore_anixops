@@ -36,11 +36,15 @@ Managed configuration, state, and logs are stored under:
 
   %ProgramData%\AnixOps\NetworkCore
 
-Start and Restart only request the Windows service. The service owns the managed
-system-proxy snapshot and restores it if runtime setup fails or the service
-stops. While running, it also detects an owned sing-box process exit, records
-the failure in service.log and managed state, restores that snapshot, and stops
-the service. Enable proxy and Restore proxy remain separate manual GUI actions.
+Start and Restart only request the Windows service. Home Connect first verifies
+the service, the managed core PID, its loopback listener, and the local
+selector controller when applicable. For regular desktop configurations, the
+GUI owns the current-user proxy snapshot and applies it only after those checks;
+it restores that snapshot when disconnecting or when the next launch finds a
+stale GUI-owned proxy. Service-owned proxy lifecycle remains reserved for the
+explicit advanced MITM configuration. Restore network settings only restores a
+GUI-owned snapshot; there is no direct proxy-enable action that bypasses
+readiness checks.
 
 To remove a service installed from the portable package, run this command from
 an Administrator terminal before deleting the extracted directory:
