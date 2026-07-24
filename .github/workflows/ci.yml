@@ -375,18 +375,18 @@ jobs:
           grep -q "download_remote_subscription" apps/windows-gui/src/main.rs
           grep -q "reqwest::blocking::Client" apps/windows-gui/src/main.rs
           grep -q "ID_UPDATE_PROFILE" apps/windows-gui/src/main.rs
-          grep -q "fn update_profile" apps/windows-gui/src/main.rs
+          grep -q "submit_profile_import" apps/windows-gui/src/main.rs
           grep -q "ID_LOAD_PROFILE_NODES" apps/windows-gui/src/main.rs
-          grep -q "fn load_profile_nodes" apps/windows-gui/src/main.rs
+          grep -q "submit_profile_node_load" apps/windows-gui/src/main.rs
           grep -q "create_profile_node_selector" apps/windows-gui/src/main.rs
           grep -q "ID_SWITCH_PROFILE_NODE" apps/windows-gui/src/main.rs
-          grep -q "fn switch_profile_node" apps/windows-gui/src/main.rs
+          grep -q "submit_profile_node_switch" apps/windows-gui/src/main.rs
           grep -q "ID_TEST_PROFILE_NODE_DELAY" apps/windows-gui/src/main.rs
-          grep -q "fn test_profile_node_delay" apps/windows-gui/src/main.rs
+          grep -q "submit_profile_node_delay_test" apps/windows-gui/src/main.rs
           grep -q "ID_CHECK_PROFILE_RUNTIME" apps/windows-gui/src/main.rs
-          grep -q "fn check_profile_runtime" apps/windows-gui/src/main.rs
+          grep -q "submit_profile_runtime_check" apps/windows-gui/src/main.rs
           grep -q "fn start_service" apps/windows-gui/src/main.rs
-          grep -q "fn enable_proxy" apps/windows-gui/src/main.rs
+          grep -q "apply_proxy_after_readiness" apps/windows-gui/src/gui/actions/connection.rs
           ! grep -q "apply_user_proxy_from_config" apps/windows-gui/src/main.rs
           grep -q "render_sing_box_local_proxy_selector_config" crates/engine-singbox/src/lib.rs
           grep -q "select_sing_box_clash_api_outbound" crates/engine-singbox/src/lib.rs
