@@ -791,7 +791,11 @@ mod native {
     }
 
     fn startup_command_for_path(executable: &Path) -> String {
-        format!("\"{}\" --start-after-login", executable.display())
+        let executable = executable.display().to_string();
+        let executable = executable
+            .strip_prefix(r"\\?\")
+            .unwrap_or(executable.as_str());
+        format!("\"{executable}\" --start-after-login")
     }
 
     fn open_current_user_run_key() -> DomainResult<RegistryKey> {
@@ -1237,6 +1241,16 @@ mod native {
             assert_eq!(
                 startup_command_for_path(Path::new(
                     r"C:\Program Files\AnixOps\NetworkCore\networkcore-windows-gui.exe"
+                )),
+                r#""C:\Program Files\AnixOps\NetworkCore\networkcore-windows-gui.exe" --start-after-login"#,
+            );
+        }
+
+        #[test]
+        fn startup_command_removes_the_windows_extended_path_prefix() {
+            assert_eq!(
+                startup_command_for_path(Path::new(
+                    r"\\?\C:\Program Files\AnixOps\NetworkCore\networkcore-windows-gui.exe"
                 )),
                 r#""C:\Program Files\AnixOps\NetworkCore\networkcore-windows-gui.exe" --start-after-login"#,
             );
