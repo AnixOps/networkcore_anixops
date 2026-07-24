@@ -85,7 +85,8 @@ pub fn connect(config_path: PathBuf, desktop: DesktopState) -> Result<ConnectedP
                 })
                 .map(|content| inspect_sing_box_local_selector_controller(&content))
         })
-        .transpose()?;
+        .transpose()?
+        .flatten();
     let integration = NativeWindowsSystemIntegration::new();
     integration
         .start_service()
