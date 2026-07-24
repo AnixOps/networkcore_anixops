@@ -1,18 +1,23 @@
 use super::actions::connection::{can_connect, can_disconnect};
 use super::ui_state::ConnectionState;
+use super::widgets::{last_error, wide};
+use std::sync::OnceLock;
 use windows_sys::Win32::Foundation::{HWND, POINT};
 use windows_sys::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NIM_MODIFY,
     NOTIFYICONDATAW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, LoadIconW, SetForegroundWindow,
-    TrackPopupMenu, HMENU, IDI_APPLICATION, MF_GRAYED, MF_STRING, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-    WM_LBUTTONDBLCLK, WM_RBUTTONUP,
+    AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, LoadIconW, RegisterWindowMessageW,
+    SetForegroundWindow, TrackPopupMenu, HMENU, IDI_APPLICATION, MF_GRAYED, MF_STRING,
+    TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_LBUTTONDBLCLK, WM_RBUTTONUP,
 };
 
 pub const TRAY_CALLBACK_MESSAGE: u32 = 0x8000 + 41;
 const TRAY_ICON_ID: u32 = 1;
+const TASKBAR_CREATED_MESSAGE_NAME: &str = "TaskbarCreated";
+
+static TASKBAR_CREATED_MESSAGE: OnceLock<u32> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TrayMenuState {
@@ -44,6 +49,36 @@ pub unsafe fn add(window: HWND) -> Result<(), String> {
         return Err("system tray icon could not be created".to_string());
     }
     Ok(())
+}
+
+/// Registers the Shell broadcast sent after Explorer rebuilds the notification
+/// area. Registration happens before the window starts receiving broadcasts.
+pub fn register_taskbar_created_message() -> Result<(), String> {
+    if TASKBAR_CREATED_MESSAGE.get().is_some() {
+        return Ok(());
+    }
+    let name = wide(TASKBAR_CREATED_MESSAGE_NAME);
+    let message = unsafe { RegisterWindowMessageW(name.as_ptr()) };
+    if message == 0 {
+        return Err(last_error("TaskbarCreated message could not be registered"));
+    }
+    match TASKBAR_CREATED_MESSAGE.set(message) {
+        Ok(()) => Ok(()),
+        Err(_) => match TASKBAR_CREATED_MESSAGE.get() {
+            Some(registered) if *registered == message => Ok(()),
+            _ => Err("TaskbarCreated message registration changed unexpectedly".to_string()),
+        },
+    }
+}
+
+pub fn is_taskbar_created_message(message: u32) -> bool {
+    TASKBAR_CREATED_MESSAGE
+        .get()
+        .is_some_and(|registered| matches_taskbar_created_message(*registered, message))
+}
+
+const fn matches_taskbar_created_message(registered: u32, received: u32) -> bool {
+    registered == received
 }
 
 pub unsafe fn remove(window: HWND) {
@@ -185,5 +220,11 @@ mod tests {
         };
         assert!(!state.connect_enabled());
         assert!(!state.disconnect_enabled());
+    }
+
+    #[test]
+    fn taskbar_rebuild_message_is_distinguished_from_regular_window_messages() {
+        assert!(matches_taskbar_created_message(42, 42));
+        assert!(!matches_taskbar_created_message(42, TRAY_CALLBACK_MESSAGE));
     }
 }

@@ -81,7 +81,7 @@ runtime resources.
 | MITM, CA, driver | Active but advanced | Existing explicit mutation and rollback operations; not part of the connect path. |
 | Start after login | Active | Exact current-user `HKCU\...\Run\AnixOpsNetworkCore` entry, queried from Windows and removed only when its command matches this GUI. |
 | Auto-connect / one core recovery | Active | Persisted opt-in desktop settings; the existing background preflight/start flow runs once after GUI startup, and a GUI-started core error gets at most one preflight-gated restart. |
-| System tray | Active | Shared GUI state provides open, observed status/node, connect, disconnect, refresh, and safe exit; window close hides instead of terminating. A current-user-session mutex restores that hidden window on a second launch instead of creating a competing GUI. |
+| System tray | Active | Shared GUI state provides open, observed status/node, connect, disconnect, refresh, and safe exit; window close hides instead of terminating. A current-user-session mutex restores that hidden window on a second launch instead of creating a competing GUI. Explorer notification-area rebuilds re-add the same icon and refresh its shared status tooltip. |
 | Subscription groups, scheduled refresh, automatic latency selection | Blocked | No catalog scheduler, `urltest`, or background mutation is added. |
 | Native JSON group editing | Not implemented | Native sing-box JSON remains pass-through. |
 | TUN, DNS interception, HTTP/2/HTTP/3 MITM, script dispatch | Blocked | Existing platform and MITM boundaries remain unchanged. |
@@ -102,6 +102,12 @@ subscription fetch produces no config write. Ordinary
 operation failures are displayed in-page with a diagnostics route instead of a
 blocking message box; only startup-fatal errors use a modal dialog.
 
+An interrupted GUI-owned proxy is automatically recovered only once after the
+runtime is conclusively stopped and its owned core is absent. A failed attempt
+is retained as an in-page error with the existing `Restore network settings`
+and Diagnostics actions; periodic status refreshes do not retry it. A later
+successful GUI connection starts a new recovery cycle.
+
 ## Manual Verification
 
 The following visual and OS-integrated checks cannot be asserted by the current
@@ -116,7 +122,8 @@ headless GitHub Actions Windows job and are tracked in
 - Interactive-user proxy rollback after a core exit while the GUI is open and
   after reopening the GUI.
 - Tray double-click/menu behavior, login startup toggle, auto-connect once,
-  one-shot core restart, and startup-entry removal during MSI uninstall.
+  one-shot core restart, startup-entry removal during MSI uninstall, and tray
+  icon recovery after an Explorer restart or primary-display DPI change.
 - Restart after a generated local or HTTP(S) profile import with networking
   disabled: the unchanged managed config must restore node names/protocols
   locally; an externally changed config must not restore that stale catalog.

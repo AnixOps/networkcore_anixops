@@ -65,6 +65,12 @@ experience production-ready:
    installed shortcut and from its login-startup entry. Confirm the existing
    hidden window is restored and no second GUI process can submit a competing
    connect, disconnect, or proxy operation.
+9. While the main window is hidden, restart Explorer or change the primary
+   display DPI. Confirm the NetworkCore notification-area icon returns with
+   its current shared status tooltip and can restore the window. If an
+   interrupted GUI-owned proxy recovery fails, confirm it stops after that
+   attempt, shows the in-page recovery error, and `Restore network settings`
+   performs the explicit retry.
 
 ## 当前待处理
 

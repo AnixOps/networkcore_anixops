@@ -212,6 +212,8 @@ mod gui {
         runtime: WindowsRuntimeStatus,
         auto_connect_attempted: bool,
         core_recovery_attempted: bool,
+        abandoned_proxy_recovery_attempted: bool,
+        proxy_recovery_error: Option<String>,
         gui_started_connection: bool,
         exit_after_disconnect: bool,
     }
@@ -281,6 +283,8 @@ mod gui {
                 );
             }
         };
+
+        self::tray::register_taskbar_created_message()?;
 
         let instance = unsafe { GetModuleHandleW(null()) };
         if instance.is_null() {
@@ -412,6 +416,10 @@ mod gui {
                 with_state(window, |state| handle_tray_callback(state, lparam));
                 0
             }
+            message if self::tray::is_taskbar_created_message(message) => {
+                with_state(window, |state| restore_tray_after_taskbar_rebuild(state));
+                0
+            }
             WM_TIMER if wparam == BACKGROUND_TIMER_ID => {
                 with_state(window, |state| poll_background_commands(state));
                 0
@@ -504,6 +512,8 @@ mod gui {
             runtime: read_runtime_status(),
             auto_connect_attempted: false,
             core_recovery_attempted: false,
+            abandoned_proxy_recovery_attempted: false,
+            proxy_recovery_error: None,
             gui_started_connection: false,
             exit_after_disconnect: false,
         });
@@ -566,7 +576,7 @@ mod gui {
             ID_UPDATE_PROFILE => submit_profile_import(state, true),
             ID_ENABLE_HTTPS_MITM => run_action(state, "HTTPS MITM configured", enable_https_mitm),
             ID_DISABLE_HTTPS_MITM => run_action(state, "HTTPS MITM disabled", disable_https_mitm),
-            ID_RESTORE_PROXY => run_action(state, "Network settings restored", restore_proxy),
+            ID_RESTORE_PROXY => restore_network_settings(state),
             ID_INSTALL_CERTIFICATE => {
                 run_action(state, "Root certificate installed", install_certificate)
             }
@@ -1047,6 +1057,8 @@ mod gui {
                 state.desktop.proxy_snapshot = Some(snapshot);
                 state.desktop.applied_proxy = Some(applied_proxy);
                 state.gui_started_connection = true;
+                state.abandoned_proxy_recovery_attempted = false;
+                state.proxy_recovery_error = None;
                 set_text(
                     state.activity,
                     "Connected. The managed core and current-user system proxy were verified.",
@@ -1258,10 +1270,35 @@ mod gui {
     }
 
     unsafe fn render_runtime_status(state: &mut AppState, runtime: &WindowsRuntimeStatus) {
-        if let Err(error) = restore_abandoned_owned_proxy(state, runtime) {
-            let message = format!("NetworkCore proxy recovery failed: {error}");
-            set_text(state.activity, &message);
-            let _ = append_managed_log("gui", &message);
+        if state.pending_operation.is_none()
+            && connection_actions::should_restore_abandoned_owned_proxy(
+                state.desktop.proxy_snapshot.is_some(),
+                runtime.service_state,
+                &runtime.sing_box,
+                state.abandoned_proxy_recovery_attempted,
+            )
+        {
+            state.abandoned_proxy_recovery_attempted = true;
+            match restore_abandoned_owned_proxy(state) {
+                Ok(AbandonedProxyRecovery::Restored) => {
+                    state.proxy_recovery_error = None;
+                    set_text(
+                        state.activity,
+                        "NetworkCore restored the interrupted current-user proxy settings.",
+                    );
+                }
+                Ok(AbandonedProxyRecovery::OwnershipCleared) => {
+                    state.proxy_recovery_error = None;
+                }
+                Err(error) => {
+                    let message = format!(
+                        "NetworkCore could not restore its interrupted system proxy: {error}. Use Restore network settings to retry; open Diagnostics if it remains unresolved."
+                    );
+                    state.proxy_recovery_error = Some(message.clone());
+                    set_text(state.activity, &message);
+                    let _ = append_managed_log("gui", &message);
+                }
+            }
         }
         let service = match runtime.service_state {
             WindowsServiceState::NotInstalled => "Not installed".to_string(),
@@ -1321,6 +1358,7 @@ mod gui {
         let failure = runtime
             .configuration_error
             .as_deref()
+            .or(state.proxy_recovery_error.as_deref())
             .or(runtime.last_error.as_deref())
             .or_else(|| {
                 (runtime.connection == self::ui_state::ConnectionState::ConnectionFailed
@@ -2357,11 +2395,13 @@ mod gui {
 
     fn restore_proxy(state: &mut AppState) -> Result<(), String> {
         let Some(snapshot) = state.desktop.proxy_snapshot.clone() else {
+            state.proxy_recovery_error = None;
             return Err("no GUI-owned system proxy snapshot is available to restore".to_string());
         };
         let current = read_current_user_system_proxy().map_err(|error| error.to_string())?;
         if !owns_current_proxy(&state.desktop, &current) {
             clear_gui_proxy_ownership(state)?;
+            state.proxy_recovery_error = None;
             return Err(
                 "the current-user proxy no longer matches the GUI-applied settings; it was left unchanged"
                     .to_string(),
@@ -2372,7 +2412,18 @@ mod gui {
             .restore_system_proxy(&snapshot)
             .map_err(|error| error.to_string())?;
         clear_gui_proxy_ownership(state)?;
+        state.proxy_recovery_error = None;
         Ok(())
+    }
+
+    unsafe fn restore_network_settings(state: &mut AppState) {
+        state.abandoned_proxy_recovery_attempted = true;
+        run_action(state, "Network settings restored", restore_proxy);
+    }
+
+    enum AbandonedProxyRecovery {
+        Restored,
+        OwnershipCleared,
     }
 
     fn clear_gui_proxy_ownership(state: &mut AppState) -> Result<(), String> {
@@ -2388,25 +2439,7 @@ mod gui {
 
     fn restore_abandoned_owned_proxy(
         state: &mut AppState,
-        runtime: &WindowsRuntimeStatus,
-    ) -> Result<(), String> {
-        if state.desktop.proxy_snapshot.is_none()
-            || !matches!(
-                runtime.service_state,
-                WindowsServiceState::NotInstalled | WindowsServiceState::Stopped
-            )
-            || !matches!(
-                &runtime.sing_box,
-                self::runtime_status::SingBoxProcessStatus::NotConfigured
-                    | self::runtime_status::SingBoxProcessStatus::Exited { .. }
-                    | self::runtime_status::SingBoxProcessStatus::Unavailable {
-                        process_id: None,
-                        ..
-                    }
-            )
-        {
-            return Ok(());
-        }
+    ) -> Result<AbandonedProxyRecovery, String> {
         let current = read_current_user_system_proxy().map_err(|error| error.to_string())?;
         if !owns_current_proxy(&state.desktop, &current) {
             clear_gui_proxy_ownership(state)?;
@@ -2414,14 +2447,45 @@ mod gui {
                 "gui",
                 "cleared stale GUI proxy ownership without changing the current-user proxy",
             );
-            return Ok(());
+            return Ok(AbandonedProxyRecovery::OwnershipCleared);
         }
-        restore_proxy(state)?;
+        let snapshot = state
+            .desktop
+            .proxy_snapshot
+            .clone()
+            .expect("automatic proxy recovery requires a GUI-owned snapshot");
+        state
+            .integration
+            .restore_system_proxy(&snapshot)
+            .map_err(|error| error.to_string())?;
+        clear_gui_proxy_ownership(state)?;
         let _ = append_managed_log(
             "gui",
             "restored the GUI-owned current-user proxy after an interrupted runtime",
         );
-        Ok(())
+        Ok(AbandonedProxyRecovery::Restored)
+    }
+
+    unsafe fn restore_tray_after_taskbar_rebuild(state: &mut AppState) {
+        match self::tray::add(state.window) {
+            Ok(()) => {
+                let selected = selected_node_label(state);
+                self::tray::update(state.window, state.runtime.connection, &selected);
+                set_text(
+                    state.activity,
+                    "Windows notification area was rebuilt; NetworkCore tray icon restored.",
+                );
+                let _ = append_managed_log("gui", "tray icon restored after taskbar rebuild");
+            }
+            Err(error) => {
+                let message = format!("NetworkCore tray icon recovery failed: {error}");
+                set_text(state.activity, &message);
+                if let Some(shell) = state.daily.as_ref() {
+                    set_text(shell.home_failure, &message);
+                }
+                let _ = append_managed_log("gui", &message);
+            }
+        }
     }
 
     fn install_certificate(state: &mut AppState) -> Result<(), String> {

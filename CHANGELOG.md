@@ -29,6 +29,9 @@ release until the same commit passes the tag release workflow.
 - The Windows GUI now permits one instance per current Windows session. A
   second launch restores the existing tray-hidden window instead of creating a
   competing GUI that could issue duplicate service or proxy operations.
+- The Windows GUI now re-adds its notification-area icon when Explorer rebuilds
+  the taskbar, including a primary-display DPI rebuild, and refreshes the icon
+  from the same runtime state used by the visible window.
 
 ### Fixed
 
@@ -49,6 +52,9 @@ release until the same commit passes the tag release workflow.
   persistence succeeds. If that persistence fails after the generated
   `config.json` write, the prior managed sing-box config is restored; a failed
   subscription update therefore retains its prior usable profile.
+- Interrupted GUI-owned proxy recovery is now attempted once per connection
+  cycle. A failed attempt remains visible with explicit restore and diagnostics
+  actions instead of being retried by each periodic status refresh.
 
 ## v0.2.0-alpha.21 - 2026-07-24
 

@@ -1,7 +1,7 @@
-use crate::gui::ui_state::ConnectionState;
 use crate::gui::{
-    runtime_status::read_runtime_status,
+    runtime_status::{read_runtime_status, SingBoxProcessStatus},
     startup::{owns_current_proxy, save_desktop_state, DesktopState},
+    ui_state::ConnectionState,
     validate_managed_configuration,
 };
 use engine_singbox::{
@@ -49,6 +49,29 @@ pub const fn should_restart_gui_started_core(
         && !already_attempted
         && gui_started_connection
         && matches!(connection, ConnectionState::CoreError)
+}
+
+pub fn should_restore_abandoned_owned_proxy(
+    has_proxy_snapshot: bool,
+    service_state: WindowsServiceState,
+    sing_box: &SingBoxProcessStatus,
+    already_attempted: bool,
+) -> bool {
+    has_proxy_snapshot
+        && !already_attempted
+        && matches!(
+            service_state,
+            WindowsServiceState::NotInstalled | WindowsServiceState::Stopped
+        )
+        && matches!(
+            sing_box,
+            SingBoxProcessStatus::NotConfigured
+                | SingBoxProcessStatus::Exited { .. }
+                | SingBoxProcessStatus::Unavailable {
+                    process_id: None,
+                    ..
+                }
+        )
 }
 
 pub fn connect(config_path: PathBuf, desktop: DesktopState) -> Result<ConnectedProxy, String> {
@@ -270,6 +293,34 @@ mod tests {
             true,
             true,
             ConnectionState::CoreError,
+        ));
+    }
+
+    #[test]
+    fn abandoned_gui_proxy_recovery_runs_once_only_after_the_runtime_is_gone() {
+        assert!(should_restore_abandoned_owned_proxy(
+            true,
+            WindowsServiceState::Stopped,
+            &SingBoxProcessStatus::Exited {
+                process_id: 42,
+                exit_code: Some(1),
+            },
+            false,
+        ));
+        assert!(!should_restore_abandoned_owned_proxy(
+            true,
+            WindowsServiceState::Stopped,
+            &SingBoxProcessStatus::Exited {
+                process_id: 42,
+                exit_code: Some(1),
+            },
+            true,
+        ));
+        assert!(!should_restore_abandoned_owned_proxy(
+            true,
+            WindowsServiceState::Running,
+            &SingBoxProcessStatus::Running { process_id: 42 },
+            false,
         ));
     }
 }
