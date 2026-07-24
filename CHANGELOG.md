@@ -4,6 +4,9 @@
 
 ## Unreleased
 
+Current Windows source candidate: `v0.2.0-alpha.22`. It is not a downloadable
+release until the same commit passes the tag release workflow.
+
 ### Changed
 
 - Windows managed configuration schema 2 introduces an explicit system-proxy

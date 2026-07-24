@@ -330,11 +330,31 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前 Windows 发布切片
 
-### `v0.2.0-alpha.21`
+### `v0.2.0-alpha.22`
 
-状态：候选 Windows managed-client 日常生命周期切片；只有同 commit GitHub
+状态：候选 Windows managed-client 日常连接可靠性切片；只有同 commit GitHub
 Actions CI、MSI install/uninstall smoke、package、attestation、publish eligibility
 和 tag release 全部成功后，才成为用户可下载版本。
+
+主要特性：
+
+- 日常 GUI profile 将 current-user proxy ownership 明确为 `desktop`，在 SCM、live
+  sing-box PID、loopback listener 和 generated selector API 均就绪后才应用代理；失败
+  会恢复 GUI-owned snapshot 并停止 service。
+- Core failure without a recorded PID is shown as unavailable rather than `PID 0`; matching
+  stale GUI-owned proxy recovery remains available. Direct proxy enable actions are removed.
+- GUI explains required UAC elevation before requesting it and preserves login-startup
+  arguments through the elevation handoff.
+
+明确不包含：
+
+- 不提供无交互 UAC bypass、后台订阅刷新、订阅目录/组、自动 latency/`urltest`、无限自动重启、
+  TUN/DNS interception、HTTP/2/HTTP/3/QUIC MITM、JavaScript dispatch 或 native JSON group editing。
+
+### `v0.2.0-alpha.21`
+
+状态：已发布 Windows managed-client prerelease；后续修复进入 `v0.2.0-alpha.22`
+候选切片。
 
 主要特性：
 
@@ -930,7 +950,7 @@ GitHub Actions release workflow 结果为准。
 
 ## 当前 main source 状态
 
-当前 Windows source release 候选切片是 `v0.2.0-alpha.21`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
+当前 Windows source release 候选切片是 `v0.2.0-alpha.22`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
 `v0.1.1-alpha.2` 的 Linux/Windows package、checksum、manifest、attestation 和 publish gate，并把
 受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI；Windows path 已切换到
 managed-client MSI，service、driver、installer、system proxy mutation、system trust store mutation 和 managed lifecycle
