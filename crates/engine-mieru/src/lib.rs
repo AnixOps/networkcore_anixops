@@ -405,6 +405,52 @@ pub struct MieruClientConfigWriteReport {
     pub verified: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MieruLocalListenerConfig {
+    pub host: String,
+    pub port: u16,
+}
+
+pub fn read_mieru_local_listener_config(path: &Path) -> DomainResult<MieruLocalListenerConfig> {
+    let bytes = fs::read(path).map_err(|error| {
+        DomainError::new(
+            MIERU_CONFIG_INVALID_CODE,
+            format!("Mieru config could not be read for listener verification: {error}"),
+        )
+    })?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|error| {
+        DomainError::new(
+            MIERU_CONFIG_INVALID_CODE,
+            format!("Mieru config is not valid JSON: {error}"),
+        )
+    })?;
+    if value
+        .get("socks5ListenLAN")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        return Err(DomainError::new(
+            MIERU_CONFIG_INVALID_CODE,
+            "Mieru local listener must not enable LAN access",
+        ));
+    }
+    let port = value
+        .get("socks5Port")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|value| u16::try_from(value).ok())
+        .filter(|value| *value != 0)
+        .ok_or_else(|| {
+            DomainError::new(
+                MIERU_CONFIG_INVALID_CODE,
+                "Mieru config must contain a non-zero socks5Port",
+            )
+        })?;
+    Ok(MieruLocalListenerConfig {
+        host: "127.0.0.1".to_string(),
+        port,
+    })
+}
+
 impl fmt::Debug for MieruClientConfigReport {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter

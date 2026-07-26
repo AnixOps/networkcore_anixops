@@ -751,6 +751,8 @@ jobs:
           grep -q "MIERU_RELEASE_MAX_BYTES" crates/engine-mieru/src/lib.rs
           grep -q "official Mieru release install should parse" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "core install mieru --url" apps/linux-cli/src/lib.rs
+          grep -q "read_mieru_local_listener_config" apps/linux-cli/src/lib.rs
+          grep -q "listener_config_rejects_lan_binding" crates/engine-mieru/tests/engine_mieru_contracts.rs
           grep -q "pub fn poll_health" apps/windows-service/src/lib.rs
           grep -q "pub fn stop_after_runtime_failure" apps/windows-service/src/lib.rs
           grep -q "managed_runtime_rolls_back_proxy_when_sing_box_exits_after_start" apps/windows-service/tests/managed_runtime_contracts.rs

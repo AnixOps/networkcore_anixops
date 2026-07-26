@@ -5783,9 +5783,41 @@ pub fn handle_start_mieru_with_runner<R: engine_mieru::MieruCommandRunner>(
         config_path: config.clone(),
     };
     match engine_mieru::apply_and_start_mieru_client(runner, &request) {
-        Ok(report) => LinuxCliResponse::success("core start mieru")
-            .with_mieru_install(mieru_control_status(&request, "start"))
-            .with_diagnostics(report.diagnostics),
+        Ok(report) => {
+            let listener = match engine_mieru::read_mieru_local_listener_config(&config) {
+                Ok(listener) => listener,
+                Err(error) => {
+                    let _ = engine_mieru::stop_mieru_client(runner, &request);
+                    return domain_error_response(
+                        "core start mieru",
+                        LinuxCliExitCode::ConfigValidation,
+                        error,
+                        SOURCE_CLI_RUNTIME,
+                    );
+                }
+            };
+            let readiness = match engine_mieru::wait_for_mieru_listener(
+                &listener.host,
+                listener.port,
+                std::time::Duration::from_secs(5),
+            ) {
+                Ok(readiness) => readiness,
+                Err(error) => {
+                    let _ = engine_mieru::stop_mieru_client(runner, &request);
+                    return domain_error_response(
+                        "core start mieru",
+                        LinuxCliExitCode::EngineDenied,
+                        error,
+                        SOURCE_CLI_RUNTIME,
+                    );
+                }
+            };
+            let mut diagnostics = report.diagnostics;
+            diagnostics.extend(readiness.diagnostics);
+            LinuxCliResponse::success("core start mieru")
+                .with_mieru_install(mieru_control_status(&request, "start"))
+                .with_diagnostics(diagnostics)
+        }
         Err(error) => domain_error_response(
             "core start mieru",
             LinuxCliExitCode::EngineDenied,

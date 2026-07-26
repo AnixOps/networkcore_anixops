@@ -1,12 +1,12 @@
 use engine_mieru::{
     apply_and_start_mieru_client, download_mieru_release, parse_mieru_share_link,
-    probe_mieru_listener, render_mieru_client_config, status_mieru_client, stop_mieru_client,
-    verify_local_mieru_binary, write_mieru_client_config, MieruClientConfigRequest,
-    MieruClientConfigWriteRequest, MieruClientControlRequest, MieruCommandReport,
-    MieruCommandRunner, MieruManagedProcessState, MieruManagedProcessSupervisor,
-    MieruReleaseDownloadRequest, MieruReleaseHttpClient, MIERU_BINARY_DIGEST_MISSING_CODE,
-    MIERU_CONFIG_TRAFFIC_PATTERN_DEFERRED_CODE, MIERU_LISTENER_NOT_READY_CODE,
-    MIERU_RUNTIME_UNWIRED_CODE,
+    probe_mieru_listener, read_mieru_local_listener_config, render_mieru_client_config,
+    status_mieru_client, stop_mieru_client, verify_local_mieru_binary, write_mieru_client_config,
+    MieruClientConfigRequest, MieruClientConfigWriteRequest, MieruClientControlRequest,
+    MieruCommandReport, MieruCommandRunner, MieruManagedProcessState,
+    MieruManagedProcessSupervisor, MieruReleaseDownloadRequest, MieruReleaseHttpClient,
+    MIERU_BINARY_DIGEST_MISSING_CODE, MIERU_CONFIG_TRAFFIC_PATTERN_DEFERRED_CODE,
+    MIERU_LISTENER_NOT_READY_CODE, MIERU_RUNTIME_UNWIRED_CODE,
 };
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -155,6 +155,33 @@ fn readiness_does_not_promote_a_stopped_process_from_pid_absence() {
         .diagnostics
         .iter()
         .any(|diagnostic| diagnostic.code == MIERU_LISTENER_NOT_READY_CODE));
+}
+
+#[test]
+fn listener_config_rejects_lan_binding_and_reads_loopback_port() {
+    let root = temporary_root("listener-config");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).expect("fixture directory should be created");
+    let config_path = root.join("client.json");
+    fs::write(
+        &config_path,
+        br#"{"socks5Port":1080,"socks5ListenLAN":false}"#,
+    )
+    .expect("listener config should be written");
+    let listener = read_mieru_local_listener_config(&config_path)
+        .expect("loopback listener config should be readable");
+    assert_eq!(listener.host, "127.0.0.1");
+    assert_eq!(listener.port, 1080);
+
+    fs::write(
+        &config_path,
+        br#"{"socks5Port":1080,"socks5ListenLAN":true}"#,
+    )
+    .expect("LAN listener config should be written");
+    let error =
+        read_mieru_local_listener_config(&config_path).expect_err("LAN listener must be rejected");
+    assert_eq!(error.code, engine_mieru::MIERU_CONFIG_INVALID_CODE);
+    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
