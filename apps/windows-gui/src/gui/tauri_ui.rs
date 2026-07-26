@@ -44,7 +44,7 @@ use std::{
 };
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIcon, TrayIconBuilder};
-use tauri::{Manager, State, WindowEvent};
+use tauri::{Manager, Runtime, State, WindowEvent};
 
 const APP_LOG_SCOPE: &str = "tauri-gui";
 const SING_BOX_DIRECT_LISTEN_PORT: u16 = 7890;
@@ -242,7 +242,7 @@ fn install_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn show_main_window<R: Manager>(app: &R) {
+fn show_main_window<R: Runtime, M: Manager<R>>(app: &M) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.set_focus();
