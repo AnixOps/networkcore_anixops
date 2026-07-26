@@ -2307,6 +2307,7 @@ dependencies = [
  "config-core",
  "control-domain",
  "control-runtime",
+ "engine-mieru",
  "engine-native",
  "engine-singbox",
  "mitm-policy",

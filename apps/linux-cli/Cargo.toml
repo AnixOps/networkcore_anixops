@@ -11,6 +11,7 @@ config-core = { path = "../../crates/config-core" }
 control-domain = { path = "../../crates/control-domain" }
 control-runtime = { path = "../../crates/control-runtime" }
 engine-native = { path = "../../crates/engine-native" }
+engine-mieru = { path = "../../crates/engine-mieru" }
 engine-singbox = { path = "../../crates/engine-singbox" }
 mitm-policy = { path = "../../crates/mitm-policy" }
 platform-linux = { path = "../../crates/platform-linux" }

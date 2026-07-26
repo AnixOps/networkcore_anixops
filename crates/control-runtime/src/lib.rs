@@ -12,8 +12,8 @@ use control_domain::{
     DiagnosticSeverity, DomainError, DomainResult, GrantedPermissions, HttpEvent, Metadata,
     MitmPluginService, NodeCatalog, NodeDescriptor, PlatformCapabilities,
     PlatformCapabilityService, PlatformCapabilityStatus, PlatformFeatureState, PluginPackage,
-    PluginPermission, PluginResult, ProxyEngineAdapter, ProxyEngineConfig, ProxyEngineEvent,
-    ProxyEngineHealthReport, ProxyEngineLifecycleState, ProxyEnginePrepareReport,
+    PluginPermission, PluginResult, ProxyEngineAdapter, ProxyEngineConfig, ProxyEngineDescriptor,
+    ProxyEngineEvent, ProxyEngineHealthReport, ProxyEngineLifecycleState, ProxyEnginePrepareReport,
     ProxyEngineRollbackRequest, ProxyEngineStatus, SubscriptionService, SubscriptionSource,
 };
 
@@ -142,6 +142,11 @@ where
     P: PlatformCapabilityService,
     E: ProxyEngineAdapter,
 {
+    /// Lists adapter descriptors without exposing the adapter implementation.
+    pub fn list_engines(&self) -> Vec<ProxyEngineDescriptor> {
+        self.engine.list_engines()
+    }
+
     /// Creates a runtime orchestrator from domain port implementations.
     pub const fn new(configuration: C, platform: P, engine: E) -> Self {
         Self {

@@ -2865,6 +2865,34 @@ fn restart_is_explicitly_unavailable_until_managed_control_is_wired() {
 }
 
 #[test]
+fn parses_core_list_and_mieru_local_install_contract() {
+    assert_eq!(
+        parse_args(["core", "list", "--format", "json"]).expect("core list should parse"),
+        LinuxCliCommand::CoreList {
+            format: OutputFormat::Json
+        }
+    );
+    assert_eq!(
+        parse_args([
+            "core",
+            "install",
+            "mieru",
+            "--binary",
+            "/opt/mieru",
+            "--sha256",
+            "0123456789012345678901234567890123456789012345678901234567890123",
+        ])
+        .expect("core install mieru should parse"),
+        LinuxCliCommand::InstallMieru {
+            binary_path: "/opt/mieru".to_string(),
+            expected_sha256: "0123456789012345678901234567890123456789012345678901234567890123"
+                .to_string(),
+            format: OutputFormat::Text,
+        }
+    );
+}
+
+#[test]
 fn parses_install_sing_box_command_and_alias() {
     let command = parse_args([
         "install-sing-box",
