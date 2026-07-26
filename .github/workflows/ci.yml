@@ -705,6 +705,7 @@ jobs:
           grep -q "config_write_snapshots_existing_credentials" crates/engine-mieru/tests/engine_mieru_contracts.rs
           grep -q "readiness_does_not_promote_a_stopped_process" crates/engine-mieru/tests/engine_mieru_contracts.rs
           grep -q "official_client_control_commands_are_explicit" crates/engine-mieru/tests/engine_mieru_contracts.rs
+          grep -q "status_mieru_client" crates/engine-mieru/src/lib.rs
           grep -q "parses_official_simple_link_query_ports" crates/engine-mieru/tests/engine_mieru_contracts.rs
           grep -q "rejects_udp_binding_until_real_udp_contract_exists" crates/engine-mieru/tests/engine_mieru_contracts.rs
           grep -q "parses_mieru_share_links" crates/config-core/tests/config_core_contracts.rs
