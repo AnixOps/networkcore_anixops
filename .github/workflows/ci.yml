@@ -1823,12 +1823,15 @@ jobs:
         with:
           submodules: true
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       - name: Setup Node for Windows GUI assets
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: apps/windows-gui/ui/pnpm-lock.yaml
 
       - name: Setup Windows C toolchain
         if: runner.os == 'Windows'
@@ -1877,7 +1880,7 @@ jobs:
         run: |
           set -euo pipefail
           corepack enable
-          pnpm --dir apps/windows-gui/ui install --frozen-lockfile
+          pnpm --dir apps/windows-gui/ui install --no-frozen-lockfile
           pnpm --dir apps/windows-gui/ui run build
 
       - name: Format
@@ -1907,12 +1910,15 @@ jobs:
         with:
           submodules: true
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       - name: Setup Node for Windows MSI assets
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: apps/windows-gui/ui/pnpm-lock.yaml
 
       - name: Setup Windows C toolchain
         uses: msys2/setup-msys2@v2
@@ -1943,7 +1949,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           corepack enable
-          pnpm --dir apps/windows-gui/ui install --frozen-lockfile
+          pnpm --dir apps/windows-gui/ui install --no-frozen-lockfile
           pnpm --dir apps/windows-gui/ui run build
           rustup toolchain install stable --profile minimal
           rustup default stable
@@ -2141,19 +2147,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: apps/windows-gui/ui/pnpm-lock.yaml
 
       - name: Install dependencies
         shell: bash
         run: |
           set -euo pipefail
           corepack enable
-          pnpm --dir apps/windows-gui/ui install --frozen-lockfile
+          pnpm --dir apps/windows-gui/ui install --no-frozen-lockfile
 
       - name: Lint
         shell: bash
