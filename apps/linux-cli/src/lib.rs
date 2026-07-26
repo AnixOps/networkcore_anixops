@@ -753,6 +753,7 @@ impl LinuxCliCommand {
                 LinuxSystemdServiceAction::Restart => "service restart",
                 LinuxSystemdServiceAction::Status => "service status",
                 LinuxSystemdServiceAction::Reload => "service reload",
+                LinuxSystemdServiceAction::DaemonReload => "service daemon-reload",
             },
             Self::Restart { .. } => "restart",
             Self::Status { .. } => "status",
@@ -6909,6 +6910,7 @@ pub fn handle_systemd_service_control<R: LinuxSystemdCommandRunner>(
         LinuxSystemdServiceAction::Restart => "service restart",
         LinuxSystemdServiceAction::Status => "service status",
         LinuxSystemdServiceAction::Reload => "service reload",
+        LinuxSystemdServiceAction::DaemonReload => "service daemon-reload",
     };
     match control_systemd_service(
         runner,
@@ -6996,7 +6998,7 @@ pub fn handle_install_service_apply_with_runner<R: LinuxSystemdCommandRunner>(
     }
     let reload = handle_systemd_service_control(
         runner,
-        LinuxSystemdServiceAction::Reload,
+        LinuxSystemdServiceAction::DaemonReload,
         unit_name,
         confirm,
     );

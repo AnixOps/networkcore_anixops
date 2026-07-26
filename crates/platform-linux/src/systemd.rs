@@ -88,6 +88,7 @@ pub enum LinuxSystemdServiceAction {
     Restart,
     Status,
     Reload,
+    DaemonReload,
 }
 
 impl LinuxSystemdServiceAction {
@@ -97,7 +98,8 @@ impl LinuxSystemdServiceAction {
             Self::Stop => "stop",
             Self::Restart => "restart",
             Self::Status => "is-active",
-            Self::Reload => "daemon-reload",
+            Self::Reload => "reload",
+            Self::DaemonReload => "daemon-reload",
         }
     }
 }

@@ -210,8 +210,12 @@ fn service_control_reports_action_and_exit_code() {
 }
 
 #[test]
-fn service_control_maps_reload_to_daemon_reload() {
-    assert_eq!(LinuxSystemdServiceAction::Reload.command(), "daemon-reload");
+fn service_control_separates_runtime_reload_from_daemon_reload() {
+    assert_eq!(LinuxSystemdServiceAction::Reload.command(), "reload");
+    assert_eq!(
+        LinuxSystemdServiceAction::DaemonReload.command(),
+        "daemon-reload"
+    );
 }
 
 #[test]
