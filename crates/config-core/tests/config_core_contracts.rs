@@ -673,6 +673,35 @@ fn parses_hysteria2_and_tuic_share_links_with_quic_tls_options() {
 }
 
 #[test]
+fn parses_mieru_share_links_without_leaking_credentials_in_diagnostics() {
+    let service = CoreSubscriptionService::new();
+    let document = service
+        .parse(&RawSubscription {
+            source_id: "mieru-links".to_string(),
+            content: "mierus://alice:secret@example.test:3010?ports=3010-3012&mtu=1400&multiplexing=true&handshake=fast&traffic=balanced#Office".to_string(),
+        })
+        .expect("Mieru share link should parse");
+    let catalog = service
+        .normalize(&document)
+        .expect("Mieru node should normalize");
+
+    assert_eq!(catalog.nodes.len(), 1);
+    let node = &catalog.nodes[0];
+    assert_eq!(node.protocol, Protocol::Mieru);
+    assert_eq!(node.name, "Office");
+    assert_metadata(&node.metadata, "mieru.username", "alice");
+    assert_metadata(&node.metadata, "mieru.password", "secret");
+    assert_metadata(&node.metadata, "mieru.port_range", "3010-3012");
+    assert_metadata(&node.metadata, "mieru.mtu", "1400");
+    assert_metadata(&node.metadata, "mieru.multiplexing", "true");
+    assert_metadata(&node.metadata, NODE_METADATA_SOURCE_FORMAT, "mierus-url");
+    assert!(!document
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.message.contains("secret")));
+}
+
+#[test]
 fn parses_hysteria2_and_tuic_sing_box_outbounds_into_node_catalog() {
     let service = CoreSubscriptionService::new();
     let raw = RawSubscription {

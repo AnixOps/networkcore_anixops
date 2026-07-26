@@ -72,6 +72,7 @@ pub const SUBSCRIPTION_VMESS_LINK_INVALID_CODE: &str = "subscription.core.vmess_
 pub const SUBSCRIPTION_HYSTERIA2_LINK_INVALID_CODE: &str =
     "subscription.core.hysteria2_link_invalid";
 pub const SUBSCRIPTION_TUIC_LINK_INVALID_CODE: &str = "subscription.core.tuic_link_invalid";
+pub const SUBSCRIPTION_MIERU_LINK_INVALID_CODE: &str = "subscription.core.mieru_link_invalid";
 pub const SUBSCRIPTION_CLASH_YAML_INVALID_CODE: &str = "subscription.core.clash_yaml_invalid";
 pub const SUBSCRIPTION_CLASH_YAML_UNSUPPORTED_CODE: &str =
     "subscription.core.clash_yaml_unsupported";
@@ -2250,10 +2251,12 @@ fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<Subscr
             parse_hysteria2_link(line)?
         } else if line.starts_with("tuic://") {
             parse_tuic_link(line)?
+        } else if line.starts_with("mierus://") {
+            parse_mieru_link(line)?
         } else {
             return Err(domain_error(
                 SUBSCRIPTION_LINK_UNSUPPORTED_CODE,
-                "only ss://, trojan://, vless://, vmess://, hysteria2://, hy2://, and tuic:// proxy links are supported in this alpha subscription parser",
+                "only ss://, trojan://, vless://, vmess://, hysteria2://, hy2://, tuic://, and mierus:// proxy links are supported in this alpha subscription parser",
             ));
         };
         if !seen_ids.insert(node.id.clone()) {
@@ -2286,6 +2289,144 @@ fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<Subscr
         rules: Vec::new(),
         diagnostics: Vec::new(),
     })
+}
+
+fn parse_mieru_link(link: &str) -> DomainResult<NodeDescriptor> {
+    let payload = link.strip_prefix("mierus://").ok_or_else(|| {
+        domain_error(
+            SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+            "Mieru link must start with mierus://",
+        )
+    })?;
+    let (without_fragment, fragment) = split_once_optional(payload, '#');
+    let name = fragment
+        .map(percent_decode)
+        .transpose()
+        .map_err(|_| {
+            domain_error(
+                SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+                "Mieru link name is not valid percent encoding",
+            )
+        })?
+        .filter(|value| !value.trim().is_empty());
+    let (authority, query) = split_once_optional(without_fragment, '?');
+    let (userinfo, host_port) = authority.rsplit_once('@').ok_or_else(|| {
+        domain_error(
+            SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+            "Mieru link must contain credentials and endpoint",
+        )
+    })?;
+    let (username, password) = userinfo.split_once(':').ok_or_else(|| {
+        domain_error(
+            SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+            "Mieru link credentials must contain username and password",
+        )
+    })?;
+    let username = required_trimmed(
+        percent_decode(username).map_err(|_| {
+            domain_error(
+                SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+                "Mieru username is not valid percent encoding",
+            )
+        })?,
+        SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+        "Mieru username cannot be empty",
+    )?;
+    let password = required_trimmed(
+        percent_decode(password).map_err(|_| {
+            domain_error(
+                SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+                "Mieru password is not valid percent encoding",
+            )
+        })?,
+        SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+        "Mieru password cannot be empty",
+    )?;
+    let (host, port) =
+        parse_host_port_for(host_port, SUBSCRIPTION_MIERU_LINK_INVALID_CODE, "Mieru")?;
+    let query = parse_share_link_query(query, SUBSCRIPTION_MIERU_LINK_INVALID_CODE, "Mieru")?;
+    let host_id = sanitize_identifier(&host);
+    let host_id = if host_id.is_empty() { "host" } else { &host_id };
+    let id = format!("mieru-{host_id}-{port}");
+    let mut metadata = vec![
+        MetadataEntry {
+            key: "mieru.username".to_string(),
+            value: username,
+        },
+        MetadataEntry {
+            key: "mieru.password".to_string(),
+            value: password,
+        },
+    ];
+    if let Some(value) = query.get("port_range").or_else(|| query.get("ports")) {
+        metadata.push(MetadataEntry {
+            key: "mieru.port_range".to_string(),
+            value: required_trimmed(
+                value.clone(),
+                SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+                "Mieru port range cannot be empty",
+            )?,
+        });
+    }
+    if let Some(value) = query.get("mtu") {
+        let value = value.parse::<u16>().map_err(|_| {
+            domain_error(
+                SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+                "Mieru mtu must be an unsigned 16-bit integer",
+            )
+        })?;
+        metadata.push(MetadataEntry {
+            key: "mieru.mtu".to_string(),
+            value: value.to_string(),
+        });
+    }
+    if let Some(value) = query.get("multiplexing").or_else(|| query.get("multiplex")) {
+        metadata.push(MetadataEntry {
+            key: "mieru.multiplexing".to_string(),
+            value: parse_mieru_bool(value)?.to_string(),
+        });
+    }
+    for (key, metadata_key) in [
+        ("handshake_mode", "mieru.handshake_mode"),
+        ("handshake", "mieru.handshake_mode"),
+        ("traffic_pattern", "mieru.traffic_pattern"),
+        ("traffic", "mieru.traffic_pattern"),
+    ] {
+        if let Some(value) = query.get(key) {
+            metadata.push(MetadataEntry {
+                key: metadata_key.to_string(),
+                value: required_trimmed(
+                    value.clone(),
+                    SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+                    "Mieru option cannot be empty",
+                )?,
+            });
+            break;
+        }
+    }
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_SOURCE_FORMAT.to_string(),
+        value: "mierus-url".to_string(),
+    });
+    Ok(NodeDescriptor {
+        id,
+        name: name.unwrap_or_else(|| format!("Mieru {host}")),
+        protocol: Protocol::Mieru,
+        endpoint: Endpoint { host, port },
+        tags: vec!["subscription".to_string(), "mieru".to_string()],
+        metadata,
+    })
+}
+
+fn parse_mieru_bool(value: &str) -> DomainResult<bool> {
+    match normalized_token(value).as_str() {
+        "1" | "true" | "yes" => Ok(true),
+        "0" | "false" | "no" => Ok(false),
+        _ => Err(domain_error(
+            SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+            "Mieru multiplexing must be a boolean",
+        )),
+    }
 }
 
 fn parse_shadowsocks_link(link: &str) -> DomainResult<NodeDescriptor> {
