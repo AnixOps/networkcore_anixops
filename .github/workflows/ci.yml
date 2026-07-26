@@ -82,6 +82,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Verify structured fast policy
+        shell: bash
+        run: bash .github/scripts/verify-repository-policy.sh fast
+
       - name: Verify fast repository policy
         shell: bash
         env:
@@ -108,6 +112,7 @@ jobs:
             docs/manual-intervention.md
             .github/copilot-instructions.md
             .github/scripts/detect-ci-changes.sh
+            .github/scripts/verify-repository-policy.sh
             .github/workflows/ci.yml
             .github/workflows/release.yml
           )
@@ -344,6 +349,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Verify structured full policy
+        shell: bash
+        run: bash .github/scripts/verify-repository-policy.sh full
 
       - name: Verify governance and release contracts
         shell: bash

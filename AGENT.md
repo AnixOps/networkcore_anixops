@@ -56,7 +56,7 @@
 
 - 只允许对当前 commit 对应的 workflow run 进行一次、最多两次非阻塞状态查询；两次查询之间不得长时间 `sleep`。
 - 禁止使用 `gh run watch`、无限 `while`/`until` 循环、定时刷新全部历史 run 或其他长时间阻塞轮询。
-- 状态为 `queued` 或 `in_progress` 时，记录 commit SHA、workflow 名称、run ID、run URL 和当前状态，然后以 `pending_ci` 结束当前编码回合。
+- 状态为 `queued` 或 `in_progress` 时，记录 commit SHA、workflow 名称、run ID、run URL 和当前状态；`pending_ci` 只是状态记录，不是停止条件，不等待、不轮询、不重复读取未变化文件，继续不依赖该 CI 结果的后续工作。
 - 后续 Agent 回合、workflow completion 事件或人工重新触发负责继续处理；当前回合不得持续等待。
 - CI 失败时只读取失败 job 和失败 step 的必要日志，不重复下载成功 job 日志。
 - 只有对应 commit 的 GitHub Actions 状态为 `completed` 且结论为 `success` 时，才可以声称 CI 验证通过。
@@ -107,3 +107,5 @@ iOS 相关实现必须遵守：
 - 人工完成后的下一步自动化动作
 
 一旦 GitHub Actions 打通，后续应尽量减少人工介入，按计划依次推进。
+
+`pending_ci` 只是状态记录，不是停止条件。`queued` 或 `in_progress` 时不等待、不轮询、不重复读取未变化目标文件，也不重复输出相同状态；应继续不依赖该 CI 结果的源码、合同、文档和后续独立增量。只有 CI 明确 `failure` 时才暂停新增功能并读取失败 job/step 日志。禁止 `gh run watch`、无限循环和长时间轮询。

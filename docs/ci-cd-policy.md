@@ -39,9 +39,9 @@
    `docs`、`governance`、`go`、`rust`、`node`、`windows`、`linux`、`ios`、`apple`、
    `workflow`、`release_sensitive` 和 `full_matrix`。无法取得可靠 diff、出现未知路径、tag
    或 `workflow_dispatch` 时必须安全回退到完整矩阵。
-2. `policy-fast` 在五分钟预算内检查关键治理文件和 manifest、已提交的 `Cargo.lock`、本地
+2. `policy-fast` 在五分钟预算内调用 `.github/scripts/verify-repository-policy.sh fast`，检查关键治理文件和 manifest、已提交的 `Cargo.lock`、本地
    构建产物、签名/私钥文件、明显凭据模式、workflow 入口以及与变更平台对应的最小合同。
-3. `policy-full` 保留原有全部文档一致性、架构 marker、源码合同和 release 状态断言；它只依赖
+3. `policy-full` 调用 `.github/scripts/verify-repository-policy.sh full` 并保留原有全部文档一致性、架构 marker、源码合同和 release 状态断言；它只依赖
    `changes`，与 `policy-fast` 和相关平台验证并行，不得再作为所有平台 job 的串行前置条件。
 
 路径门控规则如下：
@@ -283,8 +283,10 @@ Privacy Manifest source、App Review manual confirmation source、iOS upload wor
 编码 Agent 推送后只能对当前 commit 的 workflow run 做一次、最多两次非阻塞查询，禁止
 `gh run watch`、无限循环、长时间 `sleep` 或重复刷新全部历史 run。若状态仍为 `queued` 或
 `in_progress`，必须记录 commit SHA、workflow、run ID、run URL 和状态，以
-`task_state=pending_ci`、`next_action=resume_after_ci_completion` 结束当前编码回合。后续 Agent
-回合、workflow completion 事件或人工操作再继续。
+`task_state=pending_ci`、`next_action=resume_after_ci_completion` 记录当前状态；`pending_ci`
+不是停止条件。不得等待、轮询、重复读取未变化目标文件或重复输出相同状态，应继续不依赖
+该 run 的源码、合同、文档和后续切片。只有 CI 明确 `failure` 才暂停新增功能并读取失败
+job/step 日志。
 
 失败时只读取失败 job/step 的必要日志，不重复获取成功日志。只有对应 commit 的 run 已
 `completed` 且 conclusion 为 `success`，才能把 GitHub Actions 写为已通过；排队或运行中状态、
