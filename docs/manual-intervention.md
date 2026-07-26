@@ -131,6 +131,29 @@ selected crate versions, license/NOTICE review, ALPN behavior, QUIC UDP
 listener boundary, bounded stream/body limits, and rollback behavior. No local
 dependency resolution, build, or protocol runtime smoke test is allowed.
 
+## Mieru External Core Acceptance
+
+The source and contract layers now require an operator-supplied Mieru binary or
+an explicitly confirmed `enfein/mieru` GitHub release asset with a pinned
+SHA-256 digest. Before calling Mieru production-ready, record the selected
+release URL, digest, license/NOTICE evidence, and binary provenance in the
+protected release record. Do not place the binary, credentials, or client JSON
+in the repository or diagnostic artifact.
+
+On a supported Windows host and an Ubuntu/systemd Linux host, import a test
+`mierus://` node, render the client config, run the official Mieru `apply
+config`, `start`, and `status` flow, and verify that the loopback SOCKS5 port
+accepts connections through the intended remote node. Stop the client and
+confirm the loopback listener, system proxy, and service-owned temporary state
+are cleaned up. Terminate the official client unexpectedly and preserve the
+failed-state, status-check, listener-check, and proxy-rollback evidence.
+
+The automated contracts verify source allowlisting, digest checks, command
+ordering, redaction, and bounded loopback probing; they do not prove external
+Mieru server interoperability, real traffic forwarding, or Windows GUI/DPI
+behavior. Those results must be recorded here before M3/M4/M5 are described as
+fully accepted.
+
 ## 当前待处理
 
 - iOS App Review manual confirmation 仍为 pending；完成前不得启用 TestFlight upload、App Store upload、
