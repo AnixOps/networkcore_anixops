@@ -19,7 +19,7 @@ The intended architecture remains multi-client and multi-format:
 
 This increment adds the first Linux CLI path:
 
-`networkcore-linux run-url <ss://url>`
+`networkcore-linux run-url <share-link-or-file-uri-or-https-url>`
 
 The command must:
 
@@ -34,6 +34,18 @@ The command must:
    `SingBoxProcessRunner`;
 7. report the selected node, local proxy address, config path, executable path,
    process exit code, and stable diagnostics without printing secrets.
+
+An explicit absolute `file:///path/to/subscription` URI is also accepted. The
+CLI reads that one UTF-8 text file and sends its contents through the same
+`CoreSubscriptionService` normalization and foreground sing-box path. It does
+not scan directories, infer a default location, or retain the file location.
+
+An explicit `http://` or `https://` location performs one foreground request
+through `CommandRemoteSubscriptionFetcher`, then sends the UTF-8 response
+through the same parser. The request has a 15-second timeout, follows at most
+five redirects, rejects non-success HTTP responses, and accepts at most 1 MiB.
+It does not establish background refresh, source authentication configuration,
+subscription directories, default locations, or persisted remote state.
 
 ## Subscription Formats
 
@@ -74,7 +86,8 @@ may be imported as `Protocol::Vless` with `NODE_METADATA_VLESS_UUID` and
 when the decoded JSON contains `add`, `port`, and `id`; `ps` may provide the
 display name, and `NODE_METADATA_VMESS_UUID` plus
 `NODE_METADATA_SOURCE_FORMAT=vmess-url` carry catalog metadata. Linux `run-url`
-remains Shadowsocks-only.
+can run direct normalized Trojan, VLESS, and VMess links through the sing-box
+adapter when their rendered metadata is supported.
 
 `v0.2.0-alpha.8` extends the Windows local-profile import path with the current
 sing-box/v2rayN QUIC share-link subset. Hysteria2 and TUIC may be imported as
@@ -88,9 +101,9 @@ fields are retained when present. `tuic://` links are normalized as
 congestion-control values. These inputs use stable Hysteria2/TUIC and generic
 TLS metadata plus `NODE_METADATA_SOURCE_FORMAT=hysteria2-url` or `tuic-url`.
 The shared sing-box adapter renders a TLS-enabled outbound for the selected
-node. Linux `run-url` remains Shadowsocks-only, and share-link parsing does
-not enable remote fetch, TUN, DNS, firewall, transparent capture, or QUIC
-MITM.
+node. Linux `run-url` can run direct Hysteria2/TUIC links in the same
+foreground path; share-link parsing itself does not establish background
+fetching, TUN, DNS, firewall, transparent capture, or QUIC MITM.
 
 `v0.2.0-alpha.9` activates a deterministic local-file V2Ray compatibility
 subset for the Windows GUI. Trojan, VLESS, and VMess share links now retain
@@ -237,7 +250,16 @@ Stable anchors:
 The Linux CLI must expose:
 
 ```text
-networkcore-linux run-url <ss://url> \
+networkcore-linux run-url <share-link-or-file-uri-or-https-url> \
+  [--node-id <id>] \
+  [--listen-host <host>] \
+  [--listen-port <port>] \
+  [--install-dir <dir>] \
+  [--force] \
+  [--format text|json]
+
+networkcore-linux run-catalog <catalog-path> <source-id> \
+  [--node-id <id>] \
   [--listen-host <host>] \
   [--listen-port <port>] \
   [--install-dir <dir>] \
@@ -249,6 +271,7 @@ Defaults:
 
 - `--listen-host`: `127.0.0.1`
 - `--listen-port`: `7890`
+- `--node-id`: first sing-box-supported normalized node when omitted
 
 Text output must include:
 
@@ -267,10 +290,19 @@ JSON output must include a `sing_box_run` object with:
 - `config_path`
 - `process_exit_code`
 
-`run-url` is foreground-only. It does not create a daemon, system service,
+Supported direct links are `ss://`, `trojan://`, `vless://`, `vmess://`,
+`hysteria2://`/`hy2://`, and `tuic://` when the normalized node metadata is
+supported by the sing-box adapter. Supported catalog payloads include Clash
+YAML, sing-box JSON, Surge, Loon, and Quantumult X proxy data. An explicit
+absolute `file://` URI or explicit `http://`/`https://` location may provide any
+supported input as UTF-8 text. `--node-id` selects a node from that normalized
+catalog for this foreground invocation. `run-catalog` reads one caller-selected
+saved source id from one explicit persistent catalog, then follows the same
+foreground path. Both commands are foreground-only. They do not create
+a daemon, system service,
 control socket, TUN device, DNS mutation, firewall rule, certificate, or MITM
-state. Cross-process `stop`, background `status`, logs, reload, node selection,
-and persisted subscriptions remain follow-up work.
+state. Background refresh, cross-process `stop`, background `status`, logs,
+reload, runtime node switching, and persisted subscriptions remain follow-up work.
 
 ## Verification
 
@@ -284,5 +316,8 @@ Actions must verify:
   list, and base64 link list;
 - `engine-singbox` deterministic local proxy config rendering;
 - `networkcore-linux run-url` parsing, response fields, config writing, and
-  injected process runner behavior;
+  injected process runner behavior, explicit catalog node selection, explicit
+  file source handling, and injected remote subscription fetcher behavior;
+- `networkcore-linux run-catalog` source-id resolution, foreground runner
+  handoff, node selection, and no catalog rewrite behavior;
 - release packaging after same-commit CI success.

@@ -798,6 +798,7 @@ dependencies = [
  "mitm-policy",
  "platform-linux",
  "rcgen",
+ "reqwest",
  "serde",
  "serde_json",
  "signal-hook",

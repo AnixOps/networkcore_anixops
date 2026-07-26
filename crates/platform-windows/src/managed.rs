@@ -2,6 +2,7 @@
 
 use control_domain::{DomainError, DomainResult};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -228,6 +229,39 @@ pub struct WindowsManagedNativeMitmConfig {
     /// the managed `mixed-in` listener to its local SOCKS upstream port.
     #[serde(default)]
     pub sing_box_config_snapshot_path: Option<PathBuf>,
+    /// Explicit local Node runner and script URL mappings for native MITM.
+    #[serde(default)]
+    pub script_runtime: Option<WindowsManagedNativeMitmScriptRuntimeConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowsManagedNativeMitmScriptRuntimeConfig {
+    pub policy_source_path: PathBuf,
+    pub runner_path: PathBuf,
+    pub node_binary: String,
+    pub script_maps: BTreeMap<String, PathBuf>,
+    #[serde(default)]
+    pub persistent_store_path: Option<PathBuf>,
+}
+
+impl WindowsManagedNativeMitmScriptRuntimeConfig {
+    pub fn validate(&self) -> DomainResult<()> {
+        if self.policy_source_path.as_os_str().is_empty()
+            || self.runner_path.as_os_str().is_empty()
+            || self.node_binary.trim().is_empty()
+            || self.script_maps.is_empty()
+            || self.script_maps.iter().any(|(url, path)| {
+                !(url.starts_with("https://") || url.starts_with("http://"))
+                    || path.as_os_str().is_empty()
+            })
+        {
+            return Err(DomainError::new(
+                WINDOWS_MANAGED_NATIVE_MITM_CONFIG_INVALID_CODE,
+                "native MITM script runtime requires a local policy source, runner, Node binary, and HTTP(S) URL mappings",
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl WindowsManagedNativeMitmConfig {
@@ -263,6 +297,9 @@ impl WindowsManagedNativeMitmConfig {
                 WINDOWS_MANAGED_NATIVE_MITM_CONFIG_INVALID_CODE,
                 "native MITM sing-box snapshot path must not be empty when provided",
             ));
+        }
+        if let Some(script_runtime) = &self.script_runtime {
+            script_runtime.validate()?;
         }
         Ok(())
     }

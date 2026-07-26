@@ -3,12 +3,12 @@
 use control_domain::{
     ConfigSnapshot, DomainError, DomainResult, Endpoint, GrantedPermissions, ListenerBind,
     ListenerDescriptor, ListenerKind, ListenerNetwork, ListenerRoute, MitmPluginService,
-    NodeDescriptor, Protocol, ProxyEngineConfig, ProxyEngineLifecycleState, ProxyEngineService,
-    RouteAction, RuleSet, SchemaVersion,
+    NodeDescriptor, PluginPackage, Protocol, ProxyEngineConfig, ProxyEngineLifecycleState,
+    ProxyEngineService, RouteAction, RuleSet, SchemaVersion,
 };
 use engine_native::{
-    NativeHttpMitmPluginHook, NativeProxyEngineService, NativeTlsMitmCaMaterial,
-    DEFAULT_NATIVE_ENGINE_ID,
+    NativeHttpMitmPluginHook, NativeNodeScriptExecutor, NativeNodeScriptRuntimeConfig,
+    NativeProxyEngineService, NativeTlsMitmCaMaterial, DEFAULT_NATIVE_ENGINE_ID,
 };
 use engine_singbox::{
     SingBoxManagedProcessRequest, SingBoxManagedProcessState, SingBoxManagedProcessSupervisor,
@@ -20,9 +20,11 @@ use networkcore_windows::{
 };
 use platform_windows::managed::{
     read_managed_config, read_managed_state, write_managed_state, WindowsManagedConfig,
-    WindowsManagedNativeMitmConfig, WindowsManagedState,
+    WindowsManagedNativeMitmConfig, WindowsManagedNativeMitmScriptRuntimeConfig,
+    WindowsManagedState,
 };
 use platform_windows::system_integration::WindowsSystemIntegration;
+use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -552,7 +554,15 @@ fn build_native_mitm_service(
         ));
     }
 
-    let package = builtin_ad_block_plugin_package();
+    let mut package = builtin_ad_block_plugin_package();
+    if let Some(script_runtime) = &config.script_runtime {
+        package = PluginPackage {
+            manifest: package.manifest,
+            source: fs::read_to_string(&script_runtime.policy_source_path).map_err(|_| {
+                runtime_error("native MITM script runtime policy source could not be read")
+            })?,
+        };
+    }
     let policy_service = AnixOpsMitmPluginService::new();
     let plugin_instance = policy_service.load(
         &package,
@@ -561,6 +571,12 @@ fn build_native_mitm_service(
         },
     )?;
     let hook = NativeHttpMitmPluginHook::new(plugin_instance, std::sync::Arc::new(policy_service));
+    let hook = match config.script_runtime.as_ref() {
+        Some(script_runtime) => {
+            hook.with_node_script_executor(build_native_node_script_executor(script_runtime)?)
+        }
+        None => hook,
+    };
 
     Ok(NativeProxyEngineService::new()
         .with_http_mitm_hook(hook)
@@ -568,6 +584,37 @@ fn build_native_mitm_service(
             certificate_pem,
             private_key_pem,
         )))
+}
+
+fn build_native_node_script_executor(
+    config: &WindowsManagedNativeMitmScriptRuntimeConfig,
+) -> DomainResult<NativeNodeScriptExecutor> {
+    if !config.policy_source_path.is_file()
+        || !config.runner_path.is_file()
+        || config.script_maps.values().any(|path| !path.is_file())
+    {
+        return Err(runtime_error(
+            "native MITM script runtime requires existing local policy, runner, and script files",
+        ));
+    }
+    let script_assets = config
+        .script_maps
+        .iter()
+        .map(|(url, path)| (url.clone(), path.display().to_string()))
+        .collect::<BTreeMap<_, _>>();
+    Ok(NativeNodeScriptExecutor::new(
+        NativeNodeScriptRuntimeConfig {
+            node_binary: config.node_binary.clone(),
+            runner_path: config.runner_path.display().to_string(),
+            script_assets,
+            persistent_store_path: config
+                .persistent_store_path
+                .as_ref()
+                .map(|path| path.display().to_string()),
+            max_timeout_ms: 30_000,
+            max_body_bytes: 64 * 1024,
+        },
+    ))
 }
 
 fn native_mitm_proxy_engine_config(config: &WindowsManagedNativeMitmConfig) -> ProxyEngineConfig {

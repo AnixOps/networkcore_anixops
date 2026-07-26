@@ -1,7 +1,7 @@
 # Persistent Subscription Catalog Source Contract
 
-本文定义 `v0.1.2-alpha.1` persistent subscription catalog 的六个源码切片。
-它约束显式本地 catalog 文件的 `add`、`list`、`remove`、`select`、`update` 和 `rollback` 操作。
+本文定义 persistent subscription catalog 的七个源码切片。
+它约束显式本地 catalog 文件的 `add`、`list`、`remove`、`select`、`update`、`rollback` 和前台 `run-catalog` 操作。
 
 ## Source Of Truth
 
@@ -16,9 +16,9 @@
 - `persistent-subscription-catalog-storage=json`
 - `persistent-subscription-catalog-schema-version=1`
 - `persistent-subscription-catalog-default-path=blocked`
-- `persistent-subscription-catalog-remote-fetch=blocked`
-- `persistent-subscription-catalog-file-fetch=blocked`
-- `persistent-subscription-catalog-runtime-start=blocked`
+- `persistent-subscription-catalog-remote-fetch=explicit-foreground-run-catalog-active`
+- `persistent-subscription-catalog-file-fetch=explicit-foreground-run-catalog-active`
+- `persistent-subscription-catalog-runtime-start=explicit-foreground-run-catalog-active`
 
 ## First Operation
 
@@ -124,6 +124,18 @@ catalog JSON。catalog 或 snapshot 路径已存在且不属于本次明确操�
 所有文件路径必须由调用方显式提供。该合同不授权读取用户默认配置目录、环境变量推导路径或
 扫描工作区。
 
+## Seventh Operation
+
+第七个源码增量提供 `networkcore-linux run-catalog <catalog-path> <source-id>` 和
+`handle_run_catalog_with_sing_box`。调用方必须显式提供 catalog 文件路径和 source id；命令读取
+该 source 的内部 location，并将 `inline:` 内容、绝对 `file://` URI、显式 HTTP(S) URL 或直接
+share-link/catalog payload 交给既有 `run-url` 前台 sing-box 路径。`--node-id` 可选择该次运行
+中的归一化节点。
+
+该命令不改变 catalog 或 snapshot，不在 response/diagnostic 中输出 location，不搜索默认路径，
+不刷新或调度 subscription，不建立 daemon、control socket 或后台 runtime。HTTP(S) 行为继承
+`run-url` 的一次前台请求限制。
+
 ## Acceptance Test
 
 第一个合同测试必须证明一次 `add`：
@@ -167,5 +179,13 @@ catalog JSON。catalog 或 snapshot 路径已存在且不属于本次明确操�
 - 保留 snapshot 文件不变；
 - report 不包含当前或 snapshot source location、URL token 或 inline payload；
 - snapshot 缺失或无效时拒绝修改 catalog。
+
+第七个合同测试必须证明一次 `run-catalog`：
+
+- 从显式 catalog/source id 读取保存的 source 并进入前台 sing-box runner；
+- 保存的 HTTP(S) source 通过注入的 remote fetcher 进入同一 runner；
+- 可将 `--node-id` 交给归一化 catalog 的节点选择；
+- 不修改 catalog；
+- source id 不存在时拒绝运行。
 
 测试、构建、格式化、lint 和安全扫描只能在 GitHub Actions 执行。

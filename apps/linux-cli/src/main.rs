@@ -66,6 +66,7 @@ fn main() {
                 &command,
                 networkcore_linux::LinuxCliCommand::InstallSingBox { .. }
                     | networkcore_linux::LinuxCliCommand::RunUrl { .. }
+                    | networkcore_linux::LinuxCliCommand::RunCatalog { .. }
             ) {
                 match engine_singbox::GithubSingBoxReleaseInstaller::new() {
                     Ok(sing_box_installer) => {

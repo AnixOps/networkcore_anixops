@@ -2,16 +2,16 @@
 
 `networkcore-linux` is the Linux CLI entrypoint for NetworkCore.
 
-Current `main` also contains the source-only `CommandSubscriptionCatalogStore` local JSON persistence
-boundary for v0.1.2-alpha.1: `CommandSubscriptionCatalogStore::add_source`,
+Current `main` contains the `CommandSubscriptionCatalogStore` local JSON persistence
+boundary: `CommandSubscriptionCatalogStore::add_source`,
 `CommandSubscriptionCatalogStore::list_sources`, `CommandSubscriptionCatalogStore::remove_source`,
 `CommandSubscriptionCatalogStore::select_source`, `CommandSubscriptionCatalogStore::update_source`, and
 `CommandSubscriptionCatalogStore::rollback_catalog`. Add/remove/update require explicit catalog and rollback
 snapshot paths, the store writes schema version 1, rejects duplicate or missing source ids, and returns
 redacted reports. `CommandSubscriptionCatalogStore::rollback_catalog` restores an explicit validated snapshot
-while retaining that snapshot. These operations are not wired into a CLI command or runtime startup yet;
-default paths, remote/file fetch, and managed lifecycle remain blocked. All six slices have passed their
-GitHub Actions contract tests.
+while retaining that snapshot. `run-catalog <catalog-path> <source-id>` resolves one saved source into the
+existing foreground sing-box path. Default paths, background refresh, and managed lifecycle remain blocked.
+All catalog operations are verified by GitHub Actions contract tests.
 
 Current `main` also contains the source-only `CommandManagedForegroundSessionStore::read_status`,
 `CommandManagedForegroundSessionStore::write_status`, and
@@ -50,6 +50,13 @@ each page at 100 entries, the directory at 256 records, and each record at 65536
 path, recurse, include event-record symlinks discovered during enumeration, tail a file, claim liveness, read logs,
 or control a runtime. Its contract tests are verified only by GitHub Actions.
 
+`CommandManagedForegroundSessionLogStore::read_tail` and `networkcore-linux managed-log <log-file-path>
+[--tail-lines <1-1000>]` form the managed-log slice. They read an explicit
+regular UTF-8 log file, return at most 1000 final lines from a 65536-byte file, and report
+`liveness_verified=false`; it does not create logs, search default locations, tail or stream a file, or control a
+runtime. Text output renders the selected lines; JSON exposes the same bounded report as
+`managed_foreground_log_tail`.
+
 The crate currently provides:
 
 - Command parsing for the first Linux command surface.
@@ -57,7 +64,7 @@ The crate currently provides:
 - Response and diagnostic mapping for help, capabilities, prepare-config, start, stop, status, diagnostics, mitm status/diagnostics/certificate-plan/certificate apply/rollback/browser-plan/browser-capture/http-rewrite, install-sing-box, run-url, and version commands.
 - A foreground lifecycle host source contract for `start` handoff, with default unavailable, current-process, injectable interruption source, Unix OS signal source, and interruption cleanup implementations.
 - JSON response rendering for automation-facing output contracts.
-- A minimal binary that wires `capabilities`, `status`, `diagnostics`, `mitm status/diagnostics/certificate-plan/browser-plan`, `mitm certificate apply/rollback`, `mitm http-rewrite plan/preview`, and `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` to `HostLinuxReadOnlyProbe`, wires `mitm certificate apply/rollback` to `CommandMitmCertificateArtifactStore`, wires `mitm browser-capture launch --confirm` to an injected `BrowserCaptureProcessRunner`, wires `mitm browser-capture verify --confirm` to an injected `BrowserCaptureEndpointProbe`, wires `mitm browser-capture traffic-proof --confirm` to an injected `BrowserCaptureTrafficProofProbe`, wires `prepare-config` to the pure `config-core` service, wires `start` to `engine-native::NativeProxyEngineService` through `RuntimeOrchestrator` with the built-in `networkcore.adblock` MITM plugin hook, wires `install-sing-box` to the `engine-singbox` latest release installer, and wires `run-url` to the `config-core` Shadowsocks URL parser plus `sing-box` config renderer and foreground process runner. Shared `config-core` parser gates can catalog-import Trojan/VLESS/VMess URLs, Clash YAML, sing-box JSON, Surge proxy lines, and Loon proxy lines, but Linux `run-url` still only runs the Shadowsocks URL path.
+- A minimal binary that wires `capabilities`, `status`, `diagnostics`, `mitm status/diagnostics/certificate-plan/browser-plan`, `mitm certificate apply/rollback`, `mitm http-rewrite plan/preview`, and `mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` to `HostLinuxReadOnlyProbe`, wires `mitm certificate apply/rollback` to `CommandMitmCertificateArtifactStore`, wires `mitm browser-capture launch --confirm` to an injected `BrowserCaptureProcessRunner`, wires `mitm browser-capture verify --confirm` to an injected `BrowserCaptureEndpointProbe`, wires `mitm browser-capture traffic-proof --confirm` to an injected `BrowserCaptureTrafficProofProbe`, wires `prepare-config` to the pure `config-core` service, wires `start` to `engine-native::NativeProxyEngineService` through `RuntimeOrchestrator` with the built-in `networkcore.adblock` MITM plugin hook, wires `install-sing-box` to the `engine-singbox` latest release installer, and wires `run-url` to direct `config-core` share-link and catalog parsers plus explicit absolute `file://` and foreground HTTP(S) subscription readers, `sing-box` config renderer, and foreground process runner. Direct `ss://`, `trojan://`, `vless://`, `vmess://`, `hysteria2://`/`hy2://`, and `tuic://` links plus supported Clash YAML, sing-box JSON, Surge/Loon/Quantumult X catalog payloads, one caller-selected absolute `file://` UTF-8 subscription file, or one explicit HTTP(S) subscription can run; persistent catalog control and managed background runtime remain unavailable.
 
 Release/source split: `v0.1.2-alpha.3` is the current source release slice and is downloadable only after its matching GitHub Actions tag workflow succeeds; `v0.1.0` remains the latest stable Linux artifact.
 This README describes current `main` source. The `v0.1.0` artifact
@@ -134,7 +141,7 @@ user flow completion. Any P3 wording in completed changelog or roadmap entries
 is historical context only and must not be used as the current CLI release or
 iteration stage.
 
-`install-sing-box` downloads the latest official `sing-box` release asset into an operator-visible cache and reports the cached executable path; it does not bundle `sing-box` into NetworkCore release artifacts. `run-url <ss://url>` parses a Shadowsocks URL through the subscription model, renders a local `mixed` inbound config for `sing-box`, writes it under the engine cache, and starts `sing-box run -c <config>` in the foreground. The default local proxy is `127.0.0.1:7890`. Clash YAML, sing-box JSON, Surge proxy line, Loon proxy line, and Quantumult X proxy/server line imports are not runnable `run-url` paths yet.
+`install-sing-box` downloads the latest official `sing-box` release asset into an operator-visible cache and reports the cached executable path; it does not bundle `sing-box` into NetworkCore release artifacts. `run-url <share-link-or-file-uri-or-https-url> [--node-id <id>]` parses a direct share link, one caller-selected absolute `file://` UTF-8 subscription file, one explicitly requested HTTP(S) subscription, or supported catalog payload through the subscription model, renders a local `mixed` inbound config for `sing-box`, writes it under the engine cache, and starts `sing-box run -c <config>` in the foreground. `run-catalog <catalog-path> <source-id>` resolves one saved source through the same foreground path. `--node-id` selects one normalized catalog node; when omitted, the first supported node is used. Remote fetching uses a 15-second timeout, five redirect limit, successful HTTP response, 1 MiB UTF-8 response limit, and does not persist or refresh a source. Supported inputs include Shadowsocks, Trojan, VLESS, VMess, Hysteria2/TUIC, Clash YAML, sing-box JSON, Surge, Loon, and Quantumult X proxy data; the default local proxy is `127.0.0.1:7890`. Persistent catalog management is explicit; managed background runtime remains unavailable.
 
 `networkcore-linux mitm status`, `networkcore-linux mitm diagnostics`, `networkcore-linux mitm certificate-plan`, `networkcore-linux mitm certificate apply/rollback`, `networkcore-linux mitm browser-plan`, `networkcore-linux mitm http-rewrite plan/preview`, and `networkcore-linux mitm browser-capture plan/launch-plan/session-plan/launch/apply/rollback/verify/traffic-proof` implement the first partial `MITM_CLI_COMMAND_GATE` surface. They load the built-in `networkcore.adblock` policy through `mitm-policy`, emit `mitm_status` JSON fields, and report `mitm-cli-command-gate-status=partial-active`. `networkcore-linux start` also loads the built-in plugin into `engine-native`; matching plugin `Reject` outcomes are applied at the explicit SOCKS5 CONNECT layer as a SOCKS5 general failure response before outbound selection, and CONNECT hook diagnostics emit the default browser proof token when the target endpoint matches the same proxy URL.
 

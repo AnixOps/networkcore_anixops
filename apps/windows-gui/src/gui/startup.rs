@@ -16,6 +16,14 @@ pub struct DesktopProfileNode {
     pub outbound_tag: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DesktopSubscriptionSource {
+    pub id: String,
+    pub location: String,
+    pub last_successful_update: Option<String>,
+    pub last_update_error: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DesktopState {
     pub proxy_snapshot: Option<WindowsProxySnapshot>,
@@ -51,6 +59,12 @@ pub struct DesktopState {
     pub auto_connect: bool,
     #[serde(default)]
     pub auto_recover_core: bool,
+    #[serde(default)]
+    pub auto_subscription_refresh: bool,
+    #[serde(default)]
+    pub auto_select_fastest_node: bool,
+    #[serde(default)]
+    pub subscription_sources: Vec<DesktopSubscriptionSource>,
 }
 
 pub fn desktop_state_path() -> PathBuf {
@@ -99,6 +113,8 @@ mod tests {
         assert!(!state.start_after_login);
         assert!(!state.auto_connect);
         assert!(!state.auto_recover_core);
+        assert!(!state.auto_subscription_refresh);
+        assert!(!state.auto_select_fastest_node);
         assert!(state.applied_proxy.is_none());
         assert!(state.profile_node_catalog.is_empty());
         assert!(state.profile_config_sha256.is_none());

@@ -17,6 +17,7 @@ use engine_singbox::{
     SingBoxProcessRunner, SingBoxReleaseInstaller, ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE,
     ENGINE_SINGBOX_PROCESS_EXITED_CODE,
 };
+use std::io::Write;
 use networkcore_linux::{
     cli_help_text, handle_capabilities, handle_entrypoint,
     handle_entrypoint_with_browser_capture_all_io, handle_entrypoint_with_browser_capture_io,
@@ -40,16 +41,21 @@ use networkcore_linux::{
     handle_mitm_certificate_apply_with_store, handle_mitm_certificate_plan,
     handle_mitm_certificate_rollback, handle_mitm_certificate_rollback_with_store,
     handle_mitm_http_rewrite_plan, handle_mitm_http_rewrite_preview, handle_mitm_status,
-    handle_parse_error, handle_prepare_config, handle_run_url_with_sing_box, handle_start,
+    handle_parse_error, handle_prepare_config, handle_run_catalog_with_sing_box,
+    handle_run_catalog_with_sing_box_and_fetcher,
+    handle_run_url_with_sing_box,
+    handle_run_url_with_sing_box_and_fetcher, handle_run_url_with_sing_box_and_node_id,
+    handle_start,
     handle_status, handle_stop, native_proxy_engine_service_with_builtin_mitm_plugin,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files, parse_args,
     render_response, BrowserCaptureEndpointProbe, BrowserCapturePacFileStore,
     BrowserCaptureProcessRunner, BrowserCaptureTrafficProofProbe,
     CommandBrowserCaptureEndpointProbe, CommandBrowserCaptureTrafficProofProbe,
-    CommandManagedForegroundSessionEventStore, CommandManagedForegroundSessionStore,
-    CommandSubscriptionCatalogStore, ConfigReadError, ConfigReader,
-    CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
+    CommandManagedForegroundSessionEventStore, CommandManagedForegroundSessionLogStore,
+    CommandManagedForegroundSessionStore, CommandRemoteSubscriptionFetcher,
+    CommandSubscriptionCatalogStore, ConfigReadError,
+    ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
     LinuxBrowserCaptureLaunchRequest, LinuxBrowserCapturePacApplyOutcome,
@@ -60,14 +66,17 @@ use networkcore_linux::{
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
     LinuxNativeMitmRuntimeFileConfig, ManagedForegroundSessionEventHistoryRequest,
     ManagedForegroundSessionEventRequest, ManagedForegroundSessionEventWriteRequest,
-    ManagedForegroundSessionStatusRequest, ManagedForegroundSessionStatusRollbackRequest,
-    ManagedForegroundSessionStatusTransitionRequest, ManagedForegroundSessionStatusWriteRequest,
-    MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
-    SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
-    SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
-    SubscriptionCatalogSelectRequest, SubscriptionCatalogUpdateRequest,
-    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
-    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
+    ManagedForegroundSessionLogTailRequest, ManagedForegroundSessionStatusRequest,
+    ManagedForegroundSessionStatusRollbackRequest, ManagedForegroundSessionStatusTransitionRequest,
+    ManagedForegroundSessionStatusWriteRequest, MitmCertificateArtifactStore,
+    MitmCertificateRollbackSnapshot, OutputFormat, SubscriptionCatalogAddRequest,
+    SubscriptionCatalogListRequest, SubscriptionCatalogRemoveRequest,
+    SubscriptionCatalogRollbackRequest, SubscriptionCatalogSelectRequest,
+    RemoteSubscriptionFetcher, SubscriptionCatalogUpdateRequest, UnavailableForegroundLifecycleHost,
+    UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
+    CLI_CONFIG_READ_FAILED_CODE, CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE,
+    CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE, CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE,
+    CLI_RUN_URL_FILE_READ_FAILED_CODE, CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
@@ -102,9 +111,10 @@ use networkcore_linux::{
     CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE, CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE,
     CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
     CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
-    MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES, MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR,
-    MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH, MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME,
-    MITM_BROWSER_CAPTURE_GATE, MITM_BROWSER_CAPTURE_GATE_STATUS, MITM_BROWSER_CAPTURE_MODE,
+    MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES, MANAGED_FOREGROUND_LOG_TAIL_MAX_BYTES,
+    MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR, MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH,
+    MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME, MITM_BROWSER_CAPTURE_GATE,
+    MITM_BROWSER_CAPTURE_GATE_STATUS, MITM_BROWSER_CAPTURE_MODE,
     MITM_BROWSER_CAPTURE_MUTATION_READY, MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME,
     MITM_BROWSER_CAPTURE_PROOF_QUERY_PARAM, MITM_BROWSER_CAPTURE_PROXY_HOST,
     MITM_BROWSER_CAPTURE_PROXY_PORT, MITM_BROWSER_CAPTURE_SOURCE_CONTRACT_STATUS,
@@ -560,6 +570,145 @@ fn managed_foreground_session_event_history_filters_pages_and_bounds_explicit_di
     );
 
     std::fs::remove_dir_all(&root).expect("managed event history directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_log_tail_reads_explicit_bounded_log_without_liveness_claim() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-log-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("managed log test directory should be created");
+    let log_path = root.join("managed.log");
+    std::fs::write(&log_path, "first\nsecond\nthird\nfourth\n")
+        .expect("managed log fixture should be written");
+
+    let store = CommandManagedForegroundSessionLogStore::new();
+    let report = store
+        .read_tail(&ManagedForegroundSessionLogTailRequest {
+            log_path: log_path.display().to_string(),
+            line_limit: 2,
+        })
+        .expect("managed log tail should be read");
+    assert_eq!(report.log_path, log_path.display().to_string());
+    assert_eq!(report.line_limit, 2);
+    assert_eq!(report.total_line_count, 4);
+    assert_eq!(report.lines, vec!["third", "fourth"]);
+    assert!(!report.liveness_verified);
+
+    let invalid_limit = store
+        .read_tail(&ManagedForegroundSessionLogTailRequest {
+            log_path: log_path.display().to_string(),
+            line_limit: 0,
+        })
+        .expect_err("zero managed log tail limit should be rejected");
+    assert_eq!(
+        invalid_limit.code,
+        CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE
+    );
+
+    std::fs::write(
+        &log_path,
+        "x".repeat((MANAGED_FOREGROUND_LOG_TAIL_MAX_BYTES + 1) as usize),
+    )
+    .expect("oversized managed log fixture should be written");
+    let oversized = store
+        .read_tail(&ManagedForegroundSessionLogTailRequest {
+            log_path: log_path.display().to_string(),
+            line_limit: 1,
+        })
+        .expect_err("oversized managed log should be rejected");
+    assert_eq!(
+        oversized.code,
+        CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE
+    );
+
+    let missing = store
+        .read_tail(&ManagedForegroundSessionLogTailRequest {
+            log_path: root.join("missing.log").display().to_string(),
+            line_limit: 1,
+        })
+        .expect_err("missing managed log should be rejected");
+    assert_eq!(missing.code, CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE);
+
+    std::fs::remove_dir_all(&root).expect("managed log test directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_log_cli_reads_bounded_explicit_log() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-log-cli-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("managed log CLI test directory should be created");
+    let log_path = root.join("session.log");
+    std::fs::write(&log_path, "first\nsecond\nthird\nfourth\n")
+        .expect("managed log CLI fixture should be written");
+    let command = parse_args([
+        "managed-log",
+        log_path
+            .to_str()
+            .expect("managed log CLI path should be UTF-8"),
+        "--tail-lines",
+        "2",
+        "--format",
+        "json",
+    ])
+    .expect("managed-log command should parse");
+    assert!(matches!(
+        &command,
+        LinuxCliCommand::ManagedLog {
+            line_limit: 2,
+            format: OutputFormat::Json,
+            ..
+        }
+    ));
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let before_read = std::fs::read_to_string(&log_path)
+        .expect("managed log CLI fixture should remain readable");
+    let response = handle_entrypoint(command, &platform);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "managed-log");
+    let report = response
+        .managed_foreground_log_tail
+        .as_ref()
+        .expect("managed log CLI response should include the tail report");
+    assert_eq!(report.line_limit, 2);
+    assert_eq!(report.total_line_count, 4);
+    assert_eq!(report.lines, vec!["third", "fourth"]);
+    assert!(!report.liveness_verified);
+    assert_eq!(
+        std::fs::read_to_string(&log_path).expect("managed log CLI fixture should remain readable"),
+        before_read
+    );
+    let text = render_response(&response, OutputFormat::Text);
+    assert!(text.contains("managed foreground log line limit: 2"));
+    assert!(text.contains("managed foreground log line 0: third"));
+    assert!(text.contains("managed foreground liveness verified: false"));
+    let json: serde_json::Value =
+        serde_json::from_str(&render_response(&response, OutputFormat::Json))
+            .expect("managed log response should render JSON");
+    assert_eq!(json["managed_foreground_log_tail"]["line_limit"], 2);
+    assert_eq!(json["managed_foreground_log_tail"]["lines"][0], "third");
+    assert_eq!(
+        json["managed_foreground_log_tail"]["liveness_verified"].as_bool(),
+        Some(false)
+    );
+    let invalid = parse_args([
+        "managed-log",
+        log_path
+            .to_str()
+            .expect("managed log CLI path should be UTF-8"),
+        "--tail-lines",
+        "1001",
+    ]);
+    assert!(invalid.is_err());
+
+    std::fs::remove_dir_all(&root).expect("managed log CLI test directory should be removed");
 }
 
 #[test]
@@ -1721,6 +1870,132 @@ fn subscription_catalog_select_reads_and_redacts_source() {
 }
 
 #[test]
+fn run_catalog_handler_resolves_a_saved_source_into_the_foreground_runner() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-run-catalog-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("run-catalog test directory should be created");
+    let catalog_path = root.join("catalog.json");
+    let engine_dir = root.join("networkcore-engines");
+    std::fs::write(
+        &catalog_path,
+        r#"{
+  "schema_version": 1,
+  "sources": [{
+    "id": "work",
+    "location": "inline:ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF"
+  }]
+}"#,
+    )
+    .expect("run-catalog fixture should be written");
+    let before = std::fs::read_to_string(&catalog_path).expect("catalog should be readable");
+
+    let response = handle_run_catalog_with_sing_box(
+        &TestSingBoxInstaller,
+        &TestSingBoxRunner,
+        catalog_path.to_str().expect("catalog path should be UTF-8"),
+        "work",
+        Some("ss-82-47-34-99-11111"),
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("engine path should be UTF-8")),
+        false,
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "run-catalog");
+    assert_eq!(
+        response
+            .sing_box_run
+            .as_ref()
+            .expect("run-catalog should return run status")
+            .node_id,
+        "ss-82-47-34-99-11111"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&catalog_path).expect("catalog should remain readable"),
+        before
+    );
+
+    let missing = handle_run_catalog_with_sing_box(
+        &TestSingBoxInstaller,
+        &TestSingBoxRunner,
+        catalog_path.to_str().expect("catalog path should be UTF-8"),
+        "missing",
+        None,
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("engine path should be UTF-8")),
+        false,
+    );
+    assert!(!missing.ok);
+    assert_eq!(missing.command, "run-catalog");
+    assert_diagnostic(
+        &missing.diagnostics,
+        "cli.linux.subscription_catalog.source_not_found",
+    );
+
+    std::fs::remove_dir_all(&root).expect("run-catalog test directory should be removed");
+}
+
+#[test]
+fn run_catalog_handler_fetches_a_saved_remote_source_through_the_same_runner() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-run-catalog-remote-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("run-catalog remote test directory should be created");
+    let catalog_path = root.join("catalog.json");
+    let engine_dir = root.join("networkcore-engines");
+    std::fs::write(
+        &catalog_path,
+        r#"{
+  "schema_version": 1,
+  "sources": [{
+    "id": "remote",
+    "location": "https://subscriptions.example.test/work"
+  }]
+}"#,
+    )
+    .expect("run-catalog remote fixture should be written");
+    let fetcher = TestRemoteSubscriptionFetcher::success(
+        "https://subscriptions.example.test/work",
+        "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF",
+    );
+
+    let response = handle_run_catalog_with_sing_box_and_fetcher(
+        &TestSingBoxInstaller,
+        &TestSingBoxRunner,
+        &fetcher,
+        catalog_path.to_str().expect("catalog path should be UTF-8"),
+        "remote",
+        None,
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("engine path should be UTF-8")),
+        false,
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "run-catalog");
+    assert_eq!(
+        response
+            .sing_box_run
+            .as_ref()
+            .expect("remote run-catalog should return run status")
+            .node_id,
+        "ss-82-47-34-99-11111"
+    );
+    assert_eq!(fetcher.requested_location(), "https://subscriptions.example.test/work");
+
+    std::fs::remove_dir_all(&root)
+        .expect("run-catalog remote test directory should be removed");
+}
+
+#[test]
 fn subscription_catalog_update_persists_snapshot_and_redacts_location() {
     let root = std::env::temp_dir().join(format!(
         "networkcore-subscription-catalog-update-contract-{}",
@@ -2586,6 +2861,8 @@ fn parses_run_url_command_with_local_proxy_options() {
         "7891",
         "--install-dir",
         "/tmp/networkcore-engines",
+        "--node-id",
+        "ss-82-47-34-99-11111",
         "--format",
         "json",
     ])
@@ -2595,9 +2872,40 @@ fn parses_run_url_command_with_local_proxy_options() {
         command,
         LinuxCliCommand::RunUrl {
             url: "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF".to_string(),
+            selected_node_id: Some("ss-82-47-34-99-11111".to_string()),
             listen_host: "127.0.0.1".to_string(),
             listen_port: 7891,
             install_dir: Some("/tmp/networkcore-engines".to_string()),
+            force: false,
+            format: OutputFormat::Json,
+        }
+    );
+}
+
+#[test]
+fn parses_run_catalog_command_with_source_and_node_options() {
+    let command = parse_args([
+        "run-catalog",
+        "/tmp/networkcore-catalog.json",
+        "work",
+        "--node-id",
+        "ss-82-47-34-99-11111",
+        "--listen-port",
+        "7891",
+        "--format",
+        "json",
+    ])
+    .expect("run-catalog should parse");
+
+    assert_eq!(
+        command,
+        LinuxCliCommand::RunCatalog {
+            catalog_path: "/tmp/networkcore-catalog.json".to_string(),
+            source_id: "work".to_string(),
+            selected_node_id: Some("ss-82-47-34-99-11111".to_string()),
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7891,
+            install_dir: None,
             force: false,
             format: OutputFormat::Json,
         }
@@ -5957,6 +6265,308 @@ fn run_url_handler_parses_ss_url_writes_sing_box_config_and_uses_runner() {
 }
 
 #[test]
+fn run_url_handler_selects_the_requested_catalog_node() {
+    let install_dir = std::env::temp_dir().join(format!(
+        "networkcore-linux-run-url-node-selection-contract-{}",
+        std::process::id()
+    ));
+    let engine_dir = install_dir.join("networkcore-engines");
+    let _ = std::fs::remove_dir_all(&install_dir);
+    let subscription = concat!(
+        "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF\n",
+        "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.98:11112#US\n"
+    );
+
+    let response = handle_run_url_with_sing_box_and_node_id(
+        &TestSingBoxInstaller,
+        &TestProtocolSingBoxRunner {
+            outbound_type: "shadowsocks",
+        },
+        subscription,
+        Some("ss-82-47-34-98-11112"),
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("temp path should be utf-8")),
+        false,
+    );
+
+    assert!(response.ok);
+    let run = response
+        .sing_box_run
+        .as_ref()
+        .expect("node-selected run should produce a run status");
+    assert_eq!(run.node_id, "ss-82-47-34-98-11112");
+    assert_eq!(run.node_name, "US");
+
+    let missing_node_response = handle_run_url_with_sing_box_and_node_id(
+        &TestSingBoxInstaller,
+        &TestProtocolSingBoxRunner {
+            outbound_type: "shadowsocks",
+        },
+        subscription,
+        Some("missing-node"),
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("temp path should be utf-8")),
+        false,
+    );
+    assert!(!missing_node_response.ok);
+    assert_eq!(missing_node_response.exit_code, LinuxCliExitCode::ArgumentOrConfig);
+
+    let _ = std::fs::remove_dir_all(&install_dir);
+}
+
+#[test]
+fn run_url_handler_reads_an_explicit_file_uri_through_the_subscription_parser() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-linux-run-url-file-contract-{}",
+        std::process::id()
+    ));
+    let engine_dir = root.join("networkcore-engines");
+    let subscription_path = root.join("subscription.txt");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("run-url file test directory should be created");
+    std::fs::write(
+        &subscription_path,
+        "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF\n",
+    )
+    .expect("run-url file subscription fixture should be written");
+
+    let response = handle_run_url_with_sing_box(
+        &TestSingBoxInstaller,
+        &TestSingBoxRunner,
+        &format!("file://{}", subscription_path.display()),
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("temp path should be utf-8")),
+        false,
+    );
+
+    assert!(response.ok);
+    assert_eq!(
+        response
+            .sing_box_run
+            .as_ref()
+            .expect("file URI run should produce a run status")
+            .node_id,
+        "ss-82-47-34-99-11111"
+    );
+
+    let missing_response = handle_run_url_with_sing_box(
+        &TestSingBoxInstaller,
+        &TestSingBoxRunner,
+        &format!("file://{}", root.join("missing.txt").display()),
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("temp path should be utf-8")),
+        false,
+    );
+    assert!(!missing_response.ok);
+    assert_diagnostic(
+        &missing_response.diagnostics,
+        CLI_RUN_URL_FILE_READ_FAILED_CODE,
+    );
+
+    std::fs::remove_dir_all(&root).expect("run-url file test directory should be removed");
+}
+
+#[test]
+fn run_url_handler_fetches_an_explicit_remote_subscription_through_the_same_parser() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-linux-run-url-remote-contract-{}",
+        std::process::id()
+    ));
+    let engine_dir = root.join("networkcore-engines");
+    let _ = std::fs::remove_dir_all(&root);
+    let fetcher = TestRemoteSubscriptionFetcher::success(
+        "https://subscriptions.example.test/profile",
+        "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF",
+    );
+
+    let response = handle_run_url_with_sing_box_and_fetcher(
+        &TestSingBoxInstaller,
+        &TestSingBoxRunner,
+        &fetcher,
+        "https://subscriptions.example.test/profile",
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("temp path should be utf-8")),
+        false,
+    );
+
+    assert!(response.ok);
+    assert_eq!(fetcher.requested_location(), "https://subscriptions.example.test/profile");
+    assert_eq!(
+        response
+            .sing_box_run
+            .as_ref()
+            .expect("remote subscription run should produce a run status")
+            .node_id,
+        "ss-82-47-34-99-11111"
+    );
+
+    let failed_fetcher = TestRemoteSubscriptionFetcher::failure();
+    let failed_response = handle_run_url_with_sing_box_and_fetcher(
+        &TestSingBoxInstaller,
+        &TestSingBoxRunner,
+        &failed_fetcher,
+        "https://subscriptions.example.test/unavailable",
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("temp path should be utf-8")),
+        false,
+    );
+    assert!(!failed_response.ok);
+    assert_diagnostic(
+        &failed_response.diagnostics,
+        CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn command_remote_subscription_fetcher_reads_a_loopback_http_subscription() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")
+        .expect("loopback subscription fixture should bind");
+    let address = listener
+        .local_addr()
+        .expect("loopback subscription fixture should report its address");
+    let body =
+        "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF";
+    let expected_body = body.to_string();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener
+            .accept()
+            .expect("loopback subscription fixture should accept one request");
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        stream
+            .write_all(response.as_bytes())
+            .expect("loopback subscription fixture should return its response");
+    });
+
+    let fetched = CommandRemoteSubscriptionFetcher::new()
+        .fetch_subscription(&format!("http://{address}/subscription"))
+        .expect("remote subscription fetcher should read loopback HTTP content");
+
+    assert_eq!(fetched, expected_body);
+    server
+        .join()
+        .expect("loopback subscription fixture thread should complete");
+}
+
+#[test]
+fn run_url_handler_runs_supported_direct_share_link_protocols() {
+    let cases = [
+        (
+            "trojan://pa%40ss@example.com:443?sni=edge.example.com#Trojan",
+            "trojan",
+        ),
+        (
+            "vless://2f4d1d6d-7fd5-4a0f-90f0-1d3fb2fb5f1d@example.net:443?encryption=none&type=tcp#VLESS",
+            "vless",
+        ),
+        (
+            "vmess://eyJ2IjoiMiIsInBzIjoiVk1lc3MiLCJhZGQiOiJ2bWVzcy5leGFtcGxlLnRlc3QiLCJwb3J0IjoiNDQzIiwiaWQiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDMiLCJhaWQiOiIwIiwic2N5IjoiYXV0byIsIm5ldCI6InRjcCIsInRscyI6InRscyIsInNuaSI6InZtZXNzLmV4YW1wbGUudGVzdCJ9",
+            "vmess",
+        ),
+        (
+            "hysteria2://hy2-password@edge.example.test:443?sni=cdn.example.test&insecure=1#Hysteria2",
+            "hysteria2",
+        ),
+        (
+            "tuic://00000000-0000-0000-0000-000000000001:tuic-password@tuic.example.test:443?sni=cdn.tuic.example.test&allowInsecure=1&congestion_control=bbr#TUIC",
+            "tuic",
+        ),
+    ];
+
+    for (index, (url, outbound_type)) in cases.into_iter().enumerate() {
+        let install_dir = std::env::temp_dir().join(format!(
+            "networkcore-linux-run-url-protocol-contract-{}-{index}",
+            std::process::id()
+        ));
+        let engine_dir = install_dir.join("networkcore-engines");
+        let _ = std::fs::remove_dir_all(&install_dir);
+
+        let response = handle_run_url_with_sing_box(
+            &TestSingBoxInstaller,
+            &TestProtocolSingBoxRunner { outbound_type },
+            url,
+            "127.0.0.1",
+            7890,
+            Some(engine_dir.to_str().expect("temp path should be utf-8")),
+            false,
+        );
+
+        assert!(response.ok, "{outbound_type} direct link should run");
+        assert_eq!(response.exit_code, LinuxCliExitCode::Success);
+        assert!(response.sing_box_run.is_some());
+        let _ = std::fs::remove_dir_all(&install_dir);
+    }
+}
+
+#[test]
+fn run_url_handler_runs_supported_catalog_payload_formats() {
+    let cases = [
+        (
+            r#"
+proxies:
+  - name: HK Clash
+    type: ss
+    server: 82.47.34.99
+    port: 11111
+    cipher: aes-256-gcm
+    password: f43c0eee-13b9-4f07-bec9-d4b744141503
+"#,
+            "shadowsocks",
+        ),
+        (
+            r#"{"outbounds":[{"type":"shadowsocks","tag":"HK sing-box","server":"82.47.34.99","server_port":11111,"method":"aes-256-gcm","password":"f43c0eee-13b9-4f07-bec9-d4b744141503"}]}"#,
+            "shadowsocks",
+        ),
+        (
+            "[General]\n[Proxy]\nHK Surge = ss, 82.47.34.99, 11111, encrypt-method=aes-256-gcm, password=f43c0eee-13b9-4f07-bec9-d4b744141503\n",
+            "shadowsocks",
+        ),
+        (
+            "[General]\n[Proxy]\nHK Loon = Shadowsocks, 82.47.34.99, 11111, aes-256-gcm, \"f43c0eee-13b9-4f07-bec9-d4b744141503\"\n",
+            "shadowsocks",
+        ),
+        (
+            "[server_local]\nshadowsocks=82.47.34.99:11111, method=aes-256-gcm, password=\"f43c0eee-13b9-4f07-bec9-d4b744141503\", tag=HK Quantumult X\n",
+            "shadowsocks",
+        ),
+    ];
+
+    for (index, (payload, outbound_type)) in cases.into_iter().enumerate() {
+        let install_dir = std::env::temp_dir().join(format!(
+            "networkcore-linux-run-url-catalog-contract-{}-{index}",
+            std::process::id()
+        ));
+        let engine_dir = install_dir.join("networkcore-engines");
+        let _ = std::fs::remove_dir_all(&install_dir);
+
+        let response = handle_run_url_with_sing_box(
+            &TestSingBoxInstaller,
+            &TestProtocolSingBoxRunner { outbound_type },
+            payload,
+            "127.0.0.1",
+            7890,
+            Some(engine_dir.to_str().expect("temp path should be utf-8")),
+            false,
+        );
+
+        assert!(response.ok, "catalog payload {index} should run");
+        assert_eq!(response.exit_code, LinuxCliExitCode::Success);
+        let _ = std::fs::remove_dir_all(&install_dir);
+    }
+}
+
+#[test]
 fn foreground_lifecycle_contract_reports_missing_host_without_start_wiring() {
     let response = handle_foreground_lifecycle(
         runtime_operation_result(
@@ -7072,6 +7682,41 @@ struct TestForegroundLifecycleInterruptionSource {
 
 struct TestSingBoxInstaller;
 
+struct TestRemoteSubscriptionFetcher {
+    expected_location: &'static str,
+    result: DomainResult<String>,
+}
+
+impl TestRemoteSubscriptionFetcher {
+    fn success(expected_location: &'static str, content: &str) -> Self {
+        Self {
+            expected_location,
+            result: Ok(content.to_string()),
+        }
+    }
+
+    fn failure() -> Self {
+        Self {
+            expected_location: "https://subscriptions.example.test/unavailable",
+            result: Err(DomainError::new(
+                CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
+                "remote subscription fixture is unavailable",
+            )),
+        }
+    }
+
+    fn requested_location(&self) -> &str {
+        self.expected_location
+    }
+}
+
+impl RemoteSubscriptionFetcher for TestRemoteSubscriptionFetcher {
+    fn fetch_subscription(&self, location: &str) -> DomainResult<String> {
+        assert_eq!(location, self.expected_location);
+        self.result.clone()
+    }
+}
+
 impl SingBoxReleaseInstaller for TestSingBoxInstaller {
     fn install_latest(
         &self,
@@ -7159,6 +7804,27 @@ impl SingBoxProcessRunner for TestSingBoxRunner {
                 DiagnosticSeverity::Info,
                 ENGINE_SINGBOX_PROCESS_EXITED_CODE,
                 "sing-box test runner exited",
+                Some("engine.singbox.lifecycle".to_string()),
+            )],
+        })
+    }
+}
+
+struct TestProtocolSingBoxRunner {
+    outbound_type: &'static str,
+}
+
+impl SingBoxProcessRunner for TestProtocolSingBoxRunner {
+    fn run(&self, request: &SingBoxProcessRunRequest) -> DomainResult<SingBoxProcessRunReport> {
+        let config = std::fs::read_to_string(&request.config_path)
+            .expect("run-url should write a sing-box config before starting the runner");
+        assert!(config.contains(&format!("\"type\": \"{}\"", self.outbound_type)));
+        Ok(SingBoxProcessRunReport {
+            exit_code: Some(0),
+            diagnostics: vec![Diagnostic::new(
+                DiagnosticSeverity::Info,
+                ENGINE_SINGBOX_PROCESS_EXITED_CODE,
+                "sing-box protocol test runner exited",
                 Some("engine.singbox.lifecycle".to_string()),
             )],
         })

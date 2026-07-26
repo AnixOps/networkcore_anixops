@@ -1,11 +1,13 @@
 use platform_windows::managed::{
     read_managed_config, WindowsDriverPackageConfig, WindowsManagedConfig,
-    WindowsManagedNativeMitmConfig, WindowsManagedSingBoxConfig, WindowsManagedState,
-    WindowsManagedTunnelConfig, WindowsProxySettings, WindowsProxySnapshot,
-    WindowsSystemProxyOwner, WINDOWS_MANAGED_CONFIG_INVALID_CODE,
-    WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION, WINDOWS_MANAGED_STATE_SCHEMA_VERSION,
+    WindowsManagedNativeMitmConfig, WindowsManagedNativeMitmScriptRuntimeConfig,
+    WindowsManagedSingBoxConfig, WindowsManagedState, WindowsManagedTunnelConfig,
+    WindowsProxySettings, WindowsProxySnapshot, WindowsSystemProxyOwner,
+    WINDOWS_MANAGED_CONFIG_INVALID_CODE, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
+    WINDOWS_MANAGED_STATE_SCHEMA_VERSION,
 };
 use platform_windows::system_integration::{WindowsServiceState, NETWORKCORE_WINDOWS_SERVICE_NAME};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 fn fixture_tunnel() -> WindowsManagedTunnelConfig {
@@ -204,6 +206,20 @@ fn managed_configuration_accepts_native_https_mitm_with_explicit_socks_upstream(
             sing_box_config_snapshot_path: Some(PathBuf::from(
                 r"C:\ProgramData\AnixOps\NetworkCore\mitm\sing-box-config.before-mitm.json",
             )),
+            script_runtime: Some(WindowsManagedNativeMitmScriptRuntimeConfig {
+                policy_source_path: PathBuf::from(
+                    r"C:\ProgramData\AnixOps\NetworkCore\scripts\policy.conf",
+                ),
+                runner_path: PathBuf::from(r"C:\ProgramData\AnixOps\NetworkCore\scripts\runner.js"),
+                node_binary: r"C:\Program Files\nodejs\node.exe".to_string(),
+                script_maps: BTreeMap::from([(
+                    "https://scripts.networkcore.test/rewrite.js".to_string(),
+                    PathBuf::from(r"C:\ProgramData\AnixOps\NetworkCore\scripts\rewrite.js"),
+                )]),
+                persistent_store_path: Some(PathBuf::from(
+                    r"C:\ProgramData\AnixOps\NetworkCore\scripts\store.json",
+                )),
+            }),
         }),
     };
 
@@ -214,6 +230,10 @@ fn managed_configuration_accepts_native_https_mitm_with_explicit_socks_upstream(
     let mut json = serde_json::to_value(&config).expect("native MITM config serializes");
     assert_eq!(json["native_mitm"]["listen_port"], 7890);
     assert_eq!(json["native_mitm"]["upstream_socks_port"], 7891);
+    assert_eq!(
+        json["native_mitm"]["script_runtime"]["policy_source_path"],
+        r"C:\ProgramData\AnixOps\NetworkCore\scripts\policy.conf"
+    );
     assert_eq!(
         json["native_mitm"]["sing_box_config_snapshot_path"],
         r"C:\ProgramData\AnixOps\NetworkCore\mitm\sing-box-config.before-mitm.json"

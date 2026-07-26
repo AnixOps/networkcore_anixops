@@ -104,7 +104,7 @@ The Linux CLI must expose:
 - `networkcore-linux help`
 - `networkcore-linux --help`
 - `networkcore-linux install-sing-box [--install-dir <dir>] [--force]`
-- `networkcore-linux run-url <ss://url> [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force]`
+- `networkcore-linux run-url <share-link> [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force]`
 - `networkcore-linux sing-box install [--install-dir <dir>] [--force]`
 
 Missing or unknown commands may still return parse errors, but their text output

@@ -75,6 +75,61 @@ experience production-ready:
    interrupted GUI-owned proxy recovery fails, confirm it stops after that
    attempt, shows the in-page recovery error, and `Restore network settings`
    performs the explicit retry.
+10. With an elevated Windows desktop, enable and disable HTTPS MITM for both a
+    native sing-box JSON profile and a generated NodeCatalog profile. Confirm
+    the service proxy points at the native local listener while enabled, the
+    native JSON listener snapshot is restored on disable, and the
+    service-recorded CA is removed.
+11. With native HTTPS MITM enabled and the service stopped, configure Script
+    dispatch with an existing local policy source containing a `[Script]`
+    rule, an existing local Node runner, the selected Node executable, a
+    local HTTP(S)-URL-to-script mapping, and, when used, a writable local
+    persistent store. Start the service and send matching traffic through the
+    managed listener. Preserve the native script-executed diagnostic and the
+    resulting traffic evidence, then stop the service, clear the runtime, and
+    confirm the next start neither loads the policy nor emits that diagnostic.
+12. Import a native sing-box profile containing both a selector and a
+    non-selector outbound group. With the service stopped, record the listed
+    groups, switch the selector default to a listed member, and replace one
+    group's same-tag JSON using its Advanced editor. Verify the saved managed
+    JSON changes only that group, start the service, and retain the relevant
+    sing-box check/runtime evidence. Restore the original group JSON after
+    the proof.
+13. While each of Connect, Disconnect, Restart service, selector check/switch,
+    service install/start/stop, proxy recovery, TUN/DNS/script configuration,
+    HTTPS MITM enable/disable, and certificate/driver lifecycle is pending,
+    keep the GUI visible and interact with a non-mutating view. Confirm its
+    window continues to repaint and shows a single pending operation instead
+    of freezing or submitting a duplicate mutation. Record any SCM, UAC, or
+    system-API delay that cannot be reproduced in headless CI.
+
+GitHub-hosted Windows runners cannot provide WebView interaction, an operator's
+trusted MITM CA, locally approved Node runner and script assets, or authoritative
+live traffic through the interactive desktop proxy. The above evidence complements,
+rather than replaces, the GitHub Actions Rust, TypeScript, MSI, and portable-package
+verification.
+
+## Windows Tauri Dependency Lock Refresh
+
+The Windows GUI now declares Tauri and a pnpm-managed React frontend. Repository
+policy prohibits generating Cargo or pnpm lockfiles locally. An authorized GitHub
+Actions workflow run must resolve and commit the updated `Cargo.lock` and
+`apps/windows-gui/ui/pnpm-lock.yaml` before the `--locked` Rust and frozen pnpm
+checks can pass. After that commit, rerun CI and the Windows MSI workflow; do not
+generate either lockfile on a developer workstation.
+
+## HTTP/2 and HTTP/3 MITM Dependency Lock Refresh
+
+The current native MITM path deliberately remains HTTP/1.1. A future live
+HTTP/2/HTTP/3 implementation must use maintained protocol crates for HTTP/2
+framing/HPACK and HTTP/3/QUIC/QPACK; it must not add hand-written protocol
+parsers to the blocking listener. The maintainer must resolve and commit the
+Cargo.lock changes from an authorized GitHub Actions dependency-refresh run,
+then run the locked Linux, macOS, and Windows Rust matrix before source or
+release markers can claim H2/H3 support. The refresh must also record the
+selected crate versions, license/NOTICE review, ALPN behavior, QUIC UDP
+listener boundary, bounded stream/body limits, and rollback behavior. No local
+dependency resolution, build, or protocol runtime smoke test is allowed.
 
 ## 当前待处理
 

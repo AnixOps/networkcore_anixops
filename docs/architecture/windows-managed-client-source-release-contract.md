@@ -79,7 +79,7 @@ provides one, extracts `sing-box.exe` under `%ProgramData%`, and persists its
 path for profile import. The MSI itself neither bundles nor silently downloads
 the third-party core.
 
-`v0.2.0-alpha.22` retains the native Rust/Win32 GUI and splits daily UI state,
+`v0.2.0-alpha.22` uses a Tauri/React desktop view with a Rust-owned command bridge and splits daily UI state,
 runtime observation, background command dispatch, and theme into dedicated GUI
 modules. Its six daily pages are Home, Nodes, Subscriptions, Settings,
 Diagnostics, and Advanced. `Connected` requires independent SCM,
@@ -212,8 +212,9 @@ driver, and tunnel state.
 
 `root_certificate_path` remains a separate generic trust-store lifecycle
 operation. Native MITM supports explicit loopback HTTP proxy clients and
-controlled HTTP/1.1 TLS exchanges only. HTTP/2 and HTTP/3/QUIC MITM, chunked
-or streaming exchanges, multi-request CONNECT sessions, arbitrary plugin
+controlled HTTP/1.1 TLS exchanges with bounded `Content-Length` or `chunked`
+body framing only. HTTP/2 and HTTP/3/QUIC MITM, compression, streaming
+exchanges, multi-request CONNECT sessions, arbitrary plugin
 loading, XHTTP/ECH/multiplex inference for generated link profiles, remote
 scripts, TUN, DNS interception, firewall changes, and transparent capture remain
 unavailable. Scheduled remote subscriptions, persistent remote subscription

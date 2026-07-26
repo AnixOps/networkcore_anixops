@@ -69,6 +69,12 @@ pub const ENGINE_NATIVE_START_SERVICE_RUNTIME_OWNER_MISSING_CODE: &str =
 pub const ENGINE_NATIVE_START_RUNNING_CODE: &str = "engine.native.start.running";
 pub const ENGINE_NATIVE_START_BIND_FAILED_CODE: &str = "engine.native.start.bind_failed";
 pub const ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE: &str = "engine.native.start.lifecycle_failed";
+pub const ENGINE_NATIVE_RELOAD_RUNTIME_MISSING_CODE: &str =
+    "engine.native.reload.runtime_missing";
+pub const ENGINE_NATIVE_RELOAD_RUNNING_CODE: &str = "engine.native.reload.running";
+pub const ENGINE_NATIVE_RELOAD_FAILED_CODE: &str = "engine.native.reload.failed";
+pub const ENGINE_NATIVE_RELOAD_ROLLBACK_FAILED_CODE: &str =
+    "engine.native.reload.rollback_failed";
 pub const ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE: &str =
     "engine.native.runtime.listener_disabled";
 pub const ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE: &str =
@@ -3656,18 +3662,14 @@ where
             "native explicit HTTP proxy request line is invalid",
         );
     }
-    let body_len = match http_content_length(&headers, HTTP_PROXY_MAX_BODY_BYTES) {
-        Ok(body_len) => body_len,
+    let body = match read_http_body(reader, &headers, HTTP_PROXY_MAX_BODY_BYTES) {
+        Ok(body) => body,
         Err(()) => {
             return explicit_http_proxy_request_invalid(
-                "native explicit HTTP proxy request body framing is unsupported",
+                "native explicit HTTP proxy request body framing is unsupported or exceeds the limit",
             );
         }
     };
-    let mut body = vec![0_u8; body_len];
-    if body_len > 0 && reader.read_exact(&mut body).is_err() {
-        return explicit_http_proxy_request_read_failed();
-    }
     let Some(parsed_target) = parse_explicit_http_proxy_target(method, target, &headers) else {
         return explicit_http_proxy_request_invalid(
             "native explicit HTTP proxy request target is unsupported",
@@ -3799,14 +3801,10 @@ where
         return plain_http_proxy_response_read_failed();
     }
     let reason_phrase = status_parts.next().unwrap_or("").to_string();
-    let body_len = match http_content_length(&headers, HTTP_PROXY_MAX_BODY_BYTES) {
-        Ok(body_len) => body_len,
+    let body = match read_http_body(reader, &headers, HTTP_PROXY_MAX_BODY_BYTES) {
+        Ok(body) => body,
         Err(()) => return plain_http_proxy_response_read_failed(),
     };
-    let mut body = vec![0_u8; body_len];
-    if body_len > 0 && reader.read_exact(&mut body).is_err() {
-        return plain_http_proxy_response_read_failed();
-    }
 
     NativePlainHttpProxyResponseReadReport {
         response: Some(NativePlainHttpProxyResponse {
@@ -3844,19 +3842,21 @@ pub fn serialize_explicit_http_proxy_request_for_upstream(
         })
         .map(|(_, target)| target.origin_path)
         .unwrap_or_else(|| request.origin_path.clone());
+    let had_body_framing = request.headers.iter().any(|header| {
+        header.key.eq_ignore_ascii_case("Content-Length")
+            || header.key.eq_ignore_ascii_case("Transfer-Encoding")
+    });
     let mut headers = rewrite_report.headers.clone();
     headers.retain(|header| !header.key.eq_ignore_ascii_case("Proxy-Connection"));
+    remove_plain_http_header(&mut headers, "Transfer-Encoding");
+    remove_plain_http_header(&mut headers, "Content-Length");
     set_plain_http_header(
         &mut headers,
         "Host",
         &http_host_header_authority(&request.target_host, request.target_port),
     );
     set_plain_http_header(&mut headers, "Connection", "close");
-    if !rewrite_report.body.is_empty()
-        || headers
-            .iter()
-            .any(|header| header.key.eq_ignore_ascii_case("Content-Length"))
-    {
+    if !rewrite_report.body.is_empty() || had_body_framing {
         set_plain_http_header(
             &mut headers,
             "Content-Length",
@@ -3881,6 +3881,9 @@ pub fn serialize_plain_http_proxy_response(
     if let Some(location) = &rewrite_report.redirect_location {
         set_plain_http_header(&mut headers, "Location", location);
     }
+    remove_plain_http_header(&mut headers, "Transfer-Encoding");
+    remove_plain_http_header(&mut headers, "Content-Length");
+    remove_plain_http_header(&mut headers, "Connection");
     set_plain_http_header(&mut headers, "Connection", "close");
     set_plain_http_header(
         &mut headers,
@@ -4375,9 +4378,15 @@ impl NativeRuntimeAssembly {
     }
 }
 
+#[derive(Debug)]
+struct NativeManagedRuntime {
+    handle: NativeRuntimeHandle,
+    config: ProxyEngineConfig,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct NativeProxyEngineService {
-    runtime: Arc<Mutex<Option<NativeRuntimeHandle>>>,
+    runtime: Arc<Mutex<Option<NativeManagedRuntime>>>,
     lifecycle_events: Arc<Mutex<Vec<ProxyEngineEvent>>>,
     http_mitm_hook: Option<NativeHttpMitmPluginHook>,
     tls_mitm_ca_material: Option<NativeTlsMitmCaMaterial>,
@@ -4415,7 +4424,7 @@ impl NativeProxyEngineService {
 
     fn runtime_state(
         &self,
-    ) -> DomainResult<std::sync::MutexGuard<'_, Option<NativeRuntimeHandle>>> {
+    ) -> DomainResult<std::sync::MutexGuard<'_, Option<NativeManagedRuntime>>> {
         self.runtime.lock().map_err(|_| lifecycle_state_error())
     }
 
@@ -4434,6 +4443,27 @@ impl NativeProxyEngineService {
 
         self.lifecycle_event_state()?.extend(events);
         Ok(())
+    }
+
+    fn start_runtime_handle(
+        &self,
+        engine_config: &ProxyEngineConfig,
+    ) -> DomainResult<NativeRuntimeHandle> {
+        let plan = NativeRuntimeAssemblyPlan::from_config(engine_config)?;
+        let assembly = match plan
+            .start_loopback_accept_loop_with_http_mitm_hook_and_tls_mitm_ca_material(
+                self.http_mitm_hook.clone(),
+                self.tls_mitm_ca_material.clone(),
+            ) {
+            Ok(assembly) => assembly,
+            Err(failure) => {
+                let NativeRuntimeStartupFailure { error, release } = *failure;
+                self.record_events(release.events)?;
+                return Err(error);
+            }
+        };
+
+        assembly.finish()
     }
 }
 
@@ -4531,48 +4561,107 @@ impl ProxyEngineService for NativeProxyEngineService {
         {
             let runtime = self.runtime_state()?;
             if let Some(runtime) = runtime.as_ref() {
-                return Ok(running_status(runtime));
+                return Ok(running_status(&runtime.handle));
             }
         }
 
-        let plan = NativeRuntimeAssemblyPlan::from_config(engine_config)?;
-        let assembly = match plan
-            .start_loopback_accept_loop_with_http_mitm_hook_and_tls_mitm_ca_material(
-                self.http_mitm_hook.clone(),
-                self.tls_mitm_ca_material.clone(),
-            ) {
-            Ok(assembly) => assembly,
-            Err(failure) => {
-                let NativeRuntimeStartupFailure { error, release } = *failure;
-                let _ = self.record_events(release.events);
-                return Err(error);
-            }
-        };
-        let handle = assembly.finish()?;
+        let handle = self.start_runtime_handle(engine_config)?;
         let status = running_status(&handle);
         let start_events = handle.events().to_vec();
 
         let mut runtime = self.runtime_state()?;
         if let Some(existing_runtime) = runtime.as_ref() {
-            let status = running_status(existing_runtime);
+            let status = running_status(&existing_runtime.handle);
             drop(runtime);
             let _ = handle.release();
             return Ok(status);
         }
 
         self.lifecycle_event_state()?.extend(start_events);
-        *runtime = Some(handle);
+        *runtime = Some(NativeManagedRuntime {
+            handle,
+            config: engine_config.clone(),
+        });
 
         Ok(status)
     }
 
     fn reload(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {
         ensure_native_engine_id(&engine_config.engine_id)?;
+        let readiness = assess_native_proxy_engine_start_readiness(engine_config);
+        if readiness.readiness == NativeProxyEngineStartReadiness::Blocked {
+            let diagnostic = readiness
+                .diagnostics
+                .into_iter()
+                .find(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+                .unwrap_or_else(|| {
+                    engine_diagnostic(
+                        DiagnosticSeverity::Error,
+                        ENGINE_NATIVE_RELOAD_FAILED_CODE,
+                        "native proxy runtime reload configuration is unavailable",
+                        SOURCE_ENGINE_NATIVE_LIFECYCLE,
+                    )
+                });
+            return Err(domain_error(diagnostic.code, diagnostic.message));
+        }
 
-        Err(domain_error(
-            ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
-            "native proxy runtime service lifecycle is not wired yet",
-        ))
+        let previous = {
+            let mut runtime = self.runtime_state()?;
+            runtime.take()
+        };
+        let Some(previous) = previous else {
+            return Err(domain_error(
+                ENGINE_NATIVE_RELOAD_RUNTIME_MISSING_CODE,
+                "native proxy runtime reload requires a running current-process runtime",
+            ));
+        };
+
+        let previous_config = previous.config;
+        let release = previous.handle.release();
+        if let Some(event) = release.events.last().cloned() {
+            self.record_events(vec![event])?;
+        }
+
+        match self.start_runtime_handle(engine_config) {
+            Ok(handle) => {
+                let start_events = handle.events().to_vec();
+                let status = reloaded_status(&handle);
+                *self.runtime_state()? = Some(NativeManagedRuntime {
+                    handle,
+                    config: engine_config.clone(),
+                });
+                self.record_events(start_events)?;
+                self.record_events(vec![runtime_event(
+                    &engine_config.engine_id,
+                    ProxyEngineEventKind::Reloaded,
+                    vec![engine_diagnostic(
+                        DiagnosticSeverity::Info,
+                        ENGINE_NATIVE_RELOAD_RUNNING_CODE,
+                        "native proxy runtime reloaded in the current process",
+                        SOURCE_ENGINE_NATIVE_LIFECYCLE,
+                    )],
+                )])?;
+                Ok(status)
+            }
+            Err(_) => match self.start_runtime_handle(&previous_config) {
+                Ok(handle) => {
+                    let rollback_events = handle.events().to_vec();
+                    *self.runtime_state()? = Some(NativeManagedRuntime {
+                        handle,
+                        config: previous_config,
+                    });
+                    self.record_events(rollback_events)?;
+                    Err(domain_error(
+                        ENGINE_NATIVE_RELOAD_FAILED_CODE,
+                        "native proxy runtime reload failed; previous configuration was restored",
+                    ))
+                }
+                Err(_) => Err(domain_error(
+                    ENGINE_NATIVE_RELOAD_ROLLBACK_FAILED_CODE,
+                    "native proxy runtime reload failed and previous configuration could not be restored",
+                )),
+            },
+        }
     }
 
     fn stop(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
@@ -4586,7 +4675,7 @@ impl ProxyEngineService for NativeProxyEngineService {
             return Ok(stopped_status(engine_id));
         };
 
-        let release = handle.release();
+        let release = handle.handle.release();
         let release_event = release.events.last().cloned();
         let status = ProxyEngineStatus {
             engine_id: release.engine_id.clone(),
@@ -4606,7 +4695,7 @@ impl ProxyEngineService for NativeProxyEngineService {
         {
             let runtime = self.runtime_state()?;
             if let Some(runtime) = runtime.as_ref() {
-                return Ok(runtime.foreground_handoff_status());
+                return Ok(runtime.handle.foreground_handoff_status());
             }
         }
 
@@ -4626,6 +4715,17 @@ fn running_status(handle: &NativeRuntimeHandle) -> ProxyEngineStatus {
         DiagnosticSeverity::Info,
         ENGINE_NATIVE_START_RUNNING_CODE,
         "native proxy runtime is running in the current process",
+        SOURCE_ENGINE_NATIVE_LIFECYCLE,
+    ));
+    status
+}
+
+fn reloaded_status(handle: &NativeRuntimeHandle) -> ProxyEngineStatus {
+    let mut status = running_status(handle);
+    status.diagnostics.push(engine_diagnostic(
+        DiagnosticSeverity::Info,
+        ENGINE_NATIVE_RELOAD_RUNNING_CODE,
+        "native proxy runtime reloaded in the current process",
         SOURCE_ENGINE_NATIVE_LIFECYCLE,
     ));
     status
@@ -5157,12 +5257,6 @@ fn parse_http_start_line_and_headers(header_text: &str) -> Option<(&str, Vec<Met
 }
 
 fn http_content_length(headers: &[MetadataEntry], max_len: usize) -> Result<usize, ()> {
-    if headers.iter().any(|header| {
-        header.key.eq_ignore_ascii_case("Transfer-Encoding") && !header.value.trim().is_empty()
-    }) {
-        return Err(());
-    }
-
     let mut content_length = None;
     for header in headers
         .iter()
@@ -5179,6 +5273,120 @@ fn http_content_length(headers: &[MetadataEntry], max_len: usize) -> Result<usiz
     }
 
     Ok(content_length.unwrap_or(0))
+}
+
+fn read_http_body<R>(
+    reader: &mut R,
+    headers: &[MetadataEntry],
+    max_len: usize,
+) -> Result<Vec<u8>, ()>
+where
+    R: Read,
+{
+    let transfer_encoding = headers
+        .iter()
+        .filter(|header| header.key.eq_ignore_ascii_case("Transfer-Encoding"))
+        .map(|header| header.value.trim())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+
+    if !transfer_encoding.is_empty() {
+        if headers
+            .iter()
+            .any(|header| header.key.eq_ignore_ascii_case("Content-Length"))
+        {
+            return Err(());
+        }
+        let codings = transfer_encoding
+            .iter()
+            .flat_map(|value| value.split(','))
+            .map(str::trim)
+            .collect::<Vec<_>>();
+        if codings.len() != 1
+            || codings[0].is_empty()
+            || !codings[0].eq_ignore_ascii_case("chunked")
+        {
+            return Err(());
+        }
+        return read_chunked_http_body(reader, max_len);
+    }
+
+    let body_len = http_content_length(headers, max_len)?;
+    let mut body = vec![0_u8; body_len];
+    if body_len > 0 {
+        reader.read_exact(&mut body).map_err(|_| ())?;
+    }
+    Ok(body)
+}
+
+fn read_chunked_http_body<R>(reader: &mut R, max_len: usize) -> Result<Vec<u8>, ()>
+where
+    R: Read,
+{
+    let mut body = Vec::new();
+    loop {
+        let size_line = read_http_line(reader).ok_or(())?;
+        let size_text = size_line
+            .split_once(';')
+            .map(|(size, _)| size)
+            .unwrap_or(size_line.as_str())
+            .trim();
+        if size_text.is_empty() {
+            return Err(());
+        }
+        let chunk_len = usize::from_str_radix(size_text, 16).map_err(|_| ())?;
+        if chunk_len == 0 {
+            loop {
+                let trailer = read_http_line(reader).ok_or(())?;
+                if trailer.is_empty() {
+                    return Ok(body);
+                }
+                let (name, value) = trailer.split_once(':').ok_or(())?;
+                let name = name.trim();
+                if name.is_empty()
+                    || name.eq_ignore_ascii_case("Content-Length")
+                    || name.eq_ignore_ascii_case("Transfer-Encoding")
+                    || value.contains('\r')
+                    || value.contains('\n')
+                {
+                    return Err(());
+                }
+            }
+        }
+        if chunk_len > max_len.saturating_sub(body.len()) {
+            return Err(());
+        }
+        let mut chunk = vec![0_u8; chunk_len];
+        reader.read_exact(&mut chunk).map_err(|_| ())?;
+        body.extend_from_slice(&chunk);
+        let mut terminator = [0_u8; 2];
+        reader.read_exact(&mut terminator).map_err(|_| ())?;
+        if terminator != *b"\r\n" {
+            return Err(());
+        }
+    }
+}
+
+fn read_http_line<R>(reader: &mut R) -> Option<String>
+where
+    R: Read,
+{
+    let mut line = Vec::new();
+    let mut byte = [0_u8; 1];
+    while line.len() < HTTP_PROXY_MAX_HEADER_BYTES {
+        match reader.read(&mut byte) {
+            Ok(1) => {
+                line.push(byte[0]);
+                if line.ends_with(b"\r\n") {
+                    line.truncate(line.len().saturating_sub(2));
+                    return String::from_utf8(line).ok();
+                }
+            }
+            Ok(0) | Err(_) => return None,
+            Ok(_) => {}
+        }
+    }
+    None
 }
 
 fn parse_explicit_http_proxy_target(
@@ -5649,6 +5857,10 @@ fn set_plain_http_header(headers: &mut Vec<MetadataEntry>, name: &str, value: &s
         key: name.to_string(),
         value: value.to_string(),
     });
+}
+
+fn remove_plain_http_header(headers: &mut Vec<MetadataEntry>, name: &str) {
+    headers.retain(|header| !header.key.eq_ignore_ascii_case(name));
 }
 
 fn plain_http_header_value(headers: &[MetadataEntry], name: &str) -> Option<String> {

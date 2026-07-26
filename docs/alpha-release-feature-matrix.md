@@ -15,6 +15,23 @@ GitHub Release asset 为准；`main` 中 tag 之后的源码增量不等于用�
 - 浏览器劫持/live MITM 不能只凭命令名判断；必须同时具备显式授权、浏览器/系统捕获策略、可回滚
   mutation、CA lifecycle、HTTP/TLS data plane 和流量证明。
 
+## Current Main Override
+
+The historical release entries below remain immutable audit records. For the
+current unreleased `main` source, the authoritative Windows GUI slice is
+`v0.2.0-alpha.22`: Tauri/React commands, service lifecycle, native sing-box
+group editing, local Node script dispatch, DNS/TUN configuration, and native
+HTTP/1.1 HTTPS MITM are active in source. Native explicit HTTP/1.1 also has a
+bounded `Content-Length`/`Transfer-Encoding: chunked` body path with framing
+normalization. Linux `run-url` can run direct `ss://`, Trojan, VLESS, VMess,
+Hysteria2, and TUIC share links plus supported Clash YAML, sing-box JSON,
+Surge/Loon/Quantumult X catalog payloads through the sing-box foreground
+adapter; remote/file fetch and managed background control remain unavailable.
+HTTP/2, HTTP/3/QUIC MITM, compression/decompression, streaming,
+multi-request CONNECT, and remote script loading remain unavailable. The
+current source still requires GitHub Actions lockfile, build, test, MSI, and
+runtime verification before release claims are upgraded.
+
 ## 已发布 alpha
 
 `v0.2.0-alpha.1` 的完整发布说明位于下方“最新已发布切片”，避免同一版本在索引中重复维护。

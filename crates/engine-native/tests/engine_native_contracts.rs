@@ -24,22 +24,22 @@ use engine_native::{
     plan_explicit_http_connect_tls_mitm_foundation, plan_socks5_connect_http_mitm,
     plan_socks5_outbound_connect_client_success_response_write,
     plan_socks5_outbound_connect_data_relay, plan_socks5_outbound_tcp_connection,
-    read_explicit_http_proxy_request, read_https_connect_http_request, read_socks5_command_header,
-    read_socks5_connect_target, read_socks5_greeting, read_socks5_outbound_connect_response,
-    reject_unsupported_socks5_command, reject_unwired_socks5_route_outbound,
-    relay_socks5_outbound_connect_data, select_socks5_auth_method,
-    select_socks5_route_outbound_behavior, serialize_explicit_http_proxy_request_for_upstream,
-    serialize_plain_http_proxy_response, write_http_connect_established_response,
-    write_socks5_auth_method_response, write_socks5_outbound_connect_client_success_response,
-    write_socks5_outbound_connect_request, write_unwired_socks5_connect_failure_response,
-    BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeExplicitHttpProxyRequest,
-    NativeHttpMitmPluginHook, NativeLoopbackTcpAcceptLoopHandle, NativeNodeScriptExecutor,
-    NativeNodeScriptRuntimeConfig, NativeOutboundHandlerHandle, NativePlainHttpMessage,
-    NativePlainHttpRewriteReport, NativeProxyEngineService, NativeProxyEngineStartReadiness,
-    NativeRuntimeAssembly, NativeRuntimeAssemblyPlan, NativeSocks5Address,
-    NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision, NativeSocks5CommandHeader,
-    NativeSocks5ConnectTarget, NativeSocks5Greeting,
-    NativeSocks5OutboundConnectClientSuccessResponseReadiness,
+    read_explicit_http_proxy_request, read_https_connect_http_request,
+    read_plain_http_proxy_response, read_socks5_command_header, read_socks5_connect_target,
+    read_socks5_greeting, read_socks5_outbound_connect_response, reject_unsupported_socks5_command,
+    reject_unwired_socks5_route_outbound, relay_socks5_outbound_connect_data,
+    select_socks5_auth_method, select_socks5_route_outbound_behavior,
+    serialize_explicit_http_proxy_request_for_upstream, serialize_plain_http_proxy_response,
+    write_http_connect_established_response, write_socks5_auth_method_response,
+    write_socks5_outbound_connect_client_success_response, write_socks5_outbound_connect_request,
+    write_unwired_socks5_connect_failure_response, BoundLoopbackTcpListenerHandle,
+    LoopbackListenerHandle, NativeExplicitHttpProxyRequest, NativeHttpMitmPluginHook,
+    NativeLoopbackTcpAcceptLoopHandle, NativeNodeScriptExecutor, NativeNodeScriptRuntimeConfig,
+    NativeOutboundHandlerHandle, NativePlainHttpMessage, NativePlainHttpRewriteReport,
+    NativeProxyEngineService, NativeProxyEngineStartReadiness, NativeRuntimeAssembly,
+    NativeRuntimeAssemblyPlan, NativeSocks5Address, NativeSocks5AuthMethodDecision,
+    NativeSocks5CommandDecision, NativeSocks5CommandHeader, NativeSocks5ConnectTarget,
+    NativeSocks5Greeting, NativeSocks5OutboundConnectClientSuccessResponseReadiness,
     NativeSocks5OutboundConnectClientSuccessResponseWritePlanDecision,
     NativeSocks5OutboundConnectDataRelayPlanDecision, NativeSocks5OutboundConnectRelayReadiness,
     NativeSocks5OutboundConnectResponse, NativeSocks5OutboundConnectResponseDecision,
@@ -74,6 +74,7 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_SCRIPT_DEFERRED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CONNECT_TLS_BLOCKED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE,
@@ -144,6 +145,7 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_PLANNED_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_OUTBOUND_TCP_CONNECTION_PLAN_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_SELECTED_CODE,
+    ENGINE_NATIVE_RELOAD_FAILED_CODE, ENGINE_NATIVE_RELOAD_RUNNING_CODE,
     ENGINE_NATIVE_RUNTIME_SOCKS5_ROUTE_OUTBOUND_UNWIRED_CODE, ENGINE_NATIVE_START_BIND_FAILED_CODE,
     ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE, ENGINE_NATIVE_START_RUNNING_CODE,
     ENGINE_NATIVE_START_RUNTIME_ASSEMBLY_READY_CODE, ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
@@ -1675,6 +1677,78 @@ fn plain_http_proxy_request_parser_maps_absolute_form_to_native_plain_http_messa
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_CODE,
+    );
+}
+
+#[test]
+fn plain_http_proxy_request_parser_decodes_bounded_chunked_body_and_trailers() {
+    let mut request = Cursor::new(
+        b"POST http://example.com/upload HTTP/1.1\r\nHost: example.com\r\nTransfer-Encoding: chunked\r\n\r\n4;part=one\r\nbody\r\n0\r\nX-Trailer: complete\r\n\r\n"
+            .to_vec(),
+    );
+
+    let report = read_explicit_http_proxy_request(&mut request);
+    let parsed = report
+        .request
+        .expect("chunked explicit HTTP proxy request should parse");
+
+    assert_eq!(parsed.body, b"body".to_vec());
+    assert!(report.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_CODE
+    }));
+}
+
+#[test]
+fn plain_http_proxy_request_parser_rejects_ambiguous_chunked_content_length() {
+    let mut request = Cursor::new(
+        b"POST http://example.com/upload HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nbody\r\n0\r\n\r\n"
+            .to_vec(),
+    );
+
+    let report = read_explicit_http_proxy_request(&mut request);
+
+    assert!(report.request.is_none());
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_INVALID_CODE,
+    );
+}
+
+#[test]
+fn plain_http_proxy_request_parser_rejects_malformed_transfer_coding_and_forbidden_trailer() {
+    let mut malformed = Cursor::new(
+        b"POST http://example.com/upload HTTP/1.1\r\nHost: example.com\r\nTransfer-Encoding: chunked,\r\n\r\n0\r\n\r\n"
+            .to_vec(),
+    );
+    assert!(read_explicit_http_proxy_request(&mut malformed)
+        .request
+        .is_none());
+
+    let mut forbidden_trailer = Cursor::new(
+        b"POST http://example.com/upload HTTP/1.1\r\nHost: example.com\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nContent-Length: 0\r\n\r\n"
+            .to_vec(),
+    );
+    assert!(read_explicit_http_proxy_request(&mut forbidden_trailer)
+        .request
+        .is_none());
+}
+
+#[test]
+fn plain_http_proxy_response_parser_decodes_chunked_body() {
+    let mut response = Cursor::new(
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Type: text/plain\r\n\r\n3\r\none\r\n3\r\ntwo\r\n0\r\n\r\n"
+            .to_vec(),
+    );
+
+    let report = read_plain_http_proxy_response(&mut response);
+    let parsed = report
+        .response
+        .expect("chunked upstream HTTP response should parse");
+
+    assert_eq!(parsed.body, b"onetwo".to_vec());
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_RESPONSE_READ_CODE,
     );
 }
 
@@ -4407,6 +4481,132 @@ fn service_start_owns_runtime_state_for_status_events_and_stop() {
     let rebound = TcpListener::bind(("127.0.0.1", port))
         .expect("service stop should free the loopback tcp port");
     drop(rebound);
+}
+
+#[test]
+fn service_reload_replaces_the_current_process_runtime() {
+    let initial_port = unused_loopback_port();
+    let replacement_port = unused_loopback_port();
+    let service = NativeProxyEngineService::new();
+    let initial_config = graph_config(
+        DEFAULT_NATIVE_ENGINE_ID,
+        vec![node()],
+        Vec::new(),
+        vec![local_tcp_listener_with_bind(
+            "reload-initial-loopback",
+            "127.0.0.1",
+            initial_port,
+            ListenerRoute::DefaultAction(RouteAction::Proxy {
+                node_id: "node-1".to_string(),
+            }),
+        )],
+        Vec::new(),
+    );
+    let replacement_config = graph_config(
+        DEFAULT_NATIVE_ENGINE_ID,
+        vec![node()],
+        Vec::new(),
+        vec![local_tcp_listener_with_bind(
+            "reload-replacement-loopback",
+            "127.0.0.1",
+            replacement_port,
+            ListenerRoute::DefaultAction(RouteAction::Proxy {
+                node_id: "node-1".to_string(),
+            }),
+        )],
+        Vec::new(),
+    );
+
+    service
+        .start(&initial_config)
+        .expect("initial native runtime should start");
+
+    let reloaded = service
+        .reload(&replacement_config)
+        .expect("native runtime should replace its listener during reload");
+
+    assert_eq!(reloaded.state, ProxyEngineLifecycleState::Running);
+    assert_diagnostic(&reloaded.diagnostics, ENGINE_NATIVE_RELOAD_RUNNING_CODE);
+    let rebound_initial = TcpListener::bind(("127.0.0.1", initial_port))
+        .expect("reload should release the initial loopback listener");
+    drop(rebound_initial);
+
+    let events = service
+        .events(DEFAULT_NATIVE_ENGINE_ID)
+        .expect("reload events should be inspectable");
+    assert_eq!(
+        events.last().map(|event| event.kind),
+        Some(ProxyEngineEventKind::Reloaded)
+    );
+
+    service
+        .stop(DEFAULT_NATIVE_ENGINE_ID)
+        .expect("reloaded runtime should stop");
+    let rebound_replacement = TcpListener::bind(("127.0.0.1", replacement_port))
+        .expect("stopping reloaded runtime should release replacement listener");
+    drop(rebound_replacement);
+}
+
+#[test]
+fn service_reload_restores_the_previous_runtime_when_replacement_start_fails() {
+    let initial_port = unused_loopback_port();
+    let occupied_listener = TcpListener::bind(("127.0.0.1", 0))
+        .expect("test should reserve a replacement loopback port");
+    let occupied_port = occupied_listener
+        .local_addr()
+        .expect("reserved listener should expose its address")
+        .port();
+    let service = NativeProxyEngineService::new();
+    let initial_config = graph_config(
+        DEFAULT_NATIVE_ENGINE_ID,
+        vec![node()],
+        Vec::new(),
+        vec![local_tcp_listener_with_bind(
+            "reload-rollback-initial-loopback",
+            "127.0.0.1",
+            initial_port,
+            ListenerRoute::DefaultAction(RouteAction::Proxy {
+                node_id: "node-1".to_string(),
+            }),
+        )],
+        Vec::new(),
+    );
+    let blocked_config = graph_config(
+        DEFAULT_NATIVE_ENGINE_ID,
+        vec![node()],
+        Vec::new(),
+        vec![local_tcp_listener_with_bind(
+            "reload-rollback-blocked-loopback",
+            "127.0.0.1",
+            occupied_port,
+            ListenerRoute::DefaultAction(RouteAction::Proxy {
+                node_id: "node-1".to_string(),
+            }),
+        )],
+        Vec::new(),
+    );
+
+    service
+        .start(&initial_config)
+        .expect("initial native runtime should start");
+
+    let error = service
+        .reload(&blocked_config)
+        .expect_err("reload should reject a listener that cannot bind");
+
+    assert_eq!(error.code, ENGINE_NATIVE_RELOAD_FAILED_CODE);
+    let status = service
+        .status(DEFAULT_NATIVE_ENGINE_ID)
+        .expect("rollback should restore a queryable native runtime");
+    assert_eq!(status.state, ProxyEngineLifecycleState::Running);
+
+    service
+        .stop(DEFAULT_NATIVE_ENGINE_ID)
+        .expect("restored native runtime should stop");
+    let rebound_initial = TcpListener::bind(("127.0.0.1", initial_port))
+        .expect("rollback runtime stop should release its initial listener");
+    drop(rebound_initial);
+    drop(occupied_listener);
 }
 
 #[test]

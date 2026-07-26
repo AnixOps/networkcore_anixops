@@ -16,12 +16,13 @@ fn main() {
         return;
     }
     let debug = std::env::args().any(|argument| argument == "--debug" || argument == "-d");
-    if let Err(error) = gui::run(debug) {
+    if let Err(error) = gui::run_tauri(debug) {
         gui::show_fatal_error(&error);
     }
 }
 
 #[cfg(windows)]
+#[allow(dead_code)]
 mod gui {
     mod actions;
     mod commands;
@@ -30,6 +31,7 @@ mod gui {
     mod runtime_status;
     mod shell;
     mod startup;
+    mod tauri_ui;
     mod theme;
     mod tray;
     mod ui_state;
@@ -256,6 +258,10 @@ mod gui {
     enum ProfileRenderMode {
         Direct,
         NativeMitm,
+    }
+
+    pub fn run_tauri(debug: bool) -> Result<(), String> {
+        tauri_ui::run(debug)
     }
 
     pub fn run(debug: bool) -> Result<(), String> {
@@ -1816,6 +1822,7 @@ mod gui {
             ca_private_key_path: private_key_path,
             log_path: windows_managed_log_directory().join("native-mitm.log"),
             sing_box_config_snapshot_path: imported.sing_box_config_snapshot_path.clone(),
+            script_runtime: None,
         });
         write_imported_profile_managed_config(
             &managed,

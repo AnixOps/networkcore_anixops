@@ -131,7 +131,7 @@ CONNECT failure response；真实 request/response mutation 继续等待 HTTP/TL
 - script tag、script path、argument、requires body、timeout 和 max size。
 
 仍需由 HTTP/TLS 数据面补齐：scheme/host/path 的解析权威来源、TLS/SNI
-上下文、HTTP/1.1 与 HTTP/2 framing、压缩/解压、chunk/body buffering、
+上下文、HTTP/2 framing、压缩/解压、streaming body buffering、
 backpressure、streaming body 上限、script runtime 执行、以及 plan 的真实应用。
 `PluginResult` 继续保留 audit/diagnostics；真实处理结果不得只靠
 audit/diagnostics 表达。

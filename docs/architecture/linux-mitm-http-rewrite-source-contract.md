@@ -50,7 +50,7 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
 - accept loop 会为每个已接受连接启动独立 worker，并在 shutdown 时汇总 worker diagnostics；同时在
   loopback listener 上限制最多 64 个并发连接，达到上限只关闭新连接并记录 stable diagnostic，避免单一
   TLS/HTTP session 阻塞后续 proxy traffic 或无限制创建 worker。
-- `read_explicit_http_proxy_request` 只支持 bounded HTTP/1.x、absolute-form `http://` request target、origin-form + `Host` 和 `Content-Length` body；`Transfer-Encoding: chunked`、streaming body、HTTP/2 和 request smuggling 场景继续不承诺。
+- `read_explicit_http_proxy_request` 支持 bounded HTTP/1.x、absolute-form `http://` request target、origin-form + `Host`、`Content-Length` body 和标准 `Transfer-Encoding: chunked` body；chunk extensions/trailers 会被有界消费，超过 body 上限、重复 `Content-Length`、未知 transfer coding、streaming body、HTTP/2 和 request smuggling 场景继续不承诺。
 - `CONNECT` target 在 HTTP listener 中会先生成 `NativeTlsMitmFoundationReport`，再经既有
   SOCKS outbound CONNECT primitive 建立 tunnel；成功后写标准空 body `200 Connection Established`
   response。未配置 CA material 时继续进行有限 TCP relay；配置 material 时进入受控 TLS path。

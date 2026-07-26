@@ -137,6 +137,14 @@ pub const CLI_MANAGED_FOREGROUND_EVENT_HISTORY_QUERY_INVALID_CODE: &str =
     "cli.linux.managed_foreground_event.history_query_invalid";
 pub const CLI_MANAGED_FOREGROUND_EVENT_HISTORY_LIMIT_EXCEEDED_CODE: &str =
     "cli.linux.managed_foreground_event.history_limit_exceeded";
+pub const CLI_MANAGED_FOREGROUND_LOG_PATH_MISSING_CODE: &str =
+    "cli.linux.managed_foreground_log.path_missing";
+pub const CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE: &str =
+    "cli.linux.managed_foreground_log.read_failed";
+pub const CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE: &str =
+    "cli.linux.managed_foreground_log.query_invalid";
+pub const CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE: &str =
+    "cli.linux.managed_foreground_log.limit_exceeded";
 pub const CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE: &str =
     "cli.linux.stop.unavailable_without_daemon";
 pub const CLI_STATUS_NO_RUNTIME_CONTEXT_CODE: &str = "cli.linux.status.no_runtime_context";
@@ -144,6 +152,11 @@ pub const CLI_STATUS_PLATFORM_ONLY_CODE: &str = "cli.linux.status.platform_only"
 pub const CLI_RUNTIME_UNWIRED_CODE: &str = "cli.linux.runtime.unwired";
 pub const CLI_SING_BOX_INSTALL_FAILED_CODE: &str = "cli.linux.sing_box.install_failed";
 pub const CLI_RUN_URL_PARSE_FAILED_CODE: &str = "cli.linux.run_url.parse_failed";
+pub const CLI_RUN_URL_FILE_URI_INVALID_CODE: &str = "cli.linux.run_url.file_uri_invalid";
+pub const CLI_RUN_URL_FILE_READ_FAILED_CODE: &str = "cli.linux.run_url.file_read_failed";
+pub const CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE: &str = "cli.linux.run_url.remote_fetch_failed";
+pub const CLI_RUN_URL_REMOTE_FETCH_LIMIT_EXCEEDED_CODE: &str =
+    "cli.linux.run_url.remote_fetch_limit_exceeded";
 pub const CLI_RUN_URL_CONFIG_FAILED_CODE: &str = "cli.linux.run_url.config_failed";
 pub const CLI_RUN_URL_CONFIG_WRITE_FAILED_CODE: &str = "cli.linux.run_url.config_write_failed";
 pub const CLI_RUN_URL_PROCESS_FAILED_CODE: &str = "cli.linux.run_url.process_failed";
@@ -301,6 +314,7 @@ pub const SOURCE_CLI_CONFIG: &str = "cli.config";
 pub const SOURCE_CLI_HELP: &str = "cli.help";
 pub const SOURCE_CLI_MITM: &str = "cli.mitm";
 pub const SOURCE_CLI_MANAGED_FOREGROUND_EVENT: &str = "cli.managed_foreground_event";
+pub const SOURCE_CLI_MANAGED_FOREGROUND_LOG: &str = "cli.managed_foreground_log";
 pub const SOURCE_CLI_MANAGED_FOREGROUND_STATUS: &str = "cli.managed_foreground_status";
 pub const SOURCE_CLI_SING_BOX: &str = "cli.sing_box";
 pub const SOURCE_CLI_START: &str = "cli.start";
@@ -314,6 +328,12 @@ pub const MANAGED_FOREGROUND_EVENT_HISTORY_DEFAULT_LIMIT: usize = 50;
 pub const MANAGED_FOREGROUND_EVENT_HISTORY_MAX_LIMIT: usize = 100;
 pub const MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORDS: usize = 256;
 pub const MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES: u64 = 64 * 1024;
+pub const MANAGED_FOREGROUND_LOG_TAIL_DEFAULT_LIMIT: usize = 100;
+pub const MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT: usize = 1_000;
+pub const MANAGED_FOREGROUND_LOG_TAIL_MAX_BYTES: u64 = 64 * 1024;
+pub const RUN_URL_REMOTE_SUBSCRIPTION_MAX_BYTES: u64 = 1024 * 1024;
+pub const RUN_URL_REMOTE_SUBSCRIPTION_TIMEOUT_SECONDS: u64 = 15;
+pub const RUN_URL_REMOTE_SUBSCRIPTION_MAX_REDIRECTS: usize = 5;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OutputFormat {
@@ -439,6 +459,11 @@ pub enum LinuxCliCommand {
         recorded_at: String,
         format: OutputFormat,
     },
+    ManagedLog {
+        log_path: String,
+        line_limit: usize,
+        format: OutputFormat,
+    },
     Diagnostics {
         format: OutputFormat,
     },
@@ -543,6 +568,17 @@ pub enum LinuxCliCommand {
     },
     RunUrl {
         url: String,
+        selected_node_id: Option<String>,
+        listen_host: String,
+        listen_port: u16,
+        install_dir: Option<String>,
+        force: bool,
+        format: OutputFormat,
+    },
+    RunCatalog {
+        catalog_path: String,
+        source_id: String,
+        selected_node_id: Option<String>,
         listen_host: String,
         listen_port: u16,
         install_dir: Option<String>,
@@ -568,6 +604,7 @@ impl LinuxCliCommand {
             Self::ManagedEvent { .. } => "managed-event",
             Self::ManagedEventList { .. } => "managed-event list",
             Self::ManagedEventInit { .. } => "managed-event init",
+            Self::ManagedLog { .. } => "managed-log",
             Self::Diagnostics { .. } => "diagnostics",
             Self::MitmStatus { .. } => "mitm status",
             Self::MitmDiagnostics { .. } => "mitm diagnostics",
@@ -587,6 +624,7 @@ impl LinuxCliCommand {
             Self::MitmHttpRewritePreview { .. } => "mitm http-rewrite preview",
             Self::InstallSingBox { .. } => "install-sing-box",
             Self::RunUrl { .. } => "run-url",
+            Self::RunCatalog { .. } => "run-catalog",
         }
     }
 
@@ -606,6 +644,7 @@ impl LinuxCliCommand {
             | Self::ManagedEvent { format, .. }
             | Self::ManagedEventList { format, .. }
             | Self::ManagedEventInit { format, .. }
+            | Self::ManagedLog { format, .. }
             | Self::Diagnostics { format }
             | Self::MitmStatus { format }
             | Self::MitmDiagnostics { format }
@@ -624,7 +663,8 @@ impl LinuxCliCommand {
             | Self::MitmHttpRewritePlan { format }
             | Self::MitmHttpRewritePreview { format, .. }
             | Self::InstallSingBox { format, .. }
-            | Self::RunUrl { format, .. } => *format,
+            | Self::RunUrl { format, .. }
+            | Self::RunCatalog { format, .. } => *format,
         }
     }
 }
@@ -668,6 +708,7 @@ pub struct LinuxCliResponse {
     pub managed_foreground_event: Option<ManagedForegroundSessionEventReport>,
     pub managed_foreground_event_history: Option<ManagedForegroundSessionEventHistoryReport>,
     pub managed_foreground_event_write: Option<ManagedForegroundSessionEventWriteReport>,
+    pub managed_foreground_log_tail: Option<ManagedForegroundSessionLogTailReport>,
     pub sing_box_install: Option<LinuxSingBoxInstallStatus>,
     pub sing_box_run: Option<LinuxSingBoxRunStatus>,
     pub mitm_status: Option<LinuxMitmStatus>,
@@ -694,6 +735,7 @@ impl LinuxCliResponse {
             managed_foreground_event: None,
             managed_foreground_event_history: None,
             managed_foreground_event_write: None,
+            managed_foreground_log_tail: None,
             sing_box_install: None,
             sing_box_run: None,
             mitm_status: None,
@@ -724,6 +766,7 @@ impl LinuxCliResponse {
             managed_foreground_event: None,
             managed_foreground_event_history: None,
             managed_foreground_event_write: None,
+            managed_foreground_log_tail: None,
             sing_box_install: None,
             sing_box_run: None,
             mitm_status: None,
@@ -806,6 +849,14 @@ impl LinuxCliResponse {
         report: ManagedForegroundSessionEventWriteReport,
     ) -> Self {
         self.managed_foreground_event_write = Some(report);
+        self
+    }
+
+    pub fn with_managed_foreground_log_tail(
+        mut self,
+        report: ManagedForegroundSessionLogTailReport,
+    ) -> Self {
+        self.managed_foreground_log_tail = Some(report);
         self
     }
 
@@ -1912,6 +1963,23 @@ pub struct ManagedForegroundSessionEventWriteReport {
     pub liveness_verified: bool,
 }
 
+/// Reads a bounded tail from one caller-selected managed runtime log file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionLogTailRequest {
+    pub log_path: String,
+    pub line_limit: usize,
+}
+
+/// A read-only bounded managed runtime log tail.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionLogTailReport {
+    pub log_path: String,
+    pub line_limit: usize,
+    pub total_line_count: usize,
+    pub lines: Vec<String>,
+    pub liveness_verified: bool,
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CommandManagedForegroundSessionStore;
 
@@ -2252,6 +2320,62 @@ impl CommandManagedForegroundSessionEventStore {
             state: record.state,
             recorded_at: record.recorded_at,
             record_written: true,
+            liveness_verified: false,
+        })
+    }
+}
+
+/// Source-only file boundary for caller-selected managed runtime logs.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CommandManagedForegroundSessionLogStore;
+
+impl CommandManagedForegroundSessionLogStore {
+    pub const fn new() -> Self {
+        Self
+    }
+
+    pub fn read_tail(
+        &self,
+        request: &ManagedForegroundSessionLogTailRequest,
+    ) -> DomainResult<ManagedForegroundSessionLogTailReport> {
+        let log_path = required_managed_foreground_log_path(&request.log_path)?;
+        let line_limit = required_managed_foreground_log_tail_limit(request.line_limit)?;
+        let metadata = std::fs::metadata(&log_path).map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE,
+                format!("failed to inspect managed foreground log {log_path}: {error}"),
+            )
+        })?;
+        if !metadata.is_file() {
+            return Err(DomainError::new(
+                CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE,
+                "managed foreground log path must refer to a regular file",
+            ));
+        }
+        if metadata.len() > MANAGED_FOREGROUND_LOG_TAIL_MAX_BYTES {
+            return Err(DomainError::new(
+                CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE,
+                format!(
+                    "managed foreground log {log_path} exceeds the {} byte tail limit",
+                    MANAGED_FOREGROUND_LOG_TAIL_MAX_BYTES
+                ),
+            ));
+        }
+        let contents = std::fs::read_to_string(&log_path).map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE,
+                format!("failed to read managed foreground log {log_path}: {error}"),
+            )
+        })?;
+        let total_line_count = contents.lines().count();
+        let skip = total_line_count.saturating_sub(line_limit);
+        let lines = contents.lines().skip(skip).map(str::to_string).collect();
+
+        Ok(ManagedForegroundSessionLogTailReport {
+            log_path,
+            line_limit,
+            total_line_count,
+            lines,
             liveness_verified: false,
         })
     }
@@ -2725,6 +2849,29 @@ fn required_managed_foreground_event_directory_path(path: &str) -> DomainResult<
     Ok(path.to_string())
 }
 
+fn required_managed_foreground_log_path(path: &str) -> DomainResult<String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_LOG_PATH_MISSING_CODE,
+            "managed foreground log path cannot be empty",
+        ));
+    }
+    Ok(path.to_string())
+}
+
+fn required_managed_foreground_log_tail_limit(limit: usize) -> DomainResult<usize> {
+    if !(1..=MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT).contains(&limit) {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE,
+            format!(
+                "managed foreground log tail limit must be between 1 and {MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT}"
+            ),
+        ));
+    }
+    Ok(limit)
+}
+
 fn optional_managed_foreground_event_history_session_id(
     session_id: Option<&str>,
 ) -> DomainResult<Option<String>> {
@@ -3045,6 +3192,41 @@ fn read_subscription_catalog_file(
     })?;
     let catalog = validate_subscription_catalog_file(catalog)?;
     Ok((catalog.clone(), catalog))
+}
+
+fn read_subscription_catalog_source_location(
+    catalog_path: &str,
+    source_id: &str,
+) -> DomainResult<String> {
+    let catalog_path = required_subscription_catalog_path(
+        catalog_path,
+        CLI_SUBSCRIPTION_CATALOG_PATH_MISSING_CODE,
+        "subscription catalog path cannot be empty",
+    )?;
+    let source_id = source_id.trim();
+    if source_id.is_empty() {
+        return Err(DomainError::new(
+            CLI_SUBSCRIPTION_CATALOG_SOURCE_ID_EMPTY_CODE,
+            "subscription catalog source id cannot be empty",
+        ));
+    }
+    let (catalog, _) = read_subscription_catalog_file(&catalog_path)?;
+    let location = catalog
+        .sources
+        .iter()
+        .find(|source| source.id.trim() == source_id)
+        .map(|source| source.location.trim())
+        .ok_or_else(|| {
+            DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_SOURCE_NOT_FOUND_CODE,
+                format!("subscription catalog source id was not found: {source_id}"),
+            )
+        })?;
+
+    Ok(location
+        .strip_prefix("inline:")
+        .unwrap_or(location)
+        .to_string())
 }
 
 fn read_required_subscription_catalog_snapshot_file(
@@ -4603,7 +4785,9 @@ struct ParsedOptions {
     managed_event_state: Option<String>,
     managed_event_cursor: Option<usize>,
     managed_event_limit: Option<usize>,
+    managed_log_line_limit: Option<usize>,
     install_dir: Option<String>,
+    selected_node_id: Option<String>,
     listen_host: Option<String>,
     listen_port: Option<u16>,
     snapshot_path: Option<String>,
@@ -4684,6 +4868,7 @@ where
         }
         "managed-status" => parse_managed_status_command(&rest),
         "managed-event" => parse_managed_event_command(&rest),
+        "managed-log" => parse_managed_log_command(&rest),
         "diagnostics" => {
             let options = parse_options(&rest)?;
             Ok(LinuxCliCommand::Diagnostics {
@@ -4700,6 +4885,7 @@ where
             })
         }
         "run-url" => parse_run_url_command(&rest),
+        "run-catalog" => parse_run_catalog_command(&rest),
         "sing-box" => parse_sing_box_command(&rest),
         _ => Err(parse_error(
             CLI_ARGUMENT_UNKNOWN_CODE,
@@ -4806,6 +4992,11 @@ where
             &state,
             &recorded_at,
         ),
+        LinuxCliCommand::ManagedLog {
+            log_path,
+            line_limit,
+            ..
+        } => handle_managed_foreground_log_tail(&log_path, line_limit),
         LinuxCliCommand::Diagnostics { .. } => handle_diagnostics(platform),
         LinuxCliCommand::MitmStatus { .. } => handle_mitm_status(platform),
         LinuxCliCommand::MitmDiagnostics { .. } => handle_mitm_diagnostics(platform),
@@ -5173,15 +5364,37 @@ where
         } => handle_install_sing_box(sing_box_installer, install_dir.as_deref(), force),
         LinuxCliCommand::RunUrl {
             url,
+            selected_node_id,
             listen_host,
             listen_port,
             install_dir,
             force,
             ..
-        } => handle_run_url_with_sing_box(
+        } => handle_run_url_with_sing_box_and_node_id(
             sing_box_installer,
             sing_box_runner,
             &url,
+            selected_node_id.as_deref(),
+            &listen_host,
+            listen_port,
+            install_dir.as_deref(),
+            force,
+        ),
+        LinuxCliCommand::RunCatalog {
+            catalog_path,
+            source_id,
+            selected_node_id,
+            listen_host,
+            listen_port,
+            install_dir,
+            force,
+            ..
+        } => handle_run_catalog_with_sing_box(
+            sing_box_installer,
+            sing_box_runner,
+            &catalog_path,
+            &source_id,
+            selected_node_id.as_deref(),
             &listen_host,
             listen_port,
             install_dir.as_deref(),
@@ -5352,6 +5565,7 @@ where
             managed_foreground_event: None,
             managed_foreground_event_history: None,
             managed_foreground_event_write: None,
+            managed_foreground_log_tail: None,
             sing_box_install: None,
             sing_box_run: None,
             mitm_status: None,
@@ -5382,6 +5596,7 @@ where
         managed_foreground_event: None,
         managed_foreground_event_history: None,
         managed_foreground_event_write: None,
+        managed_foreground_log_tail: None,
         sing_box_install: None,
         sing_box_run: None,
         mitm_status: None,
@@ -5727,6 +5942,33 @@ pub fn handle_managed_foreground_event_init(
                 exit_code,
                 error,
                 SOURCE_CLI_MANAGED_FOREGROUND_EVENT,
+            )
+        }
+    }
+}
+
+pub fn handle_managed_foreground_log_tail(log_path: &str, line_limit: usize) -> LinuxCliResponse {
+    let store = CommandManagedForegroundSessionLogStore::new();
+    match store.read_tail(&ManagedForegroundSessionLogTailRequest {
+        log_path: log_path.to_string(),
+        line_limit,
+    }) {
+        Ok(report) => LinuxCliResponse::success("managed-log").with_managed_foreground_log_tail(report),
+        Err(error) => {
+            let exit_code = if error.code == CLI_MANAGED_FOREGROUND_LOG_PATH_MISSING_CODE
+                || error.code == CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE
+            {
+                LinuxCliExitCode::ArgumentOrConfig
+            } else if error.code == CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE {
+                LinuxCliExitCode::ConfigValidation
+            } else {
+                LinuxCliExitCode::GeneralFailure
+            };
+            domain_error_response(
+                "managed-log",
+                exit_code,
+                error,
+                SOURCE_CLI_MANAGED_FOREGROUND_LOG,
             )
         }
     }
@@ -9276,13 +9518,182 @@ where
     I: SingBoxReleaseInstaller,
     S: SingBoxProcessRunner,
 {
+    handle_run_url_with_sing_box_and_node_id(
+        installer,
+        runner,
+        url,
+        None,
+        listen_host,
+        listen_port,
+        install_dir,
+        force,
+    )
+}
+
+pub fn handle_run_catalog_with_sing_box<I, S>(
+    installer: &I,
+    runner: &S,
+    catalog_path: &str,
+    source_id: &str,
+    selected_node_id: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+    install_dir: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
+{
+    let fetcher = CommandRemoteSubscriptionFetcher::new();
+    handle_run_catalog_with_sing_box_and_fetcher(
+        installer,
+        runner,
+        &fetcher,
+        catalog_path,
+        source_id,
+        selected_node_id,
+        listen_host,
+        listen_port,
+        install_dir,
+        force,
+    )
+}
+
+pub fn handle_run_catalog_with_sing_box_and_fetcher<I, S, F>(
+    installer: &I,
+    runner: &S,
+    fetcher: &F,
+    catalog_path: &str,
+    source_id: &str,
+    selected_node_id: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+    install_dir: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
+    F: RemoteSubscriptionFetcher,
+{
+    let source_location = match read_subscription_catalog_source_location(catalog_path, source_id)
+    {
+        Ok(location) => location,
+        Err(error) => {
+            return domain_error_response(
+                "run-catalog",
+                LinuxCliExitCode::ArgumentOrConfig,
+                error,
+                SOURCE_CLI_SING_BOX,
+            );
+        }
+    };
+    let mut response = handle_run_url_with_sing_box_and_fetcher_and_node_id(
+        installer,
+        runner,
+        fetcher,
+        &source_location,
+        selected_node_id,
+        listen_host,
+        listen_port,
+        install_dir,
+        force,
+    );
+    response.command = "run-catalog".to_string();
+    response
+}
+
+pub fn handle_run_url_with_sing_box_and_node_id<I, S>(
+    installer: &I,
+    runner: &S,
+    url: &str,
+    selected_node_id: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+    install_dir: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
+{
+    let fetcher = CommandRemoteSubscriptionFetcher::new();
+    handle_run_url_with_sing_box_and_fetcher_and_node_id(
+        installer,
+        runner,
+        &fetcher,
+        url,
+        selected_node_id,
+        listen_host,
+        listen_port,
+        install_dir,
+        force,
+    )
+}
+
+pub fn handle_run_url_with_sing_box_and_fetcher<I, S, F>(
+    installer: &I,
+    runner: &S,
+    fetcher: &F,
+    url: &str,
+    listen_host: &str,
+    listen_port: u16,
+    install_dir: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
+    F: RemoteSubscriptionFetcher,
+{
+    handle_run_url_with_sing_box_and_fetcher_and_node_id(
+        installer,
+        runner,
+        fetcher,
+        url,
+        None,
+        listen_host,
+        listen_port,
+        install_dir,
+        force,
+    )
+}
+
+pub fn handle_run_url_with_sing_box_and_fetcher_and_node_id<I, S, F>(
+    installer: &I,
+    runner: &S,
+    fetcher: &F,
+    url: &str,
+    selected_node_id: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+    install_dir: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
+    F: RemoteSubscriptionFetcher,
+{
     let install_root = install_dir
         .map(std::path::PathBuf::from)
         .unwrap_or_else(default_sing_box_install_root);
     let subscription = CoreSubscriptionService::new();
+    let content = match read_run_url_subscription_content(url, fetcher) {
+        Ok(content) => content,
+        Err(error) => {
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::ArgumentOrConfig,
+                error,
+                SOURCE_CLI_SING_BOX,
+            );
+        }
+    };
     let raw_subscription = RawSubscription {
         source_id: "cli-run-url".to_string(),
-        content: url.to_string(),
+        content,
     };
     let document = match subscription.parse(&raw_subscription) {
         Ok(document) => document,
@@ -9309,7 +9720,7 @@ where
     let generated_config =
         match render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
             nodes: catalog.nodes,
-            selected_node_id: None,
+            selected_node_id: selected_node_id.map(str::to_string),
             listen_host: listen_host.to_string(),
             listen_port,
         }) {
@@ -9419,6 +9830,115 @@ where
             ..response
         },
     }
+}
+
+pub trait RemoteSubscriptionFetcher {
+    fn fetch_subscription(&self, location: &str) -> DomainResult<String>;
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CommandRemoteSubscriptionFetcher;
+
+impl CommandRemoteSubscriptionFetcher {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl RemoteSubscriptionFetcher for CommandRemoteSubscriptionFetcher {
+    fn fetch_subscription(&self, location: &str) -> DomainResult<String> {
+        let client = reqwest::blocking::Client::builder()
+            .redirect(reqwest::redirect::Policy::limited(
+                RUN_URL_REMOTE_SUBSCRIPTION_MAX_REDIRECTS,
+            ))
+            .timeout(Duration::from_secs(RUN_URL_REMOTE_SUBSCRIPTION_TIMEOUT_SECONDS))
+            .build()
+            .map_err(|_| {
+                DomainError::new(
+                    CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
+                    "run-url remote subscription client could not be configured",
+                )
+            })?;
+        let mut response = client
+            .get(location)
+            .send()
+            .and_then(reqwest::blocking::Response::error_for_status)
+            .map_err(|_| {
+                DomainError::new(
+                    CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
+                    "run-url remote subscription request failed",
+                )
+            })?;
+        if response
+            .content_length()
+            .is_some_and(|length| length > RUN_URL_REMOTE_SUBSCRIPTION_MAX_BYTES)
+        {
+            return Err(DomainError::new(
+                CLI_RUN_URL_REMOTE_FETCH_LIMIT_EXCEEDED_CODE,
+                "run-url remote subscription exceeds the allowed response size",
+            ));
+        }
+
+        let mut content = Vec::new();
+        response
+            .take(RUN_URL_REMOTE_SUBSCRIPTION_MAX_BYTES + 1)
+            .read_to_end(&mut content)
+            .map_err(|_| {
+                DomainError::new(
+                    CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
+                    "run-url remote subscription response could not be read",
+                )
+            })?;
+        if content.len() as u64 > RUN_URL_REMOTE_SUBSCRIPTION_MAX_BYTES {
+            return Err(DomainError::new(
+                CLI_RUN_URL_REMOTE_FETCH_LIMIT_EXCEEDED_CODE,
+                "run-url remote subscription exceeds the allowed response size",
+            ));
+        }
+
+        String::from_utf8(content).map_err(|_| {
+            DomainError::new(
+                CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
+                "run-url remote subscription response is not valid UTF-8 text",
+            )
+        })
+    }
+}
+
+fn read_run_url_subscription_content<F>(
+    input: &str,
+    fetcher: &F,
+) -> DomainResult<String>
+where
+    F: RemoteSubscriptionFetcher,
+{
+    if input.starts_with("http://") || input.starts_with("https://") {
+        return fetcher.fetch_subscription(input);
+    }
+
+    let Some(path) = input.strip_prefix("file://") else {
+        if input.starts_with("file:") {
+            return Err(DomainError::new(
+                CLI_RUN_URL_FILE_URI_INVALID_CODE,
+                "run-url file source must use an absolute file:// URI",
+            ));
+        }
+        return Ok(input.to_string());
+    };
+
+    if path.is_empty() || !path.starts_with('/') {
+        return Err(DomainError::new(
+            CLI_RUN_URL_FILE_URI_INVALID_CODE,
+            "run-url file source must use an absolute file:// URI",
+        ));
+    }
+
+    std::fs::read_to_string(path).map_err(|_| {
+        DomainError::new(
+            CLI_RUN_URL_FILE_READ_FAILED_CODE,
+            "run-url subscription file could not be read as UTF-8 text",
+        )
+    })
 }
 
 pub fn render_response(response: &LinuxCliResponse, format: OutputFormat) -> String {
@@ -9749,6 +10269,16 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.managed_event_limit = Some(parse_managed_event_history_limit(value)?);
             }
+            "--tail-lines" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--tail-lines requires a managed log line count",
+                    ));
+                };
+                options.managed_log_line_limit = Some(parse_managed_log_tail_limit(value)?);
+            }
             "--install-dir" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -9758,6 +10288,16 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                     ));
                 };
                 options.install_dir = Some(value.clone());
+            }
+            "--node-id" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--node-id requires a node id from the subscription catalog",
+                    ));
+                };
+                options.selected_node_id = Some(value.clone());
             }
             "--force" => {
                 options.force = true;
@@ -9836,6 +10376,42 @@ fn parse_run_url_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliPar
 
     Ok(LinuxCliCommand::RunUrl {
         url: url.clone(),
+        selected_node_id: options.selected_node_id,
+        listen_host: options
+            .listen_host
+            .unwrap_or_else(|| "127.0.0.1".to_string()),
+        listen_port: options.listen_port.unwrap_or(7890),
+        install_dir: options.install_dir,
+        force: options.force,
+        format: options.format,
+    })
+}
+
+fn parse_run_catalog_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(catalog_path) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "run-catalog requires an explicit catalog path and source id",
+        ));
+    };
+    let Some(source_id) = args.get(1) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "run-catalog requires a source id after the catalog path",
+        ));
+    };
+    if catalog_path.starts_with("--") || source_id.starts_with("--") {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "run-catalog requires a catalog path and source id before options",
+        ));
+    }
+    let options = parse_options(&args[2..])?;
+
+    Ok(LinuxCliCommand::RunCatalog {
+        catalog_path: catalog_path.clone(),
+        source_id: source_id.clone(),
+        selected_node_id: options.selected_node_id,
         listen_host: options
             .listen_host
             .unwrap_or_else(|| "127.0.0.1".to_string()),
@@ -10041,6 +10617,30 @@ fn parse_managed_event_command(args: &[String]) -> Result<LinuxCliCommand, Linux
 
     Ok(LinuxCliCommand::ManagedEvent {
         event_path: event_path.clone(),
+        format: options.format,
+    })
+}
+
+fn parse_managed_log_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(log_path) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-log requires an explicit log file path",
+        ));
+    };
+    if log_path.starts_with("--") {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-log requires a log file path before options",
+        ));
+    }
+    let options = parse_options(&args[1..])?;
+
+    Ok(LinuxCliCommand::ManagedLog {
+        log_path: log_path.clone(),
+        line_limit: options
+            .managed_log_line_limit
+            .unwrap_or(MANAGED_FOREGROUND_LOG_TAIL_DEFAULT_LIMIT),
         format: options.format,
     })
 }
@@ -10527,6 +11127,26 @@ fn parse_managed_event_history_limit(value: &str) -> Result<usize, LinuxCliParse
     Ok(limit)
 }
 
+fn parse_managed_log_tail_limit(value: &str) -> Result<usize, LinuxCliParseError> {
+    let limit = value.parse::<usize>().map_err(|_| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            format!(
+                "--tail-lines must be between 1 and {MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT}"
+            ),
+        )
+    })?;
+    if !(1..=MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT).contains(&limit) {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            format!(
+                "--tail-lines must be between 1 and {MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT}"
+            ),
+        ));
+    }
+    Ok(limit)
+}
+
 fn parse_http_rewrite_phase_name(value: &str) -> Result<String, LinuxCliParseError> {
     let normalized = value.to_ascii_lowercase();
     match normalized.as_str() {
@@ -10577,13 +11197,15 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux managed-event <event-record-path> [--format text|json]\n",
         "  networkcore-linux managed-event list <event-directory> [--session-id <id>] [--event-kind <kind>] [--state <state>] [--cursor <offset>] [--limit <1-100>] [--format text|json]\n",
         "  networkcore-linux managed-event init <event-record-path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at> [--format text|json]\n",
+        "  networkcore-linux managed-log <log-file-path> [--tail-lines <1-1000>] [--format text|json]\n",
         "  networkcore-linux diagnostics [--format text|json]\n",
         "  networkcore-linux mitm [status|diagnostics|certificate-plan|browser-plan] [--format text|json]\n",
         "  networkcore-linux mitm certificate [plan|apply|rollback] [--cert-file <path>] [--key-file <path>] [--profile-trust-file <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
         "  networkcore-linux mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify|traffic-proof] [<ss://url>] [--browser <executable>] [--profile-dir <dir>] [--target-url <url>] [--proxy-scheme http|socks5] [--listen-host <host>] [--listen-port <port>] [--pac-file <path>] [--policy-file <path>] [--profile-prefs-file <path>] [--proof-token <token>] [--proof-log <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
         "  networkcore-linux mitm http-rewrite [plan|preview] [--url <url>] [--method <method>] [--phase request|response] [--status-code <code>] [--header <name:value>] [--body <text>] [--confirm] [--format text|json]\n",
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
-        "  networkcore-linux run-url <ss://url> [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
+        "  networkcore-linux run-url <subscription-source> [--node-id <id>] [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
+        "  networkcore-linux run-catalog <catalog-path> <source-id> [--node-id <id>] [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux sing-box install [--install-dir <dir>] [--force] [--format text|json]\n",
         "\n",
         "Commands:\n",
@@ -10601,10 +11223,12 @@ pub const fn cli_help_text() -> &'static str {
         "  managed-event     Read one explicit managed foreground event record.\n",
         "  managed-event list Query bounded, filtered event history from one explicit directory.\n",
         "  managed-event init Create one explicit managed foreground event record without overwriting it.\n",
+        "  managed-log       Read a bounded tail from one explicit managed foreground log file.\n",
         "  diagnostics       Print platform diagnostics.\n",
         "  mitm              Report MITM plugin policy status, certificate/browser plans, and deferred browser hijack gates.\n",
         "  install-sing-box  Download the latest official sing-box archive and cache its executable.\n",
         "  run-url           Parse a proxy URL, render sing-box config, and run a local foreground proxy.\n",
+        "  run-catalog       Resolve one saved source and run it through the foreground sing-box path.\n",
         "\n",
         "Options:\n",
         "  --config <path>       Config file for prepare-config and start.\n",
@@ -10635,6 +11259,7 @@ pub const fn cli_help_text() -> &'static str {
         "  --proof-token <token> Browser traffic proof token expected in a proof log.\n",
         "  --proof-log <path>    Browser traffic proof log path to inspect after an operator-driven visit.\n",
         "  --install-dir <dir>   Engine cache root for install-sing-box.\n",
+        "  --node-id <id>        Catalog node id for run-url. Defaults to the first supported node.\n",
         "  --listen-host <host>  Local proxy listen address for run-url. Defaults to 127.0.0.1.\n",
         "  --listen-port <port>  Local proxy listen port for run-url. Defaults to 7890.\n",
         "  --force               Redownload and replace an existing cached sing-box executable.\n",
@@ -11101,6 +11726,29 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
         lines.push(format!(
             "managed foreground liveness verified: {}",
             event_write.liveness_verified
+        ));
+    }
+
+    if let Some(log_tail) = &response.managed_foreground_log_tail {
+        lines.push(format!("managed foreground log: {}", log_tail.log_path));
+        lines.push(format!(
+            "managed foreground log line limit: {}",
+            log_tail.line_limit
+        ));
+        lines.push(format!(
+            "managed foreground log total lines: {}",
+            log_tail.total_line_count
+        ));
+        lines.push(format!(
+            "managed foreground log returned lines: {}",
+            log_tail.lines.len()
+        ));
+        for (index, line) in log_tail.lines.iter().enumerate() {
+            lines.push(format!("managed foreground log line {index}: {line}"));
+        }
+        lines.push(format!(
+            "managed foreground liveness verified: {}",
+            log_tail.liveness_verified
         ));
     }
 
@@ -11675,6 +12323,7 @@ struct JsonCliResponse {
     managed_foreground_event: Option<JsonManagedForegroundSessionEventReport>,
     managed_foreground_event_history: Option<JsonManagedForegroundSessionEventHistoryReport>,
     managed_foreground_event_write: Option<JsonManagedForegroundSessionEventWriteReport>,
+    managed_foreground_log_tail: Option<JsonManagedForegroundSessionLogTailReport>,
     sing_box_install: Option<JsonSingBoxInstallStatus>,
     sing_box_run: Option<JsonSingBoxRunStatus>,
     mitm_status: Option<JsonMitmStatus>,
@@ -11726,6 +12375,10 @@ impl From<&LinuxCliResponse> for JsonCliResponse {
                 .managed_foreground_event_write
                 .as_ref()
                 .map(JsonManagedForegroundSessionEventWriteReport::from),
+            managed_foreground_log_tail: response
+                .managed_foreground_log_tail
+                .as_ref()
+                .map(JsonManagedForegroundSessionLogTailReport::from),
             sing_box_install: response
                 .sing_box_install
                 .as_ref()
@@ -11939,6 +12592,27 @@ impl From<&ManagedForegroundSessionEventHistoryReport>
                 .iter()
                 .map(JsonManagedForegroundSessionEventHistoryEntry::from)
                 .collect(),
+            liveness_verified: report.liveness_verified,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonManagedForegroundSessionLogTailReport {
+    log_path: String,
+    line_limit: usize,
+    total_line_count: usize,
+    lines: Vec<String>,
+    liveness_verified: bool,
+}
+
+impl From<&ManagedForegroundSessionLogTailReport> for JsonManagedForegroundSessionLogTailReport {
+    fn from(report: &ManagedForegroundSessionLogTailReport) -> Self {
+        Self {
+            log_path: report.log_path.clone(),
+            line_limit: report.line_limit,
+            total_line_count: report.total_line_count,
+            lines: report.lines.clone(),
             liveness_verified: report.liveness_verified,
         }
     }

@@ -9,6 +9,35 @@ release until the same commit passes the tag release workflow.
 
 ### Changed
 
+- Linux `run-catalog <catalog-path> <source-id>` now resolves one saved
+  catalog source into the existing foreground sing-box path. It supports the
+  same explicit inline, file, and HTTP(S) inputs as `run-url`, without exposing
+  source locations, modifying the catalog, or enabling refresh/background
+  runtime behavior.
+- Linux `run-url` now accepts `--node-id <id>` to select one normalized
+  subscription catalog node for its foreground sing-box invocation. Omission
+  retains the first supported-node selection; this does not add persistence or
+  runtime node switching.
+- Linux `run-url` now accepts an explicitly requested HTTP(S) subscription.
+  The foreground request uses a 15-second timeout, five redirect limit,
+  successful-response requirement, and 1 MiB UTF-8 response limit before using
+  the existing parser and sing-box path. It does not enable background refresh
+  or persistent remote subscription state.
+- Linux `run-url` now accepts a caller-selected absolute `file://` URI. Its
+  UTF-8 contents use the existing subscription parser and foreground sing-box
+  path; remote fetching, path discovery, and background refresh remain absent.
+- `NativeProxyEngineService::reload` now performs an in-process runtime
+  replacement instead of returning an unwired lifecycle error. It retains the
+  last successful configuration, restores it when the replacement listener
+  cannot start, and reports stable reload/rollback diagnostics without adding a
+  daemon or cross-process control protocol.
+- Linux CLI now includes an explicit read-only managed foreground log slice:
+  `CommandManagedForegroundSessionLogStore::read_tail` and
+  `networkcore-linux managed-log <log-file-path> [--tail-lines <1-1000>]`
+  read only one caller-selected UTF-8 regular file, cap input at 65536 bytes,
+  return a bounded tail report, and keep `liveness_verified=false`. The command
+  does not create default paths, search logs, stream live output, or control a
+  runtime.
 - Windows managed configuration schema 2 introduces an explicit system-proxy
   owner. Existing schema 1 files migrate in memory to `service`, preserving
   CLI/service behavior; GUI profile imports use `desktop`, making the

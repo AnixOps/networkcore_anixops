@@ -55,7 +55,13 @@ jobs:
             apps/windows-cli/Cargo.toml
             apps/windows-cli/src/main.rs
             apps/windows-gui/Cargo.toml
+            apps/windows-gui/build.rs
+            apps/windows-gui/tauri.conf.json
+            apps/windows-gui/icons/networkcore.png
             apps/windows-gui/src/main.rs
+            apps/windows-gui/src/gui/tauri_ui.rs
+            apps/windows-gui/ui/package.json
+            apps/windows-gui/ui/src/App.tsx
             apps/windows-gui/src/gui/commands.rs
             apps/windows-gui/src/gui/runtime_status.rs
             apps/windows-gui/src/gui/shell.rs
@@ -128,6 +134,7 @@ jobs:
             docs/architecture/linux-mitm-http-rewrite-source-contract.md
             docs/architecture/linux-cli-runtime-wiring.md
             docs/architecture/managed-foreground-session-event-source-contract.md
+            docs/architecture/managed-foreground-session-log-source-contract.md
             docs/architecture/managed-foreground-session-status-source-contract.md
             docs/architecture/linux-native-proxy-engine-start.md
             docs/architecture/linux-package-archive-staging-contract.md
@@ -316,6 +323,7 @@ jobs:
           grep -Fq "linux-artifact-release-state=confirmed-release-path" docs/architecture/linux-package-license-notice-transition-validation-contract.md
           grep -Fq "linux-artifact-release-state=confirmed-release-path" docs/architecture/linux-artifact-pre-release-design.md
           grep -q '^linux-artifact-release-state=confirmed-release-path$' docs/manual-intervention.md
+          grep -Fq "## HTTP/2 and HTTP/3 MITM Dependency Lock Refresh" docs/manual-intervention.md
           grep -Fq "Linux artifact release state consistency" docs/ci-cd-policy.md
           grep -Fq "release_state=confirmed-release-path" .github/workflows/release.yml
           if grep -Fq "当前唯一阻断 Linux CLI 二进制发布的前置人工事项" docs/release-strategy.md; then
@@ -354,6 +362,9 @@ jobs:
           grep -q "run-url" apps/linux-cli/src/lib.rs
           grep -q "sing_box_run" apps/linux-cli/src/lib.rs
           grep -q "handle_run_url_with_sing_box" apps/linux-cli/src/lib.rs
+          grep -q "run_url_handler_runs_supported_direct_share_link_protocols" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "run_url_handler_runs_supported_catalog_payload_formats" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "hysteria2://.*tuic://" apps/linux-cli/README.md
           grep -q "CommandSingBoxProcessRunner" apps/linux-cli/src/main.rs
           grep -q "render_sing_box_local_proxy_config" crates/engine-singbox/src/lib.rs
           grep -q "ENGINE_SINGBOX_CONFIG_RENDERED_CODE" crates/engine-singbox/src/lib.rs
@@ -368,6 +379,48 @@ jobs:
           grep -q "runtime.poll_health" apps/windows-service/src/main.rs
           grep -q "sing_box" apps/windows-service/src/lib.rs
           grep -q "ID_VALIDATE_CONFIGURATION" apps/windows-gui/src/main.rs
+          grep -q 'windows-gui-view-runtime=tauri-react-active' docs/architecture/windows-gui-daily-usability.md
+          grep -q 'windows-gui-command-execution=rust-command-bridge-background-workers-all-system-operations-subscription-catalog-refresh-fastest-node-tun-dns-script-runtime-native-groups-active' docs/architecture/windows-gui-daily-usability.md
+          grep -q 'windows-gui-tauri-lifecycle=auto-connect-core-recovery-single-instance-tray-proxy-recovery-active' docs/architecture/windows-gui-daily-usability.md
+          grep -q 'windows-gui-tauri-mitm=enable-disable-legacy-native-mitm-active' docs/architecture/windows-gui-daily-usability.md
+          grep -q 'read_chunked_http_body' crates/engine-native/src/lib.rs
+          grep -q 'Transfer-Encoding: chunked' docs/architecture/linux-mitm-http-rewrite-source-contract.md
+          grep -q 'bounded.*chunked' docs/architecture/windows-managed-client-source-release-contract.md
+          grep -q '## Current Main Override' docs/alpha-release-feature-matrix.md
+          grep -q 'HTTP/2, HTTP/3/QUIC MITM' docs/alpha-release-feature-matrix.md
+          grep -q '^current-main-subscription-run-url=direct-share-links-file-uri-and-foreground-http-subscription-active$' TODO.md
+          grep -q 'direct.*share links' TODO.md
+          grep -q 'tauri::Builder' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'tauri_plugin_single_instance::init' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'TrayIconBuilder' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'WindowEvent::CloseRequested' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'icons/networkcore.png' apps/windows-gui/tauri.conf.json
+          grep -q 'start_automatic_connection' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'start_core_recovery_monitor' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'restore_network_settings' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'enable_https_mitm' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'disable_https_mitm' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'run_blocking' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'async fn runtime_snapshot' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'async fn connect' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'async fn install_service' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'async fn install_certificate' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'async fn select_native_group_outbound' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'start_subscription_refresh_monitor' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'start_fastest_node_monitor' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'list_subscriptions' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'configure_tunnel' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'configure_dns' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'dnsConfigured' apps/windows-gui/ui/src/App.tsx
+          grep -q 'configure_script_runtime' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'scriptRuntimeConfigured' apps/windows-gui/ui/src/App.tsx
+          grep -q 'NativeNodeScriptRuntimeConfig' apps/windows-service/src/lib.rs
+          grep -q 'select_native_group_outbound' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'selectNativeGroupOutbound' apps/windows-gui/ui/src/App.tsx
+          grep -q 'replace_native_group' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'replaceNativeGroup' apps/windows-gui/ui/src/App.tsx
+          grep -q 'runtime_snapshot' apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q 'desktop.snapshot' apps/windows-gui/ui/src/App.tsx
           grep -q "read_runtime_status" apps/windows-gui/src/main.rs
           grep -q "submit_background" apps/windows-gui/src/main.rs
           grep -q "connected_requires_scm_core_process_and_current_proxy" apps/windows-gui/src/gui/ui_state.rs
@@ -424,6 +477,9 @@ jobs:
           grep -q "parses_v2ray_family_sing_box_outbounds_with_tls_reality_and_transport" crates/config-core/tests/config_core_contracts.rs
           grep -q "renders_v2ray_tls_reality_and_transport_options" crates/engine-singbox/tests/engine_singbox_contracts.rs
           grep -q "renders_v2ray_http_and_quic_transport_options" crates/engine-singbox/tests/engine_singbox_contracts.rs
+          grep -q "run_url_handler_runs_supported_direct_share_link_protocols" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "run_url_handler_runs_supported_catalog_payload_formats" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "Supported direct links are" docs/architecture/subscription-url-to-sing-box-run-source-contract.md
           grep -q "Hysteria2/TUIC share-link parser gate" README.md
           grep -q "Hysteria2/TUIC share-link parser gate" ROADMAP.md
           grep -q "Hysteria2/TUIC share-link parser gate" TODO.md
@@ -478,8 +534,12 @@ jobs:
           grep -q "persistent-subscription-catalog-rollback-operation=rollback" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "persistent-subscription-catalog-schema-version=1" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "persistent-subscription-catalog-default-path=blocked" docs/architecture/subscription-catalog-persistence-source-contract.md
-          grep -q "persistent-subscription-catalog-remote-fetch=blocked" docs/architecture/subscription-catalog-persistence-source-contract.md
-          grep -q "persistent-subscription-catalog-file-fetch=blocked" docs/architecture/subscription-catalog-persistence-source-contract.md
+          grep -q "persistent-subscription-catalog-remote-fetch=explicit-foreground-run-catalog-active" docs/architecture/subscription-catalog-persistence-source-contract.md
+          grep -q "persistent-subscription-catalog-file-fetch=explicit-foreground-run-catalog-active" docs/architecture/subscription-catalog-persistence-source-contract.md
+          grep -q "persistent-subscription-catalog-runtime-start=explicit-foreground-run-catalog-active" docs/architecture/subscription-catalog-persistence-source-contract.md
+          grep -q "handle_run_catalog_with_sing_box" apps/linux-cli/src/lib.rs
+          grep -q "run_catalog_handler_resolves_a_saved_source_into_the_foreground_runner" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "run_catalog_handler_fetches_a_saved_remote_source_through_the_same_runner" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "SubscriptionCatalogAddRequest" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "SubscriptionCatalogAddReport" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "CommandSubscriptionCatalogStore::add_source" docs/architecture/subscription-catalog-persistence-source-contract.md
@@ -573,6 +633,12 @@ jobs:
           grep -q "ManagedForegroundSessionEventHistoryReport" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "CommandManagedForegroundSessionEventStore::list_event_history" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "networkcore-linux managed-event list" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "Managed Foreground Session Log Source Contract" docs/architecture/managed-foreground-session-log-source-contract.md
+          grep -q "managed-foreground-session-log-source-contract=active" docs/architecture/managed-foreground-session-log-source-contract.md
+          grep -q "managed-foreground-session-log-max-lines=1000" docs/architecture/managed-foreground-session-log-source-contract.md
+          grep -q "managed-foreground-session-log-max-bytes=65536" docs/architecture/managed-foreground-session-log-source-contract.md
+          grep -q "CommandManagedForegroundSessionLogStore::read_tail" docs/architecture/managed-foreground-session-log-source-contract.md
+          grep -q "networkcore-linux managed-log" docs/architecture/managed-foreground-session-log-source-contract.md
           grep -q "ManagedForegroundSessionStatusRequest" apps/linux-cli/src/lib.rs
           grep -q "ManagedForegroundSessionStatusReport" apps/linux-cli/src/lib.rs
           grep -q "fn read_status" apps/linux-cli/src/lib.rs
@@ -612,6 +678,11 @@ jobs:
           grep -q "fn list_event_history" apps/linux-cli/src/lib.rs
           grep -q "fn read_managed_foreground_session_event_history_file" apps/linux-cli/src/lib.rs
           grep -q "MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES + 1" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionLogTailRequest" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionLogTailReport" apps/linux-cli/src/lib.rs
+          grep -q "CommandManagedForegroundSessionLogStore" apps/linux-cli/src/lib.rs
+          grep -q "managed_foreground_session_log_tail_reads_explicit_bounded_log_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "managed_foreground_session_log_cli_reads_bounded_explicit_log" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "managed_foreground_session_event_reads_explicit_record_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "managed_foreground_session_event_write_persists_non_overwriting_record" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "managed_foreground_session_event_history_filters_pages_and_bounds_explicit_directory" apps/linux-cli/tests/linux_cli_contracts.rs
@@ -1293,6 +1364,10 @@ jobs:
           grep -q "NativeBoundedRead" crates/engine-native/src/lib.rs
           grep -q "NativeHttpsRequestRewritePreviewReport" crates/engine-native/src/lib.rs
           grep -q "NativeHttpsResponseRewritePreviewReport" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RELOAD_RUNNING_CODE" crates/engine-native/src/lib.rs
+          grep -q "ENGINE_NATIVE_RELOAD_ROLLBACK_FAILED_CODE" crates/engine-native/src/lib.rs
+          grep -q "service_reload_replaces_the_current_process_runtime" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "service_reload_restores_the_previous_runtime_when_replacement_start_fails" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "read_explicit_http_proxy_request" crates/engine-native/src/lib.rs
           grep -q "apply_http_mitm_outcome_to_live_plain_http_request" crates/engine-native/src/lib.rs
           grep -q "plan_explicit_http_connect_tls_mitm_foundation" crates/engine-native/src/lib.rs
@@ -1363,6 +1438,15 @@ jobs:
           grep -q "plain_http_proxy_request_header_and_body_rewrite_forwards_via_socks_outbound" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "plain_http_proxy_response_header_and_body_rewrite_returns_modified_response" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "plain_http_proxy_connect_method_establishes_tls_foundation_tunnel_via_socks_outbound" crates/engine-native/tests/engine_native_contracts.rs
+          grep -q "CLI_RUN_URL_FILE_READ_FAILED_CODE" apps/linux-cli/src/lib.rs
+          grep -q "CommandRemoteSubscriptionFetcher" apps/linux-cli/src/lib.rs
+          grep -q "command_remote_subscription_fetcher_reads_a_loopback_http_subscription" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "RUN_URL_REMOTE_SUBSCRIPTION_MAX_BYTES" apps/linux-cli/src/lib.rs
+          grep -q "handle_run_url_with_sing_box_and_node_id" apps/linux-cli/src/lib.rs
+          grep -Fq -- "--node-id <id>" apps/linux-cli/README.md
+          grep -q "run_url_handler_reads_an_explicit_file_uri_through_the_subscription_parser" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "run_url_handler_fetches_an_explicit_remote_subscription_through_the_same_parser" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "run_url_handler_selects_the_requested_catalog_node" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "LinuxMitmHttpRewriteReport" apps/linux-cli/src/lib.rs
           grep -q "MITM_HTTP_REWRITE_CONTROLLED_TLS_TERMINATION_PLAN_READY" apps/linux-cli/src/lib.rs
           grep -q "MITM_HTTP_REWRITE_DOWNSTREAM_TLS_TERMINATION_PLAN_READY" apps/linux-cli/src/lib.rs
@@ -1723,6 +1807,13 @@ jobs:
         with:
           submodules: true
 
+      - name: Setup Node for Windows GUI assets
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/windows-gui/ui/pnpm-lock.yaml
+
       - name: Setup Windows C toolchain
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
@@ -1764,6 +1855,15 @@ jobs:
         with:
           node-version: 22
 
+      - name: Build Windows GUI frontend
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          pnpm --dir apps/windows-gui/ui install --frozen-lockfile
+          pnpm --dir apps/windows-gui/ui run build
+
       - name: Format
         shell: bash
         run: cargo fmt --all -- --check
@@ -1790,6 +1890,13 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: true
+
+      - name: Setup Node for Windows MSI assets
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/windows-gui/ui/pnpm-lock.yaml
 
       - name: Setup Windows C toolchain
         uses: msys2/setup-msys2@v2
@@ -1819,6 +1926,9 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          corepack enable
+          pnpm --dir apps/windows-gui/ui install --frozen-lockfile
+          pnpm --dir apps/windows-gui/ui run build
           rustup toolchain install stable --profile minimal
           rustup default stable
           rustup target add x86_64-pc-windows-gnu
@@ -2019,37 +2129,31 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
+          cache-dependency-path: apps/windows-gui/ui/pnpm-lock.yaml
 
       - name: Install dependencies
         shell: bash
         run: |
           set -euo pipefail
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install
-          fi
+          corepack enable
+          pnpm --dir apps/windows-gui/ui install --frozen-lockfile
+
+      - name: Lint
+        shell: bash
+        run: pnpm --dir apps/windows-gui/ui run lint
 
       - name: Test
         shell: bash
         run: |
           set -euo pipefail
-          if node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.test ? 0 : 1)"; then
-            npm test
-          else
-            echo "No npm test script found; skipping."
-          fi
+          pnpm --dir apps/windows-gui/ui test
 
       - name: Build
         shell: bash
         run: |
           set -euo pipefail
-          if node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.build ? 0 : 1)"; then
-            npm run build
-          else
-            echo "No npm build script found; skipping."
-          fi
+          pnpm --dir apps/windows-gui/ui run build
 
   swift-build-test:
     name: Swift build and test
