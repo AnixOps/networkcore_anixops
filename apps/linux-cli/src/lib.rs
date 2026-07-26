@@ -2883,6 +2883,8 @@ impl Drop for ManagedControlSocketGuard {
 }
 
 pub fn start_managed_control_socket(socket_path: &str) -> DomainResult<ManagedControlSocketGuard> {
+    #[cfg(unix)]
+    MANAGED_CONTROL_STOP_REQUESTED.store(false, Ordering::SeqCst);
     start_managed_control_socket_with_interrupter(
         socket_path,
         Arc::new(OsSignalManagedControlInterrupter),
@@ -2902,7 +2904,6 @@ pub fn start_managed_control_socket_with_interrupter(
     }
     #[cfg(unix)]
     {
-        MANAGED_CONTROL_STOP_REQUESTED.store(false, Ordering::SeqCst);
         if std::path::Path::new(socket_path).exists() {
             return Err(DomainError::new(
                 CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE,
