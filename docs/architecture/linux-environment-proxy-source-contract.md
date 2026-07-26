@@ -30,3 +30,6 @@ snapshot. Credentials in the URL are never included in response diagnostics.
 
 This contract does not activate a default desktop/system proxy, browser profile,
 PAC installation, DNS mutation, or certificate trust mutation.
+
+`linux-environment-proxy-source-contract.md` is the canonical source contract
+for the explicit Linux environment proxy file boundary.
