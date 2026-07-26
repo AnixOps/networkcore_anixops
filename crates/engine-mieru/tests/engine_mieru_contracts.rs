@@ -1,6 +1,8 @@
 use engine_mieru::{
-    parse_mieru_share_link, verify_local_mieru_binary, MieruManagedProcessState,
-    MieruManagedProcessSupervisor, MIERU_BINARY_DIGEST_MISSING_CODE, MIERU_RUNTIME_UNWIRED_CODE,
+    parse_mieru_share_link, render_mieru_client_config, verify_local_mieru_binary,
+    MieruClientConfigRequest, MieruManagedProcessState, MieruManagedProcessSupervisor,
+    MIERU_BINARY_DIGEST_MISSING_CODE, MIERU_CONFIG_TRAFFIC_PATTERN_DEFERRED_CODE,
+    MIERU_RUNTIME_UNWIRED_CODE,
 };
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -84,6 +86,36 @@ fn managed_supervisor_starts_stopped_and_service_stays_explicitly_unwired() {
     assert!(diagnostics
         .iter()
         .any(|diagnostic| diagnostic.code == MIERU_RUNTIME_UNWIRED_CODE));
+}
+
+#[test]
+fn renders_official_shape_with_loopback_socks5_and_defers_traffic_pattern() {
+    let node = parse_mieru_share_link(
+        "mierus://alice:secret@example.com:3010?ports=3010-3020&mtu=1400&multiplexing=true&handshake=HANDSHAKE_STANDARD&traffic=encoded-pattern#office",
+    )
+    .expect("Mieru share link should parse");
+    let report = render_mieru_client_config(&MieruClientConfigRequest {
+        node,
+        socks5_host: "127.0.0.1".to_string(),
+        socks5_port: 1080,
+    })
+    .expect("Mieru client config should render");
+
+    let json: serde_json::Value =
+        serde_json::from_str(&report.content).expect("rendered Mieru config should be JSON");
+    assert_eq!(json["activeProfile"], "default");
+    assert_eq!(json["socks5Port"], 1080);
+    assert_eq!(json["profiles"][0]["user"]["name"], "alice");
+    assert_eq!(
+        json["profiles"][0]["servers"][0]["portBindings"][0]["portRange"],
+        "3010-3020"
+    );
+    assert!(report.traffic_pattern_deferred);
+    assert!(report
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == MIERU_CONFIG_TRAFFIC_PATTERN_DEFERRED_CODE));
+    assert!(!format!("{:?}", report).contains("secret"));
 }
 
 fn temporary_root(label: &str) -> PathBuf {

@@ -12,6 +12,7 @@ use control_domain::{
     ProxyEngineEvent, ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService,
     ProxyEngineStatus,
 };
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::fmt;
 use std::fs::{self, File};
@@ -31,6 +32,9 @@ pub const MIERU_PROCESS_ALREADY_RUNNING_CODE: &str = "engine.mieru.process.alrea
 pub const MIERU_PROCESS_START_FAILED_CODE: &str = "engine.mieru.process.start_failed";
 pub const MIERU_PROCESS_STATUS_FAILED_CODE: &str = "engine.mieru.process.status_failed";
 pub const MIERU_PROCESS_STOP_FAILED_CODE: &str = "engine.mieru.process.stop_failed";
+pub const MIERU_CONFIG_INVALID_CODE: &str = "engine.mieru.config.invalid";
+pub const MIERU_CONFIG_TRAFFIC_PATTERN_DEFERRED_CODE: &str =
+    "engine.mieru.config.traffic_pattern_deferred";
 pub const SOURCE_ENGINE_MIERU_CONFIG: &str = "engine.mieru.config";
 pub const SOURCE_ENGINE_MIERU_BINARY: &str = "engine.mieru.binary";
 pub const SOURCE_ENGINE_MIERU_LIFECYCLE: &str = "engine.mieru.lifecycle";
@@ -167,6 +171,122 @@ impl MieruNodeConfig {
             metadata,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MieruClientConfigRequest {
+    pub node: MieruNodeConfig,
+    pub socks5_host: String,
+    pub socks5_port: u16,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct MieruClientConfigReport {
+    pub content: String,
+    pub socks5_endpoint: String,
+    pub traffic_pattern_deferred: bool,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl fmt::Debug for MieruClientConfigReport {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("MieruClientConfigReport")
+            .field("content", &"<redacted>")
+            .field("socks5_endpoint", &self.socks5_endpoint)
+            .field("traffic_pattern_deferred", &self.traffic_pattern_deferred)
+            .field("diagnostics", &self.diagnostics)
+            .finish()
+    }
+}
+
+pub fn render_mieru_client_config(
+    request: &MieruClientConfigRequest,
+) -> DomainResult<MieruClientConfigReport> {
+    validate_socks5_bind(&request.socks5_host, request.socks5_port)?;
+    if let Some(mtu) = request.node.mtu {
+        if !(1280..=1400).contains(&mtu) {
+            return Err(DomainError::new(
+                MIERU_CONFIG_INVALID_CODE,
+                "Mieru MTU must be between 1280 and 1400",
+            ));
+        }
+    }
+
+    let port_binding = if let Some(port_range) = &request.node.port_range {
+        json!({"protocol": "TCP", "portRange": port_range})
+    } else {
+        json!({"protocol": "TCP", "port": request.node.port})
+    };
+    let mut profile = json!({
+        "profileName": "default",
+        "user": {
+            "name": request.node.username.clone(),
+            "password": request.node.password.clone(),
+        },
+        "servers": [{
+            "ipAddress": request.node.server.clone(),
+            "portBindings": [port_binding],
+        }],
+    });
+    let object = profile.as_object_mut().ok_or_else(|| {
+        DomainError::new(MIERU_CONFIG_INVALID_CODE, "Mieru profile is not an object")
+    })?;
+    if let Some(mtu) = request.node.mtu {
+        object.insert("mtu".to_string(), json!(mtu));
+    }
+    if let Some(multiplexing) = request.node.multiplexing {
+        object.insert(
+            "multiplexing".to_string(),
+            json!({"level": if multiplexing { "MULTIPLEXING_HIGH" } else { "MULTIPLEXING_OFF" }}),
+        );
+    }
+    if let Some(handshake_mode) = &request.node.handshake_mode {
+        object.insert("handshakeMode".to_string(), json!(handshake_mode));
+    }
+
+    let config = json!({
+        "profiles": [profile],
+        "activeProfile": "default",
+        "socks5Port": request.socks5_port,
+        "socks5ListenLAN": false,
+    });
+    let mut diagnostics = vec![Diagnostic::new(
+        DiagnosticSeverity::Info,
+        "engine.mieru.config.rendered",
+        "Mieru TCP client configuration was rendered with loopback SOCKS5 output",
+        Some(SOURCE_ENGINE_MIERU_CONFIG.to_string()),
+    )];
+    let traffic_pattern_deferred = request.node.traffic_pattern.is_some();
+    if traffic_pattern_deferred {
+        diagnostics.push(Diagnostic::new(
+            DiagnosticSeverity::Warning,
+            MIERU_CONFIG_TRAFFIC_PATTERN_DEFERRED_CODE,
+            "Mieru traffic pattern metadata was retained but not expanded into the protobuf configuration object",
+            Some(SOURCE_ENGINE_MIERU_CONFIG.to_string()),
+        ));
+    }
+    Ok(MieruClientConfigReport {
+        content: serde_json::to_string_pretty(&config).map_err(|error| {
+            DomainError::new(
+                MIERU_CONFIG_INVALID_CODE,
+                format!("Mieru client configuration could not be serialized: {error}"),
+            )
+        })?,
+        socks5_endpoint: format!("{}:{}", request.socks5_host, request.socks5_port),
+        traffic_pattern_deferred,
+        diagnostics,
+    })
+}
+
+fn validate_socks5_bind(host: &str, port: u16) -> DomainResult<()> {
+    if !matches!(host, "127.0.0.1" | "localhost" | "::1") || port < 1025 {
+        return Err(DomainError::new(
+            MIERU_CONFIG_INVALID_CODE,
+            "Mieru SOCKS5 output must bind to localhost and a port at or above 1025",
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

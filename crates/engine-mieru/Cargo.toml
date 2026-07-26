@@ -9,6 +9,7 @@ description = "External Mieru proxy engine adapter contracts for the AnixOps net
 [dependencies]
 control-domain = { path = "../control-domain" }
 sha2 = "0.10"
+serde_json = "1"
 url = "2.5"
 
 [lib]
