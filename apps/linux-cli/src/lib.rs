@@ -48,6 +48,7 @@ use signal_hook::{
     iterator::Signals,
 };
 use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
@@ -2048,6 +2049,9 @@ pub struct SubscriptionCatalogUpdateReport {
     pub location_kind: String,
     pub location_redacted: bool,
     pub validated_node_count: usize,
+    pub added_node_count: usize,
+    pub removed_node_count: usize,
+    pub changed_node_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2899,6 +2903,9 @@ impl CommandSubscriptionCatalogStore {
             location_kind: subscription_catalog_location_kind(location).to_string(),
             location_redacted: true,
             validated_node_count: 0,
+            added_node_count: 0,
+            removed_node_count: 0,
+            changed_node_count: 0,
         })
     }
 
@@ -2910,11 +2917,32 @@ impl CommandSubscriptionCatalogStore {
     where
         F: RemoteSubscriptionFetcher,
     {
+        let catalog_path = required_subscription_catalog_path(
+            &request.catalog_path,
+            CLI_SUBSCRIPTION_CATALOG_PATH_MISSING_CODE,
+            "subscription catalog path cannot be empty",
+        )?;
+        let source_id = request.source_id.trim();
+        let (catalog, _) = read_subscription_catalog_file(&catalog_path)?;
+        let previous_location = catalog
+            .sources
+            .iter()
+            .find(|source| source.id.trim() == source_id)
+            .map(|source| source.location.trim().to_string())
+            .ok_or_else(|| {
+                DomainError::new(
+                    CLI_SUBSCRIPTION_CATALOG_SOURCE_NOT_FOUND_CODE,
+                    format!("subscription catalog source id was not found: {source_id}"),
+                )
+            })?;
+
+        let previous_nodes =
+            parse_subscription_catalog_update_nodes(source_id, &previous_location, fetcher)?;
         let content = read_subscription_catalog_update_content(&request.location, fetcher)?;
         let subscription = CoreSubscriptionService::new();
         let document = subscription
             .parse(&RawSubscription {
-                source_id: request.source_id.trim().to_string(),
+                source_id: source_id.to_string(),
                 content,
             })
             .map_err(|error| {
@@ -2935,9 +2963,30 @@ impl CommandSubscriptionCatalogStore {
                 ),
             )
         })?;
-        let validated_node_count = catalog.nodes.len();
+        let current_nodes = subscription_node_index(&catalog.nodes);
+        let previous_nodes = subscription_node_index(&previous_nodes);
+        let added_node_count = current_nodes
+            .keys()
+            .filter(|id| !previous_nodes.contains_key(*id))
+            .count();
+        let removed_node_count = previous_nodes
+            .keys()
+            .filter(|id| !current_nodes.contains_key(*id))
+            .count();
+        let changed_node_count = current_nodes
+            .iter()
+            .filter(|(id, fingerprint)| {
+                previous_nodes
+                    .get(*id)
+                    .is_some_and(|previous| previous != fingerprint)
+            })
+            .count();
+        let validated_node_count = current_nodes.len();
         let mut report = self.update_source(request)?;
         report.validated_node_count = validated_node_count;
+        report.added_node_count = added_node_count;
+        report.removed_node_count = removed_node_count;
+        report.changed_node_count = changed_node_count;
         Ok(report)
     }
 
@@ -6657,8 +6706,13 @@ where
                     DiagnosticSeverity::Info,
                     "cli.subscription.source_updated",
                     format!(
-                        "subscription source {} updated; catalog sources={}; validated nodes={}",
-                        report.source_id, report.source_count, report.validated_node_count
+                        "subscription source {} updated; catalog sources={}; validated nodes={}; added={}; removed={}; changed={}",
+                        report.source_id,
+                        report.source_count,
+                        report.validated_node_count,
+                        report.added_node_count,
+                        report.removed_node_count,
+                        report.changed_node_count
                     ),
                     SOURCE_CLI_RUNTIME,
                 ),
@@ -12019,6 +12073,61 @@ where
         return Ok(content.to_string());
     }
     read_run_url_subscription_content(location, fetcher)
+}
+
+fn parse_subscription_catalog_update_nodes<F>(
+    source_id: &str,
+    location: &str,
+    fetcher: &F,
+) -> DomainResult<Vec<control_domain::NodeDescriptor>>
+where
+    F: RemoteSubscriptionFetcher,
+{
+    let content = read_subscription_catalog_update_content(location, fetcher).map_err(|error| {
+        DomainError::new(
+            CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE,
+            format!(
+                "previous subscription source could not be fetched: {}",
+                error.code
+            ),
+        )
+    })?;
+    let subscription = CoreSubscriptionService::new();
+    let document = subscription
+        .parse(&RawSubscription {
+            source_id: source_id.to_string(),
+            content,
+        })
+        .map_err(|error| {
+            DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE,
+                format!(
+                    "previous subscription source could not be parsed: {}",
+                    error.code
+                ),
+            )
+        })?;
+    let catalog = subscription.normalize(&document).map_err(|error| {
+        DomainError::new(
+            CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE,
+            format!(
+                "previous subscription source could not be normalized: {}",
+                error.code
+            ),
+        )
+    })?;
+    Ok(catalog.nodes)
+}
+
+fn subscription_node_index(nodes: &[control_domain::NodeDescriptor]) -> BTreeMap<String, u64> {
+    nodes
+        .iter()
+        .map(|node| {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            format!("{node:?}").hash(&mut hasher);
+            (node.id.trim().to_string(), hasher.finish())
+        })
+        .collect()
 }
 
 pub fn render_response(response: &LinuxCliResponse, format: OutputFormat) -> String {

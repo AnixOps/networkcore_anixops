@@ -2296,12 +2296,12 @@ fn subscription_catalog_remote_update_validates_before_snapshot_and_reports_node
     let snapshot_path = root.join("catalog.snapshot.json");
     std::fs::write(
         &catalog_path,
-        r#"{"schema_version":1,"sources":[{"id":"work","location":"inline:old"}]}"#,
+        r#"{"schema_version":1,"sources":[{"id":"work","location":"inline:[[nodes]]\nid = \"node-1\"\nname = \"Old Work\"\nprotocol = \"ss\"\nhost = \"old.example\"\nport = 443\n[[nodes]]\nid = \"node-old\"\nname = \"Removed\"\nprotocol = \"ss\"\nhost = \"removed.example\"\nport = 443\n"}]}"#,
     )
     .expect("catalog should be written");
     let fetcher = TestRemoteSubscriptionFetcher::success(
         "https://subscriptions.example.test/work",
-        "[[nodes]]\nid = \"node-1\"\nname = \"Work\"\nprotocol = \"ss\"\nhost = \"secret.example\"\nport = 443\n",
+        "[[nodes]]\nid = \"node-1\"\nname = \"Work\"\nprotocol = \"ss\"\nhost = \"secret.example\"\nport = 443\n[[nodes]]\nid = \"node-new\"\nname = \"Added\"\nprotocol = \"ss\"\nhost = \"new.example\"\nport = 443\n",
     );
 
     let report = CommandSubscriptionCatalogStore::new()
@@ -2316,7 +2316,10 @@ fn subscription_catalog_remote_update_validates_before_snapshot_and_reports_node
         )
         .expect("valid remote candidate should update the catalog");
 
-    assert_eq!(report.validated_node_count, 1);
+    assert_eq!(report.validated_node_count, 2);
+    assert_eq!(report.added_node_count, 1);
+    assert_eq!(report.removed_node_count, 1);
+    assert_eq!(report.changed_node_count, 1);
     assert!(report.location_redacted);
     assert!(snapshot_path.exists());
     assert_eq!(
@@ -2339,7 +2342,7 @@ fn subscription_catalog_remote_update_failure_keeps_old_catalog_and_writes_no_sn
     std::fs::create_dir_all(&root).expect("remote update failure directory should be created");
     let catalog_path = root.join("catalog.json");
     let snapshot_path = root.join("catalog.snapshot.json");
-    let original = r#"{"schema_version":1,"sources":[{"id":"work","location":"https://old.example/sub?token=old-secret"}]}"#;
+    let original = r#"{"schema_version":1,"sources":[{"id":"work","location":"inline:[[nodes]]\nid = \"old\"\nname = \"Old\"\nprotocol = \"ss\"\nhost = \"old.example\"\nport = 443\n"}]}"#;
     std::fs::write(&catalog_path, original).expect("catalog should be written");
     let fetcher = TestRemoteSubscriptionFetcher::success(
         "https://subscriptions.example.test/broken",

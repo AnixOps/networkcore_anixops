@@ -1001,6 +1001,8 @@ jobs:
           grep -q "update_source_with_fetcher" apps/linux-cli/src/lib.rs
           grep -q "subscription_catalog_remote_update_validates_before_snapshot" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "subscription_catalog_remote_update_failure_keeps_old_catalog" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "added_node_count" apps/linux-cli/src/lib.rs
+          grep -q "changed_node_count" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "Explicit Remote Update Boundary" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "subscription_catalog_rollback_restores_snapshot_and_retains_snapshot" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "Managed Foreground Session Status Source Contract" docs/architecture/managed-foreground-session-status-source-contract.md
