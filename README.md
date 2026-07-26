@@ -50,6 +50,7 @@
 - [docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md](docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md)
 - [docs/architecture/linux-artifact-pre-release-design.md](docs/architecture/linux-artifact-pre-release-design.md)
 - [docs/architecture/linux-platform-adapter.md](docs/architecture/linux-platform-adapter.md)
+- [docs/architecture/linux-managed-service-unit-source-contract.md](docs/architecture/linux-managed-service-unit-source-contract.md)
 - [docs/architecture/linux-cli-entrypoint.md](docs/architecture/linux-cli-entrypoint.md)
 - [docs/architecture/linux-mitm-browser-capture-source-contract.md](docs/architecture/linux-mitm-browser-capture-source-contract.md)
 - [docs/architecture/linux-mitm-http-rewrite-source-contract.md](docs/architecture/linux-mitm-http-rewrite-source-contract.md)
