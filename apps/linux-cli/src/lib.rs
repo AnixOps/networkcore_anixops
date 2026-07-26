@@ -9853,13 +9853,17 @@ impl CommandRemoteSubscriptionFetcher {
 
 impl RemoteSubscriptionFetcher for CommandRemoteSubscriptionFetcher {
     fn fetch_subscription(&self, location: &str) -> DomainResult<String> {
-        let client = reqwest::blocking::Client::builder()
+        let mut client_builder = reqwest::blocking::Client::builder()
             .redirect(reqwest::redirect::Policy::limited(
                 RUN_URL_REMOTE_SUBSCRIPTION_MAX_REDIRECTS,
             ))
             .timeout(Duration::from_secs(
                 RUN_URL_REMOTE_SUBSCRIPTION_TIMEOUT_SECONDS,
-            ))
+            ));
+        if remote_subscription_location_is_loopback(location) {
+            client_builder = client_builder.no_proxy();
+        }
+        let client = client_builder
             .build()
             .map_err(|_| {
                 DomainError::new(
@@ -9911,6 +9915,19 @@ impl RemoteSubscriptionFetcher for CommandRemoteSubscriptionFetcher {
             )
         })
     }
+}
+
+fn remote_subscription_location_is_loopback(location: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(location) else {
+        return false;
+    };
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    host == "localhost"
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
 }
 
 fn read_run_url_subscription_content<F>(input: &str, fetcher: &F) -> DomainResult<String>
