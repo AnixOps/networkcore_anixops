@@ -1,0 +1,28 @@
+name: Refresh Windows Icon
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    name: Generate Windows icon artifact
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Generate icon.ico from the tracked PNG
+        shell: bash
+        run: |
+          ffmpeg -y -i apps/windows-gui/icons/networkcore.png \
+            -vf scale=256:256 apps/windows-gui/icons/icon.ico
+
+      - name: Upload generated Windows icon
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-gui-icon
+          path: apps/windows-gui/icons/icon.ico
+          if-no-files-found: error
