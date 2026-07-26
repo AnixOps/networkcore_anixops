@@ -86,6 +86,12 @@ fn main() {
                     | networkcore_linux::LinuxCliCommand::ProxyRollback { .. }
             ) {
                 networkcore_linux::handle_entrypoint(command, &platform)
+            } else if matches!(
+                &command,
+                networkcore_linux::LinuxCliCommand::MitmCertificateTrustApply { .. }
+                    | networkcore_linux::LinuxCliCommand::MitmCertificateTrustRollback { .. }
+            ) {
+                networkcore_linux::handle_entrypoint(command, &platform)
             } else if let networkcore_linux::LinuxCliCommand::InstallMieru {
                 binary_path,
                 expected_sha256,
