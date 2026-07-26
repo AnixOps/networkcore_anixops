@@ -5,7 +5,8 @@ use control_domain::{
     OperatingSystem, PlatformCapabilities, PlatformCapabilityService, PlatformCapabilityStatus,
     PlatformFeatureState, Protocol, ProxyEngineCapability, ProxyEngineConfig,
     ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineKind, ProxyEngineLifecycleState,
-    ProxyEngineService, ProxyEngineStatus, RawSubscription, RouteAction, RuleSet, SchemaVersion,
+    ProxyEngineAdapter, ProxyEngineService, ProxyEngineStatus, RawSubscription, RouteAction,
+    RuleSet, SchemaVersion,
     SubscriptionDocument, SubscriptionService, SubscriptionSource,
 };
 
@@ -289,6 +290,19 @@ fn proxy_engine_port_can_be_implemented_by_an_adapter() {
 
     assert_eq!(engine.list_engines().len(), 1);
     assert!(engine.validate_config(&engine_config).is_empty());
+    let prepared = ProxyEngineAdapter::prepare(&engine, &engine_config)
+        .expect("adapter should capture a lifecycle snapshot");
+    assert_eq!(prepared.snapshot.engine_id, "native");
+    assert_eq!(prepared.snapshot.status.state, ProxyEngineLifecycleState::Running);
+    let rollback = ProxyEngineAdapter::rollback(
+        &engine,
+        &control_domain::ProxyEngineRollbackRequest {
+            snapshot: prepared.snapshot,
+            expected_state: ProxyEngineLifecycleState::Running,
+        },
+    )
+    .expect_err("legacy bridge must not claim rollback support");
+    assert_eq!(rollback.code, "control.engine.rollback_unsupported");
     assert_eq!(
         engine
             .start(&engine_config)

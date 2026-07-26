@@ -529,6 +529,28 @@ pub struct ProxyEngineEvent {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// Durable control-plane snapshot captured before a lifecycle mutation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProxyEngineSnapshot {
+    pub engine_id: String,
+    pub config: ProxyEngineConfig,
+    pub status: ProxyEngineStatus,
+}
+
+/// Result of preparing an adapter request for a lifecycle mutation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProxyEnginePrepareReport {
+    pub snapshot: ProxyEngineSnapshot,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Request to restore the configuration captured by a lifecycle snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProxyEngineRollbackRequest {
+    pub snapshot: ProxyEngineSnapshot,
+    pub expected_state: ProxyEngineLifecycleState,
+}
+
 /// Maximum number of lifecycle events exposed by one control-plane query.
 pub const MAX_PROXY_ENGINE_EVENTS: usize = 128;
 
@@ -913,7 +935,7 @@ pub trait PolicyRoutingService {
     fn explain(&self, route_decision: &RouteDecision) -> Vec<Diagnostic>;
 }
 
-/// Proxy execution engine adapter domain port.
+/// Legacy proxy execution engine domain port.
 pub trait ProxyEngineService {
     fn list_engines(&self) -> Vec<ProxyEngineDescriptor>;
 
@@ -928,6 +950,106 @@ pub trait ProxyEngineService {
     fn status(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus>;
 
     fn events(&self, engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>>;
+}
+
+/// Unified proxy engine lifecycle adapter domain port.
+pub trait ProxyEngineAdapter {
+    fn list_engines(&self) -> Vec<ProxyEngineDescriptor>;
+
+    fn validate(&self, engine_config: &ProxyEngineConfig) -> Vec<Diagnostic>;
+
+    fn prepare(
+        &self,
+        engine_config: &ProxyEngineConfig,
+    ) -> DomainResult<ProxyEnginePrepareReport>;
+
+    fn start(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus>;
+
+    fn status(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus>;
+
+    fn reload(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus>;
+
+    fn stop(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus>;
+
+    fn rollback(
+        &self,
+        request: &ProxyEngineRollbackRequest,
+    ) -> DomainResult<ProxyEngineStatus>;
+
+    fn events(&self, engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>>;
+}
+
+/// Bridges existing engine services into the unified adapter contract while
+/// keeping unsupported rollback explicit until an adapter owns restoration.
+impl<T> ProxyEngineAdapter for T
+where
+    T: ProxyEngineService,
+{
+    fn list_engines(&self) -> Vec<ProxyEngineDescriptor> {
+        ProxyEngineService::list_engines(self)
+    }
+
+    fn validate(&self, engine_config: &ProxyEngineConfig) -> Vec<Diagnostic> {
+        ProxyEngineService::validate_config(self, engine_config)
+    }
+
+    fn prepare(
+        &self,
+        engine_config: &ProxyEngineConfig,
+    ) -> DomainResult<ProxyEnginePrepareReport> {
+        let diagnostics = self.validate(engine_config);
+        if diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+        {
+            return Err(DomainError::new(
+                "control.engine.prepare_invalid",
+                "proxy engine configuration validation failed",
+            ));
+        }
+
+        let status = ProxyEngineService::status(self, &engine_config.engine_id)?;
+        validate_proxy_engine_status(&status, &engine_config.engine_id, status.state)?;
+
+        Ok(ProxyEnginePrepareReport {
+            snapshot: ProxyEngineSnapshot {
+                engine_id: engine_config.engine_id.clone(),
+                config: engine_config.clone(),
+                status,
+            },
+            diagnostics,
+        })
+    }
+
+    fn start(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {
+        ProxyEngineService::start(self, engine_config)
+    }
+
+    fn status(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
+        ProxyEngineService::status(self, engine_id)
+    }
+
+    fn reload(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {
+        ProxyEngineService::reload(self, engine_config)
+    }
+
+    fn stop(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
+        ProxyEngineService::stop(self, engine_id)
+    }
+
+    fn rollback(
+        &self,
+        _request: &ProxyEngineRollbackRequest,
+    ) -> DomainResult<ProxyEngineStatus> {
+        Err(DomainError::new(
+            "control.engine.rollback_unsupported",
+            "proxy engine adapter does not own configuration rollback",
+        ))
+    }
+
+    fn events(&self, engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>> {
+        ProxyEngineService::events(self, engine_id)
+    }
 }
 
 /// DNS policy domain port.

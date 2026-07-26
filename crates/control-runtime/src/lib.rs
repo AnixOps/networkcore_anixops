@@ -11,8 +11,9 @@ use control_domain::{
     ConfigSnapshot, ConfigurationService, Diagnostic, DiagnosticSeverity, DomainError,
     DomainResult, GrantedPermissions, HttpEvent, Metadata, MitmPluginService, NodeCatalog,
     NodeDescriptor, PlatformCapabilities, PlatformCapabilityService, PlatformCapabilityStatus,
-    PlatformFeatureState, PluginPackage, PluginPermission, PluginResult, ProxyEngineConfig,
-    ProxyEngineEvent, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
+    PlatformFeatureState, PluginPackage, PluginPermission, PluginResult, ProxyEngineAdapter,
+    ProxyEngineConfig, ProxyEngineEvent, ProxyEngineLifecycleState, ProxyEnginePrepareReport,
+    ProxyEngineStatus,
     SubscriptionService, SubscriptionSource,
 };
 
@@ -139,7 +140,7 @@ impl<C, P, E> RuntimeOrchestrator<C, P, E>
 where
     C: ConfigurationService,
     P: PlatformCapabilityService,
-    E: ProxyEngineService,
+    E: ProxyEngineAdapter,
 {
     /// Creates a runtime orchestrator from domain port implementations.
     pub const fn new(configuration: C, platform: P, engine: E) -> Self {
@@ -226,6 +227,16 @@ where
             engine_status,
             diagnostics,
         })
+    }
+
+    /// Captures the adapter-owned snapshot before a lifecycle mutation.
+    pub fn prepare_runtime_engine(
+        &self,
+        request: RuntimeConfigRequest,
+    ) -> DomainResult<ProxyEnginePrepareReport> {
+        let (prepared, engine_config) = self.prepare_engine_config(&request)?;
+        ensure_start_capabilities(&prepared.platform)?;
+        self.engine.prepare(&engine_config)
     }
 
     /// Starts a runtime engine with explicit subscription catalog node handoff.
@@ -429,7 +440,7 @@ where
         &self,
         engine_config: &ProxyEngineConfig,
     ) -> DomainResult<Vec<Diagnostic>> {
-        let diagnostics = self.engine.validate_config(engine_config);
+        let diagnostics = self.engine.validate(engine_config);
         reject_error_diagnostics(
             &diagnostics,
             "runtime.engine_config.invalid",
