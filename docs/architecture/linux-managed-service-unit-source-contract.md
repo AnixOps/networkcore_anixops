@@ -1,5 +1,7 @@
 # Linux Managed Service Unit Source Contract
 
+linux-managed-service-unit-source-contract
+
 The first Linux managed-mode increment is a pure systemd unit generation and
 removal-plan contract. `platform-linux::systemd::render_systemd_unit` returns
 unit text and a plan, while `plan_systemd_unit_removal` returns the explicit

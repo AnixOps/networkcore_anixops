@@ -1713,15 +1713,17 @@ fn render_sing_box_outbound(node: &NodeDescriptor) -> DomainResult<serde_json::V
         Protocol::Vmess => render_vmess_outbound(node),
         Protocol::Hysteria2 => render_hysteria2_outbound(node),
         Protocol::Tuic => render_tuic_outbound(node),
-        Protocol::Http | Protocol::Socks | Protocol::Hysteria | Protocol::Other(_) => {
-            Err(DomainError::new(
-                ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE,
-                format!(
-                    "sing-box local proxy config does not support {:?} nodes",
-                    node.protocol
-                ),
-            ))
-        }
+        Protocol::Http
+        | Protocol::Socks
+        | Protocol::Hysteria
+        | Protocol::Mieru
+        | Protocol::Other(_) => Err(DomainError::new(
+            ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE,
+            format!(
+                "sing-box local proxy config does not support {:?} nodes",
+                node.protocol
+            ),
+        )),
     }
 }
 
