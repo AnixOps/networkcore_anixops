@@ -24,8 +24,8 @@ use networkcore_linux::{
     handle_entrypoint_with_runtime, handle_entrypoint_with_runtime_and_lifecycle,
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
     handle_foreground_lifecycle_with_runtime_stop, handle_install_service_apply_at,
-    handle_install_sing_box, handle_managed_control_stop, handle_mitm_browser_capture_apply,
-    handle_mitm_browser_capture_apply_with_store,
+    handle_install_sing_box, handle_managed_control_reload, handle_managed_control_stop,
+    handle_mitm_browser_capture_apply, handle_mitm_browser_capture_apply_with_store,
     handle_mitm_browser_capture_apply_with_store_and_profile_prefs_and_proxy_scheme,
     handle_mitm_browser_capture_apply_with_store_and_proxy_scheme,
     handle_mitm_browser_capture_launch, handle_mitm_browser_capture_launch_plan,
@@ -67,22 +67,22 @@ use networkcore_linux::{
     LinuxBrowserCaptureVerifyOutcome, LinuxBrowserCaptureVerifyRequest, LinuxCliCommand,
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
-    LinuxNativeMitmRuntimeFileConfig, ManagedControlInterrupter, ManagedForegroundLifecyclePaths,
-    ManagedForegroundSessionEventHistoryRequest, ManagedForegroundSessionEventRequest,
-    ManagedForegroundSessionEventWriteRequest, ManagedForegroundSessionLogTailRequest,
-    ManagedForegroundSessionStatusRequest, ManagedForegroundSessionStatusRollbackRequest,
-    ManagedForegroundSessionStatusTransitionRequest, ManagedForegroundSessionStatusWriteRequest,
-    MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
-    RemoteSubscriptionFetcher, SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
+    LinuxNativeMitmRuntimeFileConfig, ManagedControlInterrupter, ManagedControlRequest,
+    ManagedForegroundLifecyclePaths, ManagedForegroundSessionEventHistoryRequest,
+    ManagedForegroundSessionEventRequest, ManagedForegroundSessionEventWriteRequest,
+    ManagedForegroundSessionLogTailRequest, ManagedForegroundSessionStatusRequest,
+    ManagedForegroundSessionStatusRollbackRequest, ManagedForegroundSessionStatusTransitionRequest,
+    ManagedForegroundSessionStatusWriteRequest, MitmCertificateArtifactStore,
+    MitmCertificateRollbackSnapshot, OutputFormat, RemoteSubscriptionFetcher,
+    SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
     SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
     SubscriptionCatalogSelectRequest, SubscriptionCatalogUpdateRequest,
-    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService,
-    CLI_ARGUMENT_UNKNOWN_CODE, CLI_ARGUMENT_VALUE_MISSING_CODE, CLI_CONFIG_EMPTY_CODE,
-    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
-    CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE,
-    CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE, CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE,
-    CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE, CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE,
-    CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_ARGUMENT_UNKNOWN_CODE,
+    CLI_ARGUMENT_VALUE_MISSING_CODE, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
+    CLI_CONFIG_READ_FAILED_CODE, CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE,
+    CLI_MANAGED_CONTROL_SOCKET_RELOAD_READY_CODE, CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE,
+    CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE, CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE,
+    CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE,
@@ -142,7 +142,8 @@ use networkcore_linux::{
 #[cfg(unix)]
 use networkcore_linux::{
     OsSignalForegroundLifecycleInterruptionSource, OsSignalManagedControlInterrupter,
-    CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE, CLI_START_SIGNAL_RECEIVED_CODE,
+    CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE, CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE,
+    CLI_START_SIGNAL_RECEIVED_CODE,
 };
 use platform_linux::systemd::{LinuxSystemdCommandRunner, LinuxSystemdServiceAction};
 use platform_linux::{
@@ -8028,11 +8029,24 @@ fn os_signal_interruption_source_maps_unix_signals_to_stable_diagnostics() {
     let sigterm = OsSignalForegroundLifecycleInterruptionSource::interruption_for_signal(SIGTERM);
     let managed_control =
         OsSignalForegroundLifecycleInterruptionSource::interruption_for_managed_control_stop();
+    let managed_reload =
+        OsSignalForegroundLifecycleInterruptionSource::interruption_for_managed_control_reload();
     let interrupter = OsSignalManagedControlInterrupter;
     interrupter
-        .interrupt()
+        .interrupt(ManagedControlRequest::Stop)
         .expect("managed control interrupter should record a stop request");
     let observed_managed_control = OsSignalForegroundLifecycleInterruptionSource::new()
+        .wait_for_interruption(&ForegroundLifecycleRequest {
+            engine_status: ProxyEngineStatus {
+                engine_id: DEFAULT_ENGINE_ID.to_string(),
+                state: ProxyEngineLifecycleState::Running,
+                diagnostics: Vec::new(),
+            },
+        });
+    interrupter
+        .interrupt(ManagedControlRequest::Reload)
+        .expect("managed control interrupter should record a reload request");
+    let observed_managed_reload = OsSignalForegroundLifecycleInterruptionSource::new()
         .wait_for_interruption(&ForegroundLifecycleRequest {
             engine_status: ProxyEngineStatus {
                 engine_id: DEFAULT_ENGINE_ID.to_string(),
@@ -8044,7 +8058,9 @@ fn os_signal_interruption_source_maps_unix_signals_to_stable_diagnostics() {
     assert_eq!(sigint.reason, "SIGINT");
     assert_eq!(sigterm.reason, "SIGTERM");
     assert_eq!(managed_control.reason, "managed-control-stop");
+    assert_eq!(managed_reload.reason, "managed-control-reload");
     assert_eq!(observed_managed_control.reason, "managed-control-stop");
+    assert_eq!(observed_managed_reload.reason, "managed-control-reload");
     assert_diagnostic(&sigint.diagnostics, CLI_START_SIGNAL_RECEIVED_CODE);
     assert_diagnostic(
         &managed_control.diagnostics,
@@ -8053,6 +8069,14 @@ fn os_signal_interruption_source_maps_unix_signals_to_stable_diagnostics() {
     assert_diagnostic(
         &observed_managed_control.diagnostics,
         CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE,
+    );
+    assert_diagnostic(
+        &managed_reload.diagnostics,
+        CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE,
+    );
+    assert_diagnostic(
+        &observed_managed_reload.diagnostics,
+        CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE,
     );
     assert_diagnostic(&sigterm.diagnostics, CLI_START_SIGNAL_RECEIVED_CODE);
 }
@@ -9653,7 +9677,7 @@ struct TestManagedControlInterrupter {
 
 #[cfg(unix)]
 impl ManagedControlInterrupter for TestManagedControlInterrupter {
-    fn interrupt(&self) -> DomainResult<()> {
+    fn interrupt(&self, _request: ManagedControlRequest) -> DomainResult<()> {
         self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
@@ -9725,12 +9749,19 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
     ])
     .expect_err("managed control stop should reject unrelated options");
     assert_eq!(unsupported_stop_option.code, CLI_ARGUMENT_UNKNOWN_CODE);
-    let missing_socket_path = parse_args([
-        "stop",
+    let reload = parse_args([
+        "reload",
         "--managed-control-socket",
+        socket_path.to_str().expect("socket path should be UTF-8"),
         "--confirm",
     ])
-    .expect_err("managed control stop should require a socket path value");
+    .expect("managed control reload should parse");
+    assert!(matches!(
+        reload,
+        LinuxCliCommand::ManagedControlReload { confirm: true, .. }
+    ));
+    let missing_socket_path = parse_args(["stop", "--managed-control-socket", "--confirm"])
+        .expect_err("managed control stop should require a socket path value");
     assert_eq!(missing_socket_path.code, CLI_ARGUMENT_VALUE_MISSING_CODE);
 
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -9757,20 +9788,16 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
         &unauthorized.diagnostics,
         CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE,
     );
-    let mut rejected_stream = UnixStream::connect(&socket_path)
-        .expect("managed control socket should accept a bounded unsupported request");
-    rejected_stream
-        .write_all(b"reload\n")
-        .expect("unsupported request should be writable");
-    rejected_stream
-        .shutdown(std::net::Shutdown::Write)
-        .expect("unsupported request write side should close");
-    let mut rejected_response = String::new();
-    rejected_stream
-        .read_to_string(&mut rejected_response)
-        .expect("unsupported request should receive a response");
-    assert_eq!(rejected_response, "rejected\n");
-    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+    let reload = handle_managed_control_reload(
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        true,
+    );
+    assert!(reload.ok);
+    assert_diagnostic(
+        &reload.diagnostics,
+        CLI_MANAGED_CONTROL_SOCKET_RELOAD_READY_CODE,
+    );
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     let accepted = handle_managed_control_stop(
         socket_path.to_str().expect("socket path should be UTF-8"),
         true,
@@ -9780,7 +9807,7 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
         &accepted.diagnostics,
         CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE,
     );
-    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
     drop(guard);
     assert!(!socket_path.exists());
     let _ = std::fs::remove_dir_all(root);

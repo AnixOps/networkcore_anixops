@@ -4,10 +4,10 @@
 
 ```text
 linux-managed-control-socket-source-contract=active
-linux-managed-control-socket-operation=explicit-foreground-stop
+linux-managed-control-socket-operation=explicit-foreground-stop-reload
 linux-managed-control-socket-permissions=0600
 linux-managed-control-socket-default-path=blocked
-linux-managed-control-socket-reload=blocked
+linux-managed-control-socket-reload=explicit-foreground-active
 linux-managed-control-socket-status=blocked
 ```
 
@@ -33,24 +33,31 @@ signals, default-path discovery, systemd, or process-name matching.
 The CLI form accepts only one `--managed-control-socket`, `--confirm`, and
 `--format`; unrelated flags are rejected before any socket connection attempt.
 
-The server maps an accepted request to the existing foreground interruption
-path. The Unix signal interruption source checks the accepted control request
-alongside `SIGINT`/`SIGTERM`, emits
-`cli.linux.start.managed_control_stop_requested`, and the current-process host
-then calls `RuntimeOrchestrator::stop_runtime`, aggregates native release
-diagnostics, and lets managed lifecycle recording transition `running -> stopped`.
-The socket protocol does not expose reload,
+`networkcore-linux reload --managed-control-socket <absolute-path> --confirm`
+uses the same exact-path authorization and bounded request/response exchange.
+An accepted `reload` is consumed by the current foreground process, invokes
+`RuntimeOrchestrator::reload_runtime` with the already explicit `start`
+configuration, and resumes the foreground lifecycle only after a successful
+reload. Reload failure reports a stable diagnostic, attempts current-runtime
+cleanup, and transitions managed recording to `failed`; it does not infer a
+configuration path or start a new process.
+
+The server maps accepted requests to the existing foreground lifecycle path.
+The Unix signal interruption source checks them alongside `SIGINT`/`SIGTERM`:
+`stop` emits `cli.linux.start.managed_control_stop_requested`, calls
+`RuntimeOrchestrator::stop_runtime`, aggregates native release diagnostics, and
+lets managed lifecycle recording transition `running -> stopped`; `reload`
+emits `cli.linux.start.managed_control_reload_requested` and re-enters the
+foreground wait after the runtime reload. The socket protocol does not expose
 rollback, status, logs, events, arbitrary payloads, or remote transport.
 
 ## Verification
 
 GitHub Actions must run
 `managed_control_socket_accepts_confirmed_stop_and_cleans_up`. The contract
-uses an injected `ManagedControlInterrupter` to prove a real UnixStream request
-is accepted once without signalling the test process, checks `0600`, verifies
-the authorization gate, rejects `reload` without interrupting the session, and
-proves guard cleanup. The Unix foreground
+uses an injected `ManagedControlInterrupter` to prove real UnixStream `reload`
+and `stop` requests are accepted without signalling the test process, checks
+`0600`, verifies the authorization gate, and proves guard cleanup. The Unix foreground
 interruption contract separately proves the default control interrupter is
-consumed as `managed-control-stop` with
-`cli.linux.start.managed_control_stop_requested`. Local machines do not run
-build or test commands.
+consumed as `managed-control-stop` and exposes the reload diagnostic. Local
+machines do not run build or test commands.

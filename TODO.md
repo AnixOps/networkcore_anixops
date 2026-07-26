@@ -215,6 +215,7 @@ P4 backlog buckets：
 - [x] 为 `CurrentProcessForegroundLifecycleHost` 接入真实 Unix OS signal/interruption source，默认监听 `SIGINT`/`SIGTERM` 并映射为前台 interruption 合同，非 Unix 继续保留 parking fallback，继续保持无 daemon/control socket 边界。
 - [x] 为 `networkcore-linux start` 前台 lifecycle host 补充 signal/interruption 处理合同，新增可注入 interruption source、`cli.linux.start.lifecycle_interrupted` 诊断和 130 退出码映射，继续保持无 daemon/control socket 边界。
 - [x] 将 `networkcore-linux start` binary 接入 `NativeProxyEngineService` 与前台 lifecycle host，继续保持无 daemon/control socket 边界。
+- [x] 完成 Linux managed foreground status/reload/rollback 闭环：显式 status/snapshot/events 持久化和 expected-state rollback 保持文件边界；Unix owner-only control socket 新增确认后的 `reload`，通过当前前台进程调用 `RuntimeOrchestrator::reload_runtime` 并恢复等待，失败后释放 runtime 并记录 `failed`；未增加默认路径、PID/status 查询或后台 daemon。
 - [x] 在 `engine-native` 中补充 service-owned runtime state 与 foreground lifecycle handoff 源码合同，`NativeProxyEngineService::start` 可持有 loopback TCP accept loop runtime 并返回 `Running`，`status`/`events`/`stop` 可观察和释放 runtime，继续不接入 `networkcore-linux start` binary。
 - [x] 在 `engine-native` 中补充 service start readiness gate 诊断合同，确认有效 runtime assembly plan 已具备但 service-owned runtime state 与 foreground lifecycle handoff 仍阻断 `NativeProxyEngineService::start` 返回 `Running`，继续不接入 `networkcore-linux start`。
 - [x] 在 `engine-native` 中补充 SOCKS5 outbound CONNECT accept loop client success response 与 data relay 接线诊断合同，继续不接入 `networkcore-linux start`。

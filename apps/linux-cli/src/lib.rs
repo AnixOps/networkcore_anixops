@@ -59,7 +59,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::{fs::FileTypeExt, fs::PermissionsExt};
 use std::path::PathBuf;
 #[cfg(unix)]
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 #[cfg(unix)]
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -98,10 +98,17 @@ pub const CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE: &str =
     "cli.linux.managed_control_socket.stop_ready";
 pub const CLI_MANAGED_CONTROL_SOCKET_STOP_FAILED_CODE: &str =
     "cli.linux.managed_control_socket.stop_failed";
+pub const CLI_MANAGED_CONTROL_SOCKET_RELOAD_READY_CODE: &str =
+    "cli.linux.managed_control_socket.reload_ready";
+pub const CLI_MANAGED_CONTROL_SOCKET_RELOAD_FAILED_CODE: &str =
+    "cli.linux.managed_control_socket.reload_failed";
 pub const CLI_START_SIGNAL_RECEIVED_CODE: &str = "cli.linux.start.signal_received";
 pub const CLI_START_SIGNAL_SOURCE_FAILED_CODE: &str = "cli.linux.start.signal_source_failed";
 pub const CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE: &str =
     "cli.linux.start.managed_control_stop_requested";
+pub const CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE: &str =
+    "cli.linux.start.managed_control_reload_requested";
+pub const CLI_START_RUNTIME_RELOAD_FAILED_CODE: &str = "cli.linux.start.runtime_reload_failed";
 pub const CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE: &str =
     "cli.linux.start.tls_mitm_authorization_required";
 pub const CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE: &str =
@@ -389,7 +396,10 @@ pub const MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT: usize = 1_000;
 pub const MANAGED_FOREGROUND_LOG_TAIL_MAX_BYTES: u64 = 64 * 1024;
 pub const MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS: u64 = 2;
 #[cfg(unix)]
-static MANAGED_CONTROL_STOP_REQUESTED: AtomicBool = AtomicBool::new(false);
+const MANAGED_CONTROL_NONE: u8 = 0;
+const MANAGED_CONTROL_STOP: u8 = 1;
+const MANAGED_CONTROL_RELOAD: u8 = 2;
+static MANAGED_CONTROL_REQUEST: AtomicU8 = AtomicU8::new(MANAGED_CONTROL_NONE);
 pub const RUN_URL_REMOTE_SUBSCRIPTION_MAX_BYTES: u64 = 1024 * 1024;
 pub const RUN_URL_REMOTE_SUBSCRIPTION_TIMEOUT_SECONDS: u64 = 15;
 pub const RUN_URL_REMOTE_SUBSCRIPTION_MAX_REDIRECTS: usize = 5;
@@ -470,6 +480,11 @@ pub enum LinuxCliCommand {
         format: OutputFormat,
     },
     ManagedControlStop {
+        socket_path: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    ManagedControlReload {
         socket_path: String,
         confirm: bool,
         format: OutputFormat,
@@ -813,6 +828,7 @@ impl LinuxCliCommand {
             Self::Start { .. } => "start",
             Self::Stop { .. } => "stop",
             Self::ManagedControlStop { .. } => "managed-control stop",
+            Self::ManagedControlReload { .. } => "managed-control reload",
             Self::CoreList { .. } => "core list",
             Self::SubscriptionAdd { .. } => "subscription add",
             Self::SubscriptionList { .. } => "subscription list",
@@ -886,6 +902,7 @@ impl LinuxCliCommand {
             | Self::Start { format, .. }
             | Self::Stop { format }
             | Self::ManagedControlStop { format, .. }
+            | Self::ManagedControlReload { format, .. }
             | Self::CoreList { format }
             | Self::SubscriptionAdd { format, .. }
             | Self::SubscriptionList { format, .. }
@@ -2833,18 +2850,40 @@ impl ManagedForegroundLifecycleRecorder {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ManagedControlRequest {
+    Stop,
+    Reload,
+}
+
+impl ManagedControlRequest {
+    const fn wire_command(self) -> &'static str {
+        match self {
+            Self::Stop => "stop",
+            Self::Reload => "reload",
+        }
+    }
+
+    const fn signal_value(self) -> u8 {
+        match self {
+            Self::Stop => MANAGED_CONTROL_STOP,
+            Self::Reload => MANAGED_CONTROL_RELOAD,
+        }
+    }
+}
+
 pub trait ManagedControlInterrupter: Send + Sync {
-    fn interrupt(&self) -> DomainResult<()>;
+    fn interrupt(&self, request: ManagedControlRequest) -> DomainResult<()>;
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct OsSignalManagedControlInterrupter;
 
 impl ManagedControlInterrupter for OsSignalManagedControlInterrupter {
-    fn interrupt(&self) -> DomainResult<()> {
+    fn interrupt(&self, request: ManagedControlRequest) -> DomainResult<()> {
         #[cfg(unix)]
         {
-            MANAGED_CONTROL_STOP_REQUESTED.store(true, Ordering::SeqCst);
+            MANAGED_CONTROL_REQUEST.store(request.signal_value(), Ordering::SeqCst);
             Ok(())
         }
         #[cfg(not(unix))]
@@ -2885,7 +2924,7 @@ impl Drop for ManagedControlSocketGuard {
 
 pub fn start_managed_control_socket(socket_path: &str) -> DomainResult<ManagedControlSocketGuard> {
     #[cfg(unix)]
-    MANAGED_CONTROL_STOP_REQUESTED.store(false, Ordering::SeqCst);
+    MANAGED_CONTROL_REQUEST.store(MANAGED_CONTROL_NONE, Ordering::SeqCst);
     start_managed_control_socket_with_interrupter(
         socket_path,
         Arc::new(OsSignalManagedControlInterrupter),
@@ -2947,9 +2986,17 @@ pub fn start_managed_control_socket_with_interrupter(
                             MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS,
                         )))
                         .and_then(|()| (&mut stream).take(64).read_to_end(&mut command));
-                    let accepted = read_result.is_ok()
-                        && std::str::from_utf8(&command).is_ok_and(|value| value.trim() == "stop")
-                        && interrupter.interrupt().is_ok();
+                    let request = read_result.ok().and_then(|_| {
+                        std::str::from_utf8(&command)
+                            .ok()
+                            .and_then(|value| match value.trim() {
+                                "stop" => Some(ManagedControlRequest::Stop),
+                                "reload" => Some(ManagedControlRequest::Reload),
+                                _ => None,
+                            })
+                    });
+                    let accepted =
+                        request.is_some_and(|request| interrupter.interrupt(request).is_ok());
                     let response = if accepted {
                         b"accepted\n".as_slice()
                     } else {
@@ -2959,7 +3006,7 @@ pub fn start_managed_control_socket_with_interrupter(
                         MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS,
                     )));
                     let _ = stream.write_all(response);
-                    if accepted {
+                    if accepted && request == Some(ManagedControlRequest::Stop) {
                         break;
                     }
                 }
@@ -5407,6 +5454,17 @@ impl OsSignalForegroundLifecycleInterruptionSource {
             ),
         ])
     }
+
+    pub fn interruption_for_managed_control_reload() -> ForegroundLifecycleInterruption {
+        ForegroundLifecycleInterruption::new("managed-control-reload").with_diagnostics(vec![
+            cli_diagnostic(
+                DiagnosticSeverity::Info,
+                CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE,
+                "managed foreground control socket requested runtime reload",
+                SOURCE_CLI_MANAGED_CONTROL,
+            ),
+        ])
+    }
 }
 
 #[cfg(unix)]
@@ -5429,8 +5487,10 @@ impl ForegroundLifecycleInterruptionSource for OsSignalForegroundLifecycleInterr
         };
 
         loop {
-            if MANAGED_CONTROL_STOP_REQUESTED.swap(false, Ordering::SeqCst) {
-                return Self::interruption_for_managed_control_stop();
+            match MANAGED_CONTROL_REQUEST.swap(MANAGED_CONTROL_NONE, Ordering::SeqCst) {
+                MANAGED_CONTROL_STOP => return Self::interruption_for_managed_control_stop(),
+                MANAGED_CONTROL_RELOAD => return Self::interruption_for_managed_control_reload(),
+                _ => {}
             }
             if let Some(signal) = signals.pending().next() {
                 return Self::interruption_for_signal(signal);
@@ -5680,7 +5740,7 @@ where
                     .iter()
                     .any(|argument| argument == "--managed-control-socket")
             {
-                let (socket_path, confirm, format) = parse_managed_control_stop_options(&rest)?;
+                let (socket_path, confirm, format) = parse_managed_control_options(&rest, "stop")?;
                 return Ok(LinuxCliCommand::ManagedControlStop {
                     socket_path,
                     confirm,
@@ -5700,6 +5760,18 @@ where
             }
             Ok(LinuxCliCommand::Stop {
                 format: options.format,
+            })
+        }
+        "reload"
+            if rest
+                .iter()
+                .any(|argument| argument == "--managed-control-socket") =>
+        {
+            let (socket_path, confirm, format) = parse_managed_control_options(&rest, "reload")?;
+            Ok(LinuxCliCommand::ManagedControlReload {
+                socket_path,
+                confirm,
+                format,
             })
         }
         "restart" => {
@@ -6036,6 +6108,11 @@ pub fn handle_entrypoint_skeleton(command: LinuxCliCommand) -> LinuxCliResponse 
             confirm,
             ..
         } => handle_managed_control_stop(&socket_path, confirm),
+        LinuxCliCommand::ManagedControlReload {
+            socket_path,
+            confirm,
+            ..
+        } => handle_managed_control_reload(&socket_path, confirm),
         LinuxCliCommand::Restart { .. } => handle_restart_unavailable(),
         LinuxCliCommand::InstallService { .. } => handle_unwired_command("install-service"),
         LinuxCliCommand::UninstallService { .. } => handle_unwired_command("uninstall-service"),
@@ -6414,6 +6491,11 @@ where
             confirm,
             ..
         } => handle_managed_control_stop(&socket_path, confirm),
+        LinuxCliCommand::ManagedControlReload {
+            socket_path,
+            confirm,
+            ..
+        } => handle_managed_control_reload(&socket_path, confirm),
         other => handle_unwired_command(other.name()),
     }
 }
@@ -8457,16 +8539,17 @@ where
         .and_then(|recorder| recorder.paths.control_socket_path.clone());
 
     let request = RuntimeConfigRequest::new(DEFAULT_ENGINE_ID, raw_config);
-    let mut response = match orchestrator.start_runtime(request) {
+    let mut response = match orchestrator.start_runtime(request.clone()) {
         Ok(result) => {
             if let Some(recorder) = managed_recorder.as_ref() {
                 if let Err(error) =
                     recorder.transition("starting", "running", recorder.paths.snapshot_path.clone())
                 {
-                    let mut response = handle_foreground_lifecycle_with_runtime_stop(
+                    let mut response = handle_foreground_lifecycle_with_runtime_reload(
                         result,
                         orchestrator,
                         lifecycle_host,
+                        request,
                     );
                     response.ok = false;
                     response.exit_code = LinuxCliExitCode::GeneralFailure;
@@ -8479,8 +8562,12 @@ where
                     return response;
                 }
             }
-            let mut response =
-                handle_foreground_lifecycle_with_runtime_stop(result, orchestrator, lifecycle_host);
+            let mut response = handle_foreground_lifecycle_with_runtime_reload(
+                result,
+                orchestrator,
+                lifecycle_host,
+                request,
+            );
             if let Some(recorder) = managed_recorder.as_ref() {
                 let terminal_state = if response.exit_code == LinuxCliExitCode::Interrupted {
                     Some((
@@ -8668,6 +8755,83 @@ where
     response
 }
 
+fn handle_foreground_lifecycle_with_runtime_reload<C, P, E, H>(
+    mut operation: RuntimeOperationResult,
+    orchestrator: &RuntimeOrchestrator<C, P, E>,
+    host: &H,
+    request: RuntimeConfigRequest,
+) -> LinuxCliResponse
+where
+    C: ConfigurationService,
+    P: PlatformCapabilityService,
+    E: ProxyEngineService,
+    H: ForegroundLifecycleHost,
+{
+    let mut previous_diagnostics = Vec::new();
+    loop {
+        let engine_id = operation.engine_status.engine_id.clone();
+        let mut response = handle_foreground_lifecycle(operation, host);
+        let reload_requested = response
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE);
+        if reload_requested {
+            response
+                .diagnostics
+                .retain(|diagnostic| diagnostic.code != CLI_START_LIFECYCLE_INTERRUPTED_CODE);
+        }
+        previous_diagnostics.append(&mut response.diagnostics);
+        if !reload_requested {
+            response.diagnostics = previous_diagnostics;
+            if response.exit_code == LinuxCliExitCode::Interrupted {
+                match orchestrator.stop_runtime(&engine_id) {
+                    Ok(stop_status) => response.diagnostics.extend(stop_status.diagnostics),
+                    Err(error) => response.diagnostics.push(cli_diagnostic(
+                        DiagnosticSeverity::Error,
+                        CLI_START_RUNTIME_STOP_FAILED_CODE,
+                        format!(
+                            "failed to stop linux runtime after foreground interruption: {}",
+                            error.message
+                        ),
+                        SOURCE_CLI_START,
+                    )),
+                }
+            }
+            return response;
+        }
+
+        match orchestrator.reload_runtime(request.clone()) {
+            Ok(reloaded) => operation = reloaded,
+            Err(error) => {
+                response.ok = false;
+                response.exit_code = LinuxCliExitCode::GeneralFailure;
+                response.diagnostics = previous_diagnostics;
+                response.diagnostics.push(cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_START_RUNTIME_RELOAD_FAILED_CODE,
+                    format!(
+                        "failed to reload linux runtime after managed control request: {}",
+                        error.message
+                    ),
+                    SOURCE_CLI_START,
+                ));
+                if let Err(stop_error) = orchestrator.stop_runtime(&engine_id) {
+                    response.diagnostics.push(cli_diagnostic(
+                        DiagnosticSeverity::Error,
+                        CLI_START_RUNTIME_STOP_FAILED_CODE,
+                        format!(
+                            "failed to stop linux runtime after managed reload failure: {}",
+                            stop_error.message
+                        ),
+                        SOURCE_CLI_START,
+                    ));
+                }
+                return response;
+            }
+        }
+    }
+}
+
 pub fn handle_stop() -> LinuxCliResponse {
     LinuxCliResponse::failure(
         "stop",
@@ -8682,14 +8846,36 @@ pub fn handle_stop() -> LinuxCliResponse {
 }
 
 pub fn handle_managed_control_stop(socket_path: &str, confirm: bool) -> LinuxCliResponse {
+    handle_managed_control_request(socket_path, confirm, ManagedControlRequest::Stop)
+}
+
+pub fn handle_managed_control_reload(socket_path: &str, confirm: bool) -> LinuxCliResponse {
+    handle_managed_control_request(socket_path, confirm, ManagedControlRequest::Reload)
+}
+
+fn handle_managed_control_request(
+    socket_path: &str,
+    confirm: bool,
+    request: ManagedControlRequest,
+) -> LinuxCliResponse {
+    let operation = request.wire_command();
+    let command = format!("managed-control {operation}");
+    let ready_code = match request {
+        ManagedControlRequest::Stop => CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE,
+        ManagedControlRequest::Reload => CLI_MANAGED_CONTROL_SOCKET_RELOAD_READY_CODE,
+    };
+    let failed_code = match request {
+        ManagedControlRequest::Stop => CLI_MANAGED_CONTROL_SOCKET_STOP_FAILED_CODE,
+        ManagedControlRequest::Reload => CLI_MANAGED_CONTROL_SOCKET_RELOAD_FAILED_CODE,
+    };
     if !confirm {
         return LinuxCliResponse::failure(
-            "managed-control stop",
+            command,
             LinuxCliExitCode::PlatformDenied,
             cli_diagnostic(
                 DiagnosticSeverity::Error,
                 CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE,
-                "managed foreground control stop requires --confirm",
+                format!("managed foreground control {operation} requires --confirm"),
                 SOURCE_CLI_MANAGED_CONTROL,
             ),
         );
@@ -8697,11 +8883,11 @@ pub fn handle_managed_control_stop(socket_path: &str, confirm: bool) -> LinuxCli
     let socket_path = socket_path.trim();
     if socket_path.is_empty() || !std::path::Path::new(socket_path).is_absolute() {
         return LinuxCliResponse::failure(
-            "managed-control stop",
+            command,
             LinuxCliExitCode::ArgumentOrConfig,
             cli_diagnostic(
                 DiagnosticSeverity::Error,
-                CLI_MANAGED_CONTROL_SOCKET_STOP_FAILED_CODE,
+                failed_code,
                 "managed foreground control socket path must be absolute",
                 SOURCE_CLI_MANAGED_CONTROL,
             ),
@@ -8717,40 +8903,37 @@ pub fn handle_managed_control_stop(socket_path: &str, confirm: bool) -> LinuxCli
             stream.set_write_timeout(Some(Duration::from_secs(
                 MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS,
             )))?;
-            stream.write_all(b"stop\n")?;
+            stream.write_all(format!("{operation}\n").as_bytes())?;
             stream.shutdown(std::net::Shutdown::Write)?;
             let mut response = String::new();
             (&mut stream).take(64).read_to_string(&mut response)?;
             Ok(response)
         })();
         return match result {
-            Ok(response) if response.trim() == "accepted" => {
-                LinuxCliResponse::success("managed-control stop").with_diagnostics(vec![
-                    cli_diagnostic(
-                        DiagnosticSeverity::Info,
-                        CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE,
-                        format!("managed foreground stop was accepted by {socket_path}"),
-                        SOURCE_CLI_MANAGED_CONTROL,
-                    ),
-                ])
-            }
+            Ok(response) if response.trim() == "accepted" => LinuxCliResponse::success(command)
+                .with_diagnostics(vec![cli_diagnostic(
+                    DiagnosticSeverity::Info,
+                    ready_code,
+                    format!("managed foreground {operation} was accepted by {socket_path}"),
+                    SOURCE_CLI_MANAGED_CONTROL,
+                )]),
             Ok(_) => LinuxCliResponse::failure(
-                "managed-control stop",
+                command,
                 LinuxCliExitCode::GeneralFailure,
                 cli_diagnostic(
                     DiagnosticSeverity::Error,
-                    CLI_MANAGED_CONTROL_SOCKET_STOP_FAILED_CODE,
-                    "managed foreground control socket rejected the stop request",
+                    failed_code,
+                    format!("managed foreground control socket rejected the {operation} request"),
                     SOURCE_CLI_MANAGED_CONTROL,
                 ),
             ),
             Err(error) => LinuxCliResponse::failure(
-                "managed-control stop",
+                command,
                 LinuxCliExitCode::GeneralFailure,
                 cli_diagnostic(
                     DiagnosticSeverity::Error,
-                    CLI_MANAGED_CONTROL_SOCKET_STOP_FAILED_CODE,
-                    format!("managed foreground control stop failed: {error}"),
+                    failed_code,
+                    format!("managed foreground control {operation} failed: {error}"),
                     SOURCE_CLI_MANAGED_CONTROL,
                 ),
             ),
@@ -8759,11 +8942,11 @@ pub fn handle_managed_control_stop(socket_path: &str, confirm: bool) -> LinuxCli
     #[cfg(not(unix))]
     {
         LinuxCliResponse::failure(
-            "managed-control stop",
+            command,
             LinuxCliExitCode::Unavailable,
             cli_diagnostic(
                 DiagnosticSeverity::Error,
-                CLI_MANAGED_CONTROL_SOCKET_STOP_FAILED_CODE,
+                failed_code,
                 "managed foreground control sockets require Unix",
                 SOURCE_CLI_MANAGED_CONTROL,
             ),
@@ -13852,8 +14035,9 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
     Ok(options)
 }
 
-fn parse_managed_control_stop_options(
+fn parse_managed_control_options(
     args: &[String],
+    operation: &str,
 ) -> Result<(String, bool, OutputFormat), LinuxCliParseError> {
     let mut socket_path = None;
     let mut confirm = false;
@@ -13879,7 +14063,7 @@ fn parse_managed_control_stop_options(
                 if socket_path.replace(value.clone()).is_some() {
                     return Err(parse_error(
                         CLI_ARGUMENT_UNKNOWN_CODE,
-                        "managed control stop accepts exactly one --managed-control-socket path",
+                        format!("managed control {operation} accepts exactly one --managed-control-socket path"),
                     ));
                 }
             }
@@ -13898,7 +14082,7 @@ fn parse_managed_control_stop_options(
                 return Err(parse_error(
                     CLI_ARGUMENT_UNKNOWN_CODE,
                     format!(
-                        "managed control stop only accepts --managed-control-socket, --confirm, and --format; received {argument}"
+                        "managed control {operation} only accepts --managed-control-socket, --confirm, and --format; received {argument}"
                     ),
                 ));
             }
@@ -13910,7 +14094,9 @@ fn parse_managed_control_stop_options(
         .ok_or_else(|| {
             parse_error(
                 CLI_ARGUMENT_VALUE_MISSING_CODE,
-                "managed control stop requires --managed-control-socket <absolute-path>",
+                format!(
+                    "managed control {operation} requires --managed-control-socket <absolute-path>"
+                ),
             )
         })
         .map(|socket_path| (socket_path, confirm, format))
@@ -14995,6 +15181,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux start --config <path> [--managed-status <path> --managed-snapshot <path> --managed-events <dir> [--managed-control-socket <absolute-path>]] [--enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path>] [--enable-script-runtime --script-runner <path> --script-map <url=file> ...] --confirm [--format text|json]\n",
         "  networkcore-linux connect --config <path> [same explicit foreground options as start]\n",
         "  networkcore-linux stop [--managed-control-socket <absolute-path> --confirm] [--format text|json]\n",
+        "  networkcore-linux reload --managed-control-socket <absolute-path> --confirm [--format text|json]\n",
         "  networkcore-linux disconnect [--format text|json]\n",
         "  networkcore-linux restart [--config <path>] [--format text|json]\n",
         "  networkcore-linux status [--service-unit <name>] [--format text|json]\n",

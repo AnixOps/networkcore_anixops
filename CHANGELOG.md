@@ -18,6 +18,10 @@ current-main-subscription-background=blocked
 
 ### Changed
 
+- 完成 Linux managed foreground control socket reload slice：`reload --managed-control-socket <absolute-path> --confirm`
+  复用显式路径、owner-only `0600`、两秒 I/O 上限和当前前台进程，成功后调用
+  `RuntimeOrchestrator::reload_runtime` 并恢复 lifecycle wait；reload 失败会释放当前 runtime 并让 managed
+  recording 进入 `failed`。`managed-status rollback` 仍是显式文件快照恢复，未引入默认 socket、PID/status 或后台控制。
 - 完成 Linux managed foreground control socket stop slice：显式 managed `start` 可创建不覆盖已有路径的
   owner-only `0600` Unix socket，`stop --managed-control-socket <absolute-path> --confirm` 通过 bounded
   `stop`/`accepted` 协议进入既有 interruption、runtime release 和 `running -> stopped` 记录路径；默认
