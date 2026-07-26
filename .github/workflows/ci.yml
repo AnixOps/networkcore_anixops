@@ -2257,6 +2257,7 @@ jobs:
           "$MingwPrefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           "MSYS2_LOCATION=$MsysRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "MINGW_PREFIX=$MingwPrefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RC_x86_64_pc_windows_gnu=${{ github.workspace }}\.github\scripts\rc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CARGO_BUILD_TARGET=x86_64-pc-windows-gnu" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CC_x86_64_pc_windows_gnu=$MingwPrefix\bin\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "AR_x86_64_pc_windows_gnu=$MingwPrefix\bin\ar.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
@@ -2284,6 +2285,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           rustc .github/scripts/windres_compat.rs -o .github/scripts/windres.exe
+          rustc .github/scripts/rc_compat.rs -o .github/scripts/rc.exe
 
       - name: Format
         shell: bash
@@ -2358,6 +2360,7 @@ jobs:
           "$MingwPrefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           "MSYS2_LOCATION=$MsysRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "MINGW_PREFIX=$MingwPrefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RC_x86_64_pc_windows_gnu=${{ github.workspace }}\.github\scripts\rc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CARGO_BUILD_TARGET=x86_64-pc-windows-gnu" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CC_x86_64_pc_windows_gnu=$MingwPrefix\bin\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "AR_x86_64_pc_windows_gnu=$MingwPrefix\bin\ar.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
@@ -2371,6 +2374,7 @@ jobs:
           rustup default stable
           rustup target add x86_64-pc-windows-gnu
           rustc .github/scripts/windres_compat.rs -o .github/scripts/windres.exe
+          rustc .github/scripts/rc_compat.rs -o .github/scripts/rc.exe
           cargo build --locked `
             --package networkcore-windows `
             --package networkcore-windows-gui `

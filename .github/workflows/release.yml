@@ -885,6 +885,7 @@ jobs:
           "$MingwPrefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           "MSYS2_LOCATION=$MsysRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "MINGW_PREFIX=$MingwPrefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RC_x86_64_pc_windows_gnu=${{ github.workspace }}\.github\scripts\rc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CARGO_BUILD_TARGET=${{ env.WINDOWS_TARGET }}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CC_x86_64_pc_windows_gnu=$MingwPrefix\bin\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "AR_x86_64_pc_windows_gnu=$MingwPrefix\bin\ar.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
@@ -927,6 +928,7 @@ jobs:
           rustup default $env:RUST_TOOLCHAIN
           rustup target add $env:TARGET --toolchain $env:RUST_TOOLCHAIN
           rustc .github/scripts/windres_compat.rs -o .github/scripts/windres.exe
+          rustc .github/scripts/rc_compat.rs -o .github/scripts/rc.exe
 
           if (-not (Test-Path -Path Cargo.lock -PathType Leaf)) {
             throw "Cargo.lock must be checked in before creating release artifacts."
