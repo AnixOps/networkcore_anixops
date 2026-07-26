@@ -5231,8 +5231,23 @@ where
             state_directory,
             confirm,
             ..
-        } => handle_uninstall_service_plan(&unit_name, &state_directory, confirm),
-        LinuxCliCommand::ServiceControl { .. } => handle_unwired_command("service"),
+        } => handle_uninstall_service_apply_with_runner(
+            &platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(),
+            &unit_name,
+            &state_directory,
+            confirm,
+        ),
+        LinuxCliCommand::ServiceControl {
+            action,
+            unit_name,
+            confirm,
+            ..
+        } => handle_systemd_service_control(
+            &platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(),
+            action,
+            &unit_name,
+            confirm,
+        ),
         LinuxCliCommand::CoreList { .. }
         | LinuxCliCommand::InstallMieru { .. }
         | LinuxCliCommand::StartMieru { .. }
