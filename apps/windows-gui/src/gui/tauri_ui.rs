@@ -310,18 +310,16 @@ fn start_core_recovery_monitor(state: DesktopAppState) {
             state.lifecycle.gui_started_connection.lock(),
             state.lifecycle.core_recovery_attempted.lock(),
         ) {
-            (Ok(gui_started), Ok(mut attempted)) => {
+            (Ok(gui_started), Ok(mut attempted))
                 if connection::should_restart_gui_started_core(
                     desktop.auto_recover_core,
                     *attempted,
                     *gui_started,
                     runtime.connection,
-                ) {
-                    *attempted = true;
-                    true
-                } else {
-                    false
-                }
+                ) =>
+            {
+                *attempted = true;
+                true
             }
             _ => false,
         };
@@ -678,18 +676,18 @@ fn replace_native_group_json(
     if replacement
         .get("type")
         .and_then(Value::as_str)
-        .map_or(true, |kind| kind.trim().is_empty())
+        .is_none_or(|kind| kind.trim().is_empty())
     {
         return Err("Native outbound group JSON requires a type.".to_string());
     }
     if replacement
         .get("outbounds")
         .and_then(Value::as_array)
-        .map_or(true, |members| {
+        .is_none_or(|members| {
             members.is_empty()
                 || members
                     .iter()
-                    .any(|member| member.as_str().map_or(true, |tag| tag.trim().is_empty()))
+                    .any(|member| member.as_str().is_none_or(|tag| tag.trim().is_empty()))
         })
     {
         return Err("Native outbound group JSON requires non-empty outbound tags.".to_string());
@@ -900,7 +898,7 @@ fn select_fastest_node_blocking(state: DesktopAppState) -> Result<OperationResul
         };
         if fastest
             .as_ref()
-            .map_or(true, |(_, delay)| report.delay_millis < *delay)
+            .is_none_or(|(_, delay)| report.delay_millis < *delay)
         {
             fastest = Some((node.clone(), report.delay_millis));
         }
