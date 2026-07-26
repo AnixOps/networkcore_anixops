@@ -1,0 +1,15 @@
+[package]
+name = "engine-mieru"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "External Mieru proxy engine adapter contracts for the AnixOps network control kernel."
+
+[dependencies]
+control-domain = { path = "../control-domain" }
+sha2 = "0.10"
+url = "2.5"
+
+[lib]
+path = "src/lib.rs"

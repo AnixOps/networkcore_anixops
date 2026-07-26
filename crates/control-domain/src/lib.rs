@@ -348,6 +348,7 @@ pub enum Protocol {
     Hysteria,
     Hysteria2,
     Tuic,
+    Mieru,
     Other(String),
 }
 

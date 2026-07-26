@@ -1046,6 +1046,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "engine-mieru"
+version = "0.1.0"
+dependencies = [
+ "control-domain",
+ "sha2",
+ "url",
+]
+
+[[package]]
 name = "engine-singbox"
 version = "0.1.0"
 dependencies = [

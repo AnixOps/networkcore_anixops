@@ -8,6 +8,7 @@ members = [
     "crates/control-domain",
     "crates/control-runtime",
     "crates/engine-native",
+    "crates/engine-mieru",
     "crates/engine-singbox",
     "crates/mitm-anixops-sys",
     "crates/mitm-policy",
