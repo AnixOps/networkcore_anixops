@@ -4891,7 +4891,7 @@ where
             })
         }
         "validate" => parse_validate_command(&rest),
-        "start" => {
+        "connect" | "start" => {
             let options = parse_options(&rest)?;
             Ok(LinuxCliCommand::Start {
                 config_path: options.config_path,
@@ -4907,7 +4907,7 @@ where
                 format: options.format,
             })
         }
-        "stop" => {
+        "disconnect" | "stop" => {
             let options = parse_options(&rest)?;
             Ok(LinuxCliCommand::Stop {
                 format: options.format,
@@ -11502,7 +11502,9 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux prepare-config --config <path> [--format text|json]\n",
         "  networkcore-linux validate <config-path> [--format text|json]\n",
         "  networkcore-linux start --config <path> [--enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path>] [--enable-script-runtime --script-runner <path> --script-map <url=file> ...] --confirm [--format text|json]\n",
+        "  networkcore-linux connect --config <path> [same explicit foreground options as start]\n",
         "  networkcore-linux stop [--format text|json]\n",
+        "  networkcore-linux disconnect [--format text|json]\n",
         "  networkcore-linux status [--format text|json]\n",
         "  networkcore-linux managed-status <status-record-path> [--format text|json]\n",
         "  networkcore-linux managed-status init <status-record-path> <session-id> <engine-id> <state> [--format text|json]\n",
@@ -11531,7 +11533,9 @@ pub const fn cli_help_text() -> &'static str {
         "  prepare-config    Read and normalize a NetworkCore TOML config.\n",
         "  validate          Validate one explicit config path (alias of prepare-config).\n",
         "  start             Start the current foreground runtime; HTTPS MITM requires explicit CA paths and confirmation.\n",
+        "  connect           Alias for the explicit foreground start path; managed service control is separate.\n",
         "  stop              Report that daemon stop is unavailable in this build.\n",
+        "  disconnect        Report that managed daemon disconnect is unavailable in this build.\n",
         "  status            Report platform-only status without a daemon context.\n",
         "  managed-status    Read one explicit managed foreground status record.\n",
         "  managed-status init Create one explicit managed foreground status record without overwriting it.\n",

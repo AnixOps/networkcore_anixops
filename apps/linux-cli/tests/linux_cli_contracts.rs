@@ -2827,6 +2827,27 @@ fn parses_validate_as_an_explicit_config_validation_alias() {
 }
 
 #[test]
+fn connect_and_disconnect_aliases_keep_foreground_boundary_explicit() {
+    let connect = parse_args(["connect", "--config", "/tmp/networkcore.toml"])
+        .expect("connect alias should parse");
+    assert!(
+        matches!(connect, LinuxCliCommand::Start { config_path: Some(path), .. } if path == "/tmp/networkcore.toml")
+    );
+
+    let disconnect =
+        parse_args(["disconnect", "--format", "json"]).expect("disconnect alias should parse");
+    assert_eq!(
+        disconnect,
+        LinuxCliCommand::Stop {
+            format: OutputFormat::Json
+        }
+    );
+    let response = handle_stop();
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, LinuxCliExitCode::Unavailable);
+}
+
+#[test]
 fn parses_install_sing_box_command_and_alias() {
     let command = parse_args([
         "install-sing-box",
