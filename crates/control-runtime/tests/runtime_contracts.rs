@@ -720,6 +720,26 @@ fn runtime_health_does_not_promote_unverified_status_to_healthy() {
 }
 
 #[test]
+fn reload_runtime_preserves_reloading_transition_state() {
+    let orchestrator = RuntimeOrchestrator::new(
+        NoopConfigurationService,
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeProxyEngineService { fail_start: false },
+    );
+
+    let result = orchestrator
+        .reload_runtime(RuntimeConfigRequest::new("native", "profile = default"))
+        .expect("reload transition should be accepted");
+
+    assert_eq!(
+        result.engine_status.state,
+        ProxyEngineLifecycleState::Reloading
+    );
+}
+
+#[test]
 fn start_runtime_propagates_engine_start_error() {
     let orchestrator = RuntimeOrchestrator::new(
         NoopConfigurationService,
