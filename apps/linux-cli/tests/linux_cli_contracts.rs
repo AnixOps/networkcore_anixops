@@ -44,7 +44,8 @@ use networkcore_linux::{
     handle_parse_error, handle_prepare_config, handle_run_catalog_with_sing_box,
     handle_run_catalog_with_sing_box_and_fetcher, handle_run_url_with_sing_box,
     handle_run_url_with_sing_box_and_fetcher, handle_run_url_with_sing_box_and_node_id,
-    handle_start, handle_status, handle_stop, native_proxy_engine_service_with_builtin_mitm_plugin,
+    handle_start, handle_status, handle_stop, handle_systemd_service_control,
+    native_proxy_engine_service_with_builtin_mitm_plugin,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files, parse_args,
     registered_core_engine_descriptors, render_response, BrowserCaptureEndpointProbe,
@@ -134,6 +135,7 @@ use networkcore_linux::{
 use networkcore_linux::{
     OsSignalForegroundLifecycleInterruptionSource, CLI_START_SIGNAL_RECEIVED_CODE,
 };
+use platform_linux::systemd::{LinuxSystemdCommandRunner, LinuxSystemdServiceAction};
 use platform_linux::{
     linux_diagnostic, LinuxCertificateProbe, LinuxDnsManagerState, LinuxFeatureProbe,
     LinuxPlatformSnapshot, LinuxPrivilegeProbe, LinuxReadOnlyProbe, LinuxReadOnlyProbeSnapshot,
@@ -3138,6 +3140,71 @@ fn parses_and_renders_install_service_plan_without_system_mutation() {
         .as_str()
         .expect("unit content")
         .contains("NoNewPrivileges=true"));
+}
+
+#[test]
+fn parses_service_control_and_requires_confirmation() {
+    let command = parse_args([
+        "service",
+        "start",
+        "--service-unit",
+        "networkcore-managed.service",
+        "--format",
+        "json",
+    ])
+    .expect("service command should parse");
+    assert_eq!(
+        command,
+        LinuxCliCommand::ServiceControl {
+            action: LinuxSystemdServiceAction::Start,
+            unit_name: "networkcore-managed.service".to_string(),
+            confirm: false,
+            format: OutputFormat::Json,
+        }
+    );
+
+    let response = handle_systemd_service_control(
+        &RecordingSystemdRunner { exit_code: Some(0) },
+        LinuxSystemdServiceAction::Start,
+        "networkcore-managed.service",
+        false,
+    );
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, LinuxCliExitCode::PlatformDenied);
+    assert!(response.diagnostics[0]
+        .code
+        .contains("confirmation_required"));
+}
+
+#[test]
+fn systemd_service_control_maps_runner_failure_to_platform_denied() {
+    let response = handle_systemd_service_control(
+        &RecordingSystemdRunner { exit_code: Some(5) },
+        LinuxSystemdServiceAction::Status,
+        "networkcore.service",
+        true,
+    );
+    assert!(!response.ok);
+    assert_eq!(response.command, "service status");
+    assert_eq!(response.exit_code, LinuxCliExitCode::PlatformDenied);
+    assert_eq!(
+        response.diagnostics[0].code,
+        "platform.linux.systemd.control_failed"
+    );
+}
+
+struct RecordingSystemdRunner {
+    exit_code: Option<i32>,
+}
+
+impl LinuxSystemdCommandRunner for RecordingSystemdRunner {
+    fn run(
+        &self,
+        _action: LinuxSystemdServiceAction,
+        _unit_name: &str,
+    ) -> DomainResult<Option<i32>> {
+        Ok(self.exit_code)
+    }
 }
 
 #[test]

@@ -4,7 +4,9 @@
 systemd unit through `platform-linux::systemd`; optional `--service-unit`, `--service-description`,
 `--service-arg`, `--service-user`, `--service-group`, and `--service-state-dir` parameters are included in
 the unit. Existing units are snapshotted under the selected state directory before replacement and the written
-content is verified. The command does not call `systemctl`, enable a unit, or start a service. The source boundary is documented in
+content is verified. The command does not call `systemctl`, enable a unit, or start a service. `networkcore-linux
+service start|stop|restart|status --service-unit <name> --confirm` controls one explicit systemd unit through
+`systemctl`; it never enables units and status uses `systemctl is-active`. The source boundary is documented in
 `docs/architecture/linux-managed-service-unit-source-contract.md`.
 `networkcore-linux uninstall-service --confirm` renders the matching removal plan while preserving the
 state directory; it does not delete files or call `systemctl`, and purge remains a separate future action.

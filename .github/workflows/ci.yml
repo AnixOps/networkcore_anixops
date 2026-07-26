@@ -1875,6 +1875,7 @@ jobs:
           grep -q -- "install-service --service-executable" apps/linux-cli/src/lib.rs
           grep -q "parses_and_renders_install_service_plan_without_system_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "linux-managed-service-unit-source-contract.md" apps/linux-cli/README.md
+          grep -q "service start|stop|restart|status" apps/linux-cli/README.md
           grep -q "uninstall-service" apps/linux-cli/src/lib.rs
           grep -q "uninstall_service_plan_preserves_state" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "parse_validate_command" apps/linux-cli/src/lib.rs
@@ -1888,10 +1889,14 @@ jobs:
           grep -q "handle_start_mieru" apps/linux-cli/src/lib.rs
           grep -q "handle_stop_mieru" apps/linux-cli/src/lib.rs
           grep -q "handle_install_service_apply" apps/linux-cli/src/lib.rs
+          grep -q "ServiceControl" apps/linux-cli/src/lib.rs
+          grep -q "parse_service_command" apps/linux-cli/src/lib.rs
+          grep -q "handle_systemd_service_control" apps/linux-cli/src/lib.rs
           grep -q "parses_core_list_and_mieru_local_install_contract" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "parses_core_mieru_start_and_stop_control_contract" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "parses_core_mieru_start_and_stop_control_contract" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "install_service_apply_writes_and_verifies_unit_with_snapshot" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "parses_service_control_and_requires_confirmation" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "parses_core_install_sing_box_alias" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "BrowserCaptureProcessRunner" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureEndpointProbe" docs/architecture/linux-mitm-browser-capture-source-contract.md

@@ -1,8 +1,8 @@
 //! Linux CLI entrypoint contracts for NetworkCore.
 //!
 //! The crate contains command parsing, response mapping, config I/O boundaries,
-//! and foreground runtime handoff. Daemon control, service installation, and
-//! release packaging are deliberately outside this first source increment.
+//! and foreground runtime handoff. Service installation/control and release
+//! packaging remain explicit platform boundaries.
 
 use config_core::CoreSubscriptionService;
 use control_domain::{
@@ -24,9 +24,10 @@ use mitm_policy::{
     MITM_POLICY_AD_BLOCK_PLUGIN_ID,
 };
 use platform_linux::systemd::{
-    install_systemd_unit, plan_systemd_unit_removal, render_systemd_unit,
+    control_systemd_service, install_systemd_unit, plan_systemd_unit_removal, render_systemd_unit,
     LinuxManagedServiceUnitInstallRequest, LinuxManagedServiceUnitPlan,
-    LinuxManagedServiceUnitRemovalPlan, LinuxManagedServiceUnitRequest,
+    LinuxManagedServiceUnitRemovalPlan, LinuxManagedServiceUnitRequest, LinuxSystemdCommandRunner,
+    LinuxSystemdServiceAction, LinuxSystemdServiceControlRequest,
 };
 use rcgen::{
     BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, KeyUsagePurpose,
@@ -476,6 +477,12 @@ pub enum LinuxCliCommand {
         config_path: String,
         format: OutputFormat,
     },
+    ServiceControl {
+        action: LinuxSystemdServiceAction,
+        unit_name: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
     Restart {
         config_path: Option<String>,
         format: OutputFormat,
@@ -694,6 +701,12 @@ impl LinuxCliCommand {
             Self::InstallMieru { .. } => "core install mieru",
             Self::StartMieru { .. } => "core start mieru",
             Self::StopMieru { .. } => "core stop mieru",
+            Self::ServiceControl { action, .. } => match action {
+                LinuxSystemdServiceAction::Start => "service start",
+                LinuxSystemdServiceAction::Stop => "service stop",
+                LinuxSystemdServiceAction::Restart => "service restart",
+                LinuxSystemdServiceAction::Status => "service status",
+            },
             Self::Restart { .. } => "restart",
             Self::Status { .. } => "status",
             Self::ManagedStatus { .. } => "managed-status",
@@ -744,6 +757,7 @@ impl LinuxCliCommand {
             | Self::SubscriptionRemove { format, .. }
             | Self::SubscriptionSelect { format, .. }
             | Self::SubscriptionRollback { format, .. }
+            | Self::ServiceControl { format, .. }
             | Self::InstallMieru { format, .. }
             | Self::StartMieru { format, .. }
             | Self::StopMieru { format, .. }
@@ -5016,6 +5030,7 @@ where
         "validate" => parse_validate_command(&rest),
         "core" => parse_core_command(&rest),
         "subscription" => parse_subscription_command(&rest),
+        "service" => parse_service_command(&rest),
         "connect" | "start" => {
             let options = parse_options(&rest)?;
             Ok(LinuxCliCommand::Start {
@@ -5121,6 +5136,36 @@ where
     }
 }
 
+fn parse_service_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(action) = args.first().map(String::as_str) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "service requires start, stop, restart, or status",
+        ));
+    };
+    let action = match action {
+        "start" => LinuxSystemdServiceAction::Start,
+        "stop" => LinuxSystemdServiceAction::Stop,
+        "restart" => LinuxSystemdServiceAction::Restart,
+        "status" => LinuxSystemdServiceAction::Status,
+        _ => {
+            return Err(parse_error(
+                CLI_ARGUMENT_UNKNOWN_CODE,
+                format!("unknown service action: {action}"),
+            ))
+        }
+    };
+    let options = parse_options(&args[1..])?;
+    Ok(LinuxCliCommand::ServiceControl {
+        action,
+        unit_name: options
+            .service_unit_name
+            .unwrap_or_else(|| "networkcore.service".to_string()),
+        confirm: options.confirm,
+        format: options.format,
+    })
+}
+
 pub fn handle_parse_error(diagnostic: Diagnostic) -> LinuxCliResponse {
     let show_help = diagnostic.code == CLI_COMMAND_MISSING_CODE
         || diagnostic.code == CLI_ARGUMENT_UNKNOWN_CODE
@@ -5142,6 +5187,7 @@ pub fn handle_entrypoint_skeleton(command: LinuxCliCommand) -> LinuxCliResponse 
         LinuxCliCommand::Restart { .. } => handle_restart_unavailable(),
         LinuxCliCommand::InstallService { .. } => handle_unwired_command("install-service"),
         LinuxCliCommand::UninstallService { .. } => handle_unwired_command("uninstall-service"),
+        LinuxCliCommand::ServiceControl { .. } => handle_unwired_command("service"),
         LinuxCliCommand::CoreList { .. }
         | LinuxCliCommand::InstallMieru { .. }
         | LinuxCliCommand::StartMieru { .. }
@@ -5185,6 +5231,7 @@ where
             confirm,
             ..
         } => handle_uninstall_service_plan(&unit_name, &state_directory, confirm),
+        LinuxCliCommand::ServiceControl { .. } => handle_unwired_command("service"),
         LinuxCliCommand::CoreList { .. }
         | LinuxCliCommand::InstallMieru { .. }
         | LinuxCliCommand::StartMieru { .. }
@@ -6161,6 +6208,50 @@ pub fn handle_install_service_plan(
             "install-service",
             LinuxCliExitCode::ArgumentOrConfig,
             DomainError::new(CLI_INSTALL_SERVICE_PLAN_INVALID_CODE, error.message),
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
+}
+
+pub fn handle_systemd_service_control<R: LinuxSystemdCommandRunner>(
+    runner: &R,
+    action: LinuxSystemdServiceAction,
+    unit_name: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    let command = match action {
+        LinuxSystemdServiceAction::Start => "service start",
+        LinuxSystemdServiceAction::Stop => "service stop",
+        LinuxSystemdServiceAction::Restart => "service restart",
+        LinuxSystemdServiceAction::Status => "service status",
+    };
+    match control_systemd_service(
+        runner,
+        &LinuxSystemdServiceControlRequest {
+            unit_name: unit_name.to_string(),
+            action,
+            confirmed: confirm,
+        },
+    ) {
+        Ok(report) if report.succeeded => {
+            LinuxCliResponse::success(command).with_diagnostics(report.diagnostics)
+        }
+        Ok(report) => LinuxCliResponse::failure(
+            command,
+            LinuxCliExitCode::PlatformDenied,
+            report.diagnostics.into_iter().next().unwrap_or_else(|| {
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    "cli.linux.service.control_failed",
+                    "systemd service control failed",
+                    SOURCE_CLI_RUNTIME,
+                )
+            }),
+        ),
+        Err(error) => domain_error_response(
+            command,
+            LinuxCliExitCode::PlatformDenied,
+            error,
             SOURCE_CLI_RUNTIME,
         ),
     }
@@ -12473,6 +12564,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux mitm http-rewrite [plan|preview] [--url <url>] [--method <method>] [--phase request|response] [--status-code <code>] [--header <name:value>] [--body <text>] [--confirm] [--format text|json]\n",
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux install-service --service-executable <absolute-path> [--service-unit <name>] [--service-description <text>] [--service-arg <arg>] [--service-user <user>] [--service-group <group>] [--service-state-dir <absolute-path>] --confirm [--format text|json]\n",
+        "  networkcore-linux service <start|stop|restart|status> [--service-unit <name>] --confirm [--format text|json]\n",
         "  networkcore-linux uninstall-service [--service-unit <name>] [--service-state-dir <absolute-path>] --confirm [--format text|json]\n",
         "  networkcore-linux run-url <subscription-source> [--node-id <id>] [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux run-catalog <catalog-path> <source-id> [--node-id <id>] [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
@@ -12506,6 +12598,7 @@ pub const fn cli_help_text() -> &'static str {
         "  mitm              Report MITM plugin policy status, certificate/browser plans, and deferred browser hijack gates.\n",
         "  install-sing-box  Download the latest official sing-box archive and cache its executable.\n",
         "  install-service   Write an explicit confirmed systemd unit with snapshot/verification; never calls systemctl.\n",
+        "  service           Control one explicitly named systemd unit after --confirm; status uses is-active.\n",
         "  uninstall-service Render an explicit removal plan; user configuration/state is preserved and no files are deleted.\n",
         "  run-url           Parse a proxy URL, render sing-box config, and run a local foreground proxy.\n",
         "  run-catalog       Resolve one saved source and run it through the foreground sing-box path.\n",

@@ -111,6 +111,19 @@ fn main() {
             } = &command
             {
                 networkcore_linux::handle_stop_mieru(binary_path, expected_sha256, config_path)
+            } else if let networkcore_linux::LinuxCliCommand::ServiceControl {
+                action,
+                unit_name,
+                confirm,
+                ..
+            } = &command
+            {
+                networkcore_linux::handle_systemd_service_control(
+                    &platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(),
+                    *action,
+                    unit_name,
+                    *confirm,
+                )
             } else if let networkcore_linux::LinuxCliCommand::InstallService {
                 unit_name,
                 description,
