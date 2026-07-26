@@ -15,6 +15,10 @@ current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=explicit-file-uri-http-and-run-catalog-active
 current-main-subscription-refresh=explicit-http-single-source-status-stop-active
 current-main-subscription-background=explicit-single-http-source-refresh-active
+current-main-managed-reload=explicit-foreground-control-socket-active
+current-main-linux-node-switch=explicit-loopback-selector-active
+current-main-subscription-refresh-scheduling=external-system-required
+current-main-cross-platform-run-plan=blocked
 ```
 
 ### Changed

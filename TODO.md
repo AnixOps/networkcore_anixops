@@ -32,6 +32,10 @@ current-main-latest-stable-tag=v0.1.0
 current-main-subscription-run-url=direct-share-links-file-uri-and-foreground-http-subscription-active
 current-main-subscription-foreground=explicit-file-uri-http-and-run-catalog-active
 current-main-subscription-background=explicit-single-http-source-refresh-active
+current-main-managed-reload=explicit-foreground-control-socket-active
+current-main-linux-node-switch=explicit-loopback-selector-active
+current-main-subscription-refresh-scheduling=external-system-required
+current-main-cross-platform-run-plan=blocked
 ```
 
 Linux `run-url` supports direct share links in the explicit foreground path.
