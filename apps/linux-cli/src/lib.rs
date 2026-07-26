@@ -781,8 +781,6 @@ impl LinuxCliResponse {
             http_rewrite: None,
             service_install: None,
             service_removal: None,
-            service_install: None,
-            service_removal: None,
         }
     }
 
