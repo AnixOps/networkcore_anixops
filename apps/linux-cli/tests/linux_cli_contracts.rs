@@ -74,10 +74,11 @@ use networkcore_linux::{
     SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
     SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
     SubscriptionCatalogSelectRequest, SubscriptionCatalogUpdateRequest,
-    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
-    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
-    CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE, CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE,
-    CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService,
+    CLI_ARGUMENT_VALUE_MISSING_CODE, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
+    CLI_CONFIG_READ_FAILED_CODE, CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE,
+    CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE, CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE,
+    CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE,
@@ -149,7 +150,7 @@ use platform_linux::{
 };
 #[cfg(unix)]
 use signal_hook::consts::signal::{SIGINT, SIGTERM};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::TcpListener;
 
 #[test]
@@ -3427,6 +3428,150 @@ fn parses_subscription_catalog_command_contracts() {
             ..
         }
     ));
+}
+
+#[test]
+fn parses_node_switch_and_rejects_missing_loopback_controller_port() {
+    let command = parse_args([
+        "node",
+        "switch",
+        "--config",
+        "/etc/networkcore/profile.toml",
+        "--source-id",
+        "node-1",
+        "--selection",
+        "/var/lib/networkcore/selection.json",
+        "--snapshot",
+        "/var/lib/networkcore/selection.previous.json",
+        "--controller-port",
+        "9091",
+        "--confirm",
+        "--format",
+        "json",
+    ])
+    .expect("node switch should parse");
+    assert!(matches!(
+        command,
+        LinuxCliCommand::NodeSwitch {
+            node_id,
+            controller_port: 9091,
+            confirm: true,
+            format: OutputFormat::Json,
+            ..
+        } if node_id == "node-1"
+    ));
+
+    let missing_controller = parse_args([
+        "node",
+        "switch",
+        "--config",
+        "/etc/networkcore/profile.toml",
+        "--source-id",
+        "node-1",
+        "--selection",
+        "/var/lib/networkcore/selection.json",
+        "--snapshot",
+        "/var/lib/networkcore/selection.previous.json",
+    ])
+    .expect_err("node switch must require an explicit controller port");
+    assert_eq!(missing_controller.code, CLI_ARGUMENT_VALUE_MISSING_CODE);
+}
+
+#[test]
+fn node_switch_patches_loopback_selector_and_keeps_selection_snapshot() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-node-switch-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("node switch test directory should be created");
+    let config_path = root.join("profile.toml");
+    let selection_path = root.join("selection.json");
+    let snapshot_path = root.join("selection.snapshot.json");
+    std::fs::write(
+        &config_path,
+        "schema_version = 1\n\n[[nodes]]\nid = \"node-1\"\nname = \"Primary\"\nprotocol = \"ss\"\nhost = \"secret.example\"\nport = 443\n",
+    )
+    .expect("node switch config should be written");
+    std::fs::write(&selection_path, r#"{"schema_version":1,"node_id":null}"#)
+        .expect("selection should be written");
+
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("selector fixture should bind");
+    let port = listener
+        .local_addr()
+        .expect("selector fixture should expose a port")
+        .port();
+    let server = std::thread::spawn(move || {
+        for _ in 0..3 {
+            let (mut stream, _) = listener
+                .accept()
+                .expect("selector fixture should accept request");
+            let mut request = [0_u8; 4096];
+            let _ = stream.read(&mut request);
+            let body = r#"{"now":"networkcore-node-0","all":["networkcore-node-0"]}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(), body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("selector fixture should return response");
+        }
+    });
+
+    let response = networkcore_linux::handle_node_switch(
+        config_path.to_str().expect("config path should be UTF-8"),
+        "node-1",
+        selection_path
+            .to_str()
+            .expect("selection path should be UTF-8"),
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        port,
+        true,
+    );
+
+    assert!(response.ok);
+    assert!(snapshot_path.exists());
+    assert!(std::fs::read_to_string(&selection_path)
+        .expect("selection should be readable")
+        .contains("node-1"));
+    assert!(!format!("{response:?}").contains("secret.example"));
+    server.join().expect("selector fixture should finish");
+    std::fs::remove_dir_all(&root).expect("node switch test directory should be removed");
+}
+
+#[test]
+fn node_switch_rejects_missing_confirmation_before_any_network_or_file_mutation() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-node-switch-denied-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("node switch denied directory should be created");
+    let selection_path = root.join("selection.json");
+    let snapshot_path = root.join("selection.snapshot.json");
+    let response = networkcore_linux::handle_node_switch(
+        "/missing/profile.toml",
+        "node-1",
+        selection_path
+            .to_str()
+            .expect("selection path should be UTF-8"),
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        9091,
+        false,
+    );
+
+    assert!(!response.ok);
+    assert_diagnostic(
+        &response.diagnostics,
+        "cli.node.switch_confirmation_required",
+    );
+    assert!(!snapshot_path.exists());
+    std::fs::remove_dir_all(&root).expect("node switch denied directory should be removed");
 }
 
 #[test]

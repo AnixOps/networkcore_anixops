@@ -1003,6 +1003,12 @@ jobs:
           grep -q "subscription_catalog_remote_update_failure_keeps_old_catalog" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "added_node_count" apps/linux-cli/src/lib.rs
           grep -q "changed_node_count" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "NodeSwitch" apps/linux-cli/src/lib.rs
+          grep -q "handle_node_switch" apps/linux-cli/src/lib.rs
+          grep -q "LinuxCliCommand::NodeSwitch" apps/linux-cli/src/main.rs
+          grep -q "parses_node_switch_and_rejects_missing_loopback_controller_port" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "node_switch_rejects_missing_confirmation_before_any_network_or_file_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "Loopback Selector Switch" docs/architecture/linux-native-proxy-engine-start.md
           grep -q "Explicit Remote Update Boundary" docs/architecture/subscription-catalog-persistence-source-contract.md
           grep -q "subscription_catalog_rollback_restores_snapshot_and_retains_snapshot" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "Managed Foreground Session Status Source Contract" docs/architecture/managed-foreground-session-status-source-contract.md

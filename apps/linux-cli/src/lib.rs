@@ -15,8 +15,10 @@ use control_domain::{
 };
 use control_runtime::{RuntimeConfigRequest, RuntimeOperationResult, RuntimeOrchestrator};
 use engine_singbox::{
-    default_sing_box_install_root, render_sing_box_local_proxy_config, SingBoxInstallReport,
-    SingBoxInstallRequest, SingBoxLocalProxyConfigRequest, SingBoxProcessRunRequest,
+    default_sing_box_install_root, read_sing_box_clash_api_selector,
+    render_sing_box_local_proxy_config, select_sing_box_clash_api_outbound,
+    sing_box_local_selector_outbound_tag, SingBoxInstallReport, SingBoxInstallRequest,
+    SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest, SingBoxProcessRunRequest,
     SingBoxProcessRunner, SingBoxReleaseInstaller, SingBoxTarget,
 };
 use mitm_policy::{
@@ -487,6 +489,15 @@ pub enum LinuxCliCommand {
         confirm: bool,
         format: OutputFormat,
     },
+    NodeSwitch {
+        config_path: String,
+        node_id: String,
+        selection_path: String,
+        snapshot_path: String,
+        controller_port: u16,
+        confirm: bool,
+        format: OutputFormat,
+    },
     NodeRollback {
         selection_path: String,
         snapshot_path: String,
@@ -766,6 +777,7 @@ impl LinuxCliCommand {
             Self::SubscriptionRollback { .. } => "subscription rollback",
             Self::NodeList { .. } => "node list",
             Self::NodeSelect { .. } => "node select",
+            Self::NodeSwitch { .. } => "node switch",
             Self::NodeRollback { .. } => "node rollback",
             Self::ProxyApply { .. } => "proxy apply",
             Self::ProxyStatus { .. } => "proxy status",
@@ -835,6 +847,7 @@ impl LinuxCliCommand {
             | Self::SubscriptionRollback { format, .. }
             | Self::NodeList { format, .. }
             | Self::NodeSelect { format, .. }
+            | Self::NodeSwitch { format, .. }
             | Self::NodeRollback { format, .. }
             | Self::ProxyApply { format, .. }
             | Self::ProxyStatus { format, .. }
@@ -5154,6 +5167,7 @@ struct ParsedOptions {
     selected_node_id: Option<String>,
     listen_host: Option<String>,
     listen_port: Option<u16>,
+    controller_port: Option<u16>,
     snapshot_path: Option<String>,
     confirm: bool,
     enable_https_mitm: bool,
@@ -5406,10 +5420,14 @@ fn parse_node_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseE
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(parse_error(
             CLI_ARGUMENT_VALUE_MISSING_CODE,
-            "node requires list",
+            "node requires list, select, switch, or rollback",
         ));
     };
-    if subcommand != "list" && subcommand != "select" && subcommand != "rollback" {
+    if subcommand != "list"
+        && subcommand != "select"
+        && subcommand != "switch"
+        && subcommand != "rollback"
+    {
         return Err(parse_error(
             CLI_ARGUMENT_UNKNOWN_CODE,
             format!("unknown node subcommand: {subcommand}"),
@@ -5472,6 +5490,23 @@ fn parse_node_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseE
             "node select requires --snapshot <absolute-path>",
         )
     })?;
+    if subcommand == "switch" {
+        let controller_port = options.controller_port.ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "node switch requires --controller-port <loopback-port>",
+            )
+        })?;
+        return Ok(LinuxCliCommand::NodeSwitch {
+            config_path,
+            node_id,
+            selection_path,
+            snapshot_path,
+            controller_port,
+            confirm: options.confirm,
+            format: options.format,
+        });
+    }
     Ok(LinuxCliCommand::NodeSelect {
         config_path,
         node_id,
@@ -5560,6 +5595,7 @@ pub fn handle_entrypoint_skeleton(command: LinuxCliCommand) -> LinuxCliResponse 
         LinuxCliCommand::ServiceControl { .. } => handle_unwired_command("service"),
         LinuxCliCommand::NodeList { .. } => handle_unwired_command("node list"),
         LinuxCliCommand::NodeSelect { .. } => handle_unwired_command("node select"),
+        LinuxCliCommand::NodeSwitch { .. } => handle_unwired_command("node switch"),
         LinuxCliCommand::NodeRollback { .. } => handle_unwired_command("node rollback"),
         LinuxCliCommand::ProxyApply { .. }
         | LinuxCliCommand::ProxyStatus { .. }
@@ -5640,6 +5676,22 @@ where
             &node_id,
             &selection_path,
             &snapshot_path,
+            confirm,
+        ),
+        LinuxCliCommand::NodeSwitch {
+            config_path,
+            node_id,
+            selection_path,
+            snapshot_path,
+            controller_port,
+            confirm,
+            ..
+        } => handle_node_switch(
+            &config_path,
+            &node_id,
+            &selection_path,
+            &snapshot_path,
+            controller_port,
             confirm,
         ),
         LinuxCliCommand::NodeRollback {
@@ -6430,6 +6482,207 @@ pub fn handle_node_select(
             "node {} selected in {}; snapshot_written=true; runtime selection unchanged",
             node_id.trim(),
             selection_path.display()
+        ),
+        SOURCE_CLI_RUNTIME,
+    )])
+}
+
+pub fn handle_node_switch(
+    config_path: &str,
+    node_id: &str,
+    selection_path: &str,
+    snapshot_path: &str,
+    controller_port: u16,
+    confirm: bool,
+) -> LinuxCliResponse {
+    if !confirm {
+        return LinuxCliResponse::failure(
+            "node switch",
+            LinuxCliExitCode::PlatformDenied,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.switch_confirmation_required",
+                "node switch requires explicit --confirm",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    let selection = std::path::Path::new(selection_path);
+    let snapshot = std::path::Path::new(snapshot_path);
+    if !selection.is_absolute() || !snapshot.is_absolute() || selection == snapshot {
+        return LinuxCliResponse::failure(
+            "node switch",
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.switch_path_invalid",
+                "node switch selection and snapshot paths must be distinct absolute paths",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    if controller_port == 0 {
+        return LinuxCliResponse::failure(
+            "node switch",
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.switch_controller_invalid",
+                "node switch controller port must be non-zero",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    if snapshot.exists() {
+        return LinuxCliResponse::failure(
+            "node switch",
+            LinuxCliExitCode::PlatformDenied,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.switch_snapshot_exists",
+                "refusing to overwrite an existing node switch snapshot",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+
+    let raw_config = match std::fs::read_to_string(config_path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            return LinuxCliResponse::failure(
+                "node switch",
+                LinuxCliExitCode::ArgumentOrConfig,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_CONFIG_READ_FAILED_CODE,
+                    format!("node switch config could not be read: {error}"),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            )
+        }
+    };
+    let document = match config_core::parse_config_document(&raw_config) {
+        Ok(document) => document,
+        Err(error) => {
+            return domain_error_response(
+                "node switch",
+                LinuxCliExitCode::ArgumentOrConfig,
+                error,
+                SOURCE_CLI_RUNTIME,
+            )
+        }
+    };
+    let Some(node_index) = document
+        .nodes
+        .iter()
+        .position(|node| node.id == node_id.trim())
+    else {
+        return LinuxCliResponse::failure(
+            "node switch",
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.not_found",
+                format!("node id was not found in the explicit config: {node_id}"),
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    };
+
+    let previous_selection = match std::fs::read_to_string(selection) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            serde_json::to_string_pretty(&NodeSelectionFile {
+                schema_version: NODE_SELECTION_SCHEMA_VERSION,
+                node_id: None,
+            })
+            .expect("node switch empty selection serialization should not fail")
+        }
+        Err(error) => {
+            return LinuxCliResponse::failure(
+                "node switch",
+                LinuxCliExitCode::ArgumentOrConfig,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    "cli.node.selection_read_failed",
+                    format!("node switch selection could not be read: {error}"),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            )
+        }
+    };
+    if let Err(error) = write_new_file(
+        snapshot.to_string_lossy().as_ref(),
+        previous_selection.as_bytes(),
+        "cli.node.switch_snapshot_write_failed",
+        "node switch snapshot",
+    ) {
+        return domain_error_response(
+            "node switch",
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        );
+    }
+
+    let controller = SingBoxLocalControllerConfig {
+        host: "127.0.0.1".to_string(),
+        port: controller_port,
+        selector_tag: "networkcore-selector".to_string(),
+        interrupt_exist_connections: true,
+    };
+    let previous_status = match read_sing_box_clash_api_selector(&controller) {
+        Ok(status) => status,
+        Err(error) => {
+            return domain_error_response(
+                "node switch",
+                LinuxCliExitCode::GeneralFailure,
+                error,
+                SOURCE_CLI_RUNTIME,
+            )
+        }
+    };
+    let requested_outbound = sing_box_local_selector_outbound_tag(node_index);
+    if let Err(error) = select_sing_box_clash_api_outbound(&controller, &requested_outbound) {
+        return domain_error_response(
+            "node switch",
+            LinuxCliExitCode::GeneralFailure,
+            error,
+            SOURCE_CLI_RUNTIME,
+        );
+    }
+
+    let selected = serde_json::to_string_pretty(&NodeSelectionFile {
+        schema_version: NODE_SELECTION_SCHEMA_VERSION,
+        node_id: Some(node_id.trim().to_string()),
+    })
+    .expect("node switch selection serialization should not fail");
+    if let Err(error) = write_replace_file(
+        selection.to_string_lossy().as_ref(),
+        selected.as_bytes(),
+        "cli.node.switch_selection_write_failed",
+        "node switch selection",
+    ) {
+        if !previous_status.current_outbound_tag.trim().is_empty() {
+            let _ = select_sing_box_clash_api_outbound(
+                &controller,
+                &previous_status.current_outbound_tag,
+            );
+        }
+        return domain_error_response(
+            "node switch",
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        );
+    }
+
+    LinuxCliResponse::success("node switch").with_diagnostics(vec![cli_diagnostic(
+        DiagnosticSeverity::Info,
+        "cli.node.switched",
+        format!(
+            "node {} became active through loopback selector; controller_port={}; snapshot_written=true; readback_confirmed=true",
+            node_id.trim(), controller_port
         ),
         SOURCE_CLI_RUNTIME,
     )])
@@ -12664,6 +12917,16 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.listen_port = Some(parse_listen_port(value)?);
             }
+            "--controller-port" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--controller-port requires a loopback controller port",
+                    ));
+                };
+                options.controller_port = Some(parse_listen_port(value)?);
+            }
             "--format" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -13783,6 +14046,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux service status [--service-unit <name>] [--format text|json]\n",
         "  networkcore-linux node list --config <absolute-path> [--format text|json]\n",
         "  networkcore-linux node select --config <absolute-path> --source-id <node-id> --selection <absolute-path> --snapshot <absolute-path> --confirm [--format text|json]\n",
+        "  networkcore-linux node switch --config <absolute-path> --source-id <node-id> --selection <absolute-path> --snapshot <absolute-path> --controller-port <loopback-port> --confirm [--format text|json]\n",
         "  networkcore-linux node rollback --selection <absolute-path> --snapshot <absolute-path> --confirm [--format text|json]\n",
         "  networkcore-linux proxy apply --file <absolute-path> --snapshot <absolute-path> --url <proxy-url> --confirm [--format text|json]\n",
         "  networkcore-linux proxy status --file <absolute-path> [--format text|json]\n",

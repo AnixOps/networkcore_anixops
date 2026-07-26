@@ -21,6 +21,9 @@ current-main-subscription-background=blocked
 - 完成 Linux persistent subscription catalog 的显式 `subscription update` 纵向切片：HTTP(S)、绝对
   `file://` 和 inline/share-link 候选先经受限 fetch 与 `CoreSubscriptionService` parse/normalize，成功后
   才写不可覆盖 rollback snapshot 和新 location；失败保留旧 catalog，report 只输出脱敏字段、验证节点数及新增/删除/改变节点数量。
+- 新增 Linux `node switch` 运行时切片：对 NetworkCore 生成的 loopback sing-box selector 执行显式
+  PATCH/readback，写 selection snapshot，并在 selection 写入失败时尝试恢复此前 outbound；非回环
+  controller、native JSON、缺少授权和已有 snapshot 均拒绝。
 
 - Linux CLI now exposes explicit Ubuntu-style CA trust-file apply and rollback
   commands with confirmation, snapshot verification, refresh, recovery, and

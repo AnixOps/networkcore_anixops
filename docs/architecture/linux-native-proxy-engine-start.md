@@ -244,6 +244,16 @@ adapter、前台生命周期 host 和 `networkcore-linux start` 接线边界。�
 未满足任一条件时，binary 必须组合 `UnavailableProxyEngineService` 或等价 unavailable host，
 并让 `start` 返回 `cli.linux.runtime.unwired` 或更具体的 lifecycle unavailable 诊断。
 
+## Loopback Selector Switch
+
+`networkcore-linux node switch --config <absolute-path> --source-id <node-id>
+--selection <absolute-path> --snapshot <absolute-path> --controller-port <loopback-port>
+--confirm` 是生成式 sing-box selector 的显式运行时切换入口。它只连接调用方指定的
+`127.0.0.1` Clash API，先读取当前 selector，再写 selection snapshot，执行 PATCH 并读回目标
+outbound；selection 写入失败时尝试恢复此前读回的 outbound。非生成式 native JSON、非回环
+controller、缺少确认、节点不存在、已有 snapshot 或 API 失败均拒绝，不修改不相关配置。
+诊断只输出 node id、端口和读回/快照状态，不输出节点 endpoint、密码或订阅内容。
+
 ## 验证边界
 
 所有验证只在 GitHub Actions 执行。后续源码增量必须至少覆盖：
