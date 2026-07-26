@@ -214,8 +214,13 @@ evidence; it verifies source and injected contracts only.
 
 ```bash
 gh workflow run ci.yml
-gh run list --workflow ci.yml --limit 5
+gh run list --workflow ci.yml --commit <commit-sha> --limit 2
 ```
+
+编码 Agent 对当前 commit 只允许进行一次、最多两次上述非阻塞查询。不得使用 `gh run watch`、
+无限循环或长时间 sleep。若 run 仍为 `queued`/`in_progress`，记录 commit SHA、workflow、run ID、
+run URL 和状态，以 `task_state: pending_ci`、`next_action: resume_after_ci_completion` 交接；失败时
+只读取失败 job/step 日志，成功 job 日志不重复下载。
 
 如果 GitHub CLI 不可用，可在 GitHub 网页端进入 `Actions`，选择 `CI`，手动触发 `workflow_dispatch`。
 

@@ -44,11 +44,36 @@
 1. 修改代码、配置、文档或 workflow。
 2. 查看 `git diff` 确认变更内容。
 3. 提交并推送到 GitHub。
-4. 触发或等待 GitHub Actions。
+4. 触发 GitHub Actions，并按下述异步交接规则进行非阻塞状态查询。
 5. 只根据 GitHub Actions 的失败日志修复问题。
 6. 反复推送，直到 CI/CD 通过。
 
 禁止用本地测试结果替代 GitHub Actions 结果。
+
+## GitHub Actions 异步交接
+
+编码 Agent 推送后不得占用一个长回合等待 CI：
+
+- 只允许对当前 commit 对应的 workflow run 进行一次、最多两次非阻塞状态查询；两次查询之间不得长时间 `sleep`。
+- 禁止使用 `gh run watch`、无限 `while`/`until` 循环、定时刷新全部历史 run 或其他长时间阻塞轮询。
+- 状态为 `queued` 或 `in_progress` 时，记录 commit SHA、workflow 名称、run ID、run URL 和当前状态，然后以 `pending_ci` 结束当前编码回合。
+- 后续 Agent 回合、workflow completion 事件或人工重新触发负责继续处理；当前回合不得持续等待。
+- CI 失败时只读取失败 job 和失败 step 的必要日志，不重复下载成功 job 日志。
+- 只有对应 commit 的 GitHub Actions 状态为 `completed` 且结论为 `success` 时，才可以声称 CI 验证通过。
+
+等待 CI 的交接结构固定为：
+
+```json
+{
+  "task_state": "pending_ci",
+  "commit_sha": "<sha>",
+  "workflow": "CI",
+  "run_id": "<id>",
+  "run_url": "<url>",
+  "status": "queued|in_progress",
+  "next_action": "resume_after_ci_completion"
+}
+```
 
 ## CI/CD 约束
 

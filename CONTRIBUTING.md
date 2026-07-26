@@ -17,7 +17,7 @@
 2. 修改代码或文档。
 3. 查看 `git diff`，确认没有无关变更。
 4. 提交并推送分支。
-5. 等待 GitHub Actions 运行。
+5. 记录当前 commit 的 GitHub Actions run；自动化代理按 `AGENT.md` 使用非阻塞 `pending_ci` 交接，不持续轮询。
 6. 根据 CI/CD 日志修复问题。
 7. CI/CD 通过后再合并。
 

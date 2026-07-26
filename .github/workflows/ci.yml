@@ -6,6 +6,8 @@ on:
       - main
       - master
       - develop
+    tags:
+      - "v*"
   pull_request:
   workflow_dispatch:
 
@@ -17,9 +19,316 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  policy:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs: ${{ steps.changes.outputs.docs }}
+      governance: ${{ steps.changes.outputs.governance }}
+      go: ${{ steps.changes.outputs.go }}
+      rust: ${{ steps.changes.outputs.rust }}
+      node: ${{ steps.changes.outputs.node }}
+      windows: ${{ steps.changes.outputs.windows }}
+      linux: ${{ steps.changes.outputs.linux }}
+      ios: ${{ steps.changes.outputs.ios }}
+      apple: ${{ steps.changes.outputs.apple }}
+      workflow: ${{ steps.changes.outputs.workflow }}
+      release_sensitive: ${{ steps.changes.outputs.release_sensitive }}
+      full_matrix: ${{ steps.changes.outputs.full_matrix }}
+      unknown: ${{ steps.changes.outputs.unknown }}
+      change_source: ${{ steps.changes.outputs.change_source }}
+      changed_file_count: ${{ steps.changes.outputs.changed_file_count }}
+      groups: ${{ steps.changes.outputs.groups }}
+      validation_matrix: ${{ steps.changes.outputs.validation_matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed paths
+        id: changes
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: bash .github/scripts/detect-ci-changes.sh
+
+      - name: Summarize changed paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Changed Paths"
+            echo
+            echo "| Item | Value |"
+            echo "| --- | --- |"
+            echo "| Source | ${{ steps.changes.outputs.change_source }} |"
+            echo "| Files | ${{ steps.changes.outputs.changed_file_count }} |"
+            echo "| Groups | ${{ steps.changes.outputs.groups }} |"
+            echo "| Full matrix | ${{ steps.changes.outputs.full_matrix }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  policy-fast:
+    name: Repository policy (fast)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs:
+      - changes
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Verify fast repository policy
+        shell: bash
+        env:
+          WINDOWS_CHANGED: ${{ needs.changes.outputs.windows }}
+          LINUX_CHANGED: ${{ needs.changes.outputs.linux }}
+          APPLE_CHANGED: ${{ needs.changes.outputs.apple }}
+        run: |
+          set -euo pipefail
+          trap 'status=$?; echo "::error::Fast repository policy failed at line ${LINENO}: ${BASH_COMMAND} (exit ${status})"; exit ${status}' ERR
+
+          required_files=(
+            AGENT.md
+            AGENTS.md
+            CLAUDE.md
+            CONTRIBUTING.md
+            README.md
+            ROADMAP.md
+            TODO.md
+            CHANGELOG.md
+            LICENSE
+            Cargo.toml
+            Cargo.lock
+            docs/ci-cd-policy.md
+            docs/manual-intervention.md
+            .github/copilot-instructions.md
+            .github/scripts/detect-ci-changes.sh
+            .github/workflows/ci.yml
+            .github/workflows/release.yml
+          )
+          for file in "${required_files[@]}"; do
+            test -f "${file}"
+          done
+
+          tracked_paths="$(git ls-files)"
+          if grep -Eq '(^|/)(target|dist|node_modules|coverage|\.next|\.turbo|\.gradle|DerivedData)(/|$)' <<< "${tracked_paths}"; then
+            echo "::error::Tracked local build or package output is forbidden."
+            grep -E '(^|/)(target|dist|node_modules|coverage|\.next|\.turbo|\.gradle|DerivedData)(/|$)' <<< "${tracked_paths}"
+            exit 1
+          fi
+          if grep -Eiq '(^|/)(id_(rsa|dsa|ecdsa|ed25519)|\.env($|\.)|[^/]+\.(p12|pfx|jks|keystore|mobileprovision|provisionprofile|key|pem))$' <<< "${tracked_paths}"; then
+            echo "::error::Tracked credential, signing, or private-key material is forbidden."
+            grep -Ei '(^|/)(id_(rsa|dsa|ecdsa|ed25519)|\.env($|\.)|[^/]+\.(p12|pfx|jks|keystore|mobileprovision|provisionprofile|key|pem))$' <<< "${tracked_paths}"
+            exit 1
+          fi
+          if git grep -nEI '(AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|AIza[0-9A-Za-z_-]{35})' -- ':!*.md' ':!.github/workflows/ci.yml'; then
+            echo "::error::A tracked source or configuration file contains an obvious credential pattern."
+            exit 1
+          fi
+
+          grep -q '^name: CI$' .github/workflows/ci.yml
+          grep -q '^  changes:$' .github/workflows/ci.yml
+          grep -q '^  policy-fast:$' .github/workflows/ci.yml
+          grep -q '^  policy-full:$' .github/workflows/ci.yml
+          grep -q '^  ci-summary:$' .github/workflows/ci.yml
+          grep -q '^name: Release$' .github/workflows/release.yml
+          grep -q '^  release-ci-gate:$' .github/workflows/release.yml
+          grep -q '^  publish-eligibility-gate:$' .github/workflows/release.yml
+          grep -q '^  publish-github-release:$' .github/workflows/release.yml
+
+          grep -q "当前阶段进入 P4 Client And Platform Integration" README.md
+          grep -q "当前阶段：P4 Client And Platform Integration" ROADMAP.md
+          grep -q "当前阶段是 P4 Client And Platform Integration" TODO.md
+          grep -q '^linux-artifact-release-state=confirmed-release-path$' docs/manual-intervention.md
+
+          if [[ "${WINDOWS_CHANGED}" == true ]]; then
+            test -f apps/windows-gui/Cargo.toml
+            test -f apps/windows-gui/ui/package.json
+            test -f apps/windows-service/Cargo.toml
+            test -f installer/windows/Package.wxs
+          fi
+          if [[ "${LINUX_CHANGED}" == true ]]; then
+            test -f apps/linux-cli/Cargo.toml
+            test -f crates/platform-linux/Cargo.toml
+          fi
+          if [[ "${APPLE_CHANGED}" == true ]]; then
+            test -f apps/ios/README.md
+            test -f crates/platform-ios/Cargo.toml
+          fi
+
+          echo "Fast repository policy passed."
+
+      - name: Verify change classifier contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          classifier="${GITHUB_WORKSPACE}/.github/scripts/detect-ci-changes.sh"
+          fixture="$(mktemp -d)"
+          trap 'rm -rf "${fixture}"' EXIT
+
+          git -C "${fixture}" init --quiet
+          git -C "${fixture}" config user.name ci-path-contract
+          git -C "${fixture}" config user.email ci-path-contract@example.invalid
+          echo seed > "${fixture}/seed.txt"
+          git -C "${fixture}" add seed.txt
+          git -C "${fixture}" commit --quiet -m seed
+
+          classify_commit() {
+            local base_sha="$1"
+            local head_sha="$2"
+            local output_file="$3"
+            (
+              cd "${fixture}"
+              EVENT_NAME=push \
+                REF_TYPE=branch \
+                BASE_SHA="${base_sha}" \
+                HEAD_SHA="${head_sha}" \
+                GITHUB_OUTPUT="${output_file}" \
+                RUNNER_TEMP="${fixture}" \
+                bash "${classifier}"
+            )
+          }
+
+          base_sha="$(git -C "${fixture}" rev-parse HEAD)"
+          mkdir -p "${fixture}/docs"
+          echo docs > "${fixture}/docs/guide.md"
+          git -C "${fixture}" add docs/guide.md
+          git -C "${fixture}" commit --quiet -m docs
+          head_sha="$(git -C "${fixture}" rev-parse HEAD)"
+          docs_output="${fixture}/docs.output"
+          classify_commit "${base_sha}" "${head_sha}" "${docs_output}"
+          grep -qx 'docs=true' "${docs_output}"
+          grep -qx 'full_matrix=false' "${docs_output}"
+
+          base_sha="${head_sha}"
+          echo lock > "${fixture}/Cargo.lock"
+          git -C "${fixture}" add Cargo.lock
+          git -C "${fixture}" commit --quiet -m lock
+          head_sha="$(git -C "${fixture}" rev-parse HEAD)"
+          lock_output="${fixture}/lock.output"
+          classify_commit "${base_sha}" "${head_sha}" "${lock_output}"
+          grep -qx 'rust=true' "${lock_output}"
+          grep -qx 'release_sensitive=true' "${lock_output}"
+          grep -qx 'full_matrix=true' "${lock_output}"
+
+          base_sha="${head_sha}"
+          mkdir -p "${fixture}/crates/control-domain/src"
+          echo shared > "${fixture}/crates/control-domain/src/lib.rs"
+          git -C "${fixture}" add crates/control-domain/src/lib.rs
+          git -C "${fixture}" commit --quiet -m shared-rust
+          head_sha="$(git -C "${fixture}" rev-parse HEAD)"
+          shared_output="${fixture}/shared.output"
+          classify_commit "${base_sha}" "${head_sha}" "${shared_output}"
+          grep -qx 'rust=true' "${shared_output}"
+          grep -qx 'full_matrix=true' "${shared_output}"
+
+          base_sha="${head_sha}"
+          mkdir -p "${fixture}/apps/windows-cli/src"
+          echo windows > "${fixture}/apps/windows-cli/src/main.rs"
+          git -C "${fixture}" add apps/windows-cli/src/main.rs
+          git -C "${fixture}" commit --quiet -m windows
+          head_sha="$(git -C "${fixture}" rev-parse HEAD)"
+          windows_output="${fixture}/windows.output"
+          classify_commit "${base_sha}" "${head_sha}" "${windows_output}"
+          grep -qx 'rust=true' "${windows_output}"
+          grep -qx 'windows=true' "${windows_output}"
+          grep -qx 'full_matrix=false' "${windows_output}"
+          grep -Fqx 'validation_matrix={"include":[{"os":"windows-latest","timeout":45}]}' "${windows_output}"
+
+          base_sha="${head_sha}"
+          mkdir -p "${fixture}/apps/linux-cli/src"
+          echo linux > "${fixture}/apps/linux-cli/src/main.rs"
+          git -C "${fixture}" add apps/linux-cli/src/main.rs
+          git -C "${fixture}" commit --quiet -m linux
+          head_sha="$(git -C "${fixture}" rev-parse HEAD)"
+          linux_output="${fixture}/linux.output"
+          classify_commit "${base_sha}" "${head_sha}" "${linux_output}"
+          grep -qx 'rust=true' "${linux_output}"
+          grep -qx 'linux=true' "${linux_output}"
+          grep -qx 'full_matrix=false' "${linux_output}"
+          grep -Fqx 'validation_matrix={"include":[{"os":"ubuntu-latest","timeout":30}]}' "${linux_output}"
+
+          base_sha="${head_sha}"
+          mkdir -p "${fixture}/apps/windows-gui/ui/src"
+          echo node > "${fixture}/apps/windows-gui/ui/src/App.tsx"
+          git -C "${fixture}" add apps/windows-gui/ui/src/App.tsx
+          git -C "${fixture}" commit --quiet -m node-ui
+          head_sha="$(git -C "${fixture}" rev-parse HEAD)"
+          node_output="${fixture}/node.output"
+          classify_commit "${base_sha}" "${head_sha}" "${node_output}"
+          grep -qx 'node=true' "${node_output}"
+          grep -qx 'windows=true' "${node_output}"
+          grep -qx 'full_matrix=false' "${node_output}"
+
+          base_sha="${head_sha}"
+          mkdir -p "${fixture}/apps/ios/Sources"
+          echo apple > "${fixture}/apps/ios/Sources/App.swift"
+          git -C "${fixture}" add apps/ios/Sources/App.swift
+          git -C "${fixture}" commit --quiet -m apple
+          head_sha="$(git -C "${fixture}" rev-parse HEAD)"
+          apple_output="${fixture}/apple.output"
+          classify_commit "${base_sha}" "${head_sha}" "${apple_output}"
+          grep -qx 'ios=true' "${apple_output}"
+          grep -qx 'apple=true' "${apple_output}"
+          grep -Fqx 'validation_matrix={"include":[{"os":"macos-26","timeout":40}]}' "${apple_output}"
+
+          base_sha="${head_sha}"
+          echo unknown > "${fixture}/unknown.file"
+          git -C "${fixture}" add unknown.file
+          git -C "${fixture}" commit --quiet -m unknown
+          head_sha="$(git -C "${fixture}" rev-parse HEAD)"
+          unknown_output="${fixture}/unknown.output"
+          classify_commit "${base_sha}" "${head_sha}" "${unknown_output}"
+          grep -qx 'unknown=true' "${unknown_output}"
+          grep -qx 'full_matrix=true' "${unknown_output}"
+
+          base_sha="${head_sha}"
+          mkdir -p "${fixture}/.github/workflows"
+          echo workflow > "${fixture}/.github/workflows/ci.yml"
+          git -C "${fixture}" add .github/workflows/ci.yml
+          git -C "${fixture}" commit --quiet -m workflow
+          head_sha="$(git -C "${fixture}" rev-parse HEAD)"
+          workflow_output="${fixture}/workflow.output"
+          classify_commit "${base_sha}" "${head_sha}" "${workflow_output}"
+          grep -qx 'workflow=true' "${workflow_output}"
+          grep -qx 'full_matrix=true' "${workflow_output}"
+
+          dispatch_output="${fixture}/dispatch.output"
+          (
+            cd "${fixture}"
+            EVENT_NAME=workflow_dispatch \
+              REF_TYPE=branch \
+              GITHUB_OUTPUT="${dispatch_output}" \
+              RUNNER_TEMP="${fixture}" \
+              bash "${classifier}"
+          )
+          grep -qx 'change_source=workflow_dispatch' "${dispatch_output}"
+          grep -qx 'full_matrix=true' "${dispatch_output}"
+
+          tag_output="${fixture}/tag.output"
+          (
+            cd "${fixture}"
+            EVENT_NAME=push \
+              REF_TYPE=tag \
+              GITHUB_OUTPUT="${tag_output}" \
+              RUNNER_TEMP="${fixture}" \
+              bash "${classifier}"
+          )
+          grep -qx 'change_source=tag' "${tag_output}"
+          grep -qx 'full_matrix=true' "${tag_output}"
+
+  policy-full:
     name: Repository policy
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs:
+      - changes
+      - policy-fast
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -1682,8 +1991,10 @@ jobs:
   detect-projects:
     name: Detect project types
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs:
-      - policy
+      - changes
+      - policy-fast
     outputs:
       go: ${{ steps.detect.outputs.go }}
       rust: ${{ steps.detect.outputs.rust }}
@@ -1737,15 +2048,24 @@ jobs:
   workspace-smoke:
     name: Workspace smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     needs:
-      - policy
+      - changes
+      - policy-fast
+    if: >-
+      ${{
+        needs.changes.outputs.full_matrix == 'true' ||
+        needs.changes.outputs.go == 'true' ||
+        needs.changes.outputs.rust == 'true' ||
+        needs.changes.outputs.node == 'true' ||
+        needs.changes.outputs.windows == 'true' ||
+        needs.changes.outputs.linux == 'true' ||
+        needs.changes.outputs.apple == 'true' ||
+        needs.changes.outputs.ios == 'true'
+      }}
     strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-26
-          - windows-latest
+      fail-fast: ${{ github.event_name == 'pull_request' }}
+      matrix: ${{ fromJSON(needs.changes.outputs.validation_matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -1762,16 +2082,19 @@ jobs:
   go-build-test:
     name: Go build and test
     runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.timeout }}
     needs:
+      - changes
+      - policy-fast
       - detect-projects
-    if: ${{ needs.detect-projects.outputs.go == 'true' }}
+    if: >-
+      ${{
+        needs.detect-projects.outputs.go == 'true' &&
+        (needs.changes.outputs.full_matrix == 'true' || needs.changes.outputs.go == 'true')
+      }}
     strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-26
-          - windows-latest
+      fail-fast: ${{ github.event_name == 'pull_request' }}
+      matrix: ${{ fromJSON(needs.changes.outputs.validation_matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -1807,31 +2130,49 @@ jobs:
   rust-build-test:
     name: Rust build and test
     runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.timeout }}
     needs:
+      - changes
+      - policy-fast
       - detect-projects
-    if: ${{ needs.detect-projects.outputs.rust == 'true' }}
+      - node-build-test
+    if: >-
+      ${{
+        always() &&
+        needs.changes.result == 'success' &&
+        needs.policy-fast.result == 'success' &&
+        needs.detect-projects.result == 'success' &&
+        needs.detect-projects.outputs.rust == 'true' &&
+        (needs.node-build-test.result == 'success' || needs.node-build-test.result == 'skipped') &&
+        (
+          needs.changes.outputs.full_matrix == 'true' ||
+          needs.changes.outputs.rust == 'true' ||
+          needs.changes.outputs.windows == 'true' ||
+          needs.changes.outputs.linux == 'true' ||
+          needs.changes.outputs.apple == 'true' ||
+          needs.changes.outputs.ios == 'true'
+        )
+      }}
     strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-latest
-          - macos-26
-          - windows-latest
+      fail-fast: ${{ github.event_name == 'pull_request' }}
+      matrix: ${{ fromJSON(needs.changes.outputs.validation_matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           submodules: true
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - name: Download Windows GUI frontend
+        if: runner.os == 'Windows'
+        uses: actions/download-artifact@v4
         with:
-          version: 9
+          name: windows-gui-ui-${{ github.sha }}
+          path: apps/windows-gui/ui/dist
 
-      - name: Setup Node for Windows GUI assets
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
+      - name: Verify Windows GUI frontend
+        if: runner.os == 'Windows'
+        shell: bash
+        run: test -s apps/windows-gui/ui/dist/index.html
 
       - name: Setup Windows C toolchain
         if: runner.os == 'Windows'
@@ -1874,14 +2215,6 @@ jobs:
         with:
           node-version: 22
 
-      - name: Build Windows GUI frontend
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          set -euo pipefail
-          pnpm --dir apps/windows-gui/ui install --no-frozen-lockfile
-          pnpm --dir apps/windows-gui/ui run build
-
       - name: Format
         shell: bash
         run: cargo fmt --all -- --check
@@ -1901,23 +2234,36 @@ jobs:
   windows-managed-client-installer:
     name: Windows managed client MSI
     runs-on: windows-latest
+    timeout-minutes: 45
     needs:
-      - policy
+      - changes
+      - policy-fast
+      - detect-projects
+      - node-build-test
+    if: >-
+      ${{
+        always() &&
+        needs.changes.result == 'success' &&
+        needs.policy-fast.result == 'success' &&
+        needs.detect-projects.result == 'success' &&
+        needs.node-build-test.result == 'success' &&
+        (needs.changes.outputs.full_matrix == 'true' || needs.changes.outputs.windows == 'true')
+      }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           submodules: true
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      - name: Download Windows GUI frontend
+        uses: actions/download-artifact@v4
         with:
-          version: 9
+          name: windows-gui-ui-${{ github.sha }}
+          path: apps/windows-gui/ui/dist
 
-      - name: Setup Node for Windows MSI assets
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
+      - name: Verify Windows GUI frontend
+        shell: bash
+        run: test -s apps/windows-gui/ui/dist/index.html
 
       - name: Setup Windows C toolchain
         uses: msys2/setup-msys2@v2
@@ -1947,8 +2293,6 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          pnpm --dir apps/windows-gui/ui install --no-frozen-lockfile
-          pnpm --dir apps/windows-gui/ui run build
           rustup toolchain install stable --profile minimal
           rustup default stable
           rustup target add x86_64-pc-windows-gnu
@@ -2102,9 +2446,23 @@ jobs:
   rust-security-audit:
     name: Rust dependency security audit
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs:
+      - changes
+      - policy-fast
       - detect-projects
-    if: ${{ needs.detect-projects.outputs.rust == 'true' }}
+    if: >-
+      ${{
+        needs.detect-projects.outputs.rust == 'true' &&
+        (
+          needs.changes.outputs.full_matrix == 'true' ||
+          needs.changes.outputs.rust == 'true' ||
+          needs.changes.outputs.windows == 'true' ||
+          needs.changes.outputs.linux == 'true' ||
+          needs.changes.outputs.apple == 'true' ||
+          needs.changes.outputs.ios == 'true'
+        )
+      }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -2131,11 +2489,22 @@ jobs:
   node-build-test:
     name: Node build and test
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     needs:
+      - changes
+      - policy-fast
       - detect-projects
-    if: ${{ needs.detect-projects.outputs.node == 'true' }}
+    if: >-
+      ${{
+        needs.detect-projects.outputs.node == 'true' &&
+        (
+          needs.changes.outputs.full_matrix == 'true' ||
+          needs.changes.outputs.node == 'true' ||
+          needs.changes.outputs.windows == 'true'
+        )
+      }}
     strategy:
-      fail-fast: false
+      fail-fast: ${{ github.event_name == 'pull_request' }}
       matrix:
         os:
           - ubuntu-latest
@@ -2172,17 +2541,42 @@ jobs:
           pnpm --dir apps/windows-gui/ui test
 
       - name: Build
+        if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
           set -euo pipefail
           pnpm --dir apps/windows-gui/ui run build
 
+      - name: Upload Windows GUI frontend
+        if: >-
+          ${{
+            matrix.os == 'ubuntu-latest' &&
+            (needs.changes.outputs.full_matrix == 'true' || needs.changes.outputs.windows == 'true')
+          }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-gui-ui-${{ github.sha }}
+          path: apps/windows-gui/ui/dist
+          if-no-files-found: error
+          retention-days: 1
+
   swift-build-test:
     name: Swift build and test
     runs-on: macos-26
+    timeout-minutes: 45
     needs:
+      - changes
+      - policy-fast
       - detect-projects
-    if: ${{ needs.detect-projects.outputs.swift == 'true' }}
+    if: >-
+      ${{
+        needs.detect-projects.outputs.swift == 'true' &&
+        (
+          needs.changes.outputs.full_matrix == 'true' ||
+          needs.changes.outputs.ios == 'true' ||
+          needs.changes.outputs.apple == 'true'
+        )
+      }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -2198,9 +2592,20 @@ jobs:
   apple-project-smoke:
     name: Apple project smoke
     runs-on: macos-26
+    timeout-minutes: 45
     needs:
+      - changes
+      - policy-fast
       - detect-projects
-    if: ${{ needs.detect-projects.outputs.apple == 'true' }}
+    if: >-
+      ${{
+        needs.detect-projects.outputs.apple == 'true' &&
+        (
+          needs.changes.outputs.full_matrix == 'true' ||
+          needs.changes.outputs.ios == 'true' ||
+          needs.changes.outputs.apple == 'true'
+        )
+      }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -2214,9 +2619,12 @@ jobs:
   ci-summary:
     name: CI summary
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: ${{ always() }}
     needs:
-      - policy
+      - changes
+      - policy-fast
+      - policy-full
       - detect-projects
       - workspace-smoke
       - go-build-test
@@ -2229,58 +2637,208 @@ jobs:
     steps:
       - name: Check required jobs
         shell: bash
+        env:
+          CHANGE_GROUPS: ${{ needs.changes.outputs.groups }}
+          CHANGE_SOURCE: ${{ needs.changes.outputs.change_source }}
+          CHANGED_FILE_COUNT: ${{ needs.changes.outputs.changed_file_count }}
+          CHANGE_DOCS: ${{ needs.changes.outputs.docs }}
+          CHANGE_GOVERNANCE: ${{ needs.changes.outputs.governance }}
+          CHANGE_GO: ${{ needs.changes.outputs.go }}
+          CHANGE_RUST: ${{ needs.changes.outputs.rust }}
+          CHANGE_NODE: ${{ needs.changes.outputs.node }}
+          CHANGE_WINDOWS: ${{ needs.changes.outputs.windows }}
+          CHANGE_LINUX: ${{ needs.changes.outputs.linux }}
+          CHANGE_IOS: ${{ needs.changes.outputs.ios }}
+          CHANGE_APPLE: ${{ needs.changes.outputs.apple }}
+          CHANGE_WORKFLOW: ${{ needs.changes.outputs.workflow }}
+          CHANGE_RELEASE_SENSITIVE: ${{ needs.changes.outputs.release_sensitive }}
+          CHANGE_FULL_MATRIX: ${{ needs.changes.outputs.full_matrix }}
+          CHANGE_UNKNOWN: ${{ needs.changes.outputs.unknown }}
+          DETECTED_GO: ${{ needs.detect-projects.outputs.go }}
+          DETECTED_RUST: ${{ needs.detect-projects.outputs.rust }}
+          DETECTED_NODE: ${{ needs.detect-projects.outputs.node }}
+          DETECTED_SWIFT: ${{ needs.detect-projects.outputs.swift }}
+          DETECTED_APPLE: ${{ needs.detect-projects.outputs.apple }}
+          RESULT_CHANGES: ${{ needs.changes.result }}
+          RESULT_POLICY_FAST: ${{ needs.policy-fast.result }}
+          RESULT_POLICY_FULL: ${{ needs.policy-full.result }}
+          RESULT_DETECT_PROJECTS: ${{ needs.detect-projects.result }}
+          RESULT_WORKSPACE_SMOKE: ${{ needs.workspace-smoke.result }}
+          RESULT_GO_BUILD_TEST: ${{ needs.go-build-test.result }}
+          RESULT_RUST_BUILD_TEST: ${{ needs.rust-build-test.result }}
+          RESULT_WINDOWS_INSTALLER: ${{ needs.windows-managed-client-installer.result }}
+          RESULT_RUST_AUDIT: ${{ needs.rust-security-audit.result }}
+          RESULT_NODE_BUILD_TEST: ${{ needs.node-build-test.result }}
+          RESULT_SWIFT_BUILD_TEST: ${{ needs.swift-build-test.result }}
+          RESULT_APPLE_SMOKE: ${{ needs.apple-project-smoke.result }}
+          WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+
+          workspace_required=false
+          go_required=false
+          rust_required=false
+          windows_required=false
+          audit_required=false
+          node_required=false
+          swift_required=false
+          apple_required=false
+
+          if [[ "${CHANGE_FULL_MATRIX}" == true || "${CHANGE_GO}" == true || "${CHANGE_RUST}" == true ||
+                "${CHANGE_NODE}" == true || "${CHANGE_WINDOWS}" == true || "${CHANGE_LINUX}" == true ||
+                "${CHANGE_IOS}" == true || "${CHANGE_APPLE}" == true ]]; then
+            workspace_required=true
+          fi
+          if [[ "${DETECTED_GO}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_GO}" == true) ]]; then
+            go_required=true
+          fi
+          if [[ "${DETECTED_RUST}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_RUST}" == true ||
+                "${CHANGE_WINDOWS}" == true || "${CHANGE_LINUX}" == true || "${CHANGE_IOS}" == true ||
+                "${CHANGE_APPLE}" == true) ]]; then
+            rust_required=true
+            audit_required=true
+          fi
+          if [[ "${CHANGE_FULL_MATRIX}" == true || "${CHANGE_WINDOWS}" == true ]]; then
+            windows_required=true
+          fi
+          if [[ "${DETECTED_NODE}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_NODE}" == true ||
+                "${CHANGE_WINDOWS}" == true) ]]; then
+            node_required=true
+          fi
+          if [[ "${DETECTED_SWIFT}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_IOS}" == true ||
+                "${CHANGE_APPLE}" == true) ]]; then
+            swift_required=true
+          fi
+          if [[ "${DETECTED_APPLE}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_IOS}" == true ||
+                "${CHANGE_APPLE}" == true) ]]; then
+            apple_required=true
+          fi
+
+          ran_jobs=()
+          skipped_jobs=()
+          failed_jobs=()
+          gate_failures=()
+
+          record_job() {
+            local name="$1"
+            local result="$2"
+            local expected="$3"
+
+            case "${result}" in
+              success)
+                ran_jobs+=("${name}")
+                ;;
+              skipped)
+                skipped_jobs+=("${name}")
+                if [[ "${expected}" == true ]]; then
+                  gate_failures+=("${name} was required but skipped")
+                fi
+                ;;
+              failure)
+                ran_jobs+=("${name}")
+                failed_jobs+=("${name}")
+                gate_failures+=("${name} failed")
+                ;;
+              cancelled)
+                ran_jobs+=("${name}")
+                failed_jobs+=("${name} (cancelled)")
+                gate_failures+=("${name} was cancelled")
+                ;;
+              *)
+                gate_failures+=("${name} returned unexpected result '${result}'")
+                ;;
+            esac
+          }
+
+          record_job "Detect changed paths" "${RESULT_CHANGES}" true
+          record_job "Repository policy (fast)" "${RESULT_POLICY_FAST}" true
+          record_job "Repository policy" "${RESULT_POLICY_FULL}" true
+          record_job "Detect project types" "${RESULT_DETECT_PROJECTS}" true
+          record_job "Workspace smoke" "${RESULT_WORKSPACE_SMOKE}" "${workspace_required}"
+          record_job "Go build and test" "${RESULT_GO_BUILD_TEST}" "${go_required}"
+          record_job "Rust build and test" "${RESULT_RUST_BUILD_TEST}" "${rust_required}"
+          record_job "Windows managed client MSI" "${RESULT_WINDOWS_INSTALLER}" "${windows_required}"
+          record_job "Rust dependency security audit" "${RESULT_RUST_AUDIT}" "${audit_required}"
+          record_job "Node build and test" "${RESULT_NODE_BUILD_TEST}" "${node_required}"
+          record_job "Swift build and test" "${RESULT_SWIFT_BUILD_TEST}" "${swift_required}"
+          record_job "Apple project smoke" "${RESULT_APPLE_SMOKE}" "${apple_required}"
+
+          join_list() {
+            local joined
+            if [[ "$#" -eq 0 ]]; then
+              echo "none"
+              return
+            fi
+            joined="$(IFS=', '; echo "$*")"
+            echo "${joined}"
+          }
+
+          gate_conclusion=success
+          next_action="No action required; this commit is eligible for downstream gates."
+          if [[ "${#gate_failures[@]}" -gt 0 ]]; then
+            gate_conclusion=failure
+            next_action="Inspect only the failed or cancelled job steps, fix them, and rerun CI."
+          fi
+
           {
             echo "### CI Summary"
             echo
-            echo "| Project type | Detected | Job result |"
-            echo "| --- | --- | --- |"
-            echo "| Go | ${{ needs.detect-projects.outputs.go }} | ${{ needs.go-build-test.result }} |"
-            echo "| Rust | ${{ needs.detect-projects.outputs.rust }} | build/test: ${{ needs.rust-build-test.result }}; audit: ${{ needs.rust-security-audit.result }} |"
-            echo "| Windows MSI | true | ${{ needs.windows-managed-client-installer.result }} |"
-            echo "| Node | ${{ needs.detect-projects.outputs.node }} | ${{ needs.node-build-test.result }} |"
-            echo "| Swift | ${{ needs.detect-projects.outputs.swift }} | ${{ needs.swift-build-test.result }} |"
-            echo "| Apple | ${{ needs.detect-projects.outputs.apple }} | ${{ needs.apple-project-smoke.result }} |"
-            echo
-            echo "| Required job | Result |"
+            echo "| Run | Value |"
             echo "| --- | --- |"
-            echo "| Repository policy | ${{ needs.policy.result }} |"
-            echo "| Detect project types | ${{ needs.detect-projects.result }} |"
-            echo "| Workspace smoke | ${{ needs.workspace-smoke.result }} |"
+            echo "| Commit SHA | ${{ github.sha }} |"
+            echo "| Workflow run ID | ${{ github.run_id }} |"
+            echo "| Workflow run | ${WORKFLOW_URL} |"
+            echo "| Gate conclusion | ${gate_conclusion} |"
+            echo "| Change source | ${CHANGE_SOURCE} |"
+            echo "| Changed files | ${CHANGED_FILE_COUNT} |"
+            echo "| Changed groups | ${CHANGE_GROUPS} |"
+            echo "| Ran jobs | $(join_list "${ran_jobs[@]}") |"
+            echo "| Skipped jobs | $(join_list "${skipped_jobs[@]}") |"
+            echo "| Failed jobs | $(join_list "${failed_jobs[@]}") |"
+            echo "| Next action | ${next_action} |"
+            echo
+            echo "| Path group | Changed |"
+            echo "| --- | --- |"
+            echo "| docs | ${CHANGE_DOCS} |"
+            echo "| governance | ${CHANGE_GOVERNANCE} |"
+            echo "| go | ${CHANGE_GO} |"
+            echo "| rust | ${CHANGE_RUST} |"
+            echo "| node | ${CHANGE_NODE} |"
+            echo "| windows | ${CHANGE_WINDOWS} |"
+            echo "| linux | ${CHANGE_LINUX} |"
+            echo "| ios | ${CHANGE_IOS} |"
+            echo "| apple | ${CHANGE_APPLE} |"
+            echo "| workflow | ${CHANGE_WORKFLOW} |"
+            echo "| release_sensitive | ${CHANGE_RELEASE_SENSITIVE} |"
+            echo "| full_matrix | ${CHANGE_FULL_MATRIX} |"
+            echo "| unknown | ${CHANGE_UNKNOWN} |"
+            echo
+            echo "| Job | Required | Result |"
+            echo "| --- | --- | --- |"
+            echo "| Detect changed paths | true | ${RESULT_CHANGES} |"
+            echo "| Repository policy (fast) | true | ${RESULT_POLICY_FAST} |"
+            echo "| Repository policy | true | ${RESULT_POLICY_FULL} |"
+            echo "| Detect project types | true | ${RESULT_DETECT_PROJECTS} |"
+            echo "| Workspace smoke | ${workspace_required} | ${RESULT_WORKSPACE_SMOKE} |"
+            echo "| Go build and test | ${go_required} | ${RESULT_GO_BUILD_TEST} |"
+            echo "| Rust build and test | ${rust_required} | ${RESULT_RUST_BUILD_TEST} |"
+            echo "| Windows managed client MSI | ${windows_required} | ${RESULT_WINDOWS_INSTALLER} |"
+            echo "| Rust dependency security audit | ${audit_required} | ${RESULT_RUST_AUDIT} |"
+            echo "| Node build and test | ${node_required} | ${RESULT_NODE_BUILD_TEST} |"
+            echo "| Swift build and test | ${swift_required} | ${RESULT_SWIFT_BUILD_TEST} |"
+            echo "| Apple project smoke | ${apple_required} | ${RESULT_APPLE_SMOKE} |"
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "detected-go=${{ needs.detect-projects.outputs.go }}"
-          echo "detected-rust=${{ needs.detect-projects.outputs.rust }}"
-          echo "detected-node=${{ needs.detect-projects.outputs.node }}"
-          echo "detected-swift=${{ needs.detect-projects.outputs.swift }}"
-          echo "detected-apple=${{ needs.detect-projects.outputs.apple }}"
-          echo "policy=${{ needs.policy.result }}"
-          echo "detect-projects=${{ needs.detect-projects.result }}"
-          echo "workspace-smoke=${{ needs.workspace-smoke.result }}"
-          echo "go-build-test=${{ needs.go-build-test.result }}"
-          echo "rust-build-test=${{ needs.rust-build-test.result }}"
-          echo "windows-managed-client-installer=${{ needs.windows-managed-client-installer.result }}"
-          echo "rust-security-audit=${{ needs.rust-security-audit.result }}"
-          echo "node-build-test=${{ needs.node-build-test.result }}"
-          echo "swift-build-test=${{ needs.swift-build-test.result }}"
-          echo "apple-project-smoke=${{ needs.apple-project-smoke.result }}"
-          test "${{ needs.policy.result }}" = "success"
-          test "${{ needs.detect-projects.result }}" = "success"
-          test "${{ needs.workspace-smoke.result }}" = "success"
-          if [ "${{ needs.detect-projects.outputs.go }}" = "true" ]; then
-            test "${{ needs.go-build-test.result }}" = "success"
-          fi
-          if [ "${{ needs.detect-projects.outputs.rust }}" = "true" ]; then
-            test "${{ needs.rust-build-test.result }}" = "success"
-            test "${{ needs.rust-security-audit.result }}" = "success"
-          fi
-          test "${{ needs.windows-managed-client-installer.result }}" = "success"
-          if [ "${{ needs.detect-projects.outputs.node }}" = "true" ]; then
-            test "${{ needs.node-build-test.result }}" = "success"
-          fi
-          if [ "${{ needs.detect-projects.outputs.swift }}" = "true" ]; then
-            test "${{ needs.swift-build-test.result }}" = "success"
-          fi
-          if [ "${{ needs.detect-projects.outputs.apple }}" = "true" ]; then
-            test "${{ needs.apple-project-smoke.result }}" = "success"
+
+          echo "commit-sha=${{ github.sha }}"
+          echo "workflow-run-id=${{ github.run_id }}"
+          echo "workflow-run-url=${WORKFLOW_URL}"
+          echo "changed-groups=${CHANGE_GROUPS}"
+          echo "ran-jobs=$(join_list "${ran_jobs[@]}")"
+          echo "skipped-jobs=$(join_list "${skipped_jobs[@]}")"
+          echo "failed-jobs=$(join_list "${failed_jobs[@]}")"
+          echo "ci-gate-conclusion=${gate_conclusion}"
+
+          if [[ "${gate_conclusion}" != success ]]; then
+            printf '::error::%s\n' "$(join_list "${gate_failures[@]}")"
+            exit 1
           fi

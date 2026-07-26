@@ -34,6 +34,7 @@ jobs:
   release-policy:
     name: Release policy
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       version: ${{ steps.policy.outputs.version }}
       is_tag_release: ${{ steps.policy.outputs.is_tag_release }}
@@ -111,6 +112,7 @@ jobs:
   release-ci-gate:
     name: Release CI gate
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs:
       - release-policy
     permissions:
@@ -233,6 +235,7 @@ jobs:
   release-artifact-contract:
     name: Release artifact contract
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs:
       - release-ci-gate
     steps:
@@ -247,6 +250,7 @@ jobs:
   release-signing-contract:
     name: Release signing contract
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs:
       - release-artifact-contract
     steps:
@@ -262,6 +266,7 @@ jobs:
   release-rollback-contract:
     name: Release rollback contract
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs:
       - release-signing-contract
     steps:
@@ -279,6 +284,7 @@ jobs:
   linux-artifact-readiness:
     name: Linux artifact readiness
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs:
       - release-rollback-contract
     outputs:
@@ -355,6 +361,7 @@ jobs:
   ios-upload-readiness:
     name: iOS upload readiness
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs:
       - release-rollback-contract
     steps:
@@ -378,6 +385,7 @@ jobs:
   windows-cli-artifact-readiness:
     name: Windows managed client package/release readiness
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs:
       - release-rollback-contract
     outputs:
@@ -499,6 +507,7 @@ jobs:
   package-linux:
     name: Package Linux CLI
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs:
       - release-policy
       - release-ci-gate
@@ -815,6 +824,7 @@ jobs:
   package-windows:
     name: Package Windows managed client
     runs-on: windows-latest
+    timeout-minutes: 45
     needs:
       - release-policy
       - release-ci-gate
@@ -1247,6 +1257,7 @@ jobs:
   attest-linux:
     name: Attest Linux CLI bundle
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs:
       - release-policy
       - package-linux
@@ -1305,6 +1316,7 @@ jobs:
   attest-windows:
     name: Attest Windows managed client bundle
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs:
       - release-policy
       - package-windows
@@ -1381,6 +1393,7 @@ jobs:
   post-release-summary:
     name: Linux release notes and rollback gate
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs:
       - release-policy
       - release-ci-gate
@@ -1420,6 +1433,7 @@ jobs:
   windows-release-summary:
     name: Windows release notes and rollback gate
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs:
       - release-policy
       - release-ci-gate
@@ -1476,6 +1490,7 @@ jobs:
   publish-eligibility-gate:
     name: Linux publish eligibility gate
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs:
       - release-policy
       - release-ci-gate
@@ -1517,6 +1532,7 @@ jobs:
   windows-publish-eligibility-gate:
     name: Windows publish eligibility gate
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs:
       - release-policy
       - release-ci-gate
@@ -1572,6 +1588,7 @@ jobs:
   publish-github-release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs:
       - release-policy
       - release-ci-gate
@@ -1778,6 +1795,7 @@ jobs:
   release-summary:
     name: Release summary
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: ${{ always() }}
     needs:
       - release-policy

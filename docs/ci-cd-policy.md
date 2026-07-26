@@ -30,6 +30,50 @@
 
 `.github/workflows/ci.yml` 是主验证入口。
 
+#### Fast CI、Full CI 与路径门控
+
+整体验证分为 Fast CI、Full CI 和下文独立的 Release CI；`ci.yml` 仍保留顶层
+`CI summary` 作为稳定的最终门禁名称。主 CI 的启动顺序为：
+
+1. `changes` 首先根据 PR base/head、push before/head 或触发类型计算变更范围，输出
+   `docs`、`governance`、`go`、`rust`、`node`、`windows`、`linux`、`ios`、`apple`、
+   `workflow`、`release_sensitive` 和 `full_matrix`。无法取得可靠 diff、出现未知路径、tag
+   或 `workflow_dispatch` 时必须安全回退到完整矩阵。
+2. `policy-fast` 在五分钟预算内检查关键治理文件和 manifest、已提交的 `Cargo.lock`、本地
+   构建产物、签名/私钥文件、明显凭据模式、workflow 入口以及与变更平台对应的最小合同。
+3. `policy-full` 保留原有全部文档一致性、架构 marker、源码合同和 release 状态断言；它在
+   `policy-fast` 后与相关平台验证并行，不得再作为所有平台 job 的串行前置条件。
+
+路径门控规则如下：
+
+- 仅 Markdown、普通 `docs/**` 或 Agent 治理文件变更时，运行 fast/full policy，但跳过无关三平台构建。
+- 根 `Cargo.toml`、`Cargo.lock`、共享 `crates/**`、`.github/workflows/**`、CI 脚本、发布关键
+  合同或无法分类的路径触发 `full_matrix`。
+- `apps/windows-*`、`crates/platform-windows/**`、`installer/windows/**` 和 Windows 架构文件
+  触发 Windows Rust、Node 前端合同和 MSI 验证。
+- `apps/linux-cli/**`、`crates/platform-linux/**` 和 Linux 架构文件触发 Ubuntu Rust 验证。
+- `apps/ios/**`、`crates/platform-ios/**`、Swift/Package.swift/Xcode/entitlement/privacy manifest
+  和 Apple workflow 文件触发 macOS/iOS 验证。
+- `package.json`、`pnpm-lock.yaml` 和 `apps/windows-gui/ui/**` 触发 Node 验证。
+- tag 与手动触发始终运行完整验证，不允许被路径过滤跳过。
+
+Full CI 继续保留 Linux、macOS、Windows Rust 覆盖、Rust dependency audit、Node lint/test/build、
+Windows managed-client/MSI、Swift/Apple 及既有合同检查。PR 矩阵使用 `fail-fast: true` 尽快反馈；
+main、tag 和手动完整验证使用 `fail-fast: false`，以保留全部平台兼容性结果。
+
+Windows GUI 前端在 Node job 的 Ubuntu runner 上构建一次，并以
+`windows-gui-ui-<commit-sha>` 上传同一 workflow run 的短期 artifact；Windows Rust 与 MSI job
+只从当前 run 下载该 artifact 并检查 `index.html`。Node lint/test 仍覆盖三个 runner。该复用只用于
+普通 CI，artifact 保留一天；Release workflow 必须继续独立安装 frozen dependencies、构建前端和
+生成发布产物，不得信任或复用普通 CI artifact。当前未提交 pnpm lockfile，因此不新增 Node dependency
+cache；也不共享 `dist`、Rust target 或发布产物缓存。lockfile 只能按人工介入记录通过 GitHub Actions 刷新。
+
+所有 job 必须有明确 timeout。当前预算为：范围检测、fast policy、project detection 和 summary
+5 分钟，full policy 15 分钟，workspace smoke 10 分钟，Rust 按 Ubuntu 30/macOS 40/Windows 45
+分钟，Node 25 分钟，Windows MSI 45 分钟，dependency audit 20 分钟，Swift/Apple 45 分钟；
+Release 的轻量 policy/summary 为 5 至 15 分钟，package 为 45 分钟，attestation 为 20 分钟。
+调整预算必须基于 GitHub Actions 运行证据，不能用无限等待规避失败。
+
 它应覆盖：
 
 - 治理文件存在性检查
@@ -138,7 +182,12 @@
 - Node 代码出现后的 Node 构建与测试
 - Swift、Xcode 或 iOS 代码出现后的 Apple 平台验证
 
-CI summary job 必须显式输出 Go、Rust、Node、Swift、Apple 项目检测开关，写入 GitHub Step Summary 表格，并门禁已启用的关键结果；当检测到 Rust workspace 时，summary 必须同时检查 Rust build/test 矩阵和 Rust dependency security audit；当检测到 Go、Node、Swift 或 Apple 项目时，summary 必须检查对应语言或平台 job。
+CI summary job 必须显式输出 commit SHA、workflow run ID/URL、变更来源和路径分组、Go、Rust、Node、
+Swift、Apple 项目检测开关，以及运行、跳过、失败的 job 和下一步建议，并写入 GitHub Step Summary。
+无关 job 的 `skipped` 是合法结果；应运行 job 的 `skipped`、任何 `failure`、任何非并发替代 run 的
+`cancelled` 都必须使 summary 失败。当检测到 Rust workspace 且 Rust 路径需要验证时，summary 必须同时
+检查 Rust build/test 矩阵和 Rust dependency security audit；当 Go、Node、Swift 或 Apple 路径需要验证时，
+summary 必须检查对应语言或平台 job。
 
 ### Release
 
@@ -226,6 +275,18 @@ Privacy Manifest source、App Review manual confirmation source、iOS upload wor
 - Swift 或 iOS 客户端：`swift test`、`swift build`、`xcodebuild`
 
 这些命令只能在 GitHub Actions 中运行。
+
+## Agent CI 状态交接
+
+编码 Agent 推送后只能对当前 commit 的 workflow run 做一次、最多两次非阻塞查询，禁止
+`gh run watch`、无限循环、长时间 `sleep` 或重复刷新全部历史 run。若状态仍为 `queued` 或
+`in_progress`，必须记录 commit SHA、workflow、run ID、run URL 和状态，以
+`task_state=pending_ci`、`next_action=resume_after_ci_completion` 结束当前编码回合。后续 Agent
+回合、workflow completion 事件或人工操作再继续。
+
+失败时只读取失败 job/step 的必要日志，不重复获取成功日志。只有对应 commit 的 run 已
+`completed` 且 conclusion 为 `success`，才能把 GitHub Actions 写为已通过；排队或运行中状态、
+本地静态检查和历史 commit 的成功 run 都不能替代该结论。
 
 ## 人工介入边界
 
