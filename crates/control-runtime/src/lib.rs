@@ -7,13 +7,13 @@
 use std::collections::BTreeSet;
 
 use control_domain::{
-    AuditDecision, AuditEvent, ConfigSnapshot, ConfigurationService, Diagnostic,
-    DiagnosticSeverity, DomainError, DomainResult, GrantedPermissions, HttpEvent, Metadata,
-    MitmPluginService, NodeCatalog, NodeDescriptor, PlatformCapabilities,
-    PlatformCapabilityService, PlatformCapabilityStatus, PlatformFeatureState, PluginPackage,
-    PluginPermission, PluginResult, ProxyEngineConfig, ProxyEngineEvent, ProxyEngineService,
-    ProxyEngineLifecycleState, ProxyEngineStatus, SubscriptionService, SubscriptionSource,
-    bound_proxy_engine_events, validate_proxy_engine_status,
+    bound_proxy_engine_events, validate_proxy_engine_status, AuditDecision, AuditEvent,
+    ConfigSnapshot, ConfigurationService, Diagnostic, DiagnosticSeverity, DomainError,
+    DomainResult, GrantedPermissions, HttpEvent, Metadata, MitmPluginService, NodeCatalog,
+    NodeDescriptor, PlatformCapabilities, PlatformCapabilityService, PlatformCapabilityStatus,
+    PlatformFeatureState, PluginPackage, PluginPermission, PluginResult, ProxyEngineConfig,
+    ProxyEngineEvent, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
+    SubscriptionService, SubscriptionSource,
 };
 
 pub const RUNTIME_SUBSCRIPTION_NODE_ID_DUPLICATE_CODE: &str =

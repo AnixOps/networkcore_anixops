@@ -562,9 +562,7 @@ pub fn validate_proxy_engine_status(
 }
 
 /// Returns only the newest bounded portion of an adapter event history.
-pub fn bound_proxy_engine_events(
-    events: Vec<ProxyEngineEvent>,
-) -> Vec<ProxyEngineEvent> {
+pub fn bound_proxy_engine_events(events: Vec<ProxyEngineEvent>) -> Vec<ProxyEngineEvent> {
     let start = events.len().saturating_sub(MAX_PROXY_ENGINE_EVENTS);
     events.into_iter().skip(start).collect()
 }
@@ -1281,12 +1279,9 @@ mod tests {
             diagnostics: Vec::new(),
         };
 
-        let error = validate_proxy_engine_status(
-            &status,
-            "native",
-            ProxyEngineLifecycleState::Running,
-        )
-        .expect_err("adapter identity drift must be rejected");
+        let error =
+            validate_proxy_engine_status(&status, "native", ProxyEngineLifecycleState::Running)
+                .expect_err("adapter identity drift must be rejected");
         assert_eq!(error.code, "control.engine.status_engine_id_mismatch");
 
         let status = ProxyEngineStatus {
@@ -1294,12 +1289,9 @@ mod tests {
             state: ProxyEngineLifecycleState::Stopped,
             diagnostics: Vec::new(),
         };
-        let error = validate_proxy_engine_status(
-            &status,
-            "native",
-            ProxyEngineLifecycleState::Running,
-        )
-        .expect_err("unexpected lifecycle state must be rejected");
+        let error =
+            validate_proxy_engine_status(&status, "native", ProxyEngineLifecycleState::Running)
+                .expect_err("unexpected lifecycle state must be rejected");
         assert_eq!(error.code, "control.engine.lifecycle_state_unexpected");
     }
 
