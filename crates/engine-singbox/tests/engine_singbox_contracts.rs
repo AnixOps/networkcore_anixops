@@ -1,9 +1,10 @@
 use control_domain::{
-    Endpoint, MetadataEntry, NodeDescriptor, Protocol, ProxyEngineKind, ProxyEngineService,
-    NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE, NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE,
-    NODE_METADATA_HYSTERIA2_OBFS_PASSWORD, NODE_METADATA_HYSTERIA2_OBFS_TYPE,
-    NODE_METADATA_HYSTERIA2_PASSWORD, NODE_METADATA_HYSTERIA2_SERVER_PORTS,
-    NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_TLS_ALPN,
+    Endpoint, MetadataEntry, NodeDescriptor, Protocol, ProxyEngineKind, ProxyEngineLifecycleState,
+    ProxyEngineService, NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE,
+    NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE, NODE_METADATA_HYSTERIA2_OBFS_PASSWORD,
+    NODE_METADATA_HYSTERIA2_OBFS_TYPE, NODE_METADATA_HYSTERIA2_PASSWORD,
+    NODE_METADATA_HYSTERIA2_SERVER_PORTS, NODE_METADATA_SHADOWSOCKS_METHOD,
+    NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_TLS_ALPN,
     NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256, NODE_METADATA_TLS_ENABLED,
     NODE_METADATA_TLS_INSECURE, NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
     NODE_METADATA_TLS_REALITY_SHORT_ID, NODE_METADATA_TLS_SERVER_NAME,
@@ -50,6 +51,26 @@ fn sing_box_descriptor_announces_public_engine_capabilities() {
     assert_eq!(descriptors[0].kind, ProxyEngineKind::SingBox);
     assert!(descriptors[0].version.is_some());
     assert!(!descriptors[0].capabilities.is_empty());
+}
+
+#[test]
+fn unwired_sing_box_health_does_not_claim_runtime_readiness() {
+    let service = engine_singbox::SingBoxProxyEngineService::new();
+
+    let report = service
+        .health(DEFAULT_SING_BOX_ENGINE_ID)
+        .expect("sing-box health should remain observable while lifecycle is unwired");
+
+    assert_eq!(report.engine_id, DEFAULT_SING_BOX_ENGINE_ID);
+    assert_eq!(report.state, ProxyEngineLifecycleState::Stopped);
+    assert!(!report.config_validated);
+    assert!(!report.runtime_resources_ready);
+    assert!(!report.listener_reachable);
+    assert!(!report.is_healthy());
+    assert!(report
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "control.engine.health_unverified"));
 }
 
 #[test]
