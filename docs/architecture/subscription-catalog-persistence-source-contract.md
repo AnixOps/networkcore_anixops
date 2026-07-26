@@ -78,11 +78,15 @@ trust store、TUN、DNS 或 firewall mutation。
 snapshot 文件路径、已存在的 source id 和新的 source location。source id 保持不变；source id 不存在或
 location 为空时返回稳定错误。
 
-update 前必须生成不可覆盖的写前 snapshot。`update` 只替换匹配 source 的 location，不执行远程请求、文件
-订阅读取、解析、节点选择、节点运行、默认路径扫描、daemon/service、system proxy、system trust store、
-TUN、DNS 或 firewall mutation。report 只输出 catalog/snapshot 路径、source id、source 数量、location kind
-和 `location_redacted=true`，不得输出旧或新 location、URL query token、Authorization header、password、
-private key 或 inline payload。
+CLI `subscription update` 通过显式的 `RemoteSubscriptionFetcher` 读取候选 `http://`、`https://` 或绝对
+`file://` source，也接受显式 `inline:`/share-link 内容，并先用 `CoreSubscriptionService` parse/normalize
+校验节点。只有候选成功后才生成不可覆盖的写前 snapshot 和替换 location；抓取、大小限制或解析失败时旧
+catalog 保持不变且不创建 snapshot。`update_source` 低层 API 仍保留 source-only 行为供存储合同使用。
+
+更新 report 只输出 catalog/snapshot 路径、source id、source 数量、location kind、已验证节点数和
+`location_redacted=true`，不得输出旧或新 location、URL query token、Authorization header、password、
+private key 或 inline payload。该切片不执行节点选择、节点运行、默认路径扫描、daemon/service、system
+proxy、system trust store、TUN、DNS 或 firewall mutation。
 
 ## Storage Schema
 
@@ -189,3 +193,9 @@ share-link/catalog payload 交给既有 `run-url` 前台 sing-box 路径。`--no
 - source id 不存在时拒绝运行。
 
 测试、构建、格式化、lint 和安全扫描只能在 GitHub Actions 执行。
+
+## Explicit Remote Update Boundary
+
+`subscription update` 是用户主动触发的前台操作，不建立后台刷新或默认订阅路径。HTTP(S) fetcher 使用
+既有超时、重定向和响应大小上限；诊断只保留稳定错误码和 location kind，不回显响应内容、凭据或 URL
+query。验证成功后 snapshot 可通过 `subscription rollback` 恢复旧 catalog；验证失败不产生部分写入。

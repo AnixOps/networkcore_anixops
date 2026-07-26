@@ -113,6 +113,8 @@ pub const CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_WRITE_FAILED_CODE: &str =
     "cli.linux.subscription_catalog.snapshot_write_failed";
 pub const CLI_SUBSCRIPTION_CATALOG_WRITE_FAILED_CODE: &str =
     "cli.linux.subscription_catalog.write_failed";
+pub const CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE: &str =
+    "cli.linux.subscription_catalog.update_validation_failed";
 pub const CLI_MANAGED_FOREGROUND_STATUS_PATH_MISSING_CODE: &str =
     "cli.linux.managed_foreground_status.path_missing";
 pub const CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE: &str =
@@ -2045,6 +2047,7 @@ pub struct SubscriptionCatalogUpdateReport {
     pub source_count: usize,
     pub location_kind: String,
     pub location_redacted: bool,
+    pub validated_node_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2895,7 +2898,47 @@ impl CommandSubscriptionCatalogStore {
             source_count: catalog.sources.len(),
             location_kind: subscription_catalog_location_kind(location).to_string(),
             location_redacted: true,
+            validated_node_count: 0,
         })
+    }
+
+    pub fn update_source_with_fetcher<F>(
+        &self,
+        request: &SubscriptionCatalogUpdateRequest,
+        fetcher: &F,
+    ) -> DomainResult<SubscriptionCatalogUpdateReport>
+    where
+        F: RemoteSubscriptionFetcher,
+    {
+        let content = read_subscription_catalog_update_content(&request.location, fetcher)?;
+        let subscription = CoreSubscriptionService::new();
+        let document = subscription
+            .parse(&RawSubscription {
+                source_id: request.source_id.trim().to_string(),
+                content,
+            })
+            .map_err(|error| {
+                DomainError::new(
+                    CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE,
+                    format!(
+                        "subscription update candidate could not be parsed: {}",
+                        error.code
+                    ),
+                )
+            })?;
+        let catalog = subscription.normalize(&document).map_err(|error| {
+            DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE,
+                format!(
+                    "subscription update candidate could not be normalized: {}",
+                    error.code
+                ),
+            )
+        })?;
+        let validated_node_count = catalog.nodes.len();
+        let mut report = self.update_source(request)?;
+        report.validated_node_count = validated_node_count;
+        Ok(report)
     }
 
     pub fn rollback_catalog(
@@ -6527,6 +6570,16 @@ pub fn handle_proxy_rollback(
 }
 
 pub fn handle_subscription_command(command: LinuxCliCommand) -> LinuxCliResponse {
+    handle_subscription_command_with_fetcher(command, &CommandRemoteSubscriptionFetcher::new())
+}
+
+pub fn handle_subscription_command_with_fetcher<F>(
+    command: LinuxCliCommand,
+    fetcher: &F,
+) -> LinuxCliResponse
+where
+    F: RemoteSubscriptionFetcher,
+{
     let store = CommandSubscriptionCatalogStore::new();
     match command {
         LinuxCliCommand::SubscriptionAdd {
@@ -6590,19 +6643,22 @@ pub fn handle_subscription_command(command: LinuxCliCommand) -> LinuxCliResponse
             source_id,
             location,
             ..
-        } => match store.update_source(&SubscriptionCatalogUpdateRequest {
-            catalog_path,
-            snapshot_path,
-            source_id,
-            location,
-        }) {
+        } => match store.update_source_with_fetcher(
+            &SubscriptionCatalogUpdateRequest {
+                catalog_path,
+                snapshot_path,
+                source_id,
+                location,
+            },
+            fetcher,
+        ) {
             Ok(report) => LinuxCliResponse::success("subscription update").with_diagnostics(vec![
                 cli_diagnostic(
                     DiagnosticSeverity::Info,
                     "cli.subscription.source_updated",
                     format!(
-                        "subscription source {} updated; catalog sources={}",
-                        report.source_id, report.source_count
+                        "subscription source {} updated; catalog sources={}; validated nodes={}",
+                        report.source_id, report.source_count, report.validated_node_count
                     ),
                     SOURCE_CLI_RUNTIME,
                 ),
@@ -11952,6 +12008,17 @@ where
             "run-url subscription file could not be read as UTF-8 text",
         )
     })
+}
+
+fn read_subscription_catalog_update_content<F>(location: &str, fetcher: &F) -> DomainResult<String>
+where
+    F: RemoteSubscriptionFetcher,
+{
+    let location = location.trim();
+    if let Some(content) = location.strip_prefix("inline:") {
+        return Ok(content.to_string());
+    }
+    read_run_url_subscription_content(location, fetcher)
 }
 
 pub fn render_response(response: &LinuxCliResponse, format: OutputFormat) -> String {

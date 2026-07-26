@@ -2285,6 +2285,93 @@ fn subscription_catalog_update_persists_snapshot_and_redacts_location() {
 }
 
 #[test]
+fn subscription_catalog_remote_update_validates_before_snapshot_and_reports_node_count() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-subscription-catalog-remote-update-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("remote update test directory should be created");
+    let catalog_path = root.join("catalog.json");
+    let snapshot_path = root.join("catalog.snapshot.json");
+    std::fs::write(
+        &catalog_path,
+        r#"{"schema_version":1,"sources":[{"id":"work","location":"inline:old"}]}"#,
+    )
+    .expect("catalog should be written");
+    let fetcher = TestRemoteSubscriptionFetcher::success(
+        "https://subscriptions.example.test/work",
+        "[[nodes]]\nid = \"node-1\"\nname = \"Work\"\nprotocol = \"ss\"\nhost = \"secret.example\"\nport = 443\n",
+    );
+
+    let report = CommandSubscriptionCatalogStore::new()
+        .update_source_with_fetcher(
+            &SubscriptionCatalogUpdateRequest {
+                catalog_path: catalog_path.display().to_string(),
+                snapshot_path: snapshot_path.display().to_string(),
+                source_id: "work".to_string(),
+                location: "https://subscriptions.example.test/work".to_string(),
+            },
+            &fetcher,
+        )
+        .expect("valid remote candidate should update the catalog");
+
+    assert_eq!(report.validated_node_count, 1);
+    assert!(report.location_redacted);
+    assert!(snapshot_path.exists());
+    assert_eq!(
+        fetcher.requested_location(),
+        "https://subscriptions.example.test/work"
+    );
+    let catalog = std::fs::read_to_string(&catalog_path).expect("catalog should be readable");
+    assert!(catalog.contains("subscriptions.example.test"));
+    assert!(!format!("{report:?}").contains("secret.example"));
+    std::fs::remove_dir_all(&root).expect("remote update test directory should be removed");
+}
+
+#[test]
+fn subscription_catalog_remote_update_failure_keeps_old_catalog_and_writes_no_snapshot() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-subscription-catalog-remote-update-failure-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("remote update failure directory should be created");
+    let catalog_path = root.join("catalog.json");
+    let snapshot_path = root.join("catalog.snapshot.json");
+    let original = r#"{"schema_version":1,"sources":[{"id":"work","location":"https://old.example/sub?token=old-secret"}]}"#;
+    std::fs::write(&catalog_path, original).expect("catalog should be written");
+    let fetcher = TestRemoteSubscriptionFetcher::success(
+        "https://subscriptions.example.test/broken",
+        "not a supported subscription payload",
+    );
+
+    let error = CommandSubscriptionCatalogStore::new()
+        .update_source_with_fetcher(
+            &SubscriptionCatalogUpdateRequest {
+                catalog_path: catalog_path.display().to_string(),
+                snapshot_path: snapshot_path.display().to_string(),
+                source_id: "work".to_string(),
+                location: "https://subscriptions.example.test/broken".to_string(),
+            },
+            &fetcher,
+        )
+        .expect_err("invalid remote candidate should be rejected");
+
+    assert_eq!(
+        error.code,
+        "cli.linux.subscription_catalog.update_validation_failed"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&catalog_path).expect("catalog should remain readable"),
+        original
+    );
+    assert!(!snapshot_path.exists());
+    assert!(!error.message.contains("old-secret"));
+    std::fs::remove_dir_all(&root).expect("remote update failure directory should be removed");
+}
+
+#[test]
 fn subscription_catalog_rollback_restores_snapshot_and_retains_snapshot() {
     let root = std::env::temp_dir().join(format!(
         "networkcore-subscription-catalog-rollback-contract-{}",
