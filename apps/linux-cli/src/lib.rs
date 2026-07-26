@@ -458,6 +458,10 @@ pub enum LinuxCliCommand {
         snapshot_path: String,
         format: OutputFormat,
     },
+    NodeList {
+        config_path: String,
+        format: OutputFormat,
+    },
     InstallMieru {
         binary_path: String,
         expected_sha256: String,
@@ -699,6 +703,7 @@ impl LinuxCliCommand {
             Self::SubscriptionRemove { .. } => "subscription remove",
             Self::SubscriptionSelect { .. } => "subscription select",
             Self::SubscriptionRollback { .. } => "subscription rollback",
+            Self::NodeList { .. } => "node list",
             Self::InstallMieru { .. } => "core install mieru",
             Self::StartMieru { .. } => "core start mieru",
             Self::StopMieru { .. } => "core stop mieru",
@@ -759,6 +764,7 @@ impl LinuxCliCommand {
             | Self::SubscriptionRemove { format, .. }
             | Self::SubscriptionSelect { format, .. }
             | Self::SubscriptionRollback { format, .. }
+            | Self::NodeList { format, .. }
             | Self::ServiceControl { format, .. }
             | Self::InstallMieru { format, .. }
             | Self::StartMieru { format, .. }
@@ -5032,6 +5038,7 @@ where
         "validate" => parse_validate_command(&rest),
         "core" => parse_core_command(&rest),
         "subscription" => parse_subscription_command(&rest),
+        "node" => parse_node_command(&rest),
         "service" => parse_service_command(&rest),
         "connect" | "start" => {
             let options = parse_options(&rest)?;
@@ -5178,6 +5185,32 @@ fn parse_service_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliPar
     })
 }
 
+fn parse_node_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(subcommand) = args.first().map(String::as_str) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "node requires list",
+        ));
+    };
+    if subcommand != "list" {
+        return Err(parse_error(
+            CLI_ARGUMENT_UNKNOWN_CODE,
+            format!("unknown node subcommand: {subcommand}"),
+        ));
+    }
+    let options = parse_options(&args[1..])?;
+    let config_path = options.config_path.ok_or_else(|| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "node list requires --config <absolute-path>",
+        )
+    })?;
+    Ok(LinuxCliCommand::NodeList {
+        config_path,
+        format: options.format,
+    })
+}
+
 pub fn handle_parse_error(diagnostic: Diagnostic) -> LinuxCliResponse {
     let show_help = diagnostic.code == CLI_COMMAND_MISSING_CODE
         || diagnostic.code == CLI_ARGUMENT_UNKNOWN_CODE
@@ -5200,6 +5233,7 @@ pub fn handle_entrypoint_skeleton(command: LinuxCliCommand) -> LinuxCliResponse 
         LinuxCliCommand::InstallService { .. } => handle_unwired_command("install-service"),
         LinuxCliCommand::UninstallService { .. } => handle_unwired_command("uninstall-service"),
         LinuxCliCommand::ServiceControl { .. } => handle_unwired_command("service"),
+        LinuxCliCommand::NodeList { .. } => handle_unwired_command("node list"),
         LinuxCliCommand::CoreList { .. }
         | LinuxCliCommand::InstallMieru { .. }
         | LinuxCliCommand::StartMieru { .. }
@@ -5259,6 +5293,7 @@ where
             &unit_name,
             confirm,
         ),
+        LinuxCliCommand::NodeList { config_path, .. } => handle_node_list(&config_path),
         LinuxCliCommand::CoreList { .. }
         | LinuxCliCommand::InstallMieru { .. }
         | LinuxCliCommand::StartMieru { .. }
@@ -5804,6 +5839,59 @@ pub fn handle_core_list(descriptors: Vec<ProxyEngineDescriptor>) -> LinuxCliResp
         })
         .collect();
     LinuxCliResponse::success("core list").with_core_engines(engines)
+}
+
+pub fn handle_node_list(config_path: &str) -> LinuxCliResponse {
+    let raw = match std::fs::read_to_string(config_path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            return LinuxCliResponse::failure(
+                "node list",
+                LinuxCliExitCode::ArgumentOrConfig,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_CONFIG_READ_FAILED_CODE,
+                    format!("node list config could not be read: {error}"),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            )
+        }
+    };
+    let document = match config_core::parse_config_document(&raw) {
+        Ok(document) => document,
+        Err(error) => {
+            return domain_error_response(
+                "node list",
+                LinuxCliExitCode::ArgumentOrConfig,
+                error,
+                SOURCE_CLI_RUNTIME,
+            )
+        }
+    };
+    let mut diagnostics = vec![cli_diagnostic(
+        DiagnosticSeverity::Info,
+        "cli.node.catalog_listed",
+        format!(
+            "node catalog contains {} node(s); runtime selection unchanged",
+            document.nodes.len()
+        ),
+        SOURCE_CLI_RUNTIME,
+    )];
+    diagnostics.extend(document.nodes.into_iter().map(|node| {
+        cli_diagnostic(
+            DiagnosticSeverity::Info,
+            "cli.node.entry",
+            format!(
+                "node_id={} name={} protocol={:?} tags={}",
+                node.id,
+                node.name,
+                node.protocol,
+                node.tags.join(",")
+            ),
+            SOURCE_CLI_RUNTIME,
+        )
+    }));
+    LinuxCliResponse::success("node list").with_diagnostics(diagnostics)
 }
 
 pub fn handle_subscription_command(command: LinuxCliCommand) -> LinuxCliResponse {
@@ -12728,6 +12816,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux install-service --service-executable <absolute-path> [--service-unit <name>] [--service-description <text>] [--service-arg <arg>] [--service-user <user>] [--service-group <group>] [--service-state-dir <absolute-path>] --confirm [--format text|json]\n",
         "  networkcore-linux service <start|stop|restart|status> [--service-unit <name>] --confirm [--format text|json]\n",
+        "  networkcore-linux node list --config <absolute-path> [--format text|json]\n",
         "  networkcore-linux restart --confirm [--service-unit <name>] [--format text|json]  # managed systemd restart\n",
         "  networkcore-linux uninstall-service [--service-unit <name>] [--service-state-dir <absolute-path>] --confirm [--format text|json]\n",
         "  networkcore-linux logs <explicit-log-path> [--tail-lines <1-1000>] [--format text|json]\n",
@@ -12764,6 +12853,7 @@ pub const fn cli_help_text() -> &'static str {
         "  install-sing-box  Download the latest official sing-box archive and cache its executable.\n",
         "  install-service   Write an explicit confirmed systemd unit with snapshot/verification; never calls systemctl.\n",
         "  service           Control one explicitly named systemd unit after --confirm; status uses is-active.\n",
+        "  node              List nodes from one explicit config; selection and runtime state are unchanged.\n",
         "  restart           Without --confirm remains foreground-unavailable; with --confirm restarts the managed unit.\n",
         "  uninstall-service Render an explicit removal plan; user configuration/state is preserved and no files are deleted.\n",
         "  logs              Read a bounded tail from one explicit log path; no default path scanning.\n",

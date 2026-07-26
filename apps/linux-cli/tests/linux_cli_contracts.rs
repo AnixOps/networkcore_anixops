@@ -41,7 +41,7 @@ use networkcore_linux::{
     handle_mitm_certificate_apply_with_store, handle_mitm_certificate_plan,
     handle_mitm_certificate_rollback, handle_mitm_certificate_rollback_with_store,
     handle_mitm_http_rewrite_plan, handle_mitm_http_rewrite_preview, handle_mitm_status,
-    handle_parse_error, handle_prepare_config, handle_run_catalog_with_sing_box,
+    handle_node_list, handle_parse_error, handle_prepare_config, handle_run_catalog_with_sing_box,
     handle_run_catalog_with_sing_box_and_fetcher, handle_run_url_with_sing_box,
     handle_run_url_with_sing_box_and_fetcher, handle_run_url_with_sing_box_and_node_id,
     handle_start, handle_status, handle_stop, handle_systemd_service_control,
@@ -167,6 +167,51 @@ fn parses_prepare_config_with_explicit_path_and_json_format() {
             format: OutputFormat::Json
         }
     );
+}
+
+#[test]
+fn node_list_reads_only_the_explicit_config_and_redacts_endpoint_details() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-linux-cli-node-list-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("node list fixture directory should be created");
+    let config_path = root.join("nodes.toml");
+    std::fs::write(
+        &config_path,
+        "schema_version = 1\n\n[[nodes]]\nid = \"node-1\"\nname = \"Primary\"\nprotocol = \"ss\"\nhost = \"secret.example\"\nport = 443\ntags = [\"fast\"]\n",
+    )
+    .expect("node list fixture should be written");
+
+    let parsed = parse_args([
+        "node",
+        "list",
+        "--config",
+        config_path.to_str().expect("config path should be UTF-8"),
+        "--format",
+        "json",
+    ])
+    .expect("node list command should parse");
+    assert_eq!(
+        parsed,
+        LinuxCliCommand::NodeList {
+            config_path: config_path.to_string_lossy().to_string(),
+            format: OutputFormat::Json,
+        }
+    );
+
+    let response = handle_node_list(config_path.to_str().expect("config path should be UTF-8"));
+    assert!(response.ok);
+    assert_eq!(response.command, "node list");
+    assert!(response.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "cli.node.entry" && diagnostic.message.contains("node-1")
+    }));
+    assert!(!response
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.message.contains("secret.example")));
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]

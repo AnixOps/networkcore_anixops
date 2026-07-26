@@ -8,9 +8,9 @@ content is verified. The command does not call `systemctl`, enable a unit, or st
 service start|stop|restart|status --service-unit <name> --confirm` controls one explicit systemd unit through
 `systemctl`; it never enables units and status uses `systemctl is-active`. The source boundary is documented in
 `docs/architecture/linux-managed-service-unit-source-contract.md`.
-`networkcore-linux uninstall-service --confirm` removes the matching unit file only after snapshotting it under
-the selected state directory; it does not delete the state directory or call `systemctl`, and purge remains a
-separate future action.
+`networkcore-linux uninstall-service --confirm` stops and removes the matching unit file only after snapshotting
+it under the selected state directory; it does not delete the state directory, and purge remains a separate
+future action.
 
 `networkcore-linux core list` reports the registered public engine descriptors.
 `networkcore-linux core install mieru --binary <path> --sha256 <digest>` verifies
