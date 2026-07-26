@@ -1919,6 +1919,7 @@ jobs:
           grep -q "handle_proxy_rollback" apps/linux-cli/src/lib.rs
           grep -q "proxy_cli_requires_explicit_paths_and_reports_snapshot_rollback" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "confirmed_reload_uses_managed_systemd_control_command" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "status_with_service_unit_reads_managed_systemd_state" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "service reload" apps/linux-cli/README.md
           grep -q "foreground runtime reload/rollback" TODO.md
           grep -q "LinuxCliCommand::ProxyApply" apps/linux-cli/src/main.rs

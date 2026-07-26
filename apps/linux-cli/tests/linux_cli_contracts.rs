@@ -3790,6 +3790,27 @@ fn status_without_runtime_context_reports_platform_only_diagnostics() {
 }
 
 #[test]
+fn status_with_service_unit_reads_managed_systemd_state() {
+    let command = parse_args([
+        "status",
+        "--service-unit",
+        "networkcore-managed.service",
+        "--format",
+        "json",
+    ])
+    .expect("status service unit should parse");
+    assert_eq!(
+        command,
+        LinuxCliCommand::ServiceControl {
+            action: LinuxSystemdServiceAction::Status,
+            unit_name: "networkcore-managed.service".to_string(),
+            confirm: false,
+            format: OutputFormat::Json,
+        }
+    );
+}
+
+#[test]
 fn mitm_status_loads_builtin_policy_and_reports_deferred_gates() {
     let platform = StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot {
         mitm_certificate: LinuxCertificateProbe::new(CertificateTrustState::NotInstalled),

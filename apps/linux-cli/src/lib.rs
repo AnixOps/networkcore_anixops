@@ -5169,6 +5169,14 @@ where
         }
         "status" => {
             let options = parse_options(&rest)?;
+            if let Some(unit_name) = options.service_unit_name {
+                return Ok(LinuxCliCommand::ServiceControl {
+                    action: LinuxSystemdServiceAction::Status,
+                    unit_name,
+                    confirm: false,
+                    format: options.format,
+                });
+            }
             Ok(LinuxCliCommand::Status {
                 format: options.format,
             })
@@ -13396,7 +13404,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux stop [--format text|json]\n",
         "  networkcore-linux disconnect [--format text|json]\n",
         "  networkcore-linux restart [--config <path>] [--format text|json]\n",
-        "  networkcore-linux status [--format text|json]\n",
+        "  networkcore-linux status [--service-unit <name>] [--format text|json]\n",
         "  networkcore-linux managed-status <status-record-path> [--format text|json]\n",
         "  networkcore-linux managed-status init <status-record-path> <session-id> <engine-id> <state> [--format text|json]\n",
         "  networkcore-linux managed-status transition <status-record-path> <snapshot-path> <expected-state> <next-state> [--format text|json]\n",

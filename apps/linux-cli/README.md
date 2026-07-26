@@ -15,7 +15,8 @@ managed-lifecycle work.
 it under the selected state directory; it does not delete the state directory, and purge remains a separate
 future action.
 
-`networkcore-linux proxy apply --file <absolute-path> --snapshot <absolute-path> --url <proxy-url> --confirm`
+`networkcore-linux status --service-unit <name>` reads the explicit managed unit through read-only
+`systemctl is-active`; plain `status` remains platform-only. `networkcore-linux proxy apply --file <absolute-path> --snapshot <absolute-path> --url <proxy-url> --confirm`
 manages one explicit environment proxy file. `proxy status` is read-only and `proxy rollback --confirm` refuses
 to overwrite an externally changed file; these commands do not discover or mutate a desktop default proxy.
 
