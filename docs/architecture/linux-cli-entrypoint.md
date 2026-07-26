@@ -48,7 +48,7 @@ CLI 作为应用入口层存在，当前首个源码边界是 `apps/linux-cli`�
 | `networkcore-linux capabilities` | 输出 Linux platform adapter 的能力状态和诊断 | 只读探测，不修改系统状态 |
 | `networkcore-linux prepare-config --config <path>` | 读取配置并调用 `prepare_config`，输出标准化结果或诊断 | 不写回配置文件，不迁移落盘 |
 | `networkcore-linux start --config <path>` | 前台启动 runtime，用当前进程持有生命周期；native engine 注入内置 `networkcore.adblock` MITM hook | 不默认 daemonize，不安装服务，不后台运行；只在 SOCKS5 CONNECT 层应用插件 `Reject` 为 CONNECT failure，不解密 HTTPS |
-| `networkcore-linux stop` | 描述当前首版停止能力边界 | 没有 daemon/control socket 前返回稳定不可用诊断 |
+| `networkcore-linux stop` | 无参数时描述当前停止能力边界；带显式 Unix `--managed-control-socket <absolute-path> --confirm` 时请求当前 managed foreground session stop | 不发现默认路径、不使用 PID fallback；不提供 reload、status 或 rollback |
 | `networkcore-linux status` | 输出当前进程可见的平台、配置或 runtime 状态 | 没有 daemon/control socket 前不得假装能读取后台状态 |
 | `networkcore-linux diagnostics` | 输出聚合诊断，便于 CI 日志、用户排错和后续 UI 消费 | 不读取敏感配置值，不输出密钥 |
 | `networkcore-linux mitm status` / `networkcore-linux mitm diagnostics` / `networkcore-linux mitm certificate-plan` / `networkcore-linux mitm certificate apply/rollback/trust-apply/trust-rollback` / `networkcore-linux mitm browser-plan` | 输出 MITM policy-only 状态、插件策略加载状态、证书生命周期计划、certificate artifact lifecycle report、Ubuntu-style 显式 trust-file mutation report、浏览器捕获计划和 deferred gate 诊断 | `mitm-cli-command-gate-status=partial-active`；`MITM_CERTIFICATE_LIFECYCLE_GATE` 仍为 artifact-lifecycle-active/profile-trust-artifact-active/trust-mutation-blocked 的总 gate，其中 trust-file 子路径要求显式 `--trust-file`、`--snapshot`、`--confirm` 并调用 `update-ca-certificates`；NSS/browser trust backend、HTTPS 解密和 HTTP/TLS rewrite 仍 blocked；`MITM_BROWSER_CAPTURE_GATE` 为 pac-policy-profile-prefs-active/system-mutation-blocked |
@@ -113,9 +113,10 @@ CLI 作为应用入口层存在，当前首个源码边界是 `apps/linux-cli`�
 - 首版 `stop` 可以返回 `cli.linux.stop.unavailable_without_daemon`，并说明当前只支持前台进程内停止。
 - `status` 可以输出平台能力、配置预检结果或当前进程 runtime 状态。
 - `status` 不应扫描任意系统进程并推断运行状态。
-- 前台 CLI 不定义跨进程 stop、reload 或 status 协议；显式 systemd unit 的
-  `service reload --confirm` 是受 platform adapter 约束的 managed-service 控制入口，不能读取或伪造
-  foreground runtime 状态。
+- 前台 CLI 只定义一个跨进程例外：显式 `stop --managed-control-socket <absolute-path> --confirm`
+  通过 owner-only Unix socket 请求本次 managed foreground session 停止。它不发现默认路径、不使用 PID
+  fallback，也不提供 reload、status 或 rollback；显式 systemd unit 的 `service reload --confirm` 是受
+  platform adapter 约束的 managed-service 控制入口，不能读取或伪造 foreground runtime 状态。
 
 推荐 CLI 诊断：
 
@@ -170,7 +171,7 @@ CLI 源码出现时，验证必须只在 GitHub Actions 中执行：
 - `handle_entrypoint` 将 `capabilities`、`status`、`diagnostics`、`mitm status/diagnostics/certificate-plan/browser-plan`、browser-capture 的 plan/launch-plan/session-plan 和 blocked apply/rollback/verify/traffic-proof 路由到注入的 `PlatformCapabilityService`；`handle_entrypoint_with_browser_capture_io` 保留 launch/verify 接线，`handle_entrypoint_with_browser_capture_all_io` 将可选 target URL 透传给 `session-plan`、`launch --confirm` 和 `verify --confirm`，将 `mitm browser-capture launch --confirm` 路由到注入的 `BrowserCaptureProcessRunner`，将 `mitm browser-capture verify --confirm` 路由到注入的 `BrowserCaptureEndpointProbe`，并将 `mitm browser-capture traffic-proof --confirm` 路由到注入的 `BrowserCaptureTrafficProofProbe`；二进制入口使用 `ReadOnlyLinuxPlatformCapabilityService<HostLinuxReadOnlyProbe>`、`CommandBrowserCaptureProcessRunner`、`CommandBrowserCaptureEndpointProbe` 和 `CommandBrowserCaptureTrafficProofProbe`。
 - `handle_entrypoint_with_runtime` 继续将 `prepare-config` 路由到 `RuntimeOrchestrator`；`handle_entrypoint_with_runtime_and_lifecycle` 将 `start` 路由到 `RuntimeOrchestrator::start_runtime`、`NativeProxyEngineService` 和前台 lifecycle host；二进制入口的 `start` 路径使用 `native_proxy_engine_service_with_builtin_mitm_plugin` 加载内置 MITM hook。
 
-该 crate 当前执行只读 Linux 能力探测、只读配置准备和前台 native runtime 启动，不修改系统状态、不安装 daemon。Linux artifact 发布路径已由 GitHub Actions release workflow 打通，CLI crate 仍不在本机打包或发布。Unix 默认前台 host 会监听 `SIGINT`/`SIGTERM` 并映射为 `cli.linux.start.signal_received`、`cli.linux.start.lifecycle_interrupted` 和 130 退出码；interruption 后会通过当前进程内 `RuntimeOrchestrator::stop_runtime` 释放 native runtime 并聚合 `engine.native.runtime.accept_loop_stopped`/`engine.native.runtime.released` 诊断，stop 失败时追加 `cli.linux.start.runtime_stop_failed`；`stop` 与后台 `status` 在没有 daemon/control socket 前继续保持稳定 unavailable 诊断。
+该 crate 当前执行只读 Linux 能力探测、只读配置准备和前台 native runtime 启动，不修改系统状态、不安装 daemon。Linux artifact 发布路径已由 GitHub Actions release workflow 打通，CLI crate 仍不在本机打包或发布。Unix 默认前台 host 会监听 `SIGINT`/`SIGTERM` 并映射为 `cli.linux.start.signal_received`、`cli.linux.start.lifecycle_interrupted` 和 130 退出码；interruption 后会通过当前进程内 `RuntimeOrchestrator::stop_runtime` 释放 native runtime 并聚合 `engine.native.runtime.accept_loop_stopped`/`engine.native.runtime.released` 诊断，stop 失败时追加 `cli.linux.start.runtime_stop_failed`。同一 host 还会消费 explicit managed control socket 的已确认 stop 请求；无参数 `stop`、后台 `status`、reload 和 rollback 仍保持 stable unavailable 或 blocked 边界。
 
 ## Release 边界
 

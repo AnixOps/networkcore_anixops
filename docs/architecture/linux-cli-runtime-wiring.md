@@ -77,10 +77,12 @@
 
 前台 host 属于 CLI 或后续应用层 adapter，不属于 `control-runtime`：
 
-- 它只管理当前进程内 runtime，不停止其他进程。
+- 它管理当前进程内 runtime；在显式 owner-only Unix managed control socket 收到确认 stop 后，仍由拥有
+  runtime 的该前台进程执行 stop，不通过 PID、进程名或默认路径控制其他进程。
 - 它不得写 systemd unit、PID file、launchd plist、Windows service 或 installer 状态。
-- 前台 host 不承诺跨进程 `stop`、`reload` 或后台状态查询；显式安装的 systemd unit 由
-  `networkcore-linux service reload --confirm` 走 platform adapter，不能被当作前台 host 的跨进程协议。
+- 前台 host 只承诺显式 Unix managed control socket 的 confirmed `stop`；不承诺跨进程 `reload`、rollback
+  或后台状态查询。显式安装的 systemd unit 由 `networkcore-linux service reload --confirm` 走 platform
+  adapter，不能被当作前台 host 的跨进程协议。
 - 如果引擎 adapter 需要事件循环、文件描述符、任务调度或信号处理，必须先补充 adapter 设计和 GitHub Actions 验证。
 - 进程退出时必须把可展示错误转换为 `Diagnostic`，并保持 CLI exit code 稳定。
 
