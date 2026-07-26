@@ -23,6 +23,10 @@ use mitm_policy::{
     builtin_ad_block_plugin_package, AnixOpsMitmPluginService, AnixOpsMitmPolicyEngine,
     MITM_POLICY_AD_BLOCK_PLUGIN_ID,
 };
+use platform_linux::proxy::{
+    apply_environment_proxy, rollback_environment_proxy, status_environment_proxy,
+    LinuxEnvironmentProxyApplyRequest, LinuxEnvironmentProxyRollbackRequest,
+};
 use platform_linux::systemd::{
     control_systemd_service, install_systemd_unit, plan_systemd_unit_removal, remove_systemd_unit,
     render_systemd_unit, LinuxManagedServiceUnitInstallRequest, LinuxManagedServiceUnitPlan,
@@ -476,6 +480,23 @@ pub enum LinuxCliCommand {
         confirm: bool,
         format: OutputFormat,
     },
+    ProxyApply {
+        file_path: String,
+        snapshot_path: String,
+        proxy_url: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    ProxyStatus {
+        file_path: String,
+        format: OutputFormat,
+    },
+    ProxyRollback {
+        file_path: String,
+        snapshot_path: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
     InstallMieru {
         binary_path: String,
         expected_sha256: String,
@@ -720,6 +741,9 @@ impl LinuxCliCommand {
             Self::NodeList { .. } => "node list",
             Self::NodeSelect { .. } => "node select",
             Self::NodeRollback { .. } => "node rollback",
+            Self::ProxyApply { .. } => "proxy apply",
+            Self::ProxyStatus { .. } => "proxy status",
+            Self::ProxyRollback { .. } => "proxy rollback",
             Self::InstallMieru { .. } => "core install mieru",
             Self::StartMieru { .. } => "core start mieru",
             Self::StopMieru { .. } => "core stop mieru",
@@ -783,6 +807,9 @@ impl LinuxCliCommand {
             | Self::NodeList { format, .. }
             | Self::NodeSelect { format, .. }
             | Self::NodeRollback { format, .. }
+            | Self::ProxyApply { format, .. }
+            | Self::ProxyStatus { format, .. }
+            | Self::ProxyRollback { format, .. }
             | Self::ServiceControl { format, .. }
             | Self::InstallMieru { format, .. }
             | Self::StartMieru { format, .. }
@@ -4999,6 +5026,7 @@ struct ParsedOptions {
     managed_event_limit: Option<usize>,
     managed_log_line_limit: Option<usize>,
     install_dir: Option<String>,
+    file_path: Option<String>,
     catalog_path: Option<String>,
     selection_path: Option<String>,
     source_id: Option<String>,
@@ -5066,6 +5094,7 @@ where
         "core" => parse_core_command(&rest),
         "subscription" => parse_subscription_command(&rest),
         "node" => parse_node_command(&rest),
+        "proxy" => parse_proxy_command(&rest),
         "service" => parse_service_command(&rest),
         "connect" | "start" => {
             let options = parse_options(&rest)?;
@@ -5312,6 +5341,60 @@ fn parse_node_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseE
     })
 }
 
+fn parse_proxy_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(subcommand) = args.first().map(String::as_str) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "proxy requires apply, status, or rollback",
+        ));
+    };
+    let options = parse_options(&args[1..])?;
+    let file_path = options.file_path.ok_or_else(|| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "proxy commands require --file <absolute-path>",
+        )
+    })?;
+    match subcommand {
+        "apply" => Ok(LinuxCliCommand::ProxyApply {
+            file_path,
+            snapshot_path: options.snapshot_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "proxy apply requires --snapshot <absolute-path>",
+                )
+            })?,
+            proxy_url: options.url.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "proxy apply requires --url <proxy-url>",
+                )
+            })?,
+            confirm: options.confirm,
+            format: options.format,
+        }),
+        "status" => Ok(LinuxCliCommand::ProxyStatus {
+            file_path,
+            format: options.format,
+        }),
+        "rollback" => Ok(LinuxCliCommand::ProxyRollback {
+            file_path,
+            snapshot_path: options.snapshot_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "proxy rollback requires --snapshot <absolute-path>",
+                )
+            })?,
+            confirm: options.confirm,
+            format: options.format,
+        }),
+        _ => Err(parse_error(
+            CLI_ARGUMENT_UNKNOWN_CODE,
+            format!("unknown proxy subcommand: {subcommand}"),
+        )),
+    }
+}
+
 pub fn handle_parse_error(diagnostic: Diagnostic) -> LinuxCliResponse {
     let show_help = diagnostic.code == CLI_COMMAND_MISSING_CODE
         || diagnostic.code == CLI_ARGUMENT_UNKNOWN_CODE
@@ -5337,6 +5420,9 @@ pub fn handle_entrypoint_skeleton(command: LinuxCliCommand) -> LinuxCliResponse 
         LinuxCliCommand::NodeList { .. } => handle_unwired_command("node list"),
         LinuxCliCommand::NodeSelect { .. } => handle_unwired_command("node select"),
         LinuxCliCommand::NodeRollback { .. } => handle_unwired_command("node rollback"),
+        LinuxCliCommand::ProxyApply { .. }
+        | LinuxCliCommand::ProxyStatus { .. }
+        | LinuxCliCommand::ProxyRollback { .. } => handle_unwired_command("proxy"),
         LinuxCliCommand::CoreList { .. }
         | LinuxCliCommand::InstallMieru { .. }
         | LinuxCliCommand::StartMieru { .. }
@@ -5417,6 +5503,20 @@ where
             confirm,
             ..
         } => handle_node_rollback(&selection_path, &snapshot_path, confirm),
+        LinuxCliCommand::ProxyApply {
+            file_path,
+            snapshot_path,
+            proxy_url,
+            confirm,
+            ..
+        } => handle_proxy_apply(&file_path, &snapshot_path, &proxy_url, confirm),
+        LinuxCliCommand::ProxyStatus { file_path, .. } => handle_proxy_status(&file_path),
+        LinuxCliCommand::ProxyRollback {
+            file_path,
+            snapshot_path,
+            confirm,
+            ..
+        } => handle_proxy_rollback(&file_path, &snapshot_path, confirm),
         LinuxCliCommand::CoreList { .. }
         | LinuxCliCommand::InstallMieru { .. }
         | LinuxCliCommand::StartMieru { .. }
@@ -6264,6 +6364,91 @@ pub fn handle_node_rollback(
         ),
         SOURCE_CLI_RUNTIME,
     )])
+}
+
+pub fn handle_proxy_apply(
+    file_path: &str,
+    snapshot_path: &str,
+    proxy_url: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    match apply_environment_proxy(&LinuxEnvironmentProxyApplyRequest {
+        file_path: PathBuf::from(file_path),
+        snapshot_path: PathBuf::from(snapshot_path),
+        proxy_url: proxy_url.to_string(),
+        confirmed: confirm,
+    }) {
+        Ok(report) => {
+            LinuxCliResponse::success("proxy apply").with_diagnostics(vec![cli_diagnostic(
+                DiagnosticSeverity::Info,
+                "cli.proxy.applied",
+                format!(
+                    "environment proxy file applied at {}; snapshot_written=true; verified={}",
+                    report.file_path.display(),
+                    report.verified
+                ),
+                SOURCE_CLI_RUNTIME,
+            )])
+        }
+        Err(error) => domain_error_response(
+            "proxy apply",
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
+}
+
+pub fn handle_proxy_status(file_path: &str) -> LinuxCliResponse {
+    match status_environment_proxy(std::path::Path::new(file_path)) {
+        Ok(report) => {
+            LinuxCliResponse::success("proxy status").with_diagnostics(vec![cli_diagnostic(
+                DiagnosticSeverity::Info,
+                "cli.proxy.status",
+                format!(
+                    "environment proxy file exists={} managed_schema_version={:?}",
+                    report.exists, report.managed_schema_version
+                ),
+                SOURCE_CLI_RUNTIME,
+            )])
+        }
+        Err(error) => domain_error_response(
+            "proxy status",
+            LinuxCliExitCode::ArgumentOrConfig,
+            error,
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
+}
+
+pub fn handle_proxy_rollback(
+    file_path: &str,
+    snapshot_path: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    match rollback_environment_proxy(&LinuxEnvironmentProxyRollbackRequest {
+        file_path: PathBuf::from(file_path),
+        snapshot_path: PathBuf::from(snapshot_path),
+        confirmed: confirm,
+    }) {
+        Ok(report) => {
+            LinuxCliResponse::success("proxy rollback").with_diagnostics(vec![cli_diagnostic(
+                DiagnosticSeverity::Info,
+                "cli.proxy.rolled_back",
+                format!(
+                    "environment proxy rollback restored_previous_file={}; snapshot_retained={}",
+                    report.restored_previous_file, report.snapshot_retained
+                ),
+                SOURCE_CLI_RUNTIME,
+            )])
+        }
+        Err(error) => domain_error_response(
+            "proxy rollback",
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
 }
 
 pub fn handle_subscription_command(command: LinuxCliCommand) -> LinuxCliResponse {
@@ -11637,6 +11822,16 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.catalog_path = Some(value.clone());
             }
+            "--file" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--file requires an absolute file path",
+                    ));
+                };
+                options.file_path = Some(value.clone());
+            }
             "--selection" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -13208,6 +13403,9 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux node list --config <absolute-path> [--format text|json]\n",
         "  networkcore-linux node select --config <absolute-path> --source-id <node-id> --selection <absolute-path> --snapshot <absolute-path> --confirm [--format text|json]\n",
         "  networkcore-linux node rollback --selection <absolute-path> --snapshot <absolute-path> --confirm [--format text|json]\n",
+        "  networkcore-linux proxy apply --file <absolute-path> --snapshot <absolute-path> --url <proxy-url> --confirm [--format text|json]\n",
+        "  networkcore-linux proxy status --file <absolute-path> [--format text|json]\n",
+        "  networkcore-linux proxy rollback --file <absolute-path> --snapshot <absolute-path> --confirm [--format text|json]\n",
         "  networkcore-linux restart --confirm [--service-unit <name>] [--format text|json]  # managed systemd restart\n",
         "  networkcore-linux connect|disconnect --confirm [--service-unit <name>] [--format text|json]  # managed systemd start/stop\n",
         "  networkcore-linux uninstall-service [--service-unit <name>] [--service-state-dir <absolute-path>] --confirm [--format text|json]\n",
@@ -13246,6 +13444,7 @@ pub const fn cli_help_text() -> &'static str {
         "  install-service   Write an explicit confirmed systemd unit with snapshot/verification; never calls systemctl.\n",
         "  service           Control one explicitly named systemd unit; mutations require --confirm and status uses is-active.\n",
         "  node              List nodes from one explicit config; selection and runtime state are unchanged.\n",
+        "  proxy             Manage one explicit environment proxy file with snapshot and rollback.\n",
         "  restart           Without --confirm remains foreground-unavailable; with --confirm restarts the managed unit.\n",
         "  uninstall-service Render an explicit removal plan; user configuration/state is preserved and no files are deleted.\n",
         "  logs              Read a bounded tail from one explicit log path; no default path scanning.\n",

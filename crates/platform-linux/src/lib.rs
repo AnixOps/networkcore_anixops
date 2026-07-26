@@ -4,6 +4,7 @@
 //! a host probe service that only inspects Linux capability facts. It must not
 //! mutate networking, DNS, certificates, services, or process privileges.
 
+pub mod proxy;
 pub mod systemd;
 
 use control_domain::{

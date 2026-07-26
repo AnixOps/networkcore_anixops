@@ -12,6 +12,10 @@ service start|stop|restart|status --service-unit <name> --confirm` controls one 
 it under the selected state directory; it does not delete the state directory, and purge remains a separate
 future action.
 
+`networkcore-linux proxy apply --file <absolute-path> --snapshot <absolute-path> --url <proxy-url> --confirm`
+manages one explicit environment proxy file. `proxy status` is read-only and `proxy rollback --confirm` refuses
+to overwrite an externally changed file; these commands do not discover or mutate a desktop default proxy.
+
 `networkcore-linux core list` reports the registered public engine descriptors.
 `networkcore-linux core install mieru --binary <path> --sha256 <digest>` verifies
 an operator-provided Mieru executable locally and returns its digest; it does not

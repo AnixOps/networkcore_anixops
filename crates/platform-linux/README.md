@@ -11,5 +11,6 @@ adapter exposes explicitly confirmed unit installation and service control:
 - A `ReadOnlyLinuxPlatformCapabilityService` backed by injectable probes, plus a `HostLinuxReadOnlyProbe` that only inspects Linux capability facts.
 - Contract tests for TUN availability, permission denial, unknown DNS and service managers, and MITM certificate state mapping.
 - A systemd unit generation/install/removal boundary and an explicitly confirmed service-control adapter. Removal snapshots the unit before deletion, the command runner is injectable for contract tests, and the production runner invokes `systemctl` without forwarding command output.
+- An explicitly selected environment-proxy file adapter with 0600 snapshots, post-write verification, external-change detection, and retained rollback snapshots. It never discovers a default system proxy path.
 
 This crate does not mutate host networking, install certificates, or grant capabilities. Service control is limited to the requested systemd unit and requires caller confirmation. All validation is performed in GitHub Actions according to `docs/ci-cd-policy.md`.

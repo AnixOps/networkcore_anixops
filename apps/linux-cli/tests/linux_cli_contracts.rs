@@ -41,7 +41,8 @@ use networkcore_linux::{
     handle_mitm_certificate_apply_with_store, handle_mitm_certificate_plan,
     handle_mitm_certificate_rollback, handle_mitm_certificate_rollback_with_store,
     handle_mitm_http_rewrite_plan, handle_mitm_http_rewrite_preview, handle_mitm_status,
-    handle_node_list, handle_parse_error, handle_prepare_config, handle_run_catalog_with_sing_box,
+    handle_node_list, handle_parse_error, handle_prepare_config, handle_proxy_apply,
+    handle_proxy_rollback, handle_proxy_status, handle_run_catalog_with_sing_box,
     handle_run_catalog_with_sing_box_and_fetcher, handle_run_url_with_sing_box,
     handle_run_url_with_sing_box_and_fetcher, handle_run_url_with_sing_box_and_node_id,
     handle_start, handle_status, handle_stop, handle_systemd_service_control,
@@ -276,6 +277,48 @@ fn node_list_reads_only_the_explicit_config_and_redacts_endpoint_details() {
     assert!(rolled_back.diagnostics[0]
         .message
         .contains("selected_node=none"));
+    assert!(snapshot_path.exists());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn proxy_cli_requires_explicit_paths_and_reports_snapshot_rollback() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-linux-cli-proxy-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("proxy CLI fixture directory should be created");
+    let file_path = root.join("environment");
+    let snapshot_path = root.join("environment.snapshot.json");
+    let status = handle_proxy_status(file_path.to_str().expect("proxy path should be UTF-8"));
+    assert!(status.ok);
+    let denied = handle_proxy_apply(
+        file_path.to_str().expect("proxy path should be UTF-8"),
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        "socks5://127.0.0.1:7890",
+        false,
+    );
+    assert!(!denied.ok);
+    let applied = handle_proxy_apply(
+        file_path.to_str().expect("proxy path should be UTF-8"),
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        "socks5://127.0.0.1:7890",
+        true,
+    );
+    assert!(applied.ok);
+    let rolled_back = handle_proxy_rollback(
+        file_path.to_str().expect("proxy path should be UTF-8"),
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        true,
+    );
+    assert!(rolled_back.ok);
     assert!(snapshot_path.exists());
     let _ = std::fs::remove_dir_all(&root);
 }
