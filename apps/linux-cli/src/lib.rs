@@ -5155,6 +5155,17 @@ where
                 format: options.format,
             })
         }
+        "reload" => {
+            let options = parse_options(&rest)?;
+            Ok(LinuxCliCommand::ServiceControl {
+                action: LinuxSystemdServiceAction::Reload,
+                unit_name: options
+                    .service_unit_name
+                    .unwrap_or_else(|| "networkcore.service".to_string()),
+                confirm: options.confirm,
+                format: options.format,
+            })
+        }
         "status" => {
             let options = parse_options(&rest)?;
             Ok(LinuxCliCommand::Status {
@@ -5235,13 +5246,14 @@ fn parse_service_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliPar
     let Some(action) = args.first().map(String::as_str) else {
         return Err(parse_error(
             CLI_ARGUMENT_VALUE_MISSING_CODE,
-            "service requires start, stop, restart, or status",
+            "service requires start, stop, restart, reload, or status",
         ));
     };
     let action = match action {
         "start" => LinuxSystemdServiceAction::Start,
         "stop" => LinuxSystemdServiceAction::Stop,
         "restart" => LinuxSystemdServiceAction::Restart,
+        "reload" => LinuxSystemdServiceAction::Reload,
         "status" => LinuxSystemdServiceAction::Status,
         _ => {
             return Err(parse_error(
@@ -13398,7 +13410,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux mitm http-rewrite [plan|preview] [--url <url>] [--method <method>] [--phase request|response] [--status-code <code>] [--header <name:value>] [--body <text>] [--confirm] [--format text|json]\n",
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux install-service --service-executable <absolute-path> [--service-unit <name>] [--service-description <text>] [--service-arg <arg>] [--service-user <user>] [--service-group <group>] [--service-state-dir <absolute-path>] --confirm [--format text|json]\n",
-        "  networkcore-linux service <start|stop|restart> [--service-unit <name>] --confirm [--format text|json]\n",
+        "  networkcore-linux service <start|stop|restart|reload> [--service-unit <name>] --confirm [--format text|json]\n",
         "  networkcore-linux service status [--service-unit <name>] [--format text|json]\n",
         "  networkcore-linux node list --config <absolute-path> [--format text|json]\n",
         "  networkcore-linux node select --config <absolute-path> --source-id <node-id> --selection <absolute-path> --snapshot <absolute-path> --confirm [--format text|json]\n",
@@ -13407,6 +13419,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux proxy status --file <absolute-path> [--format text|json]\n",
         "  networkcore-linux proxy rollback --file <absolute-path> --snapshot <absolute-path> --confirm [--format text|json]\n",
         "  networkcore-linux restart --confirm [--service-unit <name>] [--format text|json]  # managed systemd restart\n",
+        "  networkcore-linux reload --confirm [--service-unit <name>] [--format text|json]  # managed systemd reload\n",
         "  networkcore-linux connect|disconnect --confirm [--service-unit <name>] [--format text|json]  # managed systemd start/stop\n",
         "  networkcore-linux uninstall-service [--service-unit <name>] [--service-state-dir <absolute-path>] --confirm [--format text|json]\n",
         "  networkcore-linux logs <explicit-log-path> [--tail-lines <1-1000>] [--format text|json]\n",

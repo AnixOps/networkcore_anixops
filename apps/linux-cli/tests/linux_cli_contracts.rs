@@ -3130,6 +3130,45 @@ fn confirmed_restart_uses_managed_systemd_control_command() {
 }
 
 #[test]
+fn confirmed_reload_uses_managed_systemd_control_command() {
+    let command = parse_args([
+        "reload",
+        "--service-unit",
+        "networkcore-managed.service",
+        "--confirm",
+        "--format",
+        "json",
+    ])
+    .expect("confirmed reload should parse");
+    assert_eq!(
+        command,
+        LinuxCliCommand::ServiceControl {
+            action: LinuxSystemdServiceAction::Reload,
+            unit_name: "networkcore-managed.service".to_string(),
+            confirm: true,
+            format: OutputFormat::Json,
+        }
+    );
+
+    let service_command = parse_args([
+        "service",
+        "reload",
+        "--service-unit",
+        "networkcore-managed.service",
+        "--confirm",
+    ])
+    .expect("service reload should parse");
+    assert!(matches!(
+        service_command,
+        LinuxCliCommand::ServiceControl {
+            action: LinuxSystemdServiceAction::Reload,
+            confirm: true,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn parses_core_list_and_mieru_local_install_contract() {
     assert_eq!(
         parse_args(["core", "list", "--format", "json"]).expect("core list should parse"),
