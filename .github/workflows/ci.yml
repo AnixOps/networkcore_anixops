@@ -697,11 +697,15 @@ jobs:
           grep -q "mierus://" crates/engine-mieru/src/lib.rs
           grep -q "verify_local_mieru_binary" crates/engine-mieru/src/lib.rs
           grep -q "MieruManagedProcessSupervisor" crates/engine-mieru/src/lib.rs
+          grep -q "local_binary_verification_requires_explicit_digest" crates/engine-mieru/tests/engine_mieru_contracts.rs
+          grep -q "managed_supervisor_starts_stopped" crates/engine-mieru/tests/engine_mieru_contracts.rs
           grep -q "parses_mieru_share_links" crates/config-core/tests/config_core_contracts.rs
           grep -q "linux-managed-service-unit-source-contract" docs/architecture/linux-managed-service-unit-source-contract.md
           grep -q "render_systemd_unit" crates/platform-linux/src/systemd.rs
           grep -q "Restart=on-failure" crates/platform-linux/src/systemd.rs
           grep -q "renders_bounded_non_root_systemd_unit" crates/platform-linux/tests/systemd_unit_contracts.rs
+          grep -q "validate_proxy_engine_transition" crates/control-runtime/src/lib.rs
+          grep -q "runtime_rollback_rejects_a_non_recovering_lifecycle_jump" crates/control-runtime/tests/runtime_contracts.rs
           grep -q "SING_BOX_LATEST_RELEASE_API_URL" crates/engine-singbox/src/lib.rs
           grep -q "ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE" crates/engine-singbox/src/lib.rs
           grep -q "GithubSingBoxReleaseInstaller" crates/engine-singbox/src/lib.rs
