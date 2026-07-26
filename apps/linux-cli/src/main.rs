@@ -130,6 +130,14 @@ fn main() {
             } = &command
             {
                 networkcore_linux::handle_stop_mieru(binary_path, expected_sha256, config_path)
+            } else if let networkcore_linux::LinuxCliCommand::StatusMieru {
+                binary_path,
+                expected_sha256,
+                config_path,
+                ..
+            } = &command
+            {
+                networkcore_linux::handle_status_mieru(binary_path, expected_sha256, config_path)
             } else if let networkcore_linux::LinuxCliCommand::ServiceControl {
                 action,
                 unit_name,

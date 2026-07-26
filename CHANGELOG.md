@@ -63,6 +63,10 @@ current-main-subscription-background=blocked
   counting the UTF-8 bytes of returned line contents while excluding discarded
   content and line separators. The explicit-path, 65536-byte file limit,
   bounded-line, and `liveness_verified=false` boundaries are unchanged.
+- Linux CLI now exposes `core status mieru --binary <path> --sha256 <digest> --config <path>`
+  and routes Mieru start/stop/status through the library entrypoints. Status verifies the
+  caller-supplied executable and invokes only the official client's explicit status command;
+  it does not claim listener readiness or mutate the system proxy.
 - `NativeProxyEngineService::reload` now performs an in-process runtime
   replacement instead of returning an unwired lifecycle error. It retains the
   last successful configuration, restores it when the replacement listener

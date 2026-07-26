@@ -17,9 +17,10 @@ download. Downloads may target
 only an `enfein/mieru` GitHub release asset and must provide the expected digest;
 it does not silently download or wire Mieru into the Windows service or system
 proxy path. Linux CLI also exposes explicit
-`core start mieru`/`core stop mieru` controls over a caller-provided config;
-these invoke the official client command boundary but do not claim listener
-readiness or system proxy mutation.
+`core start mieru`/`core stop mieru`/`core status mieru` controls over a
+caller-provided config; these invoke the official client command boundary and
+report command completion without claiming listener readiness or system proxy
+mutation.
 
 The adapter's config-file writer requires explicit absolute config and snapshot
 paths, preserves an existing config in a non-overwriting snapshot, verifies the
@@ -59,8 +60,9 @@ contract and CI integration evidence exist.
 
 ## Future Wiring Gates
 
-Before runtime service activation, add separate contracts for Linux/Windows
-lifecycle ownership, bounded logs, abnormal exit cleanup, and explicit rollback
-of the NetworkCore-owned local proxy resource. The current config renderer and
-listener readiness helper do not by themselves authorize process spawning or
+The Linux CLI lifecycle entrypoint is active for explicit start, stop, and
+status commands. Before Windows runtime service activation, add separate
+contracts for lifecycle ownership, bounded logs, abnormal exit cleanup, and
+explicit rollback of the NetworkCore-owned local proxy resource. The current
+config renderer and listener readiness helper do not by themselves authorize
 system proxy mutation.

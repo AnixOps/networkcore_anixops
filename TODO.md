@@ -47,7 +47,8 @@ license/NOTICE 已 confirmed；当前 Windows source release 目标是 `v0.2.0-a
 
 当前 Linux CLI 已暴露 `core list` 公有 engine descriptor 查询和
 `core install mieru --binary <path> --sha256 <digest>` 本地 Mieru 可执行文件校验；
-该路径不下载、不启动 Mieru，不接入 Windows service 或系统代理 mutation。
+该路径不下载、不启动 Mieru，不接入 Windows service 或系统代理 mutation；显式
+`core start/stop/status mieru` 已接入 Linux CLI，仍不修改系统代理。
 
 当前 main 覆盖旧订阅描述：Linux `run-url` 已支持直接 `ss://`、Trojan、VLESS、VMess、Hysteria2/TUIC share links、调用方显式绝对 `file://` UTF-8 subscription 文件、一次前台 HTTP(S) subscription fetch、`--node-id` 单次 catalog 节点选择，以及 Clash YAML、sing-box JSON、Surge、Loon、Quantumult X catalog payload 的 sing-box 前台运行。`run-catalog <catalog-path> <source-id>` 可运行一个保存 source。默认路径扫描、后台刷新、运行中节点切换、后台 managed runtime 和 cross-platform run plan 仍未完成。
 

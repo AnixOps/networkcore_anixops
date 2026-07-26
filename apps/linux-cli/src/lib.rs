@@ -545,6 +545,12 @@ pub enum LinuxCliCommand {
         config_path: String,
         format: OutputFormat,
     },
+    StatusMieru {
+        binary_path: String,
+        expected_sha256: String,
+        config_path: String,
+        format: OutputFormat,
+    },
     ServiceControl {
         action: LinuxSystemdServiceAction,
         unit_name: String,
@@ -790,6 +796,7 @@ impl LinuxCliCommand {
             Self::InstallMieru { .. } => "core install mieru",
             Self::StartMieru { .. } => "core start mieru",
             Self::StopMieru { .. } => "core stop mieru",
+            Self::StatusMieru { .. } => "core status mieru",
             Self::ServiceControl { action, .. } => match action {
                 LinuxSystemdServiceAction::Start => "service start",
                 LinuxSystemdServiceAction::Stop => "service stop",
@@ -862,6 +869,7 @@ impl LinuxCliCommand {
             | Self::InstallMieru { format, .. }
             | Self::StartMieru { format, .. }
             | Self::StopMieru { format, .. }
+            | Self::StatusMieru { format, .. }
             | Self::Restart { format, .. }
             | Self::Status { format }
             | Self::ManagedStatus { format, .. }
@@ -5673,7 +5681,8 @@ pub fn handle_entrypoint_skeleton(command: LinuxCliCommand) -> LinuxCliResponse 
         LinuxCliCommand::CoreList { .. }
         | LinuxCliCommand::InstallMieru { .. }
         | LinuxCliCommand::StartMieru { .. }
-        | LinuxCliCommand::StopMieru { .. } => handle_unwired_command("core"),
+        | LinuxCliCommand::StopMieru { .. }
+        | LinuxCliCommand::StatusMieru { .. } => handle_unwired_command("core"),
         other => handle_unwired_command(other.name()),
     }
 }
@@ -5783,10 +5792,39 @@ where
             confirm,
             ..
         } => handle_proxy_rollback(&file_path, &snapshot_path, confirm),
-        LinuxCliCommand::CoreList { .. }
-        | LinuxCliCommand::InstallMieru { .. }
-        | LinuxCliCommand::StartMieru { .. }
-        | LinuxCliCommand::StopMieru { .. } => handle_unwired_command("core"),
+        LinuxCliCommand::CoreList { .. } => handle_unwired_command("core"),
+        LinuxCliCommand::InstallMieru {
+            binary_path,
+            expected_sha256,
+            release_url,
+            confirm,
+            force,
+            ..
+        } => handle_install_mieru_with_options(
+            &binary_path,
+            &expected_sha256,
+            release_url.as_deref(),
+            confirm,
+            force,
+        ),
+        LinuxCliCommand::StartMieru {
+            binary_path,
+            expected_sha256,
+            config_path,
+            ..
+        } => handle_start_mieru(&binary_path, &expected_sha256, &config_path),
+        LinuxCliCommand::StopMieru {
+            binary_path,
+            expected_sha256,
+            config_path,
+            ..
+        } => handle_stop_mieru(&binary_path, &expected_sha256, &config_path),
+        LinuxCliCommand::StatusMieru {
+            binary_path,
+            expected_sha256,
+            config_path,
+            ..
+        } => handle_status_mieru(&binary_path, &expected_sha256, &config_path),
         LinuxCliCommand::Restart { .. } => handle_restart_unavailable(),
         LinuxCliCommand::ManagedStatus { status_path, .. } => {
             handle_managed_foreground_status(&status_path)
@@ -6208,9 +6246,24 @@ where
             confirm,
             force,
         ),
-        LinuxCliCommand::StartMieru { .. } | LinuxCliCommand::StopMieru { .. } => {
-            handle_unwired_command("core mieru lifecycle")
-        }
+        LinuxCliCommand::StartMieru {
+            binary_path,
+            expected_sha256,
+            config_path,
+            ..
+        } => handle_start_mieru(&binary_path, &expected_sha256, &config_path),
+        LinuxCliCommand::StopMieru {
+            binary_path,
+            expected_sha256,
+            config_path,
+            ..
+        } => handle_stop_mieru(&binary_path, &expected_sha256, &config_path),
+        LinuxCliCommand::StatusMieru {
+            binary_path,
+            expected_sha256,
+            config_path,
+            ..
+        } => handle_status_mieru(&binary_path, &expected_sha256, &config_path),
         LinuxCliCommand::PrepareConfig { config_path, .. } => {
             handle_prepare_config(orchestrator, reader, config_path.as_deref())
         }
@@ -6248,9 +6301,24 @@ where
             confirm,
             force,
         ),
-        LinuxCliCommand::StartMieru { .. } | LinuxCliCommand::StopMieru { .. } => {
-            handle_unwired_command("core mieru lifecycle")
-        }
+        LinuxCliCommand::StartMieru {
+            binary_path,
+            expected_sha256,
+            config_path,
+            ..
+        } => handle_start_mieru(&binary_path, &expected_sha256, &config_path),
+        LinuxCliCommand::StopMieru {
+            binary_path,
+            expected_sha256,
+            config_path,
+            ..
+        } => handle_stop_mieru(&binary_path, &expected_sha256, &config_path),
+        LinuxCliCommand::StatusMieru {
+            binary_path,
+            expected_sha256,
+            config_path,
+            ..
+        } => handle_status_mieru(&binary_path, &expected_sha256, &config_path),
         LinuxCliCommand::PrepareConfig { config_path, .. } => {
             handle_prepare_config(orchestrator, reader, config_path.as_deref())
         }
@@ -7361,6 +7429,50 @@ pub fn handle_stop_mieru_with_runner<R: engine_mieru::MieruCommandRunner>(
             .with_diagnostics(report.diagnostics),
         Err(error) => domain_error_response(
             "core stop mieru",
+            LinuxCliExitCode::EngineDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
+}
+
+pub fn handle_status_mieru(
+    binary_path: &str,
+    expected_sha256: &str,
+    config_path: &str,
+) -> LinuxCliResponse {
+    let runner = engine_mieru::CommandMieruCommandRunner::new();
+    handle_status_mieru_with_runner(&runner, binary_path, expected_sha256, config_path)
+}
+
+pub fn handle_status_mieru_with_runner<R: engine_mieru::MieruCommandRunner>(
+    runner: &R,
+    binary_path: &str,
+    expected_sha256: &str,
+    config_path: &str,
+) -> LinuxCliResponse {
+    let config = match validate_mieru_config_path(config_path) {
+        Ok(path) => path,
+        Err(error) => {
+            return domain_error_response(
+                "core status mieru",
+                LinuxCliExitCode::ArgumentOrConfig,
+                error,
+                SOURCE_CLI_RUNTIME,
+            )
+        }
+    };
+    let request = engine_mieru::MieruClientControlRequest {
+        executable_path: PathBuf::from(binary_path),
+        expected_sha256: expected_sha256.to_string(),
+        config_path: config,
+    };
+    match engine_mieru::status_mieru_client(runner, &request) {
+        Ok(report) => LinuxCliResponse::success("core status mieru")
+            .with_mieru_install(mieru_control_status(&request, "status"))
+            .with_diagnostics(report.diagnostics),
+        Err(error) => domain_error_response(
+            "core status mieru",
             LinuxCliExitCode::EngineDenied,
             error,
             SOURCE_CLI_RUNTIME,
@@ -13271,36 +13383,36 @@ fn parse_core_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseE
                 format: options.format,
             })
         }
-        "start" | "stop" => {
+        "start" | "stop" | "status" => {
             let Some(engine) = args.get(1) else {
                 return Err(parse_error(
                     CLI_ARGUMENT_VALUE_MISSING_CODE,
-                    "core start/stop requires mieru",
+                    "core start/stop/status requires mieru",
                 ));
             };
             if engine != "mieru" {
                 return Err(parse_error(
                     CLI_ARGUMENT_UNKNOWN_CODE,
-                    "core start/stop currently accepts only mieru",
+                    "core start/stop/status currently accepts only mieru",
                 ));
             }
             let options = parse_options(&args[2..])?;
             let binary_path = options.mieru_binary_path.ok_or_else(|| {
                 parse_error(
                     CLI_ARGUMENT_VALUE_MISSING_CODE,
-                    "core start/stop mieru requires --binary <local-path>",
+                    "core start/stop/status mieru requires --binary <local-path>",
                 )
             })?;
             let expected_sha256 = options.mieru_sha256.ok_or_else(|| {
                 parse_error(
                     CLI_ARGUMENT_VALUE_MISSING_CODE,
-                    "core start/stop mieru requires --sha256 <digest>",
+                    "core start/stop/status mieru requires --sha256 <digest>",
                 )
             })?;
             let config_path = options.config_path.ok_or_else(|| {
                 parse_error(
                     CLI_ARGUMENT_VALUE_MISSING_CODE,
-                    "core start/stop mieru requires --config <absolute-path>",
+                    "core start/stop/status mieru requires --config <absolute-path>",
                 )
             })?;
             if subcommand == "start" {
@@ -13310,8 +13422,15 @@ fn parse_core_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseE
                     config_path,
                     format: options.format,
                 })
-            } else {
+            } else if subcommand == "stop" {
                 Ok(LinuxCliCommand::StopMieru {
+                    binary_path,
+                    expected_sha256,
+                    config_path,
+                    format: options.format,
+                })
+            } else {
+                Ok(LinuxCliCommand::StatusMieru {
                     binary_path,
                     expected_sha256,
                     config_path,
@@ -14154,6 +14273,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux core install mieru --url <official-release-asset> --binary <destination> --sha256 <digest> --confirm [--force] [--format text|json]\n",
         "  networkcore-linux core start mieru --binary <local-path> --sha256 <digest> --config <absolute-path> [--format text|json]\n",
         "  networkcore-linux core stop mieru --binary <local-path> --sha256 <digest> --config <absolute-path> [--format text|json]\n",
+        "  networkcore-linux core status mieru --binary <local-path> --sha256 <digest> --config <absolute-path> [--format text|json]\n",
         "  networkcore-linux start --config <path> [--enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path>] [--enable-script-runtime --script-runner <path> --script-map <url=file> ...] --confirm [--format text|json]\n",
         "  networkcore-linux connect --config <path> [same explicit foreground options as start]\n",
         "  networkcore-linux stop [--format text|json]\n",
@@ -14205,7 +14325,7 @@ pub const fn cli_help_text() -> &'static str {
         "  core list         List adapter descriptors without starting a core.\n",
         "  core install mieru Verify a user-supplied Mieru binary; no download or bundling occurs.\n",
         "  core install sing-box Download and verify the official sing-box archive.\n",
-        "  core start/stop mieru Apply a user-supplied config and control the official Mieru client; readiness still requires listener evidence.\n",
+        "  core start/stop/status mieru Control or inspect the official Mieru client with explicit local paths; status does not claim listener readiness.\n",
         "  start             Start the current foreground runtime; HTTPS MITM requires explicit CA paths and confirmation.\n",
         "  connect           Alias for the explicit foreground start path; managed service control is separate.\n",
         "  stop              Report that daemon stop is unavailable in this build.\n",

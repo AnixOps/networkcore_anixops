@@ -29,12 +29,12 @@ p11-kit, Firefox, browser profiles, HTTPS decryption, or rewrite policy.
 `networkcore-linux core list` reports the registered public engine descriptors.
 `networkcore-linux core install mieru --binary <path> --sha256 <digest>` verifies
 an operator-provided Mieru executable locally and returns its digest; it does not
-download, spawn, or install a service. Mieru runtime wiring and system proxy
-mutation remain unavailable.
-`networkcore-linux core start mieru --binary <path> --sha256 <digest> --config <path>`
-and the matching `core stop mieru` command use the official client's explicit
-`apply config`, `start`, and `stop` controls. They require a regular absolute
-config file and never expose the client's stdout/stderr in NetworkCore output;
+download, spawn, or install a service. This verification command does not mutate
+runtime state or the system proxy.
+`networkcore-linux core start|stop|status mieru --binary <path> --sha256 <digest> --config <path>`
+and the matching commands use the official client's explicit `apply config`,
+`start`, `stop`, or `status` controls. They require a regular absolute config
+file and never expose the client's stdout/stderr in NetworkCore output;
 listener readiness and system proxy mutation remain separate gates.
 
 `networkcore-linux` is the Linux CLI entrypoint for NetworkCore.

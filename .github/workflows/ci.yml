@@ -1948,6 +1948,7 @@ jobs:
           grep -q "parses_subscription_catalog_command_contracts" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "handle_start_mieru" apps/linux-cli/src/lib.rs
           grep -q "handle_stop_mieru" apps/linux-cli/src/lib.rs
+          grep -q "handle_status_mieru" apps/linux-cli/src/lib.rs
           grep -q "handle_install_service_apply" apps/linux-cli/src/lib.rs
           grep -q "handle_install_service_apply_with_runner" apps/linux-cli/src/lib.rs
           grep -q "handle_uninstall_service_apply" apps/linux-cli/src/lib.rs
@@ -1974,6 +1975,7 @@ jobs:
           grep -q "node rollback" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "parses_core_list_and_mieru_local_install_contract" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "parses_core_mieru_start_and_stop_control_contract" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "parses_and_executes_core_mieru_status_without_exposing_config" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "parses_core_mieru_start_and_stop_control_contract" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "install_service_apply_writes_and_verifies_unit_with_snapshot" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "uninstall_service_apply_snapshots_and_removes_unit" apps/linux-cli/tests/linux_cli_contracts.rs

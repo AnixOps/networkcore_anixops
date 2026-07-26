@@ -47,6 +47,7 @@ use networkcore_linux::{
     handle_run_catalog_with_sing_box, handle_run_catalog_with_sing_box_and_fetcher,
     handle_run_url_with_sing_box, handle_run_url_with_sing_box_and_fetcher,
     handle_run_url_with_sing_box_and_node_id, handle_start, handle_status, handle_stop,
+    handle_status_mieru_with_runner,
     handle_systemd_service_control, handle_uninstall_service_apply_at,
     native_proxy_engine_service_with_builtin_mitm_plugin,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files,
@@ -3695,6 +3696,75 @@ fn parses_core_mieru_start_and_stop_control_contract() {
             ..
         } if config_path == "/var/lib/networkcore/client_config.json"
     ));
+}
+
+#[test]
+fn parses_and_executes_core_mieru_status_without_exposing_config() {
+    let status = parse_args([
+        "core",
+        "status",
+        "mieru",
+        "--binary",
+        "/opt/mieru",
+        "--sha256",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "--config",
+        "/var/lib/networkcore/client_config.json",
+        "--format",
+        "json",
+    ])
+    .expect("core status mieru should parse");
+    assert!(matches!(
+        status,
+        LinuxCliCommand::StatusMieru {
+            config_path,
+            format: OutputFormat::Json,
+            ..
+        } if config_path == "/var/lib/networkcore/client_config.json"
+    ));
+
+    struct StatusRunner;
+    impl engine_mieru::MieruCommandRunner for StatusRunner {
+        fn run(
+            &self,
+            _executable_path: &std::path::Path,
+            arguments: &[String],
+        ) -> control_domain::DomainResult<engine_mieru::MieruCommandReport> {
+            assert_eq!(arguments, &[String::from("status")]);
+            Ok(engine_mieru::MieruCommandReport {
+                exit_code: Some(0),
+                succeeded: true,
+                diagnostics: vec![Diagnostic::new(
+                    DiagnosticSeverity::Info,
+                    "test.mieru.status",
+                    "status command completed",
+                    None,
+                )],
+            })
+        }
+    }
+
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-linux-mieru-status-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("Mieru status fixture directory should be created");
+    let binary = root.join("mieru");
+    let config = root.join("client.json");
+    std::fs::write(&binary, b"").expect("Mieru binary fixture should be written");
+    std::fs::write(&config, b"{}").expect("Mieru config fixture should be written");
+    let response = handle_status_mieru_with_runner(
+        &StatusRunner,
+        binary.to_str().expect("binary path should be UTF-8"),
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        config.to_str().expect("config path should be UTF-8"),
+    );
+    assert!(response.ok);
+    assert_eq!(response.command, "core status mieru");
+    assert_eq!(response.mieru_install.as_ref().unwrap().action, "status");
+    assert!(render_response(&response, OutputFormat::Json).contains("\"action\":\"status\""));
+    std::fs::remove_dir_all(&root).expect("Mieru status fixture directory should be removed");
 }
 
 #[test]
