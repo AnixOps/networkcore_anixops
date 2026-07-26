@@ -4700,7 +4700,7 @@ impl ProxyEngineService for NativeProxyEngineService {
             }
             Err(error) => Err(domain_error(
                 ENGINE_NATIVE_RELOAD_ROLLBACK_FAILED_CODE,
-                format!("native proxy rollback failed: {}", error.error),
+                format!("native proxy rollback failed: {}", error.message),
             )),
         }
     }
