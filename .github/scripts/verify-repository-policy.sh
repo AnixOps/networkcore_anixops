@@ -20,7 +20,7 @@ require_file() {
 require_text() {
   local pattern="$1"
   local path="$2"
-  rg -q --fixed-strings -- "${pattern}" "${path}" || fail "missing contract '${pattern}' in ${path}"
+  grep -Fq -- "${pattern}" "${path}" || fail "missing contract '${pattern}' in ${path}"
 }
 
 for path in \
@@ -32,10 +32,10 @@ for path in \
 done
 
 tracked_paths="$(git ls-files)"
-if rg -n '(^|/)(target|dist|node_modules|coverage|\.next|\.turbo|\.gradle|DerivedData)(/|$)' <<<"${tracked_paths}"; then
+if grep -En '(^|/)(target|dist|node_modules|coverage|\.next|\.turbo|\.gradle|DerivedData)(/|$)' <<<"${tracked_paths}"; then
   fail "tracked build output is forbidden"
 fi
-if rg -n -i '(^|/)(id_(rsa|dsa|ecdsa|ed25519)|\.env($|\.)|[^/]+\.(p12|pfx|jks|keystore|mobileprovision|provisionprofile|key|pem))$' <<<"${tracked_paths}"; then
+if grep -Ein '(^|/)(id_(rsa|dsa|ecdsa|ed25519)|\.env($|\.)|[^/]+\.(p12|pfx|jks|keystore|mobileprovision|provisionprofile|key|pem))$' <<<"${tracked_paths}"; then
   fail "tracked credential or signing material is forbidden"
 fi
 if git grep -nEI '(AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|AIza[0-9A-Za-z_-]{35})' -- ':!*.md' ':!.github/workflows/ci.yml'; then
@@ -60,7 +60,7 @@ declare -a fast_contracts=(
 for contract in "${fast_contracts[@]}"; do
   pattern="${contract%%$'\t'*}"
   path="${contract#*$'\t'}"
-  rg -q --pcre2 "${pattern}" "${path}" || fail "missing fast contract '${pattern}' in ${path}"
+  grep -Eq -- "${pattern}" "${path}" || fail "missing fast contract '${pattern}' in ${path}"
 done
 
 if [[ "${mode}" == fast ]]; then
