@@ -146,6 +146,18 @@ fn main() {
                     state_directory,
                     *confirm,
                 )
+            } else if let networkcore_linux::LinuxCliCommand::UninstallService {
+                unit_name,
+                state_directory,
+                confirm,
+                ..
+            } = &command
+            {
+                networkcore_linux::handle_uninstall_service_apply(
+                    unit_name,
+                    state_directory,
+                    *confirm,
+                )
             } else if matches!(
                 &command,
                 networkcore_linux::LinuxCliCommand::InstallSingBox { .. }

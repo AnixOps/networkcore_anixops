@@ -714,12 +714,14 @@ jobs:
           grep -q "linux-managed-service-unit-source-contract" docs/architecture/linux-managed-service-unit-source-contract.md
           grep -q "render_systemd_unit" crates/platform-linux/src/systemd.rs
           grep -q "install_systemd_unit" crates/platform-linux/src/systemd.rs
+          grep -q "remove_systemd_unit" crates/platform-linux/src/systemd.rs
           grep -q "control_systemd_service" crates/platform-linux/src/systemd.rs
           grep -q "CommandLinuxSystemdCommandRunner" crates/platform-linux/src/systemd.rs
           grep -q "Restart=on-failure" crates/platform-linux/src/systemd.rs
           grep -q "renders_bounded_non_root_systemd_unit" crates/platform-linux/tests/systemd_unit_contracts.rs
           grep -q "installs_unit_with_snapshot_and_write_verification" crates/platform-linux/tests/systemd_unit_contracts.rs
           grep -q "refuses_to_replace_a_systemd_unit_symlink" crates/platform-linux/tests/systemd_unit_contracts.rs
+          grep -q "removes_unit_only_after_snapshot_and_confirmation" crates/platform-linux/tests/systemd_unit_contracts.rs
           grep -q "plan_systemd_unit_removal" crates/platform-linux/src/systemd.rs
           grep -q "removal_plan_preserves_state" crates/platform-linux/tests/systemd_unit_contracts.rs
           grep -q "service_control_requires_confirmation" crates/platform-linux/tests/systemd_unit_contracts.rs
@@ -1889,6 +1891,7 @@ jobs:
           grep -q "handle_start_mieru" apps/linux-cli/src/lib.rs
           grep -q "handle_stop_mieru" apps/linux-cli/src/lib.rs
           grep -q "handle_install_service_apply" apps/linux-cli/src/lib.rs
+          grep -q "handle_uninstall_service_apply" apps/linux-cli/src/lib.rs
           grep -q "ServiceControl" apps/linux-cli/src/lib.rs
           grep -q "parse_service_command" apps/linux-cli/src/lib.rs
           grep -q "handle_systemd_service_control" apps/linux-cli/src/lib.rs
@@ -1896,6 +1899,7 @@ jobs:
           grep -q "parses_core_mieru_start_and_stop_control_contract" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "parses_core_mieru_start_and_stop_control_contract" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "install_service_apply_writes_and_verifies_unit_with_snapshot" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "uninstall_service_apply_snapshots_and_removes_unit" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "parses_service_control_and_requires_confirmation" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "parses_core_install_sing_box_alias" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "BrowserCaptureProcessRunner" docs/architecture/linux-mitm-browser-capture-source-contract.md

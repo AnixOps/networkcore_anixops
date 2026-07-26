@@ -13,6 +13,7 @@ pub const LINUX_SYSTEMD_UNIT_SCHEMA_VERSION: u32 = 1;
 pub const LINUX_SYSTEMD_UNIT_INVALID_CODE: &str = "platform.linux.systemd.unit_invalid";
 pub const LINUX_SYSTEMD_REMOVAL_INVALID_CODE: &str = "platform.linux.systemd.removal_invalid";
 pub const LINUX_SYSTEMD_UNIT_WRITE_FAILED_CODE: &str = "platform.linux.systemd.unit_write_failed";
+pub const LINUX_SYSTEMD_UNIT_REMOVE_FAILED_CODE: &str = "platform.linux.systemd.unit_remove_failed";
 pub const LINUX_SYSTEMD_CONTROL_FAILED_CODE: &str = "platform.linux.systemd.control_failed";
 pub const LINUX_SYSTEMD_CONTROL_CONFIRMATION_REQUIRED_CODE: &str =
     "platform.linux.systemd.control_confirmation_required";
@@ -63,6 +64,21 @@ pub struct LinuxManagedServiceUnitInstallReport {
     pub snapshot_written: bool,
     pub bytes_written: usize,
     pub verified: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxManagedServiceUnitRemovalRequest {
+    pub unit_path: PathBuf,
+    pub snapshot_path: PathBuf,
+    pub confirmed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxManagedServiceUnitRemovalReport {
+    pub unit_path: PathBuf,
+    pub snapshot_path: Option<PathBuf>,
+    pub snapshot_written: bool,
+    pub removed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -231,6 +247,48 @@ pub fn install_systemd_unit(
     })
 }
 
+pub fn remove_systemd_unit(
+    request: &LinuxManagedServiceUnitRemovalRequest,
+) -> DomainResult<LinuxManagedServiceUnitRemovalReport> {
+    if !request.confirmed {
+        return Err(DomainError::new(
+            LINUX_SYSTEMD_UNIT_REMOVE_FAILED_CODE,
+            "systemd unit removal requires explicit confirmation",
+        ));
+    }
+    if !request.unit_path.is_absolute()
+        || !request.snapshot_path.is_absolute()
+        || request.unit_path == request.snapshot_path
+    {
+        return Err(DomainError::new(
+            LINUX_SYSTEMD_UNIT_REMOVE_FAILED_CODE,
+            "systemd unit removal requires distinct absolute paths",
+        ));
+    }
+    reject_symlink(&request.unit_path)
+        .map_err(|error| DomainError::new(LINUX_SYSTEMD_UNIT_REMOVE_FAILED_CODE, error.message))?;
+    if !request.unit_path.exists() {
+        return Ok(LinuxManagedServiceUnitRemovalReport {
+            unit_path: request.unit_path.clone(),
+            snapshot_path: None,
+            snapshot_written: false,
+            removed: false,
+        });
+    }
+    let contents =
+        fs::read(&request.unit_path).map_err(|error| remove_error("read systemd unit", error))?;
+    write_new_bytes(&request.snapshot_path, &contents)
+        .map_err(|error| remove_error("write systemd unit snapshot", error))?;
+    fs::remove_file(&request.unit_path)
+        .map_err(|error| remove_error("remove systemd unit", error))?;
+    Ok(LinuxManagedServiceUnitRemovalReport {
+        unit_path: request.unit_path.clone(),
+        snapshot_path: Some(request.snapshot_path.clone()),
+        snapshot_written: true,
+        removed: true,
+    })
+}
+
 pub fn plan_systemd_unit_removal(
     unit_name: &str,
     state_directory: &Path,
@@ -377,6 +435,13 @@ fn write_new_bytes(path: &Path, contents: &[u8]) -> std::io::Result<()> {
 fn write_error(operation: &str, error: impl std::fmt::Display) -> DomainError {
     DomainError::new(
         LINUX_SYSTEMD_UNIT_WRITE_FAILED_CODE,
+        format!("failed to {operation}: {error}"),
+    )
+}
+
+fn remove_error(operation: &str, error: impl std::fmt::Display) -> DomainError {
+    DomainError::new(
+        LINUX_SYSTEMD_UNIT_REMOVE_FAILED_CODE,
         format!("failed to {operation}: {error}"),
     )
 }

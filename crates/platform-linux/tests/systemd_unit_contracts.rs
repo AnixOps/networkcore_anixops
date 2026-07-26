@@ -1,6 +1,7 @@
 use platform_linux::systemd::{
-    control_systemd_service, install_systemd_unit, plan_systemd_unit_removal, render_systemd_unit,
-    LinuxManagedServiceUnitInstallRequest, LinuxManagedServiceUnitRequest,
+    control_systemd_service, install_systemd_unit, plan_systemd_unit_removal, remove_systemd_unit,
+    render_systemd_unit, LinuxManagedServiceUnitInstallRequest,
+    LinuxManagedServiceUnitRemovalRequest, LinuxManagedServiceUnitRequest,
     LinuxSystemdCommandRunner, LinuxSystemdServiceAction, LinuxSystemdServiceControlRequest,
     LINUX_SYSTEMD_CONTROL_CONFIRMATION_REQUIRED_CODE, LINUX_SYSTEMD_CONTROL_FAILED_CODE,
     LINUX_SYSTEMD_UNIT_INVALID_CODE,
@@ -250,4 +251,28 @@ fn service_control_rejects_path_like_unit_names() {
 
     assert_eq!(error.code, LINUX_SYSTEMD_UNIT_INVALID_CODE);
     assert!(runner.calls.borrow().is_empty());
+}
+
+#[test]
+fn removes_unit_only_after_snapshot_and_confirmation() {
+    let root =
+        std::env::temp_dir().join(format!("networkcore-systemd-remove-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).expect("fixture directory should be created");
+    let unit_path = root.join("networkcore.service");
+    let snapshot_path = root.join("snapshot.unit");
+    fs::write(&unit_path, "managed unit\n").expect("unit should be written");
+
+    let report = remove_systemd_unit(&LinuxManagedServiceUnitRemovalRequest {
+        unit_path: unit_path.clone(),
+        snapshot_path: snapshot_path.clone(),
+        confirmed: true,
+    })
+    .expect("confirmed removal should succeed");
+
+    assert!(report.removed);
+    assert!(report.snapshot_written);
+    assert!(!unit_path.exists());
+    assert_eq!(fs::read_to_string(snapshot_path).unwrap(), "managed unit\n");
+    let _ = fs::remove_dir_all(&root);
 }

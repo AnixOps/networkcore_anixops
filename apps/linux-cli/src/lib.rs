@@ -24,10 +24,11 @@ use mitm_policy::{
     MITM_POLICY_AD_BLOCK_PLUGIN_ID,
 };
 use platform_linux::systemd::{
-    control_systemd_service, install_systemd_unit, plan_systemd_unit_removal, render_systemd_unit,
-    LinuxManagedServiceUnitInstallRequest, LinuxManagedServiceUnitPlan,
-    LinuxManagedServiceUnitRemovalPlan, LinuxManagedServiceUnitRequest, LinuxSystemdCommandRunner,
-    LinuxSystemdServiceAction, LinuxSystemdServiceControlRequest,
+    control_systemd_service, install_systemd_unit, plan_systemd_unit_removal, remove_systemd_unit,
+    render_systemd_unit, LinuxManagedServiceUnitInstallRequest, LinuxManagedServiceUnitPlan,
+    LinuxManagedServiceUnitRemovalPlan, LinuxManagedServiceUnitRemovalRequest,
+    LinuxManagedServiceUnitRequest, LinuxSystemdCommandRunner, LinuxSystemdServiceAction,
+    LinuxSystemdServiceControlRequest,
 };
 use rcgen::{
     BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, KeyUsagePurpose,
@@ -6393,6 +6394,64 @@ pub fn handle_uninstall_service_plan(
             "uninstall-service",
             LinuxCliExitCode::ArgumentOrConfig,
             DomainError::new(CLI_INSTALL_SERVICE_PLAN_INVALID_CODE, error.message),
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
+}
+
+pub fn handle_uninstall_service_apply(
+    unit_name: &str,
+    state_directory: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    if let Err(error) =
+        plan_systemd_unit_removal(unit_name, PathBuf::from(state_directory).as_path())
+    {
+        return domain_error_response(
+            "uninstall-service",
+            LinuxCliExitCode::ArgumentOrConfig,
+            DomainError::new(CLI_INSTALL_SERVICE_PLAN_INVALID_CODE, error.message),
+            SOURCE_CLI_RUNTIME,
+        );
+    }
+    let unit_path = PathBuf::from("/etc/systemd/system").join(unit_name);
+    let snapshot_path = PathBuf::from(state_directory)
+        .join(".systemd-snapshots")
+        .join(format!("{unit_name}.removed.unit"));
+    handle_uninstall_service_apply_at(&unit_path, &snapshot_path, confirm)
+}
+
+pub fn handle_uninstall_service_apply_at(
+    unit_path: &std::path::Path,
+    snapshot_path: &std::path::Path,
+    confirm: bool,
+) -> LinuxCliResponse {
+    match remove_systemd_unit(&LinuxManagedServiceUnitRemovalRequest {
+        unit_path: unit_path.to_path_buf(),
+        snapshot_path: snapshot_path.to_path_buf(),
+        confirmed: confirm,
+    }) {
+        Ok(report) => {
+            LinuxCliResponse::success("uninstall-service").with_diagnostics(vec![cli_diagnostic(
+                DiagnosticSeverity::Info,
+                "cli.linux.uninstall_service.removed",
+                format!(
+                    "systemd unit removed={} at {}; snapshot_written={} snapshot_path={}",
+                    report.removed,
+                    report.unit_path.display(),
+                    report.snapshot_written,
+                    report
+                        .snapshot_path
+                        .as_deref()
+                        .map_or_else(|| "none".to_string(), |path| path.display().to_string())
+                ),
+                SOURCE_CLI_RUNTIME,
+            )])
+        }
+        Err(error) => domain_error_response(
+            "uninstall-service",
+            LinuxCliExitCode::PlatformDenied,
+            error,
             SOURCE_CLI_RUNTIME,
         ),
     }

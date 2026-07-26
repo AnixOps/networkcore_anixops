@@ -45,7 +45,7 @@ use networkcore_linux::{
     handle_run_catalog_with_sing_box_and_fetcher, handle_run_url_with_sing_box,
     handle_run_url_with_sing_box_and_fetcher, handle_run_url_with_sing_box_and_node_id,
     handle_start, handle_status, handle_stop, handle_systemd_service_control,
-    native_proxy_engine_service_with_builtin_mitm_plugin,
+    handle_uninstall_service_apply_at, native_proxy_engine_service_with_builtin_mitm_plugin,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files, parse_args,
     registered_core_engine_descriptors, render_response, BrowserCaptureEndpointProbe,
@@ -3299,6 +3299,28 @@ fn uninstall_service_plan_preserves_state_and_requires_purge_confirmation() {
         "/var/lib/networkcore"
     );
     assert_eq!(json["service_removal"]["purge_confirmation_required"], true);
+}
+
+#[test]
+fn uninstall_service_apply_snapshots_and_removes_unit() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-linux-cli-uninstall-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("fixture directory should be created");
+    let unit_path = root.join("networkcore.service");
+    let snapshot_path = root.join("removed.unit");
+    std::fs::write(&unit_path, "managed unit\n").expect("unit should be written");
+
+    let response = handle_uninstall_service_apply_at(&unit_path, &snapshot_path, true);
+    assert!(response.ok);
+    assert!(!unit_path.exists());
+    assert_eq!(
+        std::fs::read_to_string(snapshot_path).unwrap(),
+        "managed unit\n"
+    );
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
