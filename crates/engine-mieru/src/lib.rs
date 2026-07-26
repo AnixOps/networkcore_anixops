@@ -33,6 +33,7 @@ pub const MIERU_PROCESS_ALREADY_RUNNING_CODE: &str = "engine.mieru.process.alrea
 pub const MIERU_PROCESS_START_FAILED_CODE: &str = "engine.mieru.process.start_failed";
 pub const MIERU_PROCESS_STATUS_FAILED_CODE: &str = "engine.mieru.process.status_failed";
 pub const MIERU_PROCESS_STOP_FAILED_CODE: &str = "engine.mieru.process.stop_failed";
+pub const MIERU_COMMAND_FAILED_CODE: &str = "engine.mieru.command.failed";
 pub const MIERU_CONFIG_INVALID_CODE: &str = "engine.mieru.config.invalid";
 pub const MIERU_CONFIG_TRAFFIC_PATTERN_DEFERRED_CODE: &str =
     "engine.mieru.config.traffic_pattern_deferred";
@@ -410,6 +411,139 @@ pub struct MieruProcessLaunchRequest {
     pub working_directory: Option<PathBuf>,
     pub log_path: PathBuf,
     pub expected_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MieruCommandReport {
+    pub exit_code: Option<i32>,
+    pub succeeded: bool,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+pub trait MieruCommandRunner {
+    fn run(&self, executable_path: &Path, arguments: &[String])
+        -> DomainResult<MieruCommandReport>;
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CommandMieruCommandRunner;
+
+impl CommandMieruCommandRunner {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl MieruCommandRunner for CommandMieruCommandRunner {
+    fn run(
+        &self,
+        executable_path: &Path,
+        arguments: &[String],
+    ) -> DomainResult<MieruCommandReport> {
+        let status = Command::new(executable_path)
+            .args(arguments)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map_err(|error| process_error(MIERU_COMMAND_FAILED_CODE, error))?;
+        let exit_code = status.code();
+        Ok(MieruCommandReport {
+            exit_code,
+            succeeded: status.success(),
+            diagnostics: vec![Diagnostic::new(
+                if status.success() {
+                    DiagnosticSeverity::Info
+                } else {
+                    DiagnosticSeverity::Error
+                },
+                if status.success() {
+                    "engine.mieru.command.completed"
+                } else {
+                    MIERU_COMMAND_FAILED_CODE
+                },
+                format!("Mieru command completed with exit code {exit_code:?}"),
+                Some(SOURCE_ENGINE_MIERU_LIFECYCLE.to_string()),
+            )],
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MieruClientControlRequest {
+    pub executable_path: PathBuf,
+    pub expected_sha256: String,
+    pub config_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MieruClientControlReport {
+    pub executable_path: PathBuf,
+    pub config_path: PathBuf,
+    pub applied: bool,
+    pub started: bool,
+    pub stopped: bool,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+pub fn apply_and_start_mieru_client<R: MieruCommandRunner>(
+    runner: &R,
+    request: &MieruClientControlRequest,
+) -> DomainResult<MieruClientControlReport> {
+    verify_local_mieru_binary(&request.executable_path, Some(&request.expected_sha256))?;
+    let apply = runner.run(
+        &request.executable_path,
+        &[
+            "apply".to_string(),
+            "config".to_string(),
+            request.config_path.display().to_string(),
+        ],
+    )?;
+    if !apply.succeeded {
+        return Err(DomainError::new(
+            MIERU_COMMAND_FAILED_CODE,
+            "Mieru apply config command failed",
+        ));
+    }
+    let start = runner.run(&request.executable_path, &["start".to_string()])?;
+    if !start.succeeded {
+        return Err(DomainError::new(
+            MIERU_COMMAND_FAILED_CODE,
+            "Mieru start command failed",
+        ));
+    }
+    let mut diagnostics = apply.diagnostics;
+    diagnostics.extend(start.diagnostics);
+    Ok(MieruClientControlReport {
+        executable_path: request.executable_path.clone(),
+        config_path: request.config_path.clone(),
+        applied: true,
+        started: true,
+        stopped: false,
+        diagnostics,
+    })
+}
+
+pub fn stop_mieru_client<R: MieruCommandRunner>(
+    runner: &R,
+    request: &MieruClientControlRequest,
+) -> DomainResult<MieruClientControlReport> {
+    verify_local_mieru_binary(&request.executable_path, Some(&request.expected_sha256))?;
+    let stop = runner.run(&request.executable_path, &["stop".to_string()])?;
+    if !stop.succeeded {
+        return Err(DomainError::new(
+            MIERU_COMMAND_FAILED_CODE,
+            "Mieru stop command failed",
+        ));
+    }
+    Ok(MieruClientControlReport {
+        executable_path: request.executable_path.clone(),
+        config_path: request.config_path.clone(),
+        applied: false,
+        started: false,
+        stopped: true,
+        diagnostics: stop.diagnostics,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -16,10 +16,14 @@ The current source-only slice provides:
   working directory, log path, and expected digest are caller supplied.
 - a local SOCKS5 readiness report that requires both a live child process and
   a reachable listener; a PID alone is never reported as ready.
+- an official-client command runner for explicit `apply config`, `start`, and
+  `stop` actions; child stdout/stderr are discarded so credentials and complete
+  share links cannot enter NetworkCore diagnostics.
 
 The renderer deliberately keeps traffic-pattern metadata as a deferred
 diagnostic until the official protobuf representation is decoded; it does not
 claim that option is active. Official-release download and the Linux/Windows
-CLI/service wiring remain separate follow-up work. A process is not considered
-ready from a PID alone; the caller must verify the local listener and any Mieru
-control/API evidence before reporting a connected state.
+CLI/service wiring remain separate follow-up work. The command runner models
+the official client control boundary but does not claim listener readiness;
+callers must verify the local listener and any Mieru control/API evidence before
+reporting a connected state.

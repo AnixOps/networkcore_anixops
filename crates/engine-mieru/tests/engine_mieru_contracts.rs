@@ -1,12 +1,15 @@
 use engine_mieru::{
-    parse_mieru_share_link, render_mieru_client_config, verify_local_mieru_binary,
-    MieruClientConfigRequest, MieruManagedProcessState, MieruManagedProcessSupervisor,
-    MIERU_BINARY_DIGEST_MISSING_CODE, MIERU_CONFIG_TRAFFIC_PATTERN_DEFERRED_CODE,
-    MIERU_LISTENER_NOT_READY_CODE, MIERU_RUNTIME_UNWIRED_CODE,
+    apply_and_start_mieru_client, parse_mieru_share_link, render_mieru_client_config,
+    stop_mieru_client, verify_local_mieru_binary, MieruClientConfigRequest,
+    MieruClientControlRequest, MieruCommandReport, MieruCommandRunner, MieruManagedProcessState,
+    MieruManagedProcessSupervisor, MIERU_BINARY_DIGEST_MISSING_CODE,
+    MIERU_CONFIG_TRAFFIC_PATTERN_DEFERRED_CODE, MIERU_LISTENER_NOT_READY_CODE,
+    MIERU_RUNTIME_UNWIRED_CODE,
 };
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 #[test]
 fn mieru_share_link_retains_credentials_and_runtime_options() {
@@ -150,6 +153,69 @@ fn readiness_does_not_promote_a_stopped_process_from_pid_absence() {
         .diagnostics
         .iter()
         .any(|diagnostic| diagnostic.code == MIERU_LISTENER_NOT_READY_CODE));
+}
+
+#[test]
+fn official_client_control_commands_are_explicit_and_redact_process_output() {
+    let root = temporary_root("control");
+    fs::create_dir_all(&root).expect("fixture directory should be created");
+    let binary = root.join("mieru");
+    fs::write(&binary, b"operator supplied binary").expect("fixture binary should be written");
+    let digest = format!("{:x}", Sha256::digest(b"operator supplied binary"));
+    let calls = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
+    let runner = RecordingMieruRunner {
+        calls: calls.clone(),
+    };
+    let request = MieruClientControlRequest {
+        executable_path: binary,
+        expected_sha256: digest,
+        config_path: root.join("client_config.json"),
+    };
+
+    let started = apply_and_start_mieru_client(&runner, &request)
+        .expect("official apply/start commands should succeed");
+    let stopped =
+        stop_mieru_client(&runner, &request).expect("official stop command should succeed");
+
+    assert!(started.applied);
+    assert!(started.started);
+    assert!(stopped.stopped);
+    assert_eq!(
+        calls.lock().unwrap().as_slice(),
+        [
+            vec![
+                "apply".to_string(),
+                "config".to_string(),
+                root.join("client_config.json").display().to_string()
+            ],
+            vec!["start".to_string()],
+            vec!["stop".to_string()],
+        ]
+    );
+    assert!(started
+        .diagnostics
+        .iter()
+        .all(|diagnostic| !diagnostic.message.contains("secret")));
+    let _ = fs::remove_dir_all(&root);
+}
+
+struct RecordingMieruRunner {
+    calls: Arc<Mutex<Vec<Vec<String>>>>,
+}
+
+impl MieruCommandRunner for RecordingMieruRunner {
+    fn run(
+        &self,
+        _executable_path: &std::path::Path,
+        arguments: &[String],
+    ) -> control_domain::DomainResult<MieruCommandReport> {
+        self.calls.lock().unwrap().push(arguments.to_vec());
+        Ok(MieruCommandReport {
+            exit_code: Some(0),
+            succeeded: true,
+            diagnostics: Vec::new(),
+        })
+    }
 }
 
 fn temporary_root(label: &str) -> PathBuf {
