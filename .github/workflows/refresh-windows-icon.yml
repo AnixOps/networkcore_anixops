@@ -14,11 +14,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Install icon conversion tool
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes imagemagick
+
       - name: Generate icon.ico from the tracked PNG
         shell: bash
         run: |
-          ffmpeg -y -i apps/windows-gui/icons/networkcore.png \
-            -vf scale=256:256 apps/windows-gui/icons/icon.ico
+          convert apps/windows-gui/icons/networkcore.png \
+            -define icon:auto-resize=256,128,64,48,32,16 \
+            apps/windows-gui/icons/icon.ico
 
       - name: Upload generated Windows icon
         uses: actions/upload-artifact@v4
