@@ -1914,6 +1914,9 @@ jobs:
           grep -q "handle_node_rollback" apps/linux-cli/src/lib.rs
           grep -q "handle_proxy_apply" apps/linux-cli/src/lib.rs
           grep -q "handle_proxy_rollback" apps/linux-cli/src/lib.rs
+          grep -q "LinuxCliCommand::ProxyApply" apps/linux-cli/src/main.rs
+          grep -q "LinuxCliCommand::ProxyStatus" apps/linux-cli/src/main.rs
+          grep -q "LinuxCliCommand::ProxyRollback" apps/linux-cli/src/main.rs
           grep -q "node rollback" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "parses_core_list_and_mieru_local_install_contract" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "parses_core_mieru_start_and_stop_control_contract" apps/linux-cli/tests/linux_cli_contracts.rs
