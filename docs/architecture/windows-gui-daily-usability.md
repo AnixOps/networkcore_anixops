@@ -28,7 +28,7 @@ windows-gui-tauri-mitm=enable-disable-legacy-native-mitm-active
 | Home | Daily connect/disconnect and a concise runtime summary. | SCM status, managed state, owned sing-box PID probe, and current-user WinINet proxy probe. |
 | Nodes | Search/filter imported NodeCatalog nodes and explicitly switch/test the generated selector. | `config-core::CoreSubscriptionService` and `engine-singbox` loopback Clash API helpers. |
 | Subscriptions | Explicit local import or one saved HTTP(S) URL refresh. | GUI-owned explicit fetch plus existing NodeCatalog/native-JSON import path. No scheduler. |
-| Settings | Login preferences, theme selection, explicit core installation, and managed JSON preflight. | `platform-windows`, `engine-singbox`, and existing managed config APIs. |
+| Settings | Login preferences, theme selection, explicit sing-box/Mieru installation and checks, and managed JSON preflight. | `platform-windows`, `engine-singbox`, `engine-mieru`, and existing managed config APIs. |
 | Diagnostics | Generate a bounded diagnostics report. | Existing ProgramData log/report contract. |
 | Advanced | Explicit service, certificate, driver, network recovery, and HTTPS MITM operations. | Existing explicit authorization, snapshot, rollback, and service paths only. |
 

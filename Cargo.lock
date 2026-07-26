@@ -2339,6 +2339,7 @@ version = "0.1.0"
 dependencies = [
  "config-core",
  "control-domain",
+ "engine-mieru",
  "engine-singbox",
  "platform-windows",
  "rcgen",

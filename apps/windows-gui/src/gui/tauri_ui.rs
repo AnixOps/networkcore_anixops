@@ -10,6 +10,9 @@ use super::{
 };
 use config_core::CoreSubscriptionService;
 use control_domain::{SubscriptionService, SubscriptionSource};
+use engine_mieru::{
+    download_latest_mieru_release, verify_local_mieru_binary, MieruReleaseDownloadRequest,
+};
 use engine_singbox::{
     inspect_sing_box_native_config, measure_sing_box_clash_api_outbound_delay,
     read_sing_box_clash_api_selector, render_sing_box_local_proxy_selector_config,
@@ -199,6 +202,8 @@ pub(super) fn run(debug: bool) -> Result<(), String> {
             remove_subscription,
             check_profile_runtime,
             install_core,
+            install_mieru,
+            verify_mieru,
             install_service,
             start_service,
             stop_service,
@@ -1336,6 +1341,44 @@ fn read_subscription(location: &str) -> Result<(String, Option<PathBuf>, Option<
 async fn install_core(state: State<'_, DesktopAppState>) -> Result<OperationResult, String> {
     let state = state.inner().clone();
     run_blocking(move || install_core_blocking(state)).await
+}
+
+#[tauri::command]
+async fn install_mieru(
+    download_url: String,
+    destination_path: String,
+    expected_sha256: String,
+    confirm: bool,
+) -> Result<OperationResult, String> {
+    run_blocking(move || {
+        let report = download_latest_mieru_release(&MieruReleaseDownloadRequest {
+            download_url,
+            destination_path: PathBuf::from(destination_path),
+            expected_sha256,
+            confirmed: confirm,
+            force: false,
+        })
+        .map_err(|error| error.to_string())?;
+        Ok(OperationResult {
+            message: format!("Mieru verified at {}", report.destination_path.display()),
+        })
+    })
+    .await
+}
+
+#[tauri::command]
+async fn verify_mieru(
+    executable_path: String,
+    expected_sha256: String,
+) -> Result<OperationResult, String> {
+    run_blocking(move || {
+        let report = verify_local_mieru_binary(Path::new(&executable_path), Some(&expected_sha256))
+            .map_err(|error| error.to_string())?;
+        Ok(OperationResult {
+            message: format!("Mieru digest verified: {}", report.sha256),
+        })
+    })
+    .await
 }
 
 fn install_core_blocking(state: DesktopAppState) -> Result<OperationResult, String> {

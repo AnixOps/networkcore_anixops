@@ -10,6 +10,7 @@ description = "Native Windows GUI client for AnixOps NetworkCore."
 config-core = { path = "../../crates/config-core" }
 control-domain = { path = "../../crates/control-domain" }
 engine-singbox = { path = "../../crates/engine-singbox" }
+engine-mieru = { path = "../../crates/engine-mieru" }
 platform-windows = { path = "../../crates/platform-windows" }
 rcgen = { version = "0.14.8", features = ["x509-parser"] }
 serde = { version = "1", features = ["derive"] }

@@ -738,6 +738,8 @@ jobs:
           grep -q "pub fn check_configuration" crates/engine-singbox/src/lib.rs
           grep -q "WindowsManagedSingBoxConfig" crates/platform-windows/src/managed.rs
           grep -q "WindowsManagedMieruConfig" crates/platform-windows/src/managed.rs
+          grep -q "async fn install_mieru" apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q "async fn verify_mieru" apps/windows-gui/src/gui/tauri_ui.rs
           grep -q "apply_and_start_mieru_client" apps/windows-service/src/lib.rs
           grep -q "stop_mieru_client" apps/windows-service/src/lib.rs
           grep -q "download_mieru_release" crates/engine-mieru/src/lib.rs

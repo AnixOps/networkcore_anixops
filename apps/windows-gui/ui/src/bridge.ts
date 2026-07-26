@@ -91,6 +91,15 @@ export const desktop = {
   removeSubscription: (id: string) => invoke<OperationResult>("remove_subscription", { id }),
   checkProfileRuntime: () => invoke<OperationResult>("check_profile_runtime"),
   installCore: () => invoke<OperationResult>("install_core"),
+  installMieru: (downloadUrl: string, destinationPath: string, expectedSha256: string) =>
+    invoke<OperationResult>("install_mieru", {
+      downloadUrl,
+      destinationPath,
+      expectedSha256,
+      confirm: true,
+    }),
+  verifyMieru: (executablePath: string, expectedSha256: string) =>
+    invoke<OperationResult>("verify_mieru", { executablePath, expectedSha256 }),
   installService: () => invoke<OperationResult>("install_service"),
   startService: () => invoke<OperationResult>("start_service"),
   stopService: () => invoke<OperationResult>("stop_service"),
