@@ -10892,10 +10892,18 @@ fn parse_core_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseE
                     "core install requires sing-box or mieru",
                 ));
             };
+            if engine == "sing-box" {
+                let options = parse_options(&args[2..])?;
+                return Ok(LinuxCliCommand::InstallSingBox {
+                    install_dir: options.install_dir,
+                    force: options.force,
+                    format: options.format,
+                });
+            }
             if engine != "mieru" {
                 return Err(parse_error(
                     CLI_ARGUMENT_UNKNOWN_CODE,
-                    "core install currently accepts only mieru; use install-sing-box for sing-box",
+                    "core install accepts only sing-box or mieru",
                 ));
             }
             let options = parse_options(&args[2..])?;
@@ -11722,6 +11730,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux prepare-config --config <path> [--format text|json]\n",
         "  networkcore-linux validate <config-path> [--format text|json]\n",
         "  networkcore-linux core list [--format text|json]\n",
+        "  networkcore-linux core install sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux core install mieru --binary <local-path> --sha256 <digest> [--format text|json]\n",
         "  networkcore-linux start --config <path> [--enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path>] [--enable-script-runtime --script-runner <path> --script-map <url=file> ...] --confirm [--format text|json]\n",
         "  networkcore-linux connect --config <path> [same explicit foreground options as start]\n",
@@ -11757,6 +11766,7 @@ pub const fn cli_help_text() -> &'static str {
         "  validate          Validate one explicit config path (alias of prepare-config).\n",
         "  core list         List adapter descriptors without starting a core.\n",
         "  core install mieru Verify a user-supplied Mieru binary; no download or bundling occurs.\n",
+        "  core install sing-box Download and verify the official sing-box archive.\n",
         "  start             Start the current foreground runtime; HTTPS MITM requires explicit CA paths and confirmation.\n",
         "  connect           Alias for the explicit foreground start path; managed service control is separate.\n",
         "  stop              Report that daemon stop is unavailable in this build.\n",

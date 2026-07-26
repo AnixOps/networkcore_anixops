@@ -2941,6 +2941,30 @@ fn parses_install_sing_box_command_and_alias() {
 }
 
 #[test]
+fn parses_core_install_sing_box_alias() {
+    let command = parse_args([
+        "core",
+        "install",
+        "sing-box",
+        "--install-dir",
+        "/tmp/networkcore-engines",
+        "--force",
+        "--format",
+        "json",
+    ])
+    .expect("core install sing-box should parse");
+
+    assert_eq!(
+        command,
+        LinuxCliCommand::InstallSingBox {
+            install_dir: Some("/tmp/networkcore-engines".to_string()),
+            force: true,
+            format: OutputFormat::Json,
+        }
+    );
+}
+
+#[test]
 fn parses_and_renders_install_service_plan_without_system_mutation() {
     let command = parse_args([
         "install-service",
