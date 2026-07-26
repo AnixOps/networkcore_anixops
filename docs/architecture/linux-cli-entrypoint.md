@@ -113,7 +113,9 @@ CLI 作为应用入口层存在，当前首个源码边界是 `apps/linux-cli`�
 - 首版 `stop` 可以返回 `cli.linux.stop.unavailable_without_daemon`，并说明当前只支持前台进程内停止。
 - `status` 可以输出平台能力、配置预检结果或当前进程 runtime 状态。
 - `status` 不应扫描任意系统进程并推断运行状态。
-- 后续 daemon/control socket 设计完成前，不定义跨进程 stop、reload 或 status 协议。
+- 前台 CLI 不定义跨进程 stop、reload 或 status 协议；显式 systemd unit 的
+  `service reload --confirm` 是受 platform adapter 约束的 managed-service 控制入口，不能读取或伪造
+  foreground runtime 状态。
 
 推荐 CLI 诊断：
 
