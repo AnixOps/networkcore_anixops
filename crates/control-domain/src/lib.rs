@@ -958,10 +958,7 @@ pub trait ProxyEngineAdapter {
 
     fn validate(&self, engine_config: &ProxyEngineConfig) -> Vec<Diagnostic>;
 
-    fn prepare(
-        &self,
-        engine_config: &ProxyEngineConfig,
-    ) -> DomainResult<ProxyEnginePrepareReport>;
+    fn prepare(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEnginePrepareReport>;
 
     fn start(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus>;
 
@@ -971,10 +968,7 @@ pub trait ProxyEngineAdapter {
 
     fn stop(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus>;
 
-    fn rollback(
-        &self,
-        request: &ProxyEngineRollbackRequest,
-    ) -> DomainResult<ProxyEngineStatus>;
+    fn rollback(&self, request: &ProxyEngineRollbackRequest) -> DomainResult<ProxyEngineStatus>;
 
     fn events(&self, engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>>;
 }
@@ -993,10 +987,7 @@ where
         ProxyEngineService::validate_config(self, engine_config)
     }
 
-    fn prepare(
-        &self,
-        engine_config: &ProxyEngineConfig,
-    ) -> DomainResult<ProxyEnginePrepareReport> {
+    fn prepare(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEnginePrepareReport> {
         let diagnostics = self.validate(engine_config);
         if diagnostics
             .iter()
@@ -1037,10 +1028,7 @@ where
         ProxyEngineService::stop(self, engine_id)
     }
 
-    fn rollback(
-        &self,
-        _request: &ProxyEngineRollbackRequest,
-    ) -> DomainResult<ProxyEngineStatus> {
+    fn rollback(&self, _request: &ProxyEngineRollbackRequest) -> DomainResult<ProxyEngineStatus> {
         Err(DomainError::new(
             "control.engine.rollback_unsupported",
             "proxy engine adapter does not own configuration rollback",

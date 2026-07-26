@@ -13,8 +13,7 @@ use control_domain::{
     NodeDescriptor, PlatformCapabilities, PlatformCapabilityService, PlatformCapabilityStatus,
     PlatformFeatureState, PluginPackage, PluginPermission, PluginResult, ProxyEngineAdapter,
     ProxyEngineConfig, ProxyEngineEvent, ProxyEngineLifecycleState, ProxyEnginePrepareReport,
-    ProxyEngineStatus,
-    SubscriptionService, SubscriptionSource,
+    ProxyEngineStatus, SubscriptionService, SubscriptionSource,
 };
 
 pub const RUNTIME_SUBSCRIPTION_NODE_ID_DUPLICATE_CODE: &str =

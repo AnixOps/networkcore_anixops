@@ -3,10 +3,9 @@ use control_domain::{
     DomainResult, Endpoint, ListenerBind, ListenerDescriptor, ListenerKind, ListenerNetwork,
     ListenerRoute, MetadataEntry, MitmCertificateStatus, NodeCatalog, NodeDescriptor,
     OperatingSystem, PlatformCapabilities, PlatformCapabilityService, PlatformCapabilityStatus,
-    PlatformFeatureState, Protocol, ProxyEngineCapability, ProxyEngineConfig,
+    PlatformFeatureState, Protocol, ProxyEngineAdapter, ProxyEngineCapability, ProxyEngineConfig,
     ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineKind, ProxyEngineLifecycleState,
-    ProxyEngineAdapter, ProxyEngineService, ProxyEngineStatus, RawSubscription, RouteAction,
-    RuleSet, SchemaVersion,
+    ProxyEngineService, ProxyEngineStatus, RawSubscription, RouteAction, RuleSet, SchemaVersion,
     SubscriptionDocument, SubscriptionService, SubscriptionSource,
 };
 
@@ -293,7 +292,10 @@ fn proxy_engine_port_can_be_implemented_by_an_adapter() {
     let prepared = ProxyEngineAdapter::prepare(&engine, &engine_config)
         .expect("adapter should capture a lifecycle snapshot");
     assert_eq!(prepared.snapshot.engine_id, "native");
-    assert_eq!(prepared.snapshot.status.state, ProxyEngineLifecycleState::Running);
+    assert_eq!(
+        prepared.snapshot.status.state,
+        ProxyEngineLifecycleState::Running
+    );
     let rollback = ProxyEngineAdapter::rollback(
         &engine,
         &control_domain::ProxyEngineRollbackRequest {
