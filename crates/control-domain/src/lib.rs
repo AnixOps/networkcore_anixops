@@ -529,6 +529,46 @@ pub struct ProxyEngineEvent {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// Maximum number of lifecycle events exposed by one control-plane query.
+pub const MAX_PROXY_ENGINE_EVENTS: usize = 128;
+
+/// Verifies the stable identity and expected lifecycle state returned by an adapter.
+pub fn validate_proxy_engine_status(
+    status: &ProxyEngineStatus,
+    expected_engine_id: &str,
+    expected_state: ProxyEngineLifecycleState,
+) -> DomainResult<()> {
+    if status.engine_id != expected_engine_id {
+        return Err(DomainError::new(
+            "control.engine.status_engine_id_mismatch",
+            format!(
+                "proxy engine adapter returned status for '{}' while '{}' was requested",
+                status.engine_id, expected_engine_id
+            ),
+        ));
+    }
+
+    if status.state != expected_state {
+        return Err(DomainError::new(
+            "control.engine.lifecycle_state_unexpected",
+            format!(
+                "proxy engine '{}' returned state {:?}, expected {:?}",
+                expected_engine_id, status.state, expected_state
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Returns only the newest bounded portion of an adapter event history.
+pub fn bound_proxy_engine_events(
+    events: Vec<ProxyEngineEvent>,
+) -> Vec<ProxyEngineEvent> {
+    let start = events.len().saturating_sub(MAX_PROXY_ENGINE_EVENTS);
+    events.into_iter().skip(start).collect()
+}
+
 /// Compiled routing rules.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompiledRules {
@@ -1231,5 +1271,55 @@ mod tests {
         assert!(outcome.script_dispatch.is_none());
         assert_eq!(outcome.audits[0].action, "legacy-http-event:request-rich");
         assert_eq!(outcome.diagnostics[0].code, "plugin.legacy_handled");
+    }
+
+    #[test]
+    fn proxy_engine_status_contract_rejects_identity_and_state_drift() {
+        let status = ProxyEngineStatus {
+            engine_id: "other".to_string(),
+            state: ProxyEngineLifecycleState::Stopped,
+            diagnostics: Vec::new(),
+        };
+
+        let error = validate_proxy_engine_status(
+            &status,
+            "native",
+            ProxyEngineLifecycleState::Running,
+        )
+        .expect_err("adapter identity drift must be rejected");
+        assert_eq!(error.code, "control.engine.status_engine_id_mismatch");
+
+        let status = ProxyEngineStatus {
+            engine_id: "native".to_string(),
+            state: ProxyEngineLifecycleState::Stopped,
+            diagnostics: Vec::new(),
+        };
+        let error = validate_proxy_engine_status(
+            &status,
+            "native",
+            ProxyEngineLifecycleState::Running,
+        )
+        .expect_err("unexpected lifecycle state must be rejected");
+        assert_eq!(error.code, "control.engine.lifecycle_state_unexpected");
+    }
+
+    #[test]
+    fn proxy_engine_events_are_bounded_to_the_newest_entries() {
+        let events = (0..MAX_PROXY_ENGINE_EVENTS + 3)
+            .map(|index| ProxyEngineEvent {
+                engine_id: "native".to_string(),
+                kind: ProxyEngineEventKind::HealthChanged,
+                diagnostics: vec![Diagnostic::new(
+                    DiagnosticSeverity::Info,
+                    index.to_string(),
+                    "event",
+                    None,
+                )],
+            })
+            .collect();
+
+        let bounded = bound_proxy_engine_events(events);
+        assert_eq!(bounded.len(), MAX_PROXY_ENGINE_EVENTS);
+        assert_eq!(bounded[0].diagnostics[0].code, "3");
     }
 }

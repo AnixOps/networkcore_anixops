@@ -12,7 +12,8 @@ use control_domain::{
     MitmPluginService, NodeCatalog, NodeDescriptor, PlatformCapabilities,
     PlatformCapabilityService, PlatformCapabilityStatus, PlatformFeatureState, PluginPackage,
     PluginPermission, PluginResult, ProxyEngineConfig, ProxyEngineEvent, ProxyEngineService,
-    ProxyEngineStatus, SubscriptionService, SubscriptionSource,
+    ProxyEngineLifecycleState, ProxyEngineStatus, SubscriptionService, SubscriptionSource,
+    bound_proxy_engine_events, validate_proxy_engine_status,
 };
 
 pub const RUNTIME_SUBSCRIPTION_NODE_ID_DUPLICATE_CODE: &str =
@@ -22,6 +23,8 @@ pub const RUNTIME_SUBSCRIPTION_RULES_DEFERRED_CODE: &str = "runtime.subscription
 pub const RUNTIME_SUBSCRIPTION_CATALOG_READY_CODE: &str = "runtime.subscription.catalog_ready";
 pub const RUNTIME_SUBSCRIPTION_SOURCE_UNSUPPORTED_CODE: &str =
     "runtime.subscription.source_unsupported";
+
+pub const RUNTIME_ENGINE_STATUS_CONTRACT_CODE: &str = "runtime.engine.status_contract_violation";
 
 /// Prepared configuration and platform context ready for runtime use.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -204,6 +207,17 @@ where
         diagnostics.extend(self.validate_engine_config(&engine_config)?);
 
         let engine_status = self.engine.start(&engine_config)?;
+        validate_proxy_engine_status(
+            &engine_status,
+            &engine_config.engine_id,
+            ProxyEngineLifecycleState::Running,
+        )
+        .map_err(|error| {
+            DomainError::new(
+                RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+                format!("engine start contract violation: {error}"),
+            )
+        })?;
         diagnostics.extend(engine_status.diagnostics.clone());
 
         Ok(RuntimeOperationResult {
@@ -233,6 +247,17 @@ where
         diagnostics.extend(self.validate_engine_config(&engine_config)?);
 
         let engine_status = self.engine.start(&engine_config)?;
+        validate_proxy_engine_status(
+            &engine_status,
+            &engine_config.engine_id,
+            ProxyEngineLifecycleState::Running,
+        )
+        .map_err(|error| {
+            DomainError::new(
+                RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+                format!("engine start contract violation: {error}"),
+            )
+        })?;
         diagnostics.extend(engine_status.diagnostics.clone());
 
         Ok(RuntimeOperationResult {
@@ -255,6 +280,17 @@ where
         diagnostics.extend(self.validate_engine_config(&engine_config)?);
 
         let engine_status = self.engine.reload(&engine_config)?;
+        validate_proxy_engine_status(
+            &engine_status,
+            &engine_config.engine_id,
+            ProxyEngineLifecycleState::Running,
+        )
+        .map_err(|error| {
+            DomainError::new(
+                RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+                format!("engine reload contract violation: {error}"),
+            )
+        })?;
         diagnostics.extend(engine_status.diagnostics.clone());
 
         Ok(RuntimeOperationResult {
@@ -284,6 +320,17 @@ where
         diagnostics.extend(self.validate_engine_config(&engine_config)?);
 
         let engine_status = self.engine.reload(&engine_config)?;
+        validate_proxy_engine_status(
+            &engine_status,
+            &engine_config.engine_id,
+            ProxyEngineLifecycleState::Running,
+        )
+        .map_err(|error| {
+            DomainError::new(
+                RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+                format!("engine reload contract violation: {error}"),
+            )
+        })?;
         diagnostics.extend(engine_status.diagnostics.clone());
 
         Ok(RuntimeOperationResult {
@@ -296,7 +343,15 @@ where
 
     /// Stops a runtime engine through the proxy engine port.
     pub fn stop_runtime(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
-        self.engine.stop(engine_id)
+        let status = self.engine.stop(engine_id)?;
+        validate_proxy_engine_status(&status, engine_id, ProxyEngineLifecycleState::Stopped)
+            .map_err(|error| {
+                DomainError::new(
+                    RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+                    format!("engine stop contract violation: {error}"),
+                )
+            })?;
+        Ok(status)
     }
 
     /// Reads current platform and engine status.
@@ -305,6 +360,14 @@ where
         let capabilities = platform_capabilities_from_status(&platform);
         let mut diagnostics = platform_diagnostics(&platform);
         let engine_status = self.engine.status(engine_id)?;
+        validate_proxy_engine_status(&engine_status, engine_id, engine_status.state).map_err(
+            |error| {
+                DomainError::new(
+                    RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+                    format!("engine status contract violation: {error}"),
+                )
+            },
+        )?;
 
         diagnostics.extend(engine_status.diagnostics.clone());
 
@@ -318,7 +381,7 @@ where
 
     /// Reads runtime events for an engine through the proxy engine port.
     pub fn runtime_events(&self, engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>> {
-        self.engine.events(engine_id)
+        Ok(bound_proxy_engine_events(self.engine.events(engine_id)?))
     }
 
     fn prepare_engine_config(
