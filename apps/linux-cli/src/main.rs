@@ -69,6 +69,22 @@ fn main() {
                 networkcore_linux::handle_core_list(
                     networkcore_linux::registered_core_engine_descriptors(),
                 )
+            } else if let networkcore_linux::LinuxCliCommand::InstallMieru {
+                binary_path,
+                expected_sha256,
+                release_url,
+                confirm,
+                force,
+                ..
+            } = &command
+            {
+                networkcore_linux::handle_install_mieru_with_options(
+                    binary_path,
+                    expected_sha256,
+                    release_url.as_deref(),
+                    *confirm,
+                    *force,
+                )
             } else if let networkcore_linux::LinuxCliCommand::StartMieru {
                 binary_path,
                 expected_sha256,

@@ -2888,9 +2888,41 @@ fn parses_core_list_and_mieru_local_install_contract() {
             binary_path: "/opt/mieru".to_string(),
             expected_sha256: "0123456789012345678901234567890123456789012345678901234567890123"
                 .to_string(),
+            release_url: None,
+            confirm: false,
+            force: false,
             format: OutputFormat::Text,
         }
     );
+}
+
+#[test]
+fn parses_core_mieru_official_release_install_contract() {
+    let command = parse_args([
+        "core",
+        "install",
+        "mieru",
+        "--url",
+        "https://github.com/enfein/mieru/releases/download/v1.0.0/mieru-linux-amd64",
+        "--binary",
+        "/opt/mieru",
+        "--sha256",
+        "0123456789012345678901234567890123456789012345678901234567890123",
+        "--confirm",
+    ])
+    .expect("official Mieru release install should parse");
+
+    assert!(matches!(
+        command,
+        LinuxCliCommand::InstallMieru {
+            binary_path,
+            release_url: Some(release_url),
+            confirm: true,
+            force: false,
+            ..
+        } if binary_path == "/opt/mieru"
+            && release_url.starts_with("https://github.com/enfein/mieru/releases/download/")
+    ));
 }
 
 #[test]

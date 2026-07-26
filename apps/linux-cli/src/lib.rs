@@ -425,6 +425,9 @@ pub enum LinuxCliCommand {
     InstallMieru {
         binary_path: String,
         expected_sha256: String,
+        release_url: Option<String>,
+        confirm: bool,
+        force: bool,
         format: OutputFormat,
     },
     StartMieru {
@@ -5525,8 +5528,17 @@ where
         LinuxCliCommand::InstallMieru {
             binary_path,
             expected_sha256,
+            release_url,
+            confirm,
+            force,
             ..
-        } => handle_install_mieru(&binary_path, &expected_sha256),
+        } => handle_install_mieru_with_options(
+            &binary_path,
+            &expected_sha256,
+            release_url.as_deref(),
+            confirm,
+            force,
+        ),
         LinuxCliCommand::StartMieru { .. } | LinuxCliCommand::StopMieru { .. } => {
             handle_unwired_command("core mieru lifecycle")
         }
@@ -5556,8 +5568,17 @@ where
         LinuxCliCommand::InstallMieru {
             binary_path,
             expected_sha256,
+            release_url,
+            confirm,
+            force,
             ..
-        } => handle_install_mieru(&binary_path, &expected_sha256),
+        } => handle_install_mieru_with_options(
+            &binary_path,
+            &expected_sha256,
+            release_url.as_deref(),
+            confirm,
+            force,
+        ),
         LinuxCliCommand::StartMieru { .. } | LinuxCliCommand::StopMieru { .. } => {
             handle_unwired_command("core mieru lifecycle")
         }
@@ -5670,6 +5691,43 @@ pub fn registered_core_engine_descriptors() -> Vec<ProxyEngineDescriptor> {
 }
 
 pub fn handle_install_mieru(binary_path: &str, expected_sha256: &str) -> LinuxCliResponse {
+    handle_install_mieru_with_options(binary_path, expected_sha256, None, false, false)
+}
+
+pub fn handle_install_mieru_with_options(
+    binary_path: &str,
+    expected_sha256: &str,
+    release_url: Option<&str>,
+    confirm: bool,
+    force: bool,
+) -> LinuxCliResponse {
+    if let Some(download_url) = release_url {
+        let request = engine_mieru::MieruReleaseDownloadRequest {
+            download_url: download_url.to_string(),
+            destination_path: PathBuf::from(binary_path),
+            expected_sha256: expected_sha256.to_string(),
+            confirmed: confirm,
+            force,
+        };
+        return match engine_mieru::download_latest_mieru_release(&request) {
+            Ok(report) => LinuxCliResponse::success("core install mieru")
+                .with_mieru_install(LinuxMieruInstallStatus {
+                    binary_path: report.destination_path.display().to_string(),
+                    sha256: report.sha256,
+                    verified: true,
+                    downloaded: report.downloaded,
+                    action: "download".to_string(),
+                    config_path: None,
+                })
+                .with_diagnostics(report.diagnostics),
+            Err(error) => domain_error_response(
+                "core install mieru",
+                LinuxCliExitCode::EngineDenied,
+                error,
+                SOURCE_CLI_RUNTIME,
+            ),
+        };
+    }
     match engine_mieru::verify_local_mieru_binary(
         std::path::Path::new(binary_path),
         Some(expected_sha256),
@@ -11183,6 +11241,9 @@ fn parse_core_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseE
             Ok(LinuxCliCommand::InstallMieru {
                 binary_path,
                 expected_sha256,
+                release_url: options.url,
+                confirm: options.confirm,
+                force: options.force,
                 format: options.format,
             })
         }
@@ -12041,6 +12102,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux core list [--format text|json]\n",
         "  networkcore-linux core install sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux core install mieru --binary <local-path> --sha256 <digest> [--format text|json]\n",
+        "  networkcore-linux core install mieru --url <official-release-asset> --binary <destination> --sha256 <digest> --confirm [--force] [--format text|json]\n",
         "  networkcore-linux core start mieru --binary <local-path> --sha256 <digest> --config <absolute-path> [--format text|json]\n",
         "  networkcore-linux core stop mieru --binary <local-path> --sha256 <digest> --config <absolute-path> [--format text|json]\n",
         "  networkcore-linux start --config <path> [--enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path>] [--enable-script-runtime --script-runner <path> --script-map <url=file> ...] --confirm [--format text|json]\n",

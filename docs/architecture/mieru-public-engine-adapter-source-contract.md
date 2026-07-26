@@ -11,7 +11,9 @@ structured `mierus://` parsing, `Protocol::Mieru` normalization, official-shape
 client config rendering, explicit local binary SHA-256 verification, and an
 injectable cross-platform child-process supervisor. The Linux CLI exposes
 read-only `core list` and explicit local `core install mieru --binary <path>
---sha256 <digest>` verification. An explicitly confirmed download may target
+--sha256 <digest>` verification, or an explicitly confirmed
+`--url <official-release-asset> --binary <destination> --sha256 <digest>`
+download. Downloads may target
 only an `enfein/mieru` GitHub release asset and must provide the expected digest;
 it does not silently download or wire Mieru into the Windows service or system
 proxy path. Linux CLI also exposes explicit
