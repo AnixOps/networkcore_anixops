@@ -112,6 +112,8 @@ current-main-subscription-background=blocked
 
 这些机器状态是当前 `main` 的唯一发布判定；后文历史切片不得把 source-only 能力解释为 tag release。
 
+当前兼容层保留 Clash YAML parser gate、sing-box JSON parser gate、Surge proxy line parser gate、Loon proxy line parser gate 和 Quantumult X proxy/server line parser gate；它们只在上述显式前台输入边界内使用，不启用后台刷新或运行时控制。
+
 - 当前 Linux source release 切片是 `v0.1.2-alpha.3`：Linux `start` 在显式
   `--enable-https-mitm --mitm-ca-cert --mitm-ca-key --confirm` 下可对 CONNECT authority/SNI 一致的
   流量签发 authority-bound leaf、终止下游 TLS、以 web-PKI 校验上游 TLS，并在单个有界 HTTP/1.1
