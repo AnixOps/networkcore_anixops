@@ -20,6 +20,12 @@ future action.
 manages one explicit environment proxy file. `proxy status` is read-only and `proxy rollback --confirm` refuses
 to overwrite an externally changed file; these commands do not discover or mutate a desktop default proxy.
 
+`networkcore-linux mitm certificate trust-apply --cert-file <path> --trust-file <absolute-path> --snapshot <absolute-path> --confirm`
+manages the Ubuntu-style explicit CA trust-file path and refreshes it through `update-ca-certificates`.
+`trust-rollback` restores the matching snapshot after the same explicit confirmation. The adapter verifies the
+written PEM, refuses symlinks and external changes, and does not discover distro defaults or mutate NSS,
+p11-kit, Firefox, browser profiles, HTTPS decryption, or rewrite policy.
+
 `networkcore-linux core list` reports the registered public engine descriptors.
 `networkcore-linux core install mieru --binary <path> --sha256 <digest>` verifies
 an operator-provided Mieru executable locally and returns its digest; it does not
