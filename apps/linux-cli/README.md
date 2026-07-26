@@ -1,10 +1,10 @@
 # networkcore-linux
 
-`networkcore-linux install-service --service-executable <absolute-path> --confirm` renders an explicit
-systemd unit plan through `platform-linux::systemd`; optional `--service-unit`, `--service-description`,
+`networkcore-linux install-service --service-executable <absolute-path> --confirm` renders and writes an explicit
+systemd unit through `platform-linux::systemd`; optional `--service-unit`, `--service-description`,
 `--service-arg`, `--service-user`, `--service-group`, and `--service-state-dir` parameters are included in
-the plan. The command returns the unit content in text/JSON and does not write system files, call
-`systemctl`, enable a unit, or start a service. The source boundary is documented in
+the unit. Existing units are snapshotted under the selected state directory before replacement and the written
+content is verified. The command does not call `systemctl`, enable a unit, or start a service. The source boundary is documented in
 `docs/architecture/linux-managed-service-unit-source-contract.md`.
 `networkcore-linux uninstall-service --confirm` renders the matching removal plan while preserving the
 state directory; it does not delete files or call `systemctl`, and purge remains a separate future action.
@@ -198,4 +198,4 @@ state. The `start` path can block plugin-rejected explicit SOCKS5 CONNECT
 tunnels, and `--proxy-scheme socks5` can route a dedicated browser plan to that
 hook, but neither path writes browser/system proxy state or proves HTTPS MITM.
 
-This crate does not modify TUN, DNS, routing, firewall, system trust stores, browser trust stores, profile trust state, service managers, or daemon state. Certificate commands only write operator-provided CA certificate PEM/private key PEM artifact paths, optional CA PEM profile copy, and rollback snapshots. `start` is foreground-only, maps Unix `SIGINT`/`SIGTERM` and injected lifecycle interruption to `cli.linux.start.lifecycle_interrupted` with exit code 130, then stops the current in-process runtime and aggregates native release diagnostics such as `engine.native.runtime.accept_loop_stopped` and `engine.native.runtime.released`. `run-url` is also foreground-only and does not imply daemon, control socket, cross-process `stop`, background `status`, managed logs, packaging, or service installation support. All validation runs in GitHub Actions according to `docs/ci-cd-policy.md`.
+This crate does not modify TUN, DNS, routing, firewall, system trust stores, browser trust stores, profile trust state, or daemon state. `install-service --confirm` is the explicit exception for a NetworkCore-owned systemd unit file: it snapshots/replaces/verifies that file but does not invoke `systemctl` or change service state. Certificate commands only write operator-provided CA certificate PEM/private key PEM artifact paths, optional CA PEM profile copy, and rollback snapshots. `start` is foreground-only, maps Unix `SIGINT`/`SIGTERM` and injected lifecycle interruption to `cli.linux.start.lifecycle_interrupted` with exit code 130, then stops the current in-process runtime and aggregates native release diagnostics such as `engine.native.runtime.accept_loop_stopped` and `engine.native.runtime.released`. `run-url` is also foreground-only and does not imply daemon, control socket, cross-process `stop`, background `status`, managed logs, packaging, or service installation support. All validation runs in GitHub Actions according to `docs/ci-cd-policy.md`.

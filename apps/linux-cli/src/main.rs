@@ -69,6 +69,28 @@ fn main() {
                 networkcore_linux::handle_core_list(
                     networkcore_linux::registered_core_engine_descriptors(),
                 )
+            } else if let networkcore_linux::LinuxCliCommand::InstallService {
+                unit_name,
+                description,
+                executable_path,
+                arguments,
+                service_user,
+                service_group,
+                state_directory,
+                confirm,
+                ..
+            } = &command
+            {
+                networkcore_linux::handle_install_service_apply(
+                    unit_name,
+                    description,
+                    executable_path,
+                    arguments,
+                    service_user,
+                    service_group,
+                    state_directory,
+                    *confirm,
+                )
             } else if matches!(
                 &command,
                 networkcore_linux::LinuxCliCommand::InstallSingBox { .. }

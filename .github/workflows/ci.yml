@@ -707,8 +707,11 @@ jobs:
           grep -q "parses_mieru_share_links" crates/config-core/tests/config_core_contracts.rs
           grep -q "linux-managed-service-unit-source-contract" docs/architecture/linux-managed-service-unit-source-contract.md
           grep -q "render_systemd_unit" crates/platform-linux/src/systemd.rs
+          grep -q "install_systemd_unit" crates/platform-linux/src/systemd.rs
           grep -q "Restart=on-failure" crates/platform-linux/src/systemd.rs
           grep -q "renders_bounded_non_root_systemd_unit" crates/platform-linux/tests/systemd_unit_contracts.rs
+          grep -q "installs_unit_with_snapshot_and_write_verification" crates/platform-linux/tests/systemd_unit_contracts.rs
+          grep -q "refuses_to_replace_a_systemd_unit_symlink" crates/platform-linux/tests/systemd_unit_contracts.rs
           grep -q "plan_systemd_unit_removal" crates/platform-linux/src/systemd.rs
           grep -q "removal_plan_preserves_state" crates/platform-linux/tests/systemd_unit_contracts.rs
           grep -q "validate_proxy_engine_transition" crates/control-runtime/src/lib.rs
@@ -1857,7 +1860,9 @@ jobs:
           grep -q "restart_is_explicitly_unavailable" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "handle_core_list" apps/linux-cli/src/lib.rs
           grep -q "handle_install_mieru" apps/linux-cli/src/lib.rs
+          grep -q "handle_install_service_apply" apps/linux-cli/src/lib.rs
           grep -q "parses_core_list_and_mieru_local_install_contract" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "install_service_apply_writes_and_verifies_unit_with_snapshot" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "parses_core_install_sing_box_alias" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "BrowserCaptureProcessRunner" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureEndpointProbe" docs/architecture/linux-mitm-browser-capture-source-contract.md

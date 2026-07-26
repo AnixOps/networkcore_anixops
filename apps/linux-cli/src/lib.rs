@@ -24,7 +24,8 @@ use mitm_policy::{
     MITM_POLICY_AD_BLOCK_PLUGIN_ID,
 };
 use platform_linux::systemd::{
-    plan_systemd_unit_removal, render_systemd_unit, LinuxManagedServiceUnitPlan,
+    install_systemd_unit, plan_systemd_unit_removal, render_systemd_unit,
+    LinuxManagedServiceUnitInstallRequest, LinuxManagedServiceUnitPlan,
     LinuxManagedServiceUnitRemovalPlan, LinuxManagedServiceUnitRequest,
 };
 use rcgen::{
@@ -158,6 +159,7 @@ pub const CLI_RUNTIME_UNWIRED_CODE: &str = "cli.linux.runtime.unwired";
 pub const CLI_INSTALL_SERVICE_CONFIRMATION_REQUIRED_CODE: &str =
     "cli.linux.install_service.confirmation_required";
 pub const CLI_INSTALL_SERVICE_PLAN_INVALID_CODE: &str = "cli.linux.install_service.plan_invalid";
+pub const CLI_INSTALL_SERVICE_WRITE_FAILED_CODE: &str = "cli.linux.install_service.write_failed";
 pub const CLI_SING_BOX_INSTALL_FAILED_CODE: &str = "cli.linux.sing_box.install_failed";
 pub const CLI_RUN_URL_PARSE_FAILED_CODE: &str = "cli.linux.run_url.parse_failed";
 pub const CLI_RUN_URL_FILE_URI_INVALID_CODE: &str = "cli.linux.run_url.file_uri_invalid";
@@ -5710,6 +5712,112 @@ pub fn handle_install_service_plan(
             SOURCE_CLI_RUNTIME,
         ),
     }
+}
+
+pub fn handle_install_service_apply(
+    unit_name: &str,
+    description: &str,
+    executable_path: &str,
+    arguments: &[String],
+    service_user: &str,
+    service_group: &str,
+    state_directory: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    let unit_path = PathBuf::from("/etc/systemd/system").join(unit_name);
+    let snapshot_path = PathBuf::from(state_directory)
+        .join(".systemd-snapshots")
+        .join(format!("{unit_name}.unit"));
+    handle_install_service_apply_at(
+        unit_name,
+        description,
+        executable_path,
+        arguments,
+        service_user,
+        service_group,
+        state_directory,
+        &unit_path,
+        &snapshot_path,
+        confirm,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_install_service_apply_at(
+    unit_name: &str,
+    description: &str,
+    executable_path: &str,
+    arguments: &[String],
+    service_user: &str,
+    service_group: &str,
+    state_directory: &str,
+    unit_path: &std::path::Path,
+    snapshot_path: &std::path::Path,
+    confirm: bool,
+) -> LinuxCliResponse {
+    if !confirm {
+        return LinuxCliResponse::failure(
+            "install-service",
+            LinuxCliExitCode::PlatformDenied,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_INSTALL_SERVICE_CONFIRMATION_REQUIRED_CODE,
+                "install-service requires explicit --confirm before writing a systemd unit",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    let request = LinuxManagedServiceUnitRequest {
+        unit_name: unit_name.to_string(),
+        description: description.to_string(),
+        executable_path: PathBuf::from(executable_path),
+        arguments: arguments.to_vec(),
+        service_user: service_user.to_string(),
+        service_group: service_group.to_string(),
+        state_directory: PathBuf::from(state_directory),
+    };
+    let plan = match render_systemd_unit(&request) {
+        Ok(plan) => plan,
+        Err(error) => {
+            return domain_error_response(
+                "install-service",
+                LinuxCliExitCode::ArgumentOrConfig,
+                DomainError::new(CLI_INSTALL_SERVICE_PLAN_INVALID_CODE, error.message),
+                SOURCE_CLI_RUNTIME,
+            )
+        }
+    };
+    let report = match install_systemd_unit(&LinuxManagedServiceUnitInstallRequest {
+        unit_path: unit_path.to_path_buf(),
+        snapshot_path: snapshot_path.to_path_buf(),
+        content: plan.content.clone(),
+    }) {
+        Ok(report) => report,
+        Err(error) => {
+            return domain_error_response(
+                "install-service",
+                LinuxCliExitCode::PlatformDenied,
+                DomainError::new(CLI_INSTALL_SERVICE_WRITE_FAILED_CODE, error.message),
+                SOURCE_CLI_RUNTIME,
+            )
+        }
+    };
+    LinuxCliResponse::success("install-service")
+        .with_service_install(plan)
+        .with_diagnostics(vec![cli_diagnostic(
+            DiagnosticSeverity::Info,
+            "cli.linux.install_service.written",
+            format!(
+                "systemd unit written and verified at {}; snapshot_written={} snapshot_path={}",
+                report.unit_path.display(),
+                report.snapshot_written,
+                report
+                    .snapshot_path
+                    .as_deref()
+                    .map_or_else(|| "none".to_string(), |path| path.display().to_string())
+            ),
+            SOURCE_CLI_RUNTIME,
+        )])
 }
 
 pub fn handle_uninstall_service_plan(
@@ -11784,7 +11892,7 @@ pub const fn cli_help_text() -> &'static str {
         "  diagnostics       Print platform diagnostics.\n",
         "  mitm              Report MITM plugin policy status, certificate/browser plans, and deferred browser hijack gates.\n",
         "  install-sing-box  Download the latest official sing-box archive and cache its executable.\n",
-        "  install-service   Render an explicit systemd unit plan; this source build does not write units or call systemctl.\n",
+        "  install-service   Write an explicit confirmed systemd unit with snapshot/verification; never calls systemctl.\n",
         "  uninstall-service Render an explicit removal plan; user configuration/state is preserved and no files are deleted.\n",
         "  run-url           Parse a proxy URL, render sing-box config, and run a local foreground proxy.\n",
         "  run-catalog       Resolve one saved source and run it through the foreground sing-box path.\n",

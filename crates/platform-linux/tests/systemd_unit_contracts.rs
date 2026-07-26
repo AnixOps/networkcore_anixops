@@ -107,3 +107,34 @@ fn installs_unit_with_snapshot_and_write_verification_without_systemctl() {
     );
     let _ = fs::remove_dir_all(&root);
 }
+
+#[cfg(unix)]
+#[test]
+fn refuses_to_replace_a_systemd_unit_symlink() {
+    use std::os::unix::fs::symlink;
+
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-systemd-symlink-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).expect("fixture directory should be created");
+    let target = root.join("target.service");
+    let unit_path = root.join("networkcore.service");
+    fs::write(&target, "external unit\n").expect("target unit should be written");
+    symlink(&target, &unit_path).expect("unit symlink should be created");
+
+    let error = install_systemd_unit(&LinuxManagedServiceUnitInstallRequest {
+        unit_path,
+        snapshot_path: root.join("snapshot.unit"),
+        content: "[Unit]\n\n[Service]\nExecStart=/bin/true\n".to_string(),
+    })
+    .expect_err("unit symlink must be rejected");
+
+    assert_eq!(
+        error.code,
+        platform_linux::systemd::LINUX_SYSTEMD_UNIT_WRITE_FAILED_CODE
+    );
+    assert_eq!(fs::read_to_string(&target).unwrap(), "external unit\n");
+    let _ = fs::remove_dir_all(&root);
+}

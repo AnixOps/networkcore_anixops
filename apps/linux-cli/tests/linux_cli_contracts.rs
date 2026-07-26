@@ -23,8 +23,9 @@ use networkcore_linux::{
     handle_entrypoint_with_browser_capture_runner, handle_entrypoint_with_certificate_lifecycle_io,
     handle_entrypoint_with_runtime, handle_entrypoint_with_runtime_and_lifecycle,
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
-    handle_foreground_lifecycle_with_runtime_stop, handle_install_sing_box,
-    handle_mitm_browser_capture_apply, handle_mitm_browser_capture_apply_with_store,
+    handle_foreground_lifecycle_with_runtime_stop, handle_install_service_apply_at,
+    handle_install_sing_box, handle_mitm_browser_capture_apply,
+    handle_mitm_browser_capture_apply_with_store,
     handle_mitm_browser_capture_apply_with_store_and_profile_prefs_and_proxy_scheme,
     handle_mitm_browser_capture_apply_with_store_and_proxy_scheme,
     handle_mitm_browser_capture_launch, handle_mitm_browser_capture_launch_plan,
@@ -3034,6 +3035,42 @@ fn install_service_requires_explicit_confirmation() {
         response.diagnostics[0].code,
         CLI_INSTALL_SERVICE_CONFIRMATION_REQUIRED_CODE
     );
+}
+
+#[test]
+fn install_service_apply_writes_and_verifies_unit_with_snapshot() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-linux-cli-service-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("fixture directory should be created");
+    let unit_path = root.join("networkcore.service");
+    let snapshot_path = root.join("snapshot.unit");
+    std::fs::write(&unit_path, "old unit\n").expect("old unit should be written");
+
+    let response = handle_install_service_apply_at(
+        "networkcore.service",
+        "NetworkCore managed proxy",
+        "/usr/local/bin/networkcore-linux",
+        &[],
+        "networkcore",
+        "networkcore",
+        "/var/lib/networkcore",
+        &unit_path,
+        &snapshot_path,
+        true,
+    );
+    assert!(response.ok);
+    assert!(response.diagnostics[0].message.contains("verified"));
+    assert_eq!(
+        std::fs::read_to_string(&snapshot_path).unwrap(),
+        "old unit\n"
+    );
+    assert!(std::fs::read_to_string(&unit_path)
+        .unwrap()
+        .contains("NoNewPrivileges=true"));
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]

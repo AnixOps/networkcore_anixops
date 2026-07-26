@@ -65,6 +65,7 @@ pub fn install_systemd_unit(
     request: &LinuxManagedServiceUnitInstallRequest,
 ) -> DomainResult<LinuxManagedServiceUnitInstallReport> {
     validate_install_request(request)?;
+    reject_symlink(&request.unit_path)?;
     let existing = if request.unit_path.exists() {
         Some(
             fs::read(&request.unit_path)
@@ -92,9 +93,17 @@ pub fn install_systemd_unit(
         return Err(write_error("write systemd unit", error));
     }
 
-    let verified = fs::read(&request.unit_path)
-        .map(|contents| contents == request.content.as_bytes())
-        .map_err(|error| write_error("verify systemd unit", error))?;
+    let verified = match fs::read(&request.unit_path) {
+        Ok(contents) => contents == request.content.as_bytes(),
+        Err(error) => {
+            if let Some(contents) = existing.as_ref() {
+                let _ = fs::write(&request.unit_path, contents);
+            } else {
+                let _ = fs::remove_file(&request.unit_path);
+            }
+            return Err(write_error("verify systemd unit", error));
+        }
+    };
     if !verified {
         if let Some(contents) = existing.as_ref() {
             let _ = fs::write(&request.unit_path, contents);
@@ -223,7 +232,26 @@ fn validate_install_request(request: &LinuxManagedServiceUnitInstallRequest) -> 
     Ok(())
 }
 
+fn reject_symlink(path: &Path) -> DomainResult<()> {
+    if fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err(DomainError::new(
+            LINUX_SYSTEMD_UNIT_WRITE_FAILED_CODE,
+            format!(
+                "refusing to replace symlink systemd unit path: {}",
+                path.display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
 fn write_new_bytes(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
     let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
     file.write_all(contents)?;
     file.sync_all()
