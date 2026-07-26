@@ -70,6 +70,7 @@ fi
 
 declare -a full_contracts=(
   $'persistent-subscription-catalog-source-contract=active\tdocs/architecture/subscription-catalog-persistence-source-contract.md'
+  $'subscription-background-refresh-source-contract=active\tdocs/architecture/subscription-background-refresh-source-contract.md'
   $'persistent-subscription-catalog-operation=add\tdocs/architecture/subscription-catalog-persistence-source-contract.md'
   $'persistent-subscription-catalog-update-operation=update\tdocs/architecture/subscription-catalog-persistence-source-contract.md'
   $'persistent-subscription-catalog-rollback-operation=rollback\tdocs/architecture/subscription-catalog-persistence-source-contract.md'

@@ -123,7 +123,7 @@ current-main-source-candidate=v0.2.0-alpha.22
 current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=explicit-file-uri-http-and-run-catalog-active
-current-main-subscription-background=blocked
+current-main-subscription-background=explicit-single-http-source-refresh-active
 ```
 
 这些机器状态是当前 `main` 的唯一发布判定；后文历史切片不得把 source-only 能力解释为 tag release。

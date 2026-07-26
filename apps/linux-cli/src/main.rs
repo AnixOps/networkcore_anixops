@@ -77,6 +77,9 @@ fn main() {
                     | networkcore_linux::LinuxCliCommand::SubscriptionRemove { .. }
                     | networkcore_linux::LinuxCliCommand::SubscriptionSelect { .. }
                     | networkcore_linux::LinuxCliCommand::SubscriptionRollback { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionRefreshStart { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionRefreshStatus { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionRefreshStop { .. }
             ) {
                 networkcore_linux::handle_subscription_command(command)
             } else if matches!(

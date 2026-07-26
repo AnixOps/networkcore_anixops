@@ -13,7 +13,8 @@ current-main-source-candidate=v0.2.0-alpha.22
 current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=explicit-file-uri-http-and-run-catalog-active
-current-main-subscription-background=blocked
+current-main-subscription-refresh=explicit-http-single-source-status-stop-active
+current-main-subscription-background=explicit-single-http-source-refresh-active
 ```
 
 ### Changed
@@ -694,3 +695,4 @@ placeholder/blocked 语境时，以 README、ROADMAP、TODO 和对应 source con
 ### Added
 
 - 建立 bootstrap 阶段的代理规范、贡献规则、CI/CD policy、GitHub Actions skeleton 和人工介入记录。
+- 完成 Linux 单 source 后台订阅刷新切片：新增显式 `subscription refresh start/status/stop`、固定 300 秒最小间隔、HTTP(S) source 限制、`--confirm` 授权、显式 catalog/status/snapshot 路径、候选 fetch 后 parse/normalize 校验、原子 catalog 替换、失败保留 catalog/选择/运行配置、脱敏状态记录和并发 active 拒绝；不重启核心、不切换节点、不修改系统设置。

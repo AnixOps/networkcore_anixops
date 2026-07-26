@@ -47,7 +47,9 @@ boundary: `CommandSubscriptionCatalogStore::add_source`,
 snapshot paths, the store writes schema version 1, rejects duplicate or missing source ids, and returns
 redacted reports. `CommandSubscriptionCatalogStore::rollback_catalog` restores an explicit validated snapshot
 while retaining that snapshot. `run-catalog <catalog-path> <source-id>` resolves one saved source into the
-existing foreground sing-box path. Default paths, background refresh, and managed lifecycle remain blocked.
+existing foreground sing-box path. `subscription refresh start` explicitly refreshes one saved HTTP(S) source after
+candidate validation, writes only explicit catalog/status/snapshot paths, and requires confirmation; `status` and
+`stop` operate on that status record. It never restarts the core, switches nodes, or modifies system settings.
 All catalog operations are verified by GitHub Actions contract tests.
 
 Current `main` also contains the source-only `CommandManagedForegroundSessionStore::read_status`,

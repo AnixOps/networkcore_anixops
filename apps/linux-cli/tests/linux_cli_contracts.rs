@@ -3517,6 +3517,31 @@ fn parses_subscription_catalog_command_contracts() {
 }
 
 #[test]
+fn subscription_refresh_requires_explicit_paths_confirmation_and_http_source() {
+    let root = std::env::temp_dir().join(format!("networkcore-subscription-refresh-contract-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("refresh fixture directory should be created");
+    let catalog_path = root.join("catalog.json");
+    let status_path = root.join("refresh-status.json");
+    let snapshot_path = root.join("refresh.snapshot.json");
+    std::fs::write(&catalog_path, r#"{"schema_version":1,"sources":[{"id":"work","location":"https://subscriptions.example.test/work?token=secret"}]}"#).expect("catalog should be written");
+    let command = parse_args(["subscription", "refresh", "start", "--catalog", catalog_path.to_str().expect("utf8"), "--refresh-status", status_path.to_str().expect("utf8"), "--snapshot", snapshot_path.to_str().expect("utf8"), "--source-id", "work", "--interval-seconds", "300", "--confirm"]).expect("refresh should parse");
+    let fetcher = TestRemoteSubscriptionFetcher::success("https://subscriptions.example.test/work?token=secret", "[[nodes]]\nid = \"work\"\nname = \"Work\"\nprotocol = \"ss\"\nhost = \"secret.example\"\nport = 443\n");
+    let response = handle_subscription_command_with_fetcher(command, &fetcher);
+    assert!(response.ok);
+    assert!(status_path.exists());
+    assert!(snapshot_path.exists());
+    let catalog = std::fs::read_to_string(&catalog_path).expect("catalog should remain readable");
+    assert!(catalog.contains("refresh_location"));
+    assert!(!render_response(&response, OutputFormat::Json).contains("secret.example"));
+    let status = handle_subscription_command(parse_args(["subscription", "refresh", "status", "--refresh-status", status_path.to_str().expect("utf8")]).expect("status should parse"));
+    assert!(status.ok);
+    let stopped = handle_subscription_command(parse_args(["subscription", "refresh", "stop", "--refresh-status", status_path.to_str().expect("utf8"), "--source-id", "work", "--confirm"]).expect("stop should parse"));
+    assert!(stopped.ok);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn parses_node_switch_and_rejects_missing_loopback_controller_port() {
     let command = parse_args([
         "node",
