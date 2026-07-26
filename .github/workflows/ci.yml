@@ -809,6 +809,10 @@ jobs:
           grep -q 'CONTROLLED_TLS_MAX_HTTP_EXCHANGES' crates/engine-native/src/lib.rs
           grep -q 'http_message_requests_close' crates/engine-native/src/lib.rs
           grep -q 'controlled_tls_connect_exchange_decrypts_forwards_and_executes_scripts_over_live_sockets' crates/engine-native/src/lib.rs
+          grep -q 'ManagedForegroundLifecycleRecorder' apps/linux-cli/src/lib.rs
+          grep -q -- '--managed-status' apps/linux-cli/src/lib.rs
+          grep -q 'managed_start_records_running_status_and_lifecycle_events' apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q 'managed-foreground-session-status-start-recording=explicit-paths-active' docs/architecture/managed-foreground-session-status-source-contract.md
           grep -q 'Transfer-Encoding: chunked' docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q 'bounded.*chunked' docs/architecture/windows-managed-client-source-release-contract.md
           grep -q '## Current Main Override' docs/alpha-release-feature-matrix.md

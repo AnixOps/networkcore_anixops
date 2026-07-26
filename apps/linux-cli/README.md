@@ -70,6 +70,12 @@ only after the current expected state and trimmed session/engine identity match,
 previous/restored state, `snapshot_retained=true`, and `liveness_verified=false`. It does not inspect a process or
 control a runtime.
 
+`start` can opt into the same recording boundary with
+`--managed-status <status.json> --managed-snapshot <starting.snapshot.json> --managed-events <event-directory>`.
+All three paths are required together. The foreground session records `starting`, `running`, `stopped`, or
+`failed` with non-overwriting status snapshots and bounded schema-versioned event records; omitted paths preserve
+the existing foreground-only behavior and recorded state never claims process liveness.
+
 Current `main` also contains the source-only `CommandManagedForegroundSessionEventStore::read_event` and
 `CommandManagedForegroundSessionEventStore::write_event` boundaries for v0.1.2-alpha.2. They read or
 non-overwritingly write one explicit schema version 1 JSON event record with session/engine/event ids, an allowed

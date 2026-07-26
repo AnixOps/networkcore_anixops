@@ -56,7 +56,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const COMMAND_NAME: &str = "networkcore-linux";
 pub const DEFAULT_ENGINE_ID: &str = "native";
@@ -76,6 +76,10 @@ pub const CLI_START_LIFECYCLE_HOST_MISSING_CODE: &str = "cli.linux.start.lifecyc
 pub const CLI_START_LIFECYCLE_INTERRUPTED_CODE: &str = "cli.linux.start.lifecycle_interrupted";
 pub const CLI_START_LIFECYCLE_FAILED_CODE: &str = "cli.linux.start.lifecycle_failed";
 pub const CLI_START_RUNTIME_STOP_FAILED_CODE: &str = "cli.linux.start.runtime_stop_failed";
+pub const CLI_START_MANAGED_LIFECYCLE_CONFIG_INVALID_CODE: &str =
+    "cli.linux.start.managed_lifecycle_config_invalid";
+pub const CLI_START_MANAGED_LIFECYCLE_RECORD_FAILED_CODE: &str =
+    "cli.linux.start.managed_lifecycle_record_failed";
 pub const CLI_START_SIGNAL_RECEIVED_CODE: &str = "cli.linux.start.signal_received";
 pub const CLI_START_SIGNAL_SOURCE_FAILED_CODE: &str = "cli.linux.start.signal_source_failed";
 pub const CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE: &str =
@@ -434,6 +438,7 @@ pub enum LinuxCliCommand {
         script_maps: Vec<String>,
         script_store_path: Option<String>,
         node_binary: Option<String>,
+        managed_lifecycle: Option<ManagedForegroundLifecyclePaths>,
         confirm: bool,
         format: OutputFormat,
     },
@@ -2159,6 +2164,13 @@ pub struct ManagedForegroundSessionStatusRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundLifecyclePaths {
+    pub status_path: String,
+    pub snapshot_path: String,
+    pub event_directory: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedForegroundSessionStatusWriteRequest {
     pub status_path: String,
     pub session_id: String,
@@ -2659,6 +2671,116 @@ impl CommandManagedForegroundSessionEventStore {
             record_written: true,
             liveness_verified: false,
         })
+    }
+}
+
+struct ManagedForegroundLifecycleRecorder {
+    paths: ManagedForegroundLifecyclePaths,
+    session_id: String,
+    engine_id: String,
+}
+
+impl ManagedForegroundLifecycleRecorder {
+    fn new(paths: ManagedForegroundLifecyclePaths) -> DomainResult<Self> {
+        let status_path = paths.status_path.trim();
+        let snapshot_path = paths.snapshot_path.trim();
+        let event_directory = paths.event_directory.trim();
+        if status_path.is_empty() || snapshot_path.is_empty() || event_directory.is_empty() {
+            return Err(DomainError::new(
+                CLI_START_MANAGED_LIFECYCLE_CONFIG_INVALID_CODE,
+                "managed foreground lifecycle paths must all be non-empty",
+            ));
+        }
+        if status_path == snapshot_path {
+            return Err(DomainError::new(
+                CLI_START_MANAGED_LIFECYCLE_CONFIG_INVALID_CODE,
+                "managed foreground status and snapshot paths must differ",
+            ));
+        }
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        Ok(Self {
+            paths: ManagedForegroundLifecyclePaths {
+                status_path: status_path.to_string(),
+                snapshot_path: snapshot_path.to_string(),
+                event_directory: event_directory.to_string(),
+            },
+            session_id: format!("foreground-{}-{timestamp}", std::process::id()),
+            engine_id: DEFAULT_ENGINE_ID.to_string(),
+        })
+    }
+
+    fn event_path(&self, event_id: &str) -> String {
+        std::path::Path::new(&self.paths.event_directory)
+            .join(format!("{}.json", event_id))
+            .display()
+            .to_string()
+    }
+
+    fn recorded_at(&self) -> String {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos().to_string())
+            .unwrap_or_else(|_| "0".to_string())
+    }
+
+    fn write_event(&self, event_id: &str, event_kind: &str, state: &str) -> DomainResult<()> {
+        CommandManagedForegroundSessionEventStore::new()
+            .write_event(&ManagedForegroundSessionEventWriteRequest {
+                event_path: self.event_path(event_id),
+                session_id: self.session_id.clone(),
+                engine_id: self.engine_id.clone(),
+                event_id: event_id.to_string(),
+                event_kind: event_kind.to_string(),
+                state: state.to_string(),
+                recorded_at: self.recorded_at(),
+            })
+            .map(|_| ())
+    }
+
+    fn initialize(&self) -> DomainResult<()> {
+        CommandManagedForegroundSessionStore::new().write_status(
+            &ManagedForegroundSessionStatusWriteRequest {
+                status_path: self.paths.status_path.clone(),
+                session_id: self.session_id.clone(),
+                engine_id: self.engine_id.clone(),
+                state: "starting".to_string(),
+            },
+        )?;
+        self.write_event(
+            &format!("{}-session-started", self.session_id),
+            "session_started",
+            "starting",
+        )
+    }
+
+    fn transition(
+        &self,
+        expected_state: &str,
+        next_state: &str,
+        snapshot_path: String,
+    ) -> DomainResult<()> {
+        CommandManagedForegroundSessionStore::new().transition_status(
+            &ManagedForegroundSessionStatusTransitionRequest {
+                status_path: self.paths.status_path.clone(),
+                snapshot_path,
+                expected_state: expected_state.to_string(),
+                next_state: next_state.to_string(),
+            },
+        )?;
+        let (event_kind, event_suffix) = match next_state {
+            "running" => ("status_transition", "running"),
+            "stopped" => ("session_stopped", "stopped"),
+            "failed" => ("session_failed", "failed"),
+            _ => ("status_transition", next_state),
+        };
+        self.write_event(
+            &format!("{}-{}", self.session_id, event_suffix),
+            event_kind,
+            next_state,
+        )
     }
 }
 
@@ -5207,6 +5329,9 @@ struct ParsedOptions {
     script_maps: Vec<String>,
     script_store_path: Option<String>,
     node_binary: Option<String>,
+    managed_status_path: Option<String>,
+    managed_snapshot_path: Option<String>,
+    managed_event_directory: Option<String>,
     profile_trust_file_path: Option<String>,
     pac_file_path: Option<String>,
     policy_file_path: Option<String>,
@@ -5303,6 +5428,26 @@ where
                     format: options.format,
                 });
             }
+            let managed_lifecycle = match (
+                options.managed_status_path,
+                options.managed_snapshot_path,
+                options.managed_event_directory,
+            ) {
+                (None, None, None) => None,
+                (Some(status_path), Some(snapshot_path), Some(event_directory)) => {
+                    Some(ManagedForegroundLifecyclePaths {
+                        status_path,
+                        snapshot_path,
+                        event_directory,
+                    })
+                }
+                _ => {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "managed start requires --managed-status, --managed-snapshot, and --managed-events together",
+                    ))
+                }
+            };
             Ok(LinuxCliCommand::Start {
                 config_path: options.config_path,
                 mitm_ca_certificate_path: options.mitm_ca_certificate_path,
@@ -5313,6 +5458,7 @@ where
                 script_maps: options.script_maps,
                 script_store_path: options.script_store_path,
                 node_binary: options.node_binary,
+                managed_lifecycle,
                 confirm: options.confirm,
                 format: options.format,
             })
@@ -6322,9 +6468,17 @@ where
         LinuxCliCommand::PrepareConfig { config_path, .. } => {
             handle_prepare_config(orchestrator, reader, config_path.as_deref())
         }
-        LinuxCliCommand::Start { config_path, .. } => {
-            handle_start_foreground(orchestrator, reader, config_path.as_deref(), lifecycle_host)
-        }
+        LinuxCliCommand::Start {
+            config_path,
+            managed_lifecycle,
+            ..
+        } => handle_start_foreground(
+            orchestrator,
+            reader,
+            config_path.as_deref(),
+            lifecycle_host,
+            managed_lifecycle.as_ref(),
+        ),
         other => handle_entrypoint(other, platform),
     }
 }
@@ -7991,6 +8145,7 @@ pub fn handle_start_foreground<C, P, E, R, H>(
     reader: &R,
     config_path: Option<&str>,
     lifecycle_host: &H,
+    managed_paths: Option<&ManagedForegroundLifecyclePaths>,
 ) -> LinuxCliResponse
 where
     C: ConfigurationService,
@@ -8004,12 +8159,108 @@ where
         Err(response) => return *response,
     };
 
+    let managed_recorder = match managed_paths
+        .cloned()
+        .map(ManagedForegroundLifecycleRecorder::new)
+        .transpose()
+    {
+        Ok(recorder) => recorder,
+        Err(error) => {
+            return LinuxCliResponse::failure(
+                "start",
+                LinuxCliExitCode::ArgumentOrConfig,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    error.code,
+                    error.message,
+                    SOURCE_CLI_START,
+                ),
+            )
+        }
+    };
+    if let Some(recorder) = managed_recorder.as_ref() {
+        if let Err(error) = recorder.initialize() {
+            return LinuxCliResponse::failure(
+                "start",
+                LinuxCliExitCode::GeneralFailure,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_START_MANAGED_LIFECYCLE_RECORD_FAILED_CODE,
+                    error.message,
+                    SOURCE_CLI_START,
+                ),
+            );
+        }
+    }
+
     let request = RuntimeConfigRequest::new(DEFAULT_ENGINE_ID, raw_config);
     match orchestrator.start_runtime(request) {
         Ok(result) => {
-            handle_foreground_lifecycle_with_runtime_stop(result, orchestrator, lifecycle_host)
+            if let Some(recorder) = managed_recorder.as_ref() {
+                if let Err(error) =
+                    recorder.transition("starting", "running", recorder.paths.snapshot_path.clone())
+                {
+                    let mut response = handle_foreground_lifecycle_with_runtime_stop(
+                        result,
+                        orchestrator,
+                        lifecycle_host,
+                    );
+                    response.ok = false;
+                    response.exit_code = LinuxCliExitCode::GeneralFailure;
+                    response.diagnostics.push(cli_diagnostic(
+                        DiagnosticSeverity::Error,
+                        CLI_START_MANAGED_LIFECYCLE_RECORD_FAILED_CODE,
+                        error.message,
+                        SOURCE_CLI_START,
+                    ));
+                    return response;
+                }
+            }
+            let mut response =
+                handle_foreground_lifecycle_with_runtime_stop(result, orchestrator, lifecycle_host);
+            if let Some(recorder) = managed_recorder.as_ref() {
+                let terminal_state = if response.exit_code == LinuxCliExitCode::Interrupted {
+                    Some((
+                        "stopped",
+                        format!("{}.stopped", recorder.paths.snapshot_path),
+                    ))
+                } else if !response.ok {
+                    Some(("failed", format!("{}.failed", recorder.paths.snapshot_path)))
+                } else {
+                    None
+                };
+                if let Some((next_state, snapshot_path)) = terminal_state {
+                    if let Err(error) = recorder.transition("running", next_state, snapshot_path) {
+                        response.ok = false;
+                        response.diagnostics.push(cli_diagnostic(
+                            DiagnosticSeverity::Error,
+                            CLI_START_MANAGED_LIFECYCLE_RECORD_FAILED_CODE,
+                            error.message,
+                            SOURCE_CLI_START,
+                        ));
+                    }
+                }
+            }
+            response
         }
-        Err(error) => start_error_response(error),
+        Err(error) => {
+            let mut response = start_error_response(error);
+            if let Some(recorder) = managed_recorder.as_ref() {
+                if let Err(record_error) = recorder.transition(
+                    "starting",
+                    "failed",
+                    format!("{}.failed", recorder.paths.snapshot_path),
+                ) {
+                    response.diagnostics.push(cli_diagnostic(
+                        DiagnosticSeverity::Error,
+                        CLI_START_MANAGED_LIFECYCLE_RECORD_FAILED_CODE,
+                        record_error.message,
+                        SOURCE_CLI_START,
+                    ));
+                }
+            }
+            response
+        }
     }
 }
 
@@ -12888,6 +13139,36 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.node_binary = Some(value.clone());
             }
+            "--managed-status" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--managed-status requires a managed foreground status record path",
+                    ));
+                };
+                options.managed_status_path = Some(value.clone());
+            }
+            "--managed-snapshot" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--managed-snapshot requires a managed foreground status snapshot path",
+                    ));
+                };
+                options.managed_snapshot_path = Some(value.clone());
+            }
+            "--managed-events" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--managed-events requires a managed foreground event directory",
+                    ));
+                };
+                options.managed_event_directory = Some(value.clone());
+            }
             "--profile-trust-file" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -14363,6 +14644,9 @@ pub const fn cli_help_text() -> &'static str {
         "  --script-map <url=file> Explicit remote script URL to local asset mapping; repeat for each permitted script.\n",
         "  --script-store <path> Optional JSON persistent-store path for mapped scripts.\n",
         "  --node-binary <path> Node executable path or command. Defaults to node.\n",
+        "  --managed-status <path> Explicit managed foreground status record path for lifecycle recording.\n",
+        "  --managed-snapshot <path> Explicit initial managed foreground status snapshot path.\n",
+        "  --managed-events <dir> Explicit managed foreground event directory for lifecycle recording.\n",
         "  --browser <exe>       Browser executable for mitm browser-capture session-plan/launch. Defaults to chromium.\n",
         "  --profile-dir <dir>   Dedicated browser profile directory for mitm browser-capture session-plan/launch.\n",
         "  --target-url <url>    Optional page URL to open in the dedicated browser capture profile.\n",

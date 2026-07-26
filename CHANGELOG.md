@@ -18,6 +18,10 @@ current-main-subscription-background=blocked
 
 ### Changed
 
+- 完成 Linux managed foreground lifecycle recording slice：`start` 在同时提供
+  `--managed-status`、`--managed-snapshot` 和 `--managed-events` 时写入 `starting`/`running`/`stopped`/`failed`
+  status、非覆盖 snapshot 与 schema version 1 lifecycle events；默认未提供路径时保持 foreground-only 行为，
+  记录不声称 PID、端口或 control socket liveness。
 - 完成 Linux controlled CONNECT persistent HTTP/1.1 slice：同一 downstream/upstream TLS session 最多
   处理 4 次有界 request/response exchange，保留 keep-alive framing，并在 `Connection: close`、HTTP/1.0
   默认关闭、terminal rewrite、解析失败或预算耗尽时结束；普通明文代理的既有 close 行为不变。

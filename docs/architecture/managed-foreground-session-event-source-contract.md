@@ -22,6 +22,7 @@
 - `managed-foreground-session-event-cli-overwrite=blocked`
 - `managed-foreground-session-event-runtime-stream=blocked`
 - `managed-foreground-session-event-liveness-verification=blocked`
+- `managed-foreground-session-event-start-recording=explicit-directory-active`
 
 ## Operation
 
@@ -89,6 +90,11 @@ effective cursor、next cursor、matching count、当前页 entries 和 `livenes
 文件，不修改 status/catalog，不启动、停止、reload 或 rollback runtime，不创建 daemon/control socket，也不安装 service。
 history 查询不是实时 stream、tail 或 watcher；它只读取调用方明确指定目录中的有界直接 JSON 文件。
 它不执行 system proxy、system trust store、TUN、DNS 或 firewall mutation。
+
+当前 `start --managed-status --managed-snapshot --managed-events` 接线会在显式 event directory 中创建本次
+session 的 `session_started`、`status_transition`、`session_stopped` 或 `session_failed` record；文件仍使用
+schema version 1、非覆盖写入和 bounded history 可读格式。该接线不提供实时 event stream，也不把事件记录
+视为跨进程 runtime 存活证明。
 
 任意 event 覆盖、实时 runtime event stream、日志读取、PID/port liveness 检查和 runtime control 由后续独立功能处理。
 所有测试、构建、格式化、lint 和安全扫描只能在 GitHub Actions 执行。

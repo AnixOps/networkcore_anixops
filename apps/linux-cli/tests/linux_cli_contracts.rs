@@ -46,10 +46,9 @@ use networkcore_linux::{
     handle_proxy_apply, handle_proxy_rollback, handle_proxy_status,
     handle_run_catalog_with_sing_box, handle_run_catalog_with_sing_box_and_fetcher,
     handle_run_url_with_sing_box, handle_run_url_with_sing_box_and_fetcher,
-    handle_run_url_with_sing_box_and_node_id, handle_start, handle_status, handle_stop,
-    handle_status_mieru_with_runner,
-    handle_systemd_service_control, handle_uninstall_service_apply_at,
-    native_proxy_engine_service_with_builtin_mitm_plugin,
+    handle_run_url_with_sing_box_and_node_id, handle_start, handle_status,
+    handle_status_mieru_with_runner, handle_stop, handle_systemd_service_control,
+    handle_uninstall_service_apply_at, native_proxy_engine_service_with_builtin_mitm_plugin,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files, parse_args,
     registered_core_engine_descriptors, render_response, BrowserCaptureEndpointProbe,
@@ -67,13 +66,13 @@ use networkcore_linux::{
     LinuxBrowserCaptureVerifyOutcome, LinuxBrowserCaptureVerifyRequest, LinuxCliCommand,
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
-    LinuxNativeMitmRuntimeFileConfig, ManagedForegroundSessionEventHistoryRequest,
-    ManagedForegroundSessionEventRequest, ManagedForegroundSessionEventWriteRequest,
-    ManagedForegroundSessionLogTailRequest, ManagedForegroundSessionStatusRequest,
-    ManagedForegroundSessionStatusRollbackRequest, ManagedForegroundSessionStatusTransitionRequest,
-    ManagedForegroundSessionStatusWriteRequest, MitmCertificateArtifactStore,
-    MitmCertificateRollbackSnapshot, OutputFormat, RemoteSubscriptionFetcher,
-    SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
+    LinuxNativeMitmRuntimeFileConfig, ManagedForegroundLifecyclePaths,
+    ManagedForegroundSessionEventHistoryRequest, ManagedForegroundSessionEventRequest,
+    ManagedForegroundSessionEventWriteRequest, ManagedForegroundSessionLogTailRequest,
+    ManagedForegroundSessionStatusRequest, ManagedForegroundSessionStatusRollbackRequest,
+    ManagedForegroundSessionStatusTransitionRequest, ManagedForegroundSessionStatusWriteRequest,
+    MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
+    RemoteSubscriptionFetcher, SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
     SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
     SubscriptionCatalogSelectRequest, SubscriptionCatalogUpdateRequest,
     UnavailableForegroundLifecycleHost, UnavailableProxyEngineService,
@@ -980,7 +979,10 @@ fn managed_foreground_session_log_cli_reads_bounded_explicit_log() {
             .expect("managed log response should render JSON");
     assert_eq!(json["managed_foreground_log_tail"]["line_limit"], 2);
     assert_eq!(json["managed_foreground_log_tail"]["lines"][0], "third");
-    assert_eq!(json["managed_foreground_log_tail"]["returned_byte_count"], 10);
+    assert_eq!(
+        json["managed_foreground_log_tail"]["returned_byte_count"],
+        10
+    );
     assert_eq!(
         json["managed_foreground_log_tail"]["liveness_verified"].as_bool(),
         Some(false)
@@ -2674,6 +2676,7 @@ fn parses_start_with_explicit_tls_mitm_authorization_and_material_paths() {
             script_maps: Vec::new(),
             script_store_path: None,
             node_binary: None,
+            managed_lifecycle: None,
             confirm: true,
             format: OutputFormat::Text,
         }
@@ -2780,6 +2783,7 @@ fn parses_start_with_explicit_script_runtime_mapping() {
             script_maps: vec!["https://scripts.networkcore.test/a.js=/tmp/a.js".to_string(),],
             script_store_path: Some("/tmp/networkcore-script-store.json".to_string()),
             node_binary: Some("/usr/bin/node".to_string()),
+            managed_lifecycle: None,
             confirm: true,
             format: OutputFormat::Text,
         }
@@ -7043,6 +7047,7 @@ fn entrypoint_keeps_runtime_mutation_commands_unwired() {
             script_maps: Vec::new(),
             script_store_path: None,
             node_binary: None,
+            managed_lifecycle: None,
             confirm: false,
             format: OutputFormat::Text,
         },
@@ -7082,6 +7087,7 @@ profile = "default"
             script_maps: Vec::new(),
             script_store_path: None,
             node_binary: None,
+            managed_lifecycle: None,
             confirm: false,
             format: OutputFormat::Text,
         },
@@ -7140,6 +7146,7 @@ route_node = "node-1"
             script_maps: Vec::new(),
             script_store_path: None,
             node_binary: None,
+            managed_lifecycle: None,
             confirm: false,
             format: OutputFormat::Text,
         },
@@ -7956,6 +7963,7 @@ route_node = "node-1"
             script_maps: Vec::new(),
             script_store_path: None,
             node_binary: None,
+            managed_lifecycle: None,
             confirm: false,
             format: OutputFormat::Text,
         },
@@ -9608,6 +9616,108 @@ impl ProxyEngineService for StopFailingProxyEngineService {
     fn events(&self, _engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>> {
         Ok(Vec::new())
     }
+}
+
+#[test]
+fn managed_start_records_running_status_and_lifecycle_events() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("managed start test clock should be available")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-start-lifecycle-contract-{unique}"
+    ));
+    let status_path = root.join("status.json");
+    let snapshot_path = root.join("starting.snapshot.json");
+    let event_directory = root.join("events");
+    let port = unused_loopback_port();
+    let command = parse_args([
+        "start",
+        "--config",
+        "networkcore.toml",
+        "--managed-status",
+        status_path.to_str().expect("status path should be UTF-8"),
+        "--managed-snapshot",
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        "--managed-events",
+        event_directory
+            .to_str()
+            .expect("event directory should be UTF-8"),
+    ])
+    .expect("managed start command should parse");
+    assert!(matches!(
+        &command,
+        LinuxCliCommand::Start {
+            managed_lifecycle: Some(ManagedForegroundLifecyclePaths { .. }),
+            ..
+        }
+    ));
+
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let orchestrator = RuntimeOrchestrator::new(
+        CoreConfigurationService::new(),
+        platform.clone(),
+        NativeProxyEngineService::new(),
+    );
+    let reader = MemoryConfigReader::ok(format!(
+        r#"
+schema_version = 1
+profile = "default"
+
+[[nodes]]
+id = "node-1"
+protocol = "socks"
+host = "127.0.0.1"
+port = 1081
+
+[[listeners]]
+id = "loopback-socks"
+enabled = true
+kind = "socks"
+bind_host = "127.0.0.1"
+bind_port = {port}
+network = "tcp"
+route_action = "proxy"
+route_node = "node-1"
+"#
+    ));
+
+    let response = handle_entrypoint_with_runtime_and_lifecycle(
+        command,
+        &platform,
+        &orchestrator,
+        &reader,
+        &TestForegroundLifecycleHost::success(Vec::new()),
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "start");
+    let status = std::fs::read_to_string(&status_path)
+        .expect("managed start should write the status record");
+    assert!(status.contains("\"state\": \"running\""));
+    let events = CommandManagedForegroundSessionEventStore::new()
+        .list_event_history(&ManagedForegroundSessionEventHistoryRequest {
+            event_directory: event_directory.to_string_lossy().to_string(),
+            session_id: None,
+            event_kind: None,
+            state: None,
+            cursor: 0,
+            limit: 100,
+        })
+        .expect("managed start event history should be readable");
+    assert_eq!(events.events.len(), 2);
+    assert!(events
+        .events
+        .iter()
+        .any(|event| event.event_kind == "session_started"));
+    assert!(events
+        .events
+        .iter()
+        .any(|event| event.event_kind == "status_transition"));
+    let _ = std::fs::remove_dir_all(root);
 }
 
 fn assert_diagnostic(diagnostics: &[Diagnostic], code: &str) {
