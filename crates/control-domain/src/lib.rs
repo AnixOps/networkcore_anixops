@@ -511,6 +511,27 @@ pub struct ProxyEngineStatus {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// Evidence collected by an engine adapter health probe.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProxyEngineHealthReport {
+    pub engine_id: String,
+    pub state: ProxyEngineLifecycleState,
+    pub config_validated: bool,
+    pub runtime_resources_ready: bool,
+    pub listener_reachable: bool,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl ProxyEngineHealthReport {
+    /// Returns true only when every engine-owned readiness check succeeded.
+    pub fn is_healthy(&self) -> bool {
+        self.state == ProxyEngineLifecycleState::Running
+            && self.config_validated
+            && self.runtime_resources_ready
+            && self.listener_reachable
+    }
+}
+
 /// Proxy execution engine event kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProxyEngineEventKind {
@@ -958,6 +979,25 @@ pub trait ProxyEngineService {
 
     fn status(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus>;
 
+    /// Probes engine-owned runtime readiness. Legacy services remain explicit
+    /// about which checks they cannot perform.
+    fn health(&self, engine_id: &str) -> DomainResult<ProxyEngineHealthReport> {
+        let status = self.status(engine_id)?;
+        Ok(ProxyEngineHealthReport {
+            engine_id: status.engine_id,
+            state: status.state,
+            config_validated: false,
+            runtime_resources_ready: false,
+            listener_reachable: false,
+            diagnostics: vec![Diagnostic::new(
+                DiagnosticSeverity::Warning,
+                "control.engine.health_unverified",
+                "proxy engine service does not expose complete health evidence",
+                None,
+            )],
+        })
+    }
+
     fn events(&self, engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>>;
 }
 
@@ -972,6 +1012,8 @@ pub trait ProxyEngineAdapter {
     fn start(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus>;
 
     fn status(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus>;
+
+    fn health(&self, engine_id: &str) -> DomainResult<ProxyEngineHealthReport>;
 
     fn reload(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus>;
 
@@ -1027,6 +1069,10 @@ where
 
     fn status(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
         ProxyEngineService::status(self, engine_id)
+    }
+
+    fn health(&self, engine_id: &str) -> DomainResult<ProxyEngineHealthReport> {
+        ProxyEngineService::health(self, engine_id)
     }
 
     fn reload(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {

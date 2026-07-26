@@ -10,8 +10,8 @@ use control_domain::{
     HttpMitmOutcome, HttpMitmPhase, HttpMitmScriptDispatch, HttpMitmScriptKind, ListenerDescriptor,
     ListenerKind, ListenerNetwork, ListenerRoute, MetadataEntry, MitmPluginService, NodeDescriptor,
     PluginInstance, Protocol, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
-    ProxyEngineEventKind, ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineRollbackRequest,
-    ProxyEngineService, ProxyEngineStatus, RouteAction, RuleSet,
+    ProxyEngineEventKind, ProxyEngineHealthReport, ProxyEngineKind, ProxyEngineLifecycleState,
+    ProxyEngineRollbackRequest, ProxyEngineService, ProxyEngineStatus, RouteAction, RuleSet,
 };
 use rcgen::{
     CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, Issuer, KeyPair,
@@ -4741,6 +4741,70 @@ impl ProxyEngineService for NativeProxyEngineService {
         }
 
         Ok(stopped_status(engine_id))
+    }
+
+    fn health(&self, engine_id: &str) -> DomainResult<ProxyEngineHealthReport> {
+        ensure_native_engine_id(engine_id)?;
+
+        let runtime = self.runtime_state()?;
+        let Some(runtime) = runtime.as_ref() else {
+            return Ok(ProxyEngineHealthReport {
+                engine_id: engine_id.to_string(),
+                state: ProxyEngineLifecycleState::Stopped,
+                config_validated: false,
+                runtime_resources_ready: false,
+                listener_reachable: false,
+                diagnostics: vec![engine_diagnostic(
+                    DiagnosticSeverity::Warning,
+                    ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE,
+                    "native proxy runtime health probe found no active runtime resources",
+                    SOURCE_ENGINE_NATIVE_RUNTIME,
+                )],
+            });
+        };
+
+        let config_validated = !self
+            .validate_config(&runtime.config)
+            .iter()
+            .any(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error);
+        let listener_address = runtime
+            .handle
+            .accept_loops()
+            .first()
+            .map(|listener| format!("{}:{}", listener.local_host(), listener.local_port()));
+        let listener_reachable = listener_address
+            .as_deref()
+            .and_then(|address| address.parse::<std::net::SocketAddr>().ok())
+            .and_then(|address| {
+                TcpStream::connect_timeout(&address, Duration::from_millis(250)).ok()
+            })
+            .is_some();
+
+        Ok(ProxyEngineHealthReport {
+            engine_id: engine_id.to_string(),
+            state: runtime.handle.foreground_handoff_status().state,
+            config_validated,
+            runtime_resources_ready: true,
+            listener_reachable,
+            diagnostics: vec![engine_diagnostic(
+                if config_validated && listener_reachable {
+                    DiagnosticSeverity::Info
+                } else {
+                    DiagnosticSeverity::Warning
+                },
+                if config_validated && listener_reachable {
+                    ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE
+                } else {
+                    ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE
+                },
+                if config_validated && listener_reachable {
+                    "native proxy runtime health checks confirmed configuration and loopback listener reachability"
+                } else {
+                    "native proxy runtime health checks did not confirm every readiness condition"
+                },
+                SOURCE_ENGINE_NATIVE_RUNTIME,
+            )],
+        })
     }
 
     fn events(&self, engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>> {

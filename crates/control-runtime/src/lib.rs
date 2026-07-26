@@ -12,8 +12,9 @@ use control_domain::{
     DomainResult, GrantedPermissions, HttpEvent, Metadata, MitmPluginService, NodeCatalog,
     NodeDescriptor, PlatformCapabilities, PlatformCapabilityService, PlatformCapabilityStatus,
     PlatformFeatureState, PluginPackage, PluginPermission, PluginResult, ProxyEngineAdapter,
-    ProxyEngineConfig, ProxyEngineEvent, ProxyEngineLifecycleState, ProxyEnginePrepareReport,
-    ProxyEngineRollbackRequest, ProxyEngineStatus, SubscriptionService, SubscriptionSource,
+    ProxyEngineConfig, ProxyEngineEvent, ProxyEngineHealthReport, ProxyEngineLifecycleState,
+    ProxyEnginePrepareReport, ProxyEngineRollbackRequest, ProxyEngineStatus, SubscriptionService,
+    SubscriptionSource,
 };
 
 pub const RUNTIME_SUBSCRIPTION_NODE_ID_DUPLICATE_CODE: &str =
@@ -416,6 +417,22 @@ where
             engine_status,
             diagnostics,
         })
+    }
+
+    /// Reads engine-owned health evidence without reducing it to a PID/state
+    /// check. Platform-owned system proxy checks remain platform adapter work.
+    pub fn runtime_health(&self, engine_id: &str) -> DomainResult<ProxyEngineHealthReport> {
+        let health = self.engine.health(engine_id)?;
+        if health.engine_id != engine_id {
+            return Err(DomainError::new(
+                RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+                format!(
+                    "engine health contract violation: adapter returned '{}' for '{}'",
+                    health.engine_id, engine_id
+                ),
+            ));
+        }
+        Ok(health)
     }
 
     /// Reads runtime events for an engine through the proxy engine port.

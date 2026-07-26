@@ -700,6 +700,26 @@ fn runtime_rollback_checks_current_state_and_restores_snapshot_state() {
 }
 
 #[test]
+fn runtime_health_does_not_promote_unverified_status_to_healthy() {
+    let orchestrator = RuntimeOrchestrator::new(
+        NoopConfigurationService,
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeProxyEngineService { fail_start: false },
+    );
+
+    let health = orchestrator
+        .runtime_health("native")
+        .expect("runtime health should return an evidence report");
+
+    assert_eq!(health.engine_id, "native");
+    assert!(!health.is_healthy());
+    assert!(!health.config_validated);
+    assert!(!health.listener_reachable);
+}
+
+#[test]
 fn start_runtime_propagates_engine_start_error() {
     let orchestrator = RuntimeOrchestrator::new(
         NoopConfigurationService,
