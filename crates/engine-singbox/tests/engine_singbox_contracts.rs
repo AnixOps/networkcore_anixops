@@ -881,6 +881,21 @@ fn blank_node_selection_skips_unsupported_protocols() {
     assert_eq!(rendered.selected_node_id, "trojan-us");
 }
 
+#[test]
+fn blank_node_selection_skips_mieru_until_sing_box_support_is_wired() {
+    let mieru = node_with_metadata("mieru-us", Protocol::Mieru, "mieru.user", "not-rendered");
+    let rendered =
+        engine_singbox::render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
+            nodes: vec![mieru, trojan_node()],
+            selected_node_id: None,
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7890,
+        })
+        .expect("blank selection should skip Mieru until its sing-box renderer is wired");
+
+    assert_eq!(rendered.selected_node_id, "trojan-us");
+}
+
 struct MemorySingBoxHttpClient {
     release_json: String,
     asset_bytes: Vec<u8>,
