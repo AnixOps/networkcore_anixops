@@ -86,6 +86,7 @@
 - [docs/architecture/adr-0001-initial-core-stack.md](docs/architecture/adr-0001-initial-core-stack.md)
 - [docs/architecture/adr-0002-public-engine-adapter-first.md](docs/architecture/adr-0002-public-engine-adapter-first.md)
 - [docs/architecture/sing-box-public-engine-adapter-source-contract.md](docs/architecture/sing-box-public-engine-adapter-source-contract.md)
+- [docs/architecture/mieru-public-engine-adapter-source-contract.md](docs/architecture/mieru-public-engine-adapter-source-contract.md)
 - [docs/architecture/public-core-client-reference.md](docs/architecture/public-core-client-reference.md)
 - [docs/architecture/subscription-url-to-sing-box-run-source-contract.md](docs/architecture/subscription-url-to-sing-box-run-source-contract.md)
 - [docs/architecture/mitm-policy-ad-block-plugin-source-contract.md](docs/architecture/mitm-policy-ad-block-plugin-source-contract.md)

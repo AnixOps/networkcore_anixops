@@ -691,6 +691,13 @@ jobs:
           grep -q '"crates/engine-singbox"' Cargo.toml
           grep -q '^name = "engine-singbox"$' crates/engine-singbox/Cargo.toml
           grep -q "sing-box public engine adapter source contract" docs/architecture/sing-box-public-engine-adapter-source-contract.md
+          grep -q '"crates/engine-mieru"' Cargo.toml
+          grep -q '^name = "engine-mieru"$' crates/engine-mieru/Cargo.toml
+          grep -q "Mieru Public Engine Adapter Source Contract" docs/architecture/mieru-public-engine-adapter-source-contract.md
+          grep -q "mierus://" crates/engine-mieru/src/lib.rs
+          grep -q "verify_local_mieru_binary" crates/engine-mieru/src/lib.rs
+          grep -q "MieruManagedProcessSupervisor" crates/engine-mieru/src/lib.rs
+          grep -q "parses_mieru_share_links" crates/config-core/tests/config_core_contracts.rs
           grep -q "SING_BOX_LATEST_RELEASE_API_URL" crates/engine-singbox/src/lib.rs
           grep -q "ENGINE_SINGBOX_DOWNLOAD_CHECKSUM_VERIFIED_CODE" crates/engine-singbox/src/lib.rs
           grep -q "GithubSingBoxReleaseInstaller" crates/engine-singbox/src/lib.rs
