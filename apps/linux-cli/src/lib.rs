@@ -9532,6 +9532,7 @@ where
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn handle_run_catalog_with_sing_box<I, S>(
     installer: &I,
     runner: &S,
@@ -9562,6 +9563,7 @@ where
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn handle_run_catalog_with_sing_box_and_fetcher<I, S, F>(
     installer: &I,
     runner: &S,
@@ -9605,6 +9607,7 @@ where
     response
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn handle_run_url_with_sing_box_and_node_id<I, S>(
     installer: &I,
     runner: &S,
@@ -9633,6 +9636,7 @@ where
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn handle_run_url_with_sing_box_and_fetcher<I, S, F>(
     installer: &I,
     runner: &S,
@@ -9661,6 +9665,7 @@ where
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn handle_run_url_with_sing_box_and_fetcher_and_node_id<I, S, F>(
     installer: &I,
     runner: &S,
@@ -9862,7 +9867,7 @@ impl RemoteSubscriptionFetcher for CommandRemoteSubscriptionFetcher {
                     "run-url remote subscription client could not be configured",
                 )
             })?;
-        let mut response = client
+        let response = client
             .get(location)
             .send()
             .and_then(reqwest::blocking::Response::error_for_status)
