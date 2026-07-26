@@ -2201,7 +2201,10 @@ jobs:
         needs.policy-fast.result == 'success' &&
         needs.detect-projects.result == 'success' &&
         needs.detect-projects.outputs.rust == 'true' &&
-        (needs.windows-gui-frontend.result == 'success' || needs.detect-projects.outputs.node != 'true') &&
+        (
+          needs.windows-gui-frontend.result == 'success' ||
+          (needs.changes.outputs.full_matrix != 'true' && needs.changes.outputs.windows != 'true')
+        ) &&
         (
           needs.changes.outputs.full_matrix == 'true' ||
           needs.changes.outputs.rust == 'true' ||
