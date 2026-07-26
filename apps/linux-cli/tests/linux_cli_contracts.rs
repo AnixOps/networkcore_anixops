@@ -9661,7 +9661,8 @@ impl ManagedControlInterrupter for TestManagedControlInterrupter {
 #[cfg(unix)]
 #[test]
 fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
-    use std::os::unix::fs::PermissionsExt;
+    use std::io::{Read, Write};
+    use std::os::unix::{fs::PermissionsExt, net::UnixStream};
 
     let unique = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -9738,6 +9739,20 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
         &unauthorized.diagnostics,
         CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE,
     );
+    let mut rejected_stream = UnixStream::connect(&socket_path)
+        .expect("managed control socket should accept a bounded unsupported request");
+    rejected_stream
+        .write_all(b"reload\n")
+        .expect("unsupported request should be writable");
+    rejected_stream
+        .shutdown(std::net::Shutdown::Write)
+        .expect("unsupported request write side should close");
+    let mut rejected_response = String::new();
+    rejected_stream
+        .read_to_string(&mut rejected_response)
+        .expect("unsupported request should receive a response");
+    assert_eq!(rejected_response, "rejected\n");
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
     let accepted = handle_managed_control_stop(
         socket_path.to_str().expect("socket path should be UTF-8"),
         true,

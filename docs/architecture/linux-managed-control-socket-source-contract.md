@@ -24,7 +24,9 @@ identifies a Unix socket.
 
 `networkcore-linux stop --managed-control-socket <absolute-path> --confirm`
 connects to that exact socket, writes the bounded `stop` command, closes its
-write side, and requires the bounded `accepted` response. A missing
+write side, and requires the bounded `accepted` response. Both server-side
+reads and writes use a two-second deadline; malformed, oversized, timed-out,
+or unsupported requests receive no control effect. A missing
 confirmation, relative path, connection failure, unsupported command, or
 non-Unix platform returns a stable diagnostic and never falls back to PID
 signals, default-path discovery, systemd, or process-name matching.
@@ -44,7 +46,8 @@ GitHub Actions must run
 `managed_control_socket_accepts_confirmed_stop_and_cleans_up`. The contract
 uses an injected `ManagedControlInterrupter` to prove a real UnixStream request
 is accepted once without signalling the test process, checks `0600`, verifies
-the authorization gate, and proves guard cleanup. The Unix foreground
+the authorization gate, rejects `reload` without interrupting the session, and
+proves guard cleanup. The Unix foreground
 interruption contract separately proves the default control interrupter is
 consumed as `managed-control-stop` with
 `cli.linux.start.managed_control_stop_requested`. Local machines do not run

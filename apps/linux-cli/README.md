@@ -78,8 +78,8 @@ the existing foreground-only behavior and recorded state never claims process li
 
 On Unix, the same explicit managed start can add `--managed-control-socket <absolute-path>`.
 NetworkCore creates that socket without replacing an existing path, applies owner-only `0600`, and accepts only a
-bounded `stop` request. `stop --managed-control-socket <absolute-path> --confirm` sends that request through the
-existing foreground interruption and runtime release path. No default socket, PID lookup, reload, status, or
+bounded `stop` request with a two-second I/O deadline. `stop --managed-control-socket <absolute-path> --confirm`
+sends that request through the existing foreground interruption and runtime release path. No default socket, PID lookup, reload, status, or
 non-Unix fallback is provided; the boundary is fixed by
 `docs/architecture/linux-managed-control-socket-source-contract.md`.
 

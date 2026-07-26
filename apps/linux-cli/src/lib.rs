@@ -387,6 +387,7 @@ pub const MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES: u64 = 64 * 1024;
 pub const MANAGED_FOREGROUND_LOG_TAIL_DEFAULT_LIMIT: usize = 100;
 pub const MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT: usize = 1_000;
 pub const MANAGED_FOREGROUND_LOG_TAIL_MAX_BYTES: u64 = 64 * 1024;
+pub const MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS: u64 = 2;
 #[cfg(unix)]
 static MANAGED_CONTROL_STOP_REQUESTED: AtomicBool = AtomicBool::new(false);
 pub const RUN_URL_REMOTE_SUBSCRIPTION_MAX_BYTES: u64 = 1024 * 1024;
@@ -2941,7 +2942,11 @@ pub fn start_managed_control_socket_with_interrupter(
             match listener.accept() {
                 Ok((mut stream, _)) => {
                     let mut command = Vec::new();
-                    let read_result = (&mut stream).take(64).read_to_end(&mut command);
+                    let read_result = stream
+                        .set_read_timeout(Some(Duration::from_secs(
+                            MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS,
+                        )))
+                        .and_then(|()| (&mut stream).take(64).read_to_end(&mut command));
                     let accepted = read_result.is_ok()
                         && std::str::from_utf8(&command).is_ok_and(|value| value.trim() == "stop")
                         && interrupter.interrupt().is_ok();
@@ -2950,6 +2955,9 @@ pub fn start_managed_control_socket_with_interrupter(
                     } else {
                         b"rejected\n".as_slice()
                     };
+                    let _ = stream.set_write_timeout(Some(Duration::from_secs(
+                        MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS,
+                    )));
                     let _ = stream.write_all(response);
                     if accepted {
                         break;
@@ -8700,8 +8708,12 @@ pub fn handle_managed_control_stop(socket_path: &str, confirm: bool) -> LinuxCli
     {
         let result = (|| -> std::io::Result<String> {
             let mut stream = UnixStream::connect(socket_path)?;
-            stream.set_read_timeout(Some(Duration::from_secs(2)))?;
-            stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+            stream.set_read_timeout(Some(Duration::from_secs(
+                MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS,
+            )))?;
+            stream.set_write_timeout(Some(Duration::from_secs(
+                MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS,
+            )))?;
             stream.write_all(b"stop\n")?;
             stream.shutdown(std::net::Shutdown::Write)?;
             let mut response = String::new();
