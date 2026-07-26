@@ -89,7 +89,7 @@ impl ReqwestMieruReleaseHttpClient {
 
 impl MieruReleaseHttpClient for ReqwestMieruReleaseHttpClient {
     fn get_bytes(&self, url: &str) -> DomainResult<Vec<u8>> {
-        let mut response = self.client.get(url).send().map_err(|error| {
+        let response = self.client.get(url).send().map_err(|error| {
             release_download_error(format!("Mieru release download failed: {error}"))
         })?;
         if !response.status().is_success() {
@@ -733,7 +733,7 @@ pub fn verify_local_mieru_binary(
         }
         digest.update(&buffer[..read]);
     }
-    let actual = format!("{digest:x}");
+    let actual = digest_to_hex(digest.finalize());
     if actual != expected {
         return Err(DomainError::new(
             MIERU_BINARY_DIGEST_MISMATCH_CODE,
@@ -1387,7 +1387,18 @@ fn write_release_binary_atomically(path: &Path, bytes: &[u8]) -> DomainResult<()
 fn sha256_hex(bytes: &[u8]) -> String {
     let mut digest = Sha256::new();
     digest.update(bytes);
-    format!("{digest:x}")
+    digest_to_hex(digest.finalize())
+}
+
+fn digest_to_hex(digest: impl AsRef<[u8]>) -> String {
+    let digest = digest.as_ref();
+    let alphabet = b"0123456789abcdef";
+    let mut output = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        output.push(alphabet[(byte >> 4) as usize] as char);
+        output.push(alphabet[(byte & 0x0f) as usize] as char);
+    }
+    output
 }
 
 fn release_download_error(message: impl Into<String>) -> DomainError {
