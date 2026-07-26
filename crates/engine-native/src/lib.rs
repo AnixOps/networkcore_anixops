@@ -10,8 +10,8 @@ use control_domain::{
     HttpMitmOutcome, HttpMitmPhase, HttpMitmScriptDispatch, HttpMitmScriptKind, ListenerDescriptor,
     ListenerKind, ListenerNetwork, ListenerRoute, MetadataEntry, MitmPluginService, NodeDescriptor,
     PluginInstance, Protocol, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
-    ProxyEngineEventKind, ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService,
-    ProxyEngineStatus, RouteAction, RuleSet,
+    ProxyEngineEventKind, ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineRollbackRequest,
+    ProxyEngineService, ProxyEngineStatus, RouteAction, RuleSet,
 };
 use rcgen::{
     CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, Issuer, KeyPair,
@@ -4659,6 +4659,49 @@ impl ProxyEngineService for NativeProxyEngineService {
                     "native proxy runtime reload failed and previous configuration could not be restored",
                 )),
             },
+        }
+    }
+
+    fn rollback(&self, request: &ProxyEngineRollbackRequest) -> DomainResult<ProxyEngineStatus> {
+        ensure_native_engine_id(&request.snapshot.engine_id)?;
+        if request.snapshot.engine_id != request.snapshot.config.engine_id {
+            return Err(domain_error(
+                ENGINE_NATIVE_RELOAD_ROLLBACK_FAILED_CODE,
+                "native proxy rollback snapshot engine identity is inconsistent",
+            ));
+        }
+
+        let current = self.status(&request.snapshot.engine_id)?;
+        if current.state != request.expected_state {
+            return Err(domain_error(
+                ENGINE_NATIVE_RELOAD_ROLLBACK_FAILED_CODE,
+                "native proxy rollback current lifecycle state does not match the expected state",
+            ));
+        }
+
+        if current.state == ProxyEngineLifecycleState::Running {
+            let _ = self.stop(&request.snapshot.engine_id)?;
+        }
+
+        if request.snapshot.status.state == ProxyEngineLifecycleState::Stopped {
+            return Ok(stopped_status(&request.snapshot.engine_id));
+        }
+
+        match self.start_runtime_handle(&request.snapshot.config) {
+            Ok(handle) => {
+                let status = running_status(&handle);
+                let events = handle.events().to_vec();
+                *self.runtime_state()? = Some(NativeManagedRuntime {
+                    handle,
+                    config: request.snapshot.config.clone(),
+                });
+                self.record_events(events)?;
+                Ok(status)
+            }
+            Err(error) => Err(domain_error(
+                ENGINE_NATIVE_RELOAD_ROLLBACK_FAILED_CODE,
+                format!("native proxy rollback failed: {}", error.error),
+            )),
         }
     }
 

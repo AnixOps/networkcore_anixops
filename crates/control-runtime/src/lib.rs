@@ -13,7 +13,7 @@ use control_domain::{
     NodeDescriptor, PlatformCapabilities, PlatformCapabilityService, PlatformCapabilityStatus,
     PlatformFeatureState, PluginPackage, PluginPermission, PluginResult, ProxyEngineAdapter,
     ProxyEngineConfig, ProxyEngineEvent, ProxyEngineLifecycleState, ProxyEnginePrepareReport,
-    ProxyEngineStatus, SubscriptionService, SubscriptionSource,
+    ProxyEngineRollbackRequest, ProxyEngineStatus, SubscriptionService, SubscriptionSource,
 };
 
 pub const RUNTIME_SUBSCRIPTION_NODE_ID_DUPLICATE_CODE: &str =
@@ -236,6 +236,35 @@ where
         let (prepared, engine_config) = self.prepare_engine_config(&request)?;
         ensure_start_capabilities(&prepared.platform)?;
         self.engine.prepare(&engine_config)
+    }
+
+    /// Restores an adapter-owned snapshot after an expected lifecycle state.
+    pub fn rollback_runtime_engine(
+        &self,
+        request: ProxyEngineRollbackRequest,
+    ) -> DomainResult<ProxyEngineStatus> {
+        let status = self.engine.status(&request.snapshot.engine_id)?;
+        validate_proxy_engine_status(&status, &request.snapshot.engine_id, request.expected_state)
+            .map_err(|error| {
+                DomainError::new(
+                    RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+                    format!("engine rollback precondition violation: {error}"),
+                )
+            })?;
+
+        let restored = self.engine.rollback(&request)?;
+        validate_proxy_engine_status(
+            &restored,
+            &request.snapshot.engine_id,
+            request.snapshot.status.state,
+        )
+        .map_err(|error| {
+            DomainError::new(
+                RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+                format!("engine rollback contract violation: {error}"),
+            )
+        })?;
+        Ok(restored)
     }
 
     /// Starts a runtime engine with explicit subscription catalog node handoff.

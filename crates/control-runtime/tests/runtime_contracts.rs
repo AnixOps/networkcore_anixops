@@ -5,9 +5,9 @@ use control_domain::{
     PlatformCapabilities, PlatformCapabilityService, PlatformCapabilityStatus,
     PlatformFeatureState, PluginInstance, PluginManifest, PluginPackage, PluginPermission,
     PluginResult, Protocol, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
-    ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RawSubscription, RouteAction,
-    RouteRule, RuleSet, SchemaVersion, SubscriptionDocument, SubscriptionService,
-    SubscriptionSource,
+    ProxyEngineLifecycleState, ProxyEngineRollbackRequest, ProxyEngineService, ProxyEngineStatus,
+    RawSubscription, RouteAction, RouteRule, RuleSet, SchemaVersion, SubscriptionDocument,
+    SubscriptionService, SubscriptionSource,
 };
 use control_runtime::{
     MitmGateOrchestrator, MitmGateRequest, RuntimeConfigRequest, RuntimeOrchestrator,
@@ -155,6 +155,10 @@ impl ProxyEngineService for FakeProxyEngineService {
             state: ProxyEngineLifecycleState::Stopped,
             diagnostics: Vec::new(),
         })
+    }
+
+    fn rollback(&self, request: &ProxyEngineRollbackRequest) -> DomainResult<ProxyEngineStatus> {
+        Ok(request.snapshot.status.clone())
     }
 
     fn status(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
@@ -669,6 +673,30 @@ fn start_runtime_rejects_platform_tunnel_denial() {
 
     assert_eq!(error.code, "runtime.platform.tunnel_unavailable");
     assert!(error.message.contains("network extension entitlement"));
+}
+
+#[test]
+fn runtime_rollback_checks_current_state_and_restores_snapshot_state() {
+    let orchestrator = RuntimeOrchestrator::new(
+        NoopConfigurationService,
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeProxyEngineService { fail_start: false },
+    );
+    let prepared = orchestrator
+        .prepare_runtime_engine(RuntimeConfigRequest::new("native", "profile = default"))
+        .expect("runtime preparation should capture a snapshot");
+
+    let restored = orchestrator
+        .rollback_runtime_engine(ProxyEngineRollbackRequest {
+            snapshot: prepared.snapshot,
+            expected_state: ProxyEngineLifecycleState::Running,
+        })
+        .expect("runtime rollback should restore the captured state");
+
+    assert_eq!(restored.engine_id, "native");
+    assert_eq!(restored.state, ProxyEngineLifecycleState::Running);
 }
 
 #[test]

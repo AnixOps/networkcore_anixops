@@ -947,6 +947,15 @@ pub trait ProxyEngineService {
 
     fn stop(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus>;
 
+    /// Restores a configuration snapshot when the legacy service owns enough
+    /// runtime state to perform that operation.
+    fn rollback(&self, _request: &ProxyEngineRollbackRequest) -> DomainResult<ProxyEngineStatus> {
+        Err(DomainError::new(
+            "control.engine.rollback_unsupported",
+            "proxy engine service does not own configuration rollback",
+        ))
+    }
+
     fn status(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus>;
 
     fn events(&self, engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>>;
@@ -1028,11 +1037,8 @@ where
         ProxyEngineService::stop(self, engine_id)
     }
 
-    fn rollback(&self, _request: &ProxyEngineRollbackRequest) -> DomainResult<ProxyEngineStatus> {
-        Err(DomainError::new(
-            "control.engine.rollback_unsupported",
-            "proxy engine adapter does not own configuration rollback",
-        ))
+    fn rollback(&self, request: &ProxyEngineRollbackRequest) -> DomainResult<ProxyEngineStatus> {
+        ProxyEngineService::rollback(self, request)
     }
 
     fn events(&self, engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>> {
