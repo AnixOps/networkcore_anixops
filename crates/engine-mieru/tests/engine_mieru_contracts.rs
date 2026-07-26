@@ -2,7 +2,7 @@ use engine_mieru::{
     parse_mieru_share_link, render_mieru_client_config, verify_local_mieru_binary,
     MieruClientConfigRequest, MieruManagedProcessState, MieruManagedProcessSupervisor,
     MIERU_BINARY_DIGEST_MISSING_CODE, MIERU_CONFIG_TRAFFIC_PATTERN_DEFERRED_CODE,
-    MIERU_RUNTIME_UNWIRED_CODE,
+    MIERU_LISTENER_NOT_READY_CODE, MIERU_RUNTIME_UNWIRED_CODE,
 };
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -116,6 +116,21 @@ fn renders_official_shape_with_loopback_socks5_and_defers_traffic_pattern() {
         .iter()
         .any(|diagnostic| diagnostic.code == MIERU_CONFIG_TRAFFIC_PATTERN_DEFERRED_CODE));
     assert!(!format!("{:?}", report).contains("secret"));
+}
+
+#[test]
+fn readiness_does_not_promote_a_stopped_process_from_pid_absence() {
+    let mut supervisor = MieruManagedProcessSupervisor::default();
+    let report = supervisor
+        .readiness("127.0.0.1", 1080, std::time::Duration::from_millis(10))
+        .expect("stopped supervisor readiness should be reportable");
+
+    assert!(!report.listener_reachable);
+    assert!(!report.ready);
+    assert!(report
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == MIERU_LISTENER_NOT_READY_CODE));
 }
 
 fn temporary_root(label: &str) -> PathBuf {

@@ -13,6 +13,8 @@ The current source-only slice provides:
   including user/server/port-binding, MTU, multiplexing, and handshake fields;
 - a cross-platform child-process supervisor whose executable, arguments,
   working directory, log path, and expected digest are caller supplied.
+- a local SOCKS5 readiness report that requires both a live child process and
+  a reachable listener; a PID alone is never reported as ready.
 
 The renderer deliberately keeps traffic-pattern metadata as a deferred
 diagnostic until the official protobuf representation is decoded; it does not

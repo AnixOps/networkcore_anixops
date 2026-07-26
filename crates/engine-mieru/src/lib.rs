@@ -17,6 +17,7 @@ use sha2::{Digest, Sha256};
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{Read, Write};
+use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use url::Url;
@@ -35,6 +36,8 @@ pub const MIERU_PROCESS_STOP_FAILED_CODE: &str = "engine.mieru.process.stop_fail
 pub const MIERU_CONFIG_INVALID_CODE: &str = "engine.mieru.config.invalid";
 pub const MIERU_CONFIG_TRAFFIC_PATTERN_DEFERRED_CODE: &str =
     "engine.mieru.config.traffic_pattern_deferred";
+pub const MIERU_LISTENER_NOT_READY_CODE: &str = "engine.mieru.listener.not_ready";
+pub const MIERU_LISTENER_PROBE_FAILED_CODE: &str = "engine.mieru.listener.probe_failed";
 pub const SOURCE_ENGINE_MIERU_CONFIG: &str = "engine.mieru.config";
 pub const SOURCE_ENGINE_MIERU_BINARY: &str = "engine.mieru.binary";
 pub const SOURCE_ENGINE_MIERU_LIFECYCLE: &str = "engine.mieru.lifecycle";
@@ -385,6 +388,15 @@ pub struct MieruManagedProcessStatus {
     pub exit_code: Option<i32>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MieruReadinessReport {
+    pub process_status: MieruManagedProcessStatus,
+    pub listener_endpoint: String,
+    pub listener_reachable: bool,
+    pub ready: bool,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
 pub struct MieruManagedProcessSupervisor {
     child: Option<Child>,
     last_status: MieruManagedProcessStatus,
@@ -494,6 +506,63 @@ impl MieruManagedProcessSupervisor {
             exit_code: exit.code(),
         };
         Ok(self.last_status.clone())
+    }
+
+    pub fn readiness(
+        &mut self,
+        host: &str,
+        port: u16,
+        timeout: std::time::Duration,
+    ) -> DomainResult<MieruReadinessReport> {
+        let process_status = self.status()?;
+        let listener_endpoint = format!("{host}:{port}");
+        if process_status.state != MieruManagedProcessState::Running {
+            return Ok(MieruReadinessReport {
+                process_status,
+                listener_endpoint,
+                listener_reachable: false,
+                ready: false,
+                diagnostics: vec![Diagnostic::new(
+                    DiagnosticSeverity::Warning,
+                    MIERU_LISTENER_NOT_READY_CODE,
+                    "Mieru process is not running; local SOCKS5 readiness is false",
+                    Some(SOURCE_ENGINE_MIERU_LIFECYCLE.to_string()),
+                )],
+            });
+        }
+        let addresses = (host, port).to_socket_addrs().map_err(|error| {
+            DomainError::new(
+                MIERU_LISTENER_PROBE_FAILED_CODE,
+                format!("Mieru local SOCKS5 endpoint could not be resolved: {error}"),
+            )
+        })?;
+        let listener_reachable = addresses
+            .into_iter()
+            .any(|address| TcpStream::connect_timeout(&address, timeout).is_ok());
+        Ok(MieruReadinessReport {
+            process_status,
+            listener_endpoint,
+            listener_reachable,
+            ready: listener_reachable,
+            diagnostics: vec![Diagnostic::new(
+                if listener_reachable {
+                    DiagnosticSeverity::Info
+                } else {
+                    DiagnosticSeverity::Warning
+                },
+                if listener_reachable {
+                    "engine.mieru.listener.ready"
+                } else {
+                    MIERU_LISTENER_NOT_READY_CODE
+                },
+                if listener_reachable {
+                    "Mieru process and local SOCKS5 listener are ready"
+                } else {
+                    "Mieru process is running but local SOCKS5 listener is unreachable"
+                },
+                Some(SOURCE_ENGINE_MIERU_LIFECYCLE.to_string()),
+            )],
+        })
     }
 }
 
