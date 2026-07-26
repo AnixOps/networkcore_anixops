@@ -93,7 +93,13 @@ impl WindowsRuntimeStatus {
         } else {
             proxy
         };
-        format!("{service}; core: {}; {proxy}", self.sing_box.label())
+        let issue = self
+            .configuration_error
+            .as_deref()
+            .or(self.last_error.as_deref())
+            .map(|error| format!("; issue: {}", error.trim().replace(['\r', '\n'], " ")))
+            .unwrap_or_default();
+        format!("{service}; core: {}; {proxy}{issue}", self.sing_box.label())
     }
 }
 
@@ -252,5 +258,29 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn status_line_surfaces_a_compact_runtime_error() {
+        let status = WindowsRuntimeStatus {
+            connection: ConnectionState::CoreError,
+            service_state: WindowsServiceState::Running,
+            service_process_id: 42,
+            service_detail: None,
+            sing_box: SingBoxProcessStatus::Exited {
+                process_id: 7,
+                exit_code: Some(1),
+            },
+            system_proxy_enabled: Some(false),
+            system_proxy_server: None,
+            system_proxy_matches_managed: Some(false),
+            last_transition: Some("failed".to_string()),
+            last_error: Some("listener failed\nport unavailable".to_string()),
+            configuration_error: None,
+        };
+
+        assert!(status
+            .status_line()
+            .contains("issue: listener failed port unavailable"));
     }
 }
