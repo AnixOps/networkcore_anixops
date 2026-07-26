@@ -707,6 +707,8 @@ jobs:
           grep -q "render_systemd_unit" crates/platform-linux/src/systemd.rs
           grep -q "Restart=on-failure" crates/platform-linux/src/systemd.rs
           grep -q "renders_bounded_non_root_systemd_unit" crates/platform-linux/tests/systemd_unit_contracts.rs
+          grep -q "plan_systemd_unit_removal" crates/platform-linux/src/systemd.rs
+          grep -q "removal_plan_preserves_state" crates/platform-linux/tests/systemd_unit_contracts.rs
           grep -q "validate_proxy_engine_transition" crates/control-runtime/src/lib.rs
           grep -q "runtime_rollback_rejects_a_non_recovering_lifecycle_jump" crates/control-runtime/tests/runtime_contracts.rs
           grep -q "SING_BOX_LATEST_RELEASE_API_URL" crates/engine-singbox/src/lib.rs

@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 pub const LINUX_SYSTEMD_UNIT_SCHEMA_VERSION: u32 = 1;
 pub const LINUX_SYSTEMD_UNIT_INVALID_CODE: &str = "platform.linux.systemd.unit_invalid";
+pub const LINUX_SYSTEMD_REMOVAL_INVALID_CODE: &str = "platform.linux.systemd.removal_invalid";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinuxManagedServiceUnitRequest {
@@ -29,6 +30,40 @@ pub struct LinuxManagedServiceUnitPlan {
     pub restart_policy: String,
     pub start_limit_burst: u32,
     pub start_limit_interval_seconds: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxManagedServiceUnitRemovalPlan {
+    pub schema_version: u32,
+    pub unit_name: String,
+    pub unit_path: PathBuf,
+    pub confirmation_required: bool,
+    pub purge_confirmation_required: bool,
+    pub preserved_state_directory: PathBuf,
+}
+
+pub fn plan_systemd_unit_removal(
+    unit_name: &str,
+    state_directory: &Path,
+) -> DomainResult<LinuxManagedServiceUnitRemovalPlan> {
+    if unit_name.trim().is_empty()
+        || unit_name.contains('/')
+        || unit_name.chars().any(char::is_whitespace)
+        || !state_directory.is_absolute()
+    {
+        return Err(DomainError::new(
+            LINUX_SYSTEMD_REMOVAL_INVALID_CODE,
+            "systemd removal requires a named unit and an absolute state directory",
+        ));
+    }
+    Ok(LinuxManagedServiceUnitRemovalPlan {
+        schema_version: LINUX_SYSTEMD_UNIT_SCHEMA_VERSION,
+        unit_name: unit_name.to_string(),
+        unit_path: PathBuf::from("/etc/systemd/system").join(unit_name),
+        confirmation_required: true,
+        purge_confirmation_required: true,
+        preserved_state_directory: state_directory.to_path_buf(),
+    })
 }
 
 pub fn render_systemd_unit(

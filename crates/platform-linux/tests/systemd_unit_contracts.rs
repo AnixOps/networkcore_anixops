@@ -1,5 +1,6 @@
 use platform_linux::systemd::{
-    render_systemd_unit, LinuxManagedServiceUnitRequest, LINUX_SYSTEMD_UNIT_INVALID_CODE,
+    plan_systemd_unit_removal, render_systemd_unit, LinuxManagedServiceUnitRequest,
+    LINUX_SYSTEMD_UNIT_INVALID_CODE,
 };
 use std::path::PathBuf;
 
@@ -54,4 +55,24 @@ fn rejects_newlines_that_could_escape_unit_fields() {
     })
     .expect_err("newline injection must be rejected");
     assert_eq!(error.code, LINUX_SYSTEMD_UNIT_INVALID_CODE);
+}
+
+#[test]
+fn removal_plan_preserves_state_and_requires_separate_purge_confirmation() {
+    let plan = plan_systemd_unit_removal(
+        "networkcore.service",
+        std::path::Path::new("/var/lib/networkcore"),
+    )
+    .expect("valid removal plan should render");
+
+    assert_eq!(
+        plan.unit_path,
+        std::path::Path::new("/etc/systemd/system/networkcore.service")
+    );
+    assert!(plan.confirmation_required);
+    assert!(plan.purge_confirmation_required);
+    assert_eq!(
+        plan.preserved_state_directory,
+        std::path::Path::new("/var/lib/networkcore")
+    );
 }
