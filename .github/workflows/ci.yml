@@ -1914,6 +1914,7 @@ jobs:
           grep -q "handle_node_rollback" apps/linux-cli/src/lib.rs
           grep -q "handle_proxy_apply" apps/linux-cli/src/lib.rs
           grep -q "handle_proxy_rollback" apps/linux-cli/src/lib.rs
+          grep -q "proxy_cli_requires_explicit_paths_and_reports_snapshot_rollback" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "LinuxCliCommand::ProxyApply" apps/linux-cli/src/main.rs
           grep -q "LinuxCliCommand::ProxyStatus" apps/linux-cli/src/main.rs
           grep -q "LinuxCliCommand::ProxyRollback" apps/linux-cli/src/main.rs

@@ -320,6 +320,58 @@ fn proxy_cli_requires_explicit_paths_and_reports_snapshot_rollback() {
     );
     assert!(rolled_back.ok);
     assert!(snapshot_path.exists());
+
+    let apply_command = parse_args([
+        "proxy",
+        "apply",
+        "--file",
+        file_path.to_str().expect("proxy path should be UTF-8"),
+        "--snapshot",
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        "--url",
+        "http://127.0.0.1:8080",
+        "--confirm",
+        "--format",
+        "json",
+    ])
+    .expect("proxy apply command should parse");
+    assert!(matches!(
+        apply_command,
+        LinuxCliCommand::ProxyApply {
+            format: OutputFormat::Json,
+            confirm: true,
+            ..
+        }
+    ));
+    let status_command = parse_args([
+        "proxy",
+        "status",
+        "--file",
+        file_path.to_str().expect("proxy path should be UTF-8"),
+    ])
+    .expect("proxy status command should parse");
+    assert!(matches!(
+        status_command,
+        LinuxCliCommand::ProxyStatus { .. }
+    ));
+    let rollback_command = parse_args([
+        "proxy",
+        "rollback",
+        "--file",
+        file_path.to_str().expect("proxy path should be UTF-8"),
+        "--snapshot",
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        "--confirm",
+    ])
+    .expect("proxy rollback command should parse");
+    assert!(matches!(
+        rollback_command,
+        LinuxCliCommand::ProxyRollback { confirm: true, .. }
+    ));
     let _ = std::fs::remove_dir_all(&root);
 }
 
