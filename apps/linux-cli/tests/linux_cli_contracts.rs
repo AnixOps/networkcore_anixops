@@ -2868,6 +2868,28 @@ fn restart_is_explicitly_unavailable_until_managed_control_is_wired() {
 }
 
 #[test]
+fn confirmed_restart_uses_managed_systemd_control_command() {
+    let command = parse_args([
+        "restart",
+        "--service-unit",
+        "networkcore-managed.service",
+        "--confirm",
+        "--format",
+        "json",
+    ])
+    .expect("confirmed restart should parse");
+    assert_eq!(
+        command,
+        LinuxCliCommand::ServiceControl {
+            action: LinuxSystemdServiceAction::Restart,
+            unit_name: "networkcore-managed.service".to_string(),
+            confirm: true,
+            format: OutputFormat::Json,
+        }
+    );
+}
+
+#[test]
 fn parses_core_list_and_mieru_local_install_contract() {
     assert_eq!(
         parse_args(["core", "list", "--format", "json"]).expect("core list should parse"),

@@ -5057,6 +5057,16 @@ where
         }
         "restart" => {
             let options = parse_options(&rest)?;
+            if options.confirm || options.service_unit_name.is_some() {
+                return Ok(LinuxCliCommand::ServiceControl {
+                    action: LinuxSystemdServiceAction::Restart,
+                    unit_name: options
+                        .service_unit_name
+                        .unwrap_or_else(|| "networkcore.service".to_string()),
+                    confirm: options.confirm,
+                    format: options.format,
+                });
+            }
             Ok(LinuxCliCommand::Restart {
                 config_path: options.config_path,
                 format: options.format,
@@ -12718,6 +12728,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux install-service --service-executable <absolute-path> [--service-unit <name>] [--service-description <text>] [--service-arg <arg>] [--service-user <user>] [--service-group <group>] [--service-state-dir <absolute-path>] --confirm [--format text|json]\n",
         "  networkcore-linux service <start|stop|restart|status> [--service-unit <name>] --confirm [--format text|json]\n",
+        "  networkcore-linux restart --confirm [--service-unit <name>] [--format text|json]  # managed systemd restart\n",
         "  networkcore-linux uninstall-service [--service-unit <name>] [--service-state-dir <absolute-path>] --confirm [--format text|json]\n",
         "  networkcore-linux logs <explicit-log-path> [--tail-lines <1-1000>] [--format text|json]\n",
         "  networkcore-linux run-url <subscription-source> [--node-id <id>] [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
@@ -12753,6 +12764,7 @@ pub const fn cli_help_text() -> &'static str {
         "  install-sing-box  Download the latest official sing-box archive and cache its executable.\n",
         "  install-service   Write an explicit confirmed systemd unit with snapshot/verification; never calls systemctl.\n",
         "  service           Control one explicitly named systemd unit after --confirm; status uses is-active.\n",
+        "  restart           Without --confirm remains foreground-unavailable; with --confirm restarts the managed unit.\n",
         "  uninstall-service Render an explicit removal plan; user configuration/state is preserved and no files are deleted.\n",
         "  logs              Read a bounded tail from one explicit log path; no default path scanning.\n",
         "  run-url           Parse a proxy URL, render sing-box config, and run a local foreground proxy.\n",
