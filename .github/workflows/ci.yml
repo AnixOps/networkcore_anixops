@@ -715,6 +715,7 @@ jobs:
           grep -q "render_systemd_unit" crates/platform-linux/src/systemd.rs
           grep -q "apply_environment_proxy" crates/platform-linux/src/proxy.rs
           grep -q "linux-environment-proxy-source-contract.md" docs/architecture/linux-environment-proxy-source-contract.md
+          grep -q "proxy apply/status/rollback" ROADMAP.md
           grep -q "rollback_environment_proxy" crates/platform-linux/src/proxy.rs
           grep -q "applies_environment_proxy_with_snapshot" crates/platform-linux/tests/proxy_contracts.rs
           grep -q "rollback_rejects_external_environment_file_changes" crates/platform-linux/tests/proxy_contracts.rs

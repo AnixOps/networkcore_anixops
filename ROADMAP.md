@@ -21,6 +21,8 @@ current-main-subscription-background=blocked
 
 当前 direct share-link compatibility 包含 Hysteria2/TUIC share-link parser gate；该前台路径不启用 HTTP/3 MITM。
 
+Linux CLI 还提供 `proxy apply/status/rollback` 显式环境代理文件路径：apply 必须带绝对文件、独立 snapshot、代理 URL 和 `--confirm`，写入后校验并在 Unix 使用 `0600`；rollback 检测外部修改并保留 snapshot。该能力不发现或修改默认桌面/系统代理位置。
+
 ## P0 Bootstrap Governance (Completed)
 
 目标是建立后续代码落地前必须稳定存在的协作、CI/CD 和规划基线。
@@ -219,6 +221,7 @@ P4 backlog buckets：
 - [iOS Package.swift Manifest-Only Activation Validation Contract](docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md)
 - [Linux Artifact Pre-Release Design](docs/architecture/linux-artifact-pre-release-design.md)
 - [Linux Platform Adapter Design](docs/architecture/linux-platform-adapter.md)
+- [Linux Environment Proxy Source Contract](docs/architecture/linux-environment-proxy-source-contract.md)
 - [Linux CLI Entrypoint Design](docs/architecture/linux-cli-entrypoint.md)
 - [Linux MITM Browser Capture Source Contract](docs/architecture/linux-mitm-browser-capture-source-contract.md)
 - [Linux MITM HTTP Rewrite Source Contract](docs/architecture/linux-mitm-http-rewrite-source-contract.md)
