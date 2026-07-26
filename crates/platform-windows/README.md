@@ -19,6 +19,8 @@ Current status:
   `apply config`, `start`, and `stop` command contract. Mieru is a background
   client controlled by its CLI, so the service records command-backed state and
   does not invent a child PID or claim process supervision it does not own.
+  During health polling it also executes the official `status` command and
+  routes a failed status check through failed-state cleanup and proxy rollback.
 - The Windows GUI Settings page exposes explicit Mieru release installation and
   local digest checking. It runs these operations off the UI thread and does
   not download without a user-supplied official release URL and digest.

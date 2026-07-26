@@ -7,8 +7,8 @@ use control_domain::{
     ProxyEngineService, RouteAction, RuleSet, SchemaVersion,
 };
 use engine_mieru::{
-    apply_and_start_mieru_client, stop_mieru_client, CommandMieruCommandRunner,
-    MieruClientControlRequest,
+    apply_and_start_mieru_client, status_mieru_client, stop_mieru_client,
+    CommandMieruCommandRunner, MieruClientControlRequest,
 };
 use engine_native::{
     NativeHttpMitmPluginHook, NativeNodeScriptExecutor, NativeNodeScriptRuntimeConfig,
@@ -158,6 +158,22 @@ where
                         status.state, status.exit_code
                     ),
                 );
+            }
+        }
+
+        if let Some(mieru) = &config.mieru {
+            if mieru.enabled && state.mieru_running {
+                let request = MieruClientControlRequest {
+                    executable_path: mieru.executable_path.clone(),
+                    expected_sha256: mieru.expected_sha256.clone(),
+                    config_path: mieru.config_path.clone(),
+                };
+                if let Err(error) = status_mieru_client(&self.mieru, &request) {
+                    return self.record_runtime_failure(
+                        &mut state,
+                        format!("managed Mieru status check failed: {}", error.message),
+                    );
+                }
             }
         }
 

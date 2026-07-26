@@ -788,6 +788,14 @@ pub struct MieruClientControlReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MieruClientStatusReport {
+    pub executable_path: PathBuf,
+    pub config_path: PathBuf,
+    pub command_succeeded: bool,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
 pub fn apply_and_start_mieru_client<R: MieruCommandRunner>(
     runner: &R,
     request: &MieruClientControlRequest,
@@ -845,6 +853,26 @@ pub fn stop_mieru_client<R: MieruCommandRunner>(
         started: false,
         stopped: true,
         diagnostics: stop.diagnostics,
+    })
+}
+
+pub fn status_mieru_client<R: MieruCommandRunner>(
+    runner: &R,
+    request: &MieruClientControlRequest,
+) -> DomainResult<MieruClientStatusReport> {
+    verify_local_mieru_binary(&request.executable_path, Some(&request.expected_sha256))?;
+    let status = runner.run(&request.executable_path, &["status".to_string()])?;
+    if !status.succeeded {
+        return Err(DomainError::new(
+            MIERU_COMMAND_FAILED_CODE,
+            "Mieru status command failed",
+        ));
+    }
+    Ok(MieruClientStatusReport {
+        executable_path: request.executable_path.clone(),
+        config_path: request.config_path.clone(),
+        command_succeeded: true,
+        diagnostics: status.diagnostics,
     })
 }
 

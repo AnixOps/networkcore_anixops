@@ -742,6 +742,8 @@ jobs:
           grep -q "async fn verify_mieru" apps/windows-gui/src/gui/tauri_ui.rs
           grep -q "apply_and_start_mieru_client" apps/windows-service/src/lib.rs
           grep -q "stop_mieru_client" apps/windows-service/src/lib.rs
+          grep -q "status_mieru_client" apps/windows-service/src/lib.rs
+          grep -q "official status command should succeed" crates/engine-mieru/tests/engine_mieru_contracts.rs
           grep -q "download_mieru_release" crates/engine-mieru/src/lib.rs
           grep -q "MIERU_RELEASE_MAX_BYTES" crates/engine-mieru/src/lib.rs
           grep -q "official Mieru release install should parse" apps/linux-cli/tests/linux_cli_contracts.rs

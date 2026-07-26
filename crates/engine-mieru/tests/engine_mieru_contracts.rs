@@ -1,6 +1,6 @@
 use engine_mieru::{
     apply_and_start_mieru_client, download_mieru_release, parse_mieru_share_link,
-    render_mieru_client_config, stop_mieru_client, verify_local_mieru_binary,
+    render_mieru_client_config, status_mieru_client, stop_mieru_client, verify_local_mieru_binary,
     write_mieru_client_config, MieruClientConfigRequest, MieruClientConfigWriteRequest,
     MieruClientControlRequest, MieruCommandReport, MieruCommandRunner, MieruManagedProcessState,
     MieruManagedProcessSupervisor, MieruReleaseDownloadRequest, MieruReleaseHttpClient,
@@ -177,10 +177,13 @@ fn official_client_control_commands_are_explicit_and_redact_process_output() {
         .expect("official apply/start commands should succeed");
     let stopped =
         stop_mieru_client(&runner, &request).expect("official stop command should succeed");
+    let status =
+        status_mieru_client(&runner, &request).expect("official status command should succeed");
 
     assert!(started.applied);
     assert!(started.started);
     assert!(stopped.stopped);
+    assert!(status.command_succeeded);
     assert_eq!(
         calls.lock().unwrap().as_slice(),
         [
@@ -191,6 +194,7 @@ fn official_client_control_commands_are_explicit_and_redact_process_output() {
             ],
             vec!["start".to_string()],
             vec!["stop".to_string()],
+            vec!["status".to_string()],
         ]
     );
     assert!(started
