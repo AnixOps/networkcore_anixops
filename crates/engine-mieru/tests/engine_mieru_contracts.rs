@@ -67,7 +67,7 @@ fn local_binary_verification_requires_explicit_digest_and_never_logs_credentials
     let error = verify_local_mieru_binary(&binary, None).expect_err("digest is mandatory");
     assert_eq!(error.code, MIERU_BINARY_DIGEST_MISSING_CODE);
 
-    let digest = format!("{:x}", Sha256::digest(b"operator supplied binary"));
+    let digest = sha256_hex(b"operator supplied binary");
     let report =
         verify_local_mieru_binary(&binary, Some(&digest)).expect("explicit digest should verify");
     assert!(report.verified);
@@ -190,7 +190,7 @@ fn official_client_control_commands_are_explicit_and_redact_process_output() {
     fs::create_dir_all(&root).expect("fixture directory should be created");
     let binary = root.join("mieru");
     fs::write(&binary, b"operator supplied binary").expect("fixture binary should be written");
-    let digest = format!("{:x}", Sha256::digest(b"operator supplied binary"));
+    let digest = sha256_hex(b"operator supplied binary");
     let calls = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
     let runner = RecordingMieruRunner {
         calls: calls.clone(),
@@ -239,7 +239,7 @@ fn official_release_download_requires_source_confirmation_and_digest() {
     fs::create_dir_all(&root).expect("fixture directory should be created");
     let destination = root.join("bin").join("mieru");
     let bytes = b"official release fixture".to_vec();
-    let digest = format!("{:x}", Sha256::digest(&bytes));
+    let digest = sha256_hex(&bytes);
     let request = MieruReleaseDownloadRequest {
         download_url: "https://github.com/enfein/mieru/releases/download/v1.0.0/mieru-linux-amd64"
             .to_string(),
@@ -362,4 +362,15 @@ impl MieruCommandRunner for RecordingMieruRunner {
 
 fn temporary_root(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!("networkcore-engine-mieru-{label}"))
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let alphabet = b"0123456789abcdef";
+    let mut output = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        output.push(alphabet[(byte >> 4) as usize] as char);
+        output.push(alphabet[(byte & 0x0f) as usize] as char);
+    }
+    output
 }
