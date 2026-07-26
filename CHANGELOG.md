@@ -18,6 +18,11 @@ current-main-subscription-background=blocked
 
 ### Changed
 
+- Linux CLI now exposes explicit Ubuntu-style CA trust-file apply and rollback
+  commands with confirmation, snapshot verification, refresh, recovery, and
+  external-change conflict protection. Default trust-store discovery, NSS,
+  p11-kit, and browser-profile trust mutation remain blocked.
+
 - Linux CLI now exposes `core list` and an explicit local Mieru verification
   command, `core install mieru --binary <path> --sha256 <digest>`. The command
   verifies the operator-provided executable and reports its digest without

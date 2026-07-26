@@ -23,6 +23,8 @@ current-main-subscription-background=blocked
 
 Linux CLI 还提供 `proxy apply/status/rollback` 显式环境代理文件路径：apply 必须带绝对文件、独立 snapshot、代理 URL 和 `--confirm`，写入后校验并在 Unix 使用 `0600`；rollback 检测外部修改并保留 snapshot。该能力不发现或修改默认桌面/系统代理位置。
 
+当前 main 还提供 `mitm certificate trust-apply/trust-rollback`：在显式 `--trust-file`、`--snapshot` 和 `--confirm` 下管理 Ubuntu-style CA trust-file，并调用 `update-ca-certificates`；默认路径发现、NSS、p11-kit、Firefox/browser profile 和其他 trust backend 仍 blocked。边界以 [Linux Trust-File Source Contract](docs/architecture/linux-trust-file-source-contract.md) 为准。
+
 ## P0 Bootstrap Governance (Completed)
 
 目标是建立后续代码落地前必须稳定存在的协作、CI/CD 和规划基线。
