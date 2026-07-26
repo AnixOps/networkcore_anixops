@@ -61,9 +61,10 @@ Full CI 继续保留 Linux、macOS、Windows Rust 覆盖、Rust dependency audit
 Windows managed-client/MSI、Swift/Apple 及既有合同检查。PR 矩阵使用 `fail-fast: true` 尽快反馈；
 main、tag 和手动完整验证使用 `fail-fast: false`，以保留全部平台兼容性结果。
 
-Windows GUI 前端在 Node job 的 Ubuntu runner 上构建一次，并以
+Windows GUI 前端在独立的 `windows-gui-frontend` Ubuntu producer job 中构建一次，并以
 `windows-gui-ui-<commit-sha>` 上传同一 workflow run 的短期 artifact；Windows Rust 与 MSI job
-只从当前 run 下载该 artifact 并检查 `index.html`。Node lint/test 仍覆盖三个 runner。该复用只用于
+显式等待该 producer 完成后，只从当前 run 下载 artifact 并检查 `index.html`。Node lint/test 仍覆盖三个 runner，
+与前端 artifact producer 解耦。该复用只用于
 普通 CI，artifact 保留一天；Release workflow 必须继续独立安装 frozen dependencies、构建前端和
 生成发布产物，不得信任或复用普通 CI artifact。当前未提交 pnpm lockfile，因此不新增 Node dependency
 cache；也不共享 `dist`、Rust target 或发布产物缓存。lockfile 只能按人工介入记录通过 GitHub Actions 刷新。

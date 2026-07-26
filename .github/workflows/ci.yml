@@ -2139,6 +2139,52 @@ jobs:
             echo "::endgroup::"
           done < <(find . -name go.mod -not -path "*/vendor/*" | sort)
 
+  windows-gui-frontend:
+    name: Windows GUI frontend artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs:
+      - changes
+      - policy-fast
+      - detect-projects
+    if: >-
+      ${{
+        needs.detect-projects.outputs.node == 'true' &&
+        (
+          needs.changes.outputs.full_matrix == 'true' ||
+          needs.changes.outputs.windows == 'true'
+        )
+      }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        shell: bash
+        run: pnpm --dir apps/windows-gui/ui install --no-frozen-lockfile
+
+      - name: Build Windows GUI frontend
+        shell: bash
+        run: pnpm --dir apps/windows-gui/ui run build
+
+      - name: Upload Windows GUI frontend
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-gui-ui-${{ github.sha }}
+          path: apps/windows-gui/ui/dist
+          if-no-files-found: error
+          retention-days: 1
+
   rust-build-test:
     name: Rust build and test
     runs-on: ${{ matrix.os }}
@@ -2147,12 +2193,15 @@ jobs:
       - changes
       - policy-fast
       - detect-projects
+      - windows-gui-frontend
     if: >-
       ${{
+        always() &&
         needs.changes.result == 'success' &&
         needs.policy-fast.result == 'success' &&
         needs.detect-projects.result == 'success' &&
         needs.detect-projects.outputs.rust == 'true' &&
+        (needs.windows-gui-frontend.result == 'success' || needs.detect-projects.outputs.node != 'true') &&
         (
           needs.changes.outputs.full_matrix == 'true' ||
           needs.changes.outputs.rust == 'true' ||
@@ -2172,14 +2221,14 @@ jobs:
           submodules: true
 
       - name: Download Windows GUI frontend
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.windows-gui-frontend.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: windows-gui-ui-${{ github.sha }}
           path: apps/windows-gui/ui/dist
 
       - name: Verify Windows GUI frontend
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && needs.windows-gui-frontend.result == 'success'
         shell: bash
         run: test -s apps/windows-gui/ui/dist/index.html
 
@@ -2248,14 +2297,14 @@ jobs:
       - changes
       - policy-fast
       - detect-projects
-      - node-build-test
+      - windows-gui-frontend
     if: >-
       ${{
         always() &&
         needs.changes.result == 'success' &&
         needs.policy-fast.result == 'success' &&
         needs.detect-projects.result == 'success' &&
-        needs.node-build-test.result == 'success' &&
+        (needs.windows-gui-frontend.result == 'success' || needs.detect-projects.outputs.node != 'true') &&
         (needs.changes.outputs.full_matrix == 'true' || needs.changes.outputs.windows == 'true')
       }}
     steps:
@@ -2265,12 +2314,14 @@ jobs:
           submodules: true
 
       - name: Download Windows GUI frontend
+        if: needs.windows-gui-frontend.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: windows-gui-ui-${{ github.sha }}
           path: apps/windows-gui/ui/dist
 
       - name: Verify Windows GUI frontend
+        if: needs.windows-gui-frontend.result == 'success'
         shell: bash
         run: test -s apps/windows-gui/ui/dist/index.html
 
@@ -2549,26 +2600,6 @@ jobs:
           set -euo pipefail
           pnpm --dir apps/windows-gui/ui test
 
-      - name: Build
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        run: |
-          set -euo pipefail
-          pnpm --dir apps/windows-gui/ui run build
-
-      - name: Upload Windows GUI frontend
-        if: >-
-          ${{
-            matrix.os == 'ubuntu-latest' &&
-            (needs.changes.outputs.full_matrix == 'true' || needs.changes.outputs.windows == 'true')
-          }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-gui-ui-${{ github.sha }}
-          path: apps/windows-gui/ui/dist
-          if-no-files-found: error
-          retention-days: 1
-
   swift-build-test:
     name: Swift build and test
     runs-on: macos-26
@@ -2637,6 +2668,7 @@ jobs:
       - detect-projects
       - workspace-smoke
       - go-build-test
+      - windows-gui-frontend
       - rust-build-test
       - windows-managed-client-installer
       - rust-security-audit
@@ -2674,6 +2706,7 @@ jobs:
           RESULT_DETECT_PROJECTS: ${{ needs.detect-projects.result }}
           RESULT_WORKSPACE_SMOKE: ${{ needs.workspace-smoke.result }}
           RESULT_GO_BUILD_TEST: ${{ needs.go-build-test.result }}
+          RESULT_WINDOWS_GUI_FRONTEND: ${{ needs.windows-gui-frontend.result }}
           RESULT_RUST_BUILD_TEST: ${{ needs.rust-build-test.result }}
           RESULT_WINDOWS_INSTALLER: ${{ needs.windows-managed-client-installer.result }}
           RESULT_RUST_AUDIT: ${{ needs.rust-security-audit.result }}
@@ -2686,6 +2719,7 @@ jobs:
 
           workspace_required=false
           go_required=false
+          windows_gui_frontend_required=false
           rust_required=false
           windows_required=false
           audit_required=false
@@ -2709,6 +2743,9 @@ jobs:
           fi
           if [[ "${CHANGE_FULL_MATRIX}" == true || "${CHANGE_WINDOWS}" == true ]]; then
             windows_required=true
+          fi
+          if [[ "${DETECTED_NODE}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_WINDOWS}" == true) ]]; then
+            windows_gui_frontend_required=true
           fi
           if [[ "${DETECTED_NODE}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_NODE}" == true ||
                 "${CHANGE_WINDOWS}" == true) ]]; then
@@ -2765,6 +2802,7 @@ jobs:
           record_job "Detect project types" "${RESULT_DETECT_PROJECTS}" true
           record_job "Workspace smoke" "${RESULT_WORKSPACE_SMOKE}" "${workspace_required}"
           record_job "Go build and test" "${RESULT_GO_BUILD_TEST}" "${go_required}"
+          record_job "Windows GUI frontend artifact" "${RESULT_WINDOWS_GUI_FRONTEND}" "${windows_gui_frontend_required}"
           record_job "Rust build and test" "${RESULT_RUST_BUILD_TEST}" "${rust_required}"
           record_job "Windows managed client MSI" "${RESULT_WINDOWS_INSTALLER}" "${windows_required}"
           record_job "Rust dependency security audit" "${RESULT_RUST_AUDIT}" "${audit_required}"
@@ -2830,6 +2868,7 @@ jobs:
             echo "| Detect project types | true | ${RESULT_DETECT_PROJECTS} |"
             echo "| Workspace smoke | ${workspace_required} | ${RESULT_WORKSPACE_SMOKE} |"
             echo "| Go build and test | ${go_required} | ${RESULT_GO_BUILD_TEST} |"
+            echo "| Windows GUI frontend artifact | ${windows_gui_frontend_required} | ${RESULT_WINDOWS_GUI_FRONTEND} |"
             echo "| Rust build and test | ${rust_required} | ${RESULT_RUST_BUILD_TEST} |"
             echo "| Windows managed client MSI | ${windows_required} | ${RESULT_WINDOWS_INSTALLER} |"
             echo "| Rust dependency security audit | ${audit_required} | ${RESULT_RUST_AUDIT} |"
