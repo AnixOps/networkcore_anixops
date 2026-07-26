@@ -5634,6 +5634,13 @@ pub fn handle_core_list(descriptors: Vec<ProxyEngineDescriptor>) -> LinuxCliResp
     LinuxCliResponse::success("core list").with_core_engines(engines)
 }
 
+pub fn registered_core_engine_descriptors() -> Vec<ProxyEngineDescriptor> {
+    let mut descriptors = engine_native::NativeProxyEngineService::new().list_engines();
+    descriptors.extend(engine_singbox::SingBoxProxyEngineService::new().list_engines());
+    descriptors.extend(engine_mieru::MieruProxyEngineService::new().list_engines());
+    descriptors
+}
+
 pub fn handle_install_mieru(binary_path: &str, expected_sha256: &str) -> LinuxCliResponse {
     match engine_mieru::verify_local_mieru_binary(
         std::path::Path::new(binary_path),

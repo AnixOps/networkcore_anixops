@@ -64,6 +64,13 @@ fn main() {
                 }
             } else if matches!(
                 &command,
+                networkcore_linux::LinuxCliCommand::CoreList { .. }
+            ) {
+                networkcore_linux::handle_core_list(
+                    networkcore_linux::registered_core_engine_descriptors(),
+                )
+            } else if matches!(
+                &command,
                 networkcore_linux::LinuxCliCommand::InstallSingBox { .. }
                     | networkcore_linux::LinuxCliCommand::RunUrl { .. }
                     | networkcore_linux::LinuxCliCommand::RunCatalog { .. }

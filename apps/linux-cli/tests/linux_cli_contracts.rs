@@ -46,8 +46,8 @@ use networkcore_linux::{
     handle_start, handle_status, handle_stop, native_proxy_engine_service_with_builtin_mitm_plugin,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files, parse_args,
-    render_response, BrowserCaptureEndpointProbe, BrowserCapturePacFileStore,
-    BrowserCaptureProcessRunner, BrowserCaptureTrafficProofProbe,
+    registered_core_engine_descriptors, render_response, BrowserCaptureEndpointProbe,
+    BrowserCapturePacFileStore, BrowserCaptureProcessRunner, BrowserCaptureTrafficProofProbe,
     CommandBrowserCaptureEndpointProbe, CommandBrowserCaptureTrafficProofProbe,
     CommandManagedForegroundSessionEventStore, CommandManagedForegroundSessionLogStore,
     CommandManagedForegroundSessionStore, CommandRemoteSubscriptionFetcher,
@@ -2890,6 +2890,17 @@ fn parses_core_list_and_mieru_local_install_contract() {
             format: OutputFormat::Text,
         }
     );
+}
+
+#[test]
+fn core_list_registers_native_sing_box_and_mieru_adapters() {
+    let descriptors = registered_core_engine_descriptors();
+    let ids = descriptors
+        .iter()
+        .map(|descriptor| descriptor.id.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(ids, vec!["native", "sing-box", "mieru"]);
 }
 
 #[test]
