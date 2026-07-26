@@ -141,6 +141,19 @@ share-link/catalog payload 交给既有 `run-url` 前台 sing-box 路径。`--no
 不刷新或调度 subscription，不建立 daemon、control socket 或后台 runtime。HTTP(S) 行为继承
 `run-url` 的一次前台请求限制。
 
+## Eighth Operation: Explicit Background Refresh
+
+`subscription refresh start` only accepts one previously saved HTTP(S) source and requires explicit catalog,
+refresh-status, and snapshot paths plus `--confirm`. It reuses the existing candidate fetch, parse, normalize,
+node-diff, snapshot, and atomic catalog replacement boundary. A fixed 300-second minimum interval and the existing
+15-second timeout, five redirect limit, and 1 MiB response limit apply. No default path is inferred.
+
+The refresh status is redacted and records source id, last attempt, last success, next attempt, result, added,
+removed, and changed node counts, plus a stable error code only. `subscription refresh status` reads that explicit
+record; `subscription refresh stop --confirm` is bounded, idempotently writes stopped state, and cleans the source
+lock. Refresh failure retains the old catalog, source, node selection, runtime configuration, and running core.
+It never restarts a core, switches a node, or modifies the system proxy.
+
 ## Acceptance Test
 
 第一个合同测试必须证明一次 `add`：

@@ -2257,6 +2257,10 @@ pub struct SubscriptionRefreshStatusReport {
     pub next_attempt: String,
     pub result: String,
     pub error_redacted: bool,
+    pub error_code: Option<String>,
+    pub added_node_count: usize,
+    pub removed_node_count: usize,
+    pub changed_node_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3550,29 +3554,36 @@ impl CommandSubscriptionCatalogStore {
             return Err(DomainError::new(CLI_SUBSCRIPTION_REFRESH_SOURCE_UNSUPPORTED_CODE, "background refresh accepts only a saved HTTP(S) source"));
         }
         let _refresh_lock = SubscriptionRefreshLock::acquire(&status_path, source_id)?;
+        let previous_location = source.location.clone();
         let attempted_at = subscription_refresh_timestamp();
         let candidate = fetcher.fetch_subscription(&refresh_location).and_then(|content| {
+            let previous_nodes = parse_subscription_catalog_update_nodes(source_id, &previous_location, fetcher)?;
             let service = CoreSubscriptionService::new();
             let document = service.parse(&RawSubscription { source_id: source_id.to_string(), content: content.clone() })
                 .map_err(|error| DomainError::new(CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE, format!("subscription refresh candidate could not be parsed: {}", error.code)))?;
-            service.normalize(&document).map_err(|error| DomainError::new(CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE, format!("subscription refresh candidate could not be normalized: {}", error.code)))?;
-            Ok(content)
+            let candidate_catalog = service.normalize(&document).map_err(|error| DomainError::new(CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE, format!("subscription refresh candidate could not be normalized: {}", error.code)))?;
+            Ok((content, candidate_catalog.nodes, previous_nodes))
         });
         let next_attempt = subscription_refresh_next_timestamp(request.interval_seconds);
         match candidate {
-            Ok(content) => {
+            Ok((content, candidate_nodes, previous_nodes)) => {
                 source.location = format!("inline:{content}");
                 source.refresh_location = Some(refresh_location);
+                let previous_node_index = subscription_node_index(&previous_nodes);
+                let candidate_node_index = subscription_node_index(&candidate_nodes);
+                let added_node_count = candidate_node_index.keys().filter(|id| !previous_node_index.contains_key(*id)).count();
+                let removed_node_count = previous_node_index.keys().filter(|id| !candidate_node_index.contains_key(*id)).count();
+                let changed_node_count = candidate_node_index.iter().filter(|(id, value)| previous_node_index.get(*id).is_some_and(|previous| previous != *value)).count();
                 let snapshot_json = serde_json::to_string_pretty(&previous_catalog).map_err(|error| DomainError::new(CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_WRITE_FAILED_CODE, format!("failed to render subscription refresh snapshot: {error}")))?;
                 let catalog_json = serde_json::to_string_pretty(&catalog).map_err(|error| DomainError::new(CLI_SUBSCRIPTION_CATALOG_WRITE_FAILED_CODE, format!("failed to render refreshed subscription catalog: {error}")))?;
                 write_replace_file(&snapshot_path, snapshot_json.as_bytes(), CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_WRITE_FAILED_CODE, "subscription refresh snapshot")?;
                 write_replace_file(&catalog_path, catalog_json.as_bytes(), CLI_SUBSCRIPTION_CATALOG_WRITE_FAILED_CODE, "refreshed subscription catalog")?;
-                let status = SubscriptionRefreshStatusFile { schema_version: 1, source_id: source_id.to_string(), enabled: true, interval_seconds: request.interval_seconds, last_attempt: attempted_at.clone(), last_success: Some(attempted_at.clone()), next_attempt: next_attempt.clone(), result: "success".to_string(), error_redacted: false };
+                let status = SubscriptionRefreshStatusFile { schema_version: 1, source_id: source_id.to_string(), enabled: true, interval_seconds: request.interval_seconds, last_attempt: attempted_at.clone(), last_success: Some(attempted_at.clone()), next_attempt: next_attempt.clone(), result: "success".to_string(), error_redacted: false, error_code: None, added_node_count, removed_node_count, changed_node_count };
                 write_subscription_refresh_status_file(&status_path, &status)?;
                 Ok(subscription_refresh_report(status_path, status))
             }
             Err(error) => {
-                let status = SubscriptionRefreshStatusFile { schema_version: 1, source_id: source_id.to_string(), enabled: true, interval_seconds: request.interval_seconds, last_attempt: attempted_at, last_success: read_subscription_refresh_status_file(&status_path).ok().and_then(|status| status.last_success), next_attempt, result: "failed".to_string(), error_redacted: true };
+                let status = SubscriptionRefreshStatusFile { schema_version: 1, source_id: source_id.to_string(), enabled: true, interval_seconds: request.interval_seconds, last_attempt: attempted_at, last_success: read_subscription_refresh_status_file(&status_path).ok().and_then(|status| status.last_success), next_attempt, result: "failed".to_string(), error_redacted: true, error_code: Some(error.code.clone()), added_node_count: 0, removed_node_count: 0, changed_node_count: 0 };
                 write_subscription_refresh_status_file(&status_path, &status)?;
                 Err(DomainError::new(error.code, "subscription refresh failed; previous catalog and runtime selection were retained"))
             }
@@ -3587,10 +3598,15 @@ impl CommandSubscriptionCatalogStore {
     pub fn stop_refresh(&self, status_path: &str, source_id: &str, confirmed: bool) -> DomainResult<SubscriptionRefreshStatusReport> {
         if !confirmed { return Err(DomainError::new(CLI_SUBSCRIPTION_REFRESH_AUTHORIZATION_REQUIRED_CODE, "subscription refresh stop requires explicit --confirm")); }
         let status_path = required_subscription_catalog_path(status_path, CLI_SUBSCRIPTION_REFRESH_STATUS_WRITE_FAILED_CODE, "subscription refresh status path cannot be empty")?;
-        let mut status = read_subscription_refresh_status_file(&status_path)?;
+        let mut status = match read_subscription_refresh_status_file(&status_path) {
+            Ok(status) => status,
+            Err(error) if error.code == CLI_SUBSCRIPTION_REFRESH_STATUS_READ_FAILED_CODE && !std::path::Path::new(&status_path).exists() => SubscriptionRefreshStatusFile { schema_version: 1, source_id: source_id.trim().to_string(), enabled: false, interval_seconds: SUBSCRIPTION_REFRESH_MIN_INTERVAL_SECONDS, last_attempt: "none".to_string(), last_success: None, next_attempt: "none".to_string(), result: "stopped".to_string(), error_redacted: false, error_code: None, added_node_count: 0, removed_node_count: 0, changed_node_count: 0 },
+            Err(error) => return Err(error),
+        };
         if status.source_id != source_id.trim() { return Err(DomainError::new(CLI_SUBSCRIPTION_CATALOG_SOURCE_NOT_FOUND_CODE, "subscription refresh source id does not match the explicit status record")); }
         status.enabled = false; status.result = "stopped".to_string(); status.next_attempt = "none".to_string();
         write_subscription_refresh_status_file(&status_path, &status)?;
+        let _ = std::fs::remove_file(SubscriptionRefreshLock::path_for(&status_path, source_id));
         Ok(subscription_refresh_report(status_path, status))
     }
 
@@ -3704,13 +3720,21 @@ struct SubscriptionRefreshStatusFile {
     next_attempt: String,
     result: String,
     error_redacted: bool,
+    error_code: Option<String>,
+    added_node_count: usize,
+    removed_node_count: usize,
+    changed_node_count: usize,
 }
 
 struct SubscriptionRefreshLock { path: std::path::PathBuf }
 
 impl SubscriptionRefreshLock {
+    fn path_for(status_path: &str, source_id: &str) -> std::path::PathBuf {
+        std::path::PathBuf::from(format!("{status_path}.{source_id}.refresh.lock"))
+    }
+
     fn acquire(status_path: &str, source_id: &str) -> DomainResult<Self> {
-        let path = std::path::PathBuf::from(format!("{status_path}.{source_id}.refresh.lock"));
+        let path = Self::path_for(status_path, source_id);
         std::fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(|_| DomainError::new(CLI_SUBSCRIPTION_REFRESH_ALREADY_ACTIVE_CODE, "a refresh is already active for this source"))?;
         Ok(Self { path })
     }
@@ -4256,7 +4280,7 @@ fn write_subscription_refresh_status_file(path: &str, status: &SubscriptionRefre
 }
 
 fn subscription_refresh_report(status_path: String, status: SubscriptionRefreshStatusFile) -> SubscriptionRefreshStatusReport {
-    SubscriptionRefreshStatusReport { status_path, source_id: status.source_id, enabled: status.enabled, last_attempt: status.last_attempt, last_success: status.last_success, next_attempt: status.next_attempt, result: status.result, error_redacted: status.error_redacted }
+    SubscriptionRefreshStatusReport { status_path, source_id: status.source_id, enabled: status.enabled, last_attempt: status.last_attempt, last_success: status.last_success, next_attempt: status.next_attempt, result: status.result, error_redacted: status.error_redacted, error_code: status.error_code, added_node_count: status.added_node_count, removed_node_count: status.removed_node_count, changed_node_count: status.changed_node_count }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -7883,11 +7907,11 @@ where
             Err(error) => subscription_error("subscription rollback", error),
         },
         LinuxCliCommand::SubscriptionRefreshStart { catalog_path, status_path, snapshot_path, source_id, interval_seconds, confirm, .. } => match store.refresh_http_source_with_fetcher(&SubscriptionRefreshStartRequest { catalog_path, status_path, snapshot_path, source_id, interval_seconds, confirmed: confirm }, fetcher) {
-            Ok(report) => LinuxCliResponse::success("subscription refresh start").with_diagnostics(vec![cli_diagnostic(DiagnosticSeverity::Info, "cli.subscription.refresh_started", format!("subscription refresh enabled=true source_id={} last_attempt={} last_success={} next_attempt={} result={}", report.source_id, report.last_attempt, report.last_success.as_deref().unwrap_or("none"), report.next_attempt, report.result), SOURCE_CLI_RUNTIME)]),
+            Ok(report) => LinuxCliResponse::success("subscription refresh start").with_diagnostics(vec![cli_diagnostic(DiagnosticSeverity::Info, "cli.subscription.refresh_started", format!("subscription refresh enabled=true source_id={} last_attempt={} last_success={} next_attempt={} result={} added={} removed={} changed={}", report.source_id, report.last_attempt, report.last_success.as_deref().unwrap_or("none"), report.next_attempt, report.result, report.added_node_count, report.removed_node_count, report.changed_node_count), SOURCE_CLI_RUNTIME)]),
             Err(error) => subscription_error("subscription refresh start", error),
         },
         LinuxCliCommand::SubscriptionRefreshStatus { status_path, .. } => match store.read_refresh_status(&status_path) {
-            Ok(report) => LinuxCliResponse::success("subscription refresh status").with_diagnostics(vec![cli_diagnostic(DiagnosticSeverity::Info, "cli.subscription.refresh_status", format!("subscription refresh enabled={} source_id={} last_attempt={} last_success={} next_attempt={} result={} error_redacted={}", report.enabled, report.source_id, report.last_attempt, report.last_success.as_deref().unwrap_or("none"), report.next_attempt, report.result, report.error_redacted), SOURCE_CLI_RUNTIME)]),
+            Ok(report) => LinuxCliResponse::success("subscription refresh status").with_diagnostics(vec![cli_diagnostic(DiagnosticSeverity::Info, "cli.subscription.refresh_status", format!("subscription refresh enabled={} source_id={} last_attempt={} last_success={} next_attempt={} result={} error_redacted={} error_code={} added={} removed={} changed={}", report.enabled, report.source_id, report.last_attempt, report.last_success.as_deref().unwrap_or("none"), report.next_attempt, report.result, report.error_redacted, report.error_code.as_deref().unwrap_or("none"), report.added_node_count, report.removed_node_count, report.changed_node_count), SOURCE_CLI_RUNTIME)]),
             Err(error) => subscription_error("subscription refresh status", error),
         },
         LinuxCliCommand::SubscriptionRefreshStop { status_path, source_id, confirm, .. } => match store.stop_refresh(&status_path, &source_id, confirm) {
@@ -8271,6 +8295,7 @@ pub fn handle_systemd_service_control<R: LinuxSystemdCommandRunner>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn handle_install_service_apply(
     unit_name: &str,
     description: &str,
@@ -8299,6 +8324,7 @@ pub fn handle_install_service_apply(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn handle_install_service_apply_with_runner<R: LinuxSystemdCommandRunner>(
     runner: &R,
     unit_name: &str,
@@ -9099,7 +9125,7 @@ fn handle_managed_control_request(
             (&mut stream).take(64).read_to_string(&mut response)?;
             Ok(response)
         })();
-        return match result {
+        match result {
             Ok(response) if response.trim() == "accepted" => LinuxCliResponse::success(command)
                 .with_diagnostics(vec![cli_diagnostic(
                     DiagnosticSeverity::Info,
@@ -9127,7 +9153,7 @@ fn handle_managed_control_request(
                     SOURCE_CLI_MANAGED_CONTROL,
                 ),
             ),
-        };
+        }
     }
     #[cfg(not(unix))]
     {

@@ -3542,6 +3542,26 @@ fn subscription_refresh_requires_explicit_paths_confirmation_and_http_source() {
 }
 
 #[test]
+fn subscription_refresh_failure_keeps_catalog_and_redacts_status_error() {
+    let root = std::env::temp_dir().join(format!("networkcore-subscription-refresh-failure-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("refresh fixture directory should be created");
+    let catalog_path = root.join("catalog.json");
+    let status_path = root.join("refresh-status.json");
+    let snapshot_path = root.join("refresh.snapshot.json");
+    let original = r#"{"schema_version":1,"sources":[{"id":"work","location":"https://subscriptions.example.test/unavailable"}]}"#;
+    std::fs::write(&catalog_path, original).expect("catalog should be written");
+    let response = handle_subscription_command_with_fetcher(parse_args(["subscription", "refresh", "start", "--catalog", catalog_path.to_str().expect("utf8"), "--refresh-status", status_path.to_str().expect("utf8"), "--snapshot", snapshot_path.to_str().expect("utf8"), "--source-id", "work", "--confirm"]).expect("refresh should parse"), &TestRemoteSubscriptionFetcher::failure());
+    assert!(!response.ok);
+    assert_eq!(std::fs::read_to_string(&catalog_path).expect("catalog should remain readable"), original);
+    assert!(!snapshot_path.exists());
+    let status = std::fs::read_to_string(&status_path).expect("failed refresh status should be written");
+    assert!(status.contains("error_code"));
+    assert!(!status.contains("subscriptions.example.test"));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn parses_node_switch_and_rejects_missing_loopback_controller_port() {
     let command = parse_args([
         "node",
