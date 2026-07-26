@@ -733,6 +733,7 @@ jobs:
           grep -q "service_control_requires_confirmation" crates/platform-linux/tests/systemd_unit_contracts.rs
           grep -q "service_control_reports_action_and_exit_code" crates/platform-linux/tests/systemd_unit_contracts.rs
           grep -q "service_control_separates_runtime_reload_from_daemon_reload" crates/platform-linux/tests/systemd_unit_contracts.rs
+          grep -q "daemon_reload_requires_confirmation_and_reaches_runner" crates/platform-linux/tests/systemd_unit_contracts.rs
           grep -q "read_only_status_does_not_require_confirmation" crates/platform-linux/tests/systemd_unit_contracts.rs
           grep -q "validate_proxy_engine_transition" crates/control-runtime/src/lib.rs
           grep -q "runtime_rollback_rejects_a_non_recovering_lifecycle_jump" crates/control-runtime/tests/runtime_contracts.rs

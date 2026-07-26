@@ -219,6 +219,43 @@ fn service_control_separates_runtime_reload_from_daemon_reload() {
 }
 
 #[test]
+fn daemon_reload_requires_confirmation_and_reaches_runner() {
+    let runner = RecordingSystemdRunner {
+        exit_code: Some(0),
+        ..Default::default()
+    };
+    let error = control_systemd_service(
+        &runner,
+        &LinuxSystemdServiceControlRequest {
+            unit_name: "networkcore.service".to_string(),
+            action: LinuxSystemdServiceAction::DaemonReload,
+            confirmed: false,
+        },
+    )
+    .expect_err("daemon reload must require confirmation");
+    assert_eq!(error.code, LINUX_SYSTEMD_CONTROL_CONFIRMATION_REQUIRED_CODE);
+    assert!(runner.calls.borrow().is_empty());
+
+    let report = control_systemd_service(
+        &runner,
+        &LinuxSystemdServiceControlRequest {
+            unit_name: "networkcore.service".to_string(),
+            action: LinuxSystemdServiceAction::DaemonReload,
+            confirmed: true,
+        },
+    )
+    .expect("confirmed daemon reload should invoke the runner");
+    assert!(report.succeeded);
+    assert_eq!(
+        runner.calls.borrow().as_slice(),
+        &[(
+            LinuxSystemdServiceAction::DaemonReload,
+            "networkcore.service".to_string()
+        )]
+    );
+}
+
+#[test]
 fn read_only_status_does_not_require_confirmation() {
     let runner = RecordingSystemdRunner {
         exit_code: Some(0),
