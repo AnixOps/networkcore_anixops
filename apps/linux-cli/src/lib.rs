@@ -9863,14 +9863,12 @@ impl RemoteSubscriptionFetcher for CommandRemoteSubscriptionFetcher {
         if remote_subscription_location_is_loopback(location) {
             client_builder = client_builder.no_proxy();
         }
-        let client = client_builder
-            .build()
-            .map_err(|_| {
-                DomainError::new(
-                    CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
-                    "run-url remote subscription client could not be configured",
-                )
-            })?;
+        let client = client_builder.build().map_err(|_| {
+            DomainError::new(
+                CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
+                "run-url remote subscription client could not be configured",
+            )
+        })?;
         let response = client
             .get(location)
             .send()
