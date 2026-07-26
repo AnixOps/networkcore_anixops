@@ -470,6 +470,12 @@ pub enum LinuxCliCommand {
         confirm: bool,
         format: OutputFormat,
     },
+    NodeRollback {
+        selection_path: String,
+        snapshot_path: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
     InstallMieru {
         binary_path: String,
         expected_sha256: String,
@@ -713,6 +719,7 @@ impl LinuxCliCommand {
             Self::SubscriptionRollback { .. } => "subscription rollback",
             Self::NodeList { .. } => "node list",
             Self::NodeSelect { .. } => "node select",
+            Self::NodeRollback { .. } => "node rollback",
             Self::InstallMieru { .. } => "core install mieru",
             Self::StartMieru { .. } => "core start mieru",
             Self::StopMieru { .. } => "core stop mieru",
@@ -775,6 +782,7 @@ impl LinuxCliCommand {
             | Self::SubscriptionRollback { format, .. }
             | Self::NodeList { format, .. }
             | Self::NodeSelect { format, .. }
+            | Self::NodeRollback { format, .. }
             | Self::ServiceControl { format, .. }
             | Self::InstallMieru { format, .. }
             | Self::StartMieru { format, .. }
@@ -5211,25 +5219,51 @@ fn parse_node_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseE
             "node requires list",
         ));
     };
-    if subcommand != "list" && subcommand != "select" {
+    if subcommand != "list" && subcommand != "select" && subcommand != "rollback" {
         return Err(parse_error(
             CLI_ARGUMENT_UNKNOWN_CODE,
             format!("unknown node subcommand: {subcommand}"),
         ));
     }
     let options = parse_options(&args[1..])?;
-    let config_path = options.config_path.ok_or_else(|| {
-        parse_error(
-            CLI_ARGUMENT_VALUE_MISSING_CODE,
-            "node list requires --config <absolute-path>",
-        )
-    })?;
     if subcommand == "list" {
+        let config_path = options.config_path.ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "node list requires --config <absolute-path>",
+            )
+        })?;
         return Ok(LinuxCliCommand::NodeList {
             config_path,
             format: options.format,
         });
     }
+    if subcommand == "rollback" {
+        let selection_path = options.selection_path.ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "node rollback requires --selection <absolute-path>",
+            )
+        })?;
+        let snapshot_path = options.snapshot_path.ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "node rollback requires --snapshot <absolute-path>",
+            )
+        })?;
+        return Ok(LinuxCliCommand::NodeRollback {
+            selection_path,
+            snapshot_path,
+            confirm: options.confirm,
+            format: options.format,
+        });
+    }
+    let config_path = options.config_path.ok_or_else(|| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "node select requires --config <absolute-path>",
+        )
+    })?;
     let node_id = options.source_id.ok_or_else(|| {
         parse_error(
             CLI_ARGUMENT_VALUE_MISSING_CODE,
@@ -5282,6 +5316,7 @@ pub fn handle_entrypoint_skeleton(command: LinuxCliCommand) -> LinuxCliResponse 
         LinuxCliCommand::ServiceControl { .. } => handle_unwired_command("service"),
         LinuxCliCommand::NodeList { .. } => handle_unwired_command("node list"),
         LinuxCliCommand::NodeSelect { .. } => handle_unwired_command("node select"),
+        LinuxCliCommand::NodeRollback { .. } => handle_unwired_command("node rollback"),
         LinuxCliCommand::CoreList { .. }
         | LinuxCliCommand::InstallMieru { .. }
         | LinuxCliCommand::StartMieru { .. }
@@ -5356,6 +5391,12 @@ where
             &snapshot_path,
             confirm,
         ),
+        LinuxCliCommand::NodeRollback {
+            selection_path,
+            snapshot_path,
+            confirm,
+            ..
+        } => handle_node_rollback(&selection_path, &snapshot_path, confirm),
         LinuxCliCommand::CoreList { .. }
         | LinuxCliCommand::InstallMieru { .. }
         | LinuxCliCommand::StartMieru { .. }
@@ -6102,6 +6143,104 @@ pub fn handle_node_select(
             "node {} selected in {}; snapshot_written=true; runtime selection unchanged",
             node_id.trim(),
             selection_path.display()
+        ),
+        SOURCE_CLI_RUNTIME,
+    )])
+}
+
+pub fn handle_node_rollback(
+    selection_path: &str,
+    snapshot_path: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    if !confirm {
+        return LinuxCliResponse::failure(
+            "node rollback",
+            LinuxCliExitCode::PlatformDenied,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.rollback_confirmation_required",
+                "node rollback requires explicit --confirm",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    let selection = std::path::Path::new(selection_path);
+    let snapshot = std::path::Path::new(snapshot_path);
+    if !selection.is_absolute() || !snapshot.is_absolute() || selection == snapshot {
+        return LinuxCliResponse::failure(
+            "node rollback",
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.rollback_path_invalid",
+                "node selection and snapshot paths must be distinct absolute paths",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    let contents = match std::fs::read_to_string(snapshot) {
+        Ok(contents) => contents,
+        Err(error) => {
+            return LinuxCliResponse::failure(
+                "node rollback",
+                LinuxCliExitCode::ArgumentOrConfig,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    "cli.node.rollback_snapshot_read_failed",
+                    format!("node selection snapshot could not be read: {error}"),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            )
+        }
+    };
+    let record = match serde_json::from_str::<NodeSelectionFile>(&contents) {
+        Ok(record) if record.schema_version == NODE_SELECTION_SCHEMA_VERSION => record,
+        Ok(_) => {
+            return LinuxCliResponse::failure(
+                "node rollback",
+                LinuxCliExitCode::ArgumentOrConfig,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    "cli.node.rollback_snapshot_schema_unsupported",
+                    "node selection snapshot schema version is unsupported",
+                    SOURCE_CLI_RUNTIME,
+                ),
+            )
+        }
+        Err(error) => {
+            return LinuxCliResponse::failure(
+                "node rollback",
+                LinuxCliExitCode::ArgumentOrConfig,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    "cli.node.rollback_snapshot_invalid",
+                    format!("node selection snapshot is invalid: {error}"),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            )
+        }
+    };
+    if let Err(error) = write_replace_file(
+        &selection.to_string_lossy(),
+        contents.as_bytes(),
+        "cli.node.rollback_write_failed",
+        "node selection rollback",
+    ) {
+        return domain_error_response(
+            "node rollback",
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        );
+    }
+    LinuxCliResponse::success("node rollback").with_diagnostics(vec![cli_diagnostic(
+        DiagnosticSeverity::Info,
+        "cli.node.rolled_back",
+        format!(
+            "node selection restored to {}; snapshot_retained=true; selected_node={}",
+            record.node_id.as_deref().unwrap_or("none"),
+            selection.display()
         ),
         SOURCE_CLI_RUNTIME,
     )])
@@ -13041,6 +13180,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux service <start|stop|restart|status> [--service-unit <name>] --confirm [--format text|json]\n",
         "  networkcore-linux node list --config <absolute-path> [--format text|json]\n",
         "  networkcore-linux node select --config <absolute-path> --source-id <node-id> --selection <absolute-path> --snapshot <absolute-path> --confirm [--format text|json]\n",
+        "  networkcore-linux node rollback --selection <absolute-path> --snapshot <absolute-path> --confirm [--format text|json]\n",
         "  networkcore-linux restart --confirm [--service-unit <name>] [--format text|json]  # managed systemd restart\n",
         "  networkcore-linux uninstall-service [--service-unit <name>] [--service-state-dir <absolute-path>] --confirm [--format text|json]\n",
         "  networkcore-linux logs <explicit-log-path> [--tail-lines <1-1000>] [--format text|json]\n",

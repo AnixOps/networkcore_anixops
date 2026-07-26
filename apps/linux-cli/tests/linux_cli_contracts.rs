@@ -248,6 +248,35 @@ fn node_list_reads_only_the_explicit_config_and_redacts_endpoint_details() {
         .expect("selection record should be readable")
         .contains("node-1"));
     assert!(snapshot_path.exists());
+    let rollback = parse_args([
+        "node",
+        "rollback",
+        "--selection",
+        selection_path
+            .to_str()
+            .expect("selection path should be UTF-8"),
+        "--snapshot",
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        "--confirm",
+    ])
+    .expect("node rollback command should parse");
+    assert!(matches!(rollback, LinuxCliCommand::NodeRollback { .. }));
+    let rolled_back = handle_node_rollback(
+        selection_path
+            .to_str()
+            .expect("selection path should be UTF-8"),
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        true,
+    );
+    assert!(rolled_back.ok);
+    assert!(rolled_back.diagnostics[0]
+        .message
+        .contains("selected_node=none"));
+    assert!(snapshot_path.exists());
     let _ = std::fs::remove_dir_all(&root);
 }
 
