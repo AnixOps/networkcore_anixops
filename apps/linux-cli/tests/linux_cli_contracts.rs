@@ -140,8 +140,8 @@ use networkcore_linux::{
 };
 #[cfg(unix)]
 use networkcore_linux::{
-    OsSignalForegroundLifecycleInterruptionSource, CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE,
-    CLI_START_SIGNAL_RECEIVED_CODE,
+    OsSignalForegroundLifecycleInterruptionSource, OsSignalManagedControlInterrupter,
+    CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE, CLI_START_SIGNAL_RECEIVED_CODE,
 };
 use platform_linux::systemd::{LinuxSystemdCommandRunner, LinuxSystemdServiceAction};
 use platform_linux::{
@@ -8027,13 +8027,30 @@ fn os_signal_interruption_source_maps_unix_signals_to_stable_diagnostics() {
     let sigterm = OsSignalForegroundLifecycleInterruptionSource::interruption_for_signal(SIGTERM);
     let managed_control =
         OsSignalForegroundLifecycleInterruptionSource::interruption_for_managed_control_stop();
+    let interrupter = OsSignalManagedControlInterrupter;
+    interrupter
+        .interrupt()
+        .expect("managed control interrupter should record a stop request");
+    let observed_managed_control = OsSignalForegroundLifecycleInterruptionSource::new()
+        .wait_for_interruption(&ForegroundLifecycleRequest {
+            engine_status: ProxyEngineStatus {
+                engine_id: DEFAULT_ENGINE_ID.to_string(),
+                state: ProxyEngineLifecycleState::Running,
+                diagnostics: Vec::new(),
+            },
+        });
 
     assert_eq!(sigint.reason, "SIGINT");
     assert_eq!(sigterm.reason, "SIGTERM");
     assert_eq!(managed_control.reason, "managed-control-stop");
+    assert_eq!(observed_managed_control.reason, "managed-control-stop");
     assert_diagnostic(&sigint.diagnostics, CLI_START_SIGNAL_RECEIVED_CODE);
     assert_diagnostic(
         &managed_control.diagnostics,
+        CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE,
+    );
+    assert_diagnostic(
+        &observed_managed_control.diagnostics,
         CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE,
     );
     assert_diagnostic(&sigterm.diagnostics, CLI_START_SIGNAL_RECEIVED_CODE);

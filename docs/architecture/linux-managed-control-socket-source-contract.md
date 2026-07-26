@@ -44,5 +44,8 @@ GitHub Actions must run
 `managed_control_socket_accepts_confirmed_stop_and_cleans_up`. The contract
 uses an injected `ManagedControlInterrupter` to prove a real UnixStream request
 is accepted once without signalling the test process, checks `0600`, verifies
-the authorization gate, and proves guard cleanup. Local machines do not run
+the authorization gate, and proves guard cleanup. The Unix foreground
+interruption contract separately proves the default control interrupter is
+consumed as `managed-control-stop` with
+`cli.linux.start.managed_control_stop_requested`. Local machines do not run
 build or test commands.
