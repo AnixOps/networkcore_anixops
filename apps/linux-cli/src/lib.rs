@@ -24,7 +24,8 @@ use mitm_policy::{
     MITM_POLICY_AD_BLOCK_PLUGIN_ID,
 };
 use platform_linux::systemd::{
-    render_systemd_unit, LinuxManagedServiceUnitPlan, LinuxManagedServiceUnitRequest,
+    plan_systemd_unit_removal, render_systemd_unit, LinuxManagedServiceUnitPlan,
+    LinuxManagedServiceUnitRemovalPlan, LinuxManagedServiceUnitRequest,
 };
 use rcgen::{
     BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, KeyUsagePurpose,
@@ -584,6 +585,12 @@ pub enum LinuxCliCommand {
         confirm: bool,
         format: OutputFormat,
     },
+    UninstallService {
+        unit_name: String,
+        state_directory: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
     RunUrl {
         url: String,
         selected_node_id: Option<String>,
@@ -642,6 +649,7 @@ impl LinuxCliCommand {
             Self::MitmHttpRewritePreview { .. } => "mitm http-rewrite preview",
             Self::InstallSingBox { .. } => "install-sing-box",
             Self::InstallService { .. } => "install-service",
+            Self::UninstallService { .. } => "uninstall-service",
             Self::RunUrl { .. } => "run-url",
             Self::RunCatalog { .. } => "run-catalog",
         }
@@ -683,6 +691,7 @@ impl LinuxCliCommand {
             | Self::MitmHttpRewritePreview { format, .. }
             | Self::InstallSingBox { format, .. }
             | Self::InstallService { format, .. }
+            | Self::UninstallService { format, .. }
             | Self::RunUrl { format, .. }
             | Self::RunCatalog { format, .. } => *format,
         }
@@ -736,6 +745,7 @@ pub struct LinuxCliResponse {
     pub browser_capture: Option<LinuxBrowserCaptureReport>,
     pub http_rewrite: Option<LinuxMitmHttpRewriteReport>,
     pub service_install: Option<LinuxManagedServiceUnitPlan>,
+    pub service_removal: Option<LinuxManagedServiceUnitRemovalPlan>,
 }
 
 impl LinuxCliResponse {
@@ -764,6 +774,7 @@ impl LinuxCliResponse {
             browser_capture: None,
             http_rewrite: None,
             service_install: None,
+            service_removal: None,
         }
     }
 
@@ -796,6 +807,7 @@ impl LinuxCliResponse {
             browser_capture: None,
             http_rewrite: None,
             service_install: None,
+            service_removal: None,
         }
     }
 
@@ -918,6 +930,11 @@ impl LinuxCliResponse {
 
     pub fn with_service_install(mut self, plan: LinuxManagedServiceUnitPlan) -> Self {
         self.service_install = Some(plan);
+        self
+    }
+
+    pub fn with_service_removal(mut self, plan: LinuxManagedServiceUnitRemovalPlan) -> Self {
+        self.service_removal = Some(plan);
         self
     }
 
@@ -4948,6 +4965,19 @@ where
                 format: options.format,
             })
         }
+        "uninstall-service" => {
+            let options = parse_options(&rest)?;
+            Ok(LinuxCliCommand::UninstallService {
+                unit_name: options
+                    .service_unit_name
+                    .unwrap_or_else(|| "networkcore.service".to_string()),
+                state_directory: options
+                    .service_state_directory
+                    .unwrap_or_else(|| "/var/lib/networkcore".to_string()),
+                confirm: options.confirm,
+                format: options.format,
+            })
+        }
         "run-url" => parse_run_url_command(&rest),
         "run-catalog" => parse_run_catalog_command(&rest),
         "sing-box" => parse_sing_box_command(&rest),
@@ -4977,6 +5007,7 @@ pub fn handle_entrypoint_skeleton(command: LinuxCliCommand) -> LinuxCliResponse 
         LinuxCliCommand::Version { .. } => handle_version(),
         LinuxCliCommand::Stop { .. } => handle_stop(),
         LinuxCliCommand::InstallService { .. } => handle_unwired_command("install-service"),
+        LinuxCliCommand::UninstallService { .. } => handle_unwired_command("uninstall-service"),
         other => handle_unwired_command(other.name()),
     }
 }
@@ -5010,6 +5041,12 @@ where
             &state_directory,
             confirm,
         ),
+        LinuxCliCommand::UninstallService {
+            unit_name,
+            state_directory,
+            confirm,
+            ..
+        } => handle_uninstall_service_plan(&unit_name, &state_directory, confirm),
         LinuxCliCommand::ManagedStatus { status_path, .. } => {
             handle_managed_foreground_status(&status_path)
         }
@@ -5541,6 +5578,41 @@ pub fn handle_install_service_plan(
             )]),
         Err(error) => domain_error_response(
             "install-service",
+            LinuxCliExitCode::ArgumentOrConfig,
+            DomainError::new(CLI_INSTALL_SERVICE_PLAN_INVALID_CODE, error.message),
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
+}
+
+pub fn handle_uninstall_service_plan(
+    unit_name: &str,
+    state_directory: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    if !confirm {
+        return LinuxCliResponse::failure(
+            "uninstall-service",
+            LinuxCliExitCode::PlatformDenied,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_INSTALL_SERVICE_CONFIRMATION_REQUIRED_CODE,
+                "uninstall-service requires explicit --confirm before producing a removal plan",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    match plan_systemd_unit_removal(unit_name, PathBuf::from(state_directory).as_path()) {
+        Ok(plan) => LinuxCliResponse::success("uninstall-service")
+            .with_service_removal(plan)
+            .with_diagnostics(vec![cli_diagnostic(
+                DiagnosticSeverity::Info,
+                "cli.linux.uninstall_service.plan_ready",
+                "systemd removal plan rendered; no files or service state were changed",
+                SOURCE_CLI_RUNTIME,
+            )]),
+        Err(error) => domain_error_response(
+            "uninstall-service",
             LinuxCliExitCode::ArgumentOrConfig,
             DomainError::new(CLI_INSTALL_SERVICE_PLAN_INVALID_CODE, error.message),
             SOURCE_CLI_RUNTIME,
@@ -11425,6 +11497,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux mitm http-rewrite [plan|preview] [--url <url>] [--method <method>] [--phase request|response] [--status-code <code>] [--header <name:value>] [--body <text>] [--confirm] [--format text|json]\n",
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux install-service --service-executable <absolute-path> [--service-unit <name>] [--service-description <text>] [--service-arg <arg>] [--service-user <user>] [--service-group <group>] [--service-state-dir <absolute-path>] --confirm [--format text|json]\n",
+        "  networkcore-linux uninstall-service [--service-unit <name>] [--service-state-dir <absolute-path>] --confirm [--format text|json]\n",
         "  networkcore-linux run-url <subscription-source> [--node-id <id>] [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux run-catalog <catalog-path> <source-id> [--node-id <id>] [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux sing-box install [--install-dir <dir>] [--force] [--format text|json]\n",
@@ -11449,6 +11522,7 @@ pub const fn cli_help_text() -> &'static str {
         "  mitm              Report MITM plugin policy status, certificate/browser plans, and deferred browser hijack gates.\n",
         "  install-sing-box  Download the latest official sing-box archive and cache its executable.\n",
         "  install-service   Render an explicit systemd unit plan; this source build does not write units or call systemctl.\n",
+        "  uninstall-service Render an explicit removal plan; user configuration/state is preserved and no files are deleted.\n",
         "  run-url           Parse a proxy URL, render sing-box config, and run a local foreground proxy.\n",
         "  run-catalog       Resolve one saved source and run it through the foreground sing-box path.\n",
         "\n",
@@ -11710,6 +11784,18 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
         lines.push(format!("restart policy: {}", plan.restart_policy));
         lines.push("unit content:".to_string());
         lines.push(plan.content.clone());
+    }
+    if let Some(plan) = &response.service_removal {
+        lines.push(format!("systemd unit: {}", plan.unit_name));
+        lines.push(format!("unit path: {}", plan.unit_path.display()));
+        lines.push(format!(
+            "preserved state directory: {}",
+            plan.preserved_state_directory.display()
+        ));
+        lines.push(format!(
+            "purge confirmation required: {}",
+            plan.purge_confirmation_required
+        ));
     }
 
     if let Some(install) = &response.sing_box_install {
@@ -12571,6 +12657,7 @@ struct JsonCliResponse {
     browser_capture: Option<JsonBrowserCaptureReport>,
     http_rewrite: Option<JsonMitmHttpRewriteReport>,
     service_install: Option<JsonLinuxManagedServiceUnitPlan>,
+    service_removal: Option<JsonLinuxManagedServiceUnitRemovalPlan>,
 }
 
 impl From<&LinuxCliResponse> for JsonCliResponse {
@@ -12645,6 +12732,10 @@ impl From<&LinuxCliResponse> for JsonCliResponse {
                 .service_install
                 .as_ref()
                 .map(JsonLinuxManagedServiceUnitPlan::from),
+            service_removal: response
+                .service_removal
+                .as_ref()
+                .map(JsonLinuxManagedServiceUnitRemovalPlan::from),
         }
     }
 }
@@ -12670,6 +12761,29 @@ impl From<&LinuxManagedServiceUnitPlan> for JsonLinuxManagedServiceUnitPlan {
             restart_policy: plan.restart_policy.clone(),
             start_limit_burst: plan.start_limit_burst,
             start_limit_interval_seconds: plan.start_limit_interval_seconds,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonLinuxManagedServiceUnitRemovalPlan {
+    schema_version: u32,
+    unit_name: String,
+    unit_path: String,
+    confirmation_required: bool,
+    purge_confirmation_required: bool,
+    preserved_state_directory: String,
+}
+
+impl From<&LinuxManagedServiceUnitRemovalPlan> for JsonLinuxManagedServiceUnitRemovalPlan {
+    fn from(plan: &LinuxManagedServiceUnitRemovalPlan) -> Self {
+        Self {
+            schema_version: plan.schema_version,
+            unit_name: plan.unit_name.clone(),
+            unit_path: plan.unit_path.display().to_string(),
+            confirmation_required: plan.confirmation_required,
+            purge_confirmation_required: plan.purge_confirmation_required,
+            preserved_state_directory: plan.preserved_state_directory.display().to_string(),
         }
     }
 }

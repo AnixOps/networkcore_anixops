@@ -2923,6 +2923,45 @@ fn install_service_requires_explicit_confirmation() {
 }
 
 #[test]
+fn uninstall_service_plan_preserves_state_and_requires_purge_confirmation() {
+    let command = parse_args([
+        "uninstall-service",
+        "--service-unit",
+        "networkcore-managed.service",
+        "--service-state-dir",
+        "/var/lib/networkcore",
+        "--confirm",
+        "--format",
+        "json",
+    ])
+    .expect("uninstall-service should parse");
+
+    let response = match command {
+        LinuxCliCommand::UninstallService {
+            unit_name,
+            state_directory,
+            confirm,
+            ..
+        } => handle_uninstall_service_plan(&unit_name, &state_directory, confirm),
+        _ => panic!("expected uninstall-service command"),
+    };
+    assert!(response.ok);
+    let rendered = render_response(&response, OutputFormat::Json);
+    let json: serde_json::Value =
+        serde_json::from_str(&rendered).expect("removal plan should be valid JSON");
+    assert_eq!(json["command"], "uninstall-service");
+    assert_eq!(
+        json["service_removal"]["unit_path"],
+        "/etc/systemd/system/networkcore-managed.service"
+    );
+    assert_eq!(
+        json["service_removal"]["preserved_state_directory"],
+        "/var/lib/networkcore"
+    );
+    assert_eq!(json["service_removal"]["purge_confirmation_required"], true);
+}
+
+#[test]
 fn parses_run_url_command_with_local_proxy_options() {
     let command = parse_args([
         "run-url",

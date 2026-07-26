@@ -6,6 +6,8 @@ systemd unit plan through `platform-linux::systemd`; optional `--service-unit`, 
 the plan. The command returns the unit content in text/JSON and does not write system files, call
 `systemctl`, enable a unit, or start a service. The source boundary is documented in
 `docs/architecture/linux-managed-service-unit-source-contract.md`.
+`networkcore-linux uninstall-service --confirm` renders the matching removal plan while preserving the
+state directory; it does not delete files or call `systemctl`, and purge remains a separate future action.
 
 `networkcore-linux` is the Linux CLI entrypoint for NetworkCore.
 

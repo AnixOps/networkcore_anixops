@@ -1847,6 +1847,8 @@ jobs:
           grep -q -- "install-service --service-executable" apps/linux-cli/src/lib.rs
           grep -q "parses_and_renders_install_service_plan_without_system_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "linux-managed-service-unit-source-contract.md" apps/linux-cli/README.md
+          grep -q "uninstall-service" apps/linux-cli/src/lib.rs
+          grep -q "uninstall_service_plan_preserves_state" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "BrowserCaptureProcessRunner" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureEndpointProbe" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureTrafficProofProbe" docs/architecture/linux-mitm-browser-capture-source-contract.md
