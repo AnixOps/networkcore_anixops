@@ -2355,6 +2355,7 @@ name = "networkcore-windows-service"
 version = "0.1.0"
 dependencies = [
  "control-domain",
+ "engine-mieru",
  "engine-native",
  "engine-singbox",
  "mitm-policy",
