@@ -781,6 +781,8 @@ impl LinuxCliResponse {
             http_rewrite: None,
             service_install: None,
             service_removal: None,
+            service_install: None,
+            service_removal: None,
         }
     }
 
@@ -5838,6 +5840,8 @@ where
         certificate_lifecycle: None,
         browser_capture: None,
         http_rewrite: None,
+        service_install: None,
+        service_removal: None,
     }
 }
 
