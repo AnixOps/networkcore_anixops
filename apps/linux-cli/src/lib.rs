@@ -6962,26 +6962,32 @@ pub fn handle_uninstall_service_apply_with_runner<R: LinuxSystemdCommandRunner>(
             SOURCE_CLI_RUNTIME,
         );
     }
-    let stop =
-        handle_systemd_service_control(runner, LinuxSystemdServiceAction::Stop, unit_name, confirm);
-    if !stop.ok {
-        return LinuxCliResponse::failure(
-            "uninstall-service",
-            stop.exit_code,
-            stop.diagnostics.into_iter().next().unwrap_or_else(|| {
-                cli_diagnostic(
-                    DiagnosticSeverity::Error,
-                    "cli.linux.uninstall_service.stop_failed",
-                    "systemd service could not be stopped before removal",
-                    SOURCE_CLI_RUNTIME,
-                )
-            }),
-        );
-    }
     let unit_path = PathBuf::from("/etc/systemd/system").join(unit_name);
     let snapshot_path = PathBuf::from(state_directory)
         .join(".systemd-snapshots")
         .join(format!("{unit_name}.removed.unit"));
+    if unit_path.exists() {
+        let stop = handle_systemd_service_control(
+            runner,
+            LinuxSystemdServiceAction::Stop,
+            unit_name,
+            confirm,
+        );
+        if !stop.ok {
+            return LinuxCliResponse::failure(
+                "uninstall-service",
+                stop.exit_code,
+                stop.diagnostics.into_iter().next().unwrap_or_else(|| {
+                    cli_diagnostic(
+                        DiagnosticSeverity::Error,
+                        "cli.linux.uninstall_service.stop_failed",
+                        "systemd service could not be stopped before removal",
+                        SOURCE_CLI_RUNTIME,
+                    )
+                }),
+            );
+        }
+    }
     handle_uninstall_service_apply_at(&unit_path, &snapshot_path, confirm)
 }
 
