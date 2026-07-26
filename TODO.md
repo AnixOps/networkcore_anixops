@@ -21,8 +21,18 @@ Actions release workflow 成功后成为可下载 artifact。
 
 当前阶段是 P4 Client And Platform Integration。
 P3 runtime baseline 已完成并保留后续 runtime backlog；当前 TODO 只按 P4 backlog buckets 排优先级，不能再把 P3 当作当前阶段。
+
+```text
+current-main-release-state=source-only-not-downloadable
+current-main-source-candidate=v0.2.0-alpha.22
+current-main-latest-published-tag=v0.2.0-alpha.21
+current-main-latest-stable-tag=v0.1.0
+current-main-subscription-foreground=explicit-file-uri-http-and-run-catalog-active
+current-main-subscription-background=blocked
+```
+
 Linux artifact release-state consistency 已固定为 `linux-artifact-release-state=confirmed-release-path`；
-license/NOTICE 已 confirmed；当前 Windows source release 目标是 `v0.2.0-alpha.20`，最新 stable 是
+license/NOTICE 已 confirmed；当前 Windows source release 目标是 `v0.2.0-alpha.22`，最新 stable 是
 `v0.1.0`，后续 tag release 仍必须经过同 commit CI、checksum、manifest、attestation、release notes、rollback
 和 publish eligibility gates。`v0.2.0-alpha.20` 将发布 Windows managed-client MSI 与 portable ZIP：
 `apps/windows-cli` 和 `platform-windows` 已作为 Windows source identity 进入 workspace，release workflow

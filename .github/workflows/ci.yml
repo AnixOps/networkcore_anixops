@@ -291,6 +291,22 @@ jobs:
           grep -Fq "Windows managed client MSI" docs/release-strategy.md
           grep -Fq "v0.2.0-alpha.22" docs/release-strategy.md
           grep -Fq "v0.2.0-alpha.22" README.md
+          for governance_document in README.md ROADMAP.md TODO.md CHANGELOG.md docs/alpha-release-feature-matrix.md; do
+            grep -qx 'current-main-release-state=source-only-not-downloadable' "${governance_document}"
+            grep -qx 'current-main-source-candidate=v0.2.0-alpha.22' "${governance_document}"
+            grep -qx 'current-main-latest-published-tag=v0.2.0-alpha.21' "${governance_document}"
+            grep -qx 'current-main-latest-stable-tag=v0.1.0' "${governance_document}"
+            grep -qx 'current-main-subscription-foreground=explicit-file-uri-http-and-run-catalog-active' "${governance_document}"
+            grep -qx 'current-main-subscription-background=blocked' "${governance_document}"
+          done
+          if grep -Fq 'remote/file fetch and managed background control remain unavailable' docs/alpha-release-feature-matrix.md; then
+            echo "::error::Feature matrix must distinguish explicit foreground file/HTTP fetch from blocked background control."
+            exit 1
+          fi
+          if grep -Fq '当前 Windows source release 目标是 `v0.2.0-alpha.20`' TODO.md; then
+            echo "::error::TODO must not identify alpha.20 as the current Windows source candidate."
+            exit 1
+          fi
           grep -Fq "JavaScript script dispatch" docs/alpha-release-feature-matrix.md
           grep -Fq "system trust store mutation" docs/alpha-release-feature-matrix.md
           grep -Fq "system proxy mutation" docs/alpha-release-feature-matrix.md

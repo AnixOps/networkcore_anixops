@@ -101,6 +101,17 @@ P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成，当前阶
 
 阶段状态速查：
 
+```text
+current-main-release-state=source-only-not-downloadable
+current-main-source-candidate=v0.2.0-alpha.22
+current-main-latest-published-tag=v0.2.0-alpha.21
+current-main-latest-stable-tag=v0.1.0
+current-main-subscription-foreground=explicit-file-uri-http-and-run-catalog-active
+current-main-subscription-background=blocked
+```
+
+这些机器状态是当前 `main` 的唯一发布判定；后文历史切片不得把 source-only 能力解释为 tag release。
+
 - 当前 Linux source release 切片是 `v0.1.2-alpha.3`：Linux `start` 在显式
   `--enable-https-mitm --mitm-ca-cert --mitm-ca-key --confirm` 下可对 CONNECT authority/SNI 一致的
   流量签发 authority-bound leaf、终止下游 TLS、以 web-PKI 校验上游 TLS，并在单个有界 HTTP/1.1

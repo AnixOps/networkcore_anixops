@@ -7,6 +7,15 @@
 Current Windows source candidate: `v0.2.0-alpha.22`. It is not a downloadable
 release until the same commit passes the tag release workflow.
 
+```text
+current-main-release-state=source-only-not-downloadable
+current-main-source-candidate=v0.2.0-alpha.22
+current-main-latest-published-tag=v0.2.0-alpha.21
+current-main-latest-stable-tag=v0.1.0
+current-main-subscription-foreground=explicit-file-uri-http-and-run-catalog-active
+current-main-subscription-background=blocked
+```
+
 ### Changed
 
 - Linux `run-catalog <catalog-path> <source-id>` now resolves one saved

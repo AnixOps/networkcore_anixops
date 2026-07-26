@@ -17,20 +17,24 @@ GitHub Release asset 为准；`main` 中 tag 之后的源码增量不等于用�
 
 ## Current Main Override
 
-The historical release entries below remain immutable audit records. For the
-current unreleased `main` source, the authoritative Windows GUI slice is
-`v0.2.0-alpha.22`: Tauri/React commands, service lifecycle, native sing-box
-group editing, local Node script dispatch, DNS/TUN configuration, and native
-HTTP/1.1 HTTPS MITM are active in source. Native explicit HTTP/1.1 also has a
-bounded `Content-Length`/`Transfer-Encoding: chunked` body path with framing
-normalization. Linux `run-url` can run direct `ss://`, Trojan, VLESS, VMess,
-Hysteria2, and TUIC share links plus supported Clash YAML, sing-box JSON,
-Surge/Loon/Quantumult X catalog payloads through the sing-box foreground
-adapter; remote/file fetch and managed background control remain unavailable.
-HTTP/2, HTTP/3/QUIC MITM, compression/decompression, streaming,
-multi-request CONNECT, and remote script loading remain unavailable. The
-current source still requires GitHub Actions lockfile, build, test, MSI, and
-runtime verification before release claims are upgraded.
+```text
+current-main-release-state=source-only-not-downloadable
+current-main-source-candidate=v0.2.0-alpha.22
+current-main-latest-published-tag=v0.2.0-alpha.21
+current-main-latest-stable-tag=v0.1.0
+current-main-subscription-foreground=explicit-file-uri-http-and-run-catalog-active
+current-main-subscription-background=blocked
+```
+
+The historical release entries below remain immutable audit records. The
+unreleased `main` candidate is not a downloadable release. Linux `run-url`
+and `run-catalog` accept caller-selected file, HTTP(S), and saved-catalog
+inputs only for one foreground invocation; they do not create a default path,
+background refresh, runtime node switching, daemon, or control socket. The
+candidate's Windows reliability slice remains source-only until same-commit
+GitHub Actions CI, MSI smoke, package, attestation, publish eligibility, and
+a tag release succeed. HTTP/2, HTTP/3/QUIC MITM, compression/decompression,
+streaming, multi-request CONNECT, and remote script loading remain unavailable.
 
 ## 已发布 alpha
 

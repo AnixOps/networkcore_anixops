@@ -8,6 +8,15 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Ker
 
 阶段判断以本节为准：P3 是已完成 baseline，当前仓库不再处于 P3。当前迭代、发布说明和 source contract 的 source of truth 是 P4 backlog buckets；P3 只在 completed section、历史 TODO 或 CHANGELOG 中保留审计语境。
 
+```text
+current-main-release-state=source-only-not-downloadable
+current-main-source-candidate=v0.2.0-alpha.22
+current-main-latest-published-tag=v0.2.0-alpha.21
+current-main-latest-stable-tag=v0.1.0
+current-main-subscription-foreground=explicit-file-uri-http-and-run-catalog-active
+current-main-subscription-background=blocked
+```
+
 当前 main 覆盖旧订阅描述：Linux `run-url` 已支持直接 share links、调用方显式绝对 `file://` UTF-8 subscription 文件、一次前台 HTTP(S) subscription fetch、`--node-id` 单次 catalog 节点选择和受支持的 Clash YAML、sing-box JSON、Surge/Loon/Quantumult X catalog payload 的 sing-box 前台运行；`run-catalog <catalog-path> <source-id>` 可运行一个保存 source。默认路径扫描、后台刷新、运行中节点切换、后台 managed runtime 和 cross-platform run plan 仍未完成。
 
 ## P0 Bootstrap Governance (Completed)
