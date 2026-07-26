@@ -422,6 +422,40 @@ pub enum LinuxCliCommand {
     CoreList {
         format: OutputFormat,
     },
+    SubscriptionAdd {
+        catalog_path: String,
+        snapshot_path: String,
+        source_id: String,
+        location: String,
+        format: OutputFormat,
+    },
+    SubscriptionList {
+        catalog_path: String,
+        format: OutputFormat,
+    },
+    SubscriptionUpdate {
+        catalog_path: String,
+        snapshot_path: String,
+        source_id: String,
+        location: String,
+        format: OutputFormat,
+    },
+    SubscriptionRemove {
+        catalog_path: String,
+        snapshot_path: String,
+        source_id: String,
+        format: OutputFormat,
+    },
+    SubscriptionSelect {
+        catalog_path: String,
+        source_id: String,
+        format: OutputFormat,
+    },
+    SubscriptionRollback {
+        catalog_path: String,
+        snapshot_path: String,
+        format: OutputFormat,
+    },
     InstallMieru {
         binary_path: String,
         expected_sha256: String,
@@ -651,6 +685,12 @@ impl LinuxCliCommand {
             Self::Start { .. } => "start",
             Self::Stop { .. } => "stop",
             Self::CoreList { .. } => "core list",
+            Self::SubscriptionAdd { .. } => "subscription add",
+            Self::SubscriptionList { .. } => "subscription list",
+            Self::SubscriptionUpdate { .. } => "subscription update",
+            Self::SubscriptionRemove { .. } => "subscription remove",
+            Self::SubscriptionSelect { .. } => "subscription select",
+            Self::SubscriptionRollback { .. } => "subscription rollback",
             Self::InstallMieru { .. } => "core install mieru",
             Self::StartMieru { .. } => "core start mieru",
             Self::StopMieru { .. } => "core stop mieru",
@@ -698,6 +738,12 @@ impl LinuxCliCommand {
             | Self::Start { format, .. }
             | Self::Stop { format }
             | Self::CoreList { format }
+            | Self::SubscriptionAdd { format, .. }
+            | Self::SubscriptionList { format, .. }
+            | Self::SubscriptionUpdate { format, .. }
+            | Self::SubscriptionRemove { format, .. }
+            | Self::SubscriptionSelect { format, .. }
+            | Self::SubscriptionRollback { format, .. }
             | Self::InstallMieru { format, .. }
             | Self::StartMieru { format, .. }
             | Self::StopMieru { format, .. }
@@ -4905,6 +4951,8 @@ struct ParsedOptions {
     managed_event_limit: Option<usize>,
     managed_log_line_limit: Option<usize>,
     install_dir: Option<String>,
+    catalog_path: Option<String>,
+    source_id: Option<String>,
     selected_node_id: Option<String>,
     listen_host: Option<String>,
     listen_port: Option<u16>,
@@ -4967,6 +5015,7 @@ where
         }
         "validate" => parse_validate_command(&rest),
         "core" => parse_core_command(&rest),
+        "subscription" => parse_subscription_command(&rest),
         "connect" | "start" => {
             let options = parse_options(&rest)?;
             Ok(LinuxCliCommand::Start {
@@ -5681,6 +5730,166 @@ pub fn handle_core_list(descriptors: Vec<ProxyEngineDescriptor>) -> LinuxCliResp
         })
         .collect();
     LinuxCliResponse::success("core list").with_core_engines(engines)
+}
+
+pub fn handle_subscription_command(command: LinuxCliCommand) -> LinuxCliResponse {
+    let store = CommandSubscriptionCatalogStore::new();
+    match command {
+        LinuxCliCommand::SubscriptionAdd {
+            catalog_path,
+            snapshot_path,
+            source_id,
+            location,
+            ..
+        } => match store.add_source(&SubscriptionCatalogAddRequest {
+            catalog_path,
+            snapshot_path,
+            source: SubscriptionSource {
+                id: source_id,
+                location,
+            },
+        }) {
+            Ok(report) => LinuxCliResponse::success("subscription add").with_diagnostics(vec![
+                cli_diagnostic(
+                    DiagnosticSeverity::Info,
+                    "cli.subscription.source_added",
+                    format!(
+                        "subscription source {} added; catalog sources={}",
+                        report.source_id, report.source_count
+                    ),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            ]),
+            Err(error) => subscription_error("subscription add", error),
+        },
+        LinuxCliCommand::SubscriptionList { catalog_path, .. } => {
+            match store.list_sources(&SubscriptionCatalogListRequest { catalog_path }) {
+                Ok(report) => {
+                    let mut diagnostics = vec![cli_diagnostic(
+                        DiagnosticSeverity::Info,
+                        "cli.subscription.catalog_listed",
+                        format!(
+                            "subscription catalog contains {} source(s)",
+                            report.source_count
+                        ),
+                        SOURCE_CLI_RUNTIME,
+                    )];
+                    diagnostics.extend(report.sources.into_iter().map(|source| {
+                        cli_diagnostic(
+                            DiagnosticSeverity::Info,
+                            "cli.subscription.source",
+                            format!(
+                                "source_id={} location_kind={}",
+                                source.source_id, source.location_kind
+                            ),
+                            SOURCE_CLI_RUNTIME,
+                        )
+                    }));
+                    LinuxCliResponse::success("subscription list").with_diagnostics(diagnostics)
+                }
+                Err(error) => subscription_error("subscription list", error),
+            }
+        }
+        LinuxCliCommand::SubscriptionUpdate {
+            catalog_path,
+            snapshot_path,
+            source_id,
+            location,
+            ..
+        } => match store.update_source(&SubscriptionCatalogUpdateRequest {
+            catalog_path,
+            snapshot_path,
+            source_id,
+            location,
+        }) {
+            Ok(report) => LinuxCliResponse::success("subscription update").with_diagnostics(vec![
+                cli_diagnostic(
+                    DiagnosticSeverity::Info,
+                    "cli.subscription.source_updated",
+                    format!(
+                        "subscription source {} updated; catalog sources={}",
+                        report.source_id, report.source_count
+                    ),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            ]),
+            Err(error) => subscription_error("subscription update", error),
+        },
+        LinuxCliCommand::SubscriptionRemove {
+            catalog_path,
+            snapshot_path,
+            source_id,
+            ..
+        } => match store.remove_source(&SubscriptionCatalogRemoveRequest {
+            catalog_path,
+            snapshot_path,
+            source_id,
+        }) {
+            Ok(report) => LinuxCliResponse::success("subscription remove").with_diagnostics(vec![
+                cli_diagnostic(
+                    DiagnosticSeverity::Info,
+                    "cli.subscription.source_removed",
+                    format!(
+                        "subscription source {} removed; catalog sources={}",
+                        report.source_id, report.source_count
+                    ),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            ]),
+            Err(error) => subscription_error("subscription remove", error),
+        },
+        LinuxCliCommand::SubscriptionSelect {
+            catalog_path,
+            source_id,
+            ..
+        } => match store.select_source(&SubscriptionCatalogSelectRequest {
+            catalog_path,
+            source_id,
+        }) {
+            Ok(report) => LinuxCliResponse::success("subscription select").with_diagnostics(vec![
+                cli_diagnostic(
+                    DiagnosticSeverity::Info,
+                    "cli.subscription.source_selected",
+                    format!("subscription source {} selected", report.source_id),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            ]),
+            Err(error) => subscription_error("subscription select", error),
+        },
+        LinuxCliCommand::SubscriptionRollback {
+            catalog_path,
+            snapshot_path,
+            ..
+        } => match store.rollback_catalog(&SubscriptionCatalogRollbackRequest {
+            catalog_path,
+            snapshot_path,
+        }) {
+            Ok(report) => {
+                LinuxCliResponse::success("subscription rollback").with_diagnostics(vec![
+                    cli_diagnostic(
+                        DiagnosticSeverity::Info,
+                        "cli.subscription.rolled_back",
+                        format!(
+                            "subscription catalog rolled back; catalog sources={}",
+                            report.source_count
+                        ),
+                        SOURCE_CLI_RUNTIME,
+                    ),
+                ])
+            }
+            Err(error) => subscription_error("subscription rollback", error),
+        },
+        other => handle_unwired_command(other.name()),
+    }
+}
+
+fn subscription_error(command: &'static str, error: DomainError) -> LinuxCliResponse {
+    domain_error_response(
+        command,
+        LinuxCliExitCode::ArgumentOrConfig,
+        error,
+        SOURCE_CLI_RUNTIME,
+    )
 }
 
 pub fn registered_core_engine_descriptors() -> Vec<ProxyEngineDescriptor> {
@@ -10698,6 +10907,26 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.config_path = Some(value.clone());
             }
+            "--catalog" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--catalog requires a subscription catalog path",
+                    ));
+                };
+                options.catalog_path = Some(value.clone());
+            }
+            "--source-id" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--source-id requires a subscription source id",
+                    ));
+                };
+                options.source_id = Some(value.clone());
+            }
             "--browser" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -11220,6 +11449,86 @@ fn parse_validate_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliPa
         config_path: Some(config_path.clone()),
         format: options.format,
     })
+}
+
+fn parse_subscription_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(subcommand) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "subscription requires add, list, update, remove, select, or rollback",
+        ));
+    };
+    let options = parse_options(&args[1..])?;
+    let catalog_path = options.catalog_path.clone().ok_or_else(|| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "subscription commands require --catalog <absolute-path>",
+        )
+    })?;
+    let snapshot_path = || {
+        options.snapshot_path.clone().ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "subscription mutation requires --snapshot <absolute-path>",
+            )
+        })
+    };
+    let source_id = || {
+        options.source_id.clone().ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "subscription source command requires --source-id <id>",
+            )
+        })
+    };
+    let location = || {
+        options.url.clone().ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "subscription source mutation requires --url <location>",
+            )
+        })
+    };
+    match subcommand.as_str() {
+        "add" => Ok(LinuxCliCommand::SubscriptionAdd {
+            catalog_path,
+            snapshot_path: snapshot_path()?,
+            source_id: source_id()?,
+            location: location()?,
+            format: options.format,
+        }),
+        "list" => Ok(LinuxCliCommand::SubscriptionList {
+            catalog_path,
+            format: options.format,
+        }),
+        "update" => Ok(LinuxCliCommand::SubscriptionUpdate {
+            catalog_path,
+            snapshot_path: snapshot_path()?,
+            source_id: source_id()?,
+            location: location()?,
+            format: options.format,
+        }),
+        "remove" => Ok(LinuxCliCommand::SubscriptionRemove {
+            catalog_path,
+            snapshot_path: snapshot_path()?,
+            source_id: source_id()?,
+            format: options.format,
+        }),
+        "select" => Ok(LinuxCliCommand::SubscriptionSelect {
+            catalog_path,
+            source_id: source_id()?,
+            format: options.format,
+        }),
+        "rollback" => Ok(LinuxCliCommand::SubscriptionRollback {
+            catalog_path,
+            snapshot_path: snapshot_path()?,
+            format: options.format,
+        }),
+        _ => Err(parse_error(
+            CLI_ARGUMENT_UNKNOWN_CODE,
+            format!("unknown subscription subcommand: {subcommand}"),
+        )),
+    }
 }
 
 fn parse_core_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
@@ -12132,6 +12441,12 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux prepare-config --config <path> [--format text|json]\n",
         "  networkcore-linux validate <config-path> [--format text|json]\n",
         "  networkcore-linux core list [--format text|json]\n",
+        "  networkcore-linux subscription add --catalog <path> --snapshot <path> --source-id <id> --url <location> [--format text|json]\n",
+        "  networkcore-linux subscription list --catalog <path> [--format text|json]\n",
+        "  networkcore-linux subscription update --catalog <path> --snapshot <path> --source-id <id> --url <location> [--format text|json]\n",
+        "  networkcore-linux subscription remove --catalog <path> --snapshot <path> --source-id <id> [--format text|json]\n",
+        "  networkcore-linux subscription select --catalog <path> --source-id <id> [--format text|json]\n",
+        "  networkcore-linux subscription rollback --catalog <path> --snapshot <path> [--format text|json]\n",
         "  networkcore-linux core install sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux core install mieru --binary <local-path> --sha256 <digest> [--format text|json]\n",
         "  networkcore-linux core install mieru --url <official-release-asset> --binary <destination> --sha256 <digest> --confirm [--force] [--format text|json]\n",

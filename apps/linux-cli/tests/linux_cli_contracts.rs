@@ -2926,6 +2926,49 @@ fn parses_core_mieru_official_release_install_contract() {
 }
 
 #[test]
+fn parses_subscription_catalog_command_contracts() {
+    let add = parse_args([
+        "subscription",
+        "add",
+        "--catalog",
+        "/var/lib/networkcore/subscriptions.json",
+        "--snapshot",
+        "/var/lib/networkcore/subscriptions.previous.json",
+        "--source-id",
+        "office",
+        "--url",
+        "https://example.invalid/subscription",
+    ])
+    .expect("subscription add should parse");
+    assert!(matches!(
+        add,
+        LinuxCliCommand::SubscriptionAdd {
+            source_id,
+            location,
+            format: OutputFormat::Text,
+            ..
+        } if source_id == "office" && location == "https://example.invalid/subscription"
+    ));
+
+    let list = parse_args([
+        "subscription",
+        "list",
+        "--catalog",
+        "/var/lib/networkcore/subscriptions.json",
+        "--format",
+        "json",
+    ])
+    .expect("subscription list should parse");
+    assert!(matches!(
+        list,
+        LinuxCliCommand::SubscriptionList {
+            format: OutputFormat::Json,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn parses_core_mieru_start_and_stop_control_contract() {
     let start = parse_args([
         "core",

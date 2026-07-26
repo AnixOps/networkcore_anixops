@@ -69,6 +69,16 @@ fn main() {
                 networkcore_linux::handle_core_list(
                     networkcore_linux::registered_core_engine_descriptors(),
                 )
+            } else if matches!(
+                &command,
+                networkcore_linux::LinuxCliCommand::SubscriptionAdd { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionList { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionUpdate { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionRemove { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionSelect { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionRollback { .. }
+            ) {
+                networkcore_linux::handle_subscription_command(command)
             } else if let networkcore_linux::LinuxCliCommand::InstallMieru {
                 binary_path,
                 expected_sha256,

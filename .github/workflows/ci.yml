@@ -1879,6 +1879,8 @@ jobs:
           grep -q "restart_is_explicitly_unavailable" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "handle_core_list" apps/linux-cli/src/lib.rs
           grep -q "handle_install_mieru" apps/linux-cli/src/lib.rs
+          grep -q "handle_subscription_command" apps/linux-cli/src/lib.rs
+          grep -q "parses_subscription_catalog_command_contracts" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "handle_start_mieru" apps/linux-cli/src/lib.rs
           grep -q "handle_stop_mieru" apps/linux-cli/src/lib.rs
           grep -q "handle_install_service_apply" apps/linux-cli/src/lib.rs
