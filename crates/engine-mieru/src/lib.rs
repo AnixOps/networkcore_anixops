@@ -49,6 +49,7 @@ pub struct MieruNodeConfig {
     pub server: String,
     pub port: u16,
     pub port_range: Option<String>,
+    pub additional_ports: Vec<u16>,
     pub mtu: Option<u16>,
     pub multiplexing: Option<bool>,
     pub handshake_mode: Option<String>,
@@ -65,6 +66,7 @@ impl fmt::Debug for MieruNodeConfig {
             .field("server", &self.server)
             .field("port", &self.port)
             .field("port_range", &self.port_range)
+            .field("additional_ports", &self.additional_ports)
             .field("mtu", &self.mtu)
             .field("multiplexing", &self.multiplexing)
             .field("handshake_mode", &self.handshake_mode)
@@ -90,15 +92,14 @@ pub fn parse_mieru_share_link(link: &str) -> DomainResult<MieruNodeConfig> {
         .host_str()
         .filter(|host| !host.trim().is_empty())
         .ok_or_else(|| invalid_link("mieru share link server cannot be empty"))?;
-    let port = parsed
-        .port()
-        .ok_or_else(|| invalid_link("mieru share link must contain a server port"))?;
+    let mut port = parsed.port();
     let name = parsed
         .fragment()
         .filter(|fragment| !fragment.trim().is_empty())
         .unwrap_or(server)
         .to_string();
     let mut port_range = None;
+    let mut additional_ports = Vec::new();
     let mut mtu = None;
     let mut multiplexing = None;
     let mut handshake_mode = None;
@@ -106,7 +107,34 @@ pub fn parse_mieru_share_link(link: &str) -> DomainResult<MieruNodeConfig> {
     for (key, value) in parsed.query_pairs() {
         let value = value.into_owned();
         match key.as_ref() {
-            "port_range" | "ports" => port_range = Some(non_empty(value, "port range")?),
+            "port" => {
+                let value = non_empty(value, "port")?;
+                if value.contains('-') {
+                    port_range = Some(value.clone());
+                    port = Some(parse_range_start(&value)?);
+                } else {
+                    let parsed_port = parse_u16(&value, "port")?;
+                    if port.is_some() {
+                        additional_ports.push(parsed_port);
+                    } else {
+                        port = Some(parsed_port);
+                    }
+                }
+            }
+            "port_range" | "ports" => {
+                let value = non_empty(value, "port range")?;
+                if port.is_none() {
+                    port = Some(parse_range_start(&value)?);
+                }
+                port_range = Some(value);
+            }
+            "protocol" => {
+                if !value.eq_ignore_ascii_case("TCP") {
+                    return Err(invalid_link(
+                        "Mieru adapter currently accepts only TCP protocol bindings",
+                    ));
+                }
+            }
             "mtu" => mtu = Some(parse_u16(&value, "mtu")?),
             "multiplexing" | "multiplex" => multiplexing = Some(parse_bool(&value)?),
             "handshake_mode" | "handshake" => {
@@ -118,6 +146,8 @@ pub fn parse_mieru_share_link(link: &str) -> DomainResult<MieruNodeConfig> {
             _ => {}
         }
     }
+    let port = port
+        .ok_or_else(|| invalid_link("mieru share link must contain a server port or query port"))?;
 
     Ok(MieruNodeConfig {
         username: username.to_string(),
@@ -125,6 +155,7 @@ pub fn parse_mieru_share_link(link: &str) -> DomainResult<MieruNodeConfig> {
         server: server.to_string(),
         port,
         port_range,
+        additional_ports,
         mtu,
         multiplexing,
         handshake_mode,
@@ -216,11 +247,18 @@ pub fn render_mieru_client_config(
         }
     }
 
-    let port_binding = if let Some(port_range) = &request.node.port_range {
-        json!({"protocol": "TCP", "portRange": port_range})
+    let mut port_bindings = if let Some(port_range) = &request.node.port_range {
+        vec![json!({"protocol": "TCP", "portRange": port_range})]
     } else {
-        json!({"protocol": "TCP", "port": request.node.port})
+        vec![json!({"protocol": "TCP", "port": request.node.port})]
     };
+    port_bindings.extend(
+        request
+            .node
+            .additional_ports
+            .iter()
+            .map(|port| json!({"protocol": "TCP", "port": port})),
+    );
     let mut profile = json!({
         "profileName": "default",
         "user": {
@@ -229,7 +267,7 @@ pub fn render_mieru_client_config(
         },
         "servers": [{
             "ipAddress": request.node.server.clone(),
-            "portBindings": [port_binding],
+            "portBindings": port_bindings,
         }],
     });
     let object = profile.as_object_mut().ok_or_else(|| {
@@ -656,6 +694,14 @@ fn parse_u16(value: &str, field: &str) -> DomainResult<u16> {
     value
         .parse::<u16>()
         .map_err(|_| invalid_link(&format!("Mieru {field} must be an unsigned 16-bit integer")))
+}
+
+fn parse_range_start(value: &str) -> DomainResult<u16> {
+    value
+        .split_once('-')
+        .map(|(start, _)| start)
+        .ok_or_else(|| invalid_link("Mieru port range must use start-end syntax"))
+        .and_then(|start| parse_u16(start.trim(), "port range start"))
 }
 
 fn parse_bool(value: &str) -> DomainResult<bool> {

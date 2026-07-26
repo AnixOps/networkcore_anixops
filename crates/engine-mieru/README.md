@@ -5,7 +5,8 @@ copy Mieru source, bundle a Mieru binary, or silently download a release.
 
 The current source-only slice provides:
 
-- structured `mierus://` parsing for credentials, server/port, port range,
+- structured `mierus://` parsing for credentials, server/authority or query
+  port, repeated TCP ports, port range,
   MTU, multiplexing, handshake mode, and traffic pattern;
 - a redacted debug representation and a `Protocol::Mieru` node descriptor;
 - explicit local executable SHA-256 verification;

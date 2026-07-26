@@ -34,6 +34,25 @@ fn mieru_share_link_retains_credentials_and_runtime_options() {
 }
 
 #[test]
+fn parses_official_simple_link_query_ports_without_authority_port() {
+    let node = parse_mieru_share_link(
+        "mierus://alice:secret@example.com?port=3010&port=3011&protocol=TCP&protocol=TCP&profile=default",
+    )
+    .expect("official simple Mieru link should parse");
+
+    assert_eq!(node.port, 3010);
+    assert_eq!(node.additional_ports, vec![3011]);
+    assert_eq!(node.port_range, None);
+}
+
+#[test]
+fn rejects_udp_binding_until_real_udp_contract_exists() {
+    let error = parse_mieru_share_link("mierus://alice:secret@example.com?port=3010&protocol=UDP")
+        .expect_err("UDP must not be claimed by the TCP-only adapter");
+    assert_eq!(error.code, engine_mieru::MIERU_SHARE_LINK_INVALID_CODE);
+}
+
+#[test]
 fn local_binary_verification_requires_explicit_digest_and_never_logs_credentials() {
     let root = temporary_root("binary");
     fs::create_dir_all(&root).expect("fixture directory should be created");
