@@ -1574,12 +1574,16 @@ mod gui {
         let config = match read_managed_config(config_path) {
             Ok(config) => {
                 report.push_str(&format!(
-                    "managed_config_schema_version={} sing_box_enabled={} native_mitm_enabled={}\n",
+                    "managed_config_schema_version={} sing_box_enabled={} mieru_enabled={} native_mitm_enabled={}\n",
                     config.schema_version,
                     config
                         .sing_box
                         .as_ref()
                         .is_some_and(|sing_box| sing_box.enabled),
+                    config
+                        .mieru
+                        .as_ref()
+                        .is_some_and(|mieru| mieru.enabled),
                     config
                         .native_mitm
                         .as_ref()
@@ -1595,7 +1599,7 @@ mod gui {
 
         match read_managed_state(&windows_managed_state_path()) {
             Ok(managed) => report.push_str(&format!(
-                "runtime_transition={} runtime_error={} sing_box_running={} sing_box_pid={} sing_box_exit_code={} native_mitm_running={} native_mitm_listener={} native_mitm_error={}\n",
+                "runtime_transition={} runtime_error={} sing_box_running={} sing_box_pid={} sing_box_exit_code={} mieru_running={} mieru_error={} native_mitm_running={} native_mitm_listener={} native_mitm_error={}\n",
                 managed.last_transition,
                 managed.last_error.unwrap_or_else(|| "none".to_string()),
                 managed.sing_box_running,
@@ -1606,6 +1610,10 @@ mod gui {
                 managed
                     .sing_box_exit_code
                     .map(|value| value.to_string())
+                    .unwrap_or_else(|| "none".to_string()),
+                managed.mieru_running,
+                managed
+                    .mieru_last_error
                     .unwrap_or_else(|| "none".to_string()),
                 managed.native_mitm_running,
                 managed.native_mitm_listener.unwrap_or_else(|| "none".to_string()),
