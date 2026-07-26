@@ -226,6 +226,19 @@ fn node_list_reads_only_the_explicit_config_and_redacts_endpoint_details() {
     let response = handle_node_list(config_path.to_str().expect("config path should be UTF-8"));
     assert!(response.ok);
     assert_eq!(response.command, "node list");
+    let catalog = response
+        .node_catalog
+        .as_ref()
+        .expect("node list should expose a structured catalog");
+    assert_eq!(catalog.schema_version, 1);
+    assert_eq!(catalog.source, "explicit-config");
+    assert!(!catalog.selection_mutated);
+    assert_eq!(catalog.nodes[0].id, "node-1");
+    assert_eq!(catalog.nodes[0].name, "primary");
+    assert!(
+        !networkcore_linux::render_response(&response, OutputFormat::Json)
+            .contains("secret.example")
+    );
     assert!(response.diagnostics.iter().any(|diagnostic| {
         diagnostic.code == "cli.node.entry" && diagnostic.message.contains("node-1")
     }));

@@ -24,6 +24,9 @@ current-main-subscription-background=blocked
 - 新增 Linux `node switch` 运行时切片：对 NetworkCore 生成的 loopback sing-box selector 执行显式
   PATCH/readback，写 selection snapshot，并在 selection 写入失败时尝试恢复此前 outbound；非回环
   controller、native JSON、缺少授权和已有 snapshot 均拒绝。
+- 新增 Linux `node list` 结构化 NodeCatalog 输出：显式 config-core 解析结果同时进入脱敏 text/JSON
+  `node_catalog`，输出稳定节点 id、名称、协议和 tags，并固定只读、无 snapshot、无 endpoint/credential
+  泄漏边界；选择和 rollback 不被该命令隐式触发。
 
 - Linux CLI now exposes explicit Ubuntu-style CA trust-file apply and rollback
   commands with confirmation, snapshot verification, refresh, recovery, and

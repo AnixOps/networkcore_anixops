@@ -246,6 +246,18 @@ adapter、前台生命周期 host 和 `networkcore-linux start` 接线边界。�
 
 ## Loopback Selector Switch
 
+`networkcore-linux node list --config <absolute-path>` is a read-only
+projection of the caller-selected NetworkCore TOML. `config-core` remains the
+parser adapter and the CLI exposes the same `LinuxNodeCatalogReport` as text
+and JSON: schema version 1, source `explicit-config`, stable node `id`,
+display `name`, protocol label, and tags.
+
+The report sets `selection_mutated=false`. It does not write a selection file,
+snapshot, or rollback artifact, and it never emits endpoint, password, UUID,
+or other credential-bearing metadata. Runtime selection is only performed by
+the separately authorized `node select` or loopback `node switch` commands;
+the report is not a health or liveness claim.
+
 `networkcore-linux node switch --config <absolute-path> --source-id <node-id>
 --selection <absolute-path> --snapshot <absolute-path> --controller-port <loopback-port>
 --confirm` 是生成式 sing-box selector 的显式运行时切换入口。它只连接调用方指定的

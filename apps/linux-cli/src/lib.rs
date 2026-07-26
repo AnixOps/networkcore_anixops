@@ -943,6 +943,7 @@ pub struct LinuxCliResponse {
     pub service_install: Option<LinuxManagedServiceUnitPlan>,
     pub service_removal: Option<LinuxManagedServiceUnitRemovalPlan>,
     pub core_engines: Vec<LinuxCoreEngineSummary>,
+    pub node_catalog: Option<LinuxNodeCatalogReport>,
     pub mieru_install: Option<LinuxMieruInstallStatus>,
 }
 
@@ -974,6 +975,7 @@ impl LinuxCliResponse {
             service_install: None,
             service_removal: None,
             core_engines: Vec::new(),
+            node_catalog: None,
             mieru_install: None,
         }
     }
@@ -1009,6 +1011,7 @@ impl LinuxCliResponse {
             service_install: None,
             service_removal: None,
             core_engines: Vec::new(),
+            node_catalog: None,
             mieru_install: None,
         }
     }
@@ -1150,6 +1153,11 @@ impl LinuxCliResponse {
         self
     }
 
+    pub fn with_node_catalog(mut self, catalog: LinuxNodeCatalogReport) -> Self {
+        self.node_catalog = Some(catalog);
+        self
+    }
+
     pub fn with_mieru_install(mut self, report: LinuxMieruInstallStatus) -> Self {
         self.mieru_install = Some(report);
         self
@@ -1162,6 +1170,22 @@ pub struct LinuxCoreEngineSummary {
     pub kind: String,
     pub version: Option<String>,
     pub capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxNodeCatalogReport {
+    pub schema_version: u32,
+    pub source: String,
+    pub selection_mutated: bool,
+    pub nodes: Vec<LinuxNodeCatalogEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxNodeCatalogEntry {
+    pub id: String,
+    pub name: String,
+    pub protocol: String,
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -6319,7 +6343,17 @@ pub fn handle_node_list(config_path: &str) -> LinuxCliResponse {
         ),
         SOURCE_CLI_RUNTIME,
     )];
-    diagnostics.extend(document.nodes.into_iter().map(|node| {
+    let nodes: Vec<LinuxNodeCatalogEntry> = document
+        .nodes
+        .into_iter()
+        .map(|node| LinuxNodeCatalogEntry {
+            id: node.id,
+            name: node.name,
+            protocol: format!("{:?}", node.protocol),
+            tags: node.tags,
+        })
+        .collect();
+    diagnostics.extend(nodes.iter().map(|node| {
         cli_diagnostic(
             DiagnosticSeverity::Info,
             "cli.node.entry",
@@ -6333,7 +6367,14 @@ pub fn handle_node_list(config_path: &str) -> LinuxCliResponse {
             SOURCE_CLI_RUNTIME,
         )
     }));
-    LinuxCliResponse::success("node list").with_diagnostics(diagnostics)
+    LinuxCliResponse::success("node list")
+        .with_diagnostics(diagnostics)
+        .with_node_catalog(LinuxNodeCatalogReport {
+            schema_version: 1,
+            source: "explicit-config".to_string(),
+            selection_mutated: false,
+            nodes,
+        })
 }
 
 pub fn handle_node_select(
@@ -14380,6 +14421,24 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             ));
         }
     }
+    if let Some(catalog) = &response.node_catalog {
+        lines.push(format!(
+            "node catalog: source={} schema_version={} selection_mutated={} nodes={}",
+            catalog.source,
+            catalog.schema_version,
+            catalog.selection_mutated,
+            catalog.nodes.len()
+        ));
+        for node in &catalog.nodes {
+            lines.push(format!(
+                "node: id={} name={} protocol={} tags={}",
+                node.id,
+                node.name,
+                node.protocol,
+                node.tags.join(",")
+            ));
+        }
+    }
     if let Some(install) = &response.mieru_install {
         lines.push(format!("Mieru binary: {}", install.binary_path));
         lines.push(format!("Mieru sha256: {}", install.sha256));
@@ -15252,6 +15311,7 @@ struct JsonCliResponse {
     service_install: Option<JsonLinuxManagedServiceUnitPlan>,
     service_removal: Option<JsonLinuxManagedServiceUnitRemovalPlan>,
     core_engines: Vec<JsonLinuxCoreEngineSummary>,
+    node_catalog: Option<JsonLinuxNodeCatalogReport>,
     mieru_install: Option<JsonLinuxMieruInstallStatus>,
 }
 
@@ -15336,10 +15396,56 @@ impl From<&LinuxCliResponse> for JsonCliResponse {
                 .iter()
                 .map(JsonLinuxCoreEngineSummary::from)
                 .collect(),
+            node_catalog: response
+                .node_catalog
+                .as_ref()
+                .map(JsonLinuxNodeCatalogReport::from),
             mieru_install: response
                 .mieru_install
                 .as_ref()
                 .map(JsonLinuxMieruInstallStatus::from),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonLinuxNodeCatalogReport {
+    schema_version: u32,
+    source: String,
+    selection_mutated: bool,
+    nodes: Vec<JsonLinuxNodeCatalogEntry>,
+}
+
+impl From<&LinuxNodeCatalogReport> for JsonLinuxNodeCatalogReport {
+    fn from(report: &LinuxNodeCatalogReport) -> Self {
+        Self {
+            schema_version: report.schema_version,
+            source: report.source.clone(),
+            selection_mutated: report.selection_mutated,
+            nodes: report
+                .nodes
+                .iter()
+                .map(JsonLinuxNodeCatalogEntry::from)
+                .collect(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonLinuxNodeCatalogEntry {
+    id: String,
+    name: String,
+    protocol: String,
+    tags: Vec<String>,
+}
+
+impl From<&LinuxNodeCatalogEntry> for JsonLinuxNodeCatalogEntry {
+    fn from(entry: &LinuxNodeCatalogEntry) -> Self {
+        Self {
+            id: entry.id.clone(),
+            name: entry.name.clone(),
+            protocol: entry.protocol.clone(),
+            tags: entry.tags.clone(),
         }
     }
 }

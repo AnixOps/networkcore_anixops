@@ -11,6 +11,13 @@
 
 ## 工作方式
 
+Linux `node list --config <absolute-path>` exposes a structured, redacted
+`node_catalog` in JSON and an equivalent text summary. It reports stable node
+ids, names, protocol labels, and tags from the explicit config, with
+`selection_mutated=false`; it writes no selection or snapshot and does not
+expose endpoints or credentials. Selection and rollback remain separate
+explicitly authorized commands.
+
 本仓库执行严格的 CI/CD 优先策略：
 
 - 本机只写代码和文档。

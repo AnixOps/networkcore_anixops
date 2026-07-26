@@ -1006,6 +1006,9 @@ jobs:
           grep -q "NodeSwitch" apps/linux-cli/src/lib.rs
           grep -q "handle_node_switch" apps/linux-cli/src/lib.rs
           grep -q "LinuxCliCommand::NodeSwitch" apps/linux-cli/src/main.rs
+          grep -q "LinuxNodeCatalogReport" apps/linux-cli/src/lib.rs
+          grep -q "node_catalog" apps/linux-cli/src/lib.rs
+          grep -q "structured catalog" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "parses_node_switch_and_rejects_missing_loopback_controller_port" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "node_switch_rejects_missing_confirmation_before_any_network_or_file_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "Loopback Selector Switch" docs/architecture/linux-native-proxy-engine-start.md
