@@ -135,6 +135,10 @@ fn managed_configuration_accepts_explicit_mieru_control_paths_and_digest() {
         .expected_sha256
         .chars()
         .all(|value| value.is_ascii_hexdigit()));
+
+    let mut invalid = config;
+    invalid.expected_sha256 = "not-a-digest".to_string();
+    assert!(invalid.validate().is_err());
 }
 
 #[test]
