@@ -714,12 +714,16 @@ jobs:
           grep -q "linux-managed-service-unit-source-contract" docs/architecture/linux-managed-service-unit-source-contract.md
           grep -q "render_systemd_unit" crates/platform-linux/src/systemd.rs
           grep -q "install_systemd_unit" crates/platform-linux/src/systemd.rs
+          grep -q "control_systemd_service" crates/platform-linux/src/systemd.rs
+          grep -q "CommandLinuxSystemdCommandRunner" crates/platform-linux/src/systemd.rs
           grep -q "Restart=on-failure" crates/platform-linux/src/systemd.rs
           grep -q "renders_bounded_non_root_systemd_unit" crates/platform-linux/tests/systemd_unit_contracts.rs
           grep -q "installs_unit_with_snapshot_and_write_verification" crates/platform-linux/tests/systemd_unit_contracts.rs
           grep -q "refuses_to_replace_a_systemd_unit_symlink" crates/platform-linux/tests/systemd_unit_contracts.rs
           grep -q "plan_systemd_unit_removal" crates/platform-linux/src/systemd.rs
           grep -q "removal_plan_preserves_state" crates/platform-linux/tests/systemd_unit_contracts.rs
+          grep -q "service_control_requires_confirmation" crates/platform-linux/tests/systemd_unit_contracts.rs
+          grep -q "service_control_reports_action_and_exit_code" crates/platform-linux/tests/systemd_unit_contracts.rs
           grep -q "validate_proxy_engine_transition" crates/control-runtime/src/lib.rs
           grep -q "runtime_rollback_rejects_a_non_recovering_lifecycle_jump" crates/control-runtime/tests/runtime_contracts.rs
           grep -q "SING_BOX_LATEST_RELEASE_API_URL" crates/engine-singbox/src/lib.rs

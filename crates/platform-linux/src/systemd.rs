@@ -1,17 +1,21 @@
-//! Pure systemd unit generation plans.
+//! Systemd unit generation, installation, and explicitly confirmed control.
 //!
-//! Rendering a unit is not installation. A future CLI must require an explicit
-//! `install-service --confirm` action before writing the returned content.
+//! Rendering a unit is not installation. Installation and service control remain
+//! separate operations and both require explicit confirmation at the caller.
 
 use control_domain::{DomainError, DomainResult};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 pub const LINUX_SYSTEMD_UNIT_SCHEMA_VERSION: u32 = 1;
 pub const LINUX_SYSTEMD_UNIT_INVALID_CODE: &str = "platform.linux.systemd.unit_invalid";
 pub const LINUX_SYSTEMD_REMOVAL_INVALID_CODE: &str = "platform.linux.systemd.removal_invalid";
 pub const LINUX_SYSTEMD_UNIT_WRITE_FAILED_CODE: &str = "platform.linux.systemd.unit_write_failed";
+pub const LINUX_SYSTEMD_CONTROL_FAILED_CODE: &str = "platform.linux.systemd.control_failed";
+pub const LINUX_SYSTEMD_CONTROL_CONFIRMATION_REQUIRED_CODE: &str =
+    "platform.linux.systemd.control_confirmation_required";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinuxManagedServiceUnitRequest {
@@ -59,6 +63,108 @@ pub struct LinuxManagedServiceUnitInstallReport {
     pub snapshot_written: bool,
     pub bytes_written: usize,
     pub verified: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinuxSystemdServiceAction {
+    Start,
+    Stop,
+    Restart,
+    Status,
+}
+
+impl LinuxSystemdServiceAction {
+    pub const fn command(self) -> &'static str {
+        match self {
+            Self::Start => "start",
+            Self::Stop => "stop",
+            Self::Restart => "restart",
+            Self::Status => "is-active",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxSystemdServiceControlRequest {
+    pub unit_name: String,
+    pub action: LinuxSystemdServiceAction,
+    pub confirmed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxSystemdServiceControlReport {
+    pub unit_name: String,
+    pub action: LinuxSystemdServiceAction,
+    pub succeeded: bool,
+    pub exit_code: Option<i32>,
+    pub diagnostics: Vec<control_domain::Diagnostic>,
+}
+
+pub trait LinuxSystemdCommandRunner {
+    fn run(&self, action: LinuxSystemdServiceAction, unit_name: &str) -> DomainResult<Option<i32>>;
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CommandLinuxSystemdCommandRunner;
+
+impl CommandLinuxSystemdCommandRunner {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl LinuxSystemdCommandRunner for CommandLinuxSystemdCommandRunner {
+    fn run(&self, action: LinuxSystemdServiceAction, unit_name: &str) -> DomainResult<Option<i32>> {
+        let status = Command::new("systemctl")
+            .arg(action.command())
+            .arg(unit_name)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map_err(|error| control_error(format!("systemctl could not be started: {error}")))?;
+        Ok(status.code())
+    }
+}
+
+pub fn control_systemd_service<R: LinuxSystemdCommandRunner>(
+    runner: &R,
+    request: &LinuxSystemdServiceControlRequest,
+) -> DomainResult<LinuxSystemdServiceControlReport> {
+    validate_unit_name(&request.unit_name)?;
+    if !request.confirmed {
+        return Err(DomainError::new(
+            LINUX_SYSTEMD_CONTROL_CONFIRMATION_REQUIRED_CODE,
+            "systemd service control requires explicit confirmation",
+        ));
+    }
+    let exit_code = runner.run(request.action, &request.unit_name)?;
+    let succeeded = exit_code == Some(0);
+    let diagnostics = vec![control_domain::Diagnostic::new(
+        if succeeded {
+            control_domain::DiagnosticSeverity::Info
+        } else {
+            control_domain::DiagnosticSeverity::Error
+        },
+        if succeeded {
+            "platform.linux.systemd.control_completed"
+        } else {
+            LINUX_SYSTEMD_CONTROL_FAILED_CODE
+        },
+        format!(
+            "systemd {} completed for managed unit with exit code {:?}",
+            request.action.command(),
+            exit_code
+        ),
+        Some("platform.linux.systemd".to_string()),
+    )];
+    Ok(LinuxSystemdServiceControlReport {
+        unit_name: request.unit_name.clone(),
+        action: request.action,
+        succeeded,
+        exit_code,
+        diagnostics,
+    })
 }
 
 pub fn install_systemd_unit(
@@ -186,10 +292,8 @@ pub fn render_systemd_unit(
 }
 
 fn validate_request(request: &LinuxManagedServiceUnitRequest) -> DomainResult<()> {
-    if request.unit_name.trim().is_empty()
-        || request.unit_name.contains('/')
-        || request.unit_name.chars().any(char::is_whitespace)
-        || request.description.trim().is_empty()
+    validate_unit_name(&request.unit_name)?;
+    if request.description.trim().is_empty()
         || request.service_user.trim().is_empty()
         || request.service_group.trim().is_empty()
         || request.service_user == "root"
@@ -211,6 +315,19 @@ fn validate_request(request: &LinuxManagedServiceUnitRequest) -> DomainResult<()
         return Err(DomainError::new(
             LINUX_SYSTEMD_UNIT_INVALID_CODE,
             "systemd unit arguments and description must not contain line breaks",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_unit_name(unit_name: &str) -> DomainResult<()> {
+    if unit_name.trim().is_empty()
+        || unit_name.contains('/')
+        || unit_name.chars().any(char::is_whitespace)
+    {
+        return Err(DomainError::new(
+            LINUX_SYSTEMD_UNIT_INVALID_CODE,
+            "systemd unit name must be non-empty and contain no slash or whitespace",
         ));
     }
     Ok(())
@@ -262,6 +379,10 @@ fn write_error(operation: &str, error: impl std::fmt::Display) -> DomainError {
         LINUX_SYSTEMD_UNIT_WRITE_FAILED_CODE,
         format!("failed to {operation}: {error}"),
     )
+}
+
+fn control_error(message: impl Into<String>) -> DomainError {
+    DomainError::new(LINUX_SYSTEMD_CONTROL_FAILED_CODE, message)
 }
 
 fn systemd_quote_path(path: &Path) -> String {

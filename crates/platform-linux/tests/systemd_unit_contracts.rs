@@ -1,6 +1,8 @@
 use platform_linux::systemd::{
-    install_systemd_unit, plan_systemd_unit_removal, render_systemd_unit,
+    control_systemd_service, install_systemd_unit, plan_systemd_unit_removal, render_systemd_unit,
     LinuxManagedServiceUnitInstallRequest, LinuxManagedServiceUnitRequest,
+    LinuxSystemdCommandRunner, LinuxSystemdServiceAction, LinuxSystemdServiceControlRequest,
+    LINUX_SYSTEMD_CONTROL_CONFIRMATION_REQUIRED_CODE, LINUX_SYSTEMD_CONTROL_FAILED_CODE,
     LINUX_SYSTEMD_UNIT_INVALID_CODE,
 };
 use std::fs;
@@ -137,4 +139,115 @@ fn refuses_to_replace_a_systemd_unit_symlink() {
     );
     assert_eq!(fs::read_to_string(&target).unwrap(), "external unit\n");
     let _ = fs::remove_dir_all(&root);
+}
+
+#[derive(Default)]
+struct RecordingSystemdRunner {
+    calls: std::cell::RefCell<Vec<(LinuxSystemdServiceAction, String)>>,
+    exit_code: Option<i32>,
+}
+
+impl LinuxSystemdCommandRunner for RecordingSystemdRunner {
+    fn run(
+        &self,
+        action: LinuxSystemdServiceAction,
+        unit_name: &str,
+    ) -> control_domain::DomainResult<Option<i32>> {
+        self.calls
+            .borrow_mut()
+            .push((action, unit_name.to_string()));
+        Ok(self.exit_code)
+    }
+}
+
+#[test]
+fn service_control_requires_confirmation_before_runner_invocation() {
+    let runner = RecordingSystemdRunner {
+        exit_code: Some(0),
+        ..Default::default()
+    };
+    let error = control_systemd_service(
+        &runner,
+        &LinuxSystemdServiceControlRequest {
+            unit_name: "networkcore.service".to_string(),
+            action: LinuxSystemdServiceAction::Start,
+            confirmed: false,
+        },
+    )
+    .expect_err("service mutation must require confirmation");
+
+    assert_eq!(error.code, LINUX_SYSTEMD_CONTROL_CONFIRMATION_REQUIRED_CODE);
+    assert!(runner.calls.borrow().is_empty());
+}
+
+#[test]
+fn service_control_reports_action_and_exit_code() {
+    let runner = RecordingSystemdRunner {
+        exit_code: Some(0),
+        ..Default::default()
+    };
+    let report = control_systemd_service(
+        &runner,
+        &LinuxSystemdServiceControlRequest {
+            unit_name: "networkcore.service".to_string(),
+            action: LinuxSystemdServiceAction::Status,
+            confirmed: true,
+        },
+    )
+    .expect("confirmed status should invoke the runner");
+
+    assert!(report.succeeded);
+    assert_eq!(report.exit_code, Some(0));
+    assert_eq!(report.action.command(), "is-active");
+    assert_eq!(
+        runner.calls.borrow().as_slice(),
+        &[(
+            LinuxSystemdServiceAction::Status,
+            "networkcore.service".to_string()
+        )]
+    );
+}
+
+#[test]
+fn service_control_exposes_nonzero_exit_as_failed_report() {
+    let runner = RecordingSystemdRunner {
+        exit_code: Some(3),
+        ..Default::default()
+    };
+    let report = control_systemd_service(
+        &runner,
+        &LinuxSystemdServiceControlRequest {
+            unit_name: "networkcore.service".to_string(),
+            action: LinuxSystemdServiceAction::Stop,
+            confirmed: true,
+        },
+    )
+    .expect("runner exit status should be represented in the report");
+
+    assert!(!report.succeeded);
+    assert_eq!(report.exit_code, Some(3));
+    assert_eq!(
+        report.diagnostics[0].code,
+        LINUX_SYSTEMD_CONTROL_FAILED_CODE
+    );
+}
+
+#[test]
+fn service_control_rejects_path_like_unit_names() {
+    let runner = RecordingSystemdRunner {
+        exit_code: Some(0),
+        ..Default::default()
+    };
+    let error = control_systemd_service(
+        &runner,
+        &LinuxSystemdServiceControlRequest {
+            unit_name: "../networkcore.service".to_string(),
+            action: LinuxSystemdServiceAction::Restart,
+            confirmed: true,
+        },
+    )
+    .expect_err("path-like unit names must be rejected");
+
+    assert_eq!(error.code, LINUX_SYSTEMD_UNIT_INVALID_CODE);
+    assert!(runner.calls.borrow().is_empty());
 }
