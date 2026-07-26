@@ -1852,6 +1852,7 @@ jobs:
           grep -q "parse_validate_command" apps/linux-cli/src/lib.rs
           grep -q "parses_validate_as_an_explicit_config_validation_alias" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "connect_and_disconnect_aliases_keep_foreground_boundary_explicit" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "restart_is_explicitly_unavailable" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "BrowserCaptureProcessRunner" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureEndpointProbe" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureTrafficProofProbe" docs/architecture/linux-mitm-browser-capture-source-contract.md

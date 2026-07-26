@@ -2848,6 +2848,23 @@ fn connect_and_disconnect_aliases_keep_foreground_boundary_explicit() {
 }
 
 #[test]
+fn restart_is_explicitly_unavailable_until_managed_control_is_wired() {
+    let command =
+        parse_args(["restart", "--config", "/tmp/networkcore.toml"]).expect("restart should parse");
+    assert!(matches!(
+        command,
+        LinuxCliCommand::Restart {
+            config_path: Some(path),
+            ..
+        } if path == "/tmp/networkcore.toml"
+    ));
+    let response = handle_restart_unavailable();
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, LinuxCliExitCode::Unavailable);
+    assert_eq!(response.diagnostics[0].code, CLI_RUNTIME_UNWIRED_CODE);
+}
+
+#[test]
 fn parses_install_sing_box_command_and_alias() {
     let command = parse_args([
         "install-sing-box",

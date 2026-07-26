@@ -417,6 +417,10 @@ pub enum LinuxCliCommand {
     Stop {
         format: OutputFormat,
     },
+    Restart {
+        config_path: Option<String>,
+        format: OutputFormat,
+    },
     Status {
         format: OutputFormat,
     },
@@ -621,6 +625,7 @@ impl LinuxCliCommand {
             Self::PrepareConfig { .. } => "prepare-config",
             Self::Start { .. } => "start",
             Self::Stop { .. } => "stop",
+            Self::Restart { .. } => "restart",
             Self::Status { .. } => "status",
             Self::ManagedStatus { .. } => "managed-status",
             Self::ManagedStatusInit { .. } => "managed-status init",
@@ -663,6 +668,7 @@ impl LinuxCliCommand {
             | Self::PrepareConfig { format, .. }
             | Self::Start { format, .. }
             | Self::Stop { format }
+            | Self::Restart { format, .. }
             | Self::Status { format }
             | Self::ManagedStatus { format, .. }
             | Self::ManagedStatusInit { format, .. }
@@ -4913,6 +4919,13 @@ where
                 format: options.format,
             })
         }
+        "restart" => {
+            let options = parse_options(&rest)?;
+            Ok(LinuxCliCommand::Restart {
+                config_path: options.config_path,
+                format: options.format,
+            })
+        }
         "status" => {
             let options = parse_options(&rest)?;
             Ok(LinuxCliCommand::Status {
@@ -5007,6 +5020,7 @@ pub fn handle_entrypoint_skeleton(command: LinuxCliCommand) -> LinuxCliResponse 
         LinuxCliCommand::Help { .. } => handle_help(),
         LinuxCliCommand::Version { .. } => handle_version(),
         LinuxCliCommand::Stop { .. } => handle_stop(),
+        LinuxCliCommand::Restart { .. } => handle_restart_unavailable(),
         LinuxCliCommand::InstallService { .. } => handle_unwired_command("install-service"),
         LinuxCliCommand::UninstallService { .. } => handle_unwired_command("uninstall-service"),
         other => handle_unwired_command(other.name()),
@@ -5048,6 +5062,7 @@ where
             confirm,
             ..
         } => handle_uninstall_service_plan(&unit_name, &state_directory, confirm),
+        LinuxCliCommand::Restart { .. } => handle_restart_unavailable(),
         LinuxCliCommand::ManagedStatus { status_path, .. } => {
             handle_managed_foreground_status(&status_path)
         }
@@ -5619,6 +5634,19 @@ pub fn handle_uninstall_service_plan(
             SOURCE_CLI_RUNTIME,
         ),
     }
+}
+
+pub fn handle_restart_unavailable() -> LinuxCliResponse {
+    LinuxCliResponse::failure(
+        "restart",
+        LinuxCliExitCode::Unavailable,
+        cli_diagnostic(
+            DiagnosticSeverity::Error,
+            CLI_RUNTIME_UNWIRED_CODE,
+            "linux managed restart is unavailable until the explicit service control boundary is wired",
+            SOURCE_CLI_RUNTIME,
+        ),
+    )
 }
 
 pub fn handle_version() -> LinuxCliResponse {
@@ -11505,6 +11533,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux connect --config <path> [same explicit foreground options as start]\n",
         "  networkcore-linux stop [--format text|json]\n",
         "  networkcore-linux disconnect [--format text|json]\n",
+        "  networkcore-linux restart [--config <path>] [--format text|json]\n",
         "  networkcore-linux status [--format text|json]\n",
         "  networkcore-linux managed-status <status-record-path> [--format text|json]\n",
         "  networkcore-linux managed-status init <status-record-path> <session-id> <engine-id> <state> [--format text|json]\n",
@@ -11536,6 +11565,7 @@ pub const fn cli_help_text() -> &'static str {
         "  connect           Alias for the explicit foreground start path; managed service control is separate.\n",
         "  stop              Report that daemon stop is unavailable in this build.\n",
         "  disconnect        Report that managed daemon disconnect is unavailable in this build.\n",
+        "  restart           Report that managed daemon restart is unavailable in this build.\n",
         "  status            Report platform-only status without a daemon context.\n",
         "  managed-status    Read one explicit managed foreground status record.\n",
         "  managed-status init Create one explicit managed foreground status record without overwriting it.\n",
