@@ -59,6 +59,10 @@ current-main-subscription-background=blocked
 - Linux `run-url` now accepts a caller-selected absolute `file://` URI. Its
   UTF-8 contents use the existing subscription parser and foreground sing-box
   path; remote fetching, path discovery, and background refresh remain absent.
+- Linux `managed-log` reports now include `returned_byte_count` in text and JSON,
+  counting the UTF-8 bytes of returned line contents while excluding discarded
+  content and line separators. The explicit-path, 65536-byte file limit,
+  bounded-line, and `liveness_verified=false` boundaries are unchanged.
 - `NativeProxyEngineService::reload` now performs an in-process runtime
   replacement instead of returning an unwired lifecycle error. It retains the
   last successful configuration, restores it when the replacement listener

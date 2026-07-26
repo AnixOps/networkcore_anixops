@@ -2305,6 +2305,7 @@ pub struct ManagedForegroundSessionLogTailReport {
     pub line_limit: usize,
     pub total_line_count: usize,
     pub lines: Vec<String>,
+    pub returned_byte_count: usize,
     pub liveness_verified: bool,
 }
 
@@ -2697,13 +2698,15 @@ impl CommandManagedForegroundSessionLogStore {
         })?;
         let total_line_count = contents.lines().count();
         let skip = total_line_count.saturating_sub(line_limit);
-        let lines = contents.lines().skip(skip).map(str::to_string).collect();
+        let lines: Vec<String> = contents.lines().skip(skip).map(str::to_string).collect();
+        let returned_byte_count = lines.iter().map(String::len).sum();
 
         Ok(ManagedForegroundSessionLogTailReport {
             log_path,
             line_limit,
             total_line_count,
             lines,
+            returned_byte_count,
             liveness_verified: false,
         })
     }
@@ -14825,6 +14828,10 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             "managed foreground log returned lines: {}",
             log_tail.lines.len()
         ));
+        lines.push(format!(
+            "managed foreground log returned bytes: {}",
+            log_tail.returned_byte_count
+        ));
         for (index, line) in log_tail.lines.iter().enumerate() {
             lines.push(format!("managed foreground log line {index}: {line}"));
         }
@@ -15873,6 +15880,7 @@ struct JsonManagedForegroundSessionLogTailReport {
     line_limit: usize,
     total_line_count: usize,
     lines: Vec<String>,
+    returned_byte_count: usize,
     liveness_verified: bool,
 }
 
@@ -15883,6 +15891,7 @@ impl From<&ManagedForegroundSessionLogTailReport> for JsonManagedForegroundSessi
             line_limit: report.line_limit,
             total_line_count: report.total_line_count,
             lines: report.lines.clone(),
+            returned_byte_count: report.returned_byte_count,
             liveness_verified: report.liveness_verified,
         }
     }

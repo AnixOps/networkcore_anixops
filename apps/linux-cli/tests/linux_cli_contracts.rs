@@ -877,6 +877,7 @@ fn managed_foreground_session_log_tail_reads_explicit_bounded_log_without_livene
     assert_eq!(report.line_limit, 2);
     assert_eq!(report.total_line_count, 4);
     assert_eq!(report.lines, vec!["third", "fourth"]);
+    assert_eq!(report.returned_byte_count, "thirdfourth".len());
     assert!(!report.liveness_verified);
 
     let invalid_limit = store
@@ -962,6 +963,7 @@ fn managed_foreground_session_log_cli_reads_bounded_explicit_log() {
     assert_eq!(report.line_limit, 2);
     assert_eq!(report.total_line_count, 4);
     assert_eq!(report.lines, vec!["third", "fourth"]);
+    assert_eq!(report.returned_byte_count, "thirdfourth".len());
     assert!(!report.liveness_verified);
     assert_eq!(
         std::fs::read_to_string(&log_path).expect("managed log CLI fixture should remain readable"),
@@ -970,12 +972,14 @@ fn managed_foreground_session_log_cli_reads_bounded_explicit_log() {
     let text = render_response(&response, OutputFormat::Text);
     assert!(text.contains("managed foreground log line limit: 2"));
     assert!(text.contains("managed foreground log line 0: third"));
+    assert!(text.contains("managed foreground log returned bytes: 10"));
     assert!(text.contains("managed foreground liveness verified: false"));
     let json: serde_json::Value =
         serde_json::from_str(&render_response(&response, OutputFormat::Json))
             .expect("managed log response should render JSON");
     assert_eq!(json["managed_foreground_log_tail"]["line_limit"], 2);
     assert_eq!(json["managed_foreground_log_tail"]["lines"][0], "third");
+    assert_eq!(json["managed_foreground_log_tail"]["returned_byte_count"], 10);
     assert_eq!(
         json["managed_foreground_log_tail"]["liveness_verified"].as_bool(),
         Some(false)

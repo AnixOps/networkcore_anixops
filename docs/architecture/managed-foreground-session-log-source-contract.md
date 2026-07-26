@@ -18,7 +18,10 @@ managed-foreground-session-log-liveness-verification=blocked
 `CommandManagedForegroundSessionLogStore::read_tail` reads the final bounded
 lines of one caller-selected UTF-8 log file. The request carries an
 explicit `log_path` and `line_limit`; the report returns the selected path,
-limit, total line count, tail lines, and `liveness_verified=false`.
+limit, total line count, tail lines, the UTF-8 byte count of the returned line
+contents, and `liveness_verified=false`. The byte count excludes discarded
+content and line separators; it is an audit field, not an additional read
+limit.
 
 The source boundary rejects an empty path, a non-file path, unreadable or
 non-UTF-8 content, a limit outside `1..=1000`, and a log larger than 65536
@@ -38,7 +41,7 @@ socket state, or start/reload/stop a runtime.
 `networkcore-linux managed-log <log-file-path> [--tail-lines <1-1000>]
 [--format text|json]` exposes the same bounded report. Text output includes
 the returned lines; JSON exposes `managed_foreground_log_tail` with the path,
-requested limit, total line count, returned lines, and
+requested limit, total line count, returned lines, returned byte count, and
 `liveness_verified=false`.
 
 Managed runtime linkage, reload/rollback orchestration, log search, and live
