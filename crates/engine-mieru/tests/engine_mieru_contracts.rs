@@ -1,11 +1,11 @@
 use engine_mieru::{
-    apply_and_start_mieru_client, parse_mieru_share_link, render_mieru_client_config,
-    stop_mieru_client, verify_local_mieru_binary, write_mieru_client_config,
-    MieruClientConfigRequest, MieruClientConfigWriteRequest, MieruClientControlRequest,
-    MieruCommandReport, MieruCommandRunner, MieruManagedProcessState,
-    MieruManagedProcessSupervisor, MIERU_BINARY_DIGEST_MISSING_CODE,
-    MIERU_CONFIG_TRAFFIC_PATTERN_DEFERRED_CODE, MIERU_LISTENER_NOT_READY_CODE,
-    MIERU_RUNTIME_UNWIRED_CODE,
+    apply_and_start_mieru_client, download_mieru_release, parse_mieru_share_link,
+    render_mieru_client_config, stop_mieru_client, verify_local_mieru_binary,
+    write_mieru_client_config, MieruClientConfigRequest, MieruClientConfigWriteRequest,
+    MieruClientControlRequest, MieruCommandReport, MieruCommandRunner, MieruManagedProcessState,
+    MieruManagedProcessSupervisor, MieruReleaseDownloadRequest, MieruReleaseHttpClient,
+    MIERU_BINARY_DIGEST_MISSING_CODE, MIERU_CONFIG_TRAFFIC_PATTERN_DEFERRED_CODE,
+    MIERU_LISTENER_NOT_READY_CODE, MIERU_RUNTIME_UNWIRED_CODE,
 };
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -201,6 +201,57 @@ fn official_client_control_commands_are_explicit_and_redact_process_output() {
 }
 
 #[test]
+fn official_release_download_requires_source_confirmation_and_digest() {
+    let root = temporary_root("release-download");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).expect("fixture directory should be created");
+    let destination = root.join("bin").join("mieru");
+    let bytes = b"official release fixture".to_vec();
+    let digest = format!("{:x}", Sha256::digest(&bytes));
+    let request = MieruReleaseDownloadRequest {
+        download_url: "https://github.com/enfein/mieru/releases/download/v1.0.0/mieru-linux-amd64"
+            .to_string(),
+        destination_path: destination.clone(),
+        expected_sha256: digest.clone(),
+        confirmed: true,
+        force: false,
+    };
+    let client = FixtureMieruReleaseHttpClient {
+        bytes: bytes.clone(),
+    };
+
+    let report = download_mieru_release(&client, &request)
+        .expect("official release fixture should download");
+    assert!(report.downloaded);
+    assert_eq!(report.sha256, digest);
+    assert_eq!(fs::read(&destination).unwrap(), bytes);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(&destination).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+    }
+
+    let mut unconfirmed = request.clone();
+    unconfirmed.confirmed = false;
+    let error = download_mieru_release(&client, &unconfirmed)
+        .expect_err("release download must require explicit confirmation");
+    assert_eq!(
+        error.code,
+        engine_mieru::MIERU_RELEASE_DOWNLOAD_NOT_CONFIRMED_CODE
+    );
+
+    let mut wrong_source = request;
+    wrong_source.download_url = "https://example.com/mieru".to_string();
+    let error = download_mieru_release(&client, &wrong_source)
+        .expect_err("non-official release source must be rejected");
+    assert_eq!(error.code, engine_mieru::MIERU_RELEASE_URL_INVALID_CODE);
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn config_write_snapshots_existing_credentials_and_sets_private_permissions() {
     let root = temporary_root("config-write");
     let _ = fs::remove_dir_all(&root);
@@ -243,6 +294,16 @@ fn config_write_snapshots_existing_credentials_and_sets_private_permissions() {
 
 struct RecordingMieruRunner {
     calls: Arc<Mutex<Vec<Vec<String>>>>,
+}
+
+struct FixtureMieruReleaseHttpClient {
+    bytes: Vec<u8>,
+}
+
+impl MieruReleaseHttpClient for FixtureMieruReleaseHttpClient {
+    fn get_bytes(&self, _url: &str) -> control_domain::DomainResult<Vec<u8>> {
+        Ok(self.bytes.clone())
+    }
 }
 
 impl MieruCommandRunner for RecordingMieruRunner {

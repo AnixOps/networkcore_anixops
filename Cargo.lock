@@ -1050,6 +1050,7 @@ name = "engine-mieru"
 version = "0.1.0"
 dependencies = [
  "control-domain",
+ "reqwest 0.12.28",
  "sha2",
  "serde_json",
  "url",

@@ -28,6 +28,10 @@ pub const MIERU_SHARE_LINK_INVALID_CODE: &str = "engine.mieru.share_link_invalid
 pub const MIERU_BINARY_DIGEST_MISSING_CODE: &str = "engine.mieru.binary_digest_missing";
 pub const MIERU_BINARY_DIGEST_MISMATCH_CODE: &str = "engine.mieru.binary_digest_mismatch";
 pub const MIERU_BINARY_NOT_REGULAR_FILE_CODE: &str = "engine.mieru.binary_not_regular_file";
+pub const MIERU_RELEASE_URL_INVALID_CODE: &str = "engine.mieru.release_url_invalid";
+pub const MIERU_RELEASE_DOWNLOAD_NOT_CONFIRMED_CODE: &str =
+    "engine.mieru.release_download_not_confirmed";
+pub const MIERU_RELEASE_DOWNLOAD_FAILED_CODE: &str = "engine.mieru.release_download_failed";
 pub const MIERU_RUNTIME_UNWIRED_CODE: &str = "engine.mieru.runtime.unwired";
 pub const MIERU_PROCESS_ALREADY_RUNNING_CODE: &str = "engine.mieru.process.already_running";
 pub const MIERU_PROCESS_START_FAILED_CODE: &str = "engine.mieru.process.start_failed";
@@ -43,6 +47,166 @@ pub const MIERU_LISTENER_PROBE_FAILED_CODE: &str = "engine.mieru.listener.probe_
 pub const SOURCE_ENGINE_MIERU_CONFIG: &str = "engine.mieru.config";
 pub const SOURCE_ENGINE_MIERU_BINARY: &str = "engine.mieru.binary";
 pub const SOURCE_ENGINE_MIERU_LIFECYCLE: &str = "engine.mieru.lifecycle";
+const MIERU_RELEASE_MAX_BYTES: usize = 256 * 1024 * 1024;
+
+pub trait MieruReleaseHttpClient {
+    fn get_bytes(&self, url: &str) -> DomainResult<Vec<u8>>;
+}
+
+#[derive(Debug, Clone)]
+pub struct ReqwestMieruReleaseHttpClient {
+    client: reqwest::blocking::Client,
+}
+
+impl ReqwestMieruReleaseHttpClient {
+    pub fn new() -> DomainResult<Self> {
+        let client = reqwest::blocking::Client::builder()
+            .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                let host = attempt.url().host_str();
+                let allowed = matches!(
+                    host,
+                    Some("github.com")
+                        | Some("www.github.com")
+                        | Some("release-assets.githubusercontent.com")
+                        | Some("objects.githubusercontent.com")
+                );
+                if allowed && attempt.previous().len() < 3 {
+                    attempt.follow()
+                } else {
+                    attempt.stop()
+                }
+            }))
+            .timeout(std::time::Duration::from_secs(30))
+            .user_agent("networkcore-mieru-adapter")
+            .build()
+            .map_err(|error| {
+                release_download_error(format!("Mieru HTTP client failed: {error}"))
+            })?;
+        Ok(Self { client })
+    }
+}
+
+impl MieruReleaseHttpClient for ReqwestMieruReleaseHttpClient {
+    fn get_bytes(&self, url: &str) -> DomainResult<Vec<u8>> {
+        let mut response = self.client.get(url).send().map_err(|error| {
+            release_download_error(format!("Mieru release download failed: {error}"))
+        })?;
+        if !response.status().is_success() {
+            return Err(release_download_error(format!(
+                "Mieru release download returned HTTP {}",
+                response.status()
+            )));
+        }
+        if response
+            .content_length()
+            .is_some_and(|length| length > MIERU_RELEASE_MAX_BYTES as u64)
+        {
+            return Err(release_download_error(
+                "Mieru release asset exceeds the 256 MiB download limit",
+            ));
+        }
+        let mut bytes = Vec::new();
+        response
+            .take((MIERU_RELEASE_MAX_BYTES + 1) as u64)
+            .read_to_end(&mut bytes)
+            .map_err(|error| {
+                release_download_error(format!("Mieru release body could not be read: {error}"))
+            })?;
+        if bytes.len() > MIERU_RELEASE_MAX_BYTES {
+            return Err(release_download_error(
+                "Mieru release asset exceeds the 256 MiB download limit",
+            ));
+        }
+        Ok(bytes)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MieruReleaseDownloadRequest {
+    pub download_url: String,
+    pub destination_path: PathBuf,
+    pub expected_sha256: String,
+    pub confirmed: bool,
+    pub force: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MieruReleaseDownloadReport {
+    pub download_url: String,
+    pub destination_path: PathBuf,
+    pub sha256: String,
+    pub downloaded: bool,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+pub fn download_mieru_release<R: MieruReleaseHttpClient>(
+    http: &R,
+    request: &MieruReleaseDownloadRequest,
+) -> DomainResult<MieruReleaseDownloadReport> {
+    validate_mieru_release_url(&request.download_url)?;
+    if !request.confirmed {
+        return Err(DomainError::new(
+            MIERU_RELEASE_DOWNLOAD_NOT_CONFIRMED_CODE,
+            "Mieru release download requires explicit confirmation",
+        ));
+    }
+    let expected = normalize_digest(&request.expected_sha256)?;
+    if !request.destination_path.is_absolute() {
+        return Err(release_download_error(
+            "Mieru release destination must be an absolute path",
+        ));
+    }
+    if request.destination_path.is_symlink() {
+        return Err(release_download_error(
+            "refusing to replace symlink Mieru release destination",
+        ));
+    }
+
+    if request.destination_path.is_file() && !request.force {
+        let existing = verify_local_mieru_binary(&request.destination_path, Some(&expected))?;
+        return Ok(MieruReleaseDownloadReport {
+            download_url: request.download_url.clone(),
+            destination_path: existing.path,
+            sha256: existing.sha256,
+            downloaded: false,
+            diagnostics: vec![Diagnostic::new(
+                DiagnosticSeverity::Info,
+                "engine.mieru.release_binary_already_present",
+                "verified existing Mieru release binary",
+                Some(SOURCE_ENGINE_MIERU_BINARY.to_string()),
+            )],
+        });
+    }
+
+    let bytes = http.get_bytes(&request.download_url)?;
+    let actual = sha256_hex(&bytes);
+    if actual != expected {
+        return Err(DomainError::new(
+            MIERU_BINARY_DIGEST_MISMATCH_CODE,
+            "Mieru release asset sha256 digest does not match the explicit expected digest",
+        ));
+    }
+    write_release_binary_atomically(&request.destination_path, &bytes)?;
+    Ok(MieruReleaseDownloadReport {
+        download_url: request.download_url.clone(),
+        destination_path: request.destination_path.clone(),
+        sha256: actual,
+        downloaded: true,
+        diagnostics: vec![Diagnostic::new(
+            DiagnosticSeverity::Info,
+            "engine.mieru.release_binary_verified",
+            "Mieru official release asset was downloaded and sha256 verified",
+            Some(SOURCE_ENGINE_MIERU_BINARY.to_string()),
+        )],
+    })
+}
+
+pub fn download_latest_mieru_release(
+    request: &MieruReleaseDownloadRequest,
+) -> DomainResult<MieruReleaseDownloadReport> {
+    let http = ReqwestMieruReleaseHttpClient::new()?;
+    download_mieru_release(&http, request)
+}
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct MieruNodeConfig {
@@ -993,6 +1157,90 @@ fn normalize_digest(value: &str) -> DomainResult<String> {
         ));
     }
     Ok(value.to_ascii_lowercase())
+}
+
+fn validate_mieru_release_url(value: &str) -> DomainResult<()> {
+    let url = Url::parse(value).map_err(|_| {
+        DomainError::new(
+            MIERU_RELEASE_URL_INVALID_CODE,
+            "Mieru release URL must be a valid HTTPS URL",
+        )
+    })?;
+    if url.scheme() != "https"
+        || url.host_str() != Some("github.com")
+        || !url.path().starts_with("/enfein/mieru/releases/download/")
+        || url.path().ends_with('/')
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(DomainError::new(
+            MIERU_RELEASE_URL_INVALID_CODE,
+            "Mieru release URL must target an official enfein/mieru GitHub release asset",
+        ));
+    }
+    Ok(())
+}
+
+fn write_release_binary_atomically(path: &Path, bytes: &[u8]) -> DomainResult<()> {
+    let parent = path.parent().ok_or_else(|| {
+        release_download_error("Mieru release destination has no parent directory")
+    })?;
+    fs::create_dir_all(parent).map_err(|error| {
+        release_download_error(format!(
+            "Mieru release directory could not be created: {error}"
+        ))
+    })?;
+    let temporary = path.with_extension("download.tmp");
+    if temporary.exists() || temporary.is_symlink() {
+        return Err(release_download_error(
+            "Mieru release temporary path already exists",
+        ));
+    }
+    let mut file = File::options()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)
+        .map_err(|error| {
+            release_download_error(format!(
+                "Mieru release temporary file could not be created: {error}"
+            ))
+        })?;
+    file.write_all(bytes).map_err(|error| {
+        release_download_error(format!(
+            "Mieru release temporary file could not be written: {error}"
+        ))
+    })?;
+    file.sync_all().map_err(|error| {
+        release_download_error(format!(
+            "Mieru release temporary file could not be synced: {error}"
+        ))
+    })?;
+    drop(file);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&temporary, fs::Permissions::from_mode(0o700)).map_err(|error| {
+            release_download_error(format!(
+                "Mieru release permissions could not be set: {error}"
+            ))
+        })?;
+    }
+    fs::rename(&temporary, path).map_err(|error| {
+        let _ = fs::remove_file(&temporary);
+        release_download_error(format!(
+            "Mieru release binary could not be installed: {error}"
+        ))
+    })
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut digest = Sha256::new();
+    digest.update(bytes);
+    format!("{digest:x}")
+}
+
+fn release_download_error(message: impl Into<String>) -> DomainError {
+    DomainError::new(MIERU_RELEASE_DOWNLOAD_FAILED_CODE, message)
 }
 
 fn process_error(code: &'static str, error: impl fmt::Display) -> DomainError {

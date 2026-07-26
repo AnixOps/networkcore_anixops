@@ -10,6 +10,8 @@ The current source-only slice provides:
   MTU, multiplexing, handshake mode, and traffic pattern;
 - a redacted debug representation and a `Protocol::Mieru` node descriptor;
 - explicit local executable SHA-256 verification;
+- explicitly confirmed official GitHub release-asset download with a source
+  allowlist, bounded body size, atomic installation, and SHA-256 verification;
 - official-shape TCP client JSON rendering with a loopback SOCKS5 port,
   including user/server/port-binding, MTU, multiplexing, and handshake fields;
 - atomic config-file writing with non-overwriting snapshots, exact write
