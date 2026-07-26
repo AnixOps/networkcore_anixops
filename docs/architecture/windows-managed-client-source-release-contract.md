@@ -14,7 +14,7 @@ windows-managed-client-runner=windows-latest
 windows-managed-client-runner-kind=github-hosted
 windows-managed-client-rust-toolchain=stable
 windows-managed-client-rust-profile=minimal
-windows-managed-client-target-triple=x86_64-pc-windows-msvc
+windows-managed-client-target-triple=x86_64-pc-windows-gnu
 windows-managed-client-package-format=msi
 windows-managed-client-wix-version=4.0.6
 windows-managed-client-checksum-algorithm=sha256
@@ -227,7 +227,7 @@ the package signature.
 
 ## CI And Release
 
-GitHub Actions builds all Rust binaries for `x86_64-pc-windows-msvc`, pins WiX
+GitHub Actions builds all Rust binaries for `x86_64-pc-windows-gnu`, pins WiX
 4.0.6, builds and validates the MSI, performs bounded real MSI
 install/uninstall smoke plus invalid-managed-configuration nonblocking-start
 and core-exit proxy-rollback regressions, creates SHA-256 and schema-version-2 manifest files

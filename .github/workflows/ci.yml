@@ -2235,11 +2235,32 @@ jobs:
         shell: bash
         run: test -s apps/windows-gui/ui/dist/index.html
 
-      - name: Configure Windows Rust MSVC target
+      - name: Setup Windows C toolchain
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        id: msys2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-binutils
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-libsystre
+
+      - name: Configure Windows Rust GNU target
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          "CARGO_BUILD_TARGET=x86_64-pc-windows-msvc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $MsysRoot = "${{ steps.msys2.outputs.msys2-location }}"
+          $MingwPrefix = Join-Path $MsysRoot "mingw64"
+          "$MingwPrefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "MSYS2_LOCATION=$MsysRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MINGW_PREFIX=$MingwPrefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CARGO_BUILD_TARGET=x86_64-pc-windows-gnu" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CC_x86_64_pc_windows_gnu=$MingwPrefix\bin\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "AR_x86_64_pc_windows_gnu=$MingwPrefix\bin\ar.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RC_x86_64_pc_windows_gnu=$MingwPrefix\bin\windres.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=$MingwPrefix\bin\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Setup Rust
         shell: bash
@@ -2249,7 +2270,7 @@ jobs:
           rustup default stable
           rustup component add rustfmt clippy
           if [ "${RUNNER_OS}" = "Windows" ]; then
-            rustup target add x86_64-pc-windows-msvc
+            rustup target add x86_64-pc-windows-gnu
           fi
 
       - name: Setup Node script runtime
@@ -2309,11 +2330,31 @@ jobs:
         shell: bash
         run: test -s apps/windows-gui/ui/dist/index.html
 
-      - name: Configure Windows Rust MSVC target
+      - name: Setup Windows C toolchain
+        uses: msys2/setup-msys2@v2
+        id: windows-msys2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-binutils
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-libsystre
+
+      - name: Configure Windows Rust GNU target
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          "CARGO_BUILD_TARGET=x86_64-pc-windows-msvc" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $MsysRoot = "${{ steps.windows-msys2.outputs.msys2-location }}"
+          $MingwPrefix = Join-Path $MsysRoot "mingw64"
+          "$MingwPrefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "MSYS2_LOCATION=$MsysRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "MINGW_PREFIX=$MingwPrefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CARGO_BUILD_TARGET=x86_64-pc-windows-gnu" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CC_x86_64_pc_windows_gnu=$MingwPrefix\bin\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "AR_x86_64_pc_windows_gnu=$MingwPrefix\bin\ar.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RC_x86_64_pc_windows_gnu=$MingwPrefix\bin\windres.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=$MingwPrefix\bin\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build Windows binaries
         shell: pwsh
@@ -2321,12 +2362,12 @@ jobs:
           $ErrorActionPreference = "Stop"
           rustup toolchain install stable --profile minimal
           rustup default stable
-          rustup target add x86_64-pc-windows-msvc
+          rustup target add x86_64-pc-windows-gnu
           cargo build --locked `
             --package networkcore-windows `
             --package networkcore-windows-gui `
             --package networkcore-windows-service `
-            --target x86_64-pc-windows-msvc
+            --target x86_64-pc-windows-gnu
 
       - name: Build and validate WiX MSI
         shell: pwsh
@@ -2335,7 +2376,7 @@ jobs:
           dotnet tool install --global wix --version 4.0.6
           wix extension add -g WixToolset.UI.wixext/4.0.6
           New-Item -ItemType Directory -Force -Path dist\windows-ci | Out-Null
-          $releaseDir = (Resolve-Path "target\x86_64-pc-windows-msvc\debug").Path
+          $releaseDir = (Resolve-Path "target\x86_64-pc-windows-gnu\debug").Path
           $defaultConfig = (Resolve-Path "installer\windows\default-managed-config.json").Path
           wix build installer/windows/Package.wxs `
             -ext WixToolset.UI.wixext `
