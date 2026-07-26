@@ -2814,6 +2814,19 @@ fn missing_command_response_includes_help_table() {
 }
 
 #[test]
+fn parses_validate_as_an_explicit_config_validation_alias() {
+    let command = parse_args(["validate", "/tmp/networkcore.toml", "--format", "json"])
+        .expect("validate should parse");
+    assert_eq!(
+        command,
+        LinuxCliCommand::PrepareConfig {
+            config_path: Some("/tmp/networkcore.toml".to_string()),
+            format: OutputFormat::Json,
+        }
+    );
+}
+
+#[test]
 fn parses_install_sing_box_command_and_alias() {
     let command = parse_args([
         "install-sing-box",

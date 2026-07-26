@@ -4890,6 +4890,7 @@ where
                 format: options.format,
             })
         }
+        "validate" => parse_validate_command(&rest),
         "start" => {
             let options = parse_options(&rest)?;
             Ok(LinuxCliCommand::Start {
@@ -10683,6 +10684,26 @@ fn parse_run_url_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliPar
     })
 }
 
+fn parse_validate_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(config_path) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "validate requires an explicit config path",
+        ));
+    };
+    if config_path.starts_with("--") {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "validate requires a config path before options",
+        ));
+    }
+    let options = parse_options(&args[1..])?;
+    Ok(LinuxCliCommand::PrepareConfig {
+        config_path: Some(config_path.clone()),
+        format: options.format,
+    })
+}
+
 fn parse_run_catalog_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
     let Some(catalog_path) = args.first() else {
         return Err(parse_error(
@@ -11479,6 +11500,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux version [--format text|json]\n",
         "  networkcore-linux capabilities [--format text|json]\n",
         "  networkcore-linux prepare-config --config <path> [--format text|json]\n",
+        "  networkcore-linux validate <config-path> [--format text|json]\n",
         "  networkcore-linux start --config <path> [--enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path>] [--enable-script-runtime --script-runner <path> --script-map <url=file> ...] --confirm [--format text|json]\n",
         "  networkcore-linux stop [--format text|json]\n",
         "  networkcore-linux status [--format text|json]\n",
@@ -11507,6 +11529,7 @@ pub const fn cli_help_text() -> &'static str {
         "  version           Print the networkcore-linux version.\n",
         "  capabilities      Report read-only Linux platform capabilities.\n",
         "  prepare-config    Read and normalize a NetworkCore TOML config.\n",
+        "  validate          Validate one explicit config path (alias of prepare-config).\n",
         "  start             Start the current foreground runtime; HTTPS MITM requires explicit CA paths and confirmation.\n",
         "  stop              Report that daemon stop is unavailable in this build.\n",
         "  status            Report platform-only status without a daemon context.\n",
