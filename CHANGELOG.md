@@ -27,6 +27,9 @@ current-main-subscription-background=blocked
 - 新增 Linux `node list` 结构化 NodeCatalog 输出：显式 config-core 解析结果同时进入脱敏 text/JSON
   `node_catalog`，输出稳定节点 id、名称、协议和 tags，并固定只读、无 snapshot、无 endpoint/credential
   泄漏边界；选择和 rollback 不被该命令隐式触发。
+- 新增 Linux `node health` loopback selector 证据入口：显式端口执行一次 adapter GET/readback，报告
+  当前 outbound、selector tag 和 outbound 数量；只确认 selector readback，不宣称完整代理健康，不修改
+  selection 或写 snapshot。
 
 - Linux CLI now exposes explicit Ubuntu-style CA trust-file apply and rollback
   commands with confirmation, snapshot verification, refresh, recovery, and

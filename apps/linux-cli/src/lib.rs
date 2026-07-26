@@ -498,6 +498,10 @@ pub enum LinuxCliCommand {
         confirm: bool,
         format: OutputFormat,
     },
+    NodeHealth {
+        controller_port: u16,
+        format: OutputFormat,
+    },
     NodeRollback {
         selection_path: String,
         snapshot_path: String,
@@ -778,6 +782,7 @@ impl LinuxCliCommand {
             Self::NodeList { .. } => "node list",
             Self::NodeSelect { .. } => "node select",
             Self::NodeSwitch { .. } => "node switch",
+            Self::NodeHealth { .. } => "node health",
             Self::NodeRollback { .. } => "node rollback",
             Self::ProxyApply { .. } => "proxy apply",
             Self::ProxyStatus { .. } => "proxy status",
@@ -848,6 +853,7 @@ impl LinuxCliCommand {
             | Self::NodeList { format, .. }
             | Self::NodeSelect { format, .. }
             | Self::NodeSwitch { format, .. }
+            | Self::NodeHealth { format, .. }
             | Self::NodeRollback { format, .. }
             | Self::ProxyApply { format, .. }
             | Self::ProxyStatus { format, .. }
@@ -944,6 +950,7 @@ pub struct LinuxCliResponse {
     pub service_removal: Option<LinuxManagedServiceUnitRemovalPlan>,
     pub core_engines: Vec<LinuxCoreEngineSummary>,
     pub node_catalog: Option<LinuxNodeCatalogReport>,
+    pub node_health: Option<LinuxNodeHealthReport>,
     pub mieru_install: Option<LinuxMieruInstallStatus>,
 }
 
@@ -976,6 +983,7 @@ impl LinuxCliResponse {
             service_removal: None,
             core_engines: Vec::new(),
             node_catalog: None,
+            node_health: None,
             mieru_install: None,
         }
     }
@@ -1012,6 +1020,7 @@ impl LinuxCliResponse {
             service_removal: None,
             core_engines: Vec::new(),
             node_catalog: None,
+            node_health: None,
             mieru_install: None,
         }
     }
@@ -1158,6 +1167,11 @@ impl LinuxCliResponse {
         self
     }
 
+    pub fn with_node_health(mut self, health: LinuxNodeHealthReport) -> Self {
+        self.node_health = Some(health);
+        self
+    }
+
     pub fn with_mieru_install(mut self, report: LinuxMieruInstallStatus) -> Self {
         self.mieru_install = Some(report);
         self
@@ -1186,6 +1200,17 @@ pub struct LinuxNodeCatalogEntry {
     pub name: String,
     pub protocol: String,
     pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxNodeHealthReport {
+    pub controller_host: String,
+    pub controller_port: u16,
+    pub selector_tag: String,
+    pub current_outbound_tag: String,
+    pub outbound_count: usize,
+    pub selector_readback_confirmed: bool,
+    pub full_proxy_health_claimed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -5444,12 +5469,13 @@ fn parse_node_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseE
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(parse_error(
             CLI_ARGUMENT_VALUE_MISSING_CODE,
-            "node requires list, select, switch, or rollback",
+            "node requires list, health, select, switch, or rollback",
         ));
     };
     if subcommand != "list"
         && subcommand != "select"
         && subcommand != "switch"
+        && subcommand != "health"
         && subcommand != "rollback"
     {
         return Err(parse_error(
@@ -5458,6 +5484,18 @@ fn parse_node_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseE
         ));
     }
     let options = parse_options(&args[1..])?;
+    if subcommand == "health" {
+        let controller_port = options.controller_port.ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "node health requires --controller-port <loopback-port>",
+            )
+        })?;
+        return Ok(LinuxCliCommand::NodeHealth {
+            controller_port,
+            format: options.format,
+        });
+    }
     if subcommand == "list" {
         let config_path = options.config_path.ok_or_else(|| {
             parse_error(
@@ -5620,6 +5658,7 @@ pub fn handle_entrypoint_skeleton(command: LinuxCliCommand) -> LinuxCliResponse 
         LinuxCliCommand::NodeList { .. } => handle_unwired_command("node list"),
         LinuxCliCommand::NodeSelect { .. } => handle_unwired_command("node select"),
         LinuxCliCommand::NodeSwitch { .. } => handle_unwired_command("node switch"),
+        LinuxCliCommand::NodeHealth { .. } => handle_unwired_command("node health"),
         LinuxCliCommand::NodeRollback { .. } => handle_unwired_command("node rollback"),
         LinuxCliCommand::ProxyApply { .. }
         | LinuxCliCommand::ProxyStatus { .. }
@@ -5718,6 +5757,9 @@ where
             controller_port,
             confirm,
         ),
+        LinuxCliCommand::NodeHealth {
+            controller_port, ..
+        } => handle_node_health(controller_port),
         LinuxCliCommand::NodeRollback {
             selection_path,
             snapshot_path,
@@ -6375,6 +6417,51 @@ pub fn handle_node_list(config_path: &str) -> LinuxCliResponse {
             selection_mutated: false,
             nodes,
         })
+}
+
+pub fn handle_node_health(controller_port: u16) -> LinuxCliResponse {
+    if controller_port == 0 {
+        return LinuxCliResponse::failure(
+            "node health",
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "node health requires a non-zero loopback controller port",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    let mut controller = SingBoxLocalControllerConfig::loopback_selector();
+    controller.port = controller_port;
+    match read_sing_box_clash_api_selector(&controller) {
+        Ok(status) => LinuxCliResponse::success("node health")
+            .with_diagnostics(vec![cli_diagnostic(
+                DiagnosticSeverity::Info,
+                "cli.node.health_readback_confirmed",
+                format!(
+                    "loopback selector readback confirmed; selector_tag={} outbound_count={}",
+                    status.selector_tag,
+                    status.outbound_tags.len()
+                ),
+                SOURCE_CLI_RUNTIME,
+            )])
+            .with_node_health(LinuxNodeHealthReport {
+                controller_host: controller.host,
+                controller_port,
+                selector_tag: status.selector_tag,
+                current_outbound_tag: status.current_outbound_tag,
+                outbound_count: status.outbound_tags.len(),
+                selector_readback_confirmed: true,
+                full_proxy_health_claimed: false,
+            }),
+        Err(error) => domain_error_response(
+            "node health",
+            LinuxCliExitCode::GeneralFailure,
+            error,
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
 }
 
 pub fn handle_node_select(
@@ -14086,6 +14173,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux service <start|stop|restart|reload> [--service-unit <name>] --confirm [--format text|json]\n",
         "  networkcore-linux service status [--service-unit <name>] [--format text|json]\n",
         "  networkcore-linux node list --config <absolute-path> [--format text|json]\n",
+        "  networkcore-linux node health --controller-port <loopback-port> [--format text|json]\n",
         "  networkcore-linux node select --config <absolute-path> --source-id <node-id> --selection <absolute-path> --snapshot <absolute-path> --confirm [--format text|json]\n",
         "  networkcore-linux node switch --config <absolute-path> --source-id <node-id> --selection <absolute-path> --snapshot <absolute-path> --controller-port <loopback-port> --confirm [--format text|json]\n",
         "  networkcore-linux node rollback --selection <absolute-path> --snapshot <absolute-path> --confirm [--format text|json]\n",
@@ -14438,6 +14526,18 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
                 node.tags.join(",")
             ));
         }
+    }
+    if let Some(health) = &response.node_health {
+        lines.push(format!(
+            "node health: controller={}:{} selector={} current={} outbound_count={} readback_confirmed={} full_proxy_health_claimed={}",
+            health.controller_host,
+            health.controller_port,
+            health.selector_tag,
+            health.current_outbound_tag,
+            health.outbound_count,
+            health.selector_readback_confirmed,
+            health.full_proxy_health_claimed
+        ));
     }
     if let Some(install) = &response.mieru_install {
         lines.push(format!("Mieru binary: {}", install.binary_path));
@@ -15312,6 +15412,7 @@ struct JsonCliResponse {
     service_removal: Option<JsonLinuxManagedServiceUnitRemovalPlan>,
     core_engines: Vec<JsonLinuxCoreEngineSummary>,
     node_catalog: Option<JsonLinuxNodeCatalogReport>,
+    node_health: Option<JsonLinuxNodeHealthReport>,
     mieru_install: Option<JsonLinuxMieruInstallStatus>,
 }
 
@@ -15400,10 +15501,39 @@ impl From<&LinuxCliResponse> for JsonCliResponse {
                 .node_catalog
                 .as_ref()
                 .map(JsonLinuxNodeCatalogReport::from),
+            node_health: response
+                .node_health
+                .as_ref()
+                .map(JsonLinuxNodeHealthReport::from),
             mieru_install: response
                 .mieru_install
                 .as_ref()
                 .map(JsonLinuxMieruInstallStatus::from),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonLinuxNodeHealthReport {
+    controller_host: String,
+    controller_port: u16,
+    selector_tag: String,
+    current_outbound_tag: String,
+    outbound_count: usize,
+    selector_readback_confirmed: bool,
+    full_proxy_health_claimed: bool,
+}
+
+impl From<&LinuxNodeHealthReport> for JsonLinuxNodeHealthReport {
+    fn from(report: &LinuxNodeHealthReport) -> Self {
+        Self {
+            controller_host: report.controller_host.clone(),
+            controller_port: report.controller_port,
+            selector_tag: report.selector_tag.clone(),
+            current_outbound_tag: report.current_outbound_tag.clone(),
+            outbound_count: report.outbound_count,
+            selector_readback_confirmed: report.selector_readback_confirmed,
+            full_proxy_health_claimed: report.full_proxy_health_claimed,
         }
     }
 }

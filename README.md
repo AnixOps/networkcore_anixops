@@ -11,6 +11,13 @@
 
 ## 工作方式
 
+Linux `node health --controller-port <loopback-port>` performs one explicit
+loopback selector readback and reports the current outbound and selector tag
+count. Its evidence is limited to `selector_readback_confirmed`; it never
+claims full proxy health, mutates selection, writes snapshots, or exposes
+endpoints and credentials. A zero port and non-loopback controller are
+rejected by the adapter/CLI boundary.
+
 Linux `node list --config <absolute-path>` exposes a structured, redacted
 `node_catalog` in JSON and an equivalent text summary. It reports stable node
 ids, names, protocol labels, and tags from the explicit config, with

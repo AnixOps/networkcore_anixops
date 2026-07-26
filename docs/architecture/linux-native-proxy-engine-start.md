@@ -246,6 +246,14 @@ adapter、前台生命周期 host 和 `networkcore-linux start` 接线边界。�
 
 ## Loopback Selector Switch
 
+`node health --controller-port <loopback-port>` is the read-only health
+evidence companion. It performs one GET against the explicit loopback Clash
+API selector and reports the active outbound, selector tag, and available
+outbound count. `selector_readback_confirmed=true` is the only readiness claim;
+`full_proxy_health_claimed` remains false because this probe does not establish
+process, listener, or upstream reachability. It performs no PATCH, selection
+write, snapshot, rollback, or authorization mutation.
+
 `networkcore-linux node list --config <absolute-path>` is a read-only
 projection of the caller-selected NetworkCore TOML. `config-core` remains the
 parser adapter and the CLI exposes the same `LinuxNodeCatalogReport` as text

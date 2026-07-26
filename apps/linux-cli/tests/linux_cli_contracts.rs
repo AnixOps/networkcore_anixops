@@ -42,12 +42,13 @@ use networkcore_linux::{
     handle_mitm_certificate_rollback, handle_mitm_certificate_rollback_with_store,
     handle_mitm_certificate_trust_apply, handle_mitm_certificate_trust_rollback,
     handle_mitm_http_rewrite_plan, handle_mitm_http_rewrite_preview, handle_mitm_status,
-    handle_node_list, handle_parse_error, handle_prepare_config, handle_proxy_apply,
-    handle_proxy_rollback, handle_proxy_status, handle_run_catalog_with_sing_box,
-    handle_run_catalog_with_sing_box_and_fetcher, handle_run_url_with_sing_box,
-    handle_run_url_with_sing_box_and_fetcher, handle_run_url_with_sing_box_and_node_id,
-    handle_start, handle_status, handle_stop, handle_systemd_service_control,
-    handle_uninstall_service_apply_at, native_proxy_engine_service_with_builtin_mitm_plugin,
+    handle_node_health, handle_node_list, handle_parse_error, handle_prepare_config,
+    handle_proxy_apply, handle_proxy_rollback, handle_proxy_status,
+    handle_run_catalog_with_sing_box, handle_run_catalog_with_sing_box_and_fetcher,
+    handle_run_url_with_sing_box, handle_run_url_with_sing_box_and_fetcher,
+    handle_run_url_with_sing_box_and_node_id, handle_start, handle_status, handle_stop,
+    handle_systemd_service_control, handle_uninstall_service_apply_at,
+    native_proxy_engine_service_with_builtin_mitm_plugin,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files, parse_args,
     registered_core_engine_descriptors, render_response, BrowserCaptureEndpointProbe,
@@ -295,6 +296,64 @@ fn node_list_reads_only_the_explicit_config_and_redacts_endpoint_details() {
         .contains("selected_node=none"));
     assert!(snapshot_path.exists());
     let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn node_health_reads_loopback_selector_without_claiming_full_proxy_health() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("health fixture listener should bind");
+    let port = listener
+        .local_addr()
+        .expect("health fixture address should be readable")
+        .port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("health request should arrive");
+        let mut request = [0_u8; 2048];
+        let _ = stream
+            .read(&mut request)
+            .expect("health request should be readable");
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 45\r\nConnection: close\r\n\r\n{\"now\":\"proxy-1\",\"all\":[\"proxy-1\",\"proxy-2\"]}",
+            )
+            .expect("health response should be writable");
+    });
+    let parsed = parse_args([
+        "node",
+        "health",
+        "--controller-port",
+        &port.to_string(),
+        "--format",
+        "json",
+    ])
+    .expect("node health command should parse");
+    assert!(matches!(parsed, LinuxCliCommand::NodeHealth { .. }));
+    let response = handle_node_health(port);
+    assert!(response.ok);
+    let health = response
+        .node_health
+        .as_ref()
+        .expect("node health should expose structured evidence");
+    assert_eq!(health.current_outbound_tag, "proxy-1");
+    assert_eq!(health.outbound_count, 2);
+    assert!(health.selector_readback_confirmed);
+    assert!(!health.full_proxy_health_claimed);
+    assert!(!response
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.message.contains("secret.example")));
+    server.join().expect("health fixture should finish");
+}
+
+#[test]
+fn node_health_rejects_zero_port_without_network_or_mutation() {
+    let response = handle_node_health(0);
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, LinuxCliExitCode::ArgumentOrConfig);
+    assert_eq!(
+        response.diagnostics[0].code,
+        CLI_ARGUMENT_VALUE_MISSING_CODE
+    );
+    assert!(response.node_health.is_none());
 }
 
 #[test]

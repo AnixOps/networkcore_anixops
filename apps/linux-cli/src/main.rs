@@ -95,6 +95,7 @@ fn main() {
             } else if matches!(
                 &command,
                 networkcore_linux::LinuxCliCommand::NodeSwitch { .. }
+                    | networkcore_linux::LinuxCliCommand::NodeHealth { .. }
             ) {
                 networkcore_linux::handle_entrypoint(command, &platform)
             } else if let networkcore_linux::LinuxCliCommand::InstallMieru {
