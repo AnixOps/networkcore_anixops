@@ -153,7 +153,8 @@ fn main() {
                 ..
             } = &command
             {
-                networkcore_linux::handle_uninstall_service_apply(
+                networkcore_linux::handle_uninstall_service_apply_with_runner(
+                    &platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(),
                     unit_name,
                     state_directory,
                     *confirm,

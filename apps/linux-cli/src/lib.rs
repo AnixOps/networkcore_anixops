@@ -6404,6 +6404,20 @@ pub fn handle_uninstall_service_apply(
     state_directory: &str,
     confirm: bool,
 ) -> LinuxCliResponse {
+    handle_uninstall_service_apply_with_runner(
+        &platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(),
+        unit_name,
+        state_directory,
+        confirm,
+    )
+}
+
+pub fn handle_uninstall_service_apply_with_runner<R: LinuxSystemdCommandRunner>(
+    runner: &R,
+    unit_name: &str,
+    state_directory: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
     if let Err(error) =
         plan_systemd_unit_removal(unit_name, PathBuf::from(state_directory).as_path())
     {
@@ -6412,6 +6426,22 @@ pub fn handle_uninstall_service_apply(
             LinuxCliExitCode::ArgumentOrConfig,
             DomainError::new(CLI_INSTALL_SERVICE_PLAN_INVALID_CODE, error.message),
             SOURCE_CLI_RUNTIME,
+        );
+    }
+    let stop =
+        handle_systemd_service_control(runner, LinuxSystemdServiceAction::Stop, unit_name, confirm);
+    if !stop.ok {
+        return LinuxCliResponse::failure(
+            "uninstall-service",
+            stop.exit_code,
+            stop.diagnostics.into_iter().next().unwrap_or_else(|| {
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    "cli.linux.uninstall_service.stop_failed",
+                    "systemd service could not be stopped before removal",
+                    SOURCE_CLI_RUNTIME,
+                )
+            }),
         );
     }
     let unit_path = PathBuf::from("/etc/systemd/system").join(unit_name);
