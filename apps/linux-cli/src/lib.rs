@@ -5069,6 +5069,16 @@ where
         "service" => parse_service_command(&rest),
         "connect" | "start" => {
             let options = parse_options(&rest)?;
+            if command == "connect" && (options.confirm || options.service_unit_name.is_some()) {
+                return Ok(LinuxCliCommand::ServiceControl {
+                    action: LinuxSystemdServiceAction::Start,
+                    unit_name: options
+                        .service_unit_name
+                        .unwrap_or_else(|| "networkcore.service".to_string()),
+                    confirm: options.confirm,
+                    format: options.format,
+                });
+            }
             Ok(LinuxCliCommand::Start {
                 config_path: options.config_path,
                 mitm_ca_certificate_path: options.mitm_ca_certificate_path,
@@ -5085,6 +5095,16 @@ where
         }
         "disconnect" | "stop" => {
             let options = parse_options(&rest)?;
+            if command == "disconnect" && (options.confirm || options.service_unit_name.is_some()) {
+                return Ok(LinuxCliCommand::ServiceControl {
+                    action: LinuxSystemdServiceAction::Stop,
+                    unit_name: options
+                        .service_unit_name
+                        .unwrap_or_else(|| "networkcore.service".to_string()),
+                    confirm: options.confirm,
+                    format: options.format,
+                });
+            }
             Ok(LinuxCliCommand::Stop {
                 format: options.format,
             })
@@ -13182,6 +13202,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux node select --config <absolute-path> --source-id <node-id> --selection <absolute-path> --snapshot <absolute-path> --confirm [--format text|json]\n",
         "  networkcore-linux node rollback --selection <absolute-path> --snapshot <absolute-path> --confirm [--format text|json]\n",
         "  networkcore-linux restart --confirm [--service-unit <name>] [--format text|json]  # managed systemd restart\n",
+        "  networkcore-linux connect|disconnect --confirm [--service-unit <name>] [--format text|json]  # managed systemd start/stop\n",
         "  networkcore-linux uninstall-service [--service-unit <name>] [--service-state-dir <absolute-path>] --confirm [--format text|json]\n",
         "  networkcore-linux logs <explicit-log-path> [--tail-lines <1-1000>] [--format text|json]\n",
         "  networkcore-linux run-url <subscription-source> [--node-id <id>] [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",

@@ -2962,6 +2962,40 @@ fn connect_and_disconnect_aliases_keep_foreground_boundary_explicit() {
 }
 
 #[test]
+fn confirmed_connect_and_disconnect_use_managed_systemd_control() {
+    let connect = parse_args([
+        "connect",
+        "--service-unit",
+        "networkcore-managed.service",
+        "--confirm",
+    ])
+    .expect("confirmed connect should parse");
+    assert!(matches!(
+        connect,
+        LinuxCliCommand::ServiceControl {
+            action: LinuxSystemdServiceAction::Start,
+            confirm: true,
+            ..
+        }
+    ));
+    let disconnect = parse_args([
+        "disconnect",
+        "--service-unit",
+        "networkcore-managed.service",
+        "--confirm",
+    ])
+    .expect("confirmed disconnect should parse");
+    assert!(matches!(
+        disconnect,
+        LinuxCliCommand::ServiceControl {
+            action: LinuxSystemdServiceAction::Stop,
+            confirm: true,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn restart_is_explicitly_unavailable_until_managed_control_is_wired() {
     let command =
         parse_args(["restart", "--config", "/tmp/networkcore.toml"]).expect("restart should parse");

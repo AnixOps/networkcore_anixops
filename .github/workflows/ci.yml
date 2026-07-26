@@ -1886,6 +1886,7 @@ jobs:
           grep -q "connect_and_disconnect_aliases_keep_foreground_boundary_explicit" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "restart_is_explicitly_unavailable" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "confirmed_restart_uses_managed_systemd_control_command" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "confirmed_connect_and_disconnect_use_managed_systemd_control" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "handle_core_list" apps/linux-cli/src/lib.rs
           grep -q "handle_install_mieru" apps/linux-cli/src/lib.rs
           grep -q "handle_subscription_command" apps/linux-cli/src/lib.rs
