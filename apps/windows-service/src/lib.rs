@@ -6,6 +6,10 @@ use control_domain::{
     NodeDescriptor, PluginPackage, Protocol, ProxyEngineConfig, ProxyEngineLifecycleState,
     ProxyEngineService, RouteAction, RuleSet, SchemaVersion,
 };
+use engine_mieru::{
+    apply_and_start_mieru_client, stop_mieru_client, CommandMieruCommandRunner,
+    MieruClientControlRequest,
+};
 use engine_native::{
     NativeHttpMitmPluginHook, NativeNodeScriptExecutor, NativeNodeScriptRuntimeConfig,
     NativeProxyEngineService, NativeTlsMitmCaMaterial, DEFAULT_NATIVE_ENGINE_ID,
@@ -35,6 +39,7 @@ pub struct WindowsManagedRuntime<I, T> {
     integration: I,
     tunnel: T,
     sing_box: SingBoxManagedProcessSupervisor,
+    mieru: CommandMieruCommandRunner,
     native_mitm: Option<NativeProxyEngineService>,
     config_path: PathBuf,
     state_path: PathBuf,
@@ -50,6 +55,7 @@ where
             integration,
             tunnel,
             sing_box: SingBoxManagedProcessSupervisor::default(),
+            mieru: CommandMieruCommandRunner::new(),
             native_mitm: None,
             config_path,
             state_path,
@@ -90,6 +96,7 @@ where
         self.persist(&state)?;
 
         self.stop_native_mitm(&mut state, config.native_mitm.as_ref())?;
+        self.stop_mieru(&mut state, config.mieru.as_ref())?;
         self.stop_sing_box(
             &mut state,
             config
@@ -297,6 +304,16 @@ where
             self.stop_native_mitm(state, config.native_mitm.as_ref())?;
         }
 
+        if config
+            .mieru
+            .as_ref()
+            .map(|mieru| !mieru.enabled)
+            .unwrap_or(true)
+            && state.mieru_running
+        {
+            self.stop_mieru(state, config.mieru.as_ref())?;
+        }
+
         if let Some(sing_box) = &config.sing_box {
             if sing_box.enabled {
                 let current_status = self.sing_box.status()?;
@@ -314,6 +331,22 @@ where
                 state.sing_box_process_id = status.process_id;
                 state.sing_box_exit_code = status.exit_code;
                 state.sing_box_log_path = Some(sing_box.log_path.clone());
+                self.persist(state)?;
+            }
+        }
+
+        if let Some(mieru) = &config.mieru {
+            if mieru.enabled && !state.mieru_running {
+                let report = apply_and_start_mieru_client(
+                    &self.mieru,
+                    &MieruClientControlRequest {
+                        executable_path: mieru.executable_path.clone(),
+                        expected_sha256: mieru.expected_sha256.clone(),
+                        config_path: mieru.config_path.clone(),
+                    },
+                )?;
+                state.mieru_running = report.started;
+                state.mieru_last_error = None;
                 self.persist(state)?;
             }
         }
@@ -382,6 +415,30 @@ where
         state.sing_box_process_id = None;
         state.sing_box_exit_code = self.sing_box.status()?.exit_code;
         state.sing_box_log_path = None;
+        self.persist(state)
+    }
+
+    fn stop_mieru(
+        &mut self,
+        state: &mut WindowsManagedState,
+        configured: Option<&platform_windows::managed::WindowsManagedMieruConfig>,
+    ) -> DomainResult<()> {
+        if !state.mieru_running {
+            return Ok(());
+        }
+        let config = configured.ok_or_else(|| {
+            runtime_error("Mieru is marked running but its managed configuration is unavailable")
+        })?;
+        let report = stop_mieru_client(
+            &self.mieru,
+            &MieruClientControlRequest {
+                executable_path: config.executable_path.clone(),
+                expected_sha256: config.expected_sha256.clone(),
+                config_path: config.config_path.clone(),
+            },
+        )?;
+        state.mieru_running = !report.stopped;
+        state.mieru_last_error = None;
         self.persist(state)
     }
 
@@ -470,6 +527,15 @@ where
                 .and_then(|config| config.sing_box.map(|sing_box| sing_box.log_path));
             if self.stop_sing_box(state, log_path).is_err() {
                 // Preserve the running state when rollback cannot stop the child.
+            }
+        }
+        if state.mieru_running && !previous.mieru_running {
+            if let Ok(config) = read_managed_config(&self.config_path) {
+                if self.stop_mieru(state, config.mieru.as_ref()).is_err() {
+                    state.mieru_last_error = Some(
+                        "Mieru rollback could not issue the official stop command".to_string(),
+                    );
+                }
             }
         }
         if state.tunnel_running && !previous.tunnel_running {

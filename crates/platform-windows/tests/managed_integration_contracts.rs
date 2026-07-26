@@ -1,10 +1,10 @@
 use platform_windows::managed::{
     read_managed_config, WindowsDriverPackageConfig, WindowsManagedConfig,
-    WindowsManagedNativeMitmConfig, WindowsManagedNativeMitmScriptRuntimeConfig,
-    WindowsManagedSingBoxConfig, WindowsManagedState, WindowsManagedTunnelConfig,
-    WindowsProxySettings, WindowsProxySnapshot, WindowsSystemProxyOwner,
-    WINDOWS_MANAGED_CONFIG_INVALID_CODE, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
-    WINDOWS_MANAGED_STATE_SCHEMA_VERSION,
+    WindowsManagedMieruConfig, WindowsManagedNativeMitmConfig,
+    WindowsManagedNativeMitmScriptRuntimeConfig, WindowsManagedSingBoxConfig, WindowsManagedState,
+    WindowsManagedTunnelConfig, WindowsProxySettings, WindowsProxySnapshot,
+    WindowsSystemProxyOwner, WINDOWS_MANAGED_CONFIG_INVALID_CODE,
+    WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION, WINDOWS_MANAGED_STATE_SCHEMA_VERSION,
 };
 use platform_windows::system_integration::{WindowsServiceState, NETWORKCORE_WINDOWS_SERVICE_NAME};
 use std::collections::BTreeMap;
@@ -50,6 +50,7 @@ fn managed_configuration_activates_proxy_certificate_driver_and_tunnel() {
         }),
         tunnel: Some(fixture_tunnel()),
         sing_box: None,
+        mieru: None,
         native_mitm: None,
     };
 
@@ -107,6 +108,7 @@ fn managed_configuration_accepts_explicit_sing_box_process_paths() {
             )),
             log_path: PathBuf::from(r"C:\ProgramData\AnixOps\NetworkCore\logs\sing-box.log"),
         }),
+        mieru: None,
         native_mitm: None,
     };
 
@@ -117,6 +119,22 @@ fn managed_configuration_accepts_explicit_sing_box_process_paths() {
         json["sing_box"]["executable_path"],
         r"C:\Program Files\AnixOps\NetworkCore\bin\sing-box.exe"
     );
+}
+
+#[test]
+fn managed_configuration_accepts_explicit_mieru_control_paths_and_digest() {
+    let config = WindowsManagedMieruConfig {
+        enabled: true,
+        executable_path: PathBuf::from(r"C:\Program Files\AnixOps\NetworkCore\bin\mieru.exe"),
+        expected_sha256: "a".repeat(64),
+        config_path: PathBuf::from(r"C:\ProgramData\AnixOps\NetworkCore\mieru\client.json"),
+    };
+
+    config.validate().expect("Mieru control config is valid");
+    assert!(config
+        .expected_sha256
+        .chars()
+        .all(|value| value.is_ascii_hexdigit()));
 }
 
 #[test]
@@ -133,6 +151,7 @@ fn managed_configuration_rejects_enabled_proxy_without_endpoint() {
         driver_package: None,
         tunnel: None,
         sing_box: None,
+        mieru: None,
         native_mitm: None,
     };
 
@@ -160,6 +179,8 @@ fn managed_state_retains_rollback_material_for_system_mutations() {
         sing_box_process_id: None,
         sing_box_exit_code: None,
         sing_box_log_path: None,
+        mieru_running: false,
+        mieru_last_error: None,
         native_mitm_running: true,
         native_mitm_listener: Some("127.0.0.1:7890".to_string()),
         native_mitm_certificate_sha1: Some("102132435465768798A9BACBDCEDFE0F10213243".to_string()),
@@ -190,6 +211,7 @@ fn managed_configuration_accepts_native_https_mitm_with_explicit_socks_upstream(
         driver_package: None,
         tunnel: None,
         sing_box: None,
+        mieru: None,
         native_mitm: Some(WindowsManagedNativeMitmConfig {
             enabled: true,
             listen_host: "127.0.0.1".to_string(),

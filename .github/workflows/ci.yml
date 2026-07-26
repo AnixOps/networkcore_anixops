@@ -737,6 +737,7 @@ jobs:
           grep -q "SingBoxManagedProcessSupervisor" crates/engine-singbox/src/lib.rs
           grep -q "pub fn check_configuration" crates/engine-singbox/src/lib.rs
           grep -q "WindowsManagedSingBoxConfig" crates/platform-windows/src/managed.rs
+          grep -q "WindowsManagedMieruConfig" crates/platform-windows/src/managed.rs
           grep -q "pub fn poll_health" apps/windows-service/src/lib.rs
           grep -q "pub fn stop_after_runtime_failure" apps/windows-service/src/lib.rs
           grep -q "managed_runtime_rolls_back_proxy_when_sing_box_exits_after_start" apps/windows-service/tests/managed_runtime_contracts.rs

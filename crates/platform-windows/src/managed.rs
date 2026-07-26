@@ -19,6 +19,7 @@ pub const WINDOWS_MANAGED_SING_BOX_CONFIG_INVALID_CODE: &str =
     "windows.managed.sing_box_config_invalid";
 pub const WINDOWS_MANAGED_NATIVE_MITM_CONFIG_INVALID_CODE: &str =
     "windows.managed.native_mitm_config_invalid";
+pub const WINDOWS_MANAGED_MIERU_CONFIG_INVALID_CODE: &str = "windows.managed.mieru_config_invalid";
 pub const WINDOWS_MANAGED_PRODUCT_DIRECTORY: &str = "AnixOps\\NetworkCore";
 pub const WINDOWS_MANAGED_CONFIG_FILE_NAME: &str = "managed-config.json";
 pub const WINDOWS_MANAGED_STATE_FILE_NAME: &str = "managed-state.json";
@@ -213,6 +214,36 @@ impl WindowsManagedSingBoxConfig {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowsManagedMieruConfig {
+    pub enabled: bool,
+    pub executable_path: PathBuf,
+    pub expected_sha256: String,
+    pub config_path: PathBuf,
+}
+
+impl WindowsManagedMieruConfig {
+    pub fn validate(&self) -> DomainResult<()> {
+        if !self.enabled {
+            return Ok(());
+        }
+        if self.executable_path.as_os_str().is_empty()
+            || self.config_path.as_os_str().is_empty()
+            || self.expected_sha256.trim().len() != 64
+            || !self
+                .expected_sha256
+                .chars()
+                .all(|value| value.is_ascii_hexdigit())
+        {
+            return Err(DomainError::new(
+                WINDOWS_MANAGED_MIERU_CONFIG_INVALID_CODE,
+                "enabled Mieru requires executable, config, and a 64-character sha256 digest",
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Native explicit HTTP proxy that terminates controlled HTTPS sessions before
 /// relaying them through a local SOCKS outbound such as sing-box.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -316,6 +347,8 @@ pub struct WindowsManagedConfig {
     #[serde(default)]
     pub sing_box: Option<WindowsManagedSingBoxConfig>,
     #[serde(default)]
+    pub mieru: Option<WindowsManagedMieruConfig>,
+    #[serde(default)]
     pub native_mitm: Option<WindowsManagedNativeMitmConfig>,
 }
 
@@ -344,6 +377,9 @@ impl WindowsManagedConfig {
         }
         if let Some(sing_box) = &self.sing_box {
             sing_box.validate()?;
+        }
+        if let Some(mieru) = &self.mieru {
+            mieru.validate()?;
         }
         if let Some(native_mitm) = &self.native_mitm {
             native_mitm.validate()?;
@@ -374,6 +410,10 @@ pub struct WindowsManagedState {
     #[serde(default)]
     pub sing_box_log_path: Option<PathBuf>,
     #[serde(default)]
+    pub mieru_running: bool,
+    #[serde(default)]
+    pub mieru_last_error: Option<String>,
+    #[serde(default)]
     pub native_mitm_running: bool,
     #[serde(default)]
     pub native_mitm_listener: Option<String>,
@@ -401,6 +441,8 @@ impl Default for WindowsManagedState {
             sing_box_process_id: None,
             sing_box_exit_code: None,
             sing_box_log_path: None,
+            mieru_running: false,
+            mieru_last_error: None,
             native_mitm_running: false,
             native_mitm_listener: None,
             native_mitm_certificate_sha1: None,

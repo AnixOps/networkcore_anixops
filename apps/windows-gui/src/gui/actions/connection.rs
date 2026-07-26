@@ -331,6 +331,7 @@ mod tests {
             driver_package: None,
             tunnel: None,
             sing_box: None,
+            mieru: None,
             native_mitm: None,
         }
     }

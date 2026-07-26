@@ -14,6 +14,11 @@ Current status:
 - The managed schema now has an optional `sing_box` block. The service owns a
   configured `sing-box.exe` child, runs `check -c` before `run -c`, persists
   its PID/exit status, and appends core stdout/stderr to the configured log path.
+- The managed schema also has an optional `mieru` block. The service verifies
+  the explicitly supplied Mieru executable digest, then uses the official
+  `apply config`, `start`, and `stop` command contract. Mieru is a background
+  client controlled by its CLI, so the service records command-backed state and
+  does not invent a child PID or claim process supervision it does not own.
 - `root_certificate_path` remains a generic trust-store installation only. The
   separate `native_mitm` block powers the explicit GUI-controlled loopback HTTP
   listener, service-owned CA lifecycle, controlled TLS termination, and local

@@ -248,6 +248,7 @@ fn fixture_config(with_tunnel: bool) -> WindowsManagedConfig {
             state_path: PathBuf::from("tunnel-state.json"),
         }),
         sing_box: None,
+        mieru: None,
         native_mitm: None,
     }
 }
