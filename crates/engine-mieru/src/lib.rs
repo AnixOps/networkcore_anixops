@@ -661,6 +661,8 @@ fn config_write_error(operation: &str, error: impl fmt::Display) -> DomainError 
 }
 
 fn set_config_permissions(path: &Path) -> DomainResult<()> {
+    #[cfg(not(unix))]
+    let _ = path;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -1202,6 +1204,12 @@ impl Drop for MieruManagedProcessSupervisor {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MieruProxyEngineService;
+
+impl MieruProxyEngineService {
+    pub const fn new() -> Self {
+        Self
+    }
+}
 
 impl ProxyEngineService for MieruProxyEngineService {
     fn list_engines(&self) -> Vec<ProxyEngineDescriptor> {

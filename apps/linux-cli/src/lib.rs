@@ -3040,7 +3040,7 @@ impl CommandSubscriptionCatalogStore {
             .filter(|(id, fingerprint)| {
                 previous_nodes
                     .get(*id)
-                    .is_some_and(|previous| previous != fingerprint)
+                    .is_some_and(|previous| previous != *fingerprint)
             })
             .count();
         let validated_node_count = current_nodes.len();
@@ -7953,6 +7953,8 @@ where
             service_install: None,
             service_removal: None,
             core_engines: Vec::new(),
+            node_catalog: None,
+            node_health: None,
             mieru_install: None,
         };
     }
@@ -7988,6 +7990,8 @@ where
         service_install: None,
         service_removal: None,
         core_engines: Vec::new(),
+        node_catalog: None,
+        node_health: None,
         mieru_install: None,
     }
 }
