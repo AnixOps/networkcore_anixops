@@ -248,6 +248,13 @@ where
                     format!("engine rollback precondition violation: {error}"),
                 )
             })?;
+        validate_proxy_engine_transition(status.state, ProxyEngineLifecycleState::RollingBack)
+            .map_err(|error| {
+                DomainError::new(
+                    RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+                    format!("engine rollback lifecycle entry violation: {error}"),
+                )
+            })?;
 
         let restored = self.engine.rollback(&request)?;
         validate_proxy_engine_status(
@@ -261,6 +268,13 @@ where
                 format!("engine rollback contract violation: {error}"),
             )
         })?;
+        validate_proxy_engine_transition(ProxyEngineLifecycleState::RollingBack, restored.state)
+            .map_err(|error| {
+                DomainError::new(
+                    RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+                    format!("engine rollback lifecycle exit violation: {error}"),
+                )
+            })?;
         Ok(restored)
     }
 

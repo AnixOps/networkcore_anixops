@@ -700,6 +700,31 @@ fn runtime_rollback_checks_current_state_and_restores_snapshot_state() {
 }
 
 #[test]
+fn runtime_rollback_rejects_a_non_recovering_lifecycle_jump() {
+    let orchestrator = RuntimeOrchestrator::new(
+        NoopConfigurationService,
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeProxyEngineService { fail_start: false },
+    );
+    let mut prepared = orchestrator
+        .prepare_runtime_engine(RuntimeConfigRequest::new("native", "profile = default"))
+        .expect("runtime preparation should capture a snapshot");
+    prepared.snapshot.status.state = ProxyEngineLifecycleState::Starting;
+
+    let error = orchestrator
+        .rollback_runtime_engine(ProxyEngineRollbackRequest {
+            snapshot: prepared.snapshot,
+            expected_state: ProxyEngineLifecycleState::Running,
+        })
+        .expect_err("rollback should reject a snapshot result that skips RollingBack");
+
+    assert_eq!(error.code, RUNTIME_ENGINE_STATUS_CONTRACT_CODE);
+    assert!(error.message.contains("lifecycle exit violation"));
+}
+
+#[test]
 fn runtime_health_does_not_promote_unverified_status_to_healthy() {
     let orchestrator = RuntimeOrchestrator::new(
         NoopConfigurationService,
