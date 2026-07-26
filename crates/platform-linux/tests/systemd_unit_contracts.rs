@@ -1,7 +1,9 @@
 use platform_linux::systemd::{
-    plan_systemd_unit_removal, render_systemd_unit, LinuxManagedServiceUnitRequest,
+    install_systemd_unit, plan_systemd_unit_removal, render_systemd_unit,
+    LinuxManagedServiceUnitInstallRequest, LinuxManagedServiceUnitRequest,
     LINUX_SYSTEMD_UNIT_INVALID_CODE,
 };
+use std::fs;
 use std::path::PathBuf;
 
 #[test]
@@ -75,4 +77,33 @@ fn removal_plan_preserves_state_and_requires_separate_purge_confirmation() {
         plan.preserved_state_directory,
         std::path::Path::new("/var/lib/networkcore")
     );
+}
+
+#[test]
+fn installs_unit_with_snapshot_and_write_verification_without_systemctl() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-systemd-install-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).expect("fixture directory should be created");
+    let unit_path = root.join("networkcore.service");
+    let snapshot_path = root.join("networkcore.service.snapshot");
+    fs::write(&unit_path, "old unit\n").expect("existing unit should be written");
+
+    let report = install_systemd_unit(&LinuxManagedServiceUnitInstallRequest {
+        unit_path: unit_path.clone(),
+        snapshot_path: snapshot_path.clone(),
+        content: "[Unit]\nDescription=NetworkCore\n\n[Service]\nExecStart=/bin/true\n".to_string(),
+    })
+    .expect("unit should install");
+
+    assert!(report.snapshot_written);
+    assert!(report.verified);
+    assert_eq!(fs::read_to_string(&snapshot_path).unwrap(), "old unit\n");
+    assert_eq!(
+        fs::read_to_string(&unit_path).unwrap(),
+        "[Unit]\nDescription=NetworkCore\n\n[Service]\nExecStart=/bin/true\n"
+    );
+    let _ = fs::remove_dir_all(&root);
 }
