@@ -1,3 +1,7 @@
+
+### `AGENTS.md` 完整内容
+
+```md
 # Agents
 
 本文件用于兼容常见 AI 编码工具。项目主规范见 [AGENT.md](AGENT.md)。
@@ -8,12 +12,10 @@
 - 所有测试、构建、编译、打包、发布验证都必须在 GitHub Actions 中运行。
 - 不得在本机运行本地测试或构建命令。
 - 无法通过自动化完成的事项必须记录到 `docs/manual-intervention.md`。
-- 推送后只允许对当前 commit 的 CI 进行一次、最多两次非阻塞查询；禁止 `gh run watch`、无限循环和长时间轮询。
-- CI 为 `queued` 或 `in_progress` 时，必须记录 commit SHA、workflow、run ID、run URL 和状态；`pending_ci` 只是状态记录，不是停止条件，不等待、不轮询、不重复读取未变化文件，继续不依赖 CI 的后续工作。
-- CI 失败时只读取失败 job/step 日志；只有 `completed` 且 `success` 才能声称 GitHub Actions 验证通过。
-
-CI 根据本次提交的修改范围选择验证任务：纯文档不构建所有平台，Linux 专属修改只运行 Linux 验证，Windows 专属修改只运行 Windows 验证，共享代码或 workflow 变化运行完整矩阵。
+- 当前切片尚未完成、工作区已有改动或 CI 为 `queued`/`in_progress` 都不是停止条件；必须继续完成当前切片或下一个不依赖 CI 结果的工作。
+- 不得只重复“已开始”“尚未完成”“等待 CI”或相同的 `pending_ci` 状态，也不得在目标未变化时反复完整读取目标文件。
+- 已指定当前切片或优先级时不得再次要求范围决策；只有真实权限、安全、许可、用户改动冲突或无法从仓库规范推导的互斥选择才允许暂停。
+- 每个功能切片应以实现、入口、关键合同测试、错误/脱敏处理和必要文档组成一个可独立回滚的纵向提交，避免机械拆分微提交。
+- 推送后只做非阻塞 CI 查询；运行中的 CI 只记录 run ID/URL，不等待或循环轮询，明确失败时才根据失败日志优先修复。
 
 开始任何任务前，请先阅读 [AGENT.md](AGENT.md) 和 [docs/ci-cd-policy.md](docs/ci-cd-policy.md)。
-
-`pending_ci` 只记录外部状态，不是停止条件。`queued`/`in_progress` 时不等待、不轮询、不重复读取未变化文件，继续不依赖 CI 的后续工作；只有明确 `failure` 才暂停新增功能并读取失败 job/step 日志。

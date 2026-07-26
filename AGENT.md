@@ -1,42 +1,3 @@
-# Agent Operating Guide
-
-本文件是本项目对自动化代理、AI 编码助手和人工协作者的主执行规范。
-
-## 核心规则
-
-本机只负责代码编写、文档编写和仓库文件编辑。所有测试、构建、编译、打包、发布验证都必须在 GitHub Actions 的 CI/CD 中完成。
-
-不得在本机运行以下类型命令：
-
-- `go test`、`go build`、`go run`
-- `cargo test`、`cargo build`、`cargo run`
-- `npm test`、`npm run build`、`pnpm test`、`pnpm build`
-- `swift test`、`swift build`、`xcodebuild`
-- `flutter test`、`flutter build`
-- `gradle test`、`gradle build`
-- 任何等价的本地编译、测试、打包、发布命令
-
-允许在本机运行的命令仅限于：
-
-- 查看文件和仓库状态：`ls`、`find`、`rg`、`sed`、`git status`、`git diff`
-- 编辑代码和文档
-- Git 提交、分支、推送等版本控制操作
-- GitHub CLI 的 workflow 触发与结果查询
-- 不产生本地构建产物的静态仓库检查
-
-如必须验证代码，应提交或推送到 GitHub，并通过 GitHub Actions 执行。
-
-## 项目方向
-
-本项目目标是规划并逐步实现一个面向 Linux、macOS、Windows、iOS 的全平台网络内核与客户端体系。
-
-长期架构方向：
-
-- 自研统一控制内核，负责配置模型、订阅解析、策略路由、DNS、MITM 插件运行时和跨平台控制 API。
-- 支持可插拔代理执行内核，优先支持本仓库内核，同时保留 `sing-box`、`xray-core`、`mihomo` 等适配能力。
-- 支持类似 Loon、Quantumult X 的 MITM 插件能力，优先兼容 Loon 插件格式的高频子集。
-- 建设全平台客户端，其中 iOS 必须重点验证 Network Extension、App Review、证书安装、插件脚本能力边界。
-
 ## 工作流
 
 所有工作按以下顺序推进：
@@ -44,80 +5,46 @@
 1. 修改代码、配置、文档或 workflow。
 2. 查看 `git diff` 确认变更内容。
 3. 提交并推送到 GitHub。
-4. 触发 GitHub Actions，并按下述异步交接规则进行非阻塞状态查询。
-5. 只根据 GitHub Actions 的失败日志修复问题。
-6. 反复推送，直到 CI/CD 通过。
+4. 触发 GitHub Actions，并进行一次非阻塞状态查询。
+5. CI 仍为 `queued` 或 `in_progress` 时记录 run ID 和 URL，但继续完成当前切片或下一个不依赖该结果的工作，不等待、不循环轮询。
+6. CI 明确失败时暂停新增功能，只读取失败 job/step 的日志并优先修复。
+7. 反复推送，直到 CI/CD 通过。
 
 禁止用本地测试结果替代 GitHub Actions 结果。
 
-## GitHub Actions 异步交接
+## 持续执行与停止条件
 
-编码 Agent 推送后不得占用一个长回合等待 CI：
+代理必须持续工作到当前功能切片完成，不能把进度说明当作任务结果。
 
-- 只允许对当前 commit 对应的 workflow run 进行一次、最多两次非阻塞状态查询；两次查询之间不得长时间 `sleep`。
-- 禁止使用 `gh run watch`、无限 `while`/`until` 循环、定时刷新全部历史 run 或其他长时间阻塞轮询。
-- 状态为 `queued` 或 `in_progress` 时，记录 commit SHA、workflow 名称、run ID、run URL 和当前状态；`pending_ci` 只是状态记录，不是停止条件，不等待、不轮询、不重复读取未变化文件，继续不依赖该 CI 结果的后续工作。
-- 后续 Agent 回合、workflow completion 事件或人工重新触发负责继续处理；当前回合不得持续等待。
-- CI 失败时只读取失败 job 和失败 step 的必要日志，不重复下载成功 job 日志。
-- 只有对应 commit 的 GitHub Actions 状态为 `completed` 且结论为 `success` 时，才可以声称 CI 验证通过。
+以下情况不是停止条件：
 
-等待 CI 的交接结构固定为：
+- 已开始读取或审阅相关源码。
+- 已确认现有基础或定位到实现缺口。
+- 当前切片尚未完成。
+- 工作区已有未提交的本切片改动。
+- GitHub Actions 为 `queued` 或 `in_progress`。
+- 暂时没有新的 CI 状态证据。
+- 下一步仍可由当前目标、TODO、ROADMAP 或已确定优先级推导。
 
-```json
-{
-  "task_state": "pending_ci",
-  "commit_sha": "<sha>",
-  "workflow": "CI",
-  "run_id": "<id>",
-  "run_url": "<url>",
-  "status": "queued|in_progress",
-  "next_action": "resume_after_ci_completion"
-}
-```
+出现上述情况时，代理必须继续编辑、静态检查并完成当前切片，不得只回复“已开始”“尚未完成”“等待 CI”或重复相同的 `pending_ci` 状态。目标文件没有变化时不得反复完整读取。
 
-## CI/CD 约束
+只有以下情况允许暂停并请求人工输入：
 
-`.github/workflows/ci.yml` 是主验证入口，必须覆盖：
+- 缺少仓库、推送、workflow、签名、密钥或外部服务权限。
+- 继续操作会覆盖来源不明的用户修改。
+- 第三方许可或安全边界要求维护者作出无法安全推导的选择。
+- GitHub Actions 已明确失败，但失败日志无法获取或证据不足以安全修复。
+- 任务存在多个互斥方向，且 README、ROADMAP、TODO、已有合同和用户已给出的优先级都无法确定顺序。
+- 当前目标已经完成。
 
-- 仓库治理文件检查
-- Linux、macOS、Windows 基础工作区验证
-- Go 项目出现后的 Go 构建与测试
-- Rust 项目出现后的 Rust 构建与测试
-- Node 项目出现后的 Node 构建与测试
-- Swift 或 Apple 项目出现后的 macOS/iOS 相关验证
+当前切片已经由用户或上级任务指定时，不得再次以“需要明确优先级”为由停止。实现过程中发现缺口时，应在既定安全边界内补齐实现、入口、合同测试和必要文档，而不是仅报告缺口。
 
-CI 根据本次提交的修改范围选择验证任务：
+每个功能切片应形成一个可独立审查和回滚的纵向提交，通常同时包含实现、用户入口、关键合同测试、错误与脱敏处理以及必要文档。不得把已知需要的入口、测试和文档机械拆成多个微提交。
 
-- 纯文档修改不运行所有平台构建，仅运行治理检查
-- Linux 平台专属修改只运行 Linux Rust 验证
-- Windows 平台专属修改只运行 Windows Rust、Node 前端和 MSI 验证
-- Apple/iOS 平台专属修改只运行 macOS/iOS 验证
-- 修改共享 Rust 代码（如 `crates/control-domain`）或 `Cargo.lock` 触发 Linux、macOS、Windows 完整 Rust 矩阵
-- 修改 CI workflow 文件触发完整矩阵，以验证新的 CI 本身有效
-- tag 发布和手动触发始终运行完整验证
+CI 异步交接信息只作为附带状态，不得替代开发结果：
 
-`detect-projects` job 检测仓库中存在的项目类型，但仅作为信息参考；实际 job 执行完全由 `changes` job 输出的路径分类决定。
-
-`.github/workflows/release.yml` 是发布入口，发布流程必须通过手动触发或 tag 触发，不允许在本机打包发布。
-
-## iOS 特殊规则
-
-iOS 相关实现必须遵守：
-
-- 网络隧道能力必须基于 Apple Network Extension。
-- 内核必须以 iOS 可嵌入库或 Extension 可运行形态集成，不能依赖外部进程模型。
-- MITM CA 安装必须由用户明确授权。
-- 远程插件、脚本、规则必须有权限模型和审核风险评估。
-- App Store、TestFlight、证书、Provisioning Profile 相关验证只在 GitHub Actions 或 Apple 官方平台完成。
-
-## 失败处理
-
-如果当前环境无法完成某项自动化操作，应把问题写入 `docs/manual-intervention.md`，包括：
-
-- 需要人工介入的事项
-- 为什么自动化无法完成
-- 人工完成后的下一步自动化动作
-
-一旦 GitHub Actions 打通，后续应尽量减少人工介入，按计划依次推进。
-
-`pending_ci` 只是状态记录，不是停止条件。`queued` 或 `in_progress` 时不等待、不轮询、不重复读取未变化目标文件，也不重复输出相同状态；应继续不依赖该 CI 结果的源码、合同、文档和后续独立增量。只有 CI 明确 `failure` 时才暂停新增功能并读取失败 job/step 日志。禁止 `gh run watch`、无限循环和长时间轮询。
+```text
+commit_sha: <sha>
+workflow_run_id: <id>
+workflow_run_url: <url>
+ci_status: queued|in_progress|success|failure
