@@ -77,8 +77,9 @@ use networkcore_linux::{
     SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
     SubscriptionCatalogSelectRequest, SubscriptionCatalogUpdateRequest,
     UnavailableForegroundLifecycleHost, UnavailableProxyEngineService,
-    CLI_ARGUMENT_VALUE_MISSING_CODE, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
-    CLI_CONFIG_READ_FAILED_CODE, CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE,
+    CLI_ARGUMENT_UNKNOWN_CODE, CLI_ARGUMENT_VALUE_MISSING_CODE, CLI_CONFIG_EMPTY_CODE,
+    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
+    CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE,
     CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE, CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE,
     CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE, CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
@@ -9714,6 +9715,23 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
         stop,
         LinuxCliCommand::ManagedControlStop { confirm: true, .. }
     ));
+    let unsupported_stop_option = parse_args([
+        "stop",
+        "--managed-control-socket",
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        "--config",
+        "ignored.toml",
+        "--confirm",
+    ])
+    .expect_err("managed control stop should reject unrelated options");
+    assert_eq!(unsupported_stop_option.code, CLI_ARGUMENT_UNKNOWN_CODE);
+    let missing_socket_path = parse_args([
+        "stop",
+        "--managed-control-socket",
+        "--confirm",
+    ])
+    .expect_err("managed control stop should require a socket path value");
+    assert_eq!(missing_socket_path.code, CLI_ARGUMENT_VALUE_MISSING_CODE);
 
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let guard = start_managed_control_socket_with_interrupter(

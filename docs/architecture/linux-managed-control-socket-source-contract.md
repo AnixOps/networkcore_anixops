@@ -30,6 +30,8 @@ or unsupported requests receive no control effect. A missing
 confirmation, relative path, connection failure, unsupported command, or
 non-Unix platform returns a stable diagnostic and never falls back to PID
 signals, default-path discovery, systemd, or process-name matching.
+The CLI form accepts only one `--managed-control-socket`, `--confirm`, and
+`--format`; unrelated flags are rejected before any socket connection attempt.
 
 The server maps an accepted request to the existing foreground interruption
 path. The Unix signal interruption source checks the accepted control request

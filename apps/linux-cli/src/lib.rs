@@ -5675,16 +5675,19 @@ where
             })
         }
         "disconnect" | "stop" => {
-            let options = parse_options(&rest)?;
-            if command == "stop" {
-                if let Some(socket_path) = options.managed_control_socket_path {
-                    return Ok(LinuxCliCommand::ManagedControlStop {
-                        socket_path,
-                        confirm: options.confirm,
-                        format: options.format,
-                    });
-                }
+            if command == "stop"
+                && rest
+                    .iter()
+                    .any(|argument| argument == "--managed-control-socket")
+            {
+                let (socket_path, confirm, format) = parse_managed_control_stop_options(&rest)?;
+                return Ok(LinuxCliCommand::ManagedControlStop {
+                    socket_path,
+                    confirm,
+                    format,
+                });
             }
+            let options = parse_options(&rest)?;
             if command == "disconnect" && (options.confirm || options.service_unit_name.is_some()) {
                 return Ok(LinuxCliCommand::ServiceControl {
                     action: LinuxSystemdServiceAction::Stop,
@@ -13847,6 +13850,70 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
     }
 
     Ok(options)
+}
+
+fn parse_managed_control_stop_options(
+    args: &[String],
+) -> Result<(String, bool, OutputFormat), LinuxCliParseError> {
+    let mut socket_path = None;
+    let mut confirm = false;
+    let mut format = OutputFormat::Text;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--managed-control-socket" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--managed-control-socket requires an absolute Unix socket path",
+                    ));
+                };
+                if value.starts_with("--") {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--managed-control-socket requires an absolute Unix socket path",
+                    ));
+                }
+                if socket_path.replace(value.clone()).is_some() {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_UNKNOWN_CODE,
+                        "managed control stop accepts exactly one --managed-control-socket path",
+                    ));
+                }
+            }
+            "--confirm" => confirm = true,
+            "--format" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--format requires text or json",
+                    ));
+                };
+                format = parse_output_format(value)?;
+            }
+            argument => {
+                return Err(parse_error(
+                    CLI_ARGUMENT_UNKNOWN_CODE,
+                    format!(
+                        "managed control stop only accepts --managed-control-socket, --confirm, and --format; received {argument}"
+                    ),
+                ));
+            }
+        }
+        index += 1;
+    }
+
+    socket_path
+        .ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "managed control stop requires --managed-control-socket <absolute-path>",
+            )
+        })
+        .map(|socket_path| (socket_path, confirm, format))
 }
 
 fn parse_run_url_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
