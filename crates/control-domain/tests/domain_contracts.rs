@@ -1,12 +1,13 @@
 use control_domain::{
-    CertificateTrustState, ConfigSnapshot, ConfigurationService, Diagnostic, DiagnosticSeverity,
-    DomainResult, Endpoint, ListenerBind, ListenerDescriptor, ListenerKind, ListenerNetwork,
-    ListenerRoute, MetadataEntry, MitmCertificateStatus, NodeCatalog, NodeDescriptor,
-    OperatingSystem, PlatformCapabilities, PlatformCapabilityService, PlatformCapabilityStatus,
-    PlatformFeatureState, Protocol, ProxyEngineAdapter, ProxyEngineCapability, ProxyEngineConfig,
-    ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineKind, ProxyEngineLifecycleState,
-    ProxyEngineService, ProxyEngineStatus, RawSubscription, RouteAction, RuleSet, SchemaVersion,
-    SubscriptionDocument, SubscriptionService, SubscriptionSource,
+    validate_proxy_engine_transition, CertificateTrustState, ConfigSnapshot, ConfigurationService,
+    Diagnostic, DiagnosticSeverity, DomainResult, Endpoint, ListenerBind, ListenerDescriptor,
+    ListenerKind, ListenerNetwork, ListenerRoute, MetadataEntry, MitmCertificateStatus,
+    NodeCatalog, NodeDescriptor, OperatingSystem, PlatformCapabilities, PlatformCapabilityService,
+    PlatformCapabilityStatus, PlatformFeatureState, Protocol, ProxyEngineAdapter,
+    ProxyEngineCapability, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
+    ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
+    RawSubscription, RouteAction, RuleSet, SchemaVersion, SubscriptionDocument,
+    SubscriptionService, SubscriptionSource,
 };
 
 struct NoopConfigurationService;
@@ -312,6 +313,46 @@ fn proxy_engine_port_can_be_implemented_by_an_adapter() {
             .state,
         ProxyEngineLifecycleState::Running
     );
+}
+
+#[test]
+fn proxy_engine_lifecycle_transition_matrix_preserves_recovery_boundaries() {
+    for (current, next) in [
+        (
+            ProxyEngineLifecycleState::Stopped,
+            ProxyEngineLifecycleState::Starting,
+        ),
+        (
+            ProxyEngineLifecycleState::Starting,
+            ProxyEngineLifecycleState::Running,
+        ),
+        (
+            ProxyEngineLifecycleState::Running,
+            ProxyEngineLifecycleState::Degraded,
+        ),
+        (
+            ProxyEngineLifecycleState::Degraded,
+            ProxyEngineLifecycleState::RollingBack,
+        ),
+        (
+            ProxyEngineLifecycleState::RollingBack,
+            ProxyEngineLifecycleState::Stopped,
+        ),
+        (
+            ProxyEngineLifecycleState::Failed,
+            ProxyEngineLifecycleState::Starting,
+        ),
+    ] {
+        validate_proxy_engine_transition(current, next)
+            .expect("expected lifecycle transition should be accepted");
+    }
+
+    let error = validate_proxy_engine_transition(
+        ProxyEngineLifecycleState::Stopped,
+        ProxyEngineLifecycleState::Reloading,
+    )
+    .expect_err("stopped engines must not reload without entering runtime");
+    assert_eq!(error.code, "control.engine.lifecycle_transition_invalid");
 }
 
 fn node_from_subscription(id: &str) -> NodeDescriptor {

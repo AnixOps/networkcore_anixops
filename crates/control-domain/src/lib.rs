@@ -498,9 +498,11 @@ pub enum ProxyEngineLifecycleState {
     Stopped,
     Starting,
     Running,
+    Degraded,
     Reloading,
     Stopping,
     Failed,
+    RollingBack,
 }
 
 /// Proxy execution engine status.
@@ -570,6 +572,86 @@ pub struct ProxyEnginePrepareReport {
 pub struct ProxyEngineRollbackRequest {
     pub snapshot: ProxyEngineSnapshot,
     pub expected_state: ProxyEngineLifecycleState,
+}
+
+/// Verifies that an adapter-reported lifecycle transition is allowed by the
+/// shared control-plane state machine. Adapters may collapse transient states
+/// (for example, `Stopped -> Running`) but may not skip a recovery boundary.
+pub fn validate_proxy_engine_transition(
+    current: ProxyEngineLifecycleState,
+    next: ProxyEngineLifecycleState,
+) -> DomainResult<()> {
+    if current == next {
+        return Ok(());
+    }
+
+    let allowed = match current {
+        ProxyEngineLifecycleState::Stopped => {
+            matches!(
+                next,
+                ProxyEngineLifecycleState::Starting | ProxyEngineLifecycleState::Running
+            )
+        }
+        ProxyEngineLifecycleState::Starting => matches!(
+            next,
+            ProxyEngineLifecycleState::Running
+                | ProxyEngineLifecycleState::Degraded
+                | ProxyEngineLifecycleState::Stopping
+                | ProxyEngineLifecycleState::Failed
+        ),
+        ProxyEngineLifecycleState::Running => matches!(
+            next,
+            ProxyEngineLifecycleState::Degraded
+                | ProxyEngineLifecycleState::Reloading
+                | ProxyEngineLifecycleState::Stopping
+                | ProxyEngineLifecycleState::Failed
+                | ProxyEngineLifecycleState::RollingBack
+        ),
+        ProxyEngineLifecycleState::Degraded => matches!(
+            next,
+            ProxyEngineLifecycleState::Running
+                | ProxyEngineLifecycleState::Reloading
+                | ProxyEngineLifecycleState::Stopping
+                | ProxyEngineLifecycleState::Failed
+                | ProxyEngineLifecycleState::RollingBack
+        ),
+        ProxyEngineLifecycleState::Reloading => matches!(
+            next,
+            ProxyEngineLifecycleState::Running
+                | ProxyEngineLifecycleState::Degraded
+                | ProxyEngineLifecycleState::Failed
+                | ProxyEngineLifecycleState::RollingBack
+        ),
+        ProxyEngineLifecycleState::Stopping => matches!(
+            next,
+            ProxyEngineLifecycleState::Stopped | ProxyEngineLifecycleState::Failed
+        ),
+        ProxyEngineLifecycleState::Failed => matches!(
+            next,
+            ProxyEngineLifecycleState::Stopped
+                | ProxyEngineLifecycleState::Starting
+                | ProxyEngineLifecycleState::RollingBack
+        ),
+        ProxyEngineLifecycleState::RollingBack => matches!(
+            next,
+            ProxyEngineLifecycleState::Running
+                | ProxyEngineLifecycleState::Degraded
+                | ProxyEngineLifecycleState::Stopped
+                | ProxyEngineLifecycleState::Failed
+        ),
+    };
+
+    if allowed {
+        return Ok(());
+    }
+
+    Err(DomainError::new(
+        "control.engine.lifecycle_transition_invalid",
+        format!(
+            "proxy engine lifecycle transition from {:?} to {:?} is not allowed",
+            current, next
+        ),
+    ))
 }
 
 /// Maximum number of lifecycle events exposed by one control-plane query.
