@@ -39,6 +39,18 @@ fn mieru_share_link_retains_credentials_and_runtime_options() {
 }
 
 #[test]
+fn rehydrates_mieru_node_from_normalized_descriptor_without_debug_leaks() {
+    let descriptor = parse_mieru_share_link("mierus://alice:secret@example.com:3010?mtu=1400#office")
+        .expect("share link should parse")
+        .to_node_descriptor();
+    let node = engine_mieru::mieru_node_from_descriptor(&descriptor)
+        .expect("normalized Mieru descriptor should rehydrate");
+    assert_eq!(node.username, "alice");
+    assert_eq!(node.server, "example.com");
+    assert!(!format!("{node:?}").contains("secret"));
+}
+
+#[test]
 fn parses_official_simple_link_query_ports_without_authority_port() {
     let node = parse_mieru_share_link(
         "mierus://alice:secret@example.com?port=3010&port=3011&protocol=TCP&protocol=TCP&profile=default",

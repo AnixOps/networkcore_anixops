@@ -6,7 +6,7 @@ use control_domain::{
     PlatformCapabilityStatus, PlatformFeatureState, Protocol, ProxyEngineAdapter,
     ProxyEngineCapability, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
     ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
-    RawSubscription, RouteAction, RuleSet, SchemaVersion, SubscriptionDocument,
+    PublicEngineKind, PublicEngineRunPlan, RawSubscription, RouteAction, RuleSet, SchemaVersion, SubscriptionDocument,
     SubscriptionService, SubscriptionSource,
 };
 
@@ -367,6 +367,30 @@ fn node_from_subscription(id: &str) -> NodeDescriptor {
         tags: vec!["subscription".to_string()],
         metadata: Vec::new(),
     }
+}
+
+#[test]
+fn public_engine_run_plan_routes_mieru_and_public_protocols_deterministically() {
+    let sing_box = node_from_subscription("ss-node");
+    let mut mieru = node_from_subscription("mieru-node");
+    mieru.protocol = Protocol::Mieru;
+
+    assert_eq!(
+        PublicEngineRunPlan::select(&[sing_box.clone(), mieru.clone()], None)
+            .expect("first node should produce a plan")
+            .engine,
+        PublicEngineKind::SingBox
+    );
+    let plan = PublicEngineRunPlan::select(&[sing_box, mieru], Some("mieru-node"))
+        .expect("selected Mieru node should produce a plan");
+    assert_eq!(plan.engine, PublicEngineKind::Mieru);
+    assert_eq!(plan.node.id, "mieru-node");
+    assert_eq!(
+        PublicEngineRunPlan::select(&[], None)
+            .expect_err("empty catalog must not silently select an engine")
+            .code,
+        "public_engine.run_plan.node_missing"
+    );
 }
 
 #[test]

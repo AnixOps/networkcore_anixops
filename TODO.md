@@ -29,13 +29,13 @@ current-main-release-state=source-only-not-downloadable
 current-main-source-candidate=v0.2.0-alpha.22
 current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
-current-main-subscription-run-url=direct-share-links-file-uri-and-foreground-http-subscription-active
-current-main-subscription-foreground=explicit-file-uri-http-and-run-catalog-active
+current-main-subscription-run-url=public-engine-run-plan-mieru-and-sing-box-foreground-active
+current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
 current-main-subscription-background=explicit-single-http-source-refresh-active
 current-main-managed-reload=explicit-foreground-control-socket-active
 current-main-linux-node-switch=explicit-loopback-selector-active
 current-main-subscription-refresh-scheduling=external-system-required
-current-main-cross-platform-run-plan=blocked
+current-main-cross-platform-run-plan=public-engine-run-plan-active
 ```
 
 Linux `run-url` supports direct share links in the explicit foreground path.

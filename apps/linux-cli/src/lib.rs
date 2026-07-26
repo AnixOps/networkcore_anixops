@@ -11,7 +11,12 @@ use control_domain::{
     MitmPluginService, OperatingSystem, PlatformCapabilityService, PlatformCapabilityStatus,
     PlatformFeatureState, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
     ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RawSubscription,
-    SubscriptionService, SubscriptionSource,
+    PublicEngineKind, PublicEngineRunPlan, SubscriptionService, SubscriptionSource,
+};
+use engine_mieru::{
+    apply_and_start_mieru_client, mieru_node_from_descriptor, render_mieru_client_config,
+    rollback_mieru_client_config, wait_for_mieru_listener, write_mieru_client_config, CommandMieruCommandRunner,
+    MieruClientConfigRequest, MieruClientConfigWriteRequest, MieruClientControlRequest,
 };
 use control_runtime::{RuntimeConfigRequest, RuntimeOperationResult, RuntimeOrchestrator};
 use engine_singbox::{
@@ -228,6 +233,14 @@ pub const CLI_RUN_URL_REMOTE_FETCH_LIMIT_EXCEEDED_CODE: &str =
 pub const CLI_RUN_URL_CONFIG_FAILED_CODE: &str = "cli.linux.run_url.config_failed";
 pub const CLI_RUN_URL_CONFIG_WRITE_FAILED_CODE: &str = "cli.linux.run_url.config_write_failed";
 pub const CLI_RUN_URL_PROCESS_FAILED_CODE: &str = "cli.linux.run_url.process_failed";
+pub const CLI_RUN_URL_MIERU_BINARY_REQUIRED_CODE: &str =
+    "cli.linux.run_url.mieru_binary_required";
+pub const CLI_RUN_URL_MIERU_DIGEST_REQUIRED_CODE: &str =
+    "cli.linux.run_url.mieru_digest_required";
+pub const CLI_RUN_URL_MIERU_CONFIG_FAILED_CODE: &str =
+    "cli.linux.run_url.mieru_config_failed";
+pub const CLI_RUN_URL_MIERU_START_FAILED_CODE: &str =
+    "cli.linux.run_url.mieru_start_failed";
 pub const CLI_MITM_POLICY_READY_CODE: &str = "cli.linux.mitm.policy_ready";
 pub const CLI_MITM_CLI_GATE_PARTIAL_CODE: &str = "cli.linux.mitm.cli_gate.partial";
 pub const CLI_MITM_CERTIFICATE_PLAN_READY_CODE: &str = "cli.linux.mitm.certificate_plan.ready";
@@ -826,6 +839,8 @@ pub enum LinuxCliCommand {
         listen_host: String,
         listen_port: u16,
         install_dir: Option<String>,
+        mieru_binary_path: Option<String>,
+        mieru_sha256: Option<String>,
         force: bool,
         format: OutputFormat,
     },
@@ -836,6 +851,8 @@ pub enum LinuxCliCommand {
         listen_host: String,
         listen_port: u16,
         install_dir: Option<String>,
+        mieru_binary_path: Option<String>,
+        mieru_sha256: Option<String>,
         force: bool,
         format: OutputFormat,
     },
@@ -7028,9 +7045,11 @@ where
             listen_host,
             listen_port,
             install_dir,
+            mieru_binary_path,
+            mieru_sha256,
             force,
             ..
-        } => handle_run_url_with_sing_box_and_node_id(
+        } => handle_run_url_with_sing_box_and_node_id_and_mieru(
             sing_box_installer,
             sing_box_runner,
             &url,
@@ -7038,6 +7057,8 @@ where
             &listen_host,
             listen_port,
             install_dir.as_deref(),
+            mieru_binary_path.as_deref(),
+            mieru_sha256.as_deref(),
             force,
         ),
         LinuxCliCommand::RunCatalog {
@@ -7047,9 +7068,11 @@ where
             listen_host,
             listen_port,
             install_dir,
+            mieru_binary_path,
+            mieru_sha256,
             force,
             ..
-        } => handle_run_catalog_with_sing_box(
+        } => handle_run_catalog_with_sing_box_and_mieru(
             sing_box_installer,
             sing_box_runner,
             &catalog_path,
@@ -7058,6 +7081,8 @@ where
             &listen_host,
             listen_port,
             install_dir.as_deref(),
+            mieru_binary_path.as_deref(),
+            mieru_sha256.as_deref(),
             force,
         ),
         other => handle_entrypoint_with_runtime_and_lifecycle(
@@ -10239,6 +10264,103 @@ where
         .with_diagnostics(diagnostics)
 }
 
+fn run_mieru_public_engine_plan(
+    plan: &PublicEngineRunPlan,
+    install_root: &std::path::Path,
+    binary_path: Option<&str>,
+    expected_sha256: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+    document_diagnostics: &[Diagnostic],
+) -> LinuxCliResponse {
+    let binary_path = match binary_path.filter(|value| !value.trim().is_empty()) {
+        Some(path) => std::path::PathBuf::from(path),
+        None => return domain_error_response(
+            "run-url", LinuxCliExitCode::ArgumentOrConfig,
+            DomainError::new(CLI_RUN_URL_MIERU_BINARY_REQUIRED_CODE,
+                "Mieru run-url requires --binary <local-path> for the selected node"),
+            "cli.mieru",
+        ),
+    };
+    let expected_sha256 = match expected_sha256.filter(|value| !value.trim().is_empty()) {
+        Some(value) => value.to_string(),
+        None => return domain_error_response(
+            "run-url", LinuxCliExitCode::ArgumentOrConfig,
+            DomainError::new(CLI_RUN_URL_MIERU_DIGEST_REQUIRED_CODE,
+                "Mieru run-url requires --sha256 <digest> for the selected node"),
+            "cli.mieru",
+        ),
+    };
+    let node = match mieru_node_from_descriptor(&plan.node) {
+        Ok(node) => node,
+        Err(error) => return domain_error_response(
+            "run-url", LinuxCliExitCode::ArgumentOrConfig, error, "cli.mieru",
+        ),
+    };
+    let rendered = match render_mieru_client_config(&MieruClientConfigRequest {
+        node,
+        socks5_host: listen_host.to_string(),
+        socks5_port: listen_port,
+    }) {
+        Ok(config) => config,
+        Err(error) => return domain_error_response(
+            "run-url", LinuxCliExitCode::ArgumentOrConfig,
+            DomainError::new(CLI_RUN_URL_MIERU_CONFIG_FAILED_CODE, error.message), "cli.mieru",
+        ),
+    };
+    let config_path = install_root.join("mieru").join(format!("run-url-{}.json", sanitize_path_segment(&plan.node.id)));
+    let snapshot_path = config_path.with_extension("before-networkcore.json");
+    let write_report = match write_mieru_client_config(&MieruClientConfigWriteRequest {
+        config_path: config_path.clone(), snapshot_path, content: rendered.content.clone(),
+    }) {
+        Ok(report) => report,
+        Err(error) => return domain_error_response(
+            "run-url", LinuxCliExitCode::GeneralFailure,
+            DomainError::new(CLI_RUN_URL_MIERU_CONFIG_FAILED_CODE, error.message), "cli.mieru",
+        ),
+    };
+    let request = MieruClientControlRequest {
+        executable_path: binary_path.clone(), expected_sha256: expected_sha256.clone(), config_path: config_path.clone(),
+    };
+    let runner = CommandMieruCommandRunner::new();
+    let report = match apply_and_start_mieru_client(&runner, &request) {
+        Ok(report) => report,
+        Err(error) => {
+            let _ = rollback_mieru_client_config(
+                &config_path, &write_report.snapshot_path.unwrap_or_default(), write_report.snapshot_written,
+            );
+            return domain_error_response(
+                "run-url", LinuxCliExitCode::GeneralFailure,
+                DomainError::new(CLI_RUN_URL_MIERU_START_FAILED_CODE, error.message), "cli.mieru",
+            );
+        }
+    };
+    let listener = match wait_for_mieru_listener(listen_host, listen_port, Duration::from_secs(5)) {
+        Ok(listener) => listener,
+        Err(error) => {
+            let _ = engine_mieru::stop_mieru_client(&runner, &request);
+            let _ = rollback_mieru_client_config(
+                &config_path, &write_report.snapshot_path.unwrap_or_default(), write_report.snapshot_written,
+            );
+            return domain_error_response(
+                "run-url", LinuxCliExitCode::GeneralFailure,
+                DomainError::new(CLI_RUN_URL_MIERU_START_FAILED_CODE, error.message), "cli.mieru",
+            );
+        }
+    };
+    let mut diagnostics = document_diagnostics.to_vec();
+    diagnostics.extend(rendered.diagnostics);
+    diagnostics.extend(report.diagnostics);
+    diagnostics.extend(listener.diagnostics);
+    LinuxCliResponse::success("run-url")
+        .with_diagnostics(diagnostics)
+        .with_mieru_install(LinuxMieruInstallStatus {
+            binary_path: binary_path.display().to_string(), sha256: expected_sha256,
+            verified: true, downloaded: false, action: "run-url".to_string(),
+            config_path: Some(config_path.display().to_string()),
+        })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn handle_mitm_browser_capture_launch<P, B>(
     platform: &P,
@@ -13164,8 +13286,32 @@ where
     I: SingBoxReleaseInstaller,
     S: SingBoxProcessRunner,
 {
+    handle_run_catalog_with_sing_box_and_mieru(
+        installer, runner, catalog_path, source_id, selected_node_id, listen_host,
+        listen_port, install_dir, None, None, force,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_run_catalog_with_sing_box_and_mieru<I, S>(
+    installer: &I,
+    runner: &S,
+    catalog_path: &str,
+    source_id: &str,
+    selected_node_id: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+    install_dir: Option<&str>,
+    mieru_binary_path: Option<&str>,
+    mieru_sha256: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
+{
     let fetcher = CommandRemoteSubscriptionFetcher::new();
-    handle_run_catalog_with_sing_box_and_fetcher(
+    handle_run_catalog_with_sing_box_and_fetcher_and_mieru(
         installer,
         runner,
         &fetcher,
@@ -13175,6 +13321,8 @@ where
         listen_host,
         listen_port,
         install_dir,
+        mieru_binary_path,
+        mieru_sha256,
         force,
     )
 }
@@ -13197,6 +13345,32 @@ where
     S: SingBoxProcessRunner,
     F: RemoteSubscriptionFetcher,
 {
+    handle_run_catalog_with_sing_box_and_fetcher_and_mieru(
+        installer, runner, fetcher, catalog_path, source_id, selected_node_id,
+        listen_host, listen_port, install_dir, None, None, force,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_run_catalog_with_sing_box_and_fetcher_and_mieru<I, S, F>(
+    installer: &I,
+    runner: &S,
+    fetcher: &F,
+    catalog_path: &str,
+    source_id: &str,
+    selected_node_id: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+    install_dir: Option<&str>,
+    mieru_binary_path: Option<&str>,
+    mieru_sha256: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
+    F: RemoteSubscriptionFetcher,
+{
     let source_location = match read_subscription_catalog_source_location(catalog_path, source_id) {
         Ok(location) => location,
         Err(error) => {
@@ -13208,7 +13382,7 @@ where
             );
         }
     };
-    let mut response = handle_run_url_with_sing_box_and_fetcher_and_node_id(
+    let mut response = handle_run_url_with_sing_box_and_fetcher_and_node_id_and_mieru(
         installer,
         runner,
         fetcher,
@@ -13217,6 +13391,8 @@ where
         listen_host,
         listen_port,
         install_dir,
+        mieru_binary_path,
+        mieru_sha256,
         force,
     );
     response.command = "run-catalog".to_string();
@@ -13238,8 +13414,31 @@ where
     I: SingBoxReleaseInstaller,
     S: SingBoxProcessRunner,
 {
+    handle_run_url_with_sing_box_and_node_id_and_mieru(
+        installer, runner, url, selected_node_id, listen_host, listen_port, install_dir,
+        None, None, force,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_run_url_with_sing_box_and_node_id_and_mieru<I, S>(
+    installer: &I,
+    runner: &S,
+    url: &str,
+    selected_node_id: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+    install_dir: Option<&str>,
+    mieru_binary_path: Option<&str>,
+    mieru_sha256: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
+{
     let fetcher = CommandRemoteSubscriptionFetcher::new();
-    handle_run_url_with_sing_box_and_fetcher_and_node_id(
+    handle_run_url_with_sing_box_and_fetcher_and_node_id_and_mieru(
         installer,
         runner,
         &fetcher,
@@ -13248,6 +13447,8 @@ where
         listen_host,
         listen_port,
         install_dir,
+        mieru_binary_path,
+        mieru_sha256,
         force,
     )
 }
@@ -13268,7 +13469,7 @@ where
     S: SingBoxProcessRunner,
     F: RemoteSubscriptionFetcher,
 {
-    handle_run_url_with_sing_box_and_fetcher_and_node_id(
+    handle_run_url_with_sing_box_and_fetcher_and_node_id_and_mieru(
         installer,
         runner,
         fetcher,
@@ -13277,6 +13478,8 @@ where
         listen_host,
         listen_port,
         install_dir,
+        None,
+        None,
         force,
     )
 }
@@ -13291,6 +13494,31 @@ pub fn handle_run_url_with_sing_box_and_fetcher_and_node_id<I, S, F>(
     listen_host: &str,
     listen_port: u16,
     install_dir: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
+    F: RemoteSubscriptionFetcher,
+{
+    handle_run_url_with_sing_box_and_fetcher_and_node_id_and_mieru(
+        installer, runner, fetcher, url, selected_node_id, listen_host, listen_port,
+        install_dir, None, None, force,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_run_url_with_sing_box_and_fetcher_and_node_id_and_mieru<I, S, F>(
+    installer: &I,
+    runner: &S,
+    fetcher: &F,
+    url: &str,
+    selected_node_id: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+    install_dir: Option<&str>,
+    mieru_binary_path: Option<&str>,
+    mieru_sha256: Option<&str>,
     force: bool,
 ) -> LinuxCliResponse
 where
@@ -13339,6 +13567,18 @@ where
             );
         }
     };
+    let run_plan = match PublicEngineRunPlan::select(&catalog.nodes, selected_node_id) {
+        Ok(plan) => plan,
+        Err(error) => return domain_error_response(
+            "run-url", LinuxCliExitCode::ArgumentOrConfig, error, SOURCE_CLI_SING_BOX,
+        ),
+    };
+    if run_plan.engine == PublicEngineKind::Mieru {
+        return run_mieru_public_engine_plan(
+            &run_plan, &install_root, mieru_binary_path, mieru_sha256,
+            listen_host, listen_port, &document.diagnostics,
+        );
+    }
     let generated_config =
         match render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
             nodes: catalog.nodes,
@@ -14351,6 +14591,8 @@ fn parse_run_url_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliPar
             .unwrap_or_else(|| "127.0.0.1".to_string()),
         listen_port: options.listen_port.unwrap_or(7890),
         install_dir: options.install_dir,
+        mieru_binary_path: options.mieru_binary_path,
+        mieru_sha256: options.mieru_sha256,
         force: options.force,
         format: options.format,
     })
@@ -14628,6 +14870,8 @@ fn parse_run_catalog_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCl
             .unwrap_or_else(|| "127.0.0.1".to_string()),
         listen_port: options.listen_port.unwrap_or(7890),
         install_dir: options.install_dir,
+        mieru_binary_path: options.mieru_binary_path,
+        mieru_sha256: options.mieru_sha256,
         force: options.force,
         format: options.format,
     })
@@ -15469,8 +15713,8 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux connect|disconnect --confirm [--service-unit <name>] [--format text|json]  # managed systemd start/stop\n",
         "  networkcore-linux uninstall-service [--service-unit <name>] [--service-state-dir <absolute-path>] --confirm [--format text|json]\n",
         "  networkcore-linux logs <explicit-log-path> [--tail-lines <1-1000>] [--format text|json]\n",
-        "  networkcore-linux run-url <subscription-source> [--node-id <id>] [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
-        "  networkcore-linux run-catalog <catalog-path> <source-id> [--node-id <id>] [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
+        "  networkcore-linux run-url <subscription-source> [--node-id <id>] [--binary <mieru-path> --sha256 <digest>] [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
+        "  networkcore-linux run-catalog <catalog-path> <source-id> [--node-id <id>] [--binary <mieru-path> --sha256 <digest>] [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux sing-box install [--install-dir <dir>] [--force] [--format text|json]\n",
         "\n",
         "Commands:\n",
@@ -15552,6 +15796,8 @@ pub const fn cli_help_text() -> &'static str {
         "  --service-group <group> Non-root service group. Defaults to networkcore.\n",
         "  --service-state-dir <path> Absolute writable state directory. Defaults to /var/lib/networkcore.\n",
         "  --node-id <id>        Catalog node id for run-url. Defaults to the first supported node.\n",
+        "  --binary <path>       Required local Mieru binary when the selected node is mierus://.\n",
+        "  --sha256 <digest>     Required Mieru SHA-256 digest when the selected node is mierus://.\n",
         "  --listen-host <host>  Local proxy listen address for run-url. Defaults to 127.0.0.1.\n",
         "  --listen-port <port>  Local proxy listen port for run-url. Defaults to 7890.\n",
         "  --force               Redownload and replace an existing cached sing-box executable.\n",

@@ -144,6 +144,41 @@ fn managed_configuration_accepts_explicit_mieru_control_paths_and_digest() {
 }
 
 #[test]
+fn managed_configuration_rejects_two_enabled_public_engine_plans() {
+    let config = WindowsManagedConfig {
+        schema_version: WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
+        system_proxy: None,
+        system_proxy_owner: WindowsSystemProxyOwner::Service,
+        root_certificate_path: None,
+        driver_package: None,
+        tunnel: None,
+        sing_box: Some(WindowsManagedSingBoxConfig {
+            enabled: true,
+            executable_path: PathBuf::from("sing-box.exe"),
+            config_path: PathBuf::from("sing-box.json"),
+            working_directory: None,
+            log_path: PathBuf::from("sing-box.log"),
+        }),
+        mieru: Some(WindowsManagedMieruConfig {
+            enabled: true,
+            executable_path: PathBuf::from("mieru.exe"),
+            expected_sha256: "a".repeat(64),
+            config_path: PathBuf::from("mieru.json"),
+            socks5_host: "127.0.0.1".to_string(),
+            socks5_port: 7892,
+        }),
+        native_mitm: None,
+    };
+    assert_eq!(
+        config
+            .validate()
+            .expect_err("one managed plan must select one public engine")
+            .code,
+        WINDOWS_MANAGED_CONFIG_INVALID_CODE
+    );
+}
+
+#[test]
 fn managed_configuration_rejects_enabled_proxy_without_endpoint() {
     let config = WindowsManagedConfig {
         schema_version: WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,

@@ -24,6 +24,10 @@ Current status:
 - The Windows GUI Settings page exposes explicit Mieru release installation and
   local digest checking. It runs these operations off the UI thread and does
   not download without a user-supplied official release URL and digest.
+- NodeCatalog import consumes the shared `PublicEngineRunPlan`: supported public
+  protocols route to sing-box, while `mierus://` routes only to an enabled
+  managed Mieru block with an explicit executable, digest, config path, and
+  loopback listener. Import failures leave the previous managed core intact.
 - `root_certificate_path` remains a generic trust-store installation only. The
   separate `native_mitm` block powers the explicit GUI-controlled loopback HTTP
   listener, service-owned CA lifecycle, controlled TLS termination, and local

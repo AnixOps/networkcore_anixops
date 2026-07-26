@@ -370,6 +370,47 @@ pub struct NodeDescriptor {
     pub metadata: Metadata,
 }
 
+/// Platform-neutral routing decision for a normalized public proxy node.
+///
+/// This contract deliberately contains no executable paths, credentials, or
+/// rendered configuration. Platform entrypoints use it before invoking an
+/// external engine adapter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PublicEngineKind {
+    SingBox,
+    Mieru,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublicEngineRunPlan {
+    pub engine: PublicEngineKind,
+    pub node: NodeDescriptor,
+}
+
+pub const PUBLIC_ENGINE_RUN_PLAN_NODE_MISSING_CODE: &str =
+    "public_engine.run_plan.node_missing";
+
+impl PublicEngineRunPlan {
+    pub fn select(nodes: &[NodeDescriptor], selected_node_id: Option<&str>) -> DomainResult<Self> {
+        let node = match selected_node_id {
+            Some(id) => nodes.iter().find(|node| node.id == id),
+            None => nodes.first(),
+        }
+        .ok_or_else(|| DomainError::new(
+            PUBLIC_ENGINE_RUN_PLAN_NODE_MISSING_CODE,
+            "the selected public proxy node is not available",
+        ))?;
+        Ok(Self {
+            engine: if node.protocol == Protocol::Mieru {
+                PublicEngineKind::Mieru
+            } else {
+                PublicEngineKind::SingBox
+            },
+            node: node.clone(),
+        })
+    }
+}
+
 /// Subscription source descriptor.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubscriptionSource {

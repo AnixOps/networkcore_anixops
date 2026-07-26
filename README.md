@@ -122,11 +122,11 @@ current-main-release-state=source-only-not-downloadable
 current-main-source-candidate=v0.2.0-alpha.22
 current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
-current-main-subscription-foreground=explicit-file-uri-http-and-run-catalog-active
+current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
 current-main-managed-reload=explicit-foreground-control-socket-active
 current-main-linux-node-switch=explicit-loopback-selector-active
 current-main-subscription-background=explicit-single-http-source-refresh-active-external-scheduling
-current-main-cross-platform-run-plan=blocked
+current-main-cross-platform-run-plan=public-engine-run-plan-active
 ```
 
 这些机器状态是当前 `main` 的唯一发布判定；后文历史切片不得把 source-only 能力解释为 tag release。
@@ -175,7 +175,7 @@ v0.1.2-alpha.2 已完成四个 source-only managed foreground status record 切�
 
 P4 backlog buckets：
 
-- 订阅和客户端兼容：`run-url <share-link>` 已完成直接 Shadowsocks/Trojan/VLESS/VMess/Hysteria2/TUIC foreground 闭环；当前继续补 Clash YAML、sing-box JSON、Surge/Loon/Quantumult X catalog 的 runnable path、节点选择、持久订阅和 managed lifecycle。
+- 订阅和客户端兼容：平台无关的 `PublicEngineRunPlan` 现在把 Shadowsocks、Trojan、VLESS、VMess、Hysteria2 和 TUIC 路由到 sing-box，把 `mierus://` 路由到 Mieru。Linux `run-url`/`run-catalog` 对 Mieru 要求显式 `--binary` 与 `--sha256`，原子写入配置、执行官方 apply/start 并验证回环 SOCKS5 listener；Windows NodeCatalog 导入消费同一计划并仅使用已启用的 managed Mieru 配置。缺少 binary、digest、config 或 listener 时返回脱敏稳定错误，失败不替换现有运行核心。
 - MITM 数据面和证书生命周期：在已具备 certificate artifact lifecycle 和 explicit plain HTTP live data plane 的基础上补齐 CA 安装/信任/撤销/trust-store 回滚、TLS decryption、HTTPS request/response rewrite 和 script runtime；当前已输出状态、证书/浏览器计划、`certificate_lifecycle` artifact report、rich mutation plan，可在 native SOCKS5 CONNECT 前置点应用插件 `Reject` 为 CONNECT failure，并可在 explicit HTTP proxy `http://` 路径应用 reject、redirect、header/body rewrite。
 - 浏览器捕获用户闭环：在 dedicated-profile launch、local proxy endpoint verify、target route verify、proof-log-token traffic proof 和 PAC/browser policy artifact apply/rollback 之后，继续补完整 live browser traffic proof 自动化、显式 browser/system proxy 配置、系统 PAC 或其他捕获策略，以及安全授权和回滚边界。
 

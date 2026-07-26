@@ -385,6 +385,13 @@ impl WindowsManagedConfig {
         if let Some(mieru) = &self.mieru {
             mieru.validate()?;
         }
+        if self.sing_box.as_ref().is_some_and(|config| config.enabled)
+            && self.mieru.as_ref().is_some_and(|config| config.enabled)
+        {
+            return Err(config_error(
+                "managed public engine run plan permits only one enabled core",
+            ));
+        }
         if let Some(native_mitm) = &self.native_mitm {
             native_mitm.validate()?;
             if native_mitm.enabled && !self.system_proxy_owner.is_service_managed() {

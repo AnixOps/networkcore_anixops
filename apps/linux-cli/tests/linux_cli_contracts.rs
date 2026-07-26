@@ -46,6 +46,7 @@ use networkcore_linux::{
     handle_proxy_apply, handle_proxy_rollback, handle_proxy_status,
     handle_run_catalog_with_sing_box, handle_run_catalog_with_sing_box_and_fetcher,
     handle_run_url_with_sing_box, handle_run_url_with_sing_box_and_fetcher,
+    handle_run_url_with_sing_box_and_node_id_and_mieru,
     handle_run_url_with_sing_box_and_node_id, handle_start, handle_status,
     handle_status_mieru_with_runner, handle_stop, handle_systemd_service_control,
     handle_uninstall_service_apply_at, native_proxy_engine_service_with_builtin_mitm_plugin,
@@ -110,7 +111,8 @@ use networkcore_linux::{
     CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE, CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE,
     CLI_MITM_HTTP_REWRITE_AUTHORIZATION_REQUIRED_CODE, CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE,
     CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE, CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE,
-    CLI_RUN_URL_FILE_READ_FAILED_CODE, CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
+    CLI_RUN_URL_FILE_READ_FAILED_CODE, CLI_RUN_URL_MIERU_BINARY_REQUIRED_CODE,
+    CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
     CLI_START_FOREGROUND_ONLY_CODE, CLI_START_LIFECYCLE_FAILED_CODE,
     CLI_START_LIFECYCLE_HOST_MISSING_CODE, CLI_START_LIFECYCLE_INTERRUPTED_CODE,
     CLI_START_PLATFORM_DENIED_CODE, CLI_START_RUNTIME_STOP_FAILED_CODE,
@@ -4153,6 +4155,8 @@ fn parses_run_url_command_with_local_proxy_options() {
             listen_host: "127.0.0.1".to_string(),
             listen_port: 7891,
             install_dir: Some("/tmp/networkcore-engines".to_string()),
+            mieru_binary_path: None,
+            mieru_sha256: None,
             force: false,
             format: OutputFormat::Json,
         }
@@ -4183,6 +4187,8 @@ fn parses_run_catalog_command_with_source_and_node_options() {
             listen_host: "127.0.0.1".to_string(),
             listen_port: 7891,
             install_dir: None,
+            mieru_binary_path: None,
+            mieru_sha256: None,
             force: false,
             format: OutputFormat::Json,
         }
@@ -7814,6 +7820,26 @@ fn run_url_handler_runs_supported_direct_share_link_protocols() {
         assert!(response.sing_box_run.is_some());
         let _ = std::fs::remove_dir_all(&install_dir);
     }
+}
+
+#[test]
+fn run_url_mieru_plan_requires_explicit_binary_without_falling_back_to_sing_box() {
+    let response = handle_run_url_with_sing_box_and_node_id_and_mieru(
+        &TestSingBoxInstaller,
+        &TestSingBoxRunner,
+        "mierus://alice:secret@example.test:3010#Office",
+        None,
+        "127.0.0.1",
+        7892,
+        Some("/tmp/networkcore-mieru-run-contract"),
+        None,
+        None,
+        false,
+    );
+    assert!(!response.ok);
+    assert!(response.sing_box_run.is_none());
+    assert_diagnostic(&response.diagnostics, CLI_RUN_URL_MIERU_BINARY_REQUIRED_CODE);
+    assert!(!render_response(&response, OutputFormat::Json).contains("secret"));
 }
 
 #[test]

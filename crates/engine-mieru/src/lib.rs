@@ -374,6 +374,52 @@ impl MieruNodeConfig {
     }
 }
 
+/// Rehydrates the Mieru-specific fields that config-core intentionally keeps
+/// in normalized node metadata. Callers must use this only after the public
+/// engine run plan selected `Protocol::Mieru`.
+pub fn mieru_node_from_descriptor(node: &NodeDescriptor) -> DomainResult<MieruNodeConfig> {
+    if node.protocol != Protocol::Mieru {
+        return Err(DomainError::new(
+            MIERU_CONFIG_INVALID_CODE,
+            "Mieru configuration requires a Mieru node",
+        ));
+    }
+    let metadata = |key: &str| {
+        node.metadata
+            .iter()
+            .find(|entry| entry.key == key)
+            .map(|entry| entry.value.as_str())
+    };
+    let required = |key: &str| {
+        metadata(key).filter(|value| !value.trim().is_empty()).map(str::to_string).ok_or_else(|| {
+            DomainError::new(MIERU_CONFIG_INVALID_CODE, "Mieru node is missing required credential metadata")
+        })
+    };
+    let parse_optional_u16 = |key: &str| -> DomainResult<Option<u16>> {
+        metadata(key).map(|value| value.parse::<u16>().map_err(|_| DomainError::new(
+            MIERU_CONFIG_INVALID_CODE, "Mieru node has invalid numeric metadata",
+        ))).transpose()
+    };
+    let parse_optional_bool = |key: &str| -> DomainResult<Option<bool>> {
+        metadata(key).map(|value| value.parse::<bool>().map_err(|_| DomainError::new(
+            MIERU_CONFIG_INVALID_CODE, "Mieru node has invalid boolean metadata",
+        ))).transpose()
+    };
+    Ok(MieruNodeConfig {
+        username: required("mieru.username")?,
+        password: required("mieru.password")?,
+        server: node.endpoint.host.clone(),
+        port: node.endpoint.port,
+        port_range: metadata("mieru.port_range").map(str::to_string),
+        additional_ports: Vec::new(),
+        mtu: parse_optional_u16("mieru.mtu")?,
+        multiplexing: parse_optional_bool("mieru.multiplexing")?,
+        handshake_mode: metadata("mieru.handshake_mode").map(str::to_string),
+        traffic_pattern: metadata("mieru.traffic_pattern").map(str::to_string),
+        name: node.name.clone(),
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MieruClientConfigRequest {
     pub node: MieruNodeConfig,
@@ -609,6 +655,28 @@ pub fn write_mieru_client_config(
         bytes_written: request.content.len(),
         verified,
     })
+}
+
+/// Restores the exact configuration state recorded by a successful write.
+/// Callers use this when a subsequent engine handoff fails, so a failed start
+/// never leaves a newly rendered public-node configuration active.
+pub fn rollback_mieru_client_config(
+    config_path: &Path,
+    snapshot_path: &Path,
+    snapshot_written: bool,
+) -> DomainResult<()> {
+    reject_config_symlink(config_path)?;
+    if snapshot_written {
+        let previous = fs::read(snapshot_path)
+            .map_err(|error| config_write_error("read Mieru config rollback snapshot", error))?;
+        fs::write(config_path, previous)
+            .map_err(|error| config_write_error("restore Mieru config rollback snapshot", error))?;
+        set_config_permissions(config_path)?;
+    } else if config_path.exists() {
+        fs::remove_file(config_path)
+            .map_err(|error| config_write_error("remove new Mieru config", error))?;
+    }
+    Ok(())
 }
 
 fn reject_config_symlink(path: &Path) -> DomainResult<()> {

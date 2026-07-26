@@ -9,9 +9,12 @@ use super::{
     profile_node_options, profile_node_options_from_selector, write_diagnostic_report_at,
 };
 use config_core::CoreSubscriptionService;
-use control_domain::{SubscriptionService, SubscriptionSource};
+use control_domain::{PublicEngineKind, PublicEngineRunPlan, SubscriptionService, SubscriptionSource};
 use engine_mieru::{
-    download_latest_mieru_release, verify_local_mieru_binary, MieruReleaseDownloadRequest,
+    download_latest_mieru_release, mieru_node_from_descriptor, render_mieru_client_config,
+    rollback_mieru_client_config,
+    verify_local_mieru_binary, write_mieru_client_config, MieruClientConfigRequest,
+    MieruClientConfigWriteRequest, MieruReleaseDownloadRequest,
 };
 use engine_singbox::{
     inspect_sing_box_native_config, measure_sing_box_clash_api_outbound_delay,
@@ -26,7 +29,7 @@ use platform_windows::managed::{
     windows_managed_log_directory, windows_managed_state_path, write_managed_config,
     write_managed_state, write_managed_text_atomic, WindowsManagedConfig,
     WindowsManagedNativeMitmConfig, WindowsManagedNativeMitmScriptRuntimeConfig,
-    WindowsManagedSingBoxConfig, WindowsManagedTunnelConfig, WindowsProxySettings,
+    WindowsManagedMieruConfig, WindowsManagedSingBoxConfig, WindowsManagedTunnelConfig, WindowsProxySettings,
     WindowsSystemProxyOwner,
 };
 use platform_windows::system_integration::{
@@ -1271,6 +1274,15 @@ fn import_subscription_at(location: &str, desktop: &mut DesktopState) -> Result<
         if catalog.nodes.is_empty() {
             return Err("Profile did not contain a supported proxy node".to_string());
         }
+        let selected_node_id = desktop
+            .profile_node_id
+            .as_deref()
+            .filter(|id| catalog.nodes.iter().any(|node| node.id == *id));
+        let run_plan = PublicEngineRunPlan::select(&catalog.nodes, selected_node_id)
+            .map_err(|error| error.message)?;
+        if run_plan.engine == PublicEngineKind::Mieru {
+            return import_mieru_subscription_plan(&run_plan, desktop);
+        }
         let source_options = profile_node_options(&catalog.nodes);
         let rendered = render_sing_box_local_proxy_selector_config(
             &SingBoxLocalProxyConfigRequest {
@@ -1314,6 +1326,52 @@ fn import_subscription_at(location: &str, desktop: &mut DesktopState) -> Result<
     desktop.profile_node_id = selected_node_id;
     desktop.profile_node_catalog = node_catalog;
     desktop.profile_config_sha256 = config_sha256;
+    Ok(())
+}
+
+fn import_mieru_subscription_plan(
+    plan: &PublicEngineRunPlan,
+    desktop: &mut DesktopState,
+) -> Result<(), String> {
+    let mut managed = managed_config_or_default()?;
+    let mieru = managed.mieru.clone().filter(|config| config.enabled).ok_or_else(|| {
+        "Selected Mieru node requires an enabled managed Mieru executable, digest, and listener configuration."
+            .to_string()
+    })?;
+    mieru.validate().map_err(|error| error.message)?;
+    let node = mieru_node_from_descriptor(&plan.node).map_err(|error| error.message)?;
+    let rendered = render_mieru_client_config(&MieruClientConfigRequest {
+        node,
+        socks5_host: mieru.socks5_host.clone(),
+        socks5_port: mieru.socks5_port,
+    })
+    .map_err(|error| error.message)?;
+    let snapshot_path = mieru.config_path.with_extension("before-networkcore.json");
+    let write_report = write_mieru_client_config(&MieruClientConfigWriteRequest {
+        config_path: mieru.config_path.clone(),
+        snapshot_path,
+        content: rendered.content,
+    })
+    .map_err(|error| error.message)?;
+    managed.sing_box = None;
+    managed.mieru = Some(WindowsManagedMieruConfig { enabled: true, ..mieru.clone() });
+    managed.system_proxy = Some(WindowsProxySettings {
+        enabled: true,
+        server: format!("{}:{}", mieru.socks5_host, mieru.socks5_port),
+        bypass: "<local>".to_string(),
+    });
+    managed.system_proxy_owner = WindowsSystemProxyOwner::Desktop;
+    if let Err(error) = write_managed_config(&windows_managed_config_path(), &managed) {
+        let _ = rollback_mieru_client_config(
+            &mieru.config_path,
+            &write_report.snapshot_path.unwrap_or_default(),
+            write_report.snapshot_written,
+        );
+        return Err(error.message);
+    }
+    desktop.profile_node_id = Some(plan.node.id.clone());
+    desktop.profile_node_catalog.clear();
+    desktop.profile_config_sha256 = None;
     Ok(())
 }
 

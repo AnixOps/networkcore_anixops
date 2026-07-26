@@ -627,7 +627,7 @@ jobs:
             grep -qx 'current-main-source-candidate=v0.2.0-alpha.22' "${governance_document}"
             grep -qx 'current-main-latest-published-tag=v0.2.0-alpha.21' "${governance_document}"
             grep -qx 'current-main-latest-stable-tag=v0.1.0' "${governance_document}"
-            grep -qx 'current-main-subscription-foreground=explicit-file-uri-http-and-run-catalog-active' "${governance_document}"
+            grep -qx 'current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active' "${governance_document}"
             grep -qx 'current-main-subscription-background=blocked' "${governance_document}"
           done
           if grep -Fq 'remote/file fetch and managed background control remain unavailable' docs/alpha-release-feature-matrix.md; then
@@ -772,6 +772,12 @@ jobs:
           grep -q "run-url" apps/linux-cli/src/lib.rs
           grep -q "sing_box_run" apps/linux-cli/src/lib.rs
           grep -q "handle_run_url_with_sing_box" apps/linux-cli/src/lib.rs
+          grep -q "PublicEngineRunPlan" crates/control-domain/src/lib.rs
+          grep -q "PublicEngineKind::Mieru" apps/linux-cli/src/lib.rs
+          grep -q "run_mieru_public_engine_plan" apps/linux-cli/src/lib.rs
+          grep -q "run_url_mieru_plan_requires_explicit_binary" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "import_mieru_subscription_plan" apps/windows-gui/src/gui/tauri_ui.rs
+          grep -q "managed public engine run plan permits only one enabled core" crates/platform-windows/src/managed.rs
           grep -q "run_url_handler_runs_supported_direct_share_link_protocols" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "run_url_handler_runs_supported_catalog_payload_formats" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "hysteria2://.*tuic://" apps/linux-cli/README.md
@@ -821,7 +827,7 @@ jobs:
           grep -q 'bounded.*chunked' docs/architecture/windows-managed-client-source-release-contract.md
           grep -q '## Current Main Override' docs/alpha-release-feature-matrix.md
           grep -q 'HTTP/2, HTTP/3/QUIC MITM' docs/alpha-release-feature-matrix.md
-          grep -q '^current-main-subscription-run-url=direct-share-links-file-uri-and-foreground-http-subscription-active$' TODO.md
+          grep -q '^current-main-subscription-run-url=public-engine-run-plan-mieru-and-sing-box-foreground-active$' TODO.md
           grep -q 'direct.*share links' TODO.md
           grep -q 'tauri::Builder' apps/windows-gui/src/gui/tauri_ui.rs
           grep -q 'tauri_plugin_single_instance::init' apps/windows-gui/src/gui/tauri_ui.rs

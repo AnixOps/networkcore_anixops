@@ -12,13 +12,21 @@ current-main-release-state=source-only-not-downloadable
 current-main-source-candidate=v0.2.0-alpha.22
 current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
-current-main-subscription-foreground=explicit-file-uri-http-and-run-catalog-active
+current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
 current-main-subscription-refresh=explicit-http-single-source-status-stop-active
 current-main-subscription-background=explicit-single-http-source-refresh-active
 current-main-managed-reload=explicit-foreground-control-socket-active
 current-main-linux-node-switch=explicit-loopback-selector-active
 current-main-subscription-refresh-scheduling=external-system-required
-current-main-cross-platform-run-plan=blocked
+current-main-cross-platform-run-plan=public-engine-run-plan-active
+
+- Added the platform-neutral `PublicEngineRunPlan`: SS, Trojan, VLESS, VMess,
+  Hysteria2, and TUIC route to sing-box while `mierus://` routes to engine-mieru.
+  Linux `run-url` and `run-catalog` now require explicit Mieru binary/digest,
+  atomically render config, apply/start, and verify its loopback listener.
+  Windows NodeCatalog import uses the same routing plan and an already enabled
+  managed Mieru configuration. Failures are redacted, stable, and retain the
+  prior configured core.
 ```
 
 ### Changed

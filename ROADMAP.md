@@ -13,11 +13,11 @@ current-main-release-state=source-only-not-downloadable
 current-main-source-candidate=v0.2.0-alpha.22
 current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
-current-main-subscription-foreground=explicit-file-uri-http-and-run-catalog-active
+current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
 current-main-subscription-background=blocked
 ```
 
-当前 main 覆盖旧订阅描述：Linux `run-url` 已支持直接 share links、调用方显式绝对 `file://` UTF-8 subscription 文件、一次前台 HTTP(S) subscription fetch、`--node-id` 单次 catalog 节点选择和受支持的 Clash YAML、sing-box JSON、Surge/Loon/Quantumult X catalog payload 的 sing-box 前台运行；`run-catalog <catalog-path> <source-id>` 可运行一个保存 source。默认路径扫描、后台刷新、运行中节点切换、后台 managed runtime 和 cross-platform run plan 仍未完成。
+当前 main 使用平台无关 `PublicEngineRunPlan`：Linux `run-url`/`run-catalog` 将 SS、Trojan、VLESS、VMess、Hysteria2 和 TUIC 路由到 sing-box，将 `mierus://` 路由到 engine-mieru；Windows NodeCatalog 导入消费相同计划和 managed service 配置。Mieru 需要显式 binary/digest、原子 config snapshot/write、apply/start 与 loopback readiness，失败保留已有配置和运行核心。默认路径扫描、后台刷新和运行中节点切换仍未完成。
 
 当前 direct share-link compatibility 包含 Hysteria2/TUIC share-link parser gate；该前台路径不启用 HTTP/3 MITM。
 
