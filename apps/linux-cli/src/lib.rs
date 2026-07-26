@@ -707,6 +707,7 @@ impl LinuxCliCommand {
                 LinuxSystemdServiceAction::Stop => "service stop",
                 LinuxSystemdServiceAction::Restart => "service restart",
                 LinuxSystemdServiceAction::Status => "service status",
+                LinuxSystemdServiceAction::Reload => "service reload",
             },
             Self::Restart { .. } => "restart",
             Self::Status { .. } => "status",
@@ -6240,6 +6241,7 @@ pub fn handle_systemd_service_control<R: LinuxSystemdCommandRunner>(
         LinuxSystemdServiceAction::Stop => "service stop",
         LinuxSystemdServiceAction::Restart => "service restart",
         LinuxSystemdServiceAction::Status => "service status",
+        LinuxSystemdServiceAction::Reload => "service reload",
     };
     match control_systemd_service(
         runner,
@@ -6299,6 +6301,53 @@ pub fn handle_install_service_apply(
         &snapshot_path,
         confirm,
     )
+}
+
+pub fn handle_install_service_apply_with_runner<R: LinuxSystemdCommandRunner>(
+    runner: &R,
+    unit_name: &str,
+    description: &str,
+    executable_path: &str,
+    arguments: &[String],
+    service_user: &str,
+    service_group: &str,
+    state_directory: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    let response = handle_install_service_apply(
+        unit_name,
+        description,
+        executable_path,
+        arguments,
+        service_user,
+        service_group,
+        state_directory,
+        confirm,
+    );
+    if !response.ok {
+        return response;
+    }
+    let reload = handle_systemd_service_control(
+        runner,
+        LinuxSystemdServiceAction::Reload,
+        unit_name,
+        confirm,
+    );
+    if !reload.ok {
+        return LinuxCliResponse::failure(
+            "install-service",
+            reload.exit_code,
+            reload.diagnostics.into_iter().next().unwrap_or_else(|| {
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    "cli.linux.install_service.reload_failed",
+                    "systemd manager reload failed after unit installation",
+                    SOURCE_CLI_RUNTIME,
+                )
+            }),
+        );
+    }
+    response
 }
 
 #[allow(clippy::too_many_arguments)]

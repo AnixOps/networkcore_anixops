@@ -1891,6 +1891,7 @@ jobs:
           grep -q "handle_start_mieru" apps/linux-cli/src/lib.rs
           grep -q "handle_stop_mieru" apps/linux-cli/src/lib.rs
           grep -q "handle_install_service_apply" apps/linux-cli/src/lib.rs
+          grep -q "handle_install_service_apply_with_runner" apps/linux-cli/src/lib.rs
           grep -q "handle_uninstall_service_apply" apps/linux-cli/src/lib.rs
           grep -q "handle_uninstall_service_apply_with_runner" apps/linux-cli/src/lib.rs
           grep -q "CommandLinuxSystemdCommandRunner::new" apps/linux-cli/src/lib.rs

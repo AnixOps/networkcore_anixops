@@ -136,7 +136,8 @@ fn main() {
                 ..
             } = &command
             {
-                networkcore_linux::handle_install_service_apply(
+                networkcore_linux::handle_install_service_apply_with_runner(
+                    &platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(),
                     unit_name,
                     description,
                     executable_path,

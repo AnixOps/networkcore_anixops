@@ -210,6 +210,11 @@ fn service_control_reports_action_and_exit_code() {
 }
 
 #[test]
+fn service_control_maps_reload_to_daemon_reload() {
+    assert_eq!(LinuxSystemdServiceAction::Reload.command(), "daemon-reload");
+}
+
+#[test]
 fn service_control_exposes_nonzero_exit_as_failed_report() {
     let runner = RecordingSystemdRunner {
         exit_code: Some(3),
