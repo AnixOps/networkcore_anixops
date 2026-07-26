@@ -2254,12 +2254,12 @@ jobs:
           $MsysRoot = "${{ steps.msys2.outputs.msys2-location }}"
           $MingwPrefix = Join-Path $MsysRoot "mingw64"
           "$MingwPrefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "${{ github.workspace }}\.github\scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           "MSYS2_LOCATION=$MsysRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "MINGW_PREFIX=$MingwPrefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CARGO_BUILD_TARGET=x86_64-pc-windows-gnu" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CC_x86_64_pc_windows_gnu=$MingwPrefix\bin\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "AR_x86_64_pc_windows_gnu=$MingwPrefix\bin\ar.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "RC_x86_64_pc_windows_gnu=$MingwPrefix\bin\windres.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=$MingwPrefix\bin\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Setup Rust
@@ -2277,6 +2277,13 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Build windres compatibility shim
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          rustc .github/scripts/windres_compat.rs -o .github/scripts/windres.exe
 
       - name: Format
         shell: bash
@@ -2348,12 +2355,12 @@ jobs:
           $MsysRoot = "${{ steps.windows-msys2.outputs.msys2-location }}"
           $MingwPrefix = Join-Path $MsysRoot "mingw64"
           "$MingwPrefix\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "${{ github.workspace }}\.github\scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           "MSYS2_LOCATION=$MsysRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "MINGW_PREFIX=$MingwPrefix" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CARGO_BUILD_TARGET=x86_64-pc-windows-gnu" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CC_x86_64_pc_windows_gnu=$MingwPrefix\bin\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "AR_x86_64_pc_windows_gnu=$MingwPrefix\bin\ar.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "RC_x86_64_pc_windows_gnu=$MingwPrefix\bin\windres.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=$MingwPrefix\bin\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build Windows binaries
@@ -2363,6 +2370,7 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup default stable
           rustup target add x86_64-pc-windows-gnu
+          rustc .github/scripts/windres_compat.rs -o .github/scripts/windres.exe
           cargo build --locked `
             --package networkcore-windows `
             --package networkcore-windows-gui `
