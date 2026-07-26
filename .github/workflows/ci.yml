@@ -730,6 +730,7 @@ jobs:
           grep -q "MitmCertificateTrustRollback" apps/linux-cli/src/main.rs
           grep -q "certificate_trust_apply" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "certificate_trust_rollback" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "trust_cli_handlers_reject_missing_paths_without_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "trust-apply --cert-file" apps/linux-cli/README.md
           grep -q "update-ca-certificates" apps/linux-cli/README.md
           grep -q "rollback_rejects_external_environment_file_changes" crates/platform-linux/tests/proxy_contracts.rs

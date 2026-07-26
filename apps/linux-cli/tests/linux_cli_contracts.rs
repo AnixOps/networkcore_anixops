@@ -40,6 +40,7 @@ use networkcore_linux::{
     handle_mitm_browser_plan, handle_mitm_certificate_apply,
     handle_mitm_certificate_apply_with_store, handle_mitm_certificate_plan,
     handle_mitm_certificate_rollback, handle_mitm_certificate_rollback_with_store,
+    handle_mitm_certificate_trust_apply, handle_mitm_certificate_trust_rollback,
     handle_mitm_http_rewrite_plan, handle_mitm_http_rewrite_preview, handle_mitm_status,
     handle_node_list, handle_parse_error, handle_prepare_config, handle_proxy_apply,
     handle_proxy_rollback, handle_proxy_status, handle_run_catalog_with_sing_box,
@@ -100,14 +101,15 @@ use networkcore_linux::{
     CLI_MITM_CERTIFICATE_AUTHORIZATION_REQUIRED_CODE, CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE,
     CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE, CLI_MITM_CERTIFICATE_PLAN_READY_CODE,
     CLI_MITM_CERTIFICATE_ROLLBACK_BLOCKED_CODE, CLI_MITM_CERTIFICATE_ROLLBACK_READY_CODE,
-    CLI_MITM_CLI_GATE_PARTIAL_CODE, CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE,
-    CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE, CLI_MITM_HTTP_REWRITE_AUTHORIZATION_REQUIRED_CODE,
-    CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE, CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE,
-    CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE, CLI_RUN_URL_FILE_READ_FAILED_CODE,
-    CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE, CLI_START_FOREGROUND_ONLY_CODE,
-    CLI_START_LIFECYCLE_FAILED_CODE, CLI_START_LIFECYCLE_HOST_MISSING_CODE,
-    CLI_START_LIFECYCLE_INTERRUPTED_CODE, CLI_START_PLATFORM_DENIED_CODE,
-    CLI_START_RUNTIME_STOP_FAILED_CODE, CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE,
+    CLI_MITM_CERTIFICATE_TRUST_CONFIG_MISSING_CODE, CLI_MITM_CLI_GATE_PARTIAL_CODE,
+    CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE, CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE,
+    CLI_MITM_HTTP_REWRITE_AUTHORIZATION_REQUIRED_CODE, CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE,
+    CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE, CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE,
+    CLI_RUN_URL_FILE_READ_FAILED_CODE, CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
+    CLI_START_FOREGROUND_ONLY_CODE, CLI_START_LIFECYCLE_FAILED_CODE,
+    CLI_START_LIFECYCLE_HOST_MISSING_CODE, CLI_START_LIFECYCLE_INTERRUPTED_CODE,
+    CLI_START_PLATFORM_DENIED_CODE, CLI_START_RUNTIME_STOP_FAILED_CODE,
+    CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE,
     CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE, CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE,
     CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
     CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
@@ -2613,6 +2615,25 @@ fn parses_start_with_explicit_script_runtime_mapping() {
             confirm: true,
             format: OutputFormat::Text,
         }
+    );
+}
+
+#[test]
+fn trust_cli_handlers_reject_missing_paths_without_mutation() {
+    let apply = handle_mitm_certificate_trust_apply(None, Some("/tmp/trust.crt"), None, true);
+    assert!(!apply.ok);
+    assert_eq!(apply.exit_code, LinuxCliExitCode::ArgumentOrConfig);
+    assert_eq!(
+        apply.diagnostics[0].code,
+        CLI_MITM_CERTIFICATE_TRUST_CONFIG_MISSING_CODE
+    );
+
+    let rollback = handle_mitm_certificate_trust_rollback(Some("/tmp/trust.crt"), None, true);
+    assert!(!rollback.ok);
+    assert_eq!(rollback.exit_code, LinuxCliExitCode::ArgumentOrConfig);
+    assert_eq!(
+        rollback.diagnostics[0].code,
+        CLI_MITM_CERTIFICATE_TRUST_CONFIG_MISSING_CODE
     );
 }
 
