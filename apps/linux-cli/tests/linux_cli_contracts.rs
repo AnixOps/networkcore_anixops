@@ -2851,6 +2851,78 @@ fn parses_install_sing_box_command_and_alias() {
 }
 
 #[test]
+fn parses_and_renders_install_service_plan_without_system_mutation() {
+    let command = parse_args([
+        "install-service",
+        "--service-executable",
+        "/usr/local/bin/networkcore-linux",
+        "--service-arg",
+        "start",
+        "--service-arg",
+        "--config",
+        "--service-unit",
+        "networkcore-managed.service",
+        "--service-state-dir",
+        "/var/lib/networkcore",
+        "--confirm",
+        "--format",
+        "json",
+    ])
+    .expect("install-service should parse");
+
+    let response = handle_entrypoint_skeleton(command);
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, LinuxCliExitCode::Unavailable);
+
+    let response = handle_install_service_plan(
+        "networkcore-managed.service",
+        "NetworkCore managed proxy",
+        "/usr/local/bin/networkcore-linux",
+        &["start".to_string()],
+        "networkcore",
+        "networkcore",
+        "/var/lib/networkcore",
+        true,
+    );
+    assert!(response.ok);
+    let rendered = render_response(&response, OutputFormat::Json);
+    let json: serde_json::Value =
+        serde_json::from_str(&rendered).expect("service plan should be valid JSON");
+    assert_eq!(json["command"], "install-service");
+    assert_eq!(
+        json["service_install"]["unit_name"],
+        "networkcore-managed.service"
+    );
+    assert_eq!(
+        json["service_install"]["install_confirmation_required"],
+        true
+    );
+    assert!(json["service_install"]["content"]
+        .as_str()
+        .expect("unit content")
+        .contains("NoNewPrivileges=true"));
+}
+
+#[test]
+fn install_service_requires_explicit_confirmation() {
+    let response = handle_install_service_plan(
+        "networkcore.service",
+        "NetworkCore managed proxy",
+        "/usr/local/bin/networkcore-linux",
+        &[],
+        "networkcore",
+        "networkcore",
+        "/var/lib/networkcore",
+        false,
+    );
+    assert!(!response.ok);
+    assert_eq!(
+        response.diagnostics[0].code,
+        CLI_INSTALL_SERVICE_CONFIRMATION_REQUIRED_CODE
+    );
+}
+
+#[test]
 fn parses_run_url_command_with_local_proxy_options() {
     let command = parse_args([
         "run-url",

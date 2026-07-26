@@ -1833,6 +1833,11 @@ jobs:
           grep -q "mitm_http_rewrite_preview_reports_https_request_preview_without_live_tls_or_script" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "http_rewrite_json_output_contains_live_plain_http_gate_fields" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "https_response_rewrite_preview_ready" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "InstallService" apps/linux-cli/src/lib.rs
+          grep -q "handle_install_service_plan" apps/linux-cli/src/lib.rs
+          grep -q -- "install-service --service-executable" apps/linux-cli/src/lib.rs
+          grep -q "parses_and_renders_install_service_plan_without_system_mutation" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "linux-managed-service-unit-source-contract.md" apps/linux-cli/README.md
           grep -q "BrowserCaptureProcessRunner" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureEndpointProbe" docs/architecture/linux-mitm-browser-capture-source-contract.md
           grep -q "BrowserCaptureTrafficProofProbe" docs/architecture/linux-mitm-browser-capture-source-contract.md

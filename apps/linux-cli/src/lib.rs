@@ -23,6 +23,9 @@ use mitm_policy::{
     builtin_ad_block_plugin_package, AnixOpsMitmPluginService, AnixOpsMitmPolicyEngine,
     MITM_POLICY_AD_BLOCK_PLUGIN_ID,
 };
+use platform_linux::systemd::{
+    render_systemd_unit, LinuxManagedServiceUnitPlan, LinuxManagedServiceUnitRequest,
+};
 use rcgen::{
     BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, KeyUsagePurpose,
 };
@@ -35,6 +38,7 @@ use signal_hook::{
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -150,6 +154,9 @@ pub const CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE: &str =
 pub const CLI_STATUS_NO_RUNTIME_CONTEXT_CODE: &str = "cli.linux.status.no_runtime_context";
 pub const CLI_STATUS_PLATFORM_ONLY_CODE: &str = "cli.linux.status.platform_only";
 pub const CLI_RUNTIME_UNWIRED_CODE: &str = "cli.linux.runtime.unwired";
+pub const CLI_INSTALL_SERVICE_CONFIRMATION_REQUIRED_CODE: &str =
+    "cli.linux.install_service.confirmation_required";
+pub const CLI_INSTALL_SERVICE_PLAN_INVALID_CODE: &str = "cli.linux.install_service.plan_invalid";
 pub const CLI_SING_BOX_INSTALL_FAILED_CODE: &str = "cli.linux.sing_box.install_failed";
 pub const CLI_RUN_URL_PARSE_FAILED_CODE: &str = "cli.linux.run_url.parse_failed";
 pub const CLI_RUN_URL_FILE_URI_INVALID_CODE: &str = "cli.linux.run_url.file_uri_invalid";
@@ -566,6 +573,17 @@ pub enum LinuxCliCommand {
         force: bool,
         format: OutputFormat,
     },
+    InstallService {
+        unit_name: String,
+        description: String,
+        executable_path: String,
+        arguments: Vec<String>,
+        service_user: String,
+        service_group: String,
+        state_directory: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
     RunUrl {
         url: String,
         selected_node_id: Option<String>,
@@ -623,6 +641,7 @@ impl LinuxCliCommand {
             Self::MitmHttpRewritePlan { .. } => "mitm http-rewrite plan",
             Self::MitmHttpRewritePreview { .. } => "mitm http-rewrite preview",
             Self::InstallSingBox { .. } => "install-sing-box",
+            Self::InstallService { .. } => "install-service",
             Self::RunUrl { .. } => "run-url",
             Self::RunCatalog { .. } => "run-catalog",
         }
@@ -663,6 +682,7 @@ impl LinuxCliCommand {
             | Self::MitmHttpRewritePlan { format }
             | Self::MitmHttpRewritePreview { format, .. }
             | Self::InstallSingBox { format, .. }
+            | Self::InstallService { format, .. }
             | Self::RunUrl { format, .. }
             | Self::RunCatalog { format, .. } => *format,
         }
@@ -715,6 +735,7 @@ pub struct LinuxCliResponse {
     pub certificate_lifecycle: Option<LinuxMitmCertificateLifecycleReport>,
     pub browser_capture: Option<LinuxBrowserCaptureReport>,
     pub http_rewrite: Option<LinuxMitmHttpRewriteReport>,
+    pub service_install: Option<LinuxManagedServiceUnitPlan>,
 }
 
 impl LinuxCliResponse {
@@ -742,6 +763,7 @@ impl LinuxCliResponse {
             certificate_lifecycle: None,
             browser_capture: None,
             http_rewrite: None,
+            service_install: None,
         }
     }
 
@@ -773,6 +795,7 @@ impl LinuxCliResponse {
             certificate_lifecycle: None,
             browser_capture: None,
             http_rewrite: None,
+            service_install: None,
         }
     }
 
@@ -890,6 +913,11 @@ impl LinuxCliResponse {
 
     pub fn with_http_rewrite(mut self, report: LinuxMitmHttpRewriteReport) -> Self {
         self.http_rewrite = Some(report);
+        self
+    }
+
+    pub fn with_service_install(mut self, plan: LinuxManagedServiceUnitPlan) -> Self {
+        self.service_install = Some(plan);
         self
     }
 
@@ -4795,6 +4823,13 @@ struct ParsedOptions {
     enable_https_mitm: bool,
     enable_script_runtime: bool,
     force: bool,
+    service_unit_name: Option<String>,
+    service_description: Option<String>,
+    service_executable_path: Option<String>,
+    service_arguments: Vec<String>,
+    service_user: Option<String>,
+    service_group: Option<String>,
+    service_state_directory: Option<String>,
     format: OutputFormat,
 }
 
@@ -4884,6 +4919,35 @@ where
                 format: options.format,
             })
         }
+        "install-service" => {
+            let options = parse_options(&rest)?;
+            Ok(LinuxCliCommand::InstallService {
+                unit_name: options
+                    .service_unit_name
+                    .unwrap_or_else(|| "networkcore.service".to_string()),
+                description: options
+                    .service_description
+                    .unwrap_or_else(|| "NetworkCore managed proxy".to_string()),
+                executable_path: options.service_executable_path.ok_or_else(|| {
+                    parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "install-service requires --service-executable <absolute-path>",
+                    )
+                })?,
+                arguments: options.service_arguments,
+                service_user: options
+                    .service_user
+                    .unwrap_or_else(|| "networkcore".to_string()),
+                service_group: options
+                    .service_group
+                    .unwrap_or_else(|| "networkcore".to_string()),
+                state_directory: options
+                    .service_state_directory
+                    .unwrap_or_else(|| "/var/lib/networkcore".to_string()),
+                confirm: options.confirm,
+                format: options.format,
+            })
+        }
         "run-url" => parse_run_url_command(&rest),
         "run-catalog" => parse_run_catalog_command(&rest),
         "sing-box" => parse_sing_box_command(&rest),
@@ -4912,6 +4976,7 @@ pub fn handle_entrypoint_skeleton(command: LinuxCliCommand) -> LinuxCliResponse 
         LinuxCliCommand::Help { .. } => handle_help(),
         LinuxCliCommand::Version { .. } => handle_version(),
         LinuxCliCommand::Stop { .. } => handle_stop(),
+        LinuxCliCommand::InstallService { .. } => handle_unwired_command("install-service"),
         other => handle_unwired_command(other.name()),
     }
 }
@@ -4925,6 +4990,26 @@ where
         LinuxCliCommand::Version { .. } => handle_version(),
         LinuxCliCommand::Capabilities { .. } => handle_capabilities(platform),
         LinuxCliCommand::Status { .. } => handle_status(platform),
+        LinuxCliCommand::InstallService {
+            unit_name,
+            description,
+            executable_path,
+            arguments,
+            service_user,
+            service_group,
+            state_directory,
+            confirm,
+            ..
+        } => handle_install_service_plan(
+            &unit_name,
+            &description,
+            &executable_path,
+            &arguments,
+            &service_user,
+            &service_group,
+            &state_directory,
+            confirm,
+        ),
         LinuxCliCommand::ManagedStatus { status_path, .. } => {
             handle_managed_foreground_status(&status_path)
         }
@@ -5412,6 +5497,55 @@ where
 
 pub fn handle_help() -> LinuxCliResponse {
     LinuxCliResponse::success("help").with_help(cli_help_text())
+}
+
+pub fn handle_install_service_plan(
+    unit_name: &str,
+    description: &str,
+    executable_path: &str,
+    arguments: &[String],
+    service_user: &str,
+    service_group: &str,
+    state_directory: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    if !confirm {
+        return LinuxCliResponse::failure(
+            "install-service",
+            LinuxCliExitCode::PlatformDenied,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_INSTALL_SERVICE_CONFIRMATION_REQUIRED_CODE,
+                "install-service requires explicit --confirm before producing an installation plan",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    let request = LinuxManagedServiceUnitRequest {
+        unit_name: unit_name.to_string(),
+        description: description.to_string(),
+        executable_path: PathBuf::from(executable_path),
+        arguments: arguments.to_vec(),
+        service_user: service_user.to_string(),
+        service_group: service_group.to_string(),
+        state_directory: PathBuf::from(state_directory),
+    };
+    match render_systemd_unit(&request) {
+        Ok(plan) => LinuxCliResponse::success("install-service")
+            .with_service_install(plan)
+            .with_diagnostics(vec![cli_diagnostic(
+                DiagnosticSeverity::Info,
+                "cli.linux.install_service.plan_ready",
+                "systemd unit plan rendered; no system files or service state were changed",
+                SOURCE_CLI_RUNTIME,
+            )]),
+        Err(error) => domain_error_response(
+            "install-service",
+            LinuxCliExitCode::ArgumentOrConfig,
+            DomainError::new(CLI_INSTALL_SERVICE_PLAN_INVALID_CODE, error.message),
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
 }
 
 pub fn handle_version() -> LinuxCliResponse {
@@ -10309,6 +10443,76 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.install_dir = Some(value.clone());
             }
+            "--service-unit" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--service-unit requires a systemd unit name",
+                    ));
+                };
+                options.service_unit_name = Some(value.clone());
+            }
+            "--service-description" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--service-description requires a service description",
+                    ));
+                };
+                options.service_description = Some(value.clone());
+            }
+            "--service-executable" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--service-executable requires an absolute executable path",
+                    ));
+                };
+                options.service_executable_path = Some(value.clone());
+            }
+            "--service-arg" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--service-arg requires one service argument",
+                    ));
+                };
+                options.service_arguments.push(value.clone());
+            }
+            "--service-user" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--service-user requires a non-root account name",
+                    ));
+                };
+                options.service_user = Some(value.clone());
+            }
+            "--service-group" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--service-group requires a non-root group name",
+                    ));
+                };
+                options.service_group = Some(value.clone());
+            }
+            "--service-state-dir" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--service-state-dir requires an absolute state directory path",
+                    ));
+                };
+                options.service_state_directory = Some(value.clone());
+            }
             "--node-id" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -11220,6 +11424,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify|traffic-proof] [<ss://url>] [--browser <executable>] [--profile-dir <dir>] [--target-url <url>] [--proxy-scheme http|socks5] [--listen-host <host>] [--listen-port <port>] [--pac-file <path>] [--policy-file <path>] [--profile-prefs-file <path>] [--proof-token <token>] [--proof-log <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
         "  networkcore-linux mitm http-rewrite [plan|preview] [--url <url>] [--method <method>] [--phase request|response] [--status-code <code>] [--header <name:value>] [--body <text>] [--confirm] [--format text|json]\n",
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
+        "  networkcore-linux install-service --service-executable <absolute-path> [--service-unit <name>] [--service-description <text>] [--service-arg <arg>] [--service-user <user>] [--service-group <group>] [--service-state-dir <absolute-path>] --confirm [--format text|json]\n",
         "  networkcore-linux run-url <subscription-source> [--node-id <id>] [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux run-catalog <catalog-path> <source-id> [--node-id <id>] [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux sing-box install [--install-dir <dir>] [--force] [--format text|json]\n",
@@ -11243,6 +11448,7 @@ pub const fn cli_help_text() -> &'static str {
         "  diagnostics       Print platform diagnostics.\n",
         "  mitm              Report MITM plugin policy status, certificate/browser plans, and deferred browser hijack gates.\n",
         "  install-sing-box  Download the latest official sing-box archive and cache its executable.\n",
+        "  install-service   Render an explicit systemd unit plan; this source build does not write units or call systemctl.\n",
         "  run-url           Parse a proxy URL, render sing-box config, and run a local foreground proxy.\n",
         "  run-catalog       Resolve one saved source and run it through the foreground sing-box path.\n",
         "\n",
@@ -11275,6 +11481,13 @@ pub const fn cli_help_text() -> &'static str {
         "  --proof-token <token> Browser traffic proof token expected in a proof log.\n",
         "  --proof-log <path>    Browser traffic proof log path to inspect after an operator-driven visit.\n",
         "  --install-dir <dir>   Engine cache root for install-sing-box.\n",
+        "  --service-unit <name> Systemd unit name. Defaults to networkcore.service.\n",
+        "  --service-description <text> Systemd service description.\n",
+        "  --service-executable <path> Absolute executable path for the managed service.\n",
+        "  --service-arg <arg>   One argument passed to the managed executable; repeat as needed.\n",
+        "  --service-user <user> Non-root service account. Defaults to networkcore.\n",
+        "  --service-group <group> Non-root service group. Defaults to networkcore.\n",
+        "  --service-state-dir <path> Absolute writable state directory. Defaults to /var/lib/networkcore.\n",
         "  --node-id <id>        Catalog node id for run-url. Defaults to the first supported node.\n",
         "  --listen-host <host>  Local proxy listen address for run-url. Defaults to 127.0.0.1.\n",
         "  --listen-port <port>  Local proxy listen port for run-url. Defaults to 7890.\n",
@@ -11487,6 +11700,17 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
 
     let state = if response.ok { "ok" } else { "error" };
     let mut lines = vec![format!("{}: {state}", response.command)];
+
+    if let Some(plan) = &response.service_install {
+        lines.push(format!("systemd unit: {}", plan.unit_name));
+        lines.push(format!(
+            "install confirmation required: {}",
+            plan.install_confirmation_required
+        ));
+        lines.push(format!("restart policy: {}", plan.restart_policy));
+        lines.push("unit content:".to_string());
+        lines.push(plan.content.clone());
+    }
 
     if let Some(install) = &response.sing_box_install {
         lines.push(format!("sing-box version: {}", install.version));
@@ -12346,6 +12570,7 @@ struct JsonCliResponse {
     certificate_lifecycle: Option<JsonMitmCertificateLifecycleReport>,
     browser_capture: Option<JsonBrowserCaptureReport>,
     http_rewrite: Option<JsonMitmHttpRewriteReport>,
+    service_install: Option<JsonLinuxManagedServiceUnitPlan>,
 }
 
 impl From<&LinuxCliResponse> for JsonCliResponse {
@@ -12416,6 +12641,35 @@ impl From<&LinuxCliResponse> for JsonCliResponse {
                 .http_rewrite
                 .as_ref()
                 .map(JsonMitmHttpRewriteReport::from),
+            service_install: response
+                .service_install
+                .as_ref()
+                .map(JsonLinuxManagedServiceUnitPlan::from),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonLinuxManagedServiceUnitPlan {
+    schema_version: u32,
+    unit_name: String,
+    content: String,
+    install_confirmation_required: bool,
+    restart_policy: String,
+    start_limit_burst: u32,
+    start_limit_interval_seconds: u32,
+}
+
+impl From<&LinuxManagedServiceUnitPlan> for JsonLinuxManagedServiceUnitPlan {
+    fn from(plan: &LinuxManagedServiceUnitPlan) -> Self {
+        Self {
+            schema_version: plan.schema_version,
+            unit_name: plan.unit_name.clone(),
+            content: plan.content.clone(),
+            install_confirmation_required: plan.install_confirmation_required,
+            restart_policy: plan.restart_policy.clone(),
+            start_limit_burst: plan.start_limit_burst,
+            start_limit_interval_seconds: plan.start_limit_interval_seconds,
         }
     }
 }

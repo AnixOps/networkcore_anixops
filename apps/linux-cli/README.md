@@ -1,5 +1,12 @@
 # networkcore-linux
 
+`networkcore-linux install-service --service-executable <absolute-path> --confirm` renders an explicit
+systemd unit plan through `platform-linux::systemd`; optional `--service-unit`, `--service-description`,
+`--service-arg`, `--service-user`, `--service-group`, and `--service-state-dir` parameters are included in
+the plan. The command returns the unit content in text/JSON and does not write system files, call
+`systemctl`, enable a unit, or start a service. The source boundary is documented in
+`docs/architecture/linux-managed-service-unit-source-contract.md`.
+
 `networkcore-linux` is the Linux CLI entrypoint for NetworkCore.
 
 Current `main` contains the `CommandSubscriptionCatalogStore` local JSON persistence
