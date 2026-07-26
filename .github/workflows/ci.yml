@@ -1903,6 +1903,7 @@ jobs:
           grep -q "handle_node_list" apps/linux-cli/src/lib.rs
           grep -q "parse_node_command" apps/linux-cli/src/lib.rs
           grep -q "node_list_reads_only_the_explicit_config" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "handle_node_select" apps/linux-cli/src/lib.rs
           grep -q "parses_core_list_and_mieru_local_install_contract" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "parses_core_mieru_start_and_stop_control_contract" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "parses_core_mieru_start_and_stop_control_contract" apps/linux-cli/tests/linux_cli_contracts.rs

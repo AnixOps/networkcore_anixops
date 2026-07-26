@@ -462,6 +462,14 @@ pub enum LinuxCliCommand {
         config_path: String,
         format: OutputFormat,
     },
+    NodeSelect {
+        config_path: String,
+        node_id: String,
+        selection_path: String,
+        snapshot_path: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
     InstallMieru {
         binary_path: String,
         expected_sha256: String,
@@ -704,6 +712,7 @@ impl LinuxCliCommand {
             Self::SubscriptionSelect { .. } => "subscription select",
             Self::SubscriptionRollback { .. } => "subscription rollback",
             Self::NodeList { .. } => "node list",
+            Self::NodeSelect { .. } => "node select",
             Self::InstallMieru { .. } => "core install mieru",
             Self::StartMieru { .. } => "core start mieru",
             Self::StopMieru { .. } => "core stop mieru",
@@ -765,6 +774,7 @@ impl LinuxCliCommand {
             | Self::SubscriptionSelect { format, .. }
             | Self::SubscriptionRollback { format, .. }
             | Self::NodeList { format, .. }
+            | Self::NodeSelect { format, .. }
             | Self::ServiceControl { format, .. }
             | Self::InstallMieru { format, .. }
             | Self::StartMieru { format, .. }
@@ -2960,6 +2970,14 @@ struct SubscriptionCatalogSourceFile {
     location: String,
 }
 
+const NODE_SELECTION_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct NodeSelectionFile {
+    schema_version: u32,
+    node_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ManagedForegroundSessionStatusFile {
     schema_version: u32,
@@ -4974,6 +4992,7 @@ struct ParsedOptions {
     managed_log_line_limit: Option<usize>,
     install_dir: Option<String>,
     catalog_path: Option<String>,
+    selection_path: Option<String>,
     source_id: Option<String>,
     selected_node_id: Option<String>,
     listen_host: Option<String>,
@@ -5192,7 +5211,7 @@ fn parse_node_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseE
             "node requires list",
         ));
     };
-    if subcommand != "list" {
+    if subcommand != "list" && subcommand != "select" {
         return Err(parse_error(
             CLI_ARGUMENT_UNKNOWN_CODE,
             format!("unknown node subcommand: {subcommand}"),
@@ -5205,8 +5224,36 @@ fn parse_node_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseE
             "node list requires --config <absolute-path>",
         )
     })?;
-    Ok(LinuxCliCommand::NodeList {
+    if subcommand == "list" {
+        return Ok(LinuxCliCommand::NodeList {
+            config_path,
+            format: options.format,
+        });
+    }
+    let node_id = options.source_id.ok_or_else(|| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "node select requires --source-id <node-id>",
+        )
+    })?;
+    let selection_path = options.selection_path.ok_or_else(|| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "node select requires --selection <absolute-path>",
+        )
+    })?;
+    let snapshot_path = options.snapshot_path.ok_or_else(|| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "node select requires --snapshot <absolute-path>",
+        )
+    })?;
+    Ok(LinuxCliCommand::NodeSelect {
         config_path,
+        node_id,
+        selection_path,
+        snapshot_path,
+        confirm: options.confirm,
         format: options.format,
     })
 }
@@ -5234,6 +5281,7 @@ pub fn handle_entrypoint_skeleton(command: LinuxCliCommand) -> LinuxCliResponse 
         LinuxCliCommand::UninstallService { .. } => handle_unwired_command("uninstall-service"),
         LinuxCliCommand::ServiceControl { .. } => handle_unwired_command("service"),
         LinuxCliCommand::NodeList { .. } => handle_unwired_command("node list"),
+        LinuxCliCommand::NodeSelect { .. } => handle_unwired_command("node select"),
         LinuxCliCommand::CoreList { .. }
         | LinuxCliCommand::InstallMieru { .. }
         | LinuxCliCommand::StartMieru { .. }
@@ -5294,6 +5342,20 @@ where
             confirm,
         ),
         LinuxCliCommand::NodeList { config_path, .. } => handle_node_list(&config_path),
+        LinuxCliCommand::NodeSelect {
+            config_path,
+            node_id,
+            selection_path,
+            snapshot_path,
+            confirm,
+            ..
+        } => handle_node_select(
+            &config_path,
+            &node_id,
+            &selection_path,
+            &snapshot_path,
+            confirm,
+        ),
         LinuxCliCommand::CoreList { .. }
         | LinuxCliCommand::InstallMieru { .. }
         | LinuxCliCommand::StartMieru { .. }
@@ -5892,6 +5954,157 @@ pub fn handle_node_list(config_path: &str) -> LinuxCliResponse {
         )
     }));
     LinuxCliResponse::success("node list").with_diagnostics(diagnostics)
+}
+
+pub fn handle_node_select(
+    config_path: &str,
+    node_id: &str,
+    selection_path: &str,
+    snapshot_path: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    if !confirm {
+        return LinuxCliResponse::failure(
+            "node select",
+            LinuxCliExitCode::PlatformDenied,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.selection_confirmation_required",
+                "node select requires explicit --confirm",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    let selection_path = std::path::Path::new(selection_path);
+    let snapshot_path = std::path::Path::new(snapshot_path);
+    if !selection_path.is_absolute()
+        || !snapshot_path.is_absolute()
+        || selection_path == snapshot_path
+    {
+        return LinuxCliResponse::failure(
+            "node select",
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.selection_path_invalid",
+                "node selection and snapshot paths must be distinct absolute paths",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    let raw_config = match std::fs::read_to_string(config_path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            return LinuxCliResponse::failure(
+                "node select",
+                LinuxCliExitCode::ArgumentOrConfig,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_CONFIG_READ_FAILED_CODE,
+                    format!("node selection config could not be read: {error}"),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            )
+        }
+    };
+    let document = match config_core::parse_config_document(&raw_config) {
+        Ok(document) => document,
+        Err(error) => {
+            return domain_error_response(
+                "node select",
+                LinuxCliExitCode::ArgumentOrConfig,
+                error,
+                SOURCE_CLI_RUNTIME,
+            )
+        }
+    };
+    if !document.nodes.iter().any(|node| node.id == node_id.trim()) {
+        return LinuxCliResponse::failure(
+            "node select",
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.not_found",
+                format!("node id was not found in the explicit config: {node_id}"),
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    if snapshot_path.exists() {
+        return LinuxCliResponse::failure(
+            "node select",
+            LinuxCliExitCode::PlatformDenied,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.snapshot_exists",
+                "refusing to overwrite an existing node selection snapshot",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    let previous = match std::fs::read_to_string(selection_path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            serde_json::to_string_pretty(&NodeSelectionFile {
+                schema_version: NODE_SELECTION_SCHEMA_VERSION,
+                node_id: None,
+            })
+            .expect("node selection empty snapshot serialization should not fail")
+        }
+        Err(error) => {
+            return LinuxCliResponse::failure(
+                "node select",
+                LinuxCliExitCode::PlatformDenied,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    "cli.node.selection_read_failed",
+                    format!("node selection could not be read: {error}"),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            )
+        }
+    };
+    if let Err(error) = write_new_file(
+        &snapshot_path.to_string_lossy(),
+        previous.as_bytes(),
+        "cli.node.snapshot_write_failed",
+        "node selection snapshot",
+    ) {
+        return domain_error_response(
+            "node select",
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        );
+    }
+    let selected = serde_json::to_string_pretty(&NodeSelectionFile {
+        schema_version: NODE_SELECTION_SCHEMA_VERSION,
+        node_id: Some(node_id.trim().to_string()),
+    })
+    .expect("node selection serialization should not fail");
+    if let Err(error) = write_replace_file(
+        &selection_path.to_string_lossy(),
+        selected.as_bytes(),
+        "cli.node.selection_write_failed",
+        "node selection",
+    ) {
+        return domain_error_response(
+            "node select",
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        );
+    }
+    LinuxCliResponse::success("node select").with_diagnostics(vec![cli_diagnostic(
+        DiagnosticSeverity::Info,
+        "cli.node.selected",
+        format!(
+            "node {} selected in {}; snapshot_written=true; runtime selection unchanged",
+            node_id.trim(),
+            selection_path.display()
+        ),
+        SOURCE_CLI_RUNTIME,
+    )])
 }
 
 pub fn handle_subscription_command(command: LinuxCliCommand) -> LinuxCliResponse {
@@ -11259,6 +11472,16 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.catalog_path = Some(value.clone());
             }
+            "--selection" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--selection requires an absolute selection path",
+                    ));
+                };
+                options.selection_path = Some(value.clone());
+            }
             "--source-id" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -12817,6 +13040,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux install-service --service-executable <absolute-path> [--service-unit <name>] [--service-description <text>] [--service-arg <arg>] [--service-user <user>] [--service-group <group>] [--service-state-dir <absolute-path>] --confirm [--format text|json]\n",
         "  networkcore-linux service <start|stop|restart|status> [--service-unit <name>] --confirm [--format text|json]\n",
         "  networkcore-linux node list --config <absolute-path> [--format text|json]\n",
+        "  networkcore-linux node select --config <absolute-path> --source-id <node-id> --selection <absolute-path> --snapshot <absolute-path> --confirm [--format text|json]\n",
         "  networkcore-linux restart --confirm [--service-unit <name>] [--format text|json]  # managed systemd restart\n",
         "  networkcore-linux uninstall-service [--service-unit <name>] [--service-state-dir <absolute-path>] --confirm [--format text|json]\n",
         "  networkcore-linux logs <explicit-log-path> [--tail-lines <1-1000>] [--format text|json]\n",

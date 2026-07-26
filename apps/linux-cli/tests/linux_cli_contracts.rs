@@ -178,6 +178,8 @@ fn node_list_reads_only_the_explicit_config_and_redacts_endpoint_details() {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).expect("node list fixture directory should be created");
     let config_path = root.join("nodes.toml");
+    let selection_path = root.join("selection.json");
+    let snapshot_path = root.join("selection.snapshot.json");
     std::fs::write(
         &config_path,
         "schema_version = 1\n\n[[nodes]]\nid = \"node-1\"\nname = \"Primary\"\nprotocol = \"ss\"\nhost = \"secret.example\"\nport = 443\ntags = [\"fast\"]\n",
@@ -200,6 +202,22 @@ fn node_list_reads_only_the_explicit_config_and_redacts_endpoint_details() {
             format: OutputFormat::Json,
         }
     );
+    let select = parse_args([
+        "node",
+        "select",
+        "--config",
+        config_path.to_str().expect("config path should be UTF-8"),
+        "--source-id",
+        "node-1",
+        "--selection",
+        selection_path.to_str().unwrap_or("/tmp/selection.json"),
+        "--snapshot",
+        snapshot_path
+            .to_str()
+            .unwrap_or("/tmp/selection.snapshot.json"),
+        "--confirm",
+    ]);
+    assert!(select.is_ok());
 
     let response = handle_node_list(config_path.to_str().expect("config path should be UTF-8"));
     assert!(response.ok);
@@ -211,6 +229,25 @@ fn node_list_reads_only_the_explicit_config_and_redacts_endpoint_details() {
         .diagnostics
         .iter()
         .any(|diagnostic| diagnostic.message.contains("secret.example")));
+    let selected = handle_node_select(
+        config_path.to_str().expect("config path should be UTF-8"),
+        "node-1",
+        selection_path
+            .to_str()
+            .expect("selection path should be UTF-8"),
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        true,
+    );
+    assert!(selected.ok);
+    assert!(selected.diagnostics[0]
+        .message
+        .contains("runtime selection unchanged"));
+    assert!(std::fs::read_to_string(&selection_path)
+        .expect("selection record should be readable")
+        .contains("node-1"));
+    assert!(snapshot_path.exists());
     let _ = std::fs::remove_dir_all(&root);
 }
 
