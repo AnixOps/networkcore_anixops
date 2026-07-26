@@ -1879,7 +1879,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          corepack enable
           pnpm --dir apps/windows-gui/ui install --no-frozen-lockfile
           pnpm --dir apps/windows-gui/ui run build
 
@@ -1948,7 +1947,6 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          corepack enable
           pnpm --dir apps/windows-gui/ui install --no-frozen-lockfile
           pnpm --dir apps/windows-gui/ui run build
           rustup toolchain install stable --profile minimal
@@ -2161,7 +2159,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          corepack enable
           pnpm --dir apps/windows-gui/ui install --no-frozen-lockfile
 
       - name: Lint

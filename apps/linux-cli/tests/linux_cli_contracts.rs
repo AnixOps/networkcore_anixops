@@ -17,7 +17,6 @@ use engine_singbox::{
     SingBoxProcessRunner, SingBoxReleaseInstaller, ENGINE_SINGBOX_DOWNLOAD_BINARY_READY_CODE,
     ENGINE_SINGBOX_PROCESS_EXITED_CODE,
 };
-use std::io::Write;
 use networkcore_linux::{
     cli_help_text, handle_capabilities, handle_entrypoint,
     handle_entrypoint_with_browser_capture_all_io, handle_entrypoint_with_browser_capture_io,
@@ -42,11 +41,9 @@ use networkcore_linux::{
     handle_mitm_certificate_rollback, handle_mitm_certificate_rollback_with_store,
     handle_mitm_http_rewrite_plan, handle_mitm_http_rewrite_preview, handle_mitm_status,
     handle_parse_error, handle_prepare_config, handle_run_catalog_with_sing_box,
-    handle_run_catalog_with_sing_box_and_fetcher,
-    handle_run_url_with_sing_box,
+    handle_run_catalog_with_sing_box_and_fetcher, handle_run_url_with_sing_box,
     handle_run_url_with_sing_box_and_fetcher, handle_run_url_with_sing_box_and_node_id,
-    handle_start,
-    handle_status, handle_stop, native_proxy_engine_service_with_builtin_mitm_plugin,
+    handle_start, handle_status, handle_stop, native_proxy_engine_service_with_builtin_mitm_plugin,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files, parse_args,
     render_response, BrowserCaptureEndpointProbe, BrowserCapturePacFileStore,
@@ -54,8 +51,8 @@ use networkcore_linux::{
     CommandBrowserCaptureEndpointProbe, CommandBrowserCaptureTrafficProofProbe,
     CommandManagedForegroundSessionEventStore, CommandManagedForegroundSessionLogStore,
     CommandManagedForegroundSessionStore, CommandRemoteSubscriptionFetcher,
-    CommandSubscriptionCatalogStore, ConfigReadError,
-    ConfigReader, CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
+    CommandSubscriptionCatalogStore, ConfigReadError, ConfigReader,
+    CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
     ForegroundLifecycleOutcome, ForegroundLifecycleRequest, LinuxBrowserCaptureLaunchOutcome,
     LinuxBrowserCaptureLaunchRequest, LinuxBrowserCapturePacApplyOutcome,
@@ -69,15 +66,14 @@ use networkcore_linux::{
     ManagedForegroundSessionLogTailRequest, ManagedForegroundSessionStatusRequest,
     ManagedForegroundSessionStatusRollbackRequest, ManagedForegroundSessionStatusTransitionRequest,
     ManagedForegroundSessionStatusWriteRequest, MitmCertificateArtifactStore,
-    MitmCertificateRollbackSnapshot, OutputFormat, SubscriptionCatalogAddRequest,
-    SubscriptionCatalogListRequest, SubscriptionCatalogRemoveRequest,
-    SubscriptionCatalogRollbackRequest, SubscriptionCatalogSelectRequest,
-    RemoteSubscriptionFetcher, SubscriptionCatalogUpdateRequest, UnavailableForegroundLifecycleHost,
-    UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
-    CLI_CONFIG_READ_FAILED_CODE, CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE,
-    CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE, CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE,
-    CLI_RUN_URL_FILE_READ_FAILED_CODE, CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
-    CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+    MitmCertificateRollbackSnapshot, OutputFormat, RemoteSubscriptionFetcher,
+    SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
+    SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
+    SubscriptionCatalogSelectRequest, SubscriptionCatalogUpdateRequest,
+    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
+    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
+    CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE, CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE,
+    CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE,
@@ -104,7 +100,8 @@ use networkcore_linux::{
     CLI_MITM_CLI_GATE_PARTIAL_CODE, CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE,
     CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE, CLI_MITM_HTTP_REWRITE_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE, CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE,
-    CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE, CLI_START_FOREGROUND_ONLY_CODE,
+    CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE, CLI_RUN_URL_FILE_READ_FAILED_CODE,
+    CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE, CLI_START_FOREGROUND_ONLY_CODE,
     CLI_START_LIFECYCLE_FAILED_CODE, CLI_START_LIFECYCLE_HOST_MISSING_CODE,
     CLI_START_LIFECYCLE_INTERRUPTED_CODE, CLI_START_PLATFORM_DENIED_CODE,
     CLI_START_RUNTIME_STOP_FAILED_CODE, CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE,
@@ -146,6 +143,7 @@ use platform_linux::{
 };
 #[cfg(unix)]
 use signal_hook::consts::signal::{SIGINT, SIGTERM};
+use std::io::Write;
 use std::net::TcpListener;
 
 #[test]
@@ -667,8 +665,8 @@ fn managed_foreground_session_log_cli_reads_bounded_explicit_log() {
     ));
     let platform =
         StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
-    let before_read = std::fs::read_to_string(&log_path)
-        .expect("managed log CLI fixture should remain readable");
+    let before_read =
+        std::fs::read_to_string(&log_path).expect("managed log CLI fixture should remain readable");
     let response = handle_entrypoint(command, &platform);
 
     assert!(response.ok);
@@ -1989,10 +1987,12 @@ fn run_catalog_handler_fetches_a_saved_remote_source_through_the_same_runner() {
             .node_id,
         "ss-82-47-34-99-11111"
     );
-    assert_eq!(fetcher.requested_location(), "https://subscriptions.example.test/work");
+    assert_eq!(
+        fetcher.requested_location(),
+        "https://subscriptions.example.test/work"
+    );
 
-    std::fs::remove_dir_all(&root)
-        .expect("run-catalog remote test directory should be removed");
+    std::fs::remove_dir_all(&root).expect("run-catalog remote test directory should be removed");
 }
 
 #[test]
@@ -6311,7 +6311,10 @@ fn run_url_handler_selects_the_requested_catalog_node() {
         false,
     );
     assert!(!missing_node_response.ok);
-    assert_eq!(missing_node_response.exit_code, LinuxCliExitCode::ArgumentOrConfig);
+    assert_eq!(
+        missing_node_response.exit_code,
+        LinuxCliExitCode::ArgumentOrConfig
+    );
 
     let _ = std::fs::remove_dir_all(&install_dir);
 }
@@ -6395,7 +6398,10 @@ fn run_url_handler_fetches_an_explicit_remote_subscription_through_the_same_pars
     );
 
     assert!(response.ok);
-    assert_eq!(fetcher.requested_location(), "https://subscriptions.example.test/profile");
+    assert_eq!(
+        fetcher.requested_location(),
+        "https://subscriptions.example.test/profile"
+    );
     assert_eq!(
         response
             .sing_box_run

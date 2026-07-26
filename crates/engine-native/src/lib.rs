@@ -69,12 +69,10 @@ pub const ENGINE_NATIVE_START_SERVICE_RUNTIME_OWNER_MISSING_CODE: &str =
 pub const ENGINE_NATIVE_START_RUNNING_CODE: &str = "engine.native.start.running";
 pub const ENGINE_NATIVE_START_BIND_FAILED_CODE: &str = "engine.native.start.bind_failed";
 pub const ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE: &str = "engine.native.start.lifecycle_failed";
-pub const ENGINE_NATIVE_RELOAD_RUNTIME_MISSING_CODE: &str =
-    "engine.native.reload.runtime_missing";
+pub const ENGINE_NATIVE_RELOAD_RUNTIME_MISSING_CODE: &str = "engine.native.reload.runtime_missing";
 pub const ENGINE_NATIVE_RELOAD_RUNNING_CODE: &str = "engine.native.reload.running";
 pub const ENGINE_NATIVE_RELOAD_FAILED_CODE: &str = "engine.native.reload.failed";
-pub const ENGINE_NATIVE_RELOAD_ROLLBACK_FAILED_CODE: &str =
-    "engine.native.reload.rollback_failed";
+pub const ENGINE_NATIVE_RELOAD_ROLLBACK_FAILED_CODE: &str = "engine.native.reload.rollback_failed";
 pub const ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE: &str =
     "engine.native.runtime.listener_disabled";
 pub const ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE: &str =

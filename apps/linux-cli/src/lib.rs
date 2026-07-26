@@ -5953,7 +5953,9 @@ pub fn handle_managed_foreground_log_tail(log_path: &str, line_limit: usize) -> 
         log_path: log_path.to_string(),
         line_limit,
     }) {
-        Ok(report) => LinuxCliResponse::success("managed-log").with_managed_foreground_log_tail(report),
+        Ok(report) => {
+            LinuxCliResponse::success("managed-log").with_managed_foreground_log_tail(report)
+        }
         Err(error) => {
             let exit_code = if error.code == CLI_MANAGED_FOREGROUND_LOG_PATH_MISSING_CODE
                 || error.code == CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE
@@ -9577,8 +9579,7 @@ where
     S: SingBoxProcessRunner,
     F: RemoteSubscriptionFetcher,
 {
-    let source_location = match read_subscription_catalog_source_location(catalog_path, source_id)
-    {
+    let source_location = match read_subscription_catalog_source_location(catalog_path, source_id) {
         Ok(location) => location,
         Err(error) => {
             return domain_error_response(
@@ -9851,7 +9852,9 @@ impl RemoteSubscriptionFetcher for CommandRemoteSubscriptionFetcher {
             .redirect(reqwest::redirect::Policy::limited(
                 RUN_URL_REMOTE_SUBSCRIPTION_MAX_REDIRECTS,
             ))
-            .timeout(Duration::from_secs(RUN_URL_REMOTE_SUBSCRIPTION_TIMEOUT_SECONDS))
+            .timeout(Duration::from_secs(
+                RUN_URL_REMOTE_SUBSCRIPTION_TIMEOUT_SECONDS,
+            ))
             .build()
             .map_err(|_| {
                 DomainError::new(
@@ -9905,10 +9908,7 @@ impl RemoteSubscriptionFetcher for CommandRemoteSubscriptionFetcher {
     }
 }
 
-fn read_run_url_subscription_content<F>(
-    input: &str,
-    fetcher: &F,
-) -> DomainResult<String>
+fn read_run_url_subscription_content<F>(input: &str, fetcher: &F) -> DomainResult<String>
 where
     F: RemoteSubscriptionFetcher,
 {
@@ -11131,17 +11131,13 @@ fn parse_managed_log_tail_limit(value: &str) -> Result<usize, LinuxCliParseError
     let limit = value.parse::<usize>().map_err(|_| {
         parse_error(
             CLI_ARGUMENT_VALUE_MISSING_CODE,
-            format!(
-                "--tail-lines must be between 1 and {MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT}"
-            ),
+            format!("--tail-lines must be between 1 and {MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT}"),
         )
     })?;
     if !(1..=MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT).contains(&limit) {
         return Err(parse_error(
             CLI_ARGUMENT_VALUE_MISSING_CODE,
-            format!(
-                "--tail-lines must be between 1 and {MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT}"
-            ),
+            format!("--tail-lines must be between 1 and {MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT}"),
         ));
     }
     Ok(limit)
