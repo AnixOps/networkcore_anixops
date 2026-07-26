@@ -9,6 +9,12 @@ the plan. The command returns the unit content in text/JSON and does not write s
 `networkcore-linux uninstall-service --confirm` renders the matching removal plan while preserving the
 state directory; it does not delete files or call `systemctl`, and purge remains a separate future action.
 
+`networkcore-linux core list` reports the registered public engine descriptors.
+`networkcore-linux core install mieru --binary <path> --sha256 <digest>` verifies
+an operator-provided Mieru executable locally and returns its digest; it does not
+download, spawn, or install a service. Mieru runtime wiring and system proxy
+mutation remain unavailable.
+
 `networkcore-linux` is the Linux CLI entrypoint for NetworkCore.
 
 Current `main` contains the `CommandSubscriptionCatalogStore` local JSON persistence

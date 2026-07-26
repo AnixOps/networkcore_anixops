@@ -18,6 +18,12 @@ current-main-subscription-background=blocked
 
 ### Changed
 
+- Linux CLI now exposes `core list` and an explicit local Mieru verification
+  command, `core install mieru --binary <path> --sha256 <digest>`. The command
+  verifies the operator-provided executable and reports its digest without
+  downloading, spawning, or installing a service; Mieru runtime wiring and
+  system proxy mutation remain deferred.
+
 - Linux `run-catalog <catalog-path> <source-id>` now resolves one saved
   catalog source into the existing foreground sing-box path. It supports the
   same explicit inline, file, and HTTP(S) inputs as `run-url`, without exposing

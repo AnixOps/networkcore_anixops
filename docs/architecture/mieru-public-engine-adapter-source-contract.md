@@ -7,10 +7,12 @@ binary, or silently download one.
 ## Current Status
 
 `engine-mieru` is source-only and contract-tested. The current slice provides
-structured `mierus://` parsing, `Protocol::Mieru` normalization, explicit local
-binary SHA-256 verification, and an injectable cross-platform child-process
-supervisor. It does not yet wire Mieru into the Linux CLI, Windows service, or
-system proxy path.
+structured `mierus://` parsing, `Protocol::Mieru` normalization, official-shape
+client config rendering, explicit local binary SHA-256 verification, and an
+injectable cross-platform child-process supervisor. The Linux CLI exposes
+read-only `core list` and explicit local `core install mieru --binary <path>
+--sha256 <digest>` verification; it does not download, spawn, or wire Mieru
+into the Windows service or system proxy path.
 
 ## Binary Boundary
 
@@ -44,8 +46,8 @@ contract and CI integration evidence exist.
 
 ## Future Wiring Gates
 
-Before CLI or service activation, add separate contracts for generated Mieru
-configuration, local SOCKS5 endpoint observation, bounded logs, abnormal exit
-cleanup, Windows and Linux lifecycle ownership, and explicit rollback of the
-NetworkCore-owned local proxy resource. Do not infer those behaviors from the
-current parser or supervisor alone.
+Before runtime service activation, add separate contracts for Linux/Windows
+lifecycle ownership, bounded logs, abnormal exit cleanup, and explicit rollback
+of the NetworkCore-owned local proxy resource. The current config renderer and
+listener readiness helper do not by themselves authorize process spawning or
+system proxy mutation.
