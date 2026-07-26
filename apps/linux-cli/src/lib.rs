@@ -6126,7 +6126,7 @@ pub fn handle_node_select(
         }
     };
     if let Err(error) = write_new_file(
-        &snapshot_path.to_string_lossy(),
+        snapshot_path.to_string_lossy().as_ref(),
         previous.as_bytes(),
         "cli.node.snapshot_write_failed",
         "node selection snapshot",
@@ -6144,7 +6144,7 @@ pub fn handle_node_select(
     })
     .expect("node selection serialization should not fail");
     if let Err(error) = write_replace_file(
-        &selection_path.to_string_lossy(),
+        selection_path.to_string_lossy().as_ref(),
         selected.as_bytes(),
         "cli.node.selection_write_failed",
         "node selection",
@@ -6242,7 +6242,7 @@ pub fn handle_node_rollback(
         }
     };
     if let Err(error) = write_replace_file(
-        &selection.to_string_lossy(),
+        selection.to_string_lossy().as_ref(),
         contents.as_bytes(),
         "cli.node.rollback_write_failed",
         "node selection rollback",
