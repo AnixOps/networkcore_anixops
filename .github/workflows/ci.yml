@@ -1026,6 +1026,7 @@ jobs:
           grep -q "managed-foreground-session-log-max-bytes=65536" docs/architecture/managed-foreground-session-log-source-contract.md
           grep -q "CommandManagedForegroundSessionLogStore::read_tail" docs/architecture/managed-foreground-session-log-source-contract.md
           grep -q "networkcore-linux managed-log" docs/architecture/managed-foreground-session-log-source-contract.md
+          grep -q '"managed-log" | "logs"' apps/linux-cli/src/lib.rs
           grep -q "ManagedForegroundSessionStatusRequest" apps/linux-cli/src/lib.rs
           grep -q "ManagedForegroundSessionStatusReport" apps/linux-cli/src/lib.rs
           grep -q "fn read_status" apps/linux-cli/src/lib.rs
