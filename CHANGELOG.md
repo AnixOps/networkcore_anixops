@@ -18,6 +18,10 @@ current-main-subscription-background=blocked
 
 ### Changed
 
+- 完成 Linux managed foreground control socket stop slice：显式 managed `start` 可创建不覆盖已有路径的
+  owner-only `0600` Unix socket，`stop --managed-control-socket <absolute-path> --confirm` 通过 bounded
+  `stop`/`accepted` 协议进入既有 interruption、runtime release 和 `running -> stopped` 记录路径；默认
+  socket、PID fallback、reload、status 与非 Unix fallback 保持 blocked。
 - 完成 Linux managed foreground lifecycle recording slice：`start` 在同时提供
   `--managed-status`、`--managed-snapshot` 和 `--managed-events` 时写入 `starting`/`running`/`stopped`/`failed`
   status、非覆盖 snapshot 与 schema version 1 lifecycle events；默认未提供路径时保持 foreground-only 行为，

@@ -53,7 +53,15 @@ use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
+#[cfg(unix)]
+use std::os::unix::net::{UnixListener, UnixStream};
+#[cfg(unix)]
+use std::os::unix::{fs::FileTypeExt, fs::PermissionsExt};
 use std::path::PathBuf;
+#[cfg(unix)]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(unix)]
+use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -80,8 +88,20 @@ pub const CLI_START_MANAGED_LIFECYCLE_CONFIG_INVALID_CODE: &str =
     "cli.linux.start.managed_lifecycle_config_invalid";
 pub const CLI_START_MANAGED_LIFECYCLE_RECORD_FAILED_CODE: &str =
     "cli.linux.start.managed_lifecycle_record_failed";
+pub const CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE: &str =
+    "cli.linux.managed_control_socket.authorization_required";
+pub const CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE: &str =
+    "cli.linux.managed_control_socket.start_failed";
+pub const CLI_MANAGED_CONTROL_SOCKET_START_READY_CODE: &str =
+    "cli.linux.managed_control_socket.start_ready";
+pub const CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE: &str =
+    "cli.linux.managed_control_socket.stop_ready";
+pub const CLI_MANAGED_CONTROL_SOCKET_STOP_FAILED_CODE: &str =
+    "cli.linux.managed_control_socket.stop_failed";
 pub const CLI_START_SIGNAL_RECEIVED_CODE: &str = "cli.linux.start.signal_received";
 pub const CLI_START_SIGNAL_SOURCE_FAILED_CODE: &str = "cli.linux.start.signal_source_failed";
+pub const CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE: &str =
+    "cli.linux.start.managed_control_stop_requested";
 pub const CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE: &str =
     "cli.linux.start.tls_mitm_authorization_required";
 pub const CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE: &str =
@@ -351,6 +371,7 @@ pub const SOURCE_CLI_MITM: &str = "cli.mitm";
 pub const SOURCE_CLI_MANAGED_FOREGROUND_EVENT: &str = "cli.managed_foreground_event";
 pub const SOURCE_CLI_MANAGED_FOREGROUND_LOG: &str = "cli.managed_foreground_log";
 pub const SOURCE_CLI_MANAGED_FOREGROUND_STATUS: &str = "cli.managed_foreground_status";
+pub const SOURCE_CLI_MANAGED_CONTROL: &str = "cli.managed_control";
 pub const SOURCE_CLI_SING_BOX: &str = "cli.sing_box";
 pub const SOURCE_CLI_START: &str = "cli.start";
 pub const SOURCE_CLI_STOP: &str = "cli.stop";
@@ -366,6 +387,8 @@ pub const MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES: u64 = 64 * 1024;
 pub const MANAGED_FOREGROUND_LOG_TAIL_DEFAULT_LIMIT: usize = 100;
 pub const MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT: usize = 1_000;
 pub const MANAGED_FOREGROUND_LOG_TAIL_MAX_BYTES: u64 = 64 * 1024;
+#[cfg(unix)]
+static MANAGED_CONTROL_STOP_REQUESTED: AtomicBool = AtomicBool::new(false);
 pub const RUN_URL_REMOTE_SUBSCRIPTION_MAX_BYTES: u64 = 1024 * 1024;
 pub const RUN_URL_REMOTE_SUBSCRIPTION_TIMEOUT_SECONDS: u64 = 15;
 pub const RUN_URL_REMOTE_SUBSCRIPTION_MAX_REDIRECTS: usize = 5;
@@ -443,6 +466,11 @@ pub enum LinuxCliCommand {
         format: OutputFormat,
     },
     Stop {
+        format: OutputFormat,
+    },
+    ManagedControlStop {
+        socket_path: String,
+        confirm: bool,
         format: OutputFormat,
     },
     CoreList {
@@ -783,6 +811,7 @@ impl LinuxCliCommand {
             Self::PrepareConfig { .. } => "prepare-config",
             Self::Start { .. } => "start",
             Self::Stop { .. } => "stop",
+            Self::ManagedControlStop { .. } => "managed-control stop",
             Self::CoreList { .. } => "core list",
             Self::SubscriptionAdd { .. } => "subscription add",
             Self::SubscriptionList { .. } => "subscription list",
@@ -855,6 +884,7 @@ impl LinuxCliCommand {
             | Self::PrepareConfig { format, .. }
             | Self::Start { format, .. }
             | Self::Stop { format }
+            | Self::ManagedControlStop { format, .. }
             | Self::CoreList { format }
             | Self::SubscriptionAdd { format, .. }
             | Self::SubscriptionList { format, .. }
@@ -2168,6 +2198,7 @@ pub struct ManagedForegroundLifecyclePaths {
     pub status_path: String,
     pub snapshot_path: String,
     pub event_directory: String,
+    pub control_socket_path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2685,10 +2716,26 @@ impl ManagedForegroundLifecycleRecorder {
         let status_path = paths.status_path.trim();
         let snapshot_path = paths.snapshot_path.trim();
         let event_directory = paths.event_directory.trim();
+        let control_socket_path = paths
+            .control_socket_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .map(ToString::to_string);
         if status_path.is_empty() || snapshot_path.is_empty() || event_directory.is_empty() {
             return Err(DomainError::new(
                 CLI_START_MANAGED_LIFECYCLE_CONFIG_INVALID_CODE,
                 "managed foreground lifecycle paths must all be non-empty",
+            ));
+        }
+        if paths
+            .control_socket_path
+            .as_deref()
+            .is_some_and(|path| path.trim().is_empty())
+        {
+            return Err(DomainError::new(
+                CLI_START_MANAGED_LIFECYCLE_CONFIG_INVALID_CODE,
+                "managed foreground control socket path cannot be empty",
             ));
         }
         if status_path == snapshot_path {
@@ -2706,6 +2753,7 @@ impl ManagedForegroundLifecycleRecorder {
                 status_path: status_path.to_string(),
                 snapshot_path: snapshot_path.to_string(),
                 event_directory: event_directory.to_string(),
+                control_socket_path,
             },
             session_id: format!("foreground-{}-{timestamp}", std::process::id()),
             engine_id: DEFAULT_ENGINE_ID.to_string(),
@@ -2781,6 +2829,150 @@ impl ManagedForegroundLifecycleRecorder {
             event_kind,
             next_state,
         )
+    }
+}
+
+pub trait ManagedControlInterrupter: Send + Sync {
+    fn interrupt(&self) -> DomainResult<()>;
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OsSignalManagedControlInterrupter;
+
+impl ManagedControlInterrupter for OsSignalManagedControlInterrupter {
+    fn interrupt(&self) -> DomainResult<()> {
+        #[cfg(unix)]
+        {
+            MANAGED_CONTROL_STOP_REQUESTED.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            Err(DomainError::new(
+                CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE,
+                "managed foreground control sockets require Unix",
+            ))
+        }
+    }
+}
+
+pub struct ManagedControlSocketGuard {
+    #[cfg(unix)]
+    socket_path: String,
+    #[cfg(unix)]
+    shutdown: mpsc::Sender<()>,
+    #[cfg(unix)]
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for ManagedControlSocketGuard {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            let _ = self.shutdown.send(());
+            if let Some(worker) = self.worker.take() {
+                let _ = worker.join();
+            }
+            if std::fs::symlink_metadata(&self.socket_path)
+                .is_ok_and(|metadata| metadata.file_type().is_socket())
+            {
+                let _ = std::fs::remove_file(&self.socket_path);
+            }
+        }
+    }
+}
+
+pub fn start_managed_control_socket(socket_path: &str) -> DomainResult<ManagedControlSocketGuard> {
+    start_managed_control_socket_with_interrupter(
+        socket_path,
+        Arc::new(OsSignalManagedControlInterrupter),
+    )
+}
+
+pub fn start_managed_control_socket_with_interrupter(
+    socket_path: &str,
+    interrupter: Arc<dyn ManagedControlInterrupter>,
+) -> DomainResult<ManagedControlSocketGuard> {
+    let socket_path = socket_path.trim();
+    if socket_path.is_empty() || !std::path::Path::new(socket_path).is_absolute() {
+        return Err(DomainError::new(
+            CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE,
+            "managed foreground control socket path must be absolute",
+        ));
+    }
+    #[cfg(unix)]
+    {
+        MANAGED_CONTROL_STOP_REQUESTED.store(false, Ordering::SeqCst);
+        if std::path::Path::new(socket_path).exists() {
+            return Err(DomainError::new(
+                CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE,
+                "refusing to replace an existing managed foreground control socket path",
+            ));
+        }
+        write_parent_dir(socket_path, CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE)?;
+        let listener = UnixListener::bind(socket_path).map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE,
+                format!("failed to bind managed foreground control socket: {error}"),
+            )
+        })?;
+        if let Err(error) =
+            std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600))
+        {
+            let _ = std::fs::remove_file(socket_path);
+            return Err(DomainError::new(
+                CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE,
+                format!("failed to protect managed foreground control socket: {error}"),
+            ));
+        }
+        if let Err(error) = listener.set_nonblocking(true) {
+            let _ = std::fs::remove_file(socket_path);
+            return Err(DomainError::new(
+                CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE,
+                format!("failed to configure managed foreground control socket: {error}"),
+            ));
+        }
+        let (shutdown, shutdown_receiver) = mpsc::channel();
+        let worker = std::thread::spawn(move || loop {
+            if shutdown_receiver.try_recv().is_ok() {
+                break;
+            }
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let mut command = Vec::new();
+                    let read_result = (&mut stream).take(64).read_to_end(&mut command);
+                    let accepted = read_result.is_ok()
+                        && std::str::from_utf8(&command).is_ok_and(|value| value.trim() == "stop")
+                        && interrupter.interrupt().is_ok();
+                    let response = if accepted {
+                        b"accepted\n".as_slice()
+                    } else {
+                        b"rejected\n".as_slice()
+                    };
+                    let _ = stream.write_all(response);
+                    if accepted {
+                        break;
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(_) => break,
+            }
+        });
+        Ok(ManagedControlSocketGuard {
+            socket_path: socket_path.to_string(),
+            shutdown,
+            worker: Some(worker),
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = interrupter;
+        Err(DomainError::new(
+            CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE,
+            "managed foreground control sockets require Unix",
+        ))
     }
 }
 
@@ -5195,6 +5387,17 @@ impl OsSignalForegroundLifecycleInterruptionSource {
     pub fn interruption_for_signal(signal: i32) -> ForegroundLifecycleInterruption {
         foreground_os_signal_interruption(signal)
     }
+
+    pub fn interruption_for_managed_control_stop() -> ForegroundLifecycleInterruption {
+        ForegroundLifecycleInterruption::new("managed-control-stop").with_diagnostics(vec![
+            cli_diagnostic(
+                DiagnosticSeverity::Warning,
+                CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE,
+                "managed foreground control socket requested runtime stop",
+                SOURCE_CLI_MANAGED_CONTROL,
+            ),
+        ])
+    }
 }
 
 #[cfg(unix)]
@@ -5216,18 +5419,15 @@ impl ForegroundLifecycleInterruptionSource for OsSignalForegroundLifecycleInterr
             }
         };
 
-        if let Some(signal) = signals.forever().next() {
-            return Self::interruption_for_signal(signal);
+        loop {
+            if MANAGED_CONTROL_STOP_REQUESTED.swap(false, Ordering::SeqCst) {
+                return Self::interruption_for_managed_control_stop();
+            }
+            if let Some(signal) = signals.pending().next() {
+                return Self::interruption_for_signal(signal);
+            }
+            thread::sleep(Duration::from_millis(20));
         }
-
-        ForegroundLifecycleInterruption::new("os-signal-source-closed").with_diagnostics(vec![
-            cli_diagnostic(
-                DiagnosticSeverity::Error,
-                CLI_START_SIGNAL_SOURCE_FAILED_CODE,
-                "foreground OS signal source closed before receiving an interruption",
-                SOURCE_CLI_START,
-            ),
-        ])
     }
 }
 
@@ -5332,6 +5532,7 @@ struct ParsedOptions {
     managed_status_path: Option<String>,
     managed_snapshot_path: Option<String>,
     managed_event_directory: Option<String>,
+    managed_control_socket_path: Option<String>,
     profile_trust_file_path: Option<String>,
     pac_file_path: Option<String>,
     policy_file_path: Option<String>,
@@ -5433,14 +5634,15 @@ where
                 options.managed_snapshot_path,
                 options.managed_event_directory,
             ) {
-                (None, None, None) => None,
                 (Some(status_path), Some(snapshot_path), Some(event_directory)) => {
                     Some(ManagedForegroundLifecyclePaths {
                         status_path,
                         snapshot_path,
                         event_directory,
+                        control_socket_path: options.managed_control_socket_path,
                     })
                 }
+                (None, None, None) if options.managed_control_socket_path.is_none() => None,
                 _ => {
                     return Err(parse_error(
                         CLI_ARGUMENT_VALUE_MISSING_CODE,
@@ -5465,6 +5667,15 @@ where
         }
         "disconnect" | "stop" => {
             let options = parse_options(&rest)?;
+            if command == "stop" {
+                if let Some(socket_path) = options.managed_control_socket_path {
+                    return Ok(LinuxCliCommand::ManagedControlStop {
+                        socket_path,
+                        confirm: options.confirm,
+                        format: options.format,
+                    });
+                }
+            }
             if command == "disconnect" && (options.confirm || options.service_unit_name.is_some()) {
                 return Ok(LinuxCliCommand::ServiceControl {
                     action: LinuxSystemdServiceAction::Stop,
@@ -5808,6 +6019,11 @@ pub fn handle_entrypoint_skeleton(command: LinuxCliCommand) -> LinuxCliResponse 
         LinuxCliCommand::Help { .. } => handle_help(),
         LinuxCliCommand::Version { .. } => handle_version(),
         LinuxCliCommand::Stop { .. } => handle_stop(),
+        LinuxCliCommand::ManagedControlStop {
+            socket_path,
+            confirm,
+            ..
+        } => handle_managed_control_stop(&socket_path, confirm),
         LinuxCliCommand::Restart { .. } => handle_restart_unavailable(),
         LinuxCliCommand::InstallService { .. } => handle_unwired_command("install-service"),
         LinuxCliCommand::UninstallService { .. } => handle_unwired_command("uninstall-service"),
@@ -6181,6 +6397,11 @@ where
             confirm,
         ),
         LinuxCliCommand::Stop { .. } => handle_stop(),
+        LinuxCliCommand::ManagedControlStop {
+            socket_path,
+            confirm,
+            ..
+        } => handle_managed_control_stop(&socket_path, confirm),
         other => handle_unwired_command(other.name()),
     }
 }
@@ -8192,9 +8413,39 @@ where
             );
         }
     }
+    let managed_control_socket = match managed_recorder
+        .as_ref()
+        .and_then(|recorder| recorder.paths.control_socket_path.as_deref())
+        .map(start_managed_control_socket)
+        .transpose()
+    {
+        Ok(socket) => socket,
+        Err(error) => {
+            if let Some(recorder) = managed_recorder.as_ref() {
+                let _ = recorder.transition(
+                    "starting",
+                    "failed",
+                    format!("{}.failed", recorder.paths.snapshot_path),
+                );
+            }
+            return LinuxCliResponse::failure(
+                "start",
+                LinuxCliExitCode::GeneralFailure,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE,
+                    error.message,
+                    SOURCE_CLI_MANAGED_CONTROL,
+                ),
+            );
+        }
+    };
+    let control_socket_path = managed_recorder
+        .as_ref()
+        .and_then(|recorder| recorder.paths.control_socket_path.clone());
 
     let request = RuntimeConfigRequest::new(DEFAULT_ENGINE_ID, raw_config);
-    match orchestrator.start_runtime(request) {
+    let mut response = match orchestrator.start_runtime(request) {
         Ok(result) => {
             if let Some(recorder) = managed_recorder.as_ref() {
                 if let Err(error) =
@@ -8261,7 +8512,17 @@ where
             }
             response
         }
+    };
+    if let Some(socket_path) = control_socket_path {
+        response.diagnostics.push(cli_diagnostic(
+            DiagnosticSeverity::Info,
+            CLI_MANAGED_CONTROL_SOCKET_START_READY_CODE,
+            format!("managed foreground control socket was active at {socket_path}"),
+            SOURCE_CLI_MANAGED_CONTROL,
+        ));
     }
+    drop(managed_control_socket);
+    response
 }
 
 pub fn handle_foreground_lifecycle<H>(
@@ -8406,6 +8667,92 @@ pub fn handle_stop() -> LinuxCliResponse {
             SOURCE_CLI_STOP,
         ),
     )
+}
+
+pub fn handle_managed_control_stop(socket_path: &str, confirm: bool) -> LinuxCliResponse {
+    if !confirm {
+        return LinuxCliResponse::failure(
+            "managed-control stop",
+            LinuxCliExitCode::PlatformDenied,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE,
+                "managed foreground control stop requires --confirm",
+                SOURCE_CLI_MANAGED_CONTROL,
+            ),
+        );
+    }
+    let socket_path = socket_path.trim();
+    if socket_path.is_empty() || !std::path::Path::new(socket_path).is_absolute() {
+        return LinuxCliResponse::failure(
+            "managed-control stop",
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_MANAGED_CONTROL_SOCKET_STOP_FAILED_CODE,
+                "managed foreground control socket path must be absolute",
+                SOURCE_CLI_MANAGED_CONTROL,
+            ),
+        );
+    }
+    #[cfg(unix)]
+    {
+        let result = (|| -> std::io::Result<String> {
+            let mut stream = UnixStream::connect(socket_path)?;
+            stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+            stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+            stream.write_all(b"stop\n")?;
+            stream.shutdown(std::net::Shutdown::Write)?;
+            let mut response = String::new();
+            (&mut stream).take(64).read_to_string(&mut response)?;
+            Ok(response)
+        })();
+        return match result {
+            Ok(response) if response.trim() == "accepted" => {
+                LinuxCliResponse::success("managed-control stop").with_diagnostics(vec![
+                    cli_diagnostic(
+                        DiagnosticSeverity::Info,
+                        CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE,
+                        format!("managed foreground stop was accepted by {socket_path}"),
+                        SOURCE_CLI_MANAGED_CONTROL,
+                    ),
+                ])
+            }
+            Ok(_) => LinuxCliResponse::failure(
+                "managed-control stop",
+                LinuxCliExitCode::GeneralFailure,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_MANAGED_CONTROL_SOCKET_STOP_FAILED_CODE,
+                    "managed foreground control socket rejected the stop request",
+                    SOURCE_CLI_MANAGED_CONTROL,
+                ),
+            ),
+            Err(error) => LinuxCliResponse::failure(
+                "managed-control stop",
+                LinuxCliExitCode::GeneralFailure,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_MANAGED_CONTROL_SOCKET_STOP_FAILED_CODE,
+                    format!("managed foreground control stop failed: {error}"),
+                    SOURCE_CLI_MANAGED_CONTROL,
+                ),
+            ),
+        };
+    }
+    #[cfg(not(unix))]
+    {
+        LinuxCliResponse::failure(
+            "managed-control stop",
+            LinuxCliExitCode::Unavailable,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_MANAGED_CONTROL_SOCKET_STOP_FAILED_CODE,
+                "managed foreground control sockets require Unix",
+                SOURCE_CLI_MANAGED_CONTROL,
+            ),
+        )
+    }
 }
 
 pub fn handle_status<P>(platform: &P) -> LinuxCliResponse
@@ -13169,6 +13516,16 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.managed_event_directory = Some(value.clone());
             }
+            "--managed-control-socket" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--managed-control-socket requires an absolute Unix socket path",
+                    ));
+                };
+                options.managed_control_socket_path = Some(value.clone());
+            }
             "--profile-trust-file" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -14555,9 +14912,9 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux core start mieru --binary <local-path> --sha256 <digest> --config <absolute-path> [--format text|json]\n",
         "  networkcore-linux core stop mieru --binary <local-path> --sha256 <digest> --config <absolute-path> [--format text|json]\n",
         "  networkcore-linux core status mieru --binary <local-path> --sha256 <digest> --config <absolute-path> [--format text|json]\n",
-        "  networkcore-linux start --config <path> [--enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path>] [--enable-script-runtime --script-runner <path> --script-map <url=file> ...] --confirm [--format text|json]\n",
+        "  networkcore-linux start --config <path> [--managed-status <path> --managed-snapshot <path> --managed-events <dir> [--managed-control-socket <absolute-path>]] [--enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path>] [--enable-script-runtime --script-runner <path> --script-map <url=file> ...] --confirm [--format text|json]\n",
         "  networkcore-linux connect --config <path> [same explicit foreground options as start]\n",
-        "  networkcore-linux stop [--format text|json]\n",
+        "  networkcore-linux stop [--managed-control-socket <absolute-path> --confirm] [--format text|json]\n",
         "  networkcore-linux disconnect [--format text|json]\n",
         "  networkcore-linux restart [--config <path>] [--format text|json]\n",
         "  networkcore-linux status [--service-unit <name>] [--format text|json]\n",
@@ -14609,7 +14966,7 @@ pub const fn cli_help_text() -> &'static str {
         "  core start/stop/status mieru Control or inspect the official Mieru client with explicit local paths; status does not claim listener readiness.\n",
         "  start             Start the current foreground runtime; HTTPS MITM requires explicit CA paths and confirmation.\n",
         "  connect           Alias for the explicit foreground start path; managed service control is separate.\n",
-        "  stop              Report that daemon stop is unavailable in this build.\n",
+        "  stop              Stop an explicitly managed foreground runtime through its Unix control socket; otherwise report unavailable.\n",
         "  disconnect        Report that managed daemon disconnect is unavailable in this build.\n",
         "  restart           Report that managed daemon restart is unavailable in this build.\n",
         "  status            Report platform-only status without a daemon context.\n",
@@ -14647,6 +15004,7 @@ pub const fn cli_help_text() -> &'static str {
         "  --managed-status <path> Explicit managed foreground status record path for lifecycle recording.\n",
         "  --managed-snapshot <path> Explicit initial managed foreground status snapshot path.\n",
         "  --managed-events <dir> Explicit managed foreground event directory for lifecycle recording.\n",
+        "  --managed-control-socket <path> Absolute owner-only Unix socket path for managed foreground stop.\n",
         "  --browser <exe>       Browser executable for mitm browser-capture session-plan/launch. Defaults to chromium.\n",
         "  --profile-dir <dir>   Dedicated browser profile directory for mitm browser-capture session-plan/launch.\n",
         "  --target-url <url>    Optional page URL to open in the dedicated browser capture profile.\n",

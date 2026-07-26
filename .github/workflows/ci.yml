@@ -459,6 +459,7 @@ jobs:
             docs/architecture/linux-artifact-pre-release-design.md
             docs/architecture/linux-cli-artifact-installation-rollback.md
             docs/architecture/linux-cli-entrypoint.md
+            docs/architecture/linux-managed-control-socket-source-contract.md
             docs/architecture/linux-mitm-browser-capture-source-contract.md
             docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md
             docs/architecture/linux-mitm-http-rewrite-source-contract.md
@@ -813,6 +814,9 @@ jobs:
           grep -q -- '--managed-status' apps/linux-cli/src/lib.rs
           grep -q 'managed_start_records_running_status_and_lifecycle_events' apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q 'managed-foreground-session-status-start-recording=explicit-paths-active' docs/architecture/managed-foreground-session-status-source-contract.md
+          grep -q 'start_managed_control_socket_with_interrupter' apps/linux-cli/src/lib.rs
+          grep -q 'managed_control_socket_accepts_confirmed_stop_and_cleans_up' apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q 'linux-managed-control-socket-operation=explicit-foreground-stop' docs/architecture/linux-managed-control-socket-source-contract.md
           grep -q 'Transfer-Encoding: chunked' docs/architecture/linux-mitm-http-rewrite-source-contract.md
           grep -q 'bounded.*chunked' docs/architecture/windows-managed-client-source-release-contract.md
           grep -q '## Current Main Override' docs/alpha-release-feature-matrix.md

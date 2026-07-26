@@ -54,6 +54,10 @@ license/NOTICE 已 confirmed；当前 Windows source release 目标是 `v0.2.0-a
 记录接入 status/event stores；默认路径、daemon/control socket、跨进程 runtime control 和 live liveness
 验证仍未完成。
 
+当前未发布增量已加入显式 Unix managed control socket：managed `start` 可附加
+`--managed-control-socket <absolute-path>`，`stop --managed-control-socket <absolute-path> --confirm` 只执行
+跨进程 foreground stop；默认 socket、reload、rollback、runtime status 和非 Unix fallback 仍未完成。
+
 当前 main 覆盖旧订阅描述：Linux `run-url` 已支持直接 `ss://`、Trojan、VLESS、VMess、Hysteria2/TUIC share links、调用方显式绝对 `file://` UTF-8 subscription 文件、一次前台 HTTP(S) subscription fetch、`--node-id` 单次 catalog 节点选择，以及 Clash YAML、sing-box JSON、Surge、Loon、Quantumult X catalog payload 的 sing-box 前台运行。`run-catalog <catalog-path> <source-id>` 可运行一个保存 source。默认路径扫描、后台刷新、运行中节点切换、后台 managed runtime 和 cross-platform run plan 仍未完成。
 
 `v0.2.0-alpha.22` 是当前 Windows source release 目标。Tauri/React 桌面命令面已经覆盖连接、节点、订阅、设置、诊断和显式高级运维；下表是当前 source 状态，GitHub Actions 尚未完成锁文件解析与验证。`v0.2.0-alpha.18` 取消 GUI Start/Restart 对 managed proxy 的预写入；服务保存并回滚唯一 runtime proxy snapshot。`v0.2.0-alpha.19` 服务会轮询其拥有的 sing-box process，异常退出后写入 failed transition/exit detail，停止 runtime resources 并回滚 proxy snapshot，再停止 SCM service。

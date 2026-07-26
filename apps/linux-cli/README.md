@@ -76,6 +76,13 @@ All three paths are required together. The foreground session records `starting`
 `failed` with non-overwriting status snapshots and bounded schema-versioned event records; omitted paths preserve
 the existing foreground-only behavior and recorded state never claims process liveness.
 
+On Unix, the same explicit managed start can add `--managed-control-socket <absolute-path>`.
+NetworkCore creates that socket without replacing an existing path, applies owner-only `0600`, and accepts only a
+bounded `stop` request. `stop --managed-control-socket <absolute-path> --confirm` sends that request through the
+existing foreground interruption and runtime release path. No default socket, PID lookup, reload, status, or
+non-Unix fallback is provided; the boundary is fixed by
+`docs/architecture/linux-managed-control-socket-source-contract.md`.
+
 Current `main` also contains the source-only `CommandManagedForegroundSessionEventStore::read_event` and
 `CommandManagedForegroundSessionEventStore::write_event` boundaries for v0.1.2-alpha.2. They read or
 non-overwritingly write one explicit schema version 1 JSON event record with session/engine/event ids, an allowed

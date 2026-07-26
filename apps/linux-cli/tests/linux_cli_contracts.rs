@@ -24,7 +24,7 @@ use networkcore_linux::{
     handle_entrypoint_with_runtime, handle_entrypoint_with_runtime_and_lifecycle,
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
     handle_foreground_lifecycle_with_runtime_stop, handle_install_service_apply_at,
-    handle_install_sing_box, handle_mitm_browser_capture_apply,
+    handle_install_sing_box, handle_managed_control_stop, handle_mitm_browser_capture_apply,
     handle_mitm_browser_capture_apply_with_store,
     handle_mitm_browser_capture_apply_with_store_and_profile_prefs_and_proxy_scheme,
     handle_mitm_browser_capture_apply_with_store_and_proxy_scheme,
@@ -51,7 +51,8 @@ use networkcore_linux::{
     handle_uninstall_service_apply_at, native_proxy_engine_service_with_builtin_mitm_plugin,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files, parse_args,
-    registered_core_engine_descriptors, render_response, BrowserCaptureEndpointProbe,
+    registered_core_engine_descriptors, render_response,
+    start_managed_control_socket_with_interrupter, BrowserCaptureEndpointProbe,
     BrowserCapturePacFileStore, BrowserCaptureProcessRunner, BrowserCaptureTrafficProofProbe,
     CommandBrowserCaptureEndpointProbe, CommandBrowserCaptureTrafficProofProbe,
     CommandManagedForegroundSessionEventStore, CommandManagedForegroundSessionLogStore,
@@ -66,7 +67,7 @@ use networkcore_linux::{
     LinuxBrowserCaptureVerifyOutcome, LinuxBrowserCaptureVerifyRequest, LinuxCliCommand,
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
-    LinuxNativeMitmRuntimeFileConfig, ManagedForegroundLifecyclePaths,
+    LinuxNativeMitmRuntimeFileConfig, ManagedControlInterrupter, ManagedForegroundLifecyclePaths,
     ManagedForegroundSessionEventHistoryRequest, ManagedForegroundSessionEventRequest,
     ManagedForegroundSessionEventWriteRequest, ManagedForegroundSessionLogTailRequest,
     ManagedForegroundSessionStatusRequest, ManagedForegroundSessionStatusRollbackRequest,
@@ -77,7 +78,8 @@ use networkcore_linux::{
     SubscriptionCatalogSelectRequest, SubscriptionCatalogUpdateRequest,
     UnavailableForegroundLifecycleHost, UnavailableProxyEngineService,
     CLI_ARGUMENT_VALUE_MISSING_CODE, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
-    CLI_CONFIG_READ_FAILED_CODE, CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE,
+    CLI_CONFIG_READ_FAILED_CODE, CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE,
+    CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE, CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE,
     CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE, CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
@@ -138,7 +140,8 @@ use networkcore_linux::{
 };
 #[cfg(unix)]
 use networkcore_linux::{
-    OsSignalForegroundLifecycleInterruptionSource, CLI_START_SIGNAL_RECEIVED_CODE,
+    OsSignalForegroundLifecycleInterruptionSource, CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE,
+    CLI_START_SIGNAL_RECEIVED_CODE,
 };
 use platform_linux::systemd::{LinuxSystemdCommandRunner, LinuxSystemdServiceAction};
 use platform_linux::{
@@ -8022,10 +8025,17 @@ fn foreground_interruption_stop_failure_adds_stable_cli_diagnostic() {
 fn os_signal_interruption_source_maps_unix_signals_to_stable_diagnostics() {
     let sigint = OsSignalForegroundLifecycleInterruptionSource::interruption_for_signal(SIGINT);
     let sigterm = OsSignalForegroundLifecycleInterruptionSource::interruption_for_signal(SIGTERM);
+    let managed_control =
+        OsSignalForegroundLifecycleInterruptionSource::interruption_for_managed_control_stop();
 
     assert_eq!(sigint.reason, "SIGINT");
     assert_eq!(sigterm.reason, "SIGTERM");
+    assert_eq!(managed_control.reason, "managed-control-stop");
     assert_diagnostic(&sigint.diagnostics, CLI_START_SIGNAL_RECEIVED_CODE);
+    assert_diagnostic(
+        &managed_control.diagnostics,
+        CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE,
+    );
     assert_diagnostic(&sigterm.diagnostics, CLI_START_SIGNAL_RECEIVED_CODE);
 }
 
@@ -9616,6 +9626,114 @@ impl ProxyEngineService for StopFailingProxyEngineService {
     fn events(&self, _engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>> {
         Ok(Vec::new())
     }
+}
+
+#[cfg(unix)]
+struct TestManagedControlInterrupter {
+    calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[cfg(unix)]
+impl ManagedControlInterrupter for TestManagedControlInterrupter {
+    fn interrupt(&self) -> DomainResult<()> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("managed control test clock should be available")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-control-socket-contract-{unique}"
+    ));
+    let status_path = root.join("status.json");
+    let snapshot_path = root.join("starting.snapshot.json");
+    let event_directory = root.join("events");
+    let socket_path = root.join("control.sock");
+    let start = parse_args([
+        "start",
+        "--config",
+        "networkcore.toml",
+        "--managed-status",
+        status_path.to_str().expect("status path should be UTF-8"),
+        "--managed-snapshot",
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        "--managed-events",
+        event_directory
+            .to_str()
+            .expect("event directory should be UTF-8"),
+        "--managed-control-socket",
+        socket_path.to_str().expect("socket path should be UTF-8"),
+    ])
+    .expect("managed control start should parse");
+    assert!(matches!(
+        start,
+        LinuxCliCommand::Start {
+            managed_lifecycle: Some(ManagedForegroundLifecyclePaths {
+                control_socket_path: Some(path),
+                ..
+            }),
+            ..
+        } if path == socket_path.to_string_lossy()
+    ));
+    let stop = parse_args([
+        "stop",
+        "--managed-control-socket",
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        "--confirm",
+    ])
+    .expect("managed control stop should parse");
+    assert!(matches!(
+        stop,
+        LinuxCliCommand::ManagedControlStop { confirm: true, .. }
+    ));
+
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let guard = start_managed_control_socket_with_interrupter(
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        std::sync::Arc::new(TestManagedControlInterrupter {
+            calls: std::sync::Arc::clone(&calls),
+        }),
+    )
+    .expect("managed control socket should start");
+    let mode = std::fs::metadata(&socket_path)
+        .expect("managed control socket metadata should be readable")
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(mode, 0o600);
+
+    let unauthorized = handle_managed_control_stop(
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        false,
+    );
+    assert!(!unauthorized.ok);
+    assert_diagnostic(
+        &unauthorized.diagnostics,
+        CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE,
+    );
+    let accepted = handle_managed_control_stop(
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        true,
+    );
+    assert!(accepted.ok);
+    assert_diagnostic(
+        &accepted.diagnostics,
+        CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE,
+    );
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    drop(guard);
+    assert!(!socket_path.exists());
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
