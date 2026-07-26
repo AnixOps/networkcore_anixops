@@ -20,12 +20,13 @@ The current source-only slice provides:
   a reachable listener; a PID alone is never reported as ready.
 - an official-client command runner for explicit `apply config`, `start`, and
   `stop` actions; child stdout/stderr are discarded so credentials and complete
-  share links cannot enter NetworkCore diagnostics.
+  share links cannot enter NetworkCore diagnostics. Linux CLI and the Windows
+  managed service consume this boundary.
 
 The renderer deliberately keeps traffic-pattern metadata as a deferred
 diagnostic until the official protobuf representation is decoded; it does not
-claim that option is active. Official-release download and the Linux/Windows
-CLI/service wiring remain separate follow-up work. The command runner models
-the official client control boundary but does not claim listener readiness;
+claim that option is active. Official-release download remains separate
+follow-up work. The command runner models the official client control boundary
+but does not claim listener readiness;
 callers must verify the local listener and any Mieru control/API evidence before
 reporting a connected state.

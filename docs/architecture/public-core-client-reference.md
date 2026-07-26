@@ -70,6 +70,25 @@
   TLS/transport/multiplex、DNS 与 route parser fields 不会被导入器保留，因此不
   等价于完整 Windows runnable compatibility。
 
+## Mieru
+
+官方项目：
+
+- https://github.com/enfein/mieru
+- https://github.com/enfein/mieru/blob/main/docs/client-install.md
+
+当前实现映射：
+
+- `crates/engine-mieru` 只保留外部 core adapter，不复制源码、不捆绑 GPL
+  binary，也不静默下载 release。Mieru executable 必须由 operator 提供并以
+  显式 SHA-256 校验。
+- Linux CLI 的 `core start mieru` / `core stop mieru` 和 Windows managed
+  service 调用官方 `apply config`、`start`、`stop` 命令。Windows managed
+  state 记录 command-backed 状态，不虚构由 service 持有的 PID。
+- `mierus://` 解析和配置渲染保留 TCP、凭据、端口范围、MTU、multiplexing 和
+  handshake 字段；UDP、traffic-pattern protobuf、listener readiness 和官方
+  release download 在取得真实合同前保持未宣称。
+
 ## MITM 边界
 
 sing-box 和 v2rayN 的核心职责是代理、路由、DNS、TUN 和连接生命周期；完整
