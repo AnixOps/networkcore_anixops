@@ -215,6 +215,24 @@ fn service_control_maps_reload_to_daemon_reload() {
 }
 
 #[test]
+fn read_only_status_does_not_require_confirmation() {
+    let runner = RecordingSystemdRunner {
+        exit_code: Some(0),
+        ..Default::default()
+    };
+    let report = control_systemd_service(
+        &runner,
+        &LinuxSystemdServiceControlRequest {
+            unit_name: "networkcore.service".to_string(),
+            action: LinuxSystemdServiceAction::Status,
+            confirmed: false,
+        },
+    )
+    .expect("read-only status should not require confirmation");
+    assert!(report.succeeded);
+}
+
+#[test]
 fn service_control_exposes_nonzero_exit_as_failed_report() {
     let runner = RecordingSystemdRunner {
         exit_code: Some(3),

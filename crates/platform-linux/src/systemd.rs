@@ -150,7 +150,8 @@ pub fn control_systemd_service<R: LinuxSystemdCommandRunner>(
     request: &LinuxSystemdServiceControlRequest,
 ) -> DomainResult<LinuxSystemdServiceControlReport> {
     validate_unit_name(&request.unit_name)?;
-    if !request.confirmed {
+    let requires_confirmation = !matches!(request.action, LinuxSystemdServiceAction::Status);
+    if requires_confirmation && !request.confirmed {
         return Err(DomainError::new(
             LINUX_SYSTEMD_CONTROL_CONFIRMATION_REQUIRED_CODE,
             "systemd service control requires explicit confirmation",
