@@ -2214,6 +2214,8 @@ jobs:
             echo "apple=false" >> "$GITHUB_OUTPUT"
           fi
 
+          echo "Project detection is informational only; job execution is governed by changed paths."
+
   workspace-smoke:
     name: Workspace smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -2309,6 +2311,7 @@ jobs:
         needs.detect-projects.outputs.node == 'true' &&
         (
           needs.changes.outputs.full_matrix == 'true' ||
+          needs.changes.outputs.node == 'true' ||
           needs.changes.outputs.windows == 'true'
         )
       }}
@@ -2360,7 +2363,8 @@ jobs:
         needs.detect-projects.outputs.rust == 'true' &&
         (
           needs.windows-gui-frontend.result == 'success' ||
-          (needs.changes.outputs.full_matrix != 'true' && needs.changes.outputs.windows != 'true')
+          needs.windows-gui-frontend.result == 'skipped' ||
+          (needs.changes.outputs.full_matrix != 'true' && needs.changes.outputs.node != 'true' && needs.changes.outputs.windows != 'true')
         ) &&
         (
           needs.changes.outputs.full_matrix == 'true' ||
@@ -2475,7 +2479,7 @@ jobs:
         needs.changes.result == 'success' &&
         needs.policy-fast.result == 'success' &&
         needs.detect-projects.result == 'success' &&
-        (needs.windows-gui-frontend.result == 'success' || needs.detect-projects.outputs.node != 'true') &&
+        (needs.windows-gui-frontend.result == 'success' || needs.windows-gui-frontend.result == 'skipped' || needs.detect-projects.outputs.node != 'true') &&
         (needs.changes.outputs.full_matrix == 'true' || needs.changes.outputs.windows == 'true')
       }}
     steps:

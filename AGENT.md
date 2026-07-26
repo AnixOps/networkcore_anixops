@@ -86,6 +86,18 @@
 - Node 项目出现后的 Node 构建与测试
 - Swift 或 Apple 项目出现后的 macOS/iOS 相关验证
 
+CI 根据本次提交的修改范围选择验证任务：
+
+- 纯文档修改不运行所有平台构建，仅运行治理检查
+- Linux 平台专属修改只运行 Linux Rust 验证
+- Windows 平台专属修改只运行 Windows Rust、Node 前端和 MSI 验证
+- Apple/iOS 平台专属修改只运行 macOS/iOS 验证
+- 修改共享 Rust 代码（如 `crates/control-domain`）或 `Cargo.lock` 触发 Linux、macOS、Windows 完整 Rust 矩阵
+- 修改 CI workflow 文件触发完整矩阵，以验证新的 CI 本身有效
+- tag 发布和手动触发始终运行完整验证
+
+`detect-projects` job 检测仓库中存在的项目类型，但仅作为信息参考；实际 job 执行完全由 `changes` job 输出的路径分类决定。
+
 `.github/workflows/release.yml` 是发布入口，发布流程必须通过手动触发或 tag 触发，不允许在本机打包发布。
 
 ## iOS 特殊规则

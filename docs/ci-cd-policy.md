@@ -43,11 +43,13 @@
    构建产物、签名/私钥文件、明显凭据模式、workflow 入口以及与变更平台对应的最小合同。
 3. `policy-full` 调用 `.github/scripts/verify-repository-policy.sh full` 并保留原有全部文档一致性、架构 marker、源码合同和 release 状态断言；它只依赖
    `changes`，与 `policy-fast` 和相关平台验证并行，不得再作为所有平台 job 的串行前置条件。
+4. `detect-projects` 检测仓库中存在的项目类型（Go、Rust、Node、Swift、Apple），但仅作为信息参考；
+   实际 job 执行完全由 `changes` 输出的路径分类决定，不再因为"仓库存在 Cargo.toml"就无条件运行全部 Rust 平台。
 
 路径门控规则如下：
 
 - 仅 Markdown、普通 `docs/**` 或 Agent 治理文件变更时，运行 fast/full policy，但跳过无关三平台构建。
-- 根 `Cargo.toml`、`Cargo.lock`、共享 `crates/**`、`.github/workflows/**`、CI 脚本、发布关键
+- 根 `Cargo.toml`、`Cargo.lock`、共享 `crates/**`（除平台特定 crate）、`.github/workflows/**`、CI 脚本、发布关键
   合同或无法分类的路径触发 `full_matrix`。
 - `apps/windows-*`、`crates/platform-windows/**`、`installer/windows/**` 和 Windows 架构源码文件
   触发 Windows Rust、Node 前端合同和 MSI 验证。
@@ -55,6 +57,7 @@
 - `apps/ios/**`、`crates/platform-ios/**`、Swift/Package.swift/Xcode/entitlement/privacy manifest
   和 Apple workflow 文件触发 macOS/iOS 验证。
 - `package.json`、`pnpm-lock.yaml` 和 `apps/windows-gui/ui/**` 触发 Node 验证。
+- Rust 路径没有明确平台归属时（如修改了共享 crate），触发 `full_matrix`，运行 Linux、macOS、Windows 完整 Rust 矩阵。
 - tag 与手动触发始终运行完整验证，不允许被路径过滤跳过。
 
 Full CI 继续保留 Linux、macOS、Windows Rust 覆盖、Rust dependency audit、Node lint/test/build、
