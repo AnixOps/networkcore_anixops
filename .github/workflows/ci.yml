@@ -722,6 +722,12 @@ jobs:
           grep -q "trust_apply_refreshes_and_rollback_restores_snapshot" crates/platform-linux/tests/trust_contracts.rs
           grep -q "trust_rollback_rejects_external_changes" crates/platform-linux/tests/trust_contracts.rs
           grep -q "trust_refresh_failure_restores_previous_file" crates/platform-linux/tests/trust_contracts.rs
+          grep -q "MitmCertificateTrustApply" apps/linux-cli/src/lib.rs
+          grep -q "MitmCertificateTrustRollback" apps/linux-cli/src/lib.rs
+          grep -q "trust-apply" apps/linux-cli/src/lib.rs
+          grep -q "trust-rollback" apps/linux-cli/src/lib.rs
+          grep -q "certificate_trust_apply" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "certificate_trust_rollback" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "rollback_rejects_external_environment_file_changes" crates/platform-linux/tests/proxy_contracts.rs
           grep -q "install_systemd_unit" crates/platform-linux/src/systemd.rs
           grep -q "remove_systemd_unit" crates/platform-linux/src/systemd.rs

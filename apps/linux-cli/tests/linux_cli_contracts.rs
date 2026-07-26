@@ -2653,6 +2653,30 @@ fn parses_mitm_status_and_diagnostics_commands() {
         "/tmp/networkcore-mitm-ca.snapshot.json",
     ])
     .expect("mitm certificate rollback should parse");
+    let certificate_trust_apply = parse_args([
+        "mitm",
+        "certificate",
+        "trust-apply",
+        "--cert-file",
+        "/tmp/networkcore-mitm-ca.crt",
+        "--trust-file",
+        "/usr/local/share/ca-certificates/networkcore-mitm-ca.crt",
+        "--snapshot",
+        "/tmp/networkcore-mitm-trust.snapshot.json",
+        "--confirm",
+    ])
+    .expect("mitm certificate trust-apply should parse");
+    let certificate_trust_rollback = parse_args([
+        "mitm",
+        "certificate",
+        "trust-rollback",
+        "--trust-file",
+        "/usr/local/share/ca-certificates/networkcore-mitm-ca.crt",
+        "--snapshot",
+        "/tmp/networkcore-mitm-trust.snapshot.json",
+        "--confirm",
+    ])
+    .expect("mitm certificate trust-rollback should parse");
     let browser_plan = parse_args(["mitm", "browser-plan", "--format", "json"])
         .expect("mitm browser plan should parse");
     let browser_capture_plan_alias = parse_args(["mitm", "browser-capture-plan"])
@@ -2853,6 +2877,29 @@ fn parses_mitm_status_and_diagnostics_commands() {
         LinuxCliCommand::MitmCertificateRollback {
             snapshot_path: Some("/tmp/networkcore-mitm-ca.snapshot.json".to_string()),
             format: OutputFormat::Text
+        }
+    );
+    assert_eq!(
+        certificate_trust_apply,
+        LinuxCliCommand::MitmCertificateTrustApply {
+            certificate_path: Some("/tmp/networkcore-mitm-ca.crt".to_string()),
+            trust_file_path: Some(
+                "/usr/local/share/ca-certificates/networkcore-mitm-ca.crt".to_string(),
+            ),
+            snapshot_path: Some("/tmp/networkcore-mitm-trust.snapshot.json".to_string()),
+            confirm: true,
+            format: OutputFormat::Text,
+        }
+    );
+    assert_eq!(
+        certificate_trust_rollback,
+        LinuxCliCommand::MitmCertificateTrustRollback {
+            trust_file_path: Some(
+                "/usr/local/share/ca-certificates/networkcore-mitm-ca.crt".to_string(),
+            ),
+            snapshot_path: Some("/tmp/networkcore-mitm-trust.snapshot.json".to_string()),
+            confirm: true,
+            format: OutputFormat::Text,
         }
     );
     assert_eq!(

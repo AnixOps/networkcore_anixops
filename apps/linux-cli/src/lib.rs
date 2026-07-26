@@ -34,6 +34,10 @@ use platform_linux::systemd::{
     LinuxManagedServiceUnitRequest, LinuxSystemdCommandRunner, LinuxSystemdServiceAction,
     LinuxSystemdServiceControlRequest,
 };
+use platform_linux::trust::{
+    apply_linux_trust, rollback_linux_trust, CommandLinuxTrustRefreshRunner,
+    LinuxTrustApplyRequest, LinuxTrustRollbackRequest,
+};
 use rcgen::{
     BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, KeyUsagePurpose,
 };
@@ -204,6 +208,12 @@ pub const CLI_MITM_CERTIFICATE_ROLLBACK_READY_CODE: &str =
     "cli.linux.mitm.certificate.rollback.ready";
 pub const CLI_MITM_CERTIFICATE_ROLLBACK_FAILED_CODE: &str =
     "cli.linux.mitm.certificate.rollback.failed";
+pub const CLI_MITM_CERTIFICATE_TRUST_CONFIG_MISSING_CODE: &str =
+    "cli.linux.mitm.certificate.trust.config_missing";
+pub const CLI_MITM_CERTIFICATE_TRUST_APPLIED_CODE: &str =
+    "cli.linux.mitm.certificate.trust.applied";
+pub const CLI_MITM_CERTIFICATE_TRUST_ROLLED_BACK_CODE: &str =
+    "cli.linux.mitm.certificate.trust.rolled_back";
 pub const CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE: &str = "cli.linux.mitm.data_plane_gate.deferred";
 pub const CLI_MITM_BROWSER_PLAN_READY_CODE: &str = "cli.linux.mitm.browser_plan.ready";
 pub const CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE: &str =
@@ -606,6 +616,19 @@ pub enum LinuxCliCommand {
         snapshot_path: Option<String>,
         format: OutputFormat,
     },
+    MitmCertificateTrustApply {
+        certificate_path: Option<String>,
+        trust_file_path: Option<String>,
+        snapshot_path: Option<String>,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    MitmCertificateTrustRollback {
+        trust_file_path: Option<String>,
+        snapshot_path: Option<String>,
+        confirm: bool,
+        format: OutputFormat,
+    },
     MitmBrowserPlan {
         format: OutputFormat,
     },
@@ -771,6 +794,8 @@ impl LinuxCliCommand {
             Self::MitmCertificatePlan { .. } => "mitm certificate-plan",
             Self::MitmCertificateApply { .. } => "mitm certificate apply",
             Self::MitmCertificateRollback { .. } => "mitm certificate rollback",
+            Self::MitmCertificateTrustApply { .. } => "mitm certificate trust-apply",
+            Self::MitmCertificateTrustRollback { .. } => "mitm certificate trust-rollback",
             Self::MitmBrowserPlan { .. } => "mitm browser-plan",
             Self::MitmBrowserCapturePlan { .. } => "mitm browser-capture plan",
             Self::MitmBrowserCaptureLaunchPlan { .. } => "mitm browser-capture launch-plan",
@@ -831,6 +856,8 @@ impl LinuxCliCommand {
             | Self::MitmCertificatePlan { format }
             | Self::MitmCertificateApply { format, .. }
             | Self::MitmCertificateRollback { format, .. }
+            | Self::MitmCertificateTrustApply { format, .. }
+            | Self::MitmCertificateTrustRollback { format, .. }
             | Self::MitmBrowserPlan { format, .. }
             | Self::MitmBrowserCapturePlan { format, .. }
             | Self::MitmBrowserCaptureLaunchPlan { format, .. }
@@ -5008,6 +5035,7 @@ struct ParsedOptions {
     target_url: Option<String>,
     cert_file_path: Option<String>,
     key_file_path: Option<String>,
+    trust_file_path: Option<String>,
     mitm_ca_certificate_path: Option<String>,
     mitm_ca_private_key_path: Option<String>,
     script_runner_path: Option<String>,
@@ -5444,6 +5472,10 @@ pub fn handle_entrypoint_skeleton(command: LinuxCliCommand) -> LinuxCliResponse 
         LinuxCliCommand::ProxyApply { .. }
         | LinuxCliCommand::ProxyStatus { .. }
         | LinuxCliCommand::ProxyRollback { .. } => handle_unwired_command("proxy"),
+        LinuxCliCommand::MitmCertificateTrustApply { .. }
+        | LinuxCliCommand::MitmCertificateTrustRollback { .. } => {
+            handle_unwired_command("mitm certificate trust")
+        }
         LinuxCliCommand::CoreList { .. }
         | LinuxCliCommand::InstallMieru { .. }
         | LinuxCliCommand::StartMieru { .. }
@@ -5642,6 +5674,28 @@ where
             let store = UnavailableMitmCertificateArtifactStore::new();
             handle_mitm_certificate_rollback_with_store(platform, &store, snapshot_path)
         }
+        LinuxCliCommand::MitmCertificateTrustApply {
+            certificate_path,
+            trust_file_path,
+            snapshot_path,
+            confirm,
+            ..
+        } => handle_mitm_certificate_trust_apply(
+            certificate_path.as_deref(),
+            trust_file_path.as_deref(),
+            snapshot_path.as_deref(),
+            confirm,
+        ),
+        LinuxCliCommand::MitmCertificateTrustRollback {
+            trust_file_path,
+            snapshot_path,
+            confirm,
+            ..
+        } => handle_mitm_certificate_trust_rollback(
+            trust_file_path.as_deref(),
+            snapshot_path.as_deref(),
+            confirm,
+        ),
         LinuxCliCommand::MitmBrowserPlan { .. } => handle_mitm_browser_plan(platform),
         LinuxCliCommand::MitmBrowserCapturePlan { proxy_scheme, .. } => {
             handle_mitm_browser_capture_plan_with_proxy_scheme(platform, &proxy_scheme)
@@ -7836,6 +7890,104 @@ where
     P: PlatformCapabilityService,
 {
     handle_mitm_status_inner("mitm certificate-plan", platform)
+}
+
+pub fn handle_mitm_certificate_trust_apply(
+    certificate_path: Option<&str>,
+    trust_file_path: Option<&str>,
+    snapshot_path: Option<&str>,
+    confirm: bool,
+) -> LinuxCliResponse {
+    let command = "mitm certificate trust-apply";
+    let (Some(certificate_path), Some(trust_file_path), Some(snapshot_path)) =
+        (certificate_path, trust_file_path, snapshot_path)
+    else {
+        return LinuxCliResponse::failure(
+            command,
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_MITM_CERTIFICATE_TRUST_CONFIG_MISSING_CODE,
+                "MITM trust apply requires --cert-file <path>, --trust-file <path>, and --snapshot <path>",
+                SOURCE_CLI_MITM,
+            ),
+        );
+    };
+
+    let runner = CommandLinuxTrustRefreshRunner::new();
+    match apply_linux_trust(
+        &runner,
+        &LinuxTrustApplyRequest {
+            certificate_path: PathBuf::from(certificate_path),
+            trust_file_path: PathBuf::from(trust_file_path),
+            snapshot_path: PathBuf::from(snapshot_path),
+            confirmed: confirm,
+        },
+    ) {
+        Ok(report) => LinuxCliResponse::success(command).with_diagnostics(vec![cli_diagnostic(
+            DiagnosticSeverity::Info,
+            CLI_MITM_CERTIFICATE_TRUST_APPLIED_CODE,
+            format!(
+                "Linux trust file applied and refreshed: {} (snapshot: {})",
+                report.trust_file_path.display(),
+                report.snapshot_path.display()
+            ),
+            SOURCE_CLI_MITM,
+        )]),
+        Err(error) => domain_error_response(
+            command,
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_MITM,
+        ),
+    }
+}
+
+pub fn handle_mitm_certificate_trust_rollback(
+    trust_file_path: Option<&str>,
+    snapshot_path: Option<&str>,
+    confirm: bool,
+) -> LinuxCliResponse {
+    let command = "mitm certificate trust-rollback";
+    let (Some(trust_file_path), Some(snapshot_path)) = (trust_file_path, snapshot_path) else {
+        return LinuxCliResponse::failure(
+            command,
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_MITM_CERTIFICATE_TRUST_CONFIG_MISSING_CODE,
+                "MITM trust rollback requires --trust-file <path> and --snapshot <path>",
+                SOURCE_CLI_MITM,
+            ),
+        );
+    };
+
+    let runner = CommandLinuxTrustRefreshRunner::new();
+    match rollback_linux_trust(
+        &runner,
+        &LinuxTrustRollbackRequest {
+            trust_file_path: PathBuf::from(trust_file_path),
+            snapshot_path: PathBuf::from(snapshot_path),
+            confirmed: confirm,
+        },
+    ) {
+        Ok(report) => LinuxCliResponse::success(command).with_diagnostics(vec![cli_diagnostic(
+            DiagnosticSeverity::Info,
+            CLI_MITM_CERTIFICATE_TRUST_ROLLED_BACK_CODE,
+            format!(
+                "Linux trust file rolled back and refreshed: {} (snapshot retained: {})",
+                report.trust_file_path.display(),
+                report.snapshot_retained
+            ),
+            SOURCE_CLI_MITM,
+        )]),
+        Err(error) => domain_error_response(
+            command,
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_MITM,
+        ),
+    }
 }
 
 pub fn handle_mitm_certificate_apply<P>(platform: &P, confirm: bool) -> LinuxCliResponse
@@ -11984,6 +12136,16 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.key_file_path = Some(value.clone());
             }
+            "--trust-file" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--trust-file requires a Linux trust file path",
+                    ));
+                };
+                options.trust_file_path = Some(value.clone());
+            }
             "--mitm-ca-cert" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -13042,6 +13204,25 @@ fn parse_mitm_certificate_command(args: &[String]) -> Result<LinuxCliCommand, Li
                 format: options.format,
             })
         }
+        "trust-apply" | "trust" => {
+            let options = parse_options(&args[1..])?;
+            Ok(LinuxCliCommand::MitmCertificateTrustApply {
+                certificate_path: options.cert_file_path,
+                trust_file_path: options.trust_file_path,
+                snapshot_path: options.snapshot_path,
+                confirm: options.confirm,
+                format: options.format,
+            })
+        }
+        "trust-rollback" => {
+            let options = parse_options(&args[1..])?;
+            Ok(LinuxCliCommand::MitmCertificateTrustRollback {
+                trust_file_path: options.trust_file_path,
+                snapshot_path: options.snapshot_path,
+                confirm: options.confirm,
+                format: options.format,
+            })
+        }
         unknown => Err(parse_error(
             CLI_ARGUMENT_UNKNOWN_CODE,
             format!("unknown mitm certificate subcommand: {unknown}; run networkcore-linux help"),
@@ -13416,6 +13597,8 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux diagnostics [--format text|json]\n",
         "  networkcore-linux mitm [status|diagnostics|certificate-plan|browser-plan] [--format text|json]\n",
         "  networkcore-linux mitm certificate [plan|apply|rollback] [--cert-file <path>] [--key-file <path>] [--profile-trust-file <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
+        "  networkcore-linux mitm certificate trust-apply --cert-file <path> --trust-file <path> --snapshot <path> --confirm\n",
+        "  networkcore-linux mitm certificate trust-rollback --trust-file <path> --snapshot <path> --confirm\n",
         "  networkcore-linux mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify|traffic-proof] [<ss://url>] [--browser <executable>] [--profile-dir <dir>] [--target-url <url>] [--proxy-scheme http|socks5] [--listen-host <host>] [--listen-port <port>] [--pac-file <path>] [--policy-file <path>] [--profile-prefs-file <path>] [--proof-token <token>] [--proof-log <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
         "  networkcore-linux mitm http-rewrite [plan|preview] [--url <url>] [--method <method>] [--phase request|response] [--status-code <code>] [--header <name:value>] [--body <text>] [--confirm] [--format text|json]\n",
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
@@ -13496,6 +13679,7 @@ pub const fn cli_help_text() -> &'static str {
         "  --proxy-scheme <mode> Browser explicit proxy scheme for browser-capture. Defaults to http; socks5 targets the native SOCKS5 CONNECT MITM hook.\n",
         "  --cert-file <path>    Certificate artifact path for mitm certificate apply.\n",
         "  --key-file <path>     Private key artifact path for mitm certificate apply.\n",
+        "  --trust-file <path>   Explicit Linux trust-file path for mitm certificate trust mutation.\n",
         "  --profile-trust-file <path> Dedicated profile CA trust artifact path for mitm certificate apply.\n",
         "  --pac-file <path>     PAC file path for mitm browser-capture apply.\n",
         "  --policy-file <path>  Chromium/Chrome managed proxy policy file artifact for mitm browser-capture apply.\n",

@@ -9,7 +9,7 @@ mitm-certificate-lifecycle-source-contract-status=active
 MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/profile-trust-artifact-active/trust-mutation-blocked
 ```
 
-本文固定 Linux MITM certificate lifecycle 从 plan-only 进入受控 artifact lifecycle 后必须遵守的源码边界。当前仓库允许 `networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` 写入调用方显式提供路径上的 TLS 可消费 CA certificate PEM、private key PEM、可选 dedicated profile CA PEM copy 和 rollback snapshot；允许 `networkcore-linux mitm certificate rollback --snapshot <path>` 读取 NetworkCore snapshot 并删除 snapshot 管理的 artifact。该能力不安装或信任 CA，不修改 system trust store、NSS DB、p11-kit、Firefox trust store 或 profile trust state，不解密 HTTPS，也不应用 HTTP/TLS rewrite。
+本文固定 Linux MITM certificate lifecycle 从 plan-only 进入受控 artifact lifecycle 后必须遵守的源码边界。当前仓库允许 `networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` 写入调用方显式提供路径上的 TLS 可消费 CA certificate PEM、private key PEM、可选 dedicated profile CA PEM copy 和 rollback snapshot；另有独立的 `networkcore-linux mitm certificate trust-apply --confirm --cert-file <path> --trust-file <path> --snapshot <path>` Ubuntu-style 显式 trust-file 子路径，会写入同一 CA PEM 并调用 `update-ca-certificates`，对应的 `trust-rollback` 可恢复 snapshot。该子路径不自动发现发行版默认值；NSS DB、p11-kit、Firefox trust store、profile trust state、HTTPS 解密和 HTTP/TLS rewrite 仍不修改。
 
 ## Current Boundary
 
@@ -28,6 +28,7 @@ MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/profile-trust-artifact
 - `certificate_lifecycle` JSON report 输出 action、source contract status、gate、gate status、request、artifact request、trust_plan、apply_report 或 rollback_report。
 - `certificate_lifecycle.request.artifact`、`apply_report` 和 `rollback_report` 输出 `profile_trust_file_path`，artifact request 还输出 `profile_trust_content` 和 `profile_trust_fingerprint`。
 - `trust_plan` 固定为 `trust-mutation-blocked`，但包含 `prepare-dedicated-profile-trust-artifact` active step；仍列出 `install-ca`、`trust-ca`、`update-ca-certificates`、`mutate-nss-db`、`mutate-p11-kit`、`mutate-firefox-trust-store`、`revoke-ca` 和 `rollback-trust-store` blocked operations。
+- `platform-linux::trust` 提供 `apply_linux_trust`/`rollback_linux_trust`，要求绝对且互不相同的路径、显式确认、非覆盖 snapshot、写后精确读回、外部修改冲突检测和失败恢复；CLI 只暴露 trust-file active 子路径，不把其他 trust backend 误报为已安装。
 
 ## Source Anchors
 
@@ -55,6 +56,9 @@ MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/profile-trust-artifact
 - `--cert-file`
 - `--key-file`
 - `--profile-trust-file`
+- `trust-apply`
+- `trust-rollback`
+- `--trust-file`
 - `--snapshot`
 - `profile_trust_file_path`
 - `profile_trust_content`
@@ -68,6 +72,8 @@ MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/profile-trust-artifact
 - `cli.linux.mitm.certificate.snapshot.write_failed`
 - `cli.linux.mitm.certificate.snapshot.read_failed`
 - `cli.linux.mitm.certificate.rollback.ready`
+- `cli.linux.mitm.certificate.trust.applied`
+- `cli.linux.mitm.certificate.trust.rolled_back`
 - `cli.linux.mitm.certificate.rollback.failed`
 - `cli.linux.mitm.certificate.rollback.blocked`
 
