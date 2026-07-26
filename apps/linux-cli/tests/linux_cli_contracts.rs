@@ -2894,6 +2894,53 @@ fn parses_core_list_and_mieru_local_install_contract() {
 }
 
 #[test]
+fn parses_core_mieru_start_and_stop_control_contract() {
+    let start = parse_args([
+        "core",
+        "start",
+        "mieru",
+        "--binary",
+        "/opt/mieru",
+        "--sha256",
+        "0123456789012345678901234567890123456789012345678901234567890123",
+        "--config",
+        "/var/lib/networkcore/client_config.json",
+        "--format",
+        "json",
+    ])
+    .expect("core start mieru should parse");
+    let stop = parse_args([
+        "core",
+        "stop",
+        "mieru",
+        "--binary",
+        "/opt/mieru",
+        "--sha256",
+        "0123456789012345678901234567890123456789012345678901234567890123",
+        "--config",
+        "/var/lib/networkcore/client_config.json",
+    ])
+    .expect("core stop mieru should parse");
+
+    assert!(matches!(
+        start,
+        LinuxCliCommand::StartMieru {
+            config_path,
+            format: OutputFormat::Json,
+            ..
+        } if config_path == "/var/lib/networkcore/client_config.json"
+    ));
+    assert!(matches!(
+        stop,
+        LinuxCliCommand::StopMieru {
+            config_path,
+            format: OutputFormat::Text,
+            ..
+        } if config_path == "/var/lib/networkcore/client_config.json"
+    ));
+}
+
+#[test]
 fn core_list_registers_native_sing_box_and_mieru_adapters() {
     let descriptors = registered_core_engine_descriptors();
     let ids = descriptors

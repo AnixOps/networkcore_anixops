@@ -69,6 +69,22 @@ fn main() {
                 networkcore_linux::handle_core_list(
                     networkcore_linux::registered_core_engine_descriptors(),
                 )
+            } else if let networkcore_linux::LinuxCliCommand::StartMieru {
+                binary_path,
+                expected_sha256,
+                config_path,
+                ..
+            } = &command
+            {
+                networkcore_linux::handle_start_mieru(binary_path, expected_sha256, config_path)
+            } else if let networkcore_linux::LinuxCliCommand::StopMieru {
+                binary_path,
+                expected_sha256,
+                config_path,
+                ..
+            } = &command
+            {
+                networkcore_linux::handle_stop_mieru(binary_path, expected_sha256, config_path)
             } else if let networkcore_linux::LinuxCliCommand::InstallService {
                 unit_name,
                 description,
