@@ -6,6 +6,7 @@
 
 pub mod proxy;
 pub mod systemd;
+pub mod trust;
 
 use control_domain::{
     CertificateTrustState, Diagnostic, DiagnosticSeverity, DomainResult, MitmCertificateStatus,
