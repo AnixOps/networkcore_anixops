@@ -12,6 +12,8 @@ The current source-only slice provides:
 - explicit local executable SHA-256 verification;
 - official-shape TCP client JSON rendering with a loopback SOCKS5 port,
   including user/server/port-binding, MTU, multiplexing, and handshake fields;
+- atomic config-file writing with non-overwriting snapshots, exact write
+  verification, and private `0600` permissions on Unix;
 - a cross-platform child-process supervisor whose executable, arguments,
   working directory, log path, and expected digest are caller supplied.
 - a local SOCKS5 readiness report that requires both a live child process and

@@ -35,6 +35,7 @@ pub const MIERU_PROCESS_STATUS_FAILED_CODE: &str = "engine.mieru.process.status_
 pub const MIERU_PROCESS_STOP_FAILED_CODE: &str = "engine.mieru.process.stop_failed";
 pub const MIERU_COMMAND_FAILED_CODE: &str = "engine.mieru.command.failed";
 pub const MIERU_CONFIG_INVALID_CODE: &str = "engine.mieru.config.invalid";
+pub const MIERU_CONFIG_WRITE_FAILED_CODE: &str = "engine.mieru.config.write_failed";
 pub const MIERU_CONFIG_TRAFFIC_PATTERN_DEFERRED_CODE: &str =
     "engine.mieru.config.traffic_pattern_deferred";
 pub const MIERU_LISTENER_NOT_READY_CODE: &str = "engine.mieru.listener.not_ready";
@@ -223,6 +224,22 @@ pub struct MieruClientConfigReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MieruClientConfigWriteRequest {
+    pub config_path: PathBuf,
+    pub snapshot_path: PathBuf,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MieruClientConfigWriteReport {
+    pub config_path: PathBuf,
+    pub snapshot_path: Option<PathBuf>,
+    pub snapshot_written: bool,
+    pub bytes_written: usize,
+    pub verified: bool,
+}
+
 impl fmt::Debug for MieruClientConfigReport {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -319,6 +336,127 @@ pub fn render_mieru_client_config(
         traffic_pattern_deferred,
         diagnostics,
     })
+}
+
+pub fn write_mieru_client_config(
+    request: &MieruClientConfigWriteRequest,
+) -> DomainResult<MieruClientConfigWriteReport> {
+    if !request.config_path.is_absolute()
+        || !request.snapshot_path.is_absolute()
+        || request.config_path == request.snapshot_path
+        || request.content.is_empty()
+    {
+        return Err(DomainError::new(
+            MIERU_CONFIG_WRITE_FAILED_CODE,
+            "Mieru config write requires distinct absolute paths and non-empty content",
+        ));
+    }
+    reject_config_symlink(&request.config_path)?;
+    let previous = if request.config_path.exists() {
+        Some(
+            fs::read(&request.config_path)
+                .map_err(|error| config_write_error("read existing Mieru config", error))?,
+        )
+    } else {
+        None
+    };
+    if let Some(contents) = &previous {
+        write_config_new(&request.snapshot_path, contents)?;
+    }
+
+    let temporary_path = request
+        .config_path
+        .with_extension(format!("networkcore-{}.tmp", std::process::id()));
+    let write_result =
+        write_config_new(&temporary_path, request.content.as_bytes()).and_then(|_| {
+            fs::rename(&temporary_path, &request.config_path)
+                .map_err(|error| config_write_error("replace Mieru config", error))
+        });
+    if let Err(error) = write_result {
+        let _ = fs::remove_file(&temporary_path);
+        restore_config(&request.config_path, previous.as_deref());
+        return Err(error);
+    }
+    let verified = match fs::read(&request.config_path) {
+        Ok(contents) => contents == request.content.as_bytes(),
+        Err(error) => {
+            restore_config(&request.config_path, previous.as_deref());
+            return Err(config_write_error("verify Mieru config", error));
+        }
+    };
+    if !verified {
+        restore_config(&request.config_path, previous.as_deref());
+        return Err(DomainError::new(
+            MIERU_CONFIG_WRITE_FAILED_CODE,
+            "written Mieru config did not match the requested content",
+        ));
+    }
+    Ok(MieruClientConfigWriteReport {
+        config_path: request.config_path.clone(),
+        snapshot_path: previous.as_ref().map(|_| request.snapshot_path.clone()),
+        snapshot_written: previous.is_some(),
+        bytes_written: request.content.len(),
+        verified,
+    })
+}
+
+fn reject_config_symlink(path: &Path) -> DomainResult<()> {
+    if fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err(DomainError::new(
+            MIERU_CONFIG_WRITE_FAILED_CODE,
+            format!(
+                "refusing to replace symlink Mieru config path: {}",
+                path.display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn write_config_new(path: &Path, contents: &[u8]) -> DomainResult<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| config_write_error("create config directory", error))?;
+    }
+    let mut file = File::options()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|error| config_write_error("create Mieru config file", error))?;
+    set_config_permissions(path)?;
+    file.write_all(contents)
+        .map_err(|error| config_write_error("write Mieru config file", error))?;
+    file.sync_all()
+        .map_err(|error| config_write_error("sync Mieru config file", error))
+}
+
+fn restore_config(path: &Path, previous: Option<&[u8]>) {
+    if let Some(contents) = previous {
+        let _ = fs::write(path, contents);
+        let _ = set_config_permissions(path);
+    } else {
+        let _ = fs::remove_file(path);
+    }
+}
+
+fn config_write_error(operation: &str, error: impl fmt::Display) -> DomainError {
+    DomainError::new(
+        MIERU_CONFIG_WRITE_FAILED_CODE,
+        format!("failed to {operation}: {error}"),
+    )
+}
+
+fn set_config_permissions(path: &Path) -> DomainResult<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+            .map_err(|error| config_write_error("set Mieru config permissions", error))?;
+    }
+    Ok(())
 }
 
 fn validate_socks5_bind(host: &str, port: u16) -> DomainResult<()> {

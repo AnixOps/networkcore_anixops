@@ -1,7 +1,8 @@
 use engine_mieru::{
     apply_and_start_mieru_client, parse_mieru_share_link, render_mieru_client_config,
-    stop_mieru_client, verify_local_mieru_binary, MieruClientConfigRequest,
-    MieruClientControlRequest, MieruCommandReport, MieruCommandRunner, MieruManagedProcessState,
+    stop_mieru_client, verify_local_mieru_binary, write_mieru_client_config,
+    MieruClientConfigRequest, MieruClientConfigWriteRequest, MieruClientControlRequest,
+    MieruCommandReport, MieruCommandRunner, MieruManagedProcessState,
     MieruManagedProcessSupervisor, MIERU_BINARY_DIGEST_MISSING_CODE,
     MIERU_CONFIG_TRAFFIC_PATTERN_DEFERRED_CODE, MIERU_LISTENER_NOT_READY_CODE,
     MIERU_RUNTIME_UNWIRED_CODE,
@@ -196,6 +197,47 @@ fn official_client_control_commands_are_explicit_and_redact_process_output() {
         .diagnostics
         .iter()
         .all(|diagnostic| !diagnostic.message.contains("secret")));
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn config_write_snapshots_existing_credentials_and_sets_private_permissions() {
+    let root = temporary_root("config-write");
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).expect("fixture directory should be created");
+    let config_path = root.join("client_config.json");
+    let snapshot_path = root.join("client_config.snapshot.json");
+    fs::write(&config_path, b"old secret config").expect("old config should be written");
+
+    let report = write_mieru_client_config(&MieruClientConfigWriteRequest {
+        config_path: config_path.clone(),
+        snapshot_path: snapshot_path.clone(),
+        content: "{\"profiles\":[]}".to_string(),
+    })
+    .expect("Mieru config should be written");
+
+    assert!(report.snapshot_written);
+    assert!(report.verified);
+    assert_eq!(
+        fs::read_to_string(&snapshot_path).unwrap(),
+        "old secret config"
+    );
+    assert_eq!(
+        fs::read_to_string(&config_path).unwrap(),
+        "{\"profiles\":[]}"
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(&config_path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            fs::metadata(&snapshot_path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
     let _ = fs::remove_dir_all(&root);
 }
 

@@ -14,6 +14,12 @@ read-only `core list` and explicit local `core install mieru --binary <path>
 --sha256 <digest>` verification; it does not download, spawn, or wire Mieru
 into the Windows service or system proxy path.
 
+The adapter's config-file writer requires explicit absolute config and snapshot
+paths, preserves an existing config in a non-overwriting snapshot, verifies the
+exact bytes written, restores the previous config on write/verification failure,
+and uses private `0600` permissions on Unix. Config contents may contain user
+credentials, so reports and diagnostics never include the file contents.
+
 ## Binary Boundary
 
 The caller must provide an explicit executable path and a complete SHA-256
