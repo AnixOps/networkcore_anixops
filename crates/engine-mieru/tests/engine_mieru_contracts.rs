@@ -1,11 +1,12 @@
 use engine_mieru::{
     apply_and_start_mieru_client, download_mieru_release, parse_mieru_share_link,
-    render_mieru_client_config, status_mieru_client, stop_mieru_client, verify_local_mieru_binary,
-    write_mieru_client_config, MieruClientConfigRequest, MieruClientConfigWriteRequest,
-    MieruClientControlRequest, MieruCommandReport, MieruCommandRunner, MieruManagedProcessState,
-    MieruManagedProcessSupervisor, MieruReleaseDownloadRequest, MieruReleaseHttpClient,
-    MIERU_BINARY_DIGEST_MISSING_CODE, MIERU_CONFIG_TRAFFIC_PATTERN_DEFERRED_CODE,
-    MIERU_LISTENER_NOT_READY_CODE, MIERU_RUNTIME_UNWIRED_CODE,
+    probe_mieru_listener, render_mieru_client_config, status_mieru_client, stop_mieru_client,
+    verify_local_mieru_binary, write_mieru_client_config, MieruClientConfigRequest,
+    MieruClientConfigWriteRequest, MieruClientControlRequest, MieruCommandReport,
+    MieruCommandRunner, MieruManagedProcessState, MieruManagedProcessSupervisor,
+    MieruReleaseDownloadRequest, MieruReleaseHttpClient, MIERU_BINARY_DIGEST_MISSING_CODE,
+    MIERU_CONFIG_TRAFFIC_PATTERN_DEFERRED_CODE, MIERU_LISTENER_NOT_READY_CODE,
+    MIERU_RUNTIME_UNWIRED_CODE,
 };
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -294,6 +295,13 @@ fn config_write_snapshots_existing_credentials_and_sets_private_permissions() {
         );
     }
     let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn listener_probe_rejects_missing_endpoint() {
+    let error = probe_mieru_listener("", 0, std::time::Duration::from_millis(10))
+        .expect_err("listener probe must require an explicit endpoint");
+    assert_eq!(error.code, engine_mieru::MIERU_LISTENER_PROBE_FAILED_CODE);
 }
 
 struct RecordingMieruRunner {

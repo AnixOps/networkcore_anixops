@@ -220,6 +220,8 @@ pub struct WindowsManagedMieruConfig {
     pub executable_path: PathBuf,
     pub expected_sha256: String,
     pub config_path: PathBuf,
+    pub socks5_host: String,
+    pub socks5_port: u16,
 }
 
 impl WindowsManagedMieruConfig {
@@ -229,6 +231,8 @@ impl WindowsManagedMieruConfig {
         }
         if self.executable_path.as_os_str().is_empty()
             || self.config_path.as_os_str().is_empty()
+            || self.socks5_host.trim().is_empty()
+            || self.socks5_port == 0
             || self.expected_sha256.trim().len() != 64
             || !self
                 .expected_sha256
@@ -414,6 +418,8 @@ pub struct WindowsManagedState {
     #[serde(default)]
     pub mieru_last_error: Option<String>,
     #[serde(default)]
+    pub mieru_listener: Option<String>,
+    #[serde(default)]
     pub native_mitm_running: bool,
     #[serde(default)]
     pub native_mitm_listener: Option<String>,
@@ -443,6 +449,7 @@ impl Default for WindowsManagedState {
             sing_box_log_path: None,
             mieru_running: false,
             mieru_last_error: None,
+            mieru_listener: None,
             native_mitm_running: false,
             native_mitm_listener: None,
             native_mitm_certificate_sha1: None,

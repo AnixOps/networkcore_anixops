@@ -7,7 +7,7 @@ use control_domain::{
     ProxyEngineService, RouteAction, RuleSet, SchemaVersion,
 };
 use engine_mieru::{
-    apply_and_start_mieru_client, status_mieru_client, stop_mieru_client,
+    apply_and_start_mieru_client, status_mieru_client, stop_mieru_client, wait_for_mieru_listener,
     CommandMieruCommandRunner, MieruClientControlRequest,
 };
 use engine_native::{
@@ -173,6 +173,20 @@ where
                         &mut state,
                         format!("managed Mieru status check failed: {}", error.message),
                     );
+                }
+                match wait_for_mieru_listener(
+                    &mieru.socks5_host,
+                    mieru.socks5_port,
+                    std::time::Duration::from_millis(250),
+                ) {
+                    Ok(report) => state.mieru_listener = Some(report.endpoint),
+                    Err(error) => {
+                        state.mieru_listener = None;
+                        return self.record_runtime_failure(
+                            &mut state,
+                            format!("managed Mieru listener check failed: {}", error.message),
+                        );
+                    }
                 }
             }
         }
@@ -361,7 +375,13 @@ where
                         config_path: mieru.config_path.clone(),
                     },
                 )?;
+                let listener = wait_for_mieru_listener(
+                    &mieru.socks5_host,
+                    mieru.socks5_port,
+                    std::time::Duration::from_secs(5),
+                )?;
                 state.mieru_running = report.started;
+                state.mieru_listener = Some(listener.endpoint);
                 state.mieru_last_error = None;
                 self.persist(state)?;
             }
@@ -455,6 +475,7 @@ where
         )?;
         state.mieru_running = !report.stopped;
         state.mieru_last_error = None;
+        state.mieru_listener = None;
         self.persist(state)
     }
 

@@ -1599,7 +1599,7 @@ mod gui {
 
         match read_managed_state(&windows_managed_state_path()) {
             Ok(managed) => report.push_str(&format!(
-                "runtime_transition={} runtime_error={} sing_box_running={} sing_box_pid={} sing_box_exit_code={} mieru_running={} mieru_error={} native_mitm_running={} native_mitm_listener={} native_mitm_error={}\n",
+                "runtime_transition={} runtime_error={} sing_box_running={} sing_box_pid={} sing_box_exit_code={} mieru_running={} mieru_listener={} mieru_error={} native_mitm_running={} native_mitm_listener={} native_mitm_error={}\n",
                 managed.last_transition,
                 managed.last_error.unwrap_or_else(|| "none".to_string()),
                 managed.sing_box_running,
@@ -1612,6 +1612,7 @@ mod gui {
                     .map(|value| value.to_string())
                     .unwrap_or_else(|| "none".to_string()),
                 managed.mieru_running,
+                managed.mieru_listener.unwrap_or_else(|| "none".to_string()),
                 managed
                     .mieru_last_error
                     .unwrap_or_else(|| "none".to_string()),

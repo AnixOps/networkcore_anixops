@@ -128,6 +128,8 @@ fn managed_configuration_accepts_explicit_mieru_control_paths_and_digest() {
         executable_path: PathBuf::from(r"C:\Program Files\AnixOps\NetworkCore\bin\mieru.exe"),
         expected_sha256: "a".repeat(64),
         config_path: PathBuf::from(r"C:\ProgramData\AnixOps\NetworkCore\mieru\client.json"),
+        socks5_host: "127.0.0.1".to_string(),
+        socks5_port: 7892,
     };
 
     config.validate().expect("Mieru control config is valid");
@@ -185,6 +187,7 @@ fn managed_state_retains_rollback_material_for_system_mutations() {
         sing_box_log_path: None,
         mieru_running: false,
         mieru_last_error: None,
+        mieru_listener: None,
         native_mitm_running: true,
         native_mitm_listener: Some("127.0.0.1:7890".to_string()),
         native_mitm_certificate_sha1: Some("102132435465768798A9BACBDCEDFE0F10213243".to_string()),

@@ -20,6 +20,8 @@ The current source-only slice provides:
   working directory, log path, and expected digest are caller supplied.
 - a local SOCKS5 readiness report that requires both a live child process and
   a reachable listener; a PID alone is never reported as ready.
+- an explicit bounded TCP probe for the official client's local SOCKS5 listener;
+  command success alone is not treated as readiness.
 - an official-client command runner for explicit `apply config`, `start`, and
   `stop` actions; child stdout/stderr are discarded so credentials and complete
   share links cannot enter NetworkCore diagnostics. Linux CLI and the Windows

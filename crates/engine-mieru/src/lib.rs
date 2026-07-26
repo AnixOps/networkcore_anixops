@@ -20,6 +20,7 @@ use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
 use url::Url;
 
 pub const DEFAULT_MIERU_ENGINE_ID: &str = "mieru";
@@ -794,6 +795,82 @@ pub struct MieruClientStatusReport {
     pub config_path: PathBuf,
     pub command_succeeded: bool,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MieruListenerProbeReport {
+    pub endpoint: String,
+    pub reachable: bool,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+pub fn probe_mieru_listener(
+    host: &str,
+    port: u16,
+    timeout: Duration,
+) -> DomainResult<MieruListenerProbeReport> {
+    if host.trim().is_empty() || port == 0 {
+        return Err(DomainError::new(
+            MIERU_LISTENER_PROBE_FAILED_CODE,
+            "Mieru listener probe requires a non-empty host and non-zero port",
+        ));
+    }
+    let endpoint = format!("{host}:{port}");
+    let reachable = endpoint
+        .to_socket_addrs()
+        .map_err(|error| {
+            DomainError::new(
+                MIERU_LISTENER_PROBE_FAILED_CODE,
+                format!("Mieru listener endpoint could not be resolved: {error}"),
+            )
+        })?
+        .any(|address| TcpStream::connect_timeout(&address, timeout).is_ok());
+    Ok(MieruListenerProbeReport {
+        endpoint,
+        reachable,
+        diagnostics: vec![Diagnostic::new(
+            if reachable {
+                DiagnosticSeverity::Info
+            } else {
+                DiagnosticSeverity::Warning
+            },
+            if reachable {
+                "engine.mieru.listener.reachable"
+            } else {
+                MIERU_LISTENER_NOT_READY_CODE
+            },
+            if reachable {
+                "Mieru local SOCKS5 listener is reachable"
+            } else {
+                "Mieru local SOCKS5 listener is not reachable"
+            },
+            Some(SOURCE_ENGINE_MIERU_LIFECYCLE.to_string()),
+        )],
+    })
+}
+
+pub fn wait_for_mieru_listener(
+    host: &str,
+    port: u16,
+    timeout: Duration,
+) -> DomainResult<MieruListenerProbeReport> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        let report = probe_mieru_listener(host, port, Duration::from_millis(250))?;
+        if report.reachable {
+            return Ok(report);
+        }
+        if Instant::now() >= deadline {
+            return Err(DomainError::new(
+                MIERU_LISTENER_NOT_READY_CODE,
+                format!(
+                    "Mieru local SOCKS5 listener did not become reachable at {}",
+                    report.endpoint
+                ),
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 pub fn apply_and_start_mieru_client<R: MieruCommandRunner>(
