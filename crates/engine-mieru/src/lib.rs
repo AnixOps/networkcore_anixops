@@ -393,7 +393,7 @@ impl ProxyEngineService for MieruProxyEngineService {
     fn list_engines(&self) -> Vec<ProxyEngineDescriptor> {
         vec![ProxyEngineDescriptor {
             id: DEFAULT_MIERU_ENGINE_ID.to_string(),
-            kind: ProxyEngineKind::Other,
+            kind: ProxyEngineKind::Other("mieru-external".to_string()),
             version: Some("external-operator-supplied".to_string()),
             capabilities: vec![ProxyEngineCapability::TcpProxy],
         }]
