@@ -18,6 +18,9 @@ current-main-subscription-background=blocked
 
 ### Changed
 
+- 完成 Linux controlled CONNECT persistent HTTP/1.1 slice：同一 downstream/upstream TLS session 最多
+  处理 4 次有界 request/response exchange，保留 keep-alive framing，并在 `Connection: close`、HTTP/1.0
+  默认关闭、terminal rewrite、解析失败或预算耗尽时结束；普通明文代理的既有 close 行为不变。
 - 完成 Linux persistent subscription catalog 的显式 `subscription update` 纵向切片：HTTP(S)、绝对
   `file://` 和 inline/share-link 候选先经受限 fetch 与 `CoreSubscriptionService` parse/normalize，成功后
   才写不可覆盖 rollback snapshot 和新 location；失败保留旧 catalog，report 只输出脱敏字段、验证节点数及新增/删除/改变节点数量。

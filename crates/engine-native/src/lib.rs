@@ -330,6 +330,7 @@ const TLS_CLIENT_HELLO_OBSERVATION_TIMEOUT_MS: u64 = 1000;
 const TLS_CLIENT_HELLO_OBSERVATION_POLL_MS: u64 = 5;
 const CONTROLLED_TLS_SESSION_TIMEOUT_MS: u64 = 15_000;
 const CONTROLLED_TLS_SOCKET_READ_TIMEOUT_MS: u64 = 1000;
+const CONTROLLED_TLS_MAX_HTTP_EXCHANGES: usize = 4;
 const MAX_CONCURRENT_ACCEPTED_CONNECTIONS: usize = 64;
 const HTTP_PROXY_MAX_HEADER_BYTES: usize = 16 * 1024;
 const HTTP_PROXY_MAX_BODY_BYTES: usize = 64 * 1024;
@@ -3831,6 +3832,18 @@ pub fn serialize_explicit_http_proxy_request_for_upstream(
     request: &NativeExplicitHttpProxyRequest,
     rewrite_report: &NativePlainHttpRewriteReport,
 ) -> Vec<u8> {
+    serialize_explicit_http_proxy_request_for_upstream_with_connection(
+        request,
+        rewrite_report,
+        true,
+    )
+}
+
+fn serialize_explicit_http_proxy_request_for_upstream_with_connection(
+    request: &NativeExplicitHttpProxyRequest,
+    rewrite_report: &NativePlainHttpRewriteReport,
+    close_connection: bool,
+) -> Vec<u8> {
     let origin_path = parse_script_absolute_url(&rewrite_report.url)
         .filter(|(_, target)| {
             target
@@ -3853,7 +3866,15 @@ pub fn serialize_explicit_http_proxy_request_for_upstream(
         "Host",
         &http_host_header_authority(&request.target_host, request.target_port),
     );
-    set_plain_http_header(&mut headers, "Connection", "close");
+    set_plain_http_header(
+        &mut headers,
+        "Connection",
+        if close_connection {
+            "close"
+        } else {
+            "keep-alive"
+        },
+    );
     if !rewrite_report.body.is_empty() || had_body_framing {
         set_plain_http_header(
             &mut headers,
@@ -3874,6 +3895,14 @@ pub fn serialize_plain_http_proxy_response(
     version: &str,
     rewrite_report: &NativePlainHttpRewriteReport,
 ) -> Vec<u8> {
+    serialize_plain_http_proxy_response_with_connection(version, rewrite_report, true)
+}
+
+fn serialize_plain_http_proxy_response_with_connection(
+    version: &str,
+    rewrite_report: &NativePlainHttpRewriteReport,
+    close_connection: bool,
+) -> Vec<u8> {
     let status_code = rewrite_report.final_status_code.unwrap_or(200);
     let mut headers = rewrite_report.headers.clone();
     if let Some(location) = &rewrite_report.redirect_location {
@@ -3882,7 +3911,15 @@ pub fn serialize_plain_http_proxy_response(
     remove_plain_http_header(&mut headers, "Transfer-Encoding");
     remove_plain_http_header(&mut headers, "Content-Length");
     remove_plain_http_header(&mut headers, "Connection");
-    set_plain_http_header(&mut headers, "Connection", "close");
+    set_plain_http_header(
+        &mut headers,
+        "Connection",
+        if close_connection {
+            "close"
+        } else {
+            "keep-alive"
+        },
+    );
     set_plain_http_header(
         &mut headers,
         "Content-Length",
@@ -5825,6 +5862,27 @@ fn normalized_http_version(version: &str) -> &str {
     }
 }
 
+fn http_message_requests_close(version: &str, headers: &[MetadataEntry]) -> bool {
+    if headers.iter().any(|header| {
+        header.key.eq_ignore_ascii_case("Connection")
+            && header
+                .value
+                .split(',')
+                .any(|token| token.trim().eq_ignore_ascii_case("close"))
+    }) {
+        return true;
+    }
+
+    version.eq_ignore_ascii_case("HTTP/1.0")
+        && !headers.iter().any(|header| {
+            header.key.eq_ignore_ascii_case("Connection")
+                && header
+                    .value
+                    .split(',')
+                    .any(|token| token.trim().eq_ignore_ascii_case("keep-alive"))
+        })
+}
+
 fn http_reason_phrase(status_code: u16) -> &'static str {
     match status_code {
         200 => "OK",
@@ -6590,38 +6648,6 @@ fn run_controlled_tls_connect_http_exchange(
             })?;
         let mut downstream_tls = StreamOwned::new(downstream_connection, client_tls_stream);
 
-        let decrypted_request_report = {
-            let mut bounded_reader = NativeBoundedRead::new(&mut downstream_tls, session_timeout);
-            read_https_connect_http_request(&mut bounded_reader, connect_request)
-        };
-        diagnostics.extend(decrypted_request_report.diagnostics);
-        let decrypted_request = decrypted_request_report.request.ok_or_else(|| {
-            "controlled TLS downstream session could not read a bounded decrypted HTTP request"
-                .to_string()
-        })?;
-
-        let request_message = explicit_http_proxy_request_to_plain_http_message(&decrypted_request);
-        let request_rewrite_report = http_mitm_hook
-            .map(|hook| hook.plan_plain_http(&request_message))
-            .unwrap_or_else(|| passthrough_plain_http_rewrite_report(&request_message));
-        diagnostics.extend(request_rewrite_report.diagnostics.clone());
-        record_plain_http_live_rewrite_diagnostic(&mut diagnostics, &request_rewrite_report);
-
-        if request_rewrite_report.terminal_action.is_some() {
-            let client_response = serialize_plain_http_proxy_response(
-                &decrypted_request.version,
-                &request_rewrite_report,
-            );
-            let client_write_report =
-                write_plain_http_proxy_client_response(&mut downstream_tls, client_response);
-            let response_written = diagnostics_contain_code(
-                &client_write_report.diagnostics,
-                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
-            );
-            diagnostics.extend(client_write_report.diagnostics);
-            return Ok(response_written);
-        }
-
         let server_name = ServerName::try_from(connect_request.target_host.as_str())
             .map_err(|error| format!("controlled TLS upstream authority is invalid: {error}"))?
             .to_owned();
@@ -6630,47 +6656,106 @@ fn run_controlled_tls_connect_http_exchange(
                 format!("controlled TLS upstream session could not initialize: {error}")
             })?;
         let mut upstream_tls = StreamOwned::new(upstream_connection, outbound_stream);
-        let upstream_request = serialize_explicit_http_proxy_request_for_upstream(
-            &decrypted_request,
-            &request_rewrite_report,
-        );
-        let upstream_write_report =
-            write_plain_http_proxy_upstream_request(&mut upstream_tls, upstream_request);
-        let upstream_request_written = diagnostics_contain_code(
-            &upstream_write_report.diagnostics,
-            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE,
-        );
-        diagnostics.extend(upstream_write_report.diagnostics);
-        if !upstream_request_written {
-            return Err("controlled TLS upstream request write failed".to_string());
-        }
+        let mut response_written = false;
+        for exchange_index in 0..CONTROLLED_TLS_MAX_HTTP_EXCHANGES {
+            let decrypted_request_report = {
+                let mut bounded_reader =
+                    NativeBoundedRead::new(&mut downstream_tls, session_timeout);
+                read_https_connect_http_request(&mut bounded_reader, connect_request)
+            };
+            let Some(decrypted_request) = decrypted_request_report.request else {
+                if exchange_index == 0 {
+                    diagnostics.extend(decrypted_request_report.diagnostics);
+                    return Err(
+                        "controlled TLS downstream session could not read a bounded decrypted HTTP request"
+                            .to_string(),
+                    );
+                }
+                break;
+            };
+            diagnostics.extend(decrypted_request_report.diagnostics);
 
-        let upstream_response_report = {
-            let mut bounded_reader = NativeBoundedRead::new(&mut upstream_tls, session_timeout);
-            read_plain_http_proxy_response(&mut bounded_reader)
-        };
-        diagnostics.extend(upstream_response_report.diagnostics.clone());
-        let upstream_response = upstream_response_report.response.ok_or_else(|| {
-            "controlled TLS upstream session could not read a bounded HTTP response".to_string()
-        })?;
-        let response_message =
-            plain_http_proxy_response_to_plain_http_message(&decrypted_request, &upstream_response);
-        let response_rewrite_report = http_mitm_hook
-            .map(|hook| hook.plan_plain_http(&response_message))
-            .unwrap_or_else(|| passthrough_plain_http_rewrite_report(&response_message));
-        diagnostics.extend(response_rewrite_report.diagnostics.clone());
-        record_plain_http_live_rewrite_diagnostic(&mut diagnostics, &response_rewrite_report);
-        let client_response = serialize_plain_http_proxy_response(
-            &upstream_response.version,
-            &response_rewrite_report,
-        );
-        let client_write_report =
-            write_plain_http_proxy_client_response(&mut downstream_tls, client_response);
-        let response_written = diagnostics_contain_code(
-            &client_write_report.diagnostics,
-            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
-        );
-        diagnostics.extend(client_write_report.diagnostics);
+            let request_message =
+                explicit_http_proxy_request_to_plain_http_message(&decrypted_request);
+            let request_rewrite_report = http_mitm_hook
+                .map(|hook| hook.plan_plain_http(&request_message))
+                .unwrap_or_else(|| passthrough_plain_http_rewrite_report(&request_message));
+            diagnostics.extend(request_rewrite_report.diagnostics.clone());
+            record_plain_http_live_rewrite_diagnostic(&mut diagnostics, &request_rewrite_report);
+
+            if request_rewrite_report.terminal_action.is_some() {
+                let client_response = serialize_plain_http_proxy_response(
+                    &decrypted_request.version,
+                    &request_rewrite_report,
+                );
+                let client_write_report =
+                    write_plain_http_proxy_client_response(&mut downstream_tls, client_response);
+                response_written = diagnostics_contain_code(
+                    &client_write_report.diagnostics,
+                    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
+                );
+                diagnostics.extend(client_write_report.diagnostics);
+                break;
+            }
+
+            let request_close =
+                http_message_requests_close(&decrypted_request.version, &decrypted_request.headers)
+                    || exchange_index + 1 == CONTROLLED_TLS_MAX_HTTP_EXCHANGES;
+            let upstream_request =
+                serialize_explicit_http_proxy_request_for_upstream_with_connection(
+                    &decrypted_request,
+                    &request_rewrite_report,
+                    request_close,
+                );
+            let upstream_write_report =
+                write_plain_http_proxy_upstream_request(&mut upstream_tls, upstream_request);
+            let upstream_request_written = diagnostics_contain_code(
+                &upstream_write_report.diagnostics,
+                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE,
+            );
+            diagnostics.extend(upstream_write_report.diagnostics);
+            if !upstream_request_written {
+                return Err("controlled TLS upstream request write failed".to_string());
+            }
+
+            let upstream_response_report = {
+                let mut bounded_reader = NativeBoundedRead::new(&mut upstream_tls, session_timeout);
+                read_plain_http_proxy_response(&mut bounded_reader)
+            };
+            diagnostics.extend(upstream_response_report.diagnostics.clone());
+            let upstream_response = upstream_response_report.response.ok_or_else(|| {
+                "controlled TLS upstream session could not read a bounded HTTP response".to_string()
+            })?;
+            let response_close = request_close
+                || http_message_requests_close(
+                    &upstream_response.version,
+                    &upstream_response.headers,
+                );
+            let response_message = plain_http_proxy_response_to_plain_http_message(
+                &decrypted_request,
+                &upstream_response,
+            );
+            let response_rewrite_report = http_mitm_hook
+                .map(|hook| hook.plan_plain_http(&response_message))
+                .unwrap_or_else(|| passthrough_plain_http_rewrite_report(&response_message));
+            diagnostics.extend(response_rewrite_report.diagnostics.clone());
+            record_plain_http_live_rewrite_diagnostic(&mut diagnostics, &response_rewrite_report);
+            let client_response = serialize_plain_http_proxy_response_with_connection(
+                &upstream_response.version,
+                &response_rewrite_report,
+                response_close,
+            );
+            let client_write_report =
+                write_plain_http_proxy_client_response(&mut downstream_tls, client_response);
+            response_written = diagnostics_contain_code(
+                &client_write_report.diagnostics,
+                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
+            );
+            diagnostics.extend(client_write_report.diagnostics);
+            if response_close {
+                break;
+            }
+        }
         Ok(response_written)
     })();
 
@@ -7397,26 +7482,34 @@ mod controlled_tls_session_tests {
             let connection = ServerConnection::new(upstream_server_config)
                 .expect("test upstream TLS connection should initialize");
             let mut tls_stream = StreamOwned::new(connection, stream);
-            let request = read_explicit_http_proxy_request(&mut tls_stream)
-                .request
-                .expect("test upstream should receive decrypted HTTP request");
-            assert_eq!(request.origin_path, "/resource");
-            assert!(std::str::from_utf8(&request.body)
-                .expect("script-mutated upstream request body should be UTF-8")
-                .contains("requestRuntime"));
-            let response_body = b"{\"from\":\"upstream\"}";
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                response_body.len(),
-                std::str::from_utf8(response_body)
-                    .expect("test upstream response body should be UTF-8"),
-            );
-            tls_stream
-                .write_all(response.as_bytes())
-                .expect("test upstream should write HTTPS response");
-            tls_stream
-                .flush()
-                .expect("test upstream should flush HTTPS response");
+            for exchange_index in 0..2 {
+                let request = read_explicit_http_proxy_request(&mut tls_stream)
+                    .request
+                    .expect("test upstream should receive decrypted HTTP request");
+                assert_eq!(request.origin_path, "/resource");
+                assert!(std::str::from_utf8(&request.body)
+                    .expect("script-mutated upstream request body should be UTF-8")
+                    .contains("requestRuntime"));
+                let response_body = b"{\"from\":\"upstream\"}";
+                let connection = if exchange_index == 1 {
+                    "close"
+                } else {
+                    "keep-alive"
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: {}\r\n\r\n{}",
+                    response_body.len(),
+                    connection,
+                    std::str::from_utf8(response_body)
+                        .expect("test upstream response body should be UTF-8"),
+                );
+                tls_stream
+                    .write_all(response.as_bytes())
+                    .expect("test upstream should write HTTPS response");
+                tls_stream
+                    .flush()
+                    .expect("test upstream should flush HTTPS response");
+            }
         });
 
         let proxy_listener =
@@ -7436,19 +7529,21 @@ mod controlled_tls_session_tests {
             let connection = ClientConnection::new(downstream_client_config, server_name)
                 .expect("test TLS client connection should initialize");
             let mut tls_stream = StreamOwned::new(connection, stream);
-            tls_stream
-                .write_all(b"GET /resource HTTP/1.1\r\nHost: example.com\r\n\r\n")
-                .expect("test TLS client should write HTTP request");
-            tls_stream
-                .flush()
-                .expect("test TLS client should flush HTTP request");
-            let response = read_plain_http_proxy_response(&mut tls_stream)
-                .response
-                .expect("test TLS client should receive HTTP response");
-            assert_eq!(response.status_code, 202);
-            assert!(std::str::from_utf8(&response.body)
-                .expect("script-mutated client response body should be UTF-8")
-                .contains("responseRuntime"));
+            for _ in 0..2 {
+                tls_stream
+                    .write_all(b"GET /resource HTTP/1.1\r\nHost: example.com\r\n\r\n")
+                    .expect("test TLS client should write HTTP request");
+                tls_stream
+                    .flush()
+                    .expect("test TLS client should flush HTTP request");
+                let response = read_plain_http_proxy_response(&mut tls_stream)
+                    .response
+                    .expect("test TLS client should receive HTTP response");
+                assert_eq!(response.status_code, 202);
+                assert!(std::str::from_utf8(&response.body)
+                    .expect("script-mutated client response body should be UTF-8")
+                    .contains("responseRuntime"));
+            }
         });
 
         let (proxy_stream, _) = proxy_listener

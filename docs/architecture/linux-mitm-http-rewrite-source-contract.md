@@ -27,7 +27,7 @@ material 可解析且 CONNECT authority/SNI 仍一致时，由 NetworkCore CA �
 leaf certificate material；该 material 不写入 report debug output，不安装到系统。当前 main 还新增 rustls
 downstream/upstream configuration 和受控 engine path：仅由 `NativeProxyEngineService` 显式注入 CA
 material 时，HTTP listener 的 CONNECT path 会完成 downstream TLS termination、web-PKI-verified
-upstream TLS、bounded HTTP/1.1 request/response rewrite exchange；Linux CLI 仅在 `start` 同时使用
+upstream TLS、最多 4 次 bounded HTTP/1.1 request/response rewrite exchange；Linux CLI 仅在 `start` 同时使用
 `--enable-https-mitm --mitm-ca-cert --mitm-ca-key --confirm` 时读取并注入 material，默认启动继续保持
 pass-through public boundary。当前 main 还新增
 caller-provided HTTPS request rewrite preview：在 controlled TLS termination plan ready 且输入为
@@ -51,6 +51,9 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
   loopback listener 上限制最多 64 个并发连接，达到上限只关闭新连接并记录 stable diagnostic，避免单一
   TLS/HTTP session 阻塞后续 proxy traffic 或无限制创建 worker。
 - `read_explicit_http_proxy_request` 支持 bounded HTTP/1.x、absolute-form `http://` request target、origin-form + `Host`、`Content-Length` body 和标准 `Transfer-Encoding: chunked` body；chunk extensions/trailers 会被有界消费，超过 body 上限、重复 `Content-Length`、未知 transfer coding、streaming body、HTTP/2 和 request smuggling 场景继续不承诺。
+- controlled CONNECT live path 最多处理 4 次 bounded HTTP/1.1 request/response exchange；明确的
+  `Connection: close`、HTTP/1.0 默认关闭、terminal rewrite、解析失败或预算耗尽会结束 TLS session，
+  未声明关闭时使用 `Content-Length` framing 保持下一次交换边界。
 - `CONNECT` target 在 HTTP listener 中会先生成 `NativeTlsMitmFoundationReport`，再经既有
   SOCKS outbound CONNECT primitive 建立 tunnel；成功后写标准空 body `200 Connection Established`
   response。未配置 CA material 时继续进行有限 TCP relay；配置 material 时进入受控 TLS path。

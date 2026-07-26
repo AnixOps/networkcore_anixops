@@ -14,7 +14,7 @@
 
 `v0.1.2-alpha.3` 仍是 Linux source release 切片：Linux `start` 在 operator 显式提供 CA、
 `--enable-https-mitm` 与 `--confirm` 时，完成 CONNECT authority/SNI-bound TLS termination、
-web-PKI upstream forwarding 和单个有界 HTTP/1.1 request/response rewrite；显式 local Node
+web-PKI upstream forwarding 和最多四次有界 HTTP/1.1 request/response rewrite；显式 local Node
 runner/script map 可在同一路径执行受信本地脚本、失败 fail-open，且不下载远程脚本。Linux
 `mitm certificate trust-apply/trust-rollback` 现在支持显式 Ubuntu-style trust-file 路径、快照、
 刷新和冲突保护；系统默认 trust discovery、NSS、p11-kit、浏览器 profile、browser/system proxy、
