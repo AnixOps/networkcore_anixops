@@ -137,7 +137,7 @@ else
         esac
 
         case "${path}" in
-          apps/windows-cli/*|apps/windows-gui/*|apps/windows-service/*|crates/platform-windows/*|installer/windows/*|docs/architecture/windows-*)
+          apps/windows-cli/*|apps/windows-gui/*|apps/windows-service/*|crates/platform-windows/*|installer/windows/*)
             mark windows
             recognized=true
             ;;

@@ -41,15 +41,15 @@
    或 `workflow_dispatch` 时必须安全回退到完整矩阵。
 2. `policy-fast` 在五分钟预算内检查关键治理文件和 manifest、已提交的 `Cargo.lock`、本地
    构建产物、签名/私钥文件、明显凭据模式、workflow 入口以及与变更平台对应的最小合同。
-3. `policy-full` 保留原有全部文档一致性、架构 marker、源码合同和 release 状态断言；它在
-   `policy-fast` 后与相关平台验证并行，不得再作为所有平台 job 的串行前置条件。
+3. `policy-full` 保留原有全部文档一致性、架构 marker、源码合同和 release 状态断言；它只依赖
+   `changes`，与 `policy-fast` 和相关平台验证并行，不得再作为所有平台 job 的串行前置条件。
 
 路径门控规则如下：
 
 - 仅 Markdown、普通 `docs/**` 或 Agent 治理文件变更时，运行 fast/full policy，但跳过无关三平台构建。
 - 根 `Cargo.toml`、`Cargo.lock`、共享 `crates/**`、`.github/workflows/**`、CI 脚本、发布关键
   合同或无法分类的路径触发 `full_matrix`。
-- `apps/windows-*`、`crates/platform-windows/**`、`installer/windows/**` 和 Windows 架构文件
+- `apps/windows-*`、`crates/platform-windows/**`、`installer/windows/**` 和 Windows 架构源码文件
   触发 Windows Rust、Node 前端合同和 MSI 验证。
 - `apps/linux-cli/**`、`crates/platform-linux/**` 和 Linux 架构文件触发 Ubuntu Rust 验证。
 - `apps/ios/**`、`crates/platform-ios/**`、Swift/Package.swift/Xcode/entitlement/privacy manifest

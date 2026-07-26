@@ -241,6 +241,19 @@ jobs:
           grep -Fqx 'validation_matrix={"include":[{"os":"windows-latest","timeout":45}]}' "${windows_output}"
 
           base_sha="${head_sha}"
+          mkdir -p "${fixture}/docs/architecture"
+          echo windows-docs > "${fixture}/docs/architecture/windows-ci-notes.md"
+          git -C "${fixture}" add docs/architecture/windows-ci-notes.md
+          git -C "${fixture}" commit --quiet -m windows-docs
+          head_sha="$(git -C "${fixture}" rev-parse HEAD)"
+          windows_docs_output="${fixture}/windows-docs.output"
+          classify_commit "${base_sha}" "${head_sha}" "${windows_docs_output}"
+          grep -qx 'docs=true' "${windows_docs_output}"
+          grep -qx 'windows=false' "${windows_docs_output}"
+          grep -qx 'full_matrix=false' "${windows_docs_output}"
+          grep -Fqx 'validation_matrix={"include":[{"os":"ubuntu-latest","timeout":30}]}' "${windows_docs_output}"
+
+          base_sha="${head_sha}"
           mkdir -p "${fixture}/apps/linux-cli/src"
           echo linux > "${fixture}/apps/linux-cli/src/main.rs"
           git -C "${fixture}" add apps/linux-cli/src/main.rs
@@ -328,7 +341,6 @@ jobs:
     timeout-minutes: 15
     needs:
       - changes
-      - policy-fast
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -2135,15 +2147,12 @@ jobs:
       - changes
       - policy-fast
       - detect-projects
-      - node-build-test
     if: >-
       ${{
-        always() &&
         needs.changes.result == 'success' &&
         needs.policy-fast.result == 'success' &&
         needs.detect-projects.result == 'success' &&
         needs.detect-projects.outputs.rust == 'true' &&
-        (needs.node-build-test.result == 'success' || needs.node-build-test.result == 'skipped') &&
         (
           needs.changes.outputs.full_matrix == 'true' ||
           needs.changes.outputs.rust == 'true' ||
