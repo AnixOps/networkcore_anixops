@@ -32,6 +32,8 @@ current-main-subscription-foreground=explicit-file-uri-http-and-run-catalog-acti
 current-main-subscription-background=blocked
 ```
 
+Linux `run-url` supports direct share links in the explicit foreground path.
+
 Linux artifact release-state consistency 已固定为 `linux-artifact-release-state=confirmed-release-path`；
 license/NOTICE 已 confirmed；当前 Windows source release 目标是 `v0.2.0-alpha.22`，最新 stable 是
 `v0.1.0`，后续 tag release 仍必须经过同 commit CI、checksum、manifest、attestation、release notes、rollback
