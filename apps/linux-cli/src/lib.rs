@@ -10,8 +10,8 @@ use control_domain::{
     DomainResult, GrantedPermissions, HttpMitmAction, HttpMitmPhase, MetadataEntry,
     MitmPluginService, OperatingSystem, PlatformCapabilityService, PlatformCapabilityStatus,
     PlatformFeatureState, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
-    ProxyEngineLifecycleState, ProxyEngineRollbackRequest, ProxyEngineService, ProxyEngineStatus, PublicEngineKind,
-    PublicEngineRunPlan, RawSubscription, SubscriptionService, SubscriptionSource,
+    ProxyEngineLifecycleState, ProxyEngineRollbackRequest, ProxyEngineService, ProxyEngineStatus,
+    PublicEngineKind, PublicEngineRunPlan, RawSubscription, SubscriptionService, SubscriptionSource,
 };
 use control_runtime::{RuntimeConfigRequest, RuntimeOperationResult, RuntimeOrchestrator};
 use engine_mieru::{

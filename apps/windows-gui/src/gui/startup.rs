@@ -174,10 +174,9 @@ mod tests {
 
     #[test]
     fn legacy_subscription_source_defaults_refresh_status_fields() {
-        let source: DesktopSubscriptionSource = serde_json::from_str(
-            r#"{"id":"source-1","location":"https://example.invalid/sub"}"#,
-        )
-        .expect("older saved source should remain readable");
+        let source: DesktopSubscriptionSource =
+            serde_json::from_str(r#"{"id":"source-1","location":"https://example.invalid/sub"}"#)
+                .expect("older saved source should remain readable");
 
         assert!(source.last_attempt.is_none());
         assert!(source.next_attempt.is_none());

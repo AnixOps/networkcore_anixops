@@ -1178,15 +1178,19 @@ fn import_subscription_blocking(
     })
 }
 
-fn acquire_subscription_refresh(state: &DesktopAppState) -> Result<SubscriptionRefreshGuard, String> {
+fn acquire_subscription_refresh(
+    state: &DesktopAppState,
+) -> Result<SubscriptionRefreshGuard, String> {
     let mut active = state
         .lifecycle
         .subscription_refresh_active
         .lock()
         .map_err(|_| "subscription refresh lock failed")?;
     if *active {
-        return Err("Subscription refresh is already active; wait for the current attempt to finish."
-            .to_string());
+        return Err(
+            "Subscription refresh is already active; wait for the current attempt to finish."
+                .to_string(),
+        );
     }
     *active = true;
     Ok(SubscriptionRefreshGuard {
@@ -1245,7 +1249,8 @@ fn record_subscription_import(location: &str, desktop: &mut DesktopState) -> Res
             let (added_node_count, removed_node_count, changed_node_count) =
                 subscription_node_change_counts(&previous_nodes, &desktop.profile_node_catalog);
             desktop.profile_last_successful_update = Some(timestamp.clone());
-            desktop.profile_next_attempt = scheduled_refresh_timestamp(desktop.auto_subscription_refresh);
+            desktop.profile_next_attempt =
+                scheduled_refresh_timestamp(desktop.auto_subscription_refresh);
             desktop.profile_refresh_result = "success".to_string();
             desktop.profile_added_node_count = added_node_count;
             desktop.profile_removed_node_count = removed_node_count;
@@ -1266,13 +1271,17 @@ fn record_subscription_import(location: &str, desktop: &mut DesktopState) -> Res
         }
         Err(error) => {
             let error_code = redacted_subscription_error_code(&error);
-            desktop.profile_next_attempt = scheduled_refresh_timestamp(desktop.auto_subscription_refresh);
+            desktop.profile_next_attempt =
+                scheduled_refresh_timestamp(desktop.auto_subscription_refresh);
             desktop.profile_refresh_result = "failed".to_string();
             desktop.profile_added_node_count = 0;
             desktop.profile_removed_node_count = 0;
             desktop.profile_changed_node_count = 0;
             desktop.profile_refresh_error_code = Some(error_code.clone());
-            desktop.profile_last_update_error = Some("Subscription refresh failed; inspect diagnostics for the redacted error code.".to_string());
+            desktop.profile_last_update_error = Some(
+                "Subscription refresh failed; inspect diagnostics for the redacted error code."
+                    .to_string(),
+            );
             record_subscription_result(
                 desktop,
                 location,
@@ -1303,19 +1312,21 @@ fn record_subscription_attempt(desktop: &mut DesktopState, location: &str, attem
         source.result = "running".to_string();
         source.error_code = None;
     } else {
-        desktop.subscription_sources.push(DesktopSubscriptionSource {
-            id,
-            location: location.to_string(),
-            last_attempt: Some(attempt),
-            last_successful_update: None,
-            next_attempt: None,
-            result: "running".to_string(),
-            added_node_count: 0,
-            removed_node_count: 0,
-            changed_node_count: 0,
-            error_code: None,
-            last_update_error: None,
-        });
+        desktop
+            .subscription_sources
+            .push(DesktopSubscriptionSource {
+                id,
+                location: location.to_string(),
+                last_attempt: Some(attempt),
+                last_successful_update: None,
+                next_attempt: None,
+                result: "running".to_string(),
+                added_node_count: 0,
+                removed_node_count: 0,
+                changed_node_count: 0,
+                error_code: None,
+                last_update_error: None,
+            });
     }
 }
 
@@ -1406,11 +1417,14 @@ fn subscription_node_change_counts(
     let changed = current
         .iter()
         .filter(|node| {
-            previous.iter().find(|before| before.id == node.id).is_some_and(|before| {
-                before.label != node.label
-                    || before.protocol != node.protocol
-                    || before.outbound_tag != node.outbound_tag
-            })
+            previous
+                .iter()
+                .find(|before| before.id == node.id)
+                .is_some_and(|before| {
+                    before.label != node.label
+                        || before.protocol != node.protocol
+                        || before.outbound_tag != node.outbound_tag
+                })
         })
         .count();
     (added, removed, changed)
@@ -2521,13 +2535,18 @@ mod tests {
         let previous = vec![node("retained", "Old retained"), node("removed", "Removed")];
         let current = vec![node("retained", "New retained"), node("added", "Added")];
 
-        assert_eq!(subscription_node_change_counts(&previous, &current), (1, 1, 1));
+        assert_eq!(
+            subscription_node_change_counts(&previous, &current),
+            (1, 1, 1)
+        );
     }
 
     #[test]
     fn refresh_error_codes_are_stable_and_redacted() {
         assert_eq!(
-            redacted_subscription_error_code("request timed out for https://secret.invalid/?token=redacted"),
+            redacted_subscription_error_code(
+                "request timed out for https://secret.invalid/?token=redacted"
+            ),
             "windows.subscription.fetch_timeout"
         );
         assert_eq!(
