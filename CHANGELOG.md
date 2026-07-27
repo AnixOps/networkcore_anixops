@@ -33,6 +33,9 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 ### Changed
 
+- Linux sandboxed native MITM scripts now pass a fixed 64 MiB V8 old-space cap
+  in addition to the existing bounded body and execution timeout limits.
+
 - Linux native MITM scripts now run only in a fresh no-network namespace with
   Node read permission limited to the explicit runner, mapped asset, and staged
   body. Persistent stores and write, child-process, addon, and network access

@@ -337,6 +337,7 @@ const HTTP_PROXY_MAX_HEADER_BYTES: usize = 16 * 1024;
 const HTTP_PROXY_MAX_BODY_BYTES: usize = 64 * 1024;
 const SCRIPT_RUNTIME_DEFAULT_TIMEOUT_MS: usize = 5000;
 const SCRIPT_RUNTIME_HARD_MAX_TIMEOUT_MS: usize = 30_000;
+const SCRIPT_RUNTIME_V8_MAX_OLD_SPACE_MIB: usize = 64;
 static SCRIPT_RUNTIME_TEMP_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
 
 struct NativeBoundedRead<'a, R> {
@@ -1074,6 +1075,9 @@ impl NativeNodeScriptExecutor {
                         .arg("--")
                         .arg(&self.config.node_binary)
                         .arg("--experimental-permission")
+                        .arg(format!(
+                            "--max-old-space-size={SCRIPT_RUNTIME_V8_MAX_OLD_SPACE_MIB}"
+                        ))
                         .arg(format!("--allow-fs-read={}", read_paths.join(",")));
                     Some(command)
                 }
@@ -7593,6 +7597,12 @@ mod script_runtime_security_tests {
         assert!(arguments
             .iter()
             .any(|argument| argument == "--experimental-permission"));
+        assert!(arguments.iter().any(|argument| {
+            argument
+                == format!(
+                    "--max-old-space-size={SCRIPT_RUNTIME_V8_MAX_OLD_SPACE_MIB}"
+                )
+        }));
         assert!(arguments
             .iter()
             .any(|argument| argument.starts_with("--allow-fs-read=")));

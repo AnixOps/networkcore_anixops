@@ -102,7 +102,8 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
   SHA-256，并在每次 dispatch 前重新计算；asset 缺失、符号链接、无法读取或摘要变化时一律 fail-open，
   不启动 Node。Linux product path 以 `NativeNodeScriptSandbox::LinuxNoNetwork` 启动新 user/network
   namespace，并以 Node permission mode 只授予 runner、mapped asset 和 staged body 的 read permission；
-  不授予 persistent store、write、child-process、addon 或 network permission。`--script-store` 会被拒绝。
+  不授予 persistent store、write、child-process、addon 或 network permission，并固定 V8 old-space 为 64 MiB。
+  `--script-store` 会被拒绝。
 - `plan_and_apply_https_request_rewrite_preview` 只消费调用方提供的 request-phase `https://`
   `NativePlainHttpMessage` 和 `HttpMitmOutcome`，并要求 controlled TLS termination plan 已 ready；它可在
   `NativeHttpsRequestRewritePreviewReport` 中表达 reject、redirect 和 request header mutation preview

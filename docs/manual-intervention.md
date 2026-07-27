@@ -154,9 +154,9 @@ subscription URLs, or full traffic contents:
    introduced.
 6. For an explicitly configured local script asset, retain its authorized
    SHA-256 and one successful bounded dispatch. Confirm the runner can read only
-   its mapped local asset and staged body, cannot write a file, spawn a child
-   process, load an addon, or reach a network endpoint; preserve the failed
-   operation evidence. Replace the asset while the runtime remains active,
+   its mapped local asset and staged body, is capped at 64 MiB V8 old-space,
+   cannot write a file, spawn a child process, load an addon, or reach a network
+   endpoint; preserve the failed operation evidence. Replace the asset while the runtime remains active,
    repeat the matching request, and record the deferred fail-open result with no
    Node execution.
 
