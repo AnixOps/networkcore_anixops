@@ -2665,42 +2665,40 @@ jobs:
             throw "Windows managed client MSI did not install WebView2Loader.dll beside the GUI executable."
           }
 
-          # The app entrypoint is served by Tauri's tauri.localhost protocol. Verify the
-          # actual WebView2 page rather than only checking that the frontend was embedded.
-          $debugPort = 9223
-          $priorWebViewArguments = $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
-          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$debugPort"
+          # Verify Tauri's page-load callback. This observes the installed app's actual
+          # WebView2 navigation without overriding its production browser arguments.
+          $guiLog = Join-Path $env:ProgramData "AnixOps\NetworkCore\logs\gui.log"
+          $launchCheckpoint = "ci-gui-launch-$([Guid]::NewGuid().ToString('N'))"
+          New-Item -ItemType Directory -Path (Split-Path $guiLog) -Force | Out-Null
+          Add-Content -Path $guiLog -Value $launchCheckpoint -Encoding utf8
           $guiProcess = Start-Process -FilePath $guiExe -PassThru
           try {
             $deadline = [DateTime]::UtcNow.AddSeconds(30)
-            $page = $null
+            $webViewLoaded = $false
             do {
-              try {
-                $pages = @(Invoke-RestMethod -Uri "http://127.0.0.1:$debugPort/json/list" -TimeoutSec 2)
-                $page = @(
-                  $pages | Where-Object {
-                    $_.type -eq "page" -and $_.url -match '^https?://tauri\.localhost(?:/|$)'
-                  }
-                ) | Select-Object -First 1
-              } catch {
-                $page = $null
+              if (Test-Path $guiLog -PathType Leaf) {
+                $logContent = Get-Content -Path $guiLog -Raw
+                $checkpointIndex = $logContent.LastIndexOf($launchCheckpoint, [StringComparison]::Ordinal)
+                if ($checkpointIndex -ge 0) {
+                  $launchLog = $logContent.Substring($checkpointIndex + $launchCheckpoint.Length)
+                  $webViewLoaded = $launchLog -match 'tauri-gui\] webview page load Finished: https?://tauri\.localhost(?:/|$)'
+                }
               }
-              if ($null -eq $page) {
+              if (-not $webViewLoaded) {
                 Start-Sleep -Milliseconds 250
               }
-            } while ($null -eq $page -and [DateTime]::UtcNow -lt $deadline)
+            } while (-not $webViewLoaded -and [DateTime]::UtcNow -lt $deadline)
 
-            if ($null -eq $page) {
-              throw "Windows GUI did not load a tauri.localhost page through WebView2."
-            }
-            if ($page.title -ne "AnixOps NetworkCore") {
-              throw "Windows GUI loaded an unexpected WebView2 page title: $($page.title)"
+            if (-not $webViewLoaded) {
+              if (Test-Path $guiLog -PathType Leaf) {
+                Get-Content -Path $guiLog -Tail 80
+              }
+              throw "Windows GUI did not report a tauri.localhost WebView2 page load."
             }
           } finally {
             if (-not $guiProcess.HasExited) {
               Stop-Process -Id $guiProcess.Id -Force -ErrorAction SilentlyContinue
             }
-            $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $priorWebViewArguments
           }
 
           $startupKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"

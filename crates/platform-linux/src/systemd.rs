@@ -557,10 +557,10 @@ fn validate_refresh_schedule_request(
     validate_refresh_schedule_name(&request.unit_name)?;
     if request.interval_seconds < 300
         || request.source_id.trim().is_empty()
-        || !request.executable_path.is_absolute()
-        || !request.catalog_path.is_absolute()
-        || !request.status_path.is_absolute()
-        || !request.snapshot_path.is_absolute()
+        || !is_linux_absolute_path(&request.executable_path)
+        || !is_linux_absolute_path(&request.catalog_path)
+        || !is_linux_absolute_path(&request.status_path)
+        || !is_linux_absolute_path(&request.snapshot_path)
         || [
             request.executable_path.to_string_lossy(),
             request.catalog_path.to_string_lossy(),
@@ -574,6 +574,11 @@ fn validate_refresh_schedule_request(
         return Err(DomainError::new(LINUX_SYSTEMD_REFRESH_SCHEDULE_INVALID_CODE, "subscription refresh schedule requires safe absolute paths, a source id, and an interval of at least 300 seconds"));
     }
     Ok(())
+}
+
+// The rendered unit is consumed by Linux systemd even when its contract tests run on Windows.
+fn is_linux_absolute_path(path: &Path) -> bool {
+    path.to_string_lossy().starts_with('/')
 }
 
 fn validate_refresh_schedule_name(unit_name: &str) -> DomainResult<()> {
