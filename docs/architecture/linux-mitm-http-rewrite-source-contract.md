@@ -37,7 +37,9 @@ termination plan ready 且输入为 response-phase `https://` message 时，可�
 和受 content-type/body-size/buffering guard 约束的 response body mutation 生成 preview application
 report。受控 live engine path 还可在显式 `--enable-script-runtime --script-runner <local-runner>`、至少一个
 `--script-map <script-url>=<local-file>` 与 `--confirm` 同时存在时，调用本地 Node runner 执行映射后的
-可信插件脚本；它限制 body、超时和输出协议，脚本失败或没有映射时 fail-open 并保留 deferred diagnostic。
+可信插件脚本；它限制 body、超时和输出协议。未映射或不满足授权条件的 dispatch 保持 deferred；runner
+启动、超时或输出失败则 fail-open 并报告 `script_dispatch_failed`，不会把失败误报为 deferred，也不会覆盖
+已验证的非脚本 rewrite。
 该能力不安装或信任 CA，不修改 browser/system proxy、system PAC、TUN、DNS 或 firewall。公开发行门禁在
 GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`，本地结果不能替代该门禁。
 
