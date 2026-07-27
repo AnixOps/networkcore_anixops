@@ -414,6 +414,10 @@ pub struct WindowsManagedState {
     pub tunnel_running: bool,
     #[serde(default)]
     pub sing_box_running: bool,
+    /// Set only after the service has completed `sing-box check -c` for the
+    /// current managed configuration.
+    #[serde(default)]
+    pub sing_box_config_validated: bool,
     #[serde(default)]
     pub sing_box_process_id: Option<u32>,
     #[serde(default)]
@@ -451,6 +455,7 @@ impl Default for WindowsManagedState {
             driver_reboot_required: false,
             tunnel_running: false,
             sing_box_running: false,
+            sing_box_config_validated: false,
             sing_box_process_id: None,
             sing_box_exit_code: None,
             sing_box_log_path: None,

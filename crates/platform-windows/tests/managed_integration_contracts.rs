@@ -217,6 +217,7 @@ fn managed_state_retains_rollback_material_for_system_mutations() {
         driver_reboot_required: false,
         tunnel_running: true,
         sing_box_running: false,
+        sing_box_config_validated: false,
         sing_box_process_id: None,
         sing_box_exit_code: None,
         sing_box_log_path: None,
@@ -235,6 +236,7 @@ fn managed_state_retains_rollback_material_for_system_mutations() {
     assert_eq!(json["last_transition"], "running");
     assert_eq!(json["tunnel_running"], true);
     assert!(json["proxy_snapshot"].is_object());
+    assert_eq!(json["sing_box_config_validated"], false);
     assert_eq!(json["native_mitm_listener"], "127.0.0.1:7890");
     assert!(json["last_error"].is_null());
 }

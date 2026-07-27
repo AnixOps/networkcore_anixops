@@ -178,6 +178,9 @@ where
     let facts = RuntimeFacts {
         service_state,
         sing_box_configured,
+        sing_box_configuration_validated: runtime
+            .as_ref()
+            .is_some_and(|state| state.sing_box_config_validated),
         sing_box_state_recorded_running: runtime
             .as_ref()
             .is_some_and(|state| state.sing_box_running),

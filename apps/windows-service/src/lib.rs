@@ -346,18 +346,23 @@ where
 
         if let Some(sing_box) = &config.sing_box {
             if sing_box.enabled {
+                let request = SingBoxManagedProcessRequest {
+                    executable_path: sing_box.executable_path.clone(),
+                    config_path: sing_box.config_path.clone(),
+                    working_directory: sing_box.working_directory.clone(),
+                    log_path: sing_box.log_path.clone(),
+                };
+                state.sing_box_config_validated = false;
+                self.persist(state)?;
+                SingBoxManagedProcessSupervisor::check_configuration(&request)?;
                 let current_status = self.sing_box.status()?;
                 let status = if current_status.state == SingBoxManagedProcessState::Running {
                     current_status
                 } else {
-                    self.sing_box.start(&SingBoxManagedProcessRequest {
-                        executable_path: sing_box.executable_path.clone(),
-                        config_path: sing_box.config_path.clone(),
-                        working_directory: sing_box.working_directory.clone(),
-                        log_path: sing_box.log_path.clone(),
-                    })?
+                    self.sing_box.start(&request)?
                 };
                 state.sing_box_running = status.state == SingBoxManagedProcessState::Running;
+                state.sing_box_config_validated = state.sing_box_running;
                 state.sing_box_process_id = status.process_id;
                 state.sing_box_exit_code = status.exit_code;
                 state.sing_box_log_path = Some(sing_box.log_path.clone());
@@ -448,6 +453,7 @@ where
             self.sing_box.stop(&log_path)?;
         }
         state.sing_box_running = false;
+        state.sing_box_config_validated = false;
         state.sing_box_process_id = None;
         state.sing_box_exit_code = self.sing_box.status()?.exit_code;
         state.sing_box_log_path = None;

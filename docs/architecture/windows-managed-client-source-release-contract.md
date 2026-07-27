@@ -23,7 +23,7 @@ windows-managed-client-install-model=wix-per-machine-msi
 windows-managed-client-system-mutation-policy=managed-apply-and-rollback
 windows-managed-client-gui=active
 windows-managed-client-gui-daily-usability=home-nodes-subscriptions-settings-diagnostics-advanced-active
-windows-managed-client-gui-runtime-status=scm-core-pid-current-user-proxy-active
+windows-managed-client-gui-runtime-status=scm-core-config-validation-pid-current-user-proxy-active
 windows-managed-client-gui-background-commands=active
 windows-managed-client-service=active
 windows-managed-client-driver-package-lifecycle=active
@@ -85,8 +85,9 @@ the third-party core.
 runtime observation, background command dispatch, and theme into dedicated GUI
 modules. Its six daily pages are Home, Nodes, Subscriptions, Settings,
 Diagnostics, and Advanced. `Connected` requires independent SCM,
-service-owned sing-box PID, and current interactive-user proxy observations;
-managed JSON or a persisted state record alone cannot report a connection. The
+service-owned sing-box configuration validation, service-owned sing-box PID,
+and current interactive-user proxy observations; managed JSON or a persisted
+state record alone cannot report a connection. The
 exact UI control and unavailable-feature boundary is documented in
 [Windows GUI Daily Usability](windows-gui-daily-usability.md).
 
