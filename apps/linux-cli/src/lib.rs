@@ -8922,6 +8922,7 @@ fn mieru_control_status(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn handle_install_service_plan(
     unit_name: &str,
     description: &str,
@@ -10020,7 +10021,7 @@ pub fn handle_managed_control_status(socket_path: &str) -> LinuxCliResponse {
             (&mut stream).take(1024).read_to_string(&mut response)?;
             Ok(response)
         })();
-        return match result {
+        match result {
             Ok(response)
                 if response.trim()
                     == "status state=unavailable error_code=runtime_status_unavailable" =>
@@ -10066,7 +10067,7 @@ pub fn handle_managed_control_status(socket_path: &str) -> LinuxCliResponse {
                     SOURCE_CLI_MANAGED_CONTROL,
                 ),
             ),
-        };
+        }
     }
     #[cfg(not(unix))]
     LinuxCliResponse::failure(
