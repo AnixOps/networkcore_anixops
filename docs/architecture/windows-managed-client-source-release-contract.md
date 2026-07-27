@@ -215,8 +215,10 @@ same `sing-box check -c <config>` preflight used by the managed process without
 starting a proxy, service, tunnel, certificate, driver, or system-proxy mutation.
 The check output remains in the configured sing-box log. `Diagnostics` writes and
 opens `%ProgramData%\\AnixOps\\NetworkCore\\logs\\diagnostics.txt`, containing the
-current SCM status, managed runtime transition and failure detail, and bounded
-tails of the local GUI, service, sing-box, and native MITM logs. Failed GUI
+current SCM status, managed runtime transition and failure detail, and bounded,
+redacted tails of the local GUI, service, sing-box, and native MITM logs. URL/share
+links and password/token/secret/authorization/private-key values are removed before
+the report is written. Failed GUI
 actions generate the same report automatically and show its path in the error
 dialog.
 

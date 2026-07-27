@@ -1514,7 +1514,7 @@ mod gui {
             runtime.connection.label()
         );
         if let Some(error) = runtime.configuration_error.or(runtime.last_error) {
-            summary.push_str(&format!("last_error={error}\n"));
+            summary.push_str(&format!("last_error={}\n", redact_diagnostic_text(&error)));
         }
         copy_unicode_text_to_clipboard(&summary)
     }
@@ -1564,14 +1564,17 @@ mod gui {
 
     fn write_diagnostic_report_at(config_path: &Path) -> Result<PathBuf, String> {
         let mut report = String::from("AnixOps NetworkCore Windows diagnostics\n");
-        report.push_str(&format!("managed_config_path={}\n", config_path.display()));
+        report.push_str("managed_config_path=redacted\n");
 
         match NativeWindowsSystemIntegration::new().service_status() {
             Ok(status) => report.push_str(&format!(
                 "service_state={:?} service_process_id={}\n",
                 status.state, status.process_id
             )),
-            Err(error) => report.push_str(&format!("service_status_error={error}\n")),
+            Err(error) => report.push_str(&format!(
+                "service_status_error={}\n",
+                redact_diagnostic_text(&error.to_string())
+            )),
         }
 
         let config = match read_managed_config(config_path) {
@@ -1595,7 +1598,10 @@ mod gui {
                 Some(config)
             }
             Err(error) => {
-                report.push_str(&format!("managed_config_error={error}\n"));
+                report.push_str(&format!(
+                    "managed_config_error={}\n",
+                    redact_diagnostic_text(&error.to_string())
+                ));
                 None
             }
         };
@@ -1604,7 +1610,9 @@ mod gui {
             Ok(managed) => report.push_str(&format!(
                 "runtime_transition={} runtime_error={} sing_box_running={} sing_box_pid={} sing_box_exit_code={} mieru_running={} mieru_listener={} mieru_error={} native_mitm_running={} native_mitm_listener={} native_mitm_error={}\n",
                 managed.last_transition,
-                managed.last_error.unwrap_or_else(|| "none".to_string()),
+                redact_diagnostic_text(
+                    &managed.last_error.unwrap_or_else(|| "none".to_string()),
+                ),
                 managed.sing_box_running,
                 managed
                     .sing_box_process_id
@@ -1616,14 +1624,23 @@ mod gui {
                     .unwrap_or_else(|| "none".to_string()),
                 managed.mieru_running,
                 managed.mieru_listener.unwrap_or_else(|| "none".to_string()),
-                managed
-                    .mieru_last_error
-                    .unwrap_or_else(|| "none".to_string()),
+                redact_diagnostic_text(
+                    &managed
+                        .mieru_last_error
+                        .unwrap_or_else(|| "none".to_string()),
+                ),
                 managed.native_mitm_running,
                 managed.native_mitm_listener.unwrap_or_else(|| "none".to_string()),
-                managed.native_mitm_last_error.unwrap_or_else(|| "none".to_string())
+                redact_diagnostic_text(
+                    &managed
+                        .native_mitm_last_error
+                        .unwrap_or_else(|| "none".to_string()),
+                )
             )),
-            Err(error) => report.push_str(&format!("managed_state_error={error}\n")),
+            Err(error) => report.push_str(&format!(
+                "managed_state_error={}\n",
+                redact_diagnostic_text(&error.to_string())
+            )),
         }
 
         let mut logs = vec![
@@ -1641,11 +1658,18 @@ mod gui {
         logs.sort();
         logs.dedup();
         for path in logs {
-            report.push_str(&format!("\n--- log: {} ---\n", path.display()));
+            let log_name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("managed-log");
+            report.push_str(&format!("\n--- log: {log_name} ---\n"));
             match read_log_tail(&path, 80) {
                 Ok(content) if content.is_empty() => report.push_str("(empty)\n"),
-                Ok(content) => report.push_str(&content),
-                Err(error) => report.push_str(&format!("(unavailable: {error})\n")),
+                Ok(content) => report.push_str(&redact_diagnostic_text(&content)),
+                Err(error) => report.push_str(&format!(
+                    "(unavailable: {})\n",
+                    redact_diagnostic_text(&error)
+                )),
             }
         }
 
@@ -1662,6 +1686,78 @@ mod gui {
             return Ok(String::new());
         }
         Ok(format!("{}\n", lines[start..].join("\n")))
+    }
+
+    fn redact_diagnostic_text(value: &str) -> String {
+        let mut redacted = value.to_string();
+        for scheme in [
+            "https://",
+            "http://",
+            "ss://",
+            "trojan://",
+            "vless://",
+            "vmess://",
+            "hysteria2://",
+            "hy2://",
+            "tuic://",
+            "mierus://",
+        ] {
+            redacted = redact_diagnostic_url(&redacted, scheme);
+        }
+        for marker in [
+            "password=",
+            "password:",
+            "token=",
+            "token:",
+            "secret=",
+            "secret:",
+            "authorization:",
+            "private_key=",
+            "private_key:",
+        ] {
+            redacted = redact_diagnostic_line_value(&redacted, marker);
+        }
+        redacted
+    }
+
+    fn redact_diagnostic_url(value: &str, scheme: &str) -> String {
+        let mut redacted = String::new();
+        let mut remaining = value;
+        loop {
+            let lowered = remaining.to_ascii_lowercase();
+            let Some(offset) = lowered.find(scheme) else {
+                redacted.push_str(remaining);
+                return redacted;
+            };
+            redacted.push_str(&remaining[..offset]);
+            redacted.push_str("[redacted-url]");
+            let url_end = remaining[offset..]
+                .find(|character: char| {
+                    character.is_ascii_whitespace() || matches!(character, '\"' | '\'' | '<' | '>')
+                })
+                .unwrap_or(remaining[offset..].len());
+            remaining = &remaining[offset + url_end..];
+        }
+    }
+
+    fn redact_diagnostic_line_value(value: &str, marker: &str) -> String {
+        let mut redacted = String::new();
+        let mut remaining = value;
+        loop {
+            let lowered = remaining.to_ascii_lowercase();
+            let Some(offset) = lowered.find(marker) else {
+                redacted.push_str(remaining);
+                return redacted;
+            };
+            let marker_end = offset + marker.len();
+            redacted.push_str(&remaining[..marker_end]);
+            redacted.push_str("[redacted]");
+            let line_end = remaining[marker_end..]
+                .find('\n')
+                .map(|index| marker_end + index)
+                .unwrap_or(remaining.len());
+            remaining = &remaining[line_end..];
+        }
     }
 
     fn open_path(path: &Path, description: &str) -> Result<(), String> {
@@ -2709,6 +2805,19 @@ mod gui {
     mod tests {
         use super::*;
         use control_domain::{Endpoint, Protocol};
+
+        #[test]
+        fn diagnostics_redact_urls_and_credential_values() {
+            let report = redact_diagnostic_text(
+                "fetch https://user:password@example.test/sub?token=never-store\nAuthorization: Bearer never-store\nprivate_key=never-store\n",
+            );
+
+            assert!(report.contains("[redacted-url]"));
+            assert!(report.contains("Authorization:[redacted]"));
+            assert!(report.contains("private_key=[redacted]"));
+            assert!(!report.contains("never-store"));
+            assert!(!report.contains("user:password@example.test"));
+        }
 
         fn node(id: &str, name: &str) -> NodeDescriptor {
             NodeDescriptor {
