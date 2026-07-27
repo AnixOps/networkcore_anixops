@@ -70,7 +70,8 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::{fs::FileTypeExt, fs::OpenOptionsExt, fs::PermissionsExt};
 use std::path::PathBuf;
 #[cfg(unix)]
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::AtomicU8;
+use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(unix)]
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -457,7 +458,6 @@ const MANAGED_CONTROL_ROLLBACK: u8 = 3;
 const MANAGED_CONTROL_PENDING: u8 = 4;
 #[cfg(unix)]
 static MANAGED_CONTROL_REQUEST: AtomicU8 = AtomicU8::new(MANAGED_CONTROL_NONE);
-#[cfg(unix)]
 static MANAGED_CONTROL_EXPECTED_CONFIG_VERSION: AtomicU64 = AtomicU64::new(0);
 pub const RUN_URL_REMOTE_SUBSCRIPTION_MAX_BYTES: u64 = 1024 * 1024;
 pub const RUN_URL_REMOTE_SUBSCRIPTION_TIMEOUT_SECONDS: u64 = 15;

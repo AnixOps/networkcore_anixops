@@ -11,10 +11,11 @@ use engine_mieru::{
     CommandMieruCommandRunner, MieruClientControlRequest,
 };
 use engine_native::{
-    NativeHttpMitmPluginHook, NativeNodeScriptExecutor, NativeNodeScriptRuntimeConfig,
-    NativeNodeScriptSandbox, NativeProxyEngineService, NativeTlsMitmCaMaterial,
-    DEFAULT_NATIVE_ENGINE_ID,
+    NativeHttpMitmPluginHook, NativeNodeScriptExecutor, NativeProxyEngineService,
+    NativeTlsMitmCaMaterial, DEFAULT_NATIVE_ENGINE_ID,
 };
+#[cfg(not(windows))]
+use engine_native::{NativeNodeScriptRuntimeConfig, NativeNodeScriptSandbox};
 use engine_singbox::{
     inspect_sing_box_local_selector_snapshot, read_sing_box_clash_api_selector_with_timeout,
     SingBoxManagedProcessRequest, SingBoxManagedProcessState, SingBoxManagedProcessSupervisor,
@@ -32,6 +33,7 @@ use platform_windows::managed::{
 #[cfg(windows)]
 use platform_windows::mitm_security::validate_windows_managed_mitm_private_key;
 use platform_windows::system_integration::WindowsSystemIntegration;
+#[cfg(not(windows))]
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
