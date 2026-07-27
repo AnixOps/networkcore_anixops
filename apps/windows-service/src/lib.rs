@@ -565,6 +565,7 @@ where
             return Ok(());
         }
 
+        validate_native_mitm_script_runtime_availability(config)?;
         if let Err(error) = validate_native_mitm_private_key(&config.ca_private_key_path) {
             self.revoke_native_mitm_certificate(state)?;
             return Err(error);
@@ -742,12 +743,7 @@ where
 fn build_native_mitm_service(
     config: &WindowsManagedNativeMitmConfig,
 ) -> DomainResult<NativeProxyEngineService> {
-    #[cfg(windows)]
-    if config.script_runtime.is_some() {
-        return Err(runtime_error(
-            "native MITM script runtime is unavailable until a Windows no-network sandbox is implemented",
-        ));
-    }
+    validate_native_mitm_script_runtime_availability(config)?;
     let certificate_pem = fs::read_to_string(&config.ca_certificate_path)
         .map_err(|_| runtime_error("native MITM CA certificate material could not be read"))?;
     let private_key_pem = fs::read_to_string(&config.ca_private_key_path)
@@ -788,6 +784,18 @@ fn build_native_mitm_service(
             certificate_pem,
             private_key_pem,
         )))
+}
+
+fn validate_native_mitm_script_runtime_availability(
+    config: &WindowsManagedNativeMitmConfig,
+) -> DomainResult<()> {
+    #[cfg(windows)]
+    if config.script_runtime.is_some() {
+        return Err(runtime_error(
+            "native MITM script runtime is unavailable until a Windows no-network sandbox is implemented",
+        ));
+    }
+    Ok(())
 }
 
 /// ACL enforcement is a Windows runtime boundary. Linux-hosted data-plane

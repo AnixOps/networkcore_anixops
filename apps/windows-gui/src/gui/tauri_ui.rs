@@ -1952,6 +1952,15 @@ fn enable_https_mitm_blocking(state: DesktopAppState) -> Result<OperationResult,
                 .map(|path| path.display().to_string())
         })
         .ok_or_else(|| "Import a profile before enabling HTTPS MITM.".to_string())?;
+    if managed_config_or_default()?
+        .native_mitm
+        .is_some_and(|native_mitm| native_mitm.script_runtime.is_some())
+    {
+        return Err(
+            "Clear the legacy managed script runtime before enabling HTTPS MITM; Windows script execution requires a no-network sandbox."
+                .to_string(),
+        );
+    }
     let restart = stop_running_service_for_mitm_reconfigure()?;
     let (certificate_path, private_key_path) = ensure_mitm_ca_material()?;
     if let Err(error) = protect_windows_managed_mitm_private_key(&private_key_path) {
@@ -1961,10 +1970,6 @@ fn enable_https_mitm_blocking(state: DesktopAppState) -> Result<OperationResult,
     let previous_sing_box_config = read_managed_sing_box_config_before_import()?;
     let imported = prepare_mitm_profile(&location, &desktop)?;
     let mut managed = managed_config_or_default()?;
-    let script_runtime = managed
-        .native_mitm
-        .as_ref()
-        .and_then(|native_mitm| native_mitm.script_runtime.clone());
     managed.system_proxy = Some(WindowsProxySettings {
         enabled: true,
         server: format!("127.0.0.1:{SING_BOX_DIRECT_LISTEN_PORT}"),
@@ -1988,7 +1993,7 @@ fn enable_https_mitm_blocking(state: DesktopAppState) -> Result<OperationResult,
         ca_private_key_path: private_key_path,
         log_path: windows_managed_log_directory().join("native-mitm.log"),
         sing_box_config_snapshot_path: imported.sing_box_config_snapshot_path.clone(),
-        script_runtime,
+        script_runtime: None,
     });
     write_imported_profile_managed_config(
         &managed,

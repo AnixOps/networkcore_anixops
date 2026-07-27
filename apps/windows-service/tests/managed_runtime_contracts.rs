@@ -485,12 +485,19 @@ fn native_mitm_windows_acl_validation_precedes_trust_install_and_health_checks()
     let validation = start_source
         .find("validate_native_mitm_private_key(&config.ca_private_key_path)")
         .expect("native MITM start validates its private key ACL");
+    let script_runtime = start_source
+        .find("validate_native_mitm_script_runtime_availability(config)")
+        .expect("native MITM start checks script runtime availability");
     let trust_install = start_source
         .find("install_root_certificate(&config.ca_certificate_path)")
         .expect("native MITM start retains explicit trust installation");
     assert!(
         validation < trust_install,
         "private key ACL validation must precede trust-store mutation"
+    );
+    assert!(
+        script_runtime < validation,
+        "unsupported Windows script runtime must be rejected before private-key validation or trust mutation"
     );
 
     let health = source
@@ -510,6 +517,11 @@ fn native_mitm_windows_acl_validation_precedes_trust_install_and_health_checks()
         source.contains("fn revoke_native_mitm_certificate(")
             && source.contains("self.integration.remove_root_certificate(&thumbprint)"),
         "private key ACL drift must revoke the managed MITM CA trust entry"
+    );
+    assert!(
+        source.contains("fn validate_native_mitm_script_runtime_availability(")
+            && source.contains("#[cfg(windows)]\n    if config.script_runtime.is_some()"),
+        "Windows builds must reject legacy script runtime configuration before CA material is read"
     );
 }
 

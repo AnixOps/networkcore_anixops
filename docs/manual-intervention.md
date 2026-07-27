@@ -89,17 +89,14 @@ experience production-ready:
     any previously recorded managed CA is revoked while the existing rollback
     restores the previous proxy state. Restore the strict ACL,
     then confirm the private key is deleted after disable.
-11. With native HTTPS MITM enabled and the service stopped, configure Script
-    dispatch with an existing local policy source containing a `[Script]`
-    rule, an existing local Node runner, the selected Node executable, a
-    local HTTP(S)-URL-to-script mapping, and, when used, a writable local
-    persistent store. Start the service and send matching traffic through the
-    managed listener. Preserve the native script-executed diagnostic and the
-    resulting traffic evidence. While that service remains running, replace the
-    mapped asset and repeat the matching request: record the deferred/fail-open
-    diagnostic and confirm no Node execution occurs for the changed asset. Then
-    stop the service, clear the runtime, and confirm the next start neither
-    loads the policy nor emits that diagnostic.
+11. With native HTTPS MITM disabled and the service stopped, retain or manually
+    stage a legacy managed Script dispatch configuration containing a local
+    policy source, Node runner, Node executable, and HTTP(S)-URL-to-script
+    mapping. Confirm the GUI refuses new configuration and HTTPS MITM enable
+    before it stops the service or creates CA material. Confirm a direct service
+    start rejects the legacy configuration before installing a CA certificate,
+    changing the system proxy, or reading the policy/runner. Clear the legacy
+    runtime, then verify normal HTTPS MITM enable/disable remains available.
 12. Import a native sing-box profile containing both a selector and a
     non-selector outbound group. With the service stopped, record the listed
     groups, switch the selector default to a listed member, and replace one
