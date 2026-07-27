@@ -202,7 +202,7 @@ GitHub Release asset 上传。
 
 当前 P4 状态：Linux CLI artifact 已经通过 GitHub Actions tag release workflow 发布到 GitHub Release，
 当前 Windows source release 候选是 `v0.2.0-alpha.22`，最新 stable 是 `v0.1.0`；
-Linux 仍是手动解压和 foreground/CLI 运行模型，不安装 daemon/service，不修改 TUN/DNS/firewall/certificate trust store；Windows 已通过 MSI 提供 managed GUI/service、installer 和可回滚的系统代理/信任库生命周期，并提供不在解压时注册 service 的 portable ZIP。
+Linux tarball 仍是手动解压、默认 foreground/CLI 运行模型，不在安装时隐式创建 daemon/service，也不修改 TUN/DNS/firewall/certificate trust store；用户可通过显式路径、snapshot 和 `--confirm` 安装、控制或卸载一个命名的 NetworkCore systemd unit。Windows 已通过 MSI 提供 managed GUI/service、installer 和可回滚的系统代理/信任库生命周期，并提供不在解压时注册 service 的 portable ZIP。
 iOS 仍只允许 `apps/ios/README.md` source tree governance placeholder 和 upload blocked gates，
 不包含 Swift/Xcode/Network Extension target、签名、TestFlight/App Store upload 或 iOS release asset。
 Linux MITM browser capture 已新增
@@ -218,6 +218,12 @@ Linux MITM HTTP rewrite 已新增
 `NativePlainHttpMessage`、`NativePlainHttpRewriteReport`、`NativeExplicitHttpProxyRequest`、`LinuxMitmHttpRewriteReport`、`http_rewrite`
 report、`mitm http-rewrite plan/preview`、explicit HTTP proxy live plain HTTP data plane、explicit HTTP CONNECT tunnel foundation、显式授权和 blocked operations 边界；当前可对 caller-provided
 plain HTTP preview 输入和 explicit HTTP proxy `http://` live request/response 应用插件 outcome，也可对 explicit HTTP proxy `CONNECT` 建立 pass-through tunnel；仍不解密 TLS，不修改 browser/system proxy、system PAC、TUN、DNS、firewall 或 CA trust。
+
+上述 `http-rewrite plan/preview` 和未启用路径保持 preview/pass-through 边界；独立的显式
+`networkcore-linux start --enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path> --confirm`
+在 authority/SNI 一致时执行受控 HTTP/1.1 TLS termination、web-PKI upstream forwarding 和最多四个
+request/response rewrite exchange。该路径不支持 HTTP/2、HTTP/3/QUIC、pinning bypass、远程脚本、
+browser/system proxy mutation 或无界 streaming。
 
 `engine-singbox` 已作为首个 public engine adapter source contract 进入 workspace；`networkcore-linux help`
 现在输出命令表，`networkcore-linux install-sing-box`/`networkcore-linux sing-box install` 会从官方 GitHub latest
