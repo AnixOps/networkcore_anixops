@@ -2665,6 +2665,44 @@ jobs:
             throw "Windows managed client MSI did not install WebView2Loader.dll beside the GUI executable."
           }
 
+          # The app entrypoint is served by Tauri's tauri.localhost protocol. Verify the
+          # actual WebView2 page rather than only checking that the frontend was embedded.
+          $debugPort = 9223
+          $priorWebViewArguments = $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
+          $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$debugPort"
+          $guiProcess = Start-Process -FilePath $guiExe -PassThru
+          try {
+            $deadline = [DateTime]::UtcNow.AddSeconds(30)
+            $page = $null
+            do {
+              try {
+                $pages = @(Invoke-RestMethod -Uri "http://127.0.0.1:$debugPort/json/list" -TimeoutSec 2)
+                $page = @(
+                  $pages | Where-Object {
+                    $_.type -eq "page" -and $_.url -match '^https?://tauri\.localhost(?:/|$)'
+                  }
+                ) | Select-Object -First 1
+              } catch {
+                $page = $null
+              }
+              if ($null -eq $page) {
+                Start-Sleep -Milliseconds 250
+              }
+            } while ($null -eq $page -and [DateTime]::UtcNow -lt $deadline)
+
+            if ($null -eq $page) {
+              throw "Windows GUI did not load a tauri.localhost page through WebView2."
+            }
+            if ($page.title -ne "AnixOps NetworkCore") {
+              throw "Windows GUI loaded an unexpected WebView2 page title: $($page.title)"
+            }
+          } finally {
+            if (-not $guiProcess.HasExited) {
+              Stop-Process -Id $guiProcess.Id -Force -ErrorAction SilentlyContinue
+            }
+            $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $priorWebViewArguments
+          }
+
           $startupKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
           New-Item -Path $startupKey -Force | Out-Null
           $startupCommand = "`"$guiExe`" --start-after-login"

@@ -18,7 +18,8 @@
         "minWidth": 1040,
         "minHeight": 680,
         "resizable": true,
-        "center": true
+        "center": true,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --proxy-bypass-list=tauri.localhost;localhost;127.0.0.1;[::1]"
       }
     ],
     "security": {

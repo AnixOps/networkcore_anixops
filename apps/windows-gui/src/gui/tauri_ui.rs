@@ -207,6 +207,12 @@ pub(super) fn run(debug: bool) -> Result<(), String> {
             start_fastest_node_monitor(app.state::<DesktopAppState>().inner().clone());
             Ok(())
         })
+        .on_page_load(|_webview, payload| {
+            let _ = append_managed_log(
+                APP_LOG_SCOPE,
+                &format!("webview page load {:?}: {}", payload.event(), payload.url()),
+            );
+        })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
