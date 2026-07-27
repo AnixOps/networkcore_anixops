@@ -288,7 +288,7 @@ fn proxy_engine_port_can_be_implemented_by_an_adapter() {
         metadata: Vec::new(),
     };
 
-    assert_eq!(engine.list_engines().len(), 1);
+    assert_eq!(ProxyEngineService::list_engines(&engine).len(), 1);
     assert!(engine.validate_config(&engine_config).is_empty());
     let prepared = ProxyEngineAdapter::prepare(&engine, &engine_config)
         .expect("adapter should capture a lifecycle snapshot");
@@ -307,8 +307,7 @@ fn proxy_engine_port_can_be_implemented_by_an_adapter() {
     .expect_err("legacy bridge must not claim rollback support");
     assert_eq!(rollback.code, "control.engine.rollback_unsupported");
     assert_eq!(
-        engine
-            .start(&engine_config)
+        ProxyEngineService::start(&engine, &engine_config)
             .expect("engine should start")
             .state,
         ProxyEngineLifecycleState::Running

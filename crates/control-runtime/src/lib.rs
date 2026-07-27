@@ -896,7 +896,7 @@ mod tests {
     use super::*;
     use control_domain::{
         CertificateTrustState, MitmCertificateStatus, OperatingSystem, PlatformFeatureState,
-        ProxyEngineLifecycleState, SchemaVersion,
+        ProxyEngineLifecycleState, ProxyEngineService, SchemaVersion,
     };
 
     struct DiagnosticConfigService {
