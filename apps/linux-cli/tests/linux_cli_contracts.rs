@@ -4175,6 +4175,7 @@ fn parses_core_install_sing_box_alias() {
 }
 
 #[test]
+#[cfg(unix)]
 fn parses_and_renders_install_service_plan_without_system_mutation() {
     let command = parse_args([
         "install-service",
@@ -4312,6 +4313,7 @@ fn install_service_requires_explicit_confirmation() {
 }
 
 #[test]
+#[cfg(unix)]
 fn install_service_apply_writes_and_verifies_unit_with_snapshot() {
     let root = std::env::temp_dir().join(format!(
         "networkcore-linux-cli-service-{}",
@@ -4348,6 +4350,7 @@ fn install_service_apply_writes_and_verifies_unit_with_snapshot() {
 }
 
 #[test]
+#[cfg(unix)]
 fn uninstall_service_plan_preserves_state_and_requires_purge_confirmation() {
     let command = parse_args([
         "uninstall-service",
@@ -7932,6 +7935,7 @@ fn run_url_handler_selects_the_requested_catalog_node() {
 }
 
 #[test]
+#[cfg(unix)]
 fn run_url_handler_reads_an_explicit_file_uri_through_the_subscription_parser() {
     let root = std::env::temp_dir().join(format!(
         "networkcore-linux-run-url-file-contract-{}",
