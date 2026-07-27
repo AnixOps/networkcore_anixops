@@ -10,7 +10,7 @@ use control_domain::{
     DomainResult, GrantedPermissions, HttpMitmAction, HttpMitmPhase, MetadataEntry,
     MitmPluginService, OperatingSystem, PlatformCapabilityService, PlatformCapabilityStatus,
     PlatformFeatureState, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
-    ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, PublicEngineKind,
+    ProxyEngineLifecycleState, ProxyEngineRollbackRequest, ProxyEngineService, ProxyEngineStatus, PublicEngineKind,
     PublicEngineRunPlan, RawSubscription, SubscriptionService, SubscriptionSource,
 };
 use control_runtime::{RuntimeConfigRequest, RuntimeOperationResult, RuntimeOrchestrator};
@@ -9442,6 +9442,7 @@ where
             return response;
         }
 
+        let prepared_snapshot = orchestrator.prepare_runtime_engine(request.clone());
         match orchestrator.reload_runtime(request.clone()) {
             Ok(reloaded) => operation = reloaded,
             Err(error) => {
@@ -9457,16 +9458,45 @@ where
                     ),
                     SOURCE_CLI_START,
                 ));
-                if let Err(stop_error) = orchestrator.stop_runtime(&engine_id) {
-                    response.diagnostics.push(cli_diagnostic(
+                let rollback = prepared_snapshot.clone().and_then(|prepared| {
+                    orchestrator.rollback_runtime_engine(ProxyEngineRollbackRequest {
+                        snapshot: prepared.snapshot,
+                        expected_state: ProxyEngineLifecycleState::Running,
+                    })
+                });
+                let rollback_failed = rollback.is_err();
+                match rollback {
+                    Ok(restored) => response.diagnostics.extend(restored.diagnostics),
+                    Err(rollback_error) => response.diagnostics.push(cli_diagnostic(
                         DiagnosticSeverity::Error,
-                        CLI_START_RUNTIME_STOP_FAILED_CODE,
+                        CLI_START_RUNTIME_RELOAD_FAILED_CODE,
                         format!(
-                            "failed to stop linux runtime after managed reload failure: {}",
-                            stop_error.message
+                            "managed reload rollback/readback failed: {}",
+                            rollback_error.message
                         ),
                         SOURCE_CLI_START,
+                    )),
+                }
+                if prepared_snapshot.is_err() {
+                    response.diagnostics.push(cli_diagnostic(
+                        DiagnosticSeverity::Error,
+                        CLI_START_RUNTIME_RELOAD_FAILED_CODE,
+                        "managed reload snapshot could not be captured before mutation",
+                        SOURCE_CLI_START,
                     ));
+                }
+                if rollback_failed {
+                    if let Err(stop_error) = orchestrator.stop_runtime(&engine_id) {
+                        response.diagnostics.push(cli_diagnostic(
+                            DiagnosticSeverity::Error,
+                            CLI_START_RUNTIME_STOP_FAILED_CODE,
+                            format!(
+                                "failed to stop linux runtime after managed reload failure: {}",
+                                stop_error.message
+                            ),
+                            SOURCE_CLI_START,
+                        ));
+                    }
                 }
                 return response;
             }
