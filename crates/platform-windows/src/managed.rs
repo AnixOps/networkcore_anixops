@@ -419,6 +419,8 @@ pub struct WindowsManagedState {
     #[serde(default)]
     pub sing_box_config_validated: bool,
     #[serde(default)]
+    pub sing_box_listener_reachable: bool,
+    #[serde(default)]
     pub sing_box_process_id: Option<u32>,
     #[serde(default)]
     pub sing_box_exit_code: Option<i32>,
@@ -456,6 +458,7 @@ impl Default for WindowsManagedState {
             tunnel_running: false,
             sing_box_running: false,
             sing_box_config_validated: false,
+            sing_box_listener_reachable: false,
             sing_box_process_id: None,
             sing_box_exit_code: None,
             sing_box_log_path: None,

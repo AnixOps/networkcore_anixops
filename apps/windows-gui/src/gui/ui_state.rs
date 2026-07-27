@@ -98,6 +98,7 @@ pub struct RuntimeFacts {
     pub service_state: WindowsServiceState,
     pub sing_box_configured: bool,
     pub sing_box_configuration_validated: bool,
+    pub sing_box_listener_reachable: bool,
     pub sing_box_state_recorded_running: bool,
     pub sing_box_process_running: Option<bool>,
     pub system_proxy_matches_managed: bool,
@@ -131,6 +132,9 @@ pub fn connection_state(facts: &RuntimeFacts) -> ConnectionState {
     }
     if !facts.sing_box_configuration_validated {
         return ConnectionState::ConfigurationError;
+    }
+    if !facts.sing_box_listener_reachable {
+        return ConnectionState::ConnectionFailed;
     }
     if !facts.sing_box_state_recorded_running {
         return ConnectionState::Connecting;
@@ -183,6 +187,7 @@ mod tests {
             service_state: WindowsServiceState::Running,
             sing_box_configured: true,
             sing_box_configuration_validated: true,
+            sing_box_listener_reachable: true,
             sing_box_state_recorded_running: true,
             sing_box_process_running: Some(true),
             system_proxy_matches_managed: true,
@@ -207,6 +212,10 @@ mod tests {
         value.system_proxy_matches_managed = true;
         value.sing_box_configuration_validated = false;
         assert_eq!(connection_state(&value), ConnectionState::ConfigurationError);
+
+        value.sing_box_configuration_validated = true;
+        value.sing_box_listener_reachable = false;
+        assert_eq!(connection_state(&value), ConnectionState::ConnectionFailed);
     }
 
     #[test]

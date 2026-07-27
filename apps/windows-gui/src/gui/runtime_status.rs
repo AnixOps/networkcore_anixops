@@ -181,6 +181,9 @@ where
         sing_box_configuration_validated: runtime
             .as_ref()
             .is_some_and(|state| state.sing_box_config_validated),
+        sing_box_listener_reachable: runtime
+            .as_ref()
+            .is_some_and(|state| state.sing_box_listener_reachable),
         sing_box_state_recorded_running: runtime
             .as_ref()
             .is_some_and(|state| state.sing_box_running),

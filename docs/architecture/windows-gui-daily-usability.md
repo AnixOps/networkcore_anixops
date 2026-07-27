@@ -11,7 +11,7 @@ selector API, system integration layer, MSI, and portable package.
 ```text
 windows-gui-daily-usability=active
 windows-gui-information-architecture=home-nodes-subscriptions-settings-diagnostics-advanced
-windows-gui-runtime-status=scm-core-config-validation-pid-current-user-proxy-active
+windows-gui-runtime-status=scm-core-config-validation-loopback-listener-pid-current-user-proxy-active
 windows-gui-command-execution=rust-command-bridge-background-workers-all-system-operations-subscription-catalog-refresh-fastest-node-tun-dns-script-runtime-native-groups-active
 windows-gui-high-risk-features=advanced-explicit-only
 windows-gui-view-runtime=tauri-react-active

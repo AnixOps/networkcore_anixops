@@ -25,13 +25,15 @@ use networkcore_windows::{
 use platform_windows::managed::{
     read_managed_config, read_managed_state, write_managed_state, WindowsManagedConfig,
     WindowsManagedNativeMitmConfig, WindowsManagedNativeMitmScriptRuntimeConfig,
-    WindowsManagedState,
+    WindowsManagedState, WindowsProxySettings,
 };
 use platform_windows::system_integration::WindowsSystemIntegration;
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
+use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 pub const WINDOWS_MANAGED_RUNTIME_FAILED_CODE: &str = "windows.managed.runtime_failed";
 
@@ -363,9 +365,14 @@ where
                 };
                 state.sing_box_running = status.state == SingBoxManagedProcessState::Running;
                 state.sing_box_config_validated = state.sing_box_running;
+                state.sing_box_listener_reachable = false;
                 state.sing_box_process_id = status.process_id;
                 state.sing_box_exit_code = status.exit_code;
                 state.sing_box_log_path = Some(sing_box.log_path.clone());
+                if let Some(proxy) = config.system_proxy.as_ref().filter(|proxy| proxy.enabled) {
+                    verify_managed_loopback_listener(proxy)?;
+                    state.sing_box_listener_reachable = true;
+                }
                 self.persist(state)?;
             }
         }
@@ -454,6 +461,7 @@ where
         }
         state.sing_box_running = false;
         state.sing_box_config_validated = false;
+        state.sing_box_listener_reachable = false;
         state.sing_box_process_id = None;
         state.sing_box_exit_code = self.sing_box.status()?.exit_code;
         state.sing_box_log_path = None;
@@ -796,4 +804,19 @@ fn parse_managed_command(arguments: Vec<String>) -> DomainResult<WindowsCliComma
 
 fn runtime_error(message: &str) -> DomainError {
     DomainError::new(WINDOWS_MANAGED_RUNTIME_FAILED_CODE, message)
+}
+
+fn verify_managed_loopback_listener(proxy: &WindowsProxySettings) -> DomainResult<()> {
+    let endpoint = proxy.server.parse::<SocketAddr>().map_err(|_| {
+        runtime_error("managed system proxy endpoint must be an explicit loopback socket address")
+    })?;
+    if !endpoint.ip().is_loopback() {
+        return Err(runtime_error(
+            "managed system proxy endpoint must use a loopback address",
+        ));
+    }
+    TcpStream::connect_timeout(&endpoint, Duration::from_millis(250)).map_err(|_| {
+        runtime_error("managed sing-box loopback listener was not reachable after start")
+    })?;
+    Ok(())
 }
