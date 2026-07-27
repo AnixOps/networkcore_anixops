@@ -3437,7 +3437,11 @@ impl CommandManagedForegroundSessionLogStore {
         })?;
         let total_line_count = contents.lines().count();
         let skip = total_line_count.saturating_sub(line_limit);
-        let lines: Vec<String> = contents.lines().skip(skip).map(str::to_string).collect();
+        let lines: Vec<String> = contents
+            .lines()
+            .skip(skip)
+            .map(redact_cli_output_text)
+            .collect();
         let returned_byte_count = lines.iter().map(String::len).sum();
 
         Ok(ManagedForegroundSessionLogTailReport {
@@ -15008,6 +15012,98 @@ pub fn render_response(response: &LinuxCliResponse, format: OutputFormat) -> Str
     }
 }
 
+fn redact_cli_output_text(value: &str) -> String {
+    let mut redacted = value.to_string();
+    for scheme in [
+        "https://",
+        "http://",
+        "ss://",
+        "trojan://",
+        "vless://",
+        "vmess://",
+        "hysteria2://",
+        "hy2://",
+        "tuic://",
+        "mierus://",
+    ] {
+        redacted = redact_cli_output_url(&redacted, scheme);
+    }
+    for marker in [
+        "password=",
+        "password:",
+        "token=",
+        "token:",
+        "access_token=",
+        "access_token:",
+        "refresh_token=",
+        "refresh_token:",
+        "secret=",
+        "secret:",
+        "credential=",
+        "credential:",
+        "authorization:",
+        "api_key=",
+        "api_key:",
+        "private_key=",
+        "private_key:",
+        "uuid=",
+        "uuid:",
+        "\"password\":",
+        "\"token\":",
+        "\"access_token\":",
+        "\"refresh_token\":",
+        "\"secret\":",
+        "\"credential\":",
+        "\"authorization\":",
+        "\"api_key\":",
+        "\"private_key\":",
+        "\"uuid\":",
+    ] {
+        redacted = redact_cli_output_line_value(&redacted, marker);
+    }
+    redacted
+}
+
+fn redact_cli_output_url(value: &str, scheme: &str) -> String {
+    let mut redacted = String::new();
+    let mut remaining = value;
+    loop {
+        let lowered = remaining.to_ascii_lowercase();
+        let Some(offset) = lowered.find(scheme) else {
+            redacted.push_str(remaining);
+            return redacted;
+        };
+        redacted.push_str(&remaining[..offset]);
+        redacted.push_str("[redacted-url]");
+        let url_end = remaining[offset..]
+            .find(|character: char| {
+                character.is_ascii_whitespace() || matches!(character, '"' | '\'' | '<' | '>')
+            })
+            .unwrap_or(remaining[offset..].len());
+        remaining = &remaining[offset + url_end..];
+    }
+}
+
+fn redact_cli_output_line_value(value: &str, marker: &str) -> String {
+    let mut redacted = String::new();
+    let mut remaining = value;
+    loop {
+        let lowered = remaining.to_ascii_lowercase();
+        let Some(offset) = lowered.find(marker) else {
+            redacted.push_str(remaining);
+            return redacted;
+        };
+        redacted.push_str(&remaining[..offset]);
+        redacted.push_str(&remaining[offset..offset + marker.len()]);
+        redacted.push_str("[redacted]");
+        let line_end = remaining[offset + marker.len()..]
+            .find('\n')
+            .map(|index| offset + marker.len() + index)
+            .unwrap_or(remaining.len());
+        remaining = &remaining[line_end..];
+    }
+}
+
 pub fn cli_diagnostic(
     severity: DiagnosticSeverity,
     code: impl Into<String>,
@@ -17739,7 +17835,10 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             log_tail.returned_byte_count
         ));
         for (index, line) in log_tail.lines.iter().enumerate() {
-            lines.push(format!("managed foreground log line {index}: {line}"));
+            lines.push(format!(
+                "managed foreground log line {index}: {}",
+                redact_cli_output_text(line)
+            ));
         }
         lines.push(format!(
             "managed foreground liveness verified: {}",
@@ -18259,7 +18358,7 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             "{} {}: {}",
             severity_name(diagnostic.severity),
             diagnostic.code,
-            diagnostic.message
+            redact_cli_output_text(&diagnostic.message)
         ));
     }
 
@@ -18800,7 +18899,11 @@ impl From<&ManagedForegroundSessionLogTailReport> for JsonManagedForegroundSessi
             log_path: report.log_path.clone(),
             line_limit: report.line_limit,
             total_line_count: report.total_line_count,
-            lines: report.lines.clone(),
+            lines: report
+                .lines
+                .iter()
+                .map(|line| redact_cli_output_text(line))
+                .collect(),
             returned_byte_count: report.returned_byte_count,
             liveness_verified: report.liveness_verified,
         }
@@ -20010,7 +20113,7 @@ impl From<&Diagnostic> for JsonDiagnostic {
         Self {
             severity: severity_name(diagnostic.severity),
             code: diagnostic.code.clone(),
-            message: diagnostic.message.clone(),
+            message: redact_cli_output_text(&diagnostic.message),
             source: diagnostic.source.clone(),
         }
     }

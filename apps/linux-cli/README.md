@@ -120,9 +120,10 @@ or control a runtime. Its contract tests are verified only by GitHub Actions.
 
 `CommandManagedForegroundSessionLogStore::read_tail` and `networkcore-linux managed-log <log-file-path>
 [--tail-lines <1-1000>]` form the managed-log slice. They read an explicit
-regular UTF-8 log file, return at most 1000 final lines from a 65536-byte file, and report
-`liveness_verified=false`; it does not create logs, search default locations, tail or stream a file, or control a
-runtime. Text output renders the selected lines; JSON exposes the same bounded report as
+regular UTF-8 log file, return at most 1000 final lines from a 65536-byte file, redact URLs and common credential
+values before exposing the report, and report `liveness_verified=false`; it does not create logs, search default
+locations, tail or stream a file, or control a runtime. Text output renders the selected lines; JSON exposes the
+same bounded report as
 `managed_foreground_log_tail`. The report also includes `returned_byte_count`,
 the UTF-8 byte count of returned line contents, excluding discarded content and
 line separators.

@@ -39,8 +39,10 @@ socket state, or start/reload/stop a runtime.
 - `MANAGED_FOREGROUND_LOG_TAIL_MAX_BYTES`
 
 `networkcore-linux managed-log <log-file-path> [--tail-lines <1-1000>]
-[--format text|json]` exposes the same bounded report. Text output includes
-the returned lines; JSON exposes `managed_foreground_log_tail` with the path,
+[--format text|json]` exposes the same bounded report. Before any report leaves
+the store, URLs and common credential values are replaced with stable redaction
+markers; the source log file is never modified. Text output includes the returned
+lines; JSON exposes `managed_foreground_log_tail` with the path,
 requested limit, total line count, returned lines, returned byte count, and
 `liveness_verified=false`.
 

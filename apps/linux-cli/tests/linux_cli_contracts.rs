@@ -874,7 +874,10 @@ fn managed_foreground_session_log_tail_reads_explicit_bounded_log_without_livene
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).expect("managed log test directory should be created");
     let log_path = root.join("managed.log");
-    std::fs::write(&log_path, "first\nsecond\nthird\nfourth\n")
+    std::fs::write(
+        &log_path,
+        "first\nsecond\nfetch https://user:password@example.test/sub?token=never-store\nAuthorization: Bearer never-store\n",
+    )
         .expect("managed log fixture should be written");
 
     let store = CommandManagedForegroundSessionLogStore::new();
@@ -887,8 +890,15 @@ fn managed_foreground_session_log_tail_reads_explicit_bounded_log_without_livene
     assert_eq!(report.log_path, log_path.display().to_string());
     assert_eq!(report.line_limit, 2);
     assert_eq!(report.total_line_count, 4);
-    assert_eq!(report.lines, vec!["third", "fourth"]);
-    assert_eq!(report.returned_byte_count, "thirdfourth".len());
+    let expected_tail = vec![
+        "fetch [redacted-url]".to_string(),
+        "Authorization:[redacted]".to_string(),
+    ];
+    assert_eq!(report.lines, expected_tail);
+    assert_eq!(
+        report.returned_byte_count,
+        report.lines.iter().map(String::len).sum::<usize>()
+    );
     assert!(!report.liveness_verified);
 
     let invalid_limit = store
@@ -982,18 +992,25 @@ fn managed_foreground_session_log_cli_reads_bounded_explicit_log() {
     );
     let text = render_response(&response, OutputFormat::Text);
     assert!(text.contains("managed foreground log line limit: 2"));
-    assert!(text.contains("managed foreground log line 0: third"));
-    assert!(text.contains("managed foreground log returned bytes: 10"));
+    assert!(text.contains("managed foreground log line 0: fetch [redacted-url]"));
+    assert!(text.contains("managed foreground log line 1: Authorization:[redacted]"));
+    assert!(!text.contains("never-store"));
+    assert!(!text.contains("example.test"));
     assert!(text.contains("managed foreground liveness verified: false"));
     let json: serde_json::Value =
         serde_json::from_str(&render_response(&response, OutputFormat::Json))
             .expect("managed log response should render JSON");
     assert_eq!(json["managed_foreground_log_tail"]["line_limit"], 2);
-    assert_eq!(json["managed_foreground_log_tail"]["lines"][0], "third");
+    assert_eq!(json["managed_foreground_log_tail"]["lines"][0], "fetch [redacted-url]");
+    assert_eq!(
+        json["managed_foreground_log_tail"]["lines"][1],
+        "Authorization:[redacted]"
+    );
     assert_eq!(
         json["managed_foreground_log_tail"]["returned_byte_count"],
-        10
+        report.returned_byte_count
     );
+    assert!(!render_response(&response, OutputFormat::Json).contains("never-store"));
     assert_eq!(
         json["managed_foreground_log_tail"]["liveness_verified"].as_bool(),
         Some(false)
@@ -1009,6 +1026,27 @@ fn managed_foreground_session_log_cli_reads_bounded_explicit_log() {
     assert!(invalid.is_err());
 
     std::fs::remove_dir_all(&root).expect("managed log CLI test directory should be removed");
+}
+
+#[test]
+fn diagnostic_rendering_redacts_urls_and_credentials_in_text_and_json() {
+    let response = handle_parse_error(Diagnostic::new(
+        DiagnosticSeverity::Error,
+        "cli.linux.contract.secret",
+        "subscription https://user:password@example.test/sub?token=never-store failed\napi_key=never-store",
+        Some("linux-cli-contract".to_string()),
+    ));
+
+    let text = render_response(&response, OutputFormat::Text);
+    let json = render_response(&response, OutputFormat::Json);
+    assert!(text.contains("[redacted-url]"));
+    assert!(text.contains("api_key=[redacted]"));
+    assert!(json.contains("[redacted-url]"));
+    assert!(json.contains("api_key=[redacted]"));
+    assert!(!text.contains("never-store"));
+    assert!(!json.contains("never-store"));
+    assert!(!text.contains("example.test"));
+    assert!(!json.contains("example.test"));
 }
 
 #[test]
