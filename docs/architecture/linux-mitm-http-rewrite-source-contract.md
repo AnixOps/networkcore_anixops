@@ -52,7 +52,7 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
 - accept loop 会为每个已接受连接启动独立 worker，并在 shutdown 时汇总 worker diagnostics；同时在
   loopback listener 上限制最多 64 个并发连接，达到上限只关闭新连接并记录 stable diagnostic，避免单一
   TLS/HTTP session 阻塞后续 proxy traffic 或无限制创建 worker。
-- `read_explicit_http_proxy_request` 只支持 bounded HTTP/1.0/1.1、absolute-form `http://` request target、origin-form + `Host`、`Content-Length` body 和标准 `Transfer-Encoding: chunked` body；HTTP/2.0 request line 必须以 `engine.native.runtime.http_proxy_plain_http_version_unsupported` 拒绝，且下游/上游 TLS ALPN 均只提供 `http/1.1`。chunk extensions/trailers 会被有界消费，超过 body 上限、重复 `Content-Length`、未知 transfer coding、streaming body、HTTP/2 binary framing 和 request smuggling 场景继续不承诺。
+- `read_explicit_http_proxy_request` 与 `read_plain_http_proxy_response` 只支持 bounded HTTP/1.0/1.1；absolute-form `http://` request target、origin-form + `Host`、`Content-Length` body 和标准 `Transfer-Encoding: chunked` body 仅在该版本边界内解析。HTTP/2.0 request line 或 upstream status line 必须以 `engine.native.runtime.http_proxy_plain_http_version_unsupported` 拒绝，且下游/上游 TLS ALPN 均只提供 `http/1.1`。chunk extensions/trailers 会被有界消费，超过 body 上限、重复 `Content-Length`、未知 transfer coding、streaming body、HTTP/2 binary framing 和 request smuggling 场景继续不承诺。
 - controlled CONNECT live path 最多处理 4 次 bounded HTTP/1.1 request/response exchange；明确的
   `Connection: close`、HTTP/1.0 默认关闭、terminal rewrite、解析失败或预算耗尽会结束 TLS session，
   未声明关闭时使用 `Content-Length` framing 保持下一次交换边界。

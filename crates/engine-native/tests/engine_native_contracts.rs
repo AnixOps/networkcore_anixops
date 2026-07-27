@@ -1830,6 +1830,21 @@ fn plain_http_proxy_response_parser_decodes_chunked_body() {
 }
 
 #[test]
+fn plain_http_proxy_response_parser_rejects_http2_status_lines() {
+    let mut response = Cursor::new(
+        b"HTTP/2.0 200 OK\r\nContent-Length: 0\r\n\r\n".to_vec(),
+    );
+
+    let report = read_plain_http_proxy_response(&mut response);
+
+    assert!(report.response.is_none());
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_HTTP_VERSION_UNSUPPORTED_CODE,
+    );
+}
+
+#[test]
 fn explicit_http_connect_tls_foundation_report_keeps_https_rewrite_deferred() {
     let mut request =
         Cursor::new(b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n".to_vec());

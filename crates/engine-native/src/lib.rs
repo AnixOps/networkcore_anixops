@@ -3942,6 +3942,9 @@ where
     if !version.starts_with("HTTP/") {
         return plain_http_proxy_response_read_failed();
     }
+    if version != "HTTP/1.0" && version != "HTTP/1.1" {
+        return plain_http_proxy_response_http_version_unsupported();
+    }
     let reason_phrase = status_parts.next().unwrap_or("").to_string();
     let body = match read_http_body(reader, &headers, HTTP_PROXY_MAX_BODY_BYTES) {
         Ok(body) => body,
@@ -6100,6 +6103,17 @@ fn plain_http_proxy_response_read_failed() -> NativePlainHttpProxyResponseReadRe
         diagnostics: vec![runtime_warning(
             ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_RESPONSE_READ_FAILED_CODE,
             "native plain HTTP proxy upstream response could not be read",
+        )],
+    }
+}
+
+fn plain_http_proxy_response_http_version_unsupported(
+) -> NativePlainHttpProxyResponseReadReport {
+    NativePlainHttpProxyResponseReadReport {
+        response: None,
+        diagnostics: vec![runtime_warning(
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_HTTP_VERSION_UNSUPPORTED_CODE,
+            "native explicit HTTP proxy upstream response must use HTTP/1.0 or HTTP/1.1",
         )],
     }
 }
