@@ -1001,7 +1001,10 @@ fn managed_foreground_session_log_cli_reads_bounded_explicit_log() {
         serde_json::from_str(&render_response(&response, OutputFormat::Json))
             .expect("managed log response should render JSON");
     assert_eq!(json["managed_foreground_log_tail"]["line_limit"], 2);
-    assert_eq!(json["managed_foreground_log_tail"]["lines"][0], "fetch [redacted-url]");
+    assert_eq!(
+        json["managed_foreground_log_tail"]["lines"][0],
+        "fetch [redacted-url]"
+    );
     assert_eq!(
         json["managed_foreground_log_tail"]["lines"][1],
         "Authorization:[redacted]"

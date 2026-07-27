@@ -6086,8 +6086,8 @@ fn explicit_http_proxy_request_invalid(
     }
 }
 
-fn explicit_http_proxy_request_http_version_unsupported(
-) -> NativeExplicitHttpProxyRequestReadReport {
+fn explicit_http_proxy_request_http_version_unsupported() -> NativeExplicitHttpProxyRequestReadReport
+{
     NativeExplicitHttpProxyRequestReadReport {
         request: None,
         diagnostics: vec![runtime_warning(
@@ -6107,8 +6107,7 @@ fn plain_http_proxy_response_read_failed() -> NativePlainHttpProxyResponseReadRe
     }
 }
 
-fn plain_http_proxy_response_http_version_unsupported(
-) -> NativePlainHttpProxyResponseReadReport {
+fn plain_http_proxy_response_http_version_unsupported() -> NativePlainHttpProxyResponseReadReport {
     NativePlainHttpProxyResponseReadReport {
         response: None,
         diagnostics: vec![runtime_warning(

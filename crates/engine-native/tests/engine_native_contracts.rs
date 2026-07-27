@@ -1762,9 +1762,8 @@ fn plain_http_proxy_request_parser_decodes_bounded_chunked_body_and_trailers() {
 
 #[test]
 fn plain_http_proxy_request_parser_rejects_http2_request_lines() {
-    let mut request = Cursor::new(
-        b"GET http://example.com/ HTTP/2.0\r\nHost: example.com\r\n\r\n".to_vec(),
-    );
+    let mut request =
+        Cursor::new(b"GET http://example.com/ HTTP/2.0\r\nHost: example.com\r\n\r\n".to_vec());
 
     let report = read_explicit_http_proxy_request(&mut request);
 
@@ -1831,9 +1830,7 @@ fn plain_http_proxy_response_parser_decodes_chunked_body() {
 
 #[test]
 fn plain_http_proxy_response_parser_rejects_http2_status_lines() {
-    let mut response = Cursor::new(
-        b"HTTP/2.0 200 OK\r\nContent-Length: 0\r\n\r\n".to_vec(),
-    );
+    let mut response = Cursor::new(b"HTTP/2.0 200 OK\r\nContent-Length: 0\r\n\r\n".to_vec());
 
     let report = read_plain_http_proxy_response(&mut response);
 
