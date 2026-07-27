@@ -9731,7 +9731,7 @@ where
         .map(|prepared| (prepared.snapshot, config_version));
     loop {
         let engine_id = operation.engine_status.engine_id.clone();
-        let mut response = handle_foreground_lifecycle(operation, host);
+        let mut response = handle_foreground_lifecycle(operation.clone(), host);
         let reload_requested = response
             .diagnostics
             .iter()

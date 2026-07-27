@@ -303,11 +303,11 @@ fn set_private_mode(file: &std::fs::File) -> DomainResult<()> {
     set_private_mode_io(file).map_err(|error| write_error("set proxy file permissions", error))
 }
 
-fn set_private_mode_io(file: &std::fs::File) -> std::io::Result<()> {
+fn set_private_mode_io(_file: &std::fs::File) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        _file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
     }
     Ok(())
 }
