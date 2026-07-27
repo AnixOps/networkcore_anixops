@@ -1722,7 +1722,7 @@ jobs:
           - CI: ${CI_RUN_URL}
           - Attestation: ${ATTESTATION_STATUS} via GitHub artifact attestation
           - Install model: manual-extract
-          - System mutation policy: none
+          - System mutation policy: extraction performs no system mutation; named systemd service, explicit environment-proxy snapshot, and Ubuntu trust-file changes require separate confirmed CLI commands with snapshot/readback/rollback boundaries
 
           ## Windows Managed Client
 
