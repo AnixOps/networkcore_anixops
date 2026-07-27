@@ -15,8 +15,14 @@ managed-lifecycle work.
 it under the selected state directory; it does not delete the state directory, and purge remains a separate
 future action.
 
-`networkcore-linux status --service-unit <name>` reads the explicit managed unit through read-only
-`systemctl is-active`; plain `status` remains platform-only. `networkcore-linux proxy apply --file <absolute-path> --snapshot <absolute-path> --url <proxy-url> --confirm`
+`networkcore-linux connect --confirm [--service-unit <name>]`, `disconnect --confirm [--service-unit <name>]`,
+and `restart --confirm [--service-unit <name>]` are the concise managed-service aliases for
+`service start`, `service stop`, and `service restart`. Without that explicit managed-service selection,
+`connect --config <path>` remains the foreground runtime entrypoint, while `disconnect` and `restart`
+return their foreground-runtime boundary. `networkcore-linux status --service-unit <name>` reads the explicit
+managed unit through read-only `systemctl is-active`; plain `status` remains platform-only. `networkcore-linux
+managed-log <log-file-path>` and `logs <log-file-path>` both return a bounded tail from one explicit log path;
+neither scans default locations or streams a live file. `networkcore-linux proxy apply --file <absolute-path> --snapshot <absolute-path> --url <proxy-url> --confirm`
 manages one explicit environment proxy file. `proxy status` is read-only and `proxy rollback --confirm` refuses
 to overwrite an externally changed file; these commands do not discover or mutate a desktop default proxy.
 
@@ -247,4 +253,4 @@ state. The `start` path can block plugin-rejected explicit SOCKS5 CONNECT
 tunnels, and `--proxy-scheme socks5` can route a dedicated browser plan to that
 hook, but neither path writes browser/system proxy state or proves HTTPS MITM.
 
-This crate does not modify TUN, DNS, routing, firewall, system trust stores, browser trust stores, profile trust state, or daemon state. `install-service --confirm` is the explicit exception for a NetworkCore-owned systemd unit file: it snapshots/replaces/verifies that file but does not invoke `systemctl` or change service state. Certificate commands only write operator-provided CA certificate PEM/private key PEM artifact paths, optional CA PEM profile copy, and rollback snapshots. `start` is foreground-only, maps Unix `SIGINT`/`SIGTERM` and injected lifecycle interruption to `cli.linux.start.lifecycle_interrupted` with exit code 130, then stops the current in-process runtime and aggregates native release diagnostics such as `engine.native.runtime.accept_loop_stopped` and `engine.native.runtime.released`. `run-url` is also foreground-only and does not imply daemon, control socket, cross-process `stop`, background `status`, managed logs, packaging, or service installation support. All validation runs in GitHub Actions according to `docs/ci-cd-policy.md`.
+This crate does not modify TUN, DNS, routing, firewall, system trust stores, browser trust stores, or profile trust state. Explicit confirmed systemd unit install, control, and removal are the managed-service exceptions: they operate only on the named NetworkCore unit with snapshot, verification, and rollback boundaries. Certificate commands only write operator-provided CA certificate PEM/private key PEM artifact paths, optional CA PEM profile copy, and rollback snapshots. `start` is foreground-only, maps Unix `SIGINT`/`SIGTERM` and injected lifecycle interruption to `cli.linux.start.lifecycle_interrupted` with exit code 130, then stops the current in-process runtime and aggregates native release diagnostics such as `engine.native.runtime.accept_loop_stopped` and `engine.native.runtime.released`. `run-url` is also foreground-only and does not imply daemon discovery, implicit control sockets, background status, default log scanning, packaging, or service installation. All validation runs in GitHub Actions according to `docs/ci-cd-policy.md`.

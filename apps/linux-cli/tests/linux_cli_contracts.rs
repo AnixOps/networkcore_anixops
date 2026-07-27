@@ -3433,6 +3433,18 @@ fn confirmed_connect_and_disconnect_use_managed_systemd_control() {
 }
 
 #[test]
+fn help_describes_the_unified_managed_service_aliases() {
+    let help = cli_help_text();
+
+    assert!(help.contains("connect           Starts the foreground runtime"));
+    assert!(help.contains("disconnect        Stops an explicit managed systemd unit"));
+    assert!(help.contains("restart           Restarts an explicit managed systemd unit"));
+    assert!(help.contains("logs              Read a bounded tail from one explicit log path"));
+    assert!(!help.contains("managed daemon disconnect is unavailable"));
+    assert!(!help.contains("managed daemon restart is unavailable"));
+}
+
+#[test]
 fn restart_is_explicitly_unavailable_until_managed_control_is_wired() {
     let command =
         parse_args(["restart", "--config", "/tmp/networkcore.toml"]).expect("restart should parse");
