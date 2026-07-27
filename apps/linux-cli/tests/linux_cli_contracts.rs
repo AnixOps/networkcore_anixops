@@ -249,7 +249,7 @@ fn node_list_reads_only_the_explicit_config_and_redacts_endpoint_details() {
     assert_eq!(catalog.source, "explicit-config");
     assert!(!catalog.selection_mutated);
     assert_eq!(catalog.nodes[0].id, "node-1");
-    assert_eq!(catalog.nodes[0].name, "primary");
+    assert_eq!(catalog.nodes[0].name, "Primary");
     assert!(
         !networkcore_linux::render_response(&response, OutputFormat::Json)
             .contains("secret.example")
@@ -8480,7 +8480,16 @@ fn foreground_interruption_stop_failure_adds_stable_cli_diagnostic() {
 fn os_signal_interruption_source_maps_unix_signals_to_stable_diagnostics() {
     let _managed_control_lock = MANAGED_CONTROL_SIGNAL_TEST_LOCK
         .lock()
-        .expect("managed control test lock should not be poisoned");
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let socket_path = std::path::PathBuf::from("/tmp").join(format!(
+        "networkcore-managed-control-signal-contract-{}.sock",
+        std::process::id()
+    ));
+    let guard = networkcore_linux::start_managed_control_socket(
+        socket_path.to_str().expect("socket path should be UTF-8"),
+    )
+    .expect("managed control socket should reset signal state");
+    drop(guard);
     let sigint = OsSignalForegroundLifecycleInterruptionSource::interruption_for_signal(SIGINT);
     let sigterm = OsSignalForegroundLifecycleInterruptionSource::interruption_for_signal(SIGTERM);
     let managed_control =
