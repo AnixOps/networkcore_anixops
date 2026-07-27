@@ -29,9 +29,8 @@ use platform_windows::managed::{
     read_managed_state, windows_managed_config_path, windows_managed_data_directory,
     windows_managed_log_directory, windows_managed_state_path, write_managed_config,
     write_managed_state, write_managed_text_atomic, WindowsManagedConfig,
-    WindowsManagedMieruConfig, WindowsManagedNativeMitmConfig,
-    WindowsManagedSingBoxConfig, WindowsManagedTunnelConfig, WindowsProxySettings,
-    WindowsSystemProxyOwner,
+    WindowsManagedMieruConfig, WindowsManagedNativeMitmConfig, WindowsManagedSingBoxConfig,
+    WindowsManagedTunnelConfig, WindowsProxySettings, WindowsSystemProxyOwner,
 };
 use platform_windows::mitm_security::{
     protect_windows_managed_mitm_private_key, remove_windows_managed_mitm_private_key,

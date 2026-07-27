@@ -8752,7 +8752,10 @@ fn http_rewrite_json_output_contains_live_plain_http_gate_fields() {
         json["http_rewrite"]["certificate_pinning_bypass_supported"].as_bool(),
         Some(false)
     );
-    assert_eq!(json["http_rewrite"]["http2_mitm_supported"].as_bool(), Some(false));
+    assert_eq!(
+        json["http_rewrite"]["http2_mitm_supported"].as_bool(),
+        Some(false)
+    );
     assert_eq!(
         json["http_rewrite"]["http3_quic_mitm_supported"].as_bool(),
         Some(false)

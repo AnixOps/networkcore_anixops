@@ -780,8 +780,7 @@ impl NativeNodeScriptExecutor {
             .script_assets
             .iter()
             .filter_map(|(url, path)| {
-                script_asset_sha256(std::path::Path::new(path))
-                    .map(|hash| (url.clone(), hash))
+                script_asset_sha256(std::path::Path::new(path)).map(|hash| (url.clone(), hash))
             })
             .collect();
         Self {
@@ -1231,12 +1230,14 @@ fn apply_node_script_dispatch_to_plain_http_rewrite_report(
     let execution = script_executor.execute(dispatch, &script_message);
     report.diagnostics.extend(execution.diagnostics.clone());
     if !execution.executed {
-        report.script_dispatch_deferred = execution.diagnostics.iter().any(|diagnostic| {
-            diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_DEFERRED_CODE
-        });
-        report.script_dispatch_failed = execution.diagnostics.iter().any(|diagnostic| {
-            diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_FAILED_CODE
-        });
+        report.script_dispatch_deferred = execution
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_DEFERRED_CODE);
+        report.script_dispatch_failed = execution
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_FAILED_CODE);
         return;
     }
 
@@ -7571,13 +7572,11 @@ mod script_runtime_security_tests {
             std::process::id()
         ));
         let _ = std::fs::remove_dir_all(&root);
-        std::fs::create_dir_all(&root)
-            .expect("script sandbox fixture directory should be created");
+        std::fs::create_dir_all(&root).expect("script sandbox fixture directory should be created");
         let runner_path = root.join("runner.js");
         let asset_path = root.join("asset.js");
         let body_path = root.join("body.txt");
-        std::fs::write(&runner_path, "process.exit(0)")
-            .expect("runner fixture should be written");
+        std::fs::write(&runner_path, "process.exit(0)").expect("runner fixture should be written");
         std::fs::write(&asset_path, "module.exports = {}")
             .expect("asset fixture should be written");
         std::fs::write(&body_path, "bounded body").expect("body fixture should be written");
@@ -7611,10 +7610,7 @@ mod script_runtime_security_tests {
             .iter()
             .any(|argument| argument == "--experimental-permission"));
         assert!(arguments.iter().any(|argument| {
-            argument
-                == format!(
-                    "--max-old-space-size={SCRIPT_RUNTIME_V8_MAX_OLD_SPACE_MIB}"
-                )
+            argument == format!("--max-old-space-size={SCRIPT_RUNTIME_V8_MAX_OLD_SPACE_MIB}")
         }));
         assert!(arguments
             .iter()
