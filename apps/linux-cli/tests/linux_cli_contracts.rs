@@ -8052,6 +8052,8 @@ fn command_remote_subscription_fetcher_reads_a_loopback_http_subscription() {
         let (mut stream, _) = listener
             .accept()
             .expect("loopback subscription fixture should accept one request");
+        let mut request = [0_u8; 1024];
+        let _ = stream.read(&mut request);
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             body.len(),

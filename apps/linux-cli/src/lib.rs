@@ -8338,8 +8338,8 @@ pub fn handle_node_rollback(
         "cli.node.rolled_back",
         format!(
             "node selection restored to {}; snapshot_retained=true; selected_node={}",
-            record.node_id.as_deref().unwrap_or("none"),
-            selection.display()
+            selection.display(),
+            record.node_id.as_deref().unwrap_or("none")
         ),
         SOURCE_CLI_RUNTIME,
     )])
