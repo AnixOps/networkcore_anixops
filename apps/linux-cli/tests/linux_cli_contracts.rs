@@ -4690,6 +4690,9 @@ fn mitm_http_rewrite_plan_reports_live_plain_http_data_plane_without_tls_decrypt
         report.tls_decryption_ready,
         MITM_HTTP_REWRITE_TLS_DECRYPTION_READY
     );
+    assert!(!report.certificate_pinning_bypass_supported);
+    assert!(!report.http2_mitm_supported);
+    assert!(!report.http3_quic_mitm_supported);
     assert_eq!(
         report.controlled_tls_termination_plan_ready,
         MITM_HTTP_REWRITE_CONTROLLED_TLS_TERMINATION_PLAN_READY
@@ -4706,6 +4709,18 @@ fn mitm_http_rewrite_plan_reports_live_plain_http_data_plane_without_tls_decrypt
         .blocked_operations
         .iter()
         .any(|operation| operation == "decrypt-https"));
+    assert!(report
+        .blocked_operations
+        .iter()
+        .any(|operation| operation == "bypass-certificate-pinning"));
+    assert!(report
+        .blocked_operations
+        .iter()
+        .any(|operation| operation == "intercept-http2"));
+    assert!(report
+        .blocked_operations
+        .iter()
+        .any(|operation| operation == "intercept-http3-quic"));
 
     let rendered = render_response(&response, OutputFormat::Text);
     assert!(rendered
@@ -8708,6 +8723,15 @@ fn http_rewrite_json_output_contains_live_plain_http_gate_fields() {
     assert_eq!(
         json["http_rewrite"]["script_dispatch_ready"].as_bool(),
         Some(MITM_HTTP_REWRITE_SCRIPT_DISPATCH_READY)
+    );
+    assert_eq!(
+        json["http_rewrite"]["certificate_pinning_bypass_supported"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(json["http_rewrite"]["http2_mitm_supported"].as_bool(), Some(false));
+    assert_eq!(
+        json["http_rewrite"]["http3_quic_mitm_supported"].as_bool(),
+        Some(false)
     );
     assert_eq!(
         json["http_rewrite"]["request"]["url"],

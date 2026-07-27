@@ -132,6 +132,10 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
   `https_response_rewrite_preview_ready=true`、`https_response_rewrite_ready=false` 和
   `script_dispatch_ready=false`，明确 alpha.18 仅开放 caller-provided HTTPS request/response rewrite
   preview，不开放 live HTTPS response rewrite 或脚本执行。
+- `http_rewrite` JSON/text report 还必须输出
+  `certificate_pinning_bypass_supported=false`、`http2_mitm_supported=false` 和
+  `http3_quic_mitm_supported=false`。certificate pinning/public-key pinning 不提供绕过路径；HTTP/2
+  与 HTTP/3/QUIC 只能保持 unsupported/bypass，不得作为 HTTP/1.1 TLS MITM 成功的旁路或等价能力声明。
 
 ## Source Anchors
 
@@ -232,6 +236,9 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
 - `body_size_limit_bytes`
 - `body_buffering_guard_ready`
 - `script_dispatch_ready`
+- `certificate_pinning_bypass_supported`
+- `http2_mitm_supported`
+- `http3_quic_mitm_supported`
 - `LinuxMitmHttpRewriteRequest`
 - `LinuxMitmHttpRewriteOutcomeReport`
 - `LinuxMitmHttpRewriteAuthorization`
@@ -275,6 +282,8 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
 - 把明文 HTTP live data plane 等同于完整 HTTPS rewrite。
 - 从远程 URL 自动下载、缓存或执行 JavaScript plugin script dispatch。
 - 在没有显式 `--confirm` 的情况下应用 rewrite outcome。
+- 绕过 certificate pinning/public-key pinning，或把 HTTP/2、HTTP/3/QUIC 作为受控 HTTP/1.1 MITM 的
+  等价拦截路径。
 
 ## CI Governance
 

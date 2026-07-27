@@ -413,6 +413,9 @@ pub const MITM_HTTP_REWRITE_HTTPS_REQUEST_REWRITE_PREVIEW_READY: bool = true;
 pub const MITM_HTTP_REWRITE_HTTPS_RESPONSE_REWRITE_PREVIEW_READY: bool = true;
 pub const MITM_HTTP_REWRITE_HTTPS_RESPONSE_REWRITE_READY: bool = false;
 pub const MITM_HTTP_REWRITE_SCRIPT_DISPATCH_READY: bool = false;
+pub const MITM_HTTP_REWRITE_CERTIFICATE_PINNING_BYPASS_SUPPORTED: bool = false;
+pub const MITM_HTTP_REWRITE_HTTP2_MITM_SUPPORTED: bool = false;
+pub const MITM_HTTP_REWRITE_HTTP3_QUIC_MITM_SUPPORTED: bool = false;
 pub const MITM_HTTP_REWRITE_DEFAULT_METHOD: &str = "GET";
 pub const MITM_HTTP_REWRITE_DEFAULT_PHASE: &str = "request";
 pub const MITM_USER_FACING_STAGE: &str = "policy-only";
@@ -1962,6 +1965,9 @@ pub struct LinuxMitmHttpRewriteReport {
     pub https_response_rewrite_preview_ready: bool,
     pub https_response_rewrite_ready: bool,
     pub script_dispatch_ready: bool,
+    pub certificate_pinning_bypass_supported: bool,
+    pub http2_mitm_supported: bool,
+    pub http3_quic_mitm_supported: bool,
     pub request: LinuxMitmHttpRewriteRequest,
     pub outcome: Option<LinuxMitmHttpRewriteOutcomeReport>,
     pub blocked_operations: Vec<String>,
@@ -12653,6 +12659,10 @@ fn build_linux_mitm_http_rewrite_report(
             MITM_HTTP_REWRITE_HTTPS_RESPONSE_REWRITE_PREVIEW_READY,
         https_response_rewrite_ready: MITM_HTTP_REWRITE_HTTPS_RESPONSE_REWRITE_READY,
         script_dispatch_ready: MITM_HTTP_REWRITE_SCRIPT_DISPATCH_READY,
+        certificate_pinning_bypass_supported:
+            MITM_HTTP_REWRITE_CERTIFICATE_PINNING_BYPASS_SUPPORTED,
+        http2_mitm_supported: MITM_HTTP_REWRITE_HTTP2_MITM_SUPPORTED,
+        http3_quic_mitm_supported: MITM_HTTP_REWRITE_HTTP3_QUIC_MITM_SUPPORTED,
         request: request.unwrap_or_else(|| {
             build_linux_mitm_http_rewrite_request(
                 None,
@@ -12781,6 +12791,9 @@ fn linux_mitm_http_rewrite_blocked_operations() -> Vec<String> {
         "install-ca",
         "trust-ca",
         "mutate-live-https-traffic",
+        "bypass-certificate-pinning",
+        "intercept-http2",
+        "intercept-http3-quic",
         "mutate-browser-or-system-capture",
         "mutate-system-proxy",
         "mutate-system-pac",
@@ -18124,7 +18137,7 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
 
     if let Some(rewrite) = &response.http_rewrite {
         lines.push(format!(
-            "http rewrite {}: {} mutation_ready={} live_traffic_ready={} tls_decryption_ready={} controlled_tls_termination_plan_ready={} downstream_tls_termination_plan_ready={} upstream_tls_forwarding_ready={} https_request_rewrite_preview_ready={} https_response_rewrite_preview_ready={} https_response_rewrite_ready={} script_dispatch_ready={}",
+            "http rewrite {}: {} mutation_ready={} live_traffic_ready={} tls_decryption_ready={} controlled_tls_termination_plan_ready={} downstream_tls_termination_plan_ready={} upstream_tls_forwarding_ready={} https_request_rewrite_preview_ready={} https_response_rewrite_preview_ready={} https_response_rewrite_ready={} script_dispatch_ready={} certificate_pinning_bypass_supported={} http2_mitm_supported={} http3_quic_mitm_supported={}",
             rewrite.action,
             rewrite.gate_status,
             rewrite.mutation_ready,
@@ -18136,7 +18149,10 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             rewrite.https_request_rewrite_preview_ready,
             rewrite.https_response_rewrite_preview_ready,
             rewrite.https_response_rewrite_ready,
-            rewrite.script_dispatch_ready
+            rewrite.script_dispatch_ready,
+            rewrite.certificate_pinning_bypass_supported,
+            rewrite.http2_mitm_supported,
+            rewrite.http3_quic_mitm_supported
         ));
         lines.push(format!(
             "http rewrite source contract: {}",
@@ -19708,6 +19724,9 @@ struct JsonMitmHttpRewriteReport {
     https_response_rewrite_preview_ready: bool,
     https_response_rewrite_ready: bool,
     script_dispatch_ready: bool,
+    certificate_pinning_bypass_supported: bool,
+    http2_mitm_supported: bool,
+    http3_quic_mitm_supported: bool,
     request: JsonMitmHttpRewriteRequest,
     outcome: Option<JsonMitmHttpRewriteOutcomeReport>,
     blocked_operations: Vec<String>,
@@ -19730,6 +19749,9 @@ impl From<&LinuxMitmHttpRewriteReport> for JsonMitmHttpRewriteReport {
             https_response_rewrite_preview_ready: report.https_response_rewrite_preview_ready,
             https_response_rewrite_ready: report.https_response_rewrite_ready,
             script_dispatch_ready: report.script_dispatch_ready,
+            certificate_pinning_bypass_supported: report.certificate_pinning_bypass_supported,
+            http2_mitm_supported: report.http2_mitm_supported,
+            http3_quic_mitm_supported: report.http3_quic_mitm_supported,
             request: JsonMitmHttpRewriteRequest::from(&report.request),
             outcome: report
                 .outcome

@@ -33,6 +33,11 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 ### Changed
 
+- Linux MITM HTTP rewrite reports now explicitly mark certificate/public-key
+  pinning bypass, HTTP/2 MITM, and HTTP/3/QUIC MITM unsupported. These states
+  are machine-readable fields and blocked operations; NetworkCore does not
+  claim to bypass them.
+
 - The shared native HTTPS MITM Node executor now records a SHA-256 digest for
   every explicitly mapped local script asset at creation and rechecks it before
   each dispatch. Missing, symbolic-link, unreadable, or changed assets remain
