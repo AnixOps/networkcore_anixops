@@ -130,9 +130,10 @@ CONNECT failure response；真实 request/response mutation 继续等待 HTTP/TL
 - body mutation truncation marker。
 - script tag、script path、argument、requires body、timeout 和 max size。
 
-仍需由 HTTP/TLS 数据面补齐：scheme/host/path 的解析权威来源、TLS/SNI
-上下文、HTTP/2 framing、压缩/解压、streaming body buffering、
-backpressure、streaming body 上限、script runtime 执行、以及 plan 的真实应用。
+当前 `engine-native` controlled HTTP/1.1 TLS path 已提供 CONNECT authority/SNI
+一致性、scheme/host/path binding、有界 request/response body handling、真实 plan 应用和
+Linux sandboxed local script dispatch。仍需由后续数据面补齐：HTTP/2 framing、压缩/解压、
+streaming body buffering、backpressure、streaming body 上限，以及浏览器/系统 capture path。
 `PluginResult` 继续保留 audit/diagnostics；真实处理结果不得只靠
 audit/diagnostics 表达。
 
@@ -176,7 +177,7 @@ P4 Client And Platform Integration；P3 Runtime Capability Baseline 已完成。
   `MitmPluginService::handle_http_mitm_event` 已存在。
 - 已覆盖 URL redirect/reject、header add/replace/delete、body replace 和
   script dispatch 的 domain outcome 映射。
-- 仍未接入 engine-native HTTP/TLS 数据面，因此只是 policy plan。
+- 当前 engine-native 已接入 controlled HTTP/1.1 TLS runtime；本节的 domain-only mapping 仍是其独立 policy-plan 层。
 
 ### Phase 2B: Linux CLI MITM command gate
 
