@@ -34,6 +34,19 @@ pub fn validate_windows_managed_mitm_private_key(path: &Path) -> DomainResult<()
     run_windows_managed_mitm_private_key_acl(path, "validate")
 }
 
+/// Removes only the fixed NetworkCore-owned MITM private key. A missing key
+/// is already-clean state; every other filesystem failure remains actionable.
+pub fn remove_windows_managed_mitm_private_key(path: &Path) -> DomainResult<()> {
+    if path != windows_managed_mitm_private_key_path() {
+        return Err(private_key_protection_error());
+    }
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(private_key_protection_error()),
+    }
+}
+
 #[cfg(windows)]
 const MANAGED_MITM_PRIVATE_KEY_ACL_SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
@@ -152,6 +165,17 @@ mod tests {
         let rejected = windows_managed_mitm_private_key_path().with_file_name("other-key.pem");
         let error = validate_windows_managed_mitm_private_key(&rejected)
             .expect_err("only the fixed NetworkCore MITM key path may be validated");
+
+        assert_eq!(
+            error.code,
+            WINDOWS_MANAGED_MITM_PRIVATE_KEY_PROTECTION_FAILED_CODE
+        );
+    }
+
+    #[test]
+    fn removal_rejects_any_private_key_path_outside_the_fixed_mitm_location() {
+        let error = remove_windows_managed_mitm_private_key(Path::new("other-key.pem"))
+            .expect_err("only the fixed NetworkCore MITM key path may be removed");
 
         assert_eq!(
             error.code,

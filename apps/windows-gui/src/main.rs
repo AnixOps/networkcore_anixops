@@ -70,7 +70,9 @@ mod gui {
         WindowsManagedNativeMitmConfig, WindowsManagedSingBoxConfig, WindowsProxySettings,
         WindowsSystemProxyOwner, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
     };
-    use platform_windows::mitm_security::protect_windows_managed_mitm_private_key;
+    use platform_windows::mitm_security::{
+        protect_windows_managed_mitm_private_key, remove_windows_managed_mitm_private_key,
+    };
     use platform_windows::system_integration::{
         current_user_startup_enabled, disable_current_user_startup, enable_current_user_startup,
         read_current_user_system_proxy, NativeWindowsSystemIntegration, WindowsServiceState,
@@ -1803,7 +1805,7 @@ mod gui {
         let restart = stop_running_service_for_reconfigure(state)?;
         let (certificate_path, private_key_path) = ensure_mitm_ca_material()?;
         if let Err(error) = protect_windows_managed_mitm_private_key(&private_key_path) {
-            let _ = fs::remove_file(&private_key_path);
+            let _ = remove_windows_managed_mitm_private_key(&private_key_path);
             return Err(error.message);
         }
         let mut managed = managed_config_or_default()?;
@@ -1921,9 +1923,16 @@ mod gui {
                     .map_err(|error| error.to_string())?;
             }
         }
-        let _ = fs::remove_file(native_mitm.ca_private_key_path);
+        let private_key_cleanup_error = remove_windows_managed_mitm_private_key(
+            &native_mitm.ca_private_key_path,
+        )
+        .err()
+        .map(|error| error.message);
         if restart {
             start_service(state)?;
+        }
+        if let Some(error) = private_key_cleanup_error {
+            return Err(error);
         }
         load_configuration_fields(state);
         Ok(())
