@@ -9961,6 +9961,13 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
         reload,
         LinuxCliCommand::ManagedControlReload { confirm: true, .. }
     ));
+    let status = parse_args([
+        "status",
+        "--managed-control-socket",
+        socket_path.to_str().expect("socket path should be UTF-8"),
+    ])
+    .expect("managed control status should parse");
+    assert!(matches!(status, LinuxCliCommand::ManagedControlStatus { .. }));
     let missing_socket_path = parse_args(["stop", "--managed-control-socket", "--confirm"])
         .expect_err("managed control stop should require a socket path value");
     assert_eq!(missing_socket_path.code, CLI_ARGUMENT_VALUE_MISSING_CODE);
