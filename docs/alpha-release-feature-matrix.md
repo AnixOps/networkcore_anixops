@@ -18,7 +18,7 @@ GitHub Release asset 为准；`main` 中 tag 之后的源码增量不等于用�
 ## Current Main Override
 
 ```text
-current-main-release-state=source-only-not-downloadable
+current-main-release-state=pending_manual_acceptance
 current-main-source-candidate=v0.2.0-beta.1
 current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
@@ -356,9 +356,10 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ### `v0.2.0-beta.1`
 
-状态：候选 Windows managed-client beta 日常连接可靠性切片；只有同 commit GitHub
-Actions CI、MSI install/uninstall smoke、package、attestation、publish eligibility
-和 tag release 全部成功后，才成为用户可下载版本。
+状态：Beta release candidate pending_manual_acceptance；同 commit GitHub Actions CI
+已作为发布门禁来源，workflow_dispatch dry-run 可验证 Linux/Windows 产物名称、版本、
+checksum、manifest、attestation 和 bundle 内容。真实 Windows/Linux 系统验收记录完成前，
+不得创建正式 tag；只有 tag release 全部成功后，才成为用户可下载版本。
 
 主要特性：
 

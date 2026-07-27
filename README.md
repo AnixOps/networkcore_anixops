@@ -118,7 +118,7 @@ P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成，当前阶
 阶段状态速查：
 
 ```text
-current-main-release-state=source-only-not-downloadable
+current-main-release-state=pending_manual_acceptance
 current-main-source-candidate=v0.2.0-beta.1
 current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0

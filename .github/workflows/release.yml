@@ -873,12 +873,15 @@ jobs:
         with:
           submodules: true
 
+      - name: Setup pnpm for Windows GUI assets
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
       - name: Setup Node for Windows GUI assets
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: apps/windows-gui/ui/pnpm-lock.yaml
 
       - name: Setup Windows C toolchain
         uses: msys2/setup-msys2@v2
@@ -932,7 +935,6 @@ jobs:
           SOURCE_REF: ${{ github.ref }}
         run: |
           $ErrorActionPreference = "Stop"
-          corepack enable
           pnpm --dir apps/windows-gui/ui install --frozen-lockfile
           pnpm --dir apps/windows-gui/ui run build
           $checkoutSha = (git rev-parse HEAD).Trim()

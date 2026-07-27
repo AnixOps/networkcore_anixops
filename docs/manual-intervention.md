@@ -2,6 +2,77 @@
 
 本文件记录当前无法由本地自动化完成、需要人工处理的事项。
 
+## v0.2.0-beta.1 Release Acceptance Gate
+
+release-version=v0.2.0-beta.1
+release-state=pending_manual_acceptance
+release-tag-status=blocked-pending-manual-acceptance
+release-dry-run-status=pending_github_actions_validation
+release-required-artifacts=linux-tarball-four-file-set,windows-msi-four-file-set,windows-portable-zip-four-file-set
+release-ci-source=main-same-commit-ci-summary-success-required
+
+The beta feature scope is frozen. Do not add new protocols, iOS activation, HTTP/2 or HTTP/3 MITM, JavaScript dispatch, LAN controller, Web UI, urltest automation, background subscription groups, TUN/DNS interception, or other new features for this release. Only real compile, test, package, contract, documentation, or release-gate fixes may be made before the tag.
+
+The formal `v0.2.0-beta.1` tag must not be created until protected operator evidence records both Windows and Linux acceptance as passed. GitHub Actions dry-runs may validate package names, versions, checksums, manifests, attestations, and bundle contents, but they do not replace real host acceptance.
+
+### Windows Beta Acceptance
+
+Record all detailed screenshots, raw logs, route tables, process IDs, local paths, subscription URLs, CA material, driver package evidence, and service diagnostics outside Git. Commit only the redacted status markers if a maintainer later decides to update this file.
+
+1. Download the dry-run or tag-candidate Windows MSI, MSI sha256, MSI manifest, MSI manifest sha256, portable ZIP, portable ZIP sha256, portable manifest, and portable manifest sha256 from the same GitHub Actions run.
+2. Verify both checksum files and both manifest checksum files on Windows. Confirm the manifest version is `v0.2.0-beta.1`, schema version is `2`, target is `x86_64-pc-windows-gnu`, installer format is `msi`, and the portable ZIP declares manual-extract with no extraction-time service registration.
+3. Inspect the MSI and portable ZIP file lists. Confirm GUI, service, CLI, installer metadata, license material, default managed config, and expected WiX product version are present; confirm no bundled or silently downloaded third-party core, signing private key, CA private key, production subscription, or secret is present.
+4. On a clean elevated Windows desktop, install the MSI. Confirm service registration, install-time asynchronous service start behavior, uninstall metadata, and expected unsigned-installer warning if Authenticode signing is still unavailable.
+5. Launch the GUI at 100%, 125%, 150%, and 200% DPI in light and dark modes. Exercise Home, Nodes, Subscriptions, Settings, Diagnostics, and Advanced with long node names, long errors, empty state, and a large catalog.
+6. Import a local profile and an operator-entered HTTP(S) subscription URL. Confirm load, update, failure retention, redacted status, node diff counts, and that failed refresh does not overwrite current config, switch node, restart core, or retry the same failure.
+7. Install or stage the approved external sing-box core through the explicit GUI/operator path. Confirm `sing-box check -c`, service-owned run, PID, exit, bounded log tail, and diagnostics use only service-owned paths.
+8. Connect a generated NodeCatalog profile. Confirm Connected is shown only after SCM running, service-owned `check -c`, loopback listener, service-owned sing-box PID, generated selector active-outbound/default readback, and exact current-user proxy evidence all pass.
+9. Force failures for invalid config, missing core, occupied listener, no network, rejected selector switch, missing PID, and non-admin launch. Confirm the GUI preserves usable profile state, shows truthful unavailable/error states, restores proxy snapshots, and does not submit duplicate mutations.
+10. Test Disconnect, Restart service, forced service termination, forced core exit, sleep/resume, reboot, tray restore, Explorer restart, display DPI change, login startup, and single-instance restore. Confirm owned PID/listener cleanup and exact GUI-owned proxy recovery.
+11. Exercise HTTPS MITM enable/disable for native JSON and generated profiles. Confirm service-owned CA lifecycle, strict private-key ACL, snapshot restore, CA revoke/remove, native mixed-in listener snapshot/restore, and blocked JavaScript dispatch. Confirm HTTP/2 and HTTP/3/QUIC MITM remain unsupported.
+12. Exercise driver lifecycle only with an operator-provided signed INF package. Confirm NewDev install/remove boundaries and license/NOTICE evidence. If no approved driver package exists, record that driver lifecycle remains unaccepted rather than passing it by omission.
+13. Verify MSI upgrade/uninstall removes only NetworkCore-owned service, files, and matching Run entry. Verify portable extraction does not register or start a service and that portable login startup is explicitly disabled before moving the directory.
+14. Record Windows acceptance as passed only if install, GUI, service, proxy, CA, driver-package boundary, portable, failure, rollback, and cleanup evidence all pass on a real Windows host.
+
+### Linux Beta Acceptance
+
+1. Download the Linux tarball, tarball sha256, manifest, and manifest sha256 from the same GitHub Actions run as the Windows artifacts.
+2. Verify both checksum files on Linux. Confirm the manifest version is `v0.2.0-beta.1`, target is `x86_64-unknown-linux-gnu`, package is `networkcore-linux`, install model is manual-extract, and rollback policy is manual version switch.
+3. Inspect the tarball before extraction. Confirm one top-level directory, `bin/networkcore-linux`, license material, pinned `libexec/anixops-runner.js`, and no installer, systemd unit, private key, CA material, bundled third-party proxy core, production subscription, or secret.
+4. Extract into a versioned user-selected directory on a supported Ubuntu LTS/systemd host. Run only read-only/version/help commands from the extracted `bin` path without root and record stable output.
+5. Confirm plain platform status remains read-only and unsupported or non-systemd environments return documented stable boundary diagnostics without daemon discovery or host mutation.
+6. Install one named NetworkCore systemd unit using explicit executable, state directory, snapshot path, and `--confirm`. Record unit pre-write snapshot, exact readback, daemon reload, bounded restart policy, and idempotent reinstall.
+7. Introduce an external unit-file change and verify reinstall refuses to overwrite it. Exercise connect, disconnect, restart, status with service unit, reload, forced stop, and uninstall. Confirm each mutation requires explicit confirmation and affects no unrelated unit.
+8. Install and remove one explicit subscription refresh timer with redacted test source. Confirm timer/service names, daemon reload, one bounded refresh result, retained refresh status, and no implicit core restart or node switch.
+9. Exercise MITM certificate artifact apply/rollback and Ubuntu-style trust-file trust-apply/trust-rollback with explicit cert, key, trust-file, snapshot, and `--confirm`. Confirm private key mode `0600`, precise trust-file readback, refresh result, conflict detection, and rollback restoration.
+10. Start an explicitly confirmed HTTP/1.1 MITM session with generated CA material. Record authority/SNI match, SNI mismatch failure, web-PKI upstream verification, bounded request/response rewrite, fail-open script behavior, script hash drift, no-network sandbox, and disable/rollback cleanup.
+11. Confirm certificate/public-key pinning bypass, HTTP/2 MITM, and HTTP/3/QUIC MITM are reported unsupported and fail closed where applicable. Confirm no UDP/QUIC listener, browser hijack, system PAC, TUN, DNS, firewall, or default trust backend mutation is introduced.
+12. Upgrade by extracting a second verified archive to a separate directory, repointing the named unit through the documented snapshot-protected path, then restoring the previous binary. Confirm service and selected explicit configuration recover.
+13. Uninstall the named service and remove only the extracted version directory manually after rollback. Confirm snapshots remain and unrelated units, state directories, trust files, and proxy settings are untouched.
+14. Record Linux acceptance as passed only if archive, systemd, subscription refresh, trust-file, MITM HTTP/1.1, upgrade, rollback, and cleanup evidence all pass on a real supported Linux host.
+
+### Protected Evidence Template
+
+```text
+release-version=v0.2.0-beta.1
+release-state=pending_manual_acceptance|passed|failed
+candidate-commit=[commit-sha]
+ci-run=[github-actions-ci-url]
+release-dry-run=[github-actions-release-url]
+linux-artifacts=[redacted-file-list-and-sha256-pass|fail]
+windows-artifacts=[redacted-file-list-and-sha256-pass|fail]
+windows-msi-acceptance=[pending|passed|failed]
+windows-portable-acceptance=[pending|passed|failed]
+windows-gui-service-proxy-ca-driver-acceptance=[pending|passed|failed]
+linux-archive-systemd-acceptance=[pending|passed|failed]
+linux-trust-mitm-acceptance=[pending|passed|failed]
+manual-acceptance-overall=[pending|passed|failed]
+operator=[operator-id]
+recorded-at=[utc-timestamp]
+```
+
+Keep `release-state=pending_manual_acceptance` until every required Windows and Linux row is passed. A failed or missing row blocks the formal tag and must be fixed or explicitly documented before release.
+
 ## Windows managed client
 
 The managed Windows client is implemented and its MSI is built and validated in
@@ -218,9 +289,11 @@ manually accepted on the target host.
 ## Windows Tauri Dependency Lock Refresh
 
 The Windows GUI now declares Tauri and a pnpm-managed React frontend. Repository
-policy prohibits generating Cargo or pnpm lockfiles locally. An authorized GitHub
-Actions workflow run must resolve and commit the updated `Cargo.lock` and
-`apps/windows-gui/ui/pnpm-lock.yaml` before the `--locked` Rust and frozen pnpm
+policy prohibits generating Cargo or pnpm lockfiles locally. Use
+`.github/workflows/refresh-cargo-lock.yml` for `Cargo.lock` and
+`.github/workflows/refresh-pnpm-lock.yml` for
+`apps/windows-gui/ui/pnpm-lock.yaml`; download only the generated workflow
+artifact, review it, and commit it before the `--locked` Rust and frozen pnpm
 checks can pass. After that commit, rerun CI and the Windows MSI workflow; do not
 generate either lockfile on a developer workstation.
 

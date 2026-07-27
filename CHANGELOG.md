@@ -4,11 +4,13 @@
 
 ## Unreleased
 
-Current Windows source candidate: `v0.2.0-beta.1`. It is not a downloadable
-release until the same commit passes the tag release workflow.
+Current Windows/Linux Beta release candidate: `v0.2.0-beta.1`. It is in
+`pending_manual_acceptance`: the same commit has a successful main CI gate and
+may run release dry-runs, but the formal tag must not be created until protected
+Windows and Linux system acceptance evidence is recorded.
 
 ```text
-current-main-release-state=source-only-not-downloadable
+current-main-release-state=pending_manual_acceptance
 current-main-source-candidate=v0.2.0-beta.1
 current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
@@ -75,7 +77,8 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
   service-owned PID, and exact current-user proxy evidence. The Service repeats
   bounded listener and selector health checks while running; a failed check
   records the managed failure and follows the existing proxy rollback/stop
-  path. This is source-only pending same-commit GitHub Actions and a tag release.
+  path. This is pending manual Windows/Linux acceptance before the formal
+  `v0.2.0-beta.1` tag.
 
 - Windows profile import now stages a sing-box plan transactionally: it clears
   the mutually exclusive Mieru plan before managed-config commit, and restores

@@ -26,7 +26,7 @@ Actions release workflow 成功后成为可下载 artifact。证书 artifact、�
 P3 runtime baseline 已完成并保留后续 runtime backlog；当前 TODO 只按 P4 backlog buckets 排优先级，不能再把 P3 当作当前阶段。
 
 ```text
-current-main-release-state=source-only-not-downloadable
+current-main-release-state=pending_manual_acceptance
 current-main-source-candidate=v0.2.0-beta.1
 current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0

@@ -9,7 +9,7 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Ker
 阶段判断以本节为准：P3 是已完成 baseline，当前仓库不再处于 P3。当前迭代、发布说明和 source contract 的 source of truth 是 P4 backlog buckets；P3 只在 completed section、历史 TODO 或 CHANGELOG 中保留审计语境。
 
 ```text
-current-main-release-state=source-only-not-downloadable
+current-main-release-state=pending_manual_acceptance
 current-main-source-candidate=v0.2.0-beta.1
 current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
