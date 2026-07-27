@@ -1709,11 +1709,31 @@ mod gui {
             "password:",
             "token=",
             "token:",
+            "access_token=",
+            "access_token:",
+            "refresh_token=",
+            "refresh_token:",
             "secret=",
             "secret:",
+            "credential=",
+            "credential:",
             "authorization:",
+            "api_key=",
+            "api_key:",
             "private_key=",
             "private_key:",
+            "uuid=",
+            "uuid:",
+            "\"password\":",
+            "\"token\":",
+            "\"access_token\":",
+            "\"refresh_token\":",
+            "\"secret\":",
+            "\"credential\":",
+            "\"authorization\":",
+            "\"api_key\":",
+            "\"private_key\":",
+            "\"uuid\":",
         ] {
             redacted = redact_diagnostic_line_value(&redacted, marker);
         }
@@ -2809,12 +2829,13 @@ mod gui {
         #[test]
         fn diagnostics_redact_urls_and_credential_values() {
             let report = redact_diagnostic_text(
-                "fetch https://user:password@example.test/sub?token=never-store\nAuthorization: Bearer never-store\nprivate_key=never-store\n",
+                "fetch https://user:password@example.test/sub?token=never-store\nAuthorization: Bearer never-store\nprivate_key=never-store\n{\"access_token\":\"never-store\",\"uuid\":\"never-store\"}\n",
             );
 
             assert!(report.contains("[redacted-url]"));
             assert!(report.contains("Authorization:[redacted]"));
             assert!(report.contains("private_key=[redacted]"));
+            assert!(report.contains("\"access_token\":[redacted]"));
             assert!(!report.contains("never-store"));
             assert!(!report.contains("user:password@example.test"));
         }
