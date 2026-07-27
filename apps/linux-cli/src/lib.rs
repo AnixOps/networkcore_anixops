@@ -3228,10 +3228,8 @@ pub fn start_managed_control_socket_with_runtime_snapshot(
                                 .parse::<u64>()
                                 .ok()
                                 .filter(|version| *version > 0)
-                                .map(|expected_config_version| {
-                                    ManagedControlRequest::Rollback {
-                                        expected_config_version,
-                                    }
+                                .map(|expected_config_version| ManagedControlRequest::Rollback {
+                                    expected_config_version,
                                 }),
                             _ => None,
                         }
@@ -3257,7 +3255,8 @@ pub fn start_managed_control_socket_with_runtime_snapshot(
                         Some(request) => match interrupter.interrupt(request) {
                             Ok(()) => (b"accepted\n".as_slice(), true),
                             Err(error)
-                                if error.code == CLI_MANAGED_CONTROL_SOCKET_REQUEST_PENDING_CODE =>
+                                if error.code
+                                    == CLI_MANAGED_CONTROL_SOCKET_REQUEST_PENDING_CODE =>
                             {
                                 (b"rejected request_pending\n".as_slice(), false)
                             }
@@ -15537,12 +15536,16 @@ fn parse_managed_control_rollback_options(
                         "--expected-config-version requires a positive configuration version",
                     ));
                 };
-                let parsed = value.parse::<u64>().ok().filter(|value| *value > 0).ok_or_else(|| {
-                    parse_error(
-                        CLI_ARGUMENT_VALUE_MISSING_CODE,
-                        "--expected-config-version requires a positive configuration version",
-                    )
-                })?;
+                let parsed = value
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|value| *value > 0)
+                    .ok_or_else(|| {
+                        parse_error(
+                            CLI_ARGUMENT_VALUE_MISSING_CODE,
+                            "--expected-config-version requires a positive configuration version",
+                        )
+                    })?;
                 if expected_config_version.replace(parsed).is_some() {
                     return Err(parse_error(
                         CLI_ARGUMENT_UNKNOWN_CODE,
