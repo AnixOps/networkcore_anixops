@@ -70,7 +70,7 @@ release policy 认可的 version、runner/toolchain/target contract 和 release 
 | `package_artifact_manifest_generation_checksum_value_field` | `checksum.value` |
 | `package_artifact_manifest_generation_included_files` | `bin/networkcore-linux,libexec/anixops-runner.js,INSTALL.md,LICENSE,CHANGELOG.md` |
 | `package_artifact_manifest_generation_install_model` | `manual-extract` |
-| `package_artifact_manifest_generation_system_mutation_policy` | `none` |
+| `package_artifact_manifest_generation_system_mutation_policy` | `no-implicit-mutation; explicit-confirmed-cli-with-snapshot-readback-rollback` |
 | `package_artifact_manifest_generation_manifest_checksum` | `blocked` |
 | `package_artifact_manifest_generation_upload` | `blocked` |
 | `package_artifact_manifest_generation_next_action` | `manifest-checksum-after-manifest` |
@@ -109,7 +109,7 @@ checksum sidecar 校验通过后，按以下顺序生成 manifest JSON：
 | checksum fields | 必须引用 checksum execution gate 输出的 archive checksum sidecar |
 | included files | 至少包含 `bin/networkcore-linux`、`INSTALL.md`、`LICENSE`、`CHANGELOG.md` |
 | install model | 固定为 `manual-extract` |
-| system mutation policy | 固定为 `none` |
+| system mutation policy | 固定为 `no-implicit-mutation; explicit-confirmed-cli-with-snapshot-readback-rollback`；解压 artifact 本身不修改系统状态，受控修改只可由独立的显式确认 CLI 命令执行 |
 | manifest checksum | manifest generation gate 不得计算或写入 manifest checksum sidecar |
 | upload | manifest generation gate 不得上传 workflow artifact 或 release asset |
 
