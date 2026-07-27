@@ -69,7 +69,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::{fs::FileTypeExt, fs::PermissionsExt};
 use std::path::PathBuf;
 #[cfg(unix)]
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 #[cfg(unix)]
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -443,6 +443,7 @@ const MANAGED_CONTROL_STOP: u8 = 1;
 const MANAGED_CONTROL_RELOAD: u8 = 2;
 const MANAGED_CONTROL_ROLLBACK: u8 = 3;
 static MANAGED_CONTROL_REQUEST: AtomicU8 = AtomicU8::new(MANAGED_CONTROL_NONE);
+static MANAGED_CONTROL_EXPECTED_CONFIG_VERSION: AtomicU64 = AtomicU64::new(0);
 pub const RUN_URL_REMOTE_SUBSCRIPTION_MAX_BYTES: u64 = 1024 * 1024;
 pub const RUN_URL_REMOTE_SUBSCRIPTION_TIMEOUT_SECONDS: u64 = 15;
 pub const RUN_URL_REMOTE_SUBSCRIPTION_MAX_REDIRECTS: usize = 5;
@@ -534,6 +535,7 @@ pub enum LinuxCliCommand {
     },
     ManagedControlRollback {
         socket_path: String,
+        expected_config_version: u64,
         confirm: bool,
         format: OutputFormat,
     },
@@ -3009,7 +3011,7 @@ impl ManagedForegroundLifecycleRecorder {
 pub enum ManagedControlRequest {
     Stop,
     Reload,
-    Rollback,
+    Rollback { expected_config_version: u64 },
 }
 
 impl ManagedControlRequest {
@@ -3017,7 +3019,7 @@ impl ManagedControlRequest {
         match self {
             Self::Stop => "stop",
             Self::Reload => "reload",
-            Self::Rollback => "rollback",
+            Self::Rollback { .. } => "rollback",
         }
     }
 
@@ -3025,7 +3027,7 @@ impl ManagedControlRequest {
         match self {
             Self::Stop => MANAGED_CONTROL_STOP,
             Self::Reload => MANAGED_CONTROL_RELOAD,
-            Self::Rollback => MANAGED_CONTROL_ROLLBACK,
+            Self::Rollback { .. } => MANAGED_CONTROL_ROLLBACK,
         }
     }
 }
@@ -3069,6 +3071,13 @@ impl ManagedControlInterrupter for OsSignalManagedControlInterrupter {
     fn interrupt(&self, request: ManagedControlRequest) -> DomainResult<()> {
         #[cfg(unix)]
         {
+            if let ManagedControlRequest::Rollback {
+                expected_config_version,
+            } = request
+            {
+                MANAGED_CONTROL_EXPECTED_CONFIG_VERSION
+                    .store(expected_config_version, Ordering::SeqCst);
+            }
             MANAGED_CONTROL_REQUEST.store(request.signal_value(), Ordering::SeqCst);
             Ok(())
         }
@@ -3110,7 +3119,10 @@ impl Drop for ManagedControlSocketGuard {
 
 pub fn start_managed_control_socket(socket_path: &str) -> DomainResult<ManagedControlSocketGuard> {
     #[cfg(unix)]
-    MANAGED_CONTROL_REQUEST.store(MANAGED_CONTROL_NONE, Ordering::SeqCst);
+    {
+        MANAGED_CONTROL_REQUEST.store(MANAGED_CONTROL_NONE, Ordering::SeqCst);
+        MANAGED_CONTROL_EXPECTED_CONFIG_VERSION.store(0, Ordering::SeqCst);
+    }
     start_managed_control_socket_with_interrupter(
         socket_path,
         Arc::new(OsSignalManagedControlInterrupter),
@@ -3138,6 +3150,8 @@ pub fn start_managed_control_socket_with_runtime_snapshot(
     }
     #[cfg(unix)]
     {
+        MANAGED_CONTROL_REQUEST.store(MANAGED_CONTROL_NONE, Ordering::SeqCst);
+        MANAGED_CONTROL_EXPECTED_CONFIG_VERSION.store(0, Ordering::SeqCst);
         if std::path::Path::new(socket_path).exists() {
             return Err(DomainError::new(
                 CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE,
@@ -3185,11 +3199,22 @@ pub fn start_managed_control_socket_with_runtime_snapshot(
                             .ok()
                             .map(|value| value.trim().to_string())
                     });
-                    let request = wire_command.as_deref().and_then(|value| match value {
-                        "stop" => Some(ManagedControlRequest::Stop),
-                        "reload" => Some(ManagedControlRequest::Reload),
-                        "rollback" => Some(ManagedControlRequest::Rollback),
-                        _ => None,
+                    let request = wire_command.as_deref().and_then(|value| {
+                        let mut fields = value.split_ascii_whitespace();
+                        match (fields.next(), fields.next(), fields.next()) {
+                            (Some("stop"), None, None) => Some(ManagedControlRequest::Stop),
+                            (Some("reload"), None, None) => Some(ManagedControlRequest::Reload),
+                            (Some("rollback"), Some(version), None) => version
+                                .parse::<u64>()
+                                .ok()
+                                .filter(|version| *version > 0)
+                                .map(|expected_config_version| {
+                                    ManagedControlRequest::Rollback {
+                                        expected_config_version,
+                                    }
+                                }),
+                            _ => None,
+                        }
                     });
                     if wire_command.as_deref() == Some("status") {
                         let snapshot = runtime_snapshot
@@ -6396,10 +6421,11 @@ where
                 .iter()
                 .any(|argument| argument == "--managed-control-socket") =>
         {
-            let (socket_path, confirm, format) =
-                parse_managed_control_options(&rest, "rollback")?;
+            let (socket_path, expected_config_version, confirm, format) =
+                parse_managed_control_rollback_options(&rest)?;
             Ok(LinuxCliCommand::ManagedControlRollback {
                 socket_path,
+                expected_config_version,
                 confirm,
                 format,
             })
@@ -6751,9 +6777,10 @@ pub fn handle_entrypoint_skeleton(command: LinuxCliCommand) -> LinuxCliResponse 
         } => handle_managed_control_reload(&socket_path, confirm),
         LinuxCliCommand::ManagedControlRollback {
             socket_path,
+            expected_config_version,
             confirm,
             ..
-        } => handle_managed_control_rollback(&socket_path, confirm),
+        } => handle_managed_control_rollback(&socket_path, expected_config_version, confirm),
         LinuxCliCommand::ManagedControlStatus { socket_path, .. } => {
             handle_managed_control_status(&socket_path)
         }
@@ -7142,9 +7169,10 @@ where
         } => handle_managed_control_reload(&socket_path, confirm),
         LinuxCliCommand::ManagedControlRollback {
             socket_path,
+            expected_config_version,
             confirm,
             ..
-        } => handle_managed_control_rollback(&socket_path, confirm),
+        } => handle_managed_control_rollback(&socket_path, expected_config_version, confirm),
         LinuxCliCommand::ManagedControlStatus { socket_path, .. } => {
             handle_managed_control_status(&socket_path)
         }
@@ -9533,6 +9561,22 @@ where
         }
 
         if rollback_requested {
+            let expected_config_version =
+                MANAGED_CONTROL_EXPECTED_CONFIG_VERSION.swap(0, Ordering::SeqCst);
+            if expected_config_version != config_version {
+                response.ok = false;
+                response.exit_code = LinuxCliExitCode::GeneralFailure;
+                response.diagnostics = previous_diagnostics;
+                response.diagnostics.push(cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_FAILED_CODE,
+                    format!(
+                        "managed runtime rollback rejected because expected configuration version {expected_config_version} does not match active version {config_version}"
+                    ),
+                    SOURCE_CLI_MANAGED_CONTROL,
+                ));
+                return response;
+            }
             let Some((snapshot, snapshot_version)) = rollback_snapshot.take() else {
                 response.ok = false;
                 response.exit_code = LinuxCliExitCode::GeneralFailure;
@@ -9727,8 +9771,18 @@ pub fn handle_managed_control_reload(socket_path: &str, confirm: bool) -> LinuxC
     handle_managed_control_request(socket_path, confirm, ManagedControlRequest::Reload)
 }
 
-pub fn handle_managed_control_rollback(socket_path: &str, confirm: bool) -> LinuxCliResponse {
-    handle_managed_control_request(socket_path, confirm, ManagedControlRequest::Rollback)
+pub fn handle_managed_control_rollback(
+    socket_path: &str,
+    expected_config_version: u64,
+    confirm: bool,
+) -> LinuxCliResponse {
+    handle_managed_control_request(
+        socket_path,
+        confirm,
+        ManagedControlRequest::Rollback {
+            expected_config_version,
+        },
+    )
 }
 
 pub fn handle_managed_control_status(socket_path: &str) -> LinuxCliResponse {
@@ -9817,12 +9871,12 @@ fn handle_managed_control_request(
     let ready_code = match request {
         ManagedControlRequest::Stop => CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE,
         ManagedControlRequest::Reload => CLI_MANAGED_CONTROL_SOCKET_RELOAD_READY_CODE,
-        ManagedControlRequest::Rollback => CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_READY_CODE,
+        ManagedControlRequest::Rollback { .. } => CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_READY_CODE,
     };
     let failed_code = match request {
         ManagedControlRequest::Stop => CLI_MANAGED_CONTROL_SOCKET_STOP_FAILED_CODE,
         ManagedControlRequest::Reload => CLI_MANAGED_CONTROL_SOCKET_RELOAD_FAILED_CODE,
-        ManagedControlRequest::Rollback => CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_FAILED_CODE,
+        ManagedControlRequest::Rollback { .. } => CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_FAILED_CODE,
     };
     if !confirm {
         return LinuxCliResponse::failure(
@@ -9859,7 +9913,13 @@ fn handle_managed_control_request(
             stream.set_write_timeout(Some(Duration::from_secs(
                 MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS,
             )))?;
-            stream.write_all(format!("{operation}\n").as_bytes())?;
+            let wire_request = match request {
+                ManagedControlRequest::Rollback {
+                    expected_config_version,
+                } => format!("{operation} {expected_config_version}\n"),
+                _ => format!("{operation}\n"),
+            };
+            stream.write_all(wire_request.as_bytes())?;
             stream.shutdown(std::net::Shutdown::Write)?;
             let mut response = String::new();
             (&mut stream).take(64).read_to_string(&mut response)?;
@@ -15395,6 +15455,91 @@ fn parse_managed_control_options(
         .map(|socket_path| (socket_path, confirm, format))
 }
 
+fn parse_managed_control_rollback_options(
+    args: &[String],
+) -> Result<(String, u64, bool, OutputFormat), LinuxCliParseError> {
+    let mut socket_path = None;
+    let mut expected_config_version = None;
+    let mut confirm = false;
+    let mut format = OutputFormat::Text;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--managed-control-socket" => {
+                index += 1;
+                let Some(value) = args.get(index).filter(|value| !value.starts_with("--")) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--managed-control-socket requires an absolute Unix socket path",
+                    ));
+                };
+                if socket_path.replace(value.clone()).is_some() {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_UNKNOWN_CODE,
+                        "managed control rollback accepts exactly one --managed-control-socket path",
+                    ));
+                }
+            }
+            "--expected-config-version" => {
+                index += 1;
+                let Some(value) = args.get(index).filter(|value| !value.starts_with("--")) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--expected-config-version requires a positive configuration version",
+                    ));
+                };
+                let parsed = value.parse::<u64>().ok().filter(|value| *value > 0).ok_or_else(|| {
+                    parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--expected-config-version requires a positive configuration version",
+                    )
+                })?;
+                if expected_config_version.replace(parsed).is_some() {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_UNKNOWN_CODE,
+                        "managed control rollback accepts exactly one --expected-config-version value",
+                    ));
+                }
+            }
+            "--confirm" => confirm = true,
+            "--format" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--format requires text or json",
+                    ));
+                };
+                format = parse_output_format(value)?;
+            }
+            argument => {
+                return Err(parse_error(
+                    CLI_ARGUMENT_UNKNOWN_CODE,
+                    format!(
+                        "managed control rollback only accepts --managed-control-socket, --expected-config-version, --confirm, and --format; received {argument}"
+                    ),
+                ));
+            }
+        }
+        index += 1;
+    }
+
+    let socket_path = socket_path.ok_or_else(|| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed control rollback requires --managed-control-socket <absolute-path>",
+        )
+    })?;
+    let expected_config_version = expected_config_version.ok_or_else(|| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed control rollback requires --expected-config-version <positive-integer>",
+        )
+    })?;
+    Ok((socket_path, expected_config_version, confirm, format))
+}
+
 fn parse_run_url_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
     let Some(url) = args.first() else {
         return Err(parse_error(
@@ -16650,7 +16795,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux connect --config <path> [same explicit foreground options as start]\n",
         "  networkcore-linux stop [--managed-control-socket <absolute-path> --confirm] [--format text|json]\n",
         "  networkcore-linux reload --managed-control-socket <absolute-path> --confirm [--format text|json]\n",
-        "  networkcore-linux rollback --managed-control-socket <absolute-path> --confirm [--format text|json]\n",
+        "  networkcore-linux rollback --managed-control-socket <absolute-path> --expected-config-version <positive-integer> --confirm [--format text|json]\n",
         "  networkcore-linux status --managed-control-socket <absolute-path> [--format text|json]\n",
         "  networkcore-linux disconnect [--format text|json]\n",
         "  networkcore-linux restart [--config <path>] [--format text|json]\n",

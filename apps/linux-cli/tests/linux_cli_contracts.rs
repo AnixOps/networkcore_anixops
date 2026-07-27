@@ -8261,7 +8261,9 @@ fn os_signal_interruption_source_maps_unix_signals_to_stable_diagnostics() {
             },
         });
     interrupter
-        .interrupt(ManagedControlRequest::Rollback)
+        .interrupt(ManagedControlRequest::Rollback {
+            expected_config_version: 2,
+        })
         .expect("managed control interrupter should record a rollback request");
     let observed_managed_rollback = OsSignalForegroundLifecycleInterruptionSource::new()
         .wait_for_interruption(&ForegroundLifecycleRequest {
@@ -9900,11 +9902,19 @@ impl ProxyEngineService for StopFailingProxyEngineService {
 #[cfg(unix)]
 struct TestManagedControlInterrupter {
     calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    rollback_config_version: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 #[cfg(unix)]
 impl ManagedControlInterrupter for TestManagedControlInterrupter {
-    fn interrupt(&self, _request: ManagedControlRequest) -> DomainResult<()> {
+    fn interrupt(&self, request: ManagedControlRequest) -> DomainResult<()> {
+        if let ManagedControlRequest::Rollback {
+            expected_config_version,
+        } = request
+        {
+            self.rollback_config_version
+                .store(expected_config_version, std::sync::atomic::Ordering::SeqCst);
+        }
         self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
@@ -9991,13 +10001,30 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
         "rollback",
         "--managed-control-socket",
         socket_path.to_str().expect("socket path should be UTF-8"),
+        "--expected-config-version",
+        "2",
         "--confirm",
     ])
     .expect("managed control rollback should parse");
     assert!(matches!(
         rollback,
-        LinuxCliCommand::ManagedControlRollback { confirm: true, .. }
+        LinuxCliCommand::ManagedControlRollback {
+            expected_config_version: 2,
+            confirm: true,
+            ..
+        }
     ));
+    let missing_rollback_version = parse_args([
+        "rollback",
+        "--managed-control-socket",
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        "--confirm",
+    ])
+    .expect_err("managed control rollback should require an expected configuration version");
+    assert_eq!(
+        missing_rollback_version.code,
+        CLI_ARGUMENT_VALUE_MISSING_CODE
+    );
     let status = parse_args([
         "status",
         "--managed-control-socket",
@@ -10013,10 +10040,12 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
     assert_eq!(missing_socket_path.code, CLI_ARGUMENT_VALUE_MISSING_CODE);
 
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let rollback_config_version = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
     let guard = start_managed_control_socket_with_interrupter(
         socket_path.to_str().expect("socket path should be UTF-8"),
         std::sync::Arc::new(TestManagedControlInterrupter {
             calls: std::sync::Arc::clone(&calls),
+            rollback_config_version: std::sync::Arc::clone(&rollback_config_version),
         }),
     )
     .expect("managed control socket should start");
@@ -10046,8 +10075,23 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
         CLI_MANAGED_CONTROL_SOCKET_RELOAD_READY_CODE,
     );
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let mut malformed_rollback = UnixStream::connect(&socket_path)
+        .expect("managed control socket should accept the malformed request for rejection");
+    malformed_rollback
+        .write_all(b"rollback\n")
+        .expect("malformed rollback request should be writable");
+    malformed_rollback
+        .shutdown(std::net::Shutdown::Write)
+        .expect("malformed rollback request should finish writing");
+    let mut malformed_response = String::new();
+    malformed_rollback
+        .read_to_string(&mut malformed_response)
+        .expect("malformed rollback response should be readable");
+    assert_eq!(malformed_response.trim(), "rejected");
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     let rollback = handle_managed_control_rollback(
         socket_path.to_str().expect("socket path should be UTF-8"),
+        2,
         true,
     );
     assert!(rollback.ok);
@@ -10056,6 +10100,10 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
         CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_READY_CODE,
     );
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_eq!(
+        rollback_config_version.load(std::sync::atomic::Ordering::SeqCst),
+        2
+    );
     let accepted = handle_managed_control_stop(
         socket_path.to_str().expect("socket path should be UTF-8"),
         true,

@@ -88,8 +88,9 @@ NetworkCore creates that socket without replacing an existing path, applies owne
 bounded `stop`, `reload`, or `rollback` request with a two-second I/O deadline. `stop --managed-control-socket <absolute-path> --confirm`
 sends the current foreground runtime through interruption and release; `reload --managed-control-socket <absolute-path> --confirm`
 reloads that same foreground runtime from its explicit start configuration and resumes its lifecycle wait.
-`rollback --managed-control-socket <absolute-path> --confirm` only restores the owner-retained
-prior-successful configuration snapshot after an expected `Running` state check and health readback.
+`rollback --managed-control-socket <absolute-path> --expected-config-version <positive-integer> --confirm`
+only restores the owner-retained prior-successful configuration snapshot when the caller's version
+matches the active version, the expected `Running` state check succeeds, and health readback passes.
 `status --managed-control-socket <absolute-path>` reports the bounded, redacted runtime health record.
 No default socket, PID lookup, or non-Unix fallback is provided; the boundary is fixed by
 `docs/architecture/linux-managed-runtime-health-source-contract.md`.

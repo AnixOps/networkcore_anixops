@@ -41,14 +41,17 @@ Failed reload automatically restores the prepared snapshot through
 returns a stable redacted rollback failure and records a failed runtime
 snapshot.
 
-`networkcore-linux rollback --managed-control-socket <absolute-path> --confirm`
-may only restore the foreground owner's retained prior-successful snapshot. It
-requires the same explicit socket and confirmation boundary as reload. The
-owner checks that the retained version is older than the active version and
-passes expected state `Running` to the adapter; absent or conflicting snapshots
-are rejected without a runtime write. After rollback it reads health back and
-returns the restored version and evidence. A second rollback without a newly
-successful reload is rejected as having no retained prior version.
+`networkcore-linux rollback --managed-control-socket <absolute-path>
+--expected-config-version <positive-integer> --confirm` may only restore the
+foreground owner's retained prior-successful snapshot. It requires the same
+explicit socket and confirmation boundary as reload. The socket carries exactly
+one positive expected version; the owner rejects a stale or missing value before
+any runtime mutation, checks that the retained version is older than the active
+version, and passes expected state `Running` to the adapter. Absent or
+conflicting snapshots are rejected without a runtime write. After rollback it
+reads health back and returns the restored version and evidence. A second
+rollback without a newly successful reload is rejected as having no retained
+prior version.
 
 All socket reads and writes retain the existing two-second deadline and 64-byte
 request bound. Runtime snapshots never contain raw configuration, subscription
