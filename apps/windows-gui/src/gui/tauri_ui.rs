@@ -2092,15 +2092,21 @@ fn disable_https_mitm_blocking() -> Result<OperationResult, String> {
             );
         }
     }
-    if let Ok(mut runtime_state) = read_managed_state(&windows_managed_state_path()) {
-        if let Some(thumbprint) = runtime_state.native_mitm_certificate_sha1.take() {
-            NativeWindowsSystemIntegration::new()
-                .remove_root_certificate(&thumbprint)
-                .map_err(|error| error.to_string())?;
-            write_managed_state(&windows_managed_state_path(), &runtime_state)
-                .map_err(|error| error.to_string())?;
-        }
-    }
+    let certificate_cleanup_error =
+        if let Ok(mut runtime_state) = read_managed_state(&windows_managed_state_path()) {
+            if let Some(thumbprint) = runtime_state.native_mitm_certificate_sha1.take() {
+                match NativeWindowsSystemIntegration::new().remove_root_certificate(&thumbprint) {
+                    Ok(()) => write_managed_state(&windows_managed_state_path(), &runtime_state)
+                        .err()
+                        .map(|error| error.to_string()),
+                    Err(error) => Some(error.to_string()),
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
     let private_key_cleanup_error = remove_windows_managed_mitm_private_key(
         &native_mitm.ca_private_key_path,
     )
@@ -2110,6 +2116,9 @@ fn disable_https_mitm_blocking() -> Result<OperationResult, String> {
         NativeWindowsSystemIntegration::new()
             .start_service()
             .map_err(|error| error.to_string())?;
+    }
+    if let Some(error) = certificate_cleanup_error {
+        return Err(error);
     }
     if let Some(error) = private_key_cleanup_error {
         return Err(error);

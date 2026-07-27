@@ -43,9 +43,9 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
   before committing managed configuration. It rejects reparse paths and ACL
   readback mismatches, revalidates the exact DACL before trust installation and
   during managed runtime health checks, removes the private key on protection failure,
-  reports a failed private-key cleanup after restoring a stopped service, revokes the
-  managed CA when a later ACL drift is found, and leaves only the generating account
-  plus LocalSystem access with inherited ACL entries removed.
+  reports failed certificate or private-key cleanup only after restoring a stopped
+  service, revokes the managed CA when a later ACL drift is found, and leaves only
+  the generating account plus LocalSystem access with inherited ACL entries removed.
 
 - Windows `Connected` now requires independent SCM, `sing-box check -c`,
   loopback listener, generated selector active-outbound/default readback,
