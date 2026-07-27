@@ -2125,7 +2125,14 @@ fn controlled_tls_upstream_client_config_uses_web_pki_roots() {
     let client_config_report = build_controlled_tls_upstream_client_config();
 
     assert!(client_config_report.client_config_ready);
-    assert!(client_config_report.client_config.is_some());
+    assert_eq!(
+        client_config_report
+            .client_config
+            .as_ref()
+            .expect("upstream client config should be available")
+            .alpn_protocols,
+        vec![b"http/1.1".to_vec()]
+    );
     assert_diagnostic(
         &client_config_report.diagnostics,
         ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_UPSTREAM_CONFIG_READY_CODE,
