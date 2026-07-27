@@ -1913,26 +1913,26 @@ mod gui {
             }
         }
 
-        let certificate_cleanup_error =
-            if let Ok(mut runtime_state) = read_managed_state(&windows_managed_state_path()) {
-                if let Some(thumbprint) = runtime_state.native_mitm_certificate_sha1.take() {
-                    match state.integration.remove_root_certificate(&thumbprint) {
-                        Ok(()) => write_managed_state(&windows_managed_state_path(), &runtime_state)
-                            .err()
-                            .map(|error| error.to_string()),
-                        Err(error) => Some(error.to_string()),
-                    }
-                } else {
-                    None
+        let certificate_cleanup_error = if let Ok(mut runtime_state) =
+            read_managed_state(&windows_managed_state_path())
+        {
+            if let Some(thumbprint) = runtime_state.native_mitm_certificate_sha1.take() {
+                match state.integration.remove_root_certificate(&thumbprint) {
+                    Ok(()) => write_managed_state(&windows_managed_state_path(), &runtime_state)
+                        .err()
+                        .map(|error| error.to_string()),
+                    Err(error) => Some(error.to_string()),
                 }
             } else {
                 None
-            };
-        let private_key_cleanup_error = remove_windows_managed_mitm_private_key(
-            &native_mitm.ca_private_key_path,
-        )
-        .err()
-        .map(|error| error.message);
+            }
+        } else {
+            None
+        };
+        let private_key_cleanup_error =
+            remove_windows_managed_mitm_private_key(&native_mitm.ca_private_key_path)
+                .err()
+                .map(|error| error.message);
         if restart {
             start_service(state)?;
         }

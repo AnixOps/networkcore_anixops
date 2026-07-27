@@ -2149,8 +2149,7 @@ fn read_tls_mitm_private_key_file(path: &str) -> DomainResult<String> {
 
 #[cfg(all(unix, not(target_os = "linux")))]
 fn read_tls_mitm_private_key_file(path: &str) -> DomainResult<String> {
-    let metadata =
-        std::fs::symlink_metadata(path).map_err(|_| private_key_protection_error())?;
+    let metadata = std::fs::symlink_metadata(path).map_err(|_| private_key_protection_error())?;
     if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
         return Err(private_key_protection_error());
     }

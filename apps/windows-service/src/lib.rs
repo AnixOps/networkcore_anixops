@@ -234,7 +234,7 @@ where
             if let Err(error) = validate_native_mitm_private_key(&native_mitm.ca_private_key_path) {
                 state.native_mitm_running = false;
                 state.native_mitm_listener = None;
-                if let Err(revoke_error) = self.revoke_native_mitm_certificate(state) {
+                if let Err(revoke_error) = self.revoke_native_mitm_certificate(&mut state) {
                     return self.record_runtime_failure(
                         &mut state,
                         format!(

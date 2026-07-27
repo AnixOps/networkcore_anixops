@@ -2107,11 +2107,10 @@ fn disable_https_mitm_blocking() -> Result<OperationResult, String> {
         } else {
             None
         };
-    let private_key_cleanup_error = remove_windows_managed_mitm_private_key(
-        &native_mitm.ca_private_key_path,
-    )
-    .err()
-    .map(|error| error.message);
+    let private_key_cleanup_error =
+        remove_windows_managed_mitm_private_key(&native_mitm.ca_private_key_path)
+            .err()
+            .map(|error| error.message);
     if restart {
         NativeWindowsSystemIntegration::new()
             .start_service()

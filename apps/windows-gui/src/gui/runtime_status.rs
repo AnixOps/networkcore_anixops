@@ -176,7 +176,7 @@ where
                     reason: "managed state did not record a core process ID".to_string(),
                 },
             }
-        },
+        }
         Some(state) if mieru_configured && state.mieru_running => ManagedCoreStatus::MieruRunning {
             endpoint: state.mieru_listener.clone().unwrap_or_default(),
         },
