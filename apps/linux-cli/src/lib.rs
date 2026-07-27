@@ -142,6 +142,8 @@ pub const CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE: &str =
     "cli.linux.start.tls_mitm_material_required";
 pub const CLI_START_TLS_MITM_MATERIAL_READ_FAILED_CODE: &str =
     "cli.linux.start.tls_mitm_material_read_failed";
+pub const CLI_START_TLS_MITM_PRIVATE_KEY_PROTECTION_FAILED_CODE: &str =
+    "cli.linux.start.tls_mitm_private_key_protection_failed";
 pub const CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE: &str =
     "cli.linux.start.script_runtime_authorization_required";
 pub const CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE: &str =
@@ -2089,12 +2091,7 @@ pub fn native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
                 "live HTTPS MITM CA certificate material could not be read",
             )
         })?;
-        let private_key_pem = std::fs::read_to_string(private_key_path).map_err(|_| {
-            DomainError::new(
-                CLI_START_TLS_MITM_MATERIAL_READ_FAILED_CODE,
-                "live HTTPS MITM CA private key material could not be read",
-            )
-        })?;
+        let private_key_pem = read_tls_mitm_private_key_file(private_key_path)?;
         if certificate_pem.trim().is_empty() || private_key_pem.trim().is_empty() {
             return Err(DomainError::new(
                 CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE,
@@ -2127,6 +2124,67 @@ pub fn native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
     native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime(
         tls_mitm_ca_material,
         script_executor,
+    )
+}
+
+#[cfg(target_os = "linux")]
+const LINUX_O_NOFOLLOW: i32 = 0o400000;
+
+#[cfg(target_os = "linux")]
+fn read_tls_mitm_private_key_file(path: &str) -> DomainResult<String> {
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(LINUX_O_NOFOLLOW)
+        .open(path)
+        .map_err(|_| private_key_protection_error())?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| private_key_protection_error())?;
+    validate_tls_mitm_private_key_metadata(&metadata)?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)
+        .map_err(|_| private_key_read_error())?;
+    Ok(contents)
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn read_tls_mitm_private_key_file(path: &str) -> DomainResult<String> {
+    let metadata =
+        std::fs::symlink_metadata(path).map_err(|_| private_key_protection_error())?;
+    if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
+        return Err(private_key_protection_error());
+    }
+    validate_tls_mitm_private_key_metadata(&metadata)?;
+    std::fs::read_to_string(path).map_err(|_| private_key_read_error())
+}
+
+#[cfg(unix)]
+fn validate_tls_mitm_private_key_metadata(metadata: &std::fs::Metadata) -> DomainResult<()> {
+    if !metadata.file_type().is_file() {
+        return Err(private_key_protection_error());
+    }
+    if metadata.permissions().mode() & 0o777 != 0o600 {
+        return Err(private_key_protection_error());
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn read_tls_mitm_private_key_file(path: &str) -> DomainResult<String> {
+    std::fs::read_to_string(path).map_err(|_| private_key_read_error())
+}
+
+fn private_key_protection_error() -> DomainError {
+    DomainError::new(
+        CLI_START_TLS_MITM_PRIVATE_KEY_PROTECTION_FAILED_CODE,
+        "live HTTPS MITM CA private key protection could not be verified",
+    )
+}
+
+fn private_key_read_error() -> DomainError {
+    DomainError::new(
+        CLI_START_TLS_MITM_MATERIAL_READ_FAILED_CODE,
+        "live HTTPS MITM CA private key material could not be read",
     )
 }
 

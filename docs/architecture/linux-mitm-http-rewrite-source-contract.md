@@ -86,7 +86,9 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
   CONNECT authority，拒绝 inner Host mismatch，以 TLS 终止后的 HTTP/1.1 请求/响应继续调用现有
   `NativeHttpMitmPluginHook` request/response rewrite；没有 material 时绝不尝试 TLS termination。
   Linux CLI 只在 `start --enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path> --confirm`
-  中读取 material；缺任一 flag、路径、内容或 confirmation 都拒绝启动，且不回显 key。该 release
+  中读取 material；Linux 以不跟随符号链接的文件句柄读取私钥，并在同一句柄上拒绝非普通文件或模式不是
+  精确 `0600` 的私钥，返回稳定脱敏 protection code。其他 Unix 目标在读取前也拒绝符号链接、非普通文件
+  和非 `0600` 模式。缺任一 flag、路径、内容或 confirmation 都拒绝启动，且不回显 key。该 release
   path 在 TLS handshake、request/response 交换期间使用独立 15 秒受限 I/O timeout，已由 GitHub
   Actions 全量 CI 验证；tag release 仍只在同 commit CI、package、attestation 与 publish gate 全部通过后发布。
 - `NativeHttpMitmPluginHook::with_node_script_executor` 是 live script activation boundary。CLI 只有在

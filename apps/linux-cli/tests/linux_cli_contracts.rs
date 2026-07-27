@@ -118,6 +118,7 @@ use networkcore_linux::{
     CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE, CLI_START_FOREGROUND_ONLY_CODE,
     CLI_START_LIFECYCLE_FAILED_CODE, CLI_START_LIFECYCLE_HOST_MISSING_CODE,
     CLI_START_LIFECYCLE_INTERRUPTED_CODE, CLI_START_PLATFORM_DENIED_CODE,
+    CLI_START_TLS_MITM_PRIVATE_KEY_PROTECTION_FAILED_CODE,
     CLI_START_RUNTIME_STOP_FAILED_CODE, CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE,
     CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE, CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE,
     CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
@@ -2657,6 +2658,74 @@ fn native_engine_factory_requires_explicit_authorization_before_loading_tls_mitm
         unapproved_paths.code,
         CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn native_engine_factory_rejects_tls_mitm_private_key_without_owner_only_mode() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock should be after Unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("networkcore-tls-mitm-key-mode-{unique}"));
+    std::fs::create_dir_all(&root).expect("TLS MITM fixture directory should be created");
+    let certificate_path = root.join("networkcore-ca.crt");
+    let private_key_path = root.join("networkcore-ca.key");
+    std::fs::write(&certificate_path, "certificate material")
+        .expect("certificate fixture should be written");
+    std::fs::write(&private_key_path, "private key material")
+        .expect("private key fixture should be written");
+    std::fs::set_permissions(
+        &private_key_path,
+        std::os::unix::fs::PermissionsExt::from_mode(0o644),
+    )
+    .expect("private key fixture mode should be changed");
+
+    let error = native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files(
+        certificate_path.to_str(),
+        private_key_path.to_str(),
+        true,
+        true,
+    )
+    .expect_err("live TLS MITM must reject a non-owner-only private key");
+    assert_eq!(
+        error.code,
+        CLI_START_TLS_MITM_PRIVATE_KEY_PROTECTION_FAILED_CODE
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(unix)]
+#[test]
+fn native_engine_factory_rejects_tls_mitm_private_key_symlink() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock should be after Unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("networkcore-tls-mitm-key-link-{unique}"));
+    std::fs::create_dir_all(&root).expect("TLS MITM fixture directory should be created");
+    let certificate_path = root.join("networkcore-ca.crt");
+    let private_key_target_path = root.join("networkcore-ca-target.key");
+    let private_key_path = root.join("networkcore-ca.key");
+    std::fs::write(&certificate_path, "certificate material")
+        .expect("certificate fixture should be written");
+    std::fs::write(&private_key_target_path, "private key material")
+        .expect("private key target fixture should be written");
+    std::os::unix::fs::symlink(&private_key_target_path, &private_key_path)
+        .expect("private key symlink fixture should be created");
+
+    let error = native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files(
+        certificate_path.to_str(),
+        private_key_path.to_str(),
+        true,
+        true,
+    )
+    .expect_err("live TLS MITM must reject a private key symlink");
+    assert_eq!(
+        error.code,
+        CLI_START_TLS_MITM_PRIVATE_KEY_PROTECTION_FAILED_CODE
+    );
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
