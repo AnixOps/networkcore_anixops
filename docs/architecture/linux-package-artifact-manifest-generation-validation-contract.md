@@ -167,7 +167,7 @@ artifact upload 或 release asset upload：
 - 标记 `linux-package-artifact-manifest-generation-checksum-value-field=checksum.value`。
 - 标记 `linux-package-artifact-manifest-generation-included-files=bin/networkcore-linux,INSTALL.md,LICENSE,CHANGELOG.md`。
 - 标记 `linux-package-artifact-manifest-generation-install-model=manual-extract`。
-- 标记 `linux-package-artifact-manifest-generation-system-mutation-policy=none`。
+- 标记 `linux-package-artifact-manifest-generation-system-mutation-policy=no-implicit-mutation; explicit-confirmed-cli-with-snapshot-readback-rollback`。
 - 标记 `linux-package-artifact-manifest-generation-manifest-checksum=blocked`。
 - 标记 `linux-package-artifact-manifest-generation-upload=blocked`。
 - 标记 `linux-package-artifact-manifest-generation-next-action=manifest-checksum-after-manifest`。
