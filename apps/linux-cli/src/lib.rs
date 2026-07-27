@@ -67,7 +67,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 #[cfg(unix)]
-use std::os::unix::{fs::FileTypeExt, fs::PermissionsExt};
+use std::os::unix::{fs::FileTypeExt, fs::OpenOptionsExt, fs::PermissionsExt};
 use std::path::PathBuf;
 #[cfg(unix)]
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
@@ -5499,28 +5499,40 @@ impl MitmCertificateArtifactStore for CommandMitmCertificateArtifactStore {
             CLI_MITM_CERTIFICATE_SNAPSHOT_WRITE_FAILED_CODE,
             "MITM certificate artifact snapshot",
         )?;
-        write_new_file(
+        if let Err(error) = write_new_file(
             &request.cert_file_path,
             request.cert_content.as_bytes(),
             CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
             "MITM certificate artifact",
-        )?;
-        write_new_file(
+        ) {
+            let _ = std::fs::remove_file(&request.snapshot_path);
+            return Err(error);
+        }
+        if let Err(error) = write_new_private_key_file(
             &request.key_file_path,
             request.key_content.as_bytes(),
             CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
             "MITM private key artifact",
-        )?;
+        ) {
+            let _ = std::fs::remove_file(&request.cert_file_path);
+            let _ = std::fs::remove_file(&request.snapshot_path);
+            return Err(error);
+        }
         if let (Some(profile_trust_file_path), Some(profile_trust_content)) = (
             &request.profile_trust_file_path,
             &request.profile_trust_content,
         ) {
-            write_new_file(
+            if let Err(error) = write_new_file(
                 profile_trust_file_path,
                 profile_trust_content.as_bytes(),
                 CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
                 "MITM dedicated profile trust artifact",
-            )?;
+            ) {
+                let _ = std::fs::remove_file(&request.key_file_path);
+                let _ = std::fs::remove_file(&request.cert_file_path);
+                let _ = std::fs::remove_file(&request.snapshot_path);
+                return Err(error);
+            }
         }
 
         Ok(LinuxMitmCertificateArtifactApplyOutcome {
@@ -5848,6 +5860,65 @@ fn write_new_file(
             format!("failed to write {description} {path}: {error}"),
         )
     })
+}
+
+/// Writes a NetworkCore-generated MITM private key with no group or world
+/// access. The mode is supplied at creation time and read back before the
+/// caller can use the key, avoiding a permissive-umask window.
+#[cfg(unix)]
+fn write_new_private_key_file(
+    path: &str,
+    contents: &[u8],
+    error_code: &'static str,
+    description: &str,
+) -> DomainResult<()> {
+    write_parent_dir(path, error_code)?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .map_err(|error| {
+            DomainError::new(
+                error_code,
+                format!("failed to create {description} {path}: {error}"),
+            )
+        })?;
+    if let Err(error) = file.write_all(contents).and_then(|_| file.sync_all()) {
+        let _ = std::fs::remove_file(path);
+        return Err(DomainError::new(
+            error_code,
+            format!("failed to write {description} {path}: {error}"),
+        ));
+    }
+    let mode = std::fs::metadata(path)
+        .map_err(|error| {
+            DomainError::new(
+                error_code,
+                format!("failed to verify {description} {path}: {error}"),
+            )
+        })?
+        .permissions()
+        .mode()
+        & 0o777;
+    if mode != 0o600 {
+        let _ = std::fs::remove_file(path);
+        return Err(DomainError::new(
+            error_code,
+            format!("{description} {path} did not retain owner-only permissions"),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn write_new_private_key_file(
+    path: &str,
+    contents: &[u8],
+    error_code: &'static str,
+    description: &str,
+) -> DomainResult<()> {
+    write_new_file(path, contents, error_code, description)
 }
 
 fn write_replace_file(

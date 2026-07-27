@@ -14,7 +14,7 @@ MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/profile-trust-artifact
 ## Current Boundary
 
 - `networkcore-linux mitm certificate-plan` 继续输出 `mitm_status.certificate_plan`，但计划包含 `write-local-ca-artifact`、`snapshot-ca-artifact`、`write-dedicated-profile-trust-artifact` 和 `rollback-ca-artifact` active steps。
-- `networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` 通过 `CommandMitmCertificateArtifactStore` 写入 operator-provided CA certificate PEM、private key PEM、可选 dedicated profile CA PEM copy 路径和 NetworkCore rollback snapshot。
+- `networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` 通过 `CommandMitmCertificateArtifactStore` 写入 operator-provided CA certificate PEM、private key PEM、可选 dedicated profile CA PEM copy 路径和 NetworkCore rollback snapshot；在 Unix 上私钥以创建时 `0600`、写后权限读回写入，无法保持 owner-only 权限时删除私钥并失败。
 - Certificate artifact content 必须是标准 PEM：`cert_content` 包含 `-----BEGIN CERTIFICATE-----`/`-----END CERTIFICATE-----`，`key_content` 包含 `-----BEGIN PRIVATE KEY-----`/`-----END PRIVATE KEY-----`，不再把 NetworkCore metadata wrapper 写入 PEM 文件。
 - `profile_trust_content` 在请求 `--profile-trust-file` 时必须等于同一 `cert_content` 的 CA PEM copy，`profile_trust_fingerprint` 必须等于 `cert_fingerprint`，且不得包含 private key PEM。
 - `CommandMitmCertificateArtifactStore` 必须在写入 snapshot、cert、key 或 profile trust file 之前防御性校验 artifact version、cert/key PEM marker、profile CA PEM copy 内容和 fingerprint invariant；非法 request 必须返回 `cli.linux.mitm.certificate.artifact.write_failed`，不得落盘。

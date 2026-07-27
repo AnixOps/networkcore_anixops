@@ -33,6 +33,10 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 ### Changed
 
+- Linux MITM CA artifact creation now writes its private key with Unix `0600`
+  permissions at creation time, syncs and reads the mode back before use, and
+  removes it when the protected write cannot be verified.
+
 - Windows HTTPS MITM now protects the fixed NetworkCore-owned CA private key
   before committing managed configuration. It rejects reparse paths and ACL
   readback mismatches, revalidates the exact DACL before trust installation and

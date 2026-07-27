@@ -5032,6 +5032,16 @@ fn mitm_certificate_command_store_writes_and_rolls_back_artifacts() {
     assert!(cert_content.contains("-----END CERTIFICATE-----"));
     assert!(key_content.contains("-----BEGIN PRIVATE KEY-----"));
     assert!(key_content.contains("-----END PRIVATE KEY-----"));
+    #[cfg(unix)]
+    assert_eq!(
+        std::os::unix::fs::PermissionsExt::mode(
+            &std::fs::metadata(&key_path)
+                .expect("private key artifact metadata should be readable")
+                .permissions(),
+        ) & 0o777,
+        0o600,
+        "generated MITM private key artifact must be owner-only"
+    );
     assert!(!cert_content.contains("trust-store-mutation: blocked"));
     assert!(!key_content.contains("https-rewrite: blocked"));
     assert!(snapshot_path.exists());
