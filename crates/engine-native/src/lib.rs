@@ -7701,7 +7701,7 @@ mod controlled_tls_session_tests {
     use std::time::Duration;
 
     #[test]
-    fn controlled_tls_connect_exchange_decrypts_forwards_and_executes_scripts_over_live_sockets() {
+    fn controlled_tls_connect_session_bounds_persistent_exchanges_over_live_sockets() {
         let script_runtime_root = std::env::temp_dir().join(format!(
             "networkcore-controlled-tls-script-contract-{}",
             std::process::id()
@@ -7795,7 +7795,7 @@ mod controlled_tls_session_tests {
             let connection = ServerConnection::new(upstream_server_config)
                 .expect("test upstream TLS connection should initialize");
             let mut tls_stream = StreamOwned::new(connection, stream);
-            for exchange_index in 0..2 {
+            for exchange_index in 0..CONTROLLED_TLS_MAX_HTTP_EXCHANGES {
                 let request = read_explicit_http_proxy_request(&mut tls_stream)
                     .request
                     .expect("test upstream should receive decrypted HTTP request");
@@ -7803,8 +7803,16 @@ mod controlled_tls_session_tests {
                 assert!(std::str::from_utf8(&request.body)
                     .expect("script-mutated upstream request body should be UTF-8")
                     .contains("requestRuntime"));
+                assert_eq!(
+                    plain_http_header_value(&request.headers, "Connection").as_deref(),
+                    Some(if exchange_index + 1 == CONTROLLED_TLS_MAX_HTTP_EXCHANGES {
+                        "close"
+                    } else {
+                        "keep-alive"
+                    }),
+                );
                 let response_body = b"{\"from\":\"upstream\"}";
-                let connection = if exchange_index == 1 {
+                let connection = if exchange_index + 1 == CONTROLLED_TLS_MAX_HTTP_EXCHANGES {
                     "close"
                 } else {
                     "keep-alive"
@@ -7842,7 +7850,7 @@ mod controlled_tls_session_tests {
             let connection = ClientConnection::new(downstream_client_config, server_name)
                 .expect("test TLS client connection should initialize");
             let mut tls_stream = StreamOwned::new(connection, stream);
-            for _ in 0..2 {
+            for exchange_index in 0..CONTROLLED_TLS_MAX_HTTP_EXCHANGES {
                 tls_stream
                     .write_all(b"GET /resource HTTP/1.1\r\nHost: example.com\r\n\r\n")
                     .expect("test TLS client should write HTTP request");
@@ -7856,6 +7864,14 @@ mod controlled_tls_session_tests {
                 assert!(std::str::from_utf8(&response.body)
                     .expect("script-mutated client response body should be UTF-8")
                     .contains("responseRuntime"));
+                assert_eq!(
+                    plain_http_header_value(&response.headers, "Connection").as_deref(),
+                    Some(if exchange_index + 1 == CONTROLLED_TLS_MAX_HTTP_EXCHANGES {
+                        "close"
+                    } else {
+                        "keep-alive"
+                    }),
+                );
             }
         });
 
