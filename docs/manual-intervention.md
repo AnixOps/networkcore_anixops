@@ -156,10 +156,12 @@ subscription URLs, or full traffic contents:
    of scope and that no UDP/QUIC listener or HTTP/2 interception behavior is
    introduced.
 6. For an explicitly configured local script asset, retain its authorized
-   SHA-256 and one successful bounded dispatch. Replace the asset while the
-   runtime remains active, repeat the matching request, and record the deferred
-   fail-open result with no Node execution. Do not treat this integrity check as
-   a network or subprocess sandbox validation.
+   SHA-256 and one successful bounded dispatch. Confirm the runner can read only
+   its mapped local asset and staged body, cannot write a file, spawn a child
+   process, load an addon, or reach a network endpoint; preserve the failed
+   operation evidence. Replace the asset while the runtime remains active,
+   repeat the matching request, and record the deferred fail-open result with no
+   Node execution.
 
 ## Windows Tauri Dependency Lock Refresh
 

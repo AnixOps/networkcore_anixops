@@ -35,6 +35,7 @@ use engine_native::{
     write_unwired_socks5_connect_failure_response, BoundLoopbackTcpListenerHandle,
     LoopbackListenerHandle, NativeExplicitHttpProxyRequest, NativeHttpMitmPluginHook,
     NativeLoopbackTcpAcceptLoopHandle, NativeNodeScriptExecutor, NativeNodeScriptRuntimeConfig,
+    NativeNodeScriptSandbox,
     NativeOutboundHandlerHandle, NativePlainHttpMessage, NativePlainHttpRewriteReport,
     NativeProxyEngineService, NativeProxyEngineStartReadiness, NativeRuntimeAssembly,
     NativeRuntimeAssemblyPlan, NativeSocks5Address, NativeSocks5AuthMethodDecision,
@@ -1435,6 +1436,7 @@ fn node_script_executor_runs_explicit_local_asset_with_persistent_store() {
         runner_path,
         script_assets,
         persistent_store_path: Some(root.join("store.json").display().to_string()),
+        sandbox: NativeNodeScriptSandbox::Unrestricted,
         max_timeout_ms: 5000,
         max_body_bytes: 4096,
     });
@@ -1517,6 +1519,7 @@ fn node_script_executor_runs_explicit_local_asset_with_persistent_store() {
         runner_path: executor.config().runner_path.clone(),
         script_assets: BTreeMap::new(),
         persistent_store_path: None,
+        sandbox: NativeNodeScriptSandbox::Unrestricted,
         max_timeout_ms: 1000,
         max_body_bytes: 1024,
     })
@@ -1559,6 +1562,7 @@ fn native_http_mitm_hook_applies_locally_mapped_script_dispatch() {
             runner_path,
             script_assets,
             persistent_store_path: Some(root.join("store.json").display().to_string()),
+            sandbox: NativeNodeScriptSandbox::Unrestricted,
             max_timeout_ms: 5000,
             max_body_bytes: 4096,
         },

@@ -866,7 +866,9 @@ GitHub Actions release workflow 结果为准。
   web-PKI 校验上游 TLS，并在单个有界 HTTP/1.1 request/response exchange 上应用插件 rewrite。
 - `start --enable-script-runtime --script-runner <path> --script-map <url>=<local-file> --confirm`
   把显式本地 Node runner 和已映射 local asset 接入 request/response hook；body/timeout/header/status/
-  URL authority 均受限，失败 fail-open，不下载远程脚本。脚本是受信本地代码，不宣称 sandbox。
+  URL authority 均受限，失败 fail-open，不下载远程脚本。Linux 使用无网络 namespace 和 Node 最小
+  read permission，只允许 runner、asset 和 staged body；不允许 persistent store、write、child-process、
+  addon 或 network permission。
 - Linux/Windows 产物继续只由 GitHub Actions 生成、checksum、manifest、attestation 后发布。
 
 明确不包含：
@@ -1097,7 +1099,8 @@ mutation 和 system proxy mutation。
   plugin permission、显式 local runner/script map、timeout/body/URL authority guard、fail-open diagnostics
   和 CI governance 执行受控 dispatch；同一 Linux `start` runtime 在显式 CA/confirm 下完成
   CONNECT authority/SNI-bound TLS termination、web-PKI upstream forwarding 和有界 HTTP/1.1 rewrite。
-  local Node code 是受信代码而非 sandbox，禁止远程脚本下载。
+  Linux local Node code 只能在无网络、最小 read-permission sandbox 中执行，禁止远程脚本下载；
+  Windows 在具备等价 sandbox 前拒绝脚本执行。
 - `v0.1.2-alpha.4`：system trust store mutation foundation。显式授权后执行平台 trust store
   apply/detect/revoke/rollback，必须有 snapshot、conflict detection 和 blocked fallback。
 - `v0.1.2-alpha.5`：system proxy mutation foundation。显式授权后执行 system proxy/system PAC

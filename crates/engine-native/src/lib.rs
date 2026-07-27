@@ -737,12 +737,21 @@ pub struct NativeLoopbackTcpAcceptLoopShutdownReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeNodeScriptSandbox {
+    Disabled,
+    LinuxNoNetwork,
+    /// Reserved for isolated test fixtures; product entrypoints must not select it.
+    Unrestricted,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeNodeScriptRuntimeConfig {
     pub node_binary: String,
     pub runner_path: String,
     pub script_assets: BTreeMap<String, String>,
     pub persistent_store_path: Option<String>,
+    pub sandbox: NativeNodeScriptSandbox,
     pub max_timeout_ms: usize,
     pub max_body_bytes: usize,
 }
@@ -786,6 +795,10 @@ impl NativeNodeScriptExecutor {
 
     pub fn script_asset_hashes(&self) -> &BTreeMap<String, String> {
         &self.script_asset_hashes
+    }
+
+    pub fn sandbox(&self) -> &NativeNodeScriptSandbox {
+        &self.config.sandbox
     }
 
     pub fn execute(
@@ -881,7 +894,11 @@ impl NativeNodeScriptExecutor {
         };
         let timeout_ms = bounded_script_timeout(dispatch.timeout_ms, self.config.max_timeout_ms);
         let execution_timeout = Duration::from_millis(timeout_ms as u64);
-        let mut command = Command::new(&self.config.node_binary);
+        let Some(mut command) = self.node_command(script_asset_path, body_path) else {
+            return script_execution_deferred(
+                "native HTTP script runtime is disabled or its sandbox could not be configured",
+            );
+        };
         command
             .arg(&self.config.runner_path)
             .arg("--script")
@@ -1020,6 +1037,54 @@ impl NativeNodeScriptExecutor {
             )],
         }
     }
+
+    fn node_command(
+        &self,
+        script_asset_path: &str,
+        body_path: &std::path::Path,
+    ) -> Option<Command> {
+        match self.config.sandbox {
+            NativeNodeScriptSandbox::Disabled => None,
+            NativeNodeScriptSandbox::Unrestricted => Some(Command::new(&self.config.node_binary)),
+            NativeNodeScriptSandbox::LinuxNoNetwork => {
+                #[cfg(target_os = "linux")]
+                {
+                    let body_path = body_path.to_str()?;
+                    let read_paths = [
+                        self.config.runner_path.as_str(),
+                        script_asset_path,
+                        body_path,
+                    ]
+                    .iter()
+                    .map(|path| std::fs::canonicalize(path).ok())
+                    .collect::<Option<Vec<_>>>()?;
+                    let read_paths = read_paths
+                        .iter()
+                        .map(|path| path.to_str())
+                        .collect::<Option<Vec<_>>>()?;
+                    if read_paths.iter().any(|path| path.contains(',')) {
+                        return None;
+                    }
+                    let mut command = Command::new("unshare");
+                    command
+                        .arg("--user")
+                        .arg("--map-root-user")
+                        .arg("--net")
+                        .arg("--mount-proc")
+                        .arg("--")
+                        .arg(&self.config.node_binary)
+                        .arg("--experimental-permission")
+                        .arg(format!("--allow-fs-read={}", read_paths.join(",")));
+                    Some(command)
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    let _ = (script_asset_path, body_path);
+                    None
+                }
+            }
+        }
+    }
 }
 
 fn script_asset_sha256(path: &std::path::Path) -> Option<String> {
@@ -1074,6 +1139,12 @@ impl NativeHttpMitmPluginHook {
 
     pub fn script_executor_enabled(&self) -> bool {
         self.script_executor.is_some()
+    }
+
+    pub fn script_sandbox(&self) -> Option<NativeNodeScriptSandbox> {
+        self.script_executor
+            .as_ref()
+            .map(|executor| *executor.sandbox())
     }
 
     pub fn plugin_instance(&self) -> &PluginInstance {
@@ -4508,6 +4579,12 @@ impl NativeProxyEngineService {
         }
     }
 
+    pub fn http_mitm_script_sandbox(&self) -> Option<NativeNodeScriptSandbox> {
+        self.http_mitm_hook
+            .as_ref()
+            .and_then(NativeHttpMitmPluginHook::script_sandbox)
+    }
+
     fn runtime_state(
         &self,
     ) -> DomainResult<std::sync::MutexGuard<'_, Option<NativeManagedRuntime>>> {
@@ -7433,6 +7510,7 @@ mod script_runtime_security_tests {
             runner_path: path.display().to_string(),
             script_assets,
             persistent_store_path: None,
+            sandbox: NativeNodeScriptSandbox::Unrestricted,
             max_timeout_ms: 1000,
             max_body_bytes: 1024,
         });
@@ -7467,6 +7545,66 @@ mod script_runtime_security_tests {
         assert!(report.diagnostics.iter().any(|diagnostic| {
             diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_DEFERRED_CODE
         }));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_script_runtime_command_denies_network_and_unlisted_permissions() {
+        let root = std::env::temp_dir().join(format!(
+            "networkcore-script-sandbox-contract-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root)
+            .expect("script sandbox fixture directory should be created");
+        let runner_path = root.join("runner.js");
+        let asset_path = root.join("asset.js");
+        let body_path = root.join("body.txt");
+        std::fs::write(&runner_path, "process.exit(0)")
+            .expect("runner fixture should be written");
+        std::fs::write(&asset_path, "module.exports = {}")
+            .expect("asset fixture should be written");
+        std::fs::write(&body_path, "bounded body").expect("body fixture should be written");
+
+        let script_url = "https://scripts.networkcore.test/sandbox.js".to_string();
+        let mut script_assets = BTreeMap::new();
+        script_assets.insert(script_url, asset_path.display().to_string());
+        let executor = NativeNodeScriptExecutor::new(NativeNodeScriptRuntimeConfig {
+            node_binary: "node".to_string(),
+            runner_path: runner_path.display().to_string(),
+            script_assets,
+            persistent_store_path: None,
+            sandbox: NativeNodeScriptSandbox::LinuxNoNetwork,
+            max_timeout_ms: 1000,
+            max_body_bytes: 1024,
+        });
+
+        let command = executor
+            .node_command(&asset_path.display().to_string(), &body_path)
+            .expect("Linux sandbox command should be constructible for local files");
+        let arguments = command
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(command.get_program().to_string_lossy(), "unshare");
+        assert!(arguments.iter().any(|argument| argument == "--net"));
+        assert!(arguments
+            .iter()
+            .any(|argument| argument == "--experimental-permission"));
+        assert!(arguments
+            .iter()
+            .any(|argument| argument.starts_with("--allow-fs-read=")));
+        assert!(!arguments
+            .iter()
+            .any(|argument| argument.starts_with("--allow-child-process")));
+        assert!(!arguments
+            .iter()
+            .any(|argument| argument.starts_with("--allow-fs-write")));
+        assert!(!arguments
+            .iter()
+            .any(|argument| argument.starts_with("--allow-net")));
     }
 }
 
@@ -7539,6 +7677,7 @@ mod controlled_tls_session_tests {
                 persistent_store_path: Some(
                     script_runtime_root.join("store.json").display().to_string(),
                 ),
+                sandbox: NativeNodeScriptSandbox::Unrestricted,
                 max_timeout_ms: 5000,
                 max_body_bytes: 4096,
             },

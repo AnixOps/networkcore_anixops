@@ -33,6 +33,12 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 ### Changed
 
+- Linux native MITM scripts now run only in a fresh no-network namespace with
+  Node read permission limited to the explicit runner, mapped asset, and staged
+  body. Persistent stores and write, child-process, addon, and network access
+  are denied; Windows GUI/service reject script execution until an equivalent
+  Windows sandbox is available.
+
 - Manual intervention now requires Ubuntu/systemd trust-file lifecycle, bounded
   HTTP/1.1 rewrite, pinning fail-closed, HTTP/2/HTTP/3 exclusion, and local
   script-hash drift evidence before HTTPS MITM is described as operational.
@@ -45,8 +51,7 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 - The shared native HTTPS MITM Node executor now records a SHA-256 digest for
   every explicitly mapped local script asset at creation and rechecks it before
   each dispatch. Missing, symbolic-link, unreadable, or changed assets remain
-  fail-open and never start the Node runner; the runtime still does not claim a
-  Node sandbox.
+  fail-open and never start the Node runner.
 
 - Linux MITM CA artifact creation now writes its private key with Unix `0600`
   permissions at creation time, syncs and reads the mode back before use, and

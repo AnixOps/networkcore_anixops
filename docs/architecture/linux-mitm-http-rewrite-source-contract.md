@@ -93,15 +93,16 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
   Actions 全量 CI 验证；tag release 仍只在同 commit CI、package、attestation 与 publish gate 全部通过后发布。
 - `NativeHttpMitmPluginHook::with_node_script_executor` 是 live script activation boundary。CLI 只有在
   `start --enable-script-runtime --script-runner <local-runner> --script-map <script-url>=<local-file>
-  [--script-map ...] [--script-store <path>] [--node-binary <path>] --confirm` 时创建 executor；runner 和
-  每个 asset 必须是本地普通文件，script URL 只可映射到明确配置的本地 asset，绝不自动下载远程脚本。
+  [--script-map ...] [--node-binary <path>] --confirm` 时创建 executor；runner 和每个 asset 必须是
+  本地普通非符号链接文件，script URL 只可映射到明确配置的本地 asset，绝不自动下载远程脚本。
   executor 只传递 staged temporary file 中的 bounded UTF-8 body（Unix owner-only permission）、受规则和
   runtime 双重约束的超时，以及 request/response phase；执行失败、超时、非 UTF-8 body、未映射 asset 或
-  无效 runner output 一律不改写原消息。脚本 URL mutation 仅可
-  保留原 scheme/authority/port 后改变路径，跨 authority 或 scheme 的 mutation 会拒绝并产生 diagnostic。
-  executor 在创建时记录每个映射 asset 的 SHA-256，并在每次 dispatch 前重新计算；asset 缺失、符号链接、
-  无法读取或摘要变化时一律 fail-open，不启动 Node。Node runner 执行的 asset 仍必须视为操作员显式信任的
-  本地代码，不把该进程模型描述为安全 sandbox。
+  无效 runner output 一律不改写原消息。脚本 URL mutation 仅可保留原 scheme/authority/port 后改变路径，
+  跨 authority 或 scheme 的 mutation 会拒绝并产生 diagnostic。executor 在创建时记录每个映射 asset 的
+  SHA-256，并在每次 dispatch 前重新计算；asset 缺失、符号链接、无法读取或摘要变化时一律 fail-open，
+  不启动 Node。Linux product path 以 `NativeNodeScriptSandbox::LinuxNoNetwork` 启动新 user/network
+  namespace，并以 Node permission mode 只授予 runner、mapped asset 和 staged body 的 read permission；
+  不授予 persistent store、write、child-process、addon 或 network permission。`--script-store` 会被拒绝。
 - `plan_and_apply_https_request_rewrite_preview` 只消费调用方提供的 request-phase `https://`
   `NativePlainHttpMessage` 和 `HttpMitmOutcome`，并要求 controlled TLS termination plan 已 ready；它可在
   `NativeHttpsRequestRewritePreviewReport` 中表达 reject、redirect 和 request header mutation preview
@@ -257,7 +258,7 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
 - `--enable-script-runtime`
 - `--script-runner`
 - `--script-map`
-- `--script-store`
+- `--script-store`（解析兼容，但 sandboxed runtime 明确拒绝）
 - `--node-binary`
 - `cli.linux.mitm.http_rewrite.authorization_required`
 - `cli.linux.mitm.http_rewrite.plan.ready`

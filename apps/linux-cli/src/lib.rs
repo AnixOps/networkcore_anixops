@@ -2232,12 +2232,13 @@ fn build_native_node_script_executor(
             "script runtime start requires at least one --script-map",
         ));
     }
-    if !std::path::Path::new(script_runner_path).is_file() {
+    if script_store_path.is_some() {
         return Err(DomainError::new(
             CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE,
-            "configured script runtime runner is not a readable local file",
+            "sandboxed script runtime does not permit a persistent script store",
         ));
     }
+    let script_runner_path = canonical_local_script_runtime_file(script_runner_path)?;
 
     let mut script_assets = BTreeMap::new();
     for script_map in script_maps {
@@ -2251,9 +2252,11 @@ fn build_native_node_script_executor(
         let local_path = local_path.trim();
         if !(script_url.starts_with("https://") || script_url.starts_with("http://"))
             || local_path.is_empty()
-            || !std::path::Path::new(local_path).is_file()
             || script_assets
-                .insert(script_url.to_string(), local_path.to_string())
+                .insert(
+                    script_url.to_string(),
+                    canonical_local_script_runtime_file(local_path)?,
+                )
                 .is_some()
         {
             return Err(DomainError::new(
@@ -2266,13 +2269,45 @@ fn build_native_node_script_executor(
     Ok(Some(engine_native::NativeNodeScriptExecutor::new(
         engine_native::NativeNodeScriptRuntimeConfig {
             node_binary: node_binary.unwrap_or("node").to_string(),
-            runner_path: script_runner_path.to_string(),
+            runner_path: script_runner_path,
             script_assets,
-            persistent_store_path: script_store_path.map(ToString::to_string),
+            persistent_store_path: None,
+            sandbox: engine_native::NativeNodeScriptSandbox::LinuxNoNetwork,
             max_timeout_ms: 30_000,
             max_body_bytes: 64 * 1024,
         },
     )))
+}
+
+fn canonical_local_script_runtime_file(path: &str) -> DomainResult<String> {
+    let path = std::path::Path::new(path);
+    let metadata = std::fs::symlink_metadata(path).map_err(|_| {
+        DomainError::new(
+            CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE,
+            "configured script runtime path is not a readable local regular file",
+        )
+    })?;
+    if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+        return Err(DomainError::new(
+            CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE,
+            "configured script runtime path must be a local regular file without symbolic links",
+        ));
+    }
+    std::fs::canonicalize(path)
+        .map_err(|_| {
+            DomainError::new(
+                CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE,
+                "configured script runtime path could not be resolved",
+            )
+        })?
+        .into_os_string()
+        .into_string()
+        .map_err(|_| {
+            DomainError::new(
+                CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE,
+                "configured script runtime path must be valid UTF-8",
+            )
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17101,10 +17136,10 @@ pub const fn cli_help_text() -> &'static str {
         "  --enable-https-mitm   Explicitly enable the controlled HTTPS MITM engine path for start; requires --confirm and both CA paths.\n",
         "  --mitm-ca-cert <path> CA certificate PEM path for explicitly enabled HTTPS MITM start.\n",
         "  --mitm-ca-key <path>  CA private key PEM path for explicitly enabled HTTPS MITM start.\n",
-        "  --enable-script-runtime Explicitly enable mapped local Node script execution for start; requires --confirm, runner, and maps.\n",
-        "  --script-runner <path> Local Node contract runner path for explicitly enabled script execution.\n",
-        "  --script-map <url=file> Explicit remote script URL to local asset mapping; repeat for each permitted script.\n",
-        "  --script-store <path> Optional JSON persistent-store path for mapped scripts.\n",
+        "  --enable-script-runtime Explicitly enable mapped local Node execution in a no-network sandbox; requires --confirm, runner, and maps.\n",
+        "  --script-runner <path> Local regular Node contract runner path for sandboxed script execution.\n",
+        "  --script-map <url=file> Explicit remote script URL to a local regular asset; repeat for each permitted script.\n",
+        "  --script-store <path> Rejected: sandboxed script execution has no persistent-store permission.\n",
         "  --node-binary <path> Node executable path or command. Defaults to node.\n",
         "  --managed-status <path> Explicit managed foreground status record path for lifecycle recording.\n",
         "  --managed-snapshot <path> Explicit initial managed foreground status snapshot path.\n",

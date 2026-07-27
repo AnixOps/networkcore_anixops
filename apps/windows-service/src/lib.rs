@@ -12,7 +12,8 @@ use engine_mieru::{
 };
 use engine_native::{
     NativeHttpMitmPluginHook, NativeNodeScriptExecutor, NativeNodeScriptRuntimeConfig,
-    NativeProxyEngineService, NativeTlsMitmCaMaterial, DEFAULT_NATIVE_ENGINE_ID,
+    NativeNodeScriptSandbox, NativeProxyEngineService, NativeTlsMitmCaMaterial,
+    DEFAULT_NATIVE_ENGINE_ID,
 };
 use engine_singbox::{
     inspect_sing_box_local_selector_snapshot, read_sing_box_clash_api_selector_with_timeout,
@@ -741,6 +742,12 @@ where
 fn build_native_mitm_service(
     config: &WindowsManagedNativeMitmConfig,
 ) -> DomainResult<NativeProxyEngineService> {
+    #[cfg(windows)]
+    if config.script_runtime.is_some() {
+        return Err(runtime_error(
+            "native MITM script runtime is unavailable until a Windows no-network sandbox is implemented",
+        ));
+    }
     let certificate_pem = fs::read_to_string(&config.ca_certificate_path)
         .map_err(|_| runtime_error("native MITM CA certificate material could not be read"))?;
     let private_key_pem = fs::read_to_string(&config.ca_private_key_path)
@@ -798,6 +805,13 @@ fn validate_native_mitm_private_key(_path: &Path) -> DomainResult<()> {
 fn build_native_node_script_executor(
     config: &WindowsManagedNativeMitmScriptRuntimeConfig,
 ) -> DomainResult<NativeNodeScriptExecutor> {
+    #[cfg(windows)]
+    {
+        let _ = config;
+        return Err(runtime_error(
+            "native MITM script runtime is unavailable until a Windows no-network sandbox is implemented",
+        ));
+    }
     if !config.policy_source_path.is_file()
         || !config.runner_path.is_file()
         || config.script_maps.values().any(|path| !path.is_file())
@@ -820,6 +834,7 @@ fn build_native_node_script_executor(
                 .persistent_store_path
                 .as_ref()
                 .map(|path| path.display().to_string()),
+            sandbox: NativeNodeScriptSandbox::Unrestricted,
             max_timeout_ms: 30_000,
             max_body_bytes: 64 * 1024,
         },

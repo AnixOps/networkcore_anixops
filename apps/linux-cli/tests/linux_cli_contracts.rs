@@ -2829,6 +2829,29 @@ fn native_engine_factory_requires_explicit_script_runtime_authorization_and_conf
     .expect("explicit local script mapping should configure the native engine");
     assert!(configured.http_mitm_hook_enabled());
     assert!(configured.http_mitm_script_executor_enabled());
+    assert_eq!(
+        configured.http_mitm_script_sandbox(),
+        Some(engine_native::NativeNodeScriptSandbox::LinuxNoNetwork)
+    );
+
+    let rejected_store = native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
+        LinuxNativeMitmRuntimeFileConfig {
+            certificate_path: None,
+            private_key_path: None,
+            enable_https_mitm: false,
+            enable_script_runtime: true,
+            script_runner_path: Some("/tmp/networkcore-script-runner.js"),
+            node_binary: None,
+            script_maps: &["https://scripts.networkcore.test/a.js=/tmp/a.js".to_string()],
+            script_store_path: Some("/tmp/networkcore-script-store.json"),
+            confirm: true,
+        },
+    )
+    .expect_err("sandboxed script runtime must reject a persistent store");
+    assert_eq!(
+        rejected_store.code,
+        CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE
+    );
 }
 
 #[test]

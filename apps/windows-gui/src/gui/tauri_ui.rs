@@ -30,8 +30,8 @@ use platform_windows::managed::{
     windows_managed_log_directory, windows_managed_state_path, write_managed_config,
     write_managed_state, write_managed_text_atomic, WindowsManagedConfig,
     WindowsManagedMieruConfig, WindowsManagedNativeMitmConfig,
-    WindowsManagedNativeMitmScriptRuntimeConfig, WindowsManagedSingBoxConfig,
-    WindowsManagedTunnelConfig, WindowsProxySettings, WindowsSystemProxyOwner,
+    WindowsManagedSingBoxConfig, WindowsManagedTunnelConfig, WindowsProxySettings,
+    WindowsSystemProxyOwner,
 };
 use platform_windows::mitm_security::{
     protect_windows_managed_mitm_private_key, remove_windows_managed_mitm_private_key,
@@ -1853,29 +1853,11 @@ async fn configure_script_runtime(script_runtime_json: String) -> Result<Operati
 fn configure_script_runtime_blocking(
     script_runtime_json: String,
 ) -> Result<OperationResult, String> {
-    let script_runtime: WindowsManagedNativeMitmScriptRuntimeConfig =
-        serde_json::from_str(&script_runtime_json).map_err(|error| error.to_string())?;
-    let service = NativeWindowsSystemIntegration::new()
-        .service_status()
-        .map_err(|error| error.to_string())?;
-    if !matches!(
-        service.state,
-        WindowsServiceState::NotInstalled | WindowsServiceState::Stopped
-    ) {
-        return Err("Disconnect before changing the managed script runtime.".to_string());
-    }
-    let mut managed = managed_config_or_default()?;
-    let native_mitm = managed
-        .native_mitm
-        .as_mut()
-        .ok_or_else(|| "Enable HTTPS MITM before configuring script dispatch.".to_string())?;
-    native_mitm.script_runtime = Some(script_runtime);
-    write_managed_config(&windows_managed_config_path(), &managed)
-        .map_err(|error| error.to_string())?;
-    Ok(OperationResult {
-        message: "Managed script runtime saved. Restart the Windows service to apply it."
+    let _ = script_runtime_json;
+    Err(
+        "Native MITM script execution is unavailable until Windows has a no-network sandbox."
             .to_string(),
-    })
+    )
 }
 
 #[tauri::command]
