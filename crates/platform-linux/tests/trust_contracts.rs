@@ -6,7 +6,7 @@ use platform_linux::trust::{
 };
 use std::cell::RefCell;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static FIXTURE_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
@@ -42,7 +42,7 @@ impl LinuxTrustRefreshRunner for RecordingRefreshRunner {
     }
 }
 
-fn write_certificate(root: &PathBuf) -> PathBuf {
+fn write_certificate(root: &Path) -> PathBuf {
     let path = root.join("networkcore-ca.crt");
     fs::write(
         &path,

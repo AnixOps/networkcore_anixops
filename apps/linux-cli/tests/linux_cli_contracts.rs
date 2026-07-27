@@ -2893,7 +2893,7 @@ fn native_engine_factory_requires_explicit_script_runtime_authorization_and_conf
     )
     .expect_err("sandboxed script runtime must reject a persistent store");
     assert_eq!(
-        rejected_store.diagnostic().code,
+        rejected_store.code,
         CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE
     );
 }
