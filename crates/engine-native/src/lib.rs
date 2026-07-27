@@ -1072,6 +1072,7 @@ impl NativeNodeScriptExecutor {
                         .arg("--map-root-user")
                         .arg("--net")
                         .arg("--mount-proc")
+                        .arg("--kill-child")
                         .arg("--")
                         .arg(&self.config.node_binary)
                         .arg("--experimental-permission")
@@ -7594,6 +7595,7 @@ mod script_runtime_security_tests {
 
         assert_eq!(command.get_program().to_string_lossy(), "unshare");
         assert!(arguments.iter().any(|argument| argument == "--net"));
+        assert!(arguments.iter().any(|argument| argument == "--kill-child"));
         assert!(arguments
             .iter()
             .any(|argument| argument == "--experimental-permission"));

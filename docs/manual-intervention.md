@@ -156,7 +156,8 @@ subscription URLs, or full traffic contents:
    SHA-256 and one successful bounded dispatch. Confirm the runner can read only
    its mapped local asset and staged body, is capped at 64 MiB V8 old-space,
    cannot write a file, spawn a child process, load an addon, or reach a network
-   endpoint; preserve the failed operation evidence. Replace the asset while the runtime remains active,
+   endpoint. Trigger a timeout and preserve evidence that its sandboxed Node
+   child also exits. Replace the asset while the runtime remains active,
    repeat the matching request, and record the deferred fail-open result with no
    Node execution.
 
