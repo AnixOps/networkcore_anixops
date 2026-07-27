@@ -157,7 +157,8 @@ subscription URLs, or full traffic contents:
    its mapped local asset and staged body, is capped at 64 MiB V8 old-space,
    cannot write a file, spawn a child process, load an addon, or reach a network
    endpoint. Trigger a timeout and preserve evidence that its sandboxed Node
-   child also exits. Replace the asset while the runtime remains active,
+   child also exits and the fail-open result is reported as `script_dispatch_failed`,
+   not deferred. Replace the asset while the runtime remains active,
    repeat the matching request, and record the deferred fail-open result with no
    Node execution.
 
