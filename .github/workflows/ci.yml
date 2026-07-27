@@ -815,7 +815,7 @@ jobs:
           grep -q 'read_chunked_http_body' crates/engine-native/src/lib.rs
           grep -q 'CONTROLLED_TLS_MAX_HTTP_EXCHANGES' crates/engine-native/src/lib.rs
           grep -q 'http_message_requests_close' crates/engine-native/src/lib.rs
-          grep -q 'controlled_tls_connect_exchange_decrypts_forwards_and_executes_scripts_over_live_sockets' crates/engine-native/src/lib.rs
+          grep -q 'controlled_tls_connect_session_bounds_persistent_exchanges_over_live_sockets' crates/engine-native/src/lib.rs
           grep -q 'ManagedForegroundLifecycleRecorder' apps/linux-cli/src/lib.rs
           grep -q -- '--managed-status' apps/linux-cli/src/lib.rs
           grep -q 'managed_start_records_running_status_and_lifecycle_events' apps/linux-cli/tests/linux_cli_contracts.rs
@@ -1891,7 +1891,7 @@ jobs:
           grep -q "plain_http_rewrite_application_applies_header_body_and_defers_script_dispatch" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "node_script_executor_runs_explicit_local_asset_with_persistent_store" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "native_http_mitm_hook_applies_locally_mapped_script_dispatch" crates/engine-native/tests/engine_native_contracts.rs
-          grep -q "controlled_tls_connect_exchange_decrypts_forwards_and_executes_scripts_over_live_sockets" crates/engine-native/src/lib.rs
+          grep -q "controlled_tls_connect_session_bounds_persistent_exchanges_over_live_sockets" crates/engine-native/src/lib.rs
           grep -q "plain_http_rewrite_plan_applies_plugin_reject_to_terminal_response" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "runtime_accept_loop_contract_applies_plain_http_reject_for_http_listener" crates/engine-native/tests/engine_native_contracts.rs
           grep -q "http_accept_loop_processes_a_second_connection_while_the_first_is_stalled" crates/engine-native/tests/engine_native_contracts.rs
