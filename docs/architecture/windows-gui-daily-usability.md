@@ -66,6 +66,12 @@ and submits command parameters; it does not own a second runtime state model.
 6. The current interactive user's WinINet proxy exactly matches the enabled
    managed server and bypass settings.
 
+For an enabled Mieru plan, the Service's official `status` readback and exact
+configured SOCKS5 listener replace the sing-box PID and selector evidence. The
+GUI still requires SCM and exact current-user proxy evidence; it does not
+invent a Mieru PID or require a selector API that the selected engine does not
+provide.
+
 The managed JSON is never sufficient by itself. Configuration JSON errors map
 to `Configuration error`; a failed transition or an exited PID maps to `Core
 error`; SCM pending states map to `Connecting` or `Disconnecting`.

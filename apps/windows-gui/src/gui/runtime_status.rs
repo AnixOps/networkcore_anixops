@@ -14,11 +14,14 @@ use windows_sys::Win32::System::Threading::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SingBoxProcessStatus {
+pub enum ManagedCoreStatus {
     NotConfigured,
     Starting,
     Running {
         process_id: u32,
+    },
+    MieruRunning {
+        endpoint: String,
     },
     Exited {
         process_id: u32,
@@ -30,12 +33,13 @@ pub enum SingBoxProcessStatus {
     },
 }
 
-impl SingBoxProcessStatus {
+impl ManagedCoreStatus {
     pub fn label(&self) -> String {
         match self {
             Self::NotConfigured => "Not configured".to_string(),
             Self::Starting => "Starting".to_string(),
             Self::Running { process_id } => format!("Running (PID {process_id})"),
+            Self::MieruRunning { endpoint } => format!("Mieru running ({endpoint})"),
             Self::Exited {
                 process_id,
                 exit_code,
@@ -49,9 +53,9 @@ impl SingBoxProcessStatus {
         }
     }
 
-    fn process_is_running(&self) -> Option<bool> {
+    pub fn liveness_confirmed(&self) -> Option<bool> {
         match self {
-            Self::Running { .. } => Some(true),
+            Self::Running { .. } | Self::MieruRunning { .. } => Some(true),
             Self::Exited { .. } => Some(false),
             Self::Unavailable { .. } | Self::NotConfigured | Self::Starting => None,
         }
@@ -64,7 +68,7 @@ pub struct WindowsRuntimeStatus {
     pub service_state: WindowsServiceState,
     pub service_process_id: u32,
     pub service_detail: Option<String>,
-    pub sing_box: SingBoxProcessStatus,
+    pub core: ManagedCoreStatus,
     pub system_proxy_enabled: Option<bool>,
     pub system_proxy_server: Option<String>,
     pub system_proxy_matches_managed: Option<bool>,
@@ -99,14 +103,14 @@ impl WindowsRuntimeStatus {
             .or(self.last_error.as_deref())
             .map(|error| format!("; issue: {}", error.trim().replace(['\r', '\n'], " ")))
             .unwrap_or_default();
-        format!("{service}; core: {}; {proxy}{issue}", self.sing_box.label())
+        format!("{service}; core: {}; {proxy}{issue}", self.core.label())
     }
 }
 
 /// Reads each available runtime authority independently. A persisted state file
 /// helps explain failures, but it never alone establishes a connected state:
-/// SCM, the owned sing-box PID, and current-user proxy settings are observed as
-/// separate facts.
+/// SCM, the selected core's liveness evidence, and current-user proxy settings
+/// are observed as separate facts.
 pub fn read_runtime_status() -> WindowsRuntimeStatus {
     read_runtime_status_at(
         &windows_managed_config_path(),
@@ -130,6 +134,17 @@ where
         .ok()
         .and_then(|config| config.sing_box.as_ref())
         .is_some_and(|sing_box| sing_box.enabled);
+    let mieru_configured = config
+        .as_ref()
+        .ok()
+        .and_then(|config| config.mieru.as_ref())
+        .is_some_and(|mieru| mieru.enabled);
+    let mieru_expected_listener = config
+        .as_ref()
+        .ok()
+        .and_then(|config| config.mieru.as_ref())
+        .filter(|mieru| mieru.enabled)
+        .map(|mieru| format!("{}:{}", mieru.socks5_host, mieru.socks5_port));
     let managed_proxy = config
         .as_ref()
         .ok()
@@ -142,29 +157,39 @@ where
     };
 
     let runtime = read_managed_state(state_path).ok();
-    let sing_box = match runtime.as_ref() {
-        Some(state) if state.sing_box_running => match state.sing_box_process_id {
-            Some(process_id) => match probe_process(process_id) {
-                Ok(ProcessProbe::Running) => SingBoxProcessStatus::Running { process_id },
-                Ok(ProcessProbe::Exited(exit_code)) => SingBoxProcessStatus::Exited {
-                    process_id,
-                    exit_code: Some(exit_code),
+    let core = match runtime.as_ref() {
+        Some(state) if sing_box_configured && state.sing_box_running => {
+            match state.sing_box_process_id {
+                Some(process_id) => match probe_process(process_id) {
+                    Ok(ProcessProbe::Running) => ManagedCoreStatus::Running { process_id },
+                    Ok(ProcessProbe::Exited(exit_code)) => ManagedCoreStatus::Exited {
+                        process_id,
+                        exit_code: Some(exit_code),
+                    },
+                    Err(reason) => ManagedCoreStatus::Unavailable {
+                        process_id: Some(process_id),
+                        reason,
+                    },
                 },
-                Err(reason) => SingBoxProcessStatus::Unavailable {
-                    process_id: Some(process_id),
-                    reason,
+                None => ManagedCoreStatus::Unavailable {
+                    process_id: None,
+                    reason: "managed state did not record a core process ID".to_string(),
                 },
-            },
-            None => SingBoxProcessStatus::Unavailable {
-                process_id: None,
-                reason: "managed state did not record a core process ID".to_string(),
-            },
+            }
         },
+        Some(state) if mieru_configured && state.mieru_running => {
+            ManagedCoreStatus::MieruRunning {
+                endpoint: state.mieru_listener.clone().unwrap_or_default(),
+            }
+        }
         Some(state) if sing_box_configured => match state.last_transition.as_str() {
-            "starting" => SingBoxProcessStatus::Starting,
+            "starting" => ManagedCoreStatus::Starting,
             _ => recorded_core_exit(state.sing_box_process_id, state.sing_box_exit_code),
         },
-        _ => SingBoxProcessStatus::NotConfigured,
+        Some(state) if mieru_configured && state.last_transition == "starting" => {
+            ManagedCoreStatus::Starting
+        }
+        _ => ManagedCoreStatus::NotConfigured,
     };
 
     let proxy = read_current_user_system_proxy();
@@ -177,20 +202,33 @@ where
     });
     let facts = RuntimeFacts {
         service_state,
-        sing_box_configured,
-        sing_box_configuration_validated: runtime
-            .as_ref()
-            .is_some_and(|state| state.sing_box_config_validated),
-        sing_box_listener_reachable: runtime
-            .as_ref()
-            .is_some_and(|state| state.sing_box_listener_reachable),
-        sing_box_control_api_readable: runtime
-            .as_ref()
-            .is_some_and(|state| state.sing_box_control_api_readable),
-        sing_box_state_recorded_running: runtime
-            .as_ref()
-            .is_some_and(|state| state.sing_box_running),
-        sing_box_process_running: sing_box.process_is_running(),
+        core_configured: sing_box_configured || mieru_configured,
+        core_configuration_validated: runtime.as_ref().is_some_and(|state| {
+            if sing_box_configured {
+                state.sing_box_config_validated
+            } else {
+                mieru_configured && state.mieru_running
+            }
+        }),
+        core_listener_reachable: runtime.as_ref().is_some_and(|state| {
+            if sing_box_configured {
+                state.sing_box_listener_reachable
+            } else {
+                mieru_expected_listener.as_deref() == state.mieru_listener.as_deref()
+            }
+        }),
+        core_control_api_readable: !sing_box_configured
+            || runtime
+                .as_ref()
+                .is_some_and(|state| state.sing_box_control_api_readable),
+        core_state_recorded_running: runtime.as_ref().is_some_and(|state| {
+            if sing_box_configured {
+                state.sing_box_running
+            } else {
+                mieru_configured && state.mieru_running
+            }
+        }),
+        core_liveness_confirmed: core.liveness_confirmed(),
         system_proxy_matches_managed: system_proxy_matches_managed == Some(true),
         last_transition: runtime.as_ref().map(|state| state.last_transition.clone()),
         last_error: runtime.as_ref().and_then(|state| state.last_error.clone()),
@@ -202,7 +240,7 @@ where
         service_state,
         service_process_id,
         service_detail,
-        sing_box,
+        core,
         system_proxy_enabled: proxy.as_ref().ok().map(|value| value.enabled),
         system_proxy_server: proxy.ok().map(|value| value.server),
         system_proxy_matches_managed,
@@ -212,13 +250,13 @@ where
     }
 }
 
-fn recorded_core_exit(process_id: Option<u32>, exit_code: Option<i32>) -> SingBoxProcessStatus {
+fn recorded_core_exit(process_id: Option<u32>, exit_code: Option<i32>) -> ManagedCoreStatus {
     match process_id {
-        Some(process_id) => SingBoxProcessStatus::Exited {
+        Some(process_id) => ManagedCoreStatus::Exited {
             process_id,
             exit_code,
         },
-        None => SingBoxProcessStatus::Unavailable {
+        None => ManagedCoreStatus::Unavailable {
             process_id: None,
             reason: "managed state recorded a core exit without a process ID".to_string(),
         },
@@ -262,11 +300,21 @@ mod tests {
     fn recorded_core_exit_without_pid_is_unavailable_not_pid_zero() {
         assert!(matches!(
             recorded_core_exit(None, Some(1)),
-            SingBoxProcessStatus::Unavailable {
+            ManagedCoreStatus::Unavailable {
                 process_id: None,
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn mieru_liveness_uses_service_verified_listener_status() {
+        let status = ManagedCoreStatus::MieruRunning {
+            endpoint: "127.0.0.1:1080".to_string(),
+        };
+
+        assert_eq!(status.liveness_confirmed(), Some(true));
+        assert_eq!(status.label(), "Mieru running (127.0.0.1:1080)");
     }
 
     #[test]
@@ -276,7 +324,7 @@ mod tests {
             service_state: WindowsServiceState::Running,
             service_process_id: 42,
             service_detail: None,
-            sing_box: SingBoxProcessStatus::Exited {
+            core: ManagedCoreStatus::Exited {
                 process_id: 7,
                 exit_code: Some(1),
             },

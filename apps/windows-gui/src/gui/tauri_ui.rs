@@ -1,5 +1,5 @@
 use super::actions::{connection, nodes};
-use super::runtime_status::{read_runtime_status, SingBoxProcessStatus, WindowsRuntimeStatus};
+use super::runtime_status::{read_runtime_status, ManagedCoreStatus, WindowsRuntimeStatus};
 use super::startup::{
     load_desktop_state, owns_current_proxy, save_desktop_state, DesktopProfileNode, DesktopState,
     DesktopSubscriptionSource,
@@ -2463,7 +2463,7 @@ fn snapshot(runtime: &WindowsRuntimeStatus, desktop: &DesktopState) -> RuntimeSn
                 "neutral"
             },
         },
-        core: core_status(&runtime.sing_box),
+        core: core_status(&runtime.core),
         proxy: StatusFact {
             label: runtime
                 .system_proxy_enabled
@@ -2523,17 +2523,19 @@ fn managed_script_runtime_configured() -> bool {
         .is_some()
 }
 
-fn core_status(status: &SingBoxProcessStatus) -> StatusFact {
+fn core_status(status: &ManagedCoreStatus) -> StatusFact {
     StatusFact {
         label: status.label(),
         detail: None,
         tone: match status {
-            SingBoxProcessStatus::Running { .. } => "success",
-            SingBoxProcessStatus::Exited { .. } | SingBoxProcessStatus::Unavailable { .. } => {
+            ManagedCoreStatus::Running { .. } | ManagedCoreStatus::MieruRunning { .. } => {
+                "success"
+            }
+            ManagedCoreStatus::Exited { .. } | ManagedCoreStatus::Unavailable { .. } => {
                 "danger"
             }
-            SingBoxProcessStatus::Starting => "warning",
-            SingBoxProcessStatus::NotConfigured => "neutral",
+            ManagedCoreStatus::Starting => "warning",
+            ManagedCoreStatus::NotConfigured => "neutral",
         },
     }
 }

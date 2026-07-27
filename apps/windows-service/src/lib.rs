@@ -410,20 +410,25 @@ where
 
         if let Some(mieru) = &config.mieru {
             if mieru.enabled && !state.mieru_running {
-                let report = apply_and_start_mieru_client(
-                    &self.mieru,
-                    &MieruClientControlRequest {
-                        executable_path: mieru.executable_path.clone(),
-                        expected_sha256: mieru.expected_sha256.clone(),
-                        config_path: mieru.config_path.clone(),
-                    },
-                )?;
+                let request = MieruClientControlRequest {
+                    executable_path: mieru.executable_path.clone(),
+                    expected_sha256: mieru.expected_sha256.clone(),
+                    config_path: mieru.config_path.clone(),
+                };
+                let report = apply_and_start_mieru_client(&self.mieru, &request)?;
+                // Mark the spawned core before the next health authority so a
+                // failed readback enters rollback with an explicit stop target.
+                state.mieru_running = report.started;
+                state.mieru_listener = None;
+                self.persist(state)?;
+                // Confirm Mieru's own control-plane status before a later
+                // listener check permits the managed proxy to be applied.
+                status_mieru_client(&self.mieru, &request)?;
                 let listener = wait_for_mieru_listener(
                     &mieru.socks5_host,
                     mieru.socks5_port,
                     std::time::Duration::from_secs(5),
                 )?;
-                state.mieru_running = report.started;
                 state.mieru_listener = Some(listener.endpoint);
                 state.mieru_last_error = None;
                 self.persist(state)?;

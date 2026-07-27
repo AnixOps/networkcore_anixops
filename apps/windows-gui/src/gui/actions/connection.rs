@@ -1,6 +1,6 @@
 use crate::gui::{
     load_validated_managed_configuration,
-    runtime_status::{read_runtime_status, SingBoxProcessStatus},
+    runtime_status::{read_runtime_status, ManagedCoreStatus},
     startup::{owns_current_proxy, save_desktop_state, DesktopState},
     ui_state::ConnectionState,
 };
@@ -66,7 +66,7 @@ pub const fn should_restart_gui_started_core(
 pub fn should_restore_abandoned_owned_proxy(
     has_proxy_snapshot: bool,
     service_state: WindowsServiceState,
-    sing_box: &SingBoxProcessStatus,
+    core: &ManagedCoreStatus,
     already_attempted: bool,
 ) -> bool {
     has_proxy_snapshot
@@ -76,10 +76,10 @@ pub fn should_restore_abandoned_owned_proxy(
             WindowsServiceState::NotInstalled | WindowsServiceState::Stopped
         )
         && matches!(
-            sing_box,
-            SingBoxProcessStatus::NotConfigured
-                | SingBoxProcessStatus::Exited { .. }
-                | SingBoxProcessStatus::Unavailable {
+            core,
+            ManagedCoreStatus::NotConfigured
+                | ManagedCoreStatus::Exited { .. }
+                | ManagedCoreStatus::Unavailable {
                     process_id: None,
                     ..
                 }
@@ -171,10 +171,7 @@ fn start_desktop_connection(
     loop {
         let runtime = read_runtime_status();
         if runtime.service_state == WindowsServiceState::Running
-            && matches!(
-                &runtime.sing_box,
-                crate::gui::runtime_status::SingBoxProcessStatus::Running { .. }
-            )
+            && runtime.core.liveness_confirmed() == Some(true)
         {
             let listener_ready = managed_proxy_listener_ready(&proxy, Duration::from_millis(500))
                 .map_err(|error| {
@@ -373,7 +370,7 @@ mod tests {
         assert!(should_restore_abandoned_owned_proxy(
             true,
             WindowsServiceState::Stopped,
-            &SingBoxProcessStatus::Exited {
+            &ManagedCoreStatus::Exited {
                 process_id: 42,
                 exit_code: Some(1),
             },
@@ -382,7 +379,7 @@ mod tests {
         assert!(!should_restore_abandoned_owned_proxy(
             true,
             WindowsServiceState::Stopped,
-            &SingBoxProcessStatus::Exited {
+            &ManagedCoreStatus::Exited {
                 process_id: 42,
                 exit_code: Some(1),
             },
@@ -391,7 +388,7 @@ mod tests {
         assert!(!should_restore_abandoned_owned_proxy(
             true,
             WindowsServiceState::Running,
-            &SingBoxProcessStatus::Running { process_id: 42 },
+            &ManagedCoreStatus::Running { process_id: 42 },
             false,
         ));
     }

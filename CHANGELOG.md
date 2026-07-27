@@ -43,6 +43,11 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
   the prior sing-box JSON if that commit fails. The platform-level double-core
   rejection remains the boundary for externally supplied configuration.
 
+- Windows GUI runtime status now evaluates the selected core. Mieru reaches
+  `Connected` only from Service-verified official status plus its exact SOCKS5
+  listener and the existing SCM/current-user proxy evidence; it neither
+  fabricates a PID nor requires sing-box's selector API.
+
 - 完成 Windows 单 HTTP(S) subscription refresh 状态闭环：GUI 显式启用 hourly refresh 后，持久记录脱敏
   `last_attempt`、`last_success`、`next_attempt`、`result`、节点新增/删除/变化数量与稳定 `error_code`，并在
   Subscriptions 页展示当前状态。手动导入、选择 source 和后台触发共享排他 operation guard；失败保留既有

@@ -96,12 +96,12 @@ pub const fn can_start_operation(active: Option<OperationKind>) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeFacts {
     pub service_state: WindowsServiceState,
-    pub sing_box_configured: bool,
-    pub sing_box_configuration_validated: bool,
-    pub sing_box_listener_reachable: bool,
-    pub sing_box_control_api_readable: bool,
-    pub sing_box_state_recorded_running: bool,
-    pub sing_box_process_running: Option<bool>,
+    pub core_configured: bool,
+    pub core_configuration_validated: bool,
+    pub core_listener_reachable: bool,
+    pub core_control_api_readable: bool,
+    pub core_state_recorded_running: bool,
+    pub core_liveness_confirmed: Option<bool>,
     pub system_proxy_matches_managed: bool,
     pub last_transition: Option<String>,
     pub last_error: Option<String>,
@@ -128,22 +128,22 @@ pub fn connection_state(facts: &RuntimeFacts) -> ConnectionState {
     if facts.service_state != WindowsServiceState::Running {
         return ConnectionState::Disconnected;
     }
-    if !facts.sing_box_configured {
+    if !facts.core_configured {
         return ConnectionState::ConfigurationError;
     }
-    if !facts.sing_box_configuration_validated {
+    if !facts.core_configuration_validated {
         return ConnectionState::ConfigurationError;
     }
-    if !facts.sing_box_listener_reachable {
+    if !facts.core_listener_reachable {
         return ConnectionState::ConnectionFailed;
     }
-    if !facts.sing_box_control_api_readable {
+    if !facts.core_control_api_readable {
         return ConnectionState::ConnectionFailed;
     }
-    if !facts.sing_box_state_recorded_running {
+    if !facts.core_state_recorded_running {
         return ConnectionState::Connecting;
     }
-    match facts.sing_box_process_running {
+    match facts.core_liveness_confirmed {
         Some(true) if facts.system_proxy_matches_managed => ConnectionState::Connected,
         Some(true) => ConnectionState::ConnectionFailed,
         Some(false) => ConnectionState::CoreError,
@@ -189,12 +189,12 @@ mod tests {
     fn facts() -> RuntimeFacts {
         RuntimeFacts {
             service_state: WindowsServiceState::Running,
-            sing_box_configured: true,
-            sing_box_configuration_validated: true,
-            sing_box_listener_reachable: true,
-            sing_box_control_api_readable: true,
-            sing_box_state_recorded_running: true,
-            sing_box_process_running: Some(true),
+            core_configured: true,
+            core_configuration_validated: true,
+            core_listener_reachable: true,
+            core_control_api_readable: true,
+            core_state_recorded_running: true,
+            core_liveness_confirmed: Some(true),
             system_proxy_matches_managed: true,
             last_transition: Some("running".to_string()),
             last_error: None,
@@ -203,27 +203,27 @@ mod tests {
     }
 
     #[test]
-    fn connected_requires_scm_core_process_and_current_proxy() {
+    fn connected_requires_scm_core_liveness_and_current_proxy() {
         let mut value = facts();
         assert_eq!(connection_state(&value), ConnectionState::Connected);
 
-        value.sing_box_process_running = Some(false);
+        value.core_liveness_confirmed = Some(false);
         assert_eq!(connection_state(&value), ConnectionState::CoreError);
 
-        value.sing_box_process_running = Some(true);
+        value.core_liveness_confirmed = Some(true);
         value.system_proxy_matches_managed = false;
         assert_eq!(connection_state(&value), ConnectionState::ConnectionFailed);
 
         value.system_proxy_matches_managed = true;
-        value.sing_box_configuration_validated = false;
+        value.core_configuration_validated = false;
         assert_eq!(connection_state(&value), ConnectionState::ConfigurationError);
 
-        value.sing_box_configuration_validated = true;
-        value.sing_box_listener_reachable = false;
+        value.core_configuration_validated = true;
+        value.core_listener_reachable = false;
         assert_eq!(connection_state(&value), ConnectionState::ConnectionFailed);
 
-        value.sing_box_listener_reachable = true;
-        value.sing_box_control_api_readable = false;
+        value.core_listener_reachable = true;
+        value.core_control_api_readable = false;
         assert_eq!(connection_state(&value), ConnectionState::ConnectionFailed);
     }
 

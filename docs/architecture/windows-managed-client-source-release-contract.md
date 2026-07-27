@@ -99,6 +99,12 @@ committed after staging sing-box JSON, the importer restores the exact prior
 JSON (or removes the newly staged file); the platform config validator rejects
 any externally supplied double-enabled plan.
 
+Windows runtime status is selected-core aware. A sing-box plan requires its
+independently probed PID and generated-selector readback; a Mieru plan requires
+the Service's official status verification and exact configured SOCKS5 listener
+readback. Neither plan can report `Connected` from managed state alone, and
+Mieru does not fabricate a PID or selector API requirement.
+
 The Service assigns each managed sing-box child to a private Windows Job Object
 with kill-on-close semantics. If the Service process exits unexpectedly, Windows
 closes that handle and terminates the owned core; normal stop still performs the

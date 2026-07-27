@@ -1303,7 +1303,7 @@ mod gui {
             && connection_actions::should_restore_abandoned_owned_proxy(
                 state.desktop.proxy_snapshot.is_some(),
                 runtime.service_state,
-                &runtime.sing_box,
+                &runtime.core,
                 state.abandoned_proxy_recovery_attempted,
             )
         {
@@ -1351,7 +1351,7 @@ mod gui {
             home_page::connection_summary(runtime.connection),
         );
         set_text(shell.home_service, &service);
-        set_text(shell.home_core, &runtime.sing_box.label());
+        set_text(shell.home_core, &runtime.core.label());
         let proxy = home_page::proxy_summary(
             runtime.system_proxy_enabled,
             runtime.system_proxy_server.as_deref(),
