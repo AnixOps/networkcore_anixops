@@ -59,7 +59,7 @@ jobs:
           grep -q "GitHub Actions" AGENT.md
           grep -q "Release Strategy" docs/release-strategy.md
 
-          version_pattern='^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$'
+          version_pattern='^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[1-9][0-9]*)?$'
           if [[ ! "${RELEASE_VERSION}" =~ ${version_pattern} ]]; then
             echo "::error::Release version must match vMAJOR.MINOR.PATCH, vMAJOR.MINOR.PATCH-alpha.N, vMAJOR.MINOR.PATCH-beta.N, or vMAJOR.MINOR.PATCH-rc.N."
             exit 1
@@ -70,7 +70,7 @@ jobs:
             release_kind=prerelease
           fi
 
-          if [[ "${RELEASE_VERSION}" =~ -(alpha|beta|rc)\.([0-9]+)$ ]]; then
+          if [[ "${RELEASE_VERSION}" =~ -(alpha|beta|rc)\.([1-9][0-9]*)$ ]]; then
             release_channel="${BASH_REMATCH[1]}"
             release_sequence=$((10#${BASH_REMATCH[2]}))
             case "${release_channel}" in
@@ -972,7 +972,7 @@ jobs:
 
           $version = $env:VERSION
           $target = $env:TARGET
-          if ($version -notmatch '^v([0-9]+)\.([0-9]+)\.([0-9]+)(?:-(alpha|beta|rc)\.([0-9]+))?$') {
+          if ($version -notmatch '^v([0-9]+)\.([0-9]+)\.([0-9]+)(?:-(alpha|beta|rc)\.([1-9][0-9]*))?$') {
             throw "Windows MSI version source is invalid: $version"
           }
           $major = [int]$Matches[1]
