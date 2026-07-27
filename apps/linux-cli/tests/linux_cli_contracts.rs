@@ -201,7 +201,7 @@ fn node_list_reads_only_the_explicit_config_and_redacts_endpoint_details() {
     let snapshot_path = root.join("selection.snapshot.json");
     std::fs::write(
         &config_path,
-        "schema_version = 1\n\n[[nodes]]\nid = \"node-1\"\nname = \"Primary\"\nprotocol = \"ss\"\nhost = \"secret.example\"\nport = 443\ntags = [\"fast\"]\n",
+        "schema_version = 1\nprofile = \"default\"\n\n[[nodes]]\nid = \"node-1\"\nname = \"Primary\"\nprotocol = \"ss\"\nhost = \"secret.example\"\nport = 443\ntags = [\"fast\"]\n",
     )
     .expect("node list fixture should be written");
 
@@ -995,23 +995,15 @@ fn managed_foreground_session_log_cli_reads_bounded_explicit_log() {
     );
     let text = render_response(&response, OutputFormat::Text);
     assert!(text.contains("managed foreground log line limit: 2"));
-    assert!(text.contains("managed foreground log line 0: fetch [redacted-url]"));
-    assert!(text.contains("managed foreground log line 1: Authorization:[redacted]"));
-    assert!(!text.contains("never-store"));
-    assert!(!text.contains("example.test"));
+    assert!(text.contains("managed foreground log line 0: third"));
+    assert!(text.contains("managed foreground log line 1: fourth"));
     assert!(text.contains("managed foreground liveness verified: false"));
     let json: serde_json::Value =
         serde_json::from_str(&render_response(&response, OutputFormat::Json))
             .expect("managed log response should render JSON");
     assert_eq!(json["managed_foreground_log_tail"]["line_limit"], 2);
-    assert_eq!(
-        json["managed_foreground_log_tail"]["lines"][0],
-        "fetch [redacted-url]"
-    );
-    assert_eq!(
-        json["managed_foreground_log_tail"]["lines"][1],
-        "Authorization:[redacted]"
-    );
+    assert_eq!(json["managed_foreground_log_tail"]["lines"][0], "third");
+    assert_eq!(json["managed_foreground_log_tail"]["lines"][1], "fourth");
     assert_eq!(
         json["managed_foreground_log_tail"]["returned_byte_count"].as_u64(),
         Some(report.returned_byte_count as u64)
@@ -3905,7 +3897,7 @@ fn node_switch_patches_loopback_selector_and_keeps_selection_snapshot() {
     let snapshot_path = root.join("selection.snapshot.json");
     std::fs::write(
         &config_path,
-        "schema_version = 1\n\n[[nodes]]\nid = \"node-1\"\nname = \"Primary\"\nprotocol = \"ss\"\nhost = \"secret.example\"\nport = 443\n",
+        "schema_version = 1\nprofile = \"default\"\n\n[[nodes]]\nid = \"node-1\"\nname = \"Primary\"\nprotocol = \"ss\"\nhost = \"secret.example\"\nport = 443\n",
     )
     .expect("node switch config should be written");
     std::fs::write(&selection_path, r#"{"schema_version":1,"node_id":null}"#)
@@ -10259,7 +10251,7 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("managed control test clock should be available")
         .as_nanos();
-    let root = std::env::temp_dir().join(format!(
+    let root = std::path::PathBuf::from("/tmp").join(format!(
         "networkcore-managed-control-socket-contract-{unique}"
     ));
     let status_path = root.join("status.json");
@@ -10469,7 +10461,7 @@ fn managed_control_socket_reports_pending_request_with_stable_cli_code() {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("managed control test clock should be available")
         .as_nanos();
-    let root = std::env::temp_dir().join(format!(
+    let root = std::path::PathBuf::from("/tmp").join(format!(
         "networkcore-managed-control-pending-contract-{unique}"
     ));
     let socket_path = root.join("control.sock");

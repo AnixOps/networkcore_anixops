@@ -812,16 +812,20 @@ fn validate_native_mitm_private_key(_path: &Path) -> DomainResult<()> {
     Ok(())
 }
 
+#[cfg(windows)]
 fn build_native_node_script_executor(
     config: &WindowsManagedNativeMitmScriptRuntimeConfig,
 ) -> DomainResult<NativeNodeScriptExecutor> {
-    #[cfg(windows)]
-    {
-        let _ = config;
-        return Err(runtime_error(
-            "native MITM script runtime is unavailable until a Windows no-network sandbox is implemented",
-        ));
-    }
+    let _ = config;
+    Err(runtime_error(
+        "native MITM script runtime is unavailable until a Windows no-network sandbox is implemented",
+    ))
+}
+
+#[cfg(not(windows))]
+fn build_native_node_script_executor(
+    config: &WindowsManagedNativeMitmScriptRuntimeConfig,
+) -> DomainResult<NativeNodeScriptExecutor> {
     if !config.policy_source_path.is_file()
         || !config.runner_path.is_file()
         || config.script_maps.values().any(|path| !path.is_file())

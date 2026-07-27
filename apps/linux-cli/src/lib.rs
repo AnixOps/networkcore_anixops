@@ -447,11 +447,17 @@ pub const MANAGED_FOREGROUND_LOG_TAIL_MAX_BYTES: u64 = 64 * 1024;
 pub const MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS: u64 = 2;
 #[cfg(unix)]
 const MANAGED_CONTROL_NONE: u8 = 0;
+#[cfg(unix)]
 const MANAGED_CONTROL_STOP: u8 = 1;
+#[cfg(unix)]
 const MANAGED_CONTROL_RELOAD: u8 = 2;
+#[cfg(unix)]
 const MANAGED_CONTROL_ROLLBACK: u8 = 3;
+#[cfg(unix)]
 const MANAGED_CONTROL_PENDING: u8 = 4;
+#[cfg(unix)]
 static MANAGED_CONTROL_REQUEST: AtomicU8 = AtomicU8::new(MANAGED_CONTROL_NONE);
+#[cfg(unix)]
 static MANAGED_CONTROL_EXPECTED_CONFIG_VERSION: AtomicU64 = AtomicU64::new(0);
 pub const RUN_URL_REMOTE_SUBSCRIPTION_MAX_BYTES: u64 = 1024 * 1024;
 pub const RUN_URL_REMOTE_SUBSCRIPTION_TIMEOUT_SECONDS: u64 = 15;
@@ -3126,6 +3132,7 @@ impl ManagedControlRequest {
         }
     }
 
+    #[cfg(unix)]
     const fn signal_value(self) -> u8 {
         match self {
             Self::Stop => MANAGED_CONTROL_STOP,
@@ -3171,7 +3178,7 @@ fn record_managed_runtime_health(
 pub struct OsSignalManagedControlInterrupter;
 
 impl ManagedControlInterrupter for OsSignalManagedControlInterrupter {
-    fn interrupt(&self, request: ManagedControlRequest) -> DomainResult<()> {
+    fn interrupt(&self, _request: ManagedControlRequest) -> DomainResult<()> {
         #[cfg(unix)]
         {
             if MANAGED_CONTROL_REQUEST
@@ -3190,14 +3197,14 @@ impl ManagedControlInterrupter for OsSignalManagedControlInterrupter {
             }
             if let ManagedControlRequest::Rollback {
                 expected_config_version,
-            } = request
+            } = _request
             {
                 MANAGED_CONTROL_EXPECTED_CONFIG_VERSION
                     .store(expected_config_version, Ordering::SeqCst);
             } else {
                 MANAGED_CONTROL_EXPECTED_CONFIG_VERSION.store(0, Ordering::SeqCst);
             }
-            MANAGED_CONTROL_REQUEST.store(request.signal_value(), Ordering::SeqCst);
+            MANAGED_CONTROL_REQUEST.store(_request.signal_value(), Ordering::SeqCst);
             Ok(())
         }
         #[cfg(not(unix))]
@@ -3258,7 +3265,7 @@ pub fn start_managed_control_socket_with_interrupter(
 pub fn start_managed_control_socket_with_runtime_snapshot(
     socket_path: &str,
     interrupter: Arc<dyn ManagedControlInterrupter>,
-    runtime_snapshot: Option<Arc<Mutex<ManagedRuntimeHealthSnapshot>>>,
+    _runtime_snapshot: Option<Arc<Mutex<ManagedRuntimeHealthSnapshot>>>,
 ) -> DomainResult<ManagedControlSocketGuard> {
     let socket_path = socket_path.trim();
     if socket_path.is_empty() || !std::path::Path::new(socket_path).is_absolute() {
@@ -3334,7 +3341,7 @@ pub fn start_managed_control_socket_with_runtime_snapshot(
                         }
                     });
                     if wire_command.as_deref() == Some("status") {
-                        let snapshot = runtime_snapshot
+                        let snapshot = _runtime_snapshot
                             .as_ref()
                             .and_then(|snapshot| {
                                 snapshot.lock().ok().map(|value| value.record.clone())
@@ -10089,6 +10096,7 @@ fn handle_managed_control_request(
 ) -> LinuxCliResponse {
     let operation = request.wire_command();
     let command = format!("managed-control {operation}");
+    #[cfg(unix)]
     let ready_code = match request {
         ManagedControlRequest::Stop => CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE,
         ManagedControlRequest::Reload => CLI_MANAGED_CONTROL_SOCKET_RELOAD_READY_CODE,

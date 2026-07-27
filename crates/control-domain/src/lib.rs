@@ -647,6 +647,7 @@ pub fn validate_proxy_engine_transition(
             ProxyEngineLifecycleState::Degraded
                 | ProxyEngineLifecycleState::Reloading
                 | ProxyEngineLifecycleState::Stopping
+                | ProxyEngineLifecycleState::Stopped
                 | ProxyEngineLifecycleState::Failed
                 | ProxyEngineLifecycleState::RollingBack
         ),
@@ -655,6 +656,7 @@ pub fn validate_proxy_engine_transition(
             ProxyEngineLifecycleState::Running
                 | ProxyEngineLifecycleState::Reloading
                 | ProxyEngineLifecycleState::Stopping
+                | ProxyEngineLifecycleState::Stopped
                 | ProxyEngineLifecycleState::Failed
                 | ProxyEngineLifecycleState::RollingBack
         ),
