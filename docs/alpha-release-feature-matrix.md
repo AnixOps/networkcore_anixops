@@ -23,14 +23,17 @@ current-main-source-candidate=v0.2.0-alpha.22
 current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
-current-main-subscription-background=blocked
+current-main-subscription-background=linux-systemd-oneshot-timer-active
 ```
 
 The historical release entries below remain immutable audit records. The
 unreleased `main` candidate is not a downloadable release. Linux `run-url`
 and `run-catalog` accept caller-selected file, HTTP(S), and saved-catalog
-inputs only for one foreground invocation; they do not create a default path,
-background refresh, runtime node switching, daemon, or control socket. The
+inputs only for one foreground invocation. Linux additionally has an explicit
+NetworkCore-owned systemd oneshot/timer refresh schedule, requiring operator-provided
+paths, source ID, interval, unit name, confirmation, and plan snapshot; it does
+not create a default path, scan paths, switch runtime nodes, or manage a daemon.
+The
 candidate's Windows reliability slice remains source-only until same-commit
 GitHub Actions CI, MSI smoke, package, attestation, publish eligibility, and
 a tag release succeed. HTTP/2, HTTP/3/QUIC MITM, compression/decompression,
