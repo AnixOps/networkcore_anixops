@@ -7564,6 +7564,57 @@ mod script_runtime_security_tests {
         }));
     }
 
+    #[test]
+    fn script_runtime_timeout_fails_open() {
+        let root =
+            std::env::temp_dir().join(format!("networkcore-script-timeout-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("timeout fixture directory should be created");
+        let runner = root.join("runner.sh");
+        let asset = root.join("asset.js");
+        std::fs::write(&runner, "sleep 1").expect("timeout runner should be written");
+        std::fs::write(&asset, "module.exports = {};").expect("timeout asset should be written");
+        let script_url = "https://scripts.networkcore.test/timeout.js".to_string();
+        let mut script_assets = BTreeMap::new();
+        script_assets.insert(script_url.clone(), asset.display().to_string());
+        let executor = NativeNodeScriptExecutor::new(NativeNodeScriptRuntimeConfig {
+            node_binary: "sh".to_string(),
+            runner_path: runner.display().to_string(),
+            script_assets,
+            persistent_store_path: None,
+            sandbox: NativeNodeScriptSandbox::Unrestricted,
+            max_timeout_ms: 10,
+            max_body_bytes: 1024,
+        });
+        let report = executor.execute(
+            &HttpMitmScriptDispatch {
+                kind: HttpMitmScriptKind::Request,
+                phase: HttpMitmPhase::Request,
+                requires_body: false,
+                timeout_ms: 10,
+                max_size: 1024,
+                script_path: script_url,
+                tag: "timeout".to_string(),
+                argument: String::new(),
+            },
+            &NativePlainHttpMessage {
+                request_id: "timeout".to_string(),
+                url: "https://api.networkcore.test/".to_string(),
+                method: Some("GET".to_string()),
+                phase: HttpMitmPhase::Request,
+                status_code: None,
+                headers: Vec::new(),
+                body: Vec::new(),
+            },
+        );
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(!report.executed);
+        assert!(report
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_FAILED_CODE));
+    }
+
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_script_runtime_command_denies_network_and_unlisted_permissions() {
