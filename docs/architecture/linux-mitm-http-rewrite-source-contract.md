@@ -99,7 +99,9 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
   runtime 双重约束的超时，以及 request/response phase；执行失败、超时、非 UTF-8 body、未映射 asset 或
   无效 runner output 一律不改写原消息。脚本 URL mutation 仅可
   保留原 scheme/authority/port 后改变路径，跨 authority 或 scheme 的 mutation 会拒绝并产生 diagnostic。
-  Node runner 执行的 asset 必须视为操作员显式信任的本地代码，不把该进程模型描述为安全 sandbox。
+  executor 在创建时记录每个映射 asset 的 SHA-256，并在每次 dispatch 前重新计算；asset 缺失、符号链接、
+  无法读取或摘要变化时一律 fail-open，不启动 Node。Node runner 执行的 asset 仍必须视为操作员显式信任的
+  本地代码，不把该进程模型描述为安全 sandbox。
 - `plan_and_apply_https_request_rewrite_preview` 只消费调用方提供的 request-phase `https://`
   `NativePlainHttpMessage` 和 `HttpMitmOutcome`，并要求 controlled TLS termination plan 已 ready；它可在
   `NativeHttpsRequestRewritePreviewReport` 中表达 reject、redirect 和 request header mutation preview
@@ -150,6 +152,8 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
 - `NativeTlsMitmCaMaterial`
 - `NativeNodeScriptRuntimeConfig`
 - `NativeNodeScriptExecutor`
+- `NativeNodeScriptExecutor::script_asset_hashes`
+- `script_asset_sha256`
 - `NativeHttpScriptExecutionReport`
 - `NativeHttpsRequestRewritePreviewReport`
 - `NativeHttpsResponseRewritePreviewReport`

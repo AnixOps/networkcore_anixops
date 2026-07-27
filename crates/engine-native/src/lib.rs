@@ -21,6 +21,7 @@ use rustls::{
     ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection, StreamOwned,
 };
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io::{ErrorKind, Read, Write};
@@ -760,15 +761,31 @@ pub struct NativeHttpScriptExecutionReport {
 #[derive(Debug, Clone)]
 pub struct NativeNodeScriptExecutor {
     config: NativeNodeScriptRuntimeConfig,
+    script_asset_hashes: BTreeMap<String, String>,
 }
 
 impl NativeNodeScriptExecutor {
     pub fn new(config: NativeNodeScriptRuntimeConfig) -> Self {
-        Self { config }
+        let script_asset_hashes = config
+            .script_assets
+            .iter()
+            .filter_map(|(url, path)| {
+                script_asset_sha256(std::path::Path::new(path))
+                    .map(|hash| (url.clone(), hash))
+            })
+            .collect();
+        Self {
+            config,
+            script_asset_hashes,
+        }
     }
 
     pub fn config(&self) -> &NativeNodeScriptRuntimeConfig {
         &self.config
+    }
+
+    pub fn script_asset_hashes(&self) -> &BTreeMap<String, String> {
+        &self.script_asset_hashes
     }
 
     pub fn execute(
@@ -801,6 +818,22 @@ impl NativeNodeScriptExecutor {
                 "native HTTP script dispatch has no explicitly configured local script asset",
             );
         };
+        let Some(expected_hash) = self.script_asset_hashes.get(&dispatch.script_path) else {
+            return script_execution_deferred(
+                "native HTTP script runtime could not record the mapped local script asset hash",
+            );
+        };
+        let asset_path = std::path::Path::new(script_asset_path);
+        let Some(actual_hash) = script_asset_sha256(asset_path) else {
+            return script_execution_deferred(
+                "native HTTP script runtime mapped local script asset is unavailable or unsafe",
+            );
+        };
+        if actual_hash != *expected_hash {
+            return script_execution_deferred(
+                "native HTTP script runtime mapped local script asset changed after authorization",
+            );
+        }
         if self.config.node_binary.trim().is_empty()
             || self.config.runner_path.trim().is_empty()
             || script_asset_path.trim().is_empty()
@@ -987,6 +1020,24 @@ impl NativeNodeScriptExecutor {
             )],
         }
     }
+}
+
+fn script_asset_sha256(path: &std::path::Path) -> Option<String> {
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+    if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+        return None;
+    }
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut hash = Sha256::new();
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let count = file.read(&mut buffer).ok()?;
+        if count == 0 {
+            break;
+        }
+        hash.update(&buffer[..count]);
+    }
+    Some(format!("{:x}", hash.finalize()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -7363,6 +7414,59 @@ mod script_runtime_security_tests {
         let _ = std::fs::remove_file(&path);
 
         assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn script_runtime_defers_when_an_authorized_asset_changes() {
+        let path = std::env::temp_dir().join(format!(
+            "networkcore-script-asset-hash-contract-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        std::fs::write(&path, "authorized local script")
+            .expect("script asset fixture should be written");
+        let script_url = "https://scripts.networkcore.test/authorized.js".to_string();
+        let mut script_assets = BTreeMap::new();
+        script_assets.insert(script_url.clone(), path.display().to_string());
+        let executor = NativeNodeScriptExecutor::new(NativeNodeScriptRuntimeConfig {
+            node_binary: "node".to_string(),
+            runner_path: path.display().to_string(),
+            script_assets,
+            persistent_store_path: None,
+            max_timeout_ms: 1000,
+            max_body_bytes: 1024,
+        });
+        assert!(executor.script_asset_hashes().contains_key(&script_url));
+        std::fs::write(&path, "replacement local script")
+            .expect("script asset fixture should be replaceable for the contract");
+
+        let report = executor.execute(
+            &HttpMitmScriptDispatch {
+                kind: HttpMitmScriptKind::Request,
+                phase: HttpMitmPhase::Request,
+                requires_body: false,
+                timeout_ms: 1000,
+                max_size: 1024,
+                script_path: script_url,
+                tag: "asset-hash-contract".to_string(),
+                argument: String::new(),
+            },
+            &NativePlainHttpMessage {
+                request_id: "asset-hash-contract".to_string(),
+                url: "https://api.networkcore.test/v1".to_string(),
+                method: Some("GET".to_string()),
+                phase: HttpMitmPhase::Request,
+                status_code: None,
+                headers: Vec::new(),
+                body: Vec::new(),
+            },
+        );
+        let _ = std::fs::remove_file(&path);
+
+        assert!(!report.executed);
+        assert!(report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_DEFERRED_CODE
+        }));
     }
 }
 

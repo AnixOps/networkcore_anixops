@@ -33,6 +33,12 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 ### Changed
 
+- The shared native HTTPS MITM Node executor now records a SHA-256 digest for
+  every explicitly mapped local script asset at creation and rechecks it before
+  each dispatch. Missing, symbolic-link, unreadable, or changed assets remain
+  fail-open and never start the Node runner; the runtime still does not claim a
+  Node sandbox.
+
 - Linux MITM CA artifact creation now writes its private key with Unix `0600`
   permissions at creation time, syncs and reads the mode back before use, and
   removes it when the protected write cannot be verified.
