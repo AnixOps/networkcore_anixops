@@ -91,17 +91,9 @@ fn main() {
                 networkcore_linux::LinuxCliCommand::ProxyApply { .. }
                     | networkcore_linux::LinuxCliCommand::ProxyStatus { .. }
                     | networkcore_linux::LinuxCliCommand::ProxyRollback { .. }
-            ) {
-                networkcore_linux::handle_entrypoint(command, &platform)
-            } else if matches!(
-                &command,
-                networkcore_linux::LinuxCliCommand::MitmCertificateTrustApply { .. }
+                    | networkcore_linux::LinuxCliCommand::MitmCertificateTrustApply { .. }
                     | networkcore_linux::LinuxCliCommand::MitmCertificateTrustRollback { .. }
-            ) {
-                networkcore_linux::handle_entrypoint(command, &platform)
-            } else if matches!(
-                &command,
-                networkcore_linux::LinuxCliCommand::NodeSwitch { .. }
+                    | networkcore_linux::LinuxCliCommand::NodeSwitch { .. }
                     | networkcore_linux::LinuxCliCommand::NodeHealth { .. }
             ) {
                 networkcore_linux::handle_entrypoint(command, &platform)

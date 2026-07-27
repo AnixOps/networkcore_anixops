@@ -18,15 +18,15 @@ use engine_singbox::{
     ENGINE_SINGBOX_PROCESS_EXITED_CODE,
 };
 use networkcore_linux::{
-    cli_help_text, handle_capabilities, handle_entrypoint,
+    cli_help_text, handle_capabilities, handle_entrypoint, handle_entrypoint_skeleton,
     handle_entrypoint_with_browser_capture_all_io, handle_entrypoint_with_browser_capture_io,
     handle_entrypoint_with_browser_capture_runner, handle_entrypoint_with_certificate_lifecycle_io,
     handle_entrypoint_with_runtime, handle_entrypoint_with_runtime_and_lifecycle,
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
     handle_foreground_lifecycle_with_runtime_stop, handle_install_service_apply_at,
-    handle_install_sing_box, handle_managed_control_reload, handle_managed_control_rollback,
-    handle_managed_control_status, handle_managed_control_stop, handle_mitm_browser_capture_apply,
-    handle_mitm_browser_capture_apply_with_store,
+    handle_install_service_plan, handle_install_sing_box, handle_managed_control_reload,
+    handle_managed_control_rollback, handle_managed_control_status, handle_managed_control_stop,
+    handle_mitm_browser_capture_apply, handle_mitm_browser_capture_apply_with_store,
     handle_mitm_browser_capture_apply_with_store_and_profile_prefs_and_proxy_scheme,
     handle_mitm_browser_capture_apply_with_store_and_proxy_scheme,
     handle_mitm_browser_capture_launch, handle_mitm_browser_capture_launch_plan,
@@ -43,13 +43,15 @@ use networkcore_linux::{
     handle_mitm_certificate_rollback, handle_mitm_certificate_rollback_with_store,
     handle_mitm_certificate_trust_apply, handle_mitm_certificate_trust_rollback,
     handle_mitm_http_rewrite_plan, handle_mitm_http_rewrite_preview, handle_mitm_status,
-    handle_node_health, handle_node_list, handle_parse_error, handle_prepare_config,
-    handle_proxy_apply, handle_proxy_rollback, handle_proxy_status,
-    handle_run_catalog_with_sing_box, handle_run_catalog_with_sing_box_and_fetcher,
-    handle_run_url_with_sing_box, handle_run_url_with_sing_box_and_fetcher,
-    handle_run_url_with_sing_box_and_node_id, handle_run_url_with_sing_box_and_node_id_and_mieru,
-    handle_start, handle_status, handle_status_mieru_with_runner, handle_stop,
-    handle_systemd_service_control, handle_uninstall_service_apply_at,
+    handle_node_health, handle_node_list, handle_node_rollback, handle_node_select,
+    handle_parse_error, handle_prepare_config, handle_proxy_apply, handle_proxy_rollback,
+    handle_proxy_status, handle_restart_unavailable, handle_run_catalog_with_sing_box,
+    handle_run_catalog_with_sing_box_and_fetcher, handle_run_url_with_sing_box,
+    handle_run_url_with_sing_box_and_fetcher, handle_run_url_with_sing_box_and_node_id,
+    handle_run_url_with_sing_box_and_node_id_and_mieru, handle_start, handle_status,
+    handle_status_mieru_with_runner, handle_stop, handle_subscription_command,
+    handle_subscription_command_with_fetcher, handle_systemd_service_control,
+    handle_uninstall_service_apply_at, handle_uninstall_service_plan,
     native_proxy_engine_service_with_builtin_mitm_plugin,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files, parse_args,
@@ -81,7 +83,8 @@ use networkcore_linux::{
     SubscriptionCatalogSelectRequest, SubscriptionCatalogUpdateRequest,
     UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_ARGUMENT_UNKNOWN_CODE,
     CLI_ARGUMENT_VALUE_MISSING_CODE, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
-    CLI_CONFIG_READ_FAILED_CODE, CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE,
+    CLI_CONFIG_READ_FAILED_CODE, CLI_INSTALL_SERVICE_CONFIRMATION_REQUIRED_CODE,
+    CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE,
     CLI_MANAGED_CONTROL_SOCKET_RELOAD_READY_CODE, CLI_MANAGED_CONTROL_SOCKET_REQUEST_PENDING_CODE,
     CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_READY_CODE, CLI_MANAGED_CONTROL_SOCKET_STATUS_FAILED_CODE,
     CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE, CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE,
@@ -119,8 +122,8 @@ use networkcore_linux::{
     CLI_START_LIFECYCLE_FAILED_CODE, CLI_START_LIFECYCLE_HOST_MISSING_CODE,
     CLI_START_LIFECYCLE_INTERRUPTED_CODE, CLI_START_PLATFORM_DENIED_CODE,
     CLI_START_RUNTIME_STOP_FAILED_CODE, CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE,
-    CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE, CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE,
-    CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE,
+    CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE, CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE,
+    CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE, CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE,
     CLI_START_TLS_MITM_PRIVATE_KEY_PROTECTION_FAILED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
     CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
     MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES, MANAGED_FOREGROUND_LOG_TAIL_MAX_BYTES,
@@ -2890,7 +2893,7 @@ fn native_engine_factory_requires_explicit_script_runtime_authorization_and_conf
     )
     .expect_err("sandboxed script runtime must reject a persistent store");
     assert_eq!(
-        rejected_store.code,
+        rejected_store.diagnostic().code,
         CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE
     );
 }
@@ -3883,7 +3886,10 @@ fn parses_node_switch_and_rejects_missing_loopback_controller_port() {
         "/var/lib/networkcore/selection.previous.json",
     ])
     .expect_err("node switch must require an explicit controller port");
-    assert_eq!(missing_controller.code, CLI_ARGUMENT_VALUE_MISSING_CODE);
+    assert_eq!(
+        missing_controller.diagnostic().code,
+        CLI_ARGUMENT_VALUE_MISSING_CODE
+    );
 }
 
 #[test]
@@ -10308,7 +10314,10 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
         "--confirm",
     ])
     .expect_err("managed control stop should reject unrelated options");
-    assert_eq!(unsupported_stop_option.code, CLI_ARGUMENT_UNKNOWN_CODE);
+    assert_eq!(
+        unsupported_stop_option.diagnostic().code,
+        CLI_ARGUMENT_UNKNOWN_CODE
+    );
     let reload = parse_args([
         "reload",
         "--managed-control-socket",
@@ -10345,7 +10354,7 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
     ])
     .expect_err("managed control rollback should require an expected configuration version");
     assert_eq!(
-        missing_rollback_version.code,
+        missing_rollback_version.diagnostic().code,
         CLI_ARGUMENT_VALUE_MISSING_CODE
     );
     let status = parse_args([
@@ -10360,7 +10369,10 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
     ));
     let missing_socket_path = parse_args(["stop", "--managed-control-socket", "--confirm"])
         .expect_err("managed control stop should require a socket path value");
-    assert_eq!(missing_socket_path.code, CLI_ARGUMENT_VALUE_MISSING_CODE);
+    assert_eq!(
+        missing_socket_path.diagnostic().code,
+        CLI_ARGUMENT_VALUE_MISSING_CODE
+    );
 
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let rollback_config_version = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
