@@ -337,7 +337,7 @@ pub fn plan_systemd_unit_removal(
     if unit_name.trim().is_empty()
         || unit_name.contains('/')
         || unit_name.chars().any(char::is_whitespace)
-        || !state_directory.is_absolute()
+        || !is_linux_absolute_path(state_directory)
     {
         return Err(DomainError::new(
             LINUX_SYSTEMD_REMOVAL_INVALID_CODE,
@@ -706,8 +706,8 @@ fn validate_request(request: &LinuxManagedServiceUnitRequest) -> DomainResult<()
         || request.service_group.trim().is_empty()
         || request.service_user == "root"
         || request.service_group == "root"
-        || !request.executable_path.is_absolute()
-        || !request.state_directory.is_absolute()
+        || !is_linux_absolute_path(&request.executable_path)
+        || !is_linux_absolute_path(&request.state_directory)
     {
         return Err(DomainError::new(
             LINUX_SYSTEMD_UNIT_INVALID_CODE,
