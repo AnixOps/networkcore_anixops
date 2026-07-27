@@ -27,8 +27,8 @@ MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/profile-trust-artifact
 - Artifact rollback 遇到外部修改时返回 `cli.linux.mitm.certificate.rollback.failed`。
 - `certificate_lifecycle` JSON report 输出 action、source contract status、gate、gate status、request、artifact request、trust_plan、apply_report 或 rollback_report。
 - `certificate_lifecycle.request.artifact`、`apply_report` 和 `rollback_report` 输出 `profile_trust_file_path`，artifact request 还输出 `profile_trust_content` 和 `profile_trust_fingerprint`。
-- `trust_plan` 固定为 `trust-mutation-blocked`，但包含 `prepare-dedicated-profile-trust-artifact` active step；仍列出 `install-ca`、`trust-ca`、`update-ca-certificates`、`mutate-nss-db`、`mutate-p11-kit`、`mutate-firefox-trust-store`、`revoke-ca` 和 `rollback-trust-store` blocked operations。
-- `platform-linux::trust` 提供 `apply_linux_trust`/`rollback_linux_trust`，要求绝对且互不相同的路径、显式确认、非覆盖 snapshot、写后精确读回、外部修改冲突检测和失败恢复；CLI 只暴露 trust-file active 子路径，不把其他 trust backend 误报为已安装。
+- `certificate-plan` 与 certificate artifact lifecycle 的 `trust_plan` 固定为 `trust-mutation-blocked`，但包含 `prepare-dedicated-profile-trust-artifact` active step；它仍列出 `install-ca`、`trust-ca`、`update-ca-certificates`、`mutate-nss-db`、`mutate-p11-kit`、`mutate-firefox-trust-store`、`revoke-ca` 和 `rollback-trust-store` blocked operations。该计划不代表独立 `trust-apply` 命令的状态。
+- `platform-linux::trust` 提供 `apply_linux_trust`/`rollback_linux_trust`，要求绝对且互不相同的路径、显式确认、非覆盖 snapshot、写后精确读回、外部修改冲突检测和失败恢复；CLI 只暴露 Ubuntu-style explicit trust-file active 子路径。该子路径的边界以 `linux-trust-file-source-contract.md` 为准，不把其他 trust backend 误报为已安装。
 
 ## Source Anchors
 
@@ -79,11 +79,11 @@ MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/profile-trust-artifact
 
 ## Explicitly Blocked
 
-当前合同明确禁止：
+除 `linux-trust-file-source-contract.md` 定义的、显式 `trust-apply`/`trust-rollback` Ubuntu-style trust-file 后端外，当前合同明确禁止：
 
-- 执行 `update-ca-certificates`。
+- 自动发现 trust-file 路径，或在没有显式 `--trust-file`、`--snapshot` 和 `--confirm` 的情况下执行 `update-ca-certificates`。
 - 修改 NSS DB、p11-kit 或 Firefox trust store。
-- 写入发行版专用 trust command、system trust store、browser trust store 或 profile trust state。
+- 写入其他发行版专用 trust command、system trust store、browser trust store 或 profile trust state。
 - 把 artifact 写入等同于可信 CA 安装。
 - 把 profile trust artifact 称为已信任的 profile state；它只是 caller-provided path 上的同一 CA PEM 副本。
 - 生成 live HTTPS decrypt capability 或 HTTP/TLS redirect/header/body/script rewrite。
@@ -91,4 +91,4 @@ MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/profile-trust-artifact
 
 ## CI Governance
 
-CI 必须静态检查源码中的命令、类型、诊断 code、JSON report 字段、文档 anchor 和 gate 状态。任何后续把 trust mutation 从 blocked 改为 active 的提交，必须先新增单独 source contract，覆盖系统 trust store 检测、安装、撤销、rollback、发行版差异和人工授权边界。
+CI 必须静态检查源码中的命令、类型、诊断 code、JSON report 字段、文档 anchor 和 gate 状态。当前 Ubuntu-style explicit trust-file 后端已由 `linux-trust-file-source-contract.md` 固定；任何后续新增 trust backend，必须先新增单独 source contract，覆盖系统 trust store 检测、安装、撤销、rollback、发行版差异和人工授权边界。
