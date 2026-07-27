@@ -24,7 +24,8 @@ use networkcore_linux::{
     handle_entrypoint_with_runtime, handle_entrypoint_with_runtime_and_lifecycle,
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
     handle_foreground_lifecycle_with_runtime_stop, handle_install_service_apply_at,
-    handle_install_sing_box, handle_managed_control_reload, handle_managed_control_stop,
+    handle_install_sing_box, handle_managed_control_reload, handle_managed_control_rollback,
+    handle_managed_control_stop,
     handle_mitm_browser_capture_apply, handle_mitm_browser_capture_apply_with_store,
     handle_mitm_browser_capture_apply_with_store_and_profile_prefs_and_proxy_scheme,
     handle_mitm_browser_capture_apply_with_store_and_proxy_scheme,
@@ -81,7 +82,8 @@ use networkcore_linux::{
     UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_ARGUMENT_UNKNOWN_CODE,
     CLI_ARGUMENT_VALUE_MISSING_CODE, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
     CLI_CONFIG_READ_FAILED_CODE, CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE,
-    CLI_MANAGED_CONTROL_SOCKET_RELOAD_READY_CODE, CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE,
+    CLI_MANAGED_CONTROL_SOCKET_RELOAD_READY_CODE, CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_READY_CODE,
+    CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE,
     CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE, CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE,
     CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
@@ -143,8 +145,9 @@ use networkcore_linux::{
 #[cfg(unix)]
 use networkcore_linux::{
     OsSignalForegroundLifecycleInterruptionSource, OsSignalManagedControlInterrupter,
-    CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE, CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE,
-    CLI_START_SIGNAL_RECEIVED_CODE,
+    CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE,
+    CLI_START_MANAGED_CONTROL_ROLLBACK_REQUESTED_CODE,
+    CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE, CLI_START_SIGNAL_RECEIVED_CODE,
 };
 use platform_linux::systemd::{LinuxSystemdCommandRunner, LinuxSystemdServiceAction};
 use platform_linux::{
@@ -8232,6 +8235,8 @@ fn os_signal_interruption_source_maps_unix_signals_to_stable_diagnostics() {
         OsSignalForegroundLifecycleInterruptionSource::interruption_for_managed_control_stop();
     let managed_reload =
         OsSignalForegroundLifecycleInterruptionSource::interruption_for_managed_control_reload();
+    let managed_rollback =
+        OsSignalForegroundLifecycleInterruptionSource::interruption_for_managed_control_rollback();
     let interrupter = OsSignalManagedControlInterrupter;
     interrupter
         .interrupt(ManagedControlRequest::Stop)
@@ -8255,13 +8260,26 @@ fn os_signal_interruption_source_maps_unix_signals_to_stable_diagnostics() {
                 diagnostics: Vec::new(),
             },
         });
+    interrupter
+        .interrupt(ManagedControlRequest::Rollback)
+        .expect("managed control interrupter should record a rollback request");
+    let observed_managed_rollback = OsSignalForegroundLifecycleInterruptionSource::new()
+        .wait_for_interruption(&ForegroundLifecycleRequest {
+            engine_status: ProxyEngineStatus {
+                engine_id: DEFAULT_ENGINE_ID.to_string(),
+                state: ProxyEngineLifecycleState::Running,
+                diagnostics: Vec::new(),
+            },
+        });
 
     assert_eq!(sigint.reason, "SIGINT");
     assert_eq!(sigterm.reason, "SIGTERM");
     assert_eq!(managed_control.reason, "managed-control-stop");
     assert_eq!(managed_reload.reason, "managed-control-reload");
+    assert_eq!(managed_rollback.reason, "managed-control-rollback");
     assert_eq!(observed_managed_control.reason, "managed-control-stop");
     assert_eq!(observed_managed_reload.reason, "managed-control-reload");
+    assert_eq!(observed_managed_rollback.reason, "managed-control-rollback");
     assert_diagnostic(&sigint.diagnostics, CLI_START_SIGNAL_RECEIVED_CODE);
     assert_diagnostic(
         &managed_control.diagnostics,
@@ -8278,6 +8296,14 @@ fn os_signal_interruption_source_maps_unix_signals_to_stable_diagnostics() {
     assert_diagnostic(
         &observed_managed_reload.diagnostics,
         CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE,
+    );
+    assert_diagnostic(
+        &managed_rollback.diagnostics,
+        CLI_START_MANAGED_CONTROL_ROLLBACK_REQUESTED_CODE,
+    );
+    assert_diagnostic(
+        &observed_managed_rollback.diagnostics,
+        CLI_START_MANAGED_CONTROL_ROLLBACK_REQUESTED_CODE,
     );
     assert_diagnostic(&sigterm.diagnostics, CLI_START_SIGNAL_RECEIVED_CODE);
 }
@@ -9961,6 +9987,17 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
         reload,
         LinuxCliCommand::ManagedControlReload { confirm: true, .. }
     ));
+    let rollback = parse_args([
+        "rollback",
+        "--managed-control-socket",
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        "--confirm",
+    ])
+    .expect("managed control rollback should parse");
+    assert!(matches!(
+        rollback,
+        LinuxCliCommand::ManagedControlRollback { confirm: true, .. }
+    ));
     let status = parse_args([
         "status",
         "--managed-control-socket",
@@ -10006,6 +10043,16 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
         CLI_MANAGED_CONTROL_SOCKET_RELOAD_READY_CODE,
     );
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let rollback = handle_managed_control_rollback(
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        true,
+    );
+    assert!(rollback.ok);
+    assert_diagnostic(
+        &rollback.diagnostics,
+        CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_READY_CODE,
+    );
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
     let accepted = handle_managed_control_stop(
         socket_path.to_str().expect("socket path should be UTF-8"),
         true,
@@ -10015,7 +10062,7 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
         &accepted.diagnostics,
         CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE,
     );
-    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 3);
     drop(guard);
     assert!(!socket_path.exists());
     let _ = std::fs::remove_dir_all(root);

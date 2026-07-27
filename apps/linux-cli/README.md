@@ -85,11 +85,14 @@ the existing foreground-only behavior and recorded state never claims process li
 
 On Unix, the same explicit managed start can add `--managed-control-socket <absolute-path>`.
 NetworkCore creates that socket without replacing an existing path, applies owner-only `0600`, and accepts only a
-bounded `stop` or `reload` request with a two-second I/O deadline. `stop --managed-control-socket <absolute-path> --confirm`
+bounded `stop`, `reload`, or `rollback` request with a two-second I/O deadline. `stop --managed-control-socket <absolute-path> --confirm`
 sends the current foreground runtime through interruption and release; `reload --managed-control-socket <absolute-path> --confirm`
-reloads that same foreground runtime from its explicit start configuration and resumes its lifecycle wait. Status remains the explicit
-`managed-status` record and rollback remains the explicit status snapshot operation. No default socket, PID lookup, or non-Unix fallback is provided; the boundary is fixed by
-`docs/architecture/linux-managed-control-socket-source-contract.md`.
+reloads that same foreground runtime from its explicit start configuration and resumes its lifecycle wait.
+`rollback --managed-control-socket <absolute-path> --confirm` only restores the owner-retained
+prior-successful configuration snapshot after an expected `Running` state check and health readback.
+`status --managed-control-socket <absolute-path>` reports the bounded, redacted runtime health record.
+No default socket, PID lookup, or non-Unix fallback is provided; the boundary is fixed by
+`docs/architecture/linux-managed-runtime-health-source-contract.md`.
 
 Current `main` also contains the source-only `CommandManagedForegroundSessionEventStore::read_event` and
 `CommandManagedForegroundSessionEventStore::write_event` boundaries for v0.1.2-alpha.2. They read or

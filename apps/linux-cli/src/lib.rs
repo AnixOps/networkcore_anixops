@@ -116,12 +116,22 @@ pub const CLI_MANAGED_CONTROL_SOCKET_RELOAD_READY_CODE: &str =
     "cli.linux.managed_control_socket.reload_ready";
 pub const CLI_MANAGED_CONTROL_SOCKET_RELOAD_FAILED_CODE: &str =
     "cli.linux.managed_control_socket.reload_failed";
+pub const CLI_MANAGED_CONTROL_SOCKET_STATUS_READY_CODE: &str =
+    "cli.linux.managed_control_socket.status_ready";
+pub const CLI_MANAGED_CONTROL_SOCKET_STATUS_FAILED_CODE: &str =
+    "cli.linux.managed_control_socket.status_failed";
+pub const CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_READY_CODE: &str =
+    "cli.linux.managed_control_socket.rollback_ready";
+pub const CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_FAILED_CODE: &str =
+    "cli.linux.managed_control_socket.rollback_failed";
 pub const CLI_START_SIGNAL_RECEIVED_CODE: &str = "cli.linux.start.signal_received";
 pub const CLI_START_SIGNAL_SOURCE_FAILED_CODE: &str = "cli.linux.start.signal_source_failed";
 pub const CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE: &str =
     "cli.linux.start.managed_control_stop_requested";
 pub const CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE: &str =
     "cli.linux.start.managed_control_reload_requested";
+pub const CLI_START_MANAGED_CONTROL_ROLLBACK_REQUESTED_CODE: &str =
+    "cli.linux.start.managed_control_rollback_requested";
 pub const CLI_START_RUNTIME_RELOAD_FAILED_CODE: &str = "cli.linux.start.runtime_reload_failed";
 pub const CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE: &str =
     "cli.linux.start.tls_mitm_authorization_required";
@@ -431,6 +441,7 @@ pub const MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS: u64 = 2;
 const MANAGED_CONTROL_NONE: u8 = 0;
 const MANAGED_CONTROL_STOP: u8 = 1;
 const MANAGED_CONTROL_RELOAD: u8 = 2;
+const MANAGED_CONTROL_ROLLBACK: u8 = 3;
 static MANAGED_CONTROL_REQUEST: AtomicU8 = AtomicU8::new(MANAGED_CONTROL_NONE);
 pub const RUN_URL_REMOTE_SUBSCRIPTION_MAX_BYTES: u64 = 1024 * 1024;
 pub const RUN_URL_REMOTE_SUBSCRIPTION_TIMEOUT_SECONDS: u64 = 15;
@@ -517,6 +528,11 @@ pub enum LinuxCliCommand {
         format: OutputFormat,
     },
     ManagedControlReload {
+        socket_path: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    ManagedControlRollback {
         socket_path: String,
         confirm: bool,
         format: OutputFormat,
@@ -915,6 +931,7 @@ impl LinuxCliCommand {
             Self::Stop { .. } => "stop",
             Self::ManagedControlStop { .. } => "managed-control stop",
             Self::ManagedControlReload { .. } => "managed-control reload",
+            Self::ManagedControlRollback { .. } => "managed-control rollback",
             Self::ManagedControlStatus { .. } => "managed-control status",
             Self::CoreList { .. } => "core list",
             Self::SubscriptionAdd { .. } => "subscription add",
@@ -1004,6 +1021,7 @@ impl LinuxCliCommand {
             | Self::Stop { format }
             | Self::ManagedControlStop { format, .. }
             | Self::ManagedControlReload { format, .. }
+            | Self::ManagedControlRollback { format, .. }
             | Self::ManagedControlStatus { format, .. }
             | Self::CoreList { format }
             | Self::SubscriptionAdd { format, .. }
@@ -2991,6 +3009,7 @@ impl ManagedForegroundLifecycleRecorder {
 pub enum ManagedControlRequest {
     Stop,
     Reload,
+    Rollback,
 }
 
 impl ManagedControlRequest {
@@ -2998,6 +3017,7 @@ impl ManagedControlRequest {
         match self {
             Self::Stop => "stop",
             Self::Reload => "reload",
+            Self::Rollback => "rollback",
         }
     }
 
@@ -3005,6 +3025,7 @@ impl ManagedControlRequest {
         match self {
             Self::Stop => MANAGED_CONTROL_STOP,
             Self::Reload => MANAGED_CONTROL_RELOAD,
+            Self::Rollback => MANAGED_CONTROL_ROLLBACK,
         }
     }
 }
@@ -3016,6 +3037,29 @@ pub trait ManagedControlInterrupter: Send + Sync {
 #[derive(Debug, Clone, Default)]
 pub struct ManagedRuntimeHealthSnapshot {
     pub record: String,
+    pub config_version: u64,
+}
+
+fn record_managed_runtime_health(
+    snapshot: &Arc<Mutex<ManagedRuntimeHealthSnapshot>>,
+    health: &ProxyEngineStatus,
+    config_digest: &str,
+    config_version: u64,
+) {
+    if let Ok(mut snapshot) = snapshot.lock() {
+        snapshot.config_version = config_version;
+        snapshot.record = format!(
+            "pid={} engine_id={} state={:?} config_version={} config_digest={} config_validated={} runtime_resources_ready={} listener_reachable={} control_readback=true",
+            std::process::id(),
+            health.engine_id,
+            health.state,
+            config_version,
+            config_digest,
+            health.config_validated,
+            health.runtime_resources_ready,
+            health.listener_reachable,
+        );
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -3144,6 +3188,7 @@ pub fn start_managed_control_socket_with_runtime_snapshot(
                     let request = wire_command.as_deref().and_then(|value| match value {
                         "stop" => Some(ManagedControlRequest::Stop),
                         "reload" => Some(ManagedControlRequest::Reload),
+                        "rollback" => Some(ManagedControlRequest::Rollback),
                         _ => None,
                     });
                     if wire_command.as_deref() == Some("status") {
@@ -6020,6 +6065,17 @@ impl OsSignalForegroundLifecycleInterruptionSource {
             ),
         ])
     }
+
+    pub fn interruption_for_managed_control_rollback() -> ForegroundLifecycleInterruption {
+        ForegroundLifecycleInterruption::new("managed-control-rollback").with_diagnostics(vec![
+            cli_diagnostic(
+                DiagnosticSeverity::Warning,
+                CLI_START_MANAGED_CONTROL_ROLLBACK_REQUESTED_CODE,
+                "managed foreground control socket requested runtime rollback",
+                SOURCE_CLI_MANAGED_CONTROL,
+            ),
+        ])
+    }
 }
 
 #[cfg(unix)]
@@ -6045,6 +6101,9 @@ impl ForegroundLifecycleInterruptionSource for OsSignalForegroundLifecycleInterr
             match MANAGED_CONTROL_REQUEST.swap(MANAGED_CONTROL_NONE, Ordering::SeqCst) {
                 MANAGED_CONTROL_STOP => return Self::interruption_for_managed_control_stop(),
                 MANAGED_CONTROL_RELOAD => return Self::interruption_for_managed_control_reload(),
+                MANAGED_CONTROL_ROLLBACK => {
+                    return Self::interruption_for_managed_control_rollback()
+                }
                 _ => {}
             }
             if let Some(signal) = signals.pending().next() {
@@ -6327,6 +6386,19 @@ where
         {
             let (socket_path, confirm, format) = parse_managed_control_options(&rest, "reload")?;
             Ok(LinuxCliCommand::ManagedControlReload {
+                socket_path,
+                confirm,
+                format,
+            })
+        }
+        "rollback"
+            if rest
+                .iter()
+                .any(|argument| argument == "--managed-control-socket") =>
+        {
+            let (socket_path, confirm, format) =
+                parse_managed_control_options(&rest, "rollback")?;
+            Ok(LinuxCliCommand::ManagedControlRollback {
                 socket_path,
                 confirm,
                 format,
@@ -6677,6 +6749,11 @@ pub fn handle_entrypoint_skeleton(command: LinuxCliCommand) -> LinuxCliResponse 
             confirm,
             ..
         } => handle_managed_control_reload(&socket_path, confirm),
+        LinuxCliCommand::ManagedControlRollback {
+            socket_path,
+            confirm,
+            ..
+        } => handle_managed_control_rollback(&socket_path, confirm),
         LinuxCliCommand::ManagedControlStatus { socket_path, .. } => {
             handle_managed_control_status(&socket_path)
         }
@@ -7063,6 +7140,11 @@ where
             confirm,
             ..
         } => handle_managed_control_reload(&socket_path, confirm),
+        LinuxCliCommand::ManagedControlRollback {
+            socket_path,
+            confirm,
+            ..
+        } => handle_managed_control_rollback(&socket_path, confirm),
         LinuxCliCommand::ManagedControlStatus { socket_path, .. } => {
             handle_managed_control_status(&socket_path)
         }
@@ -9165,23 +9247,17 @@ where
         .as_ref()
         .and_then(|recorder| recorder.paths.control_socket_path.clone());
 
+    let config_digest = redacted_config_digest(&raw_config);
     let request = RuntimeConfigRequest::new(DEFAULT_ENGINE_ID, raw_config);
     let mut response = match orchestrator.start_runtime(request.clone()) {
         Ok(result) => {
             if let Ok(health) = orchestrator.runtime_health(DEFAULT_ENGINE_ID) {
-                let config_digest = redacted_config_digest(&raw_config);
-                if let Ok(mut snapshot) = runtime_health_snapshot.lock() {
-                    snapshot.record = format!(
-                        "pid={} engine_id={} state={:?} config_version=1 config_digest={} config_validated={} runtime_resources_ready={} listener_reachable={} control_readback=true",
-                        std::process::id(),
-                        health.engine_id,
-                        health.state,
-                        config_digest,
-                        health.config_validated,
-                        health.runtime_resources_ready,
-                        health.listener_reachable,
-                    );
-                }
+                record_managed_runtime_health(
+                    &runtime_health_snapshot,
+                    &health,
+                    &config_digest,
+                    1,
+                );
             }
             if let Some(recorder) = managed_recorder.as_ref() {
                 if let Err(error) =
@@ -9192,6 +9268,8 @@ where
                         orchestrator,
                         lifecycle_host,
                         request,
+                        runtime_health_snapshot.clone(),
+                        config_digest.clone(),
                     );
                     response.ok = false;
                     response.exit_code = LinuxCliExitCode::GeneralFailure;
@@ -9209,6 +9287,8 @@ where
                 orchestrator,
                 lifecycle_host,
                 request,
+                runtime_health_snapshot.clone(),
+                config_digest.clone(),
             );
             if let Some(recorder) = managed_recorder.as_ref() {
                 let terminal_state = if response.exit_code == LinuxCliExitCode::Interrupted {
@@ -9402,6 +9482,8 @@ fn handle_foreground_lifecycle_with_runtime_reload<C, P, E, H>(
     orchestrator: &RuntimeOrchestrator<C, P, E>,
     host: &H,
     request: RuntimeConfigRequest,
+    runtime_health_snapshot: Arc<Mutex<ManagedRuntimeHealthSnapshot>>,
+    config_digest: String,
 ) -> LinuxCliResponse
 where
     C: ConfigurationService,
@@ -9410,6 +9492,11 @@ where
     H: ForegroundLifecycleHost,
 {
     let mut previous_diagnostics = Vec::new();
+    let mut config_version = 1;
+    let mut rollback_snapshot = orchestrator
+        .prepare_runtime_engine(request.clone())
+        .ok()
+        .map(|prepared| (prepared.snapshot, config_version));
     loop {
         let engine_id = operation.engine_status.engine_id.clone();
         let mut response = handle_foreground_lifecycle(operation, host);
@@ -9417,13 +9504,16 @@ where
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.code == CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE);
-        if reload_requested {
+        let rollback_requested = response.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == CLI_START_MANAGED_CONTROL_ROLLBACK_REQUESTED_CODE
+        });
+        if reload_requested || rollback_requested {
             response
                 .diagnostics
                 .retain(|diagnostic| diagnostic.code != CLI_START_LIFECYCLE_INTERRUPTED_CODE);
         }
         previous_diagnostics.append(&mut response.diagnostics);
-        if !reload_requested {
+        if !reload_requested && !rollback_requested {
             response.diagnostics = previous_diagnostics;
             if response.exit_code == LinuxCliExitCode::Interrupted {
                 match orchestrator.stop_runtime(&engine_id) {
@@ -9442,9 +9532,121 @@ where
             return response;
         }
 
+        if rollback_requested {
+            let Some((snapshot, snapshot_version)) = rollback_snapshot.take() else {
+                response.ok = false;
+                response.exit_code = LinuxCliExitCode::GeneralFailure;
+                response.diagnostics = previous_diagnostics;
+                response.diagnostics.push(cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_FAILED_CODE,
+                    "managed runtime rollback is unavailable because no prior successful configuration snapshot is retained",
+                    SOURCE_CLI_MANAGED_CONTROL,
+                ));
+                return response;
+            };
+            if snapshot_version >= config_version {
+                response.ok = false;
+                response.exit_code = LinuxCliExitCode::GeneralFailure;
+                response.diagnostics = previous_diagnostics;
+                response.diagnostics.push(cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_FAILED_CODE,
+                    "managed runtime rollback rejected because the retained snapshot version is not older than the active version",
+                    SOURCE_CLI_MANAGED_CONTROL,
+                ));
+                return response;
+            }
+            match orchestrator.rollback_runtime_engine(ProxyEngineRollbackRequest {
+                snapshot,
+                expected_state: ProxyEngineLifecycleState::Running,
+            }) {
+                Ok(restored) => {
+                    previous_diagnostics.extend(restored.diagnostics);
+                    match orchestrator.runtime_health(&engine_id) {
+                        Ok(health) => {
+                            config_version = snapshot_version;
+                            record_managed_runtime_health(
+                                &runtime_health_snapshot,
+                                &health,
+                                &config_digest,
+                                config_version,
+                            );
+                            previous_diagnostics.push(cli_diagnostic(
+                                DiagnosticSeverity::Info,
+                                CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_READY_CODE,
+                                format!(
+                                    "managed runtime rollback restored configuration version {config_version} with runtime health readback"
+                                ),
+                                SOURCE_CLI_MANAGED_CONTROL,
+                            ));
+                            continue;
+                        }
+                        Err(error) => {
+                            response.ok = false;
+                            response.exit_code = LinuxCliExitCode::GeneralFailure;
+                            response.diagnostics = previous_diagnostics;
+                            response.diagnostics.push(cli_diagnostic(
+                                DiagnosticSeverity::Error,
+                                CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_FAILED_CODE,
+                                format!(
+                                    "managed runtime rollback health readback failed: {}",
+                                    error.message
+                                ),
+                                SOURCE_CLI_MANAGED_CONTROL,
+                            ));
+                            return response;
+                        }
+                    }
+                }
+                Err(error) => {
+                    response.ok = false;
+                    response.exit_code = LinuxCliExitCode::GeneralFailure;
+                    response.diagnostics = previous_diagnostics;
+                    response.diagnostics.push(cli_diagnostic(
+                        DiagnosticSeverity::Error,
+                        CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_FAILED_CODE,
+                        format!("managed runtime rollback failed: {}", error.message),
+                        SOURCE_CLI_MANAGED_CONTROL,
+                    ));
+                    return response;
+                }
+            }
+        }
+
         let prepared_snapshot = orchestrator.prepare_runtime_engine(request.clone());
+        let snapshot_failed = prepared_snapshot.is_err();
         match orchestrator.reload_runtime(request.clone()) {
-            Ok(reloaded) => operation = reloaded,
+            Ok(reloaded) => {
+                operation = reloaded;
+                if let Ok(prepared) = prepared_snapshot {
+                    rollback_snapshot = Some((prepared.snapshot, config_version));
+                }
+                config_version += 1;
+                match orchestrator.runtime_health(&engine_id) {
+                    Ok(health) => record_managed_runtime_health(
+                        &runtime_health_snapshot,
+                        &health,
+                        &config_digest,
+                        config_version,
+                    ),
+                    Err(error) => {
+                        response.ok = false;
+                        response.exit_code = LinuxCliExitCode::GeneralFailure;
+                        response.diagnostics = previous_diagnostics;
+                        response.diagnostics.push(cli_diagnostic(
+                            DiagnosticSeverity::Error,
+                            CLI_START_RUNTIME_RELOAD_FAILED_CODE,
+                            format!(
+                                "managed runtime reload health readback failed: {}",
+                                error.message
+                            ),
+                            SOURCE_CLI_START,
+                        ));
+                        return response;
+                    }
+                }
+            }
             Err(error) => {
                 response.ok = false;
                 response.exit_code = LinuxCliExitCode::GeneralFailure;
@@ -9477,7 +9679,7 @@ where
                         SOURCE_CLI_START,
                     )),
                 }
-                if prepared_snapshot.is_err() {
+                if snapshot_failed {
                     response.diagnostics.push(cli_diagnostic(
                         DiagnosticSeverity::Error,
                         CLI_START_RUNTIME_RELOAD_FAILED_CODE,
@@ -9525,6 +9727,10 @@ pub fn handle_managed_control_reload(socket_path: &str, confirm: bool) -> LinuxC
     handle_managed_control_request(socket_path, confirm, ManagedControlRequest::Reload)
 }
 
+pub fn handle_managed_control_rollback(socket_path: &str, confirm: bool) -> LinuxCliResponse {
+    handle_managed_control_request(socket_path, confirm, ManagedControlRequest::Rollback)
+}
+
 pub fn handle_managed_control_status(socket_path: &str) -> LinuxCliResponse {
     let socket_path = socket_path.trim();
     if socket_path.is_empty() || !std::path::Path::new(socket_path).is_absolute() {
@@ -9533,7 +9739,7 @@ pub fn handle_managed_control_status(socket_path: &str) -> LinuxCliResponse {
             LinuxCliExitCode::ArgumentOrConfig,
             cli_diagnostic(
                 DiagnosticSeverity::Error,
-                CLI_MANAGED_CONTROL_SOCKET_RELOAD_FAILED_CODE,
+                CLI_MANAGED_CONTROL_SOCKET_STATUS_FAILED_CODE,
                 "managed foreground control socket path must be absolute",
                 SOURCE_CLI_MANAGED_CONTROL,
             ),
@@ -9560,7 +9766,7 @@ pub fn handle_managed_control_status(socket_path: &str) -> LinuxCliResponse {
                 LinuxCliResponse::success("managed-control status").with_diagnostics(vec![
                     cli_diagnostic(
                         DiagnosticSeverity::Info,
-                        CLI_MANAGED_CONTROL_SOCKET_RELOAD_READY_CODE,
+                        CLI_MANAGED_CONTROL_SOCKET_STATUS_READY_CODE,
                         response.trim().to_string(),
                         SOURCE_CLI_MANAGED_CONTROL,
                     ),
@@ -9571,7 +9777,7 @@ pub fn handle_managed_control_status(socket_path: &str) -> LinuxCliResponse {
                 LinuxCliExitCode::GeneralFailure,
                 cli_diagnostic(
                     DiagnosticSeverity::Error,
-                    CLI_MANAGED_CONTROL_SOCKET_RELOAD_FAILED_CODE,
+                    CLI_MANAGED_CONTROL_SOCKET_STATUS_FAILED_CODE,
                     "managed foreground control socket returned an invalid runtime status response",
                     SOURCE_CLI_MANAGED_CONTROL,
                 ),
@@ -9581,7 +9787,7 @@ pub fn handle_managed_control_status(socket_path: &str) -> LinuxCliResponse {
                 LinuxCliExitCode::GeneralFailure,
                 cli_diagnostic(
                     DiagnosticSeverity::Error,
-                    CLI_MANAGED_CONTROL_SOCKET_RELOAD_FAILED_CODE,
+                    CLI_MANAGED_CONTROL_SOCKET_STATUS_FAILED_CODE,
                     format!("managed foreground runtime status failed: {error}"),
                     SOURCE_CLI_MANAGED_CONTROL,
                 ),
@@ -9594,7 +9800,7 @@ pub fn handle_managed_control_status(socket_path: &str) -> LinuxCliResponse {
         LinuxCliExitCode::Unavailable,
         cli_diagnostic(
             DiagnosticSeverity::Error,
-            CLI_MANAGED_CONTROL_SOCKET_RELOAD_FAILED_CODE,
+            CLI_MANAGED_CONTROL_SOCKET_STATUS_FAILED_CODE,
             "managed foreground control sockets require Unix",
             SOURCE_CLI_MANAGED_CONTROL,
         ),
@@ -9611,10 +9817,12 @@ fn handle_managed_control_request(
     let ready_code = match request {
         ManagedControlRequest::Stop => CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE,
         ManagedControlRequest::Reload => CLI_MANAGED_CONTROL_SOCKET_RELOAD_READY_CODE,
+        ManagedControlRequest::Rollback => CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_READY_CODE,
     };
     let failed_code = match request {
         ManagedControlRequest::Stop => CLI_MANAGED_CONTROL_SOCKET_STOP_FAILED_CODE,
         ManagedControlRequest::Reload => CLI_MANAGED_CONTROL_SOCKET_RELOAD_FAILED_CODE,
+        ManagedControlRequest::Rollback => CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_FAILED_CODE,
     };
     if !confirm {
         return LinuxCliResponse::failure(
@@ -16442,6 +16650,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux connect --config <path> [same explicit foreground options as start]\n",
         "  networkcore-linux stop [--managed-control-socket <absolute-path> --confirm] [--format text|json]\n",
         "  networkcore-linux reload --managed-control-socket <absolute-path> --confirm [--format text|json]\n",
+        "  networkcore-linux rollback --managed-control-socket <absolute-path> --confirm [--format text|json]\n",
         "  networkcore-linux status --managed-control-socket <absolute-path> [--format text|json]\n",
         "  networkcore-linux disconnect [--format text|json]\n",
         "  networkcore-linux restart [--config <path>] [--format text|json]\n",

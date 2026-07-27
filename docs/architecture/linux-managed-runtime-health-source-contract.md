@@ -1,6 +1,6 @@
 # Linux Managed Runtime Health Source Contract
 
-`linux-managed-runtime-health-source-contract=proposed`
+`linux-managed-runtime-health-source-contract=active-source-contract`
 
 ## Scope
 
@@ -32,18 +32,23 @@ health boolean plus a running engine state; PID presence alone is insufficient.
 ## Mutation Protocol
 
 Managed reload captures an adapter-owned `ProxyEnginePrepareReport` before the
-mutation, records the expected state and configuration version, then performs
-the existing `RuntimeOrchestrator::reload_runtime`. The foreground owner must
-read health back after the reload. Failed reload automatically restores the
-prepared snapshot through `rollback_runtime_engine`; a failed restore returns a
-stable redacted rollback failure and records a failed runtime snapshot.
+mutation, preserves it as the last successful rollback snapshot with its
+configuration version, then performs the existing
+`RuntimeOrchestrator::reload_runtime`. The foreground owner reads health back
+after the reload and advances the status version only after that readback.
+Failed reload automatically restores the prepared snapshot through
+`rollback_runtime_engine` with expected state `Running`; a failed restore
+returns a stable redacted rollback failure and records a failed runtime
+snapshot.
 
-`managed-runtime rollback` must require an explicit socket path, expected
-state, expected configuration version, and confirmation. It may only restore a
-snapshot owned by the same foreground session. After rollback it reads health
-back and returns the resulting version and evidence. Repeated rollback of an
-already restored version is idempotent; conflicting state or version never
-writes a runtime configuration.
+`networkcore-linux rollback --managed-control-socket <absolute-path> --confirm`
+may only restore the foreground owner's retained prior-successful snapshot. It
+requires the same explicit socket and confirmation boundary as reload. The
+owner checks that the retained version is older than the active version and
+passes expected state `Running` to the adapter; absent or conflicting snapshots
+are rejected without a runtime write. After rollback it reads health back and
+returns the restored version and evidence. A second rollback without a newly
+successful reload is rejected as having no retained prior version.
 
 All socket reads and writes retain the existing two-second deadline and 64-byte
 request bound. Runtime snapshots never contain raw configuration, subscription
@@ -51,7 +56,9 @@ locations, credentials, tokens, certificate private keys, or full share links.
 
 ## Verification
 
-GitHub Actions contract tests must cover healthy readback, listener failure,
-expected-state/version conflict, reload failure with successful automatic
-restore, restore failure, explicit rollback readback, timeout, and redaction.
-No local build, test, or formatting command is used for this contract.
+GitHub Actions contract tests cover the explicit CLI parse/confirmation path,
+owner interruption handoff, stable diagnostics, bounded socket behavior, and
+the reload failure restore path. Adapter failure matrices, listener failure,
+and full retained-snapshot rollback readback remain CI coverage work for this
+P3 slice. No local build, test, or formatting command is used for this
+contract.
