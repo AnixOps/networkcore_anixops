@@ -2005,6 +2005,14 @@ fn controlled_tls_server_config_performs_authenticated_handshake_and_decrypts_re
 
     assert!(server_config_report.server_config_ready);
     assert_eq!(server_config_report.authority, "example.com");
+    assert_eq!(
+        server_config_report
+            .server_config
+            .as_ref()
+            .expect("downstream server config should be available")
+            .alpn_protocols,
+        vec![b"http/1.1".to_vec()]
+    );
     assert_diagnostic(
         &server_config_report.diagnostics,
         ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SERVER_CONFIG_READY_CODE,
