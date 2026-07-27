@@ -202,7 +202,7 @@ Linux 矩阵前置条件还包括 [Linux package artifact manifest generation va
 
 ## 版本与回滚
 
-- 版本号采用 `vMAJOR.MINOR.PATCH` tag 形式，alpha、beta 和 rc 预发布版本分别使用 `vMAJOR.MINOR.PATCH-alpha.N`、`vMAJOR.MINOR.PATCH-beta.N` 和 `vMAJOR.MINOR.PATCH-rc.N`；当前 release policy gate 已按该格式检查手动版本输入与 tag 名。
+- 版本号采用 `vMAJOR.MINOR.PATCH` tag 形式，alpha、beta 和 rc 预发布版本分别使用 `vMAJOR.MINOR.PATCH-alpha.N`、`vMAJOR.MINOR.PATCH-beta.N` 和 `vMAJOR.MINOR.PATCH-rc.N`；为保持 Windows Installer 版本排序，`N` 分别只能为 `1-499`、`1-399` 和 `1-98`。当前 release policy gate 已按该格式和范围检查手动版本输入与 tag 名。
 - 任何 release 修复都通过新 tag 发布，不覆盖已发布 tag。
 - 如果 release 失败在发布前发生，删除 draft 或 failed run artifact 即可；如果 release asset 已公开，必须发布撤回说明并以新版本替换。
 - iOS 和商店渠道回滚依赖 App Store Connect 或对应商店能力，必须在发布说明中记录可用路径。

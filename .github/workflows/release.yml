@@ -70,6 +70,20 @@ jobs:
             release_kind=prerelease
           fi
 
+          if [[ "${RELEASE_VERSION}" =~ -(alpha|beta|rc)\.([0-9]+)$ ]]; then
+            release_channel="${BASH_REMATCH[1]}"
+            release_sequence=$((10#${BASH_REMATCH[2]}))
+            case "${release_channel}" in
+              alpha) max_sequence=499 ;;
+              beta) max_sequence=399 ;;
+              rc) max_sequence=98 ;;
+            esac
+            if (( release_sequence < 1 || release_sequence > max_sequence )); then
+              echo "::error::${release_channel} release sequence must be between 1 and ${max_sequence} to preserve Windows Installer version ordering."
+              exit 1
+            fi
+          fi
+
           case "${RELEASE_EVENT}" in
             workflow_dispatch)
               if [ "${RELEASE_REF_TYPE}" != "branch" ] || [ "${RELEASE_REF_NAME}" != "main" ]; then
@@ -966,6 +980,16 @@ jobs:
           $patch = [int]$Matches[3]
           $channel = $Matches[4]
           $sequence = if ($Matches[5]) { [int]$Matches[5] } else { 0 }
+          if ($channel) {
+            $maxSequence = switch ($channel) {
+              "alpha" { 499 }
+              "beta" { 399 }
+              "rc" { 98 }
+            }
+            if ($sequence -lt 1 -or $sequence -gt $maxSequence) {
+              throw "$channel release sequence must be between 1 and $maxSequence to preserve Windows Installer version ordering."
+            }
+          }
           $msiBuild = $patch * 1000
           if ($channel -eq "alpha") {
             $msiBuild += $sequence
