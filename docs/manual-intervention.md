@@ -162,6 +162,59 @@ subscription URLs, or full traffic contents:
    repeat the matching request, and record the deferred fail-open result with no
    Node execution.
 
+## Linux Artifact And Managed-Service Acceptance
+
+GitHub Actions verifies the Linux archive layout, checksum/manifest pair,
+attestation request, and injected systemd contracts. It cannot prove a real
+Ubuntu LTS/systemd host's privilege boundary, service manager behavior, desktop
+proxy restoration, or operator-controlled upgrade and removal. Before treating
+the Linux artifact or managed-service path as operational, retain the following
+protected operator evidence without subscription URLs, credentials, CA private
+keys, or complete log content:
+
+1. Download one tagged Linux archive and its four release files (archive,
+   archive checksum, manifest, and manifest checksum). Verify both checksums,
+   inspect the manifest file list, and extract into a versioned user-selected
+   directory. Confirm the archive has no installer, systemd unit, private key,
+   or third-party core binary and that `networkcore-linux version` runs from the
+   extracted `bin` path without root.
+2. On a supported Ubuntu LTS host with systemd, confirm plain `status` remains
+   platform-only and that unsupported or non-systemd environments return the
+   documented stable boundary instead of discovering a daemon or modifying host
+   state. Preserve only command exit codes and stable diagnostic codes.
+3. With a disposable non-root service account, install one named NetworkCore
+   unit using explicit executable, state directory, and `--confirm`. Record the
+   pre-write unit snapshot, exact readback verification, `systemctl` action
+   result, and the unit's bounded restart policy. Reinstall unchanged content
+   to prove idempotence, then introduce an external unit-file change and prove
+   the operation refuses to overwrite it.
+4. Exercise `connect`, `disconnect`, `restart`, `status --service-unit`, and
+   `service reload` against that same named unit. Record that each mutation
+   requires explicit confirmation, affects no other unit, and that failure does
+   not claim a running runtime. Force-stop the service and record the cleanup
+   of its owned listener/process and any explicit environment-proxy rollback.
+5. Install one explicit subscription refresh timer with a redacted test source.
+   Record daemon reload, timer activation, one bounded refresh result, stop,
+   and uninstall. Confirm the timer/service pair removal retains the refresh
+   status record and does not restart a core or switch a node.
+6. Upgrade by extracting a second verified archive to a separate versioned
+   directory, preserving the prior directory and its checksum evidence. Point
+   the explicitly managed unit at the new binary only through the documented
+   snapshot-protected update path, then restore the previous binary and verify
+   the service and selected explicit configuration recover. Do not replace an
+   archive in place.
+7. Uninstall using the original unit name and state directory with
+   `uninstall-service --confirm`. Verify only the NetworkCore-owned unit is
+   removed, its non-overwriting snapshot remains, no unrelated unit or state
+   directory is deleted, and the extracted version directory can then be
+   removed manually. If trust-file mutation was exercised, run the matching
+   `mitm certificate trust-rollback --confirm` first and retain its readback
+   evidence.
+
+These proofs complement the GitHub Actions contracts; their absence means the
+Linux artifact and managed-service paths remain source/CI validated rather than
+manually accepted on the target host.
+
 ## Windows Tauri Dependency Lock Refresh
 
 The Windows GUI now declares Tauri and a pnpm-managed React frontend. Repository
