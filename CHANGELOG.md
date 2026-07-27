@@ -33,6 +33,10 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 ### Changed
 
+- Manual intervention now requires Ubuntu/systemd trust-file lifecycle, bounded
+  HTTP/1.1 rewrite, pinning fail-closed, HTTP/2/HTTP/3 exclusion, and local
+  script-hash drift evidence before HTTPS MITM is described as operational.
+
 - Linux MITM HTTP rewrite reports now explicitly mark certificate/public-key
   pinning bypass, HTTP/2 MITM, and HTTP/3/QUIC MITM unsupported. These states
   are machine-readable fields and blocked operations; NetworkCore does not

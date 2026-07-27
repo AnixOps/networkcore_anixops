@@ -95,8 +95,11 @@ experience production-ready:
     local HTTP(S)-URL-to-script mapping, and, when used, a writable local
     persistent store. Start the service and send matching traffic through the
     managed listener. Preserve the native script-executed diagnostic and the
-    resulting traffic evidence, then stop the service, clear the runtime, and
-    confirm the next start neither loads the policy nor emits that diagnostic.
+    resulting traffic evidence. While that service remains running, replace the
+    mapped asset and repeat the matching request: record the deferred/fail-open
+    diagnostic and confirm no Node execution occurs for the changed asset. Then
+    stop the service, clear the runtime, and confirm the next start neither
+    loads the policy nor emits that diagnostic.
 12. Import a native sing-box profile containing both a selector and a
     non-selector outbound group. With the service stopped, record the listed
     groups, switch the selector default to a listed member, and replace one
@@ -117,6 +120,46 @@ trusted MITM CA, locally approved Node runner and script assets, or authoritativ
 live traffic through the interactive desktop proxy. The above evidence complements,
 rather than replaces, the GitHub Actions Rust, TypeScript, MSI, and portable-package
 verification.
+
+## Linux HTTP/1.1 MITM Acceptance
+
+GitHub Actions covers source contracts, disposable loopback TLS exchanges, and
+the Ubuntu-style trust-file command boundary. It cannot certify a supported
+Ubuntu LTS host's trust database, browser behavior, certificate pinning, or
+real HTTP/2/HTTP/3 application behavior. Before describing Linux HTTPS MITM as
+operational, retain the following protected operator evidence without CA keys,
+subscription URLs, or full traffic contents:
+
+1. On a supported Ubuntu/systemd baseline, use `networkcore-linux mitm
+   certificate apply --confirm` with explicit artifact and snapshot paths.
+   Record that the generated CA private key is a regular `0600` file and that
+   certificate artifact rollback removes only the matching NetworkCore-created
+   files. Do not record the private key or its PEM content.
+2. Use explicit `mitm certificate trust-apply --cert-file`, `--trust-file`,
+   `--snapshot`, and `--confirm`; capture the before/after trust-file and
+   refresh evidence. Use `trust-rollback` and confirm snapshot-verified removal
+   restores the prior trust-file state without touching unrelated certificates.
+3. Start only an explicitly confirmed HTTP/1.1 MITM session with the generated
+   CA material. Record authority/SNI match success, a controlled SNI mismatch
+   failure, web-PKI upstream verification, bounded request/response exchange,
+   and disable/rollback evidence. A failed start must not leave a new trust-file
+   or proxy mutation behind.
+4. Send bounded HTTP/1.1 request and response rewrite fixtures through the
+   explicit proxy. Capture reject, redirect, header, and allowed content-type/
+   body-size rewrite evidence, plus one oversized or disallowed-content failure
+   that leaves the original response unmodified.
+5. Preserve the JSON report values
+   `certificate_pinning_bypass_supported=false`, `http2_mitm_supported=false`,
+   and `http3_quic_mitm_supported=false`. Test an application with certificate
+   or public-key pinning and confirm its handshake fails closed: NetworkCore
+   must not claim a bypass. Confirm HTTP/2 and HTTP/3/QUIC traffic remains out
+   of scope and that no UDP/QUIC listener or HTTP/2 interception behavior is
+   introduced.
+6. For an explicitly configured local script asset, retain its authorized
+   SHA-256 and one successful bounded dispatch. Replace the asset while the
+   runtime remains active, repeat the matching request, and record the deferred
+   fail-open result with no Node execution. Do not treat this integrity check as
+   a network or subprocess sandbox validation.
 
 ## Windows Tauri Dependency Lock Refresh
 
