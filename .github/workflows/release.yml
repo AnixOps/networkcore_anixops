@@ -605,8 +605,10 @@ jobs:
           2. Extract ${archive_name} into a versioned directory you control.
           3. Run bin/networkcore-linux directly or add that bin directory to PATH.
 
-          This artifact does not install a system service, grant capabilities, modify DNS,
-          routes, firewall rules, certificate trust stores, or background daemon state.
+          Extracting this artifact does not install a system service, grant capabilities, modify DNS,
+          routes, firewall rules, certificate trust stores, or background daemon state. Separate
+          explicit confirmed CLI commands may manage a named NetworkCore systemd unit, an explicit
+          environment-proxy snapshot, or an Ubuntu trust-file path with their documented rollback boundaries.
 
           ## Optional local script runtime
 
@@ -702,7 +704,7 @@ jobs:
                 {path: "CHANGELOG.md", kind: "changelog", required: true, source: "CHANGELOG.md"}
               ],
               install_model: "manual-extract",
-              system_mutation_policy: "none",
+              system_mutation_policy: "no-implicit-mutation; explicit-confirmed-cli-with-snapshot-readback-rollback",
               license_notice_status: "confirmed",
               signing: {
                 signing_policy: "unsigned-no-detached-signature",
@@ -806,7 +808,7 @@ jobs:
             echo "| Manifest sha256 | ${manifest_checksum_value} |"
             echo "| Target | ${target} |"
             echo "| Install model | manual-extract |"
-            echo "| System mutation policy | none |"
+            echo "| System mutation policy | no implicit mutation; explicit confirmed CLI commands only |"
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload Linux release bundle
