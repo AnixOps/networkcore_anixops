@@ -532,6 +532,17 @@ fn managed_runtime_rolls_back_proxy_when_sing_box_exits_after_start() {
     let sing_box_config = root.join("sing-box.json");
     fs::write(&sing_box_config, "{}").expect("fake sing-box config writes");
     let mut config = fixture_config(false);
+    let listener =
+        TcpListener::bind(("127.0.0.1", 0)).expect("managed proxy readiness listener should bind");
+    let listener_port = listener
+        .local_addr()
+        .expect("managed proxy readiness listener should expose a port")
+        .port();
+    config
+        .system_proxy
+        .as_mut()
+        .expect("fixture config should enable the managed system proxy")
+        .server = format!("127.0.0.1:{listener_port}");
     config.sing_box = Some(WindowsManagedSingBoxConfig {
         enabled: true,
         executable_path: executable,
@@ -564,6 +575,7 @@ fn managed_runtime_rolls_back_proxy_when_sing_box_exits_after_start() {
             Err(error) => Some(error),
         })
         .expect("sing-box exit must become a managed runtime health failure");
+    drop(listener);
     assert_eq!(failure.code, "windows.managed.runtime_failed");
     assert!(failure
         .message
