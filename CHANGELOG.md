@@ -23,7 +23,9 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 - Added the platform-neutral `PublicEngineRunPlan`: SS, Trojan, VLESS, VMess,
   Hysteria2, and TUIC route to sing-box while `mierus://` routes to engine-mieru.
   Linux `run-url` and `run-catalog` now require explicit Mieru binary/digest,
-  atomically render config, apply/start, and verify its loopback listener.
+  atomically render config, apply/start, verify official status, and verify its
+  loopback listener. Explicit Linux `core start mieru` follows the same
+  status/listener order and stops Mieru on failed readback.
   Windows NodeCatalog import uses the same routing plan and an already enabled
   managed Mieru configuration. Failures are redacted, stable, and retain the
   prior configured core.

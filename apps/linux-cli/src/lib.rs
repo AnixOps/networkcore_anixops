@@ -8569,6 +8569,18 @@ pub fn handle_start_mieru_with_runner<R: engine_mieru::MieruCommandRunner>(
     };
     match engine_mieru::apply_and_start_mieru_client(runner, &request) {
         Ok(report) => {
+            let status = match engine_mieru::status_mieru_client(runner, &request) {
+                Ok(status) => status,
+                Err(error) => {
+                    let _ = engine_mieru::stop_mieru_client(runner, &request);
+                    return domain_error_response(
+                        "core start mieru",
+                        LinuxCliExitCode::EngineDenied,
+                        error,
+                        SOURCE_CLI_RUNTIME,
+                    );
+                }
+            };
             let listener = match engine_mieru::read_mieru_local_listener_config(&config) {
                 Ok(listener) => listener,
                 Err(error) => {
@@ -8598,6 +8610,7 @@ pub fn handle_start_mieru_with_runner<R: engine_mieru::MieruCommandRunner>(
                 }
             };
             let mut diagnostics = report.diagnostics;
+            diagnostics.extend(status.diagnostics);
             diagnostics.extend(readiness.diagnostics);
             LinuxCliResponse::success("core start mieru")
                 .with_mieru_install(mieru_control_status(&request, "start"))
@@ -11191,6 +11204,23 @@ fn run_mieru_public_engine_plan(
             );
         }
     };
+    let status = match engine_mieru::status_mieru_client(&runner, &request) {
+        Ok(status) => status,
+        Err(error) => {
+            let _ = engine_mieru::stop_mieru_client(&runner, &request);
+            let _ = rollback_mieru_client_config(
+                &config_path,
+                &write_report.snapshot_path.unwrap_or_default(),
+                write_report.snapshot_written,
+            );
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::GeneralFailure,
+                DomainError::new(CLI_RUN_URL_MIERU_START_FAILED_CODE, error.message),
+                "cli.mieru",
+            );
+        }
+    };
     let listener = match wait_for_mieru_listener(listen_host, listen_port, Duration::from_secs(5)) {
         Ok(listener) => listener,
         Err(error) => {
@@ -11211,6 +11241,7 @@ fn run_mieru_public_engine_plan(
     let mut diagnostics = document_diagnostics.to_vec();
     diagnostics.extend(rendered.diagnostics);
     diagnostics.extend(report.diagnostics);
+    diagnostics.extend(status.diagnostics);
     diagnostics.extend(listener.diagnostics);
     LinuxCliResponse::success("run-url")
         .with_diagnostics(diagnostics)

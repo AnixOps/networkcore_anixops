@@ -83,11 +83,12 @@
   binary，也不静默下载 release。Mieru executable 必须由 operator 提供并以
   显式 SHA-256 校验。
 - Linux CLI 的 `core start mieru` / `core stop mieru` 和 Windows managed
-  service 调用官方 `apply config`、`start`、`stop` 命令。Windows managed
-  state 记录 command-backed 状态，不虚构由 service 持有的 PID。
+  service 调用官方 `apply config`、`start`、`status`、`stop` 命令。Linux
+  start/run-url 与 Windows service 在成功 status 后读取精确 SOCKS5 listener；
+  Windows managed state 记录 command-backed 状态，不虚构由 service 持有的 PID。
 - `mierus://` 解析和配置渲染保留 TCP、凭据、端口范围、MTU、multiplexing 和
-  handshake 字段；UDP、traffic-pattern protobuf、listener readiness 和官方
-  release download 在取得真实合同前保持未宣称。
+  handshake 字段；UDP、traffic-pattern protobuf 和未确认的官方 release
+  download 在取得真实合同前保持未宣称。
 
 ## MITM 边界
 
