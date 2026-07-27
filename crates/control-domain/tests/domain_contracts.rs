@@ -6,8 +6,8 @@ use control_domain::{
     PlatformCapabilityStatus, PlatformFeatureState, Protocol, ProxyEngineAdapter,
     ProxyEngineCapability, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
     ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
-    PublicEngineKind, PublicEngineRunPlan, RawSubscription, RouteAction, RuleSet, SchemaVersion, SubscriptionDocument,
-    SubscriptionService, SubscriptionSource,
+    PublicEngineKind, PublicEngineRunPlan, RawSubscription, RouteAction, RuleSet, SchemaVersion,
+    SubscriptionDocument, SubscriptionService, SubscriptionSource,
 };
 
 struct NoopConfigurationService;

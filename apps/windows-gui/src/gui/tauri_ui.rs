@@ -9,12 +9,13 @@ use super::{
     profile_node_options, profile_node_options_from_selector, write_diagnostic_report_at,
 };
 use config_core::CoreSubscriptionService;
-use control_domain::{PublicEngineKind, PublicEngineRunPlan, SubscriptionService, SubscriptionSource};
+use control_domain::{
+    PublicEngineKind, PublicEngineRunPlan, SubscriptionService, SubscriptionSource,
+};
 use engine_mieru::{
     download_latest_mieru_release, mieru_node_from_descriptor, render_mieru_client_config,
-    rollback_mieru_client_config,
-    verify_local_mieru_binary, write_mieru_client_config, MieruClientConfigRequest,
-    MieruClientConfigWriteRequest, MieruReleaseDownloadRequest,
+    rollback_mieru_client_config, verify_local_mieru_binary, write_mieru_client_config,
+    MieruClientConfigRequest, MieruClientConfigWriteRequest, MieruReleaseDownloadRequest,
 };
 use engine_singbox::{
     inspect_sing_box_native_config, measure_sing_box_clash_api_outbound_delay,
@@ -28,9 +29,9 @@ use platform_windows::managed::{
     read_managed_state, windows_managed_config_path, windows_managed_data_directory,
     windows_managed_log_directory, windows_managed_state_path, write_managed_config,
     write_managed_state, write_managed_text_atomic, WindowsManagedConfig,
-    WindowsManagedNativeMitmConfig, WindowsManagedNativeMitmScriptRuntimeConfig,
-    WindowsManagedMieruConfig, WindowsManagedSingBoxConfig, WindowsManagedTunnelConfig, WindowsProxySettings,
-    WindowsSystemProxyOwner,
+    WindowsManagedMieruConfig, WindowsManagedNativeMitmConfig,
+    WindowsManagedNativeMitmScriptRuntimeConfig, WindowsManagedSingBoxConfig,
+    WindowsManagedTunnelConfig, WindowsProxySettings, WindowsSystemProxyOwner,
 };
 use platform_windows::system_integration::{
     current_user_startup_enabled, disable_current_user_startup, enable_current_user_startup,

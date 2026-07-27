@@ -391,19 +391,39 @@ pub fn mieru_node_from_descriptor(node: &NodeDescriptor) -> DomainResult<MieruNo
             .map(|entry| entry.value.as_str())
     };
     let required = |key: &str| {
-        metadata(key).filter(|value| !value.trim().is_empty()).map(str::to_string).ok_or_else(|| {
-            DomainError::new(MIERU_CONFIG_INVALID_CODE, "Mieru node is missing required credential metadata")
-        })
+        metadata(key)
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| {
+                DomainError::new(
+                    MIERU_CONFIG_INVALID_CODE,
+                    "Mieru node is missing required credential metadata",
+                )
+            })
     };
     let parse_optional_u16 = |key: &str| -> DomainResult<Option<u16>> {
-        metadata(key).map(|value| value.parse::<u16>().map_err(|_| DomainError::new(
-            MIERU_CONFIG_INVALID_CODE, "Mieru node has invalid numeric metadata",
-        ))).transpose()
+        metadata(key)
+            .map(|value| {
+                value.parse::<u16>().map_err(|_| {
+                    DomainError::new(
+                        MIERU_CONFIG_INVALID_CODE,
+                        "Mieru node has invalid numeric metadata",
+                    )
+                })
+            })
+            .transpose()
     };
     let parse_optional_bool = |key: &str| -> DomainResult<Option<bool>> {
-        metadata(key).map(|value| value.parse::<bool>().map_err(|_| DomainError::new(
-            MIERU_CONFIG_INVALID_CODE, "Mieru node has invalid boolean metadata",
-        ))).transpose()
+        metadata(key)
+            .map(|value| {
+                value.parse::<bool>().map_err(|_| {
+                    DomainError::new(
+                        MIERU_CONFIG_INVALID_CODE,
+                        "Mieru node has invalid boolean metadata",
+                    )
+                })
+            })
+            .transpose()
     };
     Ok(MieruNodeConfig {
         username: required("mieru.username")?,

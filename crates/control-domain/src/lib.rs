@@ -387,8 +387,7 @@ pub struct PublicEngineRunPlan {
     pub node: NodeDescriptor,
 }
 
-pub const PUBLIC_ENGINE_RUN_PLAN_NODE_MISSING_CODE: &str =
-    "public_engine.run_plan.node_missing";
+pub const PUBLIC_ENGINE_RUN_PLAN_NODE_MISSING_CODE: &str = "public_engine.run_plan.node_missing";
 
 impl PublicEngineRunPlan {
     pub fn select(nodes: &[NodeDescriptor], selected_node_id: Option<&str>) -> DomainResult<Self> {
@@ -396,10 +395,12 @@ impl PublicEngineRunPlan {
             Some(id) => nodes.iter().find(|node| node.id == id),
             None => nodes.first(),
         }
-        .ok_or_else(|| DomainError::new(
-            PUBLIC_ENGINE_RUN_PLAN_NODE_MISSING_CODE,
-            "the selected public proxy node is not available",
-        ))?;
+        .ok_or_else(|| {
+            DomainError::new(
+                PUBLIC_ENGINE_RUN_PLAN_NODE_MISSING_CODE,
+                "the selected public proxy node is not available",
+            )
+        })?;
         Ok(Self {
             engine: if node.protocol == Protocol::Mieru {
                 PublicEngineKind::Mieru
