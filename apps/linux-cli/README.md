@@ -5,7 +5,7 @@ systemd unit through `platform-linux::systemd`; optional `--service-unit`, `--se
 `--service-arg`, `--service-user`, `--service-group`, and `--service-state-dir` parameters are included in
 the unit. Existing units are snapshotted under the selected state directory before replacement and the written
 content is verified. The command does not call `systemctl`, enable a unit, or start a service. `networkcore-linux
-service start|stop|restart|reload|status --service-unit <name> --confirm` controls one explicit systemd unit through
+service start|stop|restart|status --service-unit <name> --confirm` controls one explicit systemd unit through
 `systemctl`; it never enables units and status uses `systemctl is-active`. The source boundary is documented in
 `docs/architecture/linux-managed-service-unit-source-contract.md`.
 `reload` sends `systemctl reload` to the managed unit; installation uses the separate `systemctl daemon-reload`

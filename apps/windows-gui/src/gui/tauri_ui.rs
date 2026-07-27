@@ -1554,7 +1554,10 @@ fn import_mieru_subscription_plan(
     })
     .map_err(|error| error.message)?;
     managed.sing_box = None;
-    managed.mieru = Some(WindowsManagedMieruConfig { enabled: true, ..mieru.clone() });
+    managed.mieru = Some(WindowsManagedMieruConfig {
+        enabled: true,
+        ..mieru.clone()
+    });
     managed.system_proxy = Some(WindowsProxySettings {
         enabled: true,
         server: format!("{}:{}", mieru.socks5_host, mieru.socks5_port),
