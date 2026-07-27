@@ -24,8 +24,6 @@
 
 `Cargo.lock` 必须随源码受版本控制；CI、依赖审计与 tag 发布均使用 `--locked`，发布工作流不得临时生成或改写依赖图。
 
-`current-main-subscription-background=linux-systemd-oneshot-timer-active`
-
 ## Workflow 分工
 
 ### CI

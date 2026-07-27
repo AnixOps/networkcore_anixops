@@ -628,7 +628,7 @@ jobs:
             grep -qx 'current-main-latest-published-tag=v0.2.0-alpha.21' "${governance_document}"
             grep -qx 'current-main-latest-stable-tag=v0.1.0' "${governance_document}"
             grep -qx 'current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active' "${governance_document}"
-            grep -qx 'current-main-subscription-background=linux-systemd-oneshot-timer-active' "${governance_document}"
+            grep -qx 'current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active' "${governance_document}"
           done
           if grep -Fq 'remote/file fetch and managed background control remain unavailable' docs/alpha-release-feature-matrix.md; then
             echo "::error::Feature matrix must distinguish explicit foreground file/HTTP fetch from blocked background control."

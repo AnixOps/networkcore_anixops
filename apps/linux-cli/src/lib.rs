@@ -11,7 +11,8 @@ use control_domain::{
     MitmPluginService, OperatingSystem, PlatformCapabilityService, PlatformCapabilityStatus,
     PlatformFeatureState, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
     ProxyEngineLifecycleState, ProxyEngineRollbackRequest, ProxyEngineService, ProxyEngineStatus,
-    PublicEngineKind, PublicEngineRunPlan, RawSubscription, SubscriptionService, SubscriptionSource,
+    PublicEngineKind, PublicEngineRunPlan, RawSubscription, SubscriptionService,
+    SubscriptionSource,
 };
 use control_runtime::{RuntimeConfigRequest, RuntimeOperationResult, RuntimeOrchestrator};
 use engine_mieru::{
@@ -9280,12 +9281,7 @@ where
     let mut response = match orchestrator.start_runtime(request.clone()) {
         Ok(result) => {
             if let Ok(health) = orchestrator.runtime_health(DEFAULT_ENGINE_ID) {
-                record_managed_runtime_health(
-                    &runtime_health_snapshot,
-                    &health,
-                    &config_digest,
-                    1,
-                );
+                record_managed_runtime_health(&runtime_health_snapshot, &health, &config_digest, 1);
             }
             if let Some(recorder) = managed_recorder.as_ref() {
                 if let Err(error) =
@@ -9532,9 +9528,10 @@ where
             .diagnostics
             .iter()
             .any(|diagnostic| diagnostic.code == CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE);
-        let rollback_requested = response.diagnostics.iter().any(|diagnostic| {
-            diagnostic.code == CLI_START_MANAGED_CONTROL_ROLLBACK_REQUESTED_CODE
-        });
+        let rollback_requested = response
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == CLI_START_MANAGED_CONTROL_ROLLBACK_REQUESTED_CODE);
         if reload_requested || rollback_requested {
             response
                 .diagnostics
