@@ -15,6 +15,7 @@ use engine_native::{
     NativeProxyEngineService, NativeTlsMitmCaMaterial, DEFAULT_NATIVE_ENGINE_ID,
 };
 use engine_singbox::{
+    inspect_sing_box_local_selector_snapshot, read_sing_box_clash_api_selector_with_timeout,
     SingBoxManagedProcessRequest, SingBoxManagedProcessState, SingBoxManagedProcessSupervisor,
 };
 use mitm_policy::{builtin_ad_block_plugin_package, AnixOpsMitmPluginService};
@@ -366,6 +367,7 @@ where
                 state.sing_box_running = status.state == SingBoxManagedProcessState::Running;
                 state.sing_box_config_validated = state.sing_box_running;
                 state.sing_box_listener_reachable = false;
+                state.sing_box_control_api_readable = false;
                 state.sing_box_process_id = status.process_id;
                 state.sing_box_exit_code = status.exit_code;
                 state.sing_box_log_path = Some(sing_box.log_path.clone());
@@ -373,6 +375,9 @@ where
                     verify_managed_loopback_listener(proxy)?;
                     state.sing_box_listener_reachable = true;
                 }
+                state.sing_box_control_api_readable = verify_generated_selector_readback(
+                    &sing_box.config_path,
+                )?;
                 self.persist(state)?;
             }
         }
@@ -462,6 +467,7 @@ where
         state.sing_box_running = false;
         state.sing_box_config_validated = false;
         state.sing_box_listener_reachable = false;
+        state.sing_box_control_api_readable = false;
         state.sing_box_process_id = None;
         state.sing_box_exit_code = self.sing_box.status()?.exit_code;
         state.sing_box_log_path = None;
@@ -819,4 +825,20 @@ fn verify_managed_loopback_listener(proxy: &WindowsProxySettings) -> DomainResul
         runtime_error("managed sing-box loopback listener was not reachable after start")
     })?;
     Ok(())
+}
+
+fn verify_generated_selector_readback(config_path: &Path) -> DomainResult<bool> {
+    let content = fs::read_to_string(config_path)
+        .map_err(|_| runtime_error("managed sing-box configuration could not be read for health"))?;
+    let Some(selector) = inspect_sing_box_local_selector_snapshot(&content) else {
+        return Ok(false);
+    };
+    let status = read_sing_box_clash_api_selector_with_timeout(
+        &selector.controller,
+        Duration::from_millis(250),
+    )?;
+    if !selector.outbound_tags.contains(&status.current_outbound_tag) {
+        return Err(runtime_error("managed sing-box selector readback did not match its generated profile"));
+    }
+    Ok(true)
 }

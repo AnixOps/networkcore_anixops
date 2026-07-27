@@ -219,6 +219,7 @@ fn managed_state_retains_rollback_material_for_system_mutations() {
         sing_box_running: false,
         sing_box_config_validated: false,
         sing_box_listener_reachable: false,
+        sing_box_control_api_readable: false,
         sing_box_process_id: None,
         sing_box_exit_code: None,
         sing_box_log_path: None,
@@ -239,6 +240,7 @@ fn managed_state_retains_rollback_material_for_system_mutations() {
     assert!(json["proxy_snapshot"].is_object());
     assert_eq!(json["sing_box_config_validated"], false);
     assert_eq!(json["sing_box_listener_reachable"], false);
+    assert_eq!(json["sing_box_control_api_readable"], false);
     assert_eq!(json["native_mitm_listener"], "127.0.0.1:7890");
     assert!(json["last_error"].is_null());
 }
