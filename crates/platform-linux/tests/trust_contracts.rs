@@ -103,8 +103,9 @@ fn trust_apply_refreshes_and_rollback_restores_snapshot() {
 fn trust_rollback_rejects_external_changes() {
     let root = fixture_root();
     let certificate_path = write_certificate(&root);
-    let trust_file_path = root.join("networkcore-ca.crt");
+    let trust_file_path = root.join("anchors/networkcore-ca.crt");
     let snapshot_path = root.join("networkcore-trust.snapshot.json");
+    fs::create_dir_all(trust_file_path.parent().unwrap()).expect("trust directory should exist");
     let runner = RecordingRefreshRunner::default();
     apply_linux_trust(
         &runner,
@@ -134,7 +135,8 @@ fn trust_rollback_rejects_external_changes() {
 fn trust_refresh_failure_restores_previous_file_and_requires_confirmation() {
     let root = fixture_root();
     let certificate_path = write_certificate(&root);
-    let trust_file_path = root.join("networkcore-ca.crt");
+    let trust_file_path = root.join("anchors/networkcore-ca.crt");
+    fs::create_dir_all(trust_file_path.parent().unwrap()).expect("trust directory should exist");
     fs::write(&trust_file_path, "previous trust\n").expect("previous trust should write");
     let snapshot_path = root.join("networkcore-trust.snapshot.json");
     let runner = RecordingRefreshRunner {

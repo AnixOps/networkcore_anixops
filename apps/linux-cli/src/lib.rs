@@ -2186,6 +2186,7 @@ fn read_tls_mitm_private_key_file(path: &str) -> DomainResult<String> {
     std::fs::read_to_string(path).map_err(|_| private_key_read_error())
 }
 
+#[cfg(unix)]
 fn private_key_protection_error() -> DomainError {
     DomainError::new(
         CLI_START_TLS_MITM_PRIVATE_KEY_PROTECTION_FAILED_CODE,
