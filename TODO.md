@@ -27,7 +27,7 @@ P3 runtime baseline 已完成并保留后续 runtime backlog；当前 TODO 只�
 
 ```text
 current-main-release-state=pending_manual_acceptance
-current-main-source-candidate=v0.2.0-beta.2
+current-main-source-candidate=v0.2.0-beta.3
 current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-run-url=public-engine-run-plan-mieru-and-sing-box-foreground-active
@@ -42,7 +42,7 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 Linux `run-url` supports direct share links in the explicit foreground path.
 
 Linux artifact release-state consistency 已固定为 `linux-artifact-release-state=confirmed-release-path`；
-license/NOTICE 已 confirmed；当前 Windows source release 目标是 `v0.2.0-beta.2`，最新 stable 是
+license/NOTICE 已 confirmed；当前 Windows source release 目标是 `v0.2.0-beta.3`，最新 stable 是
 `v0.1.0`，后续 tag release 仍必须经过同 commit CI、checksum、manifest、attestation、release notes、rollback
 和 publish eligibility gates。`v0.2.0-alpha.20` 将发布 Windows managed-client MSI 与 portable ZIP：
 `apps/windows-cli` 和 `platform-windows` 已作为 Windows source identity 进入 workspace，release workflow
@@ -65,7 +65,7 @@ stop；默认路径、daemon、reload、rollback、runtime status 和 live liven
 
 当前 main 覆盖旧订阅描述：Linux `run-url` 已支持直接 `ss://`、Trojan、VLESS、VMess、Hysteria2/TUIC share links、调用方显式绝对 `file://` UTF-8 subscription 文件、一次前台 HTTP(S) subscription fetch、`--node-id` 单次 catalog 节点选择，以及 Clash YAML、sing-box JSON、Surge、Loon、Quantumult X catalog payload 的 sing-box 前台运行。`run-catalog <catalog-path> <source-id>` 可运行一个保存 source。`subscription refresh start/status/stop` 已支持显式单 HTTP(S) source 的候选验证刷新、脱敏状态与 stop；Linux `subscription refresh schedule install/status/stop/uninstall` 现以显式 oneshot systemd service/timer 承接同一单次入口。默认路径扫描、运行中节点切换和后台 managed runtime 仍未完成。
 
-`v0.2.0-beta.2` 是当前 Windows source release 目标。Tauri/React 桌面命令面已经覆盖连接、节点、订阅、设置、诊断和显式高级运维；下表是当前 source 状态，GitHub Actions 尚未完成锁文件解析与验证。`v0.2.0-alpha.18` 取消 GUI Start/Restart 对 managed proxy 的预写入；服务保存并回滚唯一 runtime proxy snapshot。`v0.2.0-alpha.19` 服务会轮询其拥有的 sing-box process，异常退出后写入 failed transition/exit detail，停止 runtime resources 并回滚 proxy snapshot，再停止 SCM service。
+`v0.2.0-beta.3` 是当前 Windows source release 目标。Tauri/React 桌面命令面已经覆盖连接、节点、订阅、设置、诊断和显式高级运维；下表是当前 source 状态，GitHub Actions 尚未完成锁文件解析与验证。`v0.2.0-alpha.18` 取消 GUI Start/Restart 对 managed proxy 的预写入；服务保存并回滚唯一 runtime proxy snapshot。`v0.2.0-alpha.19` 服务会轮询其拥有的 sing-box process，异常退出后写入 failed transition/exit detail，停止 runtime resources 并回滚 proxy snapshot，再停止 SCM service。
 
 | 状态 | Windows Tauri GUI 范围 |
 | --- | --- |
@@ -165,7 +165,7 @@ P4 backlog buckets：
 - [x] 新增 `engine-singbox` public engine adapter source contract 和 CLI 下载入口：`networkcore-linux help` 输出命令表，`install-sing-box`/`sing-box install` 从官方 GitHub latest release 动态选择当前目标资产、校验 `sha256:` digest、解压缓存 `sing-box` 可执行文件，并输出 `sing_box_install` JSON 字段；仍不把 `sing-box` binary 打进 NetworkCore release artifact，managed daemon/status/logs/reload 继续留给后续 lifecycle 增量。
 - [x] Windows managed client 第一条 sing-box lifecycle 增量：`managed-config.json` 新增可选 `sing_box` block，Windows service 使用 `engine-singbox` managed supervisor，在 `run -c` 前执行 `check -c`，service-owned child 保存 PID/exit code，并把 stdout/stderr 写入显式日志；Windows 官方 ZIP extraction 已加入 adapter，自动 core install orchestration、订阅 runnable path、reload 和 MITM data plane 仍未完成。验证仍只通过 GitHub Actions。
 - [x] 固化公有执行内核 adapter 优先策略和三层维护框架：新增 ADR 0002，明确 NetworkCore 控制层、执行内核 adapter 层、公有执行内核层的职责，优先 `sing-box`，暂缓 `engine-native` 私有协议实现，后续只有在 adapter 路线暴露明确缺口时再扩展自研协议。
-- [x] Linux CLI 二进制发布路径从 `v0.1.0-alpha.2` 打通，Windows managed-client MSI 发布路径从 `v0.2.0-alpha.1` 打通；当前 Windows source release 目标为 `v0.2.0-beta.2`，最新 stable 为 `v0.1.0`。release workflow 只在 GitHub Actions 中执行 `package-linux`/`package-windows`、checksum、manifest、attestation、publish eligibility 和 tag release asset 上传；未运行本地构建、测试或打包。
+- [x] Linux CLI 二进制发布路径从 `v0.1.0-alpha.2` 打通，Windows managed-client MSI 发布路径从 `v0.2.0-alpha.1` 打通；当前 Windows source release 目标为 `v0.2.0-beta.3`，最新 stable 为 `v0.1.0`。release workflow 只在 GitHub Actions 中执行 `package-linux`/`package-windows`、checksum、manifest、attestation、publish eligibility 和 tag release asset 上传；未运行本地构建、测试或打包。
 - [x] 补充 iOS `Package.swift` manifest-only activation validation contract，定义未来独立提交引入 `apps/ios/Package.swift` 时的 manifest-only source scan、target list verification、no Swift source before source gate、Xcode project 继续 blocked、upload workflow enabled marker 继续 blocked、`ios-package-swift-manifest-only-*` release blocked 输出和 `macos-26` GitHub Actions 验证入口；本轮仍不得引入真实 `Package.swift`、Swift source、Swift/Xcode project、`PrivacyInfo.xcprivacy`、Network Extension target、ExportOptions.plist、`.ipa`、`.xcarchive`、`.xcresult`、dSYM bundle、真实签名、TestFlight 上传或 iOS release asset。Linux artifact 继续等待 license/NOTICE confirmed marker，期间不得定义 `package-linux` 或发布 release asset。
 - [x] 实现 P3 subscription catalog runtime gate 源码合同，新增 `RuntimeOrchestrator::prepare_runtime_request_with_subscription_catalogs`、`start_runtime_with_subscription_catalogs` 和 `reload_runtime_with_subscription_catalogs`，基于显式 `SubscriptionService`/`SubscriptionSource` 把 inline `NodeCatalog.nodes` 编排进 `RuntimeConfigRequest.nodes`，用 `runtime.subscription.node_id_duplicate` 拒绝与 `ConfigSnapshot.nodes`、已有 `RuntimeConfigRequest.nodes` 或其他 catalog nodes 重复的 id，并用 `runtime.subscription.rules_deferred` 保持 `NodeCatalog.rules` deferred；`networkcore-linux start` 仍不扫描或消费 subscription catalog。验证仍只通过 GitHub Actions。
 - [x] 补充 P3 subscription catalog runtime orchestration design，定义 `CoreSubscriptionService` 产出的 `NodeCatalog` 如何进入 `RuntimeConfigRequest.nodes`、如何与本地 `ConfigSnapshot.nodes` 去重、如何在策略路由和 DNS 接入前保持诊断稳定；CI governance 静态检查该设计的 `NodeCatalog`、`RuntimeConfigRequest.nodes`、`ConfigSnapshot.nodes`、`ProxyEngineConfig.nodes`、重复 id、rules deferred、no remote/file subscription、no DNS/TUN mutation 和 no daemon/control socket anchors。验证仍只通过 GitHub Actions。
