@@ -1007,8 +1007,8 @@ fn managed_foreground_session_log_cli_reads_bounded_explicit_log() {
         "Authorization:[redacted]"
     );
     assert_eq!(
-        json["managed_foreground_log_tail"]["returned_byte_count"],
-        report.returned_byte_count
+        json["managed_foreground_log_tail"]["returned_byte_count"].as_u64(),
+        Some(report.returned_byte_count as u64)
     );
     assert!(!render_response(&response, OutputFormat::Json).contains("never-store"));
     assert_eq!(
