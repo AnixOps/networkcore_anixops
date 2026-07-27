@@ -137,8 +137,7 @@ mod tests {
 
     #[test]
     fn rejects_any_private_key_path_outside_the_fixed_mitm_location() {
-        let rejected =
-            windows_managed_mitm_private_key_path().with_file_name("other-key.pem");
+        let rejected = windows_managed_mitm_private_key_path().with_file_name("other-key.pem");
         let error = protect_windows_managed_mitm_private_key(&rejected)
             .expect_err("only the fixed NetworkCore MITM key path may be protected");
 

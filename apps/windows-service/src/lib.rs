@@ -231,9 +231,7 @@ where
                 .native_mitm
                 .as_ref()
                 .expect("enabled native MITM configuration was checked above");
-            if let Err(error) =
-                validate_native_mitm_private_key(&native_mitm.ca_private_key_path)
-            {
+            if let Err(error) = validate_native_mitm_private_key(&native_mitm.ca_private_key_path) {
                 state.native_mitm_running = false;
                 state.native_mitm_listener = None;
                 if let Err(revoke_error) = self.revoke_native_mitm_certificate(state) {
@@ -636,10 +634,7 @@ where
 
     /// A private-key ACL drift invalidates the security basis for trusting its
     /// CA. Revoke the managed trust entry before the normal runtime rollback.
-    fn revoke_native_mitm_certificate(
-        &self,
-        state: &mut WindowsManagedState,
-    ) -> DomainResult<()> {
+    fn revoke_native_mitm_certificate(&self, state: &mut WindowsManagedState) -> DomainResult<()> {
         let Some(thumbprint) = state.native_mitm_certificate_sha1.take() else {
             return Ok(());
         };
