@@ -106,7 +106,7 @@ runtime resources.
 | Test delay | Active | One loopback Clash API delay request with the configured timeout. |
 | Fastest node selection | Active | The explicit action and opt-in 30-minute monitor measure imported generated-selector nodes through the loopback controller, select the lowest successful delay, and persist the controller switch. |
 | Check core | Active | One loopback selector read. |
-| Import profile / Update saved URL | Active | Explicit input fetch followed by the existing generated-profile/native-JSON import path while the service is stopped. Fetch failure leaves current managed config untouched. |
+| Import profile / Update saved URL | Active | Explicit input fetch followed by the existing generated-profile/native-JSON import path while the service is stopped. A sing-box plan clears the mutually exclusive Mieru plan; managed-config failure restores the prior sing-box JSON. Fetch failure leaves current managed config untouched. |
 | Automatic subscription refresh | Active | An opt-in monitor attempts the saved HTTP(S) URL once per hour. It uses the same stopped-service import boundary and records an error without replacing the managed configuration when refresh cannot run. |
 | Install sing-box | Active | Existing official-release installer and digest-aware adapter path. |
 | Validate | Active | Managed schema validation and non-mutating `sing-box check -c`. |

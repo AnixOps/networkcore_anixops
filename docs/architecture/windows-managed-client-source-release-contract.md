@@ -92,6 +92,13 @@ a persisted state record alone cannot report a connection. The exact UI control
 and unavailable-feature boundary is documented in
 [Windows GUI Daily Usability](windows-gui-daily-usability.md).
 
+The profile importer accepts a stopped managed service only. A selected public
+run plan activates exactly one core: a sing-box plan clears the Mieru plan, and
+a Mieru plan clears the sing-box plan. If the managed configuration cannot be
+committed after staging sing-box JSON, the importer restores the exact prior
+JSON (or removes the newly staged file); the platform config validator rejects
+any externally supplied double-enabled plan.
+
 The Service assigns each managed sing-box child to a private Windows Job Object
 with kill-on-close semantics. If the Service process exits unexpectedly, Windows
 closes that handle and terminates the owned core; normal stop still performs the

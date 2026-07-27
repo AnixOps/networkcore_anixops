@@ -1465,6 +1465,7 @@ fn import_subscription_at(location: &str, desktop: &mut DesktopState) -> Result<
         .ok_or_else(|| "sing-box config path has no parent directory".to_string())?
         .to_path_buf();
     fs::create_dir_all(&config_parent).map_err(|error| error.to_string())?;
+    let previous_sing_box_config = read_managed_sing_box_config_before_import()?;
     let (proxy, selected_node_id, node_catalog, config_sha256) = if let Some(native) =
         inspect_sing_box_native_config(&payload)
     {
@@ -1527,15 +1528,17 @@ fn import_subscription_at(location: &str, desktop: &mut DesktopState) -> Result<
         bypass: "<local>".to_string(),
     });
     managed.system_proxy_owner = WindowsSystemProxyOwner::Desktop;
-    managed.sing_box = Some(WindowsManagedSingBoxConfig {
-        enabled: true,
+    activate_managed_sing_box_plan(
+        &mut managed,
         executable_path,
-        config_path,
-        working_directory: Some(config_parent),
-        log_path: windows_managed_log_directory().join("sing-box.log"),
-    });
-    write_managed_config(&windows_managed_config_path(), &managed)
-        .map_err(|error| error.to_string())?;
+        config_path.clone(),
+        config_parent,
+    );
+    write_imported_profile_managed_config(
+        &managed,
+        &config_path,
+        previous_sing_box_config.as_deref(),
+    )?;
     desktop.profile_source_path = source_path;
     desktop.profile_source_url = source_url;
     desktop.profile_node_id = selected_node_id;
@@ -2263,6 +2266,24 @@ fn write_imported_profile_managed_config(
     Ok(())
 }
 
+fn activate_managed_sing_box_plan(
+    managed: &mut WindowsManagedConfig,
+    executable_path: PathBuf,
+    config_path: PathBuf,
+    config_parent: PathBuf,
+) {
+    // A public run plan selects one core. Clear an enabled Mieru plan before
+    // committing the staged sing-box configuration.
+    managed.mieru = None;
+    managed.sing_box = Some(WindowsManagedSingBoxConfig {
+        enabled: true,
+        executable_path,
+        config_path,
+        working_directory: Some(config_parent),
+        log_path: windows_managed_log_directory().join("sing-box.log"),
+    });
+}
+
 fn restore_imported_sing_box_config(
     config_path: &Path,
     previous_config: Option<&str>,
@@ -2520,6 +2541,43 @@ fn core_status(status: &SingBoxProcessStatus) -> StatusFact {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn managed_config_with_mieru() -> WindowsManagedConfig {
+        WindowsManagedConfig {
+            schema_version:
+                platform_windows::managed::WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
+            system_proxy: None,
+            system_proxy_owner: WindowsSystemProxyOwner::Desktop,
+            root_certificate_path: None,
+            driver_package: None,
+            tunnel: None,
+            sing_box: None,
+            mieru: Some(WindowsManagedMieruConfig {
+                enabled: true,
+                executable_path: PathBuf::from("mieru.exe"),
+                expected_sha256: "a".repeat(64),
+                config_path: PathBuf::from("mieru.json"),
+                socks5_host: "127.0.0.1".to_string(),
+                socks5_port: 1080,
+            }),
+            native_mitm: None,
+        }
+    }
+
+    #[test]
+    fn sing_box_profile_activation_clears_the_mieru_plan() {
+        let mut managed = managed_config_with_mieru();
+
+        activate_managed_sing_box_plan(
+            &mut managed,
+            PathBuf::from("sing-box.exe"),
+            PathBuf::from("sing-box.json"),
+            PathBuf::from("."),
+        );
+
+        assert!(managed.mieru.is_none());
+        assert!(managed.sing_box.is_some_and(|sing_box| sing_box.enabled));
+    }
 
     fn node(id: &str, label: &str) -> DesktopProfileNode {
         DesktopProfileNode {

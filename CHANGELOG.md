@@ -38,6 +38,11 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
   records the managed failure and follows the existing proxy rollback/stop
   path. This is source-only pending same-commit GitHub Actions and a tag release.
 
+- Windows profile import now stages a sing-box plan transactionally: it clears
+  the mutually exclusive Mieru plan before managed-config commit, and restores
+  the prior sing-box JSON if that commit fails. The platform-level double-core
+  rejection remains the boundary for externally supplied configuration.
+
 - 完成 Windows 单 HTTP(S) subscription refresh 状态闭环：GUI 显式启用 hourly refresh 后，持久记录脱敏
   `last_attempt`、`last_success`、`next_attempt`、`result`、节点新增/删除/变化数量与稳定 `error_code`，并在
   Subscriptions 页展示当前状态。手动导入、选择 source 和后台触发共享排他 operation guard；失败保留既有
