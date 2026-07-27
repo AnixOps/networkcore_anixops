@@ -339,6 +339,7 @@ const HTTP_PROXY_MAX_HEADER_BYTES: usize = 16 * 1024;
 const HTTP_PROXY_MAX_BODY_BYTES: usize = 64 * 1024;
 const SCRIPT_RUNTIME_DEFAULT_TIMEOUT_MS: usize = 5000;
 const SCRIPT_RUNTIME_HARD_MAX_TIMEOUT_MS: usize = 30_000;
+#[cfg(target_os = "linux")]
 const SCRIPT_RUNTIME_V8_MAX_OLD_SPACE_MIB: usize = 64;
 static SCRIPT_RUNTIME_TEMP_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
 

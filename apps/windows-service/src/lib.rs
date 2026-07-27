@@ -795,6 +795,8 @@ fn validate_native_mitm_script_runtime_availability(
             "native MITM script runtime is unavailable until a Windows no-network sandbox is implemented",
         ));
     }
+    #[cfg(not(windows))]
+    let _ = config;
     Ok(())
 }
 

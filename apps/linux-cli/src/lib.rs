@@ -10,9 +10,9 @@ use control_domain::{
     DomainResult, GrantedPermissions, HttpMitmAction, HttpMitmPhase, MetadataEntry,
     MitmPluginService, OperatingSystem, PlatformCapabilityService, PlatformCapabilityStatus,
     PlatformFeatureState, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
-    ProxyEngineLifecycleState, ProxyEngineRollbackRequest, ProxyEngineService, ProxyEngineStatus,
-    PublicEngineKind, PublicEngineRunPlan, RawSubscription, SubscriptionService,
-    SubscriptionSource,
+    ProxyEngineHealthReport, ProxyEngineLifecycleState, ProxyEngineRollbackRequest,
+    ProxyEngineService, ProxyEngineStatus, PublicEngineKind, PublicEngineRunPlan, RawSubscription,
+    SubscriptionService, SubscriptionSource,
 };
 use control_runtime::{RuntimeConfigRequest, RuntimeOperationResult, RuntimeOrchestrator};
 use engine_mieru::{
@@ -3147,7 +3147,7 @@ pub struct ManagedRuntimeHealthSnapshot {
 
 fn record_managed_runtime_health(
     snapshot: &Arc<Mutex<ManagedRuntimeHealthSnapshot>>,
-    health: &ProxyEngineStatus,
+    health: &ProxyEngineHealthReport,
     config_digest: &str,
     config_version: u64,
 ) {
@@ -4032,10 +4032,8 @@ impl CommandSubscriptionCatalogStore {
             CLI_SUBSCRIPTION_REFRESH_STATUS_READ_FAILED_CODE,
             "subscription refresh status path cannot be empty",
         )?;
-        Ok(subscription_refresh_report(
-            status_path,
-            read_subscription_refresh_status_file(&status_path)?,
-        ))
+        let status = read_subscription_refresh_status_file(&status_path)?;
+        Ok(subscription_refresh_report(status_path, status))
     }
 
     pub fn stop_refresh(
