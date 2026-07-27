@@ -69,8 +69,11 @@ Windows GUI 前端在独立的 `windows-gui-frontend` Ubuntu producer job 中构
 显式等待该 producer 完成后，只从当前 run 下载 artifact 并检查 `index.html`。Node lint/test 仍覆盖三个 runner，
 与前端 artifact producer 解耦。该复用只用于
 普通 CI，artifact 保留一天；Release workflow 必须继续独立安装 frozen dependencies、构建前端和
-生成发布产物，不得信任或复用普通 CI artifact。当前未提交 pnpm lockfile，因此不新增 Node dependency
-cache；也不共享 `dist`、Rust target 或发布产物缓存。lockfile 只能按人工介入记录通过 GitHub Actions 刷新。
+生成发布产物，不得信任或复用普通 CI artifact。Windows GUI 的
+`apps/windows-gui/ui/pnpm-lock.yaml` 必须随源码提交，Node CI 和 release 均使用
+`pnpm install --frozen-lockfile`；不共享 `dist`、Rust target 或发布产物缓存。pnpm
+lockfile 只能由 `.github/workflows/refresh-pnpm-lock.yml` 在 GitHub Actions 中生成，
+经 artifact 审查后提交。
 
 所有 job 必须有明确 timeout。当前预算为：范围检测、fast policy、project detection 和 summary
 5 分钟，full policy 15 分钟，workspace smoke 10 分钟，Rust 按 Ubuntu 30/macOS 40/Windows 45

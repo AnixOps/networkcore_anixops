@@ -2350,7 +2350,7 @@ jobs:
 
       - name: Install dependencies
         shell: bash
-        run: pnpm --dir apps/windows-gui/ui install --no-frozen-lockfile
+        run: pnpm --dir apps/windows-gui/ui install --frozen-lockfile
 
       - name: Build Windows GUI frontend
         shell: bash
@@ -2787,7 +2787,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pnpm --dir apps/windows-gui/ui install --no-frozen-lockfile
+          pnpm --dir apps/windows-gui/ui install --frozen-lockfile
 
       - name: Lint
         shell: bash

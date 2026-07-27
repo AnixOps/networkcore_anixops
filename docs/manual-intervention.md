@@ -292,8 +292,10 @@ The Windows GUI now declares Tauri and a pnpm-managed React frontend. Repository
 policy prohibits generating Cargo or pnpm lockfiles locally. Use
 `.github/workflows/refresh-cargo-lock.yml` for `Cargo.lock` and
 `.github/workflows/refresh-pnpm-lock.yml` for
-`apps/windows-gui/ui/pnpm-lock.yaml`; download only the generated workflow
-artifact, review it, and commit it before the `--locked` Rust and frozen pnpm
+`apps/windows-gui/ui/pnpm-lock.yaml`. The initial pnpm lockfile was generated
+by GitHub Actions run `30288969826`; future updates must likewise download only
+the generated workflow artifact, review it, and commit it before the `--locked`
+Rust and frozen pnpm
 checks can pass. After that commit, rerun CI and the Windows MSI workflow; do not
 generate either lockfile on a developer workstation.
 
