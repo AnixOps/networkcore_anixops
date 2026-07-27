@@ -4883,6 +4883,7 @@ fn mitm_http_rewrite_preview_reports_https_request_preview_without_live_tls_or_s
     assert_eq!(outcome.header_mutation_count, 0);
     assert!(!outcome.body_mutated);
     assert!(!outcome.script_dispatch_deferred);
+    assert!(!outcome.script_dispatch_failed);
     assert_eq!(
         outcome
             .output_headers

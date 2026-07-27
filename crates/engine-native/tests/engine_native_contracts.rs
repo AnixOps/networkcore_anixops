@@ -96,7 +96,7 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_DEFERRED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_PLAN_READY_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_UPSTREAM_CONFIG_READY_CODE,
-    ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_DEFERRED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_DEFERRED_CODE, ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_FAILED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_EXECUTED_CODE, ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE,
     ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
@@ -1585,6 +1585,7 @@ fn native_http_mitm_hook_applies_locally_mapped_script_dispatch() {
     assert!(report.applied);
     assert!(report.script_dispatch_executed);
     assert!(!report.script_dispatch_deferred);
+    assert!(!report.script_dispatch_failed);
     assert!(String::from_utf8(report.body)
         .expect("script hook body should remain UTF-8")
         .contains("requestRuntime"));
@@ -1594,6 +1595,62 @@ fn native_http_mitm_hook_applies_locally_mapped_script_dispatch() {
     );
 
     std::fs::remove_dir_all(&root).expect("script hook test directory should be removed");
+}
+
+#[test]
+fn native_http_mitm_hook_fails_open_when_local_script_runner_cannot_start() {
+    let script_url = "https://scripts.networkcore.test/runner-unavailable.js".to_string();
+    let mut script_assets = BTreeMap::new();
+    script_assets.insert(
+        script_url.clone(),
+        format!(
+            "{}/../../third_party/mitm_anixops/mitm_anixops/tests/fixtures/runner_replay_script.js",
+            env!("CARGO_MANIFEST_DIR")
+        ),
+    );
+    let hook = NativeHttpMitmPluginHook::new(
+        plugin_instance("networkcore.script"),
+        Arc::new(ScriptDispatchingMitmPluginService { script_url }),
+    )
+    .with_node_script_executor(NativeNodeScriptExecutor::new(
+        NativeNodeScriptRuntimeConfig {
+            node_binary: "networkcore-node-runner-unavailable".to_string(),
+            runner_path: format!(
+                "{}/../../third_party/mitm_anixops/mitm_anixops/e2e/script_runtime/anixops_runner.js",
+                env!("CARGO_MANIFEST_DIR")
+            ),
+            script_assets,
+            persistent_store_path: None,
+            sandbox: NativeNodeScriptSandbox::Unrestricted,
+            max_timeout_ms: 1000,
+            max_body_bytes: 4096,
+        },
+    ));
+    let message = NativePlainHttpMessage {
+        request_id: "node-runtime-runner-unavailable".to_string(),
+        url: "https://api.networkcore.test/v1".to_string(),
+        method: Some("POST".to_string()),
+        phase: HttpMitmPhase::Request,
+        status_code: None,
+        headers: vec![MetadataEntry {
+            key: "Content-Type".to_string(),
+            value: "application/json".to_string(),
+        }],
+        body: b"{}".to_vec(),
+    };
+
+    let report = hook.plan_plain_http(&message);
+
+    assert!(!report.applied);
+    assert!(!report.script_dispatch_executed);
+    assert!(!report.script_dispatch_deferred);
+    assert!(report.script_dispatch_failed);
+    assert_eq!(report.headers, message.headers);
+    assert_eq!(report.body, message.body);
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_FAILED_CODE,
+    );
 }
 
 #[test]
@@ -2493,6 +2550,7 @@ fn plain_http_proxy_request_rewrite_serializes_origin_form_for_upstream() {
         body: application.body,
         script_dispatch_deferred: application.script_dispatch_deferred,
         script_dispatch_executed: false,
+        script_dispatch_failed: false,
         audits: Vec::new(),
         diagnostics: application.diagnostics,
     };
@@ -2548,6 +2606,7 @@ fn plain_http_proxy_response_header_and_body_rewrite_returns_modified_response()
         body: b"response-new".to_vec(),
         script_dispatch_deferred: false,
         script_dispatch_executed: false,
+        script_dispatch_failed: false,
         audits: Vec::new(),
         diagnostics: Vec::new(),
     };

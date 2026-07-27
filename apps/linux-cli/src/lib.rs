@@ -1945,6 +1945,7 @@ pub struct LinuxMitmHttpRewriteOutcomeReport {
     pub header_mutation_count: usize,
     pub body_mutated: bool,
     pub script_dispatch_deferred: bool,
+    pub script_dispatch_failed: bool,
     pub output_headers: Vec<LinuxMitmHttpHeader>,
     pub output_body: Option<String>,
 }
@@ -12757,6 +12758,7 @@ fn build_linux_mitm_http_rewrite_outcome_report(
             .and_then(|outcome| outcome.body_mutation.as_ref())
             .is_some(),
         script_dispatch_deferred: report.script_dispatch_deferred,
+        script_dispatch_failed: report.script_dispatch_failed,
         output_headers: report
             .headers
             .iter()
@@ -18231,10 +18233,11 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
                 lines.push(format!("http rewrite redirect location: {location}"));
             }
             lines.push(format!(
-                "http rewrite mutations: headers={} body_mutated={} script_dispatch_deferred={}",
+                "http rewrite mutations: headers={} body_mutated={} script_dispatch_deferred={} script_dispatch_failed={}",
                 outcome.header_mutation_count,
                 outcome.body_mutated,
-                outcome.script_dispatch_deferred
+                outcome.script_dispatch_deferred,
+                outcome.script_dispatch_failed
             ));
             for header in &outcome.output_headers {
                 lines.push(format!(
@@ -19874,6 +19877,7 @@ struct JsonMitmHttpRewriteOutcomeReport {
     header_mutation_count: usize,
     body_mutated: bool,
     script_dispatch_deferred: bool,
+    script_dispatch_failed: bool,
     output_headers: Vec<JsonMitmHttpHeader>,
     output_body: Option<String>,
 }
@@ -19890,6 +19894,7 @@ impl From<&LinuxMitmHttpRewriteOutcomeReport> for JsonMitmHttpRewriteOutcomeRepo
             header_mutation_count: outcome.header_mutation_count,
             body_mutated: outcome.body_mutated,
             script_dispatch_deferred: outcome.script_dispatch_deferred,
+            script_dispatch_failed: outcome.script_dispatch_failed,
             output_headers: outcome
                 .output_headers
                 .iter()

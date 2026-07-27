@@ -1231,11 +1231,18 @@ fn apply_node_script_dispatch_to_plain_http_rewrite_report(
     let execution = script_executor.execute(dispatch, &script_message);
     report.diagnostics.extend(execution.diagnostics.clone());
     if !execution.executed {
+        report.script_dispatch_deferred = execution.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_DEFERRED_CODE
+        });
+        report.script_dispatch_failed = execution.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_FAILED_CODE
+        });
         return;
     }
 
     report.script_dispatch_executed = true;
     report.script_dispatch_deferred = false;
+    report.script_dispatch_failed = false;
     if let Some(url) = execution.url {
         if script_url_mutation_preserves_authority(&report.url, &url) {
             report.url = url;
@@ -1774,6 +1781,7 @@ pub struct NativePlainHttpRewriteReport {
     pub body: Vec<u8>,
     pub script_dispatch_deferred: bool,
     pub script_dispatch_executed: bool,
+    pub script_dispatch_failed: bool,
     pub audits: Vec<AuditEvent>,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -3572,6 +3580,7 @@ pub fn plan_and_apply_plain_http_mitm(
                 body: application.body,
                 script_dispatch_deferred: application.script_dispatch_deferred,
                 script_dispatch_executed: false,
+                script_dispatch_failed: false,
                 audits,
                 diagnostics,
             }
@@ -3597,6 +3606,7 @@ pub fn plan_and_apply_plain_http_mitm(
                 body: message.body.clone(),
                 script_dispatch_deferred: false,
                 script_dispatch_executed: false,
+                script_dispatch_failed: false,
                 audits: Vec::new(),
                 diagnostics,
             }
@@ -5476,6 +5486,7 @@ fn passthrough_plain_http_rewrite_report(
         body: message.body.clone(),
         script_dispatch_deferred: false,
         script_dispatch_executed: false,
+        script_dispatch_failed: false,
         audits: Vec::new(),
         diagnostics: Vec::new(),
     }
@@ -7120,7 +7131,7 @@ fn record_plain_http_live_rewrite_diagnostic(
     diagnostics: &mut Vec<Diagnostic>,
     rewrite_report: &NativePlainHttpRewriteReport,
 ) {
-    if rewrite_report.applied || rewrite_report.script_dispatch_deferred {
+    if rewrite_report.applied {
         diagnostics.push(engine_diagnostic(
             DiagnosticSeverity::Info,
             ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE,
