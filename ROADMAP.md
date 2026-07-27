@@ -14,10 +14,10 @@ current-main-source-candidate=v0.2.0-alpha.22
 current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
-current-main-subscription-background=blocked
+current-main-subscription-background=linux-systemd-oneshot-timer-active
 ```
 
-当前 main 使用平台无关 `PublicEngineRunPlan`：Linux `run-url`/`run-catalog` 将 SS、Trojan、VLESS、VMess、Hysteria2 和 TUIC 路由到 sing-box，将 `mierus://` 路由到 engine-mieru；Windows NodeCatalog 导入消费相同计划和 managed service 配置。Mieru 需要显式 binary/digest、原子 config snapshot/write、apply/start 与 loopback readiness，失败保留已有配置和运行核心。默认路径扫描、后台刷新和运行中节点切换仍未完成。
+当前 main 使用平台无关 `PublicEngineRunPlan`：Linux `run-url`/`run-catalog` 将 SS、Trojan、VLESS、VMess、Hysteria2 和 TUIC 路由到 sing-box，将 `mierus://` 路由到 engine-mieru；Windows NodeCatalog 导入消费相同计划和 managed service 配置。Mieru 需要显式 binary/digest、原子 config snapshot/write、apply/start 与 loopback readiness，失败保留已有配置和运行核心。Linux 已有显式 `subscription refresh schedule` systemd oneshot/timer 周期刷新，Windows 统一状态模型仍待完成；默认路径扫描和运行中节点切换仍未完成。
 
 当前 direct share-link compatibility 包含 Hysteria2/TUIC share-link parser gate；该前台路径不启用 HTTP/3 MITM。
 

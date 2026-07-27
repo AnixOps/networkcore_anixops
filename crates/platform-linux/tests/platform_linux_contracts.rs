@@ -2,6 +2,10 @@ use control_domain::{
     CertificateTrustState, Diagnostic, DiagnosticSeverity, OperatingSystem,
     PlatformCapabilityService,
 };
+use platform_linux::systemd::{
+    render_subscription_refresh_schedule, LinuxSubscriptionRefreshScheduleRequest,
+    LINUX_SYSTEMD_REFRESH_SCHEDULE_INVALID_CODE,
+};
 use platform_linux::{
     linux_diagnostic, parse_linux_proc_status, LinuxCertificateProbe, LinuxDnsManagerState,
     LinuxFeatureProbe, LinuxPlatformSnapshot, LinuxPrivilegeProbe, LinuxReadOnlyProbe,
@@ -16,6 +20,7 @@ use platform_linux::{
     SOURCE_MITM_CERTIFICATE, SOURCE_PERMISSION, SOURCE_SERVICE, SOURCE_TUNNEL,
     TUN_DEVICE_MISSING_CODE, TUN_PERMISSION_DENIED_CODE, TUN_PROBE_UNKNOWN_CODE,
 };
+use std::path::PathBuf;
 
 #[test]
 fn available_snapshot_maps_to_linux_platform_status() {
@@ -373,6 +378,58 @@ fn proc_status_parser_extracts_effective_uid_and_cap_net_admin() {
 
     assert_eq!(without_capability.effective_uid, Some(1000));
     assert_eq!(without_capability.cap_net_admin, Some(false));
+}
+
+#[test]
+fn subscription_refresh_schedule_plan_is_oneshot_redacted_and_bounded() {
+    let plan = render_subscription_refresh_schedule(&LinuxSubscriptionRefreshScheduleRequest {
+        unit_name: "networkcore-refresh".to_string(),
+        executable_path: PathBuf::from("/usr/local/bin/networkcore-linux"),
+        catalog_path: PathBuf::from("/var/lib/networkcore/catalog.json"),
+        status_path: PathBuf::from("/var/lib/networkcore/refresh-status.json"),
+        snapshot_path: PathBuf::from("/var/lib/networkcore/catalog.snapshot.json"),
+        source_id: "primary".to_string(),
+        interval_seconds: 300,
+    })
+    .expect("safe explicit schedule plan");
+
+    assert_eq!(plan.service_name, "networkcore-refresh.service");
+    assert_eq!(plan.timer_name, "networkcore-refresh.timer");
+    assert!(plan.service_content.contains("Type=oneshot"));
+    assert!(plan.service_content.contains("--confirm"));
+    assert!(plan.timer_content.contains("OnUnitInactiveSec=300s"));
+    assert!(plan
+        .timer_content
+        .contains("X-NetworkCore-Subscription-Refresh=true"));
+    assert!(!plan.service_content.contains("http://"));
+    assert!(!plan.service_content.contains("https://"));
+
+    let error = render_subscription_refresh_schedule(&LinuxSubscriptionRefreshScheduleRequest {
+        interval_seconds: 299,
+        ..LinuxSubscriptionRefreshScheduleRequest {
+            unit_name: "networkcore-refresh".to_string(),
+            executable_path: PathBuf::from("/bin/networkcore-linux"),
+            catalog_path: PathBuf::from("/catalog"),
+            status_path: PathBuf::from("/status"),
+            snapshot_path: PathBuf::from("/snapshot"),
+            source_id: "primary".to_string(),
+            interval_seconds: 300,
+        }
+    })
+    .expect_err("minimum interval is fixed");
+    assert_eq!(error.code, LINUX_SYSTEMD_REFRESH_SCHEDULE_INVALID_CODE);
+
+    let error = render_subscription_refresh_schedule(&LinuxSubscriptionRefreshScheduleRequest {
+        unit_name: "networkcore.refresh".to_string(),
+        executable_path: PathBuf::from("/bin/networkcore-linux"),
+        catalog_path: PathBuf::from("/catalog"),
+        status_path: PathBuf::from("/status"),
+        snapshot_path: PathBuf::from("/snapshot"),
+        source_id: "primary\nExecStart=/bin/sh".to_string(),
+        interval_seconds: 300,
+    })
+    .expect_err("unit suffixes and control characters are rejected");
+    assert_eq!(error.code, LINUX_SYSTEMD_REFRESH_SCHEDULE_INVALID_CODE);
 }
 
 fn certificate_severity(state: CertificateTrustState) -> DiagnosticSeverity {

@@ -14,10 +14,10 @@ current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
 current-main-subscription-refresh=explicit-http-single-source-status-stop-active
-current-main-subscription-background=explicit-single-http-source-refresh-active
+current-main-subscription-background=linux-systemd-oneshot-timer-active
 current-main-managed-reload=explicit-foreground-control-socket-active
 current-main-linux-node-switch=explicit-loopback-selector-active
-current-main-subscription-refresh-scheduling=external-system-required
+current-main-subscription-refresh-scheduling=linux-systemd-oneshot-timer-active
 current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 - Added the platform-neutral `PublicEngineRunPlan`: SS, Trojan, VLESS, VMess,
@@ -706,5 +706,6 @@ placeholder/blocked 语境时，以 README、ROADMAP、TODO 和对应 source con
 
 ### Added
 
+- 完成 Linux systemd 订阅刷新调度切片：新增 `subscription refresh schedule install/status/stop/uninstall`，安装必须显式提供 catalog/status/snapshot 绝对路径、source ID、>=300 秒间隔、unit base name 和 `--confirm`；生成 NetworkCore-owned oneshot service 与 persistent timer，daemon-reload 后启动并验证 timer。同内容重装幂等，外部修改、非 owned unit 和不完整 pair 均拒绝覆盖或卸载；unit 不包含 URL、token、密码或节点凭据，stop/uninstall 保留最后刷新状态且不重启核心、切换节点或修改系统代理。
 - 建立 bootstrap 阶段的代理规范、贡献规则、CI/CD policy、GitHub Actions skeleton 和人工介入记录。
 - 完成 Linux 单 source 后台订阅刷新切片：新增显式 `subscription refresh start/status/stop`、固定 300 秒最小间隔、HTTP(S) source 限制、`--confirm` 授权、显式 catalog/status/snapshot 路径、候选 fetch 后 parse/normalize 校验、原子 catalog 替换、失败保留 catalog/选择/运行配置、脱敏状态记录和并发 active 拒绝；不重启核心、不切换节点、不修改系统设置。

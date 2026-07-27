@@ -50,6 +50,11 @@ while retaining that snapshot. `run-catalog <catalog-path> <source-id>` resolves
 existing foreground sing-box path. `subscription refresh start` explicitly refreshes one saved HTTP(S) source after
 candidate validation, writes only explicit catalog/status/snapshot paths, and requires confirmation; `status` and
 `stop` operate on that status record. It never restarts the core, switches nodes, or modifies system settings.
+Linux systemd scheduling is separately opt-in: `subscription refresh schedule install` requires explicit absolute
+catalog/status/snapshot paths, source ID, interval, unit base name, and `--confirm`; it writes a NetworkCore-owned
+oneshot service plus persistent timer, reloads systemd, and verifies the timer. Reinstalling identical content is
+idempotent, while external changes are rejected. `schedule stop` and `schedule uninstall` are confirmed, named,
+bounded operations and retain the final refresh status record. Generated units carry no subscription URL or credentials.
 All catalog operations are verified by GitHub Actions contract tests.
 
 Current `main` also contains the source-only `CommandManagedForegroundSessionStore::read_status`,

@@ -31,10 +31,10 @@ current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-run-url=public-engine-run-plan-mieru-and-sing-box-foreground-active
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
-current-main-subscription-background=explicit-single-http-source-refresh-active
+current-main-subscription-background=linux-systemd-oneshot-timer-active
 current-main-managed-reload=explicit-foreground-control-socket-active
 current-main-linux-node-switch=explicit-loopback-selector-active
-current-main-subscription-refresh-scheduling=external-system-required
+current-main-subscription-refresh-scheduling=linux-systemd-oneshot-timer-active
 current-main-cross-platform-run-plan=public-engine-run-plan-active
 ```
 
@@ -62,7 +62,7 @@ stop；默认路径、daemon、reload、rollback、runtime status 和 live liven
 `--managed-control-socket <absolute-path>`，`stop --managed-control-socket <absolute-path> --confirm` 只执行
 跨进程 foreground stop；默认 socket、reload、rollback、runtime status 和非 Unix fallback 仍未完成。
 
-当前 main 覆盖旧订阅描述：Linux `run-url` 已支持直接 `ss://`、Trojan、VLESS、VMess、Hysteria2/TUIC share links、调用方显式绝对 `file://` UTF-8 subscription 文件、一次前台 HTTP(S) subscription fetch、`--node-id` 单次 catalog 节点选择，以及 Clash YAML、sing-box JSON、Surge、Loon、Quantumult X catalog payload 的 sing-box 前台运行。`run-catalog <catalog-path> <source-id>` 可运行一个保存 source。`subscription refresh start/status/stop` 已支持显式单 HTTP(S) source 的候选验证刷新、脱敏状态与 stop；默认路径扫描、运行中节点切换、后台 managed runtime 和 cross-platform run plan 仍未完成。
+当前 main 覆盖旧订阅描述：Linux `run-url` 已支持直接 `ss://`、Trojan、VLESS、VMess、Hysteria2/TUIC share links、调用方显式绝对 `file://` UTF-8 subscription 文件、一次前台 HTTP(S) subscription fetch、`--node-id` 单次 catalog 节点选择，以及 Clash YAML、sing-box JSON、Surge、Loon、Quantumult X catalog payload 的 sing-box 前台运行。`run-catalog <catalog-path> <source-id>` 可运行一个保存 source。`subscription refresh start/status/stop` 已支持显式单 HTTP(S) source 的候选验证刷新、脱敏状态与 stop；Linux `subscription refresh schedule install/status/stop/uninstall` 现以显式 oneshot systemd service/timer 承接同一单次入口。默认路径扫描、运行中节点切换和后台 managed runtime 仍未完成。
 
 `v0.2.0-alpha.22` 是当前 Windows source release 目标。Tauri/React 桌面命令面已经覆盖连接、节点、订阅、设置、诊断和显式高级运维；下表是当前 source 状态，GitHub Actions 尚未完成锁文件解析与验证。`v0.2.0-alpha.18` 取消 GUI Start/Restart 对 managed proxy 的预写入；服务保存并回滚唯一 runtime proxy snapshot。`v0.2.0-alpha.19` 服务会轮询其拥有的 sing-box process，异常退出后写入 failed transition/exit detail，停止 runtime resources 并回滚 proxy snapshot，再停止 SCM service。
 
@@ -78,7 +78,7 @@ WebSocket/gRPC/HTTP/HTTPUpgrade/V2Ray QUIC 字段渲染到 managed sing-box conf
 不提供后台 remote subscription、XHTTP/ECH/multiplex 推断或 HTTP/3 MITM。
 
 v0.1.2-alpha.1 已完成 persistent subscription catalog 的 `add`、`list_sources`、`remove_source`、`select_source`、`update_source` 和 `rollback_catalog` 六个存储切片；CLI `subscription update` 现在在写入前执行显式候选 fetch 与 parser 验证，失败保留旧 catalog；`rollback_catalog` 复原显式 snapshot 且保留 snapshot 文件，所有 report 保持脱敏；默认路径和 managed lifecycle 仍未接入。
-当前未发布增量提供 `subscription refresh start/status/stop`：仅单个已保存 HTTP(S) source，必须显式 catalog/status/snapshot 路径与 `--confirm`，固定最小 300 秒间隔；候选先 parse/normalize 后原子替换，失败保留 catalog、选择和运行配置，并记录脱敏 attempt/success/next/result/error 状态。
+当前未发布增量提供 `subscription refresh start/status/stop`：仅单个已保存 HTTP(S) source，必须显式 catalog/status/snapshot 路径与 `--confirm`，固定最小 300 秒间隔；候选先 parse/normalize 后原子替换，失败保留 catalog、选择和运行配置，并记录脱敏 attempt/success/next/result/error 状态。Linux `schedule install` 必须另行显式提供 unit base name 和 interval 并确认，生成不含 URL/凭据的 oneshot unit + persistent timer，daemon-reload 后验证 timer；同内容重复安装幂等，外部修改拒绝覆盖，stop/uninstall 保留刷新状态。
 v0.1.2-alpha.2 已完成 managed foreground session 的四个 source-only `read_status`/`write_status`/`transition_status`/`rollback_status` 切片，以及 `networkcore-linux managed-status` 的查询、初始化、迁移和 rollback 命令：显式读取、初始非覆盖写入、expected-state 迁移，或在 expected state 与 snapshot session/engine identity 匹配时恢复原始 schema version 1 snapshot；迁移保留原始 record snapshot，回滚保留读取的 snapshot，仅允许迁移 `starting -> running/failed` 与 `running -> stopped/failed`。查询输出 recorded state，初始化输出 `record_written=true`，迁移输出 previous/next state 与 `snapshot_written=true`，rollback 输出 previous/restored state 与 `snapshot_retained=true`，均固定 `liveness_verified=false`。同一阶段还完成 source-only `CommandManagedForegroundSessionEventStore::read_event`/`write_event`、只读 `networkcore-linux managed-event <event-record-path>` 和初始写入 `networkcore-linux managed-event init <event-record-path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at>`，查询或非覆盖创建显式 schema version 1 event record 的 session/engine/event 标识、event kind、state 和 recorded_at。当前 main 的未发布增量已加入 `CommandManagedForegroundSessionEventStore::list_event_history` 和 `networkcore-linux managed-event list <event-directory> [--session-id <id>] [--event-kind <kind>] [--state <state>] [--cursor <offset>] [--limit <1-100>]`：显式目录、直接常规 JSON、先校验再 exact 过滤、`(recorded_at, event_id, event_path)` 确定排序、offset 分页，且单页/目录/单 record 分别上限为 100/256/65536；不验证进程存活、不创建默认路径、不递归、不提供实时流或 runtime control。
 所有已发布和规划 alpha/rc/stable 切片的能力边界见 [Alpha Release Feature Matrix](docs/alpha-release-feature-matrix.md)。
 MITM CLI command gate 已进入状态/诊断/证书计划/浏览器捕获计划、browser-capture session-plan、dedicated profile `--target-url` 打开页面、本地代理端点/target route verify、proof-log-token traffic proof、PAC/browser policy artifact apply/rollback、native SOCKS5 CONNECT plugin reject、CONNECT proof 诊断和 blocked report 部分激活：

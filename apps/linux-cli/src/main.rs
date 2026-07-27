@@ -80,6 +80,10 @@ fn main() {
                     | networkcore_linux::LinuxCliCommand::SubscriptionRefreshStart { .. }
                     | networkcore_linux::LinuxCliCommand::SubscriptionRefreshStatus { .. }
                     | networkcore_linux::LinuxCliCommand::SubscriptionRefreshStop { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionRefreshScheduleInstall { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionRefreshScheduleStatus { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionRefreshScheduleStop { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionRefreshScheduleUninstall { .. }
             ) {
                 networkcore_linux::handle_subscription_command(command)
             } else if matches!(

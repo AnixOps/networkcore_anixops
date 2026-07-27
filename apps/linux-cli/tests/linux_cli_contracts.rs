@@ -46,10 +46,10 @@ use networkcore_linux::{
     handle_proxy_apply, handle_proxy_rollback, handle_proxy_status,
     handle_run_catalog_with_sing_box, handle_run_catalog_with_sing_box_and_fetcher,
     handle_run_url_with_sing_box, handle_run_url_with_sing_box_and_fetcher,
-    handle_run_url_with_sing_box_and_node_id_and_mieru,
-    handle_run_url_with_sing_box_and_node_id, handle_start, handle_status,
-    handle_status_mieru_with_runner, handle_stop, handle_systemd_service_control,
-    handle_uninstall_service_apply_at, native_proxy_engine_service_with_builtin_mitm_plugin,
+    handle_run_url_with_sing_box_and_node_id, handle_run_url_with_sing_box_and_node_id_and_mieru,
+    handle_start, handle_status, handle_status_mieru_with_runner, handle_stop,
+    handle_systemd_service_control, handle_uninstall_service_apply_at,
+    native_proxy_engine_service_with_builtin_mitm_plugin,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files, parse_args,
     registered_core_engine_descriptors, render_response,
@@ -112,11 +112,10 @@ use networkcore_linux::{
     CLI_MITM_HTTP_REWRITE_AUTHORIZATION_REQUIRED_CODE, CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE,
     CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE, CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE,
     CLI_RUN_URL_FILE_READ_FAILED_CODE, CLI_RUN_URL_MIERU_BINARY_REQUIRED_CODE,
-    CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
-    CLI_START_FOREGROUND_ONLY_CODE, CLI_START_LIFECYCLE_FAILED_CODE,
-    CLI_START_LIFECYCLE_HOST_MISSING_CODE, CLI_START_LIFECYCLE_INTERRUPTED_CODE,
-    CLI_START_PLATFORM_DENIED_CODE, CLI_START_RUNTIME_STOP_FAILED_CODE,
-    CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE,
+    CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE, CLI_START_FOREGROUND_ONLY_CODE,
+    CLI_START_LIFECYCLE_FAILED_CODE, CLI_START_LIFECYCLE_HOST_MISSING_CODE,
+    CLI_START_LIFECYCLE_INTERRUPTED_CODE, CLI_START_PLATFORM_DENIED_CODE,
+    CLI_START_RUNTIME_STOP_FAILED_CODE, CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE,
     CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE, CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE,
     CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
     CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
@@ -3520,14 +3519,33 @@ fn parses_subscription_catalog_command_contracts() {
 
 #[test]
 fn subscription_refresh_requires_explicit_paths_confirmation_and_http_source() {
-    let root = std::env::temp_dir().join(format!("networkcore-subscription-refresh-contract-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-subscription-refresh-contract-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).expect("refresh fixture directory should be created");
     let catalog_path = root.join("catalog.json");
     let status_path = root.join("refresh-status.json");
     let snapshot_path = root.join("refresh.snapshot.json");
     std::fs::write(&catalog_path, r#"{"schema_version":1,"sources":[{"id":"work","location":"https://subscriptions.example.test/work?token=secret"}]}"#).expect("catalog should be written");
-    let command = parse_args(["subscription", "refresh", "start", "--catalog", catalog_path.to_str().expect("utf8"), "--refresh-status", status_path.to_str().expect("utf8"), "--snapshot", snapshot_path.to_str().expect("utf8"), "--source-id", "work", "--interval-seconds", "300", "--confirm"]).expect("refresh should parse");
+    let command = parse_args([
+        "subscription",
+        "refresh",
+        "start",
+        "--catalog",
+        catalog_path.to_str().expect("utf8"),
+        "--refresh-status",
+        status_path.to_str().expect("utf8"),
+        "--snapshot",
+        snapshot_path.to_str().expect("utf8"),
+        "--source-id",
+        "work",
+        "--interval-seconds",
+        "300",
+        "--confirm",
+    ])
+    .expect("refresh should parse");
     let fetcher = TestRemoteSubscriptionFetcher::success("https://subscriptions.example.test/work?token=secret", "[[nodes]]\nid = \"work\"\nname = \"Work\"\nprotocol = \"ss\"\nhost = \"secret.example\"\nport = 443\n");
     let response = handle_subscription_command_with_fetcher(command, &fetcher);
     assert!(response.ok);
@@ -3536,16 +3554,104 @@ fn subscription_refresh_requires_explicit_paths_confirmation_and_http_source() {
     let catalog = std::fs::read_to_string(&catalog_path).expect("catalog should remain readable");
     assert!(catalog.contains("refresh_location"));
     assert!(!render_response(&response, OutputFormat::Json).contains("secret.example"));
-    let status = handle_subscription_command(parse_args(["subscription", "refresh", "status", "--refresh-status", status_path.to_str().expect("utf8")]).expect("status should parse"));
+    let status = handle_subscription_command(
+        parse_args([
+            "subscription",
+            "refresh",
+            "status",
+            "--refresh-status",
+            status_path.to_str().expect("utf8"),
+        ])
+        .expect("status should parse"),
+    );
     assert!(status.ok);
-    let stopped = handle_subscription_command(parse_args(["subscription", "refresh", "stop", "--refresh-status", status_path.to_str().expect("utf8"), "--source-id", "work", "--confirm"]).expect("stop should parse"));
+    let stopped = handle_subscription_command(
+        parse_args([
+            "subscription",
+            "refresh",
+            "stop",
+            "--refresh-status",
+            status_path.to_str().expect("utf8"),
+            "--source-id",
+            "work",
+            "--confirm",
+        ])
+        .expect("stop should parse"),
+    );
     assert!(stopped.ok);
     let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
+fn subscription_refresh_schedule_requires_all_explicit_install_inputs() {
+    let install = parse_args([
+        "subscription",
+        "refresh",
+        "schedule",
+        "install",
+        "--catalog",
+        "/var/lib/networkcore/catalog.json",
+        "--refresh-status",
+        "/var/lib/networkcore/refresh-status.json",
+        "--snapshot",
+        "/var/lib/networkcore/catalog.snapshot.json",
+        "--source-id",
+        "office",
+        "--interval-seconds",
+        "300",
+        "--unit-name",
+        "networkcore-refresh-office",
+        "--confirm",
+    ])
+    .expect("explicit systemd refresh schedule should parse");
+    assert!(
+        matches!(install, LinuxCliCommand::SubscriptionRefreshScheduleInstall {
+        unit_name, interval_seconds: 300, confirm: true, ..
+    } if unit_name == "networkcore-refresh-office")
+    );
+
+    let status = parse_args([
+        "subscription",
+        "refresh",
+        "schedule",
+        "status",
+        "--unit-name",
+        "networkcore-refresh-office",
+        "--snapshot",
+        "/var/lib/networkcore/catalog.snapshot.json",
+    ])
+    .expect("schedule status should require an explicit plan snapshot");
+    assert!(matches!(
+        status,
+        LinuxCliCommand::SubscriptionRefreshScheduleStatus { .. }
+    ));
+
+    assert!(parse_args([
+        "subscription",
+        "refresh",
+        "schedule",
+        "install",
+        "--catalog",
+        "/var/lib/networkcore/catalog.json",
+        "--refresh-status",
+        "/var/lib/networkcore/refresh-status.json",
+        "--snapshot",
+        "/var/lib/networkcore/catalog.snapshot.json",
+        "--source-id",
+        "office",
+        "--unit-name",
+        "networkcore-refresh-office",
+        "--confirm",
+    ])
+    .is_err());
+}
+
+#[test]
 fn subscription_refresh_failure_keeps_catalog_and_redacts_status_error() {
-    let root = std::env::temp_dir().join(format!("networkcore-subscription-refresh-failure-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-subscription-refresh-failure-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).expect("refresh fixture directory should be created");
     let catalog_path = root.join("catalog.json");
@@ -3553,11 +3659,32 @@ fn subscription_refresh_failure_keeps_catalog_and_redacts_status_error() {
     let snapshot_path = root.join("refresh.snapshot.json");
     let original = r#"{"schema_version":1,"sources":[{"id":"work","location":"https://subscriptions.example.test/unavailable"}]}"#;
     std::fs::write(&catalog_path, original).expect("catalog should be written");
-    let response = handle_subscription_command_with_fetcher(parse_args(["subscription", "refresh", "start", "--catalog", catalog_path.to_str().expect("utf8"), "--refresh-status", status_path.to_str().expect("utf8"), "--snapshot", snapshot_path.to_str().expect("utf8"), "--source-id", "work", "--confirm"]).expect("refresh should parse"), &TestRemoteSubscriptionFetcher::failure());
+    let response = handle_subscription_command_with_fetcher(
+        parse_args([
+            "subscription",
+            "refresh",
+            "start",
+            "--catalog",
+            catalog_path.to_str().expect("utf8"),
+            "--refresh-status",
+            status_path.to_str().expect("utf8"),
+            "--snapshot",
+            snapshot_path.to_str().expect("utf8"),
+            "--source-id",
+            "work",
+            "--confirm",
+        ])
+        .expect("refresh should parse"),
+        &TestRemoteSubscriptionFetcher::failure(),
+    );
     assert!(!response.ok);
-    assert_eq!(std::fs::read_to_string(&catalog_path).expect("catalog should remain readable"), original);
+    assert_eq!(
+        std::fs::read_to_string(&catalog_path).expect("catalog should remain readable"),
+        original
+    );
     assert!(!snapshot_path.exists());
-    let status = std::fs::read_to_string(&status_path).expect("failed refresh status should be written");
+    let status =
+        std::fs::read_to_string(&status_path).expect("failed refresh status should be written");
     assert!(status.contains("error_code"));
     assert!(!status.contains("subscriptions.example.test"));
     let _ = std::fs::remove_dir_all(&root);
@@ -7838,7 +7965,10 @@ fn run_url_mieru_plan_requires_explicit_binary_without_falling_back_to_sing_box(
     );
     assert!(!response.ok);
     assert!(response.sing_box_run.is_none());
-    assert_diagnostic(&response.diagnostics, CLI_RUN_URL_MIERU_BINARY_REQUIRED_CODE);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_RUN_URL_MIERU_BINARY_REQUIRED_CODE,
+    );
     assert!(!render_response(&response, OutputFormat::Json).contains("secret"));
 }
 

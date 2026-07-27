@@ -10,15 +10,16 @@ use control_domain::{
     DomainResult, GrantedPermissions, HttpMitmAction, HttpMitmPhase, MetadataEntry,
     MitmPluginService, OperatingSystem, PlatformCapabilityService, PlatformCapabilityStatus,
     PlatformFeatureState, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
-    ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RawSubscription,
-    PublicEngineKind, PublicEngineRunPlan, SubscriptionService, SubscriptionSource,
-};
-use engine_mieru::{
-    apply_and_start_mieru_client, mieru_node_from_descriptor, render_mieru_client_config,
-    rollback_mieru_client_config, wait_for_mieru_listener, write_mieru_client_config, CommandMieruCommandRunner,
-    MieruClientConfigRequest, MieruClientConfigWriteRequest, MieruClientControlRequest,
+    ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, PublicEngineKind,
+    PublicEngineRunPlan, RawSubscription, SubscriptionService, SubscriptionSource,
 };
 use control_runtime::{RuntimeConfigRequest, RuntimeOperationResult, RuntimeOrchestrator};
+use engine_mieru::{
+    apply_and_start_mieru_client, mieru_node_from_descriptor, render_mieru_client_config,
+    rollback_mieru_client_config, wait_for_mieru_listener, write_mieru_client_config,
+    CommandMieruCommandRunner, MieruClientConfigRequest, MieruClientConfigWriteRequest,
+    MieruClientControlRequest,
+};
 use engine_singbox::{
     default_sing_box_install_root, read_sing_box_clash_api_selector,
     render_sing_box_local_proxy_config, select_sing_box_clash_api_outbound,
@@ -35,10 +36,13 @@ use platform_linux::proxy::{
     LinuxEnvironmentProxyApplyRequest, LinuxEnvironmentProxyRollbackRequest,
 };
 use platform_linux::systemd::{
-    control_systemd_service, install_systemd_unit, plan_systemd_unit_removal, remove_systemd_unit,
-    render_systemd_unit, LinuxManagedServiceUnitInstallRequest, LinuxManagedServiceUnitPlan,
-    LinuxManagedServiceUnitRemovalPlan, LinuxManagedServiceUnitRemovalRequest,
-    LinuxManagedServiceUnitRequest, LinuxSystemdCommandRunner, LinuxSystemdServiceAction,
+    control_systemd_service, install_subscription_refresh_schedule, install_systemd_unit,
+    plan_systemd_unit_removal, remove_systemd_unit, render_subscription_refresh_schedule,
+    render_systemd_unit, stop_subscription_refresh_schedule, subscription_refresh_schedule_status,
+    uninstall_subscription_refresh_schedule, LinuxManagedServiceUnitInstallRequest,
+    LinuxManagedServiceUnitPlan, LinuxManagedServiceUnitRemovalPlan,
+    LinuxManagedServiceUnitRemovalRequest, LinuxManagedServiceUnitRequest,
+    LinuxSubscriptionRefreshScheduleRequest, LinuxSystemdCommandRunner, LinuxSystemdServiceAction,
     LinuxSystemdServiceControlRequest,
 };
 use platform_linux::trust::{
@@ -166,6 +170,8 @@ pub const CLI_SUBSCRIPTION_REFRESH_ALREADY_ACTIVE_CODE: &str =
     "cli.linux.subscription_refresh.already_active";
 pub const CLI_SUBSCRIPTION_REFRESH_INTERVAL_TOO_SHORT_CODE: &str =
     "cli.linux.subscription_refresh.interval_too_short";
+pub const CLI_SUBSCRIPTION_REFRESH_SCHEDULE_CONFIRMATION_REQUIRED_CODE: &str =
+    "cli.linux.subscription_refresh.schedule_confirmation_required";
 pub const CLI_MANAGED_FOREGROUND_STATUS_PATH_MISSING_CODE: &str =
     "cli.linux.managed_foreground_status.path_missing";
 pub const CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE: &str =
@@ -233,14 +239,10 @@ pub const CLI_RUN_URL_REMOTE_FETCH_LIMIT_EXCEEDED_CODE: &str =
 pub const CLI_RUN_URL_CONFIG_FAILED_CODE: &str = "cli.linux.run_url.config_failed";
 pub const CLI_RUN_URL_CONFIG_WRITE_FAILED_CODE: &str = "cli.linux.run_url.config_write_failed";
 pub const CLI_RUN_URL_PROCESS_FAILED_CODE: &str = "cli.linux.run_url.process_failed";
-pub const CLI_RUN_URL_MIERU_BINARY_REQUIRED_CODE: &str =
-    "cli.linux.run_url.mieru_binary_required";
-pub const CLI_RUN_URL_MIERU_DIGEST_REQUIRED_CODE: &str =
-    "cli.linux.run_url.mieru_digest_required";
-pub const CLI_RUN_URL_MIERU_CONFIG_FAILED_CODE: &str =
-    "cli.linux.run_url.mieru_config_failed";
-pub const CLI_RUN_URL_MIERU_START_FAILED_CODE: &str =
-    "cli.linux.run_url.mieru_start_failed";
+pub const CLI_RUN_URL_MIERU_BINARY_REQUIRED_CODE: &str = "cli.linux.run_url.mieru_binary_required";
+pub const CLI_RUN_URL_MIERU_DIGEST_REQUIRED_CODE: &str = "cli.linux.run_url.mieru_digest_required";
+pub const CLI_RUN_URL_MIERU_CONFIG_FAILED_CODE: &str = "cli.linux.run_url.mieru_config_failed";
+pub const CLI_RUN_URL_MIERU_START_FAILED_CODE: &str = "cli.linux.run_url.mieru_start_failed";
 pub const CLI_MITM_POLICY_READY_CODE: &str = "cli.linux.mitm.policy_ready";
 pub const CLI_MITM_CLI_GATE_PARTIAL_CODE: &str = "cli.linux.mitm.cli_gate.partial";
 pub const CLI_MITM_CERTIFICATE_PLAN_READY_CODE: &str = "cli.linux.mitm.certificate_plan.ready";
@@ -560,8 +562,43 @@ pub enum LinuxCliCommand {
         confirm: bool,
         format: OutputFormat,
     },
-    SubscriptionRefreshStatus { status_path: String, format: OutputFormat },
-    SubscriptionRefreshStop { status_path: String, source_id: String, confirm: bool, format: OutputFormat },
+    SubscriptionRefreshStatus {
+        status_path: String,
+        format: OutputFormat,
+    },
+    SubscriptionRefreshStop {
+        status_path: String,
+        source_id: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    SubscriptionRefreshScheduleInstall {
+        catalog_path: String,
+        status_path: String,
+        snapshot_path: String,
+        source_id: String,
+        interval_seconds: u64,
+        unit_name: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    SubscriptionRefreshScheduleStatus {
+        unit_name: String,
+        snapshot_path: String,
+        format: OutputFormat,
+    },
+    SubscriptionRefreshScheduleStop {
+        unit_name: String,
+        snapshot_path: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    SubscriptionRefreshScheduleUninstall {
+        unit_name: String,
+        snapshot_path: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
     NodeList {
         config_path: String,
         format: OutputFormat,
@@ -879,6 +916,16 @@ impl LinuxCliCommand {
             Self::SubscriptionRefreshStart { .. } => "subscription refresh start",
             Self::SubscriptionRefreshStatus { .. } => "subscription refresh status",
             Self::SubscriptionRefreshStop { .. } => "subscription refresh stop",
+            Self::SubscriptionRefreshScheduleInstall { .. } => {
+                "subscription refresh schedule install"
+            }
+            Self::SubscriptionRefreshScheduleStatus { .. } => {
+                "subscription refresh schedule status"
+            }
+            Self::SubscriptionRefreshScheduleStop { .. } => "subscription refresh schedule stop",
+            Self::SubscriptionRefreshScheduleUninstall { .. } => {
+                "subscription refresh schedule uninstall"
+            }
             Self::NodeList { .. } => "node list",
             Self::NodeSelect { .. } => "node select",
             Self::NodeSwitch { .. } => "node switch",
@@ -898,6 +945,7 @@ impl LinuxCliCommand {
                 LinuxSystemdServiceAction::Status => "service status",
                 LinuxSystemdServiceAction::Reload => "service reload",
                 LinuxSystemdServiceAction::DaemonReload => "service daemon-reload",
+                LinuxSystemdServiceAction::Enable => "service enable",
             },
             Self::Restart { .. } => "restart",
             Self::Status { .. } => "status",
@@ -956,6 +1004,10 @@ impl LinuxCliCommand {
             | Self::SubscriptionRefreshStart { format, .. }
             | Self::SubscriptionRefreshStatus { format, .. }
             | Self::SubscriptionRefreshStop { format, .. }
+            | Self::SubscriptionRefreshScheduleInstall { format, .. }
+            | Self::SubscriptionRefreshScheduleStatus { format, .. }
+            | Self::SubscriptionRefreshScheduleStop { format, .. }
+            | Self::SubscriptionRefreshScheduleUninstall { format, .. }
             | Self::NodeList { format, .. }
             | Self::NodeSelect { format, .. }
             | Self::NodeSwitch { format, .. }
@@ -3555,32 +3607,93 @@ impl CommandSubscriptionCatalogStore {
         F: RemoteSubscriptionFetcher,
     {
         if !request.confirmed {
-            return Err(DomainError::new(CLI_SUBSCRIPTION_REFRESH_AUTHORIZATION_REQUIRED_CODE, "subscription refresh requires explicit --confirm"));
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_REFRESH_AUTHORIZATION_REQUIRED_CODE,
+                "subscription refresh requires explicit --confirm",
+            ));
         }
         if request.interval_seconds < SUBSCRIPTION_REFRESH_MIN_INTERVAL_SECONDS {
-            return Err(DomainError::new(CLI_SUBSCRIPTION_REFRESH_INTERVAL_TOO_SHORT_CODE, "subscription refresh interval is below the fixed minimum"));
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_REFRESH_INTERVAL_TOO_SHORT_CODE,
+                "subscription refresh interval is below the fixed minimum",
+            ));
         }
-        let catalog_path = required_subscription_catalog_path(&request.catalog_path, CLI_SUBSCRIPTION_CATALOG_PATH_MISSING_CODE, "subscription catalog path cannot be empty")?;
-        let status_path = required_subscription_catalog_path(&request.status_path, CLI_SUBSCRIPTION_REFRESH_STATUS_WRITE_FAILED_CODE, "subscription refresh status path cannot be empty")?;
-        let snapshot_path = required_subscription_catalog_path(&request.snapshot_path, CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_PATH_MISSING_CODE, "subscription refresh snapshot path cannot be empty")?;
+        let catalog_path = required_subscription_catalog_path(
+            &request.catalog_path,
+            CLI_SUBSCRIPTION_CATALOG_PATH_MISSING_CODE,
+            "subscription catalog path cannot be empty",
+        )?;
+        let status_path = required_subscription_catalog_path(
+            &request.status_path,
+            CLI_SUBSCRIPTION_REFRESH_STATUS_WRITE_FAILED_CODE,
+            "subscription refresh status path cannot be empty",
+        )?;
+        let snapshot_path = required_subscription_catalog_path(
+            &request.snapshot_path,
+            CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_PATH_MISSING_CODE,
+            "subscription refresh snapshot path cannot be empty",
+        )?;
         let source_id = request.source_id.trim();
         let (mut catalog, previous_catalog) = read_subscription_catalog_file(&catalog_path)?;
-        let source = catalog.sources.iter_mut().find(|source| source.id.trim() == source_id).ok_or_else(|| DomainError::new(CLI_SUBSCRIPTION_CATALOG_SOURCE_NOT_FOUND_CODE, format!("subscription catalog source id was not found: {source_id}")))?;
-        let refresh_location = source.refresh_location.as_deref().unwrap_or(source.location.as_str()).trim().to_string();
+        let source = catalog
+            .sources
+            .iter_mut()
+            .find(|source| source.id.trim() == source_id)
+            .ok_or_else(|| {
+                DomainError::new(
+                    CLI_SUBSCRIPTION_CATALOG_SOURCE_NOT_FOUND_CODE,
+                    format!("subscription catalog source id was not found: {source_id}"),
+                )
+            })?;
+        let refresh_location = source
+            .refresh_location
+            .as_deref()
+            .unwrap_or(source.location.as_str())
+            .trim()
+            .to_string();
         if !(refresh_location.starts_with("http://") || refresh_location.starts_with("https://")) {
-            return Err(DomainError::new(CLI_SUBSCRIPTION_REFRESH_SOURCE_UNSUPPORTED_CODE, "background refresh accepts only a saved HTTP(S) source"));
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_REFRESH_SOURCE_UNSUPPORTED_CODE,
+                "background refresh accepts only a saved HTTP(S) source",
+            ));
         }
         let _refresh_lock = SubscriptionRefreshLock::acquire(&status_path, source_id)?;
         let previous_location = source.location.clone();
         let attempted_at = subscription_refresh_timestamp();
-        let candidate = fetcher.fetch_subscription(&refresh_location).and_then(|content| {
-            let previous_nodes = parse_subscription_catalog_update_nodes(source_id, &previous_location, fetcher)?;
-            let service = CoreSubscriptionService::new();
-            let document = service.parse(&RawSubscription { source_id: source_id.to_string(), content: content.clone() })
-                .map_err(|error| DomainError::new(CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE, format!("subscription refresh candidate could not be parsed: {}", error.code)))?;
-            let candidate_catalog = service.normalize(&document).map_err(|error| DomainError::new(CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE, format!("subscription refresh candidate could not be normalized: {}", error.code)))?;
-            Ok((content, candidate_catalog.nodes, previous_nodes))
-        });
+        let candidate = fetcher
+            .fetch_subscription(&refresh_location)
+            .and_then(|content| {
+                let previous_nodes = parse_subscription_catalog_update_nodes(
+                    source_id,
+                    &previous_location,
+                    fetcher,
+                )?;
+                let service = CoreSubscriptionService::new();
+                let document = service
+                    .parse(&RawSubscription {
+                        source_id: source_id.to_string(),
+                        content: content.clone(),
+                    })
+                    .map_err(|error| {
+                        DomainError::new(
+                            CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE,
+                            format!(
+                                "subscription refresh candidate could not be parsed: {}",
+                                error.code
+                            ),
+                        )
+                    })?;
+                let candidate_catalog = service.normalize(&document).map_err(|error| {
+                    DomainError::new(
+                        CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE,
+                        format!(
+                            "subscription refresh candidate could not be normalized: {}",
+                            error.code
+                        ),
+                    )
+                })?;
+                Ok((content, candidate_catalog.nodes, previous_nodes))
+            });
         let next_attempt = subscription_refresh_next_timestamp(request.interval_seconds);
         match candidate {
             Ok((content, candidate_nodes, previous_nodes)) => {
@@ -3588,40 +3701,154 @@ impl CommandSubscriptionCatalogStore {
                 source.refresh_location = Some(refresh_location);
                 let previous_node_index = subscription_node_index(&previous_nodes);
                 let candidate_node_index = subscription_node_index(&candidate_nodes);
-                let added_node_count = candidate_node_index.keys().filter(|id| !previous_node_index.contains_key(*id)).count();
-                let removed_node_count = previous_node_index.keys().filter(|id| !candidate_node_index.contains_key(*id)).count();
-                let changed_node_count = candidate_node_index.iter().filter(|(id, value)| previous_node_index.get(*id).is_some_and(|previous| previous != *value)).count();
-                let snapshot_json = serde_json::to_string_pretty(&previous_catalog).map_err(|error| DomainError::new(CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_WRITE_FAILED_CODE, format!("failed to render subscription refresh snapshot: {error}")))?;
-                let catalog_json = serde_json::to_string_pretty(&catalog).map_err(|error| DomainError::new(CLI_SUBSCRIPTION_CATALOG_WRITE_FAILED_CODE, format!("failed to render refreshed subscription catalog: {error}")))?;
-                write_replace_file(&snapshot_path, snapshot_json.as_bytes(), CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_WRITE_FAILED_CODE, "subscription refresh snapshot")?;
-                write_replace_file(&catalog_path, catalog_json.as_bytes(), CLI_SUBSCRIPTION_CATALOG_WRITE_FAILED_CODE, "refreshed subscription catalog")?;
-                let status = SubscriptionRefreshStatusFile { schema_version: 1, source_id: source_id.to_string(), enabled: true, interval_seconds: request.interval_seconds, last_attempt: attempted_at.clone(), last_success: Some(attempted_at.clone()), next_attempt: next_attempt.clone(), result: "success".to_string(), error_redacted: false, error_code: None, added_node_count, removed_node_count, changed_node_count };
+                let added_node_count = candidate_node_index
+                    .keys()
+                    .filter(|id| !previous_node_index.contains_key(*id))
+                    .count();
+                let removed_node_count = previous_node_index
+                    .keys()
+                    .filter(|id| !candidate_node_index.contains_key(*id))
+                    .count();
+                let changed_node_count = candidate_node_index
+                    .iter()
+                    .filter(|(id, value)| {
+                        previous_node_index
+                            .get(*id)
+                            .is_some_and(|previous| previous != *value)
+                    })
+                    .count();
+                let snapshot_json =
+                    serde_json::to_string_pretty(&previous_catalog).map_err(|error| {
+                        DomainError::new(
+                            CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_WRITE_FAILED_CODE,
+                            format!("failed to render subscription refresh snapshot: {error}"),
+                        )
+                    })?;
+                let catalog_json = serde_json::to_string_pretty(&catalog).map_err(|error| {
+                    DomainError::new(
+                        CLI_SUBSCRIPTION_CATALOG_WRITE_FAILED_CODE,
+                        format!("failed to render refreshed subscription catalog: {error}"),
+                    )
+                })?;
+                write_replace_file(
+                    &snapshot_path,
+                    snapshot_json.as_bytes(),
+                    CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_WRITE_FAILED_CODE,
+                    "subscription refresh snapshot",
+                )?;
+                write_replace_file(
+                    &catalog_path,
+                    catalog_json.as_bytes(),
+                    CLI_SUBSCRIPTION_CATALOG_WRITE_FAILED_CODE,
+                    "refreshed subscription catalog",
+                )?;
+                let status = SubscriptionRefreshStatusFile {
+                    schema_version: 1,
+                    source_id: source_id.to_string(),
+                    enabled: true,
+                    interval_seconds: request.interval_seconds,
+                    last_attempt: attempted_at.clone(),
+                    last_success: Some(attempted_at.clone()),
+                    next_attempt: next_attempt.clone(),
+                    result: "success".to_string(),
+                    error_redacted: false,
+                    error_code: None,
+                    added_node_count,
+                    removed_node_count,
+                    changed_node_count,
+                };
                 write_subscription_refresh_status_file(&status_path, &status)?;
                 Ok(subscription_refresh_report(status_path, status))
             }
             Err(error) => {
-                let status = SubscriptionRefreshStatusFile { schema_version: 1, source_id: source_id.to_string(), enabled: true, interval_seconds: request.interval_seconds, last_attempt: attempted_at, last_success: read_subscription_refresh_status_file(&status_path).ok().and_then(|status| status.last_success), next_attempt, result: "failed".to_string(), error_redacted: true, error_code: Some(error.code.clone()), added_node_count: 0, removed_node_count: 0, changed_node_count: 0 };
+                let status = SubscriptionRefreshStatusFile {
+                    schema_version: 1,
+                    source_id: source_id.to_string(),
+                    enabled: true,
+                    interval_seconds: request.interval_seconds,
+                    last_attempt: attempted_at,
+                    last_success: read_subscription_refresh_status_file(&status_path)
+                        .ok()
+                        .and_then(|status| status.last_success),
+                    next_attempt,
+                    result: "failed".to_string(),
+                    error_redacted: true,
+                    error_code: Some(error.code.clone()),
+                    added_node_count: 0,
+                    removed_node_count: 0,
+                    changed_node_count: 0,
+                };
                 write_subscription_refresh_status_file(&status_path, &status)?;
                 Err(DomainError::new(error.code, "subscription refresh failed; previous catalog and runtime selection were retained"))
             }
         }
     }
 
-    pub fn read_refresh_status(&self, status_path: &str) -> DomainResult<SubscriptionRefreshStatusReport> {
-        let status_path = required_subscription_catalog_path(status_path, CLI_SUBSCRIPTION_REFRESH_STATUS_READ_FAILED_CODE, "subscription refresh status path cannot be empty")?;
-        Ok(subscription_refresh_report(status_path, read_subscription_refresh_status_file(&status_path)?))
+    pub fn read_refresh_status(
+        &self,
+        status_path: &str,
+    ) -> DomainResult<SubscriptionRefreshStatusReport> {
+        let status_path = required_subscription_catalog_path(
+            status_path,
+            CLI_SUBSCRIPTION_REFRESH_STATUS_READ_FAILED_CODE,
+            "subscription refresh status path cannot be empty",
+        )?;
+        Ok(subscription_refresh_report(
+            status_path,
+            read_subscription_refresh_status_file(&status_path)?,
+        ))
     }
 
-    pub fn stop_refresh(&self, status_path: &str, source_id: &str, confirmed: bool) -> DomainResult<SubscriptionRefreshStatusReport> {
-        if !confirmed { return Err(DomainError::new(CLI_SUBSCRIPTION_REFRESH_AUTHORIZATION_REQUIRED_CODE, "subscription refresh stop requires explicit --confirm")); }
-        let status_path = required_subscription_catalog_path(status_path, CLI_SUBSCRIPTION_REFRESH_STATUS_WRITE_FAILED_CODE, "subscription refresh status path cannot be empty")?;
+    pub fn stop_refresh(
+        &self,
+        status_path: &str,
+        source_id: &str,
+        confirmed: bool,
+    ) -> DomainResult<SubscriptionRefreshStatusReport> {
+        if !confirmed {
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_REFRESH_AUTHORIZATION_REQUIRED_CODE,
+                "subscription refresh stop requires explicit --confirm",
+            ));
+        }
+        let status_path = required_subscription_catalog_path(
+            status_path,
+            CLI_SUBSCRIPTION_REFRESH_STATUS_WRITE_FAILED_CODE,
+            "subscription refresh status path cannot be empty",
+        )?;
         let mut status = match read_subscription_refresh_status_file(&status_path) {
             Ok(status) => status,
-            Err(error) if error.code == CLI_SUBSCRIPTION_REFRESH_STATUS_READ_FAILED_CODE && !std::path::Path::new(&status_path).exists() => SubscriptionRefreshStatusFile { schema_version: 1, source_id: source_id.trim().to_string(), enabled: false, interval_seconds: SUBSCRIPTION_REFRESH_MIN_INTERVAL_SECONDS, last_attempt: "none".to_string(), last_success: None, next_attempt: "none".to_string(), result: "stopped".to_string(), error_redacted: false, error_code: None, added_node_count: 0, removed_node_count: 0, changed_node_count: 0 },
+            Err(error)
+                if error.code == CLI_SUBSCRIPTION_REFRESH_STATUS_READ_FAILED_CODE
+                    && !std::path::Path::new(&status_path).exists() =>
+            {
+                SubscriptionRefreshStatusFile {
+                    schema_version: 1,
+                    source_id: source_id.trim().to_string(),
+                    enabled: false,
+                    interval_seconds: SUBSCRIPTION_REFRESH_MIN_INTERVAL_SECONDS,
+                    last_attempt: "none".to_string(),
+                    last_success: None,
+                    next_attempt: "none".to_string(),
+                    result: "stopped".to_string(),
+                    error_redacted: false,
+                    error_code: None,
+                    added_node_count: 0,
+                    removed_node_count: 0,
+                    changed_node_count: 0,
+                }
+            }
             Err(error) => return Err(error),
         };
-        if status.source_id != source_id.trim() { return Err(DomainError::new(CLI_SUBSCRIPTION_CATALOG_SOURCE_NOT_FOUND_CODE, "subscription refresh source id does not match the explicit status record")); }
-        status.enabled = false; status.result = "stopped".to_string(); status.next_attempt = "none".to_string();
+        if status.source_id != source_id.trim() {
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_SOURCE_NOT_FOUND_CODE,
+                "subscription refresh source id does not match the explicit status record",
+            ));
+        }
+        status.enabled = false;
+        status.result = "stopped".to_string();
+        status.next_attempt = "none".to_string();
         write_subscription_refresh_status_file(&status_path, &status)?;
         let _ = std::fs::remove_file(SubscriptionRefreshLock::path_for(&status_path, source_id));
         Ok(subscription_refresh_report(status_path, status))
@@ -3743,7 +3970,9 @@ struct SubscriptionRefreshStatusFile {
     changed_node_count: usize,
 }
 
-struct SubscriptionRefreshLock { path: std::path::PathBuf }
+struct SubscriptionRefreshLock {
+    path: std::path::PathBuf,
+}
 
 impl SubscriptionRefreshLock {
     fn path_for(status_path: &str, source_id: &str) -> std::path::PathBuf {
@@ -3752,13 +3981,24 @@ impl SubscriptionRefreshLock {
 
     fn acquire(status_path: &str, source_id: &str) -> DomainResult<Self> {
         let path = Self::path_for(status_path, source_id);
-        std::fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(|_| DomainError::new(CLI_SUBSCRIPTION_REFRESH_ALREADY_ACTIVE_CODE, "a refresh is already active for this source"))?;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|_| {
+                DomainError::new(
+                    CLI_SUBSCRIPTION_REFRESH_ALREADY_ACTIVE_CODE,
+                    "a refresh is already active for this source",
+                )
+            })?;
         Ok(Self { path })
     }
 }
 
 impl Drop for SubscriptionRefreshLock {
-    fn drop(&mut self) { let _ = std::fs::remove_file(&self.path); }
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
 }
 
 const NODE_SELECTION_SCHEMA_VERSION: u32 = 1;
@@ -4277,27 +4517,83 @@ fn subscription_catalog_location_kind(location: &str) -> &'static str {
 }
 
 fn subscription_refresh_timestamp() -> String {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().to_string()
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .to_string()
 }
 
 fn subscription_refresh_next_timestamp(interval_seconds: u64) -> String {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().saturating_add(interval_seconds).to_string()
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .saturating_add(interval_seconds)
+        .to_string()
 }
 
-fn read_subscription_refresh_status_file(path: &str) -> DomainResult<SubscriptionRefreshStatusFile> {
-    let contents = std::fs::read_to_string(path).map_err(|_| DomainError::new(CLI_SUBSCRIPTION_REFRESH_STATUS_READ_FAILED_CODE, "subscription refresh status could not be read"))?;
-    let status = serde_json::from_str::<SubscriptionRefreshStatusFile>(&contents).map_err(|_| DomainError::new(CLI_SUBSCRIPTION_REFRESH_STATUS_READ_FAILED_CODE, "subscription refresh status is invalid"))?;
-    if status.schema_version != 1 || status.source_id.trim().is_empty() { return Err(DomainError::new(CLI_SUBSCRIPTION_REFRESH_STATUS_READ_FAILED_CODE, "subscription refresh status schema is unsupported")); }
+fn read_subscription_refresh_status_file(
+    path: &str,
+) -> DomainResult<SubscriptionRefreshStatusFile> {
+    let contents = std::fs::read_to_string(path).map_err(|_| {
+        DomainError::new(
+            CLI_SUBSCRIPTION_REFRESH_STATUS_READ_FAILED_CODE,
+            "subscription refresh status could not be read",
+        )
+    })?;
+    let status =
+        serde_json::from_str::<SubscriptionRefreshStatusFile>(&contents).map_err(|_| {
+            DomainError::new(
+                CLI_SUBSCRIPTION_REFRESH_STATUS_READ_FAILED_CODE,
+                "subscription refresh status is invalid",
+            )
+        })?;
+    if status.schema_version != 1 || status.source_id.trim().is_empty() {
+        return Err(DomainError::new(
+            CLI_SUBSCRIPTION_REFRESH_STATUS_READ_FAILED_CODE,
+            "subscription refresh status schema is unsupported",
+        ));
+    }
     Ok(status)
 }
 
-fn write_subscription_refresh_status_file(path: &str, status: &SubscriptionRefreshStatusFile) -> DomainResult<()> {
-    let json = serde_json::to_string_pretty(status).map_err(|_| DomainError::new(CLI_SUBSCRIPTION_REFRESH_STATUS_WRITE_FAILED_CODE, "subscription refresh status could not be rendered"))?;
-    write_replace_file(path, json.as_bytes(), CLI_SUBSCRIPTION_REFRESH_STATUS_WRITE_FAILED_CODE, "subscription refresh status")
+fn write_subscription_refresh_status_file(
+    path: &str,
+    status: &SubscriptionRefreshStatusFile,
+) -> DomainResult<()> {
+    let json = serde_json::to_string_pretty(status).map_err(|_| {
+        DomainError::new(
+            CLI_SUBSCRIPTION_REFRESH_STATUS_WRITE_FAILED_CODE,
+            "subscription refresh status could not be rendered",
+        )
+    })?;
+    write_replace_file(
+        path,
+        json.as_bytes(),
+        CLI_SUBSCRIPTION_REFRESH_STATUS_WRITE_FAILED_CODE,
+        "subscription refresh status",
+    )
 }
 
-fn subscription_refresh_report(status_path: String, status: SubscriptionRefreshStatusFile) -> SubscriptionRefreshStatusReport {
-    SubscriptionRefreshStatusReport { status_path, source_id: status.source_id, enabled: status.enabled, last_attempt: status.last_attempt, last_success: status.last_success, next_attempt: status.next_attempt, result: status.result, error_redacted: status.error_redacted, error_code: status.error_code, added_node_count: status.added_node_count, removed_node_count: status.removed_node_count, changed_node_count: status.changed_node_count }
+fn subscription_refresh_report(
+    status_path: String,
+    status: SubscriptionRefreshStatusFile,
+) -> SubscriptionRefreshStatusReport {
+    SubscriptionRefreshStatusReport {
+        status_path,
+        source_id: status.source_id,
+        enabled: status.enabled,
+        last_attempt: status.last_attempt,
+        last_success: status.last_success,
+        next_attempt: status.next_attempt,
+        result: status.result,
+        error_redacted: status.error_redacted,
+        error_code: status.error_code,
+        added_node_count: status.added_node_count,
+        removed_node_count: status.removed_node_count,
+        changed_node_count: status.changed_node_count,
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -5836,6 +6132,7 @@ struct ParsedOptions {
     catalog_path: Option<String>,
     refresh_status_path: Option<String>,
     refresh_interval_seconds: Option<u64>,
+    refresh_schedule_unit_name: Option<String>,
     selection_path: Option<String>,
     source_id: Option<String>,
     selected_node_id: Option<String>,
@@ -7943,6 +8240,33 @@ where
             Ok(report) => LinuxCliResponse::success("subscription refresh stop").with_diagnostics(vec![cli_diagnostic(DiagnosticSeverity::Info, "cli.subscription.refresh_stopped", format!("subscription refresh enabled={} source_id={} result={}", report.enabled, report.source_id, report.result), SOURCE_CLI_RUNTIME)]),
             Err(error) => subscription_error("subscription refresh stop", error),
         },
+        LinuxCliCommand::SubscriptionRefreshScheduleInstall { catalog_path, status_path, snapshot_path, source_id, interval_seconds, unit_name, confirm, .. } => {
+            if !confirm { return subscription_error("subscription refresh schedule install", DomainError::new(CLI_SUBSCRIPTION_REFRESH_SCHEDULE_CONFIRMATION_REQUIRED_CODE, "subscription refresh schedule installation requires explicit --confirm")); }
+            let executable_path = match std::env::current_exe() { Ok(path) => path, Err(_) => return subscription_error("subscription refresh schedule install", DomainError::new(CLI_SUBSCRIPTION_REFRESH_STATUS_WRITE_FAILED_CODE, "current networkcore-linux executable path could not be resolved")) };
+            let request = LinuxSubscriptionRefreshScheduleRequest { unit_name, executable_path, catalog_path: std::path::PathBuf::from(catalog_path), status_path: std::path::PathBuf::from(status_path), snapshot_path: std::path::PathBuf::from(snapshot_path), source_id, interval_seconds };
+            match render_subscription_refresh_schedule(&request).and_then(|plan| install_subscription_refresh_schedule(&platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(), &request).map(|report| (plan, report))) {
+                Ok((plan, report)) => LinuxCliResponse::success("subscription refresh schedule install").with_diagnostics(vec![cli_diagnostic(DiagnosticSeverity::Info, "cli.subscription.refresh_schedule_installed", format!("subscription refresh schedule installed service={} timer={} timer_active={} plan_snapshot={} service_plan_bytes={} timer_plan_bytes={}", report.service_name, report.timer_name, report.timer_active, report.plan_snapshot_path.display(), plan.service_content.len(), plan.timer_content.len()), SOURCE_CLI_RUNTIME)]),
+                Err(error) => subscription_error("subscription refresh schedule install", error),
+            }
+        }
+        LinuxCliCommand::SubscriptionRefreshScheduleStatus { unit_name, snapshot_path, .. } => match subscription_refresh_schedule_status(&platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(), &unit_name, std::path::Path::new(&snapshot_path)) {
+            Ok(report) => LinuxCliResponse::success("subscription refresh schedule status").with_diagnostics(vec![cli_diagnostic(DiagnosticSeverity::Info, "cli.subscription.refresh_schedule_status", format!("subscription refresh schedule installed={} timer_active={} service={} timer={}", report.installed, report.timer_active, report.service_name, report.timer_name), SOURCE_CLI_RUNTIME)]),
+            Err(error) => subscription_error("subscription refresh schedule status", error),
+        },
+        LinuxCliCommand::SubscriptionRefreshScheduleStop { unit_name, snapshot_path, confirm, .. } => {
+            if !confirm { return subscription_error("subscription refresh schedule stop", DomainError::new(CLI_SUBSCRIPTION_REFRESH_SCHEDULE_CONFIRMATION_REQUIRED_CODE, "subscription refresh schedule stop requires explicit --confirm")); }
+            match stop_subscription_refresh_schedule(&platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(), &unit_name, std::path::Path::new(&snapshot_path)) {
+                Ok(report) => LinuxCliResponse::success("subscription refresh schedule stop").with_diagnostics(vec![cli_diagnostic(DiagnosticSeverity::Info, "cli.subscription.refresh_schedule_stopped", format!("subscription refresh schedule timer stopped service={} timer={}; refresh status was retained", report.service_name, report.timer_name), SOURCE_CLI_RUNTIME)]),
+                Err(error) => subscription_error("subscription refresh schedule stop", error),
+            }
+        }
+        LinuxCliCommand::SubscriptionRefreshScheduleUninstall { unit_name, snapshot_path, confirm, .. } => {
+            if !confirm { return subscription_error("subscription refresh schedule uninstall", DomainError::new(CLI_SUBSCRIPTION_REFRESH_SCHEDULE_CONFIRMATION_REQUIRED_CODE, "subscription refresh schedule uninstall requires explicit --confirm")); }
+            match uninstall_subscription_refresh_schedule(&platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(), &unit_name, std::path::Path::new(&snapshot_path)) {
+                Ok(report) => LinuxCliResponse::success("subscription refresh schedule uninstall").with_diagnostics(vec![cli_diagnostic(DiagnosticSeverity::Info, "cli.subscription.refresh_schedule_uninstalled", format!("subscription refresh schedule removed={} service={} timer={}; refresh status was retained", !report.installed, report.service_name, report.timer_name), SOURCE_CLI_RUNTIME)]),
+                Err(error) => subscription_error("subscription refresh schedule uninstall", error),
+            }
+        }
         other => handle_unwired_command(other.name()),
     }
 }
@@ -8287,6 +8611,7 @@ pub fn handle_systemd_service_control<R: LinuxSystemdCommandRunner>(
         LinuxSystemdServiceAction::Status => "service status",
         LinuxSystemdServiceAction::Reload => "service reload",
         LinuxSystemdServiceAction::DaemonReload => "service daemon-reload",
+        LinuxSystemdServiceAction::Enable => "service enable",
     };
     match control_systemd_service(
         runner,
@@ -10275,27 +10600,42 @@ fn run_mieru_public_engine_plan(
 ) -> LinuxCliResponse {
     let binary_path = match binary_path.filter(|value| !value.trim().is_empty()) {
         Some(path) => std::path::PathBuf::from(path),
-        None => return domain_error_response(
-            "run-url", LinuxCliExitCode::ArgumentOrConfig,
-            DomainError::new(CLI_RUN_URL_MIERU_BINARY_REQUIRED_CODE,
-                "Mieru run-url requires --binary <local-path> for the selected node"),
-            "cli.mieru",
-        ),
+        None => {
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::ArgumentOrConfig,
+                DomainError::new(
+                    CLI_RUN_URL_MIERU_BINARY_REQUIRED_CODE,
+                    "Mieru run-url requires --binary <local-path> for the selected node",
+                ),
+                "cli.mieru",
+            )
+        }
     };
     let expected_sha256 = match expected_sha256.filter(|value| !value.trim().is_empty()) {
         Some(value) => value.to_string(),
-        None => return domain_error_response(
-            "run-url", LinuxCliExitCode::ArgumentOrConfig,
-            DomainError::new(CLI_RUN_URL_MIERU_DIGEST_REQUIRED_CODE,
-                "Mieru run-url requires --sha256 <digest> for the selected node"),
-            "cli.mieru",
-        ),
+        None => {
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::ArgumentOrConfig,
+                DomainError::new(
+                    CLI_RUN_URL_MIERU_DIGEST_REQUIRED_CODE,
+                    "Mieru run-url requires --sha256 <digest> for the selected node",
+                ),
+                "cli.mieru",
+            )
+        }
     };
     let node = match mieru_node_from_descriptor(&plan.node) {
         Ok(node) => node,
-        Err(error) => return domain_error_response(
-            "run-url", LinuxCliExitCode::ArgumentOrConfig, error, "cli.mieru",
-        ),
+        Err(error) => {
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::ArgumentOrConfig,
+                error,
+                "cli.mieru",
+            )
+        }
     };
     let rendered = match render_mieru_client_config(&MieruClientConfigRequest {
         node,
@@ -10303,35 +10643,54 @@ fn run_mieru_public_engine_plan(
         socks5_port: listen_port,
     }) {
         Ok(config) => config,
-        Err(error) => return domain_error_response(
-            "run-url", LinuxCliExitCode::ArgumentOrConfig,
-            DomainError::new(CLI_RUN_URL_MIERU_CONFIG_FAILED_CODE, error.message), "cli.mieru",
-        ),
+        Err(error) => {
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::ArgumentOrConfig,
+                DomainError::new(CLI_RUN_URL_MIERU_CONFIG_FAILED_CODE, error.message),
+                "cli.mieru",
+            )
+        }
     };
-    let config_path = install_root.join("mieru").join(format!("run-url-{}.json", sanitize_path_segment(&plan.node.id)));
+    let config_path = install_root.join("mieru").join(format!(
+        "run-url-{}.json",
+        sanitize_path_segment(&plan.node.id)
+    ));
     let snapshot_path = config_path.with_extension("before-networkcore.json");
     let write_report = match write_mieru_client_config(&MieruClientConfigWriteRequest {
-        config_path: config_path.clone(), snapshot_path, content: rendered.content.clone(),
+        config_path: config_path.clone(),
+        snapshot_path,
+        content: rendered.content.clone(),
     }) {
         Ok(report) => report,
-        Err(error) => return domain_error_response(
-            "run-url", LinuxCliExitCode::GeneralFailure,
-            DomainError::new(CLI_RUN_URL_MIERU_CONFIG_FAILED_CODE, error.message), "cli.mieru",
-        ),
+        Err(error) => {
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::GeneralFailure,
+                DomainError::new(CLI_RUN_URL_MIERU_CONFIG_FAILED_CODE, error.message),
+                "cli.mieru",
+            )
+        }
     };
     let request = MieruClientControlRequest {
-        executable_path: binary_path.clone(), expected_sha256: expected_sha256.clone(), config_path: config_path.clone(),
+        executable_path: binary_path.clone(),
+        expected_sha256: expected_sha256.clone(),
+        config_path: config_path.clone(),
     };
     let runner = CommandMieruCommandRunner::new();
     let report = match apply_and_start_mieru_client(&runner, &request) {
         Ok(report) => report,
         Err(error) => {
             let _ = rollback_mieru_client_config(
-                &config_path, &write_report.snapshot_path.unwrap_or_default(), write_report.snapshot_written,
+                &config_path,
+                &write_report.snapshot_path.unwrap_or_default(),
+                write_report.snapshot_written,
             );
             return domain_error_response(
-                "run-url", LinuxCliExitCode::GeneralFailure,
-                DomainError::new(CLI_RUN_URL_MIERU_START_FAILED_CODE, error.message), "cli.mieru",
+                "run-url",
+                LinuxCliExitCode::GeneralFailure,
+                DomainError::new(CLI_RUN_URL_MIERU_START_FAILED_CODE, error.message),
+                "cli.mieru",
             );
         }
     };
@@ -10340,11 +10699,15 @@ fn run_mieru_public_engine_plan(
         Err(error) => {
             let _ = engine_mieru::stop_mieru_client(&runner, &request);
             let _ = rollback_mieru_client_config(
-                &config_path, &write_report.snapshot_path.unwrap_or_default(), write_report.snapshot_written,
+                &config_path,
+                &write_report.snapshot_path.unwrap_or_default(),
+                write_report.snapshot_written,
             );
             return domain_error_response(
-                "run-url", LinuxCliExitCode::GeneralFailure,
-                DomainError::new(CLI_RUN_URL_MIERU_START_FAILED_CODE, error.message), "cli.mieru",
+                "run-url",
+                LinuxCliExitCode::GeneralFailure,
+                DomainError::new(CLI_RUN_URL_MIERU_START_FAILED_CODE, error.message),
+                "cli.mieru",
             );
         }
     };
@@ -10355,8 +10718,11 @@ fn run_mieru_public_engine_plan(
     LinuxCliResponse::success("run-url")
         .with_diagnostics(diagnostics)
         .with_mieru_install(LinuxMieruInstallStatus {
-            binary_path: binary_path.display().to_string(), sha256: expected_sha256,
-            verified: true, downloaded: false, action: "run-url".to_string(),
+            binary_path: binary_path.display().to_string(),
+            sha256: expected_sha256,
+            verified: true,
+            downloaded: false,
+            action: "run-url".to_string(),
             config_path: Some(config_path.display().to_string()),
         })
 }
@@ -13287,8 +13653,17 @@ where
     S: SingBoxProcessRunner,
 {
     handle_run_catalog_with_sing_box_and_mieru(
-        installer, runner, catalog_path, source_id, selected_node_id, listen_host,
-        listen_port, install_dir, None, None, force,
+        installer,
+        runner,
+        catalog_path,
+        source_id,
+        selected_node_id,
+        listen_host,
+        listen_port,
+        install_dir,
+        None,
+        None,
+        force,
     )
 }
 
@@ -13346,8 +13721,18 @@ where
     F: RemoteSubscriptionFetcher,
 {
     handle_run_catalog_with_sing_box_and_fetcher_and_mieru(
-        installer, runner, fetcher, catalog_path, source_id, selected_node_id,
-        listen_host, listen_port, install_dir, None, None, force,
+        installer,
+        runner,
+        fetcher,
+        catalog_path,
+        source_id,
+        selected_node_id,
+        listen_host,
+        listen_port,
+        install_dir,
+        None,
+        None,
+        force,
     )
 }
 
@@ -13415,8 +13800,16 @@ where
     S: SingBoxProcessRunner,
 {
     handle_run_url_with_sing_box_and_node_id_and_mieru(
-        installer, runner, url, selected_node_id, listen_host, listen_port, install_dir,
-        None, None, force,
+        installer,
+        runner,
+        url,
+        selected_node_id,
+        listen_host,
+        listen_port,
+        install_dir,
+        None,
+        None,
+        force,
     )
 }
 
@@ -13502,8 +13895,17 @@ where
     F: RemoteSubscriptionFetcher,
 {
     handle_run_url_with_sing_box_and_fetcher_and_node_id_and_mieru(
-        installer, runner, fetcher, url, selected_node_id, listen_host, listen_port,
-        install_dir, None, None, force,
+        installer,
+        runner,
+        fetcher,
+        url,
+        selected_node_id,
+        listen_host,
+        listen_port,
+        install_dir,
+        None,
+        None,
+        force,
     )
 }
 
@@ -13569,14 +13971,24 @@ where
     };
     let run_plan = match PublicEngineRunPlan::select(&catalog.nodes, selected_node_id) {
         Ok(plan) => plan,
-        Err(error) => return domain_error_response(
-            "run-url", LinuxCliExitCode::ArgumentOrConfig, error, SOURCE_CLI_SING_BOX,
-        ),
+        Err(error) => {
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::ArgumentOrConfig,
+                error,
+                SOURCE_CLI_SING_BOX,
+            )
+        }
     };
     if run_plan.engine == PublicEngineKind::Mieru {
         return run_mieru_public_engine_plan(
-            &run_plan, &install_root, mieru_binary_path, mieru_sha256,
-            listen_host, listen_port, &document.diagnostics,
+            &run_plan,
+            &install_root,
+            mieru_binary_path,
+            mieru_sha256,
+            listen_host,
+            listen_port,
+            &document.diagnostics,
         );
     }
     let generated_config =
@@ -13927,13 +14339,38 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
             }
             "--refresh-status" => {
                 index += 1;
-                let Some(value) = args.get(index) else { return Err(parse_error(CLI_ARGUMENT_VALUE_MISSING_CODE, "--refresh-status requires an explicit status path")); };
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--refresh-status requires an explicit status path",
+                    ));
+                };
                 options.refresh_status_path = Some(value.clone());
             }
             "--interval-seconds" => {
                 index += 1;
-                let Some(value) = args.get(index) else { return Err(parse_error(CLI_ARGUMENT_VALUE_MISSING_CODE, "--interval-seconds requires an integer")); };
-                options.refresh_interval_seconds = Some(value.parse::<u64>().map_err(|_| parse_error(CLI_ARGUMENT_VALUE_MISSING_CODE, "--interval-seconds requires an integer"))?);
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--interval-seconds requires an integer",
+                    ));
+                };
+                options.refresh_interval_seconds = Some(value.parse::<u64>().map_err(|_| {
+                    parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--interval-seconds requires an integer",
+                    )
+                })?);
+            }
+            "--unit-name" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--unit-name requires a systemd unit base name",
+                    ));
+                };
+                options.refresh_schedule_unit_name = Some(value.clone());
             }
             "--file" => {
                 index += 1;
@@ -14701,23 +15138,164 @@ fn parse_subscription_command(args: &[String]) -> Result<LinuxCliCommand, LinuxC
     }
 }
 
-fn parse_subscription_refresh_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
-    let Some(operation) = args.first() else { return Err(parse_error(CLI_ARGUMENT_VALUE_MISSING_CODE, "subscription refresh requires start, status, or stop")); };
+fn parse_subscription_refresh_command(
+    args: &[String],
+) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(operation) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "subscription refresh requires start, status, stop, or schedule",
+        ));
+    };
+    if operation == "schedule" {
+        return parse_subscription_refresh_schedule_command(&args[1..]);
+    }
     let options = parse_options(&args[1..])?;
-    let status_path = options.refresh_status_path.ok_or_else(|| parse_error(CLI_ARGUMENT_VALUE_MISSING_CODE, "subscription refresh requires --refresh-status <path>"))?;
+    let status_path = options.refresh_status_path.ok_or_else(|| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "subscription refresh requires --refresh-status <path>",
+        )
+    })?;
     match operation.as_str() {
-        "status" => Ok(LinuxCliCommand::SubscriptionRefreshStatus { status_path, format: options.format }),
-        "stop" => Ok(LinuxCliCommand::SubscriptionRefreshStop { status_path, source_id: options.source_id.ok_or_else(|| parse_error(CLI_ARGUMENT_VALUE_MISSING_CODE, "subscription refresh stop requires --source-id <id>"))?, confirm: options.confirm, format: options.format }),
-        "start" => Ok(LinuxCliCommand::SubscriptionRefreshStart {
-            catalog_path: options.catalog_path.ok_or_else(|| parse_error(CLI_ARGUMENT_VALUE_MISSING_CODE, "subscription refresh start requires --catalog <path>"))?,
+        "status" => Ok(LinuxCliCommand::SubscriptionRefreshStatus {
             status_path,
-            snapshot_path: options.snapshot_path.ok_or_else(|| parse_error(CLI_ARGUMENT_VALUE_MISSING_CODE, "subscription refresh start requires --snapshot <path>"))?,
-            source_id: options.source_id.ok_or_else(|| parse_error(CLI_ARGUMENT_VALUE_MISSING_CODE, "subscription refresh start requires --source-id <id>"))?,
-            interval_seconds: options.refresh_interval_seconds.unwrap_or(SUBSCRIPTION_REFRESH_MIN_INTERVAL_SECONDS),
+            format: options.format,
+        }),
+        "stop" => Ok(LinuxCliCommand::SubscriptionRefreshStop {
+            status_path,
+            source_id: options.source_id.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh stop requires --source-id <id>",
+                )
+            })?,
             confirm: options.confirm,
             format: options.format,
         }),
-        _ => Err(parse_error(CLI_ARGUMENT_UNKNOWN_CODE, "subscription refresh accepts start, status, or stop")),
+        "start" => Ok(LinuxCliCommand::SubscriptionRefreshStart {
+            catalog_path: options.catalog_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh start requires --catalog <path>",
+                )
+            })?,
+            status_path,
+            snapshot_path: options.snapshot_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh start requires --snapshot <path>",
+                )
+            })?,
+            source_id: options.source_id.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh start requires --source-id <id>",
+                )
+            })?,
+            interval_seconds: options
+                .refresh_interval_seconds
+                .unwrap_or(SUBSCRIPTION_REFRESH_MIN_INTERVAL_SECONDS),
+            confirm: options.confirm,
+            format: options.format,
+        }),
+        _ => Err(parse_error(
+            CLI_ARGUMENT_UNKNOWN_CODE,
+            "subscription refresh accepts start, status, stop, or schedule",
+        )),
+    }
+}
+
+fn parse_subscription_refresh_schedule_command(
+    args: &[String],
+) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(operation) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "subscription refresh schedule requires install, status, stop, or uninstall",
+        ));
+    };
+    let options = parse_options(&args[1..])?;
+    let unit_name = || {
+        options.refresh_schedule_unit_name.clone().ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "subscription refresh schedule requires --unit-name <base-name>",
+            )
+        })
+    };
+    match operation.as_str() {
+        "install" => Ok(LinuxCliCommand::SubscriptionRefreshScheduleInstall {
+            catalog_path: options.catalog_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh schedule install requires --catalog <path>",
+                )
+            })?,
+            status_path: options.refresh_status_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh schedule install requires --refresh-status <path>",
+                )
+            })?,
+            snapshot_path: options.snapshot_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh schedule install requires --snapshot <path>",
+                )
+            })?,
+            source_id: options.source_id.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh schedule install requires --source-id <id>",
+                )
+            })?,
+            interval_seconds: options.refresh_interval_seconds.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh schedule install requires --interval-seconds <>=300>",
+                )
+            })?,
+            unit_name: unit_name()?,
+            confirm: options.confirm,
+            format: options.format,
+        }),
+        "status" => Ok(LinuxCliCommand::SubscriptionRefreshScheduleStatus {
+            unit_name: unit_name()?,
+            snapshot_path: options.snapshot_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh schedule status requires --snapshot <path>",
+                )
+            })?,
+            format: options.format,
+        }),
+        "stop" => Ok(LinuxCliCommand::SubscriptionRefreshScheduleStop {
+            unit_name: unit_name()?,
+            snapshot_path: options.snapshot_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh schedule stop requires --snapshot <path>",
+                )
+            })?,
+            confirm: options.confirm,
+            format: options.format,
+        }),
+        "uninstall" => Ok(LinuxCliCommand::SubscriptionRefreshScheduleUninstall {
+            unit_name: unit_name()?,
+            snapshot_path: options.snapshot_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh schedule uninstall requires --snapshot <path>",
+                )
+            })?,
+            confirm: options.confirm,
+            format: options.format,
+        }),
+        _ => Err(parse_error(
+            CLI_ARGUMENT_UNKNOWN_CODE,
+            "subscription refresh schedule accepts install, status, stop, or uninstall",
+        )),
     }
 }
 
@@ -15668,6 +16246,10 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux subscription refresh start --catalog <path> --refresh-status <path> --snapshot <path> --source-id <id> [--interval-seconds <>=300>] --confirm [--format text|json]\n",
         "  networkcore-linux subscription refresh status --refresh-status <path> [--format text|json]\n",
         "  networkcore-linux subscription refresh stop --refresh-status <path> --source-id <id> --confirm [--format text|json]\n",
+        "  networkcore-linux subscription refresh schedule install --catalog <path> --refresh-status <path> --snapshot <path> --source-id <id> --interval-seconds <>=300> --unit-name <base-name> --confirm [--format text|json]\n",
+        "  networkcore-linux subscription refresh schedule status --unit-name <base-name> --snapshot <path> [--format text|json]\n",
+        "  networkcore-linux subscription refresh schedule stop --unit-name <base-name> --snapshot <path> --confirm [--format text|json]\n",
+        "  networkcore-linux subscription refresh schedule uninstall --unit-name <base-name> --snapshot <path> --confirm [--format text|json]\n",
         "  networkcore-linux core install sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux core install mieru --binary <local-path> --sha256 <digest> [--format text|json]\n",
         "  networkcore-linux core install mieru --url <official-release-asset> --binary <destination> --sha256 <digest> --confirm [--force] [--format text|json]\n",
