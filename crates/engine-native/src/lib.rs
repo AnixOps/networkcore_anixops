@@ -225,6 +225,8 @@ pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_CODE: &str =
     "engine.native.runtime.http_proxy_plain_request_read";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_INVALID_CODE: &str =
     "engine.native.runtime.http_proxy_plain_request_invalid";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_HTTP_VERSION_UNSUPPORTED_CODE: &str =
+    "engine.native.runtime.http_proxy_plain_http_version_unsupported";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_FAILED_CODE: &str =
     "engine.native.runtime.http_proxy_plain_request_read_failed";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CONNECT_TLS_BLOCKED_CODE: &str =
@@ -3799,6 +3801,9 @@ where
             "native explicit HTTP proxy request line is invalid",
         );
     }
+    if version != "HTTP/1.0" && version != "HTTP/1.1" {
+        return explicit_http_proxy_request_http_version_unsupported();
+    }
     let body = match read_http_body(reader, &headers, HTTP_PROXY_MAX_BODY_BYTES) {
         Ok(body) => body,
         Err(()) => {
@@ -6074,6 +6079,17 @@ fn explicit_http_proxy_request_invalid(
         diagnostics: vec![runtime_warning(
             ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_INVALID_CODE,
             message,
+        )],
+    }
+}
+
+fn explicit_http_proxy_request_http_version_unsupported(
+) -> NativeExplicitHttpProxyRequestReadReport {
+    NativeExplicitHttpProxyRequestReadReport {
+        request: None,
+        diagnostics: vec![runtime_warning(
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_HTTP_VERSION_UNSUPPORTED_CODE,
+            "native explicit HTTP proxy supports HTTP/1.0 and HTTP/1.1 only",
         )],
     }
 }

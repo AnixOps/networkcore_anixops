@@ -76,6 +76,7 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_SCRIPT_DEFERRED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CONNECT_TLS_BLOCKED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_HTTP_VERSION_UNSUPPORTED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE,
@@ -1757,6 +1758,21 @@ fn plain_http_proxy_request_parser_decodes_bounded_chunked_body_and_trailers() {
     assert!(report.diagnostics.iter().any(|diagnostic| {
         diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_CODE
     }));
+}
+
+#[test]
+fn plain_http_proxy_request_parser_rejects_http2_request_lines() {
+    let mut request = Cursor::new(
+        b"GET http://example.com/ HTTP/2.0\r\nHost: example.com\r\n\r\n".to_vec(),
+    );
+
+    let report = read_explicit_http_proxy_request(&mut request);
+
+    assert!(report.request.is_none());
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_HTTP_VERSION_UNSUPPORTED_CODE,
+    );
 }
 
 #[test]
