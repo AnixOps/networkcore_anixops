@@ -8203,6 +8203,85 @@ route_node = "node-1"
     drop(rebound);
 }
 
+#[cfg(unix)]
+#[test]
+fn managed_reload_then_rollback_restores_runtime_before_interruption_cleanup() {
+    let _managed_control_lock = MANAGED_CONTROL_SIGNAL_TEST_LOCK
+        .lock()
+        .expect("managed control test lock should not be poisoned");
+    let port = unused_loopback_port();
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let engine = NativeProxyEngineService::new();
+    let orchestrator = RuntimeOrchestrator::new(
+        CoreConfigurationService::new(),
+        platform.clone(),
+        engine.clone(),
+    );
+    let reader = MemoryConfigReader::ok(format!(
+        r#"
+schema_version = 1
+profile = "default"
+
+[[nodes]]
+id = "node-1"
+protocol = "socks"
+host = "127.0.0.1"
+port = 1081
+
+[[listeners]]
+id = "loopback-socks"
+enabled = true
+kind = "socks"
+bind_host = "127.0.0.1"
+bind_port = {port}
+network = "tcp"
+route_action = "proxy"
+route_node = "node-1"
+"#
+    ));
+
+    let response = handle_entrypoint_with_runtime_and_lifecycle(
+        LinuxCliCommand::Start {
+            config_path: Some("networkcore.toml".to_string()),
+            mitm_ca_certificate_path: None,
+            mitm_ca_private_key_path: None,
+            enable_https_mitm: false,
+            enable_script_runtime: false,
+            script_runner_path: None,
+            script_maps: Vec::new(),
+            script_store_path: None,
+            node_binary: None,
+            managed_lifecycle: None,
+            confirm: false,
+            format: OutputFormat::Text,
+        },
+        &platform,
+        &orchestrator,
+        &reader,
+        &ManagedReloadRollbackLifecycleHost::default(),
+    );
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, LinuxCliExitCode::Interrupted);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_READY_CODE,
+    );
+    assert_diagnostic(
+        &response.diagnostics,
+        ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
+    );
+
+    let status = engine
+        .status(DEFAULT_ENGINE_ID)
+        .expect("interruption cleanup should leave the rolled back runtime inspectable");
+    assert_eq!(status.state, ProxyEngineLifecycleState::Stopped);
+    let rebound = TcpListener::bind(("127.0.0.1", port))
+        .expect("rollback lifecycle cleanup should release the loopback tcp port");
+    drop(rebound);
+}
+
 #[test]
 fn foreground_interruption_stop_failure_adds_stable_cli_diagnostic() {
     let orchestrator = RuntimeOrchestrator::new(
@@ -8229,6 +8308,9 @@ fn foreground_interruption_stop_failure_adds_stable_cli_diagnostic() {
 #[cfg(unix)]
 #[test]
 fn os_signal_interruption_source_maps_unix_signals_to_stable_diagnostics() {
+    let _managed_control_lock = MANAGED_CONTROL_SIGNAL_TEST_LOCK
+        .lock()
+        .expect("managed control test lock should not be poisoned");
     let sigint = OsSignalForegroundLifecycleInterruptionSource::interruption_for_signal(SIGINT);
     let sigterm = OsSignalForegroundLifecycleInterruptionSource::interruption_for_signal(SIGTERM);
     let managed_control =
@@ -9198,6 +9280,43 @@ impl LinuxReadOnlyProbe for MemoryLinuxReadOnlyProbe {
 struct TestForegroundLifecycleHost {
     outcome: ForegroundLifecycleOutcome,
 }
+
+#[cfg(unix)]
+#[derive(Default)]
+struct ManagedReloadRollbackLifecycleHost {
+    calls: std::sync::atomic::AtomicUsize,
+}
+
+#[cfg(unix)]
+impl ForegroundLifecycleHost for ManagedReloadRollbackLifecycleHost {
+    fn run_foreground(&self, request: &ForegroundLifecycleRequest) -> ForegroundLifecycleOutcome {
+        assert_eq!(request.engine_status.engine_id.as_str(), DEFAULT_ENGINE_ID);
+        let code = match self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) {
+            0 => CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE,
+            1 => {
+                OsSignalManagedControlInterrupter
+                    .interrupt(ManagedControlRequest::Rollback {
+                        expected_config_version: 2,
+                    })
+                    .expect("test lifecycle host should request versioned rollback");
+                CLI_START_MANAGED_CONTROL_ROLLBACK_REQUESTED_CODE
+            }
+            _ => "test.managed_control.stop",
+        };
+        ForegroundLifecycleOutcome::failure(
+            LinuxCliExitCode::Interrupted,
+            Diagnostic::new(
+                DiagnosticSeverity::Warning,
+                code,
+                "test lifecycle host interrupted managed runtime",
+                Some("test.managed_control".to_string()),
+            ),
+        )
+    }
+}
+
+#[cfg(unix)]
+static MANAGED_CONTROL_SIGNAL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 impl TestForegroundLifecycleHost {
     fn success(diagnostics: Vec<Diagnostic>) -> Self {
