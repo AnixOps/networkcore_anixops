@@ -125,6 +125,8 @@ pub const CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_READY_CODE: &str =
     "cli.linux.managed_control_socket.rollback_ready";
 pub const CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_FAILED_CODE: &str =
     "cli.linux.managed_control_socket.rollback_failed";
+pub const CLI_MANAGED_CONTROL_SOCKET_REQUEST_PENDING_CODE: &str =
+    "cli.linux.managed_control_socket.request_pending";
 pub const CLI_START_SIGNAL_RECEIVED_CODE: &str = "cli.linux.start.signal_received";
 pub const CLI_START_SIGNAL_SOURCE_FAILED_CODE: &str = "cli.linux.start.signal_source_failed";
 pub const CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE: &str =
@@ -443,6 +445,7 @@ const MANAGED_CONTROL_NONE: u8 = 0;
 const MANAGED_CONTROL_STOP: u8 = 1;
 const MANAGED_CONTROL_RELOAD: u8 = 2;
 const MANAGED_CONTROL_ROLLBACK: u8 = 3;
+const MANAGED_CONTROL_PENDING: u8 = 4;
 static MANAGED_CONTROL_REQUEST: AtomicU8 = AtomicU8::new(MANAGED_CONTROL_NONE);
 static MANAGED_CONTROL_EXPECTED_CONFIG_VERSION: AtomicU64 = AtomicU64::new(0);
 pub const RUN_URL_REMOTE_SUBSCRIPTION_MAX_BYTES: u64 = 1024 * 1024;
@@ -3072,12 +3075,28 @@ impl ManagedControlInterrupter for OsSignalManagedControlInterrupter {
     fn interrupt(&self, request: ManagedControlRequest) -> DomainResult<()> {
         #[cfg(unix)]
         {
+            if MANAGED_CONTROL_REQUEST
+                .compare_exchange(
+                    MANAGED_CONTROL_NONE,
+                    MANAGED_CONTROL_PENDING,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                )
+                .is_err()
+            {
+                return Err(DomainError::new(
+                    CLI_MANAGED_CONTROL_SOCKET_REQUEST_PENDING_CODE,
+                    "managed foreground control request is already pending",
+                ));
+            }
             if let ManagedControlRequest::Rollback {
                 expected_config_version,
             } = request
             {
                 MANAGED_CONTROL_EXPECTED_CONFIG_VERSION
                     .store(expected_config_version, Ordering::SeqCst);
+            } else {
+                MANAGED_CONTROL_EXPECTED_CONFIG_VERSION.store(0, Ordering::SeqCst);
             }
             MANAGED_CONTROL_REQUEST.store(request.signal_value(), Ordering::SeqCst);
             Ok(())
@@ -3234,12 +3253,17 @@ pub fn start_managed_control_socket_with_runtime_snapshot(
                         let _ = stream.write_all(format!("status {snapshot}\n").as_bytes());
                         continue;
                     }
-                    let accepted =
-                        request.is_some_and(|request| interrupter.interrupt(request).is_ok());
-                    let response = if accepted {
-                        b"accepted\n".as_slice()
-                    } else {
-                        b"rejected\n".as_slice()
+                    let (response, accepted) = match request {
+                        Some(request) => match interrupter.interrupt(request) {
+                            Ok(()) => (b"accepted\n".as_slice(), true),
+                            Err(error)
+                                if error.code == CLI_MANAGED_CONTROL_SOCKET_REQUEST_PENDING_CODE =>
+                            {
+                                (b"rejected request_pending\n".as_slice(), false)
+                            }
+                            Err(_) => (b"rejected\n".as_slice(), false),
+                        },
+                        None => (b"rejected\n".as_slice(), false),
                     };
                     let _ = stream.set_write_timeout(Some(Duration::from_secs(
                         MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS,
@@ -9813,6 +9837,21 @@ pub fn handle_managed_control_status(socket_path: &str) -> LinuxCliResponse {
             Ok(response)
         })();
         return match result {
+            Ok(response)
+                if response.trim()
+                    == "status state=unavailable error_code=runtime_status_unavailable" =>
+            {
+                LinuxCliResponse::failure(
+                    "managed-control status",
+                    LinuxCliExitCode::Unavailable,
+                    cli_diagnostic(
+                        DiagnosticSeverity::Error,
+                        CLI_MANAGED_CONTROL_SOCKET_STATUS_FAILED_CODE,
+                        "managed foreground runtime status is unavailable",
+                        SOURCE_CLI_MANAGED_CONTROL,
+                    ),
+                )
+            }
             Ok(response) if response.starts_with("status ") => {
                 LinuxCliResponse::success("managed-control status").with_diagnostics(vec![
                     cli_diagnostic(
@@ -9930,6 +9969,18 @@ fn handle_managed_control_request(
                     format!("managed foreground {operation} was accepted by {socket_path}"),
                     SOURCE_CLI_MANAGED_CONTROL,
                 )]),
+            Ok(response) if response.trim() == "rejected request_pending" => {
+                LinuxCliResponse::failure(
+                    command,
+                    LinuxCliExitCode::GeneralFailure,
+                    cli_diagnostic(
+                        DiagnosticSeverity::Error,
+                        CLI_MANAGED_CONTROL_SOCKET_REQUEST_PENDING_CODE,
+                        format!("managed foreground control {operation} is already pending"),
+                        SOURCE_CLI_MANAGED_CONTROL,
+                    ),
+                )
+            }
             Ok(_) => LinuxCliResponse::failure(
                 command,
                 LinuxCliExitCode::GeneralFailure,

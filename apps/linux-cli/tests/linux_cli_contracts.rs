@@ -25,7 +25,7 @@ use networkcore_linux::{
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
     handle_foreground_lifecycle_with_runtime_stop, handle_install_service_apply_at,
     handle_install_sing_box, handle_managed_control_reload, handle_managed_control_rollback,
-    handle_managed_control_stop, handle_mitm_browser_capture_apply,
+    handle_managed_control_status, handle_managed_control_stop, handle_mitm_browser_capture_apply,
     handle_mitm_browser_capture_apply_with_store,
     handle_mitm_browser_capture_apply_with_store_and_profile_prefs_and_proxy_scheme,
     handle_mitm_browser_capture_apply_with_store_and_proxy_scheme,
@@ -83,7 +83,8 @@ use networkcore_linux::{
     CLI_ARGUMENT_VALUE_MISSING_CODE, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
     CLI_CONFIG_READ_FAILED_CODE, CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE,
     CLI_MANAGED_CONTROL_SOCKET_RELOAD_READY_CODE, CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_READY_CODE,
-    CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE, CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE,
+    CLI_MANAGED_CONTROL_SOCKET_REQUEST_PENDING_CODE, CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE,
+    CLI_MANAGED_CONTROL_SOCKET_STATUS_FAILED_CODE, CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE,
     CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE, CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
@@ -8323,6 +8324,13 @@ fn os_signal_interruption_source_maps_unix_signals_to_stable_diagnostics() {
     interrupter
         .interrupt(ManagedControlRequest::Stop)
         .expect("managed control interrupter should record a stop request");
+    let pending_request = interrupter
+        .interrupt(ManagedControlRequest::Reload)
+        .expect_err("a second request should not replace a pending managed control request");
+    assert_eq!(
+        pending_request.code,
+        CLI_MANAGED_CONTROL_SOCKET_REQUEST_PENDING_CODE
+    );
     let observed_managed_control = OsSignalForegroundLifecycleInterruptionSource::new()
         .wait_for_interruption(&ForegroundLifecycleRequest {
             engine_status: ProxyEngineStatus {
@@ -10040,6 +10048,19 @@ impl ManagedControlInterrupter for TestManagedControlInterrupter {
 }
 
 #[cfg(unix)]
+struct PendingManagedControlInterrupter;
+
+#[cfg(unix)]
+impl ManagedControlInterrupter for PendingManagedControlInterrupter {
+    fn interrupt(&self, _request: ManagedControlRequest) -> DomainResult<()> {
+        Err(DomainError::new(
+            CLI_MANAGED_CONTROL_SOCKET_REQUEST_PENDING_CODE,
+            "managed foreground control request is already pending",
+        ))
+    }
+}
+
+#[cfg(unix)]
 #[test]
 fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
     use std::io::{Read, Write};
@@ -10184,6 +10205,15 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
         &unauthorized.diagnostics,
         CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE,
     );
+    let unavailable_status = handle_managed_control_status(
+        socket_path.to_str().expect("socket path should be UTF-8"),
+    );
+    assert!(!unavailable_status.ok);
+    assert_eq!(unavailable_status.exit_code, LinuxCliExitCode::Unavailable);
+    assert_diagnostic(
+        &unavailable_status.diagnostics,
+        CLI_MANAGED_CONTROL_SOCKET_STATUS_FAILED_CODE,
+    );
     let reload = handle_managed_control_reload(
         socket_path.to_str().expect("socket path should be UTF-8"),
         true,
@@ -10233,6 +10263,39 @@ fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
         CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE,
     );
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 3);
+    drop(guard);
+    assert!(!socket_path.exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(unix)]
+#[test]
+fn managed_control_socket_reports_pending_request_with_stable_cli_code() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("managed control test clock should be available")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-control-pending-contract-{unique}"
+    ));
+    let socket_path = root.join("control.sock");
+    let guard = start_managed_control_socket_with_interrupter(
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        std::sync::Arc::new(PendingManagedControlInterrupter),
+    )
+    .expect("managed control socket should start");
+
+    let response = handle_managed_control_reload(
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        true,
+    );
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, LinuxCliExitCode::GeneralFailure);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MANAGED_CONTROL_SOCKET_REQUEST_PENDING_CODE,
+    );
     drop(guard);
     assert!(!socket_path.exists());
     let _ = std::fs::remove_dir_all(root);

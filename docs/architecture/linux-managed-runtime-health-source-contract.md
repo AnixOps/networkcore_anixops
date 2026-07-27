@@ -53,6 +53,11 @@ reads health back and returns the restored version and evidence. A second
 rollback without a newly successful reload is rejected as having no retained
 prior version.
 
+Only one control request may be pending between the socket worker and the
+foreground owner. A later request is rejected with the redacted
+`cli.linux.managed_control_socket.request_pending` code until the owner consumes
+the first request; it cannot replace a rollback's expected version.
+
 All socket reads and writes retain the existing two-second deadline and 64-byte
 request bound. Runtime snapshots never contain raw configuration, subscription
 locations, credentials, tokens, certificate private keys, or full share links.
@@ -60,8 +65,8 @@ locations, credentials, tokens, certificate private keys, or full share links.
 ## Verification
 
 GitHub Actions contract tests cover the explicit CLI parse/confirmation path,
-owner interruption handoff, stable diagnostics, bounded socket behavior, and
-the reload failure restore path. Adapter failure matrices, listener failure,
-and full retained-snapshot rollback readback remain CI coverage work for this
+single-pending control handoff, stable diagnostics, bounded socket behavior,
+owner-side reload plus rollback readback, and the reload failure restore path.
+Adapter failure matrices and listener failure remain CI coverage work for this
 P3 slice. No local build, test, or formatting command is used for this
 contract.
