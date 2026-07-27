@@ -7690,9 +7690,11 @@ mod script_runtime_security_tests {
         assert!(arguments
             .iter()
             .any(|argument| argument == "--experimental-permission"));
-        assert!(arguments.iter().any(|argument| {
-            argument == format!("--max-old-space-size={SCRIPT_RUNTIME_V8_MAX_OLD_SPACE_MIB}")
-        }));
+        let expected_heap_limit =
+            format!("--max-old-space-size={SCRIPT_RUNTIME_V8_MAX_OLD_SPACE_MIB}");
+        assert!(arguments
+            .iter()
+            .any(|argument| argument == expected_heap_limit.as_str()));
         assert!(arguments
             .iter()
             .any(|argument| argument.starts_with("--allow-fs-read=")));
