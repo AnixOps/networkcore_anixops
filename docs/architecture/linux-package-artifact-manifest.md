@@ -90,7 +90,7 @@ manifest 顶层字段必须稳定、显式、可由自动化读取：
 | `checksum` | archive checksum 算法、文件名和值 |
 | `included_files` | 压缩包内文件清单和来源，必须来自 archive staging contract |
 | `install_model` | 固定为 `manual-extract`，除非安装设计先更新 |
-| `system_mutation_policy` | 固定为 `none`，首个 artifact 不修改系统状态 |
+| `system_mutation_policy` | 固定为 `no-implicit-mutation; explicit-confirmed-cli-with-snapshot-readback-rollback`：解压 artifact 本身不修改系统状态；命名 systemd service、环境代理快照和 Ubuntu trust-file 仅能通过独立、显式确认且带 snapshot/readback/rollback 边界的 CLI 命令修改 |
 | `license_notice_status` | license/NOTICE 确认状态；未确认时不得生成 artifact |
 | `signing` | signing/attestation/provenance 状态 |
 | `release_notes` | release notes 和 withdrawal/replacement policy 字段 |
@@ -156,7 +156,7 @@ manifest 顶层字段必须稳定、显式、可由自动化读取：
     }
   ],
   "install_model": "manual-extract",
-  "system_mutation_policy": "none",
+  "system_mutation_policy": "no-implicit-mutation; explicit-confirmed-cli-with-snapshot-readback-rollback",
   "license_notice_status": "confirmed",
   "signing": {
     "signing_policy": "unsigned-no-detached-signature",
