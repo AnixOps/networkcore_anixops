@@ -143,11 +143,7 @@ where
         let mut state = self.read_state_or_default()?;
         let previous = state.clone();
 
-        if config
-            .sing_box
-            .as_ref()
-            .is_some_and(|sing_box| sing_box.enabled)
-        {
+        if let Some(sing_box) = config.sing_box.as_ref().filter(|sing_box| sing_box.enabled) {
             let status = self.sing_box.status()?;
             state.sing_box_running = status.state == SingBoxManagedProcessState::Running;
             state.sing_box_process_id = status.process_id;
@@ -161,6 +157,36 @@ where
                         status.state, status.exit_code
                     ),
                 );
+            }
+
+            if let Some(proxy) = config.system_proxy.as_ref().filter(|proxy| proxy.enabled) {
+                if let Err(error) = verify_managed_loopback_listener(proxy) {
+                    state.sing_box_listener_reachable = false;
+                    return self.record_runtime_failure(
+                        &mut state,
+                        format!(
+                            "managed sing-box loopback listener health check failed: {}",
+                            error.message
+                        ),
+                    );
+                }
+                state.sing_box_listener_reachable = true;
+            } else {
+                state.sing_box_listener_reachable = false;
+            }
+
+            match verify_generated_selector_readback(&sing_box.config_path) {
+                Ok(readable) => state.sing_box_control_api_readable = readable,
+                Err(error) => {
+                    state.sing_box_control_api_readable = false;
+                    return self.record_runtime_failure(
+                        &mut state,
+                        format!(
+                            "managed sing-box selector health check failed: {}",
+                            error.message
+                        ),
+                    );
+                }
             }
         }
 
@@ -837,8 +863,10 @@ fn verify_generated_selector_readback(config_path: &Path) -> DomainResult<bool> 
         &selector.controller,
         Duration::from_millis(250),
     )?;
-    if !selector.outbound_tags.contains(&status.current_outbound_tag) {
-        return Err(runtime_error("managed sing-box selector readback did not match its generated profile"));
+    if status.current_outbound_tag != selector.selected_outbound_tag {
+        return Err(runtime_error(
+            "managed sing-box selector readback did not match its generated profile",
+        ));
     }
     Ok(true)
 }

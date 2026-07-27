@@ -444,6 +444,12 @@ fn renders_loopback_clash_selector_for_explicit_runtime_node_switching() {
             "networkcore-node-1".to_string()
         ]
     );
+    assert_eq!(
+        inspect_sing_box_local_selector_snapshot(&rendered.json)
+            .expect("generated selector identity should retain its selected outbound")
+            .selected_outbound_tag,
+        "networkcore-node-1"
+    );
     assert_ne!(
         sing_box_config_sha256(&rendered.json),
         sing_box_config_sha256("{}")
@@ -465,6 +471,12 @@ fn renders_loopback_clash_selector_for_explicit_runtime_node_switching() {
             "networkcore-node-0".to_string(),
             "networkcore-node-1".to_string()
         ]
+    );
+    assert_eq!(
+        inspect_sing_box_local_selector_snapshot(&updated)
+            .expect("updated selector identity should retain its selected outbound")
+            .selected_outbound_tag,
+        "networkcore-node-0"
     );
     assert!(rewrite_sing_box_local_selector_default(&rendered.json, "missing-node").is_err());
 }

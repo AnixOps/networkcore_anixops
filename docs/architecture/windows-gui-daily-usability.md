@@ -11,7 +11,7 @@ selector API, system integration layer, MSI, and portable package.
 ```text
 windows-gui-daily-usability=active
 windows-gui-information-architecture=home-nodes-subscriptions-settings-diagnostics-advanced
-windows-gui-runtime-status=scm-core-config-validation-loopback-listener-pid-current-user-proxy-active
+windows-gui-runtime-status=scm-core-config-validation-loopback-listener-selector-readback-pid-current-user-proxy-active
 windows-gui-command-execution=rust-command-bridge-background-workers-all-system-operations-subscription-catalog-refresh-fastest-node-tun-dns-script-runtime-native-groups-active
 windows-gui-high-risk-features=advanced-explicit-only
 windows-gui-view-runtime=tauri-react-active
@@ -57,9 +57,13 @@ and submits command parameters; it does not own a second runtime state model.
 `Connected` is emitted only when all of these are true:
 
 1. SCM reports `Running` for `AnixOpsNetworkCore`.
-2. The service-owned state records an enabled running sing-box child.
-3. The GUI can query that exact child PID and it is still active.
-4. The current interactive user's WinINet proxy exactly matches the enabled
+2. The service-owned state records an enabled running sing-box child whose
+   generated configuration passed `sing-box check -c`.
+3. The configured loopback proxy listener accepts a bounded connection.
+4. A generated NodeCatalog profile's loopback selector API is readable and its
+   active outbound equals the generated selector default.
+5. The GUI can query that exact child PID and it is still active.
+6. The current interactive user's WinINet proxy exactly matches the enabled
    managed server and bypass settings.
 
 The managed JSON is never sufficient by itself. Configuration JSON errors map

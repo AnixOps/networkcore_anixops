@@ -23,7 +23,7 @@ windows-managed-client-install-model=wix-per-machine-msi
 windows-managed-client-system-mutation-policy=managed-apply-and-rollback
 windows-managed-client-gui=active
 windows-managed-client-gui-daily-usability=home-nodes-subscriptions-settings-diagnostics-advanced-active
-windows-managed-client-gui-runtime-status=scm-core-config-validation-loopback-listener-pid-current-user-proxy-active
+windows-managed-client-gui-runtime-status=scm-core-config-validation-loopback-listener-selector-readback-pid-current-user-proxy-active
 windows-managed-client-gui-background-commands=active
 windows-managed-client-service=active
 windows-managed-client-driver-package-lifecycle=active
@@ -84,11 +84,12 @@ the third-party core.
 `v0.2.0-alpha.22` uses a Tauri/React desktop view with a Rust-owned command bridge and splits daily UI state,
 runtime observation, background command dispatch, and theme into dedicated GUI
 modules. Its six daily pages are Home, Nodes, Subscriptions, Settings,
-Diagnostics, and Advanced. `Connected` requires independent SCM,
-service-owned sing-box configuration validation, loopback listener reachability,
-service-owned sing-box PID, and current interactive-user proxy observations;
-managed JSON or a persisted state record alone cannot report a connection. The
-exact UI control and unavailable-feature boundary is documented in
+Diagnostics, and Advanced. `Connected` requires independent SCM, service-owned
+sing-box configuration validation, loopback listener reachability, generated
+selector control-API readback matching the selected outbound, service-owned
+sing-box PID, and current interactive-user proxy observations; managed JSON or
+a persisted state record alone cannot report a connection. The exact UI control
+and unavailable-feature boundary is documented in
 [Windows GUI Daily Usability](windows-gui-daily-usability.md).
 
 The Service assigns each managed sing-box child to a private Windows Job Object
@@ -168,9 +169,11 @@ entry, and deletes the generated private key.
 The service validates the generated or operator-supplied native JSON with
 `check -c`, owns `run -c`, persists PID/exit state, and redirects core
 stdout/stderr to an explicit log. While SCM is `Running`, the service polls the
-owned core process. An unexpected exit records `last_transition=failed`, its
-exit detail in `last_error`, stops runtime resources, restores the service-owned
-proxy snapshot, then reports SCM `Stopped`. The GUI can directly open that core
+owned core process, enabled loopback listener, and generated selector's bounded
+control-API readback. An unexpected exit or failed health observation records
+`last_transition=failed`, a redacted cause in `last_error`, stops runtime
+resources, restores the service-owned proxy snapshot, then reports SCM
+`Stopped`. The GUI can directly open that core
 log in addition to the general log folder.
 
 The installer registers an automatic SCM service, but its install-time start is

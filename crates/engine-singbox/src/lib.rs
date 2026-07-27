@@ -424,6 +424,7 @@ pub struct SingBoxLocalProxySelectableNode {
 pub struct SingBoxLocalSelectorSnapshot {
     pub controller: SingBoxLocalControllerConfig,
     pub outbound_tags: Vec<String>,
+    pub selected_outbound_tag: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1401,9 +1402,10 @@ pub fn inspect_sing_box_local_selector_controller(
     inspect_sing_box_local_selector_snapshot(content).map(|snapshot| snapshot.controller)
 }
 
-/// Reads the generated loopback selector contract and its exact ordered
-/// outbound tags. Callers use this to reject a persisted NodeCatalog when a
-/// managed configuration was replaced outside the generated-profile path.
+/// Reads the generated loopback selector contract, its exact ordered outbound
+/// tags, and the expected active outbound. Callers use this to reject a
+/// persisted NodeCatalog when a managed configuration was replaced outside the
+/// generated-profile path.
 pub fn inspect_sing_box_local_selector_snapshot(
     content: &str,
 ) -> Option<SingBoxLocalSelectorSnapshot> {
@@ -1414,7 +1416,7 @@ pub fn inspect_sing_box_local_selector_snapshot(
         .pointer("/experimental/clash_api/external_controller")
         .and_then(Value::as_str)
         == Some(controller_endpoint.as_str());
-    let selector_outbounds = config
+    let selector = config
         .get("outbounds")
         .and_then(Value::as_array)
         .and_then(|outbounds| {
@@ -1423,7 +1425,8 @@ pub fn inspect_sing_box_local_selector_snapshot(
                     && outbound.get("tag").and_then(Value::as_str)
                         == Some(controller.selector_tag.as_str())
             })
-        })?
+        })?;
+    let selector_outbounds = selector
         .get("outbounds")
         .and_then(Value::as_array)?
         .iter()
@@ -1432,7 +1435,19 @@ pub fn inspect_sing_box_local_selector_snapshot(
         .into_iter()
         .map(str::to_string)
         .collect::<Vec<_>>();
-    if selector_outbounds.is_empty() || selector_outbounds.iter().any(|tag| tag.trim().is_empty()) {
+    if selector_outbounds.is_empty()
+        || selector_outbounds.iter().any(|tag| tag.trim().is_empty())
+    {
+        return None;
+    }
+    let selected_outbound_tag = selector
+        .get("default")
+        .and_then(Value::as_str)?
+        .to_string();
+    if !selector_outbounds
+        .iter()
+        .any(|tag| tag == &selected_outbound_tag)
+    {
         return None;
     }
     let routes_to_selector = config.pointer("/route/final").and_then(Value::as_str)
@@ -1440,6 +1455,7 @@ pub fn inspect_sing_box_local_selector_snapshot(
     (has_controller && routes_to_selector).then_some(SingBoxLocalSelectorSnapshot {
         controller,
         outbound_tags: selector_outbounds,
+        selected_outbound_tag,
     })
 }
 
