@@ -411,9 +411,11 @@ eligibility 和 tag release 后，才可称为用户可下载版本。
 
 - 原生 Win32 GUI 以 Home、Nodes、Subscriptions、Settings、Diagnostics 和
   Advanced 组织日常操作。高级页保留 MITM、证书、驱动和 service mutation；它们不进入普通连接路径。
-- Home 只在 SCM `Running`、service-owned sing-box child PID 仍运行、并且当前
-  interactive-user system proxy 已启用时显示 `Connected`。预检、核心或服务错误
-  以独立的 Configuration/Core/Connection failure 状态显示，不能从 JSON marker 推断连接。
+- Home 只在 SCM `Running`、service-owned `sing-box check -c`、loopback listener、
+  生成 selector 的 active-outbound/default readback、service-owned sing-box child PID
+  仍运行、并且当前 interactive-user system proxy 精确匹配时显示 `Connected`。预检、
+  核心或服务错误以独立的 Configuration/Core/Connection failure 状态显示，不能从
+  JSON marker 推断连接。
 - service start/stop/restart、`sing-box check -c`、core install、显式订阅 fetch、
   NodeCatalog load、selector switch 和一次性 delay test 都离开 UI message loop；重复请求在
   进行中被拒绝。失败订阅更新不会覆盖现有 managed config 或已保存选择。

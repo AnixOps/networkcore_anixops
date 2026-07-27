@@ -43,13 +43,15 @@ experience production-ready:
    listener and selector are ready. Make `sing-box check -c` fail and confirm
    Restart does not stop the existing service or change the interactive proxy.
    Force a rejected switch and verify the former selected node remains displayed.
-4. Confirm Home reports `Connected` only after SCM is running, the
-   service-owned sing-box child exists, the selected loopback listener accepts
-   connections, and the interactive user's proxy exactly matches the managed
-   setting. For a NodeCatalog profile, also verify the loopback selector API is
-   ready before the proxy changes. Test missing service/core, invalid config,
-   occupied port, no network, and a non-administrator launch/elevation
-   rejection.
+4. Confirm Home reports `Connected` only after SCM is running, `sing-box check -c`
+   succeeded, the service-owned sing-box child exists, the selected loopback
+   listener accepts connections, and the interactive user's proxy exactly
+   matches the managed setting. For a NodeCatalog profile, verify the loopback
+   selector API's active outbound equals its generated default before the proxy
+   changes, then force an API failure or mismatched selection and verify the
+   service records failure, restores the proxy, and stops. Test missing
+   service/core, invalid config, occupied port, no network, and a
+   non-administrator launch/elevation rejection.
 5. Stop and forcibly terminate the service separately, force a core exit,
    close/reopen the GUI, sleep/resume, and reboot Windows. After the forced
    Service exit, verify its owned sing-box PID and listener are gone before the
