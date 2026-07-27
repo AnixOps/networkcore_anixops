@@ -169,7 +169,12 @@ loopback SOCKS upstream listener, and restores the snapshot on disable. Native
 documents without that explicit controlled inbound are not modified for MITM.
 
 The GUI `Enable HTTPS MITM` action generates a service-owned CA key pair below
-`%ProgramData%\\AnixOps\\NetworkCore\\mitm`, moves sing-box to the loopback
+`%ProgramData%\\AnixOps\\NetworkCore\\mitm`, then protects the fixed
+`root-ca-key.pem` path before it can enter managed configuration. Its Windows
+DACL has inheritance disabled and exactly two full-control ACEs: the generating
+account and LocalSystem. Protection rejects reparse points, any other path, or
+an ACL readback mismatch; enable removes the private key and stops before any
+service, proxy, or trust-store mutation on failure. It then moves sing-box to the loopback
 SOCKS upstream at `127.0.0.1:7891`, and writes a native MITM listener at
 `127.0.0.1:7890`. The managed service imports that CA into LocalMachine ROOT,
 starts sing-box before the native listener, issues authority-bound leaf

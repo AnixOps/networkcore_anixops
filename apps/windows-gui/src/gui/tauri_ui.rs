@@ -33,6 +33,7 @@ use platform_windows::managed::{
     WindowsManagedNativeMitmScriptRuntimeConfig, WindowsManagedSingBoxConfig,
     WindowsManagedTunnelConfig, WindowsProxySettings, WindowsSystemProxyOwner,
 };
+use platform_windows::mitm_security::protect_windows_managed_mitm_private_key;
 use platform_windows::system_integration::{
     current_user_startup_enabled, disable_current_user_startup, enable_current_user_startup,
     read_current_user_system_proxy, NativeWindowsSystemIntegration, WindowsServiceState,
@@ -1969,6 +1970,10 @@ fn enable_https_mitm_blocking(state: DesktopAppState) -> Result<OperationResult,
         .ok_or_else(|| "Import a profile before enabling HTTPS MITM.".to_string())?;
     let restart = stop_running_service_for_mitm_reconfigure()?;
     let (certificate_path, private_key_path) = ensure_mitm_ca_material()?;
+    if let Err(error) = protect_windows_managed_mitm_private_key(&private_key_path) {
+        let _ = fs::remove_file(&private_key_path);
+        return Err(error.message);
+    }
     let previous_sing_box_config = read_managed_sing_box_config_before_import()?;
     let imported = prepare_mitm_profile(&location, &desktop)?;
     let mut managed = managed_config_or_default()?;

@@ -70,6 +70,7 @@ mod gui {
         WindowsManagedNativeMitmConfig, WindowsManagedSingBoxConfig, WindowsProxySettings,
         WindowsSystemProxyOwner, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
     };
+    use platform_windows::mitm_security::protect_windows_managed_mitm_private_key;
     use platform_windows::system_integration::{
         current_user_startup_enabled, disable_current_user_startup, enable_current_user_startup,
         read_current_user_system_proxy, NativeWindowsSystemIntegration, WindowsServiceState,
@@ -1801,6 +1802,10 @@ mod gui {
     fn enable_https_mitm(state: &mut AppState) -> Result<(), String> {
         let restart = stop_running_service_for_reconfigure(state)?;
         let (certificate_path, private_key_path) = ensure_mitm_ca_material()?;
+        if let Err(error) = protect_windows_managed_mitm_private_key(&private_key_path) {
+            let _ = fs::remove_file(&private_key_path);
+            return Err(error.message);
+        }
         let mut managed = managed_config_or_default()?;
         let previous_sing_box_config = read_managed_sing_box_config_before_import()?;
         let imported = render_local_profile_config(

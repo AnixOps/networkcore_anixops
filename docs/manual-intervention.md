@@ -81,7 +81,10 @@ experience production-ready:
     native sing-box JSON profile and a generated NodeCatalog profile. Confirm
     the service proxy points at the native local listener while enabled, the
     native JSON listener snapshot is restored on disable, and the
-    service-recorded CA is removed.
+    service-recorded CA is removed. Before disable, inspect
+    `%ProgramData%\\AnixOps\\NetworkCore\\mitm\\root-ca-key.pem`: inheritance
+    must be disabled and only the generating account and `SYSTEM` may have
+    access; confirm the private key is deleted after disable.
 11. With native HTTPS MITM enabled and the service stopped, configure Script
     dispatch with an existing local policy source containing a `[Script]`
     rule, an existing local Node runner, the selected Node executable, a

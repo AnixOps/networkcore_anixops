@@ -1,6 +1,7 @@
 //! Windows platform integration for NetworkCore clients and managed runtime hosts.
 
 pub mod managed;
+pub mod mitm_security;
 pub mod system_integration;
 pub mod tunnel_config;
 pub mod tunnel_runtime;
