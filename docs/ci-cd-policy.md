@@ -205,7 +205,7 @@ summary 必须检查对应语言或平台 job。
 - 产物必须由 GitHub-hosted runner 或后续配置的受控 runner 生成。
 - 真实平台产物加入前必须满足 [Release Strategy](release-strategy.md) 中定义的门禁、矩阵和回滚策略。
 - 首个 Linux CLI artifact 加入前必须满足安装、卸载与回滚设计，且继续由 GitHub Actions 生成、校验和发布。
-- release policy job 必须检查版本格式与触发来源一致性；允许稳定版本、`alpha.N` 和 `rc.N` 预发布版本；`workflow_dispatch` placeholder release 必须从 `main` 分支发起，tag release 的版本必须与 tag 名一致。
+- release policy job 必须检查版本格式与触发来源一致性；允许稳定版本、`alpha.N`、`beta.N` 和 `rc.N` 预发布版本；`workflow_dispatch` placeholder release 必须从 `main` 分支发起，tag release 的版本必须与 tag 名一致。
 - release workflow 必须包含 `release-ci-gate` job，使用 `actions: read` 自动读取 `main` 上同 commit 的成功 CI 结果，校验 `CI summary` job，并输出 CI run/source 字段合同、release CI gate activation validation contract、release CI gate execution validation contract 和 release CI gate API implementation active 字段。
 - `package-linux`、`package-windows`、`attest-linux`、`attest-windows`、`post-release-summary`、`windows-release-summary`、`publish-eligibility-gate`、`windows-publish-eligibility-gate` 和 `publish-github-release` 可以在 workflow 中定义，但必须全部受 GitHub Actions gates 约束：`linux-artifact-readiness` 必须在 `docs/manual-intervention.md` 的 license/NOTICE marker 为 `confirmed` 前失败，历史 `windows-cli-artifact-readiness` 负责 `v0.1.1-alpha.2` zip 合同，当前 Windows managed client gate 必须验证 `apps/windows-gui`、`apps/windows-service`、WiX MSI、managed system mutation 和 source identity，`publish-github-release` 只能在 tag 触发、同 commit CI 成功、checksum/manifest/attestation/release notes/rollback/publish eligibility 全部通过后上传 release assets。
 - placeholder 阶段必须包含 `release-artifact-contract` job，记录首个真实 artifact job 的 checksum 算法和输出字段契约。

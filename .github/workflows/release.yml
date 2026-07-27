@@ -59,14 +59,14 @@ jobs:
           grep -q "GitHub Actions" AGENT.md
           grep -q "Release Strategy" docs/release-strategy.md
 
-          version_pattern='^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|rc)\.[0-9]+)?$'
+          version_pattern='^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$'
           if [[ ! "${RELEASE_VERSION}" =~ ${version_pattern} ]]; then
-            echo "::error::Release version must match vMAJOR.MINOR.PATCH, vMAJOR.MINOR.PATCH-alpha.N, or vMAJOR.MINOR.PATCH-rc.N."
+            echo "::error::Release version must match vMAJOR.MINOR.PATCH, vMAJOR.MINOR.PATCH-alpha.N, vMAJOR.MINOR.PATCH-beta.N, or vMAJOR.MINOR.PATCH-rc.N."
             exit 1
           fi
 
           release_kind=stable
-          if [[ "${RELEASE_VERSION}" =~ -(alpha|rc)\. ]]; then
+          if [[ "${RELEASE_VERSION}" =~ -(alpha|beta|rc)\. ]]; then
             release_kind=prerelease
           fi
 
@@ -432,7 +432,7 @@ jobs:
           contract=docs/architecture/windows-managed-client-source-release-contract.md
           grep -q '^windows-managed-client-source-release-contract=present$' "${contract}"
           grep -q '^windows-managed-client-release-state=implementation-active$' "${contract}"
-          grep -q '^windows-managed-client-version-scope=v0.2.0-alpha.22$' "${contract}"
+          grep -q '^windows-managed-client-version-scope=v0.2.0-beta.1$' "${contract}"
           grep -q '^windows-managed-client-gui-daily-usability=home-nodes-subscriptions-settings-diagnostics-advanced-active$' "${contract}"
           grep -q '^windows-managed-client-gui-runtime-status=scm-core-config-validation-loopback-listener-selector-readback-pid-current-user-proxy-active$' "${contract}"
           grep -q '^windows-managed-client-gui-background-commands=active$' "${contract}"
@@ -958,7 +958,7 @@ jobs:
 
           $version = $env:VERSION
           $target = $env:TARGET
-          if ($version -notmatch '^v([0-9]+)\.([0-9]+)\.([0-9]+)(?:-(alpha|rc)\.([0-9]+))?$') {
+          if ($version -notmatch '^v([0-9]+)\.([0-9]+)\.([0-9]+)(?:-(alpha|beta|rc)\.([0-9]+))?$') {
             throw "Windows MSI version source is invalid: $version"
           }
           $major = [int]$Matches[1]
@@ -969,6 +969,8 @@ jobs:
           $msiBuild = $patch * 1000
           if ($channel -eq "alpha") {
             $msiBuild += $sequence
+          } elseif ($channel -eq "beta") {
+            $msiBuild += 500 + $sequence
           } elseif ($channel -eq "rc") {
             $msiBuild += 900 + $sequence
           } else {
@@ -1079,7 +1081,7 @@ jobs:
               "execute-javascript-dispatch"
             )
             signing = [ordered]@{
-              signing_policy = "unsigned-alpha-msi-with-github-attestation"
+              signing_policy = "unsigned-no-authenticode-with-github-attestation"
               signing_status = "not-signed-by-policy"
               attestation_policy = "github-artifact-attestation-required"
               attestation_status = "required-before-publish"
@@ -1153,7 +1155,7 @@ jobs:
               "execute-javascript-dispatch"
             )
             signing = [ordered]@{
-              signing_policy = "unsigned-alpha-portable-zip-with-github-attestation"
+              signing_policy = "unsigned-no-authenticode-with-github-attestation"
               signing_status = "not-signed-by-policy"
               attestation_policy = "github-artifact-attestation-required"
               attestation_status = "required-before-publish"

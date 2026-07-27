@@ -618,13 +618,13 @@ jobs:
           grep -Fq "system-proxy-mutation" apps/windows-cli/README.md
           grep -Fq "system-trust-store-mutation" apps/windows-cli/README.md
           grep -Fq "Windows managed client" docs/alpha-release-feature-matrix.md
-          grep -Fq "v0.2.0-alpha.22" docs/alpha-release-feature-matrix.md
+          grep -Fq "v0.2.0-beta.1" docs/alpha-release-feature-matrix.md
           grep -Fq "Windows managed client MSI" docs/release-strategy.md
-          grep -Fq "v0.2.0-alpha.22" docs/release-strategy.md
-          grep -Fq "v0.2.0-alpha.22" README.md
+          grep -Fq "v0.2.0-beta.1" docs/release-strategy.md
+          grep -Fq "v0.2.0-beta.1" README.md
           for governance_document in README.md ROADMAP.md TODO.md CHANGELOG.md docs/alpha-release-feature-matrix.md; do
             grep -qx 'current-main-release-state=source-only-not-downloadable' "${governance_document}"
-            grep -qx 'current-main-source-candidate=v0.2.0-alpha.22' "${governance_document}"
+            grep -qx 'current-main-source-candidate=v0.2.0-beta.1' "${governance_document}"
             grep -qx 'current-main-latest-published-tag=v0.2.0-alpha.21' "${governance_document}"
             grep -qx 'current-main-latest-stable-tag=v0.1.0' "${governance_document}"
             grep -qx 'current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active' "${governance_document}"

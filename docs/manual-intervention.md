@@ -5,7 +5,7 @@
 ## Windows managed client
 
 The managed Windows client is implemented and its MSI is built and validated in
-GitHub Actions. The current alpha MSI is intentionally unsigned because an
+GitHub Actions. The current beta MSI is intentionally unsigned because an
 Authenticode certificate/private key must be supplied by the maintainer through
 a protected GitHub Actions secret or an external signing service; signing
 material must never be committed. Until that secret is configured, Windows may

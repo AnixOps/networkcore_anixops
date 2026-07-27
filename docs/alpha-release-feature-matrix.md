@@ -2,7 +2,7 @@
 
 评估时间：2026-07-23。
 
-本文是 alpha 版本能力边界索引。发布事实以 Git tag、GitHub Actions release workflow 和
+本文是预发布版本能力边界索引，保留历史 alpha 条目并包含当前 beta 候选。发布事实以 Git tag、GitHub Actions release workflow 和
 GitHub Release asset 为准；`main` 中 tag 之后的源码增量不等于用户可下载能力。未发布版本只表达
 当前切片目标，不是已经发布的承诺。
 
@@ -19,7 +19,7 @@ GitHub Release asset 为准；`main` 中 tag 之后的源码增量不等于用�
 
 ```text
 current-main-release-state=source-only-not-downloadable
-current-main-source-candidate=v0.2.0-alpha.22
+current-main-source-candidate=v0.2.0-beta.1
 current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
@@ -354,9 +354,9 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前 Windows 发布切片
 
-### `v0.2.0-alpha.22`
+### `v0.2.0-beta.1`
 
-状态：候选 Windows managed-client 日常连接可靠性切片；只有同 commit GitHub
+状态：候选 Windows managed-client beta 日常连接可靠性切片；只有同 commit GitHub
 Actions CI、MSI install/uninstall smoke、package、attestation、publish eligibility
 和 tag release 全部成功后，才成为用户可下载版本。
 
@@ -383,7 +383,7 @@ Actions CI、MSI install/uninstall smoke、package、attestation、publish eligi
 
 ### `v0.2.0-alpha.21`
 
-状态：已发布 Windows managed-client prerelease；后续修复进入 `v0.2.0-alpha.22`
+状态：已发布 Windows managed-client prerelease；后续修复进入 `v0.2.0-beta.1`
 候选切片。
 
 主要特性：
@@ -984,7 +984,7 @@ GitHub Actions release workflow 结果为准。
 
 ## 当前 main source 状态
 
-当前 Windows source release 候选切片是 `v0.2.0-alpha.22`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
+当前 Windows source release 候选切片是 `v0.2.0-beta.1`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
 `v0.1.1-alpha.2` 的 Linux/Windows package、checksum、manifest、attestation 和 publish gate，并把
 受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI；Windows path 已切换到
 managed-client MSI，service、driver、installer、system proxy mutation、system trust store mutation 和 managed lifecycle
