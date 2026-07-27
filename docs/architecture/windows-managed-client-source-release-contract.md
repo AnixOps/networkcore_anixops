@@ -64,6 +64,8 @@ windows-managed-client-attestation-policy=github-artifact-attestation-required
 windows-managed-client-release-assets=enabled-after-attestation-and-publish-gate
 windows-managed-client-portable-zip=active
 windows-managed-client-portable-release-assets=enabled-after-attestation-and-publish-gate
+windows-managed-client-webview2-loader=app-local-x64-required
+windows-managed-client-webview2-runtime=system-evergreen-runtime-required
 ```
 
 ## Payload
@@ -71,6 +73,8 @@ windows-managed-client-portable-release-assets=enabled-after-attestation-and-pub
 The MSI contains:
 
 - `networkcore-windows-gui.exe` from `apps/windows-gui`;
+- the x64 `WebView2Loader.dll` emitted by the pinned `webview2-com-sys` build
+  dependency, installed next to the GUI executable;
 - `networkcore-windows-service.exe` from `apps/windows-service`;
 - `networkcore-windows.exe` from `apps/windows-cli`;
 - schema-version-1 `managed-config.json` from `installer/windows`.
@@ -227,10 +231,15 @@ operator-owned sing-box JSON profile. Core debug logging remains an explicit
 sing-box setting such as `"log": { "level": "debug" }`; its output is captured
 by the configured managed sing-box log path.
 
-Every Windows tag release also contains a portable ZIP with the GUI, service,
-CLI, inert `managed-config.json`, and portable README. Extracting the ZIP does
-not register or start a service; service and system-mutation operations remain
-explicit GUI or service-command actions.
+Every Windows tag release also contains a portable ZIP with the GUI, its x64
+`WebView2Loader.dll`, service, CLI, inert `managed-config.json`, and portable
+README. Extracting the ZIP does not register or start a service; service and
+system-mutation operations remain explicit GUI or service-command actions.
+
+The app-local loader prevents a missing-`WebView2Loader.dll` launch failure. It
+does not embed the Microsoft Edge WebView2 Runtime: the supported Windows host
+must provide the Evergreen WebView2 Runtime, which the GUI reports through its
+normal launch/runtime diagnostics when unavailable.
 
 The GUI requests UAC elevation and controls SCM service state, configuration
 import, the current-user WinINet proxy, machine WinHTTP proxy, LocalMachine ROOT

@@ -3,6 +3,8 @@ AnixOps NetworkCore Windows portable package
 1. Extract the entire directory to a writable location.
 2. Run networkcore-windows-gui.exe. Approve the administrator prompt with the
    shown reason when using service, proxy, certificate, or driver operations.
+   WebView2Loader.dll is included beside the GUI executable. Windows must still
+   have the Microsoft Edge WebView2 Evergreen Runtime installed.
 3. In Settings, click Install sing-box when a proxy core is
    needed. This explicitly downloads the official Windows core; the ZIP itself
    does not contain a third-party core.

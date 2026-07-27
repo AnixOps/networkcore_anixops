@@ -33,6 +33,14 @@
             </File>
           </Component>
 
+          <Component Id="WebView2LoaderComponent" Guid="*">
+            <File
+                Id="WebView2LoaderDll"
+                Source="$(WebView2LoaderDll)"
+                Name="WebView2Loader.dll"
+                KeyPath="yes" />
+          </Component>
+
           <Component Id="CliComponent" Guid="*">
             <File
                 Id="CliExe"
@@ -90,6 +98,7 @@
 
     <Feature Id="Complete" Title="AnixOps NetworkCore" Level="1">
       <ComponentRef Id="GuiComponent" />
+      <ComponentRef Id="WebView2LoaderComponent" />
       <ComponentRef Id="CliComponent" />
       <ComponentRef Id="ServiceComponent" />
       <ComponentRef Id="ManagedConfigurationComponent" />
