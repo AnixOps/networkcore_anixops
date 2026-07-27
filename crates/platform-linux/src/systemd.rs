@@ -621,7 +621,7 @@ fn verify_owned_schedule_file(path: &Path, expected_name: &str) -> DomainResult<
     let content = fs::read_to_string(path)
         .map_err(|error| write_error("read subscription refresh unit", error))?;
     if !content.contains(REFRESH_SCHEDULE_MARKER)
-        || !path.file_name().is_some_and(|name| name == expected_name)
+        || path.file_name().is_none_or(|name| name != expected_name)
     {
         return Err(DomainError::new(
             LINUX_SYSTEMD_REFRESH_SCHEDULE_CONFLICT_CODE,

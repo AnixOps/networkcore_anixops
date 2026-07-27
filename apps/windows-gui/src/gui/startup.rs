@@ -8,6 +8,24 @@ use std::path::PathBuf;
 
 const DESKTOP_STATE_FILE: &str = "desktop-state.json";
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DesktopRuntimeMode {
+    #[default]
+    Desktop,
+    Service,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DesktopRoutingMode {
+    #[default]
+    BypassChina,
+    GfwList,
+    Direct,
+    ReturnChina,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DesktopProfileNode {
     pub id: String,
@@ -42,6 +60,14 @@ pub struct DesktopSubscriptionSource {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DesktopState {
+    #[serde(default)]
+    pub runtime_mode: DesktopRuntimeMode,
+    #[serde(default)]
+    pub routing_mode: DesktopRoutingMode,
+    #[serde(default)]
+    pub routing_proxy_outbound: Option<String>,
+    #[serde(default)]
+    pub bilibili_web_ad_block_enabled: bool,
     pub proxy_snapshot: Option<WindowsProxySnapshot>,
     #[serde(default)]
     pub applied_proxy: Option<WindowsProxySettings>,
@@ -145,6 +171,9 @@ mod tests {
         assert!(!state.auto_recover_core);
         assert!(!state.auto_subscription_refresh);
         assert!(!state.auto_select_fastest_node);
+        assert_eq!(state.runtime_mode, DesktopRuntimeMode::Desktop);
+        assert_eq!(state.routing_mode, DesktopRoutingMode::BypassChina);
+        assert!(!state.bilibili_web_ad_block_enabled);
         assert!(state.applied_proxy.is_none());
         assert!(state.profile_node_catalog.is_empty());
         assert!(state.profile_config_sha256.is_none());

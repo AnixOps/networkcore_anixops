@@ -4,10 +4,12 @@ use networkcore_windows::{
     WindowsTunnelStartArgs, WindowsTunnelStatusArgs, WindowsTunnelStopArgs,
 };
 use networkcore_windows_service::WindowsManagedRuntime;
+#[cfg(not(windows))]
+use platform_windows::managed::WindowsManagedNativeMitmConfig;
 use platform_windows::managed::{
     read_managed_state, write_managed_config, WindowsDriverPackageConfig, WindowsManagedConfig,
-    WindowsManagedNativeMitmConfig, WindowsManagedSingBoxConfig, WindowsProxySettings,
-    WindowsProxySnapshot, WindowsSystemProxyOwner, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
+    WindowsManagedSingBoxConfig, WindowsProxySettings, WindowsProxySnapshot,
+    WindowsSystemProxyOwner, WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
 };
 use platform_windows::system_integration::{
     WindowsDriverInstallResult, WindowsServiceState, WindowsServiceStatus, WindowsSystemIntegration,
@@ -16,6 +18,7 @@ use platform_windows::tunnel_config::{
     OwnedProcessHandle, WindowsRouteSnapshotEntry, WindowsTunnelLifecycleState,
     WindowsTunnelRuntimeOwnership, WindowsTunnelState,
 };
+#[cfg(not(windows))]
 use rcgen::{
     BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, KeyUsagePurpose,
 };
@@ -267,6 +270,7 @@ fn fixture_paths(name: &str) -> (PathBuf, PathBuf, PathBuf) {
     )
 }
 
+#[cfg(not(windows))]
 fn write_mitm_ca(root: &Path) -> (PathBuf, PathBuf) {
     let certificate_path = root.join("root-ca.pem");
     let private_key_path = root.join("root-ca-key.pem");
@@ -289,6 +293,7 @@ fn write_mitm_ca(root: &Path) -> (PathBuf, PathBuf) {
     (certificate_path, private_key_path)
 }
 
+#[cfg(not(windows))]
 fn unused_loopback_port() -> u16 {
     let listener = TcpListener::bind(("127.0.0.1", 0)).expect("test listener binds");
     listener.local_addr().expect("test listener address").port()
@@ -431,6 +436,7 @@ fn managed_runtime_owns_tunnel_start_and_stop_lifecycle() {
 }
 
 #[test]
+#[cfg(not(windows))]
 fn managed_runtime_owns_native_https_mitm_lifecycle() {
     let (config_path, state_path, root) = fixture_paths("native-mitm");
     let (certificate_path, private_key_path) = write_mitm_ca(&root);
@@ -448,6 +454,7 @@ fn managed_runtime_owns_native_https_mitm_lifecycle() {
         ca_private_key_path: private_key_path,
         log_path: root.join("native-mitm.log"),
         sing_box_config_snapshot_path: None,
+        bilibili_web_ad_block_enabled: false,
         script_runtime: None,
     });
     write_managed_config(&config_path, &config).expect("config writes");
@@ -477,7 +484,7 @@ fn managed_runtime_owns_native_https_mitm_lifecycle() {
 
 #[test]
 fn native_mitm_windows_acl_validation_precedes_trust_install_and_health_checks() {
-    let source = include_str!("../src/lib.rs");
+    let source = include_str!("../src/lib.rs").replace("\r\n", "\n");
     let start = source
         .find("fn start_native_mitm(")
         .expect("native MITM start boundary remains present");

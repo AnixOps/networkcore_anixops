@@ -86,10 +86,37 @@ impl Diagnostic {
 }
 
 /// Generic key/value metadata used by domain inputs.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct MetadataEntry {
     pub key: String,
     pub value: String,
+}
+
+impl std::fmt::Debug for MetadataEntry {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let is_sensitive = matches!(
+            self.key.as_str(),
+            NODE_METADATA_SHADOWSOCKS_PASSWORD
+                | NODE_METADATA_TROJAN_PASSWORD
+                | NODE_METADATA_HYSTERIA2_PASSWORD
+                | NODE_METADATA_HYSTERIA2_OBFS_PASSWORD
+                | NODE_METADATA_TUIC_PASSWORD
+                | NODE_METADATA_WIREGUARD_PRIVATE_KEY
+                | NODE_METADATA_WIREGUARD_PRE_SHARED_KEY
+        ) || self.key.ends_with(".password");
+        formatter
+            .debug_struct("MetadataEntry")
+            .field("key", &self.key)
+            .field(
+                "value",
+                &if is_sensitive {
+                    "[REDACTED]"
+                } else {
+                    &self.value
+                },
+            )
+            .finish()
+    }
 }
 
 pub type Metadata = Vec<MetadataEntry>;
@@ -111,6 +138,11 @@ pub const NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE: &str = "hysteria2.obfs.m
 pub const NODE_METADATA_TUIC_UUID: &str = "tuic.uuid";
 pub const NODE_METADATA_TUIC_PASSWORD: &str = "tuic.password";
 pub const NODE_METADATA_TUIC_CONGESTION_CONTROL: &str = "tuic.congestion_control";
+pub const NODE_METADATA_WIREGUARD_PRIVATE_KEY: &str = "wireguard.private_key";
+pub const NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY: &str = "wireguard.peer_public_key";
+pub const NODE_METADATA_WIREGUARD_LOCAL_ADDRESS: &str = "wireguard.local_address";
+pub const NODE_METADATA_WIREGUARD_PRE_SHARED_KEY: &str = "wireguard.pre_shared_key";
+pub const NODE_METADATA_WIREGUARD_MTU: &str = "wireguard.mtu";
 pub const NODE_METADATA_TLS_SERVER_NAME: &str = "tls.server_name";
 pub const NODE_METADATA_TLS_ENABLED: &str = "tls.enabled";
 pub const NODE_METADATA_TLS_INSECURE: &str = "tls.insecure";
@@ -348,6 +380,7 @@ pub enum Protocol {
     Hysteria,
     Hysteria2,
     Tuic,
+    WireGuard,
     Mieru,
     Other(String),
 }

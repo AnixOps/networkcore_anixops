@@ -13,7 +13,9 @@ use control_domain::{
     NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_PATH,
     NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
     NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
-    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
+    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID, NODE_METADATA_WIREGUARD_LOCAL_ADDRESS,
+    NODE_METADATA_WIREGUARD_MTU, NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY,
+    NODE_METADATA_WIREGUARD_PRE_SHARED_KEY, NODE_METADATA_WIREGUARD_PRIVATE_KEY,
 };
 use engine_singbox::{
     inspect_sing_box_local_selector_controller, inspect_sing_box_local_selector_snapshot,
@@ -768,6 +770,29 @@ fn renders_v2ray_tls_reality_and_transport_options() {
 }
 
 #[test]
+fn defaults_utls_for_reality_nodes_without_a_subscription_fingerprint() {
+    let mut vless = vless_node();
+    vless.metadata.extend([
+        metadata_entry(NODE_METADATA_TLS_ENABLED, "true"),
+        metadata_entry(NODE_METADATA_TLS_REALITY_PUBLIC_KEY, "reality-public-key"),
+    ]);
+    let rendered =
+        engine_singbox::render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
+            nodes: vec![vless],
+            selected_node_id: None,
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7890,
+        })
+        .expect("Reality node without a fingerprint should render a compatible uTLS default");
+    let json: serde_json::Value =
+        serde_json::from_str(&rendered.json).expect("rendered config should be valid json");
+
+    assert_eq!(json["outbounds"][0]["tls"]["reality"]["enabled"], true);
+    assert_eq!(json["outbounds"][0]["tls"]["utls"]["enabled"], true);
+    assert_eq!(json["outbounds"][0]["tls"]["utls"]["fingerprint"], "chrome");
+}
+
+#[test]
 fn renders_v2ray_http_and_quic_transport_options() {
     let mut vless = vless_node();
     vless.metadata.extend([
@@ -871,6 +896,38 @@ fn renders_hysteria2_and_tuic_outbounds_with_quic_tls_options() {
     assert_eq!(tuic_outbound["tls"]["server_name"], "cdn.tuic.example.test");
     assert_eq!(tuic_outbound["tls"]["alpn"][0], "h3");
     assert_eq!(tuic_json["route"]["final"], "tuic-us");
+}
+
+#[test]
+fn renders_wireguard_outbound_with_optional_preshared_key_and_mtu() {
+    let rendered =
+        engine_singbox::render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
+            nodes: vec![wireguard_node()],
+            selected_node_id: None,
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7890,
+        })
+        .expect("WireGuard node should render to a sing-box config");
+    let json: serde_json::Value =
+        serde_json::from_str(&rendered.json).expect("rendered config should be valid json");
+    let endpoint = &json["endpoints"][0];
+
+    assert_eq!(endpoint["type"], "wireguard");
+    assert_eq!(endpoint["address"][0], "10.7.0.2/32");
+    assert_eq!(endpoint["address"][1], "fd00:7::2/128");
+    assert_eq!(endpoint["peers"][0]["address"], "wg.example.test");
+    assert_eq!(endpoint["peers"][0]["port"], 51820);
+    assert_eq!(
+        endpoint["peers"][0]["public_key"],
+        "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="
+    );
+    assert_eq!(
+        endpoint["peers"][0]["pre_shared_key"],
+        "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI="
+    );
+    assert_eq!(endpoint["peers"][0]["allowed_ips"][0], "0.0.0.0/0");
+    assert_eq!(endpoint["mtu"], 1420);
+    assert_eq!(json["route"]["final"], "wireguard-office");
 }
 
 #[test]
@@ -1049,6 +1106,38 @@ fn tuic_node() -> NodeDescriptor {
                 key: NODE_METADATA_TLS_ALPN.to_string(),
                 value: "h3".to_string(),
             },
+        ],
+    }
+}
+
+fn wireguard_node() -> NodeDescriptor {
+    NodeDescriptor {
+        id: "wireguard-office".to_string(),
+        name: "Office WireGuard".to_string(),
+        protocol: Protocol::WireGuard,
+        endpoint: Endpoint {
+            host: "wg.example.test".to_string(),
+            port: 51820,
+        },
+        tags: vec!["subscription".to_string(), "wireguard".to_string()],
+        metadata: vec![
+            metadata_entry(
+                NODE_METADATA_WIREGUARD_PRIVATE_KEY,
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            ),
+            metadata_entry(
+                NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY,
+                "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+            ),
+            metadata_entry(
+                NODE_METADATA_WIREGUARD_LOCAL_ADDRESS,
+                "10.7.0.2/32,fd00:7::2/128",
+            ),
+            metadata_entry(
+                NODE_METADATA_WIREGUARD_PRE_SHARED_KEY,
+                "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=",
+            ),
+            metadata_entry(NODE_METADATA_WIREGUARD_MTU, "1420"),
         ],
     }
 }

@@ -182,6 +182,7 @@ where
         },
         Some(state) if sing_box_configured => match state.last_transition.as_str() {
             "starting" => ManagedCoreStatus::Starting,
+            "purged" if state.sing_box_process_id.is_none() => ManagedCoreStatus::NotConfigured,
             _ => recorded_core_exit(state.sing_box_process_id, state.sing_box_exit_code),
         },
         Some(state) if mieru_configured && state.last_transition == "starting" => {

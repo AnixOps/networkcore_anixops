@@ -223,6 +223,18 @@ fn config_snapshot_exposes_listener_configuration_as_domain_model() {
 }
 
 #[test]
+fn metadata_debug_redacts_wireguard_private_keys() {
+    let metadata = MetadataEntry {
+        key: "wireguard.private_key".to_string(),
+        value: "private-key-material".to_string(),
+    };
+
+    let debug = format!("{metadata:?}");
+    assert!(debug.contains("[REDACTED]"));
+    assert!(!debug.contains("private-key-material"));
+}
+
+#[test]
 fn listener_route_can_reference_default_action_without_runtime_validation() {
     let listener = ListenerDescriptor {
         id: "direct-loopback".to_string(),

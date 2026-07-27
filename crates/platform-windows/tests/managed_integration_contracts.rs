@@ -276,6 +276,7 @@ fn managed_configuration_accepts_native_https_mitm_with_explicit_socks_upstream(
             sing_box_config_snapshot_path: Some(PathBuf::from(
                 r"C:\ProgramData\AnixOps\NetworkCore\mitm\sing-box-config.before-mitm.json",
             )),
+            bilibili_web_ad_block_enabled: false,
             script_runtime: Some(WindowsManagedNativeMitmScriptRuntimeConfig {
                 policy_source_path: PathBuf::from(
                     r"C:\ProgramData\AnixOps\NetworkCore\scripts\policy.conf",
@@ -300,6 +301,7 @@ fn managed_configuration_accepts_native_https_mitm_with_explicit_socks_upstream(
     let mut json = serde_json::to_value(&config).expect("native MITM config serializes");
     assert_eq!(json["native_mitm"]["listen_port"], 7890);
     assert_eq!(json["native_mitm"]["upstream_socks_port"], 7891);
+    assert_eq!(json["native_mitm"]["bilibili_web_ad_block_enabled"], false);
     assert_eq!(
         json["native_mitm"]["script_runtime"]["policy_source_path"],
         r"C:\ProgramData\AnixOps\NetworkCore\scripts\policy.conf"
@@ -312,13 +314,24 @@ fn managed_configuration_accepts_native_https_mitm_with_explicit_socks_upstream(
         .as_object_mut()
         .expect("native MITM config serializes as an object")
         .remove("sing_box_config_snapshot_path");
+    json["native_mitm"]
+        .as_object_mut()
+        .expect("native MITM config serializes as an object")
+        .remove("bilibili_web_ad_block_enabled");
     let legacy: WindowsManagedConfig =
         serde_json::from_value(json).expect("pre-snapshot native MITM config remains readable");
     assert_eq!(
         legacy
             .native_mitm
-            .and_then(|native_mitm| native_mitm.sing_box_config_snapshot_path),
+            .as_ref()
+            .and_then(|native_mitm| native_mitm.sing_box_config_snapshot_path.as_ref()),
         None
+    );
+    assert!(
+        !legacy
+            .native_mitm
+            .expect("legacy native MITM configuration remains present")
+            .bilibili_web_ad_block_enabled
     );
 }
 

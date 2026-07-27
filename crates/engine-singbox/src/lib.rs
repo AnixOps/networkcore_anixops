@@ -21,7 +21,9 @@ use control_domain::{
     NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_PATH,
     NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
     NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
-    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
+    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID, NODE_METADATA_WIREGUARD_LOCAL_ADDRESS,
+    NODE_METADATA_WIREGUARD_MTU, NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY,
+    NODE_METADATA_WIREGUARD_PRE_SHARED_KEY, NODE_METADATA_WIREGUARD_PRIVATE_KEY,
 };
 use flate2::read::{DeflateDecoder, GzDecoder};
 use reqwest::blocking::Client;
@@ -847,6 +849,11 @@ struct WindowsManagedChildJob {
     handle: windows_sys::Win32::Foundation::HANDLE,
 }
 
+// A Job Object handle has no thread affinity. Access remains serialized by the
+// process supervisor's mutex; this only permits moving its ownership between threads.
+#[cfg(windows)]
+unsafe impl Send for WindowsManagedChildJob {}
+
 #[cfg(windows)]
 impl WindowsManagedChildJob {
     fn assign(child: &Child) -> DomainResult<Self> {
@@ -1193,10 +1200,11 @@ fn render_sing_box_local_proxy_config_with_controller(
 ) -> DomainResult<SingBoxLocalProxyConfig> {
     let node = select_node(&request.nodes, request.selected_node_id.as_deref())?;
     let mut diagnostics = Vec::new();
-    let (outbounds, route_final, selectable_nodes, controller, experimental) =
+    let (outbounds, endpoints, route_final, selectable_nodes, controller, experimental) =
         if let Some(controller) = controller {
             validate_loopback_controller(controller)?;
             let mut rendered_nodes = Vec::new();
+            let mut rendered_endpoints = Vec::new();
             let mut selectable_nodes = Vec::new();
 
             for (index, candidate) in request.nodes.iter().enumerate() {
@@ -1212,8 +1220,14 @@ fn render_sing_box_local_proxy_config_with_controller(
                     ));
                     continue;
                 }
-                let mut outbound = match render_sing_box_outbound(candidate) {
-                    Ok(outbound) => outbound,
+                let outbound_tag = sing_box_local_selector_outbound_tag(index);
+                let rendered = if candidate.protocol == Protocol::WireGuard {
+                    render_wireguard_endpoint(candidate)
+                } else {
+                    render_sing_box_outbound(candidate)
+                };
+                let mut rendered = match rendered {
+                    Ok(rendered) => rendered,
                     Err(error) => {
                         diagnostics.push(sing_box_diagnostic(
                             DiagnosticSeverity::Warning,
@@ -1227,9 +1241,12 @@ fn render_sing_box_local_proxy_config_with_controller(
                         continue;
                     }
                 };
-                let outbound_tag = sing_box_local_selector_outbound_tag(index);
-                outbound["tag"] = Value::String(outbound_tag.clone());
-                rendered_nodes.push(outbound);
+                rendered["tag"] = Value::String(outbound_tag.clone());
+                if candidate.protocol == Protocol::WireGuard {
+                    rendered_endpoints.push(rendered);
+                } else {
+                    rendered_nodes.push(rendered);
+                }
                 selectable_nodes.push(SingBoxLocalProxySelectableNode {
                     id: candidate.id.clone(),
                     name: candidate.name.clone(),
@@ -1277,10 +1294,28 @@ fn render_sing_box_local_proxy_config_with_controller(
             });
             (
                 outbounds,
+                rendered_endpoints,
                 controller.selector_tag.clone(),
                 selectable_nodes,
                 Some(controller.clone()),
                 Some(experimental),
+            )
+        } else if node.protocol == Protocol::WireGuard {
+            let endpoint = render_wireguard_endpoint(node)?;
+            (
+                vec![json!({
+                    "type": "direct",
+                    "tag": "direct"
+                })],
+                vec![endpoint],
+                node.id.clone(),
+                vec![SingBoxLocalProxySelectableNode {
+                    id: node.id.clone(),
+                    name: node.name.clone(),
+                    outbound_tag: node.id.clone(),
+                }],
+                None,
+                None,
             )
         } else {
             let outbound = render_sing_box_outbound(node)?;
@@ -1292,6 +1327,7 @@ fn render_sing_box_local_proxy_config_with_controller(
                         "tag": "direct"
                     }),
                 ],
+                Vec::new(),
                 node.id.clone(),
                 vec![SingBoxLocalProxySelectableNode {
                     id: node.id.clone(),
@@ -1322,6 +1358,9 @@ fn render_sing_box_local_proxy_config_with_controller(
     });
     if let Some(experimental) = experimental {
         config["experimental"] = experimental;
+    }
+    if !endpoints.is_empty() {
+        config["endpoints"] = json!(endpoints);
     }
     let json = serde_json::to_string_pretty(&config).map_err(|error| {
         DomainError::new(
@@ -1727,6 +1766,7 @@ fn render_sing_box_outbound(node: &NodeDescriptor) -> DomainResult<serde_json::V
         Protocol::Http
         | Protocol::Socks
         | Protocol::Hysteria
+        | Protocol::WireGuard
         | Protocol::Mieru
         | Protocol::Other(_) => Err(DomainError::new(
             ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE,
@@ -1736,6 +1776,65 @@ fn render_sing_box_outbound(node: &NodeDescriptor) -> DomainResult<serde_json::V
             ),
         )),
     }
+}
+
+fn render_wireguard_endpoint(node: &NodeDescriptor) -> DomainResult<Value> {
+    let private_key = required_node_metadata(
+        node,
+        NODE_METADATA_WIREGUARD_PRIVATE_KEY,
+        "wireguard node is missing private key metadata",
+    )?;
+    let peer_public_key = required_node_metadata(
+        node,
+        NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY,
+        "wireguard node is missing peer public key metadata",
+    )?;
+    let local_address = required_node_metadata(
+        node,
+        NODE_METADATA_WIREGUARD_LOCAL_ADDRESS,
+        "wireguard node is missing local address metadata",
+    )?
+    .split(',')
+    .map(str::trim)
+    .filter(|address| !address.is_empty())
+    .collect::<Vec<_>>();
+    if local_address.is_empty() {
+        return Err(DomainError::new(
+            ENGINE_SINGBOX_CONFIG_SECRET_MISSING_CODE,
+            "wireguard node local address metadata cannot be empty",
+        ));
+    }
+    let mut peer = json!({
+        "address": node.endpoint.host.as_str(),
+        "port": node.endpoint.port,
+        "public_key": peer_public_key,
+        "allowed_ips": ["0.0.0.0/0", "::/0"],
+    });
+    if let Some(pre_shared_key) = metadata_value(node, NODE_METADATA_WIREGUARD_PRE_SHARED_KEY) {
+        if !pre_shared_key.trim().is_empty() {
+            peer.as_object_mut()
+                .expect("wireguard peer must be a JSON object")
+                .insert("pre_shared_key".to_string(), json!(pre_shared_key));
+        }
+    }
+    let mut endpoint = json!({
+        "type": "wireguard",
+        "tag": node.id.as_str(),
+        "address": local_address,
+        "private_key": private_key,
+        "peers": [peer],
+    });
+    let fields = endpoint
+        .as_object_mut()
+        .expect("wireguard endpoint must be a JSON object");
+    if let Some(mtu) = optional_positive_u64_node_metadata(
+        node,
+        NODE_METADATA_WIREGUARD_MTU,
+        "wireguard mtu metadata must be a positive integer",
+    )? {
+        fields.insert("mtu".to_string(), json!(mtu));
+    }
+    Ok(endpoint)
 }
 
 fn render_trojan_outbound(node: &NodeDescriptor) -> DomainResult<Value> {
@@ -1867,13 +1966,13 @@ fn render_v2ray_tls(node: &NodeDescriptor, default_enabled: bool) -> DomainResul
     {
         fields.insert("certificate_public_key_sha256".to_string(), json!(pins));
     }
-    if let Some(fingerprint) = metadata_value(node, NODE_METADATA_TLS_UTLS_FINGERPRINT) {
-        if !fingerprint.trim().is_empty() {
-            fields.insert(
-                "utls".to_string(),
-                json!({ "enabled": true, "fingerprint": fingerprint }),
-            );
-        }
+    let utls_fingerprint = metadata_value(node, NODE_METADATA_TLS_UTLS_FINGERPRINT)
+        .filter(|fingerprint| !fingerprint.trim().is_empty());
+    if let Some(fingerprint) = utls_fingerprint {
+        fields.insert(
+            "utls".to_string(),
+            json!({ "enabled": true, "fingerprint": fingerprint }),
+        );
     }
     if let Some(public_key) = metadata_value(node, NODE_METADATA_TLS_REALITY_PUBLIC_KEY) {
         if public_key.trim().is_empty() {
@@ -1895,6 +1994,12 @@ fn render_v2ray_tls(node: &NodeDescriptor, default_enabled: bool) -> DomainResul
             }
         }
         fields.insert("reality".to_string(), reality);
+        if utls_fingerprint.is_none() {
+            fields.insert(
+                "utls".to_string(),
+                json!({ "enabled": true, "fingerprint": "chrome" }),
+            );
+        }
     }
     Ok(Some(tls))
 }
@@ -2250,6 +2355,7 @@ fn supports_local_proxy_protocol(protocol: &Protocol) -> bool {
             | Protocol::Vmess
             | Protocol::Hysteria2
             | Protocol::Tuic
+            | Protocol::WireGuard
     )
 }
 

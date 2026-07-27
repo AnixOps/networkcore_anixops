@@ -32,9 +32,12 @@ export interface RuntimeSnapshot {
   autoRecoverCore: boolean;
   autoSubscriptionRefresh: boolean;
   autoSelectFastestNode: boolean;
+  bilibiliWebAdBlockEnabled: boolean;
   dnsConfigured: boolean;
   scriptRuntimeConfigured: boolean;
   darkTheme: boolean;
+  runtimeMode: "desktop" | "service";
+  routingMode: "bypass_china" | "gfw_list" | "direct" | "return_china";
 }
 
 export interface NodeSummary {
@@ -88,14 +91,9 @@ export const desktop = {
   testDelay: (nodeId: string, url: string) =>
     invoke<OperationResult>("test_node_delay", { nodeId, url }),
   selectFastestNode: () => invoke<OperationResult>("select_fastest_node"),
-  savePreferences: (preferences: Pick<RuntimeSnapshot, "startAfterLogin" | "autoConnect" | "autoRecoverCore" | "autoSubscriptionRefresh" | "autoSelectFastestNode" | "darkTheme">) =>
+  savePreferences: (preferences: Pick<RuntimeSnapshot, "startAfterLogin" | "autoConnect" | "autoRecoverCore" | "autoSubscriptionRefresh" | "autoSelectFastestNode" | "bilibiliWebAdBlockEnabled" | "darkTheme" | "runtimeMode">) =>
     invoke<OperationResult>("save_preferences", {
-      startAfterLogin: preferences.startAfterLogin,
-      autoConnect: preferences.autoConnect,
-      autoRecoverCore: preferences.autoRecoverCore,
-      autoSubscriptionRefresh: preferences.autoSubscriptionRefresh,
-      autoSelectFastestNode: preferences.autoSelectFastestNode,
-      darkTheme: preferences.darkTheme,
+      preferences,
     }),
   diagnostics: () => invoke<OperationResult>("create_diagnostics"),
   importSubscription: (location: string) =>
@@ -122,6 +120,8 @@ export const desktop = {
   clearTunnel: () => invoke<OperationResult>("clear_tunnel"),
   configureDns: (dnsJson: string) => invoke<OperationResult>("configure_dns", { dnsJson }),
   clearDns: () => invoke<OperationResult>("clear_dns"),
+  setRoutingMode: (mode: RuntimeSnapshot["routingMode"]) => invoke<OperationResult>("set_routing_mode", { mode }),
+  refreshRoutingRules: () => invoke<OperationResult>("refresh_routing_rules"),
   configureScriptRuntime: (scriptRuntimeJson: string) =>
     invoke<OperationResult>("configure_script_runtime", { scriptRuntimeJson }),
   clearScriptRuntime: () => invoke<OperationResult>("clear_script_runtime"),

@@ -26,7 +26,9 @@ use control_domain::{
     NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_PATH,
     NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
     NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
-    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
+    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID, NODE_METADATA_WIREGUARD_LOCAL_ADDRESS,
+    NODE_METADATA_WIREGUARD_MTU, NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY,
+    NODE_METADATA_WIREGUARD_PRE_SHARED_KEY, NODE_METADATA_WIREGUARD_PRIVATE_KEY,
 };
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -72,6 +74,8 @@ pub const SUBSCRIPTION_VMESS_LINK_INVALID_CODE: &str = "subscription.core.vmess_
 pub const SUBSCRIPTION_HYSTERIA2_LINK_INVALID_CODE: &str =
     "subscription.core.hysteria2_link_invalid";
 pub const SUBSCRIPTION_TUIC_LINK_INVALID_CODE: &str = "subscription.core.tuic_link_invalid";
+pub const SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE: &str =
+    "subscription.core.wireguard_link_invalid";
 pub const SUBSCRIPTION_MIERU_LINK_INVALID_CODE: &str = "subscription.core.mieru_link_invalid";
 pub const SUBSCRIPTION_CLASH_YAML_INVALID_CODE: &str = "subscription.core.clash_yaml_invalid";
 pub const SUBSCRIPTION_CLASH_YAML_UNSUPPORTED_CODE: &str =
@@ -2251,13 +2255,12 @@ fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<Subscr
             parse_hysteria2_link(line)?
         } else if line.starts_with("tuic://") {
             parse_tuic_link(line)?
+        } else if line.starts_with("wireguard://") {
+            parse_wireguard_link(line)?
         } else if line.starts_with("mierus://") {
             parse_mieru_link(line)?
         } else {
-            return Err(domain_error(
-                SUBSCRIPTION_LINK_UNSUPPORTED_CODE,
-                "only ss://, trojan://, vless://, vmess://, hysteria2://, hy2://, tuic://, and mierus:// proxy links are supported in this alpha subscription parser",
-            ));
+            continue;
         };
         if !seen_ids.insert(node.id.clone()) {
             let base_id = node.id.clone();
@@ -2917,6 +2920,152 @@ fn parse_tuic_link(link: &str) -> DomainResult<NodeDescriptor> {
     ))
 }
 
+fn parse_wireguard_link(link: &str) -> DomainResult<NodeDescriptor> {
+    let payload = link.strip_prefix("wireguard://").ok_or_else(|| {
+        domain_error(
+            SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
+            "wireguard link must start with wireguard://",
+        )
+    })?;
+    let parsed = parse_quic_share_link(
+        payload,
+        SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
+        "wireguard",
+    )?;
+    let private_key = validate_wireguard_key(
+        &parsed.userinfo,
+        SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
+        "private key",
+    )?;
+    let peer_public_key = required_query_value(
+        &parsed.query,
+        "publickey",
+        SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
+        "wireguard publickey is required",
+    )?;
+    let peer_public_key = validate_wireguard_key(
+        &peer_public_key,
+        SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
+        "publickey",
+    )?;
+    let local_address = required_query_value(
+        &parsed.query,
+        "address",
+        SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
+        "wireguard address is required",
+    )?;
+    let local_address =
+        normalize_wireguard_addresses(&local_address, SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE)?;
+    let mut metadata = vec![
+        MetadataEntry {
+            key: NODE_METADATA_WIREGUARD_PRIVATE_KEY.to_string(),
+            value: private_key,
+        },
+        MetadataEntry {
+            key: NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY.to_string(),
+            value: peer_public_key,
+        },
+        MetadataEntry {
+            key: NODE_METADATA_WIREGUARD_LOCAL_ADDRESS.to_string(),
+            value: local_address,
+        },
+    ];
+    if let Some(value) = parsed.query.get("presharedkey") {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_WIREGUARD_PRE_SHARED_KEY.to_string(),
+            value: validate_wireguard_key(
+                value,
+                SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
+                "presharedkey",
+            )?,
+        });
+    }
+    if let Some(value) = parsed.query.get("mtu") {
+        let mtu = value.trim().parse::<u16>().map_err(|_| {
+            domain_error(
+                SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
+                "wireguard mtu must be an unsigned 16-bit integer",
+            )
+        })?;
+        if mtu == 0 {
+            return Err(domain_error(
+                SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
+                "wireguard mtu must be greater than zero",
+            ));
+        }
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_WIREGUARD_MTU.to_string(),
+            value: mtu.to_string(),
+        });
+    }
+    Ok(quic_node_descriptor(
+        "wireguard",
+        Protocol::WireGuard,
+        parsed,
+        metadata,
+    ))
+}
+
+fn validate_wireguard_key(
+    value: &str,
+    code: &'static str,
+    field: &'static str,
+) -> DomainResult<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(domain_error(
+            code,
+            format!("wireguard {field} cannot be empty"),
+        ));
+    }
+    let decoded = [STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD]
+        .iter()
+        .find_map(|engine| engine.decode(value).ok());
+    if !matches!(decoded, Some(ref bytes) if bytes.len() == 32) {
+        return Err(domain_error(
+            code,
+            format!("wireguard {field} must be a base64-encoded 32-byte key"),
+        ));
+    }
+    Ok(value.to_string())
+}
+
+fn normalize_wireguard_addresses(value: &str, code: &'static str) -> DomainResult<String> {
+    let addresses = value
+        .split(',')
+        .map(str::trim)
+        .map(|address| {
+            let (host, prefix) = address.split_once('/').ok_or_else(|| {
+                domain_error(code, "wireguard address entries must use CIDR notation")
+            })?;
+            let host = host.parse::<std::net::IpAddr>().map_err(|_| {
+                domain_error(
+                    code,
+                    "wireguard address entries must contain valid IP addresses",
+                )
+            })?;
+            let prefix = prefix.parse::<u8>().map_err(|_| {
+                domain_error(code, "wireguard address prefixes must be unsigned integers")
+            })?;
+            let maximum_prefix = match host {
+                std::net::IpAddr::V4(_) => 32,
+                std::net::IpAddr::V6(_) => 128,
+            };
+            if prefix > maximum_prefix {
+                return Err(domain_error(
+                    code,
+                    "wireguard address prefix exceeds the address family limit",
+                ));
+            }
+            Ok(format!("{host}/{prefix}"))
+        })
+        .collect::<DomainResult<Vec<_>>>()?;
+    if addresses.is_empty() {
+        return Err(domain_error(code, "wireguard address cannot be empty"));
+    }
+    Ok(addresses.join(","))
+}
+
 #[derive(Debug)]
 struct ParsedQuicShareLink {
     userinfo: String,
@@ -3485,6 +3634,7 @@ fn parse_protocol(raw: String) -> DomainResult<Protocol> {
         "hysteria" => Protocol::Hysteria,
         "hysteria2" | "hy2" => Protocol::Hysteria2,
         "tuic" => Protocol::Tuic,
+        "wireguard" => Protocol::WireGuard,
         _ => Protocol::Other(protocol),
     })
 }

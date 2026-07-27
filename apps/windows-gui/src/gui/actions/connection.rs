@@ -6,7 +6,7 @@ use crate::gui::{
 };
 use engine_singbox::{
     inspect_sing_box_local_selector_controller, read_sing_box_clash_api_selector_with_timeout,
-    SingBoxLocalControllerConfig,
+    SingBoxLocalControllerConfig, SingBoxManagedProcessRequest, SingBoxManagedProcessSupervisor,
 };
 use platform_windows::managed::{
     windows_managed_config_path, WindowsManagedConfig, WindowsProxySettings, WindowsProxySnapshot,
@@ -34,6 +34,7 @@ pub enum RestartedService {
 struct DesktopConnectionPlan {
     proxy: WindowsProxySettings,
     selector_controller: Option<SingBoxLocalControllerConfig>,
+    sing_box: Option<SingBoxManagedProcessRequest>,
 }
 
 pub const fn can_connect(connection: ConnectionState) -> bool {
@@ -91,6 +92,84 @@ pub fn connect(config_path: PathBuf, desktop: DesktopState) -> Result<ConnectedP
     start_desktop_connection(plan, desktop)
 }
 
+pub fn connect_direct(
+    config_path: PathBuf,
+    desktop: DesktopState,
+    supervisor: &mut SingBoxManagedProcessSupervisor,
+) -> Result<ConnectedProxy, String> {
+    let plan = load_desktop_connection_plan(&config_path)?;
+    let request = plan.sing_box.clone().ok_or_else(|| {
+        "Desktop mode requires an enabled sing-box configuration. Install sing-box and import a compatible profile first."
+            .to_string()
+    })?;
+    supervisor
+        .start(&request)
+        .map_err(|error| error.to_string())?;
+
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let listener_ready = managed_proxy_listener_ready(&plan.proxy, Duration::from_millis(500))
+            .map_err(|error| error.to_string())?;
+        let selector_ready = match plan.selector_controller.as_ref() {
+            Some(controller) => read_sing_box_clash_api_selector_with_timeout(
+                controller,
+                Duration::from_millis(750),
+            )
+            .is_ok(),
+            None => true,
+        };
+        if listener_ready && selector_ready {
+            return apply_proxy_after_direct_readiness(&plan.proxy, desktop, supervisor, &request);
+        }
+        if supervisor
+            .status()
+            .map_err(|error| error.to_string())?
+            .state
+            != engine_singbox::SingBoxManagedProcessState::Running
+        {
+            let _ = supervisor.stop(&request.log_path);
+            return Err("Desktop sing-box process exited before it became ready.".to_string());
+        }
+        if Instant::now() >= deadline {
+            let _ = supervisor.stop(&request.log_path);
+            return Err(
+                "Timed out waiting for the desktop sing-box proxy and selector controller."
+                    .to_string(),
+            );
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+pub fn disconnect_direct(
+    config_path: PathBuf,
+    desktop: DesktopState,
+    supervisor: &mut SingBoxManagedProcessSupervisor,
+) -> Result<String, String> {
+    let managed = load_validated_daily_managed_configuration(&config_path)?;
+    let integration = NativeWindowsSystemIntegration::new();
+    let mut proxy_restored = false;
+    if let Some(snapshot) = desktop.proxy_snapshot.as_ref() {
+        let current = read_current_user_system_proxy().map_err(|error| error.to_string())?;
+        if owns_current_proxy(&desktop, &current) {
+            integration
+                .restore_system_proxy(snapshot)
+                .map_err(|error| error.to_string())?;
+            proxy_restored = true;
+        }
+    }
+    if let Some(sing_box) = managed.sing_box {
+        supervisor
+            .stop(&sing_box.log_path)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(if proxy_restored {
+        "Desktop core stopped and the GUI-owned proxy snapshot was restored.".to_string()
+    } else {
+        "Desktop core stopped. The current-user proxy was left unchanged because it was not owned by this GUI session.".to_string()
+    })
+}
+
 pub fn restart(config_path: PathBuf, desktop: DesktopState) -> Result<RestartedService, String> {
     let managed = load_validated_daily_managed_configuration(&config_path)?;
     if managed.system_proxy_owner.is_service_managed() {
@@ -128,6 +207,18 @@ fn desktop_connection_plan(managed: WindowsManagedConfig) -> Result<DesktopConne
                 .to_string(),
         );
     }
+    if managed.tunnel.is_some()
+        || managed.mieru.as_ref().is_some_and(|mieru| mieru.enabled)
+        || managed
+            .native_mitm
+            .as_ref()
+            .is_some_and(|mitm| mitm.enabled)
+    {
+        return Err(
+            "This profile enables a tunnel, Mieru, or HTTPS MITM and must run in Windows service mode."
+                .to_string(),
+        );
+    }
     let selector_controller = managed
         .sing_box
         .as_ref()
@@ -148,9 +239,54 @@ fn desktop_connection_plan(managed: WindowsManagedConfig) -> Result<DesktopConne
             "Connection requires an enabled managed system proxy. Import a profile or configure one first."
                 .to_string()
         })?;
+    let sing_box = managed
+        .sing_box
+        .as_ref()
+        .filter(|sing_box| sing_box.enabled)
+        .map(|sing_box| SingBoxManagedProcessRequest {
+            executable_path: sing_box.executable_path.clone(),
+            config_path: sing_box.config_path.clone(),
+            working_directory: sing_box.working_directory.clone(),
+            log_path: sing_box.log_path.clone(),
+        });
     Ok(DesktopConnectionPlan {
         proxy,
         selector_controller,
+        sing_box,
+    })
+}
+
+fn apply_proxy_after_direct_readiness(
+    proxy: &WindowsProxySettings,
+    mut desktop: DesktopState,
+    supervisor: &mut SingBoxManagedProcessSupervisor,
+    request: &SingBoxManagedProcessRequest,
+) -> Result<ConnectedProxy, String> {
+    let integration = NativeWindowsSystemIntegration::new();
+    let current = read_current_user_system_proxy().map_err(|error| error.to_string())?;
+    let existing_snapshot = owns_current_proxy(&desktop, &current)
+        .then(|| desktop.proxy_snapshot.clone())
+        .flatten();
+    let applied_snapshot = match integration.apply_system_proxy(proxy) {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            let _ = supervisor.stop(&request.log_path);
+            return Err(error.to_string());
+        }
+    };
+    let snapshot = existing_snapshot.unwrap_or(applied_snapshot);
+    desktop.proxy_snapshot = Some(snapshot.clone());
+    desktop.applied_proxy = Some(proxy.clone());
+    if let Err(error) = save_desktop_state(&desktop) {
+        let _ = integration.restore_system_proxy(&snapshot);
+        let _ = supervisor.stop(&request.log_path);
+        return Err(format!(
+            "desktop proxy ownership could not be saved after connection: {error}"
+        ));
+    }
+    Ok(ConnectedProxy {
+        snapshot,
+        applied_proxy: proxy.clone(),
     })
 }
 
@@ -161,6 +297,7 @@ fn start_desktop_connection(
     let DesktopConnectionPlan {
         proxy,
         selector_controller,
+        ..
     } = plan;
     let integration = NativeWindowsSystemIntegration::new();
     integration

@@ -8,7 +8,7 @@ use config_core::{
     CONFIG_PROFILE_MISSING_CODE, CONFIG_ROUTE_PROXY_NODE_MISSING_CODE,
     CONFIG_SCHEMA_UNSUPPORTED_CODE, CURRENT_SCHEMA_VERSION, SUBSCRIPTION_FETCH_UNSUPPORTED_CODE,
     SUBSCRIPTION_LINK_UNSUPPORTED_CODE, SUBSCRIPTION_PARSE_FAILED_CODE,
-    SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
+    SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE, SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
 };
 use control_domain::{
     ConfigurationService, Diagnostic, ListenerKind, ListenerNetwork, ListenerRoute, MetadataEntry,
@@ -26,7 +26,9 @@ use control_domain::{
     NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_PATH,
     NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
     NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
-    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
+    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID, NODE_METADATA_WIREGUARD_LOCAL_ADDRESS,
+    NODE_METADATA_WIREGUARD_MTU, NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY,
+    NODE_METADATA_WIREGUARD_PRE_SHARED_KEY, NODE_METADATA_WIREGUARD_PRIVATE_KEY,
 };
 
 #[test]
@@ -1081,7 +1083,7 @@ fn unsupported_proxy_link_returns_stable_subscription_diagnostic() {
     let service = CoreSubscriptionService::new();
     let raw = RawSubscription {
         source_id: "unsupported".to_string(),
-        content: "wireguard://example".to_string(),
+        content: "unsupported://example".to_string(),
     };
 
     let error = service
@@ -1089,6 +1091,127 @@ fn unsupported_proxy_link_returns_stable_subscription_diagnostic() {
         .expect_err("unsupported proxy link should fail");
 
     assert_eq!(error.code, SUBSCRIPTION_LINK_UNSUPPORTED_CODE);
+}
+
+#[test]
+fn parses_wireguard_share_link_with_optional_key_and_mtu() {
+    let private_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    let peer_public_key = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
+    let pre_shared_key = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=";
+    let service = CoreSubscriptionService::new();
+    let document = service
+        .parse(&RawSubscription {
+            source_id: "wireguard-share-link".to_string(),
+            content: format!(
+                "wireguard://{private_key}@wg.example.test:51820?publickey={peer_public_key}&address=10.7.0.2%2F32%2Cfd00%3A7%3A%3A2%2F128&presharedkey={pre_shared_key}&mtu=1420#Office%20WG"
+            ),
+        })
+        .expect("WireGuard share link should parse");
+    let catalog = service
+        .normalize(&document)
+        .expect("WireGuard share link should normalize");
+
+    assert_eq!(catalog.nodes.len(), 1);
+    let node = &catalog.nodes[0];
+    assert_eq!(node.protocol, Protocol::WireGuard);
+    assert_eq!(node.endpoint.host, "wg.example.test");
+    assert_eq!(node.endpoint.port, 51820);
+    assert_eq!(node.name, "Office WG");
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_WIREGUARD_PRIVATE_KEY,
+        private_key,
+    );
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY,
+        peer_public_key,
+    );
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_WIREGUARD_PRE_SHARED_KEY,
+        pre_shared_key,
+    );
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_WIREGUARD_LOCAL_ADDRESS,
+        "10.7.0.2/32,fd00:7::2/128",
+    );
+    assert_metadata(&node.metadata, NODE_METADATA_WIREGUARD_MTU, "1420");
+    assert_metadata(&node.metadata, NODE_METADATA_SOURCE_FORMAT, "wireguard-url");
+    assert!(!format!("{node:?}").contains(private_key));
+}
+
+#[test]
+fn rejects_invalid_wireguard_share_link_without_echoing_private_key() {
+    let private_key = "sensitive-not-a-wireguard-key";
+    let service = CoreSubscriptionService::new();
+    let error = service
+        .parse(&RawSubscription {
+            source_id: "invalid-wireguard-share-link".to_string(),
+            content: format!(
+                "wireguard://{private_key}@wg.example.test:51820?publickey=invalid&address=10.7.0.2%2F33&mtu=0"
+            ),
+        })
+        .expect_err("invalid WireGuard key must be rejected");
+
+    assert_eq!(error.code, SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE);
+    assert!(!error.message.contains(private_key));
+}
+
+#[test]
+fn validates_wireguard_peer_key_address_preshared_key_and_mtu() {
+    let private_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    let cases = [
+        (
+            "invalid-peer-key",
+            "publickey=invalid&address=10.7.0.2%2F32",
+        ),
+        (
+            "invalid-address",
+            "publickey=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=&address=10.7.0.2%2F33",
+        ),
+        (
+            "invalid-preshared-key",
+            "publickey=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=&address=10.7.0.2%2F32&presharedkey=invalid",
+        ),
+        (
+            "invalid-mtu",
+            "publickey=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=&address=10.7.0.2%2F32&mtu=0",
+        ),
+    ];
+    let service = CoreSubscriptionService::new();
+
+    for (source_id, query) in cases {
+        let error = service
+            .parse(&RawSubscription {
+                source_id: source_id.to_string(),
+                content: format!("wireguard://{private_key}@wg.example.test:51820?{query}#Invalid"),
+            })
+            .expect_err("invalid WireGuard field must be rejected");
+        assert_eq!(error.code, SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE);
+        assert!(!error.message.contains(private_key));
+    }
+}
+
+#[test]
+fn link_list_keeps_supported_nodes_when_other_links_are_unsupported() {
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "mixed-links".to_string(),
+        content: concat!(
+            "unsupported://link\n",
+            "ss://YWVzLTI1Ni1nY206cGFzc0BleGFtcGxlLmNvbTo0NDM#Supported"
+        )
+        .to_string(),
+    };
+
+    let document = service
+        .parse(&raw)
+        .expect("supported links should import when other links are unsupported");
+
+    assert_eq!(document.nodes.len(), 1);
+    assert_eq!(document.nodes[0].name, "Supported");
 }
 
 #[test]

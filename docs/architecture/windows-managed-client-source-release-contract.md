@@ -8,7 +8,7 @@ current Windows package.
 ```text
 windows-managed-client-source-release-contract=present
 windows-managed-client-release-state=implementation-active
-windows-managed-client-version-scope=v0.2.0-beta.1
+windows-managed-client-version-scope=v0.2.0-beta.2
 WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active
 windows-managed-client-runner=windows-latest
 windows-managed-client-runner-kind=github-hosted
@@ -85,7 +85,7 @@ provides one, extracts `sing-box.exe` under `%ProgramData%`, and persists its
 path for profile import. The MSI itself neither bundles nor silently downloads
 the third-party core.
 
-`v0.2.0-beta.1` uses a Tauri/React desktop view with a Rust-owned command bridge and splits daily UI state,
+`v0.2.0-beta.2` uses a Tauri/React desktop view with a Rust-owned command bridge and splits daily UI state,
 runtime observation, background command dispatch, and theme into dedicated GUI
 modules. Its six daily pages are Home, Nodes, Subscriptions, Settings,
 Diagnostics, and Advanced. `Connected` requires independent SCM, service-owned
@@ -191,6 +191,16 @@ built-in policy hook to a bounded HTTP/1.1 request/response exchange. Disable
 stops the listener, restores a recorded native JSON snapshot when present (or
 returns a basic renderer config to `127.0.0.1:7890`), removes the managed ROOT
 entry, and deletes the generated private key.
+
+Advanced settings includes an opt-in `Bilibili web promotional request blocking
+(trial)` selection. When selected before `Enable HTTPS MITM`, the service loads
+the first-party `networkcore.bilibili-web-adblock` request-only policy instead
+of the general ad-block pack. It rejects only four independent recommendation,
+topic, dynamic-follow-list, and live shopping endpoints. It does not fetch or
+execute BiliUniverse, Loon, Surge, or other third-party scripts; it does not
+modify response bodies, video playback, comments, the home feed, or HTTP/2,
+HTTP/3, and QUIC traffic. The selection is persisted with a default of off and
+requires HTTPS MITM to be enabled again before it affects the managed service.
 
 The service validates the generated or operator-supplied native JSON with
 `check -c`, owns `run -c`, persists PID/exit state, and redirects core

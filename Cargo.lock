@@ -1034,6 +1034,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 
 [[package]]
+name = "engine-mieru"
+version = "0.1.0"
+dependencies = [
+ "control-domain",
+ "reqwest 0.12.28",
+ "serde_json",
+ "sha2",
+ "url",
+]
+
+[[package]]
 name = "engine-native"
 version = "0.1.0"
 dependencies = [
@@ -1044,17 +1055,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "webpki-roots",
-]
-
-[[package]]
-name = "engine-mieru"
-version = "0.1.0"
-dependencies = [
- "control-domain",
- "reqwest 0.12.28",
- "sha2",
- "serde_json",
- "url",
 ]
 
 [[package]]

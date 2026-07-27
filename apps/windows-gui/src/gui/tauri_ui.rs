@@ -1,8 +1,8 @@
 use super::actions::{connection, nodes};
 use super::runtime_status::{read_runtime_status, ManagedCoreStatus, WindowsRuntimeStatus};
 use super::startup::{
-    load_desktop_state, owns_current_proxy, save_desktop_state, DesktopProfileNode, DesktopState,
-    DesktopSubscriptionSource,
+    load_desktop_state, owns_current_proxy, save_desktop_state, DesktopProfileNode,
+    DesktopRoutingMode, DesktopRuntimeMode, DesktopState, DesktopSubscriptionSource,
 };
 use super::{
     append_managed_log, load_validated_managed_configuration, managed_config_or_default,
@@ -22,7 +22,8 @@ use engine_singbox::{
     read_sing_box_clash_api_selector, render_sing_box_local_proxy_selector_config,
     rewrite_sing_box_mixed_inbound_listener, sing_box_config_sha256, GithubSingBoxReleaseInstaller,
     SingBoxInstallRequest, SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest,
-    SingBoxReleaseInstaller, SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
+    SingBoxManagedProcessState, SingBoxManagedProcessSupervisor, SingBoxReleaseInstaller,
+    SingBoxTarget, SingBoxTargetArch, SingBoxTargetOs,
     DEFAULT_SING_BOX_CLASH_API_DELAY_TIMEOUT_MILLIS,
 };
 use platform_windows::managed::{
@@ -43,8 +44,8 @@ use platform_windows::system_integration::{
 use rcgen::{
     BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, KeyUsagePurpose,
 };
-use serde::Serialize;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::{
@@ -62,11 +63,19 @@ const MITM_CA_SUBJECT: &str = "AnixOps NetworkCore Windows HTTPS MITM CA";
 const SUBSCRIPTION_REFRESH_INTERVAL: Duration = Duration::from_secs(60 * 60);
 const NODE_SELECTION_INTERVAL: Duration = Duration::from_secs(30 * 60);
 const DEFAULT_NODE_SELECTION_URL: &str = "https://www.gstatic.com/generate_204";
+const LOYALSOLDIER_GFW_URL: &str =
+    "https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/gfw.txt";
+const LOYALSOLDIER_CHINA_URL: &str =
+    "https://raw.githubusercontent.com/Loyalsoldier/v2ray-rules-dat/release/china-list.txt";
+const CHINA_IP_URL: &str =
+    "https://raw.githubusercontent.com/gaoyifan/china-operator-ip/ip-lists/china.txt";
+const ROUTING_RULE_DIRECTORY: &str = "routing-rules";
 
 #[derive(Clone)]
 struct DesktopAppState {
     desktop: Arc<Mutex<DesktopState>>,
     lifecycle: Arc<RuntimeLifecycle>,
+    direct_core: Arc<Mutex<SingBoxManagedProcessSupervisor>>,
 }
 
 struct DesktopTray {
@@ -118,9 +127,12 @@ struct RuntimeSnapshot {
     auto_recover_core: bool,
     auto_subscription_refresh: bool,
     auto_select_fastest_node: bool,
+    bilibili_web_ad_block_enabled: bool,
     dns_configured: bool,
     script_runtime_configured: bool,
     dark_theme: bool,
+    runtime_mode: String,
+    routing_mode: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -173,6 +185,19 @@ struct OperationResult {
     message: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PreferenceValues {
+    start_after_login: bool,
+    auto_connect: bool,
+    auto_recover_core: bool,
+    auto_subscription_refresh: bool,
+    auto_select_fastest_node: bool,
+    bilibili_web_ad_block_enabled: bool,
+    dark_theme: bool,
+    runtime_mode: String,
+}
+
 struct ImportedMitmProfile {
     executable_path: PathBuf,
     config_path: PathBuf,
@@ -186,6 +211,7 @@ struct ImportedMitmProfile {
 }
 
 pub(super) fn run(debug: bool) -> Result<(), String> {
+    migrate_legacy_routing_rule_set()?;
     let desktop = load_desktop_state()?;
     let _ = append_managed_log(APP_LOG_SCOPE, &format!("startup debug={debug}"));
 
@@ -196,6 +222,7 @@ pub(super) fn run(debug: bool) -> Result<(), String> {
         .manage(DesktopAppState {
             desktop: Arc::new(Mutex::new(desktop)),
             lifecycle: Arc::new(RuntimeLifecycle::default()),
+            direct_core: Arc::new(Mutex::new(SingBoxManagedProcessSupervisor::default())),
         })
         .setup(|app| {
             install_tray(app)?;
@@ -251,6 +278,8 @@ pub(super) fn run(debug: bool) -> Result<(), String> {
             clear_tunnel,
             configure_dns,
             clear_dns,
+            set_routing_mode,
+            refresh_routing_rules,
             configure_script_runtime,
             clear_script_runtime,
             enable_https_mitm,
@@ -262,6 +291,29 @@ pub(super) fn run(debug: bool) -> Result<(), String> {
         ])
         .run(tauri::generate_context!())
         .map_err(|error| error.to_string())
+}
+
+fn migrate_legacy_routing_rule_set() -> Result<(), String> {
+    let managed = match managed_config_or_default()?.sing_box {
+        Some(sing_box) => sing_box,
+        None => return Ok(()),
+    };
+    let raw = fs::read_to_string(&managed.config_path).map_err(|error| error.to_string())?;
+    let mut config: Value = serde_json::from_str(&raw).map_err(|error| error.to_string())?;
+    let object = config
+        .as_object_mut()
+        .ok_or_else(|| "managed sing-box configuration must be a JSON object.".to_string())?;
+    let Some(rule_sets) = object.remove("rule_set") else {
+        return Ok(());
+    };
+    let route = object
+        .entry("route")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or_else(|| "managed sing-box route must be a JSON object.".to_string())?;
+    route.insert("rule_set".to_string(), rule_sets);
+    let rendered = serde_json::to_string_pretty(&config).map_err(|error| error.to_string())?;
+    write_managed_text_atomic(&managed.config_path, &rendered).map_err(|error| error.to_string())
 }
 
 fn install_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -278,7 +330,12 @@ fn install_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .menu(&menu)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => show_main_window(app),
-            "quit" => app.exit(0),
+            "quit" => {
+                if let Some(state) = app.try_state::<DesktopAppState>() {
+                    stop_desktop_core_for_exit(state.inner().clone());
+                }
+                app.exit(0);
+            }
             _ => {}
         })
         .build(app)?;
@@ -508,7 +565,15 @@ fn runtime_snapshot_blocking(state: DesktopAppState) -> Result<RuntimeSnapshot, 
         .desktop
         .lock()
         .map_err(|_| "desktop state lock failed")?;
-    Ok(snapshot(&read_runtime_status(), &desktop))
+    let direct_running = state
+        .direct_core
+        .lock()
+        .map_err(|_| "desktop core lock failed")?
+        .status()
+        .map_err(|error| error.to_string())?
+        .state
+        == SingBoxManagedProcessState::Running;
+    Ok(snapshot(&read_runtime_status(), &desktop, direct_running))
 }
 
 #[tauri::command]
@@ -802,7 +867,19 @@ fn connect_blocking(state: DesktopAppState) -> Result<OperationResult, String> {
         .lock()
         .map_err(|_| "desktop state lock failed")?
         .clone();
-    let connected = connection::connect(windows_managed_config_path(), desktop.clone())?;
+    let connected = match desktop.runtime_mode {
+        DesktopRuntimeMode::Desktop => connection::connect_direct(
+            windows_managed_config_path(),
+            desktop.clone(),
+            &mut *state
+                .direct_core
+                .lock()
+                .map_err(|_| "desktop core lock failed")?,
+        )?,
+        DesktopRuntimeMode::Service => {
+            connection::connect(windows_managed_config_path(), desktop.clone())?
+        }
+    };
     let mut persisted = state
         .desktop
         .lock()
@@ -812,7 +889,15 @@ fn connect_blocking(state: DesktopAppState) -> Result<OperationResult, String> {
     save_desktop_state(&persisted)?;
     mark_gui_started_connection(&state);
     Ok(OperationResult {
-        message: "Connected. The managed core and current-user proxy are verified.".to_string(),
+        message: match desktop.runtime_mode {
+            DesktopRuntimeMode::Desktop => {
+                "Connected. The desktop-owned sing-box core and current-user proxy are verified."
+                    .to_string()
+            }
+            DesktopRuntimeMode::Service => {
+                "Connected. The managed core and current-user proxy are verified.".to_string()
+            }
+        },
     })
 }
 
@@ -828,7 +913,17 @@ fn disconnect_blocking(state: DesktopAppState) -> Result<OperationResult, String
         .lock()
         .map_err(|_| "desktop state lock failed")?
         .clone();
-    let message = connection::disconnect(desktop)?;
+    let message = match desktop.runtime_mode {
+        DesktopRuntimeMode::Desktop => connection::disconnect_direct(
+            windows_managed_config_path(),
+            desktop.clone(),
+            &mut *state
+                .direct_core
+                .lock()
+                .map_err(|_| "desktop core lock failed")?,
+        )?,
+        DesktopRuntimeMode::Service => connection::disconnect(desktop)?,
+    };
     let mut persisted = state
         .desktop
         .lock()
@@ -838,6 +933,29 @@ fn disconnect_blocking(state: DesktopAppState) -> Result<OperationResult, String
     save_desktop_state(&persisted)?;
     mark_gui_connection_stopped(&state);
     Ok(OperationResult { message })
+}
+
+fn stop_desktop_core_for_exit(state: DesktopAppState) {
+    let desktop = match state.desktop.lock() {
+        Ok(desktop) => desktop.clone(),
+        Err(_) => return,
+    };
+    if desktop.runtime_mode != DesktopRuntimeMode::Desktop {
+        return;
+    }
+    let result = state
+        .direct_core
+        .lock()
+        .map_err(|_| "desktop core lock failed".to_string())
+        .and_then(|mut supervisor| {
+            connection::disconnect_direct(windows_managed_config_path(), desktop, &mut supervisor)
+        });
+    if let Err(error) = result {
+        let _ = append_managed_log(
+            APP_LOG_SCOPE,
+            &format!("desktop exit cleanup failed: {error}"),
+        );
+    }
 }
 
 #[tauri::command]
@@ -852,12 +970,39 @@ fn restart_service_blocking(state: DesktopAppState) -> Result<OperationResult, S
         .lock()
         .map_err(|_| "desktop state lock failed")?
         .clone();
-    let message = match connection::restart(windows_managed_config_path(), desktop)? {
-        connection::RestartedService::Desktop(_) => {
-            "Service restarted and desktop proxy settings were reapplied.".to_string()
-        }
-        connection::RestartedService::ServiceManaged => {
-            "Service restart was submitted. Waiting for managed runtime status.".to_string()
+    let message = if desktop.runtime_mode == DesktopRuntimeMode::Desktop {
+        let _ = connection::disconnect_direct(
+            windows_managed_config_path(),
+            desktop.clone(),
+            &mut *state
+                .direct_core
+                .lock()
+                .map_err(|_| "desktop core lock failed")?,
+        );
+        let connected = connection::connect_direct(
+            windows_managed_config_path(),
+            desktop,
+            &mut *state
+                .direct_core
+                .lock()
+                .map_err(|_| "desktop core lock failed")?,
+        )?;
+        let mut persisted = state
+            .desktop
+            .lock()
+            .map_err(|_| "desktop state lock failed")?;
+        persisted.proxy_snapshot = Some(connected.snapshot);
+        persisted.applied_proxy = Some(connected.applied_proxy);
+        save_desktop_state(&persisted)?;
+        "Desktop core restarted and proxy settings were reapplied.".to_string()
+    } else {
+        match connection::restart(windows_managed_config_path(), desktop)? {
+            connection::RestartedService::Desktop(_) => {
+                "Service restarted and desktop proxy settings were reapplied.".to_string()
+            }
+            connection::RestartedService::ServiceManaged => {
+                "Service restart was submitted. Waiting for managed runtime status.".to_string()
+            }
         }
     };
     Ok(OperationResult { message })
@@ -893,11 +1038,17 @@ fn switch_node_blocking(
         .lock()
         .map_err(|_| "desktop state lock failed")?
         .clone();
+    let update_running_core = node_operations_runtime_running(&state, &desktop)?;
     let node = selected_catalog_node(&desktop, &node_id)?;
     let config_sha256 = desktop.profile_config_sha256.ok_or_else(|| {
         "Import the current generated profile before switching its active node.".to_string()
     })?;
-    let switched = nodes::switch_generated_node(node_id.clone(), node.outbound_tag, config_sha256)?;
+    let switched = nodes::switch_generated_node(
+        node_id.clone(),
+        node.outbound_tag,
+        config_sha256,
+        update_running_core,
+    )?;
     let mut persisted = state
         .desktop
         .lock()
@@ -906,7 +1057,11 @@ fn switch_node_blocking(
     persisted.profile_config_sha256 = Some(switched.config_sha256);
     save_desktop_state(&persisted)?;
     Ok(OperationResult {
-        message: "Active node switched and saved for the next service start.".to_string(),
+        message: if update_running_core {
+            "Active node switched and saved for the next connection.".to_string()
+        } else {
+            "Active node saved. It will be applied when the core next connects.".to_string()
+        },
     })
 }
 
@@ -932,6 +1087,7 @@ fn select_fastest_node_blocking(state: DesktopAppState) -> Result<OperationResul
         .lock()
         .map_err(|_| "desktop state lock failed")?
         .clone();
+    ensure_node_operations_runtime_ready(&state, &desktop)?;
     let test_url = desktop
         .delay_test_url
         .as_deref()
@@ -967,7 +1123,8 @@ fn select_fastest_node_blocking(state: DesktopAppState) -> Result<OperationResul
     let config_sha256 = desktop.profile_config_sha256.ok_or_else(|| {
         "Import a generated NodeCatalog profile before selecting the fastest node.".to_string()
     })?;
-    let switched = nodes::switch_generated_node(node.id.clone(), node.outbound_tag, config_sha256)?;
+    let switched =
+        nodes::switch_generated_node(node.id.clone(), node.outbound_tag, config_sha256, true)?;
     let mut persisted = state
         .desktop
         .lock()
@@ -990,6 +1147,7 @@ fn test_node_delay_blocking(
         .lock()
         .map_err(|_| "desktop state lock failed")?
         .clone();
+    ensure_node_operations_runtime_ready(&state, &desktop)?;
     let node = selected_catalog_node(&desktop, &node_id)?;
     let report = measure_sing_box_clash_api_outbound_delay(
         &SingBoxLocalControllerConfig::loopback_selector(),
@@ -1003,57 +1161,67 @@ fn test_node_delay_blocking(
     })
 }
 
+fn node_operations_runtime_running(
+    state: &DesktopAppState,
+    desktop: &DesktopState,
+) -> Result<bool, String> {
+    match desktop.runtime_mode {
+        DesktopRuntimeMode::Desktop => {
+            let status = state
+                .direct_core
+                .lock()
+                .map_err(|_| "desktop core lock failed")?
+                .status()
+                .map_err(|error| error.to_string())?;
+            if status.state != SingBoxManagedProcessState::Running {
+                return Ok(false);
+            }
+            Ok(true)
+        }
+        DesktopRuntimeMode::Service => Ok(read_runtime_status().connection.is_connected()),
+    }
+}
+
+fn ensure_node_operations_runtime_ready(
+    state: &DesktopAppState,
+    desktop: &DesktopState,
+) -> Result<(), String> {
+    if node_operations_runtime_running(state, desktop)? {
+        return Ok(());
+    }
+    Err("Connect from Home before testing delay or selecting the fastest node.".to_string())
+}
+
 #[tauri::command]
 async fn save_preferences(
-    start_after_login: bool,
-    auto_connect: bool,
-    auto_recover_core: bool,
-    auto_subscription_refresh: bool,
-    auto_select_fastest_node: bool,
-    dark_theme: bool,
+    preferences: PreferenceValues,
     state: State<'_, DesktopAppState>,
 ) -> Result<OperationResult, String> {
     let state = state.inner().clone();
-    run_blocking(move || {
-        save_preferences_blocking(
-            start_after_login,
-            auto_connect,
-            auto_recover_core,
-            auto_subscription_refresh,
-            auto_select_fastest_node,
-            dark_theme,
-            state,
-        )
-    })
-    .await
+    run_blocking(move || save_preferences_blocking(preferences, state)).await
 }
 
 fn save_preferences_blocking(
-    start_after_login: bool,
-    auto_connect: bool,
-    auto_recover_core: bool,
-    auto_subscription_refresh: bool,
-    auto_select_fastest_node: bool,
-    dark_theme: bool,
+    preferences: PreferenceValues,
     state: DesktopAppState,
 ) -> Result<OperationResult, String> {
     let executable = std::env::current_exe().map_err(|error| error.to_string())?;
     let startup_enabled =
         current_user_startup_enabled(&executable).map_err(|error| error.to_string())?;
-    if start_after_login && !startup_enabled {
+    if preferences.start_after_login && !startup_enabled {
         enable_current_user_startup(&executable).map_err(|error| error.to_string())?;
-    } else if !start_after_login && startup_enabled {
+    } else if !preferences.start_after_login && startup_enabled {
         disable_current_user_startup(&executable).map_err(|error| error.to_string())?;
     }
     let mut desktop = state
         .desktop
         .lock()
         .map_err(|_| "desktop state lock failed")?;
-    desktop.start_after_login = start_after_login;
-    desktop.auto_connect = auto_connect;
-    desktop.auto_recover_core = auto_recover_core;
-    desktop.auto_subscription_refresh = auto_subscription_refresh;
-    let next_refresh_attempt = scheduled_refresh_timestamp(auto_subscription_refresh);
+    desktop.start_after_login = preferences.start_after_login;
+    desktop.auto_connect = preferences.auto_connect;
+    desktop.auto_recover_core = preferences.auto_recover_core;
+    desktop.auto_subscription_refresh = preferences.auto_subscription_refresh;
+    let next_refresh_attempt = scheduled_refresh_timestamp(preferences.auto_subscription_refresh);
     desktop.profile_next_attempt = next_refresh_attempt.clone();
     if let Some(location) = desktop.profile_source_url.clone() {
         if let Some(source) = desktop
@@ -1064,8 +1232,14 @@ fn save_preferences_blocking(
             source.next_attempt = next_refresh_attempt;
         }
     }
-    desktop.auto_select_fastest_node = auto_select_fastest_node;
-    desktop.dark_theme = dark_theme;
+    desktop.auto_select_fastest_node = preferences.auto_select_fastest_node;
+    desktop.bilibili_web_ad_block_enabled = preferences.bilibili_web_ad_block_enabled;
+    desktop.dark_theme = preferences.dark_theme;
+    desktop.runtime_mode = match preferences.runtime_mode.as_str() {
+        "desktop" => DesktopRuntimeMode::Desktop,
+        "service" => DesktopRuntimeMode::Service,
+        _ => return Err("runtime mode must be either desktop or service".to_string()),
+    };
     save_desktop_state(&desktop)?;
     Ok(OperationResult {
         message: "Desktop preferences saved.".to_string(),
@@ -1846,6 +2020,281 @@ fn clear_dns_blocking(state: DesktopAppState) -> Result<OperationResult, String>
 }
 
 #[tauri::command]
+async fn set_routing_mode(
+    mode: String,
+    state: State<'_, DesktopAppState>,
+) -> Result<OperationResult, String> {
+    let state = state.inner().clone();
+    run_blocking(move || set_routing_mode_blocking(&mode, state, false)).await
+}
+
+#[tauri::command]
+async fn refresh_routing_rules(
+    state: State<'_, DesktopAppState>,
+) -> Result<OperationResult, String> {
+    let state = state.inner().clone();
+    run_blocking(move || {
+        let mode = state
+            .desktop
+            .lock()
+            .map_err(|_| "desktop state lock failed")?
+            .routing_mode;
+        set_routing_mode_blocking(routing_mode_name(mode), state, true)
+    })
+    .await
+}
+
+fn set_routing_mode_blocking(
+    mode: &str,
+    state: DesktopAppState,
+    force_refresh: bool,
+) -> Result<OperationResult, String> {
+    let mode = parse_routing_mode(mode)?;
+    ensure_routing_configuration_stopped(&state)?;
+    let mut desktop = state
+        .desktop
+        .lock()
+        .map_err(|_| "desktop state lock failed")?;
+    let managed = managed_config_or_default()?;
+    let sing_box = managed
+        .sing_box
+        .ok_or_else(|| "Import a sing-box profile before applying a routing mode.".to_string())?;
+    let raw = fs::read_to_string(&sing_box.config_path).map_err(|error| error.to_string())?;
+    let mut config: Value = serde_json::from_str(&raw).map_err(|error| error.to_string())?;
+    let proxy_outbound = desktop
+        .routing_proxy_outbound
+        .clone()
+        .or_else(|| {
+            config
+                .pointer("/route/final")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .ok_or_else(|| {
+            "sing-box route must declare a final outbound before routing can be configured."
+                .to_string()
+        })?;
+    let rule_directory = windows_managed_data_directory().join(ROUTING_RULE_DIRECTORY);
+    if mode != DesktopRoutingMode::Direct {
+        refresh_routing_rule_assets(&rule_directory, mode, force_refresh)?;
+    }
+    apply_routing_mode_to_config(&mut config, mode, &proxy_outbound, &rule_directory)?;
+    let rendered = serde_json::to_string_pretty(&config).map_err(|error| error.to_string())?;
+    write_managed_text_atomic(&sing_box.config_path, &rendered)
+        .map_err(|error| error.to_string())?;
+    desktop.routing_mode = mode;
+    desktop.routing_proxy_outbound = Some(proxy_outbound);
+    desktop.profile_config_sha256 = Some(sing_box_config_sha256(&rendered));
+    save_desktop_state(&desktop)?;
+    Ok(OperationResult {
+        message: format!(
+            "{} routing mode saved. Connect to apply the updated sing-box route.",
+            routing_mode_label(mode)
+        ),
+    })
+}
+
+fn ensure_routing_configuration_stopped(state: &DesktopAppState) -> Result<(), String> {
+    let service = NativeWindowsSystemIntegration::new()
+        .service_status()
+        .map_err(|error| error.to_string())?;
+    if !matches!(
+        service.state,
+        WindowsServiceState::NotInstalled | WindowsServiceState::Stopped
+    ) {
+        return Err("Disconnect before changing the routing mode.".to_string());
+    }
+    if state
+        .direct_core
+        .lock()
+        .map_err(|_| "desktop core lock failed")?
+        .status()
+        .map_err(|error| error.to_string())?
+        .state
+        == SingBoxManagedProcessState::Running
+    {
+        return Err("Disconnect before changing the routing mode.".to_string());
+    }
+    Ok(())
+}
+
+fn refresh_routing_rule_assets(
+    directory: &Path,
+    mode: DesktopRoutingMode,
+    force_refresh: bool,
+) -> Result<(), String> {
+    fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+    let needs_china = matches!(
+        mode,
+        DesktopRoutingMode::BypassChina | DesktopRoutingMode::ReturnChina
+    );
+    if needs_china {
+        write_rule_set_asset(
+            directory.join("china-domains.json"),
+            LOYALSOLDIER_CHINA_URL,
+            false,
+            force_refresh,
+        )?;
+        write_rule_set_asset(
+            directory.join("china-ips.json"),
+            CHINA_IP_URL,
+            true,
+            force_refresh,
+        )?;
+    }
+    if mode == DesktopRoutingMode::GfwList {
+        write_rule_set_asset(
+            directory.join("gfw-domains.json"),
+            LOYALSOLDIER_GFW_URL,
+            false,
+            force_refresh,
+        )?;
+    }
+    Ok(())
+}
+
+fn write_rule_set_asset(
+    path: PathBuf,
+    url: &str,
+    ip: bool,
+    force_refresh: bool,
+) -> Result<(), String> {
+    if path.exists() && !force_refresh {
+        return Ok(());
+    }
+    let content = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|error| format!("routing rules HTTP client could not be created: {error}"))?
+        .get(url)
+        .send()
+        .and_then(|response| response.error_for_status())
+        .map_err(|error| format!("routing rules could not be downloaded from {url}: {error}"))?
+        .text()
+        .map_err(|error| format!("routing rules response could not be read from {url}: {error}"))?;
+    let entries = content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .filter_map(|line| line.split_whitespace().next())
+        .filter(|entry| {
+            if ip {
+                entry.parse::<std::net::IpAddr>().is_ok() || entry.contains('/')
+            } else {
+                entry.contains('.') && !entry.contains('/')
+            }
+        })
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if entries.is_empty() {
+        return Err(format!(
+            "routing rules source returned no usable entries: {url}"
+        ));
+    }
+    let rule = if ip {
+        json!({ "ip_cidr": entries })
+    } else {
+        json!({ "domain_suffix": entries })
+    };
+    let source = serde_json::to_string_pretty(&json!({ "version": 1, "rules": [rule] }))
+        .map_err(|error| error.to_string())?;
+    write_managed_text_atomic(&path, &source).map_err(|error| error.to_string())
+}
+
+fn apply_routing_mode_to_config(
+    config: &mut Value,
+    mode: DesktopRoutingMode,
+    proxy_outbound: &str,
+    directory: &Path,
+) -> Result<(), String> {
+    let object = config
+        .as_object_mut()
+        .ok_or_else(|| "sing-box configuration must be a JSON object.".to_string())?;
+    let route = object
+        .entry("route")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or_else(|| "sing-box route must be a JSON object.".to_string())?;
+    let (rules, rule_sets, final_outbound) = match mode {
+        DesktopRoutingMode::BypassChina => (
+            vec![
+                json!({ "rule_set": ["networkcore-china-domains", "networkcore-china-ips"], "outbound": "direct" }),
+            ],
+            vec![
+                local_rule_set(
+                    "networkcore-china-domains",
+                    directory.join("china-domains.json"),
+                ),
+                local_rule_set("networkcore-china-ips", directory.join("china-ips.json")),
+            ],
+            proxy_outbound.to_string(),
+        ),
+        DesktopRoutingMode::GfwList => (
+            vec![json!({ "rule_set": ["networkcore-gfw-domains"], "outbound": proxy_outbound })],
+            vec![local_rule_set(
+                "networkcore-gfw-domains",
+                directory.join("gfw-domains.json"),
+            )],
+            "direct".to_string(),
+        ),
+        DesktopRoutingMode::Direct => (Vec::new(), Vec::new(), "direct".to_string()),
+        DesktopRoutingMode::ReturnChina => (
+            vec![
+                json!({ "rule_set": ["networkcore-china-domains", "networkcore-china-ips"], "outbound": proxy_outbound }),
+            ],
+            vec![
+                local_rule_set(
+                    "networkcore-china-domains",
+                    directory.join("china-domains.json"),
+                ),
+                local_rule_set("networkcore-china-ips", directory.join("china-ips.json")),
+            ],
+            "direct".to_string(),
+        ),
+    };
+    route.insert("rules".to_string(), Value::Array(rules));
+    route.insert("final".to_string(), Value::String(final_outbound));
+    if rule_sets.is_empty() {
+        route.remove("rule_set");
+    } else {
+        route.insert("rule_set".to_string(), Value::Array(rule_sets));
+    }
+    object.remove("rule_set");
+    Ok(())
+}
+
+fn local_rule_set(tag: &str, path: PathBuf) -> Value {
+    json!({ "type": "local", "tag": tag, "format": "source", "path": path })
+}
+fn parse_routing_mode(value: &str) -> Result<DesktopRoutingMode, String> {
+    match value {
+        "bypass_china" => Ok(DesktopRoutingMode::BypassChina),
+        "gfw_list" => Ok(DesktopRoutingMode::GfwList),
+        "direct" => Ok(DesktopRoutingMode::Direct),
+        "return_china" => Ok(DesktopRoutingMode::ReturnChina),
+        _ => {
+            Err("routing mode must be bypass_china, gfw_list, direct, or return_china".to_string())
+        }
+    }
+}
+fn routing_mode_name(mode: DesktopRoutingMode) -> &'static str {
+    match mode {
+        DesktopRoutingMode::BypassChina => "bypass_china",
+        DesktopRoutingMode::GfwList => "gfw_list",
+        DesktopRoutingMode::Direct => "direct",
+        DesktopRoutingMode::ReturnChina => "return_china",
+    }
+}
+fn routing_mode_label(mode: DesktopRoutingMode) -> &'static str {
+    match mode {
+        DesktopRoutingMode::BypassChina => "Bypass China",
+        DesktopRoutingMode::GfwList => "GFW list",
+        DesktopRoutingMode::Direct => "Direct",
+        DesktopRoutingMode::ReturnChina => "Return China",
+    }
+}
+
+#[tauri::command]
 async fn configure_script_runtime(script_runtime_json: String) -> Result<OperationResult, String> {
     run_blocking(move || configure_script_runtime_blocking(script_runtime_json)).await
 }
@@ -1993,6 +2442,7 @@ fn enable_https_mitm_blocking(state: DesktopAppState) -> Result<OperationResult,
         ca_private_key_path: private_key_path,
         log_path: windows_managed_log_directory().join("native-mitm.log"),
         sing_box_config_snapshot_path: imported.sing_box_config_snapshot_path.clone(),
+        bilibili_web_ad_block_enabled: desktop.bilibili_web_ad_block_enabled,
         script_runtime: None,
     });
     write_imported_profile_managed_config(
@@ -2459,20 +2909,61 @@ fn selected_catalog_node(
         .ok_or_else(|| "Selected node is not part of the current imported profile.".to_string())
 }
 
-fn snapshot(runtime: &WindowsRuntimeStatus, desktop: &DesktopState) -> RuntimeSnapshot {
+fn snapshot(
+    runtime: &WindowsRuntimeStatus,
+    desktop: &DesktopState,
+    direct_running: bool,
+) -> RuntimeSnapshot {
+    let desktop_connected = desktop.runtime_mode == DesktopRuntimeMode::Desktop
+        && direct_running
+        && read_current_user_system_proxy()
+            .ok()
+            .is_some_and(|proxy| owns_current_proxy(desktop, &proxy));
     RuntimeSnapshot {
-        connection: runtime.connection.label().to_string(),
-        connection_label: runtime.status_line(),
+        connection: if desktop_connected {
+            "Connected".to_string()
+        } else {
+            runtime.connection.label().to_string()
+        },
+        connection_label: if desktop.runtime_mode == DesktopRuntimeMode::Desktop {
+            if desktop_connected {
+                "Desktop mode is managing the local sing-box process and current-user proxy."
+                    .to_string()
+            } else if direct_running {
+                "Desktop sing-box is running; the current-user proxy is not applied.".to_string()
+            } else {
+                "Desktop mode is selected. Connect to start sing-box without the Windows service."
+                    .to_string()
+            }
+        } else {
+            runtime.status_line()
+        },
         service: StatusFact {
-            label: format!("{:?}", runtime.service_state),
-            detail: runtime.service_detail.clone(),
-            tone: if runtime.connection.is_connected() {
+            label: if desktop.runtime_mode == DesktopRuntimeMode::Desktop {
+                "Not used".to_string()
+            } else {
+                format!("{:?}", runtime.service_state)
+            },
+            detail: if desktop.runtime_mode == DesktopRuntimeMode::Desktop {
+                Some("Desktop mode does not start the Windows service.".to_string())
+            } else {
+                runtime.service_detail.clone()
+            },
+            tone: if desktop_connected || runtime.connection.is_connected() {
                 "success"
             } else {
                 "neutral"
             },
         },
-        core: core_status(&runtime.core),
+        core: if desktop.runtime_mode == DesktopRuntimeMode::Desktop {
+            StatusFact {
+                label: if direct_running { "Running" } else { "Stopped" }.to_string(),
+                detail: Some("Desktop-owned sing-box process".to_string()),
+                tone: if direct_running { "success" } else { "neutral" },
+            }
+        } else {
+            core_status(&runtime.core)
+        },
         proxy: StatusFact {
             label: runtime
                 .system_proxy_enabled
@@ -2508,9 +2999,15 @@ fn snapshot(runtime: &WindowsRuntimeStatus, desktop: &DesktopState) -> RuntimeSn
         auto_recover_core: desktop.auto_recover_core,
         auto_subscription_refresh: desktop.auto_subscription_refresh,
         auto_select_fastest_node: desktop.auto_select_fastest_node,
+        bilibili_web_ad_block_enabled: desktop.bilibili_web_ad_block_enabled,
         dns_configured: managed_dns_configured(),
         script_runtime_configured: managed_script_runtime_configured(),
         dark_theme: desktop.dark_theme,
+        runtime_mode: match desktop.runtime_mode {
+            DesktopRuntimeMode::Desktop => "desktop".to_string(),
+            DesktopRuntimeMode::Service => "service".to_string(),
+        },
+        routing_mode: routing_mode_name(desktop.routing_mode).to_string(),
     }
 }
 

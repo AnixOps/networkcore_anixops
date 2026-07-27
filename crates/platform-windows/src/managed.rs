@@ -264,6 +264,10 @@ pub struct WindowsManagedNativeMitmConfig {
     /// the managed `mixed-in` listener to its local SOCKS upstream port.
     #[serde(default)]
     pub sing_box_config_snapshot_path: Option<PathBuf>,
+    /// Enables the first-party, request-only Bilibili web advertising trial.
+    /// This never loads third-party script bundles or response body rewrites.
+    #[serde(default)]
+    pub bilibili_web_ad_block_enabled: bool,
     /// Explicit local Node runner and script URL mappings for native MITM.
     #[serde(default)]
     pub script_runtime: Option<WindowsManagedNativeMitmScriptRuntimeConfig>,

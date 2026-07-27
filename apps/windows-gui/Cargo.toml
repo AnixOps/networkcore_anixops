@@ -6,6 +6,10 @@ license.workspace = true
 repository.workspace = true
 description = "Native Windows GUI client for AnixOps NetworkCore."
 
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
 [dependencies]
 config-core = { path = "../../crates/config-core" }
 control-domain = { path = "../../crates/control-domain" }

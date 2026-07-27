@@ -952,6 +952,7 @@ mod gui {
                 selected_node_id,
                 outbound_tag,
                 expected_config_sha256,
+                true,
             )
             .map(BackgroundPayload::NodeSwitched)
         });
@@ -1954,6 +1955,7 @@ mod gui {
             ca_private_key_path: private_key_path,
             log_path: windows_managed_log_directory().join("native-mitm.log"),
             sing_box_config_snapshot_path: imported.sing_box_config_snapshot_path.clone(),
+            bilibili_web_ad_block_enabled: state.desktop.bilibili_web_ad_block_enabled,
             script_runtime: None,
         });
         write_imported_profile_managed_config(

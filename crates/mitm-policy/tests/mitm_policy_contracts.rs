@@ -4,12 +4,14 @@ use control_domain::{
     MetadataEntry, MitmPluginService, PluginManifest, PluginPackage, PluginPermission,
 };
 use mitm_policy::{
-    builtin_ad_block_plugin_package, AnixOpsMitmPluginService, AnixOpsMitmPolicyEngine,
-    MitmPolicyHeaderField, MitmPolicyHeaderOperation, MitmPolicyMitmDecisionType, MitmPolicyPhase,
+    builtin_ad_block_plugin_package, builtin_bilibili_web_ad_block_plugin_package,
+    AnixOpsMitmPluginService, AnixOpsMitmPolicyEngine, MitmPolicyHeaderField,
+    MitmPolicyHeaderOperation, MitmPolicyMitmDecisionType, MitmPolicyPhase,
     MitmPolicyRewriteAction, MitmPolicyScriptKind, MITM_POLICY_AD_BLOCK_PLUGIN_ID,
-    MITM_POLICY_CONFIG_LOADED_CODE, MITM_POLICY_CONFIG_PARSE_FAILED_CODE,
-    MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE, MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_CODE,
-    MITM_POLICY_HTTP_EVENT_SOURCE_MISSING_CODE, MITM_POLICY_MANIFEST_HOOK_MISSING_CODE,
+    MITM_POLICY_BILIBILI_WEB_AD_BLOCK_PLUGIN_ID, MITM_POLICY_CONFIG_LOADED_CODE,
+    MITM_POLICY_CONFIG_PARSE_FAILED_CODE, MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE,
+    MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_CODE, MITM_POLICY_HTTP_EVENT_SOURCE_MISSING_CODE,
+    MITM_POLICY_MANIFEST_HOOK_MISSING_CODE,
 };
 
 #[test]
@@ -47,6 +49,46 @@ fn builtin_ad_block_plugin_package_loads_through_mitm_anixops_core() {
         .evaluate_mitm("stats.doubleclick.net", false)
         .expect("MITM host decision should evaluate");
     assert_eq!(decision.decision, MitmPolicyMitmDecisionType::Intercept);
+}
+
+#[test]
+fn builtin_bilibili_web_trial_is_request_only_and_rejects_only_promotional_endpoints() {
+    let package = builtin_bilibili_web_ad_block_plugin_package();
+    let mut engine = AnixOpsMitmPolicyEngine::new().expect("policy engine should allocate");
+
+    let report = engine
+        .load_config(&package.source)
+        .expect("Bilibili web trial policy should load");
+    assert_eq!(
+        package.manifest.id,
+        MITM_POLICY_BILIBILI_WEB_AD_BLOCK_PLUGIN_ID
+    );
+    assert_eq!(package.manifest.hooks, vec![HookPoint::Request]);
+    assert_eq!(
+        package.manifest.permissions,
+        vec![
+            PluginPermission::ReadRequest,
+            PluginPermission::ModifyRequest
+        ]
+    );
+    assert_eq!(report.script_rule_count, 0);
+    assert_eq!(report.rewrite_rule_count, 4);
+
+    let promotional = engine
+        .evaluate_url_rewrite(
+            "https://api.vc.bilibili.com/search_svr/v1/Search/recommend_words?from=web",
+            MitmPolicyPhase::Request,
+        )
+        .expect("promotional request should evaluate");
+    assert_eq!(promotional.action, MitmPolicyRewriteAction::Reject);
+
+    let unrelated = engine
+        .evaluate_url_rewrite(
+            "https://api.bilibili.com/x/web-interface/wbi/index/top/feed/rcmd",
+            MitmPolicyPhase::Request,
+        )
+        .expect("unrelated request should evaluate");
+    assert_eq!(unrelated.action, MitmPolicyRewriteAction::None);
 }
 
 #[test]

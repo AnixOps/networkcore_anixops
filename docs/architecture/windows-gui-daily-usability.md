@@ -36,7 +36,7 @@ windows-gui-tauri-mitm=enable-disable-legacy-native-mitm-active
 
 | Status | Scope | Current boundary |
 | --- | --- | --- |
-| Completed | Tauri/React shell, runtime dashboard, connect/disconnect/restart, node list/switch/delay, manual and opt-in 30-minute fastest-node selection, persisted subscription catalog add/select/remove, explicit profile import/update, opt-in hourly refresh for the active saved HTTP(S) subscription, selector check, core install, preferences, auto-connect, one core recovery, single-instance focus, tray hide/restore, GUI-owned proxy recovery, diagnostics, explicit service/certificate/driver commands, verified EasyTier TUN configuration, stopped-service sing-box DNS block configuration, native selector default and native outbound-group JSON editing, and native HTTPS MITM enable/disable. | The Rust command bridge remains the only system-mutation boundary. |
+| Completed | Tauri/React shell, runtime dashboard, connect/disconnect/restart, node list/switch/delay, manual and opt-in 30-minute fastest-node selection, persisted subscription catalog add/select/remove, explicit profile import/update, opt-in hourly refresh for the active saved HTTP(S) subscription, selector check, core install, preferences, auto-connect, one core recovery, single-instance focus, tray hide/restore, GUI-owned proxy recovery, diagnostics, explicit service/certificate/driver commands, verified EasyTier TUN configuration, stopped-service sing-box DNS block configuration, native selector default and native outbound-group JSON editing, native HTTPS MITM enable/disable, and an opt-in first-party Bilibili web request-blocking trial. | The Rust command bridge remains the only system-mutation boundary. |
 | Completed | Commands that can wait on network, SCM, process preflight, registry, certificate, driver, filesystem, or managed-config I/O run on Tauri blocking workers, including runtime snapshots, connection lifecycle, native group edits, service/certificate/driver operations, TUN/DNS/script configuration, and HTTPS MITM enable/disable. | The WebView remains responsive while each operation runs; the frontend still permits one mutation at a time. |
 | Not completed | HTTP/2/HTTP/3 MITM data plane. | Native outbound groups are editable, but HTTP/2 and HTTP/3 interception remain outside the native proxy. |
 | Not completed | Native MITM JavaScript execution. | The GUI rejects new script-runtime configuration and the Windows service rejects configured scripts until an equivalent no-network, least-privilege sandbox exists. |
@@ -178,6 +178,12 @@ headless GitHub Actions Windows job and are tracked in
   JSON profile and a generated NodeCatalog profile. Confirm the service proxy
   changes to the local MITM listener, the native JSON listener is restored from
   its snapshot, and the service-recorded CA is removed during disable.
+- Select the Bilibili web trial while HTTPS MITM is disabled, enable HTTPS MITM,
+  and confirm the persisted managed config selects the first-party request-only
+  policy. Browse a Bilibili search page over controlled HTTP/1.1 TLS and confirm
+  recommendation-word requests are rejected without enabling script execution;
+  then disable the selection, re-enable HTTPS MITM, and confirm the general
+  policy returns.
 - Enable the hourly saved-subscription refresh, leave the service stopped, and
   confirm a successful update is recorded. Repeat with the service running and
   confirm the existing configuration stays unchanged while the update error is

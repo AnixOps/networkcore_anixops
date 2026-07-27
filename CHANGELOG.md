@@ -4,14 +4,15 @@
 
 ## Unreleased
 
-Current Windows/Linux Beta release candidate: `v0.2.0-beta.1`. It is in
-`pending_manual_acceptance`: the same commit has a successful main CI gate and
-may run release dry-runs, but the formal tag must not be created until protected
-Windows and Linux system acceptance evidence is recorded.
+Current Windows/Linux Beta release candidate: `v0.2.0-beta.2`. It is in
+`pending_manual_acceptance`: the same commit requires GitHub Actions release
+validation and protected Windows/Linux system acceptance before it may be
+described as production-ready. A maintainer may explicitly authorize a beta tag
+to generate candidate artifacts for that acceptance.
 
 ```text
 current-main-release-state=pending_manual_acceptance
-current-main-source-candidate=v0.2.0-beta.1
+current-main-source-candidate=v0.2.0-beta.2
 current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
@@ -34,6 +35,13 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 ```
 
 ### Changed
+
+- Windows HTTPS MITM now offers an opt-in first-party Bilibili web promotional
+  request-blocking trial. It is disabled by default, uses no third-party script
+  runtime or response-body rewriting, and records only its fixed policy ID in
+  the native MITM startup log. The trial is limited to four independent
+  promotional endpoints; HTTP/2, HTTP/3/QUIC, streaming, and full page/video
+  ad filtering remain unsupported.
 
 - Linux sandboxed native MITM scripts now pass a fixed 64 MiB V8 old-space cap
   in addition to the existing bounded body and execution timeout limits.
@@ -78,7 +86,7 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
   bounded listener and selector health checks while running; a failed check
   records the managed failure and follows the existing proxy rollback/stop
   path. This is pending manual Windows/Linux acceptance before the formal
-  `v0.2.0-beta.1` tag.
+  `v0.2.0-beta.2` tag.
 
 - Windows profile import now stages a sing-box plan transactionally: it clears
   the mutually exclusive Mieru plan before managed-config commit, and restores

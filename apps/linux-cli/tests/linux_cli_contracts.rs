@@ -18,13 +18,13 @@ use engine_singbox::{
     ENGINE_SINGBOX_PROCESS_EXITED_CODE,
 };
 use networkcore_linux::{
-    cli_help_text, handle_capabilities, handle_entrypoint, handle_entrypoint_skeleton,
+    cli_help_text, handle_capabilities, handle_entrypoint,
     handle_entrypoint_with_browser_capture_all_io, handle_entrypoint_with_browser_capture_io,
     handle_entrypoint_with_browser_capture_runner, handle_entrypoint_with_certificate_lifecycle_io,
     handle_entrypoint_with_runtime, handle_entrypoint_with_runtime_and_lifecycle,
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
-    handle_foreground_lifecycle_with_runtime_stop, handle_install_service_apply_at,
-    handle_install_service_plan, handle_install_sing_box, handle_mitm_browser_capture_apply,
+    handle_foreground_lifecycle_with_runtime_stop, handle_install_service_plan,
+    handle_install_sing_box, handle_mitm_browser_capture_apply,
     handle_mitm_browser_capture_apply_with_store,
     handle_mitm_browser_capture_apply_with_store_and_profile_prefs_and_proxy_scheme,
     handle_mitm_browser_capture_apply_with_store_and_proxy_scheme,
@@ -50,8 +50,7 @@ use networkcore_linux::{
     handle_run_url_with_sing_box_and_node_id_and_mieru, handle_start, handle_status,
     handle_status_mieru_with_runner, handle_stop, handle_subscription_command,
     handle_subscription_command_with_fetcher, handle_systemd_service_control,
-    handle_uninstall_service_apply_at, handle_uninstall_service_plan,
-    native_proxy_engine_service_with_builtin_mitm_plugin,
+    handle_uninstall_service_apply_at, native_proxy_engine_service_with_builtin_mitm_plugin,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files, parse_args,
     registered_core_engine_descriptors, render_response, BrowserCaptureEndpointProbe,
@@ -110,11 +109,11 @@ use networkcore_linux::{
     CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE, CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE,
     CLI_MITM_HTTP_REWRITE_AUTHORIZATION_REQUIRED_CODE, CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE,
     CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE, CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE,
-    CLI_RUN_URL_FILE_READ_FAILED_CODE, CLI_RUN_URL_MIERU_BINARY_REQUIRED_CODE,
-    CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE, CLI_START_FOREGROUND_ONLY_CODE,
-    CLI_START_LIFECYCLE_FAILED_CODE, CLI_START_LIFECYCLE_HOST_MISSING_CODE,
-    CLI_START_LIFECYCLE_INTERRUPTED_CODE, CLI_START_PLATFORM_DENIED_CODE,
-    CLI_START_RUNTIME_STOP_FAILED_CODE, CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE,
+    CLI_RUN_URL_MIERU_BINARY_REQUIRED_CODE, CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
+    CLI_START_FOREGROUND_ONLY_CODE, CLI_START_LIFECYCLE_FAILED_CODE,
+    CLI_START_LIFECYCLE_HOST_MISSING_CODE, CLI_START_LIFECYCLE_INTERRUPTED_CODE,
+    CLI_START_PLATFORM_DENIED_CODE, CLI_START_RUNTIME_STOP_FAILED_CODE,
+    CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE,
     CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE, CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE,
     CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE, CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE,
     CLI_STATUS_NO_RUNTIME_CONTEXT_CODE, CLI_STATUS_PLATFORM_ONLY_CODE,
@@ -139,6 +138,12 @@ use networkcore_linux::{
     MITM_HTTP_REWRITE_SOURCE_CONTRACT_STATUS, MITM_HTTP_REWRITE_TLS_DECRYPTION_READY,
     MITM_HTTP_REWRITE_UPSTREAM_TLS_FORWARDING_READY, MITM_HTTP_TLS_DATA_PLANE_GATE,
     MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS, MITM_USER_FACING_STAGE,
+};
+
+#[cfg(unix)]
+use networkcore_linux::{
+    handle_entrypoint_skeleton, handle_install_service_apply_at, handle_uninstall_service_plan,
+    CLI_RUN_URL_FILE_READ_FAILED_CODE,
 };
 
 #[cfg(unix)]

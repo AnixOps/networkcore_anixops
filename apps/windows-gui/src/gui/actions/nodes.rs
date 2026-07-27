@@ -18,6 +18,7 @@ pub fn switch_generated_node(
     node_id: String,
     outbound_tag: String,
     expected_config_sha256: String,
+    update_running_core: bool,
 ) -> Result<PersistedNodeSwitch, String> {
     let managed_path = windows_managed_config_path();
     let managed = read_managed_config(&managed_path).map_err(|error| error.to_string())?;
@@ -48,6 +49,16 @@ pub fn switch_generated_node(
         return Err("Selected node is not part of the active generated profile".to_string());
     }
 
+    let rewritten = rewrite_sing_box_local_selector_default(&content, &outbound_tag)
+        .map_err(|error| error.to_string())?;
+    if !update_running_core {
+        persist_selector_default(&sing_box.config_path, &content, &rewritten)?;
+        return Ok(PersistedNodeSwitch {
+            node_id,
+            config_sha256: sing_box_config_sha256(&rewritten),
+        });
+    }
+
     let observed = read_sing_box_clash_api_selector(&selector.controller)
         .map_err(|error| error.to_string())?;
     if !selector_status_matches_generated_profile(&observed, &selector.outbound_tags) {
@@ -62,36 +73,39 @@ pub fn switch_generated_node(
             .map_err(|error| error.to_string())?;
     }
 
-    let rewritten = rewrite_sing_box_local_selector_default(&content, &outbound_tag)
-        .map_err(|error| error.to_string())?;
-    let current_content = fs::read_to_string(&sing_box.config_path).map_err(|error| {
-        restore_active_outbound(
-            &selector.controller,
-            &previous_outbound_tag,
-            &format!(
-                "managed sing-box configuration could not be reread from {}: {error}",
-                sing_box.config_path.display()
-            ),
-        )
-    })?;
-    if current_content != content {
+    if let Err(error) = persist_selector_default(&sing_box.config_path, &content, &rewritten) {
         return Err(restore_active_outbound(
             &selector.controller,
             &previous_outbound_tag,
-            "managed sing-box configuration changed while the node switch was in progress",
-        ));
-    }
-    if let Err(error) = write_managed_text_atomic(&sing_box.config_path, &rewritten) {
-        return Err(restore_active_outbound(
-            &selector.controller,
-            &previous_outbound_tag,
-            &format!("selected node could not be persisted for the next service start: {error}"),
+            &error,
         ));
     }
 
     Ok(PersistedNodeSwitch {
         node_id,
         config_sha256: sing_box_config_sha256(&rewritten),
+    })
+}
+
+fn persist_selector_default(
+    config_path: &std::path::Path,
+    expected_content: &str,
+    rewritten: &str,
+) -> Result<(), String> {
+    let current_content = fs::read_to_string(config_path).map_err(|error| {
+        format!(
+            "managed sing-box configuration could not be reread from {}: {error}",
+            config_path.display()
+        )
+    })?;
+    if current_content != expected_content {
+        return Err(
+            "managed sing-box configuration changed while the node switch was in progress"
+                .to_string(),
+        );
+    }
+    write_managed_text_atomic(config_path, rewritten).map_err(|error| {
+        format!("selected node could not be persisted for the next service start: {error}")
     })
 }
 

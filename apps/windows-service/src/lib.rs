@@ -20,7 +20,10 @@ use engine_singbox::{
     inspect_sing_box_local_selector_snapshot, read_sing_box_clash_api_selector_with_timeout,
     SingBoxManagedProcessRequest, SingBoxManagedProcessState, SingBoxManagedProcessSupervisor,
 };
-use mitm_policy::{builtin_ad_block_plugin_package, AnixOpsMitmPluginService};
+use mitm_policy::{
+    builtin_ad_block_plugin_package, builtin_bilibili_web_ad_block_plugin_package,
+    AnixOpsMitmPluginService,
+};
 use networkcore_windows::{
     parse_args, OutputFormat, WindowsCliCommand, WindowsTunnelCommandService,
     WindowsTunnelPrepareStorageArgs, WindowsTunnelStatusArgs,
@@ -39,7 +42,7 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub const WINDOWS_MANAGED_RUNTIME_FAILED_CODE: &str = "windows.managed.runtime_failed";
 
@@ -600,6 +603,15 @@ where
                         config.upstream_socks_port
                     ),
                 );
+                append_native_mitm_log(
+                    &config.log_path,
+                    &format!(
+                        "native HTTPS MITM policy loaded id={}",
+                        native_mitm_plugin_package(config.bilibili_web_ad_block_enabled)
+                            .manifest
+                            .id
+                    ),
+                );
                 self.persist(state)
             }
             Err(error) => {
@@ -756,7 +768,7 @@ fn build_native_mitm_service(
         ));
     }
 
-    let mut package = builtin_ad_block_plugin_package();
+    let mut package = native_mitm_plugin_package(config.bilibili_web_ad_block_enabled);
     if let Some(script_runtime) = &config.script_runtime {
         package = PluginPackage {
             manifest: package.manifest,
@@ -786,6 +798,14 @@ fn build_native_mitm_service(
             certificate_pem,
             private_key_pem,
         )))
+}
+
+fn native_mitm_plugin_package(bilibili_web_ad_block_enabled: bool) -> PluginPackage {
+    if bilibili_web_ad_block_enabled {
+        builtin_bilibili_web_ad_block_plugin_package()
+    } else {
+        builtin_ad_block_plugin_package()
+    }
 }
 
 fn validate_native_mitm_script_runtime_availability(
@@ -938,10 +958,18 @@ fn verify_managed_loopback_listener(proxy: &WindowsProxySettings) -> DomainResul
             "managed system proxy endpoint must use a loopback address",
         ));
     }
-    TcpStream::connect_timeout(&endpoint, Duration::from_millis(250)).map_err(|_| {
-        runtime_error("managed sing-box loopback listener was not reachable after start")
-    })?;
-    Ok(())
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if TcpStream::connect_timeout(&endpoint, Duration::from_millis(250)).is_ok() {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(runtime_error(
+                "managed sing-box loopback listener was not reachable after start",
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 fn verify_generated_selector_readback(config_path: &Path) -> DomainResult<bool> {
@@ -951,14 +979,84 @@ fn verify_generated_selector_readback(config_path: &Path) -> DomainResult<bool> 
     let Some(selector) = inspect_sing_box_local_selector_snapshot(&content) else {
         return Ok(false);
     };
-    let status = read_sing_box_clash_api_selector_with_timeout(
-        &selector.controller,
-        Duration::from_millis(250),
-    )?;
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        match read_sing_box_clash_api_selector_with_timeout(
+            &selector.controller,
+            Duration::from_millis(250),
+        ) {
+            Ok(status) => break status,
+            Err(_error) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(error) => return Err(error),
+        }
+    };
     if status.current_outbound_tag != selector.selected_outbound_tag {
         return Err(runtime_error(
             "managed sing-box selector readback did not match its generated profile",
         ));
     }
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mitm_policy::{
+        MITM_POLICY_AD_BLOCK_PLUGIN_ID, MITM_POLICY_BILIBILI_WEB_AD_BLOCK_PLUGIN_ID,
+    };
+    use std::net::TcpListener;
+
+    #[test]
+    fn loopback_listener_verification_waits_for_delayed_readiness() {
+        let reserved = TcpListener::bind("127.0.0.1:0").expect("test port should bind");
+        let port = reserved
+            .local_addr()
+            .expect("test port address should resolve")
+            .port();
+        drop(reserved);
+        let server = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            let listener =
+                TcpListener::bind(("127.0.0.1", port)).expect("delayed listener should bind");
+            let _ = listener.accept();
+        });
+        let proxy = WindowsProxySettings {
+            enabled: true,
+            server: format!("127.0.0.1:{port}"),
+            bypass: "<local>".to_string(),
+        };
+
+        verify_managed_loopback_listener(&proxy)
+            .expect("listener verification should tolerate startup delay");
+        server.join().expect("delayed listener should complete");
+    }
+
+    #[test]
+    fn selector_readback_uses_a_bounded_startup_retry() {
+        let source = include_str!("lib.rs");
+        let function = source
+            .split("fn verify_generated_selector_readback")
+            .nth(1)
+            .expect("selector verification function should exist")
+            .split("#[cfg(test)]")
+            .next()
+            .expect("selector verification function should end before tests");
+
+        assert!(function.contains("Instant::now() + Duration::from_secs(5)"));
+        assert!(function.contains("std::thread::sleep(Duration::from_millis(50))"));
+    }
+
+    #[test]
+    fn native_mitm_policy_selection_is_first_party_and_opt_in() {
+        assert_eq!(
+            native_mitm_plugin_package(false).manifest.id,
+            MITM_POLICY_AD_BLOCK_PLUGIN_ID
+        );
+        assert_eq!(
+            native_mitm_plugin_package(true).manifest.id,
+            MITM_POLICY_BILIBILI_WEB_AD_BLOCK_PLUGIN_ID
+        );
+    }
 }

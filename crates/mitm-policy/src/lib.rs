@@ -25,6 +25,7 @@ use std::ptr::NonNull;
 pub const SOURCE_MITM_POLICY: &str = "mitm.policy";
 
 pub const MITM_POLICY_AD_BLOCK_PLUGIN_ID: &str = "networkcore.adblock";
+pub const MITM_POLICY_BILIBILI_WEB_AD_BLOCK_PLUGIN_ID: &str = "networkcore.bilibili-web-adblock";
 pub const MITM_POLICY_ENGINE_ALLOC_FAILED_CODE: &str = "mitm.policy.engine.alloc_failed";
 pub const MITM_POLICY_INPUT_NUL_BYTE_CODE: &str = "mitm.policy.input.nul_byte";
 pub const MITM_POLICY_CONFIG_LOADED_CODE: &str = "mitm.policy.config.loaded";
@@ -70,6 +71,25 @@ pub const BUILTIN_AD_BLOCK_PLUGIN_SOURCE: &str = concat!(
     "enable = true\n",
     "hostname = %APPEND% *.doubleclick.net, *.googlesyndication.com, ",
     "*.google-analytics.com, *.adservice.google.com, *.adsystem.com\n",
+);
+
+/// A deliberately narrow, first-party Bilibili web trial.  It only rejects
+/// self-contained promotional requests and does not execute scripts or modify
+/// response bodies.
+pub const BUILTIN_BILIBILI_WEB_AD_BLOCK_PLUGIN_SOURCE: &str = concat!(
+    "[Plugin]\n",
+    "name = NetworkCore Bilibili Web Ad Block Trial\n",
+    "desc = Request-only Bilibili promotional endpoint blocker\n",
+    "\n",
+    "[URL Rewrite]\n",
+    "^https?://api\\.vc\\.bilibili\\.com/search_svr/v[0-9]+/Search/recommend_words(?:\\?.*)?$ reject\n",
+    "^https?://api\\.vc\\.bilibili\\.com/topic_svr/v1/topic_svr(?:\\?.*)?$ reject\n",
+    "^https?://api\\.vc\\.bilibili\\.com/dynamic_svr/v1/dynamic_svr/mix_uplist(?:\\?.*)?$ reject\n",
+    "^https?://api\\.live\\.bilibili\\.com/xlive/e-commerce-interface/v1/ecommerce-user/get_shopping_info(?:\\?.*)?$ reject\n",
+    "\n",
+    "[MITM]\n",
+    "enable = true\n",
+    "hostname = api.vc.bilibili.com, api.live.bilibili.com\n",
 );
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -862,6 +882,21 @@ pub fn builtin_ad_block_plugin_package() -> PluginPackage {
             hooks: vec![HookPoint::Request, HookPoint::Response],
         },
         source: BUILTIN_AD_BLOCK_PLUGIN_SOURCE.to_string(),
+    }
+}
+
+pub fn builtin_bilibili_web_ad_block_plugin_package() -> PluginPackage {
+    PluginPackage {
+        manifest: PluginManifest {
+            id: MITM_POLICY_BILIBILI_WEB_AD_BLOCK_PLUGIN_ID.to_string(),
+            version: "0.1.0-alpha".to_string(),
+            permissions: vec![
+                PluginPermission::ReadRequest,
+                PluginPermission::ModifyRequest,
+            ],
+            hooks: vec![HookPoint::Request],
+        },
+        source: BUILTIN_BILIBILI_WEB_AD_BLOCK_PLUGIN_SOURCE.to_string(),
     }
 }
 
