@@ -203,7 +203,7 @@ mod tests {
     }
 
     #[test]
-    fn connected_requires_scm_core_liveness_and_current_proxy() {
+    fn connected_requires_scm_core_process_and_current_proxy() {
         let mut value = facts();
         assert_eq!(connection_state(&value), ConnectionState::Connected);
 

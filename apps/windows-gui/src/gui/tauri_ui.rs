@@ -2533,12 +2533,8 @@ fn core_status(status: &ManagedCoreStatus) -> StatusFact {
         label: status.label(),
         detail: None,
         tone: match status {
-            ManagedCoreStatus::Running { .. } | ManagedCoreStatus::MieruRunning { .. } => {
-                "success"
-            }
-            ManagedCoreStatus::Exited { .. } | ManagedCoreStatus::Unavailable { .. } => {
-                "danger"
-            }
+            ManagedCoreStatus::Running { .. } | ManagedCoreStatus::MieruRunning { .. } => "success",
+            ManagedCoreStatus::Exited { .. } | ManagedCoreStatus::Unavailable { .. } => "danger",
             ManagedCoreStatus::Starting => "warning",
             ManagedCoreStatus::NotConfigured => "neutral",
         },

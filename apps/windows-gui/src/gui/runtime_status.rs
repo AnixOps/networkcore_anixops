@@ -177,11 +177,9 @@ where
                 },
             }
         },
-        Some(state) if mieru_configured && state.mieru_running => {
-            ManagedCoreStatus::MieruRunning {
-                endpoint: state.mieru_listener.clone().unwrap_or_default(),
-            }
-        }
+        Some(state) if mieru_configured && state.mieru_running => ManagedCoreStatus::MieruRunning {
+            endpoint: state.mieru_listener.clone().unwrap_or_default(),
+        },
         Some(state) if sing_box_configured => match state.last_transition.as_str() {
             "starting" => ManagedCoreStatus::Starting,
             _ => recorded_core_exit(state.sing_box_process_id, state.sing_box_exit_code),
