@@ -20,7 +20,23 @@ pub struct DesktopProfileNode {
 pub struct DesktopSubscriptionSource {
     pub id: String,
     pub location: String,
+    #[serde(default)]
+    pub last_attempt: Option<String>,
+    #[serde(default)]
     pub last_successful_update: Option<String>,
+    #[serde(default)]
+    pub next_attempt: Option<String>,
+    #[serde(default)]
+    pub result: String,
+    #[serde(default)]
+    pub added_node_count: usize,
+    #[serde(default)]
+    pub removed_node_count: usize,
+    #[serde(default)]
+    pub changed_node_count: usize,
+    #[serde(default)]
+    pub error_code: Option<String>,
+    #[serde(default)]
     pub last_update_error: Option<String>,
 }
 
@@ -51,6 +67,20 @@ pub struct DesktopState {
     pub dark_theme: bool,
     #[serde(default)]
     pub profile_last_successful_update: Option<String>,
+    #[serde(default)]
+    pub profile_last_attempt: Option<String>,
+    #[serde(default)]
+    pub profile_next_attempt: Option<String>,
+    #[serde(default)]
+    pub profile_refresh_result: String,
+    #[serde(default)]
+    pub profile_added_node_count: usize,
+    #[serde(default)]
+    pub profile_removed_node_count: usize,
+    #[serde(default)]
+    pub profile_changed_node_count: usize,
+    #[serde(default)]
+    pub profile_refresh_error_code: Option<String>,
     #[serde(default)]
     pub profile_last_update_error: Option<String>,
     #[serde(default)]
@@ -140,6 +170,20 @@ mod tests {
 
         assert_eq!(decoded.profile_node_catalog, state.profile_node_catalog);
         assert_eq!(decoded.profile_config_sha256, state.profile_config_sha256);
+    }
+
+    #[test]
+    fn legacy_subscription_source_defaults_refresh_status_fields() {
+        let source: DesktopSubscriptionSource = serde_json::from_str(
+            r#"{"id":"source-1","location":"https://example.invalid/sub"}"#,
+        )
+        .expect("older saved source should remain readable");
+
+        assert!(source.last_attempt.is_none());
+        assert!(source.next_attempt.is_none());
+        assert_eq!(source.result, "");
+        assert_eq!(source.added_node_count, 0);
+        assert!(source.error_code.is_none());
     }
 
     #[test]

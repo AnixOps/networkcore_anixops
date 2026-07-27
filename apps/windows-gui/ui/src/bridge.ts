@@ -17,6 +17,13 @@ export interface RuntimeSnapshot {
   selectedNode?: string;
   subscription?: string;
   subscriptionLastUpdated?: string;
+  subscriptionLastAttempt?: string;
+  subscriptionNextAttempt?: string;
+  subscriptionRefreshResult: string;
+  subscriptionAddedNodeCount: number;
+  subscriptionRemovedNodeCount: number;
+  subscriptionChangedNodeCount: number;
+  subscriptionRefreshErrorCode?: string;
   subscriptionError?: string;
   lastError?: string;
   configurationError?: string;
@@ -54,6 +61,13 @@ export interface SubscriptionSummary {
   location: string;
   selected: boolean;
   lastSuccessfulUpdate?: string;
+  lastAttempt?: string;
+  nextAttempt?: string;
+  result: string;
+  addedNodeCount: number;
+  removedNodeCount: number;
+  changedNodeCount: number;
+  errorCode?: string;
   lastUpdateError?: string;
 }
 

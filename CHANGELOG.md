@@ -14,10 +14,10 @@ current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
 current-main-subscription-refresh=explicit-http-single-source-status-stop-active
-current-main-subscription-background=linux-systemd-oneshot-timer-active
+current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active
 current-main-managed-reload=explicit-foreground-control-socket-active
 current-main-linux-node-switch=explicit-loopback-selector-active
-current-main-subscription-refresh-scheduling=linux-systemd-oneshot-timer-active
+current-main-subscription-refresh-scheduling=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active
 current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 - Added the platform-neutral `PublicEngineRunPlan`: SS, Trojan, VLESS, VMess,
@@ -30,6 +30,11 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 ```
 
 ### Changed
+
+- 完成 Windows 单 HTTP(S) subscription refresh 状态闭环：GUI 显式启用 hourly refresh 后，持久记录脱敏
+  `last_attempt`、`last_success`、`next_attempt`、`result`、节点新增/删除/变化数量与稳定 `error_code`，并在
+  Subscriptions 页展示当前状态。手动导入、选择 source 和后台触发共享排他 operation guard；失败保留既有
+  config、节点选择和运行配置，错误文本不回显 URL、token 或凭据，也不重启核心或切换节点。
 
 - 完成 Linux managed foreground control socket reload slice：`reload --managed-control-socket <absolute-path> --confirm`
   复用显式路径、owner-only `0600`、两秒 I/O 上限和当前前台进程，成功后调用

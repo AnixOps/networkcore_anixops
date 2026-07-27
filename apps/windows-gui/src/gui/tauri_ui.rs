@@ -46,7 +46,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::{
     fs,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIcon, TrayIconBuilder};
@@ -74,6 +74,19 @@ struct DesktopTray {
 struct RuntimeLifecycle {
     gui_started_connection: Mutex<bool>,
     core_recovery_attempted: Mutex<bool>,
+    subscription_refresh_active: Arc<Mutex<bool>>,
+}
+
+struct SubscriptionRefreshGuard {
+    active: Arc<Mutex<bool>>,
+}
+
+impl Drop for SubscriptionRefreshGuard {
+    fn drop(&mut self) {
+        if let Ok(mut active) = self.active.lock() {
+            *active = false;
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -87,6 +100,13 @@ struct RuntimeSnapshot {
     selected_node: Option<String>,
     subscription: Option<String>,
     subscription_last_updated: Option<String>,
+    subscription_last_attempt: Option<String>,
+    subscription_next_attempt: Option<String>,
+    subscription_refresh_result: String,
+    subscription_added_node_count: usize,
+    subscription_removed_node_count: usize,
+    subscription_changed_node_count: usize,
+    subscription_refresh_error_code: Option<String>,
     subscription_error: Option<String>,
     last_error: Option<String>,
     configuration_error: Option<String>,
@@ -124,6 +144,13 @@ struct SubscriptionSummary {
     location: String,
     selected: bool,
     last_successful_update: Option<String>,
+    last_attempt: Option<String>,
+    next_attempt: Option<String>,
+    result: String,
+    added_node_count: usize,
+    removed_node_count: usize,
+    changed_node_count: usize,
+    error_code: Option<String>,
     last_update_error: Option<String>,
 }
 
@@ -742,6 +769,13 @@ fn list_subscriptions(
                     .as_ref()
                     .is_some_and(|path| path.display().to_string() == source.location),
             last_successful_update: source.last_successful_update.clone(),
+            last_attempt: source.last_attempt.clone(),
+            next_attempt: source.next_attempt.clone(),
+            result: source.result.clone(),
+            added_node_count: source.added_node_count,
+            removed_node_count: source.removed_node_count,
+            changed_node_count: source.changed_node_count,
+            error_code: source.error_code.clone(),
             last_update_error: source.last_update_error.clone(),
         })
         .collect())
@@ -1010,6 +1044,17 @@ fn save_preferences_blocking(
     desktop.auto_connect = auto_connect;
     desktop.auto_recover_core = auto_recover_core;
     desktop.auto_subscription_refresh = auto_subscription_refresh;
+    let next_refresh_attempt = scheduled_refresh_timestamp(auto_subscription_refresh);
+    desktop.profile_next_attempt = next_refresh_attempt.clone();
+    if let Some(location) = desktop.profile_source_url.clone() {
+        if let Some(source) = desktop
+            .subscription_sources
+            .iter_mut()
+            .find(|source| source.location == location)
+        {
+            source.next_attempt = next_refresh_attempt;
+        }
+    }
     desktop.auto_select_fastest_node = auto_select_fastest_node;
     desktop.dark_theme = dark_theme;
     save_desktop_state(&desktop)?;
@@ -1114,6 +1159,7 @@ fn import_subscription_blocking(
     location: String,
     message: &'static str,
 ) -> Result<OperationResult, String> {
+    let _refresh_guard = acquire_subscription_refresh(&state)?;
     let mut desktop = state
         .desktop
         .lock()
@@ -1128,6 +1174,22 @@ fn import_subscription_blocking(
     result?;
     Ok(OperationResult {
         message: message.to_string(),
+    })
+}
+
+fn acquire_subscription_refresh(state: &DesktopAppState) -> Result<SubscriptionRefreshGuard, String> {
+    let mut active = state
+        .lifecycle
+        .subscription_refresh_active
+        .lock()
+        .map_err(|_| "subscription refresh lock failed")?;
+    if *active {
+        return Err("Subscription refresh is already active; wait for the current attempt to finish."
+            .to_string());
+    }
+    *active = true;
+    Ok(SubscriptionRefreshGuard {
+        active: state.lifecycle.subscription_refresh_active.clone(),
     })
 }
 
@@ -1172,37 +1234,115 @@ fn check_profile_runtime_blocking(state: DesktopAppState) -> Result<OperationRes
 }
 
 fn record_subscription_import(location: &str, desktop: &mut DesktopState) -> Result<(), String> {
+    let attempt = super::current_local_timestamp();
+    record_subscription_attempt(desktop, location, attempt.clone());
+    save_desktop_state(desktop)?;
+    let previous_nodes = desktop.profile_node_catalog.clone();
     match import_subscription_at(location, desktop) {
         Ok(()) => {
             let timestamp = super::current_local_timestamp();
+            let (added_node_count, removed_node_count, changed_node_count) =
+                subscription_node_change_counts(&previous_nodes, &desktop.profile_node_catalog);
             desktop.profile_last_successful_update = Some(timestamp.clone());
+            desktop.profile_next_attempt = scheduled_refresh_timestamp(desktop.auto_subscription_refresh);
+            desktop.profile_refresh_result = "success".to_string();
+            desktop.profile_added_node_count = added_node_count;
+            desktop.profile_removed_node_count = removed_node_count;
+            desktop.profile_changed_node_count = changed_node_count;
+            desktop.profile_refresh_error_code = None;
             desktop.profile_last_update_error = None;
-            record_subscription_source(desktop, location, Some(timestamp), None);
+            record_subscription_result(
+                desktop,
+                location,
+                Some(timestamp),
+                "success",
+                added_node_count,
+                removed_node_count,
+                changed_node_count,
+                None,
+            );
             save_desktop_state(desktop)
         }
         Err(error) => {
-            desktop.profile_last_update_error = Some(error.clone());
-            record_subscription_source(desktop, location, None, Some(error.clone()));
+            let error_code = redacted_subscription_error_code(&error);
+            desktop.profile_next_attempt = scheduled_refresh_timestamp(desktop.auto_subscription_refresh);
+            desktop.profile_refresh_result = "failed".to_string();
+            desktop.profile_added_node_count = 0;
+            desktop.profile_removed_node_count = 0;
+            desktop.profile_changed_node_count = 0;
+            desktop.profile_refresh_error_code = Some(error_code.clone());
+            desktop.profile_last_update_error = Some("Subscription refresh failed; inspect diagnostics for the redacted error code.".to_string());
+            record_subscription_result(
+                desktop,
+                location,
+                None,
+                "failed",
+                0,
+                0,
+                0,
+                Some(error_code.clone()),
+            );
             let _ = save_desktop_state(desktop);
-            Err(error)
+            Err(format!("Subscription refresh failed ({error_code})."))
         }
     }
 }
 
-fn record_subscription_source(
+fn record_subscription_attempt(desktop: &mut DesktopState, location: &str, attempt: String) {
+    desktop.profile_last_attempt = Some(attempt.clone());
+    desktop.profile_refresh_result = "running".to_string();
+    desktop.profile_refresh_error_code = None;
+    let id = subscription_source_id(location);
+    let source = desktop
+        .subscription_sources
+        .iter_mut()
+        .find(|source| source.id == id);
+    if let Some(source) = source {
+        source.last_attempt = Some(attempt);
+        source.result = "running".to_string();
+        source.error_code = None;
+    } else {
+        desktop.subscription_sources.push(DesktopSubscriptionSource {
+            id,
+            location: location.to_string(),
+            last_attempt: Some(attempt),
+            last_successful_update: None,
+            next_attempt: None,
+            result: "running".to_string(),
+            added_node_count: 0,
+            removed_node_count: 0,
+            changed_node_count: 0,
+            error_code: None,
+            last_update_error: None,
+        });
+    }
+}
+
+fn record_subscription_result(
     desktop: &mut DesktopState,
     location: &str,
     successful_update: Option<String>,
-    update_error: Option<String>,
+    result: &str,
+    added_node_count: usize,
+    removed_node_count: usize,
+    changed_node_count: usize,
+    error_code: Option<String>,
 ) {
     let id = subscription_source_id(location);
+    let next_attempt = desktop.profile_next_attempt.clone();
     if let Some(source) = desktop
         .subscription_sources
         .iter_mut()
         .find(|source| source.id == id)
     {
         source.last_successful_update = successful_update;
-        source.last_update_error = update_error;
+        source.next_attempt = next_attempt;
+        source.result = result.to_string();
+        source.added_node_count = added_node_count;
+        source.removed_node_count = removed_node_count;
+        source.changed_node_count = changed_node_count;
+        source.error_code = error_code.clone();
+        source.last_update_error = error_code.map(|_| "refresh_failed".to_string());
         return;
     }
     desktop
@@ -1210,9 +1350,69 @@ fn record_subscription_source(
         .push(DesktopSubscriptionSource {
             id,
             location: location.to_string(),
+            last_attempt: desktop.profile_last_attempt.clone(),
             last_successful_update: successful_update,
-            last_update_error: update_error,
+            next_attempt,
+            result: result.to_string(),
+            added_node_count,
+            removed_node_count,
+            changed_node_count,
+            error_code: error_code.clone(),
+            last_update_error: error_code.map(|_| "refresh_failed".to_string()),
         });
+}
+
+fn scheduled_refresh_timestamp(enabled: bool) -> Option<String> {
+    enabled.then(|| {
+        let seconds = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .saturating_add(SUBSCRIPTION_REFRESH_INTERVAL.as_secs());
+        format!("unix-epoch-seconds:{seconds}")
+    })
+}
+
+fn redacted_subscription_error_code(error: &str) -> String {
+    let normalized = error.to_ascii_lowercase();
+    if normalized.contains("timed out") || normalized.contains("timeout") {
+        "windows.subscription.fetch_timeout".to_string()
+    } else if normalized.contains("status") || normalized.contains("http") {
+        "windows.subscription.fetch_failed".to_string()
+    } else if normalized.contains("disconnect") {
+        "windows.subscription.runtime_active".to_string()
+    } else if normalized.contains("install sing-box") {
+        "windows.subscription.core_missing".to_string()
+    } else if normalized.contains("supported proxy node") || normalized.contains("parse") {
+        "windows.subscription.invalid_payload".to_string()
+    } else {
+        "windows.subscription.refresh_failed".to_string()
+    }
+}
+
+fn subscription_node_change_counts(
+    previous: &[DesktopProfileNode],
+    current: &[DesktopProfileNode],
+) -> (usize, usize, usize) {
+    let added = current
+        .iter()
+        .filter(|node| !previous.iter().any(|before| before.id == node.id))
+        .count();
+    let removed = previous
+        .iter()
+        .filter(|node| !current.iter().any(|after| after.id == node.id))
+        .count();
+    let changed = current
+        .iter()
+        .filter(|node| {
+            previous.iter().find(|before| before.id == node.id).is_some_and(|before| {
+                before.label != node.label
+                    || before.protocol != node.protocol
+                    || before.outbound_tag != node.outbound_tag
+            })
+        })
+        .count();
+    (added, removed, changed)
 }
 
 fn subscription_source_id(location: &str) -> String {
@@ -2245,6 +2445,13 @@ fn snapshot(runtime: &WindowsRuntimeStatus, desktop: &DesktopState) -> RuntimeSn
                 .map(|path| path.display().to_string())
         }),
         subscription_last_updated: desktop.profile_last_successful_update.clone(),
+        subscription_last_attempt: desktop.profile_last_attempt.clone(),
+        subscription_next_attempt: desktop.profile_next_attempt.clone(),
+        subscription_refresh_result: desktop.profile_refresh_result.clone(),
+        subscription_added_node_count: desktop.profile_added_node_count,
+        subscription_removed_node_count: desktop.profile_removed_node_count,
+        subscription_changed_node_count: desktop.profile_changed_node_count,
+        subscription_refresh_error_code: desktop.profile_refresh_error_code.clone(),
         subscription_error: desktop.profile_last_update_error.clone(),
         last_error: runtime.last_error.clone(),
         configuration_error: runtime.configuration_error.clone(),
@@ -2289,5 +2496,47 @@ fn core_status(status: &SingBoxProcessStatus) -> StatusFact {
             SingBoxProcessStatus::Starting => "warning",
             SingBoxProcessStatus::NotConfigured => "neutral",
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn node(id: &str, label: &str) -> DesktopProfileNode {
+        DesktopProfileNode {
+            id: id.to_string(),
+            label: label.to_string(),
+            protocol: "Shadowsocks".to_string(),
+            outbound_tag: format!("node-{id}"),
+        }
+    }
+
+    #[test]
+    fn refresh_node_counts_use_stable_node_identity() {
+        let previous = vec![node("retained", "Old retained"), node("removed", "Removed")];
+        let current = vec![node("retained", "New retained"), node("added", "Added")];
+
+        assert_eq!(subscription_node_change_counts(&previous, &current), (1, 1, 1));
+    }
+
+    #[test]
+    fn refresh_error_codes_are_stable_and_redacted() {
+        assert_eq!(
+            redacted_subscription_error_code("request timed out for https://secret.invalid/?token=redacted"),
+            "windows.subscription.fetch_timeout"
+        );
+        assert_eq!(
+            redacted_subscription_error_code("unsupported payload password=never-store"),
+            "windows.subscription.refresh_failed"
+        );
+    }
+
+    #[test]
+    fn next_attempt_only_exists_for_enabled_schedule() {
+        assert!(scheduled_refresh_timestamp(false).is_none());
+        assert!(scheduled_refresh_timestamp(true)
+            .as_deref()
+            .is_some_and(|value| value.starts_with("unix-epoch-seconds:")));
     }
 }

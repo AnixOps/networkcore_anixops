@@ -23,7 +23,7 @@ current-main-source-candidate=v0.2.0-alpha.22
 current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
-current-main-subscription-background=linux-systemd-oneshot-timer-active
+current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active
 ```
 
 The historical release entries below remain immutable audit records. The
@@ -372,10 +372,13 @@ Actions CI、MSI install/uninstall smoke、package、attestation、publish eligi
 - The Service-owned sing-box child is attached to a private Windows Job Object
   with kill-on-close semantics, so an unexpected Service-process exit does not
   leave an owned core listener running.
+- 用户显式开启 hourly refresh 后，保存的单 HTTP(S) source 以单次有界后台操作刷新；GUI 持久展示
+  脱敏 attempt/success/next/result、节点增删改计数和稳定错误码。失败保留当前 config、选择节点和运行
+  配置，不重启核心、不切换节点，也不重试同一次失败。
 
 明确不包含：
 
-- 不提供无交互 UAC bypass、后台订阅刷新、订阅目录/组、自动 latency/`urltest`、无限自动重启、
+- 不提供无交互 UAC bypass、订阅目录/组、自动 latency/`urltest`、无限自动重启、
   TUN/DNS interception、HTTP/2/HTTP/3/QUIC MITM、JavaScript dispatch 或 native JSON group editing。
 
 ### `v0.2.0-alpha.21`
@@ -981,7 +984,7 @@ GitHub Actions release workflow 结果为准。
 `v0.1.1-alpha.2` 的 Linux/Windows package、checksum、manifest、attestation 和 publish gate，并把
 受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI；Windows path 已切换到
 managed-client MSI，service、driver、installer、system proxy mutation、system trust store mutation 和 managed lifecycle
-已 active，并增加 operator-staged sing-box managed process、非阻塞 MSI service start、即时 SCM handoff 与 GUI/CLI start 状态返回、service-owned system-proxy snapshot、service-owned core-process supervision/failed-state rollback、受 attestation 的 portable ZIP、GUI-controlled HTTP/1.1 HTTPS MITM/CA lifecycle、native sing-box JSON pass-through import、GUI `check -c` preflight/local diagnostics report、core-log access、受控 `mixed-in` listener 的 snapshot/restore、Hysteria2/TUIC local-file share-link and native-outbound import、本地 V2Ray TLS/REALITY/uTLS/Vision/transport compatibility subset、显式 NodeCatalog 节点选择、单个保存 URL 的显式 HTTP(S) profile update、generated profile 的 loopback Clash API runtime selector、一次性 HTTPS delay test、只读 selector core health check、shared-state tray、current-user Run startup、opt-in one-shot auto-connect/core recovery 和 GUI-owned proxy recovery。自动 latency/urltest、scheduled remote subscription、persistent catalog/group、remote route/rule fetch、Clash Web UI/LAN controller、无限自动 service restart、XHTTP/ECH/multiplex transport inference、HTTP/2/HTTP/3 QUIC MITM、streaming、多 request CONNECT 和 JavaScript script dispatch 仍 blocked。用户可下载状态仍以 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。
+已 active，并增加 operator-staged sing-box managed process、非阻塞 MSI service start、即时 SCM handoff 与 GUI/CLI start 状态返回、service-owned system-proxy snapshot、service-owned core-process supervision/failed-state rollback、受 attestation 的 portable ZIP、GUI-controlled HTTP/1.1 HTTPS MITM/CA lifecycle、native sing-box JSON pass-through import、GUI `check -c` preflight/local diagnostics report、core-log access、受控 `mixed-in` listener 的 snapshot/restore、Hysteria2/TUIC local-file share-link and native-outbound import、本地 V2Ray TLS/REALITY/uTLS/Vision/transport compatibility subset、显式 NodeCatalog 节点选择、单个保存 URL 的显式 HTTP(S) profile update、opt-in hourly single-source refresh 与其脱敏状态/节点差异计数、generated profile 的 loopback Clash API runtime selector、一次性 HTTPS delay test、只读 selector core health check、shared-state tray、current-user Run startup、opt-in one-shot auto-connect/core recovery 和 GUI-owned proxy recovery。自动 latency/urltest、persistent catalog/group、remote route/rule fetch、Clash Web UI/LAN controller、无限自动 service restart、XHTTP/ECH/multiplex transport inference、HTTP/2/HTTP/3 QUIC MITM、streaming、多 request CONNECT 和 JavaScript script dispatch 仍 blocked。用户可下载状态仍以 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。
 
 ## 已拍板后续版本节奏
 

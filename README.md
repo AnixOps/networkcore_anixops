@@ -125,7 +125,7 @@ current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
 current-main-managed-reload=explicit-foreground-control-socket-active
 current-main-linux-node-switch=explicit-loopback-selector-active
-current-main-subscription-background=linux-systemd-oneshot-timer-active
+current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active
 current-main-cross-platform-run-plan=public-engine-run-plan-active
 ```
 
@@ -158,7 +158,7 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
   只读确认 active outbound 和可用节点数量，或由 `Switch active` 显式切换并读回确认。GUI 也可使用可编辑的 HTTPS `Delay URL` 对当前选择节点做一次
   10 秒 timeout 的手动 delay test 并显示毫秒结果；它不改变 active outbound、managed config
   或 service。该路径不提供 LAN controller、Web UI、`urltest`、自动延迟选择或自动重启。
-  `v0.2.0-alpha.22` 将日常入口分为 Home、Nodes、Subscriptions、Settings、Diagnostics 和 Advanced；Home 的连接状态只在 SCM、service-owned sing-box PID、监听端口与当前交互用户代理都被独立确认后才显示已连接。共享系统托盘、当前用户登录启动、一次自动连接/核心恢复与精确 GUI-owned 代理恢复均为 opt-in。网络、核心、预检、订阅、选择器和测速操作使用后台任务，失败会给出页面内摘要并保留现有可用 profile。详情见 [Windows GUI Daily Usability](docs/architecture/windows-gui-daily-usability.md)。
+  `v0.2.0-alpha.22` 将日常入口分为 Home、Nodes、Subscriptions、Settings、Diagnostics 和 Advanced；Home 的连接状态只在 SCM、service-owned sing-box PID、监听端口与当前交互用户代理都被独立确认后才显示已连接。共享系统托盘、当前用户登录启动、一次自动连接/核心恢复与精确 GUI-owned 代理恢复均为 opt-in。网络、核心、预检、订阅、选择器和测速操作使用后台任务，失败会给出页面内摘要并保留现有可用 profile。用户明确开启 hourly refresh 后，保存的单 HTTP(S) source 会记录脱敏 attempt/success/next/result、节点增删改计数和稳定错误码；失败不覆盖当前配置或选择，也不重启核心或切换节点。详情见 [Windows GUI Daily Usability](docs/architecture/windows-gui-daily-usability.md)。
 
 - 当前阶段源：P4 Client And Platform Integration。
 - P3 是已完成历史基线，不再作为当前仓库阶段描述；后续迭代、TODO、release 说明和架构合同都按 P4 backlog 推进。
