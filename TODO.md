@@ -19,7 +19,8 @@ runner/script map 可在同一路径执行受信本地脚本、失败 fail-open�
 `mitm certificate trust-apply/trust-rollback` 现在支持显式 Ubuntu-style trust-file 路径、快照、
 刷新和冲突保护；系统默认 trust discovery、NSS、p11-kit、浏览器 profile、browser/system proxy、
 TUN、DNS、firewall 和路由 mutation 仍未实现。该切片只在同名 tag 的 GitHub
-Actions release workflow 成功后成为可下载 artifact。
+Actions release workflow 成功后成为可下载 artifact。证书 artifact、显式 trust-file 和 rollback
+边界见 `docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md`。
 
 当前阶段是 P4 Client And Platform Integration。
 P3 runtime baseline 已完成并保留后续 runtime backlog；当前 TODO 只按 P4 backlog buckets 排优先级，不能再把 P3 当作当前阶段。

@@ -2546,8 +2546,7 @@ mod tests {
 
     fn managed_config_with_mieru() -> WindowsManagedConfig {
         WindowsManagedConfig {
-            schema_version:
-                platform_windows::managed::WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
+            schema_version: platform_windows::managed::WINDOWS_MANAGED_CONFIG_SCHEMA_VERSION,
             system_proxy: None,
             system_proxy_owner: WindowsSystemProxyOwner::Desktop,
             root_certificate_path: None,

@@ -401,9 +401,8 @@ where
                     verify_managed_loopback_listener(proxy)?;
                     state.sing_box_listener_reachable = true;
                 }
-                state.sing_box_control_api_readable = verify_generated_selector_readback(
-                    &sing_box.config_path,
-                )?;
+                state.sing_box_control_api_readable =
+                    verify_generated_selector_readback(&sing_box.config_path)?;
                 self.persist(state)?;
             }
         }
@@ -859,8 +858,9 @@ fn verify_managed_loopback_listener(proxy: &WindowsProxySettings) -> DomainResul
 }
 
 fn verify_generated_selector_readback(config_path: &Path) -> DomainResult<bool> {
-    let content = fs::read_to_string(config_path)
-        .map_err(|_| runtime_error("managed sing-box configuration could not be read for health"))?;
+    let content = fs::read_to_string(config_path).map_err(|_| {
+        runtime_error("managed sing-box configuration could not be read for health")
+    })?;
     let Some(selector) = inspect_sing_box_local_selector_snapshot(&content) else {
         return Ok(false);
     };

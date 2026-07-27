@@ -216,7 +216,10 @@ mod tests {
 
         value.system_proxy_matches_managed = true;
         value.core_configuration_validated = false;
-        assert_eq!(connection_state(&value), ConnectionState::ConfigurationError);
+        assert_eq!(
+            connection_state(&value),
+            ConnectionState::ConfigurationError
+        );
 
         value.core_configuration_validated = true;
         value.core_listener_reachable = false;

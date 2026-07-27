@@ -1435,15 +1435,10 @@ pub fn inspect_sing_box_local_selector_snapshot(
         .into_iter()
         .map(str::to_string)
         .collect::<Vec<_>>();
-    if selector_outbounds.is_empty()
-        || selector_outbounds.iter().any(|tag| tag.trim().is_empty())
-    {
+    if selector_outbounds.is_empty() || selector_outbounds.iter().any(|tag| tag.trim().is_empty()) {
         return None;
     }
-    let selected_outbound_tag = selector
-        .get("default")
-        .and_then(Value::as_str)?
-        .to_string();
+    let selected_outbound_tag = selector.get("default").and_then(Value::as_str)?.to_string();
     if !selector_outbounds
         .iter()
         .any(|tag| tag == &selected_outbound_tag)
