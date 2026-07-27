@@ -1264,9 +1264,7 @@ fn record_subscription_import(location: &str, desktop: &mut DesktopState) -> Res
                 location,
                 Some(timestamp),
                 "success",
-                added_node_count,
-                removed_node_count,
-                changed_node_count,
+                (added_node_count, removed_node_count, changed_node_count),
                 None,
             );
             save_desktop_state(desktop)
@@ -1289,9 +1287,7 @@ fn record_subscription_import(location: &str, desktop: &mut DesktopState) -> Res
                 location,
                 None,
                 "failed",
-                0,
-                0,
-                0,
+                (0, 0, 0),
                 Some(error_code.clone()),
             );
             let _ = save_desktop_state(desktop);
@@ -1337,11 +1333,10 @@ fn record_subscription_result(
     location: &str,
     successful_update: Option<String>,
     result: &str,
-    added_node_count: usize,
-    removed_node_count: usize,
-    changed_node_count: usize,
+    node_counts: (usize, usize, usize),
     error_code: Option<String>,
 ) {
+    let (added_node_count, removed_node_count, changed_node_count) = node_counts;
     let id = subscription_source_id(location);
     let next_attempt = desktop.profile_next_attempt.clone();
     if let Some(source) = desktop
