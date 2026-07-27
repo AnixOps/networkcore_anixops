@@ -35,9 +35,10 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 - Windows HTTPS MITM now protects the fixed NetworkCore-owned CA private key
   before committing managed configuration. It rejects reparse paths and ACL
-  readback mismatches, removes the private key on protection failure,
-  and leaves only the generating account plus LocalSystem access with inherited
-  ACL entries removed.
+  readback mismatches, revalidates the exact DACL before trust installation and
+  during managed runtime health checks, removes the private key on protection failure,
+  revokes the managed CA when a later ACL drift is found, and leaves only the
+  generating account plus LocalSystem access with inherited ACL entries removed.
 
 - Windows `Connected` now requires independent SCM, `sing-box check -c`,
   loopback listener, generated selector active-outbound/default readback,

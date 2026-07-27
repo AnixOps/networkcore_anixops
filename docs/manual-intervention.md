@@ -84,7 +84,11 @@ experience production-ready:
     service-recorded CA is removed. Before disable, inspect
     `%ProgramData%\\AnixOps\\NetworkCore\\mitm\\root-ca-key.pem`: inheritance
     must be disabled and only the generating account and `SYSTEM` may have
-    access; confirm the private key is deleted after disable.
+    access. Stop the service, deliberately add a third ACL entry, and start it
+    again: verify MITM fails before installing its CA or applying its proxy and
+    any previously recorded managed CA is revoked while the existing rollback
+    restores the previous proxy state. Restore the strict ACL,
+    then confirm the private key is deleted after disable.
 11. With native HTTPS MITM enabled and the service stopped, configure Script
     dispatch with an existing local policy source containing a `[Script]`
     rule, an existing local Node runner, the selected Node executable, a

@@ -174,7 +174,11 @@ The GUI `Enable HTTPS MITM` action generates a service-owned CA key pair below
 DACL has inheritance disabled and exactly two full-control ACEs: the generating
 account and LocalSystem. Protection rejects reparse points, any other path, or
 an ACL readback mismatch; enable removes the private key and stops before any
-service, proxy, or trust-store mutation on failure. It then moves sing-box to the loopback
+service, proxy, or trust-store mutation on failure. Before installing the CA
+or starting the native listener, and on each managed runtime health poll, the
+service reads the same exact ACL back without modifying it; any later drift
+fails closed, revokes its recorded managed CA trust entry, and follows the
+recorded runtime rollback path. It then moves sing-box to the loopback
 SOCKS upstream at `127.0.0.1:7891`, and writes a native MITM listener at
 `127.0.0.1:7890`. The managed service imports that CA into LocalMachine ROOT,
 starts sing-box before the native listener, issues authority-bound leaf

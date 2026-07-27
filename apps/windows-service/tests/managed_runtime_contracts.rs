@@ -476,6 +476,44 @@ fn managed_runtime_owns_native_https_mitm_lifecycle() {
 }
 
 #[test]
+fn native_mitm_windows_acl_validation_precedes_trust_install_and_health_checks() {
+    let source = include_str!("../src/lib.rs");
+    let start = source
+        .find("fn start_native_mitm(")
+        .expect("native MITM start boundary remains present");
+    let start_source = &source[start..];
+    let validation = start_source
+        .find("validate_native_mitm_private_key(&config.ca_private_key_path)")
+        .expect("native MITM start validates its private key ACL");
+    let trust_install = start_source
+        .find("install_root_certificate(&config.ca_certificate_path)")
+        .expect("native MITM start retains explicit trust installation");
+    assert!(
+        validation < trust_install,
+        "private key ACL validation must precede trust-store mutation"
+    );
+
+    let health = source
+        .find("pub fn poll_health(&mut self)")
+        .expect("managed health boundary remains present");
+    let health_source = &source[health..start];
+    assert!(
+        health_source
+            .contains("validate_native_mitm_private_key(&native_mitm.ca_private_key_path)"),
+        "managed health polling must fail closed when the MITM private key ACL drifts"
+    );
+    assert!(
+        source.contains("#[cfg(windows)]\nfn validate_native_mitm_private_key"),
+        "Windows builds must retain native MITM private key ACL enforcement"
+    );
+    assert!(
+        source.contains("fn revoke_native_mitm_certificate(")
+            && source.contains("self.integration.remove_root_certificate(&thumbprint)"),
+        "private key ACL drift must revoke the managed MITM CA trust entry"
+    );
+}
+
+#[test]
 fn managed_runtime_rolls_back_proxy_when_sing_box_exits_after_start() {
     let (config_path, state_path, root) = fixture_paths("sing-box-health-failure");
     let executable = write_immediately_exiting_sing_box(&root);

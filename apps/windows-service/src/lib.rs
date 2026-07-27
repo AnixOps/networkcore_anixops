@@ -28,6 +28,8 @@ use platform_windows::managed::{
     WindowsManagedNativeMitmConfig, WindowsManagedNativeMitmScriptRuntimeConfig,
     WindowsManagedState, WindowsProxySettings,
 };
+#[cfg(windows)]
+use platform_windows::mitm_security::validate_windows_managed_mitm_private_key;
 use platform_windows::system_integration::WindowsSystemIntegration;
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
@@ -225,6 +227,32 @@ where
             .as_ref()
             .is_some_and(|native_mitm| native_mitm.enabled)
         {
+            let native_mitm = config
+                .native_mitm
+                .as_ref()
+                .expect("enabled native MITM configuration was checked above");
+            if let Err(error) =
+                validate_native_mitm_private_key(&native_mitm.ca_private_key_path)
+            {
+                state.native_mitm_running = false;
+                state.native_mitm_listener = None;
+                if let Err(revoke_error) = self.revoke_native_mitm_certificate(state) {
+                    return self.record_runtime_failure(
+                        &mut state,
+                        format!(
+                            "managed native HTTPS MITM private key protection validation failed and the managed CA could not be revoked: {}",
+                            revoke_error.message
+                        ),
+                    );
+                }
+                return self.record_runtime_failure(
+                    &mut state,
+                    format!(
+                        "managed native HTTPS MITM private key protection validation failed: {}",
+                        error.message
+                    ),
+                );
+            }
             let status = match self.native_mitm.as_ref() {
                 Some(service) => service.status(DEFAULT_NATIVE_ENGINE_ID)?,
                 None => {
@@ -538,6 +566,11 @@ where
             return Ok(());
         }
 
+        if let Err(error) = validate_native_mitm_private_key(&config.ca_private_key_path) {
+            self.revoke_native_mitm_certificate(state)?;
+            return Err(error);
+        }
+
         if state.native_mitm_certificate_sha1.is_none() {
             state.native_mitm_certificate_sha1 = Some(
                 self.integration
@@ -599,6 +632,22 @@ where
             self.persist(state)?;
         }
         Ok(())
+    }
+
+    /// A private-key ACL drift invalidates the security basis for trusting its
+    /// CA. Revoke the managed trust entry before the normal runtime rollback.
+    fn revoke_native_mitm_certificate(
+        &self,
+        state: &mut WindowsManagedState,
+    ) -> DomainResult<()> {
+        let Some(thumbprint) = state.native_mitm_certificate_sha1.take() else {
+            return Ok(());
+        };
+        if let Err(error) = self.integration.remove_root_certificate(&thumbprint) {
+            state.native_mitm_certificate_sha1 = Some(thumbprint);
+            return Err(error);
+        }
+        self.persist(state)
     }
 
     fn rollback_start(&mut self, state: &mut WindowsManagedState, previous: &WindowsManagedState) {
@@ -737,6 +786,18 @@ fn build_native_mitm_service(
             certificate_pem,
             private_key_pem,
         )))
+}
+
+/// ACL enforcement is a Windows runtime boundary. Linux-hosted data-plane
+/// contract tests use disposable CA files and do not emulate a Windows DACL.
+#[cfg(windows)]
+fn validate_native_mitm_private_key(path: &Path) -> DomainResult<()> {
+    validate_windows_managed_mitm_private_key(path)
+}
+
+#[cfg(not(windows))]
+fn validate_native_mitm_private_key(_path: &Path) -> DomainResult<()> {
+    Ok(())
 }
 
 fn build_native_node_script_executor(

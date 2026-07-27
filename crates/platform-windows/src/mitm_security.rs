@@ -21,14 +21,26 @@ pub fn protect_windows_managed_mitm_private_key(path: &Path) -> DomainResult<()>
     if path != windows_managed_mitm_private_key_path() {
         return Err(private_key_protection_error());
     }
-    protect_windows_managed_mitm_private_key_impl(path)
+    run_windows_managed_mitm_private_key_acl(path, "protect")
+}
+
+/// Verifies that the sole NetworkCore-owned MITM private key still has the
+/// exact DACL established at creation time. This never mutates the key or its
+/// ACL, so the managed service can fail closed when access has drifted.
+pub fn validate_windows_managed_mitm_private_key(path: &Path) -> DomainResult<()> {
+    if path != windows_managed_mitm_private_key_path() {
+        return Err(private_key_protection_error());
+    }
+    run_windows_managed_mitm_private_key_acl(path, "validate")
 }
 
 #[cfg(windows)]
-const PROTECT_WINDOWS_MANAGED_MITM_PRIVATE_KEY_SCRIPT: &str = r#"
+const MANAGED_MITM_PRIVATE_KEY_ACL_SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
 $path = $env:NETWORKCORE_MITM_PRIVATE_KEY_PATH
 if ([String]::IsNullOrWhiteSpace($path)) { throw 'private key path is unavailable' }
+$mode = $env:NETWORKCORE_MITM_PRIVATE_KEY_ACL_MODE
+if ($mode -ne 'protect' -and $mode -ne 'validate') { throw 'private key ACL mode is invalid' }
 $base = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
 if ([String]::IsNullOrWhiteSpace($base)) { throw 'common application data is unavailable' }
 $expectedDirectory = Join-Path (Join-Path (Join-Path $base 'AnixOps') 'NetworkCore') 'mitm'
@@ -40,14 +52,16 @@ if ($item.Name -ne 'root-ca-key.pem' -or -not [String]::Equals($item.DirectoryNa
 $acl = Get-Acl -LiteralPath $item.FullName -ErrorAction Stop
 $owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
 if ([String]::IsNullOrWhiteSpace($owner) -or $owner -eq 'S-1-5-18') { throw 'private key owner is invalid' }
-$acl.SetAccessRuleProtection($true, $false)
-foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRuleAll($rule) }
-foreach ($sidValue in @($owner, 'S-1-5-18')) {
-    $identity = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList $sidValue
-    $rule = New-Object -TypeName System.Security.AccessControl.FileSystemAccessRule -ArgumentList $identity, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.InheritanceFlags]::None, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow
-    [void]$acl.AddAccessRule($rule)
+if ($mode -eq 'protect') {
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRuleAll($rule) }
+    foreach ($sidValue in @($owner, 'S-1-5-18')) {
+        $identity = New-Object -TypeName System.Security.Principal.SecurityIdentifier -ArgumentList $sidValue
+        $rule = New-Object -TypeName System.Security.AccessControl.FileSystemAccessRule -ArgumentList $identity, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.InheritanceFlags]::None, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow
+        [void]$acl.AddAccessRule($rule)
+    }
+    Set-Acl -LiteralPath $item.FullName -AclObject $acl -ErrorAction Stop
 }
-Set-Acl -LiteralPath $item.FullName -AclObject $acl -ErrorAction Stop
 $verified = Get-Acl -LiteralPath $item.FullName -ErrorAction Stop
 if (-not $verified.AreAccessRulesProtected) { throw 'ACL inheritance is enabled' }
 $rules = @($verified.GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier]))
@@ -65,7 +79,7 @@ foreach ($sidValue in @($owner, 'S-1-5-18')) {
 "#;
 
 #[cfg(windows)]
-fn protect_windows_managed_mitm_private_key_impl(path: &Path) -> DomainResult<()> {
+fn run_windows_managed_mitm_private_key_acl(path: &Path, mode: &str) -> DomainResult<()> {
     use crate::tunnel_security::{native_windows_system_command, NativeWindowsSystemTool};
     use std::process::Stdio;
 
@@ -75,8 +89,9 @@ fn protect_windows_managed_mitm_private_key_impl(path: &Path) -> DomainResult<()
         .arg("-NoProfile")
         .arg("-NonInteractive")
         .arg("-Command")
-        .arg(PROTECT_WINDOWS_MANAGED_MITM_PRIVATE_KEY_SCRIPT)
+        .arg(MANAGED_MITM_PRIVATE_KEY_ACL_SCRIPT)
         .env("NETWORKCORE_MITM_PRIVATE_KEY_PATH", path)
+        .env("NETWORKCORE_MITM_PRIVATE_KEY_ACL_MODE", mode)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -90,7 +105,7 @@ fn protect_windows_managed_mitm_private_key_impl(path: &Path) -> DomainResult<()
 }
 
 #[cfg(not(windows))]
-fn protect_windows_managed_mitm_private_key_impl(_path: &Path) -> DomainResult<()> {
+fn run_windows_managed_mitm_private_key_acl(_path: &Path, _mode: &str) -> DomainResult<()> {
     Err(private_key_protection_error())
 }
 
@@ -126,6 +141,18 @@ mod tests {
             windows_managed_mitm_private_key_path().with_file_name("other-key.pem");
         let error = protect_windows_managed_mitm_private_key(&rejected)
             .expect_err("only the fixed NetworkCore MITM key path may be protected");
+
+        assert_eq!(
+            error.code,
+            WINDOWS_MANAGED_MITM_PRIVATE_KEY_PROTECTION_FAILED_CODE
+        );
+    }
+
+    #[test]
+    fn validation_rejects_any_private_key_path_outside_the_fixed_mitm_location() {
+        let rejected = windows_managed_mitm_private_key_path().with_file_name("other-key.pem");
+        let error = validate_windows_managed_mitm_private_key(&rejected)
+            .expect_err("only the fixed NetworkCore MITM key path may be validated");
 
         assert_eq!(
             error.code,
