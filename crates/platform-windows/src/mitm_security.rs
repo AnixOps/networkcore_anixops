@@ -110,11 +110,11 @@ fn run_windows_managed_mitm_private_key_acl(path: &Path, mode: &str) -> DomainRe
         .stderr(Stdio::piped())
         .output()
         .map_err(|_| private_key_protection_error())?;
-    output
-        .status
-        .success()
-        .then_some(())
-        .ok_or_else(private_key_protection_error)
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(private_key_protection_error_with_acl_detail(&output.stderr))
+    }
 }
 
 #[cfg(not(windows))]
@@ -126,6 +126,26 @@ fn private_key_protection_error() -> DomainError {
     DomainError::new(
         WINDOWS_MANAGED_MITM_PRIVATE_KEY_PROTECTION_FAILED_CODE,
         "NetworkCore-owned HTTPS MITM private key protection failed",
+    )
+}
+
+#[cfg(windows)]
+fn private_key_protection_error_with_acl_detail(stderr: &[u8]) -> DomainError {
+    let detail = String::from_utf8_lossy(stderr)
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(|line| {
+            line.chars()
+                .filter(|character| !character.is_control())
+                .take(240)
+                .collect::<String>()
+        })
+        .filter(|line| !line.is_empty())
+        .unwrap_or_else(|| "ACL command returned no diagnostic output".to_string());
+    DomainError::new(
+        WINDOWS_MANAGED_MITM_PRIVATE_KEY_PROTECTION_FAILED_CODE,
+        format!("NetworkCore-owned HTTPS MITM private key protection failed: {detail}"),
     )
 }
 

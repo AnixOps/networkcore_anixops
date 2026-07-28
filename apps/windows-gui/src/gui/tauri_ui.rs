@@ -2413,6 +2413,13 @@ fn enable_https_mitm_blocking(state: DesktopAppState) -> Result<OperationResult,
     let restart = stop_running_service_for_mitm_reconfigure()?;
     let (certificate_path, private_key_path) = ensure_mitm_ca_material()?;
     if let Err(error) = protect_windows_managed_mitm_private_key(&private_key_path) {
+        let _ = append_managed_log(
+            APP_LOG_SCOPE,
+            &format!(
+                "native HTTPS MITM private key protection failed: {}",
+                error.message
+            ),
+        );
         let _ = remove_windows_managed_mitm_private_key(&private_key_path);
         return Err(error.message);
     }
