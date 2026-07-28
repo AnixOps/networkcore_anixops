@@ -2,9 +2,9 @@
 
 本文件记录当前无法由本地自动化完成、需要人工处理的事项。
 
-## v0.2.0-beta.3 Release Acceptance Gate
+## v0.2.0-beta.4 Release Acceptance Gate
 
-release-version=v0.2.0-beta.3
+release-version=v0.2.0-beta.4
 release-state=pending_manual_acceptance
 release-tag-status=blocked-pending-manual-acceptance
 release-dry-run-status=pending_github_actions_validation
@@ -13,14 +13,14 @@ release-ci-source=main-same-commit-ci-summary-success-required
 
 The beta feature scope is frozen. Do not add new protocols, iOS activation, HTTP/2 or HTTP/3 MITM, JavaScript dispatch, LAN controller, Web UI, urltest automation, background subscription groups, TUN/DNS interception, or other new features for this release. Only real compile, test, package, contract, documentation, or release-gate fixes may be made before the tag.
 
-The `v0.2.0-beta.3` tag is maintainer-authorized to generate candidate artifacts. It remains `pending_manual_acceptance` until protected operator evidence records both Windows and Linux acceptance as passed; GitHub Actions validates package names, versions, checksums, manifests, attestations, and bundle contents, but does not replace real host acceptance.
+The `v0.2.0-beta.4` tag is maintainer-authorized to generate candidate artifacts. It remains `pending_manual_acceptance` until protected operator evidence records both Windows and Linux acceptance as passed; GitHub Actions validates package names, versions, checksums, manifests, attestations, and bundle contents, but does not replace real host acceptance.
 
 ### Windows Beta Acceptance
 
 Record all detailed screenshots, raw logs, route tables, process IDs, local paths, subscription URLs, CA material, driver package evidence, and service diagnostics outside Git. Commit only the redacted status markers if a maintainer later decides to update this file.
 
 1. Download the dry-run or tag-candidate Windows MSI, MSI sha256, MSI manifest, MSI manifest sha256, portable ZIP, portable ZIP sha256, portable manifest, and portable manifest sha256 from the same GitHub Actions run.
-2. Verify both checksum files and both manifest checksum files on Windows. Confirm the manifest version is `v0.2.0-beta.3`, schema version is `2`, target is `x86_64-pc-windows-gnu`, installer format is `msi`, and the portable ZIP declares manual-extract with no extraction-time service registration.
+2. Verify both checksum files and both manifest checksum files on Windows. Confirm the manifest version is `v0.2.0-beta.4`, schema version is `2`, target is `x86_64-pc-windows-gnu`, installer format is `msi`, and the portable ZIP declares manual-extract with no extraction-time service registration.
 3. Inspect the MSI and portable ZIP file lists. Confirm GUI, app-local x64 `WebView2Loader.dll`, service, CLI, installer metadata, license material, default managed config, and expected WiX product version are present; confirm no bundled or silently downloaded third-party core, signing private key, CA private key, production subscription, or secret is present.
 4. On a clean elevated Windows desktop, install the MSI. Confirm `WebView2Loader.dll` is installed beside the GUI executable, the Microsoft Edge WebView2 Evergreen Runtime is available, service registration, install-time asynchronous service start behavior, uninstall metadata, and expected unsigned-installer warning if Authenticode signing is still unavailable.
 5. Launch the GUI at 100%, 125%, 150%, and 200% DPI in light and dark modes. Confirm the Tauri start page renders rather than remaining blank or loading indefinitely, then exercise Home, Nodes, Subscriptions, Settings, Diagnostics, and Advanced with long node names, long errors, empty state, and a large catalog.
@@ -37,7 +37,7 @@ Record all detailed screenshots, raw logs, route tables, process IDs, local path
 ### Linux Beta Acceptance
 
 1. Download the Linux tarball, tarball sha256, manifest, and manifest sha256 from the same GitHub Actions run as the Windows artifacts.
-2. Verify both checksum files on Linux. Confirm the manifest version is `v0.2.0-beta.3`, target is `x86_64-unknown-linux-gnu`, package is `networkcore-linux`, install model is manual-extract, and rollback policy is manual version switch.
+2. Verify both checksum files on Linux. Confirm the manifest version is `v0.2.0-beta.4`, target is `x86_64-unknown-linux-gnu`, package is `networkcore-linux`, install model is manual-extract, and rollback policy is manual version switch.
 3. Inspect the tarball before extraction. Confirm one top-level directory, `bin/networkcore-linux`, license material, pinned `libexec/anixops-runner.js`, and no installer, systemd unit, private key, CA material, bundled third-party proxy core, production subscription, or secret.
 4. Extract into a versioned user-selected directory on a supported Ubuntu LTS/systemd host. Run only read-only/version/help commands from the extracted `bin` path without root and record stable output.
 5. Confirm plain platform status remains read-only and unsupported or non-systemd environments return documented stable boundary diagnostics without daemon discovery or host mutation.
@@ -54,7 +54,7 @@ Record all detailed screenshots, raw logs, route tables, process IDs, local path
 ### Protected Evidence Template
 
 ```text
-release-version=v0.2.0-beta.3
+release-version=v0.2.0-beta.4
 release-state=pending_manual_acceptance|passed|failed
 candidate-commit=[commit-sha]
 ci-run=[github-actions-ci-url]

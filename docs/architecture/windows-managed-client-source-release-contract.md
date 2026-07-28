@@ -8,7 +8,7 @@ current Windows package.
 ```text
 windows-managed-client-source-release-contract=present
 windows-managed-client-release-state=implementation-active
-windows-managed-client-version-scope=v0.2.0-beta.3
+windows-managed-client-version-scope=v0.2.0-beta.4
 WINDOWS_CLI_ARTIFACT_GATE=windows-managed-client-active
 windows-managed-client-runner=windows-latest
 windows-managed-client-runner-kind=github-hosted
@@ -85,7 +85,7 @@ provides one, extracts `sing-box.exe` under `%ProgramData%`, and persists its
 path for profile import. The MSI itself neither bundles nor silently downloads
 the third-party core.
 
-`v0.2.0-beta.3` uses a Tauri/React desktop view with a Rust-owned command bridge and splits daily UI state,
+`v0.2.0-beta.4` uses a Tauri/React desktop view with a Rust-owned command bridge and splits daily UI state,
 runtime observation, background command dispatch, and theme into dedicated GUI
 modules. Its six daily pages are Home, Nodes, Subscriptions, Settings,
 Diagnostics, and Advanced. `Connected` requires independent SCM, service-owned

@@ -19,7 +19,7 @@ GitHub Release asset 为准；`main` 中 tag 之后的源码增量不等于用�
 
 ```text
 current-main-release-state=pending_manual_acceptance
-current-main-source-candidate=v0.2.0-beta.3
+current-main-source-candidate=v0.2.0-beta.4
 current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
@@ -354,7 +354,7 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前 Windows 发布切片
 
-### `v0.2.0-beta.3`
+### `v0.2.0-beta.4`
 
 状态：Beta release candidate pending_manual_acceptance；同 commit GitHub Actions CI
 已作为发布门禁来源，workflow_dispatch dry-run 可验证 Linux/Windows 产物名称、版本、
@@ -384,7 +384,7 @@ checksum、manifest、attestation 和 bundle 内容。维护者可创建 beta ta
 
 ### `v0.2.0-alpha.21`
 
-状态：已发布 Windows managed-client prerelease；后续修复进入 `v0.2.0-beta.3`
+状态：已发布 Windows managed-client prerelease；后续修复进入 `v0.2.0-beta.4`
 候选切片。
 
 主要特性：
@@ -985,7 +985,7 @@ GitHub Actions release workflow 结果为准。
 
 ## 当前 main source 状态
 
-当前 Windows source release 候选切片是 `v0.2.0-beta.3`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
+当前 Windows source release 候选切片是 `v0.2.0-beta.4`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
 `v0.1.1-alpha.2` 的 Linux/Windows package、checksum、manifest、attestation 和 publish gate，并把
 受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI；Windows path 已切换到
 managed-client MSI，service、driver、installer、system proxy mutation、system trust store mutation 和 managed lifecycle
