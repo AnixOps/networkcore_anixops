@@ -4,7 +4,7 @@
 
 ## Unreleased
 
-Current Windows/Linux Beta release candidate: `v0.2.0-beta.4`. It is in
+Current Windows/Linux Beta release candidate: `v0.2.0-beta.5`. It is in
 `pending_manual_acceptance`: the same commit requires GitHub Actions release
 validation and protected Windows/Linux system acceptance before it may be
 described as production-ready. A maintainer may explicitly authorize a beta tag
@@ -12,7 +12,7 @@ to generate candidate artifacts for that acceptance.
 
 ```text
 current-main-release-state=pending_manual_acceptance
-current-main-source-candidate=v0.2.0-beta.4
+current-main-source-candidate=v0.2.0-beta.5
 current-main-latest-published-tag=v0.2.0-alpha.21
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
@@ -86,7 +86,12 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
   bounded listener and selector health checks while running; a failed check
   records the managed failure and follows the existing proxy rollback/stop
   path. This is pending manual Windows/Linux acceptance before the formal
-  `v0.2.0-beta.4` tag.
+  `v0.2.0-beta.5` tag.
+
+- Windows HTTPS MITM private-key ACL protection now reuses the managed MITM
+  directory resolved by the Rust host instead of independently requiring a
+  PowerShell `CommonApplicationData` value. The fixed-path, reparse-point,
+  owner, and exact ACL checks remain fail-closed.
 
 - Windows profile import now stages a sing-box plan transactionally: it clears
   the mutually exclusive Mieru plan before managed-config commit, and restores

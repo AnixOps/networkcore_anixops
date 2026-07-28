@@ -47,16 +47,14 @@ pub fn remove_windows_managed_mitm_private_key(path: &Path) -> DomainResult<()> 
     }
 }
 
-#[cfg(windows)]
 const MANAGED_MITM_PRIVATE_KEY_ACL_SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
 $path = $env:NETWORKCORE_MITM_PRIVATE_KEY_PATH
 if ([String]::IsNullOrWhiteSpace($path)) { throw 'private key path is unavailable' }
+$expectedDirectory = $env:NETWORKCORE_MITM_PRIVATE_KEY_DIRECTORY
+if ([String]::IsNullOrWhiteSpace($expectedDirectory)) { throw 'private key directory is unavailable' }
 $mode = $env:NETWORKCORE_MITM_PRIVATE_KEY_ACL_MODE
 if ($mode -ne 'protect' -and $mode -ne 'validate') { throw 'private key ACL mode is invalid' }
-$base = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
-if ([String]::IsNullOrWhiteSpace($base)) { throw 'common application data is unavailable' }
-$expectedDirectory = Join-Path (Join-Path (Join-Path $base 'AnixOps') 'NetworkCore') 'mitm'
 $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
 $directory = Get-Item -LiteralPath $expectedDirectory -Force -ErrorAction Stop
 if (-not ($item -is [System.IO.FileInfo]) -or -not $directory.PSIsContainer) { throw 'private key path is invalid' }
@@ -98,12 +96,14 @@ fn run_windows_managed_mitm_private_key_acl(path: &Path, mode: &str) -> DomainRe
 
     let mut command = native_windows_system_command(NativeWindowsSystemTool::PowerShell)
         .map_err(|_| private_key_protection_error())?;
+    let directory = path.parent().ok_or_else(private_key_protection_error)?;
     let output = command
         .arg("-NoProfile")
         .arg("-NonInteractive")
         .arg("-Command")
         .arg(MANAGED_MITM_PRIVATE_KEY_ACL_SCRIPT)
         .env("NETWORKCORE_MITM_PRIVATE_KEY_PATH", path)
+        .env("NETWORKCORE_MITM_PRIVATE_KEY_DIRECTORY", directory)
         .env("NETWORKCORE_MITM_PRIVATE_KEY_ACL_MODE", mode)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -166,6 +166,13 @@ mod tests {
                 .and_then(|name| name.to_str()),
             Some("mitm")
         );
+    }
+
+    #[test]
+    fn acl_script_uses_the_rust_validated_managed_mitm_directory() {
+        assert!(MANAGED_MITM_PRIVATE_KEY_ACL_SCRIPT
+            .contains("NETWORKCORE_MITM_PRIVATE_KEY_DIRECTORY"));
+        assert!(!MANAGED_MITM_PRIVATE_KEY_ACL_SCRIPT.contains("CommonApplicationData"));
     }
 
     #[test]
