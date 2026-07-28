@@ -170,8 +170,9 @@ mod tests {
 
     #[test]
     fn acl_script_uses_the_rust_validated_managed_mitm_directory() {
-        assert!(MANAGED_MITM_PRIVATE_KEY_ACL_SCRIPT
-            .contains("NETWORKCORE_MITM_PRIVATE_KEY_DIRECTORY"));
+        assert!(
+            MANAGED_MITM_PRIVATE_KEY_ACL_SCRIPT.contains("NETWORKCORE_MITM_PRIVATE_KEY_DIRECTORY")
+        );
         assert!(!MANAGED_MITM_PRIVATE_KEY_ACL_SCRIPT.contains("CommonApplicationData"));
     }
 
