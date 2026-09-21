@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+### Security
+
+- 修复 Actions 依赖审计发现的 [RUSTSEC-2026-0285](https://rustsec.org/advisories/RUSTSEC-2026-0285.html)：将 `rustls` 最低版本与 lock 提升到 `0.23.45`，相应 `rustls-webpki` lock 提升到 `0.103.15`。保留依赖审计与全平台 TLS 回归，未添加漏洞忽略规则。
+
 ### Added
 
 - 编写首批维护事件 v1 严格字段/时间/大小/身份校验、JSON 与逐事件批量序列化边界及显式诊断适配器；原始诊断文本不进入适配结果，自动动作契约移除 rollback。新增 Rust 合同与共享 fixture，CI 结果待当前提交工作流登记，尚未接入 NetworkCore 实际运行时通信。
