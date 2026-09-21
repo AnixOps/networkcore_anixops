@@ -79,6 +79,7 @@ fn maintenance_rejects_invalid_identity_versions_lengths_and_clock_evidence() {
         ("node_id", json!("0")),
         ("node_id", json!("01")),
         ("node_id", json!("other-node")),
+        ("node_id", json!("18446744073709551616")),
         ("event_id", json!(" ")),
         ("event_id", json!("|ambiguous")),
         ("instance_id", json!("../path")),
@@ -216,4 +217,21 @@ fn maintenance_allows_blocked_restart_budget_without_an_automatic_rollback_actio
         .unwrap()
         .replace("circuit_break", "rollback");
     assert!(MaintenanceEvent::from_json(rollback.as_bytes(), now()).is_err());
+}
+
+#[test]
+fn maintenance_status_matches_control_receiver_observation_requirements() {
+    let mut observed = event();
+    observed.consecutive_failures = 0;
+    assert!(observed.validate().is_err());
+    observed = event();
+    observed.healthy_since = Some("2026-09-22T00:01:00Z".to_string());
+    assert!(observed.validate().is_err());
+    observed.status = MaintenanceStatus::Recovered;
+    assert!(observed.validate().is_err());
+    observed.consecutive_failures = 0;
+    assert!(observed.validate().is_ok());
+    observed = event();
+    observed.self_heal_result = None;
+    assert!(observed.validate().is_ok());
 }

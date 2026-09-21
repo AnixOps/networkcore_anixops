@@ -104,6 +104,9 @@ impl MaintenanceEvent {
         if self.node_id.starts_with('0') || !self.node_id.bytes().all(|c| c.is_ascii_digit()) {
             return Err("node_id must be a positive decimal string");
         }
+        self.node_id
+            .parse::<u64>()
+            .map_err(|_| "node_id exceeds supported range")?;
         validate_version(&self.plugin_version)?;
         for value in [&self.agent_version, &self.config_version]
             .into_iter()
@@ -152,15 +155,15 @@ impl MaintenanceEvent {
         {
             return Err("invalid consecutive_failures evidence");
         }
-        if self.status == MaintenanceStatus::Recovered && healthy_since.is_none() {
-            return Err("recovery requires healthy_since");
-        }
-        if matches!(
-            self.self_heal_action,
-            Some(SelfHealAction::Retry | SelfHealAction::Restart)
-        ) && self.self_heal_result.is_none()
+        if self.status == MaintenanceStatus::Recovered
+            && (healthy_since.is_none() || self.consecutive_failures != 0)
         {
-            return Err("self_heal_action requires self_heal_result");
+            return Err("recovery requires healthy_since and zero consecutive failures");
+        }
+        if self.status != MaintenanceStatus::Recovered
+            && (first_failed_at.is_none() || self.consecutive_failures == 0 || healthy_since.is_some())
+        {
+            return Err("failure requires first_failed_at and positive consecutive failures");
         }
         for value in [&self.diagnostic_ref, &self.ticket_key]
             .into_iter()
