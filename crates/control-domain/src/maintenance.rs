@@ -161,7 +161,9 @@ impl MaintenanceEvent {
             return Err("recovery requires healthy_since and zero consecutive failures");
         }
         if self.status != MaintenanceStatus::Recovered
-            && (first_failed_at.is_none() || self.consecutive_failures == 0 || healthy_since.is_some())
+            && (first_failed_at.is_none()
+                || self.consecutive_failures == 0
+                || healthy_since.is_some())
         {
             return Err("failure requires first_failed_at and positive consecutive failures");
         }
