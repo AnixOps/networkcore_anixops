@@ -5,7 +5,7 @@
 ## 当前
 
 - [x] 编写首批 NetworkCore 诊断事件严格校验、序列化和显式适配库入口与合同测试；该勾选仅登记源码。
-- [ ] 为本轮源码登记同提交 CI run URL 与合同/全量回归结论。
+- [x] 登记源码 `fb6934a6e0db0c30b455f31edbfcc6491c078c3b` 的[同提交 CI](https://github.com/AnixOps/networkcore_anixops/actions/runs/35650045804)：维护合同 13 项、Linux/macOS/Windows 全量回归与构建、依赖审计全部通过。
 - [ ] 独立验收真实运行时接线、部署与跨地域/设备环境；本轮首批契约不代表这些后续能力完成。
 
 
@@ -56,7 +56,7 @@ P4 backlog buckets：
 
 ## 已完成
 
-- [x] 完成第十三个 v0.1.2-alpha.2 managed foreground event source-only 列表切片：新增 `ManagedForegroundSessionEventListRequest`、`ManagedForegroundSessionEventListEntry`、`ManagedForegroundSessionEventListReport`、`CommandManagedForegroundSessionEventStore::list_events` 和 `managed_foreground_session_event_list_reads_explicit_directory_deterministically` 合同测试，固定显式 directory、仅直接常规 `.json` record、确定性路径排序、逐条 schema 校验、event count/entries 与 `liveness_verified=false`；跳过非 JSON、symbolic link 和嵌套目录，损坏 JSON 保留稳定 read-failed 错误且不修改有效 record，不接入 CLI list、实时流或 runtime control；本轮回归及确切 CI 证据待登记。
+- [x] 完成第十三个 v0.1.2-alpha.2 managed foreground event source-only 列表切片：新增 `ManagedForegroundSessionEventListRequest`、`ManagedForegroundSessionEventListEntry`、`ManagedForegroundSessionEventListReport`、`CommandManagedForegroundSessionEventStore::list_events` 和 `managed_foreground_session_event_list_reads_explicit_directory_deterministically` 合同测试，固定显式 directory、仅直接常规 `.json` record、确定性路径排序、逐条 schema 校验、event count/entries 与 `liveness_verified=false`；跳过非 JSON、symbolic link 和嵌套目录，损坏 JSON 保留稳定 read-failed 错误且不修改有效 record，不接入 CLI list、实时流或 runtime control；本轮回归已通过，确切 SHA 与 [CI 记录](https://github.com/AnixOps/networkcore_anixops/actions/runs/35650045804) 见交付证据。
 - [x] 完成第十二个 v0.1.2-alpha.2 managed foreground status rollback CLI 切片：新增 `LinuxCliCommand::ManagedStatusRollback`、`networkcore-linux managed-status rollback <status-record-path> <snapshot-path> <expected-state>`、`handle_managed_foreground_status_rollback` 和 `managed_foreground_session_status_cli_rolls_back_matching_snapshot` 合同测试，固定显式 expected-state/identity-protected snapshot restore、text/JSON previous/restored state、`snapshot_retained=true` 与 `liveness_verified=false`；stale expected state 保留稳定 state-conflict 错误且不修改 record 或 snapshot，不检查 live process 或控制 runtime；该切片已通过 GitHub Actions 全量 CI。
 - [x] 完成第十一个 v0.1.2-alpha.2 managed foreground status rollback 源切片：新增 `ManagedForegroundSessionStatusRollbackRequest`、`ManagedForegroundSessionStatusRollbackReport`、`CommandManagedForegroundSessionStore::rollback_status` 和 `managed_foreground_session_status_rollback_restores_matching_snapshot` 合同测试，固定显式 status/snapshot 路径、expected-state 保护、snapshot session/engine identity 校验、原始 snapshot 内容恢复、`snapshot_retained=true` 与 `liveness_verified=false`；stale expected state 保留稳定 state-conflict 错误且不修改 record 或 snapshot，不控制 runtime；该切片已通过 GitHub Actions 全量 CI。
 - [x] 完成第十个 v0.1.2-alpha.2 managed foreground event CLI 初始写入切片：新增 `LinuxCliCommand::ManagedEventInit`、`networkcore-linux managed-event init <event-record-path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at>`、`handle_managed_foreground_event_init` 和 `managed_foreground_session_event_cli_initializes_non_overwriting_record` 合同测试，固定显式 schema version 1 event record 的首次非覆盖写入、text/JSON `record_written=true`、`liveness_verified=false` 与重复路径的稳定 write-failed 错误；该切片已通过 GitHub Actions 全量 CI。
