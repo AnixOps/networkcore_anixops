@@ -6,6 +6,9 @@
 
 ### Added
 
+- 编写首批维护事件 v1 严格字段/时间/大小/身份校验、JSON 与逐事件批量序列化边界及显式诊断适配器；原始诊断文本不进入适配结果，自动动作契约移除 rollback。新增 Rust 合同与共享 fixture，CI 结果待当前提交工作流登记，尚未接入 NetworkCore 实际运行时通信。
+
+- 完成 `v0.1.2-alpha.2` managed foreground event 第十三个 source-only list 切片：新增 `ManagedForegroundSessionEventListRequest`、`ManagedForegroundSessionEventListEntry`、`ManagedForegroundSessionEventListReport` 和 `CommandManagedForegroundSessionEventStore::list_events`，从调用方显式 directory 只读取直接常规 `.json` event record，按路径确定性排序、校验每个候选并输出 event count/entries 与 `liveness_verified=false`；跳过非 JSON、symbolic link 和嵌套目录，损坏或无效候选保留既有稳定读取/校验错误且不修改文件，不接入 `managed-event list` CLI、实时 event stream 或 runtime control；本轮回归及确切 CI 证据待登记。
 - 完成 `v0.1.2-alpha.2` managed foreground status `rollback_status` 源切片：新增 `ManagedForegroundSessionStatusRollbackRequest`、`ManagedForegroundSessionStatusRollbackReport` 和 `CommandManagedForegroundSessionStore::rollback_status`，仅在显式 status/snapshot 路径不同、current state 匹配 expected state 且 snapshot session/engine identity 匹配时，将 snapshot 原始 JSON 写回 status record 并保留 snapshot；report 固定 previous/restored state、`snapshot_retained=true` 与 `liveness_verified=false`。stale state 返回 state-conflict，snapshot 无法读取或解析返回 snapshot-read-failed，不控制 runtime；合同测试已通过 GitHub Actions 全量 CI。
 - 完成 `v0.1.2-alpha.2` managed foreground status rollback CLI 切片：新增 `LinuxCliCommand::ManagedStatusRollback`、`networkcore-linux managed-status rollback <status-record-path> <snapshot-path> <expected-state>`、`handle_managed_foreground_status_rollback` 和 `managed_foreground_session_status_cli_rolls_back_matching_snapshot` 合同测试，调用同一 expected-state/identity-protected snapshot restore，输出 text/JSON previous/restored state、`snapshot_retained=true` 与 `liveness_verified=false`；stale expected state 保留 state-conflict 且不修改 record 或 snapshot，不检查 live process 或控制 runtime；合同测试已通过 GitHub Actions 全量 CI。
 

@@ -2,6 +2,10 @@
 
 本路线图用于把 `networkcore_AnixOps` 从 bootstrap 仓库逐步推进为可验证、可维护的全平台网络内核与客户端体系。所有阶段都必须遵守 [AGENT.md](AGENT.md) 和 [docs/ci-cd-policy.md](docs/ci-cd-policy.md)：本机只编辑文件，验证只在 GitHub Actions 中运行。
 
+## 首批交付与完整路线
+
+本轮 NetworkCore 只交付诊断事件校验、JSON 序列化与显式适配边界；Control + Agent 的机器监控插件和运维闭环先独立交付。后续完整路线依次包括订阅实际运行、进程管理、MITM、浏览器捕获和跨平台客户端。源码、CI 与真实环境分别记录于 [交付证据](docs/P4_EXECUTION_STATUS.md)，最后再进行真实环境演练、灰度、发布与维护交接。下列 P0–P4 是本仓库历史阶段，不表示跨仓库或生产验收完成。
+
 ## 当前阶段：P4 Client And Platform Integration
 
 P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成。当前工作进入客户端、平台和发布集成阶段：Linux CLI 已有 GitHub Actions 生成的预发布二进制，iOS 仍处于 source-tree/upload gates，运行层继续通过 public engine adapter 和后续 MITM gates 增量补齐能力。
@@ -132,8 +136,8 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Ker
 第六个 `rollback_catalog` source-only 切片已加入显式 snapshot 复原、snapshot 保留、snapshot-not-found 拒绝和脱敏 report，并已通过 GitHub Actions 全量 CI；
 `v0.1.2-alpha.2` 的 `read_status`/`write_status`/`transition_status` source-only 切片已显式读取、初始非覆盖写入或受 expected state 保护地迁移 schema version 1 managed foreground session record；迁移保留原始 record snapshot，仅允许 `starting -> running/failed` 与 `running -> stopped/failed`；`networkcore-linux managed-status <status-record-path>` 已只读输出 recorded state，`networkcore-linux managed-status init <status-record-path> <session-id> <engine-id> <state>` 已非覆盖创建 record 并输出 `record_written=true`，`networkcore-linux managed-status transition <status-record-path> <snapshot-path> <expected-state> <next-state>` 已输出 previous/next state 和 `snapshot_written=true`，三者均固定 `liveness_verified=false`，不检查 live process、不接入 runtime control；
 同一阶段的 `CommandManagedForegroundSessionStore::rollback_status` 已恢复显式 snapshot 的原始 record：它要求 current record 的 expected state 与 snapshot 的 trim 后 session/engine identity 匹配，保留 snapshot，并输出 previous/restored state、`snapshot_retained=true` 与 `liveness_verified=false`；`networkcore-linux managed-status rollback <status-record-path> <snapshot-path> <expected-state>` 已输出同一回滚 report，不检查 live process，也不控制 runtime；
-同一阶段的 `CommandManagedForegroundSessionEventStore::read_event`/`write_event` 已从显式 schema version 1 event record 读取或非覆盖写入允许的 event kind、recorded state 与 recorded_at，固定 `record_written=true`（写入）与 `liveness_verified=false`；`networkcore-linux managed-event <event-record-path>` 已只读输出 record，`networkcore-linux managed-event init <event-record-path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at>` 已非覆盖创建 record；不扫描 event，不接入实时 event stream 或 runtime control；
-`networkcore-linux managed-event <event-record-path>` 已只读输出同一 event record，不写入、删除、列出或扫描 event，也不接入实时 event stream 或 runtime control；
+同一阶段的 `CommandManagedForegroundSessionEventStore::read_event`/`write_event` 已从显式 schema version 1 event record 读取或非覆盖写入允许的 event kind、recorded state 与 recorded_at，固定 `record_written=true`（写入）与 `liveness_verified=false`；`CommandManagedForegroundSessionEventStore::list_events` 已从调用方显式 directory 读取直接常规 `.json` event record，按路径确定性排序、校验每个候选并输出 event count/entries 与 `liveness_verified=false`；它不使用默认路径、不递归扫描，也不接入 CLI list、实时 event stream 或 runtime control；
+`networkcore-linux managed-event <event-record-path>` 已只读输出同一 event record，`networkcore-linux managed-event init <event-record-path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at>` 已非覆盖创建 record；两个 CLI 命令均不删除、归档或列出 event，也不接入实时 event stream 或 runtime control；
 默认路径、远程/file fetch、runtime startup 和 managed lifecycle 仍 blocked，
 每个切片的功能完成状态以 GitHub Actions 合同测试为准。
 

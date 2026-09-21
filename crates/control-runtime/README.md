@@ -7,3 +7,5 @@ The crate depends only on `control-domain`. It composes configuration, platform 
 The subscription catalog runtime gate uses explicit `SubscriptionService` and `SubscriptionSource` inputs, rejects duplicate node ids with `runtime.subscription.node_id_duplicate`, reports deferred subscription rules with `runtime.subscription.rules_deferred`, and keeps subscription rules out of `ConfigSnapshot.policies` until policy routing is wired.
 
 Verification for this crate is performed only by GitHub Actions, following the repository CI/CD policy.
+
+`maintenance::adapt_maintenance_diagnostic` is an explicit adapter supplied with host observation timestamps, authenticated identity and a typed diagnostic classification. It exports fixed codes and summaries, drops raw diagnostic text/source/code, and initiates no automatic action. CLI recorded event/status data is not automatically promoted to live fault evidence.

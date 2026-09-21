@@ -32,6 +32,14 @@ jobs:
           required_files=(
             AGENT.md
             AGENTS.md
+            docs/MAINTENANCE_P0.md
+            docs/P4_EXECUTION_STATUS.md
+            docs/contracts/maintenance-event.schema.json
+            docs/contracts/maintenance-event.fixture.json
+            crates/control-domain/src/maintenance.rs
+            crates/control-domain/tests/maintenance_contracts.rs
+            crates/control-runtime/src/maintenance.rs
+            crates/control-runtime/tests/maintenance_adapter_contracts.rs
             README.md
             CONTRIBUTING.md
             ROADMAP.md
@@ -440,6 +448,9 @@ jobs:
           grep -q "managed-foreground-session-event-source-contract=active" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-operation=event-read" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-write-operation=event-write" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "managed-foreground-session-event-list-operation=event-list" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "managed-foreground-session-event-list-directory-scan=active" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "managed-foreground-session-event-list-cli=blocked" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-cli-read-operation=managed-event" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-cli-init-operation=managed-event-init" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-liveness-verification=blocked" docs/architecture/managed-foreground-session-event-source-contract.md
@@ -449,6 +460,10 @@ jobs:
           grep -q "ManagedForegroundSessionEventWriteRequest" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "ManagedForegroundSessionEventWriteReport" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "CommandManagedForegroundSessionEventStore::write_event" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "ManagedForegroundSessionEventListRequest" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "ManagedForegroundSessionEventListEntry" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "ManagedForegroundSessionEventListReport" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "CommandManagedForegroundSessionEventStore::list_events" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "ManagedForegroundSessionStatusRequest" apps/linux-cli/src/lib.rs
           grep -q "ManagedForegroundSessionStatusReport" apps/linux-cli/src/lib.rs
           grep -q "fn read_status" apps/linux-cli/src/lib.rs
@@ -483,7 +498,12 @@ jobs:
           grep -q "ManagedForegroundSessionEventWriteRequest" apps/linux-cli/src/lib.rs
           grep -q "ManagedForegroundSessionEventWriteReport" apps/linux-cli/src/lib.rs
           grep -q "fn write_event" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionEventListRequest" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionEventListEntry" apps/linux-cli/src/lib.rs
+          grep -q "ManagedForegroundSessionEventListReport" apps/linux-cli/src/lib.rs
+          grep -q "fn list_events" apps/linux-cli/src/lib.rs
           grep -q "managed_foreground_session_event_reads_explicit_record_without_liveness_claim" apps/linux-cli/tests/linux_cli_contracts.rs
+          grep -q "managed_foreground_session_event_list_reads_explicit_directory_deterministically" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "managed_foreground_session_event_write_persists_non_overwriting_record" apps/linux-cli/tests/linux_cli_contracts.rs
           grep -q "ManagedEvent" apps/linux-cli/src/lib.rs
           grep -q "fn handle_managed_foreground_event" apps/linux-cli/src/lib.rs
@@ -540,6 +560,9 @@ jobs:
           grep -q "CommandManagedForegroundSessionEventStore::write_event" TODO.md
           grep -q "CommandManagedForegroundSessionEventStore::write_event" CHANGELOG.md
           grep -q "CommandManagedForegroundSessionEventStore::write_event" apps/linux-cli/README.md
+          grep -q "CommandManagedForegroundSessionEventStore::list_events" TODO.md
+          grep -q "CommandManagedForegroundSessionEventStore::list_events" CHANGELOG.md
+          grep -q "CommandManagedForegroundSessionEventStore::list_events" apps/linux-cli/README.md
           grep -q "networkcore-linux managed-event" TODO.md
           grep -q "networkcore-linux managed-event" CHANGELOG.md
           grep -q "networkcore-linux managed-event" apps/linux-cli/README.md
@@ -1598,6 +1621,27 @@ jobs:
         shell: bash
         run: cargo build --locked --workspace --all-targets
 
+  maintenance-contracts:
+    name: Maintenance diagnostic contract
+    runs-on: ubuntu-latest
+    needs:
+      - detect-projects
+    if: ${{ needs.detect-projects.outputs.rust == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Validate event wire contract and adversarial inputs
+        run: cargo test --locked -p control-domain --test maintenance_contracts
+
+      - name: Validate diagnostic adaptation and secret minimization
+        run: cargo test --locked -p control-runtime --test maintenance_adapter_contracts
+
   rust-security-audit:
     name: Rust dependency security audit
     runs-on: ubuntu-latest
@@ -1725,6 +1769,7 @@ jobs:
       - go-build-test
       - rust-build-test
       - rust-security-audit
+      - maintenance-contracts
       - node-build-test
       - swift-build-test
       - apple-project-smoke
@@ -1746,6 +1791,7 @@ jobs:
             echo
             echo "| Required job | Result |"
             echo "| --- | --- |"
+            echo "| Maintenance diagnostic contract | ${{ needs.maintenance-contracts.result }} |"
             echo "| Repository policy | ${{ needs.policy.result }} |"
             echo "| Detect project types | ${{ needs.detect-projects.result }} |"
             echo "| Workspace smoke | ${{ needs.workspace-smoke.result }} |"
@@ -1773,6 +1819,7 @@ jobs:
           if [ "${{ needs.detect-projects.outputs.rust }}" = "true" ]; then
             test "${{ needs.rust-build-test.result }}" = "success"
             test "${{ needs.rust-security-audit.result }}" = "success"
+            test "${{ needs.maintenance-contracts.result }}" = "success"
           fi
           if [ "${{ needs.detect-projects.outputs.node }}" = "true" ]; then
             test "${{ needs.node-build-test.result }}" = "success"

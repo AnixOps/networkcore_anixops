@@ -94,6 +94,8 @@ pub struct MetadataEntry {
 
 pub type Metadata = Vec<MetadataEntry>;
 
+pub mod maintenance;
+
 pub const NODE_METADATA_SHADOWSOCKS_METHOD: &str = "shadowsocks.method";
 pub const NODE_METADATA_SHADOWSOCKS_PASSWORD: &str = "shadowsocks.password";
 pub const NODE_METADATA_TROJAN_PASSWORD: &str = "trojan.password";
