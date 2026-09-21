@@ -119,7 +119,9 @@ impl MaintenanceEvent {
             "agent" | "control" | "networkcore" | "deployment" => {}
             _ => return Err("unsupported source"),
         }
-        if !self.error_code.starts_with(|c: char| c.is_ascii_uppercase())
+        if !self
+            .error_code
+            .starts_with(|c: char| c.is_ascii_uppercase())
             || self.error_code.len() > 128
             || !self
                 .error_code
@@ -153,8 +155,10 @@ impl MaintenanceEvent {
         if self.status == MaintenanceStatus::Recovered && healthy_since.is_none() {
             return Err("recovery requires healthy_since");
         }
-        if matches!(self.self_heal_action, Some(SelfHealAction::Retry | SelfHealAction::Restart))
-            && self.self_heal_result.is_none()
+        if matches!(
+            self.self_heal_action,
+            Some(SelfHealAction::Retry | SelfHealAction::Restart)
+        ) && self.self_heal_result.is_none()
         {
             return Err("self_heal_action requires self_heal_result");
         }
@@ -223,10 +227,7 @@ impl MaintenanceEvent {
     pub fn dedupe_key(&self) -> String {
         format!(
             "{}|{}|{}|{}",
-            self.environment,
-            self.node_id,
-            self.plugin_id,
-            self.instance_id
+            self.environment, self.node_id, self.plugin_id, self.instance_id
         )
     }
 
@@ -235,8 +236,10 @@ impl MaintenanceEvent {
         let Some(first) = self.first_failed_at.as_deref() else {
             return Ok(false);
         };
-        Ok(matches!(self.status, MaintenanceStatus::Open | MaintenanceStatus::Degraded)
-            && self.healthy_since.is_none()
+        Ok(matches!(
+            self.status,
+            MaintenanceStatus::Open | MaintenanceStatus::Degraded
+        ) && self.healthy_since.is_none()
             && self.consecutive_failures >= 3
             && (parse_timestamp(&self.occurred_at)? - parse_timestamp(first)?).whole_seconds()
                 >= 120)

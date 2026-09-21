@@ -73,10 +73,22 @@ fn maintenance_adapter_requires_explicit_valid_host_observation_evidence() {
 fn maintenance_adapter_preserves_manual_and_immediate_major_routing() {
     let diagnostic = Diagnostic::new(DiagnosticSeverity::Error, "opaque", "private", None);
     for (kind, expected_code) in [
-        (MaintenanceDiagnosticKind::Credential, "PLUGIN_CREDENTIAL_INVALID"),
-        (MaintenanceDiagnosticKind::Permission, "PLUGIN_PERMISSION_DENIED"),
-        (MaintenanceDiagnosticKind::Signature, "PLUGIN_SIGNATURE_INVALID"),
-        (MaintenanceDiagnosticKind::Configuration, "PLUGIN_CONFIG_INVALID"),
+        (
+            MaintenanceDiagnosticKind::Credential,
+            "PLUGIN_CREDENTIAL_INVALID",
+        ),
+        (
+            MaintenanceDiagnosticKind::Permission,
+            "PLUGIN_PERMISSION_DENIED",
+        ),
+        (
+            MaintenanceDiagnosticKind::Signature,
+            "PLUGIN_SIGNATURE_INVALID",
+        ),
+        (
+            MaintenanceDiagnosticKind::Configuration,
+            "PLUGIN_CONFIG_INVALID",
+        ),
     ] {
         let mut observation = context();
         observation.kind = kind;

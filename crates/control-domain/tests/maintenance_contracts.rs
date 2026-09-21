@@ -21,7 +21,10 @@ fn event() -> MaintenanceEvent {
 fn maintenance_wire_fixture_round_trips_without_changing_identity_or_evidence() {
     let original = event();
     let bytes = original.to_json(now()).unwrap();
-    assert_eq!(MaintenanceEvent::from_json(&bytes, now()).unwrap(), original);
+    assert_eq!(
+        MaintenanceEvent::from_json(&bytes, now()).unwrap(),
+        original
+    );
     let encoded: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(encoded["instance_id"], "machine-telemetry:default");
     assert_eq!(encoded["consecutive_failures"], 3);
@@ -56,9 +59,10 @@ fn maintenance_rejects_unknown_duplicate_and_unsupported_wire_fields() {
         wire[field] = value;
         assert!(MaintenanceEvent::from_json(&serde_json::to_vec(&wire).unwrap(), now()).is_err());
     }
-    let duplicate = String::from_utf8(FIXTURE.to_vec())
-        .unwrap()
-        .replacen('{', "{\"schema_version\": 1,", 1);
+    let duplicate =
+        String::from_utf8(FIXTURE.to_vec())
+            .unwrap()
+            .replacen('{', "{\"schema_version\": 1,", 1);
     assert_eq!(
         MaintenanceEvent::from_json(duplicate.as_bytes(), now()),
         Err("invalid event JSON")
@@ -186,11 +190,7 @@ fn maintenance_batch_enforces_event_count_byte_limits_and_wire_version() {
         Err("event payload too large")
     );
     assert_eq!(
-        MaintenanceBatch::from_json(
-            &vec![b' '; MAINTENANCE_MAX_BATCH_BYTES + 1],
-            "42",
-            now()
-        ),
+        MaintenanceBatch::from_json(&vec![b' '; MAINTENANCE_MAX_BATCH_BYTES + 1], "42", now()),
         Err("batch payload too large")
     );
     let bytes = MaintenanceBatch::to_json(&[observed], now()).unwrap();
@@ -208,7 +208,10 @@ fn maintenance_allows_blocked_restart_budget_without_an_automatic_rollback_actio
     let mut observed = event();
     observed.self_heal_action = Some(SelfHealAction::CircuitBreak);
     let bytes = observed.to_json(now()).unwrap();
-    assert_eq!(MaintenanceEvent::from_json(&bytes, now()).unwrap(), observed);
+    assert_eq!(
+        MaintenanceEvent::from_json(&bytes, now()).unwrap(),
+        observed
+    );
     let rollback = String::from_utf8(bytes)
         .unwrap()
         .replace("circuit_break", "rollback");

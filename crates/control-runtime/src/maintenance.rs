@@ -3,8 +3,8 @@
 //! from recorded CLI status or creates its own observation history.
 
 use control_domain::maintenance::{
-    MaintenanceEvent, MaintenanceSeverity, MaintenanceStatus, SelfHealAction,
-    SelfHealResult, MAINTENANCE_SCHEMA_VERSION,
+    MaintenanceEvent, MaintenanceSeverity, MaintenanceStatus, SelfHealAction, SelfHealResult,
+    MAINTENANCE_SCHEMA_VERSION,
 };
 use control_domain::{Diagnostic, DiagnosticSeverity};
 
