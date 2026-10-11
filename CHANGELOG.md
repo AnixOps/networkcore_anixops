@@ -36,6 +36,11 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 ### Changed
 
+- CI validation jobs now restore Rust build caches (registry, git deps, and
+  `target/`) and pnpm store caches, and `cargo-audit` installs from a prebuilt
+  binary instead of compiling from source on every run. Rust validation jobs
+  also set `CARGO_INCREMENTAL=0`. Release workflows are unchanged. The cache policy is recorded in `docs/ci-cd-policy.md` under
+  "CI 缓存策略".
 - Windows HTTPS MITM now offers an opt-in first-party Bilibili web promotional
   request-blocking trial. It is disabled by default, uses no third-party script
   runtime or response-body rewriting, and records only its fixed policy ID in

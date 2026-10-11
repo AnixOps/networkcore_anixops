@@ -71,7 +71,7 @@ Windows GUI 前端在独立的 `windows-gui-frontend` Ubuntu producer job 中构
 普通 CI，artifact 保留一天；Release workflow 必须继续独立安装 frozen dependencies、构建前端和
 生成发布产物，不得信任或复用普通 CI artifact。Windows GUI 的
 `apps/windows-gui/ui/pnpm-lock.yaml` 必须随源码提交，Node CI 和 release 均使用
-`pnpm install --frozen-lockfile`；不共享 `dist`、Rust target 或发布产物缓存。pnpm
+`pnpm install --frozen-lockfile`；Node CI 与 release 不共享 `dist` 或发布产物缓存，release 不共享 Rust target 缓存；普通 CI 的缓存规则见下文「CI 缓存策略」。pnpm
 lockfile 只能由 `.github/workflows/refresh-pnpm-lock.yml` 在 GitHub Actions 中生成，
 经 artifact 审查后提交。
 
@@ -196,6 +196,21 @@ Swift、Apple 项目检测开关，以及运行、跳过、失败的 job 和下�
 `cancelled` 都必须使 summary 失败。当检测到 Rust workspace 且 Rust 路径需要验证时，summary 必须同时
 检查 Rust build/test 矩阵和 Rust dependency security audit；当 Go、Node、Swift 或 Apple 路径需要验证时，
 summary 必须检查对应语言或平台 job。
+
+### CI 缓存策略
+
+目标是缩短普通 CI 的重复下载和重复编译，同时保证 release 可复现。缓存只能加速，不能改变验证结论：缓存未命中时，每个 job 仍必须能从源码完整安装、构建和测试。
+
+- 普通 CI 允许的缓存（仅限 `ci.yml` 的验证 job）：
+  - Rust：`Swatinem/rust-cache` 缓存 cargo registry、git 依赖和 `target/`。key 由 job、runner OS 与架构、rustc 版本、相关 `CARGO_*` 环境变量、`Cargo.lock`、`Cargo.toml`、`.cargo/config.toml` 与 `rust-toolchain` 决定。只有成功的 run 保存缓存，失败的 run 不写入缓存，避免错误状态被长期复用。Rust 验证 job 设置 `CARGO_INCREMENTAL=0`，CI 中增量编译收益低且产物体积大，关闭以减少编译和缓存开销；Windows MSI job 先安装工具链再恢复缓存，保证 key 中的 rustc 版本与实际构建所用版本一致；构建前会清除恢复出的 `webview2-com-sys` 构建输出，使 WebView2 加载器的唯一性校验只看到本次构建的产物。
+  - Node：`setup-node` 的 pnpm store 缓存，key 绑定 `apps/windows-gui/ui/pnpm-lock.yaml`。
+  - CI 工具：`cargo-audit` 通过 `taiki-e/install-action` 安装预编译二进制，不在每次 run 从源码编译。
+  - Go：`setup-go` 的模块缓存，已启用。
+- 禁止的缓存：
+  - release 构建（`release.yml`，包括 tag 触发的打包）中的 `dist`、Rust `target`、发布产物、DerivedData 或任何编译输出缓存。`ci.yml` 的 tag 触发运行属于验证，可使用上述普通 CI 缓存，但其产物不得作为发布产物。
+  - 把普通 CI 的 artifact 或 `target/` 复用到 release。
+  - 缓存中保存凭据、token 或 secret 派生内容。
+- `release.yml` 本轮不加缓存。它的构建命令受 `ci.yml` 对 release workflow 的字符串校验约束，且只在 tag 时运行，加缓存的收益小，却会落在发布路径上。以后若要引入依赖缓存，须单独评估。
 
 ### Release
 

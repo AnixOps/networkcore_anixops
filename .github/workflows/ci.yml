@@ -2350,6 +2350,8 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/windows-gui/ui/pnpm-lock.yaml
 
       - name: Install dependencies
         shell: bash
@@ -2371,6 +2373,8 @@ jobs:
     name: Rust build and test
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.timeout }}
+    env:
+      CARGO_INCREMENTAL: "0"
     needs:
       - changes
       - policy-fast
@@ -2457,6 +2461,9 @@ jobs:
             rustup target add x86_64-pc-windows-gnu
           fi
 
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+
       - name: Setup Node script runtime
         uses: actions/setup-node@v7
         with:
@@ -2490,6 +2497,8 @@ jobs:
     name: Windows managed client MSI
     runs-on: windows-latest
     timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: "0"
     needs:
       - changes
       - policy-fast
@@ -2549,13 +2558,36 @@ jobs:
           "AR_x86_64_pc_windows_gnu=$MingwPrefix\bin\ar.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=$MingwPrefix\bin\gcc.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Build Windows binaries
+      - name: Setup Rust toolchain
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           rustup toolchain install stable --profile minimal
           rustup default stable
           rustup target add x86_64-pc-windows-gnu
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+
+      # A restored cache can hold webview2-com-sys outputs from an older Cargo.lock.
+      # Drop them so the WebView2Loader.dll uniqueness check below sees only this build.
+      - name: Clear stale WebView2 build outputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $releaseDir = "target\x86_64-pc-windows-gnu\debug"
+          foreach ($subDir in @("build", ".fingerprint")) {
+            $outputDir = Join-Path $releaseDir $subDir
+            if (Test-Path $outputDir) {
+              Get-ChildItem -Path $outputDir -Directory -Filter "webview2-com-sys-*" |
+                Remove-Item -Recurse -Force
+            }
+          }
+
+      - name: Build Windows binaries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
           rustc .github/scripts/windres_compat.rs -o .github/scripts/windres.exe
           rustc .github/scripts/rc_compat.rs -o .github/scripts/rc.exe
           cargo build --locked `
@@ -2770,8 +2802,9 @@ jobs:
           rustup default stable
 
       - name: Install cargo-audit
-        shell: bash
-        run: cargo install cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
 
       - name: Verify checked-in lockfile
         shell: bash
@@ -2818,6 +2851,8 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/windows-gui/ui/pnpm-lock.yaml
 
       - name: Install dependencies
         shell: bash
