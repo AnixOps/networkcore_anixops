@@ -47,6 +47,7 @@ pub fn remove_windows_managed_mitm_private_key(path: &Path) -> DomainResult<()> 
     }
 }
 
+#[cfg(any(windows, test))]
 const MANAGED_MITM_PRIVATE_KEY_ACL_SCRIPT: &str = r#"
 $ErrorActionPreference = 'Stop'
 $path = $env:NETWORKCORE_MITM_PRIVATE_KEY_PATH
