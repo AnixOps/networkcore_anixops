@@ -27,7 +27,7 @@ material 可解析且 CONNECT authority/SNI 仍一致时，由 NetworkCore CA �
 leaf certificate material；该 material 不写入 report debug output，不安装到系统。当前 main 还新增 rustls
 downstream/upstream configuration 和受控 engine path：仅由 `NativeProxyEngineService` 显式注入 CA
 material 时，HTTP listener 的 CONNECT path 会完成 downstream TLS termination、web-PKI-verified
-upstream TLS、bounded HTTP/1.1 request/response rewrite exchange；Linux CLI 仅在 `start` 同时使用
+upstream TLS、最多 4 次 bounded HTTP/1.1 request/response rewrite exchange；Linux CLI 仅在 `start` 同时使用
 `--enable-https-mitm --mitm-ca-cert --mitm-ca-key --confirm` 时读取并注入 material，默认启动继续保持
 pass-through public boundary。当前 main 还新增
 caller-provided HTTPS request rewrite preview：在 controlled TLS termination plan ready 且输入为
@@ -37,7 +37,9 @@ termination plan ready 且输入为 response-phase `https://` message 时，可�
 和受 content-type/body-size/buffering guard 约束的 response body mutation 生成 preview application
 report。受控 live engine path 还可在显式 `--enable-script-runtime --script-runner <local-runner>`、至少一个
 `--script-map <script-url>=<local-file>` 与 `--confirm` 同时存在时，调用本地 Node runner 执行映射后的
-可信插件脚本；它限制 body、超时和输出协议，脚本失败或没有映射时 fail-open 并保留 deferred diagnostic。
+可信插件脚本；它限制 body、超时和输出协议。未映射或不满足授权条件的 dispatch 保持 deferred；runner
+启动、超时或输出失败则 fail-open 并报告 `script_dispatch_failed`，不会把失败误报为 deferred，也不会覆盖
+已验证的非脚本 rewrite。
 该能力不安装或信任 CA，不修改 browser/system proxy、system PAC、TUN、DNS 或 firewall。公开发行门禁在
 GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`，本地结果不能替代该门禁。
 
@@ -50,7 +52,10 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
 - accept loop 会为每个已接受连接启动独立 worker，并在 shutdown 时汇总 worker diagnostics；同时在
   loopback listener 上限制最多 64 个并发连接，达到上限只关闭新连接并记录 stable diagnostic，避免单一
   TLS/HTTP session 阻塞后续 proxy traffic 或无限制创建 worker。
-- `read_explicit_http_proxy_request` 只支持 bounded HTTP/1.x、absolute-form `http://` request target、origin-form + `Host` 和 `Content-Length` body；`Transfer-Encoding: chunked`、streaming body、HTTP/2 和 request smuggling 场景继续不承诺。
+- `read_explicit_http_proxy_request` 与 `read_plain_http_proxy_response` 只支持 bounded HTTP/1.0/1.1；absolute-form `http://` request target、origin-form + `Host`、`Content-Length` body 和标准 `Transfer-Encoding: chunked` body 仅在该版本边界内解析。HTTP/2.0 request line 或 upstream status line 必须以 `engine.native.runtime.http_proxy_plain_http_version_unsupported` 拒绝，且下游/上游 TLS ALPN 均只提供 `http/1.1`。chunk extensions/trailers 会被有界消费，超过 body 上限、重复 `Content-Length`、未知 transfer coding、streaming body、HTTP/2 binary framing 和 request smuggling 场景继续不承诺。
+- controlled CONNECT live path 最多处理 4 次 bounded HTTP/1.1 request/response exchange；明确的
+  `Connection: close`、HTTP/1.0 默认关闭、terminal rewrite、解析失败或预算耗尽会结束 TLS session，
+  未声明关闭时使用 `Content-Length` framing 保持下一次交换边界。
 - `CONNECT` target 在 HTTP listener 中会先生成 `NativeTlsMitmFoundationReport`，再经既有
   SOCKS outbound CONNECT primitive 建立 tunnel；成功后写标准空 body `200 Connection Established`
   response。未配置 CA material 时继续进行有限 TCP relay；配置 material 时进入受控 TLS path。
@@ -83,18 +88,24 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
   CONNECT authority，拒绝 inner Host mismatch，以 TLS 终止后的 HTTP/1.1 请求/响应继续调用现有
   `NativeHttpMitmPluginHook` request/response rewrite；没有 material 时绝不尝试 TLS termination。
   Linux CLI 只在 `start --enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path> --confirm`
-  中读取 material；缺任一 flag、路径、内容或 confirmation 都拒绝启动，且不回显 key。该 release
+  中读取 material；Linux 以不跟随符号链接的文件句柄读取私钥，并在同一句柄上拒绝非普通文件或模式不是
+  精确 `0600` 的私钥，返回稳定脱敏 protection code。其他 Unix 目标在读取前也拒绝符号链接、非普通文件
+  和非 `0600` 模式。缺任一 flag、路径、内容或 confirmation 都拒绝启动，且不回显 key。该 release
   path 在 TLS handshake、request/response 交换期间使用独立 15 秒受限 I/O timeout，已由 GitHub
   Actions 全量 CI 验证；tag release 仍只在同 commit CI、package、attestation 与 publish gate 全部通过后发布。
 - `NativeHttpMitmPluginHook::with_node_script_executor` 是 live script activation boundary。CLI 只有在
   `start --enable-script-runtime --script-runner <local-runner> --script-map <script-url>=<local-file>
-  [--script-map ...] [--script-store <path>] [--node-binary <path>] --confirm` 时创建 executor；runner 和
-  每个 asset 必须是本地普通文件，script URL 只可映射到明确配置的本地 asset，绝不自动下载远程脚本。
+  [--script-map ...] [--node-binary <path>] --confirm` 时创建 executor；runner 和每个 asset 必须是
+  本地普通非符号链接文件，script URL 只可映射到明确配置的本地 asset，绝不自动下载远程脚本。
   executor 只传递 staged temporary file 中的 bounded UTF-8 body（Unix owner-only permission）、受规则和
   runtime 双重约束的超时，以及 request/response phase；执行失败、超时、非 UTF-8 body、未映射 asset 或
-  无效 runner output 一律不改写原消息。脚本 URL mutation 仅可
-  保留原 scheme/authority/port 后改变路径，跨 authority 或 scheme 的 mutation 会拒绝并产生 diagnostic。
-  Node runner 执行的 asset 必须视为操作员显式信任的本地代码，不把该进程模型描述为安全 sandbox。
+  无效 runner output 一律不改写原消息。脚本 URL mutation 仅可保留原 scheme/authority/port 后改变路径，
+  跨 authority 或 scheme 的 mutation 会拒绝并产生 diagnostic。executor 在创建时记录每个映射 asset 的
+  SHA-256，并在每次 dispatch 前重新计算；asset 缺失、符号链接、无法读取或摘要变化时一律 fail-open，
+  不启动 Node。Linux product path 以 `NativeNodeScriptSandbox::LinuxNoNetwork` 启动新 user/network
+  namespace，并以 Node permission mode 只授予 runner、mapped asset 和 staged body 的 read permission；
+  不授予 persistent store、write、child-process、addon 或 network permission，并固定 V8 old-space 为 64 MiB。
+  `unshare --kill-child` 确保父 sandbox 因 timeout 被终止时其 Node child 同时退出；`--script-store` 会被拒绝。
 - `plan_and_apply_https_request_rewrite_preview` 只消费调用方提供的 request-phase `https://`
   `NativePlainHttpMessage` 和 `HttpMitmOutcome`，并要求 controlled TLS termination plan 已 ready；它可在
   `NativeHttpsRequestRewritePreviewReport` 中表达 reject、redirect 和 request header mutation preview
@@ -125,6 +136,10 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
   `https_response_rewrite_preview_ready=true`、`https_response_rewrite_ready=false` 和
   `script_dispatch_ready=false`，明确 alpha.18 仅开放 caller-provided HTTPS request/response rewrite
   preview，不开放 live HTTPS response rewrite 或脚本执行。
+- `http_rewrite` JSON/text report 还必须输出
+  `certificate_pinning_bypass_supported=false`、`http2_mitm_supported=false` 和
+  `http3_quic_mitm_supported=false`。certificate pinning/public-key pinning 不提供绕过路径；HTTP/2
+  与 HTTP/3/QUIC 只能保持 unsupported/bypass，不得作为 HTTP/1.1 TLS MITM 成功的旁路或等价能力声明。
 
 ## Source Anchors
 
@@ -145,6 +160,8 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
 - `NativeTlsMitmCaMaterial`
 - `NativeNodeScriptRuntimeConfig`
 - `NativeNodeScriptExecutor`
+- `NativeNodeScriptExecutor::script_asset_hashes`
+- `script_asset_sha256`
 - `NativeHttpScriptExecutionReport`
 - `NativeHttpsRequestRewritePreviewReport`
 - `NativeHttpsResponseRewritePreviewReport`
@@ -167,6 +184,7 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
 - `write_http_connect_established_response`
 - `plan_and_apply_plain_http_mitm`
 - `apply_http_mitm_outcome_to_plain_http_message`
+- `ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_HTTP_VERSION_UNSUPPORTED_CODE`
 - `ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_EVENT_PLANNED_CODE`
 - `ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_PLAN_READY_CODE`
 - `ENGINE_NATIVE_RUNTIME_HTTP_MITM_PLAIN_TERMINAL_ACTION_APPLIED_CODE`
@@ -223,6 +241,9 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
 - `body_size_limit_bytes`
 - `body_buffering_guard_ready`
 - `script_dispatch_ready`
+- `certificate_pinning_bypass_supported`
+- `http2_mitm_supported`
+- `http3_quic_mitm_supported`
 - `LinuxMitmHttpRewriteRequest`
 - `LinuxMitmHttpRewriteOutcomeReport`
 - `LinuxMitmHttpRewriteAuthorization`
@@ -241,7 +262,7 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
 - `--enable-script-runtime`
 - `--script-runner`
 - `--script-map`
-- `--script-store`
+- `--script-store`（解析兼容，但 sandboxed runtime 明确拒绝）
 - `--node-binary`
 - `cli.linux.mitm.http_rewrite.authorization_required`
 - `cli.linux.mitm.http_rewrite.plan.ready`
@@ -266,6 +287,8 @@ GitHub Actions 完整 E2E/security 验证前仍保持 `tls-decryption-blocked`�
 - 把明文 HTTP live data plane 等同于完整 HTTPS rewrite。
 - 从远程 URL 自动下载、缓存或执行 JavaScript plugin script dispatch。
 - 在没有显式 `--confirm` 的情况下应用 rewrite outcome。
+- 绕过 certificate pinning/public-key pinning，或把 HTTP/2、HTTP/3/QUIC 作为受控 HTTP/1.1 MITM 的
+  等价拦截路径。
 
 ## CI Governance
 

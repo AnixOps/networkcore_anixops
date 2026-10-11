@@ -45,7 +45,7 @@ runner、Rust toolchain 和 target triple 输入合同。当前仍为 placeholde
 | `package_binary` | `networkcore-linux` |
 | `package_format` | `tar.gz` |
 | `package_install_model` | `manual-extract` |
-| `package_system_mutation_policy` | `none` |
+| `package_system_mutation_policy` | `no-implicit-mutation; explicit-confirmed-cli-with-snapshot-readback-rollback` |
 
 后续如需要 `x86_64-unknown-linux-musl`、`aarch64-unknown-linux-gnu`、Docker cross build、
 受控 self-hosted runner 或发行版包，必须先更新本文档、release strategy、manifest
@@ -70,7 +70,7 @@ runner、Rust toolchain 和 target triple 输入合同。当前仍为 placeholde
 | `package_top_level_dir` | `networkcore-linux-${version}-${target}` |
 | `package_dist_dir` | runner workspace 下相对路径，例如 `dist/linux/${target}` |
 | `package_install_model` | 固定为 `manual-extract` |
-| `package_system_mutation_policy` | 固定为 `none` |
+| `package_system_mutation_policy` | 固定为 `no-implicit-mutation; explicit-confirmed-cli-with-snapshot-readback-rollback`；artifact 解压本身不修改系统状态，受控修改只可通过独立的显式确认 CLI 命令发生 |
 
 这些字段必须与 [Linux Package Archive Staging Contract](linux-package-archive-staging-contract.md)
 中的 staging/output/top-level directory、archive path 和文件来源字段一致，也必须与

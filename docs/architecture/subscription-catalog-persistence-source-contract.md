@@ -1,7 +1,7 @@
 # Persistent Subscription Catalog Source Contract
 
-本文定义 `v0.1.2-alpha.1` persistent subscription catalog 的六个源码切片。
-它约束显式本地 catalog 文件的 `add`、`list`、`remove`、`select`、`update` 和 `rollback` 操作。
+本文定义 persistent subscription catalog 的七个源码切片。
+它约束显式本地 catalog 文件的 `add`、`list`、`remove`、`select`、`update`、`rollback` 和前台 `run-catalog` 操作。
 
 ## Source Of Truth
 
@@ -16,9 +16,9 @@
 - `persistent-subscription-catalog-storage=json`
 - `persistent-subscription-catalog-schema-version=1`
 - `persistent-subscription-catalog-default-path=blocked`
-- `persistent-subscription-catalog-remote-fetch=blocked`
-- `persistent-subscription-catalog-file-fetch=blocked`
-- `persistent-subscription-catalog-runtime-start=blocked`
+- `persistent-subscription-catalog-remote-fetch=explicit-foreground-run-catalog-active`
+- `persistent-subscription-catalog-file-fetch=explicit-foreground-run-catalog-active`
+- `persistent-subscription-catalog-runtime-start=explicit-foreground-run-catalog-active`
 
 ## First Operation
 
@@ -78,11 +78,16 @@ trust store、TUN、DNS 或 firewall mutation。
 snapshot 文件路径、已存在的 source id 和新的 source location。source id 保持不变；source id 不存在或
 location 为空时返回稳定错误。
 
-update 前必须生成不可覆盖的写前 snapshot。`update` 只替换匹配 source 的 location，不执行远程请求、文件
-订阅读取、解析、节点选择、节点运行、默认路径扫描、daemon/service、system proxy、system trust store、
-TUN、DNS 或 firewall mutation。report 只输出 catalog/snapshot 路径、source id、source 数量、location kind
-和 `location_redacted=true`，不得输出旧或新 location、URL query token、Authorization header、password、
-private key 或 inline payload。
+CLI `subscription update` 通过显式的 `RemoteSubscriptionFetcher` 读取候选 `http://`、`https://` 或绝对
+`file://` source，也接受显式 `inline:`/share-link 内容，并先用 `CoreSubscriptionService` parse/normalize
+校验节点。只有候选成功后才生成不可覆盖的写前 snapshot 和替换 location；抓取、大小限制或解析失败时旧
+catalog 保持不变且不创建 snapshot。`update_source` 低层 API 仍保留 source-only 行为供存储合同使用。
+
+更新 report 只输出 catalog/snapshot 路径、source id、source 数量、location kind、已验证节点数以及新增、
+删除、改变节点数量和
+`location_redacted=true`，不得输出旧或新 location、URL query token、Authorization header、password、
+private key 或 inline payload。该切片不执行节点选择、节点运行、默认路径扫描、daemon/service、system
+proxy、system trust store、TUN、DNS 或 firewall mutation。
 
 ## Storage Schema
 
@@ -123,6 +128,31 @@ catalog JSON。catalog 或 snapshot 路径已存在且不属于本次明确操�
 
 所有文件路径必须由调用方显式提供。该合同不授权读取用户默认配置目录、环境变量推导路径或
 扫描工作区。
+
+## Seventh Operation
+
+第七个源码增量提供 `networkcore-linux run-catalog <catalog-path> <source-id>` 和
+`handle_run_catalog_with_sing_box`。调用方必须显式提供 catalog 文件路径和 source id；命令读取
+该 source 的内部 location，并将 `inline:` 内容、绝对 `file://` URI、显式 HTTP(S) URL 或直接
+share-link/catalog payload 交给既有 `run-url` 前台 sing-box 路径。`--node-id` 可选择该次运行
+中的归一化节点。
+
+该命令不改变 catalog 或 snapshot，不在 response/diagnostic 中输出 location，不搜索默认路径，
+不刷新或调度 subscription，不建立 daemon、control socket 或后台 runtime。HTTP(S) 行为继承
+`run-url` 的一次前台请求限制。
+
+## Eighth Operation: Explicit Background Refresh
+
+`subscription refresh start` only accepts one previously saved HTTP(S) source and requires explicit catalog,
+refresh-status, and snapshot paths plus `--confirm`. It reuses the existing candidate fetch, parse, normalize,
+node-diff, snapshot, and atomic catalog replacement boundary. A fixed 300-second minimum interval and the existing
+15-second timeout, five redirect limit, and 1 MiB response limit apply. No default path is inferred.
+
+The refresh status is redacted and records source id, last attempt, last success, next attempt, result, added,
+removed, and changed node counts, plus a stable error code only. `subscription refresh status` reads that explicit
+record; `subscription refresh stop --confirm` is bounded, idempotently writes stopped state, and cleans the source
+lock. Refresh failure retains the old catalog, source, node selection, runtime configuration, and running core.
+It never restarts a core, switches a node, or modifies the system proxy.
 
 ## Acceptance Test
 
@@ -168,4 +198,19 @@ catalog JSON。catalog 或 snapshot 路径已存在且不属于本次明确操�
 - report 不包含当前或 snapshot source location、URL token 或 inline payload；
 - snapshot 缺失或无效时拒绝修改 catalog。
 
+第七个合同测试必须证明一次 `run-catalog`：
+
+- 从显式 catalog/source id 读取保存的 source 并进入前台 sing-box runner；
+- 保存的 HTTP(S) source 通过注入的 remote fetcher 进入同一 runner；
+- 可将 `--node-id` 交给归一化 catalog 的节点选择；
+- 不修改 catalog；
+- source id 不存在时拒绝运行。
+
 测试、构建、格式化、lint 和安全扫描只能在 GitHub Actions 执行。
+
+## Explicit Remote Update Boundary
+
+`subscription update` 是用户主动触发的前台操作，不建立后台刷新或默认订阅路径。HTTP(S) fetcher 使用
+既有超时、重定向和响应大小上限；诊断只保留稳定错误码和 location kind，不回显响应内容、凭据或 URL
+query。验证成功后 snapshot 可通过 `subscription rollback` 恢复旧 catalog；验证失败不产生部分写入。
+节点变化只比较稳定 node id 与内存中的非敏感摘要哈希，不持久化或输出节点凭据、主机认证信息或订阅内容。

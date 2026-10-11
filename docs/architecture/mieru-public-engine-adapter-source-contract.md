@@ -1,0 +1,71 @@
+# Mieru Public Engine Adapter Source Contract
+
+This contract defines the external-core boundary for Mieru. NetworkCore does
+not copy Mieru source, statically link GPL-3.0 Mieru code, bundle a Mieru
+binary, or silently download one.
+
+## Current Status
+
+`engine-mieru` is source-only and contract-tested. The current slice provides
+structured `mierus://` parsing, `Protocol::Mieru` normalization, official-shape
+client config rendering, explicit local binary SHA-256 verification, and an
+injectable cross-platform child-process supervisor. The Linux CLI exposes
+read-only `core list` and explicit local `core install mieru --binary <path>
+--sha256 <digest>` verification, or an explicitly confirmed
+`--url <official-release-asset> --binary <destination> --sha256 <digest>`
+download. Downloads may target
+only an `enfein/mieru` GitHub release asset and must provide the expected digest;
+it does not silently download or wire Mieru into the Windows service or system
+proxy path. Linux CLI also exposes explicit
+`core start mieru`/`core stop mieru`/`core status mieru` controls over a
+caller-provided config; these invoke the official client command boundary and
+require a successful official `status` readback after `apply config`/`start`.
+The explicit Linux start and `run-url` paths then verify the configured local
+SOCKS5 listener; a failed readback or listener check issues an official stop,
+and `run-url` also restores its generated config snapshot. Neither path changes
+the system proxy.
+
+The adapter's config-file writer requires explicit absolute config and snapshot
+paths, preserves an existing config in a non-overwriting snapshot, verifies the
+exact bytes written, restores the previous config on write/verification failure,
+and uses private `0600` permissions on Unix. Config contents may contain user
+credentials, so reports and diagnostics never include the file contents.
+
+## Binary Boundary
+
+The caller must provide an explicit executable path and a complete SHA-256
+digest. Verification rejects missing, malformed, or mismatched digests before
+the child process is spawned. Release download, when added, may use only the
+official repository `enfein/mieru` and must be a separate explicitly
+authorized operation. If official release metadata does not provide a
+machine-readable digest, automatic download remains disabled.
+
+NetworkCore release artifacts must not contain the Mieru executable. Runtime
+provenance must record the verified digest without recording credentials or a
+complete share link.
+
+## Share-Link Contract
+
+`mierus://username:password@host:port` is parsed into a controlled node. The
+supported query fields are port range, MTU, multiplexing, handshake mode, and
+traffic pattern. Passwords remain in engine-owned metadata for configuration
+translation but are never included in diagnostics, process logs, or reports.
+
+## Process And Readiness
+
+The supervisor accepts caller-owned arguments, working directory, and bounded
+log destination. It reports stopped, running, and failed process state and
+cleans up an owned child on drop. A PID alone is not readiness: Linux and
+Windows adapters must additionally verify the local SOCKS5 listener, config
+acceptance, immediate-exit absence, and any applicable control evidence before
+reporting a connected state. UDP support is not claimed until a real Mieru UDP
+contract and CI integration evidence exist.
+
+## Future Wiring Gates
+
+The Linux CLI lifecycle entrypoint is active for explicit start, stop, and
+status commands. Windows service activation independently records official
+status and exact listener evidence without inventing a Mieru PID, and rolls
+back its NetworkCore-owned proxy resource when health fails. The current config
+renderer and listener readiness helper do not by themselves authorize system
+proxy mutation.

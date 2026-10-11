@@ -86,10 +86,37 @@ impl Diagnostic {
 }
 
 /// Generic key/value metadata used by domain inputs.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct MetadataEntry {
     pub key: String,
     pub value: String,
+}
+
+impl std::fmt::Debug for MetadataEntry {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let is_sensitive = matches!(
+            self.key.as_str(),
+            NODE_METADATA_SHADOWSOCKS_PASSWORD
+                | NODE_METADATA_TROJAN_PASSWORD
+                | NODE_METADATA_HYSTERIA2_PASSWORD
+                | NODE_METADATA_HYSTERIA2_OBFS_PASSWORD
+                | NODE_METADATA_TUIC_PASSWORD
+                | NODE_METADATA_WIREGUARD_PRIVATE_KEY
+                | NODE_METADATA_WIREGUARD_PRE_SHARED_KEY
+        ) || self.key.ends_with(".password");
+        formatter
+            .debug_struct("MetadataEntry")
+            .field("key", &self.key)
+            .field(
+                "value",
+                &if is_sensitive {
+                    "[REDACTED]"
+                } else {
+                    &self.value
+                },
+            )
+            .finish()
+    }
 }
 
 pub type Metadata = Vec<MetadataEntry>;
@@ -101,6 +128,36 @@ pub const NODE_METADATA_SHADOWSOCKS_PASSWORD: &str = "shadowsocks.password";
 pub const NODE_METADATA_TROJAN_PASSWORD: &str = "trojan.password";
 pub const NODE_METADATA_VLESS_UUID: &str = "vless.uuid";
 pub const NODE_METADATA_VMESS_UUID: &str = "vmess.uuid";
+pub const NODE_METADATA_VMESS_SECURITY: &str = "vmess.security";
+pub const NODE_METADATA_VMESS_ALTER_ID: &str = "vmess.alter_id";
+pub const NODE_METADATA_VLESS_FLOW: &str = "vless.flow";
+pub const NODE_METADATA_HYSTERIA2_PASSWORD: &str = "hysteria2.password";
+pub const NODE_METADATA_HYSTERIA2_SERVER_PORTS: &str = "hysteria2.server_ports";
+pub const NODE_METADATA_HYSTERIA2_OBFS_TYPE: &str = "hysteria2.obfs.type";
+pub const NODE_METADATA_HYSTERIA2_OBFS_PASSWORD: &str = "hysteria2.obfs.password";
+pub const NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE: &str = "hysteria2.obfs.min_packet_size";
+pub const NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE: &str = "hysteria2.obfs.max_packet_size";
+pub const NODE_METADATA_TUIC_UUID: &str = "tuic.uuid";
+pub const NODE_METADATA_TUIC_PASSWORD: &str = "tuic.password";
+pub const NODE_METADATA_TUIC_CONGESTION_CONTROL: &str = "tuic.congestion_control";
+pub const NODE_METADATA_WIREGUARD_PRIVATE_KEY: &str = "wireguard.private_key";
+pub const NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY: &str = "wireguard.peer_public_key";
+pub const NODE_METADATA_WIREGUARD_LOCAL_ADDRESS: &str = "wireguard.local_address";
+pub const NODE_METADATA_WIREGUARD_PRE_SHARED_KEY: &str = "wireguard.pre_shared_key";
+pub const NODE_METADATA_WIREGUARD_MTU: &str = "wireguard.mtu";
+pub const NODE_METADATA_TLS_SERVER_NAME: &str = "tls.server_name";
+pub const NODE_METADATA_TLS_ENABLED: &str = "tls.enabled";
+pub const NODE_METADATA_TLS_INSECURE: &str = "tls.insecure";
+pub const NODE_METADATA_TLS_ALPN: &str = "tls.alpn";
+pub const NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256: &str =
+    "tls.certificate_public_key_sha256";
+pub const NODE_METADATA_TLS_UTLS_FINGERPRINT: &str = "tls.utls.fingerprint";
+pub const NODE_METADATA_TLS_REALITY_PUBLIC_KEY: &str = "tls.reality.public_key";
+pub const NODE_METADATA_TLS_REALITY_SHORT_ID: &str = "tls.reality.short_id";
+pub const NODE_METADATA_V2RAY_TRANSPORT_TYPE: &str = "v2ray.transport.type";
+pub const NODE_METADATA_V2RAY_TRANSPORT_HOST: &str = "v2ray.transport.host";
+pub const NODE_METADATA_V2RAY_TRANSPORT_PATH: &str = "v2ray.transport.path";
+pub const NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME: &str = "v2ray.transport.service_name";
 pub const NODE_METADATA_SOURCE_FORMAT: &str = "subscription.source_format";
 
 /// Operating system capability target.
@@ -323,6 +380,10 @@ pub enum Protocol {
     Vless,
     Trojan,
     Hysteria,
+    Hysteria2,
+    Tuic,
+    WireGuard,
+    Mieru,
     Other(String),
 }
 
@@ -342,6 +403,48 @@ pub struct NodeDescriptor {
     pub endpoint: Endpoint,
     pub tags: Vec<String>,
     pub metadata: Metadata,
+}
+
+/// Platform-neutral routing decision for a normalized public proxy node.
+///
+/// This contract deliberately contains no executable paths, credentials, or
+/// rendered configuration. Platform entrypoints use it before invoking an
+/// external engine adapter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PublicEngineKind {
+    SingBox,
+    Mieru,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublicEngineRunPlan {
+    pub engine: PublicEngineKind,
+    pub node: NodeDescriptor,
+}
+
+pub const PUBLIC_ENGINE_RUN_PLAN_NODE_MISSING_CODE: &str = "public_engine.run_plan.node_missing";
+
+impl PublicEngineRunPlan {
+    pub fn select(nodes: &[NodeDescriptor], selected_node_id: Option<&str>) -> DomainResult<Self> {
+        let node = match selected_node_id {
+            Some(id) => nodes.iter().find(|node| node.id == id),
+            None => nodes.first(),
+        }
+        .ok_or_else(|| {
+            DomainError::new(
+                PUBLIC_ENGINE_RUN_PLAN_NODE_MISSING_CODE,
+                "the selected public proxy node is not available",
+            )
+        })?;
+        Ok(Self {
+            engine: if node.protocol == Protocol::Mieru {
+                PublicEngineKind::Mieru
+            } else {
+                PublicEngineKind::SingBox
+            },
+            node: node.clone(),
+        })
+    }
 }
 
 /// Subscription source descriptor.
@@ -473,9 +576,11 @@ pub enum ProxyEngineLifecycleState {
     Stopped,
     Starting,
     Running,
+    Degraded,
     Reloading,
     Stopping,
     Failed,
+    RollingBack,
 }
 
 /// Proxy execution engine status.
@@ -484,6 +589,27 @@ pub struct ProxyEngineStatus {
     pub engine_id: String,
     pub state: ProxyEngineLifecycleState,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Evidence collected by an engine adapter health probe.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProxyEngineHealthReport {
+    pub engine_id: String,
+    pub state: ProxyEngineLifecycleState,
+    pub config_validated: bool,
+    pub runtime_resources_ready: bool,
+    pub listener_reachable: bool,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl ProxyEngineHealthReport {
+    /// Returns true only when every engine-owned readiness check succeeded.
+    pub fn is_healthy(&self) -> bool {
+        self.state == ProxyEngineLifecycleState::Running
+            && self.config_validated
+            && self.runtime_resources_ready
+            && self.listener_reachable
+    }
 }
 
 /// Proxy execution engine event kind.
@@ -502,6 +628,148 @@ pub struct ProxyEngineEvent {
     pub engine_id: String,
     pub kind: ProxyEngineEventKind,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Durable control-plane snapshot captured before a lifecycle mutation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProxyEngineSnapshot {
+    pub engine_id: String,
+    pub config: ProxyEngineConfig,
+    pub status: ProxyEngineStatus,
+}
+
+/// Result of preparing an adapter request for a lifecycle mutation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProxyEnginePrepareReport {
+    pub snapshot: ProxyEngineSnapshot,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Request to restore the configuration captured by a lifecycle snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProxyEngineRollbackRequest {
+    pub snapshot: ProxyEngineSnapshot,
+    pub expected_state: ProxyEngineLifecycleState,
+}
+
+/// Verifies that an adapter-reported lifecycle transition is allowed by the
+/// shared control-plane state machine. Adapters may collapse transient states
+/// (for example, `Stopped -> Running`) but may not skip a recovery boundary.
+pub fn validate_proxy_engine_transition(
+    current: ProxyEngineLifecycleState,
+    next: ProxyEngineLifecycleState,
+) -> DomainResult<()> {
+    if current == next {
+        return Ok(());
+    }
+
+    let allowed = match current {
+        ProxyEngineLifecycleState::Stopped => {
+            matches!(
+                next,
+                ProxyEngineLifecycleState::Starting | ProxyEngineLifecycleState::Running
+            )
+        }
+        ProxyEngineLifecycleState::Starting => matches!(
+            next,
+            ProxyEngineLifecycleState::Running
+                | ProxyEngineLifecycleState::Degraded
+                | ProxyEngineLifecycleState::Stopping
+                | ProxyEngineLifecycleState::Failed
+        ),
+        ProxyEngineLifecycleState::Running => matches!(
+            next,
+            ProxyEngineLifecycleState::Degraded
+                | ProxyEngineLifecycleState::Reloading
+                | ProxyEngineLifecycleState::Stopping
+                | ProxyEngineLifecycleState::Stopped
+                | ProxyEngineLifecycleState::Failed
+                | ProxyEngineLifecycleState::RollingBack
+        ),
+        ProxyEngineLifecycleState::Degraded => matches!(
+            next,
+            ProxyEngineLifecycleState::Running
+                | ProxyEngineLifecycleState::Reloading
+                | ProxyEngineLifecycleState::Stopping
+                | ProxyEngineLifecycleState::Stopped
+                | ProxyEngineLifecycleState::Failed
+                | ProxyEngineLifecycleState::RollingBack
+        ),
+        ProxyEngineLifecycleState::Reloading => matches!(
+            next,
+            ProxyEngineLifecycleState::Running
+                | ProxyEngineLifecycleState::Degraded
+                | ProxyEngineLifecycleState::Failed
+                | ProxyEngineLifecycleState::RollingBack
+        ),
+        ProxyEngineLifecycleState::Stopping => matches!(
+            next,
+            ProxyEngineLifecycleState::Stopped | ProxyEngineLifecycleState::Failed
+        ),
+        ProxyEngineLifecycleState::Failed => matches!(
+            next,
+            ProxyEngineLifecycleState::Stopped
+                | ProxyEngineLifecycleState::Starting
+                | ProxyEngineLifecycleState::RollingBack
+        ),
+        ProxyEngineLifecycleState::RollingBack => matches!(
+            next,
+            ProxyEngineLifecycleState::Running
+                | ProxyEngineLifecycleState::Degraded
+                | ProxyEngineLifecycleState::Stopped
+                | ProxyEngineLifecycleState::Failed
+        ),
+    };
+
+    if allowed {
+        return Ok(());
+    }
+
+    Err(DomainError::new(
+        "control.engine.lifecycle_transition_invalid",
+        format!(
+            "proxy engine lifecycle transition from {:?} to {:?} is not allowed",
+            current, next
+        ),
+    ))
+}
+
+/// Maximum number of lifecycle events exposed by one control-plane query.
+pub const MAX_PROXY_ENGINE_EVENTS: usize = 128;
+
+/// Verifies the stable identity and expected lifecycle state returned by an adapter.
+pub fn validate_proxy_engine_status(
+    status: &ProxyEngineStatus,
+    expected_engine_id: &str,
+    expected_state: ProxyEngineLifecycleState,
+) -> DomainResult<()> {
+    if status.engine_id != expected_engine_id {
+        return Err(DomainError::new(
+            "control.engine.status_engine_id_mismatch",
+            format!(
+                "proxy engine adapter returned status for '{}' while '{}' was requested",
+                status.engine_id, expected_engine_id
+            ),
+        ));
+    }
+
+    if status.state != expected_state {
+        return Err(DomainError::new(
+            "control.engine.lifecycle_state_unexpected",
+            format!(
+                "proxy engine '{}' returned state {:?}, expected {:?}",
+                expected_engine_id, status.state, expected_state
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Returns only the newest bounded portion of an adapter event history.
+pub fn bound_proxy_engine_events(events: Vec<ProxyEngineEvent>) -> Vec<ProxyEngineEvent> {
+    let start = events.len().saturating_sub(MAX_PROXY_ENGINE_EVENTS);
+    events.into_iter().skip(start).collect()
 }
 
 /// Compiled routing rules.
@@ -850,7 +1118,7 @@ pub trait PolicyRoutingService {
     fn explain(&self, route_decision: &RouteDecision) -> Vec<Diagnostic>;
 }
 
-/// Proxy execution engine adapter domain port.
+/// Legacy proxy execution engine domain port.
 pub trait ProxyEngineService {
     fn list_engines(&self) -> Vec<ProxyEngineDescriptor>;
 
@@ -862,9 +1130,128 @@ pub trait ProxyEngineService {
 
     fn stop(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus>;
 
+    /// Restores a configuration snapshot when the legacy service owns enough
+    /// runtime state to perform that operation.
+    fn rollback(&self, _request: &ProxyEngineRollbackRequest) -> DomainResult<ProxyEngineStatus> {
+        Err(DomainError::new(
+            "control.engine.rollback_unsupported",
+            "proxy engine service does not own configuration rollback",
+        ))
+    }
+
     fn status(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus>;
 
+    /// Probes engine-owned runtime readiness. Legacy services remain explicit
+    /// about which checks they cannot perform.
+    fn health(&self, engine_id: &str) -> DomainResult<ProxyEngineHealthReport> {
+        let status = self.status(engine_id)?;
+        Ok(ProxyEngineHealthReport {
+            engine_id: status.engine_id,
+            state: status.state,
+            config_validated: false,
+            runtime_resources_ready: false,
+            listener_reachable: false,
+            diagnostics: vec![Diagnostic::new(
+                DiagnosticSeverity::Warning,
+                "control.engine.health_unverified",
+                "proxy engine service does not expose complete health evidence",
+                None,
+            )],
+        })
+    }
+
     fn events(&self, engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>>;
+}
+
+/// Unified proxy engine lifecycle adapter domain port.
+pub trait ProxyEngineAdapter {
+    fn list_engines(&self) -> Vec<ProxyEngineDescriptor>;
+
+    fn validate(&self, engine_config: &ProxyEngineConfig) -> Vec<Diagnostic>;
+
+    fn prepare(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEnginePrepareReport>;
+
+    fn start(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus>;
+
+    fn status(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus>;
+
+    fn health(&self, engine_id: &str) -> DomainResult<ProxyEngineHealthReport>;
+
+    fn reload(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus>;
+
+    fn stop(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus>;
+
+    fn rollback(&self, request: &ProxyEngineRollbackRequest) -> DomainResult<ProxyEngineStatus>;
+
+    fn events(&self, engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>>;
+}
+
+/// Bridges existing engine services into the unified adapter contract while
+/// keeping unsupported rollback explicit until an adapter owns restoration.
+impl<T> ProxyEngineAdapter for T
+where
+    T: ProxyEngineService,
+{
+    fn list_engines(&self) -> Vec<ProxyEngineDescriptor> {
+        ProxyEngineService::list_engines(self)
+    }
+
+    fn validate(&self, engine_config: &ProxyEngineConfig) -> Vec<Diagnostic> {
+        ProxyEngineService::validate_config(self, engine_config)
+    }
+
+    fn prepare(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEnginePrepareReport> {
+        let diagnostics = self.validate(engine_config);
+        if diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+        {
+            return Err(DomainError::new(
+                "control.engine.prepare_invalid",
+                "proxy engine configuration validation failed",
+            ));
+        }
+
+        let status = ProxyEngineService::status(self, &engine_config.engine_id)?;
+        validate_proxy_engine_status(&status, &engine_config.engine_id, status.state)?;
+
+        Ok(ProxyEnginePrepareReport {
+            snapshot: ProxyEngineSnapshot {
+                engine_id: engine_config.engine_id.clone(),
+                config: engine_config.clone(),
+                status,
+            },
+            diagnostics,
+        })
+    }
+
+    fn start(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {
+        ProxyEngineService::start(self, engine_config)
+    }
+
+    fn status(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
+        ProxyEngineService::status(self, engine_id)
+    }
+
+    fn health(&self, engine_id: &str) -> DomainResult<ProxyEngineHealthReport> {
+        ProxyEngineService::health(self, engine_id)
+    }
+
+    fn reload(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {
+        ProxyEngineService::reload(self, engine_config)
+    }
+
+    fn stop(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
+        ProxyEngineService::stop(self, engine_id)
+    }
+
+    fn rollback(&self, request: &ProxyEngineRollbackRequest) -> DomainResult<ProxyEngineStatus> {
+        ProxyEngineService::rollback(self, request)
+    }
+
+    fn events(&self, engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>> {
+        ProxyEngineService::events(self, engine_id)
+    }
 }
 
 /// DNS policy domain port.
@@ -1206,5 +1593,49 @@ mod tests {
         assert!(outcome.script_dispatch.is_none());
         assert_eq!(outcome.audits[0].action, "legacy-http-event:request-rich");
         assert_eq!(outcome.diagnostics[0].code, "plugin.legacy_handled");
+    }
+
+    #[test]
+    fn proxy_engine_status_contract_rejects_identity_and_state_drift() {
+        let status = ProxyEngineStatus {
+            engine_id: "other".to_string(),
+            state: ProxyEngineLifecycleState::Stopped,
+            diagnostics: Vec::new(),
+        };
+
+        let error =
+            validate_proxy_engine_status(&status, "native", ProxyEngineLifecycleState::Running)
+                .expect_err("adapter identity drift must be rejected");
+        assert_eq!(error.code, "control.engine.status_engine_id_mismatch");
+
+        let status = ProxyEngineStatus {
+            engine_id: "native".to_string(),
+            state: ProxyEngineLifecycleState::Stopped,
+            diagnostics: Vec::new(),
+        };
+        let error =
+            validate_proxy_engine_status(&status, "native", ProxyEngineLifecycleState::Running)
+                .expect_err("unexpected lifecycle state must be rejected");
+        assert_eq!(error.code, "control.engine.lifecycle_state_unexpected");
+    }
+
+    #[test]
+    fn proxy_engine_events_are_bounded_to_the_newest_entries() {
+        let events = (0..MAX_PROXY_ENGINE_EVENTS + 3)
+            .map(|index| ProxyEngineEvent {
+                engine_id: "native".to_string(),
+                kind: ProxyEngineEventKind::HealthChanged,
+                diagnostics: vec![Diagnostic::new(
+                    DiagnosticSeverity::Info,
+                    index.to_string(),
+                    "event",
+                    None,
+                )],
+            })
+            .collect();
+
+        let bounded = bound_proxy_engine_events(events);
+        assert_eq!(bounded.len(), MAX_PROXY_ENGINE_EVENTS);
+        assert_eq!(bounded[0].diagnostics[0].code, "3");
     }
 }

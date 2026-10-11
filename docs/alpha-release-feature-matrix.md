@@ -1,8 +1,8 @@
 # Alpha Release Feature Matrix
 
-评估时间：2026-07-10。
+评估时间：2026-07-27。
 
-本文是 alpha 版本能力边界索引。发布事实以 Git tag、GitHub Actions release workflow 和
+本文是预发布版本能力边界索引，保留历史 alpha 条目并包含当前 beta 候选。发布事实以 Git tag、GitHub Actions release workflow 和
 GitHub Release asset 为准；`main` 中 tag 之后的源码增量不等于用户可下载能力。未发布版本只表达
 当前切片目标，不是已经发布的承诺。
 
@@ -15,7 +15,33 @@ GitHub Release asset 为准；`main` 中 tag 之后的源码增量不等于用�
 - 浏览器劫持/live MITM 不能只凭命令名判断；必须同时具备显式授权、浏览器/系统捕获策略、可回滚
   mutation、CA lifecycle、HTTP/TLS data plane 和流量证明。
 
+## Current Main Override
+
+```text
+current-main-release-state=pending_manual_acceptance
+current-main-source-candidate=v0.2.0-beta.5
+current-main-latest-published-tag=v0.2.0-alpha.21
+current-main-latest-stable-tag=v0.1.0
+current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
+current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active
+```
+
+The historical release entries below remain immutable audit records. The
+unreleased `main` candidate is not a downloadable release. Linux `run-url`
+and `run-catalog` accept caller-selected file, HTTP(S), and saved-catalog
+inputs only for one foreground invocation. Linux additionally has an explicit
+NetworkCore-owned systemd oneshot/timer refresh schedule, requiring operator-provided
+paths, source ID, interval, unit name, confirmation, and plan snapshot; it does
+not create a default path, scan paths, switch runtime nodes, or manage a daemon.
+The
+candidate's Windows reliability slice remains source-only until same-commit
+GitHub Actions CI, MSI smoke, package, attestation, publish eligibility, and
+a tag release succeed. HTTP/2, HTTP/3/QUIC MITM, compression/decompression,
+streaming, multi-request CONNECT, and remote script loading remain unavailable.
+
 ## 已发布 alpha
+
+`v0.2.0-alpha.1` 的完整发布说明位于下方“最新已发布切片”，避免同一版本在索引中重复维护。
 
 ### `v0.1.0-alpha.1`
 
@@ -326,11 +352,511 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 - 不承诺 HTTP/2、chunked/streaming body、压缩 response body 或完整通用 HTTP 兼容。
 - 不代表 Windows artifact、跨平台 parity 或 managed lifecycle 已进入 release。
 
+## 当前 Windows 发布切片
+
+### `v0.2.0-beta.5`
+
+状态：Beta release candidate pending_manual_acceptance；同 commit GitHub Actions CI
+已作为发布门禁来源，workflow_dispatch dry-run 可验证 Linux/Windows 产物名称、版本、
+checksum、manifest、attestation 和 bundle 内容。维护者可创建 beta tag 生成候选工件，
+但真实 Windows/Linux 系统验收和 tag release 全部成功前，不得描述为 production-ready。
+
+主要特性：
+
+- 日常 GUI profile 将 current-user proxy ownership 明确为 `desktop`，在 SCM、live
+  sing-box PID、loopback listener 和 generated selector API 均就绪后才应用代理；失败
+  会恢复 GUI-owned snapshot 并停止 service。
+- Core failure without a recorded PID is shown as unavailable rather than `PID 0`; matching
+  stale GUI-owned proxy recovery remains available. Direct proxy enable actions are removed.
+- GUI explains required UAC elevation before requesting it and preserves login-startup
+  arguments through the elevation handoff.
+- The Service-owned sing-box child is attached to a private Windows Job Object
+  with kill-on-close semantics, so an unexpected Service-process exit does not
+  leave an owned core listener running.
+- 用户显式开启 hourly refresh 后，保存的单 HTTP(S) source 以单次有界后台操作刷新；GUI 持久展示
+  脱敏 attempt/success/next/result、节点增删改计数和稳定错误码。失败保留当前 config、选择节点和运行
+  配置，不重启核心、不切换节点，也不重试同一次失败。
+
+明确不包含：
+
+- 不提供无交互 UAC bypass、订阅目录/组、自动 latency/`urltest`、无限自动重启、
+  TUN/DNS interception、HTTP/2/HTTP/3/QUIC MITM、JavaScript dispatch 或 native JSON group editing。
+
+### `v0.2.0-alpha.21`
+
+状态：已发布 Windows managed-client prerelease；后续修复进入 `v0.2.0-beta.5`
+候选切片。
+
+主要特性：
+
+- 主窗口关闭后隐藏到 shared-state system tray；托盘从同一份真实 runtime 聚合状态显示
+  连接状态和当前节点，并提供打开、连接、断开、刷新和安全退出。
+- Settings 可读写当前用户的 Windows Run login startup、启动后自动连接和一次受控 core
+  recovery。Run entry 只接受本 GUI 的精确命令；MSI 完整卸载只清理匹配的 entry；portable
+  ZIP 支持用户显式开启该选项，但不会在解压时创建启动项。
+- 自动连接先做 managed config 与 sing-box 预检；GUI 发起的 core 异常退出最多只恢复一次。
+  GUI 启动会仅在当前代理仍精确属于其快照、PID 已失效且 service 未运行时恢复遗留代理。
+
+明确不包含：
+
+- 不提供后台订阅刷新、订阅目录/组、自动 latency/`urltest`、无限自动重启、TUN/DNS
+  interception、HTTP/2/HTTP/3/QUIC MITM、JavaScript dispatch 或 native JSON group editing。
+
+### `v0.2.0-alpha.20`
+
+状态：Windows managed client daily-usability source slice；必须通过同 commit
+GitHub Actions CI、MSI install/uninstall smoke、package、attestation、publish
+eligibility 和 tag release 后，才可称为用户可下载版本。
+
+主要特性：
+
+- 原生 Win32 GUI 以 Home、Nodes、Subscriptions、Settings、Diagnostics 和
+  Advanced 组织日常操作。高级页保留 MITM、证书、驱动和 service mutation；它们不进入普通连接路径。
+- Home 只在 SCM `Running`、service-owned `sing-box check -c`、loopback listener、
+  生成 selector 的 active-outbound/default readback、service-owned sing-box child PID
+  仍运行、并且当前 interactive-user system proxy 精确匹配时显示 `Connected`。预检、
+  核心或服务错误以独立的 Configuration/Core/Connection failure 状态显示，不能从
+  JSON marker 推断连接。
+- service start/stop/restart、`sing-box check -c`、core install、显式订阅 fetch、
+  NodeCatalog load、selector switch 和一次性 delay test 都离开 UI message loop；重复请求在
+  进行中被拒绝。失败订阅更新不会覆盖现有 managed config 或已保存选择。
+- 保留 NodeCatalog 搜索/协议过滤、显式 selector switch/readback、loopback-only
+  controller health、native sing-box JSON pass-through、手动 HTTP(S) URL update、
+  diagnostics copy/report、portable ZIP 和 MSI release path。
+
+明确不包含：
+
+- 不提供后台订阅刷新、订阅目录/组、自动 latency/`urltest`、无限或非预检的自动服务重启、
+  TUN/DNS interception、HTTP/2/HTTP/3/QUIC MITM、JavaScript dispatch 或 native JSON group editing。
+- 没有把 MITM、certificate trust 或 driver 操作默认启用；它们继续要求既有显式授权、快照和回滚。
+
+### `v0.2.0-alpha.19`
+
+状态：Windows managed client source slice；必须通过同 commit GitHub Actions CI、
+MSI install/uninstall smoke、package、attestation、publish eligibility 和 tag release
+后，才可称为用户可下载版本。
+
+主要特性：
+
+- 服务在 SCM `Running` 期间轮询其所有权内的 sing-box 子进程。核心异常退出会持久化
+  `last_transition=failed`、exit code 和 `last_error`，随后停止 runtime resources、恢复
+  service-owned proxy snapshot，并将 SCM 转为 `Stopped`。
+- GUI `Diagnostics` 报告额外写入 managed runtime failure detail；core stdout/stderr、
+  service log 与该状态可共同定位启动后退出。
+- 每个 Windows tag release 继续要求 managed-client MSI 四件套和 portable ZIP 四件套同时
+  通过 checksum、manifest、attestation 与 publish gate。portable ZIP 解压不注册或启动 service。
+
+明确不包含：
+
+- 不把 Start/Restart 当作 core readiness、controller health 或任意远端连通性判断；仍通过
+  `Check core`、`Test delay`、本地 diagnostics 与 core log 显示这些不同状态。
+- 不提供自动 latency/`urltest`、scheduled/background remote refresh、persistent remote
+  catalog/group、remote route/rule fetch、Clash Web UI、LAN controller 或 automatic service restart。
+- 原生 sing-box JSON 继续 pass-through；其 selector/urltest/Clash API 仍是 operator-owned
+  configuration，不被 GUI 生成器改写或控制。
+- 不支持 HTTP/2、HTTP/3/QUIC MITM、chunked/streaming exchange、多 request CONNECT
+  session、arbitrary plugin loading、remote script、JavaScript script dispatch、TUN、
+  DNS interception、firewall mutation 或 transparent capture。
+
+### `v0.2.0-alpha.18`
+
+状态：已发布 Windows managed-client prerelease；保留为 alpha.19 core-process
+supervision 切片之前的 service-owned proxy lifecycle 基线。
+
+主要特性：
+
+- GUI `Start` 与 `Restart` 不再预先写入 managed configuration 中的系统代理。SCM
+  请求只负责启动服务；服务在自己的 runtime state 中保存唯一 proxy snapshot 并执行
+  apply/rollback，避免异步 core 启动失败时将 GUI 已写入的代理当作可恢复的原状态。
+- GUI `Enable proxy`/`Restore proxy` 仍是显式的独立手动操作，不共享 managed-service
+  runtime snapshot。
+- 每个 Windows tag release 继续要求 managed-client MSI 四件套和 portable ZIP 四件套同时
+  通过 checksum、manifest、attestation 与 publish gate。portable ZIP 解压不注册或启动 service。
+
+明确不包含：
+
+- 不把 Start/Restart 当作 core readiness、controller health 或任意远端连通性判断；仍通过
+  `Check core`、`Test delay`、本地 diagnostics 与 core log 显示这些不同状态。
+- 不提供自动 latency/`urltest`、scheduled/background remote refresh、persistent remote
+  catalog/group、remote route/rule fetch、Clash Web UI、LAN controller 或 automatic service restart。
+- 原生 sing-box JSON 继续 pass-through；其 selector/urltest/Clash API 仍是 operator-owned
+  configuration，不被 GUI 生成器改写或控制。
+- 不支持 HTTP/2、HTTP/3/QUIC MITM、chunked/streaming exchange、多 request CONNECT
+  session、arbitrary plugin loading、remote script、JavaScript script dispatch、TUN、
+  DNS interception、firewall mutation 或 transparent capture。
+
+### `v0.2.0-alpha.17`
+
+状态：已发布 Windows managed-client prerelease；保留为 alpha.18 service-owned proxy
+lifecycle 切片之前的只读 core health 基线。
+
+主要特性：
+
+- GUI 的 `Check core` 对 NodeCatalog renderer 生成的 selector 发出一次 loopback
+  Clash API `GET /proxies/{selector}`，显示 active outbound 与可用节点数量。它仅用于
+  把 SCM service 状态和实际控制器可达性区分开来；不保存选中的节点，不切换 selector，
+  不改写 managed config，亦不 start、stop 或 restart service。
+
+### `v0.2.0-alpha.16`
+
+状态：已发布 Windows managed-client prerelease；保留为 `v0.2.0-alpha.17` 只读
+runtime health 切片之前的单次手动测速基线。
+
+主要特性：
+
+- 对 GUI 导入的 NodeCatalog profile，基础 renderer 生成全部可翻译节点的 sing-box
+  `selector`，并将导入时选择的节点写为默认 outbound。各节点使用稳定内部 tag，
+  `route.final` 指向该 selector，不再在导入期丢弃其余可用节点。
+- renderer 只在 GUI 明确请求时写入 `experimental.clash_api`，固定为
+  `127.0.0.1:9091`、`networkcore-selector` 和 `interrupt_exist_connections=true`。
+  非 Windows 调用保持既有单节点 renderer；非回环 controller 会被拒绝。
+- GUI 的 `Switch active` 对当前 `Load nodes` 目录执行显式 Clash API PATCH，并读取
+  selector 返回的 active outbound 后才保存选择。它需要已经运行的 managed service，
+  不重写 profile、不下载订阅，也不重启 service。
+- GUI 的 `Test delay` 对当前选择的 generated outbound 发出一次 loopback Clash API
+  `GET /proxies/{tag}/delay`。用户可编辑 HTTPS target，默认
+  `https://www.gstatic.com/generate_204`；请求使用 10-second timeout，结果以毫秒回显并
+  记入本地 GUI log。该动作不切换 selector、不改写 managed config，亦不重启 service。
+- 每个 Windows tag release 继续要求 managed-client MSI 四件套和 portable ZIP 四件套同时
+  通过 checksum、manifest、attestation 与 publish gate。portable ZIP 解压不注册或启动 service。
+
+明确不包含：
+
+- 不提供自动 latency/`urltest`、scheduled/background remote refresh、persistent remote
+  catalog/group、remote route/rule fetch、Clash Web UI、LAN controller 或 automatic service restart。
+- 原生 sing-box JSON 继续 pass-through；其 selector/urltest/Clash API 仍是 operator-owned
+  configuration，不被 GUI 生成器改写或控制。
+- 不支持 HTTP/2、HTTP/3/QUIC MITM、chunked/streaming exchange、多 request CONNECT
+  session、arbitrary plugin loading、remote script、JavaScript script dispatch、TUN、
+  DNS interception、firewall mutation 或 transparent capture。
+
+### `v0.2.0-alpha.15`
+
+状态：已发布 Windows managed-client prerelease；保留为 `v0.2.0-alpha.16` 单次手动测速
+切片之前的显式 runtime selector 基线。
+
+主要特性：
+
+- 对 GUI 导入的 NodeCatalog profile，基础 renderer 生成全部可翻译节点的 sing-box
+  `selector`，并将导入时选择的节点写为默认 outbound。各节点使用稳定内部 tag，
+  `route.final` 指向该 selector，不再在导入期丢弃其余可用节点。
+- renderer 只在 GUI 明确请求时写入 `experimental.clash_api`，固定为
+  `127.0.0.1:9091`、`networkcore-selector` 和 `interrupt_exist_connections=true`。
+  非 Windows 调用保持既有单节点 renderer；非回环 controller 会被拒绝。
+- GUI 的 `Switch active` 对当前 `Load nodes` 目录执行显式 Clash API PATCH，并读取
+  selector 返回的 active outbound 后才保存选择。它需要已经运行的 managed service，
+  不重写 profile、不下载订阅，也不重启 service。
+
+明确不包含：
+
+- 不提供单次或自动 latency/`urltest`、scheduled/background remote refresh、persistent
+  remote catalog/group、remote route/rule fetch、Clash Web UI、LAN controller 或 automatic
+  service restart。
+
+### `v0.2.0-alpha.14`
+
+状态：已发布 Windows managed-client prerelease；保留为 `v0.2.0-alpha.15`
+运行期 selector 切片之前的导入期节点选择基线。
+
+主要特性：
+
+- GUI 的 `Load nodes` 显式读取当前 local profile 或 HTTP(S) URL，但不写 managed config。
+  对已解析的 NodeCatalog，它会显示节点名和稳定 ID，使用户可以在 `Import profile` 前选择
+  确定性出口；成功导入保存实际选择的节点 ID。
+- 原生 sing-box JSON 继续完全 pass-through，不将 `selector`、`urltest` 或其他原生配置组
+  降级成基础 renderer 的单节点配置。改变这些原生 group 仍是 operator-owned config 的选择。
+- 每个 Windows tag release 继续要求 managed-client MSI 四件套和 portable ZIP 四件套同时
+  通过 checksum、manifest、attestation 与 publish gate。portable ZIP 解压不注册或启动 service。
+
+明确不包含：
+
+- 不提供 sing-box Clash API controller、运行期 selector 切换、自动 latency/urltest、
+  scheduled/background remote refresh、persistent remote catalog/group、remote route/rule fetch
+  或 automatic service restart。
+- 不支持 HTTP/2、HTTP/3/QUIC MITM、chunked/streaming exchange、多 request CONNECT
+  session、arbitrary plugin loading、remote script、JavaScript script dispatch、TUN、
+  DNS interception、firewall mutation 或 transparent capture。
+
+### `v0.2.0-alpha.13`
+
+状态：Windows managed client source slice；必须通过同 commit GitHub Actions CI、
+MSI install/uninstall smoke、package、attestation、publish eligibility 和 tag release
+后，才可称为用户可下载版本。
+
+主要特性：
+
+- GUI 在成功手动导入 HTTP(S) `Profile / URL` 后提供 `Update URL`。它只读取该次成功
+  导入保存的单个 URL，并复用 native sing-box JSON pass-through 或
+  `CoreSubscriptionService`/NodeCatalog parser-renderer 路径。
+- 下载或解析失败不会覆盖当前 managed config 或保存的 URL；GUI action 失败仍会生成现有
+  local diagnostics report。该动作不从未保存的输入框文本推断 URL。
+- 每个 Windows tag release 继续要求 managed-client MSI 四件套和 portable ZIP 四件套同时
+  通过 checksum、manifest、attestation 与 publish gate。portable ZIP 解压不注册或启动 service。
+
+明确不包含：
+
+- 不提供 scheduled/background remote subscription refresh、persistent remote catalog/group、
+  remote route/rule fetch、自动 service restart 或完整多节点 selector。
+- 不支持 HTTP/2、HTTP/3/QUIC MITM、chunked/streaming exchange、多 request CONNECT
+  session、arbitrary plugin loading、remote script、JavaScript script dispatch、TUN、
+  DNS interception、firewall mutation 或 transparent capture。
+
+### `v0.2.0-alpha.12`
+
+状态：Windows managed client source slice；必须通过同 commit GitHub Actions CI、
+MSI install/uninstall smoke、package、attestation、publish eligibility 和 tag release
+后，才可称为用户可下载版本。
+
+主要特性：
+
+- GUI 的 `Profile / URL` 输入可接受 operator-selected local profile 或 operator-entered
+  `http://`/`https://` URL。点击 `Import profile` 时才下载 URL payload，随后复用既有
+  native sing-box JSON pass-through inspection 或 `CoreSubscriptionService`/NodeCatalog
+  parser-renderer 路径；同一格式的配置保留与错误 diagnostics 行为一致。
+- 该 URL 只保存为下一次手动导入的输入值，不启动 background refresh、不建立 subscription
+  catalog/group、不拉取 route/rule，也不因 URL 变化自动 restart service。
+- 每个 Windows tag release 继续要求 managed-client MSI 四件套和 portable ZIP 四件套同时
+  通过 checksum、manifest、attestation 与 publish gate。portable ZIP 解压不注册或启动 service。
+
+明确不包含：
+
+- 不提供 scheduled/background remote subscription refresh、persistent remote catalog/group、
+  remote route/rule fetch、完整多节点 selector、任意 native transport 推断、XHTTP、ECH、
+  multiplex 或 Hysteria v1；未由 NodeCatalog 明确保留的字段不由基础 renderer 猜测或改写。
+- 不支持 HTTP/2、HTTP/3/QUIC MITM、chunked/streaming exchange、多 request CONNECT
+  session、arbitrary plugin loading、remote script、JavaScript script dispatch、TUN、
+  DNS interception、firewall mutation 或 transparent capture。
+
+### `v0.2.0-alpha.11`
+
+状态：Windows managed client source slice；必须通过同 commit GitHub Actions CI、
+MSI install/uninstall smoke、package、attestation、publish eligibility 和 tag release
+后，才可称为用户可下载版本。
+
+主要特性：
+
+- GUI 新增 `Open JSON`、`Validate` 和 `Diagnostics`。`Validate` 先按服务同一 schema
+  解析 managed JSON；启用 `sing_box` 时，再执行同一 `sing-box check -c` 预检。
+  预检不启动 service/proxy/tunnel，也不修改证书、driver 或系统代理。
+- `Diagnostics` 写入并打开本地 `diagnostics.txt`，其中包含当前 SCM 状态、managed runtime
+  状态和 GUI/service/sing-box/native MITM log 的有界尾部；GUI action 失败会自动生成同一报告。
+- `Toggle debug` 和 GUI `--debug` 只增加 GUI activity log。core debug 必须由
+  operator-owned sing-box JSON 明确设置 `"log": { "level": "debug" }`，输出仍进入
+  `sing_box.log_path`。
+- 每个 Windows tag release 继续要求 managed-client MSI 四件套和 portable ZIP 四件套同时
+  通过 checksum、manifest、attestation 与 publish gate。portable ZIP 解压不注册或启动 service。
+
+明确不包含：
+
+- 不提供 remote subscription fetch、完整多节点 selector、任意 native transport 推断、
+  XHTTP、ECH、multiplex 或 Hysteria v1；未由 NodeCatalog 明确保留的字段不由基础 renderer
+  猜测或改写。
+- 不支持 HTTP/2、HTTP/3/QUIC MITM、chunked/streaming exchange、多 request CONNECT
+  session、arbitrary plugin loading、remote script、JavaScript script dispatch、TUN、
+  DNS interception、firewall mutation 或 transparent capture。
+
+### `v0.2.0-alpha.10`
+
+状态：Windows managed client source slice；必须通过同 commit GitHub Actions CI、
+MSI install/uninstall smoke、package、attestation、publish eligibility 和 tag release
+后，才可称为用户可下载版本。
+
+主要特性：
+
+- 服务先完成 SCM `Running` handoff，之后才读取并应用 managed runtime
+  configuration。WiX 的 install-time service request 保持 no-wait，GUI/CLI 的
+  `start` 只返回即时观察到的 SCM state，不再轮询等待 runtime ready。
+- 配置错误仍会记录到 `service.log`，并把服务返回 `Stopped`；Windows CI 会在真实
+  MSI 安装后写入无效配置，验证 start request 在十秒内返回、服务随后停止且错误可诊断。
+- 每个 Windows tag release 继续要求 managed-client MSI 四件套和 portable ZIP
+  四件套同时通过 checksum、manifest、attestation 与 publish gate。portable ZIP
+  解压不注册或启动 service。
+
+明确不包含：
+
+- 不提供 remote subscription fetch、完整多节点 selector、任意 native transport 推断、
+  XHTTP、ECH、multiplex 或 Hysteria v1；未由 NodeCatalog 明确保留的字段不由基础 renderer
+  猜测或改写。
+- 不支持 HTTP/2、HTTP/3/QUIC MITM、chunked/streaming exchange、多 request CONNECT
+  session、arbitrary plugin loading、remote script、JavaScript script dispatch、TUN、
+  DNS interception、firewall mutation 或 transparent capture。
+
+### `v0.2.0-alpha.9`
+
+状态：Windows managed client source slice；必须通过同 commit GitHub Actions CI、
+MSI install/uninstall smoke、package、attestation、publish eligibility 和 tag release
+后，才可称为用户可下载版本。
+
+主要特性：
+
+- V2Ray share-link compatibility subset：GUI 的 operator-selected local profile
+  import 可把 `trojan://`、`vless://`、`vmess://` 及 sing-box outbound catalog
+  中明确提供的 TLS、ALPN、certificate pins、uTLS、REALITY、VLESS Vision、VMess
+  security/alter-id 和 WebSocket/gRPC/HTTP/HTTPUpgrade/V2Ray QUIC 信息保留到
+  managed sing-box outbound。
+- 此渲染是确定性的本地文件兼容子集。native sing-box JSON 直通路径不受影响，仍会保留
+  NodeCatalog 未覆盖的 sing-box 字段；Hysteria2/TUIC 仍是独立的 direct QUIC proxy
+  outbound path。
+- V2Ray QUIC transport 与 Hysteria2/TUIC 都是 sing-box 直接代理 core 的数据路径，不进入
+  GUI 的 HTTP/1.1 HTTPS MITM listener、CA 或 native `mixed-in` snapshot/restore 生命周期。
+
+明确不包含：
+
+- 不提供 remote subscription fetch、完整多节点 selector、任意 native transport 推断、
+  XHTTP、ECH、multiplex 或 Hysteria v1；未由 NodeCatalog 明确保留的字段不由基础 renderer
+  猜测或改写。
+- 不支持 HTTP/2、HTTP/3/QUIC MITM、chunked/streaming exchange、多 request CONNECT
+  session、arbitrary plugin loading、remote script、JavaScript script dispatch、TUN、
+  DNS interception、firewall mutation 或 transparent capture。
+
+### `v0.2.0-alpha.8`
+
+状态：Windows managed client source slice；必须通过同 commit GitHub Actions CI、
+MSI install/uninstall smoke、package、attestation、publish eligibility 和 tag release
+后，才可称为用户可下载版本。
+
+主要特性：
+
+- Hysteria2/TUIC share-link parser gate：GUI 的 operator-selected local profile
+  import 现在可将 `hysteria2://`/`hy2://` 与 `tuic://` 分享链接归一化后生成
+  sing-box outbound。Hysteria2 保留密码、TLS、
+  port hopping 与 `salamander`/`gecko` obfuscation；TUIC 保留 UUID、可选密码、TLS
+  和 `cubic`/`new_reno`/`bbr` congestion control。
+- native sing-box JSON catalog import 也可识别 Hysteria2/TUIC outbound 的上述受控字段；
+  GUI 对带 top-level `inbounds` 或 `outbounds` 的原生 JSON 直通路径仍不会改写 JSON。
+- Hysteria2/TUIC 是 sing-box 直接代理 core 的 QUIC 数据路径，不进入 GUI 的 HTTP/1.1
+  HTTPS MITM listener、CA 或 native `mixed-in` snapshot/restore 生命周期。
+
+明确不包含：
+
+- 不提供 remote subscription fetch、完整多节点 selector、Hysteria v1、任意 QUIC
+  transport 泛化或 HTTP/3 MITM；未由 NodeCatalog 明确保留的 transport、route、DNS
+  和 native JSON 字段不会被基础 renderer 推断或改写。
+- 不支持 HTTP/2、HTTP/3/QUIC MITM、chunked/streaming exchange、多 request CONNECT
+  session、arbitrary plugin loading、remote script、JavaScript script dispatch、TUN、
+  DNS interception、firewall mutation 或 transparent capture。
+
+### `v0.2.0-alpha.7`
+
+状态：Windows managed client source slice；必须通过同 commit GitHub Actions CI、
+MSI install/uninstall smoke、package、attestation、publish eligibility 和 tag release
+后，才可称为用户可下载版本。
+
+主要特性：
+
+- GUI 会把带 top-level `inbounds` 或 `outbounds` 的 operator-selected native sing-box JSON
+  原样导入 service-owned `config.json`，不丢弃 TLS/REALITY/WebSocket/gRPC/multiplex/
+  route/DNS 字段；local/wildcard `mixed` 或 `http` inbound 会提供系统代理端口，GUI 还可直接
+  打开 `sing-box.log` 查看 `check -c` 与 runtime 输出。
+- 当 native JSON 明确包含 `type: mixed`、`tag: mixed-in` inbound 时，GUI HTTPS MITM
+  会将原始 JSON 保存为 rollback snapshot，只把该 inbound 改为 `127.0.0.1:7891` 的
+  SOCKS upstream listener；disable 后恢复原始 JSON 和其本地 mixed/http proxy endpoint。
+- GUI 的明确 `Enable HTTPS MITM` 动作生成受管 CA，配置 native HTTP(S) listener
+  `127.0.0.1:7890`，并将 GUI 导入的 sing-box mixed inbound 转为本地 SOCKS upstream
+  `127.0.0.1:7891`。`Disable HTTPS MITM` 停止 listener、恢复 direct mixed inbound、
+  删除受管 ROOT 条目和 CA 私钥。
+- Windows service 在启动 sing-box 后启动 native proxy；native path 按 CONNECT
+  authority 签发 leaf、终止下游 TLS、以 web PKI 验证上游 TLS，并通过内置 policy hook
+  处理一个有界 HTTP/1.1 request/response exchange。
+- capability/status 明确报告 `https_mitm: active`；service lifecycle contract 覆盖
+  loopback native listener 的 start/stop 和 CA trust action。
+
+明确不包含：
+
+- 不提供 remote subscription fetch 或完整多节点 selector；基础 profile renderer 仍不生成
+  advanced transport，但 native sing-box JSON 作为不变的 core config 可保留这些字段。
+- 不会改写没有明确 `type: mixed`、`tag: mixed-in` inbound 的 native JSON，也不会改写
+  其他 native inbound、outbound、route 或 DNS 字段。
+- 不支持 HTTP/2、HTTP/3/QUIC、chunked/streaming exchange、多 request CONNECT session、
+  arbitrary plugin loading、remote script、JavaScript script dispatch、TUN、DNS interception、
+  firewall mutation 或 transparent capture。
+
 ## 最新已发布切片
+
+### `v0.2.0-alpha.6`
+
+Windows managed client release：原生 sing-box JSON 可不经基础 renderer 原样导入
+service-owned config，保留 advanced transport、routing 和 DNS 字段，并检测 local/wildcard
+`mixed`/`http` inbound 作为系统代理端口；GUI 也提供直接打开 `sing-box.log` 的诊断入口。
+该 release 已包含 MSI 与 portable ZIP。
+
+### `v0.2.0-alpha.5`
+
+Windows managed client release：GUI 的明确 HTTPS MITM 操作创建 service-owned CA、配置
+`127.0.0.1:7890` native HTTP listener 和 `127.0.0.1:7891` sing-box SOCKS upstream；Windows
+service 在 sing-box 启动后处理 controlled HTTP/1.1 TLS exchange，并在 disable 时回滚 ROOT
+trust entry、listener 与 CA private key。该 release 已包含 MSI 与 portable ZIP。
+
+### `v0.2.0-alpha.4`
+
+状态：Windows managed client prerelease；用户可下载状态以同名 tag 的
+GitHub Actions release workflow 结果为准。
+
+主要特性：
+
+- GUI 新增显式 `Install core`，通过 sing-box 官方 GitHub release metadata
+  选择 Windows ZIP，并在发布 asset 提供 digest 时校验 `sha256:` 后提取
+  `sing-box.exe` 到 `%ProgramData%\\AnixOps\\NetworkCore`。MSI 和 portable ZIP
+  仍不捆绑、也不会静默下载第三方 core。
+- GUI 新增显式本地 profile file import。它经 `CoreSubscriptionService` 解析并
+  写入服务可用的 `sing-box/config.json` 与 managed `sing_box` block，默认监听
+  `127.0.0.1:7890`；空 Node ID 选择首个可渲染节点。
+- `engine-singbox` renderer 可生成基础 Shadowsocks、Trojan、VLESS、VMess
+  outbound。Trojan 启用 TLS；VLESS/VMess 只生成基础 TCP。REALITY、WebSocket、
+  gRPC、TLS/transport/multiplex、route、DNS 与远程订阅拉取仍不在该路径范围。
+
+明确不包含：
+
+- 不提供 remote subscription fetch、完整多节点 selector、advanced transport
+  rendering、Windows live HTTPS MITM、动态叶子证书、TLS 解密、rewrite 或
+  JavaScript script dispatch。
+
+### `v0.2.0-alpha.3`
+
+状态：Windows managed client prerelease；用户可下载状态以同名 tag 的
+GitHub Actions release workflow 结果为准。
+
+主要特性：
+
+- MSI 的首次 service start 改为 asynchronous：安装不会等待
+  `AnixOpsNetworkCore` 到达 `Running`，保留的错误配置不会卡住安装界面；stop
+  与 uninstall 仍等待并保持 `purge` 回滚顺序。
+- 每次 Windows tag release 同时发布 managed-client MSI 四件套与 portable ZIP
+  四件套。便携 ZIP 包含 GUI、service、CLI、inert managed config 和 README；
+  解压不会注册或启动 service。
+- CI 在 WiX validation 之外执行有 120 秒上限的 silent MSI install/uninstall
+  smoke，并检查 SCM service 注册和删除。
+
+### `v0.2.0-alpha.2`
+
+状态：Windows managed client prerelease；用户可下载状态以同名 tag 的
+GitHub Actions release workflow 结果为准。
+
+主要特性：
+
+- Windows service 可从 `managed-config.json.sing_box` 托管 operator-staged
+  `sing-box.exe`，启动前执行 `check -c`，再执行 `run -c`，持久化 PID/exit
+  code，并将 core stdout/stderr 写入显式日志。
+- Adapter 可选择、校验并安全提取官方 Windows ZIP 中的 `sing-box.exe`；MSI
+  不捆绑或静默下载第三方 core。
+- GUI 显示 service 与 sing-box 状态/PID/exit code，并提供持久诊断和 debug
+  toggle；MSI 使用标准安装目录向导与完成页。
+- `root_certificate_path` 仍只负责 LocalMachine ROOT trust-store 生命周期；
+  Windows live HTTPS MITM listener、动态叶子证书、TLS 解密和 rewrite 未启用。
+
+### `v0.2.0-alpha.1`
+
+状态：已发布的首个 Windows managed client prerelease；用户可下载 MSI、sha256、schema-version-2 manifest 和 manifest sha256。
+
+主要特性：
+
+- 原生 Win32 GUI、SCM service、WiX 4.0.6 per-machine MSI、signed INF driver package lifecycle、WinINet/WinHTTP system proxy 和 LocalMachine ROOT CA apply/rollback 已进入同一发布切片。
+- JavaScript script dispatch、Windows subscription runnable path、远程订阅拉取和默认路径扫描仍 blocked。
+- Linux artifact 同步发布；Linux 的历史能力边界继续由 `v0.1.2-alpha.3` source slice 描述。
 
 ### `v0.1.2-alpha.3`
 
-状态：当前发布切片；用户可下载状态以同名 Git tag 和 GitHub Actions release workflow 结果为准。
+状态：已发布的 Linux source slice；用户可下载状态以同名 Git tag 和 GitHub Actions release workflow 结果为准。
 
 主要特性：
 
@@ -341,7 +867,9 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
   web-PKI 校验上游 TLS，并在单个有界 HTTP/1.1 request/response exchange 上应用插件 rewrite。
 - `start --enable-script-runtime --script-runner <path> --script-map <url>=<local-file> --confirm`
   把显式本地 Node runner 和已映射 local asset 接入 request/response hook；body/timeout/header/status/
-  URL authority 均受限，失败 fail-open，不下载远程脚本。脚本是受信本地代码，不宣称 sandbox。
+  URL authority 均受限，失败 fail-open，不下载远程脚本。Linux 使用无网络 namespace 和 Node 最小
+  read permission，只允许 runner、asset 和 staged body；不允许 persistent store、write、child-process、
+  addon 或 network permission。
 - Linux/Windows 产物继续只由 GitHub Actions 生成、checksum、manifest、attestation 后发布。
 
 明确不包含：
@@ -349,7 +877,7 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 - 不安装或信任 CA，不修改 system/browser proxy、system PAC、TUN、DNS、firewall 或路由状态。
 - 受控 TLS 路径仅支持有界 HTTP/1.1 exchange；不承诺 HTTP/2、chunked/streaming、多 request session
   或通用浏览器/system capture 自动化。
-- Windows artifact 不启用 Node script runtime、service、driver、installer 或系统 mutation。
+- Windows `v0.2.0-alpha.1` 已另行发布 managed-client MSI；历史 `v0.1.1-alpha.2` CLI ZIP 只作审计记录。
 
 ### `v0.1.0`
 
@@ -457,12 +985,11 @@ trust artifact 为核心，固定 `MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-life
 
 ## 当前 main source 状态
 
-当前 release 切片是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
+当前 Windows source release 候选切片是 `v0.2.0-beta.5`，Linux source slice 是 `v0.1.2-alpha.3`，最新 stable artifact 仍是 `v0.1.0`。它保留
 `v0.1.1-alpha.2` 的 Linux/Windows package、checksum、manifest、attestation 和 publish gate，并把
-受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI。用户可下载状态仍以
-tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。Windows path 仍只生成
-manual-extract CLI zip，不启用 Node script runtime、service、driver、installer、system proxy mutation、
-system trust store mutation 或 managed daemon lifecycle。
+受控 TLS HTTP/1.1 rewrite 与 explicit-local Node script runtime 加入 Linux CLI；Windows path 已切换到
+managed-client MSI，service、driver、installer、system proxy mutation、system trust store mutation 和 managed lifecycle
+已 active，并增加 operator-staged sing-box managed process、非阻塞 MSI service start、即时 SCM handoff 与 GUI/CLI start 状态返回、service-owned system-proxy snapshot、service-owned core-process supervision/failed-state rollback、受 attestation 的 portable ZIP、GUI-controlled HTTP/1.1 HTTPS MITM/CA lifecycle、native sing-box JSON pass-through import、GUI `check -c` preflight/local diagnostics report、core-log access、受控 `mixed-in` listener 的 snapshot/restore、Hysteria2/TUIC local-file share-link and native-outbound import、本地 V2Ray TLS/REALITY/uTLS/Vision/transport compatibility subset、显式 NodeCatalog 节点选择、单个保存 URL 的显式 HTTP(S) profile update、opt-in hourly single-source refresh 与其脱敏状态/节点差异计数、generated profile 的 loopback Clash API runtime selector、一次性 HTTPS delay test、只读 selector core health check、shared-state tray、current-user Run startup、opt-in one-shot auto-connect/core recovery 和 GUI-owned proxy recovery。自动 latency/urltest、persistent catalog/group、remote route/rule fetch、Clash Web UI/LAN controller、无限自动 service restart、XHTTP/ECH/multiplex transport inference、HTTP/2/HTTP/3 QUIC MITM、streaming、多 request CONNECT 和 JavaScript script dispatch 仍 blocked。用户可下载状态仍以 tag、同 commit CI、package、attestation、publish eligibility 和 GitHub Release 为准。
 
 ## 已拍板后续版本节奏
 
@@ -557,10 +1084,13 @@ mutation 和 system proxy mutation。
   event record 的允许 event kind、recorded state 和 recorded_at，写入结果固定 `record_written=true` 与
   `liveness_verified=false`；`networkcore-linux managed-event <event-record-path>` 已只读输出同一 record，`networkcore-linux
   managed-event init <event-record-path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at>` 已非覆盖创建
-  record 并输出 `record_written=true`。`CommandManagedForegroundSessionEventStore::list_events` 已读取调用方显式
-  event directory 的直接常规 `.json` record，按路径确定性排序、校验每个候选并输出 count/entries 与
-  `liveness_verified=false`；不使用默认路径、不递归扫描、不提供 `managed-event list` CLI、不接入实时 stream 或
-  runtime control。后续新增 managed `events/logs/reload` 与 runtime rollback 命令面；仍不默认安装 daemon/service。
+  record 并输出 `record_written=true`。当前 main 的未发布 source-only 增量还包含
+  `CommandManagedForegroundSessionEventStore::list_event_history` 与 `networkcore-linux managed-event list
+  <event-directory> [--session-id <id>] [--event-kind <kind>] [--state <state>] [--cursor <offset>] [--limit
+  <1-100>]`：它只读取显式目录的直接常规 JSON record，先完整校验、再 exact 过滤，按
+  `(recorded_at, event_id, event_path)` 确定排序并返回 offset page，单页/目录/单 record 分别限为
+  100/256/65536；它不是实时 stream、liveness 检查或 runtime control。后续新增 managed
+  `logs/reload` 与 runtime rollback 命令面；仍不默认安装 daemon/service。
   同一 alpha.2 status source 还包含 `CommandManagedForegroundSessionStore::rollback_status`：仅在 explicit
   status/snapshot 路径不同、current expected state 与 snapshot 的 trim 后 session/engine identity 匹配时，恢复
   snapshot 原始内容并保留 snapshot，输出 `snapshot_retained=true` 与 `liveness_verified=false`；
@@ -570,7 +1100,8 @@ mutation 和 system proxy mutation。
   plugin permission、显式 local runner/script map、timeout/body/URL authority guard、fail-open diagnostics
   和 CI governance 执行受控 dispatch；同一 Linux `start` runtime 在显式 CA/confirm 下完成
   CONNECT authority/SNI-bound TLS termination、web-PKI upstream forwarding 和有界 HTTP/1.1 rewrite。
-  local Node code 是受信代码而非 sandbox，禁止远程脚本下载。
+  Linux local Node code 只能在无网络、最小 read-permission sandbox 中执行，禁止远程脚本下载；
+  Windows 在具备等价 sandbox 前拒绝脚本执行。
 - `v0.1.2-alpha.4`：system trust store mutation foundation。显式授权后执行平台 trust store
   apply/detect/revoke/rollback，必须有 snapshot、conflict detection 和 blocked fallback。
 - `v0.1.2-alpha.5`：system proxy mutation foundation。显式授权后执行 system proxy/system PAC

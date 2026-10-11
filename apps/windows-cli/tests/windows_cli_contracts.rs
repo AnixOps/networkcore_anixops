@@ -1,30 +1,646 @@
+use control_domain::{DomainError, DomainResult};
 use networkcore_windows::{
-    cli_help_text, handle_entrypoint, handle_parse_error, parse_args, render_response,
-    OutputFormat, WindowsCliCommand, WindowsCliExitCode, CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE,
-    CLI_WINDOWS_ARTIFACT_READY_CODE, CLI_WINDOWS_SYSTEM_MUTATION_BLOCKED_CODE, COMMAND_NAME,
+    cli_help_text, handle_entrypoint, handle_entrypoint_with_tunnel, handle_parse_error,
+    parse_args, render_response, DeliveryBackedWindowsTunnelCommandService, OutputFormat,
+    TunnelStartInputPaths, WindowsCliCommand, WindowsCliExitCode, WindowsCliResponse,
+    WindowsTunnelCommandResult, WindowsTunnelCommandService, WindowsTunnelDeliveryLoader,
+    WindowsTunnelInputPathPolicy, WindowsTunnelLifecyclePort, WindowsTunnelPrepareStorageArgs,
+    WindowsTunnelPrivilegePort, WindowsTunnelStartArgs, WindowsTunnelStatusArgs,
+    WindowsTunnelStopArgs, CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE, CLI_WINDOWS_ARTIFACT_READY_CODE,
+    CLI_WINDOWS_SYSTEM_INTEGRATION_ACTIVE_CODE, COMMAND_NAME,
     WINDOWS_CLI_SUBSCRIPTION_COMPATIBILITY_STATUS,
 };
-use platform_windows::{
-    ReadOnlyWindowsPlatformCapabilityService, WINDOWS_ACTIVE_STATUS, WINDOWS_BLOCKED_STATUS,
-    WINDOWS_CLI_ARTIFACT_GATE, WINDOWS_CLI_RELEASE_ASSETS_STATUS, WINDOWS_CLI_SOURCE_IDENTITY,
+use platform_windows::tunnel_config::{
+    OwnedProcessHandle, WindowsRouteSnapshotEntry, WindowsTunnelLifecycleState,
+    WindowsTunnelRuntimeOwnership, WindowsTunnelState, WINDOWS_TUNNEL_STATE_SCHEMA_VERSION,
 };
+use platform_windows::tunnel_runtime::{
+    WindowsTunnelStartRequest, WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE,
+    WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE, WINDOWS_TUNNEL_STATUS_UNAVAILABLE_CODE,
+};
+use platform_windows::{
+    ReadOnlyWindowsPlatformCapabilityService, WindowsTunnelPlan, WindowsTunnelRouteIntent,
+    WINDOWS_ACTIVE_STATUS, WINDOWS_BLOCKED_STATUS, WINDOWS_CLI_ARTIFACT_GATE,
+    WINDOWS_CLI_RELEASE_ASSETS_STATUS, WINDOWS_CLI_SOURCE_IDENTITY,
+};
+use std::cell::RefCell;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+
+const FOREGROUND_TUNNEL_MUTATION_POLICY: &str = "explicit-confirm-external-easytier-only";
+const EASYTIER_CORE_COMMAND_FRAGMENT: &str = "easytier-core.exe --config-file";
+const EASYTIER_CLI_COMMAND_FRAGMENT: &str = "easytier-cli.exe --rpc-portal";
+
+fn tunnel_start_arguments(
+    include_confirm: bool,
+    include_secret_file: bool,
+    include_state_path: bool,
+) -> Vec<&'static str> {
+    let mut arguments = vec![
+        "tunnel",
+        "start",
+        "C:/fixtures/client-envelope.json",
+        "C:/fixtures/pop-envelope.json",
+        "--pop-id",
+        "pop-a",
+        "--device-id",
+        "fixture-device-1",
+        "--delivery-public-key-file",
+        "C:/fixtures/delivery-public-key.pem",
+        "--easytier-bin",
+        "C:/Program Files/EasyTier/easytier-core.exe",
+        "--easytier-cli",
+        "C:/Program Files/EasyTier/easytier-cli.exe",
+        "--easytier-version",
+        "2.6.1",
+        "--easytier-sha256",
+        "d33d1d119b40c768c4d96c66236ba1c033e72a9c041e88aa9c84bd67a38d04a5",
+        "--easytier-cli-sha256",
+        "1a83ab65ea2cc02bbcd58f5bc8b24cd3942cbe9c4ac1b9cb2acd9881410bfcd3",
+        "--network-name",
+        "fixture-network",
+    ];
+    if include_state_path {
+        arguments.extend(["--state-path", "C:/ProgramData/AnixOps/tunnel-state.json"]);
+    }
+    if include_secret_file {
+        arguments.extend(["--network-secret-file", "C:/private/network-secret.txt"]);
+    }
+    if include_confirm {
+        arguments.push("--confirm");
+    }
+    arguments
+}
+
+fn tunnel_start_arguments_without_cli_sha256(
+    include_confirm: bool,
+    include_secret_file: bool,
+    include_state_path: bool,
+) -> Vec<&'static str> {
+    let mut arguments =
+        tunnel_start_arguments(include_confirm, include_secret_file, include_state_path);
+    let option = arguments
+        .iter()
+        .position(|value| *value == "--easytier-cli-sha256")
+        .expect("fixture CLI SHA-256 option exists");
+    arguments.drain(option..=option + 1);
+    arguments
+}
+
+fn fixture_tunnel_state() -> WindowsTunnelState {
+    WindowsTunnelState {
+        schema_version: WINDOWS_TUNNEL_STATE_SCHEMA_VERSION,
+        session_id: "fixture-session".to_string(),
+        plan_digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
+        selected_pop_id: "pop-a".to_string(),
+        selected_endpoint: "198.51.100.10:11010".to_string(),
+        state: WindowsTunnelLifecycleState::Running,
+        config_path: "fixture.easytier.toml".to_string(),
+        last_client_sequence: 3,
+        last_pop_sequence: 4,
+        client_bundle_id: "fixture-client-bundle".to_string(),
+        client_sequence: 3,
+        pop_bundle_id: "fixture-pop-bundle".to_string(),
+        pop_sequence: 4,
+        easytier_version: "2.6.1".to_string(),
+        route_snapshot: vec![WindowsRouteSnapshotEntry {
+            destination_cidr: "198.51.100.10/32".to_string(),
+            gateway: Some("192.0.2.1".to_string()),
+            interface_index: Some(12),
+            metric: Some(25),
+        }],
+        rollback_status: "clean".to_string(),
+        runtime_ownership: WindowsTunnelRuntimeOwnership {
+            process: OwnedProcessHandle {
+                session_id: "fixture-session".to_string(),
+                process_id: 41001,
+                creation_marker: "fixture-creation-marker".to_string(),
+            },
+            binary_sha256: "d33d1d119b40c768c4d96c66236ba1c033e72a9c041e88aa9c84bd67a38d04a5"
+                .to_string(),
+            cli_file_name: "easytier-cli.exe".to_string(),
+            cli_sha256: "1a83ab65ea2cc02bbcd58f5bc8b24cd3942cbe9c4ac1b9cb2acd9881410bfcd3"
+                .to_string(),
+            route_cidrs: vec!["203.0.113.0/24".to_string()],
+            virtual_route_snapshot: vec![WindowsRouteSnapshotEntry {
+                destination_cidr: "203.0.113.0/24".to_string(),
+                gateway: Some("10.10.0.1".to_string()),
+                interface_index: Some(42),
+                metric: Some(7),
+            }],
+        },
+    }
+}
+
+fn fixture_tunnel_command_result() -> WindowsTunnelCommandResult {
+    WindowsTunnelCommandResult {
+        state: fixture_tunnel_state(),
+        peer_ready: true,
+        route_ready: true,
+        route_count: 1,
+    }
+}
+
+fn fixture_stopped_state() -> WindowsTunnelState {
+    let mut state = fixture_tunnel_state();
+    state.state = WindowsTunnelLifecycleState::Stopped;
+    state
+}
+
+fn fixture_tunnel_plan() -> WindowsTunnelPlan {
+    WindowsTunnelPlan {
+        session_id: "fixture-session".to_string(),
+        tenant_id: "fixture-tenant".to_string(),
+        client_bundle_id: "fixture-client-bundle".to_string(),
+        pop_bundle_id: "fixture-pop-bundle".to_string(),
+        client_sequence: 3,
+        pop_sequence: 4,
+        selected_pop_id: "pop-a".to_string(),
+        selected_endpoint: "198.51.100.10:11010".to_string(),
+        route_intents: vec![WindowsTunnelRouteIntent {
+            route_id: "fixture-route".to_string(),
+            destination_cidr: "203.0.113.0/24".to_string(),
+            service_chain_id: "fixture-chain".to_string(),
+            direct_fallback: false,
+        }],
+        endpoint_bypass_required: true,
+        plan_digest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
+    }
+}
+
+fn fixture_tunnel_start_args() -> WindowsTunnelStartArgs {
+    match parse_args(tunnel_start_arguments(true, true, true)).expect("fixture tunnel start") {
+        WindowsCliCommand::TunnelStart(args) => args,
+        command => panic!("expected tunnel start command, got {command:?}"),
+    }
+}
+
+fn fixture_tunnel_status_args() -> WindowsTunnelStatusArgs {
+    match parse_args([
+        "tunnel",
+        "status",
+        "C:/ProgramData/AnixOps/tunnel-state.json",
+    ])
+    .expect("fixture tunnel status")
+    {
+        WindowsCliCommand::TunnelStatus(args) => args,
+        command => panic!("expected tunnel status command, got {command:?}"),
+    }
+}
+
+fn fixture_tunnel_prepare_storage_args() -> WindowsTunnelPrepareStorageArgs {
+    match parse_args(["tunnel", "prepare-storage", "--confirm"])
+        .expect("fixture tunnel storage preparation")
+    {
+        WindowsCliCommand::TunnelPrepareStorage(args) => args,
+        command => panic!("expected tunnel storage preparation command, got {command:?}"),
+    }
+}
+
+fn fixture_tunnel_stop_args() -> WindowsTunnelStopArgs {
+    match parse_args([
+        "tunnel",
+        "stop",
+        "C:/ProgramData/AnixOps/tunnel-state.json",
+        "--confirm",
+    ])
+    .expect("fixture tunnel stop")
+    {
+        WindowsCliCommand::TunnelStop(args) => args,
+        command => panic!("expected tunnel stop command, got {command:?}"),
+    }
+}
+
+fn assert_redacted_tunnel_success_response(response: &WindowsCliResponse, state_path: &str) {
+    let json_rendered = render_response(response, OutputFormat::Json);
+    let json: serde_json::Value = serde_json::from_str(&json_rendered).expect("valid JSON");
+    let tunnel_json = json["tunnel"]
+        .as_object()
+        .expect("tunnel response JSON is present");
+    let text_rendered = render_response(response, OutputFormat::Text);
+
+    assert_eq!(tunnel_json["session_id"], "fixture-session");
+    assert_eq!(tunnel_json["state"], "running");
+    assert_eq!(tunnel_json["selected_pop_id"], "pop-a");
+    assert_eq!(tunnel_json["client_bundle_id"], "fixture-client-bundle");
+    assert_eq!(tunnel_json["client_sequence"].as_u64(), Some(3));
+    assert_eq!(tunnel_json["pop_bundle_id"], "fixture-pop-bundle");
+    assert_eq!(tunnel_json["pop_sequence"].as_u64(), Some(4));
+    assert_eq!(tunnel_json["easytier_version"], "2.6.1");
+    assert_eq!(
+        tunnel_json["system_mutation_policy"],
+        "managed-apply-and-rollback"
+    );
+    assert_eq!(
+        tunnel_json["plan_digest"],
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    );
+    assert_eq!(tunnel_json["peer_ready"].as_bool(), Some(true));
+    assert_eq!(tunnel_json["route_ready"].as_bool(), Some(true));
+    assert_eq!(tunnel_json["route_count"].as_u64(), Some(1));
+    assert_eq!(tunnel_json["rollback_status"], "clean");
+    assert!(text_rendered.contains("session_id: fixture-session"));
+    assert!(text_rendered.contains("state: running"));
+    assert!(text_rendered.contains("selected_pop_id: pop-a"));
+    assert!(text_rendered.contains("client_bundle_id: fixture-client-bundle"));
+    assert!(text_rendered.contains("client_sequence: 3"));
+    assert!(text_rendered.contains("pop_bundle_id: fixture-pop-bundle"));
+    assert!(text_rendered.contains("pop_sequence: 4"));
+    assert!(text_rendered.contains("easytier_version: 2.6.1"));
+    assert!(text_rendered.contains("system_mutation_policy: managed-apply-and-rollback"));
+    assert!(text_rendered
+        .contains("plan_digest: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"));
+    assert!(text_rendered.contains("peer_ready: true"));
+    assert!(text_rendered.contains("route_ready: true"));
+    assert!(text_rendered.contains("route_count: 1"));
+    assert!(text_rendered.contains("rollback_status: clean"));
+
+    for sensitive_value in [
+        "network_secret_file",
+        "client_envelope",
+        "pop_envelope",
+        "easytier_binary",
+        "easytier_cli",
+        "state_path",
+        "config_path",
+        "C:/private/network-secret.txt",
+        "C:/fixtures/client-envelope.json",
+        "C:/fixtures/pop-envelope.json",
+        "C:/fixtures/delivery-public-key.pem",
+        "C:/Program Files/EasyTier/easytier-core.exe",
+        "C:/Program Files/EasyTier/easytier-cli.exe",
+        EASYTIER_CORE_COMMAND_FRAGMENT,
+        EASYTIER_CLI_COMMAND_FRAGMENT,
+        state_path,
+        "fixture.easytier.toml",
+        "10.10.0.1",
+    ] {
+        assert!(
+            !json_rendered.contains(sensitive_value),
+            "tunnel JSON leaked {sensitive_value}"
+        );
+        assert!(
+            !text_rendered.contains(sensitive_value),
+            "tunnel text leaked {sensitive_value}"
+        );
+    }
+}
+
+#[derive(Debug)]
+struct RecordedTunnelStart {
+    client_envelope: PathBuf,
+    pop_envelope: PathBuf,
+    pop_id: String,
+    device_id: String,
+    delivery_public_key_file: PathBuf,
+    easytier_binary: PathBuf,
+    easytier_cli: PathBuf,
+    easytier_version: String,
+    easytier_sha256: String,
+    easytier_cli_sha256: String,
+    network_name: String,
+    network_secret_file: PathBuf,
+    state_path: PathBuf,
+    confirm: bool,
+}
+
+#[derive(Debug)]
+struct RecordedTunnelStop {
+    state_path: PathBuf,
+    confirm: bool,
+}
+
+struct RecordingTunnelCommandService {
+    prepare_storage_calls: Vec<bool>,
+    start_calls: Vec<RecordedTunnelStart>,
+    status_paths: Vec<PathBuf>,
+    stop_calls: Vec<RecordedTunnelStop>,
+    status_error_marker: Option<String>,
+}
+
+impl RecordingTunnelCommandService {
+    fn new() -> Self {
+        Self {
+            prepare_storage_calls: Vec::new(),
+            start_calls: Vec::new(),
+            status_paths: Vec::new(),
+            stop_calls: Vec::new(),
+            status_error_marker: None,
+        }
+    }
+
+    fn with_status_error(marker: impl Into<String>) -> Self {
+        Self {
+            status_error_marker: Some(marker.into()),
+            ..Self::new()
+        }
+    }
+}
+
+impl WindowsTunnelCommandService for RecordingTunnelCommandService {
+    fn prepare_storage(&mut self, args: &WindowsTunnelPrepareStorageArgs) -> DomainResult<()> {
+        self.prepare_storage_calls.push(args.confirm);
+        Ok(())
+    }
+
+    fn start(&mut self, args: &WindowsTunnelStartArgs) -> DomainResult<WindowsTunnelCommandResult> {
+        self.start_calls.push(RecordedTunnelStart {
+            client_envelope: args.client_envelope.clone(),
+            pop_envelope: args.pop_envelope.clone(),
+            pop_id: args.pop_id.clone(),
+            device_id: args.device_id.clone(),
+            delivery_public_key_file: args.delivery_public_key_file.clone(),
+            easytier_binary: args.easytier_binary.clone(),
+            easytier_cli: args.easytier_cli.clone(),
+            easytier_version: args.easytier_version.clone(),
+            easytier_sha256: args.easytier_sha256.clone(),
+            easytier_cli_sha256: args.easytier_cli_sha256.clone(),
+            network_name: args.network_name.clone(),
+            network_secret_file: args.network_secret_file.clone(),
+            state_path: args.state_path.clone(),
+            confirm: args.confirm,
+        });
+        Ok(fixture_tunnel_command_result())
+    }
+
+    fn status(
+        &mut self,
+        args: &WindowsTunnelStatusArgs,
+    ) -> DomainResult<WindowsTunnelCommandResult> {
+        self.status_paths.push(args.state_path.clone());
+        if let Some(marker) = &self.status_error_marker {
+            return Err(DomainError::new(
+                WINDOWS_TUNNEL_STATUS_UNAVAILABLE_CODE,
+                format!("synthetic status failure: {marker}"),
+            ));
+        }
+        Ok(fixture_tunnel_command_result())
+    }
+
+    fn stop(&mut self, args: &WindowsTunnelStopArgs) -> DomainResult<WindowsTunnelCommandResult> {
+        self.stop_calls.push(RecordedTunnelStop {
+            state_path: args.state_path.clone(),
+            confirm: args.confirm,
+        });
+        Ok(fixture_tunnel_command_result())
+    }
+}
+
+#[derive(Clone)]
+struct FixedPrivilege(bool);
+
+impl WindowsTunnelPrivilegePort for FixedPrivilege {
+    fn is_elevated(&self) -> bool {
+        self.0
+    }
+}
+
+#[derive(Clone)]
+struct RecordingInputPathPolicy {
+    events: Rc<RefCell<Vec<&'static str>>>,
+    prepare_storage_calls: Rc<RefCell<Vec<()>>>,
+    start_calls: Rc<RefCell<Vec<(PathBuf, PathBuf)>>>,
+    state_calls: Rc<RefCell<Vec<PathBuf>>>,
+    guarded_state_path: PathBuf,
+    guarded_secret_path: PathBuf,
+    guarded_binary_path: PathBuf,
+    guarded_cli_path: PathBuf,
+}
+
+impl RecordingInputPathPolicy {
+    fn new(events: Rc<RefCell<Vec<&'static str>>>) -> Self {
+        Self {
+            events,
+            prepare_storage_calls: Rc::new(RefCell::new(Vec::new())),
+            start_calls: Rc::new(RefCell::new(Vec::new())),
+            state_calls: Rc::new(RefCell::new(Vec::new())),
+            guarded_state_path: PathBuf::from("C:/guarded/state/fixture-state.json"),
+            guarded_secret_path: PathBuf::from("C:/guarded/secrets/fixture-secret.txt"),
+            guarded_binary_path: PathBuf::from("C:/guarded/easytier/easytier-core.exe"),
+            guarded_cli_path: PathBuf::from("C:/guarded/easytier/easytier-cli.exe"),
+        }
+    }
+}
+
+impl WindowsTunnelInputPathPolicy for RecordingInputPathPolicy {
+    fn prepare_storage(&self) -> DomainResult<()> {
+        self.events.borrow_mut().push("paths.prepare_storage");
+        self.prepare_storage_calls.borrow_mut().push(());
+        Ok(())
+    }
+
+    fn prepare_start(
+        &self,
+        state_path: &Path,
+        network_secret_file: &Path,
+        _easytier_binary: &Path,
+        _easytier_cli: &Path,
+    ) -> DomainResult<TunnelStartInputPaths> {
+        self.events.borrow_mut().push("paths.start");
+        self.start_calls
+            .borrow_mut()
+            .push((state_path.to_path_buf(), network_secret_file.to_path_buf()));
+        Ok(TunnelStartInputPaths {
+            state_path: self.guarded_state_path.clone(),
+            network_secret_file: self.guarded_secret_path.clone(),
+            easytier_binary: self.guarded_binary_path.clone(),
+            easytier_cli: self.guarded_cli_path.clone(),
+        })
+    }
+
+    fn validate_existing_state(&self, state_path: &Path) -> DomainResult<PathBuf> {
+        self.events.borrow_mut().push("paths.state");
+        self.state_calls.borrow_mut().push(state_path.to_path_buf());
+        Ok(self.guarded_state_path.clone())
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct AllowAllInputPathPolicy;
+
+impl WindowsTunnelInputPathPolicy for AllowAllInputPathPolicy {
+    fn prepare_storage(&self) -> DomainResult<()> {
+        Ok(())
+    }
+
+    fn prepare_start(
+        &self,
+        state_path: &Path,
+        network_secret_file: &Path,
+        easytier_binary: &Path,
+        easytier_cli: &Path,
+    ) -> DomainResult<TunnelStartInputPaths> {
+        Ok(TunnelStartInputPaths {
+            state_path: state_path.to_path_buf(),
+            network_secret_file: network_secret_file.to_path_buf(),
+            easytier_binary: easytier_binary.to_path_buf(),
+            easytier_cli: easytier_cli.to_path_buf(),
+        })
+    }
+
+    fn validate_existing_state(&self, state_path: &Path) -> DomainResult<PathBuf> {
+        Ok(state_path.to_path_buf())
+    }
+}
+
+#[derive(Clone)]
+struct OrderedDeliveryLoader {
+    events: Rc<RefCell<Vec<&'static str>>>,
+    plan: WindowsTunnelPlan,
+}
+
+impl OrderedDeliveryLoader {
+    fn new(events: Rc<RefCell<Vec<&'static str>>>, plan: WindowsTunnelPlan) -> Self {
+        Self { events, plan }
+    }
+}
+
+impl WindowsTunnelDeliveryLoader for OrderedDeliveryLoader {
+    fn load_plan(&self, _args: &WindowsTunnelStartArgs) -> DomainResult<WindowsTunnelPlan> {
+        self.events.borrow_mut().push("delivery.load");
+        Ok(self.plan.clone())
+    }
+}
+
+#[derive(Clone)]
+struct OrderedLifecycle {
+    events: Rc<RefCell<Vec<&'static str>>>,
+    start_requests: Rc<RefCell<Vec<WindowsTunnelStartRequest>>>,
+    status_paths: Rc<RefCell<Vec<PathBuf>>>,
+    stop_calls: Rc<RefCell<Vec<(PathBuf, bool)>>>,
+    running_state: WindowsTunnelState,
+    stopped_state: WindowsTunnelState,
+}
+
+impl OrderedLifecycle {
+    fn new(
+        events: Rc<RefCell<Vec<&'static str>>>,
+        start_requests: Rc<RefCell<Vec<WindowsTunnelStartRequest>>>,
+        status_paths: Rc<RefCell<Vec<PathBuf>>>,
+        stop_calls: Rc<RefCell<Vec<(PathBuf, bool)>>>,
+        running_state: WindowsTunnelState,
+        stopped_state: WindowsTunnelState,
+    ) -> Self {
+        Self {
+            events,
+            start_requests,
+            status_paths,
+            stop_calls,
+            running_state,
+            stopped_state,
+        }
+    }
+}
+
+impl WindowsTunnelLifecyclePort for OrderedLifecycle {
+    fn start(&mut self, request: WindowsTunnelStartRequest) -> DomainResult<WindowsTunnelState> {
+        self.events.borrow_mut().push("lifecycle.start");
+        self.start_requests.borrow_mut().push(request);
+        Ok(self.running_state.clone())
+    }
+
+    fn status(&mut self, state_path: &Path) -> DomainResult<WindowsTunnelState> {
+        self.events.borrow_mut().push("lifecycle.status");
+        self.status_paths
+            .borrow_mut()
+            .push(state_path.to_path_buf());
+        Ok(self.running_state.clone())
+    }
+
+    fn stop(&mut self, state_path: &Path, confirm: bool) -> DomainResult<WindowsTunnelState> {
+        self.events.borrow_mut().push("lifecycle.stop");
+        self.stop_calls
+            .borrow_mut()
+            .push((state_path.to_path_buf(), confirm));
+        Ok(self.stopped_state.clone())
+    }
+}
+
+#[derive(Clone)]
+struct RecordingDeliveryLoader {
+    plan: WindowsTunnelPlan,
+    calls: std::rc::Rc<std::cell::Cell<usize>>,
+}
+
+impl WindowsTunnelDeliveryLoader for RecordingDeliveryLoader {
+    fn load_plan(&self, _args: &WindowsTunnelStartArgs) -> DomainResult<WindowsTunnelPlan> {
+        self.calls.set(self.calls.get() + 1);
+        Ok(self.plan.clone())
+    }
+}
+
+#[derive(Default)]
+struct LifecycleEvents {
+    started: Vec<WindowsTunnelStartRequest>,
+    status_calls: Vec<PathBuf>,
+    stop_calls: Vec<(PathBuf, bool)>,
+}
+
+#[derive(Clone)]
+struct RecordingLifecyclePort {
+    events: std::rc::Rc<std::cell::RefCell<LifecycleEvents>>,
+    running_state: WindowsTunnelState,
+    stopped_state: WindowsTunnelState,
+}
+
+impl RecordingLifecyclePort {
+    fn with_states(
+        events: std::rc::Rc<std::cell::RefCell<LifecycleEvents>>,
+        running_state: WindowsTunnelState,
+        stopped_state: WindowsTunnelState,
+    ) -> Self {
+        Self {
+            events,
+            running_state,
+            stopped_state,
+        }
+    }
+}
+
+impl WindowsTunnelLifecyclePort for RecordingLifecyclePort {
+    fn start(&mut self, request: WindowsTunnelStartRequest) -> DomainResult<WindowsTunnelState> {
+        self.events.borrow_mut().started.push(request);
+        Ok(self.running_state.clone())
+    }
+
+    fn status(&mut self, state_path: &Path) -> DomainResult<WindowsTunnelState> {
+        self.events
+            .borrow_mut()
+            .status_calls
+            .push(state_path.to_path_buf());
+        Ok(self.running_state.clone())
+    }
+
+    fn stop(&mut self, state_path: &Path, confirm: bool) -> DomainResult<WindowsTunnelState> {
+        self.events
+            .borrow_mut()
+            .stop_calls
+            .push((state_path.to_path_buf(), confirm));
+        Ok(self.stopped_state.clone())
+    }
+}
 
 #[test]
-fn windows_cli_help_declares_package_boundary_without_system_mutation() {
+fn windows_cli_help_declares_managed_client_and_explicit_easytier_tunnel() {
     let help = cli_help_text();
 
     assert!(help.contains("NetworkCore Windows CLI"));
     assert!(help.contains(COMMAND_NAME));
     assert!(help.contains(WINDOWS_CLI_ARTIFACT_GATE));
     assert!(help.contains(WINDOWS_CLI_SOURCE_IDENTITY));
-    assert!(help.contains("system_mutation_policy: none"));
+    assert!(help.contains("system_mutation_policy: managed-apply-and-rollback"));
     assert!(help.contains("system-proxy-mutation"));
     assert!(help.contains("system-trust-store-mutation"));
     assert!(help.contains("javascript-script-dispatch"));
+    assert!(help.contains("preinstalled EasyTier"));
+    assert!(help.contains("elevated"));
+    assert!(help.contains("--confirm"));
+    assert!(help.contains("tunnel prepare-storage --confirm"));
+    assert!(help.contains("Tunnel status requires elevated execution"));
 }
 
 #[test]
-fn windows_cli_capabilities_json_reports_package_active_and_mutations_blocked() {
+fn windows_cli_capabilities_json_reports_managed_windows_integration_active() {
     let command = parse_args(["capabilities", "--format", "json"]).expect("valid command");
     let platform = ReadOnlyWindowsPlatformCapabilityService::new();
     let response = handle_entrypoint(command, &platform);
@@ -47,16 +663,40 @@ fn windows_cli_capabilities_json_reports_package_active_and_mutations_blocked() 
         WINDOWS_ACTIVE_STATUS
     );
     assert_eq!(
+        json["capabilities"]["foreground_tunnel"]["status"],
+        WINDOWS_ACTIVE_STATUS
+    );
+    assert_eq!(
+        json["capabilities"]["foreground_tunnel"]["mutation_policy"],
+        FOREGROUND_TUNNEL_MUTATION_POLICY
+    );
+    assert_eq!(
         json["capabilities"]["subscription_compatibility"]["status"],
         "deferred"
     );
     assert_eq!(
+        json["capabilities"]["service"]["status"],
+        WINDOWS_ACTIVE_STATUS
+    );
+    assert_eq!(
+        json["capabilities"]["driver"]["status"],
+        WINDOWS_ACTIVE_STATUS
+    );
+    assert_eq!(
+        json["capabilities"]["installer"]["status"],
+        WINDOWS_ACTIVE_STATUS
+    );
+    assert_eq!(
         json["capabilities"]["system_proxy_mutation"]["status"],
-        WINDOWS_BLOCKED_STATUS
+        WINDOWS_ACTIVE_STATUS
     );
     assert_eq!(
         json["capabilities"]["trust_store_mutation"]["status"],
-        WINDOWS_BLOCKED_STATUS
+        WINDOWS_ACTIVE_STATUS
+    );
+    assert_eq!(
+        json["capabilities"]["https_mitm"]["status"],
+        WINDOWS_ACTIVE_STATUS
     );
     assert_eq!(
         json["capabilities"]["script_dispatch"]["status"],
@@ -65,7 +705,7 @@ fn windows_cli_capabilities_json_reports_package_active_and_mutations_blocked() 
 }
 
 #[test]
-fn windows_cli_capabilities_text_lists_release_assets_and_blocked_lifecycle() {
+fn windows_cli_capabilities_text_lists_release_assets_and_active_lifecycle() {
     let command = parse_args(["capabilities"]).expect("valid command");
     let platform = ReadOnlyWindowsPlatformCapabilityService::new();
     let response = handle_entrypoint(command, &platform);
@@ -73,13 +713,15 @@ fn windows_cli_capabilities_text_lists_release_assets_and_blocked_lifecycle() {
 
     let release_assets_line = format!("release_assets: {WINDOWS_CLI_RELEASE_ASSETS_STATUS}");
     assert!(rendered.contains(&release_assets_line));
-    assert!(rendered.contains("driver: blocked"));
-    assert!(rendered.contains("installer: blocked"));
-    assert!(rendered.contains("managed_lifecycle: blocked"));
+    assert!(rendered.contains("foreground_tunnel: active"));
+    assert!(rendered.contains("driver: active"));
+    assert!(rendered.contains("installer: active"));
+    assert!(rendered.contains("https_mitm: active"));
+    assert!(rendered.contains("managed_lifecycle: active"));
 }
 
 #[test]
-fn windows_cli_status_keeps_subscription_and_system_mutation_out_of_alpha2() {
+fn windows_cli_status_reports_foreground_tunnel_and_managed_lifecycle() {
     let platform = ReadOnlyWindowsPlatformCapabilityService::new();
     let response = handle_entrypoint(
         WindowsCliCommand::Status {
@@ -95,17 +737,19 @@ fn windows_cli_status_keeps_subscription_and_system_mutation_out_of_alpha2() {
         format!("subscription_compatibility: {WINDOWS_CLI_SUBSCRIPTION_COMPATIBILITY_STATUS}");
     assert!(rendered.contains(&release_assets_line));
     assert!(rendered.contains(&subscription_line));
-    assert!(rendered.contains("service: blocked"));
-    assert!(rendered.contains("driver: blocked"));
-    assert!(rendered.contains("installer: blocked"));
-    assert!(rendered.contains("system_proxy_mutation: blocked"));
-    assert!(rendered.contains("trust_store_mutation: blocked"));
+    assert!(rendered.contains("foreground_tunnel: active"));
+    assert!(rendered.contains("service: active"));
+    assert!(rendered.contains("driver: active"));
+    assert!(rendered.contains("installer: active"));
+    assert!(rendered.contains("system_proxy_mutation: active"));
+    assert!(rendered.contains("trust_store_mutation: active"));
+    assert!(rendered.contains("https_mitm: active"));
     assert!(rendered.contains("script_dispatch: blocked"));
-    assert!(rendered.contains("managed_lifecycle: blocked"));
+    assert!(rendered.contains("managed_lifecycle: active"));
 }
 
 #[test]
-fn windows_cli_diagnostics_report_artifact_ready_and_system_mutation_blocked() {
+fn windows_cli_diagnostics_report_artifact_and_system_integration_ready() {
     let command = parse_args(["diagnostics", "--format", "json"]).expect("valid command");
     let platform = ReadOnlyWindowsPlatformCapabilityService::new();
     let response = handle_entrypoint(command, &platform);
@@ -119,7 +763,7 @@ fn windows_cli_diagnostics_report_artifact_ready_and_system_mutation_blocked() {
         .any(|item| item["code"] == CLI_WINDOWS_ARTIFACT_READY_CODE));
     assert!(diagnostics
         .iter()
-        .any(|item| item["code"] == CLI_WINDOWS_SYSTEM_MUTATION_BLOCKED_CODE));
+        .any(|item| item["code"] == CLI_WINDOWS_SYSTEM_INTEGRATION_ACTIVE_CODE));
 }
 
 #[test]
@@ -132,4 +776,997 @@ fn windows_cli_unknown_command_returns_argument_error() {
     assert_eq!(response.exit_code, WindowsCliExitCode::ArgumentOrConfig);
     assert!(rendered.contains(CLI_WINDOWS_ARGUMENT_UNKNOWN_CODE));
     assert!(rendered.contains("unknown windows CLI command"));
+}
+
+#[test]
+fn parses_tunnel_start_with_all_explicit_paths() {
+    let mut arguments = tunnel_start_arguments(true, true, true);
+    arguments.insert(1, "json");
+    arguments.insert(1, "--format");
+
+    let command = parse_args(arguments).expect("fully explicit tunnel start command");
+    match command {
+        WindowsCliCommand::TunnelStart(args) => {
+            assert_eq!(args.format(), OutputFormat::Json);
+            assert_eq!(
+                args.client_envelope,
+                PathBuf::from("C:/fixtures/client-envelope.json")
+            );
+            assert_eq!(
+                args.pop_envelope,
+                PathBuf::from("C:/fixtures/pop-envelope.json")
+            );
+            assert_eq!(args.pop_id, "pop-a");
+            assert_eq!(args.device_id, "fixture-device-1");
+            assert_eq!(
+                args.delivery_public_key_file,
+                PathBuf::from("C:/fixtures/delivery-public-key.pem")
+            );
+            assert_eq!(
+                args.easytier_binary,
+                PathBuf::from("C:/Program Files/EasyTier/easytier-core.exe")
+            );
+            assert_eq!(
+                args.easytier_cli,
+                PathBuf::from("C:/Program Files/EasyTier/easytier-cli.exe")
+            );
+            assert_eq!(args.easytier_version, "2.6.1");
+            assert_eq!(
+                args.easytier_sha256,
+                "d33d1d119b40c768c4d96c66236ba1c033e72a9c041e88aa9c84bd67a38d04a5"
+            );
+            assert_eq!(
+                args.easytier_cli_sha256,
+                "1a83ab65ea2cc02bbcd58f5bc8b24cd3942cbe9c4ac1b9cb2acd9881410bfcd3"
+            );
+            assert_eq!(args.network_name, "fixture-network");
+            assert_eq!(
+                args.network_secret_file,
+                PathBuf::from("C:/private/network-secret.txt")
+            );
+            assert_eq!(
+                args.state_path,
+                PathBuf::from("C:/ProgramData/AnixOps/tunnel-state.json")
+            );
+            assert!(args.confirm);
+        }
+        other => panic!("expected tunnel start command, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_confirmed_tunnel_storage_preparation() {
+    let command = parse_args(["tunnel", "prepare-storage", "--confirm", "--format", "json"])
+        .expect("confirmed tunnel storage preparation command");
+
+    match command {
+        WindowsCliCommand::TunnelPrepareStorage(args) => {
+            assert!(args.confirm);
+            assert_eq!(args.format(), OutputFormat::Json);
+        }
+        other => panic!("expected tunnel storage preparation command, got {other:?}"),
+    }
+}
+
+#[test]
+fn tunnel_storage_preparation_requires_confirm() {
+    let error = parse_args(["tunnel", "prepare-storage"])
+        .expect_err("storage preparation must require explicit confirmation");
+    let response = handle_parse_error(error.into_diagnostic());
+    let rendered = render_response(&response, OutputFormat::Text);
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, WindowsCliExitCode::ArgumentOrConfig);
+    assert!(rendered.contains("--confirm"));
+}
+
+#[test]
+fn tunnel_storage_preparation_rejects_duplicate_confirm() {
+    let error = parse_args(["tunnel", "prepare-storage", "--confirm", "--confirm"])
+        .expect_err("storage preparation must reject duplicate confirmation");
+    let response = handle_parse_error(error.into_diagnostic());
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, WindowsCliExitCode::ArgumentOrConfig);
+}
+
+#[test]
+fn tunnel_storage_preparation_rejects_positional_and_unknown_options() {
+    for values in [
+        vec!["tunnel", "prepare-storage", "--confirm", "unexpected"],
+        vec!["tunnel", "prepare-storage", "--confirm", "--state-path"],
+    ] {
+        let error = parse_args(values).expect_err("storage preparation accepts no extra values");
+        let response = handle_parse_error(error.into_diagnostic());
+
+        assert!(!response.ok);
+        assert_eq!(response.exit_code, WindowsCliExitCode::ArgumentOrConfig);
+    }
+}
+
+#[test]
+fn rejects_tunnel_start_without_confirm() {
+    let error = parse_args(tunnel_start_arguments(false, true, true))
+        .expect_err("tunnel start must require explicit confirmation");
+    let response = handle_parse_error(error.into_diagnostic());
+    let rendered = render_response(&response, OutputFormat::Text);
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, WindowsCliExitCode::ArgumentOrConfig);
+    assert!(rendered.contains("--confirm"));
+}
+
+#[test]
+fn rejects_tunnel_start_without_secret_file() {
+    let error = parse_args(tunnel_start_arguments(true, false, true))
+        .expect_err("tunnel start must require an explicit secret file");
+    let response = handle_parse_error(error.into_diagnostic());
+    let rendered = render_response(&response, OutputFormat::Text);
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, WindowsCliExitCode::ArgumentOrConfig);
+    assert!(rendered.contains("--network-secret-file"));
+}
+
+#[test]
+fn rejects_tunnel_start_without_state_path() {
+    let error = parse_args(tunnel_start_arguments(true, true, false))
+        .expect_err("tunnel start must require an explicit state path");
+    let response = handle_parse_error(error.into_diagnostic());
+    let rendered = render_response(&response, OutputFormat::Text);
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, WindowsCliExitCode::ArgumentOrConfig);
+    assert!(rendered.contains("state path is required"));
+    assert!(rendered.contains("--state-path"));
+}
+
+#[test]
+fn rejects_tunnel_start_without_cli_sha256() {
+    let error = parse_args(tunnel_start_arguments_without_cli_sha256(true, true, true))
+        .expect_err("tunnel start must require an explicit EasyTier CLI SHA-256 pin");
+    let response = handle_parse_error(error.into_diagnostic());
+    let rendered = render_response(&response, OutputFormat::Text);
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, WindowsCliExitCode::ArgumentOrConfig);
+    assert!(rendered.contains("--easytier-cli-sha256"));
+}
+
+#[test]
+fn parses_tunnel_start_with_explicit_cli_sha256() {
+    let command = parse_args(tunnel_start_arguments(true, true, true))
+        .expect("tunnel start accepts one explicit EasyTier CLI SHA-256 pin");
+    let source = include_str!("../src/lib.rs").replace("\r\n", "\n");
+
+    assert!(source.contains("pub easytier_cli_sha256: String,"));
+    assert!(source.contains("easytier_cli_sha256: require_tunnel_start_option("));
+    assert!(source.contains("\"--easytier-cli-sha256\""));
+    assert!(matches!(command, WindowsCliCommand::TunnelStart(_)));
+}
+
+#[test]
+fn rejects_duplicate_tunnel_start_cli_sha256() {
+    let mut arguments = tunnel_start_arguments_without_cli_sha256(true, true, true);
+    arguments.extend([
+        "--easytier-cli-sha256",
+        "1a83ab65ea2cc02bbcd58f5bc8b24cd3942cbe9c4ac1b9cb2acd9881410bfcd3",
+        "--easytier-cli-sha256",
+        "2a83ab65ea2cc02bbcd58f5bc8b24cd3942cbe9c4ac1b9cb2acd9881410bfcd3",
+    ]);
+
+    let error = parse_args(arguments)
+        .expect_err("tunnel start must reject duplicate EasyTier CLI SHA-256 pins");
+    let response = handle_parse_error(error.into_diagnostic());
+    let rendered = render_response(&response, OutputFormat::Text);
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, WindowsCliExitCode::ArgumentOrConfig);
+    assert!(rendered.contains("--easytier-cli-sha256 may only be specified once"));
+}
+
+#[test]
+fn confirmed_tunnel_start_delegates_typed_args_without_launching_process() {
+    let command =
+        parse_args(tunnel_start_arguments(true, true, true)).expect("confirmed tunnel start");
+    match &command {
+        WindowsCliCommand::TunnelStart(args) => {
+            assert_eq!(args.format(), OutputFormat::Text);
+            assert!(args.confirm);
+        }
+        other => panic!("expected tunnel start command, got {other:?}"),
+    }
+
+    let platform = ReadOnlyWindowsPlatformCapabilityService::new();
+    let mut tunnel = RecordingTunnelCommandService::new();
+    let response = handle_entrypoint_with_tunnel(command, &platform, &mut tunnel);
+
+    assert!(response.ok);
+    assert_redacted_tunnel_success_response(&response, "C:/ProgramData/AnixOps/tunnel-state.json");
+    assert_eq!(tunnel.start_calls.len(), 1);
+    let start = &tunnel.start_calls[0];
+    assert_eq!(
+        start.client_envelope,
+        PathBuf::from("C:/fixtures/client-envelope.json")
+    );
+    assert_eq!(
+        start.pop_envelope,
+        PathBuf::from("C:/fixtures/pop-envelope.json")
+    );
+    assert_eq!(start.pop_id, "pop-a");
+    assert_eq!(start.device_id, "fixture-device-1");
+    assert_eq!(
+        start.delivery_public_key_file,
+        PathBuf::from("C:/fixtures/delivery-public-key.pem")
+    );
+    assert_eq!(
+        start.easytier_binary,
+        PathBuf::from("C:/Program Files/EasyTier/easytier-core.exe")
+    );
+    assert_eq!(
+        start.easytier_cli,
+        PathBuf::from("C:/Program Files/EasyTier/easytier-cli.exe")
+    );
+    assert_eq!(start.easytier_version, "2.6.1");
+    assert_eq!(
+        start.easytier_sha256,
+        "d33d1d119b40c768c4d96c66236ba1c033e72a9c041e88aa9c84bd67a38d04a5"
+    );
+    assert_eq!(
+        start.easytier_cli_sha256,
+        "1a83ab65ea2cc02bbcd58f5bc8b24cd3942cbe9c4ac1b9cb2acd9881410bfcd3"
+    );
+    assert_eq!(start.network_name, "fixture-network");
+    assert_eq!(
+        start.network_secret_file,
+        PathBuf::from("C:/private/network-secret.txt")
+    );
+    assert_eq!(
+        start.state_path,
+        PathBuf::from("C:/ProgramData/AnixOps/tunnel-state.json")
+    );
+    assert!(start.confirm);
+    assert!(tunnel.status_paths.is_empty());
+    assert!(tunnel.stop_calls.is_empty());
+}
+
+#[test]
+fn confirmed_tunnel_storage_preparation_delegates_without_runtime_report() {
+    let command = parse_args(["tunnel", "prepare-storage", "--confirm"])
+        .expect("confirmed tunnel storage preparation");
+    let platform = ReadOnlyWindowsPlatformCapabilityService::new();
+    let mut tunnel = RecordingTunnelCommandService::new();
+
+    let response = handle_entrypoint_with_tunnel(command, &platform, &mut tunnel);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "tunnel");
+    assert!(response.tunnel.is_none());
+    assert_eq!(tunnel.prepare_storage_calls, [true]);
+    assert!(tunnel.start_calls.is_empty());
+    assert!(tunnel.status_paths.is_empty());
+    assert!(tunnel.stop_calls.is_empty());
+}
+
+#[test]
+fn renders_redacted_tunnel_status_json() {
+    let missing_state_error = parse_args(["tunnel", "status", "--format", "json"])
+        .expect_err("tunnel status must require an explicit state path");
+    let missing_state_response = handle_parse_error(missing_state_error.into_diagnostic());
+    let missing_state_rendered = render_response(&missing_state_response, OutputFormat::Text);
+    assert!(!missing_state_response.ok);
+    assert_eq!(
+        missing_state_response.exit_code,
+        WindowsCliExitCode::ArgumentOrConfig
+    );
+    assert!(missing_state_rendered.contains("state path is required"));
+
+    let private_state_path = "C:/private/fixture-secret-never-render/tunnel-state.json";
+    let command = parse_args(["tunnel", "status", private_state_path, "--format", "json"])
+        .expect("tunnel status command");
+    match &command {
+        WindowsCliCommand::TunnelStatus(args) => {
+            assert_eq!(args.format(), OutputFormat::Json);
+            assert_eq!(args.state_path, PathBuf::from(private_state_path));
+        }
+        other => panic!("expected tunnel status command, got {other:?}"),
+    }
+    let platform = ReadOnlyWindowsPlatformCapabilityService::new();
+    let mut tunnel = RecordingTunnelCommandService::new();
+
+    let response = handle_entrypoint_with_tunnel(command, &platform, &mut tunnel);
+    let rendered = render_response(&response, OutputFormat::Json);
+    let json: serde_json::Value = serde_json::from_str(&rendered).expect("valid JSON");
+    let tunnel_json = json["tunnel"]
+        .as_object()
+        .expect("tunnel status JSON is present");
+
+    assert!(response.ok);
+    assert_redacted_tunnel_success_response(&response, private_state_path);
+    assert_eq!(tunnel.status_paths, vec![PathBuf::from(private_state_path)]);
+    assert_eq!(tunnel_json["session_id"], "fixture-session");
+    assert_eq!(tunnel_json["selected_pop_id"], "pop-a");
+    assert_eq!(tunnel_json["selected_endpoint"], "198.51.100.10:11010");
+    assert_eq!(
+        tunnel_json["plan_digest"],
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    );
+    assert_eq!(tunnel_json["state"], "running");
+    assert_eq!(tunnel_json["peer_ready"].as_bool(), Some(true));
+    assert_eq!(tunnel_json["route_ready"].as_bool(), Some(true));
+    assert_eq!(tunnel_json["route_count"].as_u64(), Some(1));
+    assert_eq!(tunnel_json["rollback_status"], "clean");
+    assert!(!tunnel_json.contains_key("config_path"));
+    assert!(!rendered.contains("fixture.easytier.toml"));
+    assert!(!rendered.contains(private_state_path));
+    assert!(!rendered.contains("fixture-secret-never-render"));
+}
+
+#[test]
+fn redacts_tunnel_command_service_error_details_from_json() {
+    let private_state_path = "C:/private/fixture-status-input.json";
+    let sensitive_marker = "fixture-secret-never-render C:/private/network-secret.txt easytier-core.exe --config-file C:/private/fixture.easytier.toml easytier-cli.exe --rpc-portal 127.0.0.1:15888 --raw-command=easytier-core.exe";
+    let command = parse_args(["tunnel", "status", private_state_path, "--format", "json"])
+        .expect("tunnel status command");
+    let platform = ReadOnlyWindowsPlatformCapabilityService::new();
+    let mut tunnel = RecordingTunnelCommandService::with_status_error(format!(
+        "{sensitive_marker} {private_state_path}"
+    ));
+
+    let response = handle_entrypoint_with_tunnel(command, &platform, &mut tunnel);
+    let rendered = render_response(&response, OutputFormat::Json);
+    let json: serde_json::Value = serde_json::from_str(&rendered).expect("valid JSON");
+    let diagnostics = json["diagnostics"].as_array().expect("diagnostics array");
+    let text_rendered = render_response(&response, OutputFormat::Text);
+    let sensitive_fragments = [
+        sensitive_marker,
+        private_state_path,
+        "fixture-secret-never-render",
+        "network-secret.txt",
+        "--raw-command",
+        "easytier-core.exe",
+        "easytier-cli.exe",
+        EASYTIER_CORE_COMMAND_FRAGMENT,
+        EASYTIER_CLI_COMMAND_FRAGMENT,
+        "fixture.easytier.toml",
+    ];
+
+    assert!(!response.ok);
+    assert_eq!(tunnel.status_paths, vec![PathBuf::from(private_state_path)]);
+    assert!(response
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == WINDOWS_TUNNEL_STATUS_UNAVAILABLE_CODE));
+    assert!(diagnostics
+        .iter()
+        .any(|item| item["code"] == WINDOWS_TUNNEL_STATUS_UNAVAILABLE_CODE));
+    assert!(text_rendered.contains(WINDOWS_TUNNEL_STATUS_UNAVAILABLE_CODE));
+    for diagnostic in &response.diagnostics {
+        for sensitive_fragment in sensitive_fragments {
+            assert!(
+                !diagnostic.code.contains(sensitive_fragment),
+                "diagnostic code leaked {sensitive_fragment}"
+            );
+            assert!(
+                !diagnostic.message.contains(sensitive_fragment),
+                "diagnostic message leaked {sensitive_fragment}"
+            );
+            assert!(
+                !diagnostic.source.contains(sensitive_fragment),
+                "diagnostic source leaked {sensitive_fragment}"
+            );
+        }
+    }
+    for sensitive_fragment in sensitive_fragments {
+        assert!(
+            !rendered.contains(sensitive_fragment),
+            "tunnel JSON error leaked {sensitive_fragment}"
+        );
+        assert!(
+            !text_rendered.contains(sensitive_fragment),
+            "tunnel text error leaked {sensitive_fragment}"
+        );
+    }
+}
+
+#[test]
+fn tunnel_stop_requires_confirm() {
+    let error = parse_args([
+        "tunnel",
+        "stop",
+        "C:/ProgramData/AnixOps/tunnel-state.json",
+        "--format",
+        "json",
+    ])
+    .expect_err("tunnel stop must require explicit confirmation");
+    let response = handle_parse_error(error.into_diagnostic());
+    let rendered = render_response(&response, OutputFormat::Text);
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, WindowsCliExitCode::ArgumentOrConfig);
+    assert!(rendered.contains("--confirm"));
+}
+
+#[test]
+fn tunnel_stop_requires_state_path() {
+    let error = parse_args(["tunnel", "stop", "--confirm", "--format", "json"])
+        .expect_err("tunnel stop must require an explicit state path");
+    let response = handle_parse_error(error.into_diagnostic());
+    let rendered = render_response(&response, OutputFormat::Text);
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, WindowsCliExitCode::ArgumentOrConfig);
+    assert!(rendered.contains("state path is required"));
+}
+
+#[test]
+fn confirmed_tunnel_stop_delegates_typed_args_without_launching_process() {
+    let state_path = "C:/ProgramData/AnixOps/tunnel-state.json";
+    let command = parse_args([
+        "tunnel",
+        "stop",
+        state_path,
+        "--confirm",
+        "--format",
+        "json",
+    ])
+    .expect("confirmed tunnel stop");
+    match &command {
+        WindowsCliCommand::TunnelStop(args) => {
+            assert_eq!(args.format(), OutputFormat::Json);
+            assert_eq!(args.state_path, PathBuf::from(state_path));
+            assert!(args.confirm);
+        }
+        other => panic!("expected tunnel stop command, got {other:?}"),
+    }
+
+    let platform = ReadOnlyWindowsPlatformCapabilityService::new();
+    let mut tunnel = RecordingTunnelCommandService::new();
+    let response = handle_entrypoint_with_tunnel(command, &platform, &mut tunnel);
+
+    assert!(response.ok);
+    assert_redacted_tunnel_success_response(&response, state_path);
+    assert!(tunnel.start_calls.is_empty());
+    assert!(tunnel.status_paths.is_empty());
+    assert_eq!(tunnel.stop_calls.len(), 1);
+    let stop = &tunnel.stop_calls[0];
+    assert_eq!(stop.state_path, PathBuf::from(state_path));
+    assert!(stop.confirm);
+}
+
+#[test]
+fn delivery_backed_tunnel_start_requires_elevation_before_delivery_load() {
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+    let events = std::rc::Rc::new(std::cell::RefCell::new(LifecycleEvents::default()));
+    let path_events = Rc::new(RefCell::new(Vec::new()));
+    let path_policy = RecordingInputPathPolicy::new(path_events);
+    let path_start_calls = path_policy.start_calls.clone();
+    let lifecycle = RecordingLifecyclePort::with_states(
+        events.clone(),
+        fixture_tunnel_state(),
+        fixture_stopped_state(),
+    );
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        lifecycle,
+        RecordingDeliveryLoader {
+            plan: fixture_tunnel_plan(),
+            calls: calls.clone(),
+        },
+        FixedPrivilege(false),
+        path_policy,
+    );
+
+    let error = service
+        .start(&fixture_tunnel_start_args())
+        .expect_err("unelevated start is denied");
+
+    assert_eq!(error.code, WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE);
+    assert_eq!(calls.get(), 0);
+    assert!(path_start_calls.borrow().is_empty());
+    assert!(events.borrow().started.is_empty());
+}
+
+#[test]
+fn delivery_backed_tunnel_start_requires_confirmation_before_path_preparation() {
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+    let lifecycle_events = std::rc::Rc::new(std::cell::RefCell::new(LifecycleEvents::default()));
+    let path_events = Rc::new(RefCell::new(Vec::new()));
+    let path_policy = RecordingInputPathPolicy::new(path_events);
+    let path_start_calls = path_policy.start_calls.clone();
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        RecordingLifecyclePort::with_states(
+            lifecycle_events.clone(),
+            fixture_tunnel_state(),
+            fixture_stopped_state(),
+        ),
+        RecordingDeliveryLoader {
+            plan: fixture_tunnel_plan(),
+            calls: calls.clone(),
+        },
+        FixedPrivilege(true),
+        path_policy,
+    );
+    let mut start_args = fixture_tunnel_start_args();
+    start_args.confirm = false;
+
+    let error = service
+        .start(&start_args)
+        .expect_err("unconfirmed start is denied before storage preparation");
+
+    assert_eq!(error.code, WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE);
+    assert!(path_start_calls.borrow().is_empty());
+    assert_eq!(calls.get(), 0);
+    assert!(lifecycle_events.borrow().started.is_empty());
+}
+
+#[test]
+fn elevated_confirmed_storage_preparation_calls_only_the_input_policy() {
+    let delivery_calls = Rc::new(std::cell::Cell::new(0));
+    let lifecycle_events = Rc::new(RefCell::new(LifecycleEvents::default()));
+    let path_events = Rc::new(RefCell::new(Vec::new()));
+    let path_policy = RecordingInputPathPolicy::new(path_events);
+    let prepare_storage_calls = path_policy.prepare_storage_calls.clone();
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        RecordingLifecyclePort::with_states(
+            lifecycle_events.clone(),
+            fixture_tunnel_state(),
+            fixture_stopped_state(),
+        ),
+        RecordingDeliveryLoader {
+            plan: fixture_tunnel_plan(),
+            calls: delivery_calls.clone(),
+        },
+        FixedPrivilege(true),
+        path_policy,
+    );
+
+    service
+        .prepare_storage(&fixture_tunnel_prepare_storage_args())
+        .expect("elevated confirmed storage preparation succeeds");
+
+    assert_eq!(prepare_storage_calls.borrow().as_slice(), [()]);
+    assert_eq!(delivery_calls.get(), 0);
+    let lifecycle = lifecycle_events.borrow();
+    assert!(lifecycle.started.is_empty());
+    assert!(lifecycle.status_calls.is_empty());
+    assert!(lifecycle.stop_calls.is_empty());
+}
+
+#[test]
+fn storage_preparation_requires_confirmation_before_path_policy_access() {
+    let delivery_calls = Rc::new(std::cell::Cell::new(0));
+    let lifecycle_events = Rc::new(RefCell::new(LifecycleEvents::default()));
+    let path_events = Rc::new(RefCell::new(Vec::new()));
+    let path_policy = RecordingInputPathPolicy::new(path_events);
+    let prepare_storage_calls = path_policy.prepare_storage_calls.clone();
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        RecordingLifecyclePort::with_states(
+            lifecycle_events.clone(),
+            fixture_tunnel_state(),
+            fixture_stopped_state(),
+        ),
+        RecordingDeliveryLoader {
+            plan: fixture_tunnel_plan(),
+            calls: delivery_calls.clone(),
+        },
+        FixedPrivilege(true),
+        path_policy,
+    );
+    let mut args = fixture_tunnel_prepare_storage_args();
+    args.confirm = false;
+
+    let error = service
+        .prepare_storage(&args)
+        .expect_err("unconfirmed storage preparation is denied before path access");
+
+    assert_eq!(error.code, WINDOWS_TUNNEL_CONFIRMATION_REQUIRED_CODE);
+    assert!(prepare_storage_calls.borrow().is_empty());
+    assert_eq!(delivery_calls.get(), 0);
+    let lifecycle = lifecycle_events.borrow();
+    assert!(lifecycle.started.is_empty());
+    assert!(lifecycle.status_calls.is_empty());
+    assert!(lifecycle.stop_calls.is_empty());
+}
+
+#[test]
+fn unelevated_storage_preparation_is_denied_before_all_other_access() {
+    let delivery_calls = Rc::new(std::cell::Cell::new(0));
+    let lifecycle_events = Rc::new(RefCell::new(LifecycleEvents::default()));
+    let path_events = Rc::new(RefCell::new(Vec::new()));
+    let path_policy = RecordingInputPathPolicy::new(path_events);
+    let prepare_storage_calls = path_policy.prepare_storage_calls.clone();
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        RecordingLifecyclePort::with_states(
+            lifecycle_events.clone(),
+            fixture_tunnel_state(),
+            fixture_stopped_state(),
+        ),
+        RecordingDeliveryLoader {
+            plan: fixture_tunnel_plan(),
+            calls: delivery_calls.clone(),
+        },
+        FixedPrivilege(false),
+        path_policy,
+    );
+
+    let error = service
+        .prepare_storage(&fixture_tunnel_prepare_storage_args())
+        .expect_err("unelevated storage preparation is denied");
+
+    assert_eq!(error.code, WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE);
+    assert!(prepare_storage_calls.borrow().is_empty());
+    assert_eq!(delivery_calls.get(), 0);
+    let lifecycle = lifecycle_events.borrow();
+    assert!(lifecycle.started.is_empty());
+    assert!(lifecycle.status_calls.is_empty());
+    assert!(lifecycle.stop_calls.is_empty());
+}
+
+#[test]
+fn unelevated_tunnel_status_is_denied_before_storage_or_lifecycle_access() {
+    let delivery_calls = Rc::new(std::cell::Cell::new(0));
+    let lifecycle_events = Rc::new(RefCell::new(LifecycleEvents::default()));
+    let path_events = Rc::new(RefCell::new(Vec::new()));
+    let path_policy = RecordingInputPathPolicy::new(path_events);
+    let state_calls = path_policy.state_calls.clone();
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        RecordingLifecyclePort::with_states(
+            lifecycle_events.clone(),
+            fixture_tunnel_state(),
+            fixture_stopped_state(),
+        ),
+        RecordingDeliveryLoader {
+            plan: fixture_tunnel_plan(),
+            calls: delivery_calls.clone(),
+        },
+        FixedPrivilege(false),
+        path_policy,
+    );
+
+    let error = service
+        .status(&fixture_tunnel_status_args())
+        .expect_err("unelevated status is denied");
+
+    assert_eq!(error.code, WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE);
+    assert!(state_calls.borrow().is_empty());
+    assert_eq!(delivery_calls.get(), 0);
+    let lifecycle = lifecycle_events.borrow();
+    assert!(lifecycle.started.is_empty());
+    assert!(lifecycle.status_calls.is_empty());
+    assert!(lifecycle.stop_calls.is_empty());
+}
+
+#[test]
+fn delivery_backed_tunnel_stop_requires_elevation_before_lifecycle_stop() {
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+    let events = std::rc::Rc::new(std::cell::RefCell::new(LifecycleEvents::default()));
+    let path_events = Rc::new(RefCell::new(Vec::new()));
+    let path_policy = RecordingInputPathPolicy::new(path_events);
+    let path_state_calls = path_policy.state_calls.clone();
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        RecordingLifecyclePort::with_states(
+            events.clone(),
+            fixture_tunnel_state(),
+            fixture_stopped_state(),
+        ),
+        RecordingDeliveryLoader {
+            plan: fixture_tunnel_plan(),
+            calls,
+        },
+        FixedPrivilege(false),
+        path_policy,
+    );
+
+    let error = service
+        .stop(&fixture_tunnel_stop_args())
+        .expect_err("unelevated stop is denied");
+
+    assert_eq!(error.code, WINDOWS_TUNNEL_ADMIN_REQUIRED_CODE);
+    assert!(path_state_calls.borrow().is_empty());
+    assert!(events.borrow().stop_calls.is_empty());
+}
+
+#[test]
+fn delivery_backed_tunnel_service_delegates_verified_plan_and_reports_readiness() {
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+    let expected_plan = fixture_tunnel_plan();
+    let events = std::rc::Rc::new(std::cell::RefCell::new(LifecycleEvents::default()));
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        RecordingLifecyclePort::with_states(
+            events.clone(),
+            fixture_tunnel_state(),
+            fixture_stopped_state(),
+        ),
+        RecordingDeliveryLoader {
+            plan: expected_plan.clone(),
+            calls: calls.clone(),
+        },
+        FixedPrivilege(true),
+        AllowAllInputPathPolicy,
+    );
+
+    let result = service
+        .start(&fixture_tunnel_start_args())
+        .expect("elevated verified start delegates");
+
+    assert_eq!(calls.get(), 1);
+    assert_eq!(events.borrow().started.len(), 1);
+    assert_eq!(events.borrow().started[0].plan, expected_plan);
+    assert_eq!(result.state, fixture_tunnel_state());
+    assert!(result.peer_ready);
+    assert!(result.route_ready);
+    assert_eq!(result.route_count, 1);
+}
+
+#[test]
+fn delivery_backed_tunnel_status_and_stop_render_runtime_evidence() {
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+    let events = std::rc::Rc::new(std::cell::RefCell::new(LifecycleEvents::default()));
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        RecordingLifecyclePort::with_states(
+            events.clone(),
+            fixture_tunnel_state(),
+            fixture_stopped_state(),
+        ),
+        RecordingDeliveryLoader {
+            plan: fixture_tunnel_plan(),
+            calls,
+        },
+        FixedPrivilege(true),
+        AllowAllInputPathPolicy,
+    );
+
+    let status = service
+        .status(&fixture_tunnel_status_args())
+        .expect("status is read-only");
+    assert!(status.peer_ready);
+    assert!(status.route_ready);
+    assert_eq!(status.route_count, 1);
+
+    let stopped = service
+        .stop(&fixture_tunnel_stop_args())
+        .expect("elevated stop delegates");
+    assert!(!stopped.peer_ready);
+    assert!(!stopped.route_ready);
+    assert_eq!(stopped.route_count, 0);
+    assert_eq!(events.borrow().status_calls.len(), 1);
+    assert_eq!(
+        events.borrow().stop_calls,
+        vec![(fixture_tunnel_stop_args().state_path, true)]
+    );
+}
+
+#[test]
+fn elevated_tunnel_status_validates_state_before_lifecycle_delegation() {
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let policy = RecordingInputPathPolicy::new(events.clone());
+    let state_calls = policy.state_calls.clone();
+    let guarded_state_path = policy.guarded_state_path.clone();
+    let start_requests = Rc::new(RefCell::new(Vec::new()));
+    let status_paths = Rc::new(RefCell::new(Vec::new()));
+    let stop_calls = Rc::new(RefCell::new(Vec::new()));
+    let lifecycle = OrderedLifecycle::new(
+        events.clone(),
+        start_requests,
+        status_paths.clone(),
+        stop_calls,
+        fixture_tunnel_state(),
+        fixture_stopped_state(),
+    );
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        lifecycle,
+        OrderedDeliveryLoader::new(events.clone(), fixture_tunnel_plan()),
+        FixedPrivilege(true),
+        policy,
+    );
+    let status_args = fixture_tunnel_status_args();
+
+    service
+        .status(&status_args)
+        .expect("elevated guarded status");
+
+    assert_eq!(
+        events.borrow().as_slice(),
+        ["paths.state", "lifecycle.status"]
+    );
+    assert_eq!(state_calls.borrow().as_slice(), [status_args.state_path]);
+    assert_eq!(status_paths.borrow().as_slice(), [guarded_state_path]);
+}
+
+#[test]
+fn delivery_backed_start_validates_secure_paths_before_delivery_load() {
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let policy = RecordingInputPathPolicy::new(events.clone());
+    let start_calls = policy.start_calls.clone();
+    let guarded_state_path = policy.guarded_state_path.clone();
+    let guarded_secret_path = policy.guarded_secret_path.clone();
+    let start_requests = Rc::new(RefCell::new(Vec::new()));
+    let status_paths = Rc::new(RefCell::new(Vec::new()));
+    let stop_calls = Rc::new(RefCell::new(Vec::new()));
+    let lifecycle = OrderedLifecycle::new(
+        events.clone(),
+        start_requests.clone(),
+        status_paths,
+        stop_calls,
+        fixture_tunnel_state(),
+        fixture_stopped_state(),
+    );
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        lifecycle,
+        OrderedDeliveryLoader::new(events.clone(), fixture_tunnel_plan()),
+        FixedPrivilege(true),
+        policy,
+    );
+
+    let start_args = fixture_tunnel_start_args();
+    service.start(&start_args).expect("guarded start");
+
+    assert_eq!(
+        events.borrow().as_slice(),
+        ["paths.start", "delivery.load", "lifecycle.start"]
+    );
+    assert_eq!(
+        start_calls.borrow().as_slice(),
+        [(start_args.state_path, start_args.network_secret_file)]
+    );
+    assert_eq!(start_requests.borrow().len(), 1);
+    let request = &start_requests.borrow()[0];
+    assert_eq!(request.state_path, guarded_state_path);
+    assert_eq!(request.network_secret_file, guarded_secret_path);
+}
+
+#[test]
+fn delivery_backed_status_and_stop_validate_existing_state_before_lifecycle_delegation() {
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let policy = RecordingInputPathPolicy::new(events.clone());
+    let state_calls = policy.state_calls.clone();
+    let guarded_state_path = policy.guarded_state_path.clone();
+    let start_requests = Rc::new(RefCell::new(Vec::new()));
+    let status_paths = Rc::new(RefCell::new(Vec::new()));
+    let stop_calls = Rc::new(RefCell::new(Vec::new()));
+    let lifecycle = OrderedLifecycle::new(
+        events.clone(),
+        start_requests,
+        status_paths.clone(),
+        stop_calls.clone(),
+        fixture_tunnel_state(),
+        fixture_stopped_state(),
+    );
+    let mut service = DeliveryBackedWindowsTunnelCommandService::new(
+        lifecycle,
+        OrderedDeliveryLoader::new(events.clone(), fixture_tunnel_plan()),
+        FixedPrivilege(true),
+        policy,
+    );
+
+    let status_args = fixture_tunnel_status_args();
+    service.status(&status_args).expect("guarded status");
+    let stop_args = fixture_tunnel_stop_args();
+    service.stop(&stop_args).expect("guarded stop");
+
+    assert_eq!(
+        events.borrow().as_slice(),
+        [
+            "paths.state",
+            "lifecycle.status",
+            "paths.state",
+            "lifecycle.stop",
+        ]
+    );
+    assert_eq!(
+        state_calls.borrow().as_slice(),
+        [status_args.state_path, stop_args.state_path]
+    );
+    assert_eq!(
+        status_paths.borrow().as_slice(),
+        std::slice::from_ref(&guarded_state_path)
+    );
+    assert_eq!(stop_calls.borrow().as_slice(), [(guarded_state_path, true)]);
+}
+
+#[test]
+fn native_tunnel_input_policy_is_limited_to_platform_secure_path_operations() {
+    let source = include_str!("../src/lib.rs").replace("\r\n", "\n");
+
+    assert!(source.contains("pub struct NativeWindowsTunnelInputPathPolicy"));
+    assert!(source.contains("native_windows_prepare_tunnel_secure_paths"));
+    assert!(source.contains("native_windows_prepare_state_path"));
+    assert!(source.contains("native_windows_prepare_secret_file"));
+    assert!(source.contains("native_windows_prepare_easytier_artifact"));
+    assert!(source.contains("native_windows_validate_existing_state_path"));
+    assert!(source.contains("pub easytier_binary: PathBuf,"));
+    assert!(source.contains("pub easytier_cli: PathBuf,"));
+    assert!(source.contains("easytier_binary: guarded.easytier_binary,"));
+    assert!(source.contains("easytier_cli: guarded.easytier_cli,"));
+    assert!(source.contains("easytier_cli_sha256: args.easytier_cli_sha256.clone(),"));
+}
+
+#[test]
+fn native_delivery_loader_persists_verified_sequence_floors_before_lifecycle_start() {
+    let source = include_str!("../src/lib.rs").replace("\r\n", "\n");
+    let ledger_source = include_str!("../src/tunnel_sequence_ledger.rs").replace("\r\n", "\n");
+    assert!(source.contains("mod tunnel_sequence_ledger;"));
+    assert!(!source.contains("pub mod tunnel_sequence_ledger;"));
+    assert!(!ledger_source.contains("pub struct DeliverySequenceIdentity"));
+    assert!(!ledger_source.contains("pub struct NativeWindowsTunnelSequenceLedger"));
+    assert!(!ledger_source.contains("pub fn read_floors"));
+    assert!(!ledger_source.contains("pub fn reserve_pair"));
+    assert!(!ledger_source.contains("pub fn new("));
+    assert!(
+        ledger_source.contains("#[serde(deny_unknown_fields)]\nstruct DeliverySequenceIdentity")
+    );
+    assert!(ledger_source.contains("lock_exclusive"));
+    assert!(ledger_source.contains("SeekFrom::End(0)"));
+    assert!(ledger_source.contains("write_all(b\"\\n\")"));
+    assert!(ledger_source.contains("sync_all"));
+    assert!(ledger_source.contains("set_len(journal.last_complete_end)"));
+    assert!(!ledger_source.contains("set_len(0)"));
+
+    let loader_start = source
+        .find("impl WindowsTunnelDeliveryLoader for NativeWindowsTunnelDeliveryLoader")
+        .expect("native delivery loader implementation exists");
+    let loader = &source[loader_start..];
+    let loader_end = loader
+        .find("/// Native privilege adapter")
+        .expect("native loader source is bounded before privilege adapter");
+    let loader = &loader[..loader_end];
+
+    let ledger = loader
+        .find("NativeWindowsTunnelSequenceLedger")
+        .expect("native loader owns the sequence ledger");
+    let client_verified = loader
+        .find("let client = verifier")
+        .expect("native loader verifies the client envelope");
+    let pop_verified = loader
+        .find("let pop = verifier")
+        .expect("native loader verifies the POP envelope");
+    let read = loader
+        .find("read_floors")
+        .expect("native loader reads persisted floors");
+    let plan = loader
+        .find("plan_windows_tunnel(WindowsTunnelPlanRequest")
+        .expect("native loader plans after reading floors");
+    let reserve = loader
+        .find("reserve_pair")
+        .expect("native loader reserves after planning");
+    assert!(client_verified < pop_verified && pop_verified < ledger);
+    assert!(ledger < read && read < plan && plan < reserve);
+    assert!(loader.contains("last_client_sequence: floors.client"));
+    assert!(loader.contains("last_pop_sequence: floors.pop"));
+    assert!(loader.contains("read_floors(&client, &pop)"));
+    assert!(loader.contains("reserve_pair(&client, &pop)"));
+    assert!(!loader.contains("DeliverySequenceIdentity"));
+    assert!(loader.contains("WINDOWS_TUNNEL_DELIVERY_INVALID_CODE"));
+    assert!(loader.contains("WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE"));
+    assert!(loader.contains("if error.code == WINDOWS_TUNNEL_SEQUENCE_REPLAYED_CODE"));
+    assert!(loader.contains("DomainError::new("));
+    assert!(loader.contains("Ok(plan)"));
+
+    let service_start = source
+        .find("let plan = self.delivery.load_plan(args)?;")
+        .expect("bridge loads delivery before lifecycle start");
+    let lifecycle_start = source[service_start..]
+        .find("self.session.start(WindowsTunnelStartRequest")
+        .map(|offset| service_start + offset)
+        .expect("bridge starts lifecycle only after delivery load");
+    assert!(service_start < lifecycle_start);
+}
+
+#[test]
+fn native_main_routes_tunnel_commands_to_the_native_service() {
+    let source = include_str!("../src/main.rs").replace("\r\n", "\n");
+
+    assert!(source.contains("native_windows_tunnel_command_service()"));
+    assert!(source.contains("handle_entrypoint_with_tunnel"));
+    assert!(source.contains("WindowsCliCommand::TunnelStart"));
+    assert!(source.contains("WindowsCliCommand::TunnelPrepareStorage"));
+    assert!(source.contains("WindowsCliCommand::TunnelStatus"));
+    assert!(source.contains("WindowsCliCommand::TunnelStop"));
+    assert_eq!(
+        source
+            .matches("native_windows_tunnel_command_service()")
+            .count(),
+        1
+    );
+    assert_eq!(source.matches("handle_entrypoint_with_tunnel").count(), 1);
 }

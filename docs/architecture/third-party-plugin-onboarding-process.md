@@ -11,7 +11,8 @@ available.
 
 Current validated example:
 
-- `networkcore.adblock` over the pinned `mitm_anixops v0.45.10-alpha` C ABI.
+- `networkcore.adblock` over the pinned `mitm_anixops` distribution release
+  `v1.4.6` source commit, whose linked C core ABI reports `0.45.10`.
 
 Machine-readable governance anchors:
 

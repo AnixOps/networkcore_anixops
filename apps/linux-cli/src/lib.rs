@@ -1,8 +1,8 @@
 //! Linux CLI entrypoint contracts for NetworkCore.
 //!
 //! The crate contains command parsing, response mapping, config I/O boundaries,
-//! and foreground runtime handoff. Daemon control, service installation, and
-//! release packaging are deliberately outside this first source increment.
+//! and foreground runtime handoff. Service installation/control and release
+//! packaging remain explicit platform boundaries.
 
 use config_core::CoreSubscriptionService;
 use control_domain::{
@@ -10,36 +10,79 @@ use control_domain::{
     DomainResult, GrantedPermissions, HttpMitmAction, HttpMitmPhase, MetadataEntry,
     MitmPluginService, OperatingSystem, PlatformCapabilityService, PlatformCapabilityStatus,
     PlatformFeatureState, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
-    ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RawSubscription,
+    ProxyEngineHealthReport, ProxyEngineLifecycleState, ProxyEngineRollbackRequest,
+    ProxyEngineService, ProxyEngineStatus, PublicEngineKind, PublicEngineRunPlan, RawSubscription,
     SubscriptionService, SubscriptionSource,
 };
 use control_runtime::{RuntimeConfigRequest, RuntimeOperationResult, RuntimeOrchestrator};
+use engine_mieru::{
+    apply_and_start_mieru_client, mieru_node_from_descriptor, render_mieru_client_config,
+    rollback_mieru_client_config, wait_for_mieru_listener, write_mieru_client_config,
+    CommandMieruCommandRunner, MieruClientConfigRequest, MieruClientConfigWriteRequest,
+    MieruClientControlRequest,
+};
 use engine_singbox::{
-    default_sing_box_install_root, render_sing_box_local_proxy_config, SingBoxInstallReport,
-    SingBoxInstallRequest, SingBoxLocalProxyConfigRequest, SingBoxProcessRunRequest,
+    default_sing_box_install_root, read_sing_box_clash_api_selector,
+    render_sing_box_local_proxy_config, select_sing_box_clash_api_outbound,
+    sing_box_local_selector_outbound_tag, SingBoxInstallReport, SingBoxInstallRequest,
+    SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest, SingBoxProcessRunRequest,
     SingBoxProcessRunner, SingBoxReleaseInstaller, SingBoxTarget,
 };
 use mitm_policy::{
     builtin_ad_block_plugin_package, AnixOpsMitmPluginService, AnixOpsMitmPolicyEngine,
     MITM_POLICY_AD_BLOCK_PLUGIN_ID,
 };
+use platform_linux::proxy::{
+    apply_environment_proxy, rollback_environment_proxy, status_environment_proxy,
+    LinuxEnvironmentProxyApplyRequest, LinuxEnvironmentProxyRollbackRequest,
+};
+use platform_linux::systemd::{
+    control_systemd_service, install_subscription_refresh_schedule, install_systemd_unit,
+    plan_systemd_unit_removal, remove_systemd_unit, render_subscription_refresh_schedule,
+    render_systemd_unit, stop_subscription_refresh_schedule, subscription_refresh_schedule_status,
+    uninstall_subscription_refresh_schedule, LinuxManagedServiceUnitInstallRequest,
+    LinuxManagedServiceUnitPlan, LinuxManagedServiceUnitRemovalPlan,
+    LinuxManagedServiceUnitRemovalRequest, LinuxManagedServiceUnitRequest,
+    LinuxSubscriptionRefreshScheduleRequest, LinuxSystemdCommandRunner, LinuxSystemdServiceAction,
+    LinuxSystemdServiceControlRequest,
+};
+use platform_linux::trust::{
+    apply_linux_trust, rollback_linux_trust, CommandLinuxTrustRefreshRunner,
+    LinuxTrustApplyRequest, LinuxTrustRollbackRequest,
+};
 use rcgen::{
     BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair, KeyUsagePurpose,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 #[cfg(unix)]
 use signal_hook::{
     consts::signal::{SIGINT, SIGTERM},
     iterator::Signals,
 };
 use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::sync::Arc;
+#[cfg(unix)]
+use std::os::unix::net::{UnixListener, UnixStream};
+#[cfg(unix)]
+use std::os::unix::{fs::FileTypeExt, fs::OpenOptionsExt, fs::PermissionsExt};
+use std::path::PathBuf;
+#[cfg(unix)]
+use std::sync::atomic::AtomicU8;
+use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(unix)]
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const COMMAND_NAME: &str = "networkcore-linux";
+
+fn redacted_config_digest(raw_config: &str) -> String {
+    format!("{:x}", Sha256::digest(raw_config.as_bytes()))
+}
 pub const DEFAULT_ENGINE_ID: &str = "native";
 
 pub const CLI_COMMAND_MISSING_CODE: &str = "cli.linux.command.missing";
@@ -57,14 +100,51 @@ pub const CLI_START_LIFECYCLE_HOST_MISSING_CODE: &str = "cli.linux.start.lifecyc
 pub const CLI_START_LIFECYCLE_INTERRUPTED_CODE: &str = "cli.linux.start.lifecycle_interrupted";
 pub const CLI_START_LIFECYCLE_FAILED_CODE: &str = "cli.linux.start.lifecycle_failed";
 pub const CLI_START_RUNTIME_STOP_FAILED_CODE: &str = "cli.linux.start.runtime_stop_failed";
+pub const CLI_START_MANAGED_LIFECYCLE_CONFIG_INVALID_CODE: &str =
+    "cli.linux.start.managed_lifecycle_config_invalid";
+pub const CLI_START_MANAGED_LIFECYCLE_RECORD_FAILED_CODE: &str =
+    "cli.linux.start.managed_lifecycle_record_failed";
+pub const CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE: &str =
+    "cli.linux.managed_control_socket.authorization_required";
+pub const CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE: &str =
+    "cli.linux.managed_control_socket.start_failed";
+pub const CLI_MANAGED_CONTROL_SOCKET_START_READY_CODE: &str =
+    "cli.linux.managed_control_socket.start_ready";
+pub const CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE: &str =
+    "cli.linux.managed_control_socket.stop_ready";
+pub const CLI_MANAGED_CONTROL_SOCKET_STOP_FAILED_CODE: &str =
+    "cli.linux.managed_control_socket.stop_failed";
+pub const CLI_MANAGED_CONTROL_SOCKET_RELOAD_READY_CODE: &str =
+    "cli.linux.managed_control_socket.reload_ready";
+pub const CLI_MANAGED_CONTROL_SOCKET_RELOAD_FAILED_CODE: &str =
+    "cli.linux.managed_control_socket.reload_failed";
+pub const CLI_MANAGED_CONTROL_SOCKET_STATUS_READY_CODE: &str =
+    "cli.linux.managed_control_socket.status_ready";
+pub const CLI_MANAGED_CONTROL_SOCKET_STATUS_FAILED_CODE: &str =
+    "cli.linux.managed_control_socket.status_failed";
+pub const CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_READY_CODE: &str =
+    "cli.linux.managed_control_socket.rollback_ready";
+pub const CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_FAILED_CODE: &str =
+    "cli.linux.managed_control_socket.rollback_failed";
+pub const CLI_MANAGED_CONTROL_SOCKET_REQUEST_PENDING_CODE: &str =
+    "cli.linux.managed_control_socket.request_pending";
 pub const CLI_START_SIGNAL_RECEIVED_CODE: &str = "cli.linux.start.signal_received";
 pub const CLI_START_SIGNAL_SOURCE_FAILED_CODE: &str = "cli.linux.start.signal_source_failed";
+pub const CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE: &str =
+    "cli.linux.start.managed_control_stop_requested";
+pub const CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE: &str =
+    "cli.linux.start.managed_control_reload_requested";
+pub const CLI_START_MANAGED_CONTROL_ROLLBACK_REQUESTED_CODE: &str =
+    "cli.linux.start.managed_control_rollback_requested";
+pub const CLI_START_RUNTIME_RELOAD_FAILED_CODE: &str = "cli.linux.start.runtime_reload_failed";
 pub const CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE: &str =
     "cli.linux.start.tls_mitm_authorization_required";
 pub const CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE: &str =
     "cli.linux.start.tls_mitm_material_required";
 pub const CLI_START_TLS_MITM_MATERIAL_READ_FAILED_CODE: &str =
     "cli.linux.start.tls_mitm_material_read_failed";
+pub const CLI_START_TLS_MITM_PRIVATE_KEY_PROTECTION_FAILED_CODE: &str =
+    "cli.linux.start.tls_mitm_private_key_protection_failed";
 pub const CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE: &str =
     "cli.linux.start.script_runtime_authorization_required";
 pub const CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE: &str =
@@ -97,6 +177,22 @@ pub const CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_WRITE_FAILED_CODE: &str =
     "cli.linux.subscription_catalog.snapshot_write_failed";
 pub const CLI_SUBSCRIPTION_CATALOG_WRITE_FAILED_CODE: &str =
     "cli.linux.subscription_catalog.write_failed";
+pub const CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE: &str =
+    "cli.linux.subscription_catalog.update_validation_failed";
+pub const CLI_SUBSCRIPTION_REFRESH_AUTHORIZATION_REQUIRED_CODE: &str =
+    "cli.linux.subscription_refresh.authorization_required";
+pub const CLI_SUBSCRIPTION_REFRESH_SOURCE_UNSUPPORTED_CODE: &str =
+    "cli.linux.subscription_refresh.source_unsupported";
+pub const CLI_SUBSCRIPTION_REFRESH_STATUS_READ_FAILED_CODE: &str =
+    "cli.linux.subscription_refresh.status_read_failed";
+pub const CLI_SUBSCRIPTION_REFRESH_STATUS_WRITE_FAILED_CODE: &str =
+    "cli.linux.subscription_refresh.status_write_failed";
+pub const CLI_SUBSCRIPTION_REFRESH_ALREADY_ACTIVE_CODE: &str =
+    "cli.linux.subscription_refresh.already_active";
+pub const CLI_SUBSCRIPTION_REFRESH_INTERVAL_TOO_SHORT_CODE: &str =
+    "cli.linux.subscription_refresh.interval_too_short";
+pub const CLI_SUBSCRIPTION_REFRESH_SCHEDULE_CONFIRMATION_REQUIRED_CODE: &str =
+    "cli.linux.subscription_refresh.schedule_confirmation_required";
 pub const CLI_MANAGED_FOREGROUND_STATUS_PATH_MISSING_CODE: &str =
     "cli.linux.managed_foreground_status.path_missing";
 pub const CLI_MANAGED_FOREGROUND_STATUS_READ_FAILED_CODE: &str =
@@ -133,16 +229,41 @@ pub const CLI_MANAGED_FOREGROUND_EVENT_SCHEMA_UNSUPPORTED_CODE: &str =
     "cli.linux.managed_foreground_event.schema_unsupported";
 pub const CLI_MANAGED_FOREGROUND_EVENT_RECORD_INVALID_CODE: &str =
     "cli.linux.managed_foreground_event.record_invalid";
+pub const CLI_MANAGED_FOREGROUND_EVENT_HISTORY_QUERY_INVALID_CODE: &str =
+    "cli.linux.managed_foreground_event.history_query_invalid";
+pub const CLI_MANAGED_FOREGROUND_EVENT_HISTORY_LIMIT_EXCEEDED_CODE: &str =
+    "cli.linux.managed_foreground_event.history_limit_exceeded";
+pub const CLI_MANAGED_FOREGROUND_LOG_PATH_MISSING_CODE: &str =
+    "cli.linux.managed_foreground_log.path_missing";
+pub const CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE: &str =
+    "cli.linux.managed_foreground_log.read_failed";
+pub const CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE: &str =
+    "cli.linux.managed_foreground_log.query_invalid";
+pub const CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE: &str =
+    "cli.linux.managed_foreground_log.limit_exceeded";
 pub const CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE: &str =
     "cli.linux.stop.unavailable_without_daemon";
 pub const CLI_STATUS_NO_RUNTIME_CONTEXT_CODE: &str = "cli.linux.status.no_runtime_context";
 pub const CLI_STATUS_PLATFORM_ONLY_CODE: &str = "cli.linux.status.platform_only";
 pub const CLI_RUNTIME_UNWIRED_CODE: &str = "cli.linux.runtime.unwired";
+pub const CLI_INSTALL_SERVICE_CONFIRMATION_REQUIRED_CODE: &str =
+    "cli.linux.install_service.confirmation_required";
+pub const CLI_INSTALL_SERVICE_PLAN_INVALID_CODE: &str = "cli.linux.install_service.plan_invalid";
+pub const CLI_INSTALL_SERVICE_WRITE_FAILED_CODE: &str = "cli.linux.install_service.write_failed";
 pub const CLI_SING_BOX_INSTALL_FAILED_CODE: &str = "cli.linux.sing_box.install_failed";
 pub const CLI_RUN_URL_PARSE_FAILED_CODE: &str = "cli.linux.run_url.parse_failed";
+pub const CLI_RUN_URL_FILE_URI_INVALID_CODE: &str = "cli.linux.run_url.file_uri_invalid";
+pub const CLI_RUN_URL_FILE_READ_FAILED_CODE: &str = "cli.linux.run_url.file_read_failed";
+pub const CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE: &str = "cli.linux.run_url.remote_fetch_failed";
+pub const CLI_RUN_URL_REMOTE_FETCH_LIMIT_EXCEEDED_CODE: &str =
+    "cli.linux.run_url.remote_fetch_limit_exceeded";
 pub const CLI_RUN_URL_CONFIG_FAILED_CODE: &str = "cli.linux.run_url.config_failed";
 pub const CLI_RUN_URL_CONFIG_WRITE_FAILED_CODE: &str = "cli.linux.run_url.config_write_failed";
 pub const CLI_RUN_URL_PROCESS_FAILED_CODE: &str = "cli.linux.run_url.process_failed";
+pub const CLI_RUN_URL_MIERU_BINARY_REQUIRED_CODE: &str = "cli.linux.run_url.mieru_binary_required";
+pub const CLI_RUN_URL_MIERU_DIGEST_REQUIRED_CODE: &str = "cli.linux.run_url.mieru_digest_required";
+pub const CLI_RUN_URL_MIERU_CONFIG_FAILED_CODE: &str = "cli.linux.run_url.mieru_config_failed";
+pub const CLI_RUN_URL_MIERU_START_FAILED_CODE: &str = "cli.linux.run_url.mieru_start_failed";
 pub const CLI_MITM_POLICY_READY_CODE: &str = "cli.linux.mitm.policy_ready";
 pub const CLI_MITM_CLI_GATE_PARTIAL_CODE: &str = "cli.linux.mitm.cli_gate.partial";
 pub const CLI_MITM_CERTIFICATE_PLAN_READY_CODE: &str = "cli.linux.mitm.certificate_plan.ready";
@@ -171,6 +292,12 @@ pub const CLI_MITM_CERTIFICATE_ROLLBACK_READY_CODE: &str =
     "cli.linux.mitm.certificate.rollback.ready";
 pub const CLI_MITM_CERTIFICATE_ROLLBACK_FAILED_CODE: &str =
     "cli.linux.mitm.certificate.rollback.failed";
+pub const CLI_MITM_CERTIFICATE_TRUST_CONFIG_MISSING_CODE: &str =
+    "cli.linux.mitm.certificate.trust.config_missing";
+pub const CLI_MITM_CERTIFICATE_TRUST_APPLIED_CODE: &str =
+    "cli.linux.mitm.certificate.trust.applied";
+pub const CLI_MITM_CERTIFICATE_TRUST_ROLLED_BACK_CODE: &str =
+    "cli.linux.mitm.certificate.trust.rolled_back";
 pub const CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE: &str = "cli.linux.mitm.data_plane_gate.deferred";
 pub const CLI_MITM_BROWSER_PLAN_READY_CODE: &str = "cli.linux.mitm.browser_plan.ready";
 pub const CLI_MITM_BROWSER_CAPTURE_MUTATION_BLOCKED_CODE: &str =
@@ -287,6 +414,9 @@ pub const MITM_HTTP_REWRITE_HTTPS_REQUEST_REWRITE_PREVIEW_READY: bool = true;
 pub const MITM_HTTP_REWRITE_HTTPS_RESPONSE_REWRITE_PREVIEW_READY: bool = true;
 pub const MITM_HTTP_REWRITE_HTTPS_RESPONSE_REWRITE_READY: bool = false;
 pub const MITM_HTTP_REWRITE_SCRIPT_DISPATCH_READY: bool = false;
+pub const MITM_HTTP_REWRITE_CERTIFICATE_PINNING_BYPASS_SUPPORTED: bool = false;
+pub const MITM_HTTP_REWRITE_HTTP2_MITM_SUPPORTED: bool = false;
+pub const MITM_HTTP_REWRITE_HTTP3_QUIC_MITM_SUPPORTED: bool = false;
 pub const MITM_HTTP_REWRITE_DEFAULT_METHOD: &str = "GET";
 pub const MITM_HTTP_REWRITE_DEFAULT_PHASE: &str = "request";
 pub const MITM_USER_FACING_STAGE: &str = "policy-only";
@@ -297,7 +427,9 @@ pub const SOURCE_CLI_CONFIG: &str = "cli.config";
 pub const SOURCE_CLI_HELP: &str = "cli.help";
 pub const SOURCE_CLI_MITM: &str = "cli.mitm";
 pub const SOURCE_CLI_MANAGED_FOREGROUND_EVENT: &str = "cli.managed_foreground_event";
+pub const SOURCE_CLI_MANAGED_FOREGROUND_LOG: &str = "cli.managed_foreground_log";
 pub const SOURCE_CLI_MANAGED_FOREGROUND_STATUS: &str = "cli.managed_foreground_status";
+pub const SOURCE_CLI_MANAGED_CONTROL: &str = "cli.managed_control";
 pub const SOURCE_CLI_SING_BOX: &str = "cli.sing_box";
 pub const SOURCE_CLI_START: &str = "cli.start";
 pub const SOURCE_CLI_STOP: &str = "cli.stop";
@@ -306,6 +438,30 @@ pub const SOURCE_CLI_RUNTIME: &str = "cli.runtime";
 pub const SUBSCRIPTION_CATALOG_SCHEMA_VERSION: u32 = 1;
 pub const MANAGED_FOREGROUND_SESSION_STATUS_SCHEMA_VERSION: u32 = 1;
 pub const MANAGED_FOREGROUND_SESSION_EVENT_SCHEMA_VERSION: u32 = 1;
+pub const MANAGED_FOREGROUND_EVENT_HISTORY_DEFAULT_LIMIT: usize = 50;
+pub const MANAGED_FOREGROUND_EVENT_HISTORY_MAX_LIMIT: usize = 100;
+pub const MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORDS: usize = 256;
+pub const MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES: u64 = 64 * 1024;
+pub const MANAGED_FOREGROUND_LOG_TAIL_DEFAULT_LIMIT: usize = 100;
+pub const MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT: usize = 1_000;
+pub const MANAGED_FOREGROUND_LOG_TAIL_MAX_BYTES: u64 = 64 * 1024;
+pub const MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS: u64 = 2;
+#[cfg(unix)]
+const MANAGED_CONTROL_NONE: u8 = 0;
+#[cfg(unix)]
+const MANAGED_CONTROL_STOP: u8 = 1;
+#[cfg(unix)]
+const MANAGED_CONTROL_RELOAD: u8 = 2;
+#[cfg(unix)]
+const MANAGED_CONTROL_ROLLBACK: u8 = 3;
+#[cfg(unix)]
+const MANAGED_CONTROL_PENDING: u8 = 4;
+#[cfg(unix)]
+static MANAGED_CONTROL_REQUEST: AtomicU8 = AtomicU8::new(MANAGED_CONTROL_NONE);
+static MANAGED_CONTROL_EXPECTED_CONFIG_VERSION: AtomicU64 = AtomicU64::new(0);
+pub const RUN_URL_REMOTE_SUBSCRIPTION_MAX_BYTES: u64 = 1024 * 1024;
+pub const RUN_URL_REMOTE_SUBSCRIPTION_TIMEOUT_SECONDS: u64 = 15;
+pub const RUN_URL_REMOTE_SUBSCRIPTION_MAX_REDIRECTS: usize = 5;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OutputFormat {
@@ -375,10 +531,198 @@ pub enum LinuxCliCommand {
         script_maps: Vec<String>,
         script_store_path: Option<String>,
         node_binary: Option<String>,
+        managed_lifecycle: Option<ManagedForegroundLifecyclePaths>,
         confirm: bool,
         format: OutputFormat,
     },
     Stop {
+        format: OutputFormat,
+    },
+    ManagedControlStop {
+        socket_path: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    ManagedControlReload {
+        socket_path: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    ManagedControlRollback {
+        socket_path: String,
+        expected_config_version: u64,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    ManagedControlStatus {
+        socket_path: String,
+        format: OutputFormat,
+    },
+    CoreList {
+        format: OutputFormat,
+    },
+    SubscriptionAdd {
+        catalog_path: String,
+        snapshot_path: String,
+        source_id: String,
+        location: String,
+        format: OutputFormat,
+    },
+    SubscriptionList {
+        catalog_path: String,
+        format: OutputFormat,
+    },
+    SubscriptionUpdate {
+        catalog_path: String,
+        snapshot_path: String,
+        source_id: String,
+        location: String,
+        format: OutputFormat,
+    },
+    SubscriptionRemove {
+        catalog_path: String,
+        snapshot_path: String,
+        source_id: String,
+        format: OutputFormat,
+    },
+    SubscriptionSelect {
+        catalog_path: String,
+        source_id: String,
+        format: OutputFormat,
+    },
+    SubscriptionRollback {
+        catalog_path: String,
+        snapshot_path: String,
+        format: OutputFormat,
+    },
+    SubscriptionRefreshStart {
+        catalog_path: String,
+        status_path: String,
+        snapshot_path: String,
+        source_id: String,
+        interval_seconds: u64,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    SubscriptionRefreshStatus {
+        status_path: String,
+        format: OutputFormat,
+    },
+    SubscriptionRefreshStop {
+        status_path: String,
+        source_id: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    SubscriptionRefreshScheduleInstall {
+        catalog_path: String,
+        status_path: String,
+        snapshot_path: String,
+        source_id: String,
+        interval_seconds: u64,
+        unit_name: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    SubscriptionRefreshScheduleStatus {
+        unit_name: String,
+        snapshot_path: String,
+        format: OutputFormat,
+    },
+    SubscriptionRefreshScheduleStop {
+        unit_name: String,
+        snapshot_path: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    SubscriptionRefreshScheduleUninstall {
+        unit_name: String,
+        snapshot_path: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    NodeList {
+        config_path: String,
+        format: OutputFormat,
+    },
+    NodeSelect {
+        config_path: String,
+        node_id: String,
+        selection_path: String,
+        snapshot_path: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    NodeSwitch {
+        config_path: String,
+        node_id: String,
+        selection_path: String,
+        snapshot_path: String,
+        controller_port: u16,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    NodeHealth {
+        controller_port: u16,
+        format: OutputFormat,
+    },
+    NodeRollback {
+        selection_path: String,
+        snapshot_path: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    ProxyApply {
+        file_path: String,
+        snapshot_path: String,
+        proxy_url: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    ProxyStatus {
+        file_path: String,
+        format: OutputFormat,
+    },
+    ProxyRollback {
+        file_path: String,
+        snapshot_path: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    InstallMieru {
+        binary_path: String,
+        expected_sha256: String,
+        release_url: Option<String>,
+        confirm: bool,
+        force: bool,
+        format: OutputFormat,
+    },
+    StartMieru {
+        binary_path: String,
+        expected_sha256: String,
+        config_path: String,
+        format: OutputFormat,
+    },
+    StopMieru {
+        binary_path: String,
+        expected_sha256: String,
+        config_path: String,
+        format: OutputFormat,
+    },
+    StatusMieru {
+        binary_path: String,
+        expected_sha256: String,
+        config_path: String,
+        format: OutputFormat,
+    },
+    ServiceControl {
+        action: LinuxSystemdServiceAction,
+        unit_name: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    Restart {
+        config_path: Option<String>,
         format: OutputFormat,
     },
     Status {
@@ -412,6 +756,15 @@ pub enum LinuxCliCommand {
         event_path: String,
         format: OutputFormat,
     },
+    ManagedEventList {
+        event_directory: String,
+        session_id: Option<String>,
+        event_kind: Option<String>,
+        state: Option<String>,
+        cursor: usize,
+        limit: usize,
+        format: OutputFormat,
+    },
     ManagedEventInit {
         event_path: String,
         session_id: String,
@@ -420,6 +773,11 @@ pub enum LinuxCliCommand {
         event_kind: String,
         state: String,
         recorded_at: String,
+        format: OutputFormat,
+    },
+    ManagedLog {
+        log_path: String,
+        line_limit: usize,
         format: OutputFormat,
     },
     Diagnostics {
@@ -444,6 +802,19 @@ pub enum LinuxCliCommand {
     },
     MitmCertificateRollback {
         snapshot_path: Option<String>,
+        format: OutputFormat,
+    },
+    MitmCertificateTrustApply {
+        certificate_path: Option<String>,
+        trust_file_path: Option<String>,
+        snapshot_path: Option<String>,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    MitmCertificateTrustRollback {
+        trust_file_path: Option<String>,
+        snapshot_path: Option<String>,
+        confirm: bool,
         format: OutputFormat,
     },
     MitmBrowserPlan {
@@ -524,11 +895,43 @@ pub enum LinuxCliCommand {
         force: bool,
         format: OutputFormat,
     },
+    InstallService {
+        unit_name: String,
+        description: String,
+        executable_path: String,
+        arguments: Vec<String>,
+        service_user: String,
+        service_group: String,
+        state_directory: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
+    UninstallService {
+        unit_name: String,
+        state_directory: String,
+        confirm: bool,
+        format: OutputFormat,
+    },
     RunUrl {
         url: String,
+        selected_node_id: Option<String>,
         listen_host: String,
         listen_port: u16,
         install_dir: Option<String>,
+        mieru_binary_path: Option<String>,
+        mieru_sha256: Option<String>,
+        force: bool,
+        format: OutputFormat,
+    },
+    RunCatalog {
+        catalog_path: String,
+        source_id: String,
+        selected_node_id: Option<String>,
+        listen_host: String,
+        listen_port: u16,
+        install_dir: Option<String>,
+        mieru_binary_path: Option<String>,
+        mieru_sha256: Option<String>,
         force: bool,
         format: OutputFormat,
     },
@@ -543,19 +946,69 @@ impl LinuxCliCommand {
             Self::PrepareConfig { .. } => "prepare-config",
             Self::Start { .. } => "start",
             Self::Stop { .. } => "stop",
+            Self::ManagedControlStop { .. } => "managed-control stop",
+            Self::ManagedControlReload { .. } => "managed-control reload",
+            Self::ManagedControlRollback { .. } => "managed-control rollback",
+            Self::ManagedControlStatus { .. } => "managed-control status",
+            Self::CoreList { .. } => "core list",
+            Self::SubscriptionAdd { .. } => "subscription add",
+            Self::SubscriptionList { .. } => "subscription list",
+            Self::SubscriptionUpdate { .. } => "subscription update",
+            Self::SubscriptionRemove { .. } => "subscription remove",
+            Self::SubscriptionSelect { .. } => "subscription select",
+            Self::SubscriptionRollback { .. } => "subscription rollback",
+            Self::SubscriptionRefreshStart { .. } => "subscription refresh start",
+            Self::SubscriptionRefreshStatus { .. } => "subscription refresh status",
+            Self::SubscriptionRefreshStop { .. } => "subscription refresh stop",
+            Self::SubscriptionRefreshScheduleInstall { .. } => {
+                "subscription refresh schedule install"
+            }
+            Self::SubscriptionRefreshScheduleStatus { .. } => {
+                "subscription refresh schedule status"
+            }
+            Self::SubscriptionRefreshScheduleStop { .. } => "subscription refresh schedule stop",
+            Self::SubscriptionRefreshScheduleUninstall { .. } => {
+                "subscription refresh schedule uninstall"
+            }
+            Self::NodeList { .. } => "node list",
+            Self::NodeSelect { .. } => "node select",
+            Self::NodeSwitch { .. } => "node switch",
+            Self::NodeHealth { .. } => "node health",
+            Self::NodeRollback { .. } => "node rollback",
+            Self::ProxyApply { .. } => "proxy apply",
+            Self::ProxyStatus { .. } => "proxy status",
+            Self::ProxyRollback { .. } => "proxy rollback",
+            Self::InstallMieru { .. } => "core install mieru",
+            Self::StartMieru { .. } => "core start mieru",
+            Self::StopMieru { .. } => "core stop mieru",
+            Self::StatusMieru { .. } => "core status mieru",
+            Self::ServiceControl { action, .. } => match action {
+                LinuxSystemdServiceAction::Start => "service start",
+                LinuxSystemdServiceAction::Stop => "service stop",
+                LinuxSystemdServiceAction::Restart => "service restart",
+                LinuxSystemdServiceAction::Status => "service status",
+                LinuxSystemdServiceAction::Reload => "service reload",
+                LinuxSystemdServiceAction::DaemonReload => "service daemon-reload",
+                LinuxSystemdServiceAction::Enable => "service enable",
+            },
+            Self::Restart { .. } => "restart",
             Self::Status { .. } => "status",
             Self::ManagedStatus { .. } => "managed-status",
             Self::ManagedStatusInit { .. } => "managed-status init",
             Self::ManagedStatusTransition { .. } => "managed-status transition",
             Self::ManagedStatusRollback { .. } => "managed-status rollback",
             Self::ManagedEvent { .. } => "managed-event",
+            Self::ManagedEventList { .. } => "managed-event list",
             Self::ManagedEventInit { .. } => "managed-event init",
+            Self::ManagedLog { .. } => "managed-log",
             Self::Diagnostics { .. } => "diagnostics",
             Self::MitmStatus { .. } => "mitm status",
             Self::MitmDiagnostics { .. } => "mitm diagnostics",
             Self::MitmCertificatePlan { .. } => "mitm certificate-plan",
             Self::MitmCertificateApply { .. } => "mitm certificate apply",
             Self::MitmCertificateRollback { .. } => "mitm certificate rollback",
+            Self::MitmCertificateTrustApply { .. } => "mitm certificate trust-apply",
+            Self::MitmCertificateTrustRollback { .. } => "mitm certificate trust-rollback",
             Self::MitmBrowserPlan { .. } => "mitm browser-plan",
             Self::MitmBrowserCapturePlan { .. } => "mitm browser-capture plan",
             Self::MitmBrowserCaptureLaunchPlan { .. } => "mitm browser-capture launch-plan",
@@ -568,7 +1021,10 @@ impl LinuxCliCommand {
             Self::MitmHttpRewritePlan { .. } => "mitm http-rewrite plan",
             Self::MitmHttpRewritePreview { .. } => "mitm http-rewrite preview",
             Self::InstallSingBox { .. } => "install-sing-box",
+            Self::InstallService { .. } => "install-service",
+            Self::UninstallService { .. } => "uninstall-service",
             Self::RunUrl { .. } => "run-url",
+            Self::RunCatalog { .. } => "run-catalog",
         }
     }
 
@@ -580,19 +1036,55 @@ impl LinuxCliCommand {
             | Self::PrepareConfig { format, .. }
             | Self::Start { format, .. }
             | Self::Stop { format }
+            | Self::ManagedControlStop { format, .. }
+            | Self::ManagedControlReload { format, .. }
+            | Self::ManagedControlRollback { format, .. }
+            | Self::ManagedControlStatus { format, .. }
+            | Self::CoreList { format }
+            | Self::SubscriptionAdd { format, .. }
+            | Self::SubscriptionList { format, .. }
+            | Self::SubscriptionUpdate { format, .. }
+            | Self::SubscriptionRemove { format, .. }
+            | Self::SubscriptionSelect { format, .. }
+            | Self::SubscriptionRollback { format, .. }
+            | Self::SubscriptionRefreshStart { format, .. }
+            | Self::SubscriptionRefreshStatus { format, .. }
+            | Self::SubscriptionRefreshStop { format, .. }
+            | Self::SubscriptionRefreshScheduleInstall { format, .. }
+            | Self::SubscriptionRefreshScheduleStatus { format, .. }
+            | Self::SubscriptionRefreshScheduleStop { format, .. }
+            | Self::SubscriptionRefreshScheduleUninstall { format, .. }
+            | Self::NodeList { format, .. }
+            | Self::NodeSelect { format, .. }
+            | Self::NodeSwitch { format, .. }
+            | Self::NodeHealth { format, .. }
+            | Self::NodeRollback { format, .. }
+            | Self::ProxyApply { format, .. }
+            | Self::ProxyStatus { format, .. }
+            | Self::ProxyRollback { format, .. }
+            | Self::ServiceControl { format, .. }
+            | Self::InstallMieru { format, .. }
+            | Self::StartMieru { format, .. }
+            | Self::StopMieru { format, .. }
+            | Self::StatusMieru { format, .. }
+            | Self::Restart { format, .. }
             | Self::Status { format }
             | Self::ManagedStatus { format, .. }
             | Self::ManagedStatusInit { format, .. }
             | Self::ManagedStatusTransition { format, .. }
             | Self::ManagedStatusRollback { format, .. }
             | Self::ManagedEvent { format, .. }
+            | Self::ManagedEventList { format, .. }
             | Self::ManagedEventInit { format, .. }
+            | Self::ManagedLog { format, .. }
             | Self::Diagnostics { format }
             | Self::MitmStatus { format }
             | Self::MitmDiagnostics { format }
             | Self::MitmCertificatePlan { format }
             | Self::MitmCertificateApply { format, .. }
             | Self::MitmCertificateRollback { format, .. }
+            | Self::MitmCertificateTrustApply { format, .. }
+            | Self::MitmCertificateTrustRollback { format, .. }
             | Self::MitmBrowserPlan { format, .. }
             | Self::MitmBrowserCapturePlan { format, .. }
             | Self::MitmBrowserCaptureLaunchPlan { format, .. }
@@ -605,7 +1097,10 @@ impl LinuxCliCommand {
             | Self::MitmHttpRewritePlan { format }
             | Self::MitmHttpRewritePreview { format, .. }
             | Self::InstallSingBox { format, .. }
-            | Self::RunUrl { format, .. } => *format,
+            | Self::InstallService { format, .. }
+            | Self::UninstallService { format, .. }
+            | Self::RunUrl { format, .. }
+            | Self::RunCatalog { format, .. } => *format,
         }
     }
 }
@@ -647,13 +1142,21 @@ pub struct LinuxCliResponse {
         Option<ManagedForegroundSessionStatusTransitionReport>,
     pub managed_foreground_status_rollback: Option<ManagedForegroundSessionStatusRollbackReport>,
     pub managed_foreground_event: Option<ManagedForegroundSessionEventReport>,
+    pub managed_foreground_event_history: Option<ManagedForegroundSessionEventHistoryReport>,
     pub managed_foreground_event_write: Option<ManagedForegroundSessionEventWriteReport>,
+    pub managed_foreground_log_tail: Option<ManagedForegroundSessionLogTailReport>,
     pub sing_box_install: Option<LinuxSingBoxInstallStatus>,
     pub sing_box_run: Option<LinuxSingBoxRunStatus>,
     pub mitm_status: Option<LinuxMitmStatus>,
     pub certificate_lifecycle: Option<LinuxMitmCertificateLifecycleReport>,
     pub browser_capture: Option<LinuxBrowserCaptureReport>,
     pub http_rewrite: Option<LinuxMitmHttpRewriteReport>,
+    pub service_install: Option<LinuxManagedServiceUnitPlan>,
+    pub service_removal: Option<LinuxManagedServiceUnitRemovalPlan>,
+    pub core_engines: Vec<LinuxCoreEngineSummary>,
+    pub node_catalog: Option<LinuxNodeCatalogReport>,
+    pub node_health: Option<LinuxNodeHealthReport>,
+    pub mieru_install: Option<LinuxMieruInstallStatus>,
 }
 
 impl LinuxCliResponse {
@@ -672,13 +1175,21 @@ impl LinuxCliResponse {
             managed_foreground_status_transition: None,
             managed_foreground_status_rollback: None,
             managed_foreground_event: None,
+            managed_foreground_event_history: None,
             managed_foreground_event_write: None,
+            managed_foreground_log_tail: None,
             sing_box_install: None,
             sing_box_run: None,
             mitm_status: None,
             certificate_lifecycle: None,
             browser_capture: None,
             http_rewrite: None,
+            service_install: None,
+            service_removal: None,
+            core_engines: Vec::new(),
+            node_catalog: None,
+            node_health: None,
+            mieru_install: None,
         }
     }
 
@@ -701,13 +1212,21 @@ impl LinuxCliResponse {
             managed_foreground_status_transition: None,
             managed_foreground_status_rollback: None,
             managed_foreground_event: None,
+            managed_foreground_event_history: None,
             managed_foreground_event_write: None,
+            managed_foreground_log_tail: None,
             sing_box_install: None,
             sing_box_run: None,
             mitm_status: None,
             certificate_lifecycle: None,
             browser_capture: None,
             http_rewrite: None,
+            service_install: None,
+            service_removal: None,
+            core_engines: Vec::new(),
+            node_catalog: None,
+            node_health: None,
+            mieru_install: None,
         }
     }
 
@@ -771,11 +1290,27 @@ impl LinuxCliResponse {
         self
     }
 
+    pub fn with_managed_foreground_event_history(
+        mut self,
+        report: ManagedForegroundSessionEventHistoryReport,
+    ) -> Self {
+        self.managed_foreground_event_history = Some(report);
+        self
+    }
+
     pub fn with_managed_foreground_event_write(
         mut self,
         report: ManagedForegroundSessionEventWriteReport,
     ) -> Self {
         self.managed_foreground_event_write = Some(report);
+        self
+    }
+
+    pub fn with_managed_foreground_log_tail(
+        mut self,
+        report: ManagedForegroundSessionLogTailReport,
+    ) -> Self {
+        self.managed_foreground_log_tail = Some(report);
         self
     }
 
@@ -812,10 +1347,85 @@ impl LinuxCliResponse {
         self
     }
 
+    pub fn with_service_install(mut self, plan: LinuxManagedServiceUnitPlan) -> Self {
+        self.service_install = Some(plan);
+        self
+    }
+
+    pub fn with_service_removal(mut self, plan: LinuxManagedServiceUnitRemovalPlan) -> Self {
+        self.service_removal = Some(plan);
+        self
+    }
+
     pub fn with_diagnostics(mut self, diagnostics: Vec<Diagnostic>) -> Self {
         self.diagnostics = diagnostics;
         self
     }
+
+    pub fn with_core_engines(mut self, engines: Vec<LinuxCoreEngineSummary>) -> Self {
+        self.core_engines = engines;
+        self
+    }
+
+    pub fn with_node_catalog(mut self, catalog: LinuxNodeCatalogReport) -> Self {
+        self.node_catalog = Some(catalog);
+        self
+    }
+
+    pub fn with_node_health(mut self, health: LinuxNodeHealthReport) -> Self {
+        self.node_health = Some(health);
+        self
+    }
+
+    pub fn with_mieru_install(mut self, report: LinuxMieruInstallStatus) -> Self {
+        self.mieru_install = Some(report);
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxCoreEngineSummary {
+    pub id: String,
+    pub kind: String,
+    pub version: Option<String>,
+    pub capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxNodeCatalogReport {
+    pub schema_version: u32,
+    pub source: String,
+    pub selection_mutated: bool,
+    pub nodes: Vec<LinuxNodeCatalogEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxNodeCatalogEntry {
+    pub id: String,
+    pub name: String,
+    pub protocol: String,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxNodeHealthReport {
+    pub controller_host: String,
+    pub controller_port: u16,
+    pub selector_tag: String,
+    pub current_outbound_tag: String,
+    pub outbound_count: usize,
+    pub selector_readback_confirmed: bool,
+    pub full_proxy_health_claimed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinuxMieruInstallStatus {
+    pub binary_path: String,
+    pub sha256: String,
+    pub verified: bool,
+    pub downloaded: bool,
+    pub action: String,
+    pub config_path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1341,6 +1951,7 @@ pub struct LinuxMitmHttpRewriteOutcomeReport {
     pub header_mutation_count: usize,
     pub body_mutated: bool,
     pub script_dispatch_deferred: bool,
+    pub script_dispatch_failed: bool,
     pub output_headers: Vec<LinuxMitmHttpHeader>,
     pub output_body: Option<String>,
 }
@@ -1361,6 +1972,9 @@ pub struct LinuxMitmHttpRewriteReport {
     pub https_response_rewrite_preview_ready: bool,
     pub https_response_rewrite_ready: bool,
     pub script_dispatch_ready: bool,
+    pub certificate_pinning_bypass_supported: bool,
+    pub http2_mitm_supported: bool,
+    pub http3_quic_mitm_supported: bool,
     pub request: LinuxMitmHttpRewriteRequest,
     pub outcome: Option<LinuxMitmHttpRewriteOutcomeReport>,
     pub blocked_operations: Vec<String>,
@@ -1490,12 +2104,7 @@ pub fn native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
                 "live HTTPS MITM CA certificate material could not be read",
             )
         })?;
-        let private_key_pem = std::fs::read_to_string(private_key_path).map_err(|_| {
-            DomainError::new(
-                CLI_START_TLS_MITM_MATERIAL_READ_FAILED_CODE,
-                "live HTTPS MITM CA private key material could not be read",
-            )
-        })?;
+        let private_key_pem = read_tls_mitm_private_key_file(private_key_path)?;
         if certificate_pem.trim().is_empty() || private_key_pem.trim().is_empty() {
             return Err(DomainError::new(
                 CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE,
@@ -1528,6 +2137,67 @@ pub fn native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
     native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime(
         tls_mitm_ca_material,
         script_executor,
+    )
+}
+
+#[cfg(target_os = "linux")]
+const LINUX_O_NOFOLLOW: i32 = 0o400000;
+
+#[cfg(target_os = "linux")]
+fn read_tls_mitm_private_key_file(path: &str) -> DomainResult<String> {
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(LINUX_O_NOFOLLOW)
+        .open(path)
+        .map_err(|_| private_key_protection_error())?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| private_key_protection_error())?;
+    validate_tls_mitm_private_key_metadata(&metadata)?;
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)
+        .map_err(|_| private_key_read_error())?;
+    Ok(contents)
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn read_tls_mitm_private_key_file(path: &str) -> DomainResult<String> {
+    let metadata = std::fs::symlink_metadata(path).map_err(|_| private_key_protection_error())?;
+    if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
+        return Err(private_key_protection_error());
+    }
+    validate_tls_mitm_private_key_metadata(&metadata)?;
+    std::fs::read_to_string(path).map_err(|_| private_key_read_error())
+}
+
+#[cfg(unix)]
+fn validate_tls_mitm_private_key_metadata(metadata: &std::fs::Metadata) -> DomainResult<()> {
+    if !metadata.file_type().is_file() {
+        return Err(private_key_protection_error());
+    }
+    if metadata.permissions().mode() & 0o777 != 0o600 {
+        return Err(private_key_protection_error());
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn read_tls_mitm_private_key_file(path: &str) -> DomainResult<String> {
+    std::fs::read_to_string(path).map_err(|_| private_key_read_error())
+}
+
+#[cfg(unix)]
+fn private_key_protection_error() -> DomainError {
+    DomainError::new(
+        CLI_START_TLS_MITM_PRIVATE_KEY_PROTECTION_FAILED_CODE,
+        "live HTTPS MITM CA private key protection could not be verified",
+    )
+}
+
+fn private_key_read_error() -> DomainError {
+    DomainError::new(
+        CLI_START_TLS_MITM_MATERIAL_READ_FAILED_CODE,
+        "live HTTPS MITM CA private key material could not be read",
     )
 }
 
@@ -1570,12 +2240,13 @@ fn build_native_node_script_executor(
             "script runtime start requires at least one --script-map",
         ));
     }
-    if !std::path::Path::new(script_runner_path).is_file() {
+    if script_store_path.is_some() {
         return Err(DomainError::new(
             CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE,
-            "configured script runtime runner is not a readable local file",
+            "sandboxed script runtime does not permit a persistent script store",
         ));
     }
+    let script_runner_path = canonical_local_script_runtime_file(script_runner_path)?;
 
     let mut script_assets = BTreeMap::new();
     for script_map in script_maps {
@@ -1589,9 +2260,11 @@ fn build_native_node_script_executor(
         let local_path = local_path.trim();
         if !(script_url.starts_with("https://") || script_url.starts_with("http://"))
             || local_path.is_empty()
-            || !std::path::Path::new(local_path).is_file()
             || script_assets
-                .insert(script_url.to_string(), local_path.to_string())
+                .insert(
+                    script_url.to_string(),
+                    canonical_local_script_runtime_file(local_path)?,
+                )
                 .is_some()
         {
             return Err(DomainError::new(
@@ -1604,13 +2277,45 @@ fn build_native_node_script_executor(
     Ok(Some(engine_native::NativeNodeScriptExecutor::new(
         engine_native::NativeNodeScriptRuntimeConfig {
             node_binary: node_binary.unwrap_or("node").to_string(),
-            runner_path: script_runner_path.to_string(),
+            runner_path: script_runner_path,
             script_assets,
-            persistent_store_path: script_store_path.map(ToString::to_string),
+            persistent_store_path: None,
+            sandbox: engine_native::NativeNodeScriptSandbox::LinuxNoNetwork,
             max_timeout_ms: 30_000,
             max_body_bytes: 64 * 1024,
         },
     )))
+}
+
+fn canonical_local_script_runtime_file(path: &str) -> DomainResult<String> {
+    let path = std::path::Path::new(path);
+    let metadata = std::fs::symlink_metadata(path).map_err(|_| {
+        DomainError::new(
+            CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE,
+            "configured script runtime path is not a readable local regular file",
+        )
+    })?;
+    if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+        return Err(DomainError::new(
+            CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE,
+            "configured script runtime path must be a local regular file without symbolic links",
+        ));
+    }
+    std::fs::canonicalize(path)
+        .map_err(|_| {
+            DomainError::new(
+                CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE,
+                "configured script runtime path could not be resolved",
+            )
+        })?
+        .into_os_string()
+        .into_string()
+        .map_err(|_| {
+            DomainError::new(
+                CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE,
+                "configured script runtime path must be valid UTF-8",
+            )
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1705,6 +2410,10 @@ pub struct SubscriptionCatalogUpdateReport {
     pub source_count: usize,
     pub location_kind: String,
     pub location_redacted: bool,
+    pub validated_node_count: usize,
+    pub added_node_count: usize,
+    pub removed_node_count: usize,
+    pub changed_node_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1736,9 +2445,45 @@ pub struct SubscriptionCatalogRemoveReport {
     pub source_count: usize,
 }
 
+pub const SUBSCRIPTION_REFRESH_MIN_INTERVAL_SECONDS: u64 = 300;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubscriptionRefreshStartRequest {
+    pub catalog_path: String,
+    pub status_path: String,
+    pub snapshot_path: String,
+    pub source_id: String,
+    pub interval_seconds: u64,
+    pub confirmed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubscriptionRefreshStatusReport {
+    pub status_path: String,
+    pub source_id: String,
+    pub enabled: bool,
+    pub last_attempt: String,
+    pub last_success: Option<String>,
+    pub next_attempt: String,
+    pub result: String,
+    pub error_redacted: bool,
+    pub error_code: Option<String>,
+    pub added_node_count: usize,
+    pub removed_node_count: usize,
+    pub changed_node_count: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ManagedForegroundSessionStatusRequest {
     pub status_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundLifecyclePaths {
+    pub status_path: String,
+    pub snapshot_path: String,
+    pub event_directory: String,
+    pub control_socket_path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1813,8 +2558,13 @@ pub struct ManagedForegroundSessionEventRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ManagedForegroundSessionEventListRequest {
+pub struct ManagedForegroundSessionEventHistoryRequest {
     pub event_directory: String,
+    pub session_id: Option<String>,
+    pub event_kind: Option<String>,
+    pub state: Option<String>,
+    pub cursor: usize,
+    pub limit: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1841,7 +2591,7 @@ pub struct ManagedForegroundSessionEventReport {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ManagedForegroundSessionEventListEntry {
+pub struct ManagedForegroundSessionEventHistoryEntry {
     pub event_path: String,
     pub session_id: String,
     pub engine_id: String,
@@ -1852,10 +2602,15 @@ pub struct ManagedForegroundSessionEventListEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ManagedForegroundSessionEventListReport {
+pub struct ManagedForegroundSessionEventHistoryReport {
     pub event_directory: String,
-    pub event_count: usize,
-    pub events: Vec<ManagedForegroundSessionEventListEntry>,
+    pub session_id: Option<String>,
+    pub event_kind: Option<String>,
+    pub state: Option<String>,
+    pub cursor: usize,
+    pub next_cursor: Option<usize>,
+    pub matching_event_count: usize,
+    pub events: Vec<ManagedForegroundSessionEventHistoryEntry>,
     pub liveness_verified: bool,
 }
 
@@ -1869,6 +2624,24 @@ pub struct ManagedForegroundSessionEventWriteReport {
     pub state: String,
     pub recorded_at: String,
     pub record_written: bool,
+    pub liveness_verified: bool,
+}
+
+/// Reads a bounded tail from one caller-selected managed runtime log file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionLogTailRequest {
+    pub log_path: String,
+    pub line_limit: usize,
+}
+
+/// A read-only bounded managed runtime log tail.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedForegroundSessionLogTailReport {
+    pub log_path: String,
+    pub line_limit: usize,
+    pub total_line_count: usize,
+    pub lines: Vec<String>,
+    pub returned_byte_count: usize,
     pub liveness_verified: bool,
 }
 
@@ -2094,76 +2867,82 @@ impl CommandManagedForegroundSessionEventStore {
         })
     }
 
-    pub fn list_events(
+    pub fn list_event_history(
         &self,
-        request: &ManagedForegroundSessionEventListRequest,
-    ) -> DomainResult<ManagedForegroundSessionEventListReport> {
+        request: &ManagedForegroundSessionEventHistoryRequest,
+    ) -> DomainResult<ManagedForegroundSessionEventHistoryReport> {
         let event_directory =
             required_managed_foreground_event_directory_path(&request.event_directory)?;
-        let entries = std::fs::read_dir(&event_directory).map_err(|error| {
-            DomainError::new(
-                CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
-                format!(
-                    "failed to read managed foreground event directory {event_directory}: {error}"
-                ),
-            )
-        })?;
-        let mut event_paths = Vec::new();
-        for entry in entries {
-            let entry = entry.map_err(|error| {
+        let session_id =
+            optional_managed_foreground_event_history_session_id(request.session_id.as_deref())?;
+        let event_kind =
+            optional_managed_foreground_event_history_kind(request.event_kind.as_deref())?;
+        let state = optional_managed_foreground_event_history_state(request.state.as_deref())?;
+        let limit = required_managed_foreground_event_history_limit(request.limit)?;
+        let event_paths = managed_foreground_event_history_paths(&event_directory)?;
+        let mut events = Vec::with_capacity(event_paths.len());
+
+        for path in event_paths {
+            let event_path = path.to_str().ok_or_else(|| {
                 DomainError::new(
                     CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
                     format!(
-                        "failed to enumerate managed foreground event directory {event_directory}: {error}"
+                        "managed foreground event record path is not valid UTF-8: {}",
+                        path.display()
                     ),
                 )
             })?;
-            let file_type = entry.file_type().map_err(|error| {
-                DomainError::new(
-                    CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
-                    format!(
-                        "failed to inspect managed foreground event directory {event_directory}: {error}"
-                    ),
-                )
-            })?;
-            let path = entry.path();
-            if !file_type.is_file()
-                || path.extension().and_then(|extension| extension.to_str()) != Some("json")
+            let record = read_managed_foreground_session_event_history_file(event_path)?;
+            let entry = ManagedForegroundSessionEventHistoryEntry {
+                event_path: event_path.to_string(),
+                session_id: record.session_id.trim().to_string(),
+                engine_id: record.engine_id.trim().to_string(),
+                event_id: record.event_id.trim().to_string(),
+                event_kind: record.event_kind.trim().to_string(),
+                state: record.state.trim().to_string(),
+                recorded_at: record.recorded_at.trim().to_string(),
+            };
+            if session_id
+                .as_ref()
+                .is_none_or(|requested| entry.session_id == *requested)
+                && event_kind
+                    .as_ref()
+                    .is_none_or(|requested| entry.event_kind == *requested)
+                && state
+                    .as_ref()
+                    .is_none_or(|requested| entry.state == *requested)
             {
-                continue;
+                events.push(entry);
             }
-            event_paths.push(path);
         }
-        event_paths.sort();
 
-        let events = event_paths
-            .into_iter()
-            .map(|path| {
-                let event_path = path.to_str().ok_or_else(|| {
-                    DomainError::new(
-                        CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
-                        format!(
-                            "managed foreground event record path is not valid UTF-8: {}",
-                            path.display()
-                        ),
-                    )
-                })?;
-                let record = read_managed_foreground_session_event_file(event_path)?;
-                Ok(ManagedForegroundSessionEventListEntry {
-                    event_path: event_path.to_string(),
-                    session_id: record.session_id.trim().to_string(),
-                    engine_id: record.engine_id.trim().to_string(),
-                    event_id: record.event_id.trim().to_string(),
-                    event_kind: record.event_kind.trim().to_string(),
-                    state: record.state.trim().to_string(),
-                    recorded_at: record.recorded_at.trim().to_string(),
-                })
-            })
-            .collect::<DomainResult<Vec<_>>>()?;
+        events.sort_by(|left, right| {
+            (
+                left.recorded_at.as_str(),
+                left.event_id.as_str(),
+                left.event_path.as_str(),
+            )
+                .cmp(&(
+                    right.recorded_at.as_str(),
+                    right.event_id.as_str(),
+                    right.event_path.as_str(),
+                ))
+        });
 
-        Ok(ManagedForegroundSessionEventListReport {
+        let matching_event_count = events.len();
+        let cursor = request.cursor.min(matching_event_count);
+        let end = cursor.saturating_add(limit).min(matching_event_count);
+        let next_cursor = (end < matching_event_count).then_some(end);
+        let events = events[cursor..end].to_vec();
+
+        Ok(ManagedForegroundSessionEventHistoryReport {
             event_directory,
-            event_count: events.len(),
+            session_id,
+            event_kind,
+            state,
+            cursor,
+            next_cursor,
+            matching_event_count,
             events,
             liveness_verified: false,
         })
@@ -2206,6 +2985,479 @@ impl CommandManagedForegroundSessionEventStore {
             state: record.state,
             recorded_at: record.recorded_at,
             record_written: true,
+            liveness_verified: false,
+        })
+    }
+}
+
+struct ManagedForegroundLifecycleRecorder {
+    paths: ManagedForegroundLifecyclePaths,
+    session_id: String,
+    engine_id: String,
+}
+
+impl ManagedForegroundLifecycleRecorder {
+    fn new(paths: ManagedForegroundLifecyclePaths) -> DomainResult<Self> {
+        let status_path = paths.status_path.trim();
+        let snapshot_path = paths.snapshot_path.trim();
+        let event_directory = paths.event_directory.trim();
+        let control_socket_path = paths
+            .control_socket_path
+            .as_deref()
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .map(ToString::to_string);
+        if status_path.is_empty() || snapshot_path.is_empty() || event_directory.is_empty() {
+            return Err(DomainError::new(
+                CLI_START_MANAGED_LIFECYCLE_CONFIG_INVALID_CODE,
+                "managed foreground lifecycle paths must all be non-empty",
+            ));
+        }
+        if paths
+            .control_socket_path
+            .as_deref()
+            .is_some_and(|path| path.trim().is_empty())
+        {
+            return Err(DomainError::new(
+                CLI_START_MANAGED_LIFECYCLE_CONFIG_INVALID_CODE,
+                "managed foreground control socket path cannot be empty",
+            ));
+        }
+        if status_path == snapshot_path {
+            return Err(DomainError::new(
+                CLI_START_MANAGED_LIFECYCLE_CONFIG_INVALID_CODE,
+                "managed foreground status and snapshot paths must differ",
+            ));
+        }
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        Ok(Self {
+            paths: ManagedForegroundLifecyclePaths {
+                status_path: status_path.to_string(),
+                snapshot_path: snapshot_path.to_string(),
+                event_directory: event_directory.to_string(),
+                control_socket_path,
+            },
+            session_id: format!("foreground-{}-{timestamp}", std::process::id()),
+            engine_id: DEFAULT_ENGINE_ID.to_string(),
+        })
+    }
+
+    fn event_path(&self, event_id: &str) -> String {
+        std::path::Path::new(&self.paths.event_directory)
+            .join(format!("{}.json", event_id))
+            .display()
+            .to_string()
+    }
+
+    fn recorded_at(&self) -> String {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos().to_string())
+            .unwrap_or_else(|_| "0".to_string())
+    }
+
+    fn write_event(&self, event_id: &str, event_kind: &str, state: &str) -> DomainResult<()> {
+        CommandManagedForegroundSessionEventStore::new()
+            .write_event(&ManagedForegroundSessionEventWriteRequest {
+                event_path: self.event_path(event_id),
+                session_id: self.session_id.clone(),
+                engine_id: self.engine_id.clone(),
+                event_id: event_id.to_string(),
+                event_kind: event_kind.to_string(),
+                state: state.to_string(),
+                recorded_at: self.recorded_at(),
+            })
+            .map(|_| ())
+    }
+
+    fn initialize(&self) -> DomainResult<()> {
+        CommandManagedForegroundSessionStore::new().write_status(
+            &ManagedForegroundSessionStatusWriteRequest {
+                status_path: self.paths.status_path.clone(),
+                session_id: self.session_id.clone(),
+                engine_id: self.engine_id.clone(),
+                state: "starting".to_string(),
+            },
+        )?;
+        self.write_event(
+            &format!("{}-session-started", self.session_id),
+            "session_started",
+            "starting",
+        )
+    }
+
+    fn transition(
+        &self,
+        expected_state: &str,
+        next_state: &str,
+        snapshot_path: String,
+    ) -> DomainResult<()> {
+        CommandManagedForegroundSessionStore::new().transition_status(
+            &ManagedForegroundSessionStatusTransitionRequest {
+                status_path: self.paths.status_path.clone(),
+                snapshot_path,
+                expected_state: expected_state.to_string(),
+                next_state: next_state.to_string(),
+            },
+        )?;
+        let (event_kind, event_suffix) = match next_state {
+            "running" => ("status_transition", "running"),
+            "stopped" => ("session_stopped", "stopped"),
+            "failed" => ("session_failed", "failed"),
+            _ => ("status_transition", next_state),
+        };
+        self.write_event(
+            &format!("{}-{}", self.session_id, event_suffix),
+            event_kind,
+            next_state,
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ManagedControlRequest {
+    Stop,
+    Reload,
+    Rollback { expected_config_version: u64 },
+}
+
+impl ManagedControlRequest {
+    const fn wire_command(self) -> &'static str {
+        match self {
+            Self::Stop => "stop",
+            Self::Reload => "reload",
+            Self::Rollback { .. } => "rollback",
+        }
+    }
+
+    #[cfg(unix)]
+    const fn signal_value(self) -> u8 {
+        match self {
+            Self::Stop => MANAGED_CONTROL_STOP,
+            Self::Reload => MANAGED_CONTROL_RELOAD,
+            Self::Rollback { .. } => MANAGED_CONTROL_ROLLBACK,
+        }
+    }
+}
+
+pub trait ManagedControlInterrupter: Send + Sync {
+    fn interrupt(&self, request: ManagedControlRequest) -> DomainResult<()>;
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ManagedRuntimeHealthSnapshot {
+    pub record: String,
+    pub config_version: u64,
+}
+
+fn record_managed_runtime_health(
+    snapshot: &Arc<Mutex<ManagedRuntimeHealthSnapshot>>,
+    health: &ProxyEngineHealthReport,
+    config_digest: &str,
+    config_version: u64,
+) {
+    if let Ok(mut snapshot) = snapshot.lock() {
+        snapshot.config_version = config_version;
+        snapshot.record = format!(
+            "pid={} engine_id={} state={:?} config_version={} config_digest={} config_validated={} runtime_resources_ready={} listener_reachable={} control_readback=true",
+            std::process::id(),
+            health.engine_id,
+            health.state,
+            config_version,
+            config_digest,
+            health.config_validated,
+            health.runtime_resources_ready,
+            health.listener_reachable,
+        );
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OsSignalManagedControlInterrupter;
+
+impl ManagedControlInterrupter for OsSignalManagedControlInterrupter {
+    fn interrupt(&self, _request: ManagedControlRequest) -> DomainResult<()> {
+        #[cfg(unix)]
+        {
+            if MANAGED_CONTROL_REQUEST
+                .compare_exchange(
+                    MANAGED_CONTROL_NONE,
+                    MANAGED_CONTROL_PENDING,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                )
+                .is_err()
+            {
+                return Err(DomainError::new(
+                    CLI_MANAGED_CONTROL_SOCKET_REQUEST_PENDING_CODE,
+                    "managed foreground control request is already pending",
+                ));
+            }
+            if let ManagedControlRequest::Rollback {
+                expected_config_version,
+            } = _request
+            {
+                MANAGED_CONTROL_EXPECTED_CONFIG_VERSION
+                    .store(expected_config_version, Ordering::SeqCst);
+            } else {
+                MANAGED_CONTROL_EXPECTED_CONFIG_VERSION.store(0, Ordering::SeqCst);
+            }
+            MANAGED_CONTROL_REQUEST.store(_request.signal_value(), Ordering::SeqCst);
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            Err(DomainError::new(
+                CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE,
+                "managed foreground control sockets require Unix",
+            ))
+        }
+    }
+}
+
+pub struct ManagedControlSocketGuard {
+    #[cfg(unix)]
+    socket_path: String,
+    #[cfg(unix)]
+    shutdown: mpsc::Sender<()>,
+    #[cfg(unix)]
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for ManagedControlSocketGuard {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            let _ = self.shutdown.send(());
+            if let Some(worker) = self.worker.take() {
+                let _ = worker.join();
+            }
+            if std::fs::symlink_metadata(&self.socket_path)
+                .is_ok_and(|metadata| metadata.file_type().is_socket())
+            {
+                let _ = std::fs::remove_file(&self.socket_path);
+            }
+        }
+    }
+}
+
+pub fn start_managed_control_socket(socket_path: &str) -> DomainResult<ManagedControlSocketGuard> {
+    #[cfg(unix)]
+    {
+        MANAGED_CONTROL_REQUEST.store(MANAGED_CONTROL_NONE, Ordering::SeqCst);
+        MANAGED_CONTROL_EXPECTED_CONFIG_VERSION.store(0, Ordering::SeqCst);
+    }
+    start_managed_control_socket_with_interrupter(
+        socket_path,
+        Arc::new(OsSignalManagedControlInterrupter),
+    )
+}
+
+pub fn start_managed_control_socket_with_interrupter(
+    socket_path: &str,
+    interrupter: Arc<dyn ManagedControlInterrupter>,
+) -> DomainResult<ManagedControlSocketGuard> {
+    start_managed_control_socket_with_runtime_snapshot(socket_path, interrupter, None)
+}
+
+pub fn start_managed_control_socket_with_runtime_snapshot(
+    socket_path: &str,
+    interrupter: Arc<dyn ManagedControlInterrupter>,
+    _runtime_snapshot: Option<Arc<Mutex<ManagedRuntimeHealthSnapshot>>>,
+) -> DomainResult<ManagedControlSocketGuard> {
+    let socket_path = socket_path.trim();
+    if socket_path.is_empty() || !std::path::Path::new(socket_path).is_absolute() {
+        return Err(DomainError::new(
+            CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE,
+            "managed foreground control socket path must be absolute",
+        ));
+    }
+    #[cfg(unix)]
+    {
+        MANAGED_CONTROL_REQUEST.store(MANAGED_CONTROL_NONE, Ordering::SeqCst);
+        MANAGED_CONTROL_EXPECTED_CONFIG_VERSION.store(0, Ordering::SeqCst);
+        if std::path::Path::new(socket_path).exists() {
+            return Err(DomainError::new(
+                CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE,
+                "refusing to replace an existing managed foreground control socket path",
+            ));
+        }
+        write_parent_dir(socket_path, CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE)?;
+        let listener = UnixListener::bind(socket_path).map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE,
+                format!("failed to bind managed foreground control socket: {error}"),
+            )
+        })?;
+        if let Err(error) =
+            std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600))
+        {
+            let _ = std::fs::remove_file(socket_path);
+            return Err(DomainError::new(
+                CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE,
+                format!("failed to protect managed foreground control socket: {error}"),
+            ));
+        }
+        if let Err(error) = listener.set_nonblocking(true) {
+            let _ = std::fs::remove_file(socket_path);
+            return Err(DomainError::new(
+                CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE,
+                format!("failed to configure managed foreground control socket: {error}"),
+            ));
+        }
+        let (shutdown, shutdown_receiver) = mpsc::channel();
+        let worker = std::thread::spawn(move || loop {
+            if shutdown_receiver.try_recv().is_ok() {
+                break;
+            }
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let mut command = Vec::new();
+                    let read_result = stream
+                        .set_read_timeout(Some(Duration::from_secs(
+                            MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS,
+                        )))
+                        .and_then(|()| (&mut stream).take(64).read_to_end(&mut command));
+                    let wire_command = read_result.ok().and_then(|_| {
+                        std::str::from_utf8(&command)
+                            .ok()
+                            .map(|value| value.trim().to_string())
+                    });
+                    let request = wire_command.as_deref().and_then(|value| {
+                        let mut fields = value.split_ascii_whitespace();
+                        match (fields.next(), fields.next(), fields.next()) {
+                            (Some("stop"), None, None) => Some(ManagedControlRequest::Stop),
+                            (Some("reload"), None, None) => Some(ManagedControlRequest::Reload),
+                            (Some("rollback"), Some(version), None) => version
+                                .parse::<u64>()
+                                .ok()
+                                .filter(|version| *version > 0)
+                                .map(|expected_config_version| ManagedControlRequest::Rollback {
+                                    expected_config_version,
+                                }),
+                            _ => None,
+                        }
+                    });
+                    if wire_command.as_deref() == Some("status") {
+                        let snapshot = _runtime_snapshot
+                            .as_ref()
+                            .and_then(|snapshot| {
+                                snapshot.lock().ok().map(|value| value.record.clone())
+                            })
+                            .filter(|value| !value.is_empty())
+                            .unwrap_or_else(|| {
+                                "state=unavailable error_code=runtime_status_unavailable"
+                                    .to_string()
+                            });
+                        let _ = stream.set_write_timeout(Some(Duration::from_secs(
+                            MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS,
+                        )));
+                        let _ = stream.write_all(format!("status {snapshot}\n").as_bytes());
+                        continue;
+                    }
+                    let (response, accepted) = match request {
+                        Some(request) => match interrupter.interrupt(request) {
+                            Ok(()) => (b"accepted\n".as_slice(), true),
+                            Err(error)
+                                if error.code
+                                    == CLI_MANAGED_CONTROL_SOCKET_REQUEST_PENDING_CODE =>
+                            {
+                                (b"rejected request_pending\n".as_slice(), false)
+                            }
+                            Err(_) => (b"rejected\n".as_slice(), false),
+                        },
+                        None => (b"rejected\n".as_slice(), false),
+                    };
+                    let _ = stream.set_write_timeout(Some(Duration::from_secs(
+                        MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS,
+                    )));
+                    let _ = stream.write_all(response);
+                    if accepted && request == Some(ManagedControlRequest::Stop) {
+                        break;
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(_) => break,
+            }
+        });
+        Ok(ManagedControlSocketGuard {
+            socket_path: socket_path.to_string(),
+            shutdown,
+            worker: Some(worker),
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = interrupter;
+        Err(DomainError::new(
+            CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE,
+            "managed foreground control sockets require Unix",
+        ))
+    }
+}
+
+/// Source-only file boundary for caller-selected managed runtime logs.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CommandManagedForegroundSessionLogStore;
+
+impl CommandManagedForegroundSessionLogStore {
+    pub const fn new() -> Self {
+        Self
+    }
+
+    pub fn read_tail(
+        &self,
+        request: &ManagedForegroundSessionLogTailRequest,
+    ) -> DomainResult<ManagedForegroundSessionLogTailReport> {
+        let log_path = required_managed_foreground_log_path(&request.log_path)?;
+        let line_limit = required_managed_foreground_log_tail_limit(request.line_limit)?;
+        let metadata = std::fs::metadata(&log_path).map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE,
+                format!("failed to inspect managed foreground log {log_path}: {error}"),
+            )
+        })?;
+        if !metadata.is_file() {
+            return Err(DomainError::new(
+                CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE,
+                "managed foreground log path must refer to a regular file",
+            ));
+        }
+        if metadata.len() > MANAGED_FOREGROUND_LOG_TAIL_MAX_BYTES {
+            return Err(DomainError::new(
+                CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE,
+                format!(
+                    "managed foreground log {log_path} exceeds the {} byte tail limit",
+                    MANAGED_FOREGROUND_LOG_TAIL_MAX_BYTES
+                ),
+            ));
+        }
+        let contents = std::fs::read_to_string(&log_path).map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE,
+                format!("failed to read managed foreground log {log_path}: {error}"),
+            )
+        })?;
+        let total_line_count = contents.lines().count();
+        let skip = total_line_count.saturating_sub(line_limit);
+        let lines: Vec<String> = contents
+            .lines()
+            .skip(skip)
+            .map(redact_cli_output_text)
+            .collect();
+        let returned_byte_count = lines.iter().map(String::len).sum();
+
+        Ok(ManagedForegroundSessionLogTailReport {
+            log_path,
+            line_limit,
+            total_line_count,
+            lines,
+            returned_byte_count,
             liveness_verified: false,
         })
     }
@@ -2276,6 +3528,7 @@ impl CommandSubscriptionCatalogStore {
         catalog.sources.push(SubscriptionCatalogSourceFile {
             id: source_id.to_string(),
             location: source_location.to_string(),
+            refresh_location: None,
         });
         let snapshot_json = serde_json::to_string_pretty(&previous_catalog).map_err(|error| {
             DomainError::new(
@@ -2466,7 +3719,92 @@ impl CommandSubscriptionCatalogStore {
             source_count: catalog.sources.len(),
             location_kind: subscription_catalog_location_kind(location).to_string(),
             location_redacted: true,
+            validated_node_count: 0,
+            added_node_count: 0,
+            removed_node_count: 0,
+            changed_node_count: 0,
         })
+    }
+
+    pub fn update_source_with_fetcher<F>(
+        &self,
+        request: &SubscriptionCatalogUpdateRequest,
+        fetcher: &F,
+    ) -> DomainResult<SubscriptionCatalogUpdateReport>
+    where
+        F: RemoteSubscriptionFetcher,
+    {
+        let catalog_path = required_subscription_catalog_path(
+            &request.catalog_path,
+            CLI_SUBSCRIPTION_CATALOG_PATH_MISSING_CODE,
+            "subscription catalog path cannot be empty",
+        )?;
+        let source_id = request.source_id.trim();
+        let (catalog, _) = read_subscription_catalog_file(&catalog_path)?;
+        let previous_location = catalog
+            .sources
+            .iter()
+            .find(|source| source.id.trim() == source_id)
+            .map(|source| source.location.trim().to_string())
+            .ok_or_else(|| {
+                DomainError::new(
+                    CLI_SUBSCRIPTION_CATALOG_SOURCE_NOT_FOUND_CODE,
+                    format!("subscription catalog source id was not found: {source_id}"),
+                )
+            })?;
+
+        let previous_nodes =
+            parse_subscription_catalog_update_nodes(source_id, &previous_location, fetcher)?;
+        let content = read_subscription_catalog_update_content(&request.location, fetcher)?;
+        let subscription = CoreSubscriptionService::new();
+        let document = subscription
+            .parse(&RawSubscription {
+                source_id: source_id.to_string(),
+                content,
+            })
+            .map_err(|error| {
+                DomainError::new(
+                    CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE,
+                    format!(
+                        "subscription update candidate could not be parsed: {}",
+                        error.code
+                    ),
+                )
+            })?;
+        let catalog = subscription.normalize(&document).map_err(|error| {
+            DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE,
+                format!(
+                    "subscription update candidate could not be normalized: {}",
+                    error.code
+                ),
+            )
+        })?;
+        let current_nodes = subscription_node_index(&catalog.nodes);
+        let previous_nodes = subscription_node_index(&previous_nodes);
+        let added_node_count = current_nodes
+            .keys()
+            .filter(|id| !previous_nodes.contains_key(*id))
+            .count();
+        let removed_node_count = previous_nodes
+            .keys()
+            .filter(|id| !current_nodes.contains_key(*id))
+            .count();
+        let changed_node_count = current_nodes
+            .iter()
+            .filter(|(id, fingerprint)| {
+                previous_nodes
+                    .get(*id)
+                    .is_some_and(|previous| previous != *fingerprint)
+            })
+            .count();
+        let validated_node_count = current_nodes.len();
+        let mut report = self.update_source(request)?;
+        report.validated_node_count = validated_node_count;
+        report.added_node_count = added_node_count;
+        report.removed_node_count = removed_node_count;
+        report.changed_node_count = changed_node_count;
+        Ok(report)
     }
 
     pub fn rollback_catalog(
@@ -2505,6 +3843,260 @@ impl CommandSubscriptionCatalogStore {
             source_count: snapshot.sources.len(),
             snapshot_retained: true,
         })
+    }
+
+    pub fn refresh_http_source_with_fetcher<F>(
+        &self,
+        request: &SubscriptionRefreshStartRequest,
+        fetcher: &F,
+    ) -> DomainResult<SubscriptionRefreshStatusReport>
+    where
+        F: RemoteSubscriptionFetcher,
+    {
+        if !request.confirmed {
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_REFRESH_AUTHORIZATION_REQUIRED_CODE,
+                "subscription refresh requires explicit --confirm",
+            ));
+        }
+        if request.interval_seconds < SUBSCRIPTION_REFRESH_MIN_INTERVAL_SECONDS {
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_REFRESH_INTERVAL_TOO_SHORT_CODE,
+                "subscription refresh interval is below the fixed minimum",
+            ));
+        }
+        let catalog_path = required_subscription_catalog_path(
+            &request.catalog_path,
+            CLI_SUBSCRIPTION_CATALOG_PATH_MISSING_CODE,
+            "subscription catalog path cannot be empty",
+        )?;
+        let status_path = required_subscription_catalog_path(
+            &request.status_path,
+            CLI_SUBSCRIPTION_REFRESH_STATUS_WRITE_FAILED_CODE,
+            "subscription refresh status path cannot be empty",
+        )?;
+        let snapshot_path = required_subscription_catalog_path(
+            &request.snapshot_path,
+            CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_PATH_MISSING_CODE,
+            "subscription refresh snapshot path cannot be empty",
+        )?;
+        let source_id = request.source_id.trim();
+        let (mut catalog, previous_catalog) = read_subscription_catalog_file(&catalog_path)?;
+        let source = catalog
+            .sources
+            .iter_mut()
+            .find(|source| source.id.trim() == source_id)
+            .ok_or_else(|| {
+                DomainError::new(
+                    CLI_SUBSCRIPTION_CATALOG_SOURCE_NOT_FOUND_CODE,
+                    format!("subscription catalog source id was not found: {source_id}"),
+                )
+            })?;
+        let refresh_location = source
+            .refresh_location
+            .as_deref()
+            .unwrap_or(source.location.as_str())
+            .trim()
+            .to_string();
+        if !(refresh_location.starts_with("http://") || refresh_location.starts_with("https://")) {
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_REFRESH_SOURCE_UNSUPPORTED_CODE,
+                "background refresh accepts only a saved HTTP(S) source",
+            ));
+        }
+        let _refresh_lock = SubscriptionRefreshLock::acquire(&status_path, source_id)?;
+        let previous_location = source.location.clone();
+        let attempted_at = subscription_refresh_timestamp();
+        let candidate = fetcher
+            .fetch_subscription(&refresh_location)
+            .and_then(|content| {
+                let previous_nodes = parse_subscription_catalog_update_nodes(
+                    source_id,
+                    &previous_location,
+                    fetcher,
+                )?;
+                let service = CoreSubscriptionService::new();
+                let document = service
+                    .parse(&RawSubscription {
+                        source_id: source_id.to_string(),
+                        content: content.clone(),
+                    })
+                    .map_err(|error| {
+                        DomainError::new(
+                            CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE,
+                            format!(
+                                "subscription refresh candidate could not be parsed: {}",
+                                error.code
+                            ),
+                        )
+                    })?;
+                let candidate_catalog = service.normalize(&document).map_err(|error| {
+                    DomainError::new(
+                        CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE,
+                        format!(
+                            "subscription refresh candidate could not be normalized: {}",
+                            error.code
+                        ),
+                    )
+                })?;
+                Ok((content, candidate_catalog.nodes, previous_nodes))
+            });
+        let next_attempt = subscription_refresh_next_timestamp(request.interval_seconds);
+        match candidate {
+            Ok((content, candidate_nodes, previous_nodes)) => {
+                source.location = format!("inline:{content}");
+                source.refresh_location = Some(refresh_location);
+                let previous_node_index = subscription_node_index(&previous_nodes);
+                let candidate_node_index = subscription_node_index(&candidate_nodes);
+                let added_node_count = candidate_node_index
+                    .keys()
+                    .filter(|id| !previous_node_index.contains_key(*id))
+                    .count();
+                let removed_node_count = previous_node_index
+                    .keys()
+                    .filter(|id| !candidate_node_index.contains_key(*id))
+                    .count();
+                let changed_node_count = candidate_node_index
+                    .iter()
+                    .filter(|(id, value)| {
+                        previous_node_index
+                            .get(*id)
+                            .is_some_and(|previous| previous != *value)
+                    })
+                    .count();
+                let snapshot_json =
+                    serde_json::to_string_pretty(&previous_catalog).map_err(|error| {
+                        DomainError::new(
+                            CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_WRITE_FAILED_CODE,
+                            format!("failed to render subscription refresh snapshot: {error}"),
+                        )
+                    })?;
+                let catalog_json = serde_json::to_string_pretty(&catalog).map_err(|error| {
+                    DomainError::new(
+                        CLI_SUBSCRIPTION_CATALOG_WRITE_FAILED_CODE,
+                        format!("failed to render refreshed subscription catalog: {error}"),
+                    )
+                })?;
+                write_replace_file(
+                    &snapshot_path,
+                    snapshot_json.as_bytes(),
+                    CLI_SUBSCRIPTION_CATALOG_SNAPSHOT_WRITE_FAILED_CODE,
+                    "subscription refresh snapshot",
+                )?;
+                write_replace_file(
+                    &catalog_path,
+                    catalog_json.as_bytes(),
+                    CLI_SUBSCRIPTION_CATALOG_WRITE_FAILED_CODE,
+                    "refreshed subscription catalog",
+                )?;
+                let status = SubscriptionRefreshStatusFile {
+                    schema_version: 1,
+                    source_id: source_id.to_string(),
+                    enabled: true,
+                    interval_seconds: request.interval_seconds,
+                    last_attempt: attempted_at.clone(),
+                    last_success: Some(attempted_at.clone()),
+                    next_attempt: next_attempt.clone(),
+                    result: "success".to_string(),
+                    error_redacted: false,
+                    error_code: None,
+                    added_node_count,
+                    removed_node_count,
+                    changed_node_count,
+                };
+                write_subscription_refresh_status_file(&status_path, &status)?;
+                Ok(subscription_refresh_report(status_path, status))
+            }
+            Err(error) => {
+                let status = SubscriptionRefreshStatusFile {
+                    schema_version: 1,
+                    source_id: source_id.to_string(),
+                    enabled: true,
+                    interval_seconds: request.interval_seconds,
+                    last_attempt: attempted_at,
+                    last_success: read_subscription_refresh_status_file(&status_path)
+                        .ok()
+                        .and_then(|status| status.last_success),
+                    next_attempt,
+                    result: "failed".to_string(),
+                    error_redacted: true,
+                    error_code: Some(error.code.clone()),
+                    added_node_count: 0,
+                    removed_node_count: 0,
+                    changed_node_count: 0,
+                };
+                write_subscription_refresh_status_file(&status_path, &status)?;
+                Err(DomainError::new(error.code, "subscription refresh failed; previous catalog and runtime selection were retained"))
+            }
+        }
+    }
+
+    pub fn read_refresh_status(
+        &self,
+        status_path: &str,
+    ) -> DomainResult<SubscriptionRefreshStatusReport> {
+        let status_path = required_subscription_catalog_path(
+            status_path,
+            CLI_SUBSCRIPTION_REFRESH_STATUS_READ_FAILED_CODE,
+            "subscription refresh status path cannot be empty",
+        )?;
+        let status = read_subscription_refresh_status_file(&status_path)?;
+        Ok(subscription_refresh_report(status_path, status))
+    }
+
+    pub fn stop_refresh(
+        &self,
+        status_path: &str,
+        source_id: &str,
+        confirmed: bool,
+    ) -> DomainResult<SubscriptionRefreshStatusReport> {
+        if !confirmed {
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_REFRESH_AUTHORIZATION_REQUIRED_CODE,
+                "subscription refresh stop requires explicit --confirm",
+            ));
+        }
+        let status_path = required_subscription_catalog_path(
+            status_path,
+            CLI_SUBSCRIPTION_REFRESH_STATUS_WRITE_FAILED_CODE,
+            "subscription refresh status path cannot be empty",
+        )?;
+        let mut status = match read_subscription_refresh_status_file(&status_path) {
+            Ok(status) => status,
+            Err(error)
+                if error.code == CLI_SUBSCRIPTION_REFRESH_STATUS_READ_FAILED_CODE
+                    && !std::path::Path::new(&status_path).exists() =>
+            {
+                SubscriptionRefreshStatusFile {
+                    schema_version: 1,
+                    source_id: source_id.trim().to_string(),
+                    enabled: false,
+                    interval_seconds: SUBSCRIPTION_REFRESH_MIN_INTERVAL_SECONDS,
+                    last_attempt: "none".to_string(),
+                    last_success: None,
+                    next_attempt: "none".to_string(),
+                    result: "stopped".to_string(),
+                    error_redacted: false,
+                    error_code: None,
+                    added_node_count: 0,
+                    removed_node_count: 0,
+                    changed_node_count: 0,
+                }
+            }
+            Err(error) => return Err(error),
+        };
+        if status.source_id != source_id.trim() {
+            return Err(DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_SOURCE_NOT_FOUND_CODE,
+                "subscription refresh source id does not match the explicit status record",
+            ));
+        }
+        status.enabled = false;
+        status.result = "stopped".to_string();
+        status.next_attempt = "none".to_string();
+        write_subscription_refresh_status_file(&status_path, &status)?;
+        let _ = std::fs::remove_file(SubscriptionRefreshLock::path_for(&status_path, source_id));
+        Ok(subscription_refresh_report(status_path, status))
     }
 
     pub fn remove_source(
@@ -2602,6 +4194,64 @@ struct SubscriptionCatalogFile {
 struct SubscriptionCatalogSourceFile {
     id: String,
     location: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    refresh_location: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SubscriptionRefreshStatusFile {
+    schema_version: u32,
+    source_id: String,
+    enabled: bool,
+    interval_seconds: u64,
+    last_attempt: String,
+    last_success: Option<String>,
+    next_attempt: String,
+    result: String,
+    error_redacted: bool,
+    error_code: Option<String>,
+    added_node_count: usize,
+    removed_node_count: usize,
+    changed_node_count: usize,
+}
+
+struct SubscriptionRefreshLock {
+    path: std::path::PathBuf,
+}
+
+impl SubscriptionRefreshLock {
+    fn path_for(status_path: &str, source_id: &str) -> std::path::PathBuf {
+        std::path::PathBuf::from(format!("{status_path}.{source_id}.refresh.lock"))
+    }
+
+    fn acquire(status_path: &str, source_id: &str) -> DomainResult<Self> {
+        let path = Self::path_for(status_path, source_id);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|_| {
+                DomainError::new(
+                    CLI_SUBSCRIPTION_REFRESH_ALREADY_ACTIVE_CODE,
+                    "a refresh is already active for this source",
+                )
+            })?;
+        Ok(Self { path })
+    }
+}
+
+impl Drop for SubscriptionRefreshLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+const NODE_SELECTION_SCHEMA_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct NodeSelectionFile {
+    schema_version: u32,
+    node_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2679,6 +4329,140 @@ fn required_managed_foreground_event_directory_path(path: &str) -> DomainResult<
     Ok(path.to_string())
 }
 
+fn required_managed_foreground_log_path(path: &str) -> DomainResult<String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_LOG_PATH_MISSING_CODE,
+            "managed foreground log path cannot be empty",
+        ));
+    }
+    Ok(path.to_string())
+}
+
+fn required_managed_foreground_log_tail_limit(limit: usize) -> DomainResult<usize> {
+    if !(1..=MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT).contains(&limit) {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE,
+            format!(
+                "managed foreground log tail limit must be between 1 and {MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT}"
+            ),
+        ));
+    }
+    Ok(limit)
+}
+
+fn optional_managed_foreground_event_history_session_id(
+    session_id: Option<&str>,
+) -> DomainResult<Option<String>> {
+    session_id
+        .map(|value| {
+            let value = value.trim();
+            if value.is_empty() {
+                return Err(DomainError::new(
+                    CLI_MANAGED_FOREGROUND_EVENT_HISTORY_QUERY_INVALID_CODE,
+                    "managed foreground event history session filter cannot be empty",
+                ));
+            }
+            Ok(value.to_string())
+        })
+        .transpose()
+}
+
+fn optional_managed_foreground_event_history_kind(
+    event_kind: Option<&str>,
+) -> DomainResult<Option<String>> {
+    event_kind
+        .map(|value| {
+            let value = value.trim();
+            if !matches!(
+                value,
+                "session_started" | "status_transition" | "session_stopped" | "session_failed"
+            ) {
+                return Err(DomainError::new(
+                    CLI_MANAGED_FOREGROUND_EVENT_HISTORY_QUERY_INVALID_CODE,
+                    "managed foreground event history kind filter is unsupported",
+                ));
+            }
+            Ok(value.to_string())
+        })
+        .transpose()
+}
+
+fn optional_managed_foreground_event_history_state(
+    state: Option<&str>,
+) -> DomainResult<Option<String>> {
+    state
+        .map(|value| {
+            required_managed_foreground_status_state(
+                value,
+                CLI_MANAGED_FOREGROUND_EVENT_HISTORY_QUERY_INVALID_CODE,
+                "managed foreground event history state filter is unsupported",
+            )
+        })
+        .transpose()
+}
+
+fn required_managed_foreground_event_history_limit(limit: usize) -> DomainResult<usize> {
+    if !(1..=MANAGED_FOREGROUND_EVENT_HISTORY_MAX_LIMIT).contains(&limit) {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_HISTORY_QUERY_INVALID_CODE,
+            format!(
+                "managed foreground event history limit must be between 1 and {MANAGED_FOREGROUND_EVENT_HISTORY_MAX_LIMIT}"
+            ),
+        ));
+    }
+    Ok(limit)
+}
+
+fn managed_foreground_event_history_paths(
+    event_directory: &str,
+) -> DomainResult<Vec<std::path::PathBuf>> {
+    let entries = std::fs::read_dir(event_directory).map_err(|error| {
+        DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+            format!("failed to read managed foreground event directory {event_directory}: {error}"),
+        )
+    })?;
+    let mut event_paths = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+                format!(
+                    "failed to enumerate managed foreground event directory {event_directory}: {error}"
+                ),
+            )
+        })?;
+        let file_type = entry.file_type().map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+                format!(
+                    "failed to inspect managed foreground event directory {event_directory}: {error}"
+                ),
+            )
+        })?;
+        let path = entry.path();
+        if !file_type.is_file()
+            || path.extension().and_then(|extension| extension.to_str()) != Some("json")
+        {
+            continue;
+        }
+        if event_paths.len() == MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORDS {
+            return Err(DomainError::new(
+                CLI_MANAGED_FOREGROUND_EVENT_HISTORY_LIMIT_EXCEEDED_CODE,
+                format!(
+                    "managed foreground event directory {event_directory} exceeds the {} record history limit",
+                    MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORDS
+                ),
+            ));
+        }
+        event_paths.push(path);
+    }
+    event_paths.sort();
+    Ok(event_paths)
+}
+
 fn read_managed_foreground_session_status_file(
     path: &str,
 ) -> DomainResult<(ManagedForegroundSessionStatusFile, String)> {
@@ -2728,8 +4512,52 @@ fn read_managed_foreground_session_event_file(
             format!("failed to read managed foreground event record {path}: {error}"),
         )
     })?;
+    parse_managed_foreground_session_event_contents(path, &contents)
+}
+
+fn read_managed_foreground_session_event_history_file(
+    path: &str,
+) -> DomainResult<ManagedForegroundSessionEventFile> {
+    let file = std::fs::File::open(path).map_err(|error| {
+        DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+            format!("failed to read managed foreground event record {path}: {error}"),
+        )
+    })?;
+    let mut contents =
+        Vec::with_capacity((MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES + 1) as usize);
+    file.take(MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES + 1)
+        .read_to_end(&mut contents)
+        .map_err(|error| {
+            DomainError::new(
+                CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+                format!("failed to read managed foreground event record {path}: {error}"),
+            )
+        })?;
+    if contents.len() as u64 > MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES {
+        return Err(DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_HISTORY_LIMIT_EXCEEDED_CODE,
+            format!(
+                "managed foreground event record {path} exceeds the {} byte history limit",
+                MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES
+            ),
+        ));
+    }
+    let contents = String::from_utf8(contents).map_err(|error| {
+        DomainError::new(
+            CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
+            format!("failed to read managed foreground event record {path}: {error}"),
+        )
+    })?;
+    parse_managed_foreground_session_event_contents(path, &contents)
+}
+
+fn parse_managed_foreground_session_event_contents(
+    path: &str,
+    contents: &str,
+) -> DomainResult<ManagedForegroundSessionEventFile> {
     let record =
-        serde_json::from_str::<ManagedForegroundSessionEventFile>(&contents).map_err(|error| {
+        serde_json::from_str::<ManagedForegroundSessionEventFile>(contents).map_err(|error| {
             DomainError::new(
                 CLI_MANAGED_FOREGROUND_EVENT_READ_FAILED_CODE,
                 format!("failed to parse managed foreground event record {path}: {error}"),
@@ -2846,6 +4674,41 @@ fn read_subscription_catalog_file(
     Ok((catalog.clone(), catalog))
 }
 
+fn read_subscription_catalog_source_location(
+    catalog_path: &str,
+    source_id: &str,
+) -> DomainResult<String> {
+    let catalog_path = required_subscription_catalog_path(
+        catalog_path,
+        CLI_SUBSCRIPTION_CATALOG_PATH_MISSING_CODE,
+        "subscription catalog path cannot be empty",
+    )?;
+    let source_id = source_id.trim();
+    if source_id.is_empty() {
+        return Err(DomainError::new(
+            CLI_SUBSCRIPTION_CATALOG_SOURCE_ID_EMPTY_CODE,
+            "subscription catalog source id cannot be empty",
+        ));
+    }
+    let (catalog, _) = read_subscription_catalog_file(&catalog_path)?;
+    let location = catalog
+        .sources
+        .iter()
+        .find(|source| source.id.trim() == source_id)
+        .map(|source| source.location.trim())
+        .ok_or_else(|| {
+            DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_SOURCE_NOT_FOUND_CODE,
+                format!("subscription catalog source id was not found: {source_id}"),
+            )
+        })?;
+
+    Ok(location
+        .strip_prefix("inline:")
+        .unwrap_or(location)
+        .to_string())
+}
+
 fn read_required_subscription_catalog_snapshot_file(
     path: &str,
 ) -> DomainResult<(SubscriptionCatalogFile, String)> {
@@ -2895,6 +4758,86 @@ fn subscription_catalog_location_kind(location: &str) -> &'static str {
         "file"
     } else {
         "other"
+    }
+}
+
+fn subscription_refresh_timestamp() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .to_string()
+}
+
+fn subscription_refresh_next_timestamp(interval_seconds: u64) -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .saturating_add(interval_seconds)
+        .to_string()
+}
+
+fn read_subscription_refresh_status_file(
+    path: &str,
+) -> DomainResult<SubscriptionRefreshStatusFile> {
+    let contents = std::fs::read_to_string(path).map_err(|_| {
+        DomainError::new(
+            CLI_SUBSCRIPTION_REFRESH_STATUS_READ_FAILED_CODE,
+            "subscription refresh status could not be read",
+        )
+    })?;
+    let status =
+        serde_json::from_str::<SubscriptionRefreshStatusFile>(&contents).map_err(|_| {
+            DomainError::new(
+                CLI_SUBSCRIPTION_REFRESH_STATUS_READ_FAILED_CODE,
+                "subscription refresh status is invalid",
+            )
+        })?;
+    if status.schema_version != 1 || status.source_id.trim().is_empty() {
+        return Err(DomainError::new(
+            CLI_SUBSCRIPTION_REFRESH_STATUS_READ_FAILED_CODE,
+            "subscription refresh status schema is unsupported",
+        ));
+    }
+    Ok(status)
+}
+
+fn write_subscription_refresh_status_file(
+    path: &str,
+    status: &SubscriptionRefreshStatusFile,
+) -> DomainResult<()> {
+    let json = serde_json::to_string_pretty(status).map_err(|_| {
+        DomainError::new(
+            CLI_SUBSCRIPTION_REFRESH_STATUS_WRITE_FAILED_CODE,
+            "subscription refresh status could not be rendered",
+        )
+    })?;
+    write_replace_file(
+        path,
+        json.as_bytes(),
+        CLI_SUBSCRIPTION_REFRESH_STATUS_WRITE_FAILED_CODE,
+        "subscription refresh status",
+    )
+}
+
+fn subscription_refresh_report(
+    status_path: String,
+    status: SubscriptionRefreshStatusFile,
+) -> SubscriptionRefreshStatusReport {
+    SubscriptionRefreshStatusReport {
+        status_path,
+        source_id: status.source_id,
+        enabled: status.enabled,
+        last_attempt: status.last_attempt,
+        last_success: status.last_success,
+        next_attempt: status.next_attempt,
+        result: status.result,
+        error_redacted: status.error_redacted,
+        error_code: status.error_code,
+        added_node_count: status.added_node_count,
+        removed_node_count: status.removed_node_count,
+        changed_node_count: status.changed_node_count,
     }
 }
 
@@ -3665,28 +5608,40 @@ impl MitmCertificateArtifactStore for CommandMitmCertificateArtifactStore {
             CLI_MITM_CERTIFICATE_SNAPSHOT_WRITE_FAILED_CODE,
             "MITM certificate artifact snapshot",
         )?;
-        write_new_file(
+        if let Err(error) = write_new_file(
             &request.cert_file_path,
             request.cert_content.as_bytes(),
             CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
             "MITM certificate artifact",
-        )?;
-        write_new_file(
+        ) {
+            let _ = std::fs::remove_file(&request.snapshot_path);
+            return Err(error);
+        }
+        if let Err(error) = write_new_private_key_file(
             &request.key_file_path,
             request.key_content.as_bytes(),
             CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
             "MITM private key artifact",
-        )?;
+        ) {
+            let _ = std::fs::remove_file(&request.cert_file_path);
+            let _ = std::fs::remove_file(&request.snapshot_path);
+            return Err(error);
+        }
         if let (Some(profile_trust_file_path), Some(profile_trust_content)) = (
             &request.profile_trust_file_path,
             &request.profile_trust_content,
         ) {
-            write_new_file(
+            if let Err(error) = write_new_file(
                 profile_trust_file_path,
                 profile_trust_content.as_bytes(),
                 CLI_MITM_CERTIFICATE_ARTIFACT_WRITE_FAILED_CODE,
                 "MITM dedicated profile trust artifact",
-            )?;
+            ) {
+                let _ = std::fs::remove_file(&request.key_file_path);
+                let _ = std::fs::remove_file(&request.cert_file_path);
+                let _ = std::fs::remove_file(&request.snapshot_path);
+                return Err(error);
+            }
         }
 
         Ok(LinuxMitmCertificateArtifactApplyOutcome {
@@ -4016,6 +5971,65 @@ fn write_new_file(
     })
 }
 
+/// Writes a NetworkCore-generated MITM private key with no group or world
+/// access. The mode is supplied at creation time and read back before the
+/// caller can use the key, avoiding a permissive-umask window.
+#[cfg(unix)]
+fn write_new_private_key_file(
+    path: &str,
+    contents: &[u8],
+    error_code: &'static str,
+    description: &str,
+) -> DomainResult<()> {
+    write_parent_dir(path, error_code)?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .map_err(|error| {
+            DomainError::new(
+                error_code,
+                format!("failed to create {description} {path}: {error}"),
+            )
+        })?;
+    if let Err(error) = file.write_all(contents).and_then(|_| file.sync_all()) {
+        let _ = std::fs::remove_file(path);
+        return Err(DomainError::new(
+            error_code,
+            format!("failed to write {description} {path}: {error}"),
+        ));
+    }
+    let mode = std::fs::metadata(path)
+        .map_err(|error| {
+            DomainError::new(
+                error_code,
+                format!("failed to verify {description} {path}: {error}"),
+            )
+        })?
+        .permissions()
+        .mode()
+        & 0o777;
+    if mode != 0o600 {
+        let _ = std::fs::remove_file(path);
+        return Err(DomainError::new(
+            error_code,
+            format!("{description} {path} did not retain owner-only permissions"),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn write_new_private_key_file(
+    path: &str,
+    contents: &[u8],
+    error_code: &'static str,
+    description: &str,
+) -> DomainResult<()> {
+    write_new_file(path, contents, error_code, description)
+}
+
 fn write_replace_file(
     path: &str,
     contents: &[u8],
@@ -4258,6 +6272,39 @@ impl OsSignalForegroundLifecycleInterruptionSource {
     pub fn interruption_for_signal(signal: i32) -> ForegroundLifecycleInterruption {
         foreground_os_signal_interruption(signal)
     }
+
+    pub fn interruption_for_managed_control_stop() -> ForegroundLifecycleInterruption {
+        ForegroundLifecycleInterruption::new("managed-control-stop").with_diagnostics(vec![
+            cli_diagnostic(
+                DiagnosticSeverity::Warning,
+                CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE,
+                "managed foreground control socket requested runtime stop",
+                SOURCE_CLI_MANAGED_CONTROL,
+            ),
+        ])
+    }
+
+    pub fn interruption_for_managed_control_reload() -> ForegroundLifecycleInterruption {
+        ForegroundLifecycleInterruption::new("managed-control-reload").with_diagnostics(vec![
+            cli_diagnostic(
+                DiagnosticSeverity::Info,
+                CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE,
+                "managed foreground control socket requested runtime reload",
+                SOURCE_CLI_MANAGED_CONTROL,
+            ),
+        ])
+    }
+
+    pub fn interruption_for_managed_control_rollback() -> ForegroundLifecycleInterruption {
+        ForegroundLifecycleInterruption::new("managed-control-rollback").with_diagnostics(vec![
+            cli_diagnostic(
+                DiagnosticSeverity::Warning,
+                CLI_START_MANAGED_CONTROL_ROLLBACK_REQUESTED_CODE,
+                "managed foreground control socket requested runtime rollback",
+                SOURCE_CLI_MANAGED_CONTROL,
+            ),
+        ])
+    }
 }
 
 #[cfg(unix)]
@@ -4279,18 +6326,20 @@ impl ForegroundLifecycleInterruptionSource for OsSignalForegroundLifecycleInterr
             }
         };
 
-        if let Some(signal) = signals.forever().next() {
-            return Self::interruption_for_signal(signal);
+        loop {
+            match MANAGED_CONTROL_REQUEST.swap(MANAGED_CONTROL_NONE, Ordering::SeqCst) {
+                MANAGED_CONTROL_STOP => return Self::interruption_for_managed_control_stop(),
+                MANAGED_CONTROL_RELOAD => return Self::interruption_for_managed_control_reload(),
+                MANAGED_CONTROL_ROLLBACK => {
+                    return Self::interruption_for_managed_control_rollback()
+                }
+                _ => {}
+            }
+            if let Some(signal) = signals.pending().next() {
+                return Self::interruption_for_signal(signal);
+            }
+            thread::sleep(Duration::from_millis(20));
         }
-
-        ForegroundLifecycleInterruption::new("os-signal-source-closed").with_diagnostics(vec![
-            cli_diagnostic(
-                DiagnosticSeverity::Error,
-                CLI_START_SIGNAL_SOURCE_FAILED_CODE,
-                "foreground OS signal source closed before receiving an interruption",
-                SOURCE_CLI_START,
-            ),
-        ])
     }
 }
 
@@ -4385,26 +6434,55 @@ struct ParsedOptions {
     target_url: Option<String>,
     cert_file_path: Option<String>,
     key_file_path: Option<String>,
+    trust_file_path: Option<String>,
     mitm_ca_certificate_path: Option<String>,
     mitm_ca_private_key_path: Option<String>,
     script_runner_path: Option<String>,
     script_maps: Vec<String>,
     script_store_path: Option<String>,
     node_binary: Option<String>,
+    managed_status_path: Option<String>,
+    managed_snapshot_path: Option<String>,
+    managed_event_directory: Option<String>,
+    managed_control_socket_path: Option<String>,
     profile_trust_file_path: Option<String>,
     pac_file_path: Option<String>,
     policy_file_path: Option<String>,
     proof_token: Option<String>,
     proof_log_path: Option<String>,
     proxy_scheme: Option<String>,
+    managed_event_session_id: Option<String>,
+    managed_event_kind: Option<String>,
+    managed_event_state: Option<String>,
+    managed_event_cursor: Option<usize>,
+    managed_event_limit: Option<usize>,
+    managed_log_line_limit: Option<usize>,
     install_dir: Option<String>,
+    file_path: Option<String>,
+    catalog_path: Option<String>,
+    refresh_status_path: Option<String>,
+    refresh_interval_seconds: Option<u64>,
+    refresh_schedule_unit_name: Option<String>,
+    selection_path: Option<String>,
+    source_id: Option<String>,
+    selected_node_id: Option<String>,
     listen_host: Option<String>,
     listen_port: Option<u16>,
+    controller_port: Option<u16>,
     snapshot_path: Option<String>,
     confirm: bool,
     enable_https_mitm: bool,
     enable_script_runtime: bool,
     force: bool,
+    service_unit_name: Option<String>,
+    service_description: Option<String>,
+    service_executable_path: Option<String>,
+    service_arguments: Vec<String>,
+    service_user: Option<String>,
+    service_group: Option<String>,
+    service_state_directory: Option<String>,
+    mieru_binary_path: Option<String>,
+    mieru_sha256: Option<String>,
     format: OutputFormat,
 }
 
@@ -4448,8 +6526,45 @@ where
                 format: options.format,
             })
         }
-        "start" => {
+        "validate" => parse_validate_command(&rest),
+        "core" => parse_core_command(&rest),
+        "subscription" => parse_subscription_command(&rest),
+        "node" => parse_node_command(&rest),
+        "proxy" => parse_proxy_command(&rest),
+        "service" => parse_service_command(&rest),
+        "connect" | "start" => {
             let options = parse_options(&rest)?;
+            if command == "connect" && (options.confirm || options.service_unit_name.is_some()) {
+                return Ok(LinuxCliCommand::ServiceControl {
+                    action: LinuxSystemdServiceAction::Start,
+                    unit_name: options
+                        .service_unit_name
+                        .unwrap_or_else(|| "networkcore.service".to_string()),
+                    confirm: options.confirm,
+                    format: options.format,
+                });
+            }
+            let managed_lifecycle = match (
+                options.managed_status_path,
+                options.managed_snapshot_path,
+                options.managed_event_directory,
+            ) {
+                (Some(status_path), Some(snapshot_path), Some(event_directory)) => {
+                    Some(ManagedForegroundLifecyclePaths {
+                        status_path,
+                        snapshot_path,
+                        event_directory,
+                        control_socket_path: options.managed_control_socket_path,
+                    })
+                }
+                (None, None, None) if options.managed_control_socket_path.is_none() => None,
+                _ => {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "managed start requires --managed-status, --managed-snapshot, and --managed-events together",
+                    ))
+                }
+            };
             Ok(LinuxCliCommand::Start {
                 config_path: options.config_path,
                 mitm_ca_certificate_path: options.mitm_ca_certificate_path,
@@ -4460,24 +6575,116 @@ where
                 script_maps: options.script_maps,
                 script_store_path: options.script_store_path,
                 node_binary: options.node_binary,
+                managed_lifecycle,
                 confirm: options.confirm,
                 format: options.format,
             })
         }
-        "stop" => {
+        "disconnect" | "stop" => {
+            if command == "stop"
+                && rest
+                    .iter()
+                    .any(|argument| argument == "--managed-control-socket")
+            {
+                let (socket_path, confirm, format) = parse_managed_control_options(&rest, "stop")?;
+                return Ok(LinuxCliCommand::ManagedControlStop {
+                    socket_path,
+                    confirm,
+                    format,
+                });
+            }
             let options = parse_options(&rest)?;
+            if command == "disconnect" && (options.confirm || options.service_unit_name.is_some()) {
+                return Ok(LinuxCliCommand::ServiceControl {
+                    action: LinuxSystemdServiceAction::Stop,
+                    unit_name: options
+                        .service_unit_name
+                        .unwrap_or_else(|| "networkcore.service".to_string()),
+                    confirm: options.confirm,
+                    format: options.format,
+                });
+            }
             Ok(LinuxCliCommand::Stop {
+                format: options.format,
+            })
+        }
+        "reload"
+            if rest
+                .iter()
+                .any(|argument| argument == "--managed-control-socket") =>
+        {
+            let (socket_path, confirm, format) = parse_managed_control_options(&rest, "reload")?;
+            Ok(LinuxCliCommand::ManagedControlReload {
+                socket_path,
+                confirm,
+                format,
+            })
+        }
+        "rollback"
+            if rest
+                .iter()
+                .any(|argument| argument == "--managed-control-socket") =>
+        {
+            let (socket_path, expected_config_version, confirm, format) =
+                parse_managed_control_rollback_options(&rest)?;
+            Ok(LinuxCliCommand::ManagedControlRollback {
+                socket_path,
+                expected_config_version,
+                confirm,
+                format,
+            })
+        }
+        "restart" => {
+            let options = parse_options(&rest)?;
+            if options.confirm || options.service_unit_name.is_some() {
+                return Ok(LinuxCliCommand::ServiceControl {
+                    action: LinuxSystemdServiceAction::Restart,
+                    unit_name: options
+                        .service_unit_name
+                        .unwrap_or_else(|| "networkcore.service".to_string()),
+                    confirm: options.confirm,
+                    format: options.format,
+                });
+            }
+            Ok(LinuxCliCommand::Restart {
+                config_path: options.config_path,
+                format: options.format,
+            })
+        }
+        "reload" => {
+            let options = parse_options(&rest)?;
+            Ok(LinuxCliCommand::ServiceControl {
+                action: LinuxSystemdServiceAction::Reload,
+                unit_name: options
+                    .service_unit_name
+                    .unwrap_or_else(|| "networkcore.service".to_string()),
+                confirm: options.confirm,
                 format: options.format,
             })
         }
         "status" => {
             let options = parse_options(&rest)?;
+            if let Some(socket_path) = options.managed_control_socket_path {
+                return Ok(LinuxCliCommand::ManagedControlStatus {
+                    socket_path,
+                    format: options.format,
+                });
+            }
+            if let Some(unit_name) = options.service_unit_name {
+                return Ok(LinuxCliCommand::ServiceControl {
+                    action: LinuxSystemdServiceAction::Status,
+                    unit_name,
+                    confirm: false,
+                    format: options.format,
+                });
+            }
             Ok(LinuxCliCommand::Status {
                 format: options.format,
             })
         }
         "managed-status" => parse_managed_status_command(&rest),
         "managed-event" => parse_managed_event_command(&rest),
+        "managed-log" | "logs" => parse_managed_log_command(&rest),
         "diagnostics" => {
             let options = parse_options(&rest)?;
             Ok(LinuxCliCommand::Diagnostics {
@@ -4493,11 +6700,253 @@ where
                 format: options.format,
             })
         }
+        "install-service" => {
+            let options = parse_options(&rest)?;
+            Ok(LinuxCliCommand::InstallService {
+                unit_name: options
+                    .service_unit_name
+                    .unwrap_or_else(|| "networkcore.service".to_string()),
+                description: options
+                    .service_description
+                    .unwrap_or_else(|| "NetworkCore managed proxy".to_string()),
+                executable_path: options.service_executable_path.ok_or_else(|| {
+                    parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "install-service requires --service-executable <absolute-path>",
+                    )
+                })?,
+                arguments: options.service_arguments,
+                service_user: options
+                    .service_user
+                    .unwrap_or_else(|| "networkcore".to_string()),
+                service_group: options
+                    .service_group
+                    .unwrap_or_else(|| "networkcore".to_string()),
+                state_directory: options
+                    .service_state_directory
+                    .unwrap_or_else(|| "/var/lib/networkcore".to_string()),
+                confirm: options.confirm,
+                format: options.format,
+            })
+        }
+        "uninstall-service" => {
+            let options = parse_options(&rest)?;
+            Ok(LinuxCliCommand::UninstallService {
+                unit_name: options
+                    .service_unit_name
+                    .unwrap_or_else(|| "networkcore.service".to_string()),
+                state_directory: options
+                    .service_state_directory
+                    .unwrap_or_else(|| "/var/lib/networkcore".to_string()),
+                confirm: options.confirm,
+                format: options.format,
+            })
+        }
         "run-url" => parse_run_url_command(&rest),
+        "run-catalog" => parse_run_catalog_command(&rest),
         "sing-box" => parse_sing_box_command(&rest),
         _ => Err(parse_error(
             CLI_ARGUMENT_UNKNOWN_CODE,
             format!("unknown linux CLI command: {command}; run networkcore-linux help"),
+        )),
+    }
+}
+
+fn parse_service_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(action) = args.first().map(String::as_str) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "service requires start, stop, restart, reload, or status",
+        ));
+    };
+    let action = match action {
+        "start" => LinuxSystemdServiceAction::Start,
+        "stop" => LinuxSystemdServiceAction::Stop,
+        "restart" => LinuxSystemdServiceAction::Restart,
+        "reload" => LinuxSystemdServiceAction::Reload,
+        "status" => LinuxSystemdServiceAction::Status,
+        _ => {
+            return Err(parse_error(
+                CLI_ARGUMENT_UNKNOWN_CODE,
+                format!("unknown service action: {action}"),
+            ))
+        }
+    };
+    let options = parse_options(&args[1..])?;
+    Ok(LinuxCliCommand::ServiceControl {
+        action,
+        unit_name: options
+            .service_unit_name
+            .unwrap_or_else(|| "networkcore.service".to_string()),
+        confirm: options.confirm,
+        format: options.format,
+    })
+}
+
+fn parse_node_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(subcommand) = args.first().map(String::as_str) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "node requires list, health, select, switch, or rollback",
+        ));
+    };
+    if subcommand != "list"
+        && subcommand != "select"
+        && subcommand != "switch"
+        && subcommand != "health"
+        && subcommand != "rollback"
+    {
+        return Err(parse_error(
+            CLI_ARGUMENT_UNKNOWN_CODE,
+            format!("unknown node subcommand: {subcommand}"),
+        ));
+    }
+    let options = parse_options(&args[1..])?;
+    if subcommand == "health" {
+        let controller_port = options.controller_port.ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "node health requires --controller-port <loopback-port>",
+            )
+        })?;
+        return Ok(LinuxCliCommand::NodeHealth {
+            controller_port,
+            format: options.format,
+        });
+    }
+    if subcommand == "list" {
+        let config_path = options.config_path.ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "node list requires --config <absolute-path>",
+            )
+        })?;
+        return Ok(LinuxCliCommand::NodeList {
+            config_path,
+            format: options.format,
+        });
+    }
+    if subcommand == "rollback" {
+        let selection_path = options.selection_path.ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "node rollback requires --selection <absolute-path>",
+            )
+        })?;
+        let snapshot_path = options.snapshot_path.ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "node rollback requires --snapshot <absolute-path>",
+            )
+        })?;
+        return Ok(LinuxCliCommand::NodeRollback {
+            selection_path,
+            snapshot_path,
+            confirm: options.confirm,
+            format: options.format,
+        });
+    }
+    let config_path = options.config_path.ok_or_else(|| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "node select requires --config <absolute-path>",
+        )
+    })?;
+    let node_id = options.source_id.ok_or_else(|| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "node select requires --source-id <node-id>",
+        )
+    })?;
+    let selection_path = options.selection_path.ok_or_else(|| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "node select requires --selection <absolute-path>",
+        )
+    })?;
+    let snapshot_path = options.snapshot_path.ok_or_else(|| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "node select requires --snapshot <absolute-path>",
+        )
+    })?;
+    if subcommand == "switch" {
+        let controller_port = options.controller_port.ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "node switch requires --controller-port <loopback-port>",
+            )
+        })?;
+        return Ok(LinuxCliCommand::NodeSwitch {
+            config_path,
+            node_id,
+            selection_path,
+            snapshot_path,
+            controller_port,
+            confirm: options.confirm,
+            format: options.format,
+        });
+    }
+    Ok(LinuxCliCommand::NodeSelect {
+        config_path,
+        node_id,
+        selection_path,
+        snapshot_path,
+        confirm: options.confirm,
+        format: options.format,
+    })
+}
+
+fn parse_proxy_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(subcommand) = args.first().map(String::as_str) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "proxy requires apply, status, or rollback",
+        ));
+    };
+    let options = parse_options(&args[1..])?;
+    let file_path = options.file_path.ok_or_else(|| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "proxy commands require --file <absolute-path>",
+        )
+    })?;
+    match subcommand {
+        "apply" => Ok(LinuxCliCommand::ProxyApply {
+            file_path,
+            snapshot_path: options.snapshot_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "proxy apply requires --snapshot <absolute-path>",
+                )
+            })?,
+            proxy_url: options.url.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "proxy apply requires --url <proxy-url>",
+                )
+            })?,
+            confirm: options.confirm,
+            format: options.format,
+        }),
+        "status" => Ok(LinuxCliCommand::ProxyStatus {
+            file_path,
+            format: options.format,
+        }),
+        "rollback" => Ok(LinuxCliCommand::ProxyRollback {
+            file_path,
+            snapshot_path: options.snapshot_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "proxy rollback requires --snapshot <absolute-path>",
+                )
+            })?,
+            confirm: options.confirm,
+            format: options.format,
+        }),
+        _ => Err(parse_error(
+            CLI_ARGUMENT_UNKNOWN_CODE,
+            format!("unknown proxy subcommand: {subcommand}"),
         )),
     }
 }
@@ -4520,6 +6969,46 @@ pub fn handle_entrypoint_skeleton(command: LinuxCliCommand) -> LinuxCliResponse 
         LinuxCliCommand::Help { .. } => handle_help(),
         LinuxCliCommand::Version { .. } => handle_version(),
         LinuxCliCommand::Stop { .. } => handle_stop(),
+        LinuxCliCommand::ManagedControlStop {
+            socket_path,
+            confirm,
+            ..
+        } => handle_managed_control_stop(&socket_path, confirm),
+        LinuxCliCommand::ManagedControlReload {
+            socket_path,
+            confirm,
+            ..
+        } => handle_managed_control_reload(&socket_path, confirm),
+        LinuxCliCommand::ManagedControlRollback {
+            socket_path,
+            expected_config_version,
+            confirm,
+            ..
+        } => handle_managed_control_rollback(&socket_path, expected_config_version, confirm),
+        LinuxCliCommand::ManagedControlStatus { socket_path, .. } => {
+            handle_managed_control_status(&socket_path)
+        }
+        LinuxCliCommand::Restart { .. } => handle_restart_unavailable(),
+        LinuxCliCommand::InstallService { .. } => handle_unwired_command("install-service"),
+        LinuxCliCommand::UninstallService { .. } => handle_unwired_command("uninstall-service"),
+        LinuxCliCommand::ServiceControl { .. } => handle_unwired_command("service"),
+        LinuxCliCommand::NodeList { .. } => handle_unwired_command("node list"),
+        LinuxCliCommand::NodeSelect { .. } => handle_unwired_command("node select"),
+        LinuxCliCommand::NodeSwitch { .. } => handle_unwired_command("node switch"),
+        LinuxCliCommand::NodeHealth { .. } => handle_unwired_command("node health"),
+        LinuxCliCommand::NodeRollback { .. } => handle_unwired_command("node rollback"),
+        LinuxCliCommand::ProxyApply { .. }
+        | LinuxCliCommand::ProxyStatus { .. }
+        | LinuxCliCommand::ProxyRollback { .. } => handle_unwired_command("proxy"),
+        LinuxCliCommand::MitmCertificateTrustApply { .. }
+        | LinuxCliCommand::MitmCertificateTrustRollback { .. } => {
+            handle_unwired_command("mitm certificate trust")
+        }
+        LinuxCliCommand::CoreList { .. }
+        | LinuxCliCommand::InstallMieru { .. }
+        | LinuxCliCommand::StartMieru { .. }
+        | LinuxCliCommand::StopMieru { .. }
+        | LinuxCliCommand::StatusMieru { .. } => handle_unwired_command("core"),
         other => handle_unwired_command(other.name()),
     }
 }
@@ -4533,6 +7022,136 @@ where
         LinuxCliCommand::Version { .. } => handle_version(),
         LinuxCliCommand::Capabilities { .. } => handle_capabilities(platform),
         LinuxCliCommand::Status { .. } => handle_status(platform),
+        LinuxCliCommand::InstallService {
+            unit_name,
+            description,
+            executable_path,
+            arguments,
+            service_user,
+            service_group,
+            state_directory,
+            confirm,
+            ..
+        } => handle_install_service_plan(
+            &unit_name,
+            &description,
+            &executable_path,
+            &arguments,
+            &service_user,
+            &service_group,
+            &state_directory,
+            confirm,
+        ),
+        LinuxCliCommand::UninstallService {
+            unit_name,
+            state_directory,
+            confirm,
+            ..
+        } => handle_uninstall_service_apply_with_runner(
+            &platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(),
+            &unit_name,
+            &state_directory,
+            confirm,
+        ),
+        LinuxCliCommand::ServiceControl {
+            action,
+            unit_name,
+            confirm,
+            ..
+        } => handle_systemd_service_control(
+            &platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(),
+            action,
+            &unit_name,
+            confirm,
+        ),
+        LinuxCliCommand::NodeList { config_path, .. } => handle_node_list(&config_path),
+        LinuxCliCommand::NodeSelect {
+            config_path,
+            node_id,
+            selection_path,
+            snapshot_path,
+            confirm,
+            ..
+        } => handle_node_select(
+            &config_path,
+            &node_id,
+            &selection_path,
+            &snapshot_path,
+            confirm,
+        ),
+        LinuxCliCommand::NodeSwitch {
+            config_path,
+            node_id,
+            selection_path,
+            snapshot_path,
+            controller_port,
+            confirm,
+            ..
+        } => handle_node_switch(
+            &config_path,
+            &node_id,
+            &selection_path,
+            &snapshot_path,
+            controller_port,
+            confirm,
+        ),
+        LinuxCliCommand::NodeHealth {
+            controller_port, ..
+        } => handle_node_health(controller_port),
+        LinuxCliCommand::NodeRollback {
+            selection_path,
+            snapshot_path,
+            confirm,
+            ..
+        } => handle_node_rollback(&selection_path, &snapshot_path, confirm),
+        LinuxCliCommand::ProxyApply {
+            file_path,
+            snapshot_path,
+            proxy_url,
+            confirm,
+            ..
+        } => handle_proxy_apply(&file_path, &snapshot_path, &proxy_url, confirm),
+        LinuxCliCommand::ProxyStatus { file_path, .. } => handle_proxy_status(&file_path),
+        LinuxCliCommand::ProxyRollback {
+            file_path,
+            snapshot_path,
+            confirm,
+            ..
+        } => handle_proxy_rollback(&file_path, &snapshot_path, confirm),
+        LinuxCliCommand::CoreList { .. } => handle_unwired_command("core"),
+        LinuxCliCommand::InstallMieru {
+            binary_path,
+            expected_sha256,
+            release_url,
+            confirm,
+            force,
+            ..
+        } => handle_install_mieru_with_options(
+            &binary_path,
+            &expected_sha256,
+            release_url.as_deref(),
+            confirm,
+            force,
+        ),
+        LinuxCliCommand::StartMieru {
+            binary_path,
+            expected_sha256,
+            config_path,
+            ..
+        } => handle_start_mieru(&binary_path, &expected_sha256, &config_path),
+        LinuxCliCommand::StopMieru {
+            binary_path,
+            expected_sha256,
+            config_path,
+            ..
+        } => handle_stop_mieru(&binary_path, &expected_sha256, &config_path),
+        LinuxCliCommand::StatusMieru {
+            binary_path,
+            expected_sha256,
+            config_path,
+            ..
+        } => handle_status_mieru(&binary_path, &expected_sha256, &config_path),
+        LinuxCliCommand::Restart { .. } => handle_restart_unavailable(),
         LinuxCliCommand::ManagedStatus { status_path, .. } => {
             handle_managed_foreground_status(&status_path)
         }
@@ -4566,6 +7185,22 @@ where
         LinuxCliCommand::ManagedEvent { event_path, .. } => {
             handle_managed_foreground_event(&event_path)
         }
+        LinuxCliCommand::ManagedEventList {
+            event_directory,
+            session_id,
+            event_kind,
+            state,
+            cursor,
+            limit,
+            ..
+        } => handle_managed_foreground_event_history(
+            &event_directory,
+            session_id.as_deref(),
+            event_kind.as_deref(),
+            state.as_deref(),
+            cursor,
+            limit,
+        ),
         LinuxCliCommand::ManagedEventInit {
             event_path,
             session_id,
@@ -4584,6 +7219,11 @@ where
             &state,
             &recorded_at,
         ),
+        LinuxCliCommand::ManagedLog {
+            log_path,
+            line_limit,
+            ..
+        } => handle_managed_foreground_log_tail(&log_path, line_limit),
         LinuxCliCommand::Diagnostics { .. } => handle_diagnostics(platform),
         LinuxCliCommand::MitmStatus { .. } => handle_mitm_status(platform),
         LinuxCliCommand::MitmDiagnostics { .. } => handle_mitm_diagnostics(platform),
@@ -4611,6 +7251,28 @@ where
             let store = UnavailableMitmCertificateArtifactStore::new();
             handle_mitm_certificate_rollback_with_store(platform, &store, snapshot_path)
         }
+        LinuxCliCommand::MitmCertificateTrustApply {
+            certificate_path,
+            trust_file_path,
+            snapshot_path,
+            confirm,
+            ..
+        } => handle_mitm_certificate_trust_apply(
+            certificate_path.as_deref(),
+            trust_file_path.as_deref(),
+            snapshot_path.as_deref(),
+            confirm,
+        ),
+        LinuxCliCommand::MitmCertificateTrustRollback {
+            trust_file_path,
+            snapshot_path,
+            confirm,
+            ..
+        } => handle_mitm_certificate_trust_rollback(
+            trust_file_path.as_deref(),
+            snapshot_path.as_deref(),
+            confirm,
+        ),
         LinuxCliCommand::MitmBrowserPlan { .. } => handle_mitm_browser_plan(platform),
         LinuxCliCommand::MitmBrowserCapturePlan { proxy_scheme, .. } => {
             handle_mitm_browser_capture_plan_with_proxy_scheme(platform, &proxy_scheme)
@@ -4699,6 +7361,25 @@ where
             confirm,
         ),
         LinuxCliCommand::Stop { .. } => handle_stop(),
+        LinuxCliCommand::ManagedControlStop {
+            socket_path,
+            confirm,
+            ..
+        } => handle_managed_control_stop(&socket_path, confirm),
+        LinuxCliCommand::ManagedControlReload {
+            socket_path,
+            confirm,
+            ..
+        } => handle_managed_control_reload(&socket_path, confirm),
+        LinuxCliCommand::ManagedControlRollback {
+            socket_path,
+            expected_config_version,
+            confirm,
+            ..
+        } => handle_managed_control_rollback(&socket_path, expected_config_version, confirm),
+        LinuxCliCommand::ManagedControlStatus { socket_path, .. } => {
+            handle_managed_control_status(&socket_path)
+        }
         other => handle_unwired_command(other.name()),
     }
 }
@@ -4895,6 +7576,39 @@ where
     R: ConfigReader,
 {
     match command {
+        LinuxCliCommand::CoreList { .. } => handle_core_list(orchestrator.list_engines()),
+        LinuxCliCommand::InstallMieru {
+            binary_path,
+            expected_sha256,
+            release_url,
+            confirm,
+            force,
+            ..
+        } => handle_install_mieru_with_options(
+            &binary_path,
+            &expected_sha256,
+            release_url.as_deref(),
+            confirm,
+            force,
+        ),
+        LinuxCliCommand::StartMieru {
+            binary_path,
+            expected_sha256,
+            config_path,
+            ..
+        } => handle_start_mieru(&binary_path, &expected_sha256, &config_path),
+        LinuxCliCommand::StopMieru {
+            binary_path,
+            expected_sha256,
+            config_path,
+            ..
+        } => handle_stop_mieru(&binary_path, &expected_sha256, &config_path),
+        LinuxCliCommand::StatusMieru {
+            binary_path,
+            expected_sha256,
+            config_path,
+            ..
+        } => handle_status_mieru(&binary_path, &expected_sha256, &config_path),
         LinuxCliCommand::PrepareConfig { config_path, .. } => {
             handle_prepare_config(orchestrator, reader, config_path.as_deref())
         }
@@ -4917,12 +7631,53 @@ where
     H: ForegroundLifecycleHost,
 {
     match command {
+        LinuxCliCommand::CoreList { .. } => handle_core_list(orchestrator.list_engines()),
+        LinuxCliCommand::InstallMieru {
+            binary_path,
+            expected_sha256,
+            release_url,
+            confirm,
+            force,
+            ..
+        } => handle_install_mieru_with_options(
+            &binary_path,
+            &expected_sha256,
+            release_url.as_deref(),
+            confirm,
+            force,
+        ),
+        LinuxCliCommand::StartMieru {
+            binary_path,
+            expected_sha256,
+            config_path,
+            ..
+        } => handle_start_mieru(&binary_path, &expected_sha256, &config_path),
+        LinuxCliCommand::StopMieru {
+            binary_path,
+            expected_sha256,
+            config_path,
+            ..
+        } => handle_stop_mieru(&binary_path, &expected_sha256, &config_path),
+        LinuxCliCommand::StatusMieru {
+            binary_path,
+            expected_sha256,
+            config_path,
+            ..
+        } => handle_status_mieru(&binary_path, &expected_sha256, &config_path),
         LinuxCliCommand::PrepareConfig { config_path, .. } => {
             handle_prepare_config(orchestrator, reader, config_path.as_deref())
         }
-        LinuxCliCommand::Start { config_path, .. } => {
-            handle_start_foreground(orchestrator, reader, config_path.as_deref(), lifecycle_host)
-        }
+        LinuxCliCommand::Start {
+            config_path,
+            managed_lifecycle,
+            ..
+        } => handle_start_foreground(
+            orchestrator,
+            reader,
+            config_path.as_deref(),
+            lifecycle_host,
+            managed_lifecycle.as_ref(),
+        ),
         other => handle_entrypoint(other, platform),
     }
 }
@@ -4951,18 +7706,48 @@ where
         } => handle_install_sing_box(sing_box_installer, install_dir.as_deref(), force),
         LinuxCliCommand::RunUrl {
             url,
+            selected_node_id,
             listen_host,
             listen_port,
             install_dir,
+            mieru_binary_path,
+            mieru_sha256,
             force,
             ..
-        } => handle_run_url_with_sing_box(
+        } => handle_run_url_with_sing_box_and_node_id_and_mieru(
             sing_box_installer,
             sing_box_runner,
             &url,
+            selected_node_id.as_deref(),
             &listen_host,
             listen_port,
             install_dir.as_deref(),
+            mieru_binary_path.as_deref(),
+            mieru_sha256.as_deref(),
+            force,
+        ),
+        LinuxCliCommand::RunCatalog {
+            catalog_path,
+            source_id,
+            selected_node_id,
+            listen_host,
+            listen_port,
+            install_dir,
+            mieru_binary_path,
+            mieru_sha256,
+            force,
+            ..
+        } => handle_run_catalog_with_sing_box_and_mieru(
+            sing_box_installer,
+            sing_box_runner,
+            &catalog_path,
+            &source_id,
+            selected_node_id.as_deref(),
+            &listen_host,
+            listen_port,
+            install_dir.as_deref(),
+            mieru_binary_path.as_deref(),
+            mieru_sha256.as_deref(),
             force,
         ),
         other => handle_entrypoint_with_runtime_and_lifecycle(
@@ -4977,6 +7762,1566 @@ where
 
 pub fn handle_help() -> LinuxCliResponse {
     LinuxCliResponse::success("help").with_help(cli_help_text())
+}
+
+pub fn handle_core_list(descriptors: Vec<ProxyEngineDescriptor>) -> LinuxCliResponse {
+    let engines = descriptors
+        .into_iter()
+        .map(|descriptor| LinuxCoreEngineSummary {
+            id: descriptor.id,
+            kind: format!("{:?}", descriptor.kind),
+            version: descriptor.version,
+            capabilities: descriptor
+                .capabilities
+                .into_iter()
+                .map(|capability| format!("{capability:?}"))
+                .collect(),
+        })
+        .collect();
+    LinuxCliResponse::success("core list").with_core_engines(engines)
+}
+
+pub fn handle_node_list(config_path: &str) -> LinuxCliResponse {
+    let raw = match std::fs::read_to_string(config_path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            return LinuxCliResponse::failure(
+                "node list",
+                LinuxCliExitCode::ArgumentOrConfig,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_CONFIG_READ_FAILED_CODE,
+                    format!("node list config could not be read: {error}"),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            )
+        }
+    };
+    let document = match config_core::parse_config_document(&raw) {
+        Ok(document) => document,
+        Err(error) => {
+            return domain_error_response(
+                "node list",
+                LinuxCliExitCode::ArgumentOrConfig,
+                error,
+                SOURCE_CLI_RUNTIME,
+            )
+        }
+    };
+    let mut diagnostics = vec![cli_diagnostic(
+        DiagnosticSeverity::Info,
+        "cli.node.catalog_listed",
+        format!(
+            "node catalog contains {} node(s); runtime selection unchanged",
+            document.nodes.len()
+        ),
+        SOURCE_CLI_RUNTIME,
+    )];
+    let nodes: Vec<LinuxNodeCatalogEntry> = document
+        .nodes
+        .into_iter()
+        .map(|node| LinuxNodeCatalogEntry {
+            id: node.id,
+            name: node.name,
+            protocol: format!("{:?}", node.protocol),
+            tags: node.tags,
+        })
+        .collect();
+    diagnostics.extend(nodes.iter().map(|node| {
+        cli_diagnostic(
+            DiagnosticSeverity::Info,
+            "cli.node.entry",
+            format!(
+                "node_id={} name={} protocol={:?} tags={}",
+                node.id,
+                node.name,
+                node.protocol,
+                node.tags.join(",")
+            ),
+            SOURCE_CLI_RUNTIME,
+        )
+    }));
+    LinuxCliResponse::success("node list")
+        .with_diagnostics(diagnostics)
+        .with_node_catalog(LinuxNodeCatalogReport {
+            schema_version: 1,
+            source: "explicit-config".to_string(),
+            selection_mutated: false,
+            nodes,
+        })
+}
+
+pub fn handle_node_health(controller_port: u16) -> LinuxCliResponse {
+    if controller_port == 0 {
+        return LinuxCliResponse::failure(
+            "node health",
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "node health requires a non-zero loopback controller port",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    let mut controller = SingBoxLocalControllerConfig::loopback_selector();
+    controller.port = controller_port;
+    match read_sing_box_clash_api_selector(&controller) {
+        Ok(status) => LinuxCliResponse::success("node health")
+            .with_diagnostics(vec![cli_diagnostic(
+                DiagnosticSeverity::Info,
+                "cli.node.health_readback_confirmed",
+                format!(
+                    "loopback selector readback confirmed; selector_tag={} outbound_count={}",
+                    status.selector_tag,
+                    status.outbound_tags.len()
+                ),
+                SOURCE_CLI_RUNTIME,
+            )])
+            .with_node_health(LinuxNodeHealthReport {
+                controller_host: controller.host,
+                controller_port,
+                selector_tag: status.selector_tag,
+                current_outbound_tag: status.current_outbound_tag,
+                outbound_count: status.outbound_tags.len(),
+                selector_readback_confirmed: true,
+                full_proxy_health_claimed: false,
+            }),
+        Err(error) => domain_error_response(
+            "node health",
+            LinuxCliExitCode::GeneralFailure,
+            error,
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
+}
+
+pub fn handle_node_select(
+    config_path: &str,
+    node_id: &str,
+    selection_path: &str,
+    snapshot_path: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    if !confirm {
+        return LinuxCliResponse::failure(
+            "node select",
+            LinuxCliExitCode::PlatformDenied,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.selection_confirmation_required",
+                "node select requires explicit --confirm",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    let selection_path = std::path::Path::new(selection_path);
+    let snapshot_path = std::path::Path::new(snapshot_path);
+    if !selection_path.is_absolute()
+        || !snapshot_path.is_absolute()
+        || selection_path == snapshot_path
+    {
+        return LinuxCliResponse::failure(
+            "node select",
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.selection_path_invalid",
+                "node selection and snapshot paths must be distinct absolute paths",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    let raw_config = match std::fs::read_to_string(config_path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            return LinuxCliResponse::failure(
+                "node select",
+                LinuxCliExitCode::ArgumentOrConfig,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_CONFIG_READ_FAILED_CODE,
+                    format!("node selection config could not be read: {error}"),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            )
+        }
+    };
+    let document = match config_core::parse_config_document(&raw_config) {
+        Ok(document) => document,
+        Err(error) => {
+            return domain_error_response(
+                "node select",
+                LinuxCliExitCode::ArgumentOrConfig,
+                error,
+                SOURCE_CLI_RUNTIME,
+            )
+        }
+    };
+    if !document.nodes.iter().any(|node| node.id == node_id.trim()) {
+        return LinuxCliResponse::failure(
+            "node select",
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.not_found",
+                format!("node id was not found in the explicit config: {node_id}"),
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    if snapshot_path.exists() {
+        return LinuxCliResponse::failure(
+            "node select",
+            LinuxCliExitCode::PlatformDenied,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.snapshot_exists",
+                "refusing to overwrite an existing node selection snapshot",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    let previous = match std::fs::read_to_string(selection_path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            serde_json::to_string_pretty(&NodeSelectionFile {
+                schema_version: NODE_SELECTION_SCHEMA_VERSION,
+                node_id: None,
+            })
+            .expect("node selection empty snapshot serialization should not fail")
+        }
+        Err(error) => {
+            return LinuxCliResponse::failure(
+                "node select",
+                LinuxCliExitCode::PlatformDenied,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    "cli.node.selection_read_failed",
+                    format!("node selection could not be read: {error}"),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            )
+        }
+    };
+    if let Err(error) = write_new_file(
+        snapshot_path.to_string_lossy().as_ref(),
+        previous.as_bytes(),
+        "cli.node.snapshot_write_failed",
+        "node selection snapshot",
+    ) {
+        return domain_error_response(
+            "node select",
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        );
+    }
+    let selected = serde_json::to_string_pretty(&NodeSelectionFile {
+        schema_version: NODE_SELECTION_SCHEMA_VERSION,
+        node_id: Some(node_id.trim().to_string()),
+    })
+    .expect("node selection serialization should not fail");
+    if let Err(error) = write_replace_file(
+        selection_path.to_string_lossy().as_ref(),
+        selected.as_bytes(),
+        "cli.node.selection_write_failed",
+        "node selection",
+    ) {
+        return domain_error_response(
+            "node select",
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        );
+    }
+    LinuxCliResponse::success("node select").with_diagnostics(vec![cli_diagnostic(
+        DiagnosticSeverity::Info,
+        "cli.node.selected",
+        format!(
+            "node {} selected in {}; snapshot_written=true; runtime selection unchanged",
+            node_id.trim(),
+            selection_path.display()
+        ),
+        SOURCE_CLI_RUNTIME,
+    )])
+}
+
+pub fn handle_node_switch(
+    config_path: &str,
+    node_id: &str,
+    selection_path: &str,
+    snapshot_path: &str,
+    controller_port: u16,
+    confirm: bool,
+) -> LinuxCliResponse {
+    if !confirm {
+        return LinuxCliResponse::failure(
+            "node switch",
+            LinuxCliExitCode::PlatformDenied,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.switch_confirmation_required",
+                "node switch requires explicit --confirm",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    let selection = std::path::Path::new(selection_path);
+    let snapshot = std::path::Path::new(snapshot_path);
+    if !selection.is_absolute() || !snapshot.is_absolute() || selection == snapshot {
+        return LinuxCliResponse::failure(
+            "node switch",
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.switch_path_invalid",
+                "node switch selection and snapshot paths must be distinct absolute paths",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    if controller_port == 0 {
+        return LinuxCliResponse::failure(
+            "node switch",
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.switch_controller_invalid",
+                "node switch controller port must be non-zero",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    if snapshot.exists() {
+        return LinuxCliResponse::failure(
+            "node switch",
+            LinuxCliExitCode::PlatformDenied,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.switch_snapshot_exists",
+                "refusing to overwrite an existing node switch snapshot",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+
+    let raw_config = match std::fs::read_to_string(config_path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            return LinuxCliResponse::failure(
+                "node switch",
+                LinuxCliExitCode::ArgumentOrConfig,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_CONFIG_READ_FAILED_CODE,
+                    format!("node switch config could not be read: {error}"),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            )
+        }
+    };
+    let document = match config_core::parse_config_document(&raw_config) {
+        Ok(document) => document,
+        Err(error) => {
+            return domain_error_response(
+                "node switch",
+                LinuxCliExitCode::ArgumentOrConfig,
+                error,
+                SOURCE_CLI_RUNTIME,
+            )
+        }
+    };
+    let Some(node_index) = document
+        .nodes
+        .iter()
+        .position(|node| node.id == node_id.trim())
+    else {
+        return LinuxCliResponse::failure(
+            "node switch",
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.not_found",
+                format!("node id was not found in the explicit config: {node_id}"),
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    };
+
+    let previous_selection = match std::fs::read_to_string(selection) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            serde_json::to_string_pretty(&NodeSelectionFile {
+                schema_version: NODE_SELECTION_SCHEMA_VERSION,
+                node_id: None,
+            })
+            .expect("node switch empty selection serialization should not fail")
+        }
+        Err(error) => {
+            return LinuxCliResponse::failure(
+                "node switch",
+                LinuxCliExitCode::ArgumentOrConfig,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    "cli.node.selection_read_failed",
+                    format!("node switch selection could not be read: {error}"),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            )
+        }
+    };
+    if let Err(error) = write_new_file(
+        snapshot.to_string_lossy().as_ref(),
+        previous_selection.as_bytes(),
+        "cli.node.switch_snapshot_write_failed",
+        "node switch snapshot",
+    ) {
+        return domain_error_response(
+            "node switch",
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        );
+    }
+
+    let controller = SingBoxLocalControllerConfig {
+        host: "127.0.0.1".to_string(),
+        port: controller_port,
+        selector_tag: "networkcore-selector".to_string(),
+        interrupt_exist_connections: true,
+    };
+    let previous_status = match read_sing_box_clash_api_selector(&controller) {
+        Ok(status) => status,
+        Err(error) => {
+            return domain_error_response(
+                "node switch",
+                LinuxCliExitCode::GeneralFailure,
+                error,
+                SOURCE_CLI_RUNTIME,
+            )
+        }
+    };
+    let requested_outbound = sing_box_local_selector_outbound_tag(node_index);
+    if let Err(error) = select_sing_box_clash_api_outbound(&controller, &requested_outbound) {
+        return domain_error_response(
+            "node switch",
+            LinuxCliExitCode::GeneralFailure,
+            error,
+            SOURCE_CLI_RUNTIME,
+        );
+    }
+
+    let selected = serde_json::to_string_pretty(&NodeSelectionFile {
+        schema_version: NODE_SELECTION_SCHEMA_VERSION,
+        node_id: Some(node_id.trim().to_string()),
+    })
+    .expect("node switch selection serialization should not fail");
+    if let Err(error) = write_replace_file(
+        selection.to_string_lossy().as_ref(),
+        selected.as_bytes(),
+        "cli.node.switch_selection_write_failed",
+        "node switch selection",
+    ) {
+        if !previous_status.current_outbound_tag.trim().is_empty() {
+            let _ = select_sing_box_clash_api_outbound(
+                &controller,
+                &previous_status.current_outbound_tag,
+            );
+        }
+        return domain_error_response(
+            "node switch",
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        );
+    }
+
+    LinuxCliResponse::success("node switch").with_diagnostics(vec![cli_diagnostic(
+        DiagnosticSeverity::Info,
+        "cli.node.switched",
+        format!(
+            "node {} became active through loopback selector; controller_port={}; snapshot_written=true; readback_confirmed=true",
+            node_id.trim(), controller_port
+        ),
+        SOURCE_CLI_RUNTIME,
+    )])
+}
+
+pub fn handle_node_rollback(
+    selection_path: &str,
+    snapshot_path: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    if !confirm {
+        return LinuxCliResponse::failure(
+            "node rollback",
+            LinuxCliExitCode::PlatformDenied,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.rollback_confirmation_required",
+                "node rollback requires explicit --confirm",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    let selection = std::path::Path::new(selection_path);
+    let snapshot = std::path::Path::new(snapshot_path);
+    if !selection.is_absolute() || !snapshot.is_absolute() || selection == snapshot {
+        return LinuxCliResponse::failure(
+            "node rollback",
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                "cli.node.rollback_path_invalid",
+                "node selection and snapshot paths must be distinct absolute paths",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    let contents = match std::fs::read_to_string(snapshot) {
+        Ok(contents) => contents,
+        Err(error) => {
+            return LinuxCliResponse::failure(
+                "node rollback",
+                LinuxCliExitCode::ArgumentOrConfig,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    "cli.node.rollback_snapshot_read_failed",
+                    format!("node selection snapshot could not be read: {error}"),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            )
+        }
+    };
+    let record = match serde_json::from_str::<NodeSelectionFile>(&contents) {
+        Ok(record) if record.schema_version == NODE_SELECTION_SCHEMA_VERSION => record,
+        Ok(_) => {
+            return LinuxCliResponse::failure(
+                "node rollback",
+                LinuxCliExitCode::ArgumentOrConfig,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    "cli.node.rollback_snapshot_schema_unsupported",
+                    "node selection snapshot schema version is unsupported",
+                    SOURCE_CLI_RUNTIME,
+                ),
+            )
+        }
+        Err(error) => {
+            return LinuxCliResponse::failure(
+                "node rollback",
+                LinuxCliExitCode::ArgumentOrConfig,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    "cli.node.rollback_snapshot_invalid",
+                    format!("node selection snapshot is invalid: {error}"),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            )
+        }
+    };
+    if let Err(error) = write_replace_file(
+        selection.to_string_lossy().as_ref(),
+        contents.as_bytes(),
+        "cli.node.rollback_write_failed",
+        "node selection rollback",
+    ) {
+        return domain_error_response(
+            "node rollback",
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        );
+    }
+    LinuxCliResponse::success("node rollback").with_diagnostics(vec![cli_diagnostic(
+        DiagnosticSeverity::Info,
+        "cli.node.rolled_back",
+        format!(
+            "node selection restored to {}; snapshot_retained=true; selected_node={}",
+            selection.display(),
+            record.node_id.as_deref().unwrap_or("none")
+        ),
+        SOURCE_CLI_RUNTIME,
+    )])
+}
+
+pub fn handle_proxy_apply(
+    file_path: &str,
+    snapshot_path: &str,
+    proxy_url: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    match apply_environment_proxy(&LinuxEnvironmentProxyApplyRequest {
+        file_path: PathBuf::from(file_path),
+        snapshot_path: PathBuf::from(snapshot_path),
+        proxy_url: proxy_url.to_string(),
+        confirmed: confirm,
+    }) {
+        Ok(report) => {
+            LinuxCliResponse::success("proxy apply").with_diagnostics(vec![cli_diagnostic(
+                DiagnosticSeverity::Info,
+                "cli.proxy.applied",
+                format!(
+                    "environment proxy file applied at {}; snapshot_written=true; verified={}",
+                    report.file_path.display(),
+                    report.verified
+                ),
+                SOURCE_CLI_RUNTIME,
+            )])
+        }
+        Err(error) => domain_error_response(
+            "proxy apply",
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
+}
+
+pub fn handle_proxy_status(file_path: &str) -> LinuxCliResponse {
+    match status_environment_proxy(std::path::Path::new(file_path)) {
+        Ok(report) => {
+            LinuxCliResponse::success("proxy status").with_diagnostics(vec![cli_diagnostic(
+                DiagnosticSeverity::Info,
+                "cli.proxy.status",
+                format!(
+                    "environment proxy file exists={} managed_schema_version={:?}",
+                    report.exists, report.managed_schema_version
+                ),
+                SOURCE_CLI_RUNTIME,
+            )])
+        }
+        Err(error) => domain_error_response(
+            "proxy status",
+            LinuxCliExitCode::ArgumentOrConfig,
+            error,
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
+}
+
+pub fn handle_proxy_rollback(
+    file_path: &str,
+    snapshot_path: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    match rollback_environment_proxy(&LinuxEnvironmentProxyRollbackRequest {
+        file_path: PathBuf::from(file_path),
+        snapshot_path: PathBuf::from(snapshot_path),
+        confirmed: confirm,
+    }) {
+        Ok(report) => {
+            LinuxCliResponse::success("proxy rollback").with_diagnostics(vec![cli_diagnostic(
+                DiagnosticSeverity::Info,
+                "cli.proxy.rolled_back",
+                format!(
+                    "environment proxy rollback restored_previous_file={}; snapshot_retained={}",
+                    report.restored_previous_file, report.snapshot_retained
+                ),
+                SOURCE_CLI_RUNTIME,
+            )])
+        }
+        Err(error) => domain_error_response(
+            "proxy rollback",
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
+}
+
+pub fn handle_subscription_command(command: LinuxCliCommand) -> LinuxCliResponse {
+    handle_subscription_command_with_fetcher(command, &CommandRemoteSubscriptionFetcher::new())
+}
+
+pub fn handle_subscription_command_with_fetcher<F>(
+    command: LinuxCliCommand,
+    fetcher: &F,
+) -> LinuxCliResponse
+where
+    F: RemoteSubscriptionFetcher,
+{
+    let store = CommandSubscriptionCatalogStore::new();
+    match command {
+        LinuxCliCommand::SubscriptionAdd {
+            catalog_path,
+            snapshot_path,
+            source_id,
+            location,
+            ..
+        } => match store.add_source(&SubscriptionCatalogAddRequest {
+            catalog_path,
+            snapshot_path,
+            source: SubscriptionSource {
+                id: source_id,
+                location,
+            },
+        }) {
+            Ok(report) => LinuxCliResponse::success("subscription add").with_diagnostics(vec![
+                cli_diagnostic(
+                    DiagnosticSeverity::Info,
+                    "cli.subscription.source_added",
+                    format!(
+                        "subscription source {} added; catalog sources={}",
+                        report.source_id, report.source_count
+                    ),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            ]),
+            Err(error) => subscription_error("subscription add", error),
+        },
+        LinuxCliCommand::SubscriptionList { catalog_path, .. } => {
+            match store.list_sources(&SubscriptionCatalogListRequest { catalog_path }) {
+                Ok(report) => {
+                    let mut diagnostics = vec![cli_diagnostic(
+                        DiagnosticSeverity::Info,
+                        "cli.subscription.catalog_listed",
+                        format!(
+                            "subscription catalog contains {} source(s)",
+                            report.source_count
+                        ),
+                        SOURCE_CLI_RUNTIME,
+                    )];
+                    diagnostics.extend(report.sources.into_iter().map(|source| {
+                        cli_diagnostic(
+                            DiagnosticSeverity::Info,
+                            "cli.subscription.source",
+                            format!(
+                                "source_id={} location_kind={}",
+                                source.source_id, source.location_kind
+                            ),
+                            SOURCE_CLI_RUNTIME,
+                        )
+                    }));
+                    LinuxCliResponse::success("subscription list").with_diagnostics(diagnostics)
+                }
+                Err(error) => subscription_error("subscription list", error),
+            }
+        }
+        LinuxCliCommand::SubscriptionUpdate {
+            catalog_path,
+            snapshot_path,
+            source_id,
+            location,
+            ..
+        } => match store.update_source_with_fetcher(
+            &SubscriptionCatalogUpdateRequest {
+                catalog_path,
+                snapshot_path,
+                source_id,
+                location,
+            },
+            fetcher,
+        ) {
+            Ok(report) => LinuxCliResponse::success("subscription update").with_diagnostics(vec![
+                cli_diagnostic(
+                    DiagnosticSeverity::Info,
+                    "cli.subscription.source_updated",
+                    format!(
+                        "subscription source {} updated; catalog sources={}; validated nodes={}; added={}; removed={}; changed={}",
+                        report.source_id,
+                        report.source_count,
+                        report.validated_node_count,
+                        report.added_node_count,
+                        report.removed_node_count,
+                        report.changed_node_count
+                    ),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            ]),
+            Err(error) => subscription_error("subscription update", error),
+        },
+        LinuxCliCommand::SubscriptionRemove {
+            catalog_path,
+            snapshot_path,
+            source_id,
+            ..
+        } => match store.remove_source(&SubscriptionCatalogRemoveRequest {
+            catalog_path,
+            snapshot_path,
+            source_id,
+        }) {
+            Ok(report) => LinuxCliResponse::success("subscription remove").with_diagnostics(vec![
+                cli_diagnostic(
+                    DiagnosticSeverity::Info,
+                    "cli.subscription.source_removed",
+                    format!(
+                        "subscription source {} removed; catalog sources={}",
+                        report.source_id, report.source_count
+                    ),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            ]),
+            Err(error) => subscription_error("subscription remove", error),
+        },
+        LinuxCliCommand::SubscriptionSelect {
+            catalog_path,
+            source_id,
+            ..
+        } => match store.select_source(&SubscriptionCatalogSelectRequest {
+            catalog_path,
+            source_id,
+        }) {
+            Ok(report) => LinuxCliResponse::success("subscription select").with_diagnostics(vec![
+                cli_diagnostic(
+                    DiagnosticSeverity::Info,
+                    "cli.subscription.source_selected",
+                    format!("subscription source {} selected", report.source_id),
+                    SOURCE_CLI_RUNTIME,
+                ),
+            ]),
+            Err(error) => subscription_error("subscription select", error),
+        },
+        LinuxCliCommand::SubscriptionRollback {
+            catalog_path,
+            snapshot_path,
+            ..
+        } => match store.rollback_catalog(&SubscriptionCatalogRollbackRequest {
+            catalog_path,
+            snapshot_path,
+        }) {
+            Ok(report) => {
+                LinuxCliResponse::success("subscription rollback").with_diagnostics(vec![
+                    cli_diagnostic(
+                        DiagnosticSeverity::Info,
+                        "cli.subscription.rolled_back",
+                        format!(
+                            "subscription catalog rolled back; catalog sources={}",
+                            report.source_count
+                        ),
+                        SOURCE_CLI_RUNTIME,
+                    ),
+                ])
+            }
+            Err(error) => subscription_error("subscription rollback", error),
+        },
+        LinuxCliCommand::SubscriptionRefreshStart { catalog_path, status_path, snapshot_path, source_id, interval_seconds, confirm, .. } => match store.refresh_http_source_with_fetcher(&SubscriptionRefreshStartRequest { catalog_path, status_path, snapshot_path, source_id, interval_seconds, confirmed: confirm }, fetcher) {
+            Ok(report) => LinuxCliResponse::success("subscription refresh start").with_diagnostics(vec![cli_diagnostic(DiagnosticSeverity::Info, "cli.subscription.refresh_started", format!("subscription refresh enabled=true source_id={} last_attempt={} last_success={} next_attempt={} result={} added={} removed={} changed={}", report.source_id, report.last_attempt, report.last_success.as_deref().unwrap_or("none"), report.next_attempt, report.result, report.added_node_count, report.removed_node_count, report.changed_node_count), SOURCE_CLI_RUNTIME)]),
+            Err(error) => subscription_error("subscription refresh start", error),
+        },
+        LinuxCliCommand::SubscriptionRefreshStatus { status_path, .. } => match store.read_refresh_status(&status_path) {
+            Ok(report) => LinuxCliResponse::success("subscription refresh status").with_diagnostics(vec![cli_diagnostic(DiagnosticSeverity::Info, "cli.subscription.refresh_status", format!("subscription refresh enabled={} source_id={} last_attempt={} last_success={} next_attempt={} result={} error_redacted={} error_code={} added={} removed={} changed={}", report.enabled, report.source_id, report.last_attempt, report.last_success.as_deref().unwrap_or("none"), report.next_attempt, report.result, report.error_redacted, report.error_code.as_deref().unwrap_or("none"), report.added_node_count, report.removed_node_count, report.changed_node_count), SOURCE_CLI_RUNTIME)]),
+            Err(error) => subscription_error("subscription refresh status", error),
+        },
+        LinuxCliCommand::SubscriptionRefreshStop { status_path, source_id, confirm, .. } => match store.stop_refresh(&status_path, &source_id, confirm) {
+            Ok(report) => LinuxCliResponse::success("subscription refresh stop").with_diagnostics(vec![cli_diagnostic(DiagnosticSeverity::Info, "cli.subscription.refresh_stopped", format!("subscription refresh enabled={} source_id={} result={}", report.enabled, report.source_id, report.result), SOURCE_CLI_RUNTIME)]),
+            Err(error) => subscription_error("subscription refresh stop", error),
+        },
+        LinuxCliCommand::SubscriptionRefreshScheduleInstall { catalog_path, status_path, snapshot_path, source_id, interval_seconds, unit_name, confirm, .. } => {
+            if !confirm { return subscription_error("subscription refresh schedule install", DomainError::new(CLI_SUBSCRIPTION_REFRESH_SCHEDULE_CONFIRMATION_REQUIRED_CODE, "subscription refresh schedule installation requires explicit --confirm")); }
+            let executable_path = match std::env::current_exe() { Ok(path) => path, Err(_) => return subscription_error("subscription refresh schedule install", DomainError::new(CLI_SUBSCRIPTION_REFRESH_STATUS_WRITE_FAILED_CODE, "current networkcore-linux executable path could not be resolved")) };
+            let request = LinuxSubscriptionRefreshScheduleRequest { unit_name, executable_path, catalog_path: std::path::PathBuf::from(catalog_path), status_path: std::path::PathBuf::from(status_path), snapshot_path: std::path::PathBuf::from(snapshot_path), source_id, interval_seconds };
+            match render_subscription_refresh_schedule(&request).and_then(|plan| install_subscription_refresh_schedule(&platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(), &request).map(|report| (plan, report))) {
+                Ok((plan, report)) => LinuxCliResponse::success("subscription refresh schedule install").with_diagnostics(vec![cli_diagnostic(DiagnosticSeverity::Info, "cli.subscription.refresh_schedule_installed", format!("subscription refresh schedule installed service={} timer={} timer_active={} plan_snapshot={} service_plan_bytes={} timer_plan_bytes={}", report.service_name, report.timer_name, report.timer_active, report.plan_snapshot_path.display(), plan.service_content.len(), plan.timer_content.len()), SOURCE_CLI_RUNTIME)]),
+                Err(error) => subscription_error("subscription refresh schedule install", error),
+            }
+        }
+        LinuxCliCommand::SubscriptionRefreshScheduleStatus { unit_name, snapshot_path, .. } => match subscription_refresh_schedule_status(&platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(), &unit_name, std::path::Path::new(&snapshot_path)) {
+            Ok(report) => LinuxCliResponse::success("subscription refresh schedule status").with_diagnostics(vec![cli_diagnostic(DiagnosticSeverity::Info, "cli.subscription.refresh_schedule_status", format!("subscription refresh schedule installed={} timer_active={} service={} timer={}", report.installed, report.timer_active, report.service_name, report.timer_name), SOURCE_CLI_RUNTIME)]),
+            Err(error) => subscription_error("subscription refresh schedule status", error),
+        },
+        LinuxCliCommand::SubscriptionRefreshScheduleStop { unit_name, snapshot_path, confirm, .. } => {
+            if !confirm { return subscription_error("subscription refresh schedule stop", DomainError::new(CLI_SUBSCRIPTION_REFRESH_SCHEDULE_CONFIRMATION_REQUIRED_CODE, "subscription refresh schedule stop requires explicit --confirm")); }
+            match stop_subscription_refresh_schedule(&platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(), &unit_name, std::path::Path::new(&snapshot_path)) {
+                Ok(report) => LinuxCliResponse::success("subscription refresh schedule stop").with_diagnostics(vec![cli_diagnostic(DiagnosticSeverity::Info, "cli.subscription.refresh_schedule_stopped", format!("subscription refresh schedule timer stopped service={} timer={}; refresh status was retained", report.service_name, report.timer_name), SOURCE_CLI_RUNTIME)]),
+                Err(error) => subscription_error("subscription refresh schedule stop", error),
+            }
+        }
+        LinuxCliCommand::SubscriptionRefreshScheduleUninstall { unit_name, snapshot_path, confirm, .. } => {
+            if !confirm { return subscription_error("subscription refresh schedule uninstall", DomainError::new(CLI_SUBSCRIPTION_REFRESH_SCHEDULE_CONFIRMATION_REQUIRED_CODE, "subscription refresh schedule uninstall requires explicit --confirm")); }
+            match uninstall_subscription_refresh_schedule(&platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(), &unit_name, std::path::Path::new(&snapshot_path)) {
+                Ok(report) => LinuxCliResponse::success("subscription refresh schedule uninstall").with_diagnostics(vec![cli_diagnostic(DiagnosticSeverity::Info, "cli.subscription.refresh_schedule_uninstalled", format!("subscription refresh schedule removed={} service={} timer={}; refresh status was retained", !report.installed, report.service_name, report.timer_name), SOURCE_CLI_RUNTIME)]),
+                Err(error) => subscription_error("subscription refresh schedule uninstall", error),
+            }
+        }
+        other => handle_unwired_command(other.name()),
+    }
+}
+
+fn subscription_error(command: &'static str, error: DomainError) -> LinuxCliResponse {
+    domain_error_response(
+        command,
+        LinuxCliExitCode::ArgumentOrConfig,
+        error,
+        SOURCE_CLI_RUNTIME,
+    )
+}
+
+pub fn registered_core_engine_descriptors() -> Vec<ProxyEngineDescriptor> {
+    let mut descriptors = engine_native::NativeProxyEngineService::new().list_engines();
+    descriptors.extend(engine_singbox::SingBoxProxyEngineService::new().list_engines());
+    descriptors.extend(engine_mieru::MieruProxyEngineService::new().list_engines());
+    descriptors
+}
+
+pub fn handle_install_mieru(binary_path: &str, expected_sha256: &str) -> LinuxCliResponse {
+    handle_install_mieru_with_options(binary_path, expected_sha256, None, false, false)
+}
+
+pub fn handle_install_mieru_with_options(
+    binary_path: &str,
+    expected_sha256: &str,
+    release_url: Option<&str>,
+    confirm: bool,
+    force: bool,
+) -> LinuxCliResponse {
+    if let Some(download_url) = release_url {
+        let request = engine_mieru::MieruReleaseDownloadRequest {
+            download_url: download_url.to_string(),
+            destination_path: PathBuf::from(binary_path),
+            expected_sha256: expected_sha256.to_string(),
+            confirmed: confirm,
+            force,
+        };
+        return match engine_mieru::download_latest_mieru_release(&request) {
+            Ok(report) => LinuxCliResponse::success("core install mieru")
+                .with_mieru_install(LinuxMieruInstallStatus {
+                    binary_path: report.destination_path.display().to_string(),
+                    sha256: report.sha256,
+                    verified: true,
+                    downloaded: report.downloaded,
+                    action: "download".to_string(),
+                    config_path: None,
+                })
+                .with_diagnostics(report.diagnostics),
+            Err(error) => domain_error_response(
+                "core install mieru",
+                LinuxCliExitCode::EngineDenied,
+                error,
+                SOURCE_CLI_RUNTIME,
+            ),
+        };
+    }
+    match engine_mieru::verify_local_mieru_binary(
+        std::path::Path::new(binary_path),
+        Some(expected_sha256),
+    ) {
+        Ok(report) => LinuxCliResponse::success("core install mieru")
+            .with_mieru_install(LinuxMieruInstallStatus {
+                binary_path: report.path.display().to_string(),
+                sha256: report.sha256,
+                verified: report.verified,
+                downloaded: false,
+                action: "verify".to_string(),
+                config_path: None,
+            })
+            .with_diagnostics(report.diagnostics),
+        Err(error) => domain_error_response(
+            "core install mieru",
+            LinuxCliExitCode::EngineDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
+}
+
+pub fn handle_start_mieru(
+    binary_path: &str,
+    expected_sha256: &str,
+    config_path: &str,
+) -> LinuxCliResponse {
+    let runner = engine_mieru::CommandMieruCommandRunner::new();
+    handle_start_mieru_with_runner(&runner, binary_path, expected_sha256, config_path)
+}
+
+pub fn handle_start_mieru_with_runner<R: engine_mieru::MieruCommandRunner>(
+    runner: &R,
+    binary_path: &str,
+    expected_sha256: &str,
+    config_path: &str,
+) -> LinuxCliResponse {
+    let config = match validate_mieru_config_path(config_path) {
+        Ok(path) => path,
+        Err(error) => {
+            return domain_error_response(
+                "core start mieru",
+                LinuxCliExitCode::ArgumentOrConfig,
+                error,
+                SOURCE_CLI_RUNTIME,
+            )
+        }
+    };
+    let request = engine_mieru::MieruClientControlRequest {
+        executable_path: PathBuf::from(binary_path),
+        expected_sha256: expected_sha256.to_string(),
+        config_path: config.clone(),
+    };
+    match engine_mieru::apply_and_start_mieru_client(runner, &request) {
+        Ok(report) => {
+            let status = match engine_mieru::status_mieru_client(runner, &request) {
+                Ok(status) => status,
+                Err(error) => {
+                    let _ = engine_mieru::stop_mieru_client(runner, &request);
+                    return domain_error_response(
+                        "core start mieru",
+                        LinuxCliExitCode::EngineDenied,
+                        error,
+                        SOURCE_CLI_RUNTIME,
+                    );
+                }
+            };
+            let listener = match engine_mieru::read_mieru_local_listener_config(&config) {
+                Ok(listener) => listener,
+                Err(error) => {
+                    let _ = engine_mieru::stop_mieru_client(runner, &request);
+                    return domain_error_response(
+                        "core start mieru",
+                        LinuxCliExitCode::ConfigValidation,
+                        error,
+                        SOURCE_CLI_RUNTIME,
+                    );
+                }
+            };
+            let readiness = match engine_mieru::wait_for_mieru_listener(
+                &listener.host,
+                listener.port,
+                std::time::Duration::from_secs(5),
+            ) {
+                Ok(readiness) => readiness,
+                Err(error) => {
+                    let _ = engine_mieru::stop_mieru_client(runner, &request);
+                    return domain_error_response(
+                        "core start mieru",
+                        LinuxCliExitCode::EngineDenied,
+                        error,
+                        SOURCE_CLI_RUNTIME,
+                    );
+                }
+            };
+            let mut diagnostics = report.diagnostics;
+            diagnostics.extend(status.diagnostics);
+            diagnostics.extend(readiness.diagnostics);
+            LinuxCliResponse::success("core start mieru")
+                .with_mieru_install(mieru_control_status(&request, "start"))
+                .with_diagnostics(diagnostics)
+        }
+        Err(error) => domain_error_response(
+            "core start mieru",
+            LinuxCliExitCode::EngineDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
+}
+
+pub fn handle_stop_mieru(
+    binary_path: &str,
+    expected_sha256: &str,
+    config_path: &str,
+) -> LinuxCliResponse {
+    let runner = engine_mieru::CommandMieruCommandRunner::new();
+    handle_stop_mieru_with_runner(&runner, binary_path, expected_sha256, config_path)
+}
+
+pub fn handle_stop_mieru_with_runner<R: engine_mieru::MieruCommandRunner>(
+    runner: &R,
+    binary_path: &str,
+    expected_sha256: &str,
+    config_path: &str,
+) -> LinuxCliResponse {
+    let config = match validate_mieru_config_path(config_path) {
+        Ok(path) => path,
+        Err(error) => {
+            return domain_error_response(
+                "core stop mieru",
+                LinuxCliExitCode::ArgumentOrConfig,
+                error,
+                SOURCE_CLI_RUNTIME,
+            )
+        }
+    };
+    let request = engine_mieru::MieruClientControlRequest {
+        executable_path: PathBuf::from(binary_path),
+        expected_sha256: expected_sha256.to_string(),
+        config_path: config,
+    };
+    match engine_mieru::stop_mieru_client(runner, &request) {
+        Ok(report) => LinuxCliResponse::success("core stop mieru")
+            .with_mieru_install(mieru_control_status(&request, "stop"))
+            .with_diagnostics(report.diagnostics),
+        Err(error) => domain_error_response(
+            "core stop mieru",
+            LinuxCliExitCode::EngineDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
+}
+
+pub fn handle_status_mieru(
+    binary_path: &str,
+    expected_sha256: &str,
+    config_path: &str,
+) -> LinuxCliResponse {
+    let runner = engine_mieru::CommandMieruCommandRunner::new();
+    handle_status_mieru_with_runner(&runner, binary_path, expected_sha256, config_path)
+}
+
+pub fn handle_status_mieru_with_runner<R: engine_mieru::MieruCommandRunner>(
+    runner: &R,
+    binary_path: &str,
+    expected_sha256: &str,
+    config_path: &str,
+) -> LinuxCliResponse {
+    let config = match validate_mieru_config_path(config_path) {
+        Ok(path) => path,
+        Err(error) => {
+            return domain_error_response(
+                "core status mieru",
+                LinuxCliExitCode::ArgumentOrConfig,
+                error,
+                SOURCE_CLI_RUNTIME,
+            )
+        }
+    };
+    let request = engine_mieru::MieruClientControlRequest {
+        executable_path: PathBuf::from(binary_path),
+        expected_sha256: expected_sha256.to_string(),
+        config_path: config,
+    };
+    match engine_mieru::status_mieru_client(runner, &request) {
+        Ok(report) => LinuxCliResponse::success("core status mieru")
+            .with_mieru_install(mieru_control_status(&request, "status"))
+            .with_diagnostics(report.diagnostics),
+        Err(error) => domain_error_response(
+            "core status mieru",
+            LinuxCliExitCode::EngineDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
+}
+
+fn validate_mieru_config_path(config_path: &str) -> DomainResult<PathBuf> {
+    let path = PathBuf::from(config_path);
+    if !path.is_absolute() {
+        return Err(DomainError::new(
+            CLI_RUN_URL_CONFIG_FAILED_CODE,
+            "Mieru config path must be absolute",
+        ));
+    }
+    let metadata = std::fs::symlink_metadata(&path).map_err(|error| {
+        DomainError::new(
+            CLI_RUN_URL_CONFIG_FAILED_CODE,
+            format!("Mieru config path could not be read: {error}"),
+        )
+    })?;
+    if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+        return Err(DomainError::new(
+            CLI_RUN_URL_CONFIG_FAILED_CODE,
+            "Mieru config path must be a regular non-symlink file",
+        ));
+    }
+    Ok(path)
+}
+
+fn mieru_control_status(
+    request: &engine_mieru::MieruClientControlRequest,
+    action: &str,
+) -> LinuxMieruInstallStatus {
+    LinuxMieruInstallStatus {
+        binary_path: request.executable_path.display().to_string(),
+        sha256: request.expected_sha256.clone(),
+        verified: true,
+        downloaded: false,
+        action: action.to_string(),
+        config_path: Some(request.config_path.display().to_string()),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_install_service_plan(
+    unit_name: &str,
+    description: &str,
+    executable_path: &str,
+    arguments: &[String],
+    service_user: &str,
+    service_group: &str,
+    state_directory: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    if !confirm {
+        return LinuxCliResponse::failure(
+            "install-service",
+            LinuxCliExitCode::PlatformDenied,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_INSTALL_SERVICE_CONFIRMATION_REQUIRED_CODE,
+                "install-service requires explicit --confirm before producing an installation plan",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    let request = LinuxManagedServiceUnitRequest {
+        unit_name: unit_name.to_string(),
+        description: description.to_string(),
+        executable_path: PathBuf::from(executable_path),
+        arguments: arguments.to_vec(),
+        service_user: service_user.to_string(),
+        service_group: service_group.to_string(),
+        state_directory: PathBuf::from(state_directory),
+    };
+    match render_systemd_unit(&request) {
+        Ok(plan) => LinuxCliResponse::success("install-service")
+            .with_service_install(plan)
+            .with_diagnostics(vec![cli_diagnostic(
+                DiagnosticSeverity::Info,
+                "cli.linux.install_service.plan_ready",
+                "systemd unit plan rendered; no system files or service state were changed",
+                SOURCE_CLI_RUNTIME,
+            )]),
+        Err(error) => domain_error_response(
+            "install-service",
+            LinuxCliExitCode::ArgumentOrConfig,
+            DomainError::new(CLI_INSTALL_SERVICE_PLAN_INVALID_CODE, error.message),
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
+}
+
+pub fn handle_systemd_service_control<R: LinuxSystemdCommandRunner>(
+    runner: &R,
+    action: LinuxSystemdServiceAction,
+    unit_name: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    let command = match action {
+        LinuxSystemdServiceAction::Start => "service start",
+        LinuxSystemdServiceAction::Stop => "service stop",
+        LinuxSystemdServiceAction::Restart => "service restart",
+        LinuxSystemdServiceAction::Status => "service status",
+        LinuxSystemdServiceAction::Reload => "service reload",
+        LinuxSystemdServiceAction::DaemonReload => "service daemon-reload",
+        LinuxSystemdServiceAction::Enable => "service enable",
+    };
+    match control_systemd_service(
+        runner,
+        &LinuxSystemdServiceControlRequest {
+            unit_name: unit_name.to_string(),
+            action,
+            confirmed: confirm,
+        },
+    ) {
+        Ok(report) if report.succeeded => {
+            LinuxCliResponse::success(command).with_diagnostics(report.diagnostics)
+        }
+        Ok(report) => LinuxCliResponse::failure(
+            command,
+            LinuxCliExitCode::PlatformDenied,
+            report.diagnostics.into_iter().next().unwrap_or_else(|| {
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    "cli.linux.service.control_failed",
+                    "systemd service control failed",
+                    SOURCE_CLI_RUNTIME,
+                )
+            }),
+        ),
+        Err(error) => domain_error_response(
+            command,
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_install_service_apply(
+    unit_name: &str,
+    description: &str,
+    executable_path: &str,
+    arguments: &[String],
+    service_user: &str,
+    service_group: &str,
+    state_directory: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    let unit_path = PathBuf::from("/etc/systemd/system").join(unit_name);
+    let snapshot_path = PathBuf::from(state_directory)
+        .join(".systemd-snapshots")
+        .join(format!("{unit_name}.unit"));
+    handle_install_service_apply_at(
+        unit_name,
+        description,
+        executable_path,
+        arguments,
+        service_user,
+        service_group,
+        state_directory,
+        &unit_path,
+        &snapshot_path,
+        confirm,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_install_service_apply_with_runner<R: LinuxSystemdCommandRunner>(
+    runner: &R,
+    unit_name: &str,
+    description: &str,
+    executable_path: &str,
+    arguments: &[String],
+    service_user: &str,
+    service_group: &str,
+    state_directory: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    let response = handle_install_service_apply(
+        unit_name,
+        description,
+        executable_path,
+        arguments,
+        service_user,
+        service_group,
+        state_directory,
+        confirm,
+    );
+    if !response.ok {
+        return response;
+    }
+    let reload = handle_systemd_service_control(
+        runner,
+        LinuxSystemdServiceAction::DaemonReload,
+        unit_name,
+        confirm,
+    );
+    if !reload.ok {
+        return LinuxCliResponse::failure(
+            "install-service",
+            reload.exit_code,
+            reload.diagnostics.into_iter().next().unwrap_or_else(|| {
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    "cli.linux.install_service.reload_failed",
+                    "systemd manager reload failed after unit installation",
+                    SOURCE_CLI_RUNTIME,
+                )
+            }),
+        );
+    }
+    response
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_install_service_apply_at(
+    unit_name: &str,
+    description: &str,
+    executable_path: &str,
+    arguments: &[String],
+    service_user: &str,
+    service_group: &str,
+    state_directory: &str,
+    unit_path: &std::path::Path,
+    snapshot_path: &std::path::Path,
+    confirm: bool,
+) -> LinuxCliResponse {
+    if !confirm {
+        return LinuxCliResponse::failure(
+            "install-service",
+            LinuxCliExitCode::PlatformDenied,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_INSTALL_SERVICE_CONFIRMATION_REQUIRED_CODE,
+                "install-service requires explicit --confirm before writing a systemd unit",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    let request = LinuxManagedServiceUnitRequest {
+        unit_name: unit_name.to_string(),
+        description: description.to_string(),
+        executable_path: PathBuf::from(executable_path),
+        arguments: arguments.to_vec(),
+        service_user: service_user.to_string(),
+        service_group: service_group.to_string(),
+        state_directory: PathBuf::from(state_directory),
+    };
+    let plan = match render_systemd_unit(&request) {
+        Ok(plan) => plan,
+        Err(error) => {
+            return domain_error_response(
+                "install-service",
+                LinuxCliExitCode::ArgumentOrConfig,
+                DomainError::new(CLI_INSTALL_SERVICE_PLAN_INVALID_CODE, error.message),
+                SOURCE_CLI_RUNTIME,
+            )
+        }
+    };
+    let report = match install_systemd_unit(&LinuxManagedServiceUnitInstallRequest {
+        unit_path: unit_path.to_path_buf(),
+        snapshot_path: snapshot_path.to_path_buf(),
+        content: plan.content.clone(),
+    }) {
+        Ok(report) => report,
+        Err(error) => {
+            return domain_error_response(
+                "install-service",
+                LinuxCliExitCode::PlatformDenied,
+                DomainError::new(CLI_INSTALL_SERVICE_WRITE_FAILED_CODE, error.message),
+                SOURCE_CLI_RUNTIME,
+            )
+        }
+    };
+    LinuxCliResponse::success("install-service")
+        .with_service_install(plan)
+        .with_diagnostics(vec![cli_diagnostic(
+            DiagnosticSeverity::Info,
+            "cli.linux.install_service.written",
+            format!(
+                "systemd unit written and verified at {}; snapshot_written={} snapshot_path={}",
+                report.unit_path.display(),
+                report.snapshot_written,
+                report
+                    .snapshot_path
+                    .as_deref()
+                    .map_or_else(|| "none".to_string(), |path| path.display().to_string())
+            ),
+            SOURCE_CLI_RUNTIME,
+        )])
+}
+
+pub fn handle_uninstall_service_plan(
+    unit_name: &str,
+    state_directory: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    if !confirm {
+        return LinuxCliResponse::failure(
+            "uninstall-service",
+            LinuxCliExitCode::PlatformDenied,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_INSTALL_SERVICE_CONFIRMATION_REQUIRED_CODE,
+                "uninstall-service requires explicit --confirm before producing a removal plan",
+                SOURCE_CLI_RUNTIME,
+            ),
+        );
+    }
+    match plan_systemd_unit_removal(unit_name, PathBuf::from(state_directory).as_path()) {
+        Ok(plan) => LinuxCliResponse::success("uninstall-service")
+            .with_service_removal(plan)
+            .with_diagnostics(vec![cli_diagnostic(
+                DiagnosticSeverity::Info,
+                "cli.linux.uninstall_service.plan_ready",
+                "systemd removal plan rendered; no files or service state were changed",
+                SOURCE_CLI_RUNTIME,
+            )]),
+        Err(error) => domain_error_response(
+            "uninstall-service",
+            LinuxCliExitCode::ArgumentOrConfig,
+            DomainError::new(CLI_INSTALL_SERVICE_PLAN_INVALID_CODE, error.message),
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
+}
+
+pub fn handle_uninstall_service_apply(
+    unit_name: &str,
+    state_directory: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    handle_uninstall_service_apply_with_runner(
+        &platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(),
+        unit_name,
+        state_directory,
+        confirm,
+    )
+}
+
+pub fn handle_uninstall_service_apply_with_runner<R: LinuxSystemdCommandRunner>(
+    runner: &R,
+    unit_name: &str,
+    state_directory: &str,
+    confirm: bool,
+) -> LinuxCliResponse {
+    if let Err(error) =
+        plan_systemd_unit_removal(unit_name, PathBuf::from(state_directory).as_path())
+    {
+        return domain_error_response(
+            "uninstall-service",
+            LinuxCliExitCode::ArgumentOrConfig,
+            DomainError::new(CLI_INSTALL_SERVICE_PLAN_INVALID_CODE, error.message),
+            SOURCE_CLI_RUNTIME,
+        );
+    }
+    let unit_path = PathBuf::from("/etc/systemd/system").join(unit_name);
+    let snapshot_path = PathBuf::from(state_directory)
+        .join(".systemd-snapshots")
+        .join(format!("{unit_name}.removed.unit"));
+    if unit_path.exists() {
+        let stop = handle_systemd_service_control(
+            runner,
+            LinuxSystemdServiceAction::Stop,
+            unit_name,
+            confirm,
+        );
+        if !stop.ok {
+            return LinuxCliResponse::failure(
+                "uninstall-service",
+                stop.exit_code,
+                stop.diagnostics.into_iter().next().unwrap_or_else(|| {
+                    cli_diagnostic(
+                        DiagnosticSeverity::Error,
+                        "cli.linux.uninstall_service.stop_failed",
+                        "systemd service could not be stopped before removal",
+                        SOURCE_CLI_RUNTIME,
+                    )
+                }),
+            );
+        }
+    }
+    handle_uninstall_service_apply_at(&unit_path, &snapshot_path, confirm)
+}
+
+pub fn handle_uninstall_service_apply_at(
+    unit_path: &std::path::Path,
+    snapshot_path: &std::path::Path,
+    confirm: bool,
+) -> LinuxCliResponse {
+    match remove_systemd_unit(&LinuxManagedServiceUnitRemovalRequest {
+        unit_path: unit_path.to_path_buf(),
+        snapshot_path: snapshot_path.to_path_buf(),
+        confirmed: confirm,
+    }) {
+        Ok(report) => {
+            LinuxCliResponse::success("uninstall-service").with_diagnostics(vec![cli_diagnostic(
+                DiagnosticSeverity::Info,
+                "cli.linux.uninstall_service.removed",
+                format!(
+                    "systemd unit removed={} at {}; snapshot_written={} snapshot_path={}",
+                    report.removed,
+                    report.unit_path.display(),
+                    report.snapshot_written,
+                    report
+                        .snapshot_path
+                        .as_deref()
+                        .map_or_else(|| "none".to_string(), |path| path.display().to_string())
+                ),
+                SOURCE_CLI_RUNTIME,
+            )])
+        }
+        Err(error) => domain_error_response(
+            "uninstall-service",
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_RUNTIME,
+        ),
+    }
+}
+
+pub fn handle_restart_unavailable() -> LinuxCliResponse {
+    LinuxCliResponse::failure(
+        "restart",
+        LinuxCliExitCode::Unavailable,
+        cli_diagnostic(
+            DiagnosticSeverity::Error,
+            CLI_RUNTIME_UNWIRED_CODE,
+            "linux managed restart is unavailable until the explicit service control boundary is wired",
+            SOURCE_CLI_RUNTIME,
+        ),
+    )
 }
 
 pub fn handle_version() -> LinuxCliResponse {
@@ -5063,6 +9408,7 @@ pub fn handle_start_foreground<C, P, E, R, H>(
     reader: &R,
     config_path: Option<&str>,
     lifecycle_host: &H,
+    managed_paths: Option<&ManagedForegroundLifecyclePaths>,
 ) -> LinuxCliResponse
 where
     C: ConfigurationService,
@@ -5076,13 +9422,169 @@ where
         Err(response) => return *response,
     };
 
-    let request = RuntimeConfigRequest::new(DEFAULT_ENGINE_ID, raw_config);
-    match orchestrator.start_runtime(request) {
-        Ok(result) => {
-            handle_foreground_lifecycle_with_runtime_stop(result, orchestrator, lifecycle_host)
+    let managed_recorder = match managed_paths
+        .cloned()
+        .map(ManagedForegroundLifecycleRecorder::new)
+        .transpose()
+    {
+        Ok(recorder) => recorder,
+        Err(error) => {
+            return LinuxCliResponse::failure(
+                "start",
+                LinuxCliExitCode::ArgumentOrConfig,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    error.code,
+                    error.message,
+                    SOURCE_CLI_START,
+                ),
+            )
         }
-        Err(error) => start_error_response(error),
+    };
+    if let Some(recorder) = managed_recorder.as_ref() {
+        if let Err(error) = recorder.initialize() {
+            return LinuxCliResponse::failure(
+                "start",
+                LinuxCliExitCode::GeneralFailure,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_START_MANAGED_LIFECYCLE_RECORD_FAILED_CODE,
+                    error.message,
+                    SOURCE_CLI_START,
+                ),
+            );
+        }
     }
+    let runtime_health_snapshot = Arc::new(Mutex::new(ManagedRuntimeHealthSnapshot::default()));
+    let managed_control_socket = match managed_recorder
+        .as_ref()
+        .and_then(|recorder| recorder.paths.control_socket_path.as_deref())
+        .map(|path| {
+            start_managed_control_socket_with_runtime_snapshot(
+                path,
+                Arc::new(OsSignalManagedControlInterrupter),
+                Some(runtime_health_snapshot.clone()),
+            )
+        })
+        .transpose()
+    {
+        Ok(socket) => socket,
+        Err(error) => {
+            if let Some(recorder) = managed_recorder.as_ref() {
+                let _ = recorder.transition(
+                    "starting",
+                    "failed",
+                    format!("{}.failed", recorder.paths.snapshot_path),
+                );
+            }
+            return LinuxCliResponse::failure(
+                "start",
+                LinuxCliExitCode::GeneralFailure,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_MANAGED_CONTROL_SOCKET_START_FAILED_CODE,
+                    error.message,
+                    SOURCE_CLI_MANAGED_CONTROL,
+                ),
+            );
+        }
+    };
+    let control_socket_path = managed_recorder
+        .as_ref()
+        .and_then(|recorder| recorder.paths.control_socket_path.clone());
+
+    let config_digest = redacted_config_digest(&raw_config);
+    let request = RuntimeConfigRequest::new(DEFAULT_ENGINE_ID, raw_config);
+    let mut response = match orchestrator.start_runtime(request.clone()) {
+        Ok(result) => {
+            if let Ok(health) = orchestrator.runtime_health(DEFAULT_ENGINE_ID) {
+                record_managed_runtime_health(&runtime_health_snapshot, &health, &config_digest, 1);
+            }
+            if let Some(recorder) = managed_recorder.as_ref() {
+                if let Err(error) =
+                    recorder.transition("starting", "running", recorder.paths.snapshot_path.clone())
+                {
+                    let mut response = handle_foreground_lifecycle_with_runtime_reload(
+                        result,
+                        orchestrator,
+                        lifecycle_host,
+                        request,
+                        runtime_health_snapshot.clone(),
+                        config_digest.clone(),
+                    );
+                    response.ok = false;
+                    response.exit_code = LinuxCliExitCode::GeneralFailure;
+                    response.diagnostics.push(cli_diagnostic(
+                        DiagnosticSeverity::Error,
+                        CLI_START_MANAGED_LIFECYCLE_RECORD_FAILED_CODE,
+                        error.message,
+                        SOURCE_CLI_START,
+                    ));
+                    return response;
+                }
+            }
+            let mut response = handle_foreground_lifecycle_with_runtime_reload(
+                result,
+                orchestrator,
+                lifecycle_host,
+                request,
+                runtime_health_snapshot.clone(),
+                config_digest.clone(),
+            );
+            if let Some(recorder) = managed_recorder.as_ref() {
+                let terminal_state = if response.exit_code == LinuxCliExitCode::Interrupted {
+                    Some((
+                        "stopped",
+                        format!("{}.stopped", recorder.paths.snapshot_path),
+                    ))
+                } else if !response.ok {
+                    Some(("failed", format!("{}.failed", recorder.paths.snapshot_path)))
+                } else {
+                    None
+                };
+                if let Some((next_state, snapshot_path)) = terminal_state {
+                    if let Err(error) = recorder.transition("running", next_state, snapshot_path) {
+                        response.ok = false;
+                        response.diagnostics.push(cli_diagnostic(
+                            DiagnosticSeverity::Error,
+                            CLI_START_MANAGED_LIFECYCLE_RECORD_FAILED_CODE,
+                            error.message,
+                            SOURCE_CLI_START,
+                        ));
+                    }
+                }
+            }
+            response
+        }
+        Err(error) => {
+            let mut response = start_error_response(error);
+            if let Some(recorder) = managed_recorder.as_ref() {
+                if let Err(record_error) = recorder.transition(
+                    "starting",
+                    "failed",
+                    format!("{}.failed", recorder.paths.snapshot_path),
+                ) {
+                    response.diagnostics.push(cli_diagnostic(
+                        DiagnosticSeverity::Error,
+                        CLI_START_MANAGED_LIFECYCLE_RECORD_FAILED_CODE,
+                        record_error.message,
+                        SOURCE_CLI_START,
+                    ));
+                }
+            }
+            response
+        }
+    };
+    if let Some(socket_path) = control_socket_path {
+        response.diagnostics.push(cli_diagnostic(
+            DiagnosticSeverity::Info,
+            CLI_MANAGED_CONTROL_SOCKET_START_READY_CODE,
+            format!("managed foreground control socket was active at {socket_path}"),
+            SOURCE_CLI_MANAGED_CONTROL,
+        ));
+    }
+    drop(managed_control_socket);
+    response
 }
 
 pub fn handle_foreground_lifecycle<H>(
@@ -5128,13 +9630,21 @@ where
             managed_foreground_status_transition: None,
             managed_foreground_status_rollback: None,
             managed_foreground_event: None,
+            managed_foreground_event_history: None,
             managed_foreground_event_write: None,
+            managed_foreground_log_tail: None,
             sing_box_install: None,
             sing_box_run: None,
             mitm_status: None,
             certificate_lifecycle: None,
             browser_capture: None,
             http_rewrite: None,
+            service_install: None,
+            service_removal: None,
+            core_engines: Vec::new(),
+            node_catalog: None,
+            node_health: None,
+            mieru_install: None,
         };
     }
 
@@ -5157,13 +9667,21 @@ where
         managed_foreground_status_transition: None,
         managed_foreground_status_rollback: None,
         managed_foreground_event: None,
+        managed_foreground_event_history: None,
         managed_foreground_event_write: None,
+        managed_foreground_log_tail: None,
         sing_box_install: None,
         sing_box_run: None,
         mitm_status: None,
         certificate_lifecycle: None,
         browser_capture: None,
         http_rewrite: None,
+        service_install: None,
+        service_removal: None,
+        core_engines: Vec::new(),
+        node_catalog: None,
+        node_health: None,
+        mieru_install: None,
     }
 }
 
@@ -5200,6 +9718,252 @@ where
     response
 }
 
+fn handle_foreground_lifecycle_with_runtime_reload<C, P, E, H>(
+    mut operation: RuntimeOperationResult,
+    orchestrator: &RuntimeOrchestrator<C, P, E>,
+    host: &H,
+    request: RuntimeConfigRequest,
+    runtime_health_snapshot: Arc<Mutex<ManagedRuntimeHealthSnapshot>>,
+    config_digest: String,
+) -> LinuxCliResponse
+where
+    C: ConfigurationService,
+    P: PlatformCapabilityService,
+    E: ProxyEngineService,
+    H: ForegroundLifecycleHost,
+{
+    let mut previous_diagnostics = Vec::new();
+    let mut config_version = 1;
+    let mut rollback_snapshot = orchestrator
+        .prepare_runtime_engine(request.clone())
+        .ok()
+        .map(|prepared| (prepared.snapshot, config_version));
+    loop {
+        let engine_id = operation.engine_status.engine_id.clone();
+        let mut response = handle_foreground_lifecycle(operation.clone(), host);
+        let reload_requested = response
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE);
+        let rollback_requested = response
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == CLI_START_MANAGED_CONTROL_ROLLBACK_REQUESTED_CODE);
+        if reload_requested || rollback_requested {
+            response
+                .diagnostics
+                .retain(|diagnostic| diagnostic.code != CLI_START_LIFECYCLE_INTERRUPTED_CODE);
+        }
+        previous_diagnostics.append(&mut response.diagnostics);
+        if !reload_requested && !rollback_requested {
+            response.diagnostics = previous_diagnostics;
+            if response.exit_code == LinuxCliExitCode::Interrupted {
+                match orchestrator.stop_runtime(&engine_id) {
+                    Ok(stop_status) => response.diagnostics.extend(stop_status.diagnostics),
+                    Err(error) => response.diagnostics.push(cli_diagnostic(
+                        DiagnosticSeverity::Error,
+                        CLI_START_RUNTIME_STOP_FAILED_CODE,
+                        format!(
+                            "failed to stop linux runtime after foreground interruption: {}",
+                            error.message
+                        ),
+                        SOURCE_CLI_START,
+                    )),
+                }
+            }
+            return response;
+        }
+
+        if rollback_requested {
+            let expected_config_version =
+                MANAGED_CONTROL_EXPECTED_CONFIG_VERSION.swap(0, Ordering::SeqCst);
+            if expected_config_version != config_version {
+                response.ok = false;
+                response.exit_code = LinuxCliExitCode::GeneralFailure;
+                response.diagnostics = previous_diagnostics;
+                response.diagnostics.push(cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_FAILED_CODE,
+                    format!(
+                        "managed runtime rollback rejected because expected configuration version {expected_config_version} does not match active version {config_version}"
+                    ),
+                    SOURCE_CLI_MANAGED_CONTROL,
+                ));
+                return response;
+            }
+            let Some((snapshot, snapshot_version)) = rollback_snapshot.take() else {
+                response.ok = false;
+                response.exit_code = LinuxCliExitCode::GeneralFailure;
+                response.diagnostics = previous_diagnostics;
+                response.diagnostics.push(cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_FAILED_CODE,
+                    "managed runtime rollback is unavailable because no prior successful configuration snapshot is retained",
+                    SOURCE_CLI_MANAGED_CONTROL,
+                ));
+                return response;
+            };
+            if snapshot_version >= config_version {
+                response.ok = false;
+                response.exit_code = LinuxCliExitCode::GeneralFailure;
+                response.diagnostics = previous_diagnostics;
+                response.diagnostics.push(cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_FAILED_CODE,
+                    "managed runtime rollback rejected because the retained snapshot version is not older than the active version",
+                    SOURCE_CLI_MANAGED_CONTROL,
+                ));
+                return response;
+            }
+            match orchestrator.rollback_runtime_engine(ProxyEngineRollbackRequest {
+                snapshot,
+                expected_state: ProxyEngineLifecycleState::Running,
+            }) {
+                Ok(restored) => {
+                    previous_diagnostics.extend(restored.diagnostics);
+                    match orchestrator.runtime_health(&engine_id) {
+                        Ok(health) => {
+                            config_version = snapshot_version;
+                            record_managed_runtime_health(
+                                &runtime_health_snapshot,
+                                &health,
+                                &config_digest,
+                                config_version,
+                            );
+                            previous_diagnostics.push(cli_diagnostic(
+                                DiagnosticSeverity::Info,
+                                CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_READY_CODE,
+                                format!(
+                                    "managed runtime rollback restored configuration version {config_version} with runtime health readback"
+                                ),
+                                SOURCE_CLI_MANAGED_CONTROL,
+                            ));
+                            continue;
+                        }
+                        Err(error) => {
+                            response.ok = false;
+                            response.exit_code = LinuxCliExitCode::GeneralFailure;
+                            response.diagnostics = previous_diagnostics;
+                            response.diagnostics.push(cli_diagnostic(
+                                DiagnosticSeverity::Error,
+                                CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_FAILED_CODE,
+                                format!(
+                                    "managed runtime rollback health readback failed: {}",
+                                    error.message
+                                ),
+                                SOURCE_CLI_MANAGED_CONTROL,
+                            ));
+                            return response;
+                        }
+                    }
+                }
+                Err(error) => {
+                    response.ok = false;
+                    response.exit_code = LinuxCliExitCode::GeneralFailure;
+                    response.diagnostics = previous_diagnostics;
+                    response.diagnostics.push(cli_diagnostic(
+                        DiagnosticSeverity::Error,
+                        CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_FAILED_CODE,
+                        format!("managed runtime rollback failed: {}", error.message),
+                        SOURCE_CLI_MANAGED_CONTROL,
+                    ));
+                    return response;
+                }
+            }
+        }
+
+        let prepared_snapshot = orchestrator.prepare_runtime_engine(request.clone());
+        let snapshot_failed = prepared_snapshot.is_err();
+        match orchestrator.reload_runtime(request.clone()) {
+            Ok(reloaded) => {
+                operation = reloaded;
+                if let Ok(prepared) = prepared_snapshot {
+                    rollback_snapshot = Some((prepared.snapshot, config_version));
+                }
+                config_version += 1;
+                match orchestrator.runtime_health(&engine_id) {
+                    Ok(health) => record_managed_runtime_health(
+                        &runtime_health_snapshot,
+                        &health,
+                        &config_digest,
+                        config_version,
+                    ),
+                    Err(error) => {
+                        response.ok = false;
+                        response.exit_code = LinuxCliExitCode::GeneralFailure;
+                        response.diagnostics = previous_diagnostics;
+                        response.diagnostics.push(cli_diagnostic(
+                            DiagnosticSeverity::Error,
+                            CLI_START_RUNTIME_RELOAD_FAILED_CODE,
+                            format!(
+                                "managed runtime reload health readback failed: {}",
+                                error.message
+                            ),
+                            SOURCE_CLI_START,
+                        ));
+                        return response;
+                    }
+                }
+            }
+            Err(error) => {
+                response.ok = false;
+                response.exit_code = LinuxCliExitCode::GeneralFailure;
+                response.diagnostics = previous_diagnostics;
+                response.diagnostics.push(cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_START_RUNTIME_RELOAD_FAILED_CODE,
+                    format!(
+                        "failed to reload linux runtime after managed control request: {}",
+                        error.message
+                    ),
+                    SOURCE_CLI_START,
+                ));
+                let rollback = prepared_snapshot.clone().and_then(|prepared| {
+                    orchestrator.rollback_runtime_engine(ProxyEngineRollbackRequest {
+                        snapshot: prepared.snapshot,
+                        expected_state: ProxyEngineLifecycleState::Running,
+                    })
+                });
+                let rollback_failed = rollback.is_err();
+                match rollback {
+                    Ok(restored) => response.diagnostics.extend(restored.diagnostics),
+                    Err(rollback_error) => response.diagnostics.push(cli_diagnostic(
+                        DiagnosticSeverity::Error,
+                        CLI_START_RUNTIME_RELOAD_FAILED_CODE,
+                        format!(
+                            "managed reload rollback/readback failed: {}",
+                            rollback_error.message
+                        ),
+                        SOURCE_CLI_START,
+                    )),
+                }
+                if snapshot_failed {
+                    response.diagnostics.push(cli_diagnostic(
+                        DiagnosticSeverity::Error,
+                        CLI_START_RUNTIME_RELOAD_FAILED_CODE,
+                        "managed reload snapshot could not be captured before mutation",
+                        SOURCE_CLI_START,
+                    ));
+                }
+                if rollback_failed {
+                    if let Err(stop_error) = orchestrator.stop_runtime(&engine_id) {
+                        response.diagnostics.push(cli_diagnostic(
+                            DiagnosticSeverity::Error,
+                            CLI_START_RUNTIME_STOP_FAILED_CODE,
+                            format!(
+                                "failed to stop linux runtime after managed reload failure: {}",
+                                stop_error.message
+                            ),
+                            SOURCE_CLI_START,
+                        ));
+                    }
+                }
+                return response;
+            }
+        }
+    }
+}
+
 pub fn handle_stop() -> LinuxCliResponse {
     LinuxCliResponse::failure(
         "stop",
@@ -5211,6 +9975,241 @@ pub fn handle_stop() -> LinuxCliResponse {
             SOURCE_CLI_STOP,
         ),
     )
+}
+
+pub fn handle_managed_control_stop(socket_path: &str, confirm: bool) -> LinuxCliResponse {
+    handle_managed_control_request(socket_path, confirm, ManagedControlRequest::Stop)
+}
+
+pub fn handle_managed_control_reload(socket_path: &str, confirm: bool) -> LinuxCliResponse {
+    handle_managed_control_request(socket_path, confirm, ManagedControlRequest::Reload)
+}
+
+pub fn handle_managed_control_rollback(
+    socket_path: &str,
+    expected_config_version: u64,
+    confirm: bool,
+) -> LinuxCliResponse {
+    handle_managed_control_request(
+        socket_path,
+        confirm,
+        ManagedControlRequest::Rollback {
+            expected_config_version,
+        },
+    )
+}
+
+pub fn handle_managed_control_status(socket_path: &str) -> LinuxCliResponse {
+    let socket_path = socket_path.trim();
+    if socket_path.is_empty() || !std::path::Path::new(socket_path).is_absolute() {
+        return LinuxCliResponse::failure(
+            "managed-control status",
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_MANAGED_CONTROL_SOCKET_STATUS_FAILED_CODE,
+                "managed foreground control socket path must be absolute",
+                SOURCE_CLI_MANAGED_CONTROL,
+            ),
+        );
+    }
+    #[cfg(unix)]
+    {
+        let result = (|| -> std::io::Result<String> {
+            let mut stream = UnixStream::connect(socket_path)?;
+            stream.set_read_timeout(Some(Duration::from_secs(
+                MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS,
+            )))?;
+            stream.set_write_timeout(Some(Duration::from_secs(
+                MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS,
+            )))?;
+            stream.write_all(b"status\n")?;
+            stream.shutdown(std::net::Shutdown::Write)?;
+            let mut response = String::new();
+            (&mut stream).take(1024).read_to_string(&mut response)?;
+            Ok(response)
+        })();
+        match result {
+            Ok(response)
+                if response.trim()
+                    == "status state=unavailable error_code=runtime_status_unavailable" =>
+            {
+                LinuxCliResponse::failure(
+                    "managed-control status",
+                    LinuxCliExitCode::Unavailable,
+                    cli_diagnostic(
+                        DiagnosticSeverity::Error,
+                        CLI_MANAGED_CONTROL_SOCKET_STATUS_FAILED_CODE,
+                        "managed foreground runtime status is unavailable",
+                        SOURCE_CLI_MANAGED_CONTROL,
+                    ),
+                )
+            }
+            Ok(response) if response.starts_with("status ") => {
+                LinuxCliResponse::success("managed-control status").with_diagnostics(vec![
+                    cli_diagnostic(
+                        DiagnosticSeverity::Info,
+                        CLI_MANAGED_CONTROL_SOCKET_STATUS_READY_CODE,
+                        response.trim().to_string(),
+                        SOURCE_CLI_MANAGED_CONTROL,
+                    ),
+                ])
+            }
+            Ok(_) => LinuxCliResponse::failure(
+                "managed-control status",
+                LinuxCliExitCode::GeneralFailure,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_MANAGED_CONTROL_SOCKET_STATUS_FAILED_CODE,
+                    "managed foreground control socket returned an invalid runtime status response",
+                    SOURCE_CLI_MANAGED_CONTROL,
+                ),
+            ),
+            Err(error) => LinuxCliResponse::failure(
+                "managed-control status",
+                LinuxCliExitCode::GeneralFailure,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    CLI_MANAGED_CONTROL_SOCKET_STATUS_FAILED_CODE,
+                    format!("managed foreground runtime status failed: {error}"),
+                    SOURCE_CLI_MANAGED_CONTROL,
+                ),
+            ),
+        }
+    }
+    #[cfg(not(unix))]
+    LinuxCliResponse::failure(
+        "managed-control status",
+        LinuxCliExitCode::Unavailable,
+        cli_diagnostic(
+            DiagnosticSeverity::Error,
+            CLI_MANAGED_CONTROL_SOCKET_STATUS_FAILED_CODE,
+            "managed foreground control sockets require Unix",
+            SOURCE_CLI_MANAGED_CONTROL,
+        ),
+    )
+}
+
+fn handle_managed_control_request(
+    socket_path: &str,
+    confirm: bool,
+    request: ManagedControlRequest,
+) -> LinuxCliResponse {
+    let operation = request.wire_command();
+    let command = format!("managed-control {operation}");
+    #[cfg(unix)]
+    let ready_code = match request {
+        ManagedControlRequest::Stop => CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE,
+        ManagedControlRequest::Reload => CLI_MANAGED_CONTROL_SOCKET_RELOAD_READY_CODE,
+        ManagedControlRequest::Rollback { .. } => CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_READY_CODE,
+    };
+    let failed_code = match request {
+        ManagedControlRequest::Stop => CLI_MANAGED_CONTROL_SOCKET_STOP_FAILED_CODE,
+        ManagedControlRequest::Reload => CLI_MANAGED_CONTROL_SOCKET_RELOAD_FAILED_CODE,
+        ManagedControlRequest::Rollback { .. } => CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_FAILED_CODE,
+    };
+    if !confirm {
+        return LinuxCliResponse::failure(
+            command,
+            LinuxCliExitCode::PlatformDenied,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE,
+                format!("managed foreground control {operation} requires --confirm"),
+                SOURCE_CLI_MANAGED_CONTROL,
+            ),
+        );
+    }
+    let socket_path = socket_path.trim();
+    if socket_path.is_empty() || !std::path::Path::new(socket_path).is_absolute() {
+        return LinuxCliResponse::failure(
+            command,
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                failed_code,
+                "managed foreground control socket path must be absolute",
+                SOURCE_CLI_MANAGED_CONTROL,
+            ),
+        );
+    }
+    #[cfg(unix)]
+    {
+        let result = (|| -> std::io::Result<String> {
+            let mut stream = UnixStream::connect(socket_path)?;
+            stream.set_read_timeout(Some(Duration::from_secs(
+                MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS,
+            )))?;
+            stream.set_write_timeout(Some(Duration::from_secs(
+                MANAGED_CONTROL_SOCKET_IO_TIMEOUT_SECONDS,
+            )))?;
+            let wire_request = match request {
+                ManagedControlRequest::Rollback {
+                    expected_config_version,
+                } => format!("{operation} {expected_config_version}\n"),
+                _ => format!("{operation}\n"),
+            };
+            stream.write_all(wire_request.as_bytes())?;
+            stream.shutdown(std::net::Shutdown::Write)?;
+            let mut response = String::new();
+            (&mut stream).take(64).read_to_string(&mut response)?;
+            Ok(response)
+        })();
+        match result {
+            Ok(response) if response.trim() == "accepted" => LinuxCliResponse::success(command)
+                .with_diagnostics(vec![cli_diagnostic(
+                    DiagnosticSeverity::Info,
+                    ready_code,
+                    format!("managed foreground {operation} was accepted by {socket_path}"),
+                    SOURCE_CLI_MANAGED_CONTROL,
+                )]),
+            Ok(response) if response.trim() == "rejected request_pending" => {
+                LinuxCliResponse::failure(
+                    command,
+                    LinuxCliExitCode::GeneralFailure,
+                    cli_diagnostic(
+                        DiagnosticSeverity::Error,
+                        CLI_MANAGED_CONTROL_SOCKET_REQUEST_PENDING_CODE,
+                        format!("managed foreground control {operation} is already pending"),
+                        SOURCE_CLI_MANAGED_CONTROL,
+                    ),
+                )
+            }
+            Ok(_) => LinuxCliResponse::failure(
+                command,
+                LinuxCliExitCode::GeneralFailure,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    failed_code,
+                    format!("managed foreground control socket rejected the {operation} request"),
+                    SOURCE_CLI_MANAGED_CONTROL,
+                ),
+            ),
+            Err(error) => LinuxCliResponse::failure(
+                command,
+                LinuxCliExitCode::GeneralFailure,
+                cli_diagnostic(
+                    DiagnosticSeverity::Error,
+                    failed_code,
+                    format!("managed foreground control {operation} failed: {error}"),
+                    SOURCE_CLI_MANAGED_CONTROL,
+                ),
+            ),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        LinuxCliResponse::failure(
+            command,
+            LinuxCliExitCode::Unavailable,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                failed_code,
+                "managed foreground control sockets require Unix",
+                SOURCE_CLI_MANAGED_CONTROL,
+            ),
+        )
+    }
 }
 
 pub fn handle_status<P>(platform: &P) -> LinuxCliResponse
@@ -5429,6 +10428,46 @@ pub fn handle_managed_foreground_event(event_path: &str) -> LinuxCliResponse {
     }
 }
 
+pub fn handle_managed_foreground_event_history(
+    event_directory: &str,
+    session_id: Option<&str>,
+    event_kind: Option<&str>,
+    state: Option<&str>,
+    cursor: usize,
+    limit: usize,
+) -> LinuxCliResponse {
+    let store = CommandManagedForegroundSessionEventStore::new();
+    match store.list_event_history(&ManagedForegroundSessionEventHistoryRequest {
+        event_directory: event_directory.to_string(),
+        session_id: session_id.map(str::to_string),
+        event_kind: event_kind.map(str::to_string),
+        state: state.map(str::to_string),
+        cursor,
+        limit,
+    }) {
+        Ok(report) => LinuxCliResponse::success("managed-event list")
+            .with_managed_foreground_event_history(report),
+        Err(error) => {
+            let exit_code = if error.code == CLI_MANAGED_FOREGROUND_EVENT_DIRECTORY_MISSING_CODE {
+                LinuxCliExitCode::ArgumentOrConfig
+            } else if error.code == CLI_MANAGED_FOREGROUND_EVENT_HISTORY_QUERY_INVALID_CODE
+                || error.code == CLI_MANAGED_FOREGROUND_EVENT_SCHEMA_UNSUPPORTED_CODE
+                || error.code == CLI_MANAGED_FOREGROUND_EVENT_RECORD_INVALID_CODE
+            {
+                LinuxCliExitCode::ConfigValidation
+            } else {
+                LinuxCliExitCode::GeneralFailure
+            };
+            domain_error_response(
+                "managed-event list",
+                exit_code,
+                error,
+                SOURCE_CLI_MANAGED_FOREGROUND_EVENT,
+            )
+        }
+    }
+}
+
 pub fn handle_managed_foreground_event_init(
     event_path: &str,
     session_id: &str,
@@ -5468,6 +10507,35 @@ pub fn handle_managed_foreground_event_init(
     }
 }
 
+pub fn handle_managed_foreground_log_tail(log_path: &str, line_limit: usize) -> LinuxCliResponse {
+    let store = CommandManagedForegroundSessionLogStore::new();
+    match store.read_tail(&ManagedForegroundSessionLogTailRequest {
+        log_path: log_path.to_string(),
+        line_limit,
+    }) {
+        Ok(report) => {
+            LinuxCliResponse::success("managed-log").with_managed_foreground_log_tail(report)
+        }
+        Err(error) => {
+            let exit_code = if error.code == CLI_MANAGED_FOREGROUND_LOG_PATH_MISSING_CODE
+                || error.code == CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE
+            {
+                LinuxCliExitCode::ArgumentOrConfig
+            } else if error.code == CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE {
+                LinuxCliExitCode::ConfigValidation
+            } else {
+                LinuxCliExitCode::GeneralFailure
+            };
+            domain_error_response(
+                "managed-log",
+                exit_code,
+                error,
+                SOURCE_CLI_MANAGED_FOREGROUND_LOG,
+            )
+        }
+    }
+}
+
 pub fn handle_mitm_status<P>(platform: &P) -> LinuxCliResponse
 where
     P: PlatformCapabilityService,
@@ -5487,6 +10555,104 @@ where
     P: PlatformCapabilityService,
 {
     handle_mitm_status_inner("mitm certificate-plan", platform)
+}
+
+pub fn handle_mitm_certificate_trust_apply(
+    certificate_path: Option<&str>,
+    trust_file_path: Option<&str>,
+    snapshot_path: Option<&str>,
+    confirm: bool,
+) -> LinuxCliResponse {
+    let command = "mitm certificate trust-apply";
+    let (Some(certificate_path), Some(trust_file_path), Some(snapshot_path)) =
+        (certificate_path, trust_file_path, snapshot_path)
+    else {
+        return LinuxCliResponse::failure(
+            command,
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_MITM_CERTIFICATE_TRUST_CONFIG_MISSING_CODE,
+                "MITM trust apply requires --cert-file <path>, --trust-file <path>, and --snapshot <path>",
+                SOURCE_CLI_MITM,
+            ),
+        );
+    };
+
+    let runner = CommandLinuxTrustRefreshRunner::new();
+    match apply_linux_trust(
+        &runner,
+        &LinuxTrustApplyRequest {
+            certificate_path: PathBuf::from(certificate_path),
+            trust_file_path: PathBuf::from(trust_file_path),
+            snapshot_path: PathBuf::from(snapshot_path),
+            confirmed: confirm,
+        },
+    ) {
+        Ok(report) => LinuxCliResponse::success(command).with_diagnostics(vec![cli_diagnostic(
+            DiagnosticSeverity::Info,
+            CLI_MITM_CERTIFICATE_TRUST_APPLIED_CODE,
+            format!(
+                "Linux trust file applied and refreshed: {} (snapshot: {})",
+                report.trust_file_path.display(),
+                report.snapshot_path.display()
+            ),
+            SOURCE_CLI_MITM,
+        )]),
+        Err(error) => domain_error_response(
+            command,
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_MITM,
+        ),
+    }
+}
+
+pub fn handle_mitm_certificate_trust_rollback(
+    trust_file_path: Option<&str>,
+    snapshot_path: Option<&str>,
+    confirm: bool,
+) -> LinuxCliResponse {
+    let command = "mitm certificate trust-rollback";
+    let (Some(trust_file_path), Some(snapshot_path)) = (trust_file_path, snapshot_path) else {
+        return LinuxCliResponse::failure(
+            command,
+            LinuxCliExitCode::ArgumentOrConfig,
+            cli_diagnostic(
+                DiagnosticSeverity::Error,
+                CLI_MITM_CERTIFICATE_TRUST_CONFIG_MISSING_CODE,
+                "MITM trust rollback requires --trust-file <path> and --snapshot <path>",
+                SOURCE_CLI_MITM,
+            ),
+        );
+    };
+
+    let runner = CommandLinuxTrustRefreshRunner::new();
+    match rollback_linux_trust(
+        &runner,
+        &LinuxTrustRollbackRequest {
+            trust_file_path: PathBuf::from(trust_file_path),
+            snapshot_path: PathBuf::from(snapshot_path),
+            confirmed: confirm,
+        },
+    ) {
+        Ok(report) => LinuxCliResponse::success(command).with_diagnostics(vec![cli_diagnostic(
+            DiagnosticSeverity::Info,
+            CLI_MITM_CERTIFICATE_TRUST_ROLLED_BACK_CODE,
+            format!(
+                "Linux trust file rolled back and refreshed: {} (snapshot retained: {})",
+                report.trust_file_path.display(),
+                report.snapshot_retained
+            ),
+            SOURCE_CLI_MITM,
+        )]),
+        Err(error) => domain_error_response(
+            command,
+            LinuxCliExitCode::PlatformDenied,
+            error,
+            SOURCE_CLI_MITM,
+        ),
+    }
 }
 
 pub fn handle_mitm_certificate_apply<P>(platform: &P, confirm: bool) -> LinuxCliResponse
@@ -6113,6 +11279,162 @@ where
         .with_mitm_status(mitm_status)
         .with_browser_capture(report)
         .with_diagnostics(diagnostics)
+}
+
+fn run_mieru_public_engine_plan(
+    plan: &PublicEngineRunPlan,
+    install_root: &std::path::Path,
+    binary_path: Option<&str>,
+    expected_sha256: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+    document_diagnostics: &[Diagnostic],
+) -> LinuxCliResponse {
+    let binary_path = match binary_path.filter(|value| !value.trim().is_empty()) {
+        Some(path) => std::path::PathBuf::from(path),
+        None => {
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::ArgumentOrConfig,
+                DomainError::new(
+                    CLI_RUN_URL_MIERU_BINARY_REQUIRED_CODE,
+                    "Mieru run-url requires --binary <local-path> for the selected node",
+                ),
+                "cli.mieru",
+            )
+        }
+    };
+    let expected_sha256 = match expected_sha256.filter(|value| !value.trim().is_empty()) {
+        Some(value) => value.to_string(),
+        None => {
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::ArgumentOrConfig,
+                DomainError::new(
+                    CLI_RUN_URL_MIERU_DIGEST_REQUIRED_CODE,
+                    "Mieru run-url requires --sha256 <digest> for the selected node",
+                ),
+                "cli.mieru",
+            )
+        }
+    };
+    let node = match mieru_node_from_descriptor(&plan.node) {
+        Ok(node) => node,
+        Err(error) => {
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::ArgumentOrConfig,
+                error,
+                "cli.mieru",
+            )
+        }
+    };
+    let rendered = match render_mieru_client_config(&MieruClientConfigRequest {
+        node,
+        socks5_host: listen_host.to_string(),
+        socks5_port: listen_port,
+    }) {
+        Ok(config) => config,
+        Err(error) => {
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::ArgumentOrConfig,
+                DomainError::new(CLI_RUN_URL_MIERU_CONFIG_FAILED_CODE, error.message),
+                "cli.mieru",
+            )
+        }
+    };
+    let config_path = install_root.join("mieru").join(format!(
+        "run-url-{}.json",
+        sanitize_path_segment(&plan.node.id)
+    ));
+    let snapshot_path = config_path.with_extension("before-networkcore.json");
+    let write_report = match write_mieru_client_config(&MieruClientConfigWriteRequest {
+        config_path: config_path.clone(),
+        snapshot_path,
+        content: rendered.content.clone(),
+    }) {
+        Ok(report) => report,
+        Err(error) => {
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::GeneralFailure,
+                DomainError::new(CLI_RUN_URL_MIERU_CONFIG_FAILED_CODE, error.message),
+                "cli.mieru",
+            )
+        }
+    };
+    let request = MieruClientControlRequest {
+        executable_path: binary_path.clone(),
+        expected_sha256: expected_sha256.clone(),
+        config_path: config_path.clone(),
+    };
+    let runner = CommandMieruCommandRunner::new();
+    let report = match apply_and_start_mieru_client(&runner, &request) {
+        Ok(report) => report,
+        Err(error) => {
+            let _ = rollback_mieru_client_config(
+                &config_path,
+                &write_report.snapshot_path.unwrap_or_default(),
+                write_report.snapshot_written,
+            );
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::GeneralFailure,
+                DomainError::new(CLI_RUN_URL_MIERU_START_FAILED_CODE, error.message),
+                "cli.mieru",
+            );
+        }
+    };
+    let status = match engine_mieru::status_mieru_client(&runner, &request) {
+        Ok(status) => status,
+        Err(error) => {
+            let _ = engine_mieru::stop_mieru_client(&runner, &request);
+            let _ = rollback_mieru_client_config(
+                &config_path,
+                &write_report.snapshot_path.unwrap_or_default(),
+                write_report.snapshot_written,
+            );
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::GeneralFailure,
+                DomainError::new(CLI_RUN_URL_MIERU_START_FAILED_CODE, error.message),
+                "cli.mieru",
+            );
+        }
+    };
+    let listener = match wait_for_mieru_listener(listen_host, listen_port, Duration::from_secs(5)) {
+        Ok(listener) => listener,
+        Err(error) => {
+            let _ = engine_mieru::stop_mieru_client(&runner, &request);
+            let _ = rollback_mieru_client_config(
+                &config_path,
+                &write_report.snapshot_path.unwrap_or_default(),
+                write_report.snapshot_written,
+            );
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::GeneralFailure,
+                DomainError::new(CLI_RUN_URL_MIERU_START_FAILED_CODE, error.message),
+                "cli.mieru",
+            );
+        }
+    };
+    let mut diagnostics = document_diagnostics.to_vec();
+    diagnostics.extend(rendered.diagnostics);
+    diagnostics.extend(report.diagnostics);
+    diagnostics.extend(status.diagnostics);
+    diagnostics.extend(listener.diagnostics);
+    LinuxCliResponse::success("run-url")
+        .with_diagnostics(diagnostics)
+        .with_mieru_install(LinuxMieruInstallStatus {
+            binary_path: binary_path.display().to_string(),
+            sha256: expected_sha256,
+            verified: true,
+            downloaded: false,
+            action: "run-url".to_string(),
+            config_path: Some(config_path.display().to_string()),
+        })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -7385,6 +12707,10 @@ fn build_linux_mitm_http_rewrite_report(
             MITM_HTTP_REWRITE_HTTPS_RESPONSE_REWRITE_PREVIEW_READY,
         https_response_rewrite_ready: MITM_HTTP_REWRITE_HTTPS_RESPONSE_REWRITE_READY,
         script_dispatch_ready: MITM_HTTP_REWRITE_SCRIPT_DISPATCH_READY,
+        certificate_pinning_bypass_supported:
+            MITM_HTTP_REWRITE_CERTIFICATE_PINNING_BYPASS_SUPPORTED,
+        http2_mitm_supported: MITM_HTTP_REWRITE_HTTP2_MITM_SUPPORTED,
+        http3_quic_mitm_supported: MITM_HTTP_REWRITE_HTTP3_QUIC_MITM_SUPPORTED,
         request: request.unwrap_or_else(|| {
             build_linux_mitm_http_rewrite_request(
                 None,
@@ -7444,6 +12770,7 @@ fn build_linux_mitm_http_rewrite_outcome_report(
             .and_then(|outcome| outcome.body_mutation.as_ref())
             .is_some(),
         script_dispatch_deferred: report.script_dispatch_deferred,
+        script_dispatch_failed: report.script_dispatch_failed,
         output_headers: report
             .headers
             .iter()
@@ -7513,6 +12840,9 @@ fn linux_mitm_http_rewrite_blocked_operations() -> Vec<String> {
         "install-ca",
         "trust-ca",
         "mutate-live-https-traffic",
+        "bypass-certificate-pinning",
+        "intercept-http2",
+        "intercept-http3-quic",
         "mutate-browser-or-system-capture",
         "mutate-system-proxy",
         "mutate-system-pac",
@@ -9012,13 +14342,328 @@ where
     I: SingBoxReleaseInstaller,
     S: SingBoxProcessRunner,
 {
+    handle_run_url_with_sing_box_and_node_id(
+        installer,
+        runner,
+        url,
+        None,
+        listen_host,
+        listen_port,
+        install_dir,
+        force,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_run_catalog_with_sing_box<I, S>(
+    installer: &I,
+    runner: &S,
+    catalog_path: &str,
+    source_id: &str,
+    selected_node_id: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+    install_dir: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
+{
+    handle_run_catalog_with_sing_box_and_mieru(
+        installer,
+        runner,
+        catalog_path,
+        source_id,
+        selected_node_id,
+        listen_host,
+        listen_port,
+        install_dir,
+        None,
+        None,
+        force,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_run_catalog_with_sing_box_and_mieru<I, S>(
+    installer: &I,
+    runner: &S,
+    catalog_path: &str,
+    source_id: &str,
+    selected_node_id: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+    install_dir: Option<&str>,
+    mieru_binary_path: Option<&str>,
+    mieru_sha256: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
+{
+    let fetcher = CommandRemoteSubscriptionFetcher::new();
+    handle_run_catalog_with_sing_box_and_fetcher_and_mieru(
+        installer,
+        runner,
+        &fetcher,
+        catalog_path,
+        source_id,
+        selected_node_id,
+        listen_host,
+        listen_port,
+        install_dir,
+        mieru_binary_path,
+        mieru_sha256,
+        force,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_run_catalog_with_sing_box_and_fetcher<I, S, F>(
+    installer: &I,
+    runner: &S,
+    fetcher: &F,
+    catalog_path: &str,
+    source_id: &str,
+    selected_node_id: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+    install_dir: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
+    F: RemoteSubscriptionFetcher,
+{
+    handle_run_catalog_with_sing_box_and_fetcher_and_mieru(
+        installer,
+        runner,
+        fetcher,
+        catalog_path,
+        source_id,
+        selected_node_id,
+        listen_host,
+        listen_port,
+        install_dir,
+        None,
+        None,
+        force,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_run_catalog_with_sing_box_and_fetcher_and_mieru<I, S, F>(
+    installer: &I,
+    runner: &S,
+    fetcher: &F,
+    catalog_path: &str,
+    source_id: &str,
+    selected_node_id: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+    install_dir: Option<&str>,
+    mieru_binary_path: Option<&str>,
+    mieru_sha256: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
+    F: RemoteSubscriptionFetcher,
+{
+    let source_location = match read_subscription_catalog_source_location(catalog_path, source_id) {
+        Ok(location) => location,
+        Err(error) => {
+            return domain_error_response(
+                "run-catalog",
+                LinuxCliExitCode::ArgumentOrConfig,
+                error,
+                SOURCE_CLI_SING_BOX,
+            );
+        }
+    };
+    let mut response = handle_run_url_with_sing_box_and_fetcher_and_node_id_and_mieru(
+        installer,
+        runner,
+        fetcher,
+        &source_location,
+        selected_node_id,
+        listen_host,
+        listen_port,
+        install_dir,
+        mieru_binary_path,
+        mieru_sha256,
+        force,
+    );
+    response.command = "run-catalog".to_string();
+    response
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_run_url_with_sing_box_and_node_id<I, S>(
+    installer: &I,
+    runner: &S,
+    url: &str,
+    selected_node_id: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+    install_dir: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
+{
+    handle_run_url_with_sing_box_and_node_id_and_mieru(
+        installer,
+        runner,
+        url,
+        selected_node_id,
+        listen_host,
+        listen_port,
+        install_dir,
+        None,
+        None,
+        force,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_run_url_with_sing_box_and_node_id_and_mieru<I, S>(
+    installer: &I,
+    runner: &S,
+    url: &str,
+    selected_node_id: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+    install_dir: Option<&str>,
+    mieru_binary_path: Option<&str>,
+    mieru_sha256: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
+{
+    let fetcher = CommandRemoteSubscriptionFetcher::new();
+    handle_run_url_with_sing_box_and_fetcher_and_node_id_and_mieru(
+        installer,
+        runner,
+        &fetcher,
+        url,
+        selected_node_id,
+        listen_host,
+        listen_port,
+        install_dir,
+        mieru_binary_path,
+        mieru_sha256,
+        force,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_run_url_with_sing_box_and_fetcher<I, S, F>(
+    installer: &I,
+    runner: &S,
+    fetcher: &F,
+    url: &str,
+    listen_host: &str,
+    listen_port: u16,
+    install_dir: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
+    F: RemoteSubscriptionFetcher,
+{
+    handle_run_url_with_sing_box_and_fetcher_and_node_id_and_mieru(
+        installer,
+        runner,
+        fetcher,
+        url,
+        None,
+        listen_host,
+        listen_port,
+        install_dir,
+        None,
+        None,
+        force,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_run_url_with_sing_box_and_fetcher_and_node_id<I, S, F>(
+    installer: &I,
+    runner: &S,
+    fetcher: &F,
+    url: &str,
+    selected_node_id: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+    install_dir: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
+    F: RemoteSubscriptionFetcher,
+{
+    handle_run_url_with_sing_box_and_fetcher_and_node_id_and_mieru(
+        installer,
+        runner,
+        fetcher,
+        url,
+        selected_node_id,
+        listen_host,
+        listen_port,
+        install_dir,
+        None,
+        None,
+        force,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn handle_run_url_with_sing_box_and_fetcher_and_node_id_and_mieru<I, S, F>(
+    installer: &I,
+    runner: &S,
+    fetcher: &F,
+    url: &str,
+    selected_node_id: Option<&str>,
+    listen_host: &str,
+    listen_port: u16,
+    install_dir: Option<&str>,
+    mieru_binary_path: Option<&str>,
+    mieru_sha256: Option<&str>,
+    force: bool,
+) -> LinuxCliResponse
+where
+    I: SingBoxReleaseInstaller,
+    S: SingBoxProcessRunner,
+    F: RemoteSubscriptionFetcher,
+{
     let install_root = install_dir
         .map(std::path::PathBuf::from)
         .unwrap_or_else(default_sing_box_install_root);
     let subscription = CoreSubscriptionService::new();
+    let content = match read_run_url_subscription_content(url, fetcher) {
+        Ok(content) => content,
+        Err(error) => {
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::ArgumentOrConfig,
+                error,
+                SOURCE_CLI_SING_BOX,
+            );
+        }
+    };
     let raw_subscription = RawSubscription {
         source_id: "cli-run-url".to_string(),
-        content: url.to_string(),
+        content,
     };
     let document = match subscription.parse(&raw_subscription) {
         Ok(document) => document,
@@ -9042,10 +14687,32 @@ where
             );
         }
     };
+    let run_plan = match PublicEngineRunPlan::select(&catalog.nodes, selected_node_id) {
+        Ok(plan) => plan,
+        Err(error) => {
+            return domain_error_response(
+                "run-url",
+                LinuxCliExitCode::ArgumentOrConfig,
+                error,
+                SOURCE_CLI_SING_BOX,
+            )
+        }
+    };
+    if run_plan.engine == PublicEngineKind::Mieru {
+        return run_mieru_public_engine_plan(
+            &run_plan,
+            &install_root,
+            mieru_binary_path,
+            mieru_sha256,
+            listen_host,
+            listen_port,
+            &document.diagnostics,
+        );
+    }
     let generated_config =
         match render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
             nodes: catalog.nodes,
-            selected_node_id: None,
+            selected_node_id: selected_node_id.map(str::to_string),
             listen_host: listen_host.to_string(),
             listen_port,
         }) {
@@ -9157,10 +14824,291 @@ where
     }
 }
 
+pub trait RemoteSubscriptionFetcher {
+    fn fetch_subscription(&self, location: &str) -> DomainResult<String>;
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CommandRemoteSubscriptionFetcher;
+
+impl CommandRemoteSubscriptionFetcher {
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl RemoteSubscriptionFetcher for CommandRemoteSubscriptionFetcher {
+    fn fetch_subscription(&self, location: &str) -> DomainResult<String> {
+        let mut client_builder = reqwest::blocking::Client::builder()
+            .redirect(reqwest::redirect::Policy::limited(
+                RUN_URL_REMOTE_SUBSCRIPTION_MAX_REDIRECTS,
+            ))
+            .timeout(Duration::from_secs(
+                RUN_URL_REMOTE_SUBSCRIPTION_TIMEOUT_SECONDS,
+            ));
+        if remote_subscription_location_is_loopback(location) {
+            client_builder = client_builder.no_proxy();
+        }
+        let client = client_builder.build().map_err(|_| {
+            DomainError::new(
+                CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
+                "run-url remote subscription client could not be configured",
+            )
+        })?;
+        let response = client
+            .get(location)
+            .send()
+            .and_then(reqwest::blocking::Response::error_for_status)
+            .map_err(|_| {
+                DomainError::new(
+                    CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
+                    "run-url remote subscription request failed",
+                )
+            })?;
+        if response
+            .content_length()
+            .is_some_and(|length| length > RUN_URL_REMOTE_SUBSCRIPTION_MAX_BYTES)
+        {
+            return Err(DomainError::new(
+                CLI_RUN_URL_REMOTE_FETCH_LIMIT_EXCEEDED_CODE,
+                "run-url remote subscription exceeds the allowed response size",
+            ));
+        }
+
+        let mut content = Vec::new();
+        response
+            .take(RUN_URL_REMOTE_SUBSCRIPTION_MAX_BYTES + 1)
+            .read_to_end(&mut content)
+            .map_err(|_| {
+                DomainError::new(
+                    CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
+                    "run-url remote subscription response could not be read",
+                )
+            })?;
+        if content.len() as u64 > RUN_URL_REMOTE_SUBSCRIPTION_MAX_BYTES {
+            return Err(DomainError::new(
+                CLI_RUN_URL_REMOTE_FETCH_LIMIT_EXCEEDED_CODE,
+                "run-url remote subscription exceeds the allowed response size",
+            ));
+        }
+
+        String::from_utf8(content).map_err(|_| {
+            DomainError::new(
+                CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
+                "run-url remote subscription response is not valid UTF-8 text",
+            )
+        })
+    }
+}
+
+fn remote_subscription_location_is_loopback(location: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(location) else {
+        return false;
+    };
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    host == "localhost"
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+}
+
+fn read_run_url_subscription_content<F>(input: &str, fetcher: &F) -> DomainResult<String>
+where
+    F: RemoteSubscriptionFetcher,
+{
+    if input.starts_with("http://") || input.starts_with("https://") {
+        return fetcher.fetch_subscription(input);
+    }
+
+    let Some(path) = input.strip_prefix("file://") else {
+        if input.starts_with("file:") {
+            return Err(DomainError::new(
+                CLI_RUN_URL_FILE_URI_INVALID_CODE,
+                "run-url file source must use an absolute file:// URI",
+            ));
+        }
+        return Ok(input.to_string());
+    };
+
+    if path.is_empty() || !path.starts_with('/') {
+        return Err(DomainError::new(
+            CLI_RUN_URL_FILE_URI_INVALID_CODE,
+            "run-url file source must use an absolute file:// URI",
+        ));
+    }
+
+    std::fs::read_to_string(path).map_err(|_| {
+        DomainError::new(
+            CLI_RUN_URL_FILE_READ_FAILED_CODE,
+            "run-url subscription file could not be read as UTF-8 text",
+        )
+    })
+}
+
+fn read_subscription_catalog_update_content<F>(location: &str, fetcher: &F) -> DomainResult<String>
+where
+    F: RemoteSubscriptionFetcher,
+{
+    let location = location.trim();
+    if let Some(content) = location.strip_prefix("inline:") {
+        return Ok(content.to_string());
+    }
+    read_run_url_subscription_content(location, fetcher)
+}
+
+fn parse_subscription_catalog_update_nodes<F>(
+    source_id: &str,
+    location: &str,
+    fetcher: &F,
+) -> DomainResult<Vec<control_domain::NodeDescriptor>>
+where
+    F: RemoteSubscriptionFetcher,
+{
+    let content = read_subscription_catalog_update_content(location, fetcher).map_err(|error| {
+        DomainError::new(
+            CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE,
+            format!(
+                "previous subscription source could not be fetched: {}",
+                error.code
+            ),
+        )
+    })?;
+    let subscription = CoreSubscriptionService::new();
+    let document = subscription
+        .parse(&RawSubscription {
+            source_id: source_id.to_string(),
+            content,
+        })
+        .map_err(|error| {
+            DomainError::new(
+                CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE,
+                format!(
+                    "previous subscription source could not be parsed: {}",
+                    error.code
+                ),
+            )
+        })?;
+    let catalog = subscription.normalize(&document).map_err(|error| {
+        DomainError::new(
+            CLI_SUBSCRIPTION_CATALOG_UPDATE_VALIDATION_FAILED_CODE,
+            format!(
+                "previous subscription source could not be normalized: {}",
+                error.code
+            ),
+        )
+    })?;
+    Ok(catalog.nodes)
+}
+
+fn subscription_node_index(nodes: &[control_domain::NodeDescriptor]) -> BTreeMap<String, u64> {
+    nodes
+        .iter()
+        .map(|node| {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            format!("{node:?}").hash(&mut hasher);
+            (node.id.trim().to_string(), hasher.finish())
+        })
+        .collect()
+}
+
 pub fn render_response(response: &LinuxCliResponse, format: OutputFormat) -> String {
     match format {
         OutputFormat::Text => render_text_response(response),
         OutputFormat::Json => render_json_response(response),
+    }
+}
+
+fn redact_cli_output_text(value: &str) -> String {
+    let mut redacted = value.to_string();
+    for scheme in [
+        "https://",
+        "http://",
+        "ss://",
+        "trojan://",
+        "vless://",
+        "vmess://",
+        "hysteria2://",
+        "hy2://",
+        "tuic://",
+        "mierus://",
+    ] {
+        redacted = redact_cli_output_url(&redacted, scheme);
+    }
+    for marker in [
+        "password=",
+        "password:",
+        "token=",
+        "token:",
+        "access_token=",
+        "access_token:",
+        "refresh_token=",
+        "refresh_token:",
+        "secret=",
+        "secret:",
+        "credential=",
+        "credential:",
+        "authorization:",
+        "api_key=",
+        "api_key:",
+        "private_key=",
+        "private_key:",
+        "uuid=",
+        "uuid:",
+        "\"password\":",
+        "\"token\":",
+        "\"access_token\":",
+        "\"refresh_token\":",
+        "\"secret\":",
+        "\"credential\":",
+        "\"authorization\":",
+        "\"api_key\":",
+        "\"private_key\":",
+        "\"uuid\":",
+    ] {
+        redacted = redact_cli_output_line_value(&redacted, marker);
+    }
+    redacted
+}
+
+fn redact_cli_output_url(value: &str, scheme: &str) -> String {
+    let mut redacted = String::new();
+    let mut remaining = value;
+    loop {
+        let lowered = remaining.to_ascii_lowercase();
+        let Some(offset) = lowered.find(scheme) else {
+            redacted.push_str(remaining);
+            return redacted;
+        };
+        redacted.push_str(&remaining[..offset]);
+        redacted.push_str("[redacted-url]");
+        let url_end = remaining[offset..]
+            .find(|character: char| {
+                character.is_ascii_whitespace() || matches!(character, '"' | '\'' | '<' | '>')
+            })
+            .unwrap_or(remaining[offset..].len());
+        remaining = &remaining[offset + url_end..];
+    }
+}
+
+fn redact_cli_output_line_value(value: &str, marker: &str) -> String {
+    let mut redacted = String::new();
+    let mut remaining = value;
+    loop {
+        let lowered = remaining.to_ascii_lowercase();
+        let Some(offset) = lowered.find(marker) else {
+            redacted.push_str(remaining);
+            return redacted;
+        };
+        redacted.push_str(&remaining[..offset]);
+        redacted.push_str(&remaining[offset..offset + marker.len()]);
+        redacted.push_str("[redacted]");
+        let line_end = remaining[offset + marker.len()..]
+            .find('\n')
+            .map(|index| offset + marker.len() + index)
+            .unwrap_or(remaining.len());
+        remaining = &remaining[line_end..];
     }
 }
 
@@ -9188,6 +15136,81 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                     ));
                 };
                 options.config_path = Some(value.clone());
+            }
+            "--catalog" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--catalog requires a subscription catalog path",
+                    ));
+                };
+                options.catalog_path = Some(value.clone());
+            }
+            "--refresh-status" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--refresh-status requires an explicit status path",
+                    ));
+                };
+                options.refresh_status_path = Some(value.clone());
+            }
+            "--interval-seconds" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--interval-seconds requires an integer",
+                    ));
+                };
+                options.refresh_interval_seconds = Some(value.parse::<u64>().map_err(|_| {
+                    parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--interval-seconds requires an integer",
+                    )
+                })?);
+            }
+            "--unit-name" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--unit-name requires a systemd unit base name",
+                    ));
+                };
+                options.refresh_schedule_unit_name = Some(value.clone());
+            }
+            "--file" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--file requires an absolute file path",
+                    ));
+                };
+                options.file_path = Some(value.clone());
+            }
+            "--selection" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--selection requires an absolute selection path",
+                    ));
+                };
+                options.selection_path = Some(value.clone());
+            }
+            "--source-id" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--source-id requires a subscription source id",
+                    ));
+                };
+                options.source_id = Some(value.clone());
             }
             "--browser" => {
                 index += 1;
@@ -9299,6 +15322,16 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.key_file_path = Some(value.clone());
             }
+            "--trust-file" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--trust-file requires a Linux trust file path",
+                    ));
+                };
+                options.trust_file_path = Some(value.clone());
+            }
             "--mitm-ca-cert" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -9364,6 +15397,46 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                     ));
                 };
                 options.node_binary = Some(value.clone());
+            }
+            "--managed-status" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--managed-status requires a managed foreground status record path",
+                    ));
+                };
+                options.managed_status_path = Some(value.clone());
+            }
+            "--managed-snapshot" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--managed-snapshot requires a managed foreground status snapshot path",
+                    ));
+                };
+                options.managed_snapshot_path = Some(value.clone());
+            }
+            "--managed-events" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--managed-events requires a managed foreground event directory",
+                    ));
+                };
+                options.managed_event_directory = Some(value.clone());
+            }
+            "--managed-control-socket" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--managed-control-socket requires an absolute Unix socket path",
+                    ));
+                };
+                options.managed_control_socket_path = Some(value.clone());
             }
             "--profile-trust-file" => {
                 index += 1;
@@ -9435,6 +15508,66 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.proxy_scheme = Some(parse_browser_capture_proxy_scheme(value)?);
             }
+            "--session-id" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--session-id requires a managed event session id",
+                    ));
+                };
+                options.managed_event_session_id = Some(value.clone());
+            }
+            "--event-kind" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--event-kind requires a managed event kind",
+                    ));
+                };
+                options.managed_event_kind = Some(value.clone());
+            }
+            "--state" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--state requires a managed event state",
+                    ));
+                };
+                options.managed_event_state = Some(value.clone());
+            }
+            "--cursor" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--cursor requires a non-negative managed event history offset",
+                    ));
+                };
+                options.managed_event_cursor = Some(parse_managed_event_history_cursor(value)?);
+            }
+            "--limit" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--limit requires a managed event history page size",
+                    ));
+                };
+                options.managed_event_limit = Some(parse_managed_event_history_limit(value)?);
+            }
+            "--tail-lines" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--tail-lines requires a managed log line count",
+                    ));
+                };
+                options.managed_log_line_limit = Some(parse_managed_log_tail_limit(value)?);
+            }
             "--install-dir" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -9444,6 +15577,106 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                     ));
                 };
                 options.install_dir = Some(value.clone());
+            }
+            "--service-unit" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--service-unit requires a systemd unit name",
+                    ));
+                };
+                options.service_unit_name = Some(value.clone());
+            }
+            "--service-description" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--service-description requires a service description",
+                    ));
+                };
+                options.service_description = Some(value.clone());
+            }
+            "--service-executable" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--service-executable requires an absolute executable path",
+                    ));
+                };
+                options.service_executable_path = Some(value.clone());
+            }
+            "--service-arg" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--service-arg requires one service argument",
+                    ));
+                };
+                options.service_arguments.push(value.clone());
+            }
+            "--service-user" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--service-user requires a non-root account name",
+                    ));
+                };
+                options.service_user = Some(value.clone());
+            }
+            "--service-group" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--service-group requires a non-root group name",
+                    ));
+                };
+                options.service_group = Some(value.clone());
+            }
+            "--service-state-dir" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--service-state-dir requires an absolute state directory path",
+                    ));
+                };
+                options.service_state_directory = Some(value.clone());
+            }
+            "--binary" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--binary requires a local Mieru executable path",
+                    ));
+                };
+                options.mieru_binary_path = Some(value.clone());
+            }
+            "--sha256" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--sha256 requires an explicit Mieru executable digest",
+                    ));
+                };
+                options.mieru_sha256 = Some(value.clone());
+            }
+            "--node-id" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--node-id requires a node id from the subscription catalog",
+                    ));
+                };
+                options.selected_node_id = Some(value.clone());
             }
             "--force" => {
                 options.force = true;
@@ -9481,6 +15714,16 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
                 };
                 options.listen_port = Some(parse_listen_port(value)?);
             }
+            "--controller-port" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--controller-port requires a loopback controller port",
+                    ));
+                };
+                options.controller_port = Some(parse_listen_port(value)?);
+            }
             "--format" => {
                 index += 1;
                 let Some(value) = args.get(index) else {
@@ -9505,6 +15748,162 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
     Ok(options)
 }
 
+fn parse_managed_control_options(
+    args: &[String],
+    operation: &str,
+) -> Result<(String, bool, OutputFormat), LinuxCliParseError> {
+    let mut socket_path = None;
+    let mut confirm = false;
+    let mut format = OutputFormat::Text;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--managed-control-socket" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--managed-control-socket requires an absolute Unix socket path",
+                    ));
+                };
+                if value.starts_with("--") {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--managed-control-socket requires an absolute Unix socket path",
+                    ));
+                }
+                if socket_path.replace(value.clone()).is_some() {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_UNKNOWN_CODE,
+                        format!("managed control {operation} accepts exactly one --managed-control-socket path"),
+                    ));
+                }
+            }
+            "--confirm" => confirm = true,
+            "--format" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--format requires text or json",
+                    ));
+                };
+                format = parse_output_format(value)?;
+            }
+            argument => {
+                return Err(parse_error(
+                    CLI_ARGUMENT_UNKNOWN_CODE,
+                    format!(
+                        "managed control {operation} only accepts --managed-control-socket, --confirm, and --format; received {argument}"
+                    ),
+                ));
+            }
+        }
+        index += 1;
+    }
+
+    socket_path
+        .ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                format!(
+                    "managed control {operation} requires --managed-control-socket <absolute-path>"
+                ),
+            )
+        })
+        .map(|socket_path| (socket_path, confirm, format))
+}
+
+fn parse_managed_control_rollback_options(
+    args: &[String],
+) -> Result<(String, u64, bool, OutputFormat), LinuxCliParseError> {
+    let mut socket_path = None;
+    let mut expected_config_version = None;
+    let mut confirm = false;
+    let mut format = OutputFormat::Text;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--managed-control-socket" => {
+                index += 1;
+                let Some(value) = args.get(index).filter(|value| !value.starts_with("--")) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--managed-control-socket requires an absolute Unix socket path",
+                    ));
+                };
+                if socket_path.replace(value.clone()).is_some() {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_UNKNOWN_CODE,
+                        "managed control rollback accepts exactly one --managed-control-socket path",
+                    ));
+                }
+            }
+            "--expected-config-version" => {
+                index += 1;
+                let Some(value) = args.get(index).filter(|value| !value.starts_with("--")) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--expected-config-version requires a positive configuration version",
+                    ));
+                };
+                let parsed = value
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|value| *value > 0)
+                    .ok_or_else(|| {
+                        parse_error(
+                            CLI_ARGUMENT_VALUE_MISSING_CODE,
+                            "--expected-config-version requires a positive configuration version",
+                        )
+                    })?;
+                if expected_config_version.replace(parsed).is_some() {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_UNKNOWN_CODE,
+                        "managed control rollback accepts exactly one --expected-config-version value",
+                    ));
+                }
+            }
+            "--confirm" => confirm = true,
+            "--format" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--format requires text or json",
+                    ));
+                };
+                format = parse_output_format(value)?;
+            }
+            argument => {
+                return Err(parse_error(
+                    CLI_ARGUMENT_UNKNOWN_CODE,
+                    format!(
+                        "managed control rollback only accepts --managed-control-socket, --expected-config-version, --confirm, and --format; received {argument}"
+                    ),
+                ));
+            }
+        }
+        index += 1;
+    }
+
+    let socket_path = socket_path.ok_or_else(|| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed control rollback requires --managed-control-socket <absolute-path>",
+        )
+    })?;
+    let expected_config_version = expected_config_version.ok_or_else(|| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed control rollback requires --expected-config-version <positive-integer>",
+        )
+    })?;
+    Ok((socket_path, expected_config_version, confirm, format))
+}
+
 fn parse_run_url_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
     let Some(url) = args.first() else {
         return Err(parse_error(
@@ -9522,11 +15921,434 @@ fn parse_run_url_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliPar
 
     Ok(LinuxCliCommand::RunUrl {
         url: url.clone(),
+        selected_node_id: options.selected_node_id,
         listen_host: options
             .listen_host
             .unwrap_or_else(|| "127.0.0.1".to_string()),
         listen_port: options.listen_port.unwrap_or(7890),
         install_dir: options.install_dir,
+        mieru_binary_path: options.mieru_binary_path,
+        mieru_sha256: options.mieru_sha256,
+        force: options.force,
+        format: options.format,
+    })
+}
+
+fn parse_validate_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(config_path) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "validate requires an explicit config path",
+        ));
+    };
+    if config_path.starts_with("--") {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "validate requires a config path before options",
+        ));
+    }
+    let options = parse_options(&args[1..])?;
+    Ok(LinuxCliCommand::PrepareConfig {
+        config_path: Some(config_path.clone()),
+        format: options.format,
+    })
+}
+
+fn parse_subscription_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(subcommand) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "subscription requires add, list, update, remove, select, rollback, or refresh",
+        ));
+    };
+    if subcommand == "refresh" {
+        return parse_subscription_refresh_command(&args[1..]);
+    }
+    let options = parse_options(&args[1..])?;
+    let catalog_path = options.catalog_path.clone().ok_or_else(|| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "subscription commands require --catalog <absolute-path>",
+        )
+    })?;
+    let snapshot_path = || {
+        options.snapshot_path.clone().ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "subscription mutation requires --snapshot <absolute-path>",
+            )
+        })
+    };
+    let source_id = || {
+        options.source_id.clone().ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "subscription source command requires --source-id <id>",
+            )
+        })
+    };
+    let location = || {
+        options.url.clone().ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "subscription source mutation requires --url <location>",
+            )
+        })
+    };
+    match subcommand.as_str() {
+        "add" => Ok(LinuxCliCommand::SubscriptionAdd {
+            catalog_path,
+            snapshot_path: snapshot_path()?,
+            source_id: source_id()?,
+            location: location()?,
+            format: options.format,
+        }),
+        "list" => Ok(LinuxCliCommand::SubscriptionList {
+            catalog_path,
+            format: options.format,
+        }),
+        "update" => Ok(LinuxCliCommand::SubscriptionUpdate {
+            catalog_path,
+            snapshot_path: snapshot_path()?,
+            source_id: source_id()?,
+            location: location()?,
+            format: options.format,
+        }),
+        "remove" => Ok(LinuxCliCommand::SubscriptionRemove {
+            catalog_path,
+            snapshot_path: snapshot_path()?,
+            source_id: source_id()?,
+            format: options.format,
+        }),
+        "select" => Ok(LinuxCliCommand::SubscriptionSelect {
+            catalog_path,
+            source_id: source_id()?,
+            format: options.format,
+        }),
+        "rollback" => Ok(LinuxCliCommand::SubscriptionRollback {
+            catalog_path,
+            snapshot_path: snapshot_path()?,
+            format: options.format,
+        }),
+        _ => Err(parse_error(
+            CLI_ARGUMENT_UNKNOWN_CODE,
+            format!("unknown subscription subcommand: {subcommand}"),
+        )),
+    }
+}
+
+fn parse_subscription_refresh_command(
+    args: &[String],
+) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(operation) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "subscription refresh requires start, status, stop, or schedule",
+        ));
+    };
+    if operation == "schedule" {
+        return parse_subscription_refresh_schedule_command(&args[1..]);
+    }
+    let options = parse_options(&args[1..])?;
+    let status_path = options.refresh_status_path.ok_or_else(|| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "subscription refresh requires --refresh-status <path>",
+        )
+    })?;
+    match operation.as_str() {
+        "status" => Ok(LinuxCliCommand::SubscriptionRefreshStatus {
+            status_path,
+            format: options.format,
+        }),
+        "stop" => Ok(LinuxCliCommand::SubscriptionRefreshStop {
+            status_path,
+            source_id: options.source_id.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh stop requires --source-id <id>",
+                )
+            })?,
+            confirm: options.confirm,
+            format: options.format,
+        }),
+        "start" => Ok(LinuxCliCommand::SubscriptionRefreshStart {
+            catalog_path: options.catalog_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh start requires --catalog <path>",
+                )
+            })?,
+            status_path,
+            snapshot_path: options.snapshot_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh start requires --snapshot <path>",
+                )
+            })?,
+            source_id: options.source_id.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh start requires --source-id <id>",
+                )
+            })?,
+            interval_seconds: options
+                .refresh_interval_seconds
+                .unwrap_or(SUBSCRIPTION_REFRESH_MIN_INTERVAL_SECONDS),
+            confirm: options.confirm,
+            format: options.format,
+        }),
+        _ => Err(parse_error(
+            CLI_ARGUMENT_UNKNOWN_CODE,
+            "subscription refresh accepts start, status, stop, or schedule",
+        )),
+    }
+}
+
+fn parse_subscription_refresh_schedule_command(
+    args: &[String],
+) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(operation) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "subscription refresh schedule requires install, status, stop, or uninstall",
+        ));
+    };
+    let options = parse_options(&args[1..])?;
+    let unit_name = || {
+        options.refresh_schedule_unit_name.clone().ok_or_else(|| {
+            parse_error(
+                CLI_ARGUMENT_VALUE_MISSING_CODE,
+                "subscription refresh schedule requires --unit-name <base-name>",
+            )
+        })
+    };
+    match operation.as_str() {
+        "install" => Ok(LinuxCliCommand::SubscriptionRefreshScheduleInstall {
+            catalog_path: options.catalog_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh schedule install requires --catalog <path>",
+                )
+            })?,
+            status_path: options.refresh_status_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh schedule install requires --refresh-status <path>",
+                )
+            })?,
+            snapshot_path: options.snapshot_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh schedule install requires --snapshot <path>",
+                )
+            })?,
+            source_id: options.source_id.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh schedule install requires --source-id <id>",
+                )
+            })?,
+            interval_seconds: options.refresh_interval_seconds.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh schedule install requires --interval-seconds <>=300>",
+                )
+            })?,
+            unit_name: unit_name()?,
+            confirm: options.confirm,
+            format: options.format,
+        }),
+        "status" => Ok(LinuxCliCommand::SubscriptionRefreshScheduleStatus {
+            unit_name: unit_name()?,
+            snapshot_path: options.snapshot_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh schedule status requires --snapshot <path>",
+                )
+            })?,
+            format: options.format,
+        }),
+        "stop" => Ok(LinuxCliCommand::SubscriptionRefreshScheduleStop {
+            unit_name: unit_name()?,
+            snapshot_path: options.snapshot_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh schedule stop requires --snapshot <path>",
+                )
+            })?,
+            confirm: options.confirm,
+            format: options.format,
+        }),
+        "uninstall" => Ok(LinuxCliCommand::SubscriptionRefreshScheduleUninstall {
+            unit_name: unit_name()?,
+            snapshot_path: options.snapshot_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "subscription refresh schedule uninstall requires --snapshot <path>",
+                )
+            })?,
+            confirm: options.confirm,
+            format: options.format,
+        }),
+        _ => Err(parse_error(
+            CLI_ARGUMENT_UNKNOWN_CODE,
+            "subscription refresh schedule accepts install, status, stop, or uninstall",
+        )),
+    }
+}
+
+fn parse_core_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(subcommand) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "core requires list or install <sing-box|mieru>",
+        ));
+    };
+    match subcommand.as_str() {
+        "list" => {
+            let options = parse_options(&args[1..])?;
+            Ok(LinuxCliCommand::CoreList {
+                format: options.format,
+            })
+        }
+        "install" => {
+            let Some(engine) = args.get(1) else {
+                return Err(parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "core install requires sing-box or mieru",
+                ));
+            };
+            if engine == "sing-box" {
+                let options = parse_options(&args[2..])?;
+                return Ok(LinuxCliCommand::InstallSingBox {
+                    install_dir: options.install_dir,
+                    force: options.force,
+                    format: options.format,
+                });
+            }
+            if engine != "mieru" {
+                return Err(parse_error(
+                    CLI_ARGUMENT_UNKNOWN_CODE,
+                    "core install accepts only sing-box or mieru",
+                ));
+            }
+            let options = parse_options(&args[2..])?;
+            let binary_path = options.mieru_binary_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "core install mieru requires --binary <local-path>",
+                )
+            })?;
+            let expected_sha256 = options.mieru_sha256.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "core install mieru requires --sha256 <digest>",
+                )
+            })?;
+            Ok(LinuxCliCommand::InstallMieru {
+                binary_path,
+                expected_sha256,
+                release_url: options.url,
+                confirm: options.confirm,
+                force: options.force,
+                format: options.format,
+            })
+        }
+        "start" | "stop" | "status" => {
+            let Some(engine) = args.get(1) else {
+                return Err(parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "core start/stop/status requires mieru",
+                ));
+            };
+            if engine != "mieru" {
+                return Err(parse_error(
+                    CLI_ARGUMENT_UNKNOWN_CODE,
+                    "core start/stop/status currently accepts only mieru",
+                ));
+            }
+            let options = parse_options(&args[2..])?;
+            let binary_path = options.mieru_binary_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "core start/stop/status mieru requires --binary <local-path>",
+                )
+            })?;
+            let expected_sha256 = options.mieru_sha256.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "core start/stop/status mieru requires --sha256 <digest>",
+                )
+            })?;
+            let config_path = options.config_path.ok_or_else(|| {
+                parse_error(
+                    CLI_ARGUMENT_VALUE_MISSING_CODE,
+                    "core start/stop/status mieru requires --config <absolute-path>",
+                )
+            })?;
+            if subcommand == "start" {
+                Ok(LinuxCliCommand::StartMieru {
+                    binary_path,
+                    expected_sha256,
+                    config_path,
+                    format: options.format,
+                })
+            } else if subcommand == "stop" {
+                Ok(LinuxCliCommand::StopMieru {
+                    binary_path,
+                    expected_sha256,
+                    config_path,
+                    format: options.format,
+                })
+            } else {
+                Ok(LinuxCliCommand::StatusMieru {
+                    binary_path,
+                    expected_sha256,
+                    config_path,
+                    format: options.format,
+                })
+            }
+        }
+        _ => Err(parse_error(
+            CLI_ARGUMENT_UNKNOWN_CODE,
+            format!("unknown core subcommand: {subcommand}"),
+        )),
+    }
+}
+
+fn parse_run_catalog_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(catalog_path) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "run-catalog requires an explicit catalog path and source id",
+        ));
+    };
+    let Some(source_id) = args.get(1) else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "run-catalog requires a source id after the catalog path",
+        ));
+    };
+    if catalog_path.starts_with("--") || source_id.starts_with("--") {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "run-catalog requires a catalog path and source id before options",
+        ));
+    }
+    let options = parse_options(&args[2..])?;
+
+    Ok(LinuxCliCommand::RunCatalog {
+        catalog_path: catalog_path.clone(),
+        source_id: source_id.clone(),
+        selected_node_id: options.selected_node_id,
+        listen_host: options
+            .listen_host
+            .unwrap_or_else(|| "127.0.0.1".to_string()),
+        listen_port: options.listen_port.unwrap_or(7890),
+        install_dir: options.install_dir,
+        mieru_binary_path: options.mieru_binary_path,
+        mieru_sha256: options.mieru_sha256,
         force: options.force,
         format: options.format,
     })
@@ -9706,6 +16528,9 @@ fn parse_managed_event_command(args: &[String]) -> Result<LinuxCliCommand, Linux
         if subcommand == "init" {
             return parse_managed_event_init_command(&args[1..]);
         }
+        if subcommand == "list" {
+            return parse_managed_event_list_command(&args[1..]);
+        }
     }
 
     let Some(event_path) = args.first() else {
@@ -9724,6 +16549,60 @@ fn parse_managed_event_command(args: &[String]) -> Result<LinuxCliCommand, Linux
 
     Ok(LinuxCliCommand::ManagedEvent {
         event_path: event_path.clone(),
+        format: options.format,
+    })
+}
+
+fn parse_managed_log_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(log_path) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-log requires an explicit log file path",
+        ));
+    };
+    if log_path.starts_with("--") {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-log requires a log file path before options",
+        ));
+    }
+    let options = parse_options(&args[1..])?;
+
+    Ok(LinuxCliCommand::ManagedLog {
+        log_path: log_path.clone(),
+        line_limit: options
+            .managed_log_line_limit
+            .unwrap_or(MANAGED_FOREGROUND_LOG_TAIL_DEFAULT_LIMIT),
+        format: options.format,
+    })
+}
+
+fn parse_managed_event_list_command(
+    args: &[String],
+) -> Result<LinuxCliCommand, LinuxCliParseError> {
+    let Some(event_directory) = args.first() else {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event list requires an explicit event directory path",
+        ));
+    };
+    if event_directory.starts_with("--") {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "managed-event list requires an event directory path before options",
+        ));
+    }
+    let options = parse_options(&args[1..])?;
+
+    Ok(LinuxCliCommand::ManagedEventList {
+        event_directory: event_directory.clone(),
+        session_id: options.managed_event_session_id,
+        event_kind: options.managed_event_kind,
+        state: options.managed_event_state,
+        cursor: options.managed_event_cursor.unwrap_or(0),
+        limit: options
+            .managed_event_limit
+            .unwrap_or(MANAGED_FOREGROUND_EVENT_HISTORY_DEFAULT_LIMIT),
         format: options.format,
     })
 }
@@ -9889,6 +16768,25 @@ fn parse_mitm_certificate_command(args: &[String]) -> Result<LinuxCliCommand, Li
             let options = parse_options(&args[1..])?;
             Ok(LinuxCliCommand::MitmCertificateRollback {
                 snapshot_path: options.snapshot_path,
+                format: options.format,
+            })
+        }
+        "trust-apply" | "trust" => {
+            let options = parse_options(&args[1..])?;
+            Ok(LinuxCliCommand::MitmCertificateTrustApply {
+                certificate_path: options.cert_file_path,
+                trust_file_path: options.trust_file_path,
+                snapshot_path: options.snapshot_path,
+                confirm: options.confirm,
+                format: options.format,
+            })
+        }
+        "trust-rollback" => {
+            let options = parse_options(&args[1..])?;
+            Ok(LinuxCliCommand::MitmCertificateTrustRollback {
+                trust_file_path: options.trust_file_path,
+                snapshot_path: options.snapshot_path,
+                confirm: options.confirm,
                 format: options.format,
             })
         }
@@ -10155,6 +17053,47 @@ fn parse_http_status_code(value: &str) -> Result<u16, LinuxCliParseError> {
     Ok(parsed)
 }
 
+fn parse_managed_event_history_cursor(value: &str) -> Result<usize, LinuxCliParseError> {
+    value.parse::<usize>().map_err(|_| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            "--cursor requires a non-negative managed event history offset",
+        )
+    })
+}
+
+fn parse_managed_event_history_limit(value: &str) -> Result<usize, LinuxCliParseError> {
+    let limit = value.parse::<usize>().map_err(|_| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            format!("--limit must be between 1 and {MANAGED_FOREGROUND_EVENT_HISTORY_MAX_LIMIT}"),
+        )
+    })?;
+    if !(1..=MANAGED_FOREGROUND_EVENT_HISTORY_MAX_LIMIT).contains(&limit) {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            format!("--limit must be between 1 and {MANAGED_FOREGROUND_EVENT_HISTORY_MAX_LIMIT}"),
+        ));
+    }
+    Ok(limit)
+}
+
+fn parse_managed_log_tail_limit(value: &str) -> Result<usize, LinuxCliParseError> {
+    let limit = value.parse::<usize>().map_err(|_| {
+        parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            format!("--tail-lines must be between 1 and {MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT}"),
+        )
+    })?;
+    if !(1..=MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT).contains(&limit) {
+        return Err(parse_error(
+            CLI_ARGUMENT_VALUE_MISSING_CODE,
+            format!("--tail-lines must be between 1 and {MANAGED_FOREGROUND_LOG_TAIL_MAX_LIMIT}"),
+        ));
+    }
+    Ok(limit)
+}
+
 fn parse_http_rewrite_phase_name(value: &str) -> Result<String, LinuxCliParseError> {
     let normalized = value.to_ascii_lowercase();
     match normalized.as_str() {
@@ -10195,22 +17134,70 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux version [--format text|json]\n",
         "  networkcore-linux capabilities [--format text|json]\n",
         "  networkcore-linux prepare-config --config <path> [--format text|json]\n",
-        "  networkcore-linux start --config <path> [--enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path>] [--enable-script-runtime --script-runner <path> --script-map <url=file> ...] --confirm [--format text|json]\n",
-        "  networkcore-linux stop [--format text|json]\n",
-        "  networkcore-linux status [--format text|json]\n",
+        "  networkcore-linux validate <config-path> [--format text|json]\n",
+        "  networkcore-linux core list [--format text|json]\n",
+        "  networkcore-linux subscription add --catalog <path> --snapshot <path> --source-id <id> --url <location> [--format text|json]\n",
+        "  networkcore-linux subscription list --catalog <path> [--format text|json]\n",
+        "  networkcore-linux subscription update --catalog <path> --snapshot <path> --source-id <id> --url <location> [--format text|json]\n",
+        "  networkcore-linux subscription remove --catalog <path> --snapshot <path> --source-id <id> [--format text|json]\n",
+        "  networkcore-linux subscription select --catalog <path> --source-id <id> [--format text|json]\n",
+        "  networkcore-linux subscription rollback --catalog <path> --snapshot <path> [--format text|json]\n",
+        "  networkcore-linux subscription refresh start --catalog <path> --refresh-status <path> --snapshot <path> --source-id <id> [--interval-seconds <>=300>] --confirm [--format text|json]\n",
+        "  networkcore-linux subscription refresh status --refresh-status <path> [--format text|json]\n",
+        "  networkcore-linux subscription refresh stop --refresh-status <path> --source-id <id> --confirm [--format text|json]\n",
+        "  networkcore-linux subscription refresh schedule install --catalog <path> --refresh-status <path> --snapshot <path> --source-id <id> --interval-seconds <>=300> --unit-name <base-name> --confirm [--format text|json]\n",
+        "  networkcore-linux subscription refresh schedule status --unit-name <base-name> --snapshot <path> [--format text|json]\n",
+        "  networkcore-linux subscription refresh schedule stop --unit-name <base-name> --snapshot <path> --confirm [--format text|json]\n",
+        "  networkcore-linux subscription refresh schedule uninstall --unit-name <base-name> --snapshot <path> --confirm [--format text|json]\n",
+        "  networkcore-linux core install sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
+        "  networkcore-linux core install mieru --binary <local-path> --sha256 <digest> [--format text|json]\n",
+        "  networkcore-linux core install mieru --url <official-release-asset> --binary <destination> --sha256 <digest> --confirm [--force] [--format text|json]\n",
+        "  networkcore-linux core start mieru --binary <local-path> --sha256 <digest> --config <absolute-path> [--format text|json]\n",
+        "  networkcore-linux core stop mieru --binary <local-path> --sha256 <digest> --config <absolute-path> [--format text|json]\n",
+        "  networkcore-linux core status mieru --binary <local-path> --sha256 <digest> --config <absolute-path> [--format text|json]\n",
+        "  networkcore-linux start --config <path> [--managed-status <path> --managed-snapshot <path> --managed-events <dir> [--managed-control-socket <absolute-path>]] [--enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path>] [--enable-script-runtime --script-runner <path> --script-map <url=file> ...] --confirm [--format text|json]\n",
+        "  networkcore-linux connect --config <path> [same explicit foreground options as start]\n",
+        "  networkcore-linux stop [--managed-control-socket <absolute-path> --confirm] [--format text|json]\n",
+        "  networkcore-linux reload --managed-control-socket <absolute-path> --confirm [--format text|json]\n",
+        "  networkcore-linux rollback --managed-control-socket <absolute-path> --expected-config-version <positive-integer> --confirm [--format text|json]\n",
+        "  networkcore-linux status --managed-control-socket <absolute-path> [--format text|json]\n",
+        "  networkcore-linux disconnect [--format text|json]\n",
+        "  networkcore-linux restart [--config <path>] [--format text|json]\n",
+        "  networkcore-linux status [--service-unit <name>] [--format text|json]\n",
         "  networkcore-linux managed-status <status-record-path> [--format text|json]\n",
         "  networkcore-linux managed-status init <status-record-path> <session-id> <engine-id> <state> [--format text|json]\n",
         "  networkcore-linux managed-status transition <status-record-path> <snapshot-path> <expected-state> <next-state> [--format text|json]\n",
         "  networkcore-linux managed-status rollback <status-record-path> <snapshot-path> <expected-state> [--format text|json]\n",
         "  networkcore-linux managed-event <event-record-path> [--format text|json]\n",
+        "  networkcore-linux managed-event list <event-directory> [--session-id <id>] [--event-kind <kind>] [--state <state>] [--cursor <offset>] [--limit <1-100>] [--format text|json]\n",
         "  networkcore-linux managed-event init <event-record-path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at> [--format text|json]\n",
+        "  networkcore-linux managed-log <log-file-path> [--tail-lines <1-1000>] [--format text|json]\n",
         "  networkcore-linux diagnostics [--format text|json]\n",
         "  networkcore-linux mitm [status|diagnostics|certificate-plan|browser-plan] [--format text|json]\n",
         "  networkcore-linux mitm certificate [plan|apply|rollback] [--cert-file <path>] [--key-file <path>] [--profile-trust-file <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
+        "  networkcore-linux mitm certificate trust-apply --cert-file <path> --trust-file <path> --snapshot <path> --confirm\n",
+        "  networkcore-linux mitm certificate trust-rollback --trust-file <path> --snapshot <path> --confirm\n",
         "  networkcore-linux mitm browser-capture [plan|launch-plan|session-plan|launch|apply|rollback|verify|traffic-proof] [<ss://url>] [--browser <executable>] [--profile-dir <dir>] [--target-url <url>] [--proxy-scheme http|socks5] [--listen-host <host>] [--listen-port <port>] [--pac-file <path>] [--policy-file <path>] [--profile-prefs-file <path>] [--proof-token <token>] [--proof-log <path>] [--confirm] [--snapshot <path>] [--format text|json]\n",
         "  networkcore-linux mitm http-rewrite [plan|preview] [--url <url>] [--method <method>] [--phase request|response] [--status-code <code>] [--header <name:value>] [--body <text>] [--confirm] [--format text|json]\n",
         "  networkcore-linux install-sing-box [--install-dir <dir>] [--force] [--format text|json]\n",
-        "  networkcore-linux run-url <ss://url> [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
+        "  networkcore-linux install-service --service-executable <absolute-path> [--service-unit <name>] [--service-description <text>] [--service-arg <arg>] [--service-user <user>] [--service-group <group>] [--service-state-dir <absolute-path>] --confirm [--format text|json]\n",
+        "  networkcore-linux service <start|stop|restart|reload> [--service-unit <name>] --confirm [--format text|json]\n",
+        "  networkcore-linux service status [--service-unit <name>] [--format text|json]\n",
+        "  networkcore-linux node list --config <absolute-path> [--format text|json]\n",
+        "  networkcore-linux node health --controller-port <loopback-port> [--format text|json]\n",
+        "  networkcore-linux node select --config <absolute-path> --source-id <node-id> --selection <absolute-path> --snapshot <absolute-path> --confirm [--format text|json]\n",
+        "  networkcore-linux node switch --config <absolute-path> --source-id <node-id> --selection <absolute-path> --snapshot <absolute-path> --controller-port <loopback-port> --confirm [--format text|json]\n",
+        "  networkcore-linux node rollback --selection <absolute-path> --snapshot <absolute-path> --confirm [--format text|json]\n",
+        "  networkcore-linux proxy apply --file <absolute-path> --snapshot <absolute-path> --url <proxy-url> --confirm [--format text|json]\n",
+        "  networkcore-linux proxy status --file <absolute-path> [--format text|json]\n",
+        "  networkcore-linux proxy rollback --file <absolute-path> --snapshot <absolute-path> --confirm [--format text|json]\n",
+        "  networkcore-linux restart --confirm [--service-unit <name>] [--format text|json]  # managed systemd restart\n",
+        "  networkcore-linux reload --confirm [--service-unit <name>] [--format text|json]  # managed systemd reload\n",
+        "  networkcore-linux connect|disconnect --confirm [--service-unit <name>] [--format text|json]  # managed systemd start/stop\n",
+        "  networkcore-linux uninstall-service [--service-unit <name>] [--service-state-dir <absolute-path>] --confirm [--format text|json]\n",
+        "  networkcore-linux logs <explicit-log-path> [--tail-lines <1-1000>] [--format text|json]\n",
+        "  networkcore-linux run-url <subscription-source> [--node-id <id>] [--binary <mieru-path> --sha256 <digest>] [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
+        "  networkcore-linux run-catalog <catalog-path> <source-id> [--node-id <id>] [--binary <mieru-path> --sha256 <digest>] [--listen-host <host>] [--listen-port <port>] [--install-dir <dir>] [--force] [--format text|json]\n",
         "  networkcore-linux sing-box install [--install-dir <dir>] [--force] [--format text|json]\n",
         "\n",
         "Commands:\n",
@@ -10218,30 +17205,52 @@ pub const fn cli_help_text() -> &'static str {
         "  version           Print the networkcore-linux version.\n",
         "  capabilities      Report read-only Linux platform capabilities.\n",
         "  prepare-config    Read and normalize a NetworkCore TOML config.\n",
+        "  validate          Validate one explicit config path (alias of prepare-config).\n",
+        "  core list         List adapter descriptors without starting a core.\n",
+        "  core install mieru Verify a user-supplied Mieru binary; no download or bundling occurs.\n",
+        "  core install sing-box Download and verify the official sing-box archive.\n",
+        "  core start/stop/status mieru Control or inspect the official Mieru client with explicit local paths; status does not claim listener readiness.\n",
         "  start             Start the current foreground runtime; HTTPS MITM requires explicit CA paths and confirmation.\n",
-        "  stop              Report that daemon stop is unavailable in this build.\n",
-        "  status            Report platform-only status without a daemon context.\n",
+        "  connect           Starts the foreground runtime, or starts an explicit managed systemd unit with --confirm or --service-unit.\n",
+        "  stop              Stop an explicitly managed foreground runtime through its Unix control socket; otherwise report unavailable.\n",
+        "  disconnect        Stops an explicit managed systemd unit with --confirm or --service-unit; otherwise reports foreground stop availability.\n",
+        "  restart           Restarts an explicit managed systemd unit with --confirm or --service-unit; otherwise reports unavailable.\n",
+        "  status            Reads an explicit systemd unit with --service-unit; otherwise reports platform-only status.\n",
         "  managed-status    Read one explicit managed foreground status record.\n",
         "  managed-status init Create one explicit managed foreground status record without overwriting it.\n",
         "  managed-status transition Move one explicit record through an expected-state transition.\n",
         "  managed-status rollback Restore one explicit record from a matching expected-state snapshot.\n",
         "  managed-event     Read one explicit managed foreground event record.\n",
+        "  managed-event list Query bounded, filtered event history from one explicit directory.\n",
         "  managed-event init Create one explicit managed foreground event record without overwriting it.\n",
+        "  managed-log       Read a bounded tail from one explicit managed foreground log file.\n",
         "  diagnostics       Print platform diagnostics.\n",
         "  mitm              Report MITM plugin policy status, certificate/browser plans, and deferred browser hijack gates.\n",
         "  install-sing-box  Download the latest official sing-box archive and cache its executable.\n",
+        "  install-service   Write an explicit confirmed systemd unit with snapshot/verification; never calls systemctl.\n",
+        "  service           Control one explicitly named systemd unit; mutations require --confirm and status uses is-active.\n",
+        "  node              List nodes from one explicit config; selection and runtime state are unchanged.\n",
+        "  proxy             Manage one explicit environment proxy file with snapshot and rollback.\n",
+        "  restart           Without --confirm remains foreground-unavailable; with --confirm restarts the managed unit.\n",
+        "  uninstall-service Render an explicit removal plan; user configuration/state is preserved and no files are deleted.\n",
+        "  logs              Read a bounded tail from one explicit log path; no default path scanning.\n",
         "  run-url           Parse a proxy URL, render sing-box config, and run a local foreground proxy.\n",
+        "  run-catalog       Resolve one saved source and run it through the foreground sing-box path.\n",
         "\n",
         "Options:\n",
         "  --config <path>       Config file for prepare-config and start.\n",
         "  --enable-https-mitm   Explicitly enable the controlled HTTPS MITM engine path for start; requires --confirm and both CA paths.\n",
         "  --mitm-ca-cert <path> CA certificate PEM path for explicitly enabled HTTPS MITM start.\n",
         "  --mitm-ca-key <path>  CA private key PEM path for explicitly enabled HTTPS MITM start.\n",
-        "  --enable-script-runtime Explicitly enable mapped local Node script execution for start; requires --confirm, runner, and maps.\n",
-        "  --script-runner <path> Local Node contract runner path for explicitly enabled script execution.\n",
-        "  --script-map <url=file> Explicit remote script URL to local asset mapping; repeat for each permitted script.\n",
-        "  --script-store <path> Optional JSON persistent-store path for mapped scripts.\n",
+        "  --enable-script-runtime Explicitly enable mapped local Node execution in a no-network sandbox; requires --confirm, runner, and maps.\n",
+        "  --script-runner <path> Local regular Node contract runner path for sandboxed script execution.\n",
+        "  --script-map <url=file> Explicit remote script URL to a local regular asset; repeat for each permitted script.\n",
+        "  --script-store <path> Rejected: sandboxed script execution has no persistent-store permission.\n",
         "  --node-binary <path> Node executable path or command. Defaults to node.\n",
+        "  --managed-status <path> Explicit managed foreground status record path for lifecycle recording.\n",
+        "  --managed-snapshot <path> Explicit initial managed foreground status snapshot path.\n",
+        "  --managed-events <dir> Explicit managed foreground event directory for lifecycle recording.\n",
+        "  --managed-control-socket <path> Absolute owner-only Unix socket path for managed foreground stop.\n",
         "  --browser <exe>       Browser executable for mitm browser-capture session-plan/launch. Defaults to chromium.\n",
         "  --profile-dir <dir>   Dedicated browser profile directory for mitm browser-capture session-plan/launch.\n",
         "  --target-url <url>    Optional page URL to open in the dedicated browser capture profile.\n",
@@ -10254,6 +17263,7 @@ pub const fn cli_help_text() -> &'static str {
         "  --proxy-scheme <mode> Browser explicit proxy scheme for browser-capture. Defaults to http; socks5 targets the native SOCKS5 CONNECT MITM hook.\n",
         "  --cert-file <path>    Certificate artifact path for mitm certificate apply.\n",
         "  --key-file <path>     Private key artifact path for mitm certificate apply.\n",
+        "  --trust-file <path>   Explicit Linux trust-file path for mitm certificate trust mutation.\n",
         "  --profile-trust-file <path> Dedicated profile CA trust artifact path for mitm certificate apply.\n",
         "  --pac-file <path>     PAC file path for mitm browser-capture apply.\n",
         "  --policy-file <path>  Chromium/Chrome managed proxy policy file artifact for mitm browser-capture apply.\n",
@@ -10261,6 +17271,16 @@ pub const fn cli_help_text() -> &'static str {
         "  --proof-token <token> Browser traffic proof token expected in a proof log.\n",
         "  --proof-log <path>    Browser traffic proof log path to inspect after an operator-driven visit.\n",
         "  --install-dir <dir>   Engine cache root for install-sing-box.\n",
+        "  --service-unit <name> Systemd unit name. Defaults to networkcore.service.\n",
+        "  --service-description <text> Systemd service description.\n",
+        "  --service-executable <path> Absolute executable path for the managed service.\n",
+        "  --service-arg <arg>   One argument passed to the managed executable; repeat as needed.\n",
+        "  --service-user <user> Non-root service account. Defaults to networkcore.\n",
+        "  --service-group <group> Non-root service group. Defaults to networkcore.\n",
+        "  --service-state-dir <path> Absolute writable state directory. Defaults to /var/lib/networkcore.\n",
+        "  --node-id <id>        Catalog node id for run-url. Defaults to the first supported node.\n",
+        "  --binary <path>       Required local Mieru binary when the selected node is mierus://.\n",
+        "  --sha256 <digest>     Required Mieru SHA-256 digest when the selected node is mierus://.\n",
         "  --listen-host <host>  Local proxy listen address for run-url. Defaults to 127.0.0.1.\n",
         "  --listen-port <port>  Local proxy listen port for run-url. Defaults to 7890.\n",
         "  --force               Redownload and replace an existing cached sing-box executable.\n",
@@ -10473,6 +17493,80 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
     let state = if response.ok { "ok" } else { "error" };
     let mut lines = vec![format!("{}: {state}", response.command)];
 
+    if let Some(plan) = &response.service_install {
+        lines.push(format!("systemd unit: {}", plan.unit_name));
+        lines.push(format!(
+            "install confirmation required: {}",
+            plan.install_confirmation_required
+        ));
+        lines.push(format!("restart policy: {}", plan.restart_policy));
+        lines.push("unit content:".to_string());
+        lines.push(plan.content.clone());
+    }
+    if let Some(plan) = &response.service_removal {
+        lines.push(format!("systemd unit: {}", plan.unit_name));
+        lines.push(format!("unit path: {}", plan.unit_path.display()));
+        lines.push(format!(
+            "preserved state directory: {}",
+            plan.preserved_state_directory.display()
+        ));
+        lines.push(format!(
+            "purge confirmation required: {}",
+            plan.purge_confirmation_required
+        ));
+    }
+    if !response.core_engines.is_empty() {
+        for engine in &response.core_engines {
+            lines.push(format!(
+                "core: {} ({}) version={} capabilities={}",
+                engine.id,
+                engine.kind,
+                engine.version.as_deref().unwrap_or("unknown"),
+                engine.capabilities.join(",")
+            ));
+        }
+    }
+    if let Some(catalog) = &response.node_catalog {
+        lines.push(format!(
+            "node catalog: source={} schema_version={} selection_mutated={} nodes={}",
+            catalog.source,
+            catalog.schema_version,
+            catalog.selection_mutated,
+            catalog.nodes.len()
+        ));
+        for node in &catalog.nodes {
+            lines.push(format!(
+                "node: id={} name={} protocol={} tags={}",
+                node.id,
+                node.name,
+                node.protocol,
+                node.tags.join(",")
+            ));
+        }
+    }
+    if let Some(health) = &response.node_health {
+        lines.push(format!(
+            "node health: controller={}:{} selector={} current={} outbound_count={} readback_confirmed={} full_proxy_health_claimed={}",
+            health.controller_host,
+            health.controller_port,
+            health.selector_tag,
+            health.current_outbound_tag,
+            health.outbound_count,
+            health.selector_readback_confirmed,
+            health.full_proxy_health_claimed
+        ));
+    }
+    if let Some(install) = &response.mieru_install {
+        lines.push(format!("Mieru binary: {}", install.binary_path));
+        lines.push(format!("Mieru sha256: {}", install.sha256));
+        lines.push(format!("Mieru verified: {}", install.verified));
+        lines.push(format!("Mieru downloaded: {}", install.downloaded));
+        lines.push(format!("Mieru action: {}", install.action));
+        if let Some(config_path) = &install.config_path {
+            lines.push(format!("Mieru config: {config_path}"));
+        }
+    }
+
     if let Some(install) = &response.sing_box_install {
         lines.push(format!("sing-box version: {}", install.version));
         lines.push(format!("target: {}", install.target));
@@ -10635,6 +17729,62 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
         ));
     }
 
+    if let Some(history) = &response.managed_foreground_event_history {
+        lines.push(format!(
+            "managed foreground event history directory: {}",
+            history.event_directory
+        ));
+        lines.push(format!(
+            "managed foreground event history session filter: {}",
+            history.session_id.as_deref().unwrap_or("none")
+        ));
+        lines.push(format!(
+            "managed foreground event history kind filter: {}",
+            history.event_kind.as_deref().unwrap_or("none")
+        ));
+        lines.push(format!(
+            "managed foreground event history state filter: {}",
+            history.state.as_deref().unwrap_or("none")
+        ));
+        lines.push(format!(
+            "managed foreground event history cursor: {}",
+            history.cursor
+        ));
+        lines.push(format!(
+            "managed foreground event history next cursor: {}",
+            history
+                .next_cursor
+                .map(|cursor| cursor.to_string())
+                .as_deref()
+                .unwrap_or("none")
+        ));
+        lines.push(format!(
+            "managed foreground event history matching count: {}",
+            history.matching_event_count
+        ));
+        lines.push(format!(
+            "managed foreground event history returned count: {}",
+            history.events.len()
+        ));
+        for (offset, event) in history.events.iter().enumerate() {
+            let index = history.cursor + offset;
+            lines.push(format!(
+                "managed foreground event history entry {index}: id={} kind={} state={} recorded_at={} session={} engine={} path={}",
+                event.event_id,
+                event.event_kind,
+                event.state,
+                event.recorded_at,
+                event.session_id,
+                event.engine_id,
+                event.event_path
+            ));
+        }
+        lines.push(format!(
+            "managed foreground liveness verified: {}",
+            history.liveness_verified
+        ));
+    }
+
     if let Some(event_write) = &response.managed_foreground_event_write {
         lines.push(format!(
             "managed foreground event record: {}",
@@ -10671,6 +17821,36 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
         lines.push(format!(
             "managed foreground liveness verified: {}",
             event_write.liveness_verified
+        ));
+    }
+
+    if let Some(log_tail) = &response.managed_foreground_log_tail {
+        lines.push(format!("managed foreground log: {}", log_tail.log_path));
+        lines.push(format!(
+            "managed foreground log line limit: {}",
+            log_tail.line_limit
+        ));
+        lines.push(format!(
+            "managed foreground log total lines: {}",
+            log_tail.total_line_count
+        ));
+        lines.push(format!(
+            "managed foreground log returned lines: {}",
+            log_tail.lines.len()
+        ));
+        lines.push(format!(
+            "managed foreground log returned bytes: {}",
+            log_tail.returned_byte_count
+        ));
+        for (index, line) in log_tail.lines.iter().enumerate() {
+            lines.push(format!(
+                "managed foreground log line {index}: {}",
+                redact_cli_output_text(line)
+            ));
+        }
+        lines.push(format!(
+            "managed foreground liveness verified: {}",
+            log_tail.liveness_verified
         ));
     }
 
@@ -11101,7 +18281,7 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
 
     if let Some(rewrite) = &response.http_rewrite {
         lines.push(format!(
-            "http rewrite {}: {} mutation_ready={} live_traffic_ready={} tls_decryption_ready={} controlled_tls_termination_plan_ready={} downstream_tls_termination_plan_ready={} upstream_tls_forwarding_ready={} https_request_rewrite_preview_ready={} https_response_rewrite_preview_ready={} https_response_rewrite_ready={} script_dispatch_ready={}",
+            "http rewrite {}: {} mutation_ready={} live_traffic_ready={} tls_decryption_ready={} controlled_tls_termination_plan_ready={} downstream_tls_termination_plan_ready={} upstream_tls_forwarding_ready={} https_request_rewrite_preview_ready={} https_response_rewrite_preview_ready={} https_response_rewrite_ready={} script_dispatch_ready={} certificate_pinning_bypass_supported={} http2_mitm_supported={} http3_quic_mitm_supported={}",
             rewrite.action,
             rewrite.gate_status,
             rewrite.mutation_ready,
@@ -11113,7 +18293,10 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             rewrite.https_request_rewrite_preview_ready,
             rewrite.https_response_rewrite_preview_ready,
             rewrite.https_response_rewrite_ready,
-            rewrite.script_dispatch_ready
+            rewrite.script_dispatch_ready,
+            rewrite.certificate_pinning_bypass_supported,
+            rewrite.http2_mitm_supported,
+            rewrite.http3_quic_mitm_supported
         ));
         lines.push(format!(
             "http rewrite source contract: {}",
@@ -11157,10 +18340,11 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
                 lines.push(format!("http rewrite redirect location: {location}"));
             }
             lines.push(format!(
-                "http rewrite mutations: headers={} body_mutated={} script_dispatch_deferred={}",
+                "http rewrite mutations: headers={} body_mutated={} script_dispatch_deferred={} script_dispatch_failed={}",
                 outcome.header_mutation_count,
                 outcome.body_mutated,
-                outcome.script_dispatch_deferred
+                outcome.script_dispatch_deferred,
+                outcome.script_dispatch_failed
             ));
             for header in &outcome.output_headers {
                 lines.push(format!(
@@ -11182,7 +18366,7 @@ fn render_text_response(response: &LinuxCliResponse) -> String {
             "{} {}: {}",
             severity_name(diagnostic.severity),
             diagnostic.code,
-            diagnostic.message
+            redact_cli_output_text(&diagnostic.message)
         ));
     }
 
@@ -11243,13 +18427,21 @@ struct JsonCliResponse {
         Option<JsonManagedForegroundSessionStatusTransitionReport>,
     managed_foreground_status_rollback: Option<JsonManagedForegroundSessionStatusRollbackReport>,
     managed_foreground_event: Option<JsonManagedForegroundSessionEventReport>,
+    managed_foreground_event_history: Option<JsonManagedForegroundSessionEventHistoryReport>,
     managed_foreground_event_write: Option<JsonManagedForegroundSessionEventWriteReport>,
+    managed_foreground_log_tail: Option<JsonManagedForegroundSessionLogTailReport>,
     sing_box_install: Option<JsonSingBoxInstallStatus>,
     sing_box_run: Option<JsonSingBoxRunStatus>,
     mitm_status: Option<JsonMitmStatus>,
     certificate_lifecycle: Option<JsonMitmCertificateLifecycleReport>,
     browser_capture: Option<JsonBrowserCaptureReport>,
     http_rewrite: Option<JsonMitmHttpRewriteReport>,
+    service_install: Option<JsonLinuxManagedServiceUnitPlan>,
+    service_removal: Option<JsonLinuxManagedServiceUnitRemovalPlan>,
+    core_engines: Vec<JsonLinuxCoreEngineSummary>,
+    node_catalog: Option<JsonLinuxNodeCatalogReport>,
+    node_health: Option<JsonLinuxNodeHealthReport>,
+    mieru_install: Option<JsonLinuxMieruInstallStatus>,
 }
 
 impl From<&LinuxCliResponse> for JsonCliResponse {
@@ -11287,10 +18479,18 @@ impl From<&LinuxCliResponse> for JsonCliResponse {
                 .managed_foreground_event
                 .as_ref()
                 .map(JsonManagedForegroundSessionEventReport::from),
+            managed_foreground_event_history: response
+                .managed_foreground_event_history
+                .as_ref()
+                .map(JsonManagedForegroundSessionEventHistoryReport::from),
             managed_foreground_event_write: response
                 .managed_foreground_event_write
                 .as_ref()
                 .map(JsonManagedForegroundSessionEventWriteReport::from),
+            managed_foreground_log_tail: response
+                .managed_foreground_log_tail
+                .as_ref()
+                .map(JsonManagedForegroundSessionLogTailReport::from),
             sing_box_install: response
                 .sing_box_install
                 .as_ref()
@@ -11312,6 +18512,188 @@ impl From<&LinuxCliResponse> for JsonCliResponse {
                 .http_rewrite
                 .as_ref()
                 .map(JsonMitmHttpRewriteReport::from),
+            service_install: response
+                .service_install
+                .as_ref()
+                .map(JsonLinuxManagedServiceUnitPlan::from),
+            service_removal: response
+                .service_removal
+                .as_ref()
+                .map(JsonLinuxManagedServiceUnitRemovalPlan::from),
+            core_engines: response
+                .core_engines
+                .iter()
+                .map(JsonLinuxCoreEngineSummary::from)
+                .collect(),
+            node_catalog: response
+                .node_catalog
+                .as_ref()
+                .map(JsonLinuxNodeCatalogReport::from),
+            node_health: response
+                .node_health
+                .as_ref()
+                .map(JsonLinuxNodeHealthReport::from),
+            mieru_install: response
+                .mieru_install
+                .as_ref()
+                .map(JsonLinuxMieruInstallStatus::from),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonLinuxNodeHealthReport {
+    controller_host: String,
+    controller_port: u16,
+    selector_tag: String,
+    current_outbound_tag: String,
+    outbound_count: usize,
+    selector_readback_confirmed: bool,
+    full_proxy_health_claimed: bool,
+}
+
+impl From<&LinuxNodeHealthReport> for JsonLinuxNodeHealthReport {
+    fn from(report: &LinuxNodeHealthReport) -> Self {
+        Self {
+            controller_host: report.controller_host.clone(),
+            controller_port: report.controller_port,
+            selector_tag: report.selector_tag.clone(),
+            current_outbound_tag: report.current_outbound_tag.clone(),
+            outbound_count: report.outbound_count,
+            selector_readback_confirmed: report.selector_readback_confirmed,
+            full_proxy_health_claimed: report.full_proxy_health_claimed,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonLinuxNodeCatalogReport {
+    schema_version: u32,
+    source: String,
+    selection_mutated: bool,
+    nodes: Vec<JsonLinuxNodeCatalogEntry>,
+}
+
+impl From<&LinuxNodeCatalogReport> for JsonLinuxNodeCatalogReport {
+    fn from(report: &LinuxNodeCatalogReport) -> Self {
+        Self {
+            schema_version: report.schema_version,
+            source: report.source.clone(),
+            selection_mutated: report.selection_mutated,
+            nodes: report
+                .nodes
+                .iter()
+                .map(JsonLinuxNodeCatalogEntry::from)
+                .collect(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonLinuxNodeCatalogEntry {
+    id: String,
+    name: String,
+    protocol: String,
+    tags: Vec<String>,
+}
+
+impl From<&LinuxNodeCatalogEntry> for JsonLinuxNodeCatalogEntry {
+    fn from(entry: &LinuxNodeCatalogEntry) -> Self {
+        Self {
+            id: entry.id.clone(),
+            name: entry.name.clone(),
+            protocol: entry.protocol.clone(),
+            tags: entry.tags.clone(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonLinuxManagedServiceUnitPlan {
+    schema_version: u32,
+    unit_name: String,
+    content: String,
+    install_confirmation_required: bool,
+    restart_policy: String,
+    start_limit_burst: u32,
+    start_limit_interval_seconds: u32,
+}
+
+impl From<&LinuxManagedServiceUnitPlan> for JsonLinuxManagedServiceUnitPlan {
+    fn from(plan: &LinuxManagedServiceUnitPlan) -> Self {
+        Self {
+            schema_version: plan.schema_version,
+            unit_name: plan.unit_name.clone(),
+            content: plan.content.clone(),
+            install_confirmation_required: plan.install_confirmation_required,
+            restart_policy: plan.restart_policy.clone(),
+            start_limit_burst: plan.start_limit_burst,
+            start_limit_interval_seconds: plan.start_limit_interval_seconds,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonLinuxManagedServiceUnitRemovalPlan {
+    schema_version: u32,
+    unit_name: String,
+    unit_path: String,
+    confirmation_required: bool,
+    purge_confirmation_required: bool,
+    preserved_state_directory: String,
+}
+
+impl From<&LinuxManagedServiceUnitRemovalPlan> for JsonLinuxManagedServiceUnitRemovalPlan {
+    fn from(plan: &LinuxManagedServiceUnitRemovalPlan) -> Self {
+        Self {
+            schema_version: plan.schema_version,
+            unit_name: plan.unit_name.clone(),
+            unit_path: plan.unit_path.display().to_string(),
+            confirmation_required: plan.confirmation_required,
+            purge_confirmation_required: plan.purge_confirmation_required,
+            preserved_state_directory: plan.preserved_state_directory.display().to_string(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonLinuxCoreEngineSummary {
+    id: String,
+    kind: String,
+    version: Option<String>,
+    capabilities: Vec<String>,
+}
+
+impl From<&LinuxCoreEngineSummary> for JsonLinuxCoreEngineSummary {
+    fn from(summary: &LinuxCoreEngineSummary) -> Self {
+        Self {
+            id: summary.id.clone(),
+            kind: summary.kind.clone(),
+            version: summary.version.clone(),
+            capabilities: summary.capabilities.clone(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonLinuxMieruInstallStatus {
+    binary_path: String,
+    sha256: String,
+    verified: bool,
+    downloaded: bool,
+    action: String,
+    config_path: Option<String>,
+}
+
+impl From<&LinuxMieruInstallStatus> for JsonLinuxMieruInstallStatus {
+    fn from(status: &LinuxMieruInstallStatus) -> Self {
+        Self {
+            binary_path: status.binary_path.clone(),
+            sha256: status.sha256.clone(),
+            verified: status.verified,
+            downloaded: status.downloaded,
+            action: status.action.clone(),
+            config_path: status.config_path.clone(),
         }
     }
 }
@@ -11442,6 +18824,95 @@ impl From<&ManagedForegroundSessionEventReport> for JsonManagedForegroundSession
             event_kind: report.event_kind.clone(),
             state: report.state.clone(),
             recorded_at: report.recorded_at.clone(),
+            liveness_verified: report.liveness_verified,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonManagedForegroundSessionEventHistoryEntry {
+    event_path: String,
+    session_id: String,
+    engine_id: String,
+    event_id: String,
+    event_kind: String,
+    state: String,
+    recorded_at: String,
+}
+
+impl From<&ManagedForegroundSessionEventHistoryEntry>
+    for JsonManagedForegroundSessionEventHistoryEntry
+{
+    fn from(entry: &ManagedForegroundSessionEventHistoryEntry) -> Self {
+        Self {
+            event_path: entry.event_path.clone(),
+            session_id: entry.session_id.clone(),
+            engine_id: entry.engine_id.clone(),
+            event_id: entry.event_id.clone(),
+            event_kind: entry.event_kind.clone(),
+            state: entry.state.clone(),
+            recorded_at: entry.recorded_at.clone(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonManagedForegroundSessionEventHistoryReport {
+    event_directory: String,
+    session_id: Option<String>,
+    event_kind: Option<String>,
+    state: Option<String>,
+    cursor: usize,
+    next_cursor: Option<usize>,
+    matching_event_count: usize,
+    events: Vec<JsonManagedForegroundSessionEventHistoryEntry>,
+    liveness_verified: bool,
+}
+
+impl From<&ManagedForegroundSessionEventHistoryReport>
+    for JsonManagedForegroundSessionEventHistoryReport
+{
+    fn from(report: &ManagedForegroundSessionEventHistoryReport) -> Self {
+        Self {
+            event_directory: report.event_directory.clone(),
+            session_id: report.session_id.clone(),
+            event_kind: report.event_kind.clone(),
+            state: report.state.clone(),
+            cursor: report.cursor,
+            next_cursor: report.next_cursor,
+            matching_event_count: report.matching_event_count,
+            events: report
+                .events
+                .iter()
+                .map(JsonManagedForegroundSessionEventHistoryEntry::from)
+                .collect(),
+            liveness_verified: report.liveness_verified,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonManagedForegroundSessionLogTailReport {
+    log_path: String,
+    line_limit: usize,
+    total_line_count: usize,
+    lines: Vec<String>,
+    returned_byte_count: usize,
+    liveness_verified: bool,
+}
+
+impl From<&ManagedForegroundSessionLogTailReport> for JsonManagedForegroundSessionLogTailReport {
+    fn from(report: &ManagedForegroundSessionLogTailReport) -> Self {
+        Self {
+            log_path: report.log_path.clone(),
+            line_limit: report.line_limit,
+            total_line_count: report.total_line_count,
+            lines: report
+                .lines
+                .iter()
+                .map(|line| redact_cli_output_text(line))
+                .collect(),
+            returned_byte_count: report.returned_byte_count,
             liveness_verified: report.liveness_verified,
         }
     }
@@ -12402,6 +19873,9 @@ struct JsonMitmHttpRewriteReport {
     https_response_rewrite_preview_ready: bool,
     https_response_rewrite_ready: bool,
     script_dispatch_ready: bool,
+    certificate_pinning_bypass_supported: bool,
+    http2_mitm_supported: bool,
+    http3_quic_mitm_supported: bool,
     request: JsonMitmHttpRewriteRequest,
     outcome: Option<JsonMitmHttpRewriteOutcomeReport>,
     blocked_operations: Vec<String>,
@@ -12424,6 +19898,9 @@ impl From<&LinuxMitmHttpRewriteReport> for JsonMitmHttpRewriteReport {
             https_response_rewrite_preview_ready: report.https_response_rewrite_preview_ready,
             https_response_rewrite_ready: report.https_response_rewrite_ready,
             script_dispatch_ready: report.script_dispatch_ready,
+            certificate_pinning_bypass_supported: report.certificate_pinning_bypass_supported,
+            http2_mitm_supported: report.http2_mitm_supported,
+            http3_quic_mitm_supported: report.http3_quic_mitm_supported,
             request: JsonMitmHttpRewriteRequest::from(&report.request),
             outcome: report
                 .outcome
@@ -12511,6 +19988,7 @@ struct JsonMitmHttpRewriteOutcomeReport {
     header_mutation_count: usize,
     body_mutated: bool,
     script_dispatch_deferred: bool,
+    script_dispatch_failed: bool,
     output_headers: Vec<JsonMitmHttpHeader>,
     output_body: Option<String>,
 }
@@ -12527,6 +20005,7 @@ impl From<&LinuxMitmHttpRewriteOutcomeReport> for JsonMitmHttpRewriteOutcomeRepo
             header_mutation_count: outcome.header_mutation_count,
             body_mutated: outcome.body_mutated,
             script_dispatch_deferred: outcome.script_dispatch_deferred,
+            script_dispatch_failed: outcome.script_dispatch_failed,
             output_headers: outcome
                 .output_headers
                 .iter()
@@ -12642,7 +20121,7 @@ impl From<&Diagnostic> for JsonDiagnostic {
         Self {
             severity: severity_name(diagnostic.severity),
             code: diagnostic.code.clone(),
-            message: diagnostic.message.clone(),
+            message: redact_cli_output_text(&diagnostic.message),
             source: diagnostic.source.clone(),
         }
     }

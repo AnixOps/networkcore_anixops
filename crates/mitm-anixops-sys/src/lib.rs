@@ -14,6 +14,21 @@ pub const ANIXOPS_PLAN_HEADER_CAP: usize = 16;
 pub const ANIXOPS_HEADER_LIST_CAP: usize = 32;
 pub const ANIXOPS_BODY_CHAIN_CAP: usize = 16;
 pub const ANIXOPS_JQ_MAX_INPUT_BYTES_DEFAULT: usize = 1_048_576;
+pub const POLICY_CAPABILITY_QUERY_ABI_VERSION: u32 = 1;
+pub const POLICY_CAPABILITY_MITM_DECISION: u64 = 1 << 0;
+pub const POLICY_CAPABILITY_URL_REWRITE: u64 = 1 << 1;
+pub const POLICY_CAPABILITY_HEADER_MUTATION: u64 = 1 << 2;
+pub const POLICY_CAPABILITY_BODY_MUTATION_BYTES: u64 = 1 << 3;
+pub const POLICY_CAPABILITY_SCRIPT_DISPATCH_METADATA: u64 = 1 << 4;
+pub const POLICY_CAPABILITY_RULE_DIAGNOSTICS: u64 = 1 << 5;
+pub const POLICY_CAPABILITY_TASK_DESCRIPTOR_METADATA: u64 = 1 << 6;
+pub const POLICY_CAPABILITY_ALL_V1: u64 = POLICY_CAPABILITY_MITM_DECISION
+    | POLICY_CAPABILITY_URL_REWRITE
+    | POLICY_CAPABILITY_HEADER_MUTATION
+    | POLICY_CAPABILITY_BODY_MUTATION_BYTES
+    | POLICY_CAPABILITY_SCRIPT_DISPATCH_METADATA
+    | POLICY_CAPABILITY_RULE_DIAGNOSTICS
+    | POLICY_CAPABILITY_TASK_DESCRIPTOR_METADATA;
 
 pub const ANIXOPS_OK: c_int = 0;
 pub const ANIXOPS_ERR_INVALID_ARGUMENT: c_int = -1;
@@ -21,6 +36,23 @@ pub const ANIXOPS_ERR_OUT_OF_MEMORY: c_int = -2;
 pub const ANIXOPS_ERR_REGEX: c_int = -3;
 pub const ANIXOPS_ERR_CAPACITY: c_int = -4;
 pub const ANIXOPS_ERR_PARSE: c_int = -5;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PolicyCapabilitySet(u64);
+
+impl PolicyCapabilitySet {
+    pub const fn bits(self) -> u64 {
+        self.0
+    }
+
+    pub const fn supports(self, required: u64) -> bool {
+        required == 0 || (self.0 & required) == required
+    }
+
+    pub const fn is_v1_compatible(self) -> bool {
+        self.0 & !POLICY_CAPABILITY_ALL_V1 == 0
+    }
+}
 
 #[repr(C)]
 pub struct AnixOpsEngine {
@@ -230,6 +262,8 @@ pub struct AnixOpsRuleDiagnostic {
 unsafe extern "C" {
     pub fn anixops_version() -> *const c_char;
     pub fn anixops_status_message(status: c_int) -> *const c_char;
+    pub fn anixops_policy_capability_query_abi_version() -> u32;
+    pub fn anixops_policy_capability_flags() -> u64;
     pub fn anixops_engine_new() -> *mut AnixOpsEngine;
     pub fn anixops_engine_free(engine: *mut AnixOpsEngine);
     pub fn anixops_engine_clear(engine: *mut AnixOpsEngine);
@@ -375,6 +409,16 @@ pub fn version() -> &'static str {
         .expect("mitm_anixops version must be valid UTF-8")
 }
 
+/// Returns the ABI version for the released, process-global policy capability query.
+pub fn policy_capability_query_abi_version() -> u32 {
+    unsafe { anixops_policy_capability_query_abi_version() }
+}
+
+/// Returns the released policy capability mask reported by the linked C core.
+pub fn policy_capabilities() -> PolicyCapabilitySet {
+    PolicyCapabilitySet(unsafe { anixops_policy_capability_flags() })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -382,6 +426,22 @@ mod tests {
     #[test]
     fn linked_c_core_reports_pinned_version() {
         assert_eq!(version(), "0.45.10");
+    }
+
+    #[test]
+    fn linked_c_core_reports_v1_policy_capabilities() {
+        assert_eq!(
+            policy_capability_query_abi_version(),
+            POLICY_CAPABILITY_QUERY_ABI_VERSION
+        );
+
+        let capabilities = policy_capabilities();
+        assert_eq!(capabilities.bits(), POLICY_CAPABILITY_ALL_V1);
+        assert!(capabilities.supports(POLICY_CAPABILITY_MITM_DECISION));
+        assert!(capabilities.supports(POLICY_CAPABILITY_ALL_V1));
+        assert!(!capabilities.supports(1_u64 << 63));
+        assert!(capabilities.is_v1_compatible());
+        assert!(!PolicyCapabilitySet(POLICY_CAPABILITY_ALL_V1 | (1_u64 << 63)).is_v1_compatible());
     }
 
     #[test]

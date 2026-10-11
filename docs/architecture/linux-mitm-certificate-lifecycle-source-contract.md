@@ -9,12 +9,12 @@ mitm-certificate-lifecycle-source-contract-status=active
 MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/profile-trust-artifact-active/trust-mutation-blocked
 ```
 
-本文固定 Linux MITM certificate lifecycle 从 plan-only 进入受控 artifact lifecycle 后必须遵守的源码边界。当前仓库允许 `networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` 写入调用方显式提供路径上的 TLS 可消费 CA certificate PEM、private key PEM、可选 dedicated profile CA PEM copy 和 rollback snapshot；允许 `networkcore-linux mitm certificate rollback --snapshot <path>` 读取 NetworkCore snapshot 并删除 snapshot 管理的 artifact。该能力不安装或信任 CA，不修改 system trust store、NSS DB、p11-kit、Firefox trust store 或 profile trust state，不解密 HTTPS，也不应用 HTTP/TLS rewrite。
+本文固定 Linux MITM certificate lifecycle 从 plan-only 进入受控 artifact lifecycle 后必须遵守的源码边界。当前仓库允许 `networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` 写入调用方显式提供路径上的 TLS 可消费 CA certificate PEM、private key PEM、可选 dedicated profile CA PEM copy 和 rollback snapshot；另有独立的 `networkcore-linux mitm certificate trust-apply --confirm --cert-file <path> --trust-file <path> --snapshot <path>` Ubuntu-style 显式 trust-file 子路径，会写入同一 CA PEM 并调用 `update-ca-certificates`，对应的 `trust-rollback` 可恢复 snapshot。该子路径不自动发现发行版默认值；NSS DB、p11-kit、Firefox trust store、profile trust state、HTTPS 解密和 HTTP/TLS rewrite 仍不修改。
 
 ## Current Boundary
 
 - `networkcore-linux mitm certificate-plan` 继续输出 `mitm_status.certificate_plan`，但计划包含 `write-local-ca-artifact`、`snapshot-ca-artifact`、`write-dedicated-profile-trust-artifact` 和 `rollback-ca-artifact` active steps。
-- `networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` 通过 `CommandMitmCertificateArtifactStore` 写入 operator-provided CA certificate PEM、private key PEM、可选 dedicated profile CA PEM copy 路径和 NetworkCore rollback snapshot。
+- `networkcore-linux mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` 通过 `CommandMitmCertificateArtifactStore` 写入 operator-provided CA certificate PEM、private key PEM、可选 dedicated profile CA PEM copy 路径和 NetworkCore rollback snapshot；在 Unix 上私钥以创建时 `0600`、写后权限读回写入，无法保持 owner-only 权限时删除私钥并失败。
 - Certificate artifact content 必须是标准 PEM：`cert_content` 包含 `-----BEGIN CERTIFICATE-----`/`-----END CERTIFICATE-----`，`key_content` 包含 `-----BEGIN PRIVATE KEY-----`/`-----END PRIVATE KEY-----`，不再把 NetworkCore metadata wrapper 写入 PEM 文件。
 - `profile_trust_content` 在请求 `--profile-trust-file` 时必须等于同一 `cert_content` 的 CA PEM copy，`profile_trust_fingerprint` 必须等于 `cert_fingerprint`，且不得包含 private key PEM。
 - `CommandMitmCertificateArtifactStore` 必须在写入 snapshot、cert、key 或 profile trust file 之前防御性校验 artifact version、cert/key PEM marker、profile CA PEM copy 内容和 fingerprint invariant；非法 request 必须返回 `cli.linux.mitm.certificate.artifact.write_failed`，不得落盘。
@@ -27,7 +27,8 @@ MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/profile-trust-artifact
 - Artifact rollback 遇到外部修改时返回 `cli.linux.mitm.certificate.rollback.failed`。
 - `certificate_lifecycle` JSON report 输出 action、source contract status、gate、gate status、request、artifact request、trust_plan、apply_report 或 rollback_report。
 - `certificate_lifecycle.request.artifact`、`apply_report` 和 `rollback_report` 输出 `profile_trust_file_path`，artifact request 还输出 `profile_trust_content` 和 `profile_trust_fingerprint`。
-- `trust_plan` 固定为 `trust-mutation-blocked`，但包含 `prepare-dedicated-profile-trust-artifact` active step；仍列出 `install-ca`、`trust-ca`、`update-ca-certificates`、`mutate-nss-db`、`mutate-p11-kit`、`mutate-firefox-trust-store`、`revoke-ca` 和 `rollback-trust-store` blocked operations。
+- `certificate-plan` 与 certificate artifact lifecycle 的 `trust_plan` 固定为 `trust-mutation-blocked`，但包含 `prepare-dedicated-profile-trust-artifact` active step；它仍列出 `install-ca`、`trust-ca`、`update-ca-certificates`、`mutate-nss-db`、`mutate-p11-kit`、`mutate-firefox-trust-store`、`revoke-ca` 和 `rollback-trust-store` blocked operations。该计划不代表独立 `trust-apply` 命令的状态。
+- `platform-linux::trust` 提供 `apply_linux_trust`/`rollback_linux_trust`，要求绝对且互不相同的路径、显式确认、非覆盖 snapshot、写后精确读回、外部修改冲突检测和失败恢复；CLI 只暴露 Ubuntu-style explicit trust-file active 子路径。该子路径的边界以 `linux-trust-file-source-contract.md` 为准，不把其他 trust backend 误报为已安装。
 
 ## Source Anchors
 
@@ -55,6 +56,9 @@ MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/profile-trust-artifact
 - `--cert-file`
 - `--key-file`
 - `--profile-trust-file`
+- `trust-apply`
+- `trust-rollback`
+- `--trust-file`
 - `--snapshot`
 - `profile_trust_file_path`
 - `profile_trust_content`
@@ -68,16 +72,18 @@ MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/profile-trust-artifact
 - `cli.linux.mitm.certificate.snapshot.write_failed`
 - `cli.linux.mitm.certificate.snapshot.read_failed`
 - `cli.linux.mitm.certificate.rollback.ready`
+- `cli.linux.mitm.certificate.trust.applied`
+- `cli.linux.mitm.certificate.trust.rolled_back`
 - `cli.linux.mitm.certificate.rollback.failed`
 - `cli.linux.mitm.certificate.rollback.blocked`
 
 ## Explicitly Blocked
 
-当前合同明确禁止：
+除 `linux-trust-file-source-contract.md` 定义的、显式 `trust-apply`/`trust-rollback` Ubuntu-style trust-file 后端外，当前合同明确禁止：
 
-- 执行 `update-ca-certificates`。
+- 自动发现 trust-file 路径，或在没有显式 `--trust-file`、`--snapshot` 和 `--confirm` 的情况下执行 `update-ca-certificates`。
 - 修改 NSS DB、p11-kit 或 Firefox trust store。
-- 写入发行版专用 trust command、system trust store、browser trust store 或 profile trust state。
+- 写入其他发行版专用 trust command、system trust store、browser trust store 或 profile trust state。
 - 把 artifact 写入等同于可信 CA 安装。
 - 把 profile trust artifact 称为已信任的 profile state；它只是 caller-provided path 上的同一 CA PEM 副本。
 - 生成 live HTTPS decrypt capability 或 HTTP/TLS redirect/header/body/script rewrite。
@@ -85,4 +91,4 @@ MITM_CERTIFICATE_LIFECYCLE_GATE=artifact-lifecycle-active/profile-trust-artifact
 
 ## CI Governance
 
-CI 必须静态检查源码中的命令、类型、诊断 code、JSON report 字段、文档 anchor 和 gate 状态。任何后续把 trust mutation 从 blocked 改为 active 的提交，必须先新增单独 source contract，覆盖系统 trust store 检测、安装、撤销、rollback、发行版差异和人工授权边界。
+CI 必须静态检查源码中的命令、类型、诊断 code、JSON report 字段、文档 anchor 和 gate 状态。当前 Ubuntu-style explicit trust-file 后端已由 `linux-trust-file-source-contract.md` 固定；任何后续新增 trust backend，必须先新增单独 source contract，覆盖系统 trust store 检测、安装、撤销、rollback、发行版差异和人工授权边界。

@@ -9,7 +9,7 @@
 
 - 定义 `control-runtime` 在统一控制内核中的职责、生命周期和依赖方向。
 - 让运行层只编排 `control-domain` 中的纯领域类型与端口 trait。
-- 为配置加载、平台能力检查、代理引擎启动、热重载、停止、状态查询和诊断输出建立首批用例边界。
+- 为配置加载、平台能力检查、代理引擎准备、启动、热重载、停止、状态查询、健康证据、快照回滚和诊断输出建立首批用例边界。
 - 为 iOS 嵌入式运行时、MITM 证书信任和远程脚本禁用路径保留显式拒绝逻辑。
 
 ## 非目标
@@ -58,11 +58,14 @@
 | 用例 | 输入端口 | 输出 | 失败边界 |
 | --- | --- | --- | --- |
 | `prepare_config` | `ConfigurationService`、`PlatformCapabilityService` | 标准化 `ConfigSnapshot`、诊断 | 配置非法、平台能力不足、schema 不兼容 |
-| `start_runtime` | `PlatformCapabilityService`、`ProxyEngineService` | `ProxyEngineStatus`、诊断 | 隧道不可用、嵌入式运行时不可用、引擎配置拒绝、启动失败 |
-| `reload_runtime` | `PlatformCapabilityService`、`ProxyEngineService` | `ProxyEngineStatus`、诊断 | 当前状态不允许重载、配置拒绝、引擎重载失败 |
-| `stop_runtime` | `ProxyEngineService` | `ProxyEngineStatus`、诊断 | 引擎不存在、停止失败 |
-| `runtime_status` | `PlatformCapabilityService`、`ProxyEngineService` | 平台状态、引擎状态、诊断 | 平台状态不可读取、引擎状态不可读取 |
-| `runtime_events` | `ProxyEngineService` | `ProxyEngineEvent` 列表 | 引擎事件不可读取 |
+| `prepare_runtime_engine` | `ProxyEngineAdapter` | `ProxyEnginePrepareReport`、快照、诊断 | 引擎配置拒绝、初始状态不可读取 |
+| `start_runtime` | `PlatformCapabilityService`、`ProxyEngineAdapter` | `ProxyEngineStatus`、诊断 | 隧道不可用、嵌入式运行时不可用、引擎配置拒绝、启动失败 |
+| `reload_runtime` | `PlatformCapabilityService`、`ProxyEngineAdapter` | `ProxyEngineStatus`、诊断 | 当前状态不允许重载、配置拒绝、引擎重载失败 |
+| `stop_runtime` | `ProxyEngineAdapter` | `ProxyEngineStatus`、诊断 | 引擎不存在、停止失败 |
+| `runtime_status` | `PlatformCapabilityService`、`ProxyEngineAdapter` | 平台状态、引擎状态、诊断 | 平台状态不可读取、引擎状态不可读取 |
+| `runtime_health` | `ProxyEngineAdapter` | 健康证据报告、诊断 | 引擎身份不一致、健康探针不可读取 |
+| `rollback_runtime_engine` | `ProxyEngineAdapter` | 恢复后的 `ProxyEngineStatus`、诊断 | 当前状态漂移、快照不匹配、恢复失败 |
+| `runtime_events` | `ProxyEngineAdapter` | `ProxyEngineEvent` 列表 | 引擎事件不可读取 |
 | `mitm_gate` | `PlatformCapabilityService`、`MitmPluginService` | 允许或拒绝原因、审计事件 | MITM 不可用、证书未信任、权限未授权、脚本被平台禁用 |
 
 这些名称是用例意图，不是最终 Rust API 承诺。源码落地时可以调整命名，但必须保持输入、输出和拒绝边界一致。
@@ -86,10 +89,12 @@
 
 1. 调用平台能力端口，得到 `PlatformCapabilityStatus`。
 2. 使用平台能力校验和标准化配置，得到 `ConfigSnapshot` 与诊断。
-3. 在启动或重载前调用引擎配置校验，合并引擎诊断。
+3. 在启动或重载前调用引擎配置校验，合并引擎诊断，并在需要时保存引擎快照。
 4. 当平台能力和配置均允许时，调用引擎启动或重载。
-5. 将引擎状态、平台能力、诊断和后续事件组合为运行状态快照。
-6. 当 MITM 插件用例被调用时，先检查 `mitm_available()` 和插件权限，再调用插件端口。
+5. 健康状态必须由 adapter 返回的配置、运行资源和监听器证据共同决定；普通 status 不得自动升级为 healthy。
+6. 回滚前校验当前状态仍符合调用方预期，再按快照恢复配置和生命周期状态。
+7. 将引擎状态、平台能力、诊断和后续事件组合为运行状态快照。
+8. 当 MITM 插件用例被调用时，先检查 `mitm_available()` 和插件权限，再调用插件端口。
 
 任一阶段出现 `DomainError` 时，运行层应保留错误 code、message 和已收集诊断，不把 adapter 私有错误类型暴露给上层。
 
@@ -125,8 +130,8 @@ iOS adapter 接入前，运行层必须按以下规则建模：
 ## 当前源码映射
 
 当前 `crates/control-runtime` 提供最小 `RuntimeOrchestrator`，组合
-`ConfigurationService`、`PlatformCapabilityService` 和 `ProxyEngineService`，
-覆盖配置准备、启动、重载、停止、状态查询和事件读取；同时提供最小
+`ConfigurationService`、`PlatformCapabilityService` 和 `ProxyEngineAdapter`，
+覆盖配置准备、引擎准备快照、启动、重载、停止、状态查询、健康证据、快照回滚和事件读取；同时提供最小
 `MitmGateOrchestrator`，组合 `PlatformCapabilityService` 和
 `MitmPluginService`，覆盖平台 MITM 可用性、证书状态拒绝矩阵、证书诊断拒绝保留、远程脚本禁用与未知状态、远程脚本诊断拒绝保留、
 manifest 诊断拒绝、manifest 错误拒绝审计、manifest 错误优先于权限拒绝、manifest 错误拒绝平台诊断保留、manifest 错误拒绝证书诊断保留、manifest 错误拒绝诊断顺序、manifest 非错误诊断聚合、manifest 诊断权限拒绝保留、权限拒绝诊断顺序、插件结果诊断聚合、平台诊断聚合、平台诊断拒绝保留、插件权限拒绝审计、审计事件聚合和插件端口错误传播。

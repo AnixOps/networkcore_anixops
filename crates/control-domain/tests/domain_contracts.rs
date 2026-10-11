@@ -1,11 +1,12 @@
 use control_domain::{
-    CertificateTrustState, ConfigSnapshot, ConfigurationService, Diagnostic, DiagnosticSeverity,
-    DomainResult, Endpoint, ListenerBind, ListenerDescriptor, ListenerKind, ListenerNetwork,
-    ListenerRoute, MetadataEntry, MitmCertificateStatus, NodeCatalog, NodeDescriptor,
-    OperatingSystem, PlatformCapabilities, PlatformCapabilityService, PlatformCapabilityStatus,
-    PlatformFeatureState, Protocol, ProxyEngineCapability, ProxyEngineConfig,
-    ProxyEngineDescriptor, ProxyEngineEvent, ProxyEngineKind, ProxyEngineLifecycleState,
-    ProxyEngineService, ProxyEngineStatus, RawSubscription, RouteAction, RuleSet, SchemaVersion,
+    validate_proxy_engine_transition, CertificateTrustState, ConfigSnapshot, ConfigurationService,
+    Diagnostic, DiagnosticSeverity, DomainResult, Endpoint, ListenerBind, ListenerDescriptor,
+    ListenerKind, ListenerNetwork, ListenerRoute, MetadataEntry, MitmCertificateStatus,
+    NodeCatalog, NodeDescriptor, OperatingSystem, PlatformCapabilities, PlatformCapabilityService,
+    PlatformCapabilityStatus, PlatformFeatureState, Protocol, ProxyEngineAdapter,
+    ProxyEngineCapability, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
+    ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus,
+    PublicEngineKind, PublicEngineRunPlan, RawSubscription, RouteAction, RuleSet, SchemaVersion,
     SubscriptionDocument, SubscriptionService, SubscriptionSource,
 };
 
@@ -222,6 +223,18 @@ fn config_snapshot_exposes_listener_configuration_as_domain_model() {
 }
 
 #[test]
+fn metadata_debug_redacts_wireguard_private_keys() {
+    let metadata = MetadataEntry {
+        key: "wireguard.private_key".to_string(),
+        value: "private-key-material".to_string(),
+    };
+
+    let debug = format!("{metadata:?}");
+    assert!(debug.contains("[REDACTED]"));
+    assert!(!debug.contains("private-key-material"));
+}
+
+#[test]
 fn listener_route_can_reference_default_action_without_runtime_validation() {
     let listener = ListenerDescriptor {
         id: "direct-loopback".to_string(),
@@ -287,15 +300,70 @@ fn proxy_engine_port_can_be_implemented_by_an_adapter() {
         metadata: Vec::new(),
     };
 
-    assert_eq!(engine.list_engines().len(), 1);
+    assert_eq!(ProxyEngineService::list_engines(&engine).len(), 1);
     assert!(engine.validate_config(&engine_config).is_empty());
+    let prepared = ProxyEngineAdapter::prepare(&engine, &engine_config)
+        .expect("adapter should capture a lifecycle snapshot");
+    assert_eq!(prepared.snapshot.engine_id, "native");
     assert_eq!(
-        engine
-            .start(&engine_config)
+        prepared.snapshot.status.state,
+        ProxyEngineLifecycleState::Running
+    );
+    let rollback = ProxyEngineAdapter::rollback(
+        &engine,
+        &control_domain::ProxyEngineRollbackRequest {
+            snapshot: prepared.snapshot,
+            expected_state: ProxyEngineLifecycleState::Running,
+        },
+    )
+    .expect_err("legacy bridge must not claim rollback support");
+    assert_eq!(rollback.code, "control.engine.rollback_unsupported");
+    assert_eq!(
+        ProxyEngineService::start(&engine, &engine_config)
             .expect("engine should start")
             .state,
         ProxyEngineLifecycleState::Running
     );
+}
+
+#[test]
+fn proxy_engine_lifecycle_transition_matrix_preserves_recovery_boundaries() {
+    for (current, next) in [
+        (
+            ProxyEngineLifecycleState::Stopped,
+            ProxyEngineLifecycleState::Starting,
+        ),
+        (
+            ProxyEngineLifecycleState::Starting,
+            ProxyEngineLifecycleState::Running,
+        ),
+        (
+            ProxyEngineLifecycleState::Running,
+            ProxyEngineLifecycleState::Degraded,
+        ),
+        (
+            ProxyEngineLifecycleState::Degraded,
+            ProxyEngineLifecycleState::RollingBack,
+        ),
+        (
+            ProxyEngineLifecycleState::RollingBack,
+            ProxyEngineLifecycleState::Stopped,
+        ),
+        (
+            ProxyEngineLifecycleState::Failed,
+            ProxyEngineLifecycleState::Starting,
+        ),
+    ] {
+        validate_proxy_engine_transition(current, next)
+            .expect("expected lifecycle transition should be accepted");
+    }
+
+    let error = validate_proxy_engine_transition(
+        ProxyEngineLifecycleState::Stopped,
+        ProxyEngineLifecycleState::Reloading,
+    )
+    .expect_err("stopped engines must not reload without entering runtime");
+    assert_eq!(error.code, "control.engine.lifecycle_transition_invalid");
 }
 
 fn node_from_subscription(id: &str) -> NodeDescriptor {
@@ -310,6 +378,30 @@ fn node_from_subscription(id: &str) -> NodeDescriptor {
         tags: vec!["subscription".to_string()],
         metadata: Vec::new(),
     }
+}
+
+#[test]
+fn public_engine_run_plan_routes_mieru_and_public_protocols_deterministically() {
+    let sing_box = node_from_subscription("ss-node");
+    let mut mieru = node_from_subscription("mieru-node");
+    mieru.protocol = Protocol::Mieru;
+
+    assert_eq!(
+        PublicEngineRunPlan::select(&[sing_box.clone(), mieru.clone()], None)
+            .expect("first node should produce a plan")
+            .engine,
+        PublicEngineKind::SingBox
+    );
+    let plan = PublicEngineRunPlan::select(&[sing_box, mieru], Some("mieru-node"))
+        .expect("selected Mieru node should produce a plan");
+    assert_eq!(plan.engine, PublicEngineKind::Mieru);
+    assert_eq!(plan.node.id, "mieru-node");
+    assert_eq!(
+        PublicEngineRunPlan::select(&[], None)
+            .expect_err("empty catalog must not silently select an engine")
+            .code,
+        "public_engine.run_plan.node_missing"
+    );
 }
 
 #[test]

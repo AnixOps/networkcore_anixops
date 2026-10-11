@@ -7,8 +7,13 @@ repository.workspace = true
 description = "Safe mitm_anixops policy adapter for the AnixOps network control kernel."
 
 [dependencies]
+config-core = { path = "../config-core" }
 control-domain = { path = "../control-domain" }
 mitm-anixops-sys = { path = "../mitm-anixops-sys" }
+time = { version = "0.3", features = ["parsing"] }
+
+[dev-dependencies]
+time = { version = "0.3", features = ["parsing"] }
 
 [lib]
 path = "src/lib.rs"

@@ -30,6 +30,57 @@
 
 `.github/workflows/ci.yml` 是主验证入口。
 
+#### Fast CI、Full CI 与路径门控
+
+整体验证分为 Fast CI、Full CI 和下文独立的 Release CI；`ci.yml` 仍保留顶层
+`CI summary` 作为稳定的最终门禁名称。主 CI 的启动顺序为：
+
+1. `changes` 首先根据 PR base/head、push before/head 或触发类型计算变更范围，输出
+   `docs`、`governance`、`go`、`rust`、`node`、`windows`、`linux`、`ios`、`apple`、
+   `workflow`、`release_sensitive` 和 `full_matrix`。无法取得可靠 diff、出现未知路径、tag
+   或 `workflow_dispatch` 时必须安全回退到完整矩阵。
+2. `policy-fast` 在五分钟预算内调用 `.github/scripts/verify-repository-policy.sh fast`，检查关键治理文件和 manifest、已提交的 `Cargo.lock`、本地
+   构建产物、签名/私钥文件、明显凭据模式、workflow 入口以及与变更平台对应的最小合同。
+3. `policy-full` 调用 `.github/scripts/verify-repository-policy.sh full` 并保留原有全部文档一致性、架构 marker、源码合同和 release 状态断言；它只依赖
+   `changes`，与 `policy-fast` 和相关平台验证并行，不得再作为所有平台 job 的串行前置条件。
+4. `detect-projects` 检测仓库中存在的项目类型（Go、Rust、Node、Swift、Apple），但仅作为信息参考；
+   实际 job 执行完全由 `changes` 输出的路径分类决定，不再因为"仓库存在 Cargo.toml"就无条件运行全部 Rust 平台。
+
+路径门控规则如下：
+
+- 仅 Markdown、普通 `docs/**` 或 Agent 治理文件变更时，运行 fast/full policy，但跳过无关三平台构建。
+- 根 `Cargo.toml`、`Cargo.lock`、共享 `crates/**`（除平台特定 crate）、`.github/workflows/**`、CI 脚本、发布关键
+  合同或无法分类的路径触发 `full_matrix`。
+- `apps/windows-*`、`crates/platform-windows/**`、`installer/windows/**` 和 Windows 架构源码文件
+  触发 Windows Rust、Node 前端合同和 MSI 验证。
+- `apps/linux-cli/**`、`crates/platform-linux/**` 和 Linux 架构文件触发 Ubuntu Rust 验证。
+- `apps/ios/**`、`crates/platform-ios/**`、Swift/Package.swift/Xcode/entitlement/privacy manifest
+  和 Apple workflow 文件触发 macOS/iOS 验证。
+- `package.json`、`pnpm-lock.yaml` 和 `apps/windows-gui/ui/**` 触发 Node 验证。
+- Rust 路径没有明确平台归属时（如修改了共享 crate），触发 `full_matrix`，运行 Linux、macOS、Windows 完整 Rust 矩阵。
+- tag 与手动触发始终运行完整验证，不允许被路径过滤跳过。
+
+Full CI 继续保留 Linux、macOS、Windows Rust 覆盖、Rust dependency audit、Node lint/test/build、
+Windows managed-client/MSI、Swift/Apple 及既有合同检查。PR 矩阵使用 `fail-fast: true` 尽快反馈；
+main、tag 和手动完整验证使用 `fail-fast: false`，以保留全部平台兼容性结果。
+
+Windows GUI 前端在独立的 `windows-gui-frontend` Ubuntu producer job 中构建一次，并以
+`windows-gui-ui-<commit-sha>` 上传同一 workflow run 的短期 artifact；Windows Rust 与 MSI job
+显式等待该 producer 完成后，只从当前 run 下载 artifact 并检查 `index.html`。Node lint/test 仍覆盖三个 runner，
+与前端 artifact producer 解耦。该复用只用于
+普通 CI，artifact 保留一天；Release workflow 必须继续独立安装 frozen dependencies、构建前端和
+生成发布产物，不得信任或复用普通 CI artifact。Windows GUI 的
+`apps/windows-gui/ui/pnpm-lock.yaml` 必须随源码提交，Node CI 和 release 均使用
+`pnpm install --frozen-lockfile`；Node CI 与 release 不共享 `dist` 或发布产物缓存，release 不共享 Rust target 缓存；普通 CI 的缓存规则见下文「CI 缓存策略」。pnpm
+lockfile 只能由 `.github/workflows/refresh-pnpm-lock.yml` 在 GitHub Actions 中生成，
+经 artifact 审查后提交。
+
+所有 job 必须有明确 timeout。当前预算为：范围检测、fast policy、project detection 和 summary
+5 分钟，full policy 15 分钟，workspace smoke 10 分钟，Rust 按 Ubuntu 30/macOS 40/Windows 45
+分钟，Node 25 分钟，Windows MSI 45 分钟，dependency audit 20 分钟，Swift/Apple 45 分钟；
+Release 的轻量 policy/summary 为 5 至 15 分钟，package 为 45 分钟，attestation 为 20 分钟。
+调整预算必须基于 GitHub Actions 运行证据，不能用无限等待规避失败。
+
 它应覆盖：
 
 - 治理文件存在性检查
@@ -42,12 +93,14 @@
 - `mitm_anixops` adapter 设计文件检查
 - subscription catalog runtime orchestration design 检查
 - subscription catalog runtime gate source contract 检查
-- persistent subscription catalog source contract、schema version、explicit path、snapshot、redacted add/list/remove/select/update/rollback report、`CommandSubscriptionCatalogStore::add_source`/`list_sources`/`remove_source`/`select_source`/`update_source`/`rollback_catalog` and contract tests、以及 no default/remote/file fetch boundary 检查
+- persistent subscription catalog source contract、schema version、explicit path、snapshot、redacted add/list/remove/select/update/rollback report、`CommandSubscriptionCatalogStore::add_source`/`list_sources`/`remove_source`/`select_source`/`update_source`/`rollback_catalog`、显式 `run-catalog` foreground handoff and contract tests、以及 no default/background refresh boundary 检查
 - managed foreground session status source contract、schema version、explicit status/snapshot record、recorded state、expected-state transition、read-only `networkcore-linux managed-status <status-record-path>`、initial non-overwrite `networkcore-linux managed-status init <status-record-path> <session-id> <engine-id> <state>`、expected-state `networkcore-linux managed-status transition <status-record-path> <snapshot-path> <expected-state> <next-state>`、`record_written=true`、`snapshot_written=true`、`liveness_verified=false`、`CommandManagedForegroundSessionStore::read_status`/`write_status`/`transition_status` and contract tests、以及 no PID/port/socket liveness、no daemon/control socket、no runtime control boundary 检查
 - managed foreground session status rollback contract、explicit status/snapshot path、expected-state、trimmed session/engine identity、raw snapshot restore、`snapshot_retained=true`、`ManagedForegroundSessionStatusRollbackRequest`/`ManagedForegroundSessionStatusRollbackReport`/`CommandManagedForegroundSessionStore::rollback_status`、`networkcore-linux managed-status rollback <status-record-path> <snapshot-path> <expected-state>` and source/CLI contract tests、no PID/port/socket liveness、no daemon/control socket、no runtime control boundary 检查
-- managed foreground session event source contract、schema version、explicit event record、allowed event kind、recorded state、recorded_at、read-only `networkcore-linux managed-event <event-record-path>`、initial non-overwrite `networkcore-linux managed-event init <event-record-path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at>`、non-overwrite `CommandManagedForegroundSessionEventStore::write_event`、explicit direct-directory deterministic `CommandManagedForegroundSessionEventStore::list_events`、`record_written=true`、`CommandManagedForegroundSessionEventStore::read_event` and contract tests、`liveness_verified=false`、以及 no default path/recursive scan/CLI event list/stream、no PID/port/socket liveness、no daemon/control socket、no runtime control boundary 检查
+- managed foreground session event source contract、schema version、explicit event record、allowed event kind、recorded state、recorded_at、read-only `networkcore-linux managed-event <event-record-path>`、initial non-overwrite `networkcore-linux managed-event init <event-record-path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at>`、non-overwrite `CommandManagedForegroundSessionEventStore::write_event`、`record_written=true`、`CommandManagedForegroundSessionEventStore::read_event` and contract tests、`liveness_verified=false`、以及 no default path/event list/scan/stream、no PID/port/socket liveness、no daemon/control socket、no runtime control boundary 检查
+- managed foreground session log source contract、explicit log path、bounded tail lines/bytes、`ManagedForegroundSessionLogTailRequest`/`ManagedForegroundSessionLogTailReport`、`CommandManagedForegroundSessionLogStore::read_tail`、read-only `networkcore-linux managed-log <log-file-path> [--tail-lines <1-1000>]` and source/CLI contract tests、`liveness_verified=false`、以及 no default path/search/tail/stream、no PID/port/socket liveness、no daemon/control socket、no runtime control boundary 检查
 - `mitm-anixops-sys` crate、submodule 固定和 Rust FFI version 测试检查
 - `mitm-policy` safe wrapper、`networkcore.adblock` 内置去广告插件、`control-domain` `HttpMitmEvent`/`HttpMitmOutcome` rich mutation plan、`MitmPluginService::handle_http_mitm_event`、`engine-native` `NativeHttpMitmPluginHook`、native SOCKS5 CONNECT plugin reject 应用、native SOCKS5 CONNECT browser proof 诊断、plain HTTP live data plane、Linux CLI `native_proxy_engine_service_with_builtin_mitm_plugin`、Linux CLI `mitm_status`、`certificate_plan`、`certificate_lifecycle`、TLS CA certificate PEM/private key PEM artifact、`http_rewrite`、`browser_plan` 与 `browser_capture` 机器字段、manual launch-plan output、redacted session-plan output、dedicated-profile launch report、dedicated profile target URL、target URL proxy route verify、proof-log-token traffic proof、`--proxy-scheme socks5` native plugin proxy mode、MITM certificate artifact apply/rollback、dedicated profile CA PEM copy apply/rollback、MITM HTTP rewrite plan/preview、PAC/browser policy/profile prefs apply/rollback、planned/deferred mutation 诊断、当前用户可用性边界、`MITM_CLI_COMMAND_GATE` partial-active、`MITM_CERTIFICATE_LIFECYCLE_GATE` artifact-lifecycle-active/profile-trust-artifact-active/trust-mutation-blocked、`MITM_BROWSER_CAPTURE_GATE` pac-policy-profile-prefs-active/system-mutation-blocked、`MITM_HTTP_TLS_DATA_PLANE_GATE` plain-http-live-data-plane-active/tls-decryption-blocked 和 Rust 合同测试检查
+- 当前 main 的 Linux trust-file source contract、`trust-apply`/`trust-rollback`、显式 `--trust-file`/`--snapshot`/`--confirm`、原子写入与精确读回、刷新失败恢复、外部修改冲突检测和 `update-ca-certificates` adapter 检查；NSS、p11-kit、Firefox 和其他 trust backend 仍必须保持 blocked。
 - Linux MITM certificate lifecycle source contract、`LinuxMitmCertificateLifecycleReport`、`LinuxMitmCertificateArtifactRequest`、`LinuxMitmCertificateArtifactApplyOutcome`、`LinuxMitmCertificateArtifactRollbackOutcome`、`LinuxMitmCertificateTrustPlan`、`MitmCertificateArtifactStore`、`CommandMitmCertificateArtifactStore`、`MitmCertificateAuthorization`、`MitmCertificateRollbackSnapshot`、`handle_entrypoint_with_certificate_lifecycle_io`、`certificate_lifecycle`、`--cert-file`、`--key-file`、`--profile-trust-file`、`profile_trust_file_path`、`profile_trust_content`、`profile_trust_fingerprint`、`cli.linux.mitm.certificate.material.failed`、CA certificate PEM、private key PEM、dedicated profile CA PEM copy、certificate artifact snapshot、rollback、apply/rollback diagnostics 和 `MITM_CERTIFICATE_LIFECYCLE_GATE` artifact-lifecycle-active/profile-trust-artifact-active/trust-mutation-blocked 检查
 - Linux MITM browser capture source contract、`LinuxBrowserCaptureManualLaunch`、`LinuxBrowserCaptureSessionPlanRequest`、`LinuxBrowserCaptureSessionPlanReport`、`LinuxBrowserCaptureLaunchRequest`、`LinuxBrowserCaptureLaunchReport`、`LinuxBrowserCaptureVerifyRequest`、`LinuxBrowserCaptureVerifyReport`、`LinuxBrowserCaptureTrafficProofRequest`、`LinuxBrowserCaptureTrafficProofReport`、`LinuxBrowserCapturePacRequest`、`LinuxBrowserCapturePacApplyOutcome`、`LinuxBrowserCapturePacRollbackOutcome`、`BrowserCaptureProcessRunner`、`BrowserCaptureEndpointProbe`、`BrowserCaptureTrafficProofProbe`、`BrowserCapturePacFileStore`、`BrowserCaptureAuthorization`、`BrowserCaptureRollbackSnapshot`、manual dedicated-profile launch-plan、redacted session-plan、可选 `--target-url` dedicated profile 打开页面、`proof_target_url`、`proof_connect_authority`、traffic-proof text CONNECT authority output、`networkcore_proof_token`、`MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH`、`MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME`、`MITM_BROWSER_CAPTURE_NATIVE_PLUGIN_PROXY_SCHEME`、`proxy_scheme`、`traffic_proof_command`、显式授权 dedicated-profile launch、显式授权 local proxy endpoint verify、target route verify、proof-log-token traffic proof、traffic-proof default proof binding、CONNECT endpoint proof token binding、proof token/proxy/CONNECT authority binding mismatch、`engine.native.runtime.http_mitm_connect_browser_proof_observed`、`--proxy-scheme socks5` native plugin proxy mode、PAC artifact snapshot、browser policy artifact、Firefox dedicated profile prefs、`--policy-file`、`--profile-prefs-file`、`profile_prefs_file_path`、`profile_prefs_content`、`cli.linux.mitm.browser_capture.policy.write_failed`、`cli.linux.mitm.browser_capture.profile_prefs.write_failed`、rollback、launch-plan ready diagnostics、session-plan ready/config diagnostics、launch authorization/started/failed diagnostics、verify authorization/proxy reachable/target reachable/proxy unreachable diagnostics、traffic-proof authorization/observed/missing/log-unreadable/binding-mismatch/blocked diagnostics、PAC apply ready/config/write diagnostics、PAC snapshot read/write diagnostics、rollback ready/failed diagnostics、apply/rollback/verify blocked diagnostics、`browser_capture` report、`traffic_proof_report` 和 `MITM_BROWSER_CAPTURE_GATE` pac-policy-profile-prefs-active/system-mutation-blocked 检查
 - Linux MITM HTTP rewrite source contract、`NativePlainHttpMessage`、`NativePlainHttpRewriteApplication`、`NativePlainHttpRewriteReport`、`NativeExplicitHttpProxyRequest`、`NativePlainHttpProxyResponse`、`NativeTlsMitmFoundationReport`、`NativeTlsClientHelloObservationReport`、`NativeControlledTlsTerminationPlanReport`、`NativeHttpsRequestRewritePreviewReport`、`NativeHttpsResponseRewritePreviewReport`、`read_explicit_http_proxy_request`、`apply_http_mitm_outcome_to_live_plain_http_request`、`serialize_explicit_http_proxy_request_for_upstream`、`plan_explicit_http_connect_tls_mitm_foundation`、`observe_explicit_http_connect_tls_client_hello`、`plan_explicit_http_connect_controlled_tls_termination`、`plan_and_apply_https_request_rewrite_preview`、`plan_and_apply_https_response_rewrite_preview`、`write_http_connect_established_response`、`plan_and_apply_plain_http_mitm`、`apply_http_mitm_outcome_to_plain_http_message`、explicit HTTP proxy live plain HTTP request/response header/body/terminal action application、explicit HTTP CONNECT tunnel foundation、bounded TLS ClientHello/SNI observation、controlled TLS termination plan、caller-provided HTTPS request/response rewrite preview、content-type/body-size/buffering guard、script dispatch deferred、`ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_FOUNDATION_READY_CODE`、`ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CLIENT_HELLO_OBSERVED_CODE`、`ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_CONNECT_TUNNEL_ESTABLISHED_CODE`、`ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_PLAN_READY_CODE`、`ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_DEFERRED_CODE`、`ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_READY_CODE`、`ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_PREVIEW_DEFERRED_CODE`、`ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_REQUEST_REWRITE_SCRIPT_DEFERRED_CODE`、`ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_PREVIEW_READY_CODE`、`ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_PREVIEW_DEFERRED_CODE`、`ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_SCRIPT_DEFERRED_CODE`、`LinuxMitmHttpRewriteReport`、`controlled_tls_termination_plan_ready`、`downstream_tls_termination_plan_ready`、`upstream_tls_forwarding_ready`、`https_request_rewrite_preview_ready`、`https_response_rewrite_preview_ready`、`https_response_rewrite_ready`、`content_type_guard_ready`、`body_size_limit_bytes`、`body_buffering_guard_ready`、`script_dispatch_ready`、`LinuxMitmHttpRewriteRequest`、`LinuxMitmHttpRewriteOutcomeReport`、`LinuxMitmHttpRewriteAuthorization`、`handle_mitm_http_rewrite_plan`、`handle_mitm_http_rewrite_preview`、`http_rewrite` report、`--url`、`--method`、`--phase`、`--status-code`、`--header`、`--body`、authorization/config/TLS blocked diagnostics、JSON/text output、`MITM_HTTP_TLS_DATA_PLANE_GATE` plain-http-live-data-plane-active/tls-decryption-blocked 检查
@@ -118,10 +171,15 @@
 - Linux package release notes/rollback execution validation contract 检查
 - Linux package publish eligibility execution validation contract 检查
 - Release workflow Linux artifact readiness gate 检查
-- Release workflow Windows CLI artifact package/publish gate 检查，确保 `windows-cli-artifact-readiness`
+- 历史 Release workflow Windows CLI artifact package/publish gate 检查，确保 `windows-cli-artifact-readiness`
   验证 `apps/windows-cli` source identity、`package-windows`、`attest-windows`、Windows release notes/rollback
-  gate、Windows publish eligibility gate 和 system mutation blocked marker，且 service、driver、installer、
-  system proxy mutation、system trust store mutation、JavaScript script dispatch 和 managed lifecycle 仍 blocked
+  gate、Windows publish eligibility gate 和 system mutation blocked marker；该段描述 `v0.1.1-alpha.2` 历史 zip。
+- Release workflow Windows managed client MSI package/publish gate 检查，确保
+  `windows-cli-artifact-readiness` 当前验证 `apps/windows-gui`、`apps/windows-service`、
+  `apps/windows-cli`、`platform-windows`、WiX 4.0.6、MSI validation、checksum/manifest、
+  attestation、release notes/rollback 和 managed system mutation eligibility；service、driver
+  package lifecycle、installer、system proxy/trust-store mutation 和 managed lifecycle active，
+  只有 JavaScript script dispatch remains blocked。
 - Release workflow Linux artifact manifest output summary 检查
 - Alpha placeholder release version policy、Windows manual smoke 测试清单、confirmed marker 与 release placeholder/summary 输出检查
 - 架构决策记录检查
@@ -132,7 +190,27 @@
 - Node 代码出现后的 Node 构建与测试
 - Swift、Xcode 或 iOS 代码出现后的 Apple 平台验证
 
-CI summary job 必须显式输出 Go、Rust、Node、Swift、Apple 项目检测开关，写入 GitHub Step Summary 表格，并门禁已启用的关键结果；当检测到 Rust workspace 时，summary 必须同时检查 Rust build/test 矩阵和 Rust dependency security audit；当检测到 Go、Node、Swift 或 Apple 项目时，summary 必须检查对应语言或平台 job。
+CI summary job 必须显式输出 commit SHA、workflow run ID/URL、变更来源和路径分组、Go、Rust、Node、
+Swift、Apple 项目检测开关，以及运行、跳过、失败的 job 和下一步建议，并写入 GitHub Step Summary。
+无关 job 的 `skipped` 是合法结果；应运行 job 的 `skipped`、任何 `failure`、任何非并发替代 run 的
+`cancelled` 都必须使 summary 失败。当检测到 Rust workspace 且 Rust 路径需要验证时，summary 必须同时
+检查 Rust build/test 矩阵和 Rust dependency security audit；当 Go、Node、Swift 或 Apple 路径需要验证时，
+summary 必须检查对应语言或平台 job。
+
+### CI 缓存策略
+
+目标是缩短普通 CI 的重复下载和重复编译，同时保证 release 可复现。缓存只能加速，不能改变验证结论：缓存未命中时，每个 job 仍必须能从源码完整安装、构建和测试。
+
+- 普通 CI 允许的缓存（仅限 `ci.yml` 的验证 job）：
+  - Rust：`Swatinem/rust-cache` 缓存 cargo registry、git 依赖和 `target/`。key 由 job、runner OS 与架构、rustc 版本、相关 `CARGO_*` 环境变量、`Cargo.lock`、`Cargo.toml`、`.cargo/config.toml` 与 `rust-toolchain` 决定。只有成功的 run 保存缓存，失败的 run 不写入缓存，避免错误状态被长期复用。Rust 验证 job 设置 `CARGO_INCREMENTAL=0`，CI 中增量编译收益低且产物体积大，关闭以减少编译和缓存开销；Windows MSI job 先安装工具链再恢复缓存，保证 key 中的 rustc 版本与实际构建所用版本一致；构建前会清除恢复出的 `webview2-com-sys` 构建输出，使 WebView2 加载器的唯一性校验只看到本次构建的产物。
+  - Node：`setup-node` 的 pnpm store 缓存，key 绑定 `apps/windows-gui/ui/pnpm-lock.yaml`。
+  - CI 工具：`cargo-audit` 通过 `taiki-e/install-action` 安装预编译二进制，不在每次 run 从源码编译。
+  - Go：`setup-go` 的模块缓存，已启用。
+- 禁止的缓存：
+  - release 构建（`release.yml`，包括 tag 触发的打包）中的 `dist`、Rust `target`、发布产物、DerivedData 或任何编译输出缓存。`ci.yml` 的 tag 触发运行属于验证，可使用上述普通 CI 缓存，但其产物不得作为发布产物。
+  - 把普通 CI 的 artifact 或 `target/` 复用到 release。
+  - 缓存中保存凭据、token 或 secret 派生内容。
+- `release.yml` 本轮不加缓存。它的构建命令受 `ci.yml` 对 release workflow 的字符串校验约束，且只在 tag 时运行，加缓存的收益小，却会落在发布路径上。以后若要引入依赖缓存，须单独评估。
 
 ### Release
 
@@ -145,9 +223,9 @@ CI summary job 必须显式输出 Go、Rust、Node、Swift、Apple 项目检测�
 - 产物必须由 GitHub-hosted runner 或后续配置的受控 runner 生成。
 - 真实平台产物加入前必须满足 [Release Strategy](release-strategy.md) 中定义的门禁、矩阵和回滚策略。
 - 首个 Linux CLI artifact 加入前必须满足安装、卸载与回滚设计，且继续由 GitHub Actions 生成、校验和发布。
-- release policy job 必须检查版本格式与触发来源一致性；允许稳定版本、`alpha.N` 和 `rc.N` 预发布版本；`workflow_dispatch` placeholder release 必须从 `main` 分支发起，tag release 的版本必须与 tag 名一致。
+- release policy job 必须检查版本格式与触发来源一致性；允许稳定版本、`alpha.N`、`beta.N` 和 `rc.N` 预发布版本，其中 N 必须是无前导零的十进制正整数，且为保持 Windows Installer 版本排序，分别限制为 `1-499`、`1-399` 和 `1-98`；`workflow_dispatch` placeholder release 必须从 `main` 分支发起，tag release 的版本必须与 tag 名一致。
 - release workflow 必须包含 `release-ci-gate` job，使用 `actions: read` 自动读取 `main` 上同 commit 的成功 CI 结果，校验 `CI summary` job，并输出 CI run/source 字段合同、release CI gate activation validation contract、release CI gate execution validation contract 和 release CI gate API implementation active 字段。
-- `package-linux`、`package-windows`、`attest-linux`、`attest-windows`、`post-release-summary`、`windows-release-summary`、`publish-eligibility-gate`、`windows-publish-eligibility-gate` 和 `publish-github-release` 可以在 workflow 中定义，但必须全部受 GitHub Actions gates 约束：`linux-artifact-readiness` 必须在 `docs/manual-intervention.md` 的 license/NOTICE marker 为 `confirmed` 前失败，`windows-cli-artifact-readiness` 必须验证 `apps/windows-cli` source identity 和 system mutation blocked marker，`publish-github-release` 只能在 tag 触发、同 commit CI 成功、checksum/manifest/attestation/release notes/rollback/publish eligibility 全部通过后上传 release assets。
+- `package-linux`、`package-windows`、`attest-linux`、`attest-windows`、`post-release-summary`、`windows-release-summary`、`publish-eligibility-gate`、`windows-publish-eligibility-gate` 和 `publish-github-release` 可以在 workflow 中定义，但必须全部受 GitHub Actions gates 约束：`linux-artifact-readiness` 必须在 `docs/manual-intervention.md` 的 license/NOTICE marker 为 `confirmed` 前失败，历史 `windows-cli-artifact-readiness` 负责 `v0.1.1-alpha.2` zip 合同，当前 Windows managed client gate 必须验证 `apps/windows-gui`、`apps/windows-service`、WiX MSI、managed system mutation 和 source identity，`publish-github-release` 只能在 tag 触发、同 commit CI 成功、checksum/manifest/attestation/release notes/rollback/publish eligibility 全部通过后上传 release assets。
 - placeholder 阶段必须包含 `release-artifact-contract` job，记录首个真实 artifact job 的 checksum 算法和输出字段契约。
 - placeholder 阶段必须包含 `release-signing-contract` job，记录真实平台 artifact 发布前必须声明签名或 attestation 策略。
 - placeholder 阶段必须包含 `release-rollback-contract` job，记录真实 artifact 发布说明必须输出的回滚字段。
@@ -220,6 +298,20 @@ Privacy Manifest source、App Review manual confirmation source、iOS upload wor
 - Swift 或 iOS 客户端：`swift test`、`swift build`、`xcodebuild`
 
 这些命令只能在 GitHub Actions 中运行。
+
+## Agent CI 状态交接
+
+编码 Agent 推送后只能对当前 commit 的 workflow run 做一次、最多两次非阻塞查询，禁止
+`gh run watch`、无限循环、长时间 `sleep` 或重复刷新全部历史 run。若状态仍为 `queued` 或
+`in_progress`，必须记录 commit SHA、workflow、run ID、run URL 和状态，以
+`task_state=pending_ci`、`next_action=resume_after_ci_completion` 记录当前状态；`pending_ci`
+不是停止条件。不得等待、轮询、重复读取未变化目标文件或重复输出相同状态，应继续不依赖
+该 run 的源码、合同、文档和后续切片。只有 CI 明确 `failure` 才暂停新增功能并读取失败
+job/step 日志。
+
+失败时只读取失败 job/step 的必要日志，不重复获取成功日志。只有对应 commit 的 run 已
+`completed` 且 conclusion 为 `success`，才能把 GitHub Actions 写为已通过；排队或运行中状态、
+本地静态检查和历史 commit 的成功 run 都不能替代该结论。
 
 ## 人工介入边界
 

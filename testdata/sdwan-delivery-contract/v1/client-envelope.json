@@ -1,0 +1,15 @@
+{
+  "schema_version": "anixops.sdwan.delivery/v1",
+  "bundle_kind": "client",
+  "bundle_id": "fixture-client-bundle-1",
+  "tenant_id": "fixture-tenant-1",
+  "target_id": "fixture-device-1",
+  "sequence": 1,
+  "issued_at": "2026-07-19T00:00:00Z",
+  "expires_at": "2026-07-19T01:00:00Z",
+  "key_id": "fixture-ed25519-20260719",
+  "payload_base64": "ewogICJzY2hlbWFfdmVyc2lvbiI6ICJhbml4b3BzLnNkd2FuLmRlbGl2ZXJ5L3YxIiwKICAia2luZCI6ICJjbGllbnQiLAogICJjbGllbnQiOiB7CiAgICAiaWQiOiAiZml4dHVyZS1jbGllbnQtcHJvZmlsZS0xIiwKICAgICJwcmluY2lwYWxfaWQiOiAiZml4dHVyZS1kZXZpY2UtMSIsCiAgICAidHJhbnNwb3J0IjogImlrZXYyIiwKICAgICJwb3BzIjogWwogICAgICB7CiAgICAgICAgImlkIjogInBvcC1hIiwKICAgICAgICAiZW5kcG9pbnQiOiAiMTk4LjUxLjEwMC4xMDo1MDAiCiAgICAgIH0KICAgIF0sCiAgICAibWl0bSI6IHsKICAgICAgImFsbG93ZWRfZG9tYWluX3N1ZmZpeGVzIjogWwogICAgICAgICJleGFtcGxlLmNvbSIKICAgICAgXSwKICAgICAgInJlcXVpcmVfY29uc2VudCI6IHRydWUsCiAgICAgICJibG9ja19xdWljIjogdHJ1ZSwKICAgICAgImJsb2NrX3Bpbm5lZF90bHMiOiB0cnVlLAogICAgICAibWV0YWRhdGFfcmV0ZW50aW9uX2RheXMiOiA3CiAgICB9CiAgfQp9",
+  "algorithm": "ed25519",
+  "payload_sha256": "cd0b57500ae497910286e804040e51c3e1d92181f33e814d138aa7b6436cc594",
+  "signature": "PnLrvDfSm8Xnx3MIcNCvnNf+yNVqLx/cUQvSF9alSCh5mHt6H6tdw1RBKQ8Xw+C3KOZTasHqDMXTB+mEtRUACg=="
+}

@@ -23,8 +23,9 @@ use networkcore_linux::{
     handle_entrypoint_with_browser_capture_runner, handle_entrypoint_with_certificate_lifecycle_io,
     handle_entrypoint_with_runtime, handle_entrypoint_with_runtime_and_lifecycle,
     handle_entrypoint_with_runtime_lifecycle_and_sing_box, handle_foreground_lifecycle,
-    handle_foreground_lifecycle_with_runtime_stop, handle_install_sing_box,
-    handle_mitm_browser_capture_apply, handle_mitm_browser_capture_apply_with_store,
+    handle_foreground_lifecycle_with_runtime_stop, handle_install_service_plan,
+    handle_install_sing_box, handle_mitm_browser_capture_apply,
+    handle_mitm_browser_capture_apply_with_store,
     handle_mitm_browser_capture_apply_with_store_and_profile_prefs_and_proxy_scheme,
     handle_mitm_browser_capture_apply_with_store_and_proxy_scheme,
     handle_mitm_browser_capture_launch, handle_mitm_browser_capture_launch_plan,
@@ -39,15 +40,24 @@ use networkcore_linux::{
     handle_mitm_browser_plan, handle_mitm_certificate_apply,
     handle_mitm_certificate_apply_with_store, handle_mitm_certificate_plan,
     handle_mitm_certificate_rollback, handle_mitm_certificate_rollback_with_store,
+    handle_mitm_certificate_trust_apply, handle_mitm_certificate_trust_rollback,
     handle_mitm_http_rewrite_plan, handle_mitm_http_rewrite_preview, handle_mitm_status,
-    handle_parse_error, handle_prepare_config, handle_run_url_with_sing_box, handle_start,
-    handle_status, handle_stop, native_proxy_engine_service_with_builtin_mitm_plugin,
+    handle_node_health, handle_node_list, handle_node_rollback, handle_node_select,
+    handle_parse_error, handle_prepare_config, handle_proxy_apply, handle_proxy_rollback,
+    handle_proxy_status, handle_restart_unavailable, handle_run_catalog_with_sing_box,
+    handle_run_catalog_with_sing_box_and_fetcher, handle_run_url_with_sing_box,
+    handle_run_url_with_sing_box_and_fetcher, handle_run_url_with_sing_box_and_node_id,
+    handle_run_url_with_sing_box_and_node_id_and_mieru, handle_start, handle_status,
+    handle_status_mieru_with_runner, handle_stop, handle_subscription_command,
+    handle_subscription_command_with_fetcher, handle_systemd_service_control,
+    handle_uninstall_service_apply_at, native_proxy_engine_service_with_builtin_mitm_plugin,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files,
     native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files, parse_args,
-    render_response, BrowserCaptureEndpointProbe, BrowserCapturePacFileStore,
-    BrowserCaptureProcessRunner, BrowserCaptureTrafficProofProbe,
+    registered_core_engine_descriptors, render_response, BrowserCaptureEndpointProbe,
+    BrowserCapturePacFileStore, BrowserCaptureProcessRunner, BrowserCaptureTrafficProofProbe,
     CommandBrowserCaptureEndpointProbe, CommandBrowserCaptureTrafficProofProbe,
-    CommandManagedForegroundSessionEventStore, CommandManagedForegroundSessionStore,
+    CommandManagedForegroundSessionEventStore, CommandManagedForegroundSessionLogStore,
+    CommandManagedForegroundSessionStore, CommandRemoteSubscriptionFetcher,
     CommandSubscriptionCatalogStore, ConfigReadError, ConfigReader,
     CurrentProcessForegroundLifecycleHost, ForegroundLifecycleHost,
     ForegroundLifecycleInterruption, ForegroundLifecycleInterruptionSource,
@@ -58,17 +68,20 @@ use networkcore_linux::{
     LinuxBrowserCaptureVerifyOutcome, LinuxBrowserCaptureVerifyRequest, LinuxCliCommand,
     LinuxCliExitCode, LinuxMitmCertificateArtifactApplyOutcome,
     LinuxMitmCertificateArtifactRequest, LinuxMitmCertificateArtifactRollbackOutcome,
-    LinuxNativeMitmRuntimeFileConfig, ManagedForegroundSessionEventListRequest,
-    ManagedForegroundSessionEventRequest, ManagedForegroundSessionEventWriteRequest,
+    LinuxNativeMitmRuntimeFileConfig, ManagedForegroundLifecyclePaths,
+    ManagedForegroundSessionEventHistoryRequest, ManagedForegroundSessionEventRequest,
+    ManagedForegroundSessionEventWriteRequest, ManagedForegroundSessionLogTailRequest,
     ManagedForegroundSessionStatusRequest, ManagedForegroundSessionStatusRollbackRequest,
     ManagedForegroundSessionStatusTransitionRequest, ManagedForegroundSessionStatusWriteRequest,
     MitmCertificateArtifactStore, MitmCertificateRollbackSnapshot, OutputFormat,
-    SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
+    RemoteSubscriptionFetcher, SubscriptionCatalogAddRequest, SubscriptionCatalogListRequest,
     SubscriptionCatalogRemoveRequest, SubscriptionCatalogRollbackRequest,
     SubscriptionCatalogSelectRequest, SubscriptionCatalogUpdateRequest,
-    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService, CLI_CONFIG_EMPTY_CODE,
-    CLI_CONFIG_PATH_MISSING_CODE, CLI_CONFIG_READ_FAILED_CODE,
-    CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
+    UnavailableForegroundLifecycleHost, UnavailableProxyEngineService,
+    CLI_ARGUMENT_VALUE_MISSING_CODE, CLI_CONFIG_EMPTY_CODE, CLI_CONFIG_PATH_MISSING_CODE,
+    CLI_CONFIG_READ_FAILED_CODE, CLI_INSTALL_SERVICE_CONFIRMATION_REQUIRED_CODE,
+    CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE, CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE,
+    CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_BLOCKED_CODE,
     CLI_MITM_BROWSER_CAPTURE_APPLY_CONFIG_MISSING_CODE, CLI_MITM_BROWSER_CAPTURE_APPLY_READY_CODE,
     CLI_MITM_BROWSER_CAPTURE_AUTHORIZATION_REQUIRED_CODE,
     CLI_MITM_BROWSER_CAPTURE_LAUNCH_AUTHORIZATION_REQUIRED_CODE,
@@ -92,16 +105,20 @@ use networkcore_linux::{
     CLI_MITM_CERTIFICATE_AUTHORIZATION_REQUIRED_CODE, CLI_MITM_CERTIFICATE_GATE_DEFERRED_CODE,
     CLI_MITM_CERTIFICATE_MUTATION_BLOCKED_CODE, CLI_MITM_CERTIFICATE_PLAN_READY_CODE,
     CLI_MITM_CERTIFICATE_ROLLBACK_BLOCKED_CODE, CLI_MITM_CERTIFICATE_ROLLBACK_READY_CODE,
-    CLI_MITM_CLI_GATE_PARTIAL_CODE, CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE,
-    CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE, CLI_MITM_HTTP_REWRITE_AUTHORIZATION_REQUIRED_CODE,
-    CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE, CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE,
-    CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE, CLI_START_FOREGROUND_ONLY_CODE,
-    CLI_START_LIFECYCLE_FAILED_CODE, CLI_START_LIFECYCLE_HOST_MISSING_CODE,
-    CLI_START_LIFECYCLE_INTERRUPTED_CODE, CLI_START_PLATFORM_DENIED_CODE,
-    CLI_START_RUNTIME_STOP_FAILED_CODE, CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE,
-    CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE, CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE,
-    CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE,
-    CLI_STATUS_PLATFORM_ONLY_CODE, CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
+    CLI_MITM_CERTIFICATE_TRUST_CONFIG_MISSING_CODE, CLI_MITM_CLI_GATE_PARTIAL_CODE,
+    CLI_MITM_DATA_PLANE_GATE_DEFERRED_CODE, CLI_MITM_HTTP_REWRITE_APPLY_READY_CODE,
+    CLI_MITM_HTTP_REWRITE_AUTHORIZATION_REQUIRED_CODE, CLI_MITM_HTTP_REWRITE_PLAN_READY_CODE,
+    CLI_MITM_HTTP_REWRITE_TLS_BLOCKED_CODE, CLI_MITM_POLICY_READY_CODE, CLI_RUNTIME_UNWIRED_CODE,
+    CLI_RUN_URL_MIERU_BINARY_REQUIRED_CODE, CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
+    CLI_START_FOREGROUND_ONLY_CODE, CLI_START_LIFECYCLE_FAILED_CODE,
+    CLI_START_LIFECYCLE_HOST_MISSING_CODE, CLI_START_LIFECYCLE_INTERRUPTED_CODE,
+    CLI_START_PLATFORM_DENIED_CODE, CLI_START_RUNTIME_STOP_FAILED_CODE,
+    CLI_START_SCRIPT_RUNTIME_AUTHORIZATION_REQUIRED_CODE,
+    CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE, CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE,
+    CLI_START_TLS_MITM_AUTHORIZATION_REQUIRED_CODE, CLI_START_TLS_MITM_MATERIAL_REQUIRED_CODE,
+    CLI_STATUS_NO_RUNTIME_CONTEXT_CODE, CLI_STATUS_PLATFORM_ONLY_CODE,
+    CLI_STOP_UNAVAILABLE_WITHOUT_DAEMON_CODE, DEFAULT_ENGINE_ID,
+    MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES, MANAGED_FOREGROUND_LOG_TAIL_MAX_BYTES,
     MITM_BROWSER_CAPTURE_DEFAULT_PROFILE_DIR, MITM_BROWSER_CAPTURE_DEFAULT_PROOF_LOG_PATH,
     MITM_BROWSER_CAPTURE_DEFAULT_PROXY_SCHEME, MITM_BROWSER_CAPTURE_GATE,
     MITM_BROWSER_CAPTURE_GATE_STATUS, MITM_BROWSER_CAPTURE_MODE,
@@ -122,10 +139,32 @@ use networkcore_linux::{
     MITM_HTTP_REWRITE_UPSTREAM_TLS_FORWARDING_READY, MITM_HTTP_TLS_DATA_PLANE_GATE,
     MITM_HTTP_TLS_DATA_PLANE_GATE_STATUS, MITM_USER_FACING_STAGE,
 };
+
 #[cfg(unix)]
 use networkcore_linux::{
-    OsSignalForegroundLifecycleInterruptionSource, CLI_START_SIGNAL_RECEIVED_CODE,
+    handle_entrypoint_skeleton, handle_install_service_apply_at, handle_uninstall_service_plan,
+    CLI_RUN_URL_FILE_READ_FAILED_CODE,
 };
+
+#[cfg(unix)]
+use networkcore_linux::{
+    handle_managed_control_reload, handle_managed_control_rollback, handle_managed_control_status,
+    handle_managed_control_stop, start_managed_control_socket_with_interrupter,
+    ManagedControlInterrupter, ManagedControlRequest, CLI_ARGUMENT_UNKNOWN_CODE,
+    CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE,
+    CLI_MANAGED_CONTROL_SOCKET_RELOAD_READY_CODE, CLI_MANAGED_CONTROL_SOCKET_REQUEST_PENDING_CODE,
+    CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_READY_CODE, CLI_MANAGED_CONTROL_SOCKET_STATUS_FAILED_CODE,
+    CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE,
+    CLI_START_TLS_MITM_PRIVATE_KEY_PROTECTION_FAILED_CODE,
+};
+#[cfg(unix)]
+use networkcore_linux::{
+    OsSignalForegroundLifecycleInterruptionSource, OsSignalManagedControlInterrupter,
+    CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE,
+    CLI_START_MANAGED_CONTROL_ROLLBACK_REQUESTED_CODE,
+    CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE, CLI_START_SIGNAL_RECEIVED_CODE,
+};
+use platform_linux::systemd::{LinuxSystemdCommandRunner, LinuxSystemdServiceAction};
 use platform_linux::{
     linux_diagnostic, LinuxCertificateProbe, LinuxDnsManagerState, LinuxFeatureProbe,
     LinuxPlatformSnapshot, LinuxPrivilegeProbe, LinuxReadOnlyProbe, LinuxReadOnlyProbeSnapshot,
@@ -136,6 +175,7 @@ use platform_linux::{
 };
 #[cfg(unix)]
 use signal_hook::consts::signal::{SIGINT, SIGTERM};
+use std::io::{Read, Write};
 use std::net::TcpListener;
 
 #[test]
@@ -156,6 +196,282 @@ fn parses_prepare_config_with_explicit_path_and_json_format() {
             format: OutputFormat::Json
         }
     );
+}
+
+#[test]
+fn node_list_reads_only_the_explicit_config_and_redacts_endpoint_details() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-linux-cli-node-list-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("node list fixture directory should be created");
+    let config_path = root.join("nodes.toml");
+    let selection_path = root.join("selection.json");
+    let snapshot_path = root.join("selection.snapshot.json");
+    std::fs::write(
+        &config_path,
+        "schema_version = 1\nprofile = \"default\"\n\n[[nodes]]\nid = \"node-1\"\nname = \"Primary\"\nprotocol = \"ss\"\nhost = \"secret.example\"\nport = 443\ntags = [\"fast\"]\n",
+    )
+    .expect("node list fixture should be written");
+
+    let parsed = parse_args([
+        "node",
+        "list",
+        "--config",
+        config_path.to_str().expect("config path should be UTF-8"),
+        "--format",
+        "json",
+    ])
+    .expect("node list command should parse");
+    assert_eq!(
+        parsed,
+        LinuxCliCommand::NodeList {
+            config_path: config_path.to_string_lossy().to_string(),
+            format: OutputFormat::Json,
+        }
+    );
+    let select = parse_args([
+        "node",
+        "select",
+        "--config",
+        config_path.to_str().expect("config path should be UTF-8"),
+        "--source-id",
+        "node-1",
+        "--selection",
+        selection_path.to_str().unwrap_or("/tmp/selection.json"),
+        "--snapshot",
+        snapshot_path
+            .to_str()
+            .unwrap_or("/tmp/selection.snapshot.json"),
+        "--confirm",
+    ]);
+    assert!(select.is_ok());
+
+    let response = handle_node_list(config_path.to_str().expect("config path should be UTF-8"));
+    assert!(response.ok);
+    assert_eq!(response.command, "node list");
+    let catalog = response
+        .node_catalog
+        .as_ref()
+        .expect("node list should expose a structured catalog");
+    assert_eq!(catalog.schema_version, 1);
+    assert_eq!(catalog.source, "explicit-config");
+    assert!(!catalog.selection_mutated);
+    assert_eq!(catalog.nodes[0].id, "node-1");
+    assert_eq!(catalog.nodes[0].name, "Primary");
+    assert!(
+        !networkcore_linux::render_response(&response, OutputFormat::Json)
+            .contains("secret.example")
+    );
+    assert!(response.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == "cli.node.entry" && diagnostic.message.contains("node-1")
+    }));
+    assert!(!response
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.message.contains("secret.example")));
+    let selected = handle_node_select(
+        config_path.to_str().expect("config path should be UTF-8"),
+        "node-1",
+        selection_path
+            .to_str()
+            .expect("selection path should be UTF-8"),
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        true,
+    );
+    assert!(selected.ok);
+    assert!(selected.diagnostics[0]
+        .message
+        .contains("runtime selection unchanged"));
+    assert!(std::fs::read_to_string(&selection_path)
+        .expect("selection record should be readable")
+        .contains("node-1"));
+    assert!(snapshot_path.exists());
+    let rollback = parse_args([
+        "node",
+        "rollback",
+        "--selection",
+        selection_path
+            .to_str()
+            .expect("selection path should be UTF-8"),
+        "--snapshot",
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        "--confirm",
+    ])
+    .expect("node rollback command should parse");
+    assert!(matches!(rollback, LinuxCliCommand::NodeRollback { .. }));
+    let rolled_back = handle_node_rollback(
+        selection_path
+            .to_str()
+            .expect("selection path should be UTF-8"),
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        true,
+    );
+    assert!(rolled_back.ok);
+    assert!(rolled_back.diagnostics[0]
+        .message
+        .contains("selected_node=none"));
+    assert!(snapshot_path.exists());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn node_health_reads_loopback_selector_without_claiming_full_proxy_health() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("health fixture listener should bind");
+    let port = listener
+        .local_addr()
+        .expect("health fixture address should be readable")
+        .port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("health request should arrive");
+        let mut request = [0_u8; 2048];
+        let _ = stream
+            .read(&mut request)
+            .expect("health request should be readable");
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 45\r\nConnection: close\r\n\r\n{\"now\":\"proxy-1\",\"all\":[\"proxy-1\",\"proxy-2\"]}",
+            )
+            .expect("health response should be writable");
+    });
+    let parsed = parse_args([
+        "node",
+        "health",
+        "--controller-port",
+        &port.to_string(),
+        "--format",
+        "json",
+    ])
+    .expect("node health command should parse");
+    assert!(matches!(parsed, LinuxCliCommand::NodeHealth { .. }));
+    let response = handle_node_health(port);
+    assert!(response.ok);
+    let health = response
+        .node_health
+        .as_ref()
+        .expect("node health should expose structured evidence");
+    assert_eq!(health.current_outbound_tag, "proxy-1");
+    assert_eq!(health.outbound_count, 2);
+    assert!(health.selector_readback_confirmed);
+    assert!(!health.full_proxy_health_claimed);
+    assert!(!response
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.message.contains("secret.example")));
+    server.join().expect("health fixture should finish");
+}
+
+#[test]
+fn node_health_rejects_zero_port_without_network_or_mutation() {
+    let response = handle_node_health(0);
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, LinuxCliExitCode::ArgumentOrConfig);
+    assert_eq!(
+        response.diagnostics[0].code,
+        CLI_ARGUMENT_VALUE_MISSING_CODE
+    );
+    assert!(response.node_health.is_none());
+}
+
+#[test]
+fn proxy_cli_requires_explicit_paths_and_reports_snapshot_rollback() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-linux-cli-proxy-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("proxy CLI fixture directory should be created");
+    let file_path = root.join("environment");
+    let snapshot_path = root.join("environment.snapshot.json");
+    let status = handle_proxy_status(file_path.to_str().expect("proxy path should be UTF-8"));
+    assert!(status.ok);
+    let denied = handle_proxy_apply(
+        file_path.to_str().expect("proxy path should be UTF-8"),
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        "socks5://127.0.0.1:7890",
+        false,
+    );
+    assert!(!denied.ok);
+    let applied = handle_proxy_apply(
+        file_path.to_str().expect("proxy path should be UTF-8"),
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        "socks5://127.0.0.1:7890",
+        true,
+    );
+    assert!(applied.ok);
+    let rolled_back = handle_proxy_rollback(
+        file_path.to_str().expect("proxy path should be UTF-8"),
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        true,
+    );
+    assert!(rolled_back.ok);
+    assert!(snapshot_path.exists());
+
+    let apply_command = parse_args([
+        "proxy",
+        "apply",
+        "--file",
+        file_path.to_str().expect("proxy path should be UTF-8"),
+        "--snapshot",
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        "--url",
+        "http://127.0.0.1:8080",
+        "--confirm",
+        "--format",
+        "json",
+    ])
+    .expect("proxy apply command should parse");
+    assert!(matches!(
+        apply_command,
+        LinuxCliCommand::ProxyApply {
+            format: OutputFormat::Json,
+            confirm: true,
+            ..
+        }
+    ));
+    let status_command = parse_args([
+        "proxy",
+        "status",
+        "--file",
+        file_path.to_str().expect("proxy path should be UTF-8"),
+    ])
+    .expect("proxy status command should parse");
+    assert!(matches!(
+        status_command,
+        LinuxCliCommand::ProxyStatus { .. }
+    ));
+    let rollback_command = parse_args([
+        "proxy",
+        "rollback",
+        "--file",
+        file_path.to_str().expect("proxy path should be UTF-8"),
+        "--snapshot",
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        "--confirm",
+    ])
+    .expect("proxy rollback command should parse");
+    assert!(matches!(
+        rollback_command,
+        LinuxCliCommand::ProxyRollback { confirm: true, .. }
+    ));
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
@@ -361,17 +677,18 @@ fn managed_foreground_session_event_reads_explicit_record_without_liveness_claim
 }
 
 #[test]
-fn managed_foreground_session_event_list_reads_explicit_directory_deterministically() {
+fn managed_foreground_session_event_history_filters_pages_and_bounds_explicit_directory() {
     let root = std::env::temp_dir().join(format!(
-        "networkcore-managed-foreground-event-list-contract-{}",
+        "networkcore-managed-foreground-event-history-contract-{}",
         std::process::id()
     ));
     let _ = std::fs::remove_dir_all(&root);
     let event_directory = root.join("events");
     std::fs::create_dir_all(&event_directory)
-        .expect("managed event list directory should be created");
+        .expect("managed event history directory should be created");
     let first_path = event_directory.join("event-a.json");
     let second_path = event_directory.join("event-b.json");
+    let third_path = event_directory.join("event-c.json");
     let first_record = r#"{
   "schema_version": 1,
   "session_id": "session-list",
@@ -390,15 +707,26 @@ fn managed_foreground_session_event_list_reads_explicit_directory_deterministica
   "state": "running",
   "recorded_at": "2026-07-10T00:01:00Z"
 }"#;
+    let third_record = r#"{
+  "schema_version": 1,
+  "session_id": "other-session",
+  "engine_id": "native",
+  "event_id": "event-c",
+  "event_kind": "session_failed",
+  "state": "failed",
+  "recorded_at": "2026-07-10T00:02:00Z"
+}"#;
     std::fs::write(&second_path, second_record)
         .expect("second managed event record should be written");
     std::fs::write(&first_path, first_record)
         .expect("first managed event record should be written");
+    std::fs::write(&third_path, third_record)
+        .expect("third managed event record should be written");
     std::fs::write(event_directory.join("ignored.txt"), "not an event")
         .expect("non-event file should be written");
     let nested_directory = event_directory.join("nested");
     std::fs::create_dir_all(&nested_directory).expect("nested event directory should be created");
-    std::fs::write(nested_directory.join("event-c.json"), second_record)
+    std::fs::write(nested_directory.join("event-nested.json"), "not valid JSON")
         .expect("nested managed event record should be written");
     let before_first = std::fs::read_to_string(&first_path)
         .expect("first managed event record should be readable");
@@ -406,31 +734,85 @@ fn managed_foreground_session_event_list_reads_explicit_directory_deterministica
         .expect("second managed event record should be readable");
 
     let store = CommandManagedForegroundSessionEventStore::new();
-    let report = store
-        .list_events(&ManagedForegroundSessionEventListRequest {
+    let first_page = store
+        .list_event_history(&ManagedForegroundSessionEventHistoryRequest {
             event_directory: format!(" {} ", event_directory.display()),
+            session_id: Some(" session-list ".to_string()),
+            event_kind: None,
+            state: None,
+            cursor: 0,
+            limit: 1,
         })
-        .expect("managed event directory should be listed");
+        .expect("managed event history should be listed");
 
     assert_eq!(
-        report.event_directory,
+        first_page.event_directory,
         event_directory.display().to_string()
     );
-    assert_eq!(report.event_count, 2);
-    assert!(!report.liveness_verified);
-    assert_eq!(report.events[0].event_id, "event-a");
-    assert_eq!(report.events[0].event_kind, "session_started");
-    assert_eq!(report.events[0].state, "starting");
-    assert_eq!(report.events[1].event_id, "event-b");
-    assert_eq!(report.events[1].event_kind, "status_transition");
-    assert_eq!(report.events[1].state, "running");
+    assert_eq!(first_page.session_id.as_deref(), Some("session-list"));
+    assert_eq!(first_page.matching_event_count, 2);
+    assert_eq!(first_page.cursor, 0);
+    assert_eq!(first_page.next_cursor, Some(1));
+    assert!(!first_page.liveness_verified);
+    assert_eq!(first_page.events.len(), 1);
+    assert_eq!(first_page.events[0].event_id, "event-a");
+    assert_eq!(first_page.events[0].event_kind, "session_started");
+    assert_eq!(first_page.events[0].state, "starting");
     assert_eq!(
-        report.events[0].event_path,
+        first_page.events[0].event_path,
         first_path.display().to_string()
     );
+
+    let second_page = store
+        .list_event_history(&ManagedForegroundSessionEventHistoryRequest {
+            event_directory: event_directory.display().to_string(),
+            session_id: Some("session-list".to_string()),
+            event_kind: None,
+            state: None,
+            cursor: 1,
+            limit: 1,
+        })
+        .expect("second managed event history page should be listed");
+    assert_eq!(second_page.matching_event_count, 2);
+    assert_eq!(second_page.cursor, 1);
+    assert_eq!(second_page.next_cursor, None);
+    assert_eq!(second_page.events.len(), 1);
+    assert_eq!(second_page.events[0].event_id, "event-b");
+    assert_eq!(second_page.events[0].event_kind, "status_transition");
+    assert_eq!(second_page.events[0].state, "running");
     assert_eq!(
-        report.events[1].event_path,
+        second_page.events[0].event_path,
         second_path.display().to_string()
+    );
+
+    let failed = store
+        .list_event_history(&ManagedForegroundSessionEventHistoryRequest {
+            event_directory: event_directory.display().to_string(),
+            session_id: None,
+            event_kind: Some(" session_failed ".to_string()),
+            state: Some(" failed ".to_string()),
+            cursor: 0,
+            limit: 10,
+        })
+        .expect("managed event history should honor kind and state filters");
+    assert_eq!(failed.event_kind.as_deref(), Some("session_failed"));
+    assert_eq!(failed.state.as_deref(), Some("failed"));
+    assert_eq!(failed.matching_event_count, 1);
+    assert_eq!(failed.events[0].event_id, "event-c");
+
+    let invalid_limit = store
+        .list_event_history(&ManagedForegroundSessionEventHistoryRequest {
+            event_directory: event_directory.display().to_string(),
+            session_id: None,
+            event_kind: None,
+            state: None,
+            cursor: 0,
+            limit: 0,
+        })
+        .expect_err("zero event history page size should be rejected");
+    assert_eq!(
+        invalid_limit.code,
+        "cli.linux.managed_foreground_event.history_query_invalid"
     );
     assert_eq!(
         std::fs::read_to_string(&first_path)
@@ -443,13 +825,41 @@ fn managed_foreground_session_event_list_reads_explicit_directory_deterministica
         before_second
     );
 
+    let oversized_path = event_directory.join("oversized.json");
+    std::fs::write(
+        &oversized_path,
+        "x".repeat((MANAGED_FOREGROUND_EVENT_HISTORY_MAX_RECORD_BYTES + 1) as usize),
+    )
+    .expect("oversized managed event record should be written");
+    let oversized = store
+        .list_event_history(&ManagedForegroundSessionEventHistoryRequest {
+            event_directory: event_directory.display().to_string(),
+            session_id: None,
+            event_kind: None,
+            state: None,
+            cursor: 0,
+            limit: 1,
+        })
+        .expect_err("oversized event record should reject the bounded history query");
+    assert_eq!(
+        oversized.code,
+        "cli.linux.managed_foreground_event.history_limit_exceeded"
+    );
+    std::fs::remove_file(&oversized_path)
+        .expect("oversized managed event record should be removed");
+
     std::fs::write(event_directory.join("broken.json"), "not valid JSON")
         .expect("broken managed event record should be written");
     let broken = store
-        .list_events(&ManagedForegroundSessionEventListRequest {
+        .list_event_history(&ManagedForegroundSessionEventHistoryRequest {
             event_directory: event_directory.display().to_string(),
+            session_id: Some("session-list".to_string()),
+            event_kind: None,
+            state: None,
+            cursor: 0,
+            limit: 1,
         })
-        .expect_err("broken event record should reject the list");
+        .expect_err("broken event record should reject the history query");
     assert_eq!(
         broken.code,
         "cli.linux.managed_foreground_event.read_failed"
@@ -465,7 +875,186 @@ fn managed_foreground_session_event_list_reads_explicit_directory_deterministica
         before_second
     );
 
-    std::fs::remove_dir_all(&root).expect("managed event list directory should be removed");
+    std::fs::remove_dir_all(&root).expect("managed event history directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_log_tail_reads_explicit_bounded_log_without_liveness_claim() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-log-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("managed log test directory should be created");
+    let log_path = root.join("managed.log");
+    std::fs::write(
+        &log_path,
+        "first\nsecond\nfetch https://user:password@example.test/sub?token=never-store\nAuthorization: Bearer never-store\n",
+    )
+        .expect("managed log fixture should be written");
+
+    let store = CommandManagedForegroundSessionLogStore::new();
+    let report = store
+        .read_tail(&ManagedForegroundSessionLogTailRequest {
+            log_path: log_path.display().to_string(),
+            line_limit: 2,
+        })
+        .expect("managed log tail should be read");
+    assert_eq!(report.log_path, log_path.display().to_string());
+    assert_eq!(report.line_limit, 2);
+    assert_eq!(report.total_line_count, 4);
+    let expected_tail = vec![
+        "fetch [redacted-url]".to_string(),
+        "Authorization:[redacted]".to_string(),
+    ];
+    assert_eq!(report.lines, expected_tail);
+    assert_eq!(
+        report.returned_byte_count,
+        report.lines.iter().map(String::len).sum::<usize>()
+    );
+    assert!(!report.liveness_verified);
+
+    let invalid_limit = store
+        .read_tail(&ManagedForegroundSessionLogTailRequest {
+            log_path: log_path.display().to_string(),
+            line_limit: 0,
+        })
+        .expect_err("zero managed log tail limit should be rejected");
+    assert_eq!(
+        invalid_limit.code,
+        CLI_MANAGED_FOREGROUND_LOG_QUERY_INVALID_CODE
+    );
+
+    std::fs::write(
+        &log_path,
+        "x".repeat((MANAGED_FOREGROUND_LOG_TAIL_MAX_BYTES + 1) as usize),
+    )
+    .expect("oversized managed log fixture should be written");
+    let oversized = store
+        .read_tail(&ManagedForegroundSessionLogTailRequest {
+            log_path: log_path.display().to_string(),
+            line_limit: 1,
+        })
+        .expect_err("oversized managed log should be rejected");
+    assert_eq!(
+        oversized.code,
+        CLI_MANAGED_FOREGROUND_LOG_LIMIT_EXCEEDED_CODE
+    );
+
+    let missing = store
+        .read_tail(&ManagedForegroundSessionLogTailRequest {
+            log_path: root.join("missing.log").display().to_string(),
+            line_limit: 1,
+        })
+        .expect_err("missing managed log should be rejected");
+    assert_eq!(missing.code, CLI_MANAGED_FOREGROUND_LOG_READ_FAILED_CODE);
+
+    std::fs::remove_dir_all(&root).expect("managed log test directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_log_cli_reads_bounded_explicit_log() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-log-cli-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("managed log CLI test directory should be created");
+    let log_path = root.join("session.log");
+    std::fs::write(&log_path, "first\nsecond\nthird\nfourth\n")
+        .expect("managed log CLI fixture should be written");
+    let command = parse_args([
+        "managed-log",
+        log_path
+            .to_str()
+            .expect("managed log CLI path should be UTF-8"),
+        "--tail-lines",
+        "2",
+        "--format",
+        "json",
+    ])
+    .expect("managed-log command should parse");
+    assert!(matches!(
+        &command,
+        LinuxCliCommand::ManagedLog {
+            line_limit: 2,
+            format: OutputFormat::Json,
+            ..
+        }
+    ));
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let before_read =
+        std::fs::read_to_string(&log_path).expect("managed log CLI fixture should remain readable");
+    let response = handle_entrypoint(command, &platform);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "managed-log");
+    let report = response
+        .managed_foreground_log_tail
+        .as_ref()
+        .expect("managed log CLI response should include the tail report");
+    assert_eq!(report.line_limit, 2);
+    assert_eq!(report.total_line_count, 4);
+    assert_eq!(report.lines, vec!["third", "fourth"]);
+    assert_eq!(report.returned_byte_count, "thirdfourth".len());
+    assert!(!report.liveness_verified);
+    assert_eq!(
+        std::fs::read_to_string(&log_path).expect("managed log CLI fixture should remain readable"),
+        before_read
+    );
+    let text = render_response(&response, OutputFormat::Text);
+    assert!(text.contains("managed foreground log line limit: 2"));
+    assert!(text.contains("managed foreground log line 0: third"));
+    assert!(text.contains("managed foreground log line 1: fourth"));
+    assert!(text.contains("managed foreground liveness verified: false"));
+    let json: serde_json::Value =
+        serde_json::from_str(&render_response(&response, OutputFormat::Json))
+            .expect("managed log response should render JSON");
+    assert_eq!(json["managed_foreground_log_tail"]["line_limit"], 2);
+    assert_eq!(json["managed_foreground_log_tail"]["lines"][0], "third");
+    assert_eq!(json["managed_foreground_log_tail"]["lines"][1], "fourth");
+    assert_eq!(
+        json["managed_foreground_log_tail"]["returned_byte_count"].as_u64(),
+        Some(report.returned_byte_count as u64)
+    );
+    assert!(!render_response(&response, OutputFormat::Json).contains("never-store"));
+    assert_eq!(
+        json["managed_foreground_log_tail"]["liveness_verified"].as_bool(),
+        Some(false)
+    );
+    let invalid = parse_args([
+        "managed-log",
+        log_path
+            .to_str()
+            .expect("managed log CLI path should be UTF-8"),
+        "--tail-lines",
+        "1001",
+    ]);
+    assert!(invalid.is_err());
+
+    std::fs::remove_dir_all(&root).expect("managed log CLI test directory should be removed");
+}
+
+#[test]
+fn diagnostic_rendering_redacts_urls_and_credentials_in_text_and_json() {
+    let response = handle_parse_error(Diagnostic::new(
+        DiagnosticSeverity::Error,
+        "cli.linux.contract.secret",
+        "subscription https://user:password@example.test/sub?token=never-store failed\napi_key=never-store",
+        Some("linux-cli-contract".to_string()),
+    ));
+
+    let text = render_response(&response, OutputFormat::Text);
+    let json = render_response(&response, OutputFormat::Json);
+    assert!(text.contains("[redacted-url]"));
+    assert!(text.contains("api_key=[redacted]"));
+    assert!(json.contains("[redacted-url]"));
+    assert!(json.contains("api_key=[redacted]"));
+    assert!(!text.contains("never-store"));
+    assert!(!json.contains("never-store"));
+    assert!(!text.contains("example.test"));
+    assert!(!json.contains("example.test"));
 }
 
 #[test]
@@ -743,6 +1332,137 @@ fn managed_foreground_session_event_cli_reads_explicit_record_without_liveness_c
     );
 
     std::fs::remove_dir_all(&root).expect("managed event CLI test directory should be removed");
+}
+
+#[test]
+fn managed_foreground_session_event_cli_lists_bounded_filtered_history() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-foreground-event-cli-history-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    let event_directory = root.join("events");
+    std::fs::create_dir_all(&event_directory)
+        .expect("managed event CLI history directory should be created");
+    let first_path = event_directory.join("event-cli-a.json");
+    let second_path = event_directory.join("event-cli-b.json");
+    std::fs::write(
+        &first_path,
+        r#"{
+  "schema_version": 1,
+  "session_id": "session-cli-list",
+  "engine_id": "native",
+  "event_id": "event-cli-a",
+  "event_kind": "session_started",
+  "state": "starting",
+  "recorded_at": "2026-07-10T00:00:00Z"
+}"#,
+    )
+    .expect("first managed event CLI history record should be written");
+    std::fs::write(
+        &second_path,
+        r#"{
+  "schema_version": 1,
+  "session_id": "session-cli-list",
+  "engine_id": "native",
+  "event_id": "event-cli-b",
+  "event_kind": "status_transition",
+  "state": "running",
+  "recorded_at": "2026-07-10T00:01:00Z"
+}"#,
+    )
+    .expect("second managed event CLI history record should be written");
+    std::fs::write(
+        event_directory.join("event-cli-c.json"),
+        r#"{
+  "schema_version": 1,
+  "session_id": "other-session",
+  "engine_id": "native",
+  "event_id": "event-cli-c",
+  "event_kind": "status_transition",
+  "state": "running",
+  "recorded_at": "2026-07-10T00:02:00Z"
+}"#,
+    )
+    .expect("third managed event CLI history record should be written");
+    let command = parse_args([
+        "managed-event",
+        "list",
+        event_directory
+            .to_str()
+            .expect("managed event history directory should be UTF-8"),
+        "--session-id",
+        "session-cli-list",
+        "--state",
+        "running",
+        "--cursor",
+        "0",
+        "--limit",
+        "1",
+        "--format",
+        "json",
+    ])
+    .expect("managed-event list command should parse");
+    assert!(matches!(
+        &command,
+        LinuxCliCommand::ManagedEventList {
+            cursor: 0,
+            limit: 1,
+            format: OutputFormat::Json,
+            ..
+        }
+    ));
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let before_first = std::fs::read_to_string(&first_path)
+        .expect("first managed event CLI history record should be readable");
+    let response = handle_entrypoint(command, &platform);
+
+    assert!(response.ok);
+    assert_eq!(response.command, "managed-event list");
+    let report = response
+        .managed_foreground_event_history
+        .as_ref()
+        .expect("managed event list response should include the history report");
+    assert_eq!(report.session_id.as_deref(), Some("session-cli-list"));
+    assert_eq!(report.state.as_deref(), Some("running"));
+    assert_eq!(report.cursor, 0);
+    assert_eq!(report.next_cursor, None);
+    assert_eq!(report.matching_event_count, 1);
+    assert_eq!(report.events.len(), 1);
+    assert_eq!(report.events[0].event_id, "event-cli-b");
+    assert!(!report.liveness_verified);
+    assert_eq!(
+        std::fs::read_to_string(&first_path)
+            .expect("first managed event CLI history record should be readable"),
+        before_first
+    );
+    let text = render_response(&response, OutputFormat::Text);
+    assert!(text.contains("managed foreground event history cursor: 0"));
+    assert!(text.contains("managed foreground event history matching count: 1"));
+    assert!(text.contains("managed foreground event history entry 0: id=event-cli-b"));
+    assert!(text.contains("managed foreground liveness verified: false"));
+    let json: serde_json::Value =
+        serde_json::from_str(&render_response(&response, OutputFormat::Json))
+            .expect("managed event list response should render JSON");
+    assert_eq!(
+        json["managed_foreground_event_history"]["session_id"],
+        "session-cli-list"
+    );
+    assert_eq!(
+        json["managed_foreground_event_history"]["matching_event_count"],
+        1
+    );
+    assert_eq!(
+        json["managed_foreground_event_history"]["events"][0]["event_id"],
+        "event-cli-b"
+    );
+    assert_eq!(
+        json["managed_foreground_event_history"]["liveness_verified"].as_bool(),
+        Some(false)
+    );
+
+    std::fs::remove_dir_all(&root).expect("managed event CLI history directory should be removed");
 }
 
 #[test]
@@ -1496,6 +2216,134 @@ fn subscription_catalog_select_reads_and_redacts_source() {
 }
 
 #[test]
+fn run_catalog_handler_resolves_a_saved_source_into_the_foreground_runner() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-run-catalog-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("run-catalog test directory should be created");
+    let catalog_path = root.join("catalog.json");
+    let engine_dir = root.join("networkcore-engines");
+    std::fs::write(
+        &catalog_path,
+        r#"{
+  "schema_version": 1,
+  "sources": [{
+    "id": "work",
+    "location": "inline:ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF"
+  }]
+}"#,
+    )
+    .expect("run-catalog fixture should be written");
+    let before = std::fs::read_to_string(&catalog_path).expect("catalog should be readable");
+
+    let response = handle_run_catalog_with_sing_box(
+        &TestSingBoxInstaller,
+        &TestSingBoxRunner,
+        catalog_path.to_str().expect("catalog path should be UTF-8"),
+        "work",
+        Some("ss-82-47-34-99-11111"),
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("engine path should be UTF-8")),
+        false,
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "run-catalog");
+    assert_eq!(
+        response
+            .sing_box_run
+            .as_ref()
+            .expect("run-catalog should return run status")
+            .node_id,
+        "ss-82-47-34-99-11111"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&catalog_path).expect("catalog should remain readable"),
+        before
+    );
+
+    let missing = handle_run_catalog_with_sing_box(
+        &TestSingBoxInstaller,
+        &TestSingBoxRunner,
+        catalog_path.to_str().expect("catalog path should be UTF-8"),
+        "missing",
+        None,
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("engine path should be UTF-8")),
+        false,
+    );
+    assert!(!missing.ok);
+    assert_eq!(missing.command, "run-catalog");
+    assert_diagnostic(
+        &missing.diagnostics,
+        "cli.linux.subscription_catalog.source_not_found",
+    );
+
+    std::fs::remove_dir_all(&root).expect("run-catalog test directory should be removed");
+}
+
+#[test]
+fn run_catalog_handler_fetches_a_saved_remote_source_through_the_same_runner() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-run-catalog-remote-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("run-catalog remote test directory should be created");
+    let catalog_path = root.join("catalog.json");
+    let engine_dir = root.join("networkcore-engines");
+    std::fs::write(
+        &catalog_path,
+        r#"{
+  "schema_version": 1,
+  "sources": [{
+    "id": "remote",
+    "location": "https://subscriptions.example.test/work"
+  }]
+}"#,
+    )
+    .expect("run-catalog remote fixture should be written");
+    let fetcher = TestRemoteSubscriptionFetcher::success(
+        "https://subscriptions.example.test/work",
+        "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF",
+    );
+
+    let response = handle_run_catalog_with_sing_box_and_fetcher(
+        &TestSingBoxInstaller,
+        &TestSingBoxRunner,
+        &fetcher,
+        catalog_path.to_str().expect("catalog path should be UTF-8"),
+        "remote",
+        None,
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("engine path should be UTF-8")),
+        false,
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "run-catalog");
+    assert_eq!(
+        response
+            .sing_box_run
+            .as_ref()
+            .expect("remote run-catalog should return run status")
+            .node_id,
+        "ss-82-47-34-99-11111"
+    );
+    assert_eq!(
+        fetcher.requested_location(),
+        "https://subscriptions.example.test/work"
+    );
+
+    std::fs::remove_dir_all(&root).expect("run-catalog remote test directory should be removed");
+}
+
+#[test]
 fn subscription_catalog_update_persists_snapshot_and_redacts_location() {
     let root = std::env::temp_dir().join(format!(
         "networkcore-subscription-catalog-update-contract-{}",
@@ -1571,6 +2419,96 @@ fn subscription_catalog_update_persists_snapshot_and_redacts_location() {
     assert!(!root.join("missing.snapshot.json").exists());
 
     std::fs::remove_dir_all(&root).expect("catalog update test directory should be removed");
+}
+
+#[test]
+fn subscription_catalog_remote_update_validates_before_snapshot_and_reports_node_count() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-subscription-catalog-remote-update-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("remote update test directory should be created");
+    let catalog_path = root.join("catalog.json");
+    let snapshot_path = root.join("catalog.snapshot.json");
+    std::fs::write(
+        &catalog_path,
+        r#"{"schema_version":1,"sources":[{"id":"work","location":"inline:[[nodes]]\nid = \"node-1\"\nname = \"Old Work\"\nprotocol = \"ss\"\nhost = \"old.example\"\nport = 443\n[[nodes]]\nid = \"node-old\"\nname = \"Removed\"\nprotocol = \"ss\"\nhost = \"removed.example\"\nport = 443\n"}]}"#,
+    )
+    .expect("catalog should be written");
+    let fetcher = TestRemoteSubscriptionFetcher::success(
+        "https://subscriptions.example.test/work",
+        "[[nodes]]\nid = \"node-1\"\nname = \"Work\"\nprotocol = \"ss\"\nhost = \"secret.example\"\nport = 443\n[[nodes]]\nid = \"node-new\"\nname = \"Added\"\nprotocol = \"ss\"\nhost = \"new.example\"\nport = 443\n",
+    );
+
+    let report = CommandSubscriptionCatalogStore::new()
+        .update_source_with_fetcher(
+            &SubscriptionCatalogUpdateRequest {
+                catalog_path: catalog_path.display().to_string(),
+                snapshot_path: snapshot_path.display().to_string(),
+                source_id: "work".to_string(),
+                location: "https://subscriptions.example.test/work".to_string(),
+            },
+            &fetcher,
+        )
+        .expect("valid remote candidate should update the catalog");
+
+    assert_eq!(report.validated_node_count, 2);
+    assert_eq!(report.added_node_count, 1);
+    assert_eq!(report.removed_node_count, 1);
+    assert_eq!(report.changed_node_count, 1);
+    assert!(report.location_redacted);
+    assert!(snapshot_path.exists());
+    assert_eq!(
+        fetcher.requested_location(),
+        "https://subscriptions.example.test/work"
+    );
+    let catalog = std::fs::read_to_string(&catalog_path).expect("catalog should be readable");
+    assert!(catalog.contains("subscriptions.example.test"));
+    assert!(!format!("{report:?}").contains("secret.example"));
+    std::fs::remove_dir_all(&root).expect("remote update test directory should be removed");
+}
+
+#[test]
+fn subscription_catalog_remote_update_failure_keeps_old_catalog_and_writes_no_snapshot() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-subscription-catalog-remote-update-failure-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("remote update failure directory should be created");
+    let catalog_path = root.join("catalog.json");
+    let snapshot_path = root.join("catalog.snapshot.json");
+    let original = r#"{"schema_version":1,"sources":[{"id":"work","location":"inline:[[nodes]]\nid = \"old\"\nname = \"Old\"\nprotocol = \"ss\"\nhost = \"old.example\"\nport = 443\n"}]}"#;
+    std::fs::write(&catalog_path, original).expect("catalog should be written");
+    let fetcher = TestRemoteSubscriptionFetcher::success(
+        "https://subscriptions.example.test/broken",
+        "not a supported subscription payload",
+    );
+
+    let error = CommandSubscriptionCatalogStore::new()
+        .update_source_with_fetcher(
+            &SubscriptionCatalogUpdateRequest {
+                catalog_path: catalog_path.display().to_string(),
+                snapshot_path: snapshot_path.display().to_string(),
+                source_id: "work".to_string(),
+                location: "https://subscriptions.example.test/broken".to_string(),
+            },
+            &fetcher,
+        )
+        .expect_err("invalid remote candidate should be rejected");
+
+    assert_eq!(
+        error.code,
+        "cli.linux.subscription_catalog.update_validation_failed"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&catalog_path).expect("catalog should remain readable"),
+        original
+    );
+    assert!(!snapshot_path.exists());
+    assert!(!error.message.contains("old-secret"));
+    std::fs::remove_dir_all(&root).expect("remote update failure directory should be removed");
 }
 
 #[test]
@@ -1768,6 +2706,74 @@ fn native_engine_factory_requires_explicit_authorization_before_loading_tls_mitm
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn native_engine_factory_rejects_tls_mitm_private_key_without_owner_only_mode() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock should be after Unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("networkcore-tls-mitm-key-mode-{unique}"));
+    std::fs::create_dir_all(&root).expect("TLS MITM fixture directory should be created");
+    let certificate_path = root.join("networkcore-ca.crt");
+    let private_key_path = root.join("networkcore-ca.key");
+    std::fs::write(&certificate_path, "certificate material")
+        .expect("certificate fixture should be written");
+    std::fs::write(&private_key_path, "private key material")
+        .expect("private key fixture should be written");
+    std::fs::set_permissions(
+        &private_key_path,
+        std::os::unix::fs::PermissionsExt::from_mode(0o644),
+    )
+    .expect("private key fixture mode should be changed");
+
+    let error = native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files(
+        certificate_path.to_str(),
+        private_key_path.to_str(),
+        true,
+        true,
+    )
+    .expect_err("live TLS MITM must reject a non-owner-only private key");
+    assert_eq!(
+        error.code,
+        CLI_START_TLS_MITM_PRIVATE_KEY_PROTECTION_FAILED_CODE
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(unix)]
+#[test]
+fn native_engine_factory_rejects_tls_mitm_private_key_symlink() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock should be after Unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("networkcore-tls-mitm-key-link-{unique}"));
+    std::fs::create_dir_all(&root).expect("TLS MITM fixture directory should be created");
+    let certificate_path = root.join("networkcore-ca.crt");
+    let private_key_target_path = root.join("networkcore-ca-target.key");
+    let private_key_path = root.join("networkcore-ca.key");
+    std::fs::write(&certificate_path, "certificate material")
+        .expect("certificate fixture should be written");
+    std::fs::write(&private_key_target_path, "private key material")
+        .expect("private key target fixture should be written");
+    std::os::unix::fs::symlink(&private_key_target_path, &private_key_path)
+        .expect("private key symlink fixture should be created");
+
+    let error = native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_files(
+        certificate_path.to_str(),
+        private_key_path.to_str(),
+        true,
+        true,
+    )
+    .expect_err("live TLS MITM must reject a private key symlink");
+    assert_eq!(
+        error.code,
+        CLI_START_TLS_MITM_PRIVATE_KEY_PROTECTION_FAILED_CODE
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
 #[test]
 fn parses_start_with_explicit_tls_mitm_authorization_and_material_paths() {
     let command = parse_args([
@@ -1795,6 +2801,7 @@ fn parses_start_with_explicit_tls_mitm_authorization_and_material_paths() {
             script_maps: Vec::new(),
             script_store_path: None,
             node_binary: None,
+            managed_lifecycle: None,
             confirm: true,
             format: OutputFormat::Text,
         }
@@ -1868,6 +2875,29 @@ fn native_engine_factory_requires_explicit_script_runtime_authorization_and_conf
     .expect("explicit local script mapping should configure the native engine");
     assert!(configured.http_mitm_hook_enabled());
     assert!(configured.http_mitm_script_executor_enabled());
+    assert_eq!(
+        configured.http_mitm_script_sandbox(),
+        Some(engine_native::NativeNodeScriptSandbox::LinuxNoNetwork)
+    );
+
+    let rejected_store = native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
+        LinuxNativeMitmRuntimeFileConfig {
+            certificate_path: None,
+            private_key_path: None,
+            enable_https_mitm: false,
+            enable_script_runtime: true,
+            script_runner_path: Some("/tmp/networkcore-script-runner.js"),
+            node_binary: None,
+            script_maps: &["https://scripts.networkcore.test/a.js=/tmp/a.js".to_string()],
+            script_store_path: Some("/tmp/networkcore-script-store.json"),
+            confirm: true,
+        },
+    )
+    .expect_err("sandboxed script runtime must reject a persistent store");
+    assert_eq!(
+        rejected_store.code,
+        CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE
+    );
 }
 
 #[test]
@@ -1901,9 +2931,29 @@ fn parses_start_with_explicit_script_runtime_mapping() {
             script_maps: vec!["https://scripts.networkcore.test/a.js=/tmp/a.js".to_string(),],
             script_store_path: Some("/tmp/networkcore-script-store.json".to_string()),
             node_binary: Some("/usr/bin/node".to_string()),
+            managed_lifecycle: None,
             confirm: true,
             format: OutputFormat::Text,
         }
+    );
+}
+
+#[test]
+fn trust_cli_handlers_reject_missing_paths_without_mutation() {
+    let apply = handle_mitm_certificate_trust_apply(None, Some("/tmp/trust.crt"), None, true);
+    assert!(!apply.ok);
+    assert_eq!(apply.exit_code, LinuxCliExitCode::ArgumentOrConfig);
+    assert_eq!(
+        apply.diagnostics[0].code,
+        CLI_MITM_CERTIFICATE_TRUST_CONFIG_MISSING_CODE
+    );
+
+    let rollback = handle_mitm_certificate_trust_rollback(Some("/tmp/trust.crt"), None, true);
+    assert!(!rollback.ok);
+    assert_eq!(rollback.exit_code, LinuxCliExitCode::ArgumentOrConfig);
+    assert_eq!(
+        rollback.diagnostics[0].code,
+        CLI_MITM_CERTIFICATE_TRUST_CONFIG_MISSING_CODE
     );
 }
 
@@ -1944,6 +2994,30 @@ fn parses_mitm_status_and_diagnostics_commands() {
         "/tmp/networkcore-mitm-ca.snapshot.json",
     ])
     .expect("mitm certificate rollback should parse");
+    let certificate_trust_apply = parse_args([
+        "mitm",
+        "certificate",
+        "trust-apply",
+        "--cert-file",
+        "/tmp/networkcore-mitm-ca.crt",
+        "--trust-file",
+        "/usr/local/share/ca-certificates/networkcore-mitm-ca.crt",
+        "--snapshot",
+        "/tmp/networkcore-mitm-trust.snapshot.json",
+        "--confirm",
+    ])
+    .expect("mitm certificate trust-apply should parse");
+    let certificate_trust_rollback = parse_args([
+        "mitm",
+        "certificate",
+        "trust-rollback",
+        "--trust-file",
+        "/usr/local/share/ca-certificates/networkcore-mitm-ca.crt",
+        "--snapshot",
+        "/tmp/networkcore-mitm-trust.snapshot.json",
+        "--confirm",
+    ])
+    .expect("mitm certificate trust-rollback should parse");
     let browser_plan = parse_args(["mitm", "browser-plan", "--format", "json"])
         .expect("mitm browser plan should parse");
     let browser_capture_plan_alias = parse_args(["mitm", "browser-capture-plan"])
@@ -2147,6 +3221,29 @@ fn parses_mitm_status_and_diagnostics_commands() {
         }
     );
     assert_eq!(
+        certificate_trust_apply,
+        LinuxCliCommand::MitmCertificateTrustApply {
+            certificate_path: Some("/tmp/networkcore-mitm-ca.crt".to_string()),
+            trust_file_path: Some(
+                "/usr/local/share/ca-certificates/networkcore-mitm-ca.crt".to_string(),
+            ),
+            snapshot_path: Some("/tmp/networkcore-mitm-trust.snapshot.json".to_string()),
+            confirm: true,
+            format: OutputFormat::Text,
+        }
+    );
+    assert_eq!(
+        certificate_trust_rollback,
+        LinuxCliCommand::MitmCertificateTrustRollback {
+            trust_file_path: Some(
+                "/usr/local/share/ca-certificates/networkcore-mitm-ca.crt".to_string(),
+            ),
+            snapshot_path: Some("/tmp/networkcore-mitm-trust.snapshot.json".to_string()),
+            confirm: true,
+            format: OutputFormat::Text,
+        }
+    );
+    assert_eq!(
         browser_plan,
         LinuxCliCommand::MitmBrowserPlan {
             format: OutputFormat::Json
@@ -2314,6 +3411,714 @@ fn missing_command_response_includes_help_table() {
 }
 
 #[test]
+fn parses_validate_as_an_explicit_config_validation_alias() {
+    let command = parse_args(["validate", "/tmp/networkcore.toml", "--format", "json"])
+        .expect("validate should parse");
+    assert_eq!(
+        command,
+        LinuxCliCommand::PrepareConfig {
+            config_path: Some("/tmp/networkcore.toml".to_string()),
+            format: OutputFormat::Json,
+        }
+    );
+}
+
+#[test]
+fn connect_and_disconnect_aliases_keep_foreground_boundary_explicit() {
+    let connect = parse_args(["connect", "--config", "/tmp/networkcore.toml"])
+        .expect("connect alias should parse");
+    assert!(
+        matches!(connect, LinuxCliCommand::Start { config_path: Some(path), .. } if path == "/tmp/networkcore.toml")
+    );
+
+    let disconnect =
+        parse_args(["disconnect", "--format", "json"]).expect("disconnect alias should parse");
+    assert_eq!(
+        disconnect,
+        LinuxCliCommand::Stop {
+            format: OutputFormat::Json
+        }
+    );
+    let response = handle_stop();
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, LinuxCliExitCode::Unavailable);
+}
+
+#[test]
+fn confirmed_connect_and_disconnect_use_managed_systemd_control() {
+    let connect = parse_args([
+        "connect",
+        "--service-unit",
+        "networkcore-managed.service",
+        "--confirm",
+    ])
+    .expect("confirmed connect should parse");
+    assert!(matches!(
+        connect,
+        LinuxCliCommand::ServiceControl {
+            action: LinuxSystemdServiceAction::Start,
+            confirm: true,
+            ..
+        }
+    ));
+    let disconnect = parse_args([
+        "disconnect",
+        "--service-unit",
+        "networkcore-managed.service",
+        "--confirm",
+    ])
+    .expect("confirmed disconnect should parse");
+    assert!(matches!(
+        disconnect,
+        LinuxCliCommand::ServiceControl {
+            action: LinuxSystemdServiceAction::Stop,
+            confirm: true,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn help_describes_the_unified_managed_service_aliases() {
+    let help = cli_help_text();
+
+    assert!(help.contains("connect           Starts the foreground runtime"));
+    assert!(help.contains("disconnect        Stops an explicit managed systemd unit"));
+    assert!(help.contains("restart           Restarts an explicit managed systemd unit"));
+    assert!(help.contains("logs              Read a bounded tail from one explicit log path"));
+    assert!(!help.contains("managed daemon disconnect is unavailable"));
+    assert!(!help.contains("managed daemon restart is unavailable"));
+}
+
+#[test]
+fn restart_is_explicitly_unavailable_until_managed_control_is_wired() {
+    let command =
+        parse_args(["restart", "--config", "/tmp/networkcore.toml"]).expect("restart should parse");
+    assert!(matches!(
+        command,
+        LinuxCliCommand::Restart {
+            config_path: Some(path),
+            ..
+        } if path == "/tmp/networkcore.toml"
+    ));
+    let response = handle_restart_unavailable();
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, LinuxCliExitCode::Unavailable);
+    assert_eq!(response.diagnostics[0].code, CLI_RUNTIME_UNWIRED_CODE);
+}
+
+#[test]
+fn confirmed_restart_uses_managed_systemd_control_command() {
+    let command = parse_args([
+        "restart",
+        "--service-unit",
+        "networkcore-managed.service",
+        "--confirm",
+        "--format",
+        "json",
+    ])
+    .expect("confirmed restart should parse");
+    assert_eq!(
+        command,
+        LinuxCliCommand::ServiceControl {
+            action: LinuxSystemdServiceAction::Restart,
+            unit_name: "networkcore-managed.service".to_string(),
+            confirm: true,
+            format: OutputFormat::Json,
+        }
+    );
+}
+
+#[test]
+fn confirmed_reload_uses_managed_systemd_control_command() {
+    let command = parse_args([
+        "reload",
+        "--service-unit",
+        "networkcore-managed.service",
+        "--confirm",
+        "--format",
+        "json",
+    ])
+    .expect("confirmed reload should parse");
+    assert_eq!(
+        command,
+        LinuxCliCommand::ServiceControl {
+            action: LinuxSystemdServiceAction::Reload,
+            unit_name: "networkcore-managed.service".to_string(),
+            confirm: true,
+            format: OutputFormat::Json,
+        }
+    );
+
+    let service_command = parse_args([
+        "service",
+        "reload",
+        "--service-unit",
+        "networkcore-managed.service",
+        "--confirm",
+    ])
+    .expect("service reload should parse");
+    assert!(matches!(
+        service_command,
+        LinuxCliCommand::ServiceControl {
+            action: LinuxSystemdServiceAction::Reload,
+            confirm: true,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn parses_core_list_and_mieru_local_install_contract() {
+    assert_eq!(
+        parse_args(["core", "list", "--format", "json"]).expect("core list should parse"),
+        LinuxCliCommand::CoreList {
+            format: OutputFormat::Json
+        }
+    );
+    assert_eq!(
+        parse_args([
+            "core",
+            "install",
+            "mieru",
+            "--binary",
+            "/opt/mieru",
+            "--sha256",
+            "0123456789012345678901234567890123456789012345678901234567890123",
+        ])
+        .expect("core install mieru should parse"),
+        LinuxCliCommand::InstallMieru {
+            binary_path: "/opt/mieru".to_string(),
+            expected_sha256: "0123456789012345678901234567890123456789012345678901234567890123"
+                .to_string(),
+            release_url: None,
+            confirm: false,
+            force: false,
+            format: OutputFormat::Text,
+        }
+    );
+}
+
+#[test]
+fn parses_core_mieru_official_release_install_contract() {
+    let command = parse_args([
+        "core",
+        "install",
+        "mieru",
+        "--url",
+        "https://github.com/enfein/mieru/releases/download/v1.0.0/mieru-linux-amd64",
+        "--binary",
+        "/opt/mieru",
+        "--sha256",
+        "0123456789012345678901234567890123456789012345678901234567890123",
+        "--confirm",
+    ])
+    .expect("official Mieru release install should parse");
+
+    assert!(matches!(
+        command,
+        LinuxCliCommand::InstallMieru {
+            binary_path,
+            release_url: Some(release_url),
+            confirm: true,
+            force: false,
+            ..
+        } if binary_path == "/opt/mieru"
+            && release_url.starts_with("https://github.com/enfein/mieru/releases/download/")
+    ));
+}
+
+#[test]
+fn parses_subscription_catalog_command_contracts() {
+    let add = parse_args([
+        "subscription",
+        "add",
+        "--catalog",
+        "/var/lib/networkcore/subscriptions.json",
+        "--snapshot",
+        "/var/lib/networkcore/subscriptions.previous.json",
+        "--source-id",
+        "office",
+        "--url",
+        "https://example.invalid/subscription",
+    ])
+    .expect("subscription add should parse");
+    assert!(matches!(
+        add,
+        LinuxCliCommand::SubscriptionAdd {
+            source_id,
+            location,
+            format: OutputFormat::Text,
+            ..
+        } if source_id == "office" && location == "https://example.invalid/subscription"
+    ));
+
+    let list = parse_args([
+        "subscription",
+        "list",
+        "--catalog",
+        "/var/lib/networkcore/subscriptions.json",
+        "--format",
+        "json",
+    ])
+    .expect("subscription list should parse");
+    assert!(matches!(
+        list,
+        LinuxCliCommand::SubscriptionList {
+            format: OutputFormat::Json,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn subscription_refresh_requires_explicit_paths_confirmation_and_http_source() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-subscription-refresh-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("refresh fixture directory should be created");
+    let catalog_path = root.join("catalog.json");
+    let status_path = root.join("refresh-status.json");
+    let snapshot_path = root.join("refresh.snapshot.json");
+    std::fs::write(&catalog_path, r#"{"schema_version":1,"sources":[{"id":"work","location":"https://subscriptions.example.test/work?token=secret"}]}"#).expect("catalog should be written");
+    let command = parse_args([
+        "subscription",
+        "refresh",
+        "start",
+        "--catalog",
+        catalog_path.to_str().expect("utf8"),
+        "--refresh-status",
+        status_path.to_str().expect("utf8"),
+        "--snapshot",
+        snapshot_path.to_str().expect("utf8"),
+        "--source-id",
+        "work",
+        "--interval-seconds",
+        "300",
+        "--confirm",
+    ])
+    .expect("refresh should parse");
+    let fetcher = TestRemoteSubscriptionFetcher::success("https://subscriptions.example.test/work?token=secret", "[[nodes]]\nid = \"work\"\nname = \"Work\"\nprotocol = \"ss\"\nhost = \"secret.example\"\nport = 443\n");
+    let response = handle_subscription_command_with_fetcher(command, &fetcher);
+    assert!(response.ok);
+    assert!(status_path.exists());
+    assert!(snapshot_path.exists());
+    let catalog = std::fs::read_to_string(&catalog_path).expect("catalog should remain readable");
+    assert!(catalog.contains("refresh_location"));
+    assert!(!render_response(&response, OutputFormat::Json).contains("secret.example"));
+    let status = handle_subscription_command(
+        parse_args([
+            "subscription",
+            "refresh",
+            "status",
+            "--refresh-status",
+            status_path.to_str().expect("utf8"),
+        ])
+        .expect("status should parse"),
+    );
+    assert!(status.ok);
+    let stopped = handle_subscription_command(
+        parse_args([
+            "subscription",
+            "refresh",
+            "stop",
+            "--refresh-status",
+            status_path.to_str().expect("utf8"),
+            "--source-id",
+            "work",
+            "--confirm",
+        ])
+        .expect("stop should parse"),
+    );
+    assert!(stopped.ok);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn subscription_refresh_schedule_requires_all_explicit_install_inputs() {
+    let install = parse_args([
+        "subscription",
+        "refresh",
+        "schedule",
+        "install",
+        "--catalog",
+        "/var/lib/networkcore/catalog.json",
+        "--refresh-status",
+        "/var/lib/networkcore/refresh-status.json",
+        "--snapshot",
+        "/var/lib/networkcore/catalog.snapshot.json",
+        "--source-id",
+        "office",
+        "--interval-seconds",
+        "300",
+        "--unit-name",
+        "networkcore-refresh-office",
+        "--confirm",
+    ])
+    .expect("explicit systemd refresh schedule should parse");
+    assert!(
+        matches!(install, LinuxCliCommand::SubscriptionRefreshScheduleInstall {
+        unit_name, interval_seconds: 300, confirm: true, ..
+    } if unit_name == "networkcore-refresh-office")
+    );
+
+    let status = parse_args([
+        "subscription",
+        "refresh",
+        "schedule",
+        "status",
+        "--unit-name",
+        "networkcore-refresh-office",
+        "--snapshot",
+        "/var/lib/networkcore/catalog.snapshot.json",
+    ])
+    .expect("schedule status should require an explicit plan snapshot");
+    assert!(matches!(
+        status,
+        LinuxCliCommand::SubscriptionRefreshScheduleStatus { .. }
+    ));
+
+    assert!(parse_args([
+        "subscription",
+        "refresh",
+        "schedule",
+        "install",
+        "--catalog",
+        "/var/lib/networkcore/catalog.json",
+        "--refresh-status",
+        "/var/lib/networkcore/refresh-status.json",
+        "--snapshot",
+        "/var/lib/networkcore/catalog.snapshot.json",
+        "--source-id",
+        "office",
+        "--unit-name",
+        "networkcore-refresh-office",
+        "--confirm",
+    ])
+    .is_err());
+}
+
+#[test]
+fn subscription_refresh_failure_keeps_catalog_and_redacts_status_error() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-subscription-refresh-failure-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("refresh fixture directory should be created");
+    let catalog_path = root.join("catalog.json");
+    let status_path = root.join("refresh-status.json");
+    let snapshot_path = root.join("refresh.snapshot.json");
+    let original = r#"{"schema_version":1,"sources":[{"id":"work","location":"https://subscriptions.example.test/unavailable"}]}"#;
+    std::fs::write(&catalog_path, original).expect("catalog should be written");
+    let response = handle_subscription_command_with_fetcher(
+        parse_args([
+            "subscription",
+            "refresh",
+            "start",
+            "--catalog",
+            catalog_path.to_str().expect("utf8"),
+            "--refresh-status",
+            status_path.to_str().expect("utf8"),
+            "--snapshot",
+            snapshot_path.to_str().expect("utf8"),
+            "--source-id",
+            "work",
+            "--confirm",
+        ])
+        .expect("refresh should parse"),
+        &TestRemoteSubscriptionFetcher::failure(),
+    );
+    assert!(!response.ok);
+    assert_eq!(
+        std::fs::read_to_string(&catalog_path).expect("catalog should remain readable"),
+        original
+    );
+    assert!(!snapshot_path.exists());
+    let status =
+        std::fs::read_to_string(&status_path).expect("failed refresh status should be written");
+    assert!(status.contains("error_code"));
+    assert!(!status.contains("subscriptions.example.test"));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn parses_node_switch_and_rejects_missing_loopback_controller_port() {
+    let command = parse_args([
+        "node",
+        "switch",
+        "--config",
+        "/etc/networkcore/profile.toml",
+        "--source-id",
+        "node-1",
+        "--selection",
+        "/var/lib/networkcore/selection.json",
+        "--snapshot",
+        "/var/lib/networkcore/selection.previous.json",
+        "--controller-port",
+        "9091",
+        "--confirm",
+        "--format",
+        "json",
+    ])
+    .expect("node switch should parse");
+    assert!(matches!(
+        command,
+        LinuxCliCommand::NodeSwitch {
+            node_id,
+            controller_port: 9091,
+            confirm: true,
+            format: OutputFormat::Json,
+            ..
+        } if node_id == "node-1"
+    ));
+
+    let missing_controller = parse_args([
+        "node",
+        "switch",
+        "--config",
+        "/etc/networkcore/profile.toml",
+        "--source-id",
+        "node-1",
+        "--selection",
+        "/var/lib/networkcore/selection.json",
+        "--snapshot",
+        "/var/lib/networkcore/selection.previous.json",
+    ])
+    .expect_err("node switch must require an explicit controller port");
+    assert_eq!(
+        missing_controller.diagnostic().code,
+        CLI_ARGUMENT_VALUE_MISSING_CODE
+    );
+}
+
+#[test]
+fn node_switch_patches_loopback_selector_and_keeps_selection_snapshot() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-node-switch-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("node switch test directory should be created");
+    let config_path = root.join("profile.toml");
+    let selection_path = root.join("selection.json");
+    let snapshot_path = root.join("selection.snapshot.json");
+    std::fs::write(
+        &config_path,
+        "schema_version = 1\nprofile = \"default\"\n\n[[nodes]]\nid = \"node-1\"\nname = \"Primary\"\nprotocol = \"ss\"\nhost = \"secret.example\"\nport = 443\n",
+    )
+    .expect("node switch config should be written");
+    std::fs::write(&selection_path, r#"{"schema_version":1,"node_id":null}"#)
+        .expect("selection should be written");
+
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("selector fixture should bind");
+    let port = listener
+        .local_addr()
+        .expect("selector fixture should expose a port")
+        .port();
+    let server = std::thread::spawn(move || {
+        for _ in 0..3 {
+            let (mut stream, _) = listener
+                .accept()
+                .expect("selector fixture should accept request");
+            let mut request = [0_u8; 4096];
+            let _ = stream.read(&mut request);
+            let body = r#"{"now":"networkcore-node-0","all":["networkcore-node-0"]}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(), body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("selector fixture should return response");
+        }
+    });
+
+    let response = networkcore_linux::handle_node_switch(
+        config_path.to_str().expect("config path should be UTF-8"),
+        "node-1",
+        selection_path
+            .to_str()
+            .expect("selection path should be UTF-8"),
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        port,
+        true,
+    );
+
+    assert!(response.ok);
+    assert!(snapshot_path.exists());
+    assert!(std::fs::read_to_string(&selection_path)
+        .expect("selection should be readable")
+        .contains("node-1"));
+    assert!(!format!("{response:?}").contains("secret.example"));
+    server.join().expect("selector fixture should finish");
+    std::fs::remove_dir_all(&root).expect("node switch test directory should be removed");
+}
+
+#[test]
+fn node_switch_rejects_missing_confirmation_before_any_network_or_file_mutation() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-node-switch-denied-contract-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("node switch denied directory should be created");
+    let selection_path = root.join("selection.json");
+    let snapshot_path = root.join("selection.snapshot.json");
+    let response = networkcore_linux::handle_node_switch(
+        "/missing/profile.toml",
+        "node-1",
+        selection_path
+            .to_str()
+            .expect("selection path should be UTF-8"),
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        9091,
+        false,
+    );
+
+    assert!(!response.ok);
+    assert_diagnostic(
+        &response.diagnostics,
+        "cli.node.switch_confirmation_required",
+    );
+    assert!(!snapshot_path.exists());
+    std::fs::remove_dir_all(&root).expect("node switch denied directory should be removed");
+}
+
+#[test]
+fn parses_core_mieru_start_and_stop_control_contract() {
+    let start = parse_args([
+        "core",
+        "start",
+        "mieru",
+        "--binary",
+        "/opt/mieru",
+        "--sha256",
+        "0123456789012345678901234567890123456789012345678901234567890123",
+        "--config",
+        "/var/lib/networkcore/client_config.json",
+        "--format",
+        "json",
+    ])
+    .expect("core start mieru should parse");
+    let stop = parse_args([
+        "core",
+        "stop",
+        "mieru",
+        "--binary",
+        "/opt/mieru",
+        "--sha256",
+        "0123456789012345678901234567890123456789012345678901234567890123",
+        "--config",
+        "/var/lib/networkcore/client_config.json",
+    ])
+    .expect("core stop mieru should parse");
+
+    assert!(matches!(
+        start,
+        LinuxCliCommand::StartMieru {
+            config_path,
+            format: OutputFormat::Json,
+            ..
+        } if config_path == "/var/lib/networkcore/client_config.json"
+    ));
+    assert!(matches!(
+        stop,
+        LinuxCliCommand::StopMieru {
+            config_path,
+            format: OutputFormat::Text,
+            ..
+        } if config_path == "/var/lib/networkcore/client_config.json"
+    ));
+}
+
+#[test]
+fn parses_and_executes_core_mieru_status_without_exposing_config() {
+    let status = parse_args([
+        "core",
+        "status",
+        "mieru",
+        "--binary",
+        "/opt/mieru",
+        "--sha256",
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "--config",
+        "/var/lib/networkcore/client_config.json",
+        "--format",
+        "json",
+    ])
+    .expect("core status mieru should parse");
+    assert!(matches!(
+        status,
+        LinuxCliCommand::StatusMieru {
+            config_path,
+            format: OutputFormat::Json,
+            ..
+        } if config_path == "/var/lib/networkcore/client_config.json"
+    ));
+
+    struct StatusRunner;
+    impl engine_mieru::MieruCommandRunner for StatusRunner {
+        fn run(
+            &self,
+            _executable_path: &std::path::Path,
+            arguments: &[String],
+        ) -> control_domain::DomainResult<engine_mieru::MieruCommandReport> {
+            assert_eq!(arguments, &[String::from("status")]);
+            Ok(engine_mieru::MieruCommandReport {
+                exit_code: Some(0),
+                succeeded: true,
+                diagnostics: vec![Diagnostic::new(
+                    DiagnosticSeverity::Info,
+                    "test.mieru.status",
+                    "status command completed",
+                    None,
+                )],
+            })
+        }
+    }
+
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-linux-mieru-status-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("Mieru status fixture directory should be created");
+    let binary = root.join("mieru");
+    let config = root.join("client.json");
+    std::fs::write(&binary, b"").expect("Mieru binary fixture should be written");
+    std::fs::write(&config, b"{}").expect("Mieru config fixture should be written");
+    let response = handle_status_mieru_with_runner(
+        &StatusRunner,
+        binary.to_str().expect("binary path should be UTF-8"),
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        config.to_str().expect("config path should be UTF-8"),
+    );
+    assert!(response.ok);
+    assert_eq!(response.command, "core status mieru");
+    assert_eq!(response.mieru_install.as_ref().unwrap().action, "status");
+    assert!(render_response(&response, OutputFormat::Json).contains("\"action\":\"status\""));
+    std::fs::remove_dir_all(&root).expect("Mieru status fixture directory should be removed");
+}
+
+#[test]
+fn core_list_registers_native_sing_box_and_mieru_adapters() {
+    let descriptors = registered_core_engine_descriptors();
+    let ids = descriptors
+        .iter()
+        .map(|descriptor| descriptor.id.as_str())
+        .collect::<Vec<_>>();
+
+    assert_eq!(ids, vec!["native", "sing-box", "mieru"]);
+}
+
+#[test]
 fn parses_install_sing_box_command_and_alias() {
     let command = parse_args([
         "install-sing-box",
@@ -2351,6 +4156,267 @@ fn parses_install_sing_box_command_and_alias() {
 }
 
 #[test]
+fn parses_core_install_sing_box_alias() {
+    let command = parse_args([
+        "core",
+        "install",
+        "sing-box",
+        "--install-dir",
+        "/tmp/networkcore-engines",
+        "--force",
+        "--format",
+        "json",
+    ])
+    .expect("core install sing-box should parse");
+
+    assert_eq!(
+        command,
+        LinuxCliCommand::InstallSingBox {
+            install_dir: Some("/tmp/networkcore-engines".to_string()),
+            force: true,
+            format: OutputFormat::Json,
+        }
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn parses_and_renders_install_service_plan_without_system_mutation() {
+    let command = parse_args([
+        "install-service",
+        "--service-executable",
+        "/usr/local/bin/networkcore-linux",
+        "--service-arg",
+        "start",
+        "--service-arg",
+        "--config",
+        "--service-unit",
+        "networkcore-managed.service",
+        "--service-state-dir",
+        "/var/lib/networkcore",
+        "--confirm",
+        "--format",
+        "json",
+    ])
+    .expect("install-service should parse");
+
+    let response = handle_entrypoint_skeleton(command);
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, LinuxCliExitCode::Unavailable);
+
+    let response = handle_install_service_plan(
+        "networkcore-managed.service",
+        "NetworkCore managed proxy",
+        "/usr/local/bin/networkcore-linux",
+        &["start".to_string()],
+        "networkcore",
+        "networkcore",
+        "/var/lib/networkcore",
+        true,
+    );
+    assert!(response.ok);
+    let rendered = render_response(&response, OutputFormat::Json);
+    let json: serde_json::Value =
+        serde_json::from_str(&rendered).expect("service plan should be valid JSON");
+    assert_eq!(json["command"], "install-service");
+    assert_eq!(
+        json["service_install"]["unit_name"],
+        "networkcore-managed.service"
+    );
+    assert_eq!(
+        json["service_install"]["install_confirmation_required"],
+        true
+    );
+    assert!(json["service_install"]["content"]
+        .as_str()
+        .expect("unit content")
+        .contains("NoNewPrivileges=true"));
+}
+
+#[test]
+fn parses_service_control_and_requires_confirmation() {
+    let command = parse_args([
+        "service",
+        "start",
+        "--service-unit",
+        "networkcore-managed.service",
+        "--format",
+        "json",
+    ])
+    .expect("service command should parse");
+    assert_eq!(
+        command,
+        LinuxCliCommand::ServiceControl {
+            action: LinuxSystemdServiceAction::Start,
+            unit_name: "networkcore-managed.service".to_string(),
+            confirm: false,
+            format: OutputFormat::Json,
+        }
+    );
+
+    let response = handle_systemd_service_control(
+        &RecordingSystemdRunner { exit_code: Some(0) },
+        LinuxSystemdServiceAction::Start,
+        "networkcore-managed.service",
+        false,
+    );
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, LinuxCliExitCode::PlatformDenied);
+    assert!(response.diagnostics[0]
+        .code
+        .contains("confirmation_required"));
+}
+
+#[test]
+fn systemd_service_control_maps_runner_failure_to_platform_denied() {
+    let response = handle_systemd_service_control(
+        &RecordingSystemdRunner { exit_code: Some(5) },
+        LinuxSystemdServiceAction::Status,
+        "networkcore.service",
+        true,
+    );
+    assert!(!response.ok);
+    assert_eq!(response.command, "service status");
+    assert_eq!(response.exit_code, LinuxCliExitCode::PlatformDenied);
+    assert_eq!(
+        response.diagnostics[0].code,
+        "platform.linux.systemd.control_failed"
+    );
+}
+
+struct RecordingSystemdRunner {
+    exit_code: Option<i32>,
+}
+
+impl LinuxSystemdCommandRunner for RecordingSystemdRunner {
+    fn run(
+        &self,
+        _action: LinuxSystemdServiceAction,
+        _unit_name: &str,
+    ) -> DomainResult<Option<i32>> {
+        Ok(self.exit_code)
+    }
+}
+
+#[test]
+fn install_service_requires_explicit_confirmation() {
+    let response = handle_install_service_plan(
+        "networkcore.service",
+        "NetworkCore managed proxy",
+        "/usr/local/bin/networkcore-linux",
+        &[],
+        "networkcore",
+        "networkcore",
+        "/var/lib/networkcore",
+        false,
+    );
+    assert!(!response.ok);
+    assert_eq!(
+        response.diagnostics[0].code,
+        CLI_INSTALL_SERVICE_CONFIRMATION_REQUIRED_CODE
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn install_service_apply_writes_and_verifies_unit_with_snapshot() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-linux-cli-service-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("fixture directory should be created");
+    let unit_path = root.join("networkcore.service");
+    let snapshot_path = root.join("snapshot.unit");
+    std::fs::write(&unit_path, "old unit\n").expect("old unit should be written");
+
+    let response = handle_install_service_apply_at(
+        "networkcore.service",
+        "NetworkCore managed proxy",
+        "/usr/local/bin/networkcore-linux",
+        &[],
+        "networkcore",
+        "networkcore",
+        "/var/lib/networkcore",
+        &unit_path,
+        &snapshot_path,
+        true,
+    );
+    assert!(response.ok);
+    assert!(response.diagnostics[0].message.contains("verified"));
+    assert_eq!(
+        std::fs::read_to_string(&snapshot_path).unwrap(),
+        "old unit\n"
+    );
+    assert!(std::fs::read_to_string(&unit_path)
+        .unwrap()
+        .contains("NoNewPrivileges=true"));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+#[cfg(unix)]
+fn uninstall_service_plan_preserves_state_and_requires_purge_confirmation() {
+    let command = parse_args([
+        "uninstall-service",
+        "--service-unit",
+        "networkcore-managed.service",
+        "--service-state-dir",
+        "/var/lib/networkcore",
+        "--confirm",
+        "--format",
+        "json",
+    ])
+    .expect("uninstall-service should parse");
+
+    let response = match command {
+        LinuxCliCommand::UninstallService {
+            unit_name,
+            state_directory,
+            confirm,
+            ..
+        } => handle_uninstall_service_plan(&unit_name, &state_directory, confirm),
+        _ => panic!("expected uninstall-service command"),
+    };
+    assert!(response.ok);
+    let rendered = render_response(&response, OutputFormat::Json);
+    let json: serde_json::Value =
+        serde_json::from_str(&rendered).expect("removal plan should be valid JSON");
+    assert_eq!(json["command"], "uninstall-service");
+    assert_eq!(
+        json["service_removal"]["unit_path"],
+        "/etc/systemd/system/networkcore-managed.service"
+    );
+    assert_eq!(
+        json["service_removal"]["preserved_state_directory"],
+        "/var/lib/networkcore"
+    );
+    assert_eq!(json["service_removal"]["purge_confirmation_required"], true);
+}
+
+#[test]
+fn uninstall_service_apply_snapshots_and_removes_unit() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-linux-cli-uninstall-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("fixture directory should be created");
+    let unit_path = root.join("networkcore.service");
+    let snapshot_path = root.join("removed.unit");
+    std::fs::write(&unit_path, "managed unit\n").expect("unit should be written");
+
+    let response = handle_uninstall_service_apply_at(&unit_path, &snapshot_path, true);
+    assert!(response.ok);
+    assert!(!unit_path.exists());
+    assert_eq!(
+        std::fs::read_to_string(snapshot_path).unwrap(),
+        "managed unit\n"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn parses_run_url_command_with_local_proxy_options() {
     let command = parse_args([
         "run-url",
@@ -2361,6 +4427,8 @@ fn parses_run_url_command_with_local_proxy_options() {
         "7891",
         "--install-dir",
         "/tmp/networkcore-engines",
+        "--node-id",
+        "ss-82-47-34-99-11111",
         "--format",
         "json",
     ])
@@ -2370,9 +4438,44 @@ fn parses_run_url_command_with_local_proxy_options() {
         command,
         LinuxCliCommand::RunUrl {
             url: "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF".to_string(),
+            selected_node_id: Some("ss-82-47-34-99-11111".to_string()),
             listen_host: "127.0.0.1".to_string(),
             listen_port: 7891,
             install_dir: Some("/tmp/networkcore-engines".to_string()),
+            mieru_binary_path: None,
+            mieru_sha256: None,
+            force: false,
+            format: OutputFormat::Json,
+        }
+    );
+}
+
+#[test]
+fn parses_run_catalog_command_with_source_and_node_options() {
+    let command = parse_args([
+        "run-catalog",
+        "/tmp/networkcore-catalog.json",
+        "work",
+        "--node-id",
+        "ss-82-47-34-99-11111",
+        "--listen-port",
+        "7891",
+        "--format",
+        "json",
+    ])
+    .expect("run-catalog should parse");
+
+    assert_eq!(
+        command,
+        LinuxCliCommand::RunCatalog {
+            catalog_path: "/tmp/networkcore-catalog.json".to_string(),
+            source_id: "work".to_string(),
+            selected_node_id: Some("ss-82-47-34-99-11111".to_string()),
+            listen_host: "127.0.0.1".to_string(),
+            listen_port: 7891,
+            install_dir: None,
+            mieru_binary_path: None,
+            mieru_sha256: None,
             force: false,
             format: OutputFormat::Json,
         }
@@ -2480,6 +4583,27 @@ fn status_without_runtime_context_reports_platform_only_diagnostics() {
     assert_diagnostic(&response.diagnostics, DNS_MANAGER_UNKNOWN_CODE);
     assert_diagnostic(&response.diagnostics, CLI_STATUS_NO_RUNTIME_CONTEXT_CODE);
     assert_diagnostic(&response.diagnostics, CLI_STATUS_PLATFORM_ONLY_CODE);
+}
+
+#[test]
+fn status_with_service_unit_reads_managed_systemd_state() {
+    let command = parse_args([
+        "status",
+        "--service-unit",
+        "networkcore-managed.service",
+        "--format",
+        "json",
+    ])
+    .expect("status service unit should parse");
+    assert_eq!(
+        command,
+        LinuxCliCommand::ServiceControl {
+            action: LinuxSystemdServiceAction::Status,
+            unit_name: "networkcore-managed.service".to_string(),
+            confirm: false,
+            format: OutputFormat::Json,
+        }
+    );
 }
 
 #[test]
@@ -2653,6 +4777,9 @@ fn mitm_http_rewrite_plan_reports_live_plain_http_data_plane_without_tls_decrypt
         report.tls_decryption_ready,
         MITM_HTTP_REWRITE_TLS_DECRYPTION_READY
     );
+    assert!(!report.certificate_pinning_bypass_supported);
+    assert!(!report.http2_mitm_supported);
+    assert!(!report.http3_quic_mitm_supported);
     assert_eq!(
         report.controlled_tls_termination_plan_ready,
         MITM_HTTP_REWRITE_CONTROLLED_TLS_TERMINATION_PLAN_READY
@@ -2669,6 +4796,18 @@ fn mitm_http_rewrite_plan_reports_live_plain_http_data_plane_without_tls_decrypt
         .blocked_operations
         .iter()
         .any(|operation| operation == "decrypt-https"));
+    assert!(report
+        .blocked_operations
+        .iter()
+        .any(|operation| operation == "bypass-certificate-pinning"));
+    assert!(report
+        .blocked_operations
+        .iter()
+        .any(|operation| operation == "intercept-http2"));
+    assert!(report
+        .blocked_operations
+        .iter()
+        .any(|operation| operation == "intercept-http3-quic"));
 
     let rendered = render_response(&response, OutputFormat::Text);
     assert!(rendered
@@ -2808,6 +4947,7 @@ fn mitm_http_rewrite_preview_reports_https_request_preview_without_live_tls_or_s
     assert_eq!(outcome.header_mutation_count, 0);
     assert!(!outcome.body_mutated);
     assert!(!outcome.script_dispatch_deferred);
+    assert!(!outcome.script_dispatch_failed);
     assert_eq!(
         outcome
             .output_headers
@@ -3064,6 +5204,16 @@ fn mitm_certificate_command_store_writes_and_rolls_back_artifacts() {
     assert!(cert_content.contains("-----END CERTIFICATE-----"));
     assert!(key_content.contains("-----BEGIN PRIVATE KEY-----"));
     assert!(key_content.contains("-----END PRIVATE KEY-----"));
+    #[cfg(unix)]
+    assert_eq!(
+        std::os::unix::fs::PermissionsExt::mode(
+            &std::fs::metadata(&key_path)
+                .expect("private key artifact metadata should be readable")
+                .permissions(),
+        ) & 0o777,
+        0o600,
+        "generated MITM private key artifact must be owner-only"
+    );
     assert!(!cert_content.contains("trust-store-mutation: blocked"));
     assert!(!key_content.contains("https-rewrite: blocked"));
     assert!(snapshot_path.exists());
@@ -5266,6 +7416,7 @@ fn entrypoint_keeps_runtime_mutation_commands_unwired() {
             script_maps: Vec::new(),
             script_store_path: None,
             node_binary: None,
+            managed_lifecycle: None,
             confirm: false,
             format: OutputFormat::Text,
         },
@@ -5305,6 +7456,7 @@ profile = "default"
             script_maps: Vec::new(),
             script_store_path: None,
             node_binary: None,
+            managed_lifecycle: None,
             confirm: false,
             format: OutputFormat::Text,
         },
@@ -5363,6 +7515,7 @@ route_node = "node-1"
             script_maps: Vec::new(),
             script_store_path: None,
             node_binary: None,
+            managed_lifecycle: None,
             confirm: false,
             format: OutputFormat::Text,
         },
@@ -5732,6 +7885,340 @@ fn run_url_handler_parses_ss_url_writes_sing_box_config_and_uses_runner() {
 }
 
 #[test]
+fn run_url_handler_selects_the_requested_catalog_node() {
+    let install_dir = std::env::temp_dir().join(format!(
+        "networkcore-linux-run-url-node-selection-contract-{}",
+        std::process::id()
+    ));
+    let engine_dir = install_dir.join("networkcore-engines");
+    let _ = std::fs::remove_dir_all(&install_dir);
+    let subscription = concat!(
+        "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF\n",
+        "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.98:11112#US\n"
+    );
+
+    let response = handle_run_url_with_sing_box_and_node_id(
+        &TestSingBoxInstaller,
+        &TestProtocolSingBoxRunner {
+            outbound_type: "shadowsocks",
+        },
+        subscription,
+        Some("ss-82-47-34-98-11112"),
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("temp path should be utf-8")),
+        false,
+    );
+
+    assert!(response.ok);
+    let run = response
+        .sing_box_run
+        .as_ref()
+        .expect("node-selected run should produce a run status");
+    assert_eq!(run.node_id, "ss-82-47-34-98-11112");
+    assert_eq!(run.node_name, "US");
+
+    let missing_node_response = handle_run_url_with_sing_box_and_node_id(
+        &TestSingBoxInstaller,
+        &TestProtocolSingBoxRunner {
+            outbound_type: "shadowsocks",
+        },
+        subscription,
+        Some("missing-node"),
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("temp path should be utf-8")),
+        false,
+    );
+    assert!(!missing_node_response.ok);
+    assert_eq!(
+        missing_node_response.exit_code,
+        LinuxCliExitCode::ArgumentOrConfig
+    );
+
+    let _ = std::fs::remove_dir_all(&install_dir);
+}
+
+#[test]
+#[cfg(unix)]
+fn run_url_handler_reads_an_explicit_file_uri_through_the_subscription_parser() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-linux-run-url-file-contract-{}",
+        std::process::id()
+    ));
+    let engine_dir = root.join("networkcore-engines");
+    let subscription_path = root.join("subscription.txt");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("run-url file test directory should be created");
+    std::fs::write(
+        &subscription_path,
+        "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF\n",
+    )
+    .expect("run-url file subscription fixture should be written");
+
+    let response = handle_run_url_with_sing_box(
+        &TestSingBoxInstaller,
+        &TestSingBoxRunner,
+        &format!("file://{}", subscription_path.display()),
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("temp path should be utf-8")),
+        false,
+    );
+
+    assert!(response.ok);
+    assert_eq!(
+        response
+            .sing_box_run
+            .as_ref()
+            .expect("file URI run should produce a run status")
+            .node_id,
+        "ss-82-47-34-99-11111"
+    );
+
+    let missing_response = handle_run_url_with_sing_box(
+        &TestSingBoxInstaller,
+        &TestSingBoxRunner,
+        &format!("file://{}", root.join("missing.txt").display()),
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("temp path should be utf-8")),
+        false,
+    );
+    assert!(!missing_response.ok);
+    assert_diagnostic(
+        &missing_response.diagnostics,
+        CLI_RUN_URL_FILE_READ_FAILED_CODE,
+    );
+
+    std::fs::remove_dir_all(&root).expect("run-url file test directory should be removed");
+}
+
+#[test]
+fn run_url_handler_fetches_an_explicit_remote_subscription_through_the_same_parser() {
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-linux-run-url-remote-contract-{}",
+        std::process::id()
+    ));
+    let engine_dir = root.join("networkcore-engines");
+    let _ = std::fs::remove_dir_all(&root);
+    let fetcher = TestRemoteSubscriptionFetcher::success(
+        "https://subscriptions.example.test/profile",
+        "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF",
+    );
+
+    let response = handle_run_url_with_sing_box_and_fetcher(
+        &TestSingBoxInstaller,
+        &TestSingBoxRunner,
+        &fetcher,
+        "https://subscriptions.example.test/profile",
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("temp path should be utf-8")),
+        false,
+    );
+
+    assert!(response.ok);
+    assert_eq!(
+        fetcher.requested_location(),
+        "https://subscriptions.example.test/profile"
+    );
+    assert_eq!(
+        response
+            .sing_box_run
+            .as_ref()
+            .expect("remote subscription run should produce a run status")
+            .node_id,
+        "ss-82-47-34-99-11111"
+    );
+
+    let failed_fetcher = TestRemoteSubscriptionFetcher::failure();
+    let failed_response = handle_run_url_with_sing_box_and_fetcher(
+        &TestSingBoxInstaller,
+        &TestSingBoxRunner,
+        &failed_fetcher,
+        "https://subscriptions.example.test/unavailable",
+        "127.0.0.1",
+        7890,
+        Some(engine_dir.to_str().expect("temp path should be utf-8")),
+        false,
+    );
+    assert!(!failed_response.ok);
+    assert_diagnostic(
+        &failed_response.diagnostics,
+        CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn command_remote_subscription_fetcher_reads_a_loopback_http_subscription() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")
+        .expect("loopback subscription fixture should bind");
+    let address = listener
+        .local_addr()
+        .expect("loopback subscription fixture should report its address");
+    let body =
+        "ss://YWVzLTI1Ni1nY206ZjQzYzBlZWUtMTNiOS00ZjA3LWJlYzktZDRiNzQ0MTQxNTAz@82.47.34.99:11111#%E9%A6%99%E6%B8%AF";
+    let expected_body = body.to_string();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener
+            .accept()
+            .expect("loopback subscription fixture should accept one request");
+        let mut request = [0_u8; 1024];
+        let _ = stream.read(&mut request);
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        stream
+            .write_all(response.as_bytes())
+            .expect("loopback subscription fixture should return its response");
+    });
+
+    let fetched = CommandRemoteSubscriptionFetcher::new()
+        .fetch_subscription(&format!("http://{address}/subscription"))
+        .expect("remote subscription fetcher should read loopback HTTP content");
+
+    assert_eq!(fetched, expected_body);
+    server
+        .join()
+        .expect("loopback subscription fixture thread should complete");
+}
+
+#[test]
+fn run_url_handler_runs_supported_direct_share_link_protocols() {
+    let cases = [
+        (
+            "trojan://pa%40ss@example.com:443?sni=edge.example.com#Trojan",
+            "trojan",
+        ),
+        (
+            "vless://2f4d1d6d-7fd5-4a0f-90f0-1d3fb2fb5f1d@example.net:443?encryption=none&type=tcp#VLESS",
+            "vless",
+        ),
+        (
+            "vmess://eyJ2IjoiMiIsInBzIjoiVk1lc3MiLCJhZGQiOiJ2bWVzcy5leGFtcGxlLnRlc3QiLCJwb3J0IjoiNDQzIiwiaWQiOiIwMDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDMiLCJhaWQiOiIwIiwic2N5IjoiYXV0byIsIm5ldCI6InRjcCIsInRscyI6InRscyIsInNuaSI6InZtZXNzLmV4YW1wbGUudGVzdCJ9",
+            "vmess",
+        ),
+        (
+            "hysteria2://hy2-password@edge.example.test:443?sni=cdn.example.test&insecure=1#Hysteria2",
+            "hysteria2",
+        ),
+        (
+            "tuic://00000000-0000-0000-0000-000000000001:tuic-password@tuic.example.test:443?sni=cdn.tuic.example.test&allowInsecure=1&congestion_control=bbr#TUIC",
+            "tuic",
+        ),
+    ];
+
+    for (index, (url, outbound_type)) in cases.into_iter().enumerate() {
+        let install_dir = std::env::temp_dir().join(format!(
+            "networkcore-linux-run-url-protocol-contract-{}-{index}",
+            std::process::id()
+        ));
+        let engine_dir = install_dir.join("networkcore-engines");
+        let _ = std::fs::remove_dir_all(&install_dir);
+
+        let response = handle_run_url_with_sing_box(
+            &TestSingBoxInstaller,
+            &TestProtocolSingBoxRunner { outbound_type },
+            url,
+            "127.0.0.1",
+            7890,
+            Some(engine_dir.to_str().expect("temp path should be utf-8")),
+            false,
+        );
+
+        assert!(response.ok, "{outbound_type} direct link should run");
+        assert_eq!(response.exit_code, LinuxCliExitCode::Success);
+        assert!(response.sing_box_run.is_some());
+        let _ = std::fs::remove_dir_all(&install_dir);
+    }
+}
+
+#[test]
+fn run_url_mieru_plan_requires_explicit_binary_without_falling_back_to_sing_box() {
+    let response = handle_run_url_with_sing_box_and_node_id_and_mieru(
+        &TestSingBoxInstaller,
+        &TestSingBoxRunner,
+        "mierus://alice:secret@example.test:3010#Office",
+        None,
+        "127.0.0.1",
+        7892,
+        Some("/tmp/networkcore-mieru-run-contract"),
+        None,
+        None,
+        false,
+    );
+    assert!(!response.ok);
+    assert!(response.sing_box_run.is_none());
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_RUN_URL_MIERU_BINARY_REQUIRED_CODE,
+    );
+    assert!(!render_response(&response, OutputFormat::Json).contains("secret"));
+}
+
+#[test]
+fn run_url_handler_runs_supported_catalog_payload_formats() {
+    let cases = [
+        (
+            r#"
+proxies:
+  - name: HK Clash
+    type: ss
+    server: 82.47.34.99
+    port: 11111
+    cipher: aes-256-gcm
+    password: f43c0eee-13b9-4f07-bec9-d4b744141503
+"#,
+            "shadowsocks",
+        ),
+        (
+            r#"{"outbounds":[{"type":"shadowsocks","tag":"HK sing-box","server":"82.47.34.99","server_port":11111,"method":"aes-256-gcm","password":"f43c0eee-13b9-4f07-bec9-d4b744141503"}]}"#,
+            "shadowsocks",
+        ),
+        (
+            "[General]\n[Proxy]\nHK Surge = ss, 82.47.34.99, 11111, encrypt-method=aes-256-gcm, password=f43c0eee-13b9-4f07-bec9-d4b744141503\n",
+            "shadowsocks",
+        ),
+        (
+            "[General]\n[Proxy]\nHK Loon = Shadowsocks, 82.47.34.99, 11111, aes-256-gcm, \"f43c0eee-13b9-4f07-bec9-d4b744141503\"\n",
+            "shadowsocks",
+        ),
+        (
+            "[server_local]\nshadowsocks=82.47.34.99:11111, method=aes-256-gcm, password=\"f43c0eee-13b9-4f07-bec9-d4b744141503\", tag=HK Quantumult X\n",
+            "shadowsocks",
+        ),
+    ];
+
+    for (index, (payload, outbound_type)) in cases.into_iter().enumerate() {
+        let install_dir = std::env::temp_dir().join(format!(
+            "networkcore-linux-run-url-catalog-contract-{}-{index}",
+            std::process::id()
+        ));
+        let engine_dir = install_dir.join("networkcore-engines");
+        let _ = std::fs::remove_dir_all(&install_dir);
+
+        let response = handle_run_url_with_sing_box(
+            &TestSingBoxInstaller,
+            &TestProtocolSingBoxRunner { outbound_type },
+            payload,
+            "127.0.0.1",
+            7890,
+            Some(engine_dir.to_str().expect("temp path should be utf-8")),
+            false,
+        );
+
+        assert!(response.ok, "catalog payload {index} should run");
+        assert_eq!(response.exit_code, LinuxCliExitCode::Success);
+        let _ = std::fs::remove_dir_all(&install_dir);
+    }
+}
+
+#[test]
 fn foreground_lifecycle_contract_reports_missing_host_without_start_wiring() {
     let response = handle_foreground_lifecycle(
         runtime_operation_result(
@@ -5871,6 +8358,7 @@ route_node = "node-1"
             script_maps: Vec::new(),
             script_store_path: None,
             node_binary: None,
+            managed_lifecycle: None,
             confirm: false,
             format: OutputFormat::Text,
         },
@@ -5901,6 +8389,85 @@ route_node = "node-1"
     drop(rebound);
 }
 
+#[cfg(unix)]
+#[test]
+fn managed_reload_then_rollback_restores_runtime_before_interruption_cleanup() {
+    let _managed_control_lock = MANAGED_CONTROL_SIGNAL_TEST_LOCK
+        .lock()
+        .expect("managed control test lock should not be poisoned");
+    let port = unused_loopback_port();
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let engine = NativeProxyEngineService::new();
+    let orchestrator = RuntimeOrchestrator::new(
+        CoreConfigurationService::new(),
+        platform.clone(),
+        engine.clone(),
+    );
+    let reader = MemoryConfigReader::ok(format!(
+        r#"
+schema_version = 1
+profile = "default"
+
+[[nodes]]
+id = "node-1"
+protocol = "socks"
+host = "127.0.0.1"
+port = 1081
+
+[[listeners]]
+id = "loopback-socks"
+enabled = true
+kind = "socks"
+bind_host = "127.0.0.1"
+bind_port = {port}
+network = "tcp"
+route_action = "proxy"
+route_node = "node-1"
+"#
+    ));
+
+    let response = handle_entrypoint_with_runtime_and_lifecycle(
+        LinuxCliCommand::Start {
+            config_path: Some("networkcore.toml".to_string()),
+            mitm_ca_certificate_path: None,
+            mitm_ca_private_key_path: None,
+            enable_https_mitm: false,
+            enable_script_runtime: false,
+            script_runner_path: None,
+            script_maps: Vec::new(),
+            script_store_path: None,
+            node_binary: None,
+            managed_lifecycle: None,
+            confirm: false,
+            format: OutputFormat::Text,
+        },
+        &platform,
+        &orchestrator,
+        &reader,
+        &ManagedReloadRollbackLifecycleHost::default(),
+    );
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, LinuxCliExitCode::Interrupted);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_READY_CODE,
+    );
+    assert_diagnostic(
+        &response.diagnostics,
+        ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
+    );
+
+    let status = engine
+        .status(DEFAULT_ENGINE_ID)
+        .expect("interruption cleanup should leave the rolled back runtime inspectable");
+    assert_eq!(status.state, ProxyEngineLifecycleState::Stopped);
+    let rebound = TcpListener::bind(("127.0.0.1", port))
+        .expect("rollback lifecycle cleanup should release the loopback tcp port");
+    drop(rebound);
+}
+
 #[test]
 fn foreground_interruption_stop_failure_adds_stable_cli_diagnostic() {
     let orchestrator = RuntimeOrchestrator::new(
@@ -5927,12 +8494,103 @@ fn foreground_interruption_stop_failure_adds_stable_cli_diagnostic() {
 #[cfg(unix)]
 #[test]
 fn os_signal_interruption_source_maps_unix_signals_to_stable_diagnostics() {
+    let _managed_control_lock = MANAGED_CONTROL_SIGNAL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let socket_path = std::path::PathBuf::from("/tmp").join(format!(
+        "networkcore-managed-control-signal-contract-{}.sock",
+        std::process::id()
+    ));
+    let guard = networkcore_linux::start_managed_control_socket(
+        socket_path.to_str().expect("socket path should be UTF-8"),
+    )
+    .expect("managed control socket should reset signal state");
+    drop(guard);
     let sigint = OsSignalForegroundLifecycleInterruptionSource::interruption_for_signal(SIGINT);
     let sigterm = OsSignalForegroundLifecycleInterruptionSource::interruption_for_signal(SIGTERM);
+    let managed_control =
+        OsSignalForegroundLifecycleInterruptionSource::interruption_for_managed_control_stop();
+    let managed_reload =
+        OsSignalForegroundLifecycleInterruptionSource::interruption_for_managed_control_reload();
+    let managed_rollback =
+        OsSignalForegroundLifecycleInterruptionSource::interruption_for_managed_control_rollback();
+    let interrupter = OsSignalManagedControlInterrupter;
+    interrupter
+        .interrupt(ManagedControlRequest::Stop)
+        .expect("managed control interrupter should record a stop request");
+    let pending_request = interrupter
+        .interrupt(ManagedControlRequest::Reload)
+        .expect_err("a second request should not replace a pending managed control request");
+    assert_eq!(
+        pending_request.code,
+        CLI_MANAGED_CONTROL_SOCKET_REQUEST_PENDING_CODE
+    );
+    let observed_managed_control = OsSignalForegroundLifecycleInterruptionSource::new()
+        .wait_for_interruption(&ForegroundLifecycleRequest {
+            engine_status: ProxyEngineStatus {
+                engine_id: DEFAULT_ENGINE_ID.to_string(),
+                state: ProxyEngineLifecycleState::Running,
+                diagnostics: Vec::new(),
+            },
+        });
+    interrupter
+        .interrupt(ManagedControlRequest::Reload)
+        .expect("managed control interrupter should record a reload request");
+    let observed_managed_reload = OsSignalForegroundLifecycleInterruptionSource::new()
+        .wait_for_interruption(&ForegroundLifecycleRequest {
+            engine_status: ProxyEngineStatus {
+                engine_id: DEFAULT_ENGINE_ID.to_string(),
+                state: ProxyEngineLifecycleState::Running,
+                diagnostics: Vec::new(),
+            },
+        });
+    interrupter
+        .interrupt(ManagedControlRequest::Rollback {
+            expected_config_version: 2,
+        })
+        .expect("managed control interrupter should record a rollback request");
+    let observed_managed_rollback = OsSignalForegroundLifecycleInterruptionSource::new()
+        .wait_for_interruption(&ForegroundLifecycleRequest {
+            engine_status: ProxyEngineStatus {
+                engine_id: DEFAULT_ENGINE_ID.to_string(),
+                state: ProxyEngineLifecycleState::Running,
+                diagnostics: Vec::new(),
+            },
+        });
 
     assert_eq!(sigint.reason, "SIGINT");
     assert_eq!(sigterm.reason, "SIGTERM");
+    assert_eq!(managed_control.reason, "managed-control-stop");
+    assert_eq!(managed_reload.reason, "managed-control-reload");
+    assert_eq!(managed_rollback.reason, "managed-control-rollback");
+    assert_eq!(observed_managed_control.reason, "managed-control-stop");
+    assert_eq!(observed_managed_reload.reason, "managed-control-reload");
+    assert_eq!(observed_managed_rollback.reason, "managed-control-rollback");
     assert_diagnostic(&sigint.diagnostics, CLI_START_SIGNAL_RECEIVED_CODE);
+    assert_diagnostic(
+        &managed_control.diagnostics,
+        CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE,
+    );
+    assert_diagnostic(
+        &observed_managed_control.diagnostics,
+        CLI_START_MANAGED_CONTROL_STOP_REQUESTED_CODE,
+    );
+    assert_diagnostic(
+        &managed_reload.diagnostics,
+        CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE,
+    );
+    assert_diagnostic(
+        &observed_managed_reload.diagnostics,
+        CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE,
+    );
+    assert_diagnostic(
+        &managed_rollback.diagnostics,
+        CLI_START_MANAGED_CONTROL_ROLLBACK_REQUESTED_CODE,
+    );
+    assert_diagnostic(
+        &observed_managed_rollback.diagnostics,
+        CLI_START_MANAGED_CONTROL_ROLLBACK_REQUESTED_CODE,
+    );
     assert_diagnostic(&sigterm.diagnostics, CLI_START_SIGNAL_RECEIVED_CODE);
 }
 
@@ -6165,6 +8823,18 @@ fn http_rewrite_json_output_contains_live_plain_http_gate_fields() {
     assert_eq!(
         json["http_rewrite"]["script_dispatch_ready"].as_bool(),
         Some(MITM_HTTP_REWRITE_SCRIPT_DISPATCH_READY)
+    );
+    assert_eq!(
+        json["http_rewrite"]["certificate_pinning_bypass_supported"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        json["http_rewrite"]["http2_mitm_supported"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        json["http_rewrite"]["http3_quic_mitm_supported"].as_bool(),
+        Some(false)
     );
     assert_eq!(
         json["http_rewrite"]["request"]["url"],
@@ -6825,6 +9495,43 @@ struct TestForegroundLifecycleHost {
     outcome: ForegroundLifecycleOutcome,
 }
 
+#[cfg(unix)]
+#[derive(Default)]
+struct ManagedReloadRollbackLifecycleHost {
+    calls: std::sync::atomic::AtomicUsize,
+}
+
+#[cfg(unix)]
+impl ForegroundLifecycleHost for ManagedReloadRollbackLifecycleHost {
+    fn run_foreground(&self, request: &ForegroundLifecycleRequest) -> ForegroundLifecycleOutcome {
+        assert_eq!(request.engine_status.engine_id.as_str(), DEFAULT_ENGINE_ID);
+        let code = match self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) {
+            0 => CLI_START_MANAGED_CONTROL_RELOAD_REQUESTED_CODE,
+            1 => {
+                OsSignalManagedControlInterrupter
+                    .interrupt(ManagedControlRequest::Rollback {
+                        expected_config_version: 2,
+                    })
+                    .expect("test lifecycle host should request versioned rollback");
+                CLI_START_MANAGED_CONTROL_ROLLBACK_REQUESTED_CODE
+            }
+            _ => "test.managed_control.stop",
+        };
+        ForegroundLifecycleOutcome::failure(
+            LinuxCliExitCode::Interrupted,
+            Diagnostic::new(
+                DiagnosticSeverity::Warning,
+                code,
+                "test lifecycle host interrupted managed runtime",
+                Some("test.managed_control".to_string()),
+            ),
+        )
+    }
+}
+
+#[cfg(unix)]
+static MANAGED_CONTROL_SIGNAL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 impl TestForegroundLifecycleHost {
     fn success(diagnostics: Vec<Diagnostic>) -> Self {
         Self {
@@ -6846,6 +9553,41 @@ struct TestForegroundLifecycleInterruptionSource {
 }
 
 struct TestSingBoxInstaller;
+
+struct TestRemoteSubscriptionFetcher {
+    expected_location: &'static str,
+    result: DomainResult<String>,
+}
+
+impl TestRemoteSubscriptionFetcher {
+    fn success(expected_location: &'static str, content: &str) -> Self {
+        Self {
+            expected_location,
+            result: Ok(content.to_string()),
+        }
+    }
+
+    fn failure() -> Self {
+        Self {
+            expected_location: "https://subscriptions.example.test/unavailable",
+            result: Err(DomainError::new(
+                CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE,
+                "remote subscription fixture is unavailable",
+            )),
+        }
+    }
+
+    fn requested_location(&self) -> &str {
+        self.expected_location
+    }
+}
+
+impl RemoteSubscriptionFetcher for TestRemoteSubscriptionFetcher {
+    fn fetch_subscription(&self, location: &str) -> DomainResult<String> {
+        assert_eq!(location, self.expected_location);
+        self.result.clone()
+    }
+}
 
 impl SingBoxReleaseInstaller for TestSingBoxInstaller {
     fn install_latest(
@@ -6934,6 +9676,27 @@ impl SingBoxProcessRunner for TestSingBoxRunner {
                 DiagnosticSeverity::Info,
                 ENGINE_SINGBOX_PROCESS_EXITED_CODE,
                 "sing-box test runner exited",
+                Some("engine.singbox.lifecycle".to_string()),
+            )],
+        })
+    }
+}
+
+struct TestProtocolSingBoxRunner {
+    outbound_type: &'static str,
+}
+
+impl SingBoxProcessRunner for TestProtocolSingBoxRunner {
+    fn run(&self, request: &SingBoxProcessRunRequest) -> DomainResult<SingBoxProcessRunReport> {
+        let config = std::fs::read_to_string(&request.config_path)
+            .expect("run-url should write a sing-box config before starting the runner");
+        assert!(config.contains(&format!("\"type\": \"{}\"", self.outbound_type)));
+        Ok(SingBoxProcessRunReport {
+            exit_code: Some(0),
+            diagnostics: vec![Diagnostic::new(
+                DiagnosticSeverity::Info,
+                ENGINE_SINGBOX_PROCESS_EXITED_CODE,
+                "sing-box protocol test runner exited",
                 Some("engine.singbox.lifecycle".to_string()),
             )],
         })
@@ -7467,6 +10230,388 @@ impl ProxyEngineService for StopFailingProxyEngineService {
     fn events(&self, _engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>> {
         Ok(Vec::new())
     }
+}
+
+#[cfg(unix)]
+struct TestManagedControlInterrupter {
+    calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    rollback_config_version: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+#[cfg(unix)]
+impl ManagedControlInterrupter for TestManagedControlInterrupter {
+    fn interrupt(&self, request: ManagedControlRequest) -> DomainResult<()> {
+        if let ManagedControlRequest::Rollback {
+            expected_config_version,
+        } = request
+        {
+            self.rollback_config_version
+                .store(expected_config_version, std::sync::atomic::Ordering::SeqCst);
+        }
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+struct PendingManagedControlInterrupter;
+
+#[cfg(unix)]
+impl ManagedControlInterrupter for PendingManagedControlInterrupter {
+    fn interrupt(&self, _request: ManagedControlRequest) -> DomainResult<()> {
+        Err(DomainError::new(
+            CLI_MANAGED_CONTROL_SOCKET_REQUEST_PENDING_CODE,
+            "managed foreground control request is already pending",
+        ))
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn managed_control_socket_accepts_confirmed_stop_and_cleans_up() {
+    use std::io::{Read, Write};
+    use std::os::unix::{fs::PermissionsExt, net::UnixStream};
+
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("managed control test clock should be available")
+        .as_nanos();
+    let root = std::path::PathBuf::from("/tmp").join(format!(
+        "networkcore-managed-control-socket-contract-{unique}"
+    ));
+    let status_path = root.join("status.json");
+    let snapshot_path = root.join("starting.snapshot.json");
+    let event_directory = root.join("events");
+    let socket_path = root.join("control.sock");
+    let start = parse_args([
+        "start",
+        "--config",
+        "networkcore.toml",
+        "--managed-status",
+        status_path.to_str().expect("status path should be UTF-8"),
+        "--managed-snapshot",
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        "--managed-events",
+        event_directory
+            .to_str()
+            .expect("event directory should be UTF-8"),
+        "--managed-control-socket",
+        socket_path.to_str().expect("socket path should be UTF-8"),
+    ])
+    .expect("managed control start should parse");
+    assert!(matches!(
+        start,
+        LinuxCliCommand::Start {
+            managed_lifecycle: Some(ManagedForegroundLifecyclePaths {
+                control_socket_path: Some(path),
+                ..
+            }),
+            ..
+        } if path == socket_path.to_string_lossy()
+    ));
+    let stop = parse_args([
+        "stop",
+        "--managed-control-socket",
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        "--confirm",
+    ])
+    .expect("managed control stop should parse");
+    assert!(matches!(
+        stop,
+        LinuxCliCommand::ManagedControlStop { confirm: true, .. }
+    ));
+    let unsupported_stop_option = parse_args([
+        "stop",
+        "--managed-control-socket",
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        "--config",
+        "ignored.toml",
+        "--confirm",
+    ])
+    .expect_err("managed control stop should reject unrelated options");
+    assert_eq!(
+        unsupported_stop_option.diagnostic().code,
+        CLI_ARGUMENT_UNKNOWN_CODE
+    );
+    let reload = parse_args([
+        "reload",
+        "--managed-control-socket",
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        "--confirm",
+    ])
+    .expect("managed control reload should parse");
+    assert!(matches!(
+        reload,
+        LinuxCliCommand::ManagedControlReload { confirm: true, .. }
+    ));
+    let rollback = parse_args([
+        "rollback",
+        "--managed-control-socket",
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        "--expected-config-version",
+        "2",
+        "--confirm",
+    ])
+    .expect("managed control rollback should parse");
+    assert!(matches!(
+        rollback,
+        LinuxCliCommand::ManagedControlRollback {
+            expected_config_version: 2,
+            confirm: true,
+            ..
+        }
+    ));
+    let missing_rollback_version = parse_args([
+        "rollback",
+        "--managed-control-socket",
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        "--confirm",
+    ])
+    .expect_err("managed control rollback should require an expected configuration version");
+    assert_eq!(
+        missing_rollback_version.diagnostic().code,
+        CLI_ARGUMENT_VALUE_MISSING_CODE
+    );
+    let status = parse_args([
+        "status",
+        "--managed-control-socket",
+        socket_path.to_str().expect("socket path should be UTF-8"),
+    ])
+    .expect("managed control status should parse");
+    assert!(matches!(
+        status,
+        LinuxCliCommand::ManagedControlStatus { .. }
+    ));
+    let missing_socket_path = parse_args(["stop", "--managed-control-socket", "--confirm"])
+        .expect_err("managed control stop should require a socket path value");
+    assert_eq!(
+        missing_socket_path.diagnostic().code,
+        CLI_ARGUMENT_VALUE_MISSING_CODE
+    );
+
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let rollback_config_version = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let guard = start_managed_control_socket_with_interrupter(
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        std::sync::Arc::new(TestManagedControlInterrupter {
+            calls: std::sync::Arc::clone(&calls),
+            rollback_config_version: std::sync::Arc::clone(&rollback_config_version),
+        }),
+    )
+    .expect("managed control socket should start");
+    let mode = std::fs::metadata(&socket_path)
+        .expect("managed control socket metadata should be readable")
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(mode, 0o600);
+
+    let unauthorized = handle_managed_control_stop(
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        false,
+    );
+    assert!(!unauthorized.ok);
+    assert_diagnostic(
+        &unauthorized.diagnostics,
+        CLI_MANAGED_CONTROL_SOCKET_AUTHORIZATION_REQUIRED_CODE,
+    );
+    let unavailable_status =
+        handle_managed_control_status(socket_path.to_str().expect("socket path should be UTF-8"));
+    assert!(!unavailable_status.ok);
+    assert_eq!(unavailable_status.exit_code, LinuxCliExitCode::Unavailable);
+    assert_diagnostic(
+        &unavailable_status.diagnostics,
+        CLI_MANAGED_CONTROL_SOCKET_STATUS_FAILED_CODE,
+    );
+    let reload = handle_managed_control_reload(
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        true,
+    );
+    assert!(reload.ok);
+    assert_diagnostic(
+        &reload.diagnostics,
+        CLI_MANAGED_CONTROL_SOCKET_RELOAD_READY_CODE,
+    );
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let mut malformed_rollback = UnixStream::connect(&socket_path)
+        .expect("managed control socket should accept the malformed request for rejection");
+    malformed_rollback
+        .write_all(b"rollback\n")
+        .expect("malformed rollback request should be writable");
+    malformed_rollback
+        .shutdown(std::net::Shutdown::Write)
+        .expect("malformed rollback request should finish writing");
+    let mut malformed_response = String::new();
+    malformed_rollback
+        .read_to_string(&mut malformed_response)
+        .expect("malformed rollback response should be readable");
+    assert_eq!(malformed_response.trim(), "rejected");
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let rollback = handle_managed_control_rollback(
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        2,
+        true,
+    );
+    assert!(rollback.ok);
+    assert_diagnostic(
+        &rollback.diagnostics,
+        CLI_MANAGED_CONTROL_SOCKET_ROLLBACK_READY_CODE,
+    );
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_eq!(
+        rollback_config_version.load(std::sync::atomic::Ordering::SeqCst),
+        2
+    );
+    let accepted = handle_managed_control_stop(
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        true,
+    );
+    assert!(accepted.ok);
+    assert_diagnostic(
+        &accepted.diagnostics,
+        CLI_MANAGED_CONTROL_SOCKET_STOP_READY_CODE,
+    );
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 3);
+    drop(guard);
+    assert!(!socket_path.exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(unix)]
+#[test]
+fn managed_control_socket_reports_pending_request_with_stable_cli_code() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("managed control test clock should be available")
+        .as_nanos();
+    let root = std::path::PathBuf::from("/tmp").join(format!(
+        "networkcore-managed-control-pending-contract-{unique}"
+    ));
+    let socket_path = root.join("control.sock");
+    let guard = start_managed_control_socket_with_interrupter(
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        std::sync::Arc::new(PendingManagedControlInterrupter),
+    )
+    .expect("managed control socket should start");
+
+    let response = handle_managed_control_reload(
+        socket_path.to_str().expect("socket path should be UTF-8"),
+        true,
+    );
+
+    assert!(!response.ok);
+    assert_eq!(response.exit_code, LinuxCliExitCode::GeneralFailure);
+    assert_diagnostic(
+        &response.diagnostics,
+        CLI_MANAGED_CONTROL_SOCKET_REQUEST_PENDING_CODE,
+    );
+    drop(guard);
+    assert!(!socket_path.exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn managed_start_records_running_status_and_lifecycle_events() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("managed start test clock should be available")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "networkcore-managed-start-lifecycle-contract-{unique}"
+    ));
+    let status_path = root.join("status.json");
+    let snapshot_path = root.join("starting.snapshot.json");
+    let event_directory = root.join("events");
+    let port = unused_loopback_port();
+    let command = parse_args([
+        "start",
+        "--config",
+        "networkcore.toml",
+        "--managed-status",
+        status_path.to_str().expect("status path should be UTF-8"),
+        "--managed-snapshot",
+        snapshot_path
+            .to_str()
+            .expect("snapshot path should be UTF-8"),
+        "--managed-events",
+        event_directory
+            .to_str()
+            .expect("event directory should be UTF-8"),
+    ])
+    .expect("managed start command should parse");
+    assert!(matches!(
+        &command,
+        LinuxCliCommand::Start {
+            managed_lifecycle: Some(ManagedForegroundLifecyclePaths { .. }),
+            ..
+        }
+    ));
+
+    let platform =
+        StaticLinuxPlatformCapabilityService::new(LinuxPlatformSnapshot::available_for_tests());
+    let orchestrator = RuntimeOrchestrator::new(
+        CoreConfigurationService::new(),
+        platform.clone(),
+        NativeProxyEngineService::new(),
+    );
+    let reader = MemoryConfigReader::ok(format!(
+        r#"
+schema_version = 1
+profile = "default"
+
+[[nodes]]
+id = "node-1"
+protocol = "socks"
+host = "127.0.0.1"
+port = 1081
+
+[[listeners]]
+id = "loopback-socks"
+enabled = true
+kind = "socks"
+bind_host = "127.0.0.1"
+bind_port = {port}
+network = "tcp"
+route_action = "proxy"
+route_node = "node-1"
+"#
+    ));
+
+    let response = handle_entrypoint_with_runtime_and_lifecycle(
+        command,
+        &platform,
+        &orchestrator,
+        &reader,
+        &TestForegroundLifecycleHost::success(Vec::new()),
+    );
+
+    assert!(response.ok);
+    assert_eq!(response.command, "start");
+    let status = std::fs::read_to_string(&status_path)
+        .expect("managed start should write the status record");
+    assert!(status.contains("\"state\": \"running\""));
+    let events = CommandManagedForegroundSessionEventStore::new()
+        .list_event_history(&ManagedForegroundSessionEventHistoryRequest {
+            event_directory: event_directory.to_string_lossy().to_string(),
+            session_id: None,
+            event_kind: None,
+            state: None,
+            cursor: 0,
+            limit: 100,
+        })
+        .expect("managed start event history should be readable");
+    assert_eq!(events.events.len(), 2);
+    assert!(events
+        .events
+        .iter()
+        .any(|event| event.event_kind == "session_started"));
+    assert!(events
+        .events
+        .iter()
+        .any(|event| event.event_kind == "status_transition"));
+    let _ = std::fs::remove_dir_all(root);
 }
 
 fn assert_diagnostic(diagnostics: &[Diagnostic], code: &str) {

@@ -9,12 +9,14 @@ pub mod maintenance;
 use std::collections::BTreeSet;
 
 use control_domain::{
+    bound_proxy_engine_events, validate_proxy_engine_status, validate_proxy_engine_transition,
     AuditDecision, AuditEvent, ConfigSnapshot, ConfigurationService, Diagnostic,
     DiagnosticSeverity, DomainError, DomainResult, GrantedPermissions, HttpEvent, Metadata,
     MitmPluginService, NodeCatalog, NodeDescriptor, PlatformCapabilities,
     PlatformCapabilityService, PlatformCapabilityStatus, PlatformFeatureState, PluginPackage,
-    PluginPermission, PluginResult, ProxyEngineConfig, ProxyEngineEvent, ProxyEngineService,
-    ProxyEngineStatus, SubscriptionService, SubscriptionSource,
+    PluginPermission, PluginResult, ProxyEngineAdapter, ProxyEngineConfig, ProxyEngineDescriptor,
+    ProxyEngineEvent, ProxyEngineHealthReport, ProxyEngineLifecycleState, ProxyEnginePrepareReport,
+    ProxyEngineRollbackRequest, ProxyEngineStatus, SubscriptionService, SubscriptionSource,
 };
 
 pub const RUNTIME_SUBSCRIPTION_NODE_ID_DUPLICATE_CODE: &str =
@@ -24,6 +26,8 @@ pub const RUNTIME_SUBSCRIPTION_RULES_DEFERRED_CODE: &str = "runtime.subscription
 pub const RUNTIME_SUBSCRIPTION_CATALOG_READY_CODE: &str = "runtime.subscription.catalog_ready";
 pub const RUNTIME_SUBSCRIPTION_SOURCE_UNSUPPORTED_CODE: &str =
     "runtime.subscription.source_unsupported";
+
+pub const RUNTIME_ENGINE_STATUS_CONTRACT_CODE: &str = "runtime.engine.status_contract_violation";
 
 /// Prepared configuration and platform context ready for runtime use.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,8 +142,13 @@ impl<C, P, E> RuntimeOrchestrator<C, P, E>
 where
     C: ConfigurationService,
     P: PlatformCapabilityService,
-    E: ProxyEngineService,
+    E: ProxyEngineAdapter,
 {
+    /// Lists adapter descriptors without exposing the adapter implementation.
+    pub fn list_engines(&self) -> Vec<ProxyEngineDescriptor> {
+        self.engine.list_engines()
+    }
+
     /// Creates a runtime orchestrator from domain port implementations.
     pub const fn new(configuration: C, platform: P, engine: E) -> Self {
         Self {
@@ -205,7 +214,14 @@ where
         let mut diagnostics = prepared.diagnostics.clone();
         diagnostics.extend(self.validate_engine_config(&engine_config)?);
 
+        let previous_status = self.engine.status(&engine_config.engine_id)?;
         let engine_status = self.engine.start(&engine_config)?;
+        validate_engine_transition_contract(
+            &previous_status,
+            &engine_status,
+            &engine_config.engine_id,
+            "start",
+        )?;
         diagnostics.extend(engine_status.diagnostics.clone());
 
         Ok(RuntimeOperationResult {
@@ -214,6 +230,59 @@ where
             engine_status,
             diagnostics,
         })
+    }
+
+    /// Captures the adapter-owned snapshot before a lifecycle mutation.
+    pub fn prepare_runtime_engine(
+        &self,
+        request: RuntimeConfigRequest,
+    ) -> DomainResult<ProxyEnginePrepareReport> {
+        let (prepared, engine_config) = self.prepare_engine_config(&request)?;
+        ensure_start_capabilities(&prepared.platform)?;
+        self.engine.prepare(&engine_config)
+    }
+
+    /// Restores an adapter-owned snapshot after an expected lifecycle state.
+    pub fn rollback_runtime_engine(
+        &self,
+        request: ProxyEngineRollbackRequest,
+    ) -> DomainResult<ProxyEngineStatus> {
+        let status = self.engine.status(&request.snapshot.engine_id)?;
+        validate_proxy_engine_status(&status, &request.snapshot.engine_id, request.expected_state)
+            .map_err(|error| {
+                DomainError::new(
+                    RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+                    format!("engine rollback precondition violation: {error}"),
+                )
+            })?;
+        validate_proxy_engine_transition(status.state, ProxyEngineLifecycleState::RollingBack)
+            .map_err(|error| {
+                DomainError::new(
+                    RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+                    format!("engine rollback lifecycle entry violation: {error}"),
+                )
+            })?;
+
+        let restored = self.engine.rollback(&request)?;
+        validate_proxy_engine_status(
+            &restored,
+            &request.snapshot.engine_id,
+            request.snapshot.status.state,
+        )
+        .map_err(|error| {
+            DomainError::new(
+                RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+                format!("engine rollback contract violation: {error}"),
+            )
+        })?;
+        validate_proxy_engine_transition(ProxyEngineLifecycleState::RollingBack, restored.state)
+            .map_err(|error| {
+                DomainError::new(
+                    RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+                    format!("engine rollback lifecycle exit violation: {error}"),
+                )
+            })?;
+        Ok(restored)
     }
 
     /// Starts a runtime engine with explicit subscription catalog node handoff.
@@ -234,7 +303,14 @@ where
         diagnostics.extend(subscription_diagnostics);
         diagnostics.extend(self.validate_engine_config(&engine_config)?);
 
+        let previous_status = self.engine.status(&engine_config.engine_id)?;
         let engine_status = self.engine.start(&engine_config)?;
+        validate_engine_transition_contract(
+            &previous_status,
+            &engine_status,
+            &engine_config.engine_id,
+            "start",
+        )?;
         diagnostics.extend(engine_status.diagnostics.clone());
 
         Ok(RuntimeOperationResult {
@@ -256,7 +332,14 @@ where
         let mut diagnostics = prepared.diagnostics.clone();
         diagnostics.extend(self.validate_engine_config(&engine_config)?);
 
+        let previous_status = self.engine.status(&engine_config.engine_id)?;
         let engine_status = self.engine.reload(&engine_config)?;
+        validate_engine_transition_contract(
+            &previous_status,
+            &engine_status,
+            &engine_config.engine_id,
+            "reload",
+        )?;
         diagnostics.extend(engine_status.diagnostics.clone());
 
         Ok(RuntimeOperationResult {
@@ -285,7 +368,14 @@ where
         diagnostics.extend(subscription_diagnostics);
         diagnostics.extend(self.validate_engine_config(&engine_config)?);
 
+        let previous_status = self.engine.status(&engine_config.engine_id)?;
         let engine_status = self.engine.reload(&engine_config)?;
+        validate_engine_transition_contract(
+            &previous_status,
+            &engine_status,
+            &engine_config.engine_id,
+            "reload",
+        )?;
         diagnostics.extend(engine_status.diagnostics.clone());
 
         Ok(RuntimeOperationResult {
@@ -298,7 +388,10 @@ where
 
     /// Stops a runtime engine through the proxy engine port.
     pub fn stop_runtime(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
-        self.engine.stop(engine_id)
+        let previous_status = self.engine.status(engine_id)?;
+        let status = self.engine.stop(engine_id)?;
+        validate_engine_transition_contract(&previous_status, &status, engine_id, "stop")?;
+        Ok(status)
     }
 
     /// Reads current platform and engine status.
@@ -307,6 +400,14 @@ where
         let capabilities = platform_capabilities_from_status(&platform);
         let mut diagnostics = platform_diagnostics(&platform);
         let engine_status = self.engine.status(engine_id)?;
+        validate_proxy_engine_status(&engine_status, engine_id, engine_status.state).map_err(
+            |error| {
+                DomainError::new(
+                    RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+                    format!("engine status contract violation: {error}"),
+                )
+            },
+        )?;
 
         diagnostics.extend(engine_status.diagnostics.clone());
 
@@ -318,9 +419,25 @@ where
         })
     }
 
+    /// Reads engine-owned health evidence without reducing it to a PID/state
+    /// check. Platform-owned system proxy checks remain platform adapter work.
+    pub fn runtime_health(&self, engine_id: &str) -> DomainResult<ProxyEngineHealthReport> {
+        let health = self.engine.health(engine_id)?;
+        if health.engine_id != engine_id {
+            return Err(DomainError::new(
+                RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+                format!(
+                    "engine health contract violation: adapter returned '{}' for '{}'",
+                    health.engine_id, engine_id
+                ),
+            ));
+        }
+        Ok(health)
+    }
+
     /// Reads runtime events for an engine through the proxy engine port.
     pub fn runtime_events(&self, engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>> {
-        self.engine.events(engine_id)
+        Ok(bound_proxy_engine_events(self.engine.events(engine_id)?))
     }
 
     fn prepare_engine_config(
@@ -368,7 +485,7 @@ where
         &self,
         engine_config: &ProxyEngineConfig,
     ) -> DomainResult<Vec<Diagnostic>> {
-        let diagnostics = self.engine.validate_config(engine_config);
+        let diagnostics = self.engine.validate(engine_config);
         reject_error_diagnostics(
             &diagnostics,
             "runtime.engine_config.invalid",
@@ -636,6 +753,58 @@ fn ensure_start_capabilities(status: &PlatformCapabilityStatus) -> DomainResult<
     )
 }
 
+fn validate_engine_transition_contract(
+    previous: &ProxyEngineStatus,
+    next: &ProxyEngineStatus,
+    engine_id: &str,
+    operation: &str,
+) -> DomainResult<()> {
+    validate_proxy_engine_status(previous, engine_id, previous.state).map_err(|error| {
+        DomainError::new(
+            RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+            format!("engine {operation} precondition contract violation: {error}"),
+        )
+    })?;
+    validate_proxy_engine_status(next, engine_id, next.state).map_err(|error| {
+        DomainError::new(
+            RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+            format!("engine {operation} result contract violation: {error}"),
+        )
+    })?;
+    validate_proxy_engine_transition(previous.state, next.state).map_err(|error| {
+        DomainError::new(
+            RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+            format!("engine {operation} lifecycle transition violation: {error}"),
+        )
+    })?;
+
+    let operation_state_is_valid = match operation {
+        "start" => matches!(
+            next.state,
+            ProxyEngineLifecycleState::Running | ProxyEngineLifecycleState::Degraded
+        ),
+        "reload" => matches!(
+            next.state,
+            ProxyEngineLifecycleState::Running
+                | ProxyEngineLifecycleState::Reloading
+                | ProxyEngineLifecycleState::Degraded
+        ),
+        "stop" => next.state == ProxyEngineLifecycleState::Stopped,
+        _ => true,
+    };
+    if !operation_state_is_valid {
+        return Err(DomainError::new(
+            RUNTIME_ENGINE_STATUS_CONTRACT_CODE,
+            format!(
+                "engine {operation} returned unsupported lifecycle state {:?}",
+                next.state
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
 fn ensure_available(
     feature: &PlatformFeatureState,
     code: &'static str,
@@ -729,7 +898,7 @@ mod tests {
     use super::*;
     use control_domain::{
         CertificateTrustState, MitmCertificateStatus, OperatingSystem, PlatformFeatureState,
-        ProxyEngineLifecycleState, SchemaVersion,
+        ProxyEngineLifecycleState, ProxyEngineService, SchemaVersion,
     };
 
     struct DiagnosticConfigService {

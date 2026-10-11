@@ -64,8 +64,133 @@ fn main() {
                 }
             } else if matches!(
                 &command,
+                networkcore_linux::LinuxCliCommand::CoreList { .. }
+            ) {
+                networkcore_linux::handle_core_list(
+                    networkcore_linux::registered_core_engine_descriptors(),
+                )
+            } else if matches!(
+                &command,
+                networkcore_linux::LinuxCliCommand::SubscriptionAdd { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionList { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionUpdate { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionRemove { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionSelect { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionRollback { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionRefreshStart { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionRefreshStatus { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionRefreshStop { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionRefreshScheduleInstall { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionRefreshScheduleStatus { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionRefreshScheduleStop { .. }
+                    | networkcore_linux::LinuxCliCommand::SubscriptionRefreshScheduleUninstall { .. }
+            ) {
+                networkcore_linux::handle_subscription_command(command)
+            } else if matches!(
+                &command,
+                networkcore_linux::LinuxCliCommand::ProxyApply { .. }
+                    | networkcore_linux::LinuxCliCommand::ProxyStatus { .. }
+                    | networkcore_linux::LinuxCliCommand::ProxyRollback { .. }
+                    | networkcore_linux::LinuxCliCommand::MitmCertificateTrustApply { .. }
+                    | networkcore_linux::LinuxCliCommand::MitmCertificateTrustRollback { .. }
+                    | networkcore_linux::LinuxCliCommand::NodeSwitch { .. }
+                    | networkcore_linux::LinuxCliCommand::NodeHealth { .. }
+            ) {
+                networkcore_linux::handle_entrypoint(command, &platform)
+            } else if let networkcore_linux::LinuxCliCommand::InstallMieru {
+                binary_path,
+                expected_sha256,
+                release_url,
+                confirm,
+                force,
+                ..
+            } = &command
+            {
+                networkcore_linux::handle_install_mieru_with_options(
+                    binary_path,
+                    expected_sha256,
+                    release_url.as_deref(),
+                    *confirm,
+                    *force,
+                )
+            } else if let networkcore_linux::LinuxCliCommand::StartMieru {
+                binary_path,
+                expected_sha256,
+                config_path,
+                ..
+            } = &command
+            {
+                networkcore_linux::handle_start_mieru(binary_path, expected_sha256, config_path)
+            } else if let networkcore_linux::LinuxCliCommand::StopMieru {
+                binary_path,
+                expected_sha256,
+                config_path,
+                ..
+            } = &command
+            {
+                networkcore_linux::handle_stop_mieru(binary_path, expected_sha256, config_path)
+            } else if let networkcore_linux::LinuxCliCommand::StatusMieru {
+                binary_path,
+                expected_sha256,
+                config_path,
+                ..
+            } = &command
+            {
+                networkcore_linux::handle_status_mieru(binary_path, expected_sha256, config_path)
+            } else if let networkcore_linux::LinuxCliCommand::ServiceControl {
+                action,
+                unit_name,
+                confirm,
+                ..
+            } = &command
+            {
+                networkcore_linux::handle_systemd_service_control(
+                    &platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(),
+                    *action,
+                    unit_name,
+                    *confirm,
+                )
+            } else if let networkcore_linux::LinuxCliCommand::InstallService {
+                unit_name,
+                description,
+                executable_path,
+                arguments,
+                service_user,
+                service_group,
+                state_directory,
+                confirm,
+                ..
+            } = &command
+            {
+                networkcore_linux::handle_install_service_apply_with_runner(
+                    &platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(),
+                    unit_name,
+                    description,
+                    executable_path,
+                    arguments,
+                    service_user,
+                    service_group,
+                    state_directory,
+                    *confirm,
+                )
+            } else if let networkcore_linux::LinuxCliCommand::UninstallService {
+                unit_name,
+                state_directory,
+                confirm,
+                ..
+            } = &command
+            {
+                networkcore_linux::handle_uninstall_service_apply_with_runner(
+                    &platform_linux::systemd::CommandLinuxSystemdCommandRunner::new(),
+                    unit_name,
+                    state_directory,
+                    *confirm,
+                )
+            } else if matches!(
+                &command,
                 networkcore_linux::LinuxCliCommand::InstallSingBox { .. }
                     | networkcore_linux::LinuxCliCommand::RunUrl { .. }
+                    | networkcore_linux::LinuxCliCommand::RunCatalog { .. }
             ) {
                 match engine_singbox::GithubSingBoxReleaseInstaller::new() {
                     Ok(sing_box_installer) => {

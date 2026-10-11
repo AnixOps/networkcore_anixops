@@ -3,15 +3,13 @@
 本文件定义真实平台产物进入 `.github/workflows/release.yml` 前必须满足的发布策略。它是发布 workflow 的设计约束；当前 Linux CLI
 已有受 CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates 约束的 Linux artifact 产物路径，其他平台仍保持 blocked 或未定义状态。
 
-评估时间：2026-07-10。
+评估时间：2026-07-27。
 
 ## 当前发布状态
 
-`v0.1.2-alpha.3` 是当前 source release 切片：Linux artifact 将在同名 tag 的 GitHub Actions 中生成，
-包含显式 CA/confirm 才启用的 controlled CONNECT TLS termination、web-PKI upstream forwarding、单个有界
-HTTP/1.1 rewrite exchange 和显式 local Node script runner/map。脚本为受信本地代码、失败 fail-open，
-不下载远程脚本；该切片不安装信任、不修改 browser/system proxy 或其他系统网络状态。没有本机打包或
-本机发布路径，用户可下载状态以 tag workflow 成功结果为准。
+`v0.2.0-alpha.21` 是当前已发布 Windows managed-client prerelease；`v0.2.0-beta.5` 是当前 Beta release candidate，状态为 `pending_manual_acceptance`。Linux `v0.1.2-alpha.3` 仍是当前 Linux source slice。Windows MSI 与 portable ZIP 只在 GitHub Actions 中生成；维护者已授权 `v0.2.0-beta.5` tag 用于生成候选工件，但在 Windows/Linux 真实系统验收完成前不得描述为 production-ready。
+
+服务先完成 SCM `Running` handoff，再应用 managed runtime configuration；GUI/CLI `start` 立即返回观察到的 SCM state，因此坏配置只记录到 service log 并使服务停止，不能阻塞 MSI 或 Start。GUI 的 `Profile / URL` 允许手动导入本地 profile 或 HTTP(S) 地址，`Load nodes` 展示 NodeCatalog 节点。NodeCatalog 导入会生成包含全部可翻译节点的 sing-box `selector`，导入时选择默认 outbound；运行中的服务可由 `Switch active` 通过 `127.0.0.1:9091` 回环 Clash API 显式切换并读回确认。原生 sing-box JSON 保持 pass-through。当前 main 额外提供 tray、current-user startup 和 preflight-gated one-shot recovery；它仍不启用 LAN controller、Clash Web UI、`urltest`、自动延迟选择、后台更新或无限自动服务重启。GUI 仍提供不变更系统状态的 `sing-box check -c` 预检和本地 diagnostics。GUI HTTPS MITM、Hysteria2/TUIC、V2Ray compatibility subset 与 native `mixed-in` snapshot/restore 的既有边界保持不变。没有本机打包或本机发布路径，用户可下载状态以 tag workflow 成功结果为准。
 
 当前 release workflow 已从 placeholder 过渡为 Linux CLI artifact 发布路径：`release-policy`、
 `release-ci-gate`、release contract jobs、`linux-artifact-readiness`、`package-linux`、`attest-linux`、
@@ -27,8 +25,8 @@ linux-artifact-license-notice-status=confirmed
 linux-artifact-publish-scope=tag-release-after-all-gates
 ```
 
-当前最新已发布 Linux artifact 是 `v0.1.0` 正式版 stable CLI 四件套；当前最新 prerelease tag release 是
-`v0.1.1-alpha.2`，它发布 Linux CLI 四件套和 Windows manual-extract CLI zip 四件套。`main` 分支已开始 `v0.1.1-alpha.3` 订阅格式扩展，当前源增量是 `CoreSubscriptionService` Trojan/VLESS/VMess URL parser gates、Clash YAML parser gate、sing-box JSON parser gate、Surge proxy line parser gate、Loon proxy line parser gate 和 Quantumult X proxy/server line parser gate，仍不启用 `run-url` Trojan/VLESS/VMess/Clash/sing-box JSON/Surge/Loon/Quantumult X 运行、节点选择、远程订阅拉取、文件订阅读取、默认路径扫描、daemon/service 或系统代理 mutation；Linux CLI
+当前最新已发布 Linux artifact 是 `v0.1.0` 正式版 stable CLI 四件套；当前最新 Windows prerelease tag release 是
+`v0.2.0-alpha.21`；当前 Beta candidate 是 `v0.2.0-beta.5`，状态为 `pending_manual_acceptance`。workflow_dispatch dry-run 可验证 Linux CLI 四件套、Windows managed-client MSI 四件套和 Windows portable ZIP 四件套，但只有真实 Windows/Linux 系统验收记录完成并且同名 tag workflow 全部成功后才成为可下载 release。该发布路径始终同时产出 Linux CLI 四件套、Windows managed-client MSI 四件套和 Windows portable ZIP 四件套。MSI 在安装期请求异步 service start，不等待 runtime ready；服务在配置 runtime 前完成 SCM handoff，CLI 继续只返回即时状态。GUI 日常 `Connect` 在后台验证 SCM、service-owned `check -c`、service-owned core PID、回环监听和生成 selector 的 active-outbound/default readback 后才应用当前 interactive-user proxy；GUI 仍保留明确的 official sing-box core install、本地 diagnostics、HTTP(S) profile import/update、NodeCatalog selector、`Check core`、手动 delay test 和明确 runtime switch。用户明确开启 hourly refresh 时，保存的单 HTTP(S) source 在后台执行一次有界刷新，持久展示脱敏 attempt/success/next/result、节点增删改计数和稳定错误码；失败保留现有 config、节点选择和运行配置，不重启服务或切换节点。native JSON 保持 service-owned pass-through。MSI/portable ZIP 不捆绑或静默下载第三方 core，且不启用自动 service restart、LAN controller/Web UI、`urltest`、XHTTP/ECH/multiplex 推断、HTTP/2/HTTP/3/QUIC MITM、streaming、多 request CONNECT 或 JavaScript dispatch。历史 `v0.1.1-alpha.2` Windows manual-extract CLI zip 仅保留为审计记录。Linux CLI
 `mitm http-rewrite preview --confirm --url https://... --phase request` 的合同测试固定 caller-provided
 HTTPS request preview 只能输出 preview/reject 边界，继续保持 `tls_decryption_ready=false`、
 `https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`；Windows path 已新增 `apps/windows-cli`、
@@ -57,7 +55,7 @@ GitHub artifact attestation、release notes、rollback 和 publish eligibility g
 缺失、非法或回退到 pending，`linux-artifact-readiness` 必须失败，且不得继续构建、上传或发布。
 
 - 允许 tag `v*` 和 `workflow_dispatch` 触发。
-- release policy job 检查版本格式和触发来源一致性；手动 `workflow_dispatch` 验证必须从 `main` 分支发起，tag release 必须使用同名 tag 版本，版本可为稳定版、`alpha.N` 或 `rc.N` 预发布版。
+- release policy job 检查版本格式和触发来源一致性；手动 `workflow_dispatch` 验证必须从 `main` 分支发起，tag release 必须使用同名 tag 版本，版本可为稳定版、`alpha.N`、`beta.N` 或 `rc.N` 预发布版。
 - `release-ci-gate` job 已在 job 级启用 `actions: read`，自动读取 `main` 上同 commit 的成功 CI 结果，校验 `CI summary` job，并输出 [Release CI success source contract](architecture/release-ci-success-source-contract.md) 中定义的 CI run/source 字段，以及 [Linux package release CI gate activation validation contract](architecture/linux-package-release-ci-gate-activation-validation-contract.md)、[Release CI gate execution validation contract](architecture/release-ci-gate-execution-validation-contract.md) 和 [Release CI gate API implementation plan](architecture/release-ci-gate-api-implementation-plan.md) 中定义的 active API read 状态。
 - `release-artifact-contract` job 记录首个真实 artifact job 必须输出 `artifact_name`、`artifact_path`、`checksum_algorithm`、`checksum_file` 和 `checksum_value`，且 checksum 算法默认为 `sha256`。
 - `release-signing-contract` job 记录真实平台 artifact 发布前必须声明签名或 attestation 策略，并要求后续 job 输出 `signing_policy`、`signing_status`、`attestation_policy`、`attestation_status`、`provenance_policy` 和 `provenance_file`。
@@ -66,7 +64,7 @@ GitHub artifact attestation、release notes、rollback 和 publish eligibility g
 - `package-linux` 在 `ubuntu-latest` 使用受版本控制的 `Cargo.lock` 执行 `cargo build --locked --release --package networkcore-linux --bin networkcore-linux --target x86_64-unknown-linux-gnu`，组装 `networkcore-linux-${version}-${target}.tar.gz`、`.sha256`、manifest JSON 和 manifest `.sha256`，并以同 run workflow artifact bundle 上传。
 - `attest-linux` 下载同 run bundle，重新校验 checksum，并用 GitHub artifact attestation 覆盖 archive、archive checksum、manifest 和 manifest checksum。
 - `post-release-summary` 与 `publish-eligibility-gate` 校验 release notes、rollback、withdrawal/replacement policy 和 `package_publish_eligibility_status=eligible`。
-- `publish-github-release` 只在 tag push release 中运行，使用 GitHub CLI 创建同名 GitHub Release，并上传符合 eligibility 的 Linux archive、archive checksum、manifest、manifest checksum，以及 Windows zip、zip checksum、manifest、manifest checksum；workflow_dispatch 只做验证，不发布 GitHub Release asset。
+- `publish-github-release` 只在 tag push release 中运行，使用 GitHub CLI 创建同名 GitHub Release，并上传符合 eligibility 的 Linux archive、archive checksum、manifest、manifest checksum，以及当前 Windows managed client MSI 与 portable ZIP 的 archive、checksum、manifest、manifest checksum；workflow_dispatch 只做验证，不发布 GitHub Release asset。历史 `v0.1.1-alpha.2` Windows zip 仅保留为审计记录。
 - `ios-upload-readiness` job 检查 [iOS upload workflow activation validation contract](architecture/ios-upload-workflow-activation-validation-contract.md)、[iOS Swift/Xcode source tree activation preflight contract](architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md)、[iOS Package.swift source ownership activation preflight contract](architecture/ios-package-swift-source-ownership-activation-preflight-contract.md)、[iOS Package.swift manifest-only activation validation contract](architecture/ios-package-swift-manifest-only-activation-validation-contract.md)、iOS upload source contract、`apps/ios/README.md` governance placeholder、`docs/manual-intervention.md` 中的 `ios-upload-workflow` pending/blocked marker、source tree preflight `readme-placeholder`/no Swift source 状态、Package.swift ownership blocked 状态、Package.swift manifest-only activation blocked 状态、protected environment/manual approval blocked 状态、App Store Connect API secret status not-read-blocked、archive/export/upload/submission blocked 输出，并继续不读取 secret、不定义真实 iOS upload job、不生成 iOS release asset。
 - `windows-cli-artifact-readiness` job 检查 [Windows CLI artifact source release contract](architecture/windows-cli-artifact-source-release-contract.md)、`v0.1.1-alpha.2` 合同范围、`apps/windows-cli` source identity、`windows-latest` runner、`x86_64-pc-windows-gnu` target、zip/checksum/manifest/attestation/release notes/rollback/signing policy 和 blocked mutation marker；该 job 不读取 signing secret，不放开 service、driver、installer、system proxy mutation、system trust store mutation、JavaScript script dispatch 或 managed lifecycle。
 - alpha.1 placeholder 阶段的 `release-placeholder` 语境已由当前 Linux CLI release path 取代；当前 source of truth 是
@@ -77,8 +75,68 @@ GitHub artifact attestation、release notes、rollback 和 publish eligibility g
   `package_publish_eligibility_status=eligible` 后，tag release 才能上传 GitHub Release assets。
 - iOS 仍保持 `ios-upload-readiness` blocked placeholder：不读取 secret，不定义真实 upload job，不生成
   Swift/Xcode source、archive/export、TestFlight/App Store upload、App Review submission 或 iOS release asset。
-- Windows CLI package/publish path 当前已在 `v0.1.1-alpha.2` 激活：`package-windows` 生成 `networkcore-windows` manual-extract zip，`attest-windows` 对 Windows 四件套生成 GitHub artifact attestation，`windows-publish-eligibility-gate` 聚合 source identity、同 commit CI、checksum/manifest、attestation、release notes/rollback 和 system mutation blocked 状态。service、driver、installer、Authenticode signing、system proxy mutation 和 system trust store mutation 继续 blocked。
-- license/NOTICE marker 当前为 confirmed；若 marker 缺失、非法或回退到 pending，不得生成 release artifact。confirmed 且同 commit CI、checksum、manifest、attestation、release notes、rollback 与 publish eligibility 全部通过后，tag release 可以生成并上传 Linux CLI artifact；符合 Windows eligibility 时也可以上传 Windows CLI zip 四件套。
+- 历史 Windows CLI package/publish path 在 `v0.1.1-alpha.2` 激活：`package-windows` 生成 `networkcore-windows` manual-extract zip，`attest-windows` 对 Windows 四件套生成 GitHub artifact attestation；该记录不代表当前 main 的能力边界。
+- Windows managed client MSI 已在 `v0.2.0-alpha.1` 发布：`package-windows` 在 `windows-latest` 以 Rust GNU target 构建 `networkcore-windows`, `networkcore-windows-gui` 和 `networkcore-windows-service`，用 WiX 4.0.6 生成 per-machine MSI 和 portable ZIP，`attest-windows` 对两者的 archive、sha256、schema-version-2 manifest 和 manifest sha256 生成 GitHub artifact attestation。安装器注册 automatic SCM service，完整卸载前运行 service `purge`，GUI/service/platform 共同激活 signed INF driver package lifecycle、WinINet/WinHTTP system proxy、LocalMachine ROOT CA 和 managed lifecycle 的 apply/rollback；JavaScript dispatch 仍 blocked。当前合同见 [Windows Managed Client Source Release Contract](architecture/windows-managed-client-source-release-contract.md)。
+- `v0.2.0-alpha.2` 在同一 MSI/attestation/publish path 上增加 operator-staged
+  sing-box managed process lifecycle、Windows official ZIP extraction、GUI PID/exit
+  diagnostics 和原生 sing-box JSON 示例；automatic core install、Windows live
+  HTTPS MITM data plane 和 JavaScript dispatch 仍 blocked。
+- `v0.2.0-alpha.3` 保持同一 MSI/attestation/publish path，但将 install-time
+  service start 改为 asynchronous，并在每个 Windows tag release 增加 portable
+  ZIP、checksum、manifest、attestation 与 bounded MSI install/uninstall smoke。
+- `v0.2.0-alpha.4` 保持同一 MSI/portable/attestation/publish path，并增加 GUI
+  显式官方 sing-box core install 与 local profile import。它只生成基础
+  Shadowsocks/Trojan/VLESS/VMess 配置；remote subscription、advanced transport
+  rendering、Windows live HTTPS MITM 和 JavaScript dispatch 仍 blocked。
+- `v0.2.0-alpha.5` 保持同一 MSI/portable/attestation/publish path，并增加 GUI
+  触发的 service-owned CA lifecycle 和 controlled HTTP/1.1 HTTPS MITM data plane。
+  native listener 使用 sing-box 本地 SOCKS upstream；HTTP/2、HTTP/3/QUIC、streaming、
+  multi-request CONNECT、remote scripts 和 JavaScript dispatch 仍 blocked。
+- `v0.2.0-alpha.6` 保持同一 MSI/portable/attestation/publish path，并增加原生
+  sing-box JSON 直通导入、local mixed/http inbound 的系统代理端口识别，以及 GUI 直接打开
+  `sing-box.log` 的诊断入口。
+- `v0.2.0-alpha.7` 保持同一发布路径，并将带 `type: mixed`、`tag: mixed-in` 的
+  原生 sing-box JSON 接入 GUI MITM snapshot/restore 生命周期；其他 native 字段和入站不改写。
+- `v0.2.0-alpha.8` 保持同一发布路径，并增加 Hysteria2/TUIC local-file share-link 与
+  sing-box JSON outbound catalog import，以及到 direct sing-box QUIC outbound 的受控渲染；
+  它们不进入 GUI HTTP/1.1 HTTPS MITM 生命周期。
+- `v0.2.0-alpha.9` 保持同一发布路径，并增加 Trojan/VLESS/VMess local-file
+  share-link 与 sing-box outbound catalog import 的 TLS/REALITY/uTLS/Vision/VMess
+  security/alter-id/WebSocket/gRPC/HTTP/HTTPUpgrade/V2Ray QUIC compatibility subset；
+  不推断 XHTTP、ECH、multiplex 或任意 native transport 字段，也不进入 HTTP/3 MITM。
+- `v0.2.0-alpha.10` 保持同一发布路径，固定服务先完成 SCM handoff、GUI/CLI `start` 只返回即时 SCM state，坏配置不得阻塞启动调用；CI 用真实 MSI 的无效配置路径验证 service 日志和 `Stopped` 结果。每个 Windows tag 仍必须同时上传 MSI 与 portable ZIP 的 archive、sha256、manifest 和 manifest sha256。
+- `v0.2.0-alpha.11` 保持同一发布路径，并让 GUI 复用 service 的 managed JSON/schema 和 `sing-box check -c` 预检；`Diagnostics` 输出仅本地的 SCM/runtime 状态及有界日志尾部，失败 action 自动生成同一报告。GUI debug activity 不代替 core debug，后者仍由 operator-owned sing-box JSON 显式设置。
+- `v0.2.0-alpha.12` 保持同一发布路径，并允许 GUI 的 `Profile / URL` 手动下载 HTTP(S) 订阅 payload 后复用本地 profile 的 native JSON/NodeCatalog 导入路径；不启动后台刷新、订阅目录/组、route/rule 拉取或自动重启服务。
+- `v0.2.0-alpha.13` 保持同一发布路径，并新增 `Update URL`：仅显式更新最后一次成功导入的单个 HTTP(S) URL，失败不覆盖当前 managed config；不启动后台刷新、订阅目录/组、route/rule 拉取或自动重启服务。
+- `v0.2.0-alpha.14` 保持同一发布路径，并新增 `Load nodes`：显式解析 local profile 或 HTTP(S) URL，展示并选择 NodeCatalog 节点，再生成确定性单节点 service config；原生 sing-box JSON 继续 pass-through，不提供运行期 selector/latency controller。
+- `v0.2.0-alpha.15` 保持同一发布路径，并让 NodeCatalog 导入生成包含所有可翻译节点的 sing-box `selector`。GUI 的 `Switch active` 仅经 `127.0.0.1:9091` 回环 Clash API 显式切换并读回确认；不启用 LAN controller、Web UI、`urltest`、自动延迟选择、后台刷新或自动服务重启。原生 sing-box JSON 继续 pass-through。
+- `v0.2.0-alpha.16` 保持同一发布路径，并新增 GUI `Test delay`：它只通过
+  `127.0.0.1:9091` 回环 Clash API 对当前选择的 generated outbound 进行一次 HTTPS
+  delay test，用户可编辑 target，结果回显为毫秒；不切换 selector、不创建 `urltest`、不
+  启动后台测速、后台刷新或自动服务重启。原生 sing-box JSON 继续 pass-through。
+- `v0.2.0-alpha.17` 保持同一发布路径，并新增 GUI `Check core`：它只通过
+  `127.0.0.1:9091` 回环 Clash API 读取 generated selector 的 active outbound 和 node
+  count，把 SCM service 状态和核心控制器可达性分开显示；不保存节点、不切换 selector、
+  不改写 managed config，也不启动、停止或重启服务。原生 sing-box JSON 继续 pass-through。
+- `v0.2.0-alpha.18` 保持同一发布路径，并移除 GUI `Start`/`Restart` 对 managed
+  system proxy 的启动前写入。service runtime state 是 managed proxy snapshot 的唯一
+  owner，core 异步启动失败时 rollback 会恢复真实启动前设置；GUI `Enable proxy`/
+  `Restore proxy` 继续是独立的显式手动操作。
+- `v0.2.0-alpha.19` 保持同一发布路径，并在 SCM `Running` 后监督 service-owned
+  sing-box process。异常退出会持久化 failed transition/exit detail、清理 runtime
+  resources、恢复 managed proxy snapshot 并停止 SCM service；diagnostics 记录 failure detail。
+- `v0.2.0-alpha.21` 已发布 Windows managed-client prerelease。它保留相同 MSI/portable
+  ZIP/attestation/publish path，并把原生 Win32 GUI 重组为 Home、Nodes,
+  Subscriptions、Settings、Diagnostics 和 Advanced。连接状态要求独立的 SCM、core PID
+  和当前 interactive-user proxy 证据；service/core/install/preflight/subscription/selector/
+  delay 操作在后台完成。它还增加 shared-state tray、current-user Run startup、opt-in
+  auto-connect、最多一次 core recovery、exact GUI-owned proxy recovery 和 MSI Run-entry
+  cleanup。详情见 [Windows GUI Daily Usability](architecture/windows-gui-daily-usability.md)。
+- `v0.2.0-beta.5` 是当前 Windows source candidate。它明确 desktop/service proxy
+  ownership，在 GUI 应用当前用户代理前验证 SCM、`check -c`、live core PID、loopback listener
+  和适用 generated selector 的 active-outbound/default readback；失败时回滚 GUI-owned proxy。它不将缺失 PID 显示为 `PID 0`，并在
+  UAC handoff 前解释权限用途、保留 login-startup 参数。该候选仍需要真实 Windows 桌面验收。
+- license/NOTICE marker 当前为 confirmed；若 marker 缺失、非法或回退到 pending，不得生成 release artifact。confirmed 且同 commit CI、checksum、manifest、attestation、release notes、rollback 与 publish eligibility 全部通过后，tag release 可以生成并上传 Linux CLI artifact；符合 Windows eligibility 时也可以上传当前 Windows managed client MSI 四件套和 portable ZIP 四件套。
 - 不在本机打包、签名、测试或发布。
 - 通过 release summary job 输出发布来源、policy、release-ci-gate、release CI success source contract、release CI gate activation validation contract、release CI gate execution validation contract、release CI gate API implementation plan、iOS Swift/Xcode source tree activation preflight contract、iOS Package.swift source ownership activation preflight contract、iOS Package.swift manifest-only activation validation contract、iOS upload workflow activation validation contract、iOS source tree README placeholder/Package.swift ownership/manifest-only activation/marker/protected environment/manual approval/App Store Connect API secret/archive/export/upload/submission/release asset blocked 状态、Linux package artifact job preflight validation contract、Linux package artifact build command validation contract、Linux package artifact staging file validation contract、Linux package artifact archive creation validation contract、Linux package artifact checksum execution validation contract、Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract、Linux package artifact attestation execution validation contract、Linux package release notes/rollback execution validation contract、Linux package publish eligibility execution validation contract、release-artifact-contract、release-signing-contract、release-rollback-contract、linux-artifact-readiness、Linux foreground stop/release contract、Linux artifact manifest contract、Linux artifact manifest output fields、Linux package runner/toolchain/target contract、Linux package archive staging contract、Linux package checksum/manifest checksum contract、Linux package publish/upload boundary contract、Linux package signing/attestation policy binding contract、Linux package release notes/rollback policy binding contract、Linux package publish eligibility aggregate contract、Linux package license/NOTICE transition validation contract、Linux artifact license/NOTICE source contract 与 status、placeholder、artifact 状态和后续 artifact 门禁。
 - 任何真实产物必须先有对应源码、平台设计、GitHub Actions 验证和本文件定义的门禁。
@@ -113,7 +171,7 @@ GitHub artifact attestation、release notes、rollback 和 publish eligibility g
 | --- | --- | --- | --- |
 | Rust crates | 暂不发布到 crates.io | `ubuntu-latest` | 公共 API 稳定、license 与 README 完整、crate publishing policy 单独评审 |
 | Linux | `networkcore-linux` CLI tarball | `ubuntu-latest` | [Linux artifact pre-release design](architecture/linux-artifact-pre-release-design.md)、[Linux platform adapter design](architecture/linux-platform-adapter.md)、[Linux CLI entrypoint design](architecture/linux-cli-entrypoint.md)、[Linux CLI runtime wiring design](architecture/linux-cli-runtime-wiring.md)、[Native engine listener and node config design](architecture/native-engine-listener-node-config.md)、[Linux native proxy engine start design](architecture/linux-native-proxy-engine-start.md)、[Linux CLI artifact installation and rollback design](architecture/linux-cli-artifact-installation-rollback.md)、[Linux package artifact manifest design](architecture/linux-package-artifact-manifest.md)、[Linux artifact license notice confirmation design](architecture/linux-artifact-license-notice-confirmation.md)、[Linux package license/NOTICE transition validation contract](architecture/linux-package-license-notice-transition-validation-contract.md)、[Release CI success source contract](architecture/release-ci-success-source-contract.md)、[Linux package release CI gate activation validation contract](architecture/linux-package-release-ci-gate-activation-validation-contract.md)、[Release CI gate execution validation contract](architecture/release-ci-gate-execution-validation-contract.md)、[Release CI gate API implementation plan](architecture/release-ci-gate-api-implementation-plan.md)、[Linux package artifact job preflight validation contract](architecture/linux-package-artifact-job-preflight-validation-contract.md)、[Linux package artifact build command validation contract](architecture/linux-package-artifact-build-command-validation-contract.md)、[Linux package artifact staging file validation contract](architecture/linux-package-artifact-staging-file-validation-contract.md)、[Linux package artifact archive creation validation contract](architecture/linux-package-artifact-archive-creation-validation-contract.md)、[Linux package artifact checksum execution validation contract](architecture/linux-package-artifact-checksum-execution-validation-contract.md)、[Linux package artifact manifest generation validation contract](architecture/linux-package-artifact-manifest-generation-validation-contract.md)、[Linux package artifact manifest checksum validation contract](architecture/linux-package-artifact-manifest-checksum-validation-contract.md)、[Linux package workflow artifact bundle upload validation contract](architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md)、[Linux package artifact attestation execution validation contract](architecture/linux-package-artifact-attestation-execution-validation-contract.md)、[Linux package release notes/rollback execution validation contract](architecture/linux-package-release-notes-rollback-execution-validation-contract.md)、[Linux package publish eligibility execution validation contract](architecture/linux-package-publish-eligibility-execution-validation-contract.md)、[Linux package runner/toolchain/target contract](architecture/linux-package-runner-toolchain-target-contract.md)、[Linux package archive staging contract](architecture/linux-package-archive-staging-contract.md)、[Linux package checksum manifest contract](architecture/linux-package-checksum-manifest-contract.md)、[Linux package publish upload boundary contract](architecture/linux-package-publish-upload-boundary-contract.md)、[Linux package signing/attestation policy binding contract](architecture/linux-package-signing-attestation-policy-binding-contract.md)、[Linux package release notes/rollback policy binding contract](architecture/linux-package-release-notes-rollback-policy-binding-contract.md) 与 [Linux package publish eligibility aggregate contract](architecture/linux-package-publish-eligibility-aggregate-contract.md) 完成；license/NOTICE marker 当前为 confirmed，tag publish 仍需要同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility 全部通过 |
-| Windows | `networkcore-windows` CLI zip artifact；service、driver 或 installer 另行切片 | `windows-latest` | Windows CLI artifact source/release contract、package-windows gate、checksum/manifest/attestation、release notes/rollback 和 signing policy 已在 `v0.1.1-alpha.2` 激活；service、driver、installer 或系统代理 mutation 进入 release 前必须另补权限、签名证书、安装器和回滚策略 |
+| Windows | `networkcore-windows` managed-client MSI and portable ZIP | `windows-latest` | Current main is the `v0.2.0-beta.5` candidate. It requires independent SCM, `check -c`, listener, generated selector active-outbound/default readback, PID, and exact current-user proxy evidence before Connected or desktop proxy mutation; it retains explicit proxy ownership and truthful missing-PID handling in the shared-state tray, current-user Run startup, opt-in one-shot auto-connect/core recovery, exact GUI-owned proxy recovery, and MSI Run-entry cleanup baseline. It retains the generated NodeCatalog selector, loopback controller health/switch/delay, service-owned core supervision, native JSON pass-through, portable ZIP, and MSI path. A user-enabled single HTTP(S) subscription refresh records redacted attempt/success/next/result, node diff counts, and stable errors without restarting the core or switching nodes. No LAN controller, Web UI, `urltest`, automatic latency selection, subscription group, TUN/DNS interception, or script dispatch is enabled. |
 | macOS | 待定义 CLI、app bundle、`.pkg` 或 `.dmg` | `macos-26` | 签名、notarization、entitlement 和 Gatekeeper 路径完成 |
 | iOS | App Store Connect 或 TestFlight 路径 | `macos-26` | [iOS Network Extension design](architecture/ios-network-extension-design.md)、[iOS platform adapter source contract](architecture/ios-platform-adapter-source-contract.md)、[iOS Swift Network Extension bridge design](architecture/ios-swift-network-extension-bridge-design.md)、[iOS Swift Xcode bridge source contract](architecture/ios-swift-xcode-bridge-source-contract.md)、[iOS embedded runtime FFI boundary design](architecture/ios-embedded-runtime-ffi-boundary-design.md)、[iOS MITM certificate lifecycle design](architecture/ios-mitm-certificate-lifecycle-design.md)、[iOS entitlement/provisioning source contract](architecture/ios-entitlement-provisioning-source-contract.md)、[iOS App Review/privacy release readiness design](architecture/ios-app-review-privacy-release-readiness-design.md)、[iOS Privacy Manifest source contract](architecture/ios-privacy-manifest-source-contract.md)、[iOS App Review manual confirmation source contract](architecture/ios-app-review-manual-confirmation-source-contract.md)、[iOS TestFlight App Store Connect upload workflow source contract](architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md)、[iOS upload workflow activation validation contract](architecture/ios-upload-workflow-activation-validation-contract.md)、[iOS Swift/Xcode source tree activation preflight contract](architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md)、[iOS Package.swift source ownership activation preflight contract](architecture/ios-package-swift-source-ownership-activation-preflight-contract.md)、[iOS Package.swift manifest-only activation validation contract](architecture/ios-package-swift-manifest-only-activation-validation-contract.md)、`crates/platform-ios` 首个源码骨架、真实 Swift/Xcode bridge 源码、真实 Rust embedded runtime FFI 源码、真实 certificate lifecycle 源码、真实 entitlement/provisioning 源码、真实 Privacy Manifest 源码、Provisioning Profile、App Privacy disclosure、隐私政策、App Review Notes、TestFlight/App Store Connect 人工确认 marker、upload workflow enabled marker、archive/export、protected environment、manual approval、App Store Connect API、build processing status 和 VPN compliance 完成 |
 | Source archive | GitHub release 自动源码包 | GitHub Release | tag、CHANGELOG 和 CI 通过 |
@@ -144,7 +202,7 @@ Linux 矩阵前置条件还包括 [Linux package artifact manifest generation va
 
 ## 版本与回滚
 
-- 版本号采用 `vMAJOR.MINOR.PATCH` tag 形式，alpha 预发布版本使用 `vMAJOR.MINOR.PATCH-alpha.N`，rc 预发布版本使用 `vMAJOR.MINOR.PATCH-rc.N`；当前 release policy gate 已按该格式检查手动版本输入与 tag 名。
+- 版本号采用 `vMAJOR.MINOR.PATCH` tag 形式，alpha、beta 和 rc 预发布版本分别使用 `vMAJOR.MINOR.PATCH-alpha.N`、`vMAJOR.MINOR.PATCH-beta.N` 和 `vMAJOR.MINOR.PATCH-rc.N`；N 必须是无前导零的十进制正整数，为保持 Windows Installer 版本排序，分别只能为 `1-499`、`1-399` 和 `1-98`。当前 release policy gate 已按该格式和范围检查手动版本输入与 tag 名。
 - 任何 release 修复都通过新 tag 发布，不覆盖已发布 tag。
 - 如果 release 失败在发布前发生，删除 draft 或 failed run artifact 即可；如果 release asset 已公开，必须发布撤回说明并以新版本替换。
 - iOS 和商店渠道回滚依赖 App Store Connect 或对应商店能力，必须在发布说明中记录可用路径。

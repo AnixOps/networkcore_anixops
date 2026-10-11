@@ -1,3 +1,4 @@
+use base64::Engine as _;
 use config_core::{
     parse_config_document, CoreConfigurationService, CoreSubscriptionService,
     CONFIG_LISTENER_BIND_PORT_INVALID_CODE, CONFIG_LISTENER_NETWORK_UNSUPPORTED_CODE,
@@ -7,14 +8,27 @@ use config_core::{
     CONFIG_PROFILE_MISSING_CODE, CONFIG_ROUTE_PROXY_NODE_MISSING_CODE,
     CONFIG_SCHEMA_UNSUPPORTED_CODE, CURRENT_SCHEMA_VERSION, SUBSCRIPTION_FETCH_UNSUPPORTED_CODE,
     SUBSCRIPTION_LINK_UNSUPPORTED_CODE, SUBSCRIPTION_PARSE_FAILED_CODE,
-    SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE,
+    SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE, SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
 };
 use control_domain::{
     ConfigurationService, Diagnostic, ListenerKind, ListenerNetwork, ListenerRoute, MetadataEntry,
     OperatingSystem, PlatformCapabilities, Protocol, RawSubscription, RouteAction, SchemaVersion,
-    SubscriptionService, SubscriptionSource, NODE_METADATA_SHADOWSOCKS_METHOD,
-    NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SOURCE_FORMAT, NODE_METADATA_TROJAN_PASSWORD,
-    NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_UUID,
+    SubscriptionService, SubscriptionSource, NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE,
+    NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE, NODE_METADATA_HYSTERIA2_OBFS_PASSWORD,
+    NODE_METADATA_HYSTERIA2_OBFS_TYPE, NODE_METADATA_HYSTERIA2_PASSWORD,
+    NODE_METADATA_HYSTERIA2_SERVER_PORTS, NODE_METADATA_SHADOWSOCKS_METHOD,
+    NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SOURCE_FORMAT, NODE_METADATA_TLS_ALPN,
+    NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256, NODE_METADATA_TLS_ENABLED,
+    NODE_METADATA_TLS_INSECURE, NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
+    NODE_METADATA_TLS_REALITY_SHORT_ID, NODE_METADATA_TLS_SERVER_NAME,
+    NODE_METADATA_TLS_UTLS_FINGERPRINT, NODE_METADATA_TROJAN_PASSWORD,
+    NODE_METADATA_TUIC_CONGESTION_CONTROL, NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID,
+    NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_PATH,
+    NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
+    NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
+    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID, NODE_METADATA_WIREGUARD_LOCAL_ADDRESS,
+    NODE_METADATA_WIREGUARD_MTU, NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY,
+    NODE_METADATA_WIREGUARD_PRE_SHARED_KEY, NODE_METADATA_WIREGUARD_PRIVATE_KEY,
 };
 
 #[test]
@@ -279,6 +293,162 @@ fn parses_single_vmess_url_subscription_into_node_catalog() {
 }
 
 #[test]
+fn parses_v2ray_share_links_with_tls_reality_and_transports() {
+    let vmess_payload = r#"{
+  "v": "2",
+  "ps": "VMess WS",
+  "add": "vmess.example.test",
+  "port": "443",
+  "id": "00000000-0000-0000-0000-000000000003",
+  "aid": "0",
+  "scy": "chacha20-poly1305",
+  "net": "ws",
+  "type": "none",
+  "host": "cdn.vmess.example.test",
+  "path": "/ws",
+  "tls": "tls",
+  "sni": "edge.vmess.example.test",
+  "alpn": "h2,http/1.1",
+  "allowInsecure": "1",
+  "fp": "firefox"
+}"#;
+    let vmess = base64::engine::general_purpose::STANDARD.encode(vmess_payload);
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "advanced-v2ray-links".to_string(),
+        content: format!(
+            concat!(
+                "trojan://trojan-password@trojan.example.test:443?security=tls&sni=cdn.trojan.example.test&alpn=h2%2Chttp%2F1.1&allowInsecure=1&type=grpc&serviceName=TunService#Trojan%20gRPC\n",
+                "vless://00000000-0000-0000-0000-000000000002@vless.example.test:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=cdn.vless.example.test&fp=chrome&pbk=reality-public-key&sid=abcd&type=ws&host=cdn.vless.example.test&path=%2Fedge#VLESS%20Reality\n",
+                "vmess://{}"
+            ),
+            vmess
+        ),
+    };
+
+    let document = service
+        .parse(&raw)
+        .expect("advanced V2Ray share links should parse");
+    let catalog = service
+        .normalize(&document)
+        .expect("advanced V2Ray share links should normalize");
+
+    assert_eq!(catalog.nodes.len(), 3);
+    let trojan = &catalog.nodes[0];
+    assert_metadata(&trojan.metadata, NODE_METADATA_TLS_ENABLED, "true");
+    assert_metadata(
+        &trojan.metadata,
+        NODE_METADATA_TLS_SERVER_NAME,
+        "cdn.trojan.example.test",
+    );
+    assert_metadata(&trojan.metadata, NODE_METADATA_TLS_INSECURE, "true");
+    assert_metadata(&trojan.metadata, NODE_METADATA_TLS_ALPN, "h2,http/1.1");
+    assert_metadata(&trojan.metadata, NODE_METADATA_V2RAY_TRANSPORT_TYPE, "grpc");
+    assert_metadata(
+        &trojan.metadata,
+        NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME,
+        "TunService",
+    );
+
+    let vless = &catalog.nodes[1];
+    assert_metadata(
+        &vless.metadata,
+        NODE_METADATA_VLESS_FLOW,
+        "xtls-rprx-vision",
+    );
+    assert_metadata(&vless.metadata, NODE_METADATA_TLS_ENABLED, "true");
+    assert_metadata(
+        &vless.metadata,
+        NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
+        "reality-public-key",
+    );
+    assert_metadata(&vless.metadata, NODE_METADATA_TLS_REALITY_SHORT_ID, "abcd");
+    assert_metadata(
+        &vless.metadata,
+        NODE_METADATA_TLS_UTLS_FINGERPRINT,
+        "chrome",
+    );
+    assert_metadata(&vless.metadata, NODE_METADATA_V2RAY_TRANSPORT_TYPE, "ws");
+    assert_metadata(
+        &vless.metadata,
+        NODE_METADATA_V2RAY_TRANSPORT_HOST,
+        "cdn.vless.example.test",
+    );
+    assert_metadata(&vless.metadata, NODE_METADATA_V2RAY_TRANSPORT_PATH, "/edge");
+
+    let vmess = &catalog.nodes[2];
+    assert_eq!(vmess.name, "VMess WS");
+    assert_metadata(
+        &vmess.metadata,
+        NODE_METADATA_VMESS_SECURITY,
+        "chacha20-poly1305",
+    );
+    assert_metadata(&vmess.metadata, NODE_METADATA_VMESS_ALTER_ID, "0");
+    assert_metadata(&vmess.metadata, NODE_METADATA_TLS_ENABLED, "true");
+    assert_metadata(
+        &vmess.metadata,
+        NODE_METADATA_TLS_SERVER_NAME,
+        "edge.vmess.example.test",
+    );
+    assert_metadata(
+        &vmess.metadata,
+        NODE_METADATA_TLS_UTLS_FINGERPRINT,
+        "firefox",
+    );
+    assert_metadata(&vmess.metadata, NODE_METADATA_V2RAY_TRANSPORT_TYPE, "ws");
+    assert_metadata(
+        &vmess.metadata,
+        NODE_METADATA_V2RAY_TRANSPORT_HOST,
+        "cdn.vmess.example.test",
+    );
+    assert_metadata(&vmess.metadata, NODE_METADATA_V2RAY_TRANSPORT_PATH, "/ws");
+}
+
+#[test]
+fn parses_v2ray_http_and_quic_share_link_transports() {
+    let vmess_payload = r#"{
+  "ps": "VMess QUIC",
+  "add": "vmess-quic.example.test",
+  "port": "443",
+  "id": "00000000-0000-0000-0000-000000000006",
+  "scy": "auto",
+  "net": "quic"
+}"#;
+    let vmess = base64::engine::general_purpose::STANDARD.encode(vmess_payload);
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "v2ray-http-quic-links".to_string(),
+        content: format!(
+            concat!(
+                "vless://00000000-0000-0000-0000-000000000007@vless-http.example.test:443?security=tls&type=http&host=cdn-a.example.test%2Ccdn-b.example.test&path=%2Fh2#VLESS%20HTTP\n",
+                "vmess://{}"
+            ),
+            vmess
+        ),
+    };
+
+    let document = service
+        .parse(&raw)
+        .expect("V2Ray HTTP and QUIC share links should parse");
+    let catalog = service
+        .normalize(&document)
+        .expect("V2Ray HTTP and QUIC share links should normalize");
+
+    assert_eq!(catalog.nodes.len(), 2);
+    let vless = &catalog.nodes[0];
+    assert_metadata(&vless.metadata, NODE_METADATA_V2RAY_TRANSPORT_TYPE, "http");
+    assert_metadata(
+        &vless.metadata,
+        NODE_METADATA_V2RAY_TRANSPORT_HOST,
+        "cdn-a.example.test,cdn-b.example.test",
+    );
+    assert_metadata(&vless.metadata, NODE_METADATA_V2RAY_TRANSPORT_PATH, "/h2");
+
+    let vmess = &catalog.nodes[1];
+    assert_metadata(&vmess.metadata, NODE_METADATA_V2RAY_TRANSPORT_TYPE, "quic");
+}
+
+#[test]
 fn parses_clash_yaml_subscription_into_node_catalog() {
     let service = CoreSubscriptionService::new();
     let raw = RawSubscription {
@@ -397,6 +567,331 @@ fn parses_sing_box_json_subscription_into_node_catalog() {
     );
     assert_metadata(&node.metadata, NODE_METADATA_SOURCE_FORMAT, "sing-box-json");
     assert_metadata(&node.metadata, "subscription.source_id", "sing-box-json");
+}
+
+#[test]
+fn parses_hysteria2_and_tuic_share_links_with_quic_tls_options() {
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "quic-share-links".to_string(),
+        content: concat!(
+            "hysteria2://hy2%2Dpassword@edge.example.test:443?mport=2000-2002&sni=cdn.example.test&alpn=h3%2Ch2&insecure=1&pinSHA256=pin-A&obfs=gecko&obfs-password=mask&minPacketSize=512&maxPacketSize=1200#Hysteria%202\n",
+            "tuic://00000000-0000-0000-0000-000000000001:tuic%2Dpassword@tuic.example.test:443?sni=cdn.tuic.example.test&alpn=h3&allowInsecure=1&congestion_control=bbr#TUIC%20Node"
+        )
+        .to_string(),
+    };
+
+    let document = service
+        .parse(&raw)
+        .expect("Hysteria2 and TUIC share links should parse");
+    let catalog = service
+        .normalize(&document)
+        .expect("QUIC share link document should normalize");
+
+    assert_eq!(catalog.nodes.len(), 2);
+    let hysteria2 = &catalog.nodes[0];
+    assert_eq!(hysteria2.id, "hysteria2-edge-example-test-443");
+    assert_eq!(hysteria2.name, "Hysteria 2");
+    assert_eq!(hysteria2.protocol, Protocol::Hysteria2);
+    assert_eq!(hysteria2.endpoint.host, "edge.example.test");
+    assert_eq!(hysteria2.endpoint.port, 443);
+    assert_eq!(
+        hysteria2.tags,
+        vec!["subscription".to_string(), "hysteria2".to_string()]
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_HYSTERIA2_PASSWORD,
+        "hy2-password",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_HYSTERIA2_SERVER_PORTS,
+        "2000:2002",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_HYSTERIA2_OBFS_TYPE,
+        "gecko",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_HYSTERIA2_OBFS_PASSWORD,
+        "mask",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE,
+        "512",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE,
+        "1200",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_TLS_SERVER_NAME,
+        "cdn.example.test",
+    );
+    assert_metadata(&hysteria2.metadata, NODE_METADATA_TLS_INSECURE, "true");
+    assert_metadata(&hysteria2.metadata, NODE_METADATA_TLS_ALPN, "h3,h2");
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256,
+        "pin-A",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_SOURCE_FORMAT,
+        "hysteria2-url",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        "subscription.source_id",
+        "quic-share-links",
+    );
+
+    let tuic = &catalog.nodes[1];
+    assert_eq!(tuic.id, "tuic-tuic-example-test-443");
+    assert_eq!(tuic.name, "TUIC Node");
+    assert_eq!(tuic.protocol, Protocol::Tuic);
+    assert_metadata(
+        &tuic.metadata,
+        NODE_METADATA_TUIC_UUID,
+        "00000000-0000-0000-0000-000000000001",
+    );
+    assert_metadata(&tuic.metadata, NODE_METADATA_TUIC_PASSWORD, "tuic-password");
+    assert_metadata(&tuic.metadata, NODE_METADATA_TUIC_CONGESTION_CONTROL, "bbr");
+    assert_metadata(
+        &tuic.metadata,
+        NODE_METADATA_TLS_SERVER_NAME,
+        "cdn.tuic.example.test",
+    );
+    assert_metadata(&tuic.metadata, NODE_METADATA_TLS_INSECURE, "true");
+    assert_metadata(&tuic.metadata, NODE_METADATA_TLS_ALPN, "h3");
+    assert_metadata(&tuic.metadata, NODE_METADATA_SOURCE_FORMAT, "tuic-url");
+    assert_metadata(&tuic.metadata, "subscription.source_id", "quic-share-links");
+}
+
+#[test]
+fn parses_mieru_share_links_without_leaking_credentials_in_diagnostics() {
+    let service = CoreSubscriptionService::new();
+    let document = service
+        .parse(&RawSubscription {
+            source_id: "mieru-links".to_string(),
+            content: "mierus://alice:secret@example.test:3010?ports=3010-3012&mtu=1400&multiplexing=true&handshake=fast&traffic=balanced#Office".to_string(),
+        })
+        .expect("Mieru share link should parse");
+    let catalog = service
+        .normalize(&document)
+        .expect("Mieru node should normalize");
+
+    assert_eq!(catalog.nodes.len(), 1);
+    let node = &catalog.nodes[0];
+    assert_eq!(node.protocol, Protocol::Mieru);
+    assert_eq!(node.name, "Office");
+    assert_metadata(&node.metadata, "mieru.username", "alice");
+    assert_metadata(&node.metadata, "mieru.password", "secret");
+    assert_metadata(&node.metadata, "mieru.port_range", "3010-3012");
+    assert_metadata(&node.metadata, "mieru.mtu", "1400");
+    assert_metadata(&node.metadata, "mieru.multiplexing", "true");
+    assert_metadata(&node.metadata, NODE_METADATA_SOURCE_FORMAT, "mierus-url");
+    assert!(!document
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.message.contains("secret")));
+}
+
+#[test]
+fn parses_hysteria2_and_tuic_sing_box_outbounds_into_node_catalog() {
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "sing-box-quic".to_string(),
+        content: r#"
+{
+  "outbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "Hysteria2 JSON",
+      "server": "hy2.example.test",
+      "server_ports": ["3000:3002"],
+      "password": "hy2-password",
+      "obfs": {
+        "type": "gecko",
+        "password": "mask",
+        "min_packet_size": 512,
+        "max_packet_size": 1200
+      },
+      "tls": {
+        "server_name": "cdn.hy2.example.test",
+        "insecure": true,
+        "alpn": ["h3", "h2"],
+        "certificate_public_key_sha256": ["pin-A"]
+      }
+    },
+    {
+      "type": "tuic",
+      "tag": "TUIC JSON",
+      "server": "tuic.example.test",
+      "server_port": 443,
+      "uuid": "00000000-0000-0000-0000-000000000002",
+      "password": "tuic-password",
+      "congestion_control": "bbr",
+      "tls": {
+        "server_name": "cdn.tuic.example.test",
+        "alpn": "h3"
+      }
+    }
+  ]
+}
+"#
+        .to_string(),
+    };
+
+    let document = service
+        .parse(&raw)
+        .expect("sing-box QUIC outbounds should parse");
+    let catalog = service
+        .normalize(&document)
+        .expect("sing-box QUIC document should normalize");
+
+    assert_eq!(catalog.nodes.len(), 2);
+    let hysteria2 = &catalog.nodes[0];
+    assert_eq!(hysteria2.id, "sing-box-hysteria2-hysteria2-json");
+    assert_eq!(hysteria2.endpoint.port, 3000);
+    assert_eq!(hysteria2.protocol, Protocol::Hysteria2);
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_HYSTERIA2_SERVER_PORTS,
+        "3000:3002",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256,
+        "pin-A",
+    );
+    assert_metadata(
+        &hysteria2.metadata,
+        "subscription.source_id",
+        "sing-box-quic",
+    );
+
+    let tuic = &catalog.nodes[1];
+    assert_eq!(tuic.id, "sing-box-tuic-tuic-json");
+    assert_eq!(tuic.protocol, Protocol::Tuic);
+    assert_metadata(
+        &tuic.metadata,
+        NODE_METADATA_TUIC_UUID,
+        "00000000-0000-0000-0000-000000000002",
+    );
+    assert_metadata(&tuic.metadata, NODE_METADATA_TUIC_CONGESTION_CONTROL, "bbr");
+    assert_metadata(&tuic.metadata, NODE_METADATA_TLS_INSECURE, "false");
+}
+
+#[test]
+fn parses_v2ray_family_sing_box_outbounds_with_tls_reality_and_transport() {
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "sing-box-v2ray-family".to_string(),
+        content: r#"
+{
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "Reality WS",
+      "server": "vless.example.test",
+      "server_port": 443,
+      "uuid": "00000000-0000-0000-0000-000000000004",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "cdn.vless.example.test",
+        "utls": { "enabled": true, "fingerprint": "chrome" },
+        "reality": { "enabled": true, "public_key": "reality-public-key", "short_id": "abcd" }
+      },
+      "transport": { "type": "ws", "path": "/gateway", "headers": { "Host": "cdn.vless.example.test" } }
+    },
+    {
+      "type": "vmess",
+      "tag": "VMess gRPC",
+      "server": "vmess.example.test",
+      "server_port": 443,
+      "uuid": "00000000-0000-0000-0000-000000000005",
+      "security": "aes-128-gcm",
+      "alter_id": 0,
+      "tls": { "enabled": true, "server_name": "cdn.vmess.example.test" },
+      "transport": { "type": "grpc", "service_name": "TunService" }
+    },
+    {
+      "type": "trojan",
+      "tag": "Trojan Upgrade",
+      "server": "trojan.example.test",
+      "server_port": 443,
+      "password": "trojan-password",
+      "tls": { "enabled": true, "server_name": "cdn.trojan.example.test" },
+      "transport": { "type": "httpupgrade", "host": "cdn.trojan.example.test", "path": "/upgrade" }
+    }
+  ]
+}
+"#
+        .to_string(),
+    };
+
+    let document = service
+        .parse(&raw)
+        .expect("V2Ray-family sing-box outbounds should parse");
+    let catalog = service
+        .normalize(&document)
+        .expect("V2Ray-family sing-box outbounds should normalize");
+
+    assert_eq!(catalog.nodes.len(), 3);
+    let vless = &catalog.nodes[0];
+    assert_metadata(
+        &vless.metadata,
+        NODE_METADATA_VLESS_FLOW,
+        "xtls-rprx-vision",
+    );
+    assert_metadata(&vless.metadata, NODE_METADATA_TLS_ENABLED, "true");
+    assert_metadata(
+        &vless.metadata,
+        NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
+        "reality-public-key",
+    );
+    assert_metadata(
+        &vless.metadata,
+        NODE_METADATA_TLS_UTLS_FINGERPRINT,
+        "chrome",
+    );
+    assert_metadata(&vless.metadata, NODE_METADATA_V2RAY_TRANSPORT_TYPE, "ws");
+    assert_metadata(
+        &vless.metadata,
+        NODE_METADATA_V2RAY_TRANSPORT_HOST,
+        "cdn.vless.example.test",
+    );
+
+    let vmess = &catalog.nodes[1];
+    assert_metadata(&vmess.metadata, NODE_METADATA_VMESS_SECURITY, "aes-128-gcm");
+    assert_metadata(&vmess.metadata, NODE_METADATA_VMESS_ALTER_ID, "0");
+    assert_metadata(&vmess.metadata, NODE_METADATA_V2RAY_TRANSPORT_TYPE, "grpc");
+    assert_metadata(
+        &vmess.metadata,
+        NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME,
+        "TunService",
+    );
+
+    let trojan = &catalog.nodes[2];
+    assert_metadata(&trojan.metadata, NODE_METADATA_TLS_ENABLED, "true");
+    assert_metadata(
+        &trojan.metadata,
+        NODE_METADATA_V2RAY_TRANSPORT_TYPE,
+        "httpupgrade",
+    );
+    assert_metadata(
+        &trojan.metadata,
+        NODE_METADATA_V2RAY_TRANSPORT_PATH,
+        "/upgrade",
+    );
 }
 
 #[test]
@@ -588,7 +1083,7 @@ fn unsupported_proxy_link_returns_stable_subscription_diagnostic() {
     let service = CoreSubscriptionService::new();
     let raw = RawSubscription {
         source_id: "unsupported".to_string(),
-        content: "tuic://example".to_string(),
+        content: "unsupported://example".to_string(),
     };
 
     let error = service
@@ -596,6 +1091,127 @@ fn unsupported_proxy_link_returns_stable_subscription_diagnostic() {
         .expect_err("unsupported proxy link should fail");
 
     assert_eq!(error.code, SUBSCRIPTION_LINK_UNSUPPORTED_CODE);
+}
+
+#[test]
+fn parses_wireguard_share_link_with_optional_key_and_mtu() {
+    let private_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    let peer_public_key = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
+    let pre_shared_key = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=";
+    let service = CoreSubscriptionService::new();
+    let document = service
+        .parse(&RawSubscription {
+            source_id: "wireguard-share-link".to_string(),
+            content: format!(
+                "wireguard://{private_key}@wg.example.test:51820?publickey={peer_public_key}&address=10.7.0.2%2F32%2Cfd00%3A7%3A%3A2%2F128&presharedkey={pre_shared_key}&mtu=1420#Office%20WG"
+            ),
+        })
+        .expect("WireGuard share link should parse");
+    let catalog = service
+        .normalize(&document)
+        .expect("WireGuard share link should normalize");
+
+    assert_eq!(catalog.nodes.len(), 1);
+    let node = &catalog.nodes[0];
+    assert_eq!(node.protocol, Protocol::WireGuard);
+    assert_eq!(node.endpoint.host, "wg.example.test");
+    assert_eq!(node.endpoint.port, 51820);
+    assert_eq!(node.name, "Office WG");
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_WIREGUARD_PRIVATE_KEY,
+        private_key,
+    );
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY,
+        peer_public_key,
+    );
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_WIREGUARD_PRE_SHARED_KEY,
+        pre_shared_key,
+    );
+    assert_metadata(
+        &node.metadata,
+        NODE_METADATA_WIREGUARD_LOCAL_ADDRESS,
+        "10.7.0.2/32,fd00:7::2/128",
+    );
+    assert_metadata(&node.metadata, NODE_METADATA_WIREGUARD_MTU, "1420");
+    assert_metadata(&node.metadata, NODE_METADATA_SOURCE_FORMAT, "wireguard-url");
+    assert!(!format!("{node:?}").contains(private_key));
+}
+
+#[test]
+fn rejects_invalid_wireguard_share_link_without_echoing_private_key() {
+    let private_key = "sensitive-not-a-wireguard-key";
+    let service = CoreSubscriptionService::new();
+    let error = service
+        .parse(&RawSubscription {
+            source_id: "invalid-wireguard-share-link".to_string(),
+            content: format!(
+                "wireguard://{private_key}@wg.example.test:51820?publickey=invalid&address=10.7.0.2%2F33&mtu=0"
+            ),
+        })
+        .expect_err("invalid WireGuard key must be rejected");
+
+    assert_eq!(error.code, SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE);
+    assert!(!error.message.contains(private_key));
+}
+
+#[test]
+fn validates_wireguard_peer_key_address_preshared_key_and_mtu() {
+    let private_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    let cases = [
+        (
+            "invalid-peer-key",
+            "publickey=invalid&address=10.7.0.2%2F32",
+        ),
+        (
+            "invalid-address",
+            "publickey=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=&address=10.7.0.2%2F33",
+        ),
+        (
+            "invalid-preshared-key",
+            "publickey=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=&address=10.7.0.2%2F32&presharedkey=invalid",
+        ),
+        (
+            "invalid-mtu",
+            "publickey=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=&address=10.7.0.2%2F32&mtu=0",
+        ),
+    ];
+    let service = CoreSubscriptionService::new();
+
+    for (source_id, query) in cases {
+        let error = service
+            .parse(&RawSubscription {
+                source_id: source_id.to_string(),
+                content: format!("wireguard://{private_key}@wg.example.test:51820?{query}#Invalid"),
+            })
+            .expect_err("invalid WireGuard field must be rejected");
+        assert_eq!(error.code, SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE);
+        assert!(!error.message.contains(private_key));
+    }
+}
+
+#[test]
+fn link_list_keeps_supported_nodes_when_other_links_are_unsupported() {
+    let service = CoreSubscriptionService::new();
+    let raw = RawSubscription {
+        source_id: "mixed-links".to_string(),
+        content: concat!(
+            "unsupported://link\n",
+            "ss://YWVzLTI1Ni1nY206cGFzc0BleGFtcGxlLmNvbTo0NDM#Supported"
+        )
+        .to_string(),
+    };
+
+    let document = service
+        .parse(&raw)
+        .expect("supported links should import when other links are unsupported");
+
+    assert_eq!(document.nodes.len(), 1);
+    assert_eq!(document.nodes[0].name, "Supported");
 }
 
 #[test]

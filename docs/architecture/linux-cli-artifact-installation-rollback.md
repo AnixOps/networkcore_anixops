@@ -62,6 +62,12 @@ checksum sidecar 生成前置验证遵守
 - 需要配置的命令继续要求显式 `--config <path>`。
 - 如平台能力不足，CLI 通过稳定诊断 code 报告，不在安装阶段尝试修复。
 
+该安装边界不禁止用户在安装后调用 CLI 的显式 managed-service 命令：`install-service --confirm`、
+`service <start|stop|restart|reload> --confirm`、`connect|disconnect|restart --confirm` 和
+`uninstall-service --confirm` 只操作调用方指定或默认命名的 NetworkCore systemd unit。它们不是
+tarball 安装步骤，必须保持各自适用的确认、snapshot、readback 和 rollback 合同；CLI 不发现、接管或
+推断任意已有 daemon。
+
 任何 `sudo install`、写入 `/usr/local/bin`、`setcap`、systemd unit、shell installer、`.deb` 或 `.rpm` 都必须先补充单独设计和回滚路径。
 
 ## 权限与能力
@@ -85,7 +91,12 @@ checksum sidecar 生成前置验证遵守
 3. 删除用户自行创建的 symlink、PATH wrapper 或 shell alias。
 4. 删除下载的压缩包和 checksum 文件。
 
-由于首个 artifact 不安装服务、不写系统配置、不授予 capability、不安装证书，卸载不需要清理 systemd、DNS、路由、防火墙或 trust store。若后续版本新增任何系统级修改，必须同步新增可撤销清单，并在 release notes 中说明旧版本用户是否受影响。
+若用户只按手动解压模型使用 artifact，卸载不需要清理 systemd、DNS、路由、防火墙或 trust store。
+若用户曾显式安装 NetworkCore systemd unit，必须先以原 unit 名和 state directory 调用
+`networkcore-linux uninstall-service --confirm`，保留其非覆盖 snapshot，再删除解压目录；这只删除
+已验证的 NetworkCore unit，不删除 state directory 或其他服务。若用户曾显式应用 trust-file，必须先
+使用对应 snapshot 执行 `mitm certificate trust-rollback --confirm`。任何后续系统级修改都必须同步新增
+可撤销清单，并在 release notes 中说明旧版本用户是否受影响。
 
 ## 用户侧回滚
 

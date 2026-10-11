@@ -141,7 +141,7 @@ archive checksum、manifest 和 manifest checksum 都不得放入 archive 内部
 - `artifact_name` 等于 `package_archive_name`。
 - `included_files[].path` 必须来自 Required Archive Contents 的 archive path。
 - `included_files[].source` 必须来自本文定义的 source 字段或 confirmed license/NOTICE 字段。
-- `system_mutation_policy` 必须保持 `none`，除非安装/回滚设计先更新。
+- `system_mutation_policy` 必须保持 `no-implicit-mutation; explicit-confirmed-cli-with-snapshot-readback-rollback`；解压 artifact 本身不修改系统状态，命名 service、环境代理快照和 Ubuntu trust-file 只可由独立的显式确认 CLI 命令处理。
 
 manifest 不得写入 runner 本地绝对路径、Cargo cache path、token、GitHub API response 原文、
 私钥、配置文件内容或维护者私有信息。

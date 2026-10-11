@@ -13,8 +13,426 @@
 - 编写首批维护事件 v1 严格字段/时间/大小/身份校验、JSON 与逐事件批量序列化边界及显式诊断适配器；原始诊断文本不进入适配结果，自动动作契约移除 rollback。新增 Rust 合同与共享 fixture，[源码 CI](https://github.com/AnixOps/networkcore_anixops/actions/runs/35650045804) 的维护合同、三平台全量回归与依赖审计已通过，尚未接入 NetworkCore 实际运行时通信。
 
 - 完成 `v0.1.2-alpha.2` managed foreground event 第十三个 source-only list 切片：新增 `ManagedForegroundSessionEventListRequest`、`ManagedForegroundSessionEventListEntry`、`ManagedForegroundSessionEventListReport` 和 `CommandManagedForegroundSessionEventStore::list_events`，从调用方显式 directory 只读取直接常规 `.json` event record，按路径确定性排序、校验每个候选并输出 event count/entries 与 `liveness_verified=false`；跳过非 JSON、symbolic link 和嵌套目录，损坏或无效候选保留既有稳定读取/校验错误且不修改文件，不接入 `managed-event list` CLI、实时 event stream 或 runtime control；本轮回归已通过，确切 SHA 与 [CI 记录](https://github.com/AnixOps/networkcore_anixops/actions/runs/35650045804) 见交付证据。
+
+Current Windows/Linux Beta release candidate: `v0.2.0-beta.5`. It is in
+`pending_manual_acceptance`: the same commit requires GitHub Actions release
+validation and protected Windows/Linux system acceptance before it may be
+described as production-ready. A maintainer may explicitly authorize a beta tag
+to generate candidate artifacts for that acceptance.
+
+```text
+current-main-release-state=pending_manual_acceptance
+current-main-source-candidate=v0.2.0-beta.5
+current-main-latest-published-tag=v0.2.0-alpha.21
+current-main-latest-stable-tag=v0.1.0
+current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
+current-main-subscription-refresh=explicit-http-single-source-status-stop-active
+current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active
+current-main-managed-reload=explicit-foreground-control-socket-active
+current-main-linux-node-switch=explicit-loopback-selector-active
+current-main-subscription-refresh-scheduling=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active
+current-main-cross-platform-run-plan=public-engine-run-plan-active
+
+- Added the platform-neutral `PublicEngineRunPlan`: SS, Trojan, VLESS, VMess,
+  Hysteria2, and TUIC route to sing-box while `mierus://` routes to engine-mieru.
+  Linux `run-url` and `run-catalog` now require explicit Mieru binary/digest,
+  atomically render config, apply/start, verify official status, and verify its
+  loopback listener. Explicit Linux `core start mieru` follows the same
+  status/listener order and stops Mieru on failed readback.
+  Windows NodeCatalog import uses the same routing plan and an already enabled
+  managed Mieru configuration. Failures are redacted, stable, and retain the
+  prior configured core.
+```
+
+### Changed
+
+- CI validation jobs now restore Rust build caches (registry, git deps, and
+  `target/`) and pnpm store caches, and `cargo-audit` installs from a prebuilt
+  binary instead of compiling from source on every run. Rust validation jobs
+  also set `CARGO_INCREMENTAL=0`. Release workflows are unchanged. The cache policy is recorded in `docs/ci-cd-policy.md` under
+  "CI 缓存策略".
+- Windows HTTPS MITM now offers an opt-in first-party Bilibili web promotional
+  request-blocking trial. It is disabled by default, uses no third-party script
+  runtime or response-body rewriting, and records only its fixed policy ID in
+  the native MITM startup log. The trial is limited to four independent
+  promotional endpoints; HTTP/2, HTTP/3/QUIC, streaming, and full page/video
+  ad filtering remain unsupported.
+
+- Linux sandboxed native MITM scripts now pass a fixed 64 MiB V8 old-space cap
+  in addition to the existing bounded body and execution timeout limits.
+
+- Linux native MITM scripts now run only in a fresh no-network namespace with
+  Node read permission limited to the explicit runner, mapped asset, and staged
+  body. Persistent stores and write, child-process, addon, and network access
+  are denied; Windows GUI/service reject script execution until an equivalent
+  Windows sandbox is available.
+
+- Manual intervention now requires Ubuntu/systemd trust-file lifecycle, bounded
+  HTTP/1.1 rewrite, pinning fail-closed, HTTP/2/HTTP/3 exclusion, and local
+  script-hash drift evidence before HTTPS MITM is described as operational.
+
+- Linux MITM HTTP rewrite reports now explicitly mark certificate/public-key
+  pinning bypass, HTTP/2 MITM, and HTTP/3/QUIC MITM unsupported. These states
+  are machine-readable fields and blocked operations; NetworkCore does not
+  claim to bypass them.
+
+- The shared native HTTPS MITM Node executor now records a SHA-256 digest for
+  every explicitly mapped local script asset at creation and rechecks it before
+  each dispatch. Missing, symbolic-link, unreadable, or changed assets remain
+  fail-open and never start the Node runner.
+
+- Linux MITM CA artifact creation now writes its private key with Unix `0600`
+  permissions at creation time, syncs and reads the mode back before use, and
+  removes it when the protected write cannot be verified.
+  Explicit Linux TLS MITM start also rejects symbolic links, non-regular keys,
+  and key modes other than `0600` before reading private material.
+
+- Windows HTTPS MITM now protects the fixed NetworkCore-owned CA private key
+  before committing managed configuration. It rejects reparse paths and ACL
+  readback mismatches, revalidates the exact DACL before trust installation and
+  during managed runtime health checks, removes the private key on protection failure,
+  reports failed certificate or private-key cleanup only after restoring a stopped
+  service, revokes the managed CA when a later ACL drift is found, and leaves only
+  the generating account plus LocalSystem access with inherited ACL entries removed.
+
+- Windows `Connected` now requires independent SCM, `sing-box check -c`,
+  loopback listener, generated selector active-outbound/default readback,
+  service-owned PID, and exact current-user proxy evidence. The Service repeats
+  bounded listener and selector health checks while running; a failed check
+  records the managed failure and follows the existing proxy rollback/stop
+  path. This is pending manual Windows/Linux acceptance before the formal
+  `v0.2.0-beta.5` tag.
+
+- Windows HTTPS MITM private-key ACL protection now reuses the managed MITM
+  directory resolved by the Rust host instead of independently requiring a
+  PowerShell `CommonApplicationData` value. The fixed-path, reparse-point,
+  owner, and exact ACL checks remain fail-closed.
+
+- Windows profile import now stages a sing-box plan transactionally: it clears
+  the mutually exclusive Mieru plan before managed-config commit, and restores
+  the prior sing-box JSON if that commit fails. The platform-level double-core
+  rejection remains the boundary for externally supplied configuration.
+
+- Windows GUI runtime status now evaluates the selected core. Mieru reaches
+  `Connected` only from Service-verified official status plus its exact SOCKS5
+  listener and the existing SCM/current-user proxy evidence; it neither
+  fabricates a PID nor requires sing-box's selector API.
+
+- 完成 Windows 单 HTTP(S) subscription refresh 状态闭环：GUI 显式启用 hourly refresh 后，持久记录脱敏
+  `last_attempt`、`last_success`、`next_attempt`、`result`、节点新增/删除/变化数量与稳定 `error_code`，并在
+  Subscriptions 页展示当前状态。手动导入、选择 source 和后台触发共享排他 operation guard；失败保留既有
+  config、节点选择和运行配置，错误文本不回显 URL、token 或凭据，也不重启核心或切换节点。
+
+- 完成 Linux managed foreground control socket reload slice：`reload --managed-control-socket <absolute-path> --confirm`
+  复用显式路径、owner-only `0600`、两秒 I/O 上限和当前前台进程，成功后调用
+  `RuntimeOrchestrator::reload_runtime` 并恢复 lifecycle wait；reload 失败会释放当前 runtime 并让 managed
+  recording 进入 `failed`。`managed-status rollback` 仍是显式文件快照恢复，未引入默认 socket、PID/status 或后台控制。
+- 完成 Linux managed foreground control socket stop slice：显式 managed `start` 可创建不覆盖已有路径的
+  owner-only `0600` Unix socket，`stop --managed-control-socket <absolute-path> --confirm` 通过 bounded
+  `stop`/`accepted` 协议进入既有 interruption、runtime release 和 `running -> stopped` 记录路径；默认
+  socket、PID fallback、reload、status 与非 Unix fallback 保持 blocked。
+- 完成 Linux managed foreground lifecycle recording slice：`start` 在同时提供
+  `--managed-status`、`--managed-snapshot` 和 `--managed-events` 时写入 `starting`/`running`/`stopped`/`failed`
+  status、非覆盖 snapshot 与 schema version 1 lifecycle events；默认未提供路径时保持 foreground-only 行为，
+  记录不声称 PID、端口或 control socket liveness。
+- 完成 Linux controlled CONNECT persistent HTTP/1.1 slice：同一 downstream/upstream TLS session 最多
+  处理 4 次有界 request/response exchange，保留 keep-alive framing，并在 `Connection: close`、HTTP/1.0
+  默认关闭、terminal rewrite、解析失败或预算耗尽时结束；普通明文代理的既有 close 行为不变。
+- 完成 Linux persistent subscription catalog 的显式 `subscription update` 纵向切片：HTTP(S)、绝对
+  `file://` 和 inline/share-link 候选先经受限 fetch 与 `CoreSubscriptionService` parse/normalize，成功后
+  才写不可覆盖 rollback snapshot 和新 location；失败保留旧 catalog，report 只输出脱敏字段、验证节点数及新增/删除/改变节点数量。
+- 新增 Linux `node switch` 运行时切片：对 NetworkCore 生成的 loopback sing-box selector 执行显式
+  PATCH/readback，写 selection snapshot，并在 selection 写入失败时尝试恢复此前 outbound；非回环
+  controller、native JSON、缺少授权和已有 snapshot 均拒绝。
+- 新增 Linux `node list` 结构化 NodeCatalog 输出：显式 config-core 解析结果同时进入脱敏 text/JSON
+  `node_catalog`，输出稳定节点 id、名称、协议和 tags，并固定只读、无 snapshot、无 endpoint/credential
+  泄漏边界；选择和 rollback 不被该命令隐式触发。
+- 新增 Linux `node health` loopback selector 证据入口：显式端口执行一次 adapter GET/readback，报告
+  当前 outbound、selector tag 和 outbound 数量；只确认 selector readback，不宣称完整代理健康，不修改
+  selection 或写 snapshot。
+
+- Linux CLI now exposes explicit Ubuntu-style CA trust-file apply and rollback
+  commands with confirmation, snapshot verification, refresh, recovery, and
+  external-change conflict protection. Default trust-store discovery, NSS,
+  p11-kit, and browser-profile trust mutation remain blocked.
+
+- Linux CLI now exposes `core list` and an explicit local Mieru verification
+  command, `core install mieru --binary <path> --sha256 <digest>`. The command
+  verifies the operator-provided executable and reports its digest without
+  downloading, spawning, or installing a service; Mieru runtime wiring and
+  system proxy mutation remain deferred.
+
+- Linux `run-catalog <catalog-path> <source-id>` now resolves one saved
+  catalog source into the existing foreground sing-box path. It supports the
+  same explicit inline, file, and HTTP(S) inputs as `run-url`, without exposing
+  source locations, modifying the catalog, or enabling refresh/background
+  runtime behavior.
+- Linux `run-url` now accepts `--node-id <id>` to select one normalized
+  subscription catalog node for its foreground sing-box invocation. Omission
+  retains the first supported-node selection; this does not add persistence or
+  runtime node switching.
+- Linux `run-url` now accepts an explicitly requested HTTP(S) subscription.
+  The foreground request uses a 15-second timeout, five redirect limit,
+  successful-response requirement, and 1 MiB UTF-8 response limit before using
+  the existing parser and sing-box path. It does not enable background refresh
+  or persistent remote subscription state.
+- Linux `run-url` now accepts a caller-selected absolute `file://` URI. Its
+  UTF-8 contents use the existing subscription parser and foreground sing-box
+  path; remote fetching, path discovery, and background refresh remain absent.
+- Linux `managed-log` reports now include `returned_byte_count` in text and JSON,
+  counting the UTF-8 bytes of returned line contents while excluding discarded
+  content and line separators. The explicit-path, 65536-byte file limit,
+  bounded-line, and `liveness_verified=false` boundaries are unchanged.
+- Linux CLI now exposes `core status mieru --binary <path> --sha256 <digest> --config <path>`
+  and routes Mieru start/stop/status through the library entrypoints. Status verifies the
+  caller-supplied executable and invokes only the official client's explicit status command;
+  it does not claim listener readiness or mutate the system proxy.
+- `NativeProxyEngineService::reload` now performs an in-process runtime
+  replacement instead of returning an unwired lifecycle error. It retains the
+  last successful configuration, restores it when the replacement listener
+  cannot start, and reports stable reload/rollback diagnostics without adding a
+  daemon or cross-process control protocol.
+- Linux CLI now includes an explicit read-only managed foreground log slice:
+  `CommandManagedForegroundSessionLogStore::read_tail` and
+  `networkcore-linux managed-log <log-file-path> [--tail-lines <1-1000>]`
+  read only one caller-selected UTF-8 regular file, cap input at 65536 bytes,
+  return a bounded tail report, and keep `liveness_verified=false`. The command
+  does not create default paths, search logs, stream live output, or control a
+  runtime.
+- Windows managed configuration schema 2 introduces an explicit system-proxy
+  owner. Existing schema 1 files migrate in memory to `service`, preserving
+  CLI/service behavior; GUI profile imports use `desktop`, making the
+  interactive session the sole owner of its current-user proxy snapshot.
+- Windows GUI connection status now requires the observed current-user proxy
+  server and bypass to exactly match the active managed profile, not merely an
+  enabled proxy flag.
+- The Windows GUI now restores the last successfully generated NodeCatalog
+  after restart without re-fetching a local or HTTP(S) subscription, but only
+  when the current managed sing-box JSON has the saved exact SHA-256 and its
+  loopback selector still has the saved ordered outbound tags. Native JSON and
+  externally changed configs stay unhydrated instead of showing stale nodes.
+- A successful generated-profile node switch now updates the generated
+  sing-box selector's startup default atomically after Clash API readback, so
+  the selected node remains active across a service restart. If that config
+  commit fails, the GUI requests a rollback to the previously observed active
+  outbound and leaves its saved node selection unchanged.
+- The Windows GUI now permits one instance per current Windows session. A
+  second launch restores the existing tray-hidden window instead of creating a
+  competing GUI that could issue duplicate service or proxy operations.
+- The Windows GUI now re-adds its notification-area icon when Explorer rebuilds
+  the taskbar, including a primary-display DPI rebuild, and refreshes the icon
+  from the same runtime state used by the visible window.
+- A login-startup launch now registers the shared tray icon and stays hidden
+  until the user opens it, avoiding a main-window interruption after sign-in.
+
+### Fixed
+
+- GUI connect now waits in its background task for SCM, the live sing-box PID,
+  the configured loopback listener, and the generated NodeCatalog selector API
+  before changing the current-user proxy. The proxy snapshot is atomically
+  persisted before a successful connection is reported; persistence failure
+  restores the proxy and stops the service.
+- The Windows service now assigns its sing-box child to a private Windows Job
+  Object with kill-on-close semantics. An unexpected Service-process exit
+  therefore terminates that owned core instead of leaving its listener behind
+  for the next managed start.
+- Removed the legacy direct `Enable proxy` controls that bypassed readiness
+  checks. `Restore network settings` remains available for a GUI-owned
+  snapshot, and a partial Windows proxy write now attempts to restore its
+  captured pre-change settings before reporting the failure.
+- A profile import now updates GUI desktop state only after managed config
+  persistence succeeds. If that persistence fails after the generated
+  `config.json` write, the prior managed sing-box config is restored; a failed
+  subscription update therefore retains its prior usable profile.
+- Interrupted GUI-owned proxy recovery is now attempted once per connection
+  cycle. A failed attempt remains visible with explicit restore and diagnostics
+  actions instead of being retried by each periodic status refresh.
+- Advanced `Restart service` now performs the same preflight and readiness
+  checks as daily Connect for a desktop-owned profile. It restores the
+  GUI-owned proxy before stopping the core and reapplies it only after the
+  restarted service, core, listener, and generated selector are ready.
+
+## v0.2.0-alpha.21 - 2026-07-24
+
+### Added
+
+- Windows GUI now has a system tray with shared real runtime status, node,
+  connect/disconnect, refresh, restore-window, and safe-exit actions. Closing
+  the main window hides it; explicit exit restores a proxy snapshot only while
+  the current setting still exactly matches this GUI session, then stops the
+  service before the process ends.
+- Settings now controls current-user Windows login startup, auto-connect, and
+  one controlled core restart. The Run entry quotes the resolved GUI path,
+  refuses conflicting ownership, and MSI uninstall invokes the restricted GUI
+  cleanup path; portable packages support the same opt-in setting without
+  creating it on extraction.
+
+### Changed
+
+- Windows GUI daily usability has been reorganized into Home, Nodes,
+  Subscriptions, Settings, Diagnostics, and Advanced. Runtime connection state
+  now combines SCM, service-owned sing-box PID, and current interactive-user
+  proxy observations rather than trusting managed JSON or desktop state.
+- Service/core/profile/node/delay operations use a single background command
+  dispatcher with duplicate-operation protection. Failed HTTP(S) subscription
+  updates persist their error while retaining the previous managed profile.
+
+### Fixed
+
+- Windows service now supervises its owned sing-box process after SCM startup.
+  An unexpected exit records a durable failed transition and error, rolls back
+  runtime resources including the service-owned proxy snapshot, and returns SCM
+  to `Stopped` instead of leaving a dead loopback proxy enabled.
+- Windows GUI `Start` and `Restart` no longer apply managed system-proxy
+  settings before the SCM request. The service remains the single owner of the
+  managed runtime proxy snapshot, so an asynchronous core startup failure rolls
+  back the actual pre-service settings instead of a GUI-preapplied proxy.
+- Windows service startup now completes the SCM `Running` handshake before
+  applying managed runtime configuration. GUI/CLI `start` returns the immediate
+  observed SCM state instead of waiting up to 30 seconds for runtime readiness;
+  invalid configuration is logged and returns the service to `Stopped`. The
+  Windows CI smoke test covers this regression path.
+
+### Added
+- Linux managed foreground event history now has an explicit bounded audit query:
+  `CommandManagedForegroundSessionEventStore::list_event_history` and
+  `networkcore-linux managed-event list <event-directory> [--session-id <id>]
+  [--event-kind <kind>] [--state <state>] [--cursor <offset>] [--limit <1-100>]`.
+  It validates direct regular JSON records before exact filtering, sorts by
+  `(recorded_at, event_id, event_path)`, returns offset pages, and caps page,
+  directory, and record sizes at 100, 256, and 65536 bytes. It remains an
+  explicit read-only history interface, not a liveness check, runtime event
+  stream, daemon, or control surface.
+- Windows GUI now exposes `Check core` for generated NodeCatalog profiles. It
+  makes one read-only loopback Clash API selector request, displays the active
+  outbound plus node count, and records the result in the local GUI log. It does
+  not persist a node choice, switch the selector, alter managed configuration,
+  or change the service lifecycle; native pass-through sing-box JSON remains
+  outside this generated selector control surface.
+- Windows GUI now exposes an editable HTTPS `Delay URL` and `Test delay` action
+  for the selected generated sing-box outbound. It makes one loopback Clash API
+  `/proxies/{tag}/delay` request with a 10-second timeout, displays the returned
+  milliseconds, and records the action in the local GUI log. It does not change
+  the active selector, managed config, or service lifecycle, and does not add
+  `urltest`, automatic latency selection, or background measurement.
+- NodeCatalog-based Windows profile imports now retain every translatable node
+  behind a generated sing-box `selector`. The GUI can explicitly switch the
+  active node through a `127.0.0.1:9091` Clash API controller and confirms the
+  selected outbound after the switch. Native sing-box JSON remains pass-through;
+  no LAN controller, Web UI, `urltest`, automatic latency selection, background
+  refresh, or automatic service restart is enabled.
+- Windows GUI now exposes `Load nodes` for local profiles and explicit HTTP(S)
+  subscription URLs. It shows parsed NodeCatalog names and stable IDs in the
+  profile selector without changing managed configuration; import persists the
+  selected node. Native sing-box JSON remains pass-through.
+- Windows GUI now provides `Update URL` for a successful HTTP(S) `Profile / URL`
+  import. It explicitly refetches only that saved URL through the existing
+  parser/native JSON pipeline; a failed update retains the current configuration
+  and does not trigger a background refresh or service restart.
+- Windows GUI `Profile / URL` now accepts an operator-entered HTTP(S)
+  subscription URL as well as a local file. Import downloads that payload only
+  for the explicit action and reuses the native sing-box JSON/NodeCatalog
+  pipeline. It does not add background refresh, subscription catalog/group,
+  remote route/rule fetch, or automatic service restart.
+- Windows GUI now exposes `Open JSON`, a non-mutating `Validate` action, and
+  `Diagnostics`. Validation uses the same managed JSON parsing and
+  `sing-box check -c` preflight as the service without starting it or changing
+  system state. Diagnostics writes a local status/log-tail report; failed GUI
+  actions create the same report and surface its path. GUI debug activity and
+  explicit sing-box core debug configuration are now documented separately.
+- V2Ray share-link compatibility subset: operator-selected Windows local
+  `trojan://`, `vless://`, and `vmess://` profiles, plus catalog-imported
+  sing-box outbounds, now retain the explicit TLS, REALITY, uTLS, VLESS Vision,
+  VMess security/alter-id, and WebSocket/gRPC/HTTP/HTTPUpgrade/V2Ray QUIC
+  fields supported by the managed sing-box renderer. This does not infer
+  arbitrary XHTTP/ECH/multiplex transport fields and does not enable HTTP/3
+  MITM.
+- Hysteria2/TUIC share-link parser gate: operator-selected Windows local profiles
+  may now import `hysteria2://`/`hy2://` and `tuic://` nodes, including the
+  documented credential, TLS, Hysteria2 port-hopping/obfuscation, and TUIC
+  congestion-control fields. The sing-box adapter renders only those retained
+  fields into direct QUIC proxy outbounds; this does not enable HTTP/3 MITM.
+- Native sing-box JSON catalog import now recognizes Hysteria2 and TUIC
+  outbounds. Direct native JSON GUI import remains pass-through and is never
+  rewritten by this catalog conversion path.
+- Windows GUI can explicitly install the official sing-box Windows core through
+  the existing release/digest/extraction adapter, then persist the executable
+  path under `%ProgramData%\\AnixOps\\NetworkCore` for the managed service.
+- Windows GUI can explicitly import an operator-selected local profile file,
+  select a node, render its managed sing-box JSON, and configure the service
+  owned core plus `127.0.0.1:7890` system proxy.
+- The sing-box adapter renders basic Shadowsocks plus the documented
+  Trojan/VLESS/VMess TLS and transport compatibility subset.
+- Windows GUI can explicitly enable a service-owned HTTPS MITM path. It
+  generates a local CA, moves sing-box to `127.0.0.1:7891` as a SOCKS upstream,
+  starts the native HTTP listener on `127.0.0.1:7890`, and installs/removes the
+  matching LocalMachine ROOT certificate through the managed lifecycle.
+- Windows capability/status output now exposes active controlled HTTPS MITM;
+  the service contract test owns the native listener lifecycle and CA trust
+  action.
+- Windows GUI now detects an operator-selected native sing-box JSON document,
+  copies it unchanged into the managed service config, and discovers a local
+  `mixed` or `http` inbound for the system proxy. This preserves sing-box-owned
+  TLS/REALITY/WebSocket/gRPC/multiplex/routing/DNS fields instead of reducing
+  them to the basic node renderer.
+- Windows GUI now has an `Open core log` action for the managed sing-box
+  `check -c` and runtime stdout/stderr log.
+- Native sing-box JSON with an explicit `type: mixed`, `tag: mixed-in` inbound
+  can now enter the GUI HTTPS MITM lifecycle. The original JSON is snapshotted
+  before only that listener is moved to `127.0.0.1:7891`, then restored when
+  HTTPS MITM is disabled.
+
+### Changed
+
+- Windows documentation and release readiness contract now distinguish the
+  explicit GUI core install/profile import path from the MSI's non-bundled,
+  non-silent third-party-core boundary. Remote subscription fetch,
+  XHTTP/ECH/multiplex transport inference, JavaScript dispatch, HTTP/2,
+  HTTP/3/QUIC MITM, streaming, and multi-request CONNECT remain unavailable.
+- Native sing-box JSON remains pass-through for normal import. The only GUI
+  MITM mutation is a documented, reversible rewrite of a native
+  `type: mixed`, `tag: mixed-in` listener.
+
+## v0.2.0-alpha.3 - 2026-07-23
+
+### Fixed
+
+- Windows MSI no longer waits for `AnixOpsNetworkCore` to reach `Running` during
+  installation. The service start request remains automatic but asynchronous;
+  stop and uninstall still wait before `purge` runs.
+
+### Added
+
+- Every Windows tag release now includes an independent portable ZIP containing
+  the GUI, service, CLI, inert managed configuration, and portable instructions,
+  plus its SHA-256, manifest, manifest SHA-256, and GitHub artifact attestation.
+- GitHub Actions now performs bounded silent MSI install/uninstall smoke in the
+  Windows validation job, including SCM registration and removal checks.
+
+## v0.2.0-alpha.2 - 2026-07-23
+
+### Added
+
+- Windows managed client follow-up: MSI now uses the WiX standard install-directory
+  wizard and completion page; GUI/service diagnostics are persisted under
+  `%ProgramData%\\AnixOps\\NetworkCore\\logs`, with GUI debug toggle and
+  `networkcore-windows-gui.exe --debug` entrypoint.
+- Installer documentation now includes the inert default configuration and a
+  minimal system-proxy JSON example, including the required absolute-path rules.
+- 开始把 Windows managed client 的 sing-box 支持从 capability 描述推进到真实进程生命周期：新增 `managed-config.json` 的 `sing_box` block，服务启动前执行 `sing-box check -c`，再托管 `sing-box run -c`，持久化 PID/exit code，并将 stdout/stderr 写入显式 core log；adapter 已支持官方 Windows ZIP 中 `sing-box.exe` 的 digest 校验和安全提取。当前 MSI 仍要求操作员显式配置或安装经过验证的 `sing-box.exe`，core install orchestration、订阅 runnable path、MITM data plane 和 reload 继续推进。验证仍只通过 GitHub Actions。
+
+- 固定 `mitm_anixops` distribution release `v1.4.6` 的 source commit `6382f0147e02a8653343571791ef61b8cc885cb1`，保留 linked C core version `0.45.10`，并新增纯 `ManagedSdwanMitmPolicyGate`。它只接收 verifier 产生的不可变 Plan B client delivery capability，公开构造只快照 linked C core，并在每次授权时以调用方提供的受信任当前时钟重新检查 expiry；V1 capability query、client/profile coherence、exact DNS suffix boundary、用户 consent、trusted certificate、非 QUIC 和无 pinned TLS observation 条件全部满足时返回非秘密 admission grant；不启动代理、不连接 POP、不执行脚本、不安装或信任 CA、不改变主机状态。GitHub Actions 覆盖 ABI、拒绝、expiry 和无 payload 泄漏合同。
 - 完成 `v0.1.2-alpha.2` managed foreground status `rollback_status` 源切片：新增 `ManagedForegroundSessionStatusRollbackRequest`、`ManagedForegroundSessionStatusRollbackReport` 和 `CommandManagedForegroundSessionStore::rollback_status`，仅在显式 status/snapshot 路径不同、current state 匹配 expected state 且 snapshot session/engine identity 匹配时，将 snapshot 原始 JSON 写回 status record 并保留 snapshot；report 固定 previous/restored state、`snapshot_retained=true` 与 `liveness_verified=false`。stale state 返回 state-conflict，snapshot 无法读取或解析返回 snapshot-read-failed，不控制 runtime；合同测试已通过 GitHub Actions 全量 CI。
 - 完成 `v0.1.2-alpha.2` managed foreground status rollback CLI 切片：新增 `LinuxCliCommand::ManagedStatusRollback`、`networkcore-linux managed-status rollback <status-record-path> <snapshot-path> <expected-state>`、`handle_managed_foreground_status_rollback` 和 `managed_foreground_session_status_cli_rolls_back_matching_snapshot` 合同测试，调用同一 expected-state/identity-protected snapshot restore，输出 text/JSON previous/restored state、`snapshot_retained=true` 与 `liveness_verified=false`；stale expected state 保留 state-conflict 且不修改 record 或 snapshot，不检查 live process 或控制 runtime；合同测试已通过 GitHub Actions 全量 CI。
+
+## v0.2.0-alpha.1 - 2026-07-23
+
+### Added
+
+- 发布 Windows managed client：原生 Win32 GUI、SCM service host、schema-versioned ProgramData 配置/状态、signed INF driver package lifecycle、WinINet/WinHTTP system proxy apply/restore、CryptoAPI LocalMachine ROOT certificate apply/remove，以及 WiX 4.0.6 per-machine MSI。
+- GitHub Actions 新增 Windows GNU 构建、MSI/WiX validation、checksum、schema-version-2 manifest 和 artifact attestation；GitHub Release 上传 Linux CLI 四件套和 Windows managed-client MSI 四件套。
+- Windows service 在 stop/purge 路径执行托管 apply/rollback；JavaScript script dispatch、Windows subscription runnable path 和远程订阅拉取仍不在本版本范围内。
+- 历史 `v0.1.1-alpha.2` manual-extract Windows CLI ZIP 保留为审计记录，不再作为当前安装入口。
 
 ## v0.1.2-alpha.3 - 2026-07-10
 
@@ -380,4 +798,6 @@ placeholder/blocked 语境时，以 README、ROADMAP、TODO 和对应 source con
 
 ### Added
 
+- 完成 Linux systemd 订阅刷新调度切片：新增 `subscription refresh schedule install/status/stop/uninstall`，安装必须显式提供 catalog/status/snapshot 绝对路径、source ID、>=300 秒间隔、unit base name 和 `--confirm`；生成 NetworkCore-owned oneshot service 与 persistent timer，daemon-reload 后启动并验证 timer。同内容重装幂等，外部修改、非 owned unit 和不完整 pair 均拒绝覆盖或卸载；unit 不包含 URL、token、密码或节点凭据，stop/uninstall 保留最后刷新状态且不重启核心、切换节点或修改系统代理。
 - 建立 bootstrap 阶段的代理规范、贡献规则、CI/CD policy、GitHub Actions skeleton 和人工介入记录。
+- 完成 Linux 单 source 后台订阅刷新切片：新增显式 `subscription refresh start/status/stop`、固定 300 秒最小间隔、HTTP(S) source 限制、`--confirm` 授权、显式 catalog/status/snapshot 路径、候选 fetch 后 parse/normalize 校验、原子 catalog 替换、失败保留 catalog/选择/运行配置、脱敏状态记录和并发 active 拒绝；不重启核心、不切换节点、不修改系统设置。

@@ -3,6 +3,9 @@
 //! This crate parses and normalizes the first minimal TOML configuration shape.
 //! It performs no file I/O, network access, platform probing, or engine work.
 
+pub mod sdwan_delivery;
+pub mod windows_tunnel;
+
 use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
 use base64::Engine as _;
 use control_domain::{
@@ -10,9 +13,22 @@ use control_domain::{
     DomainResult, Endpoint, ListenerBind, ListenerDescriptor, ListenerKind, ListenerNetwork,
     ListenerRoute, Metadata, MetadataEntry, NodeCatalog, NodeDescriptor, PlatformCapabilities,
     Protocol, RawSubscription, RouteAction, RuleSet, SchemaVersion, SubscriptionDocument,
-    SubscriptionService, SubscriptionSource, NODE_METADATA_SHADOWSOCKS_METHOD,
-    NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SOURCE_FORMAT, NODE_METADATA_TROJAN_PASSWORD,
-    NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_UUID,
+    SubscriptionService, SubscriptionSource, NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE,
+    NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE, NODE_METADATA_HYSTERIA2_OBFS_PASSWORD,
+    NODE_METADATA_HYSTERIA2_OBFS_TYPE, NODE_METADATA_HYSTERIA2_PASSWORD,
+    NODE_METADATA_HYSTERIA2_SERVER_PORTS, NODE_METADATA_SHADOWSOCKS_METHOD,
+    NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_SOURCE_FORMAT, NODE_METADATA_TLS_ALPN,
+    NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256, NODE_METADATA_TLS_ENABLED,
+    NODE_METADATA_TLS_INSECURE, NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
+    NODE_METADATA_TLS_REALITY_SHORT_ID, NODE_METADATA_TLS_SERVER_NAME,
+    NODE_METADATA_TLS_UTLS_FINGERPRINT, NODE_METADATA_TROJAN_PASSWORD,
+    NODE_METADATA_TUIC_CONGESTION_CONTROL, NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID,
+    NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_PATH,
+    NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
+    NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
+    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID, NODE_METADATA_WIREGUARD_LOCAL_ADDRESS,
+    NODE_METADATA_WIREGUARD_MTU, NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY,
+    NODE_METADATA_WIREGUARD_PRE_SHARED_KEY, NODE_METADATA_WIREGUARD_PRIVATE_KEY,
 };
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -55,6 +71,12 @@ pub const SUBSCRIPTION_SHADOWSOCKS_LINK_INVALID_CODE: &str =
 pub const SUBSCRIPTION_TROJAN_LINK_INVALID_CODE: &str = "subscription.core.trojan_link_invalid";
 pub const SUBSCRIPTION_VLESS_LINK_INVALID_CODE: &str = "subscription.core.vless_link_invalid";
 pub const SUBSCRIPTION_VMESS_LINK_INVALID_CODE: &str = "subscription.core.vmess_link_invalid";
+pub const SUBSCRIPTION_HYSTERIA2_LINK_INVALID_CODE: &str =
+    "subscription.core.hysteria2_link_invalid";
+pub const SUBSCRIPTION_TUIC_LINK_INVALID_CODE: &str = "subscription.core.tuic_link_invalid";
+pub const SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE: &str =
+    "subscription.core.wireguard_link_invalid";
+pub const SUBSCRIPTION_MIERU_LINK_INVALID_CODE: &str = "subscription.core.mieru_link_invalid";
 pub const SUBSCRIPTION_CLASH_YAML_INVALID_CODE: &str = "subscription.core.clash_yaml_invalid";
 pub const SUBSCRIPTION_CLASH_YAML_UNSUPPORTED_CODE: &str =
     "subscription.core.clash_yaml_unsupported";
@@ -148,9 +170,66 @@ struct RawSingBoxOutbound {
     tag: Option<RawSingBoxScalar>,
     server: Option<RawSingBoxScalar>,
     server_port: Option<RawSingBoxScalar>,
+    server_ports: Option<RawSingBoxStringList>,
     method: Option<RawSingBoxScalar>,
     password: Option<RawSingBoxScalar>,
     uuid: Option<RawSingBoxScalar>,
+    flow: Option<RawSingBoxScalar>,
+    security: Option<RawSingBoxScalar>,
+    alter_id: Option<RawSingBoxScalar>,
+    congestion_control: Option<RawSingBoxScalar>,
+    obfs: Option<RawSingBoxHysteria2Obfs>,
+    tls: Option<RawSingBoxTls>,
+    transport: Option<RawSingBoxTransport>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawSingBoxHysteria2Obfs {
+    #[serde(rename = "type")]
+    kind: Option<RawSingBoxScalar>,
+    password: Option<RawSingBoxScalar>,
+    min_packet_size: Option<RawSingBoxScalar>,
+    max_packet_size: Option<RawSingBoxScalar>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawSingBoxTls {
+    enabled: Option<bool>,
+    server_name: Option<RawSingBoxScalar>,
+    insecure: Option<bool>,
+    alpn: Option<RawSingBoxStringList>,
+    certificate_public_key_sha256: Option<RawSingBoxStringList>,
+    utls: Option<RawSingBoxUtls>,
+    reality: Option<RawSingBoxReality>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawSingBoxUtls {
+    enabled: Option<bool>,
+    fingerprint: Option<RawSingBoxScalar>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawSingBoxReality {
+    enabled: Option<bool>,
+    public_key: Option<RawSingBoxScalar>,
+    short_id: Option<RawSingBoxScalar>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawSingBoxTransport {
+    #[serde(rename = "type")]
+    kind: Option<RawSingBoxScalar>,
+    host: Option<RawSingBoxStringList>,
+    path: Option<RawSingBoxScalar>,
+    service_name: Option<RawSingBoxScalar>,
+    headers: Option<RawSingBoxTransportHeaders>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawSingBoxTransportHeaders {
+    #[serde(rename = "Host")]
+    host: Option<RawSingBoxStringList>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -176,11 +255,27 @@ enum RawSingBoxScalar {
     Integer(i64),
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawSingBoxStringList {
+    Text(String),
+    Values(Vec<String>),
+}
+
 impl RawSingBoxScalar {
     fn into_text(self) -> String {
         match self {
             Self::Text(value) => value,
             Self::Integer(value) => value.to_string(),
+        }
+    }
+}
+
+impl RawSingBoxStringList {
+    fn into_values(self) -> Vec<String> {
+        match self {
+            Self::Text(value) => vec![value],
+            Self::Values(values) => values,
         }
     }
 }
@@ -829,39 +924,45 @@ fn parse_sing_box_outbound(
     raw: RawSingBoxOutbound,
     source_id: &str,
 ) -> DomainResult<Option<NodeDescriptor>> {
+    let RawSingBoxOutbound {
+        protocol,
+        tag,
+        server,
+        server_port,
+        server_ports,
+        method,
+        password,
+        uuid,
+        flow,
+        security,
+        alter_id,
+        congestion_control,
+        obfs,
+        tls,
+        transport,
+    } = raw;
     let protocol =
-        required_sing_box_scalar_field(raw.protocol, "sing-box outbound type cannot be empty")?;
+        required_sing_box_scalar_field(protocol, "sing-box outbound type cannot be empty")?;
     let protocol_token = normalized_token(&protocol);
     if is_ignored_sing_box_outbound(&protocol_token) {
         return Ok(None);
     }
 
-    let host =
-        required_sing_box_scalar_field(raw.server, "sing-box outbound server cannot be empty")?;
-    let port = required_sing_box_scalar_field(
-        raw.server_port,
-        "sing-box outbound server_port cannot be empty",
-    )?;
-    let port = port.parse::<i64>().map_err(|_| {
-        domain_error(
-            SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE,
-            "sing-box outbound server_port must be a number",
-        )
-    })?;
-    let port = parse_port(
-        port,
-        SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE,
-        "sing-box outbound server_port must be between 1 and 65535",
+    let host = required_sing_box_scalar_field(server, "sing-box outbound server cannot be empty")?;
+    let (port, server_ports) = parse_sing_box_outbound_port(
+        server_port,
+        server_ports.map(RawSingBoxStringList::into_values),
+        matches!(protocol_token.as_str(), "hysteria2" | "hy2"),
     )?;
 
     let (protocol, protocol_tag, mut metadata) = match protocol_token.as_str() {
         "ss" | "shadowsocks" => {
             let method = required_sing_box_scalar_field(
-                raw.method,
+                method,
                 "sing-box shadowsocks method cannot be empty",
             )?;
             let password = required_sing_box_scalar_field(
-                raw.password,
+                password,
                 "sing-box shadowsocks password cannot be empty",
             )?;
             (
@@ -881,51 +982,104 @@ fn parse_sing_box_outbound(
         }
         "trojan" => {
             let password = required_sing_box_scalar_field(
-                raw.password,
+                password,
                 "sing-box trojan password cannot be empty",
             )?;
-            (
-                Protocol::Trojan,
-                "trojan",
-                vec![MetadataEntry {
-                    key: NODE_METADATA_TROJAN_PASSWORD.to_string(),
-                    value: password,
-                }],
-            )
+            let mut metadata = vec![MetadataEntry {
+                key: NODE_METADATA_TROJAN_PASSWORD.to_string(),
+                value: password,
+            }];
+            metadata.extend(sing_box_v2ray_tls_metadata(tls, &host, false)?);
+            append_sing_box_v2ray_transport_metadata(&mut metadata, transport)?;
+            (Protocol::Trojan, "trojan", metadata)
         }
         "vless" => {
-            let uuid =
-                required_sing_box_scalar_field(raw.uuid, "sing-box vless uuid cannot be empty")?;
-            (
-                Protocol::Vless,
-                "vless",
-                vec![MetadataEntry {
-                    key: NODE_METADATA_VLESS_UUID.to_string(),
-                    value: uuid,
-                }],
-            )
+            let uuid = required_sing_box_scalar_field(uuid, "sing-box vless uuid cannot be empty")?;
+            let mut metadata = vec![MetadataEntry {
+                key: NODE_METADATA_VLESS_UUID.to_string(),
+                value: uuid,
+            }];
+            if let Some(flow) = optional_sing_box_scalar_field(flow) {
+                metadata.push(MetadataEntry {
+                    key: NODE_METADATA_VLESS_FLOW.to_string(),
+                    value: flow,
+                });
+            }
+            metadata.extend(sing_box_v2ray_tls_metadata(tls, &host, false)?);
+            append_sing_box_v2ray_transport_metadata(&mut metadata, transport)?;
+            (Protocol::Vless, "vless", metadata)
         }
         "vmess" => {
-            let uuid =
-                required_sing_box_scalar_field(raw.uuid, "sing-box vmess uuid cannot be empty")?;
-            (
-                Protocol::Vmess,
-                "vmess",
-                vec![MetadataEntry {
-                    key: NODE_METADATA_VMESS_UUID.to_string(),
-                    value: uuid,
-                }],
-            )
+            let uuid = required_sing_box_scalar_field(uuid, "sing-box vmess uuid cannot be empty")?;
+            let mut metadata = vec![MetadataEntry {
+                key: NODE_METADATA_VMESS_UUID.to_string(),
+                value: uuid,
+            }];
+            if let Some(security) = optional_sing_box_scalar_field(security) {
+                metadata.push(MetadataEntry {
+                    key: NODE_METADATA_VMESS_SECURITY.to_string(),
+                    value: security,
+                });
+            }
+            if let Some(alter_id) = optional_sing_box_scalar_field(alter_id) {
+                metadata.push(MetadataEntry {
+                    key: NODE_METADATA_VMESS_ALTER_ID.to_string(),
+                    value: alter_id,
+                });
+            }
+            metadata.extend(sing_box_v2ray_tls_metadata(tls, &host, false)?);
+            append_sing_box_v2ray_transport_metadata(&mut metadata, transport)?;
+            (Protocol::Vmess, "vmess", metadata)
+        }
+        "hysteria2" | "hy2" => {
+            let password = required_sing_box_scalar_field(
+                password,
+                "sing-box hysteria2 password cannot be empty",
+            )?;
+            let mut metadata = vec![MetadataEntry {
+                key: NODE_METADATA_HYSTERIA2_PASSWORD.to_string(),
+                value: password,
+            }];
+            if let Some(server_ports) = server_ports {
+                metadata.push(MetadataEntry {
+                    key: NODE_METADATA_HYSTERIA2_SERVER_PORTS.to_string(),
+                    value: server_ports,
+                });
+            }
+            metadata.extend(sing_box_tls_metadata(tls, &host)?);
+            append_sing_box_hysteria2_obfs_metadata(&mut metadata, obfs)?;
+            (Protocol::Hysteria2, "hysteria2", metadata)
+        }
+        "tuic" => {
+            let uuid = required_sing_box_scalar_field(uuid, "sing-box tuic uuid cannot be empty")?;
+            let mut metadata = vec![MetadataEntry {
+                key: NODE_METADATA_TUIC_UUID.to_string(),
+                value: uuid,
+            }];
+            if let Some(password) = optional_sing_box_scalar_field(password) {
+                metadata.push(MetadataEntry {
+                    key: NODE_METADATA_TUIC_PASSWORD.to_string(),
+                    value: password,
+                });
+            }
+            if let Some(congestion_control) = optional_sing_box_scalar_field(congestion_control) {
+                metadata.push(MetadataEntry {
+                    key: NODE_METADATA_TUIC_CONGESTION_CONTROL.to_string(),
+                    value: congestion_control,
+                });
+            }
+            metadata.extend(sing_box_tls_metadata(tls, &host)?);
+            (Protocol::Tuic, "tuic", metadata)
         }
         _ => {
             return Err(domain_error(
                 SUBSCRIPTION_SING_BOX_JSON_UNSUPPORTED_CODE,
-                "sing-box outbound type must be shadowsocks, trojan, vless, or vmess for catalog import",
+                "sing-box outbound type must be shadowsocks, trojan, vless, vmess, hysteria2, or tuic for catalog import",
             ));
         }
     };
 
-    let tag = optional_sing_box_scalar_field(raw.tag);
+    let tag = optional_sing_box_scalar_field(tag);
     let host_id = sanitize_identifier(&host);
     let host_id = if host_id.is_empty() {
         "host".to_string()
@@ -965,6 +1119,302 @@ fn parse_sing_box_outbound(
         ],
         metadata,
     }))
+}
+
+fn parse_sing_box_outbound_port(
+    server_port: Option<RawSingBoxScalar>,
+    server_ports: Option<Vec<String>>,
+    supports_port_ranges: bool,
+) -> DomainResult<(u16, Option<String>)> {
+    if supports_port_ranges {
+        if let Some(server_ports) = server_ports {
+            let normalized = normalize_hysteria2_server_port_ranges(
+                server_ports,
+                SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE,
+            )?;
+            let first_port = normalized.first().ok_or_else(|| {
+                domain_error(
+                    SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE,
+                    "sing-box hysteria2 server_ports cannot be empty",
+                )
+            })?;
+            let first_port = hysteria2_server_port_range_start(
+                first_port,
+                SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE,
+            )?;
+            return Ok((first_port, Some(normalized.join(","))));
+        }
+    }
+
+    let port = required_sing_box_scalar_field(
+        server_port,
+        "sing-box outbound server_port cannot be empty",
+    )?;
+    let port = port.parse::<i64>().map_err(|_| {
+        domain_error(
+            SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE,
+            "sing-box outbound server_port must be a number",
+        )
+    })?;
+    let port = parse_port(
+        port,
+        SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE,
+        "sing-box outbound server_port must be between 1 and 65535",
+    )?;
+
+    Ok((port, None))
+}
+
+fn sing_box_v2ray_tls_metadata(
+    raw: Option<RawSingBoxTls>,
+    host: &str,
+    default_enabled: bool,
+) -> DomainResult<Metadata> {
+    let Some(raw) = raw else {
+        return Ok(vec![MetadataEntry {
+            key: NODE_METADATA_TLS_ENABLED.to_string(),
+            value: default_enabled.to_string(),
+        }]);
+    };
+    let RawSingBoxTls {
+        enabled,
+        server_name,
+        insecure,
+        alpn,
+        certificate_public_key_sha256,
+        utls,
+        reality,
+    } = raw;
+    let reality_enabled = reality
+        .as_ref()
+        .and_then(|reality| reality.enabled)
+        .unwrap_or(false);
+    let enabled = enabled.unwrap_or(default_enabled) || reality_enabled;
+    let mut metadata = vec![
+        MetadataEntry {
+            key: NODE_METADATA_TLS_ENABLED.to_string(),
+            value: enabled.to_string(),
+        },
+        MetadataEntry {
+            key: NODE_METADATA_TLS_SERVER_NAME.to_string(),
+            value: optional_sing_box_scalar_field(server_name).unwrap_or_else(|| host.to_string()),
+        },
+        MetadataEntry {
+            key: NODE_METADATA_TLS_INSECURE.to_string(),
+            value: insecure.unwrap_or(false).to_string(),
+        },
+    ];
+    if let Some(alpn) = normalize_non_empty_metadata_values(
+        alpn.map(RawSingBoxStringList::into_values),
+        "sing-box tls alpn values cannot be empty",
+    )? {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_TLS_ALPN.to_string(),
+            value: alpn.join(","),
+        });
+    }
+    if let Some(pins) = normalize_non_empty_metadata_values(
+        certificate_public_key_sha256.map(RawSingBoxStringList::into_values),
+        "sing-box tls certificate_public_key_sha256 values cannot be empty",
+    )? {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256.to_string(),
+            value: pins.join(","),
+        });
+    }
+    if let Some(utls) = utls.filter(|utls| utls.enabled.unwrap_or(false)) {
+        let fingerprint = required_sing_box_scalar_field(
+            utls.fingerprint,
+            "sing-box tls utls fingerprint cannot be empty when utls is enabled",
+        )?;
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_TLS_UTLS_FINGERPRINT.to_string(),
+            value: fingerprint,
+        });
+    }
+    if let Some(reality) = reality.filter(|reality| reality.enabled.unwrap_or(false)) {
+        let public_key = required_sing_box_scalar_field(
+            reality.public_key,
+            "sing-box tls reality public_key cannot be empty when reality is enabled",
+        )?;
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_TLS_REALITY_PUBLIC_KEY.to_string(),
+            value: public_key,
+        });
+        if let Some(short_id) = optional_sing_box_scalar_field(reality.short_id) {
+            metadata.push(MetadataEntry {
+                key: NODE_METADATA_TLS_REALITY_SHORT_ID.to_string(),
+                value: short_id,
+            });
+        }
+    }
+    Ok(metadata)
+}
+
+fn append_sing_box_v2ray_transport_metadata(
+    metadata: &mut Metadata,
+    raw: Option<RawSingBoxTransport>,
+) -> DomainResult<()> {
+    let Some(raw) = raw else {
+        return Ok(());
+    };
+    let RawSingBoxTransport {
+        kind,
+        host,
+        path,
+        service_name,
+        headers,
+    } = raw;
+    let kind = required_sing_box_scalar_field(kind, "sing-box transport type cannot be empty")?;
+    let kind = match normalized_token(&kind).as_str() {
+        "ws" | "websocket" => "ws",
+        "grpc" => "grpc",
+        "http" | "h2" => "http",
+        "httpupgrade" | "http_upgrade" => "httpupgrade",
+        "quic" => "quic",
+        "tcp" | "raw" | "none" => return Ok(()),
+        _ => {
+            return Err(domain_error(
+                SUBSCRIPTION_SING_BOX_JSON_UNSUPPORTED_CODE,
+                "sing-box outbound transport must be ws, grpc, http, httpupgrade, or quic for catalog import",
+            ));
+        }
+    };
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_V2RAY_TRANSPORT_TYPE.to_string(),
+        value: kind.to_string(),
+    });
+    let host = host.or_else(|| headers.and_then(|headers| headers.host));
+    if let Some(host) = normalize_non_empty_metadata_values(
+        host.map(RawSingBoxStringList::into_values),
+        "sing-box transport host values cannot be empty",
+    )? {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_V2RAY_TRANSPORT_HOST.to_string(),
+            value: host.join(","),
+        });
+    }
+    if let Some(path) = optional_sing_box_scalar_field(path) {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_V2RAY_TRANSPORT_PATH.to_string(),
+            value: path,
+        });
+    }
+    if let Some(service_name) = optional_sing_box_scalar_field(service_name) {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME.to_string(),
+            value: service_name,
+        });
+    }
+    Ok(())
+}
+
+fn sing_box_tls_metadata(raw: Option<RawSingBoxTls>, host: &str) -> DomainResult<Metadata> {
+    let (server_name, insecure, alpn, certificate_public_key_sha256) = match raw {
+        Some(raw) => (
+            optional_sing_box_scalar_field(raw.server_name).unwrap_or_else(|| host.to_string()),
+            raw.insecure.unwrap_or(false),
+            raw.alpn.map(RawSingBoxStringList::into_values),
+            raw.certificate_public_key_sha256
+                .map(RawSingBoxStringList::into_values),
+        ),
+        None => (host.to_string(), false, None, None),
+    };
+    let mut metadata = vec![
+        MetadataEntry {
+            key: NODE_METADATA_TLS_SERVER_NAME.to_string(),
+            value: server_name,
+        },
+        MetadataEntry {
+            key: NODE_METADATA_TLS_INSECURE.to_string(),
+            value: insecure.to_string(),
+        },
+    ];
+    if let Some(alpn) =
+        normalize_non_empty_metadata_values(alpn, "sing-box tls alpn values cannot be empty")?
+    {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_TLS_ALPN.to_string(),
+            value: alpn.join(","),
+        });
+    }
+    if let Some(certificate_public_key_sha256) = normalize_non_empty_metadata_values(
+        certificate_public_key_sha256,
+        "sing-box tls certificate_public_key_sha256 values cannot be empty",
+    )? {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256.to_string(),
+            value: certificate_public_key_sha256.join(","),
+        });
+    }
+    Ok(metadata)
+}
+
+fn append_sing_box_hysteria2_obfs_metadata(
+    metadata: &mut Metadata,
+    obfs: Option<RawSingBoxHysteria2Obfs>,
+) -> DomainResult<()> {
+    let Some(obfs) = obfs else {
+        return Ok(());
+    };
+    let kind =
+        required_sing_box_scalar_field(obfs.kind, "sing-box hysteria2 obfs type cannot be empty")?;
+    let kind = normalized_token(&kind);
+    if !matches!(kind.as_str(), "salamander" | "gecko") {
+        return Err(domain_error(
+            SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE,
+            "sing-box hysteria2 obfs type must be salamander or gecko",
+        ));
+    }
+    let password = required_sing_box_scalar_field(
+        obfs.password,
+        "sing-box hysteria2 obfs password cannot be empty",
+    )?;
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_HYSTERIA2_OBFS_TYPE.to_string(),
+        value: kind.clone(),
+    });
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_HYSTERIA2_OBFS_PASSWORD.to_string(),
+        value: password,
+    });
+    if kind == "gecko" {
+        if let Some(value) = obfs.min_packet_size {
+            metadata.push(MetadataEntry {
+                key: NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE.to_string(),
+                value: normalize_hysteria2_packet_size(
+                    value.into_text(),
+                    SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE,
+                )?,
+            });
+        }
+        if let Some(value) = obfs.max_packet_size {
+            metadata.push(MetadataEntry {
+                key: NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE.to_string(),
+                value: normalize_hysteria2_packet_size(
+                    value.into_text(),
+                    SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE,
+                )?,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn normalize_non_empty_metadata_values(
+    values: Option<Vec<String>>,
+    message: &'static str,
+) -> DomainResult<Option<Vec<String>>> {
+    values
+        .map(|values| {
+            values
+                .into_iter()
+                .map(|value| {
+                    required_trimmed(value, SUBSCRIPTION_SING_BOX_JSON_INVALID_CODE, message)
+                })
+                .collect::<DomainResult<Vec<_>>>()
+        })
+        .transpose()
 }
 
 fn is_ignored_sing_box_outbound(protocol_token: &str) -> bool {
@@ -1801,11 +2251,16 @@ fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<Subscr
             parse_vless_link(line)?
         } else if line.starts_with("vmess://") {
             parse_vmess_link(line)?
+        } else if line.starts_with("hysteria2://") || line.starts_with("hy2://") {
+            parse_hysteria2_link(line)?
+        } else if line.starts_with("tuic://") {
+            parse_tuic_link(line)?
+        } else if line.starts_with("wireguard://") {
+            parse_wireguard_link(line)?
+        } else if line.starts_with("mierus://") {
+            parse_mieru_link(line)?
         } else {
-            return Err(domain_error(
-                SUBSCRIPTION_LINK_UNSUPPORTED_CODE,
-                "only ss://, trojan://, vless://, and vmess:// proxy links are supported in this alpha subscription parser",
-            ));
+            continue;
         };
         if !seen_ids.insert(node.id.clone()) {
             let base_id = node.id.clone();
@@ -1837,6 +2292,144 @@ fn parse_proxy_link_lines(source_id: &str, content: &str) -> DomainResult<Subscr
         rules: Vec::new(),
         diagnostics: Vec::new(),
     })
+}
+
+fn parse_mieru_link(link: &str) -> DomainResult<NodeDescriptor> {
+    let payload = link.strip_prefix("mierus://").ok_or_else(|| {
+        domain_error(
+            SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+            "Mieru link must start with mierus://",
+        )
+    })?;
+    let (without_fragment, fragment) = split_once_optional(payload, '#');
+    let name = fragment
+        .map(percent_decode)
+        .transpose()
+        .map_err(|_| {
+            domain_error(
+                SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+                "Mieru link name is not valid percent encoding",
+            )
+        })?
+        .filter(|value| !value.trim().is_empty());
+    let (authority, query) = split_once_optional(without_fragment, '?');
+    let (userinfo, host_port) = authority.rsplit_once('@').ok_or_else(|| {
+        domain_error(
+            SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+            "Mieru link must contain credentials and endpoint",
+        )
+    })?;
+    let (username, password) = userinfo.split_once(':').ok_or_else(|| {
+        domain_error(
+            SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+            "Mieru link credentials must contain username and password",
+        )
+    })?;
+    let username = required_trimmed(
+        percent_decode(username).map_err(|_| {
+            domain_error(
+                SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+                "Mieru username is not valid percent encoding",
+            )
+        })?,
+        SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+        "Mieru username cannot be empty",
+    )?;
+    let password = required_trimmed(
+        percent_decode(password).map_err(|_| {
+            domain_error(
+                SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+                "Mieru password is not valid percent encoding",
+            )
+        })?,
+        SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+        "Mieru password cannot be empty",
+    )?;
+    let (host, port) =
+        parse_host_port_for(host_port, SUBSCRIPTION_MIERU_LINK_INVALID_CODE, "Mieru")?;
+    let query = parse_share_link_query(query, SUBSCRIPTION_MIERU_LINK_INVALID_CODE, "Mieru")?;
+    let host_id = sanitize_identifier(&host);
+    let host_id = if host_id.is_empty() { "host" } else { &host_id };
+    let id = format!("mieru-{host_id}-{port}");
+    let mut metadata = vec![
+        MetadataEntry {
+            key: "mieru.username".to_string(),
+            value: username,
+        },
+        MetadataEntry {
+            key: "mieru.password".to_string(),
+            value: password,
+        },
+    ];
+    if let Some(value) = query.get("port_range").or_else(|| query.get("ports")) {
+        metadata.push(MetadataEntry {
+            key: "mieru.port_range".to_string(),
+            value: required_trimmed(
+                value.clone(),
+                SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+                "Mieru port range cannot be empty",
+            )?,
+        });
+    }
+    if let Some(value) = query.get("mtu") {
+        let value = value.parse::<u16>().map_err(|_| {
+            domain_error(
+                SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+                "Mieru mtu must be an unsigned 16-bit integer",
+            )
+        })?;
+        metadata.push(MetadataEntry {
+            key: "mieru.mtu".to_string(),
+            value: value.to_string(),
+        });
+    }
+    if let Some(value) = query.get("multiplexing").or_else(|| query.get("multiplex")) {
+        metadata.push(MetadataEntry {
+            key: "mieru.multiplexing".to_string(),
+            value: parse_mieru_bool(value)?.to_string(),
+        });
+    }
+    for (key, metadata_key) in [
+        ("handshake_mode", "mieru.handshake_mode"),
+        ("handshake", "mieru.handshake_mode"),
+        ("traffic_pattern", "mieru.traffic_pattern"),
+        ("traffic", "mieru.traffic_pattern"),
+    ] {
+        if let Some(value) = query.get(key) {
+            metadata.push(MetadataEntry {
+                key: metadata_key.to_string(),
+                value: required_trimmed(
+                    value.clone(),
+                    SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+                    "Mieru option cannot be empty",
+                )?,
+            });
+            break;
+        }
+    }
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_SOURCE_FORMAT.to_string(),
+        value: "mierus-url".to_string(),
+    });
+    Ok(NodeDescriptor {
+        id,
+        name: name.unwrap_or_else(|| format!("Mieru {host}")),
+        protocol: Protocol::Mieru,
+        endpoint: Endpoint { host, port },
+        tags: vec!["subscription".to_string(), "mieru".to_string()],
+        metadata,
+    })
+}
+
+fn parse_mieru_bool(value: &str) -> DomainResult<bool> {
+    match normalized_token(value).as_str() {
+        "1" | "true" | "yes" => Ok(true),
+        "0" | "false" | "no" => Ok(false),
+        _ => Err(domain_error(
+            SUBSCRIPTION_MIERU_LINK_INVALID_CODE,
+            "Mieru multiplexing must be a boolean",
+        )),
+    }
 }
 
 fn parse_shadowsocks_link(link: &str) -> DomainResult<NodeDescriptor> {
@@ -1934,7 +2527,7 @@ fn parse_trojan_link(link: &str) -> DomainResult<NodeDescriptor> {
     let name = fragment
         .and_then(|fragment| percent_decode(fragment).ok())
         .filter(|name| !name.trim().is_empty());
-    let (main_without_query, _) = split_once_optional(without_fragment, '?');
+    let (main_without_query, query) = split_once_optional(without_fragment, '?');
     let (password, host_port) = main_without_query.rsplit_once('@').ok_or_else(|| {
         domain_error(
             SUBSCRIPTION_TROJAN_LINK_INVALID_CODE,
@@ -1958,22 +2551,31 @@ fn parse_trojan_link(link: &str) -> DomainResult<NodeDescriptor> {
     let id = format!("trojan-{}-{port}", host_id);
     let name = name.unwrap_or_else(|| id.clone());
 
+    let query = parse_share_link_query(query, SUBSCRIPTION_TROJAN_LINK_INVALID_CODE, "trojan")?;
+    let mut metadata = vec![MetadataEntry {
+        key: NODE_METADATA_TROJAN_PASSWORD.to_string(),
+        value: password,
+    }];
+    append_v2ray_share_link_metadata(
+        &mut metadata,
+        &query,
+        &host,
+        true,
+        SUBSCRIPTION_TROJAN_LINK_INVALID_CODE,
+        "trojan",
+    )?;
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_SOURCE_FORMAT.to_string(),
+        value: "trojan-url".to_string(),
+    });
+
     Ok(NodeDescriptor {
         id,
         name,
         protocol: Protocol::Trojan,
         endpoint: Endpoint { host, port },
         tags: vec!["subscription".to_string(), "trojan".to_string()],
-        metadata: vec![
-            MetadataEntry {
-                key: NODE_METADATA_TROJAN_PASSWORD.to_string(),
-                value: password,
-            },
-            MetadataEntry {
-                key: NODE_METADATA_SOURCE_FORMAT.to_string(),
-                value: "trojan-url".to_string(),
-            },
-        ],
+        metadata,
     })
 }
 
@@ -1988,7 +2590,7 @@ fn parse_vless_link(link: &str) -> DomainResult<NodeDescriptor> {
     let name = fragment
         .and_then(|fragment| percent_decode(fragment).ok())
         .filter(|name| !name.trim().is_empty());
-    let (main_without_query, _) = split_once_optional(without_fragment, '?');
+    let (main_without_query, query) = split_once_optional(without_fragment, '?');
     let (uuid, host_port) = main_without_query.rsplit_once('@').ok_or_else(|| {
         domain_error(
             SUBSCRIPTION_VLESS_LINK_INVALID_CODE,
@@ -2012,22 +2614,39 @@ fn parse_vless_link(link: &str) -> DomainResult<NodeDescriptor> {
     let id = format!("vless-{}-{port}", host_id);
     let name = name.unwrap_or_else(|| id.clone());
 
+    let query = parse_share_link_query(query, SUBSCRIPTION_VLESS_LINK_INVALID_CODE, "vless")?;
+    let mut metadata = vec![MetadataEntry {
+        key: NODE_METADATA_VLESS_UUID.to_string(),
+        value: uuid,
+    }];
+    if let Some(flow) = query.get("flow").filter(|value| !value.trim().is_empty()) {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_VLESS_FLOW.to_string(),
+            value: flow.trim().to_string(),
+        });
+    }
+    append_v2ray_share_link_metadata(
+        &mut metadata,
+        &query,
+        &host,
+        false,
+        SUBSCRIPTION_VLESS_LINK_INVALID_CODE,
+        "vless",
+    )?;
+
     Ok(NodeDescriptor {
         id,
         name,
         protocol: Protocol::Vless,
         endpoint: Endpoint { host, port },
         tags: vec!["subscription".to_string(), "vless".to_string()],
-        metadata: vec![
-            MetadataEntry {
-                key: NODE_METADATA_VLESS_UUID.to_string(),
-                value: uuid,
-            },
-            MetadataEntry {
+        metadata: {
+            metadata.push(MetadataEntry {
                 key: NODE_METADATA_SOURCE_FORMAT.to_string(),
                 value: "vless-url".to_string(),
-            },
-        ],
+            });
+            metadata
+        },
     })
 }
 
@@ -2088,23 +2707,769 @@ fn parse_vmess_link(link: &str) -> DomainResult<NodeDescriptor> {
     let id = format!("vmess-{}-{port}", host_id);
     let name = optional_json_text_field(&value, "ps").unwrap_or_else(|| id.clone());
 
+    let mut query = BTreeMap::new();
+    for (json_key, query_key) in [
+        ("tls", "tls"),
+        ("sni", "sni"),
+        ("alpn", "alpn"),
+        ("allowInsecure", "allowinsecure"),
+        ("insecure", "insecure"),
+        ("fp", "fp"),
+        ("pbk", "pbk"),
+        ("sid", "sid"),
+        ("net", "type"),
+        ("host", "host"),
+        ("path", "path"),
+        ("serviceName", "servicename"),
+    ] {
+        if let Some(field) = optional_json_text_field(&value, json_key) {
+            query.insert(query_key.to_string(), field);
+        }
+    }
+    let mut metadata = vec![MetadataEntry {
+        key: NODE_METADATA_VMESS_UUID.to_string(),
+        value: uuid,
+    }];
+    if let Some(security) = optional_json_text_field(&value, "scy") {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_VMESS_SECURITY.to_string(),
+            value: security,
+        });
+    }
+    if let Some(alter_id) = optional_json_text_field(&value, "aid") {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_VMESS_ALTER_ID.to_string(),
+            value: alter_id,
+        });
+    }
+    append_v2ray_share_link_metadata(
+        &mut metadata,
+        &query,
+        &host,
+        false,
+        SUBSCRIPTION_VMESS_LINK_INVALID_CODE,
+        "vmess",
+    )?;
+
     Ok(NodeDescriptor {
         id,
         name,
         protocol: Protocol::Vmess,
         endpoint: Endpoint { host, port },
         tags: vec!["subscription".to_string(), "vmess".to_string()],
-        metadata: vec![
-            MetadataEntry {
-                key: NODE_METADATA_VMESS_UUID.to_string(),
-                value: uuid,
-            },
-            MetadataEntry {
+        metadata: {
+            metadata.push(MetadataEntry {
                 key: NODE_METADATA_SOURCE_FORMAT.to_string(),
                 value: "vmess-url".to_string(),
-            },
-        ],
+            });
+            metadata
+        },
     })
+}
+
+fn parse_hysteria2_link(link: &str) -> DomainResult<NodeDescriptor> {
+    let payload = link
+        .strip_prefix("hysteria2://")
+        .or_else(|| link.strip_prefix("hy2://"))
+        .ok_or_else(|| {
+            domain_error(
+                SUBSCRIPTION_HYSTERIA2_LINK_INVALID_CODE,
+                "hysteria2 link must start with hysteria2:// or hy2://",
+            )
+        })?;
+    let parsed = parse_quic_share_link(
+        payload,
+        SUBSCRIPTION_HYSTERIA2_LINK_INVALID_CODE,
+        "hysteria2",
+    )?;
+    let password = required_trimmed(
+        parsed.userinfo.clone(),
+        SUBSCRIPTION_HYSTERIA2_LINK_INVALID_CODE,
+        "hysteria2 password cannot be empty",
+    )?;
+    let mut metadata = vec![MetadataEntry {
+        key: NODE_METADATA_HYSTERIA2_PASSWORD.to_string(),
+        value: password,
+    }];
+    append_query_tls_metadata(
+        &mut metadata,
+        &parsed.query,
+        &parsed.host,
+        SUBSCRIPTION_HYSTERIA2_LINK_INVALID_CODE,
+    )?;
+    if let Some(server_ports) = parsed.query.get("mport") {
+        let server_ports = normalize_hysteria2_server_port_ranges(
+            vec![server_ports.to_string()],
+            SUBSCRIPTION_HYSTERIA2_LINK_INVALID_CODE,
+        )?
+        .join(",");
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_HYSTERIA2_SERVER_PORTS.to_string(),
+            value: server_ports,
+        });
+    }
+    if let Some(kind) = parsed.query.get("obfs") {
+        let kind = normalized_token(kind);
+        if !matches!(kind.as_str(), "salamander" | "gecko") {
+            return Err(domain_error(
+                SUBSCRIPTION_HYSTERIA2_LINK_INVALID_CODE,
+                "hysteria2 obfs must be salamander or gecko",
+            ));
+        }
+        let password = required_query_value(
+            &parsed.query,
+            "obfs-password",
+            SUBSCRIPTION_HYSTERIA2_LINK_INVALID_CODE,
+            "hysteria2 obfs-password cannot be empty when obfs is configured",
+        )?;
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_HYSTERIA2_OBFS_TYPE.to_string(),
+            value: kind.clone(),
+        });
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_HYSTERIA2_OBFS_PASSWORD.to_string(),
+            value: password,
+        });
+        if kind == "gecko" {
+            if let Some(value) = parsed.query.get("minpacketsize") {
+                metadata.push(MetadataEntry {
+                    key: NODE_METADATA_HYSTERIA2_OBFS_MIN_PACKET_SIZE.to_string(),
+                    value: normalize_hysteria2_packet_size(
+                        value.to_string(),
+                        SUBSCRIPTION_HYSTERIA2_LINK_INVALID_CODE,
+                    )?,
+                });
+            }
+            if let Some(value) = parsed.query.get("maxpacketsize") {
+                metadata.push(MetadataEntry {
+                    key: NODE_METADATA_HYSTERIA2_OBFS_MAX_PACKET_SIZE.to_string(),
+                    value: normalize_hysteria2_packet_size(
+                        value.to_string(),
+                        SUBSCRIPTION_HYSTERIA2_LINK_INVALID_CODE,
+                    )?,
+                });
+            }
+        }
+    }
+
+    Ok(quic_node_descriptor(
+        "hysteria2",
+        Protocol::Hysteria2,
+        parsed,
+        metadata,
+    ))
+}
+
+fn parse_tuic_link(link: &str) -> DomainResult<NodeDescriptor> {
+    let payload = link.strip_prefix("tuic://").ok_or_else(|| {
+        domain_error(
+            SUBSCRIPTION_TUIC_LINK_INVALID_CODE,
+            "tuic link must start with tuic://",
+        )
+    })?;
+    let parsed = parse_quic_share_link(payload, SUBSCRIPTION_TUIC_LINK_INVALID_CODE, "tuic")?;
+    let (uuid, password) = parsed
+        .userinfo
+        .split_once(':')
+        .map(|(uuid, password)| (uuid.to_string(), Some(password.to_string())))
+        .unwrap_or_else(|| (parsed.userinfo.clone(), None));
+    let uuid = required_trimmed(
+        uuid,
+        SUBSCRIPTION_TUIC_LINK_INVALID_CODE,
+        "tuic uuid cannot be empty",
+    )?;
+    let mut metadata = vec![MetadataEntry {
+        key: NODE_METADATA_TUIC_UUID.to_string(),
+        value: uuid,
+    }];
+    if let Some(password) = password {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_TUIC_PASSWORD.to_string(),
+            value: password,
+        });
+    }
+    if let Some(congestion_control) = parsed.query.get("congestion_control") {
+        let congestion_control = required_trimmed(
+            congestion_control.to_string(),
+            SUBSCRIPTION_TUIC_LINK_INVALID_CODE,
+            "tuic congestion_control cannot be empty",
+        )?;
+        if !matches!(congestion_control.as_str(), "cubic" | "new_reno" | "bbr") {
+            return Err(domain_error(
+                SUBSCRIPTION_TUIC_LINK_INVALID_CODE,
+                "tuic congestion_control must be cubic, new_reno, or bbr",
+            ));
+        }
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_TUIC_CONGESTION_CONTROL.to_string(),
+            value: congestion_control,
+        });
+    }
+    append_query_tls_metadata(
+        &mut metadata,
+        &parsed.query,
+        &parsed.host,
+        SUBSCRIPTION_TUIC_LINK_INVALID_CODE,
+    )?;
+
+    Ok(quic_node_descriptor(
+        "tuic",
+        Protocol::Tuic,
+        parsed,
+        metadata,
+    ))
+}
+
+fn parse_wireguard_link(link: &str) -> DomainResult<NodeDescriptor> {
+    let payload = link.strip_prefix("wireguard://").ok_or_else(|| {
+        domain_error(
+            SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
+            "wireguard link must start with wireguard://",
+        )
+    })?;
+    let parsed = parse_quic_share_link(
+        payload,
+        SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
+        "wireguard",
+    )?;
+    let private_key = validate_wireguard_key(
+        &parsed.userinfo,
+        SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
+        "private key",
+    )?;
+    let peer_public_key = required_query_value(
+        &parsed.query,
+        "publickey",
+        SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
+        "wireguard publickey is required",
+    )?;
+    let peer_public_key = validate_wireguard_key(
+        &peer_public_key,
+        SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
+        "publickey",
+    )?;
+    let local_address = required_query_value(
+        &parsed.query,
+        "address",
+        SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
+        "wireguard address is required",
+    )?;
+    let local_address =
+        normalize_wireguard_addresses(&local_address, SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE)?;
+    let mut metadata = vec![
+        MetadataEntry {
+            key: NODE_METADATA_WIREGUARD_PRIVATE_KEY.to_string(),
+            value: private_key,
+        },
+        MetadataEntry {
+            key: NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY.to_string(),
+            value: peer_public_key,
+        },
+        MetadataEntry {
+            key: NODE_METADATA_WIREGUARD_LOCAL_ADDRESS.to_string(),
+            value: local_address,
+        },
+    ];
+    if let Some(value) = parsed.query.get("presharedkey") {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_WIREGUARD_PRE_SHARED_KEY.to_string(),
+            value: validate_wireguard_key(
+                value,
+                SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
+                "presharedkey",
+            )?,
+        });
+    }
+    if let Some(value) = parsed.query.get("mtu") {
+        let mtu = value.trim().parse::<u16>().map_err(|_| {
+            domain_error(
+                SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
+                "wireguard mtu must be an unsigned 16-bit integer",
+            )
+        })?;
+        if mtu == 0 {
+            return Err(domain_error(
+                SUBSCRIPTION_WIREGUARD_LINK_INVALID_CODE,
+                "wireguard mtu must be greater than zero",
+            ));
+        }
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_WIREGUARD_MTU.to_string(),
+            value: mtu.to_string(),
+        });
+    }
+    Ok(quic_node_descriptor(
+        "wireguard",
+        Protocol::WireGuard,
+        parsed,
+        metadata,
+    ))
+}
+
+fn validate_wireguard_key(
+    value: &str,
+    code: &'static str,
+    field: &'static str,
+) -> DomainResult<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(domain_error(
+            code,
+            format!("wireguard {field} cannot be empty"),
+        ));
+    }
+    let decoded = [STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD]
+        .iter()
+        .find_map(|engine| engine.decode(value).ok());
+    if !matches!(decoded, Some(ref bytes) if bytes.len() == 32) {
+        return Err(domain_error(
+            code,
+            format!("wireguard {field} must be a base64-encoded 32-byte key"),
+        ));
+    }
+    Ok(value.to_string())
+}
+
+fn normalize_wireguard_addresses(value: &str, code: &'static str) -> DomainResult<String> {
+    let addresses = value
+        .split(',')
+        .map(str::trim)
+        .map(|address| {
+            let (host, prefix) = address.split_once('/').ok_or_else(|| {
+                domain_error(code, "wireguard address entries must use CIDR notation")
+            })?;
+            let host = host.parse::<std::net::IpAddr>().map_err(|_| {
+                domain_error(
+                    code,
+                    "wireguard address entries must contain valid IP addresses",
+                )
+            })?;
+            let prefix = prefix.parse::<u8>().map_err(|_| {
+                domain_error(code, "wireguard address prefixes must be unsigned integers")
+            })?;
+            let maximum_prefix = match host {
+                std::net::IpAddr::V4(_) => 32,
+                std::net::IpAddr::V6(_) => 128,
+            };
+            if prefix > maximum_prefix {
+                return Err(domain_error(
+                    code,
+                    "wireguard address prefix exceeds the address family limit",
+                ));
+            }
+            Ok(format!("{host}/{prefix}"))
+        })
+        .collect::<DomainResult<Vec<_>>>()?;
+    if addresses.is_empty() {
+        return Err(domain_error(code, "wireguard address cannot be empty"));
+    }
+    Ok(addresses.join(","))
+}
+
+#[derive(Debug)]
+struct ParsedQuicShareLink {
+    userinfo: String,
+    host: String,
+    port: u16,
+    name: Option<String>,
+    query: BTreeMap<String, String>,
+}
+
+fn parse_quic_share_link(
+    payload: &str,
+    code: &'static str,
+    protocol_name: &'static str,
+) -> DomainResult<ParsedQuicShareLink> {
+    let (without_fragment, fragment) = split_once_optional(payload, '#');
+    let name = fragment
+        .map(percent_decode)
+        .transpose()
+        .map_err(|_| {
+            domain_error(
+                code,
+                format!("{protocol_name} link name is not valid percent encoding"),
+            )
+        })?
+        .filter(|name| !name.trim().is_empty());
+    let (authority, query) = split_once_optional(without_fragment, '?');
+    let (userinfo, host_port) = authority.rsplit_once('@').ok_or_else(|| {
+        domain_error(
+            code,
+            format!("{protocol_name} link must contain credentials and endpoint"),
+        )
+    })?;
+    let userinfo = percent_decode(userinfo).map_err(|_| {
+        domain_error(
+            code,
+            format!("{protocol_name} link credentials are not valid percent encoding"),
+        )
+    })?;
+    let (host, port) = parse_host_port_for(host_port, code, protocol_name)?;
+    let query = parse_share_link_query(query, code, protocol_name)?;
+    Ok(ParsedQuicShareLink {
+        userinfo,
+        host,
+        port,
+        name,
+        query,
+    })
+}
+
+fn parse_share_link_query(
+    query: Option<&str>,
+    code: &'static str,
+    protocol_name: &'static str,
+) -> DomainResult<BTreeMap<String, String>> {
+    let mut values = BTreeMap::new();
+    let Some(query) = query else {
+        return Ok(values);
+    };
+    for entry in query.split('&') {
+        if entry.is_empty() {
+            continue;
+        }
+        let (key, value) = entry.split_once('=').ok_or_else(|| {
+            domain_error(
+                code,
+                format!("{protocol_name} query fields must use key=value"),
+            )
+        })?;
+        let key = percent_decode(key).map_err(|_| {
+            domain_error(
+                code,
+                format!("{protocol_name} query key is not valid percent encoding"),
+            )
+        })?;
+        let value = percent_decode(value).map_err(|_| {
+            domain_error(
+                code,
+                format!("{protocol_name} query value is not valid percent encoding"),
+            )
+        })?;
+        let key = key.trim().to_ascii_lowercase();
+        if key.is_empty() {
+            return Err(domain_error(
+                code,
+                format!("{protocol_name} query key cannot be empty"),
+            ));
+        }
+        values.insert(key, value);
+    }
+    Ok(values)
+}
+
+fn quic_node_descriptor(
+    protocol_tag: &'static str,
+    protocol: Protocol,
+    parsed: ParsedQuicShareLink,
+    mut metadata: Metadata,
+) -> NodeDescriptor {
+    let host_id = sanitize_identifier(&parsed.host);
+    let host_id = if host_id.is_empty() {
+        "host".to_string()
+    } else {
+        host_id
+    };
+    let id = format!("{protocol_tag}-{host_id}-{}", parsed.port);
+    let name = parsed.name.unwrap_or_else(|| id.clone());
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_SOURCE_FORMAT.to_string(),
+        value: format!("{protocol_tag}-url"),
+    });
+    NodeDescriptor {
+        id,
+        name,
+        protocol,
+        endpoint: Endpoint {
+            host: parsed.host,
+            port: parsed.port,
+        },
+        tags: vec!["subscription".to_string(), protocol_tag.to_string()],
+        metadata,
+    }
+}
+
+fn append_query_tls_metadata(
+    metadata: &mut Metadata,
+    query: &BTreeMap<String, String>,
+    host: &str,
+    code: &'static str,
+) -> DomainResult<()> {
+    let server_name = query
+        .get("sni")
+        .filter(|value| !value.trim().is_empty())
+        .cloned()
+        .unwrap_or_else(|| host.to_string());
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_TLS_SERVER_NAME.to_string(),
+        value: server_name,
+    });
+    let insecure = query
+        .get("insecure")
+        .or_else(|| query.get("allowinsecure"))
+        .or_else(|| query.get("allow_insecure"))
+        .map(|value| parse_share_link_boolean(value, code, "TLS insecure"))
+        .transpose()?
+        .unwrap_or(false);
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_TLS_INSECURE.to_string(),
+        value: insecure.to_string(),
+    });
+    if let Some(alpn) = query.get("alpn") {
+        let alpn = split_share_link_list(alpn, code, "TLS alpn")?;
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_TLS_ALPN.to_string(),
+            value: alpn.join(","),
+        });
+    }
+    if let Some(pins) = query.get("pinsha256").or_else(|| query.get("pcs")) {
+        let pins = split_share_link_list(pins, code, "TLS certificate public-key sha256")?;
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_TLS_CERTIFICATE_PUBLIC_KEY_SHA256.to_string(),
+            value: pins.join(","),
+        });
+    }
+    Ok(())
+}
+
+fn append_v2ray_share_link_metadata(
+    metadata: &mut Metadata,
+    query: &BTreeMap<String, String>,
+    host: &str,
+    default_tls_enabled: bool,
+    code: &'static str,
+    protocol_name: &'static str,
+) -> DomainResult<()> {
+    let security = query
+        .get("security")
+        .or_else(|| query.get("tls"))
+        .map(|value| value.trim().to_ascii_lowercase());
+    let (tls_enabled, reality_enabled) = match security.as_deref() {
+        None | Some("") => (default_tls_enabled, false),
+        Some("tls") => (true, false),
+        Some("reality") => (true, true),
+        Some("none") => (false, false),
+        Some(_) => {
+            return Err(domain_error(
+                code,
+                format!("{protocol_name} security must be none, tls, or reality"),
+            ));
+        }
+    };
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_TLS_ENABLED.to_string(),
+        value: tls_enabled.to_string(),
+    });
+    if tls_enabled {
+        append_query_tls_metadata(metadata, query, host, code)?;
+        if let Some(fingerprint) = query.get("fp").filter(|value| !value.trim().is_empty()) {
+            metadata.push(MetadataEntry {
+                key: NODE_METADATA_TLS_UTLS_FINGERPRINT.to_string(),
+                value: fingerprint.trim().to_string(),
+            });
+        }
+    }
+    if reality_enabled {
+        let public_key = required_query_value(
+            query,
+            "pbk",
+            code,
+            "reality public key cannot be empty when security=reality",
+        )?;
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_TLS_REALITY_PUBLIC_KEY.to_string(),
+            value: public_key,
+        });
+        if let Some(short_id) = query.get("sid").filter(|value| !value.trim().is_empty()) {
+            metadata.push(MetadataEntry {
+                key: NODE_METADATA_TLS_REALITY_SHORT_ID.to_string(),
+                value: short_id.trim().to_string(),
+            });
+        }
+    }
+    append_v2ray_share_link_transport_metadata(metadata, query, code, protocol_name)
+}
+
+fn append_v2ray_share_link_transport_metadata(
+    metadata: &mut Metadata,
+    query: &BTreeMap<String, String>,
+    code: &'static str,
+    protocol_name: &'static str,
+) -> DomainResult<()> {
+    let Some(raw_type) = query.get("type") else {
+        return Ok(());
+    };
+    let kind = match normalized_token(raw_type).as_str() {
+        "" | "tcp" | "raw" | "none" => return Ok(()),
+        "ws" | "websocket" => "ws",
+        "grpc" => "grpc",
+        "http" | "h2" => "http",
+        "httpupgrade" | "http_upgrade" => "httpupgrade",
+        "quic" => "quic",
+        _ => {
+            return Err(domain_error(
+                code,
+                format!(
+                    "{protocol_name} transport must be tcp, ws, grpc, http, httpupgrade, or quic"
+                ),
+            ));
+        }
+    };
+    metadata.push(MetadataEntry {
+        key: NODE_METADATA_V2RAY_TRANSPORT_TYPE.to_string(),
+        value: kind.to_string(),
+    });
+    if let Some(host) = query.get("host").filter(|value| !value.trim().is_empty()) {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_V2RAY_TRANSPORT_HOST.to_string(),
+            value: split_share_link_list(host, code, "transport host")?.join(","),
+        });
+    }
+    if let Some(path) = query.get("path").filter(|value| !value.trim().is_empty()) {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_V2RAY_TRANSPORT_PATH.to_string(),
+            value: path.trim().to_string(),
+        });
+    }
+    if let Some(service_name) = query
+        .get("servicename")
+        .or_else(|| query.get("service_name"))
+        .filter(|value| !value.trim().is_empty())
+    {
+        metadata.push(MetadataEntry {
+            key: NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME.to_string(),
+            value: service_name.trim().to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn parse_share_link_boolean(
+    value: &str,
+    code: &'static str,
+    field_name: &'static str,
+) -> DomainResult<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" => Ok(true),
+        "0" | "false" | "" => Ok(false),
+        _ => Err(domain_error(
+            code,
+            format!("{field_name} must be 0, 1, false, or true"),
+        )),
+    }
+}
+
+fn split_share_link_list(
+    value: &str,
+    code: &'static str,
+    field_name: &'static str,
+) -> DomainResult<Vec<String>> {
+    let values = value
+        .split(',')
+        .map(|value| {
+            required_trimmed(
+                value.to_string(),
+                code,
+                format!("{field_name} cannot be empty"),
+            )
+        })
+        .collect::<DomainResult<Vec<_>>>()?;
+    if values.is_empty() {
+        return Err(domain_error(code, format!("{field_name} cannot be empty")));
+    }
+    Ok(values)
+}
+
+fn required_query_value(
+    query: &BTreeMap<String, String>,
+    key: &'static str,
+    code: &'static str,
+    message: &'static str,
+) -> DomainResult<String> {
+    query
+        .get(key)
+        .cloned()
+        .ok_or_else(|| domain_error(code, message))
+        .and_then(|value| required_trimmed(value, code, message))
+}
+
+fn normalize_hysteria2_server_port_range(
+    value: String,
+    code: &'static str,
+) -> DomainResult<String> {
+    let value = required_trimmed(value, code, "hysteria2 server port range cannot be empty")?;
+    let Some((start, end)) = value.split_once(':').or_else(|| value.split_once('-')) else {
+        let port = parse_hysteria2_port(&value, code)?;
+        return Ok(port.to_string());
+    };
+    let start = parse_hysteria2_port(start, code)?;
+    let end = parse_hysteria2_port(end, code)?;
+    if start > end {
+        return Err(domain_error(
+            code,
+            "hysteria2 server port range start cannot exceed end",
+        ));
+    }
+    Ok(format!("{start}:{end}"))
+}
+
+fn normalize_hysteria2_server_port_ranges(
+    values: Vec<String>,
+    code: &'static str,
+) -> DomainResult<Vec<String>> {
+    let mut normalized = Vec::new();
+    for value in values {
+        for range in value.split(',') {
+            normalized.push(normalize_hysteria2_server_port_range(
+                range.to_string(),
+                code,
+            )?);
+        }
+    }
+    if normalized.is_empty() {
+        return Err(domain_error(
+            code,
+            "hysteria2 server port ranges cannot be empty",
+        ));
+    }
+    Ok(normalized)
+}
+
+fn hysteria2_server_port_range_start(value: &str, code: &'static str) -> DomainResult<u16> {
+    let start = value
+        .split_once(':')
+        .map(|(start, _)| start)
+        .unwrap_or(value);
+    parse_hysteria2_port(start, code)
+}
+
+fn parse_hysteria2_port(value: &str, code: &'static str) -> DomainResult<u16> {
+    let value = value.trim();
+    let port = value
+        .parse::<i64>()
+        .map_err(|_| domain_error(code, "hysteria2 server port must be a number"))?;
+    parse_port(
+        port,
+        code,
+        "hysteria2 server port must be between 1 and 65535",
+    )
+}
+
+fn normalize_hysteria2_packet_size(value: String, code: &'static str) -> DomainResult<String> {
+    let value = required_trimmed(value, code, "hysteria2 obfs packet size cannot be empty")?;
+    let value = value.parse::<u32>().map_err(|_| {
+        domain_error(
+            code,
+            "hysteria2 obfs packet size must be a positive integer",
+        )
+    })?;
+    if value == 0 {
+        return Err(domain_error(
+            code,
+            "hysteria2 obfs packet size must be a positive integer",
+        ));
+    }
+    Ok(value.to_string())
 }
 
 fn parse_host_port_for(
@@ -2267,6 +3632,9 @@ fn parse_protocol(raw: String) -> DomainResult<Protocol> {
         "vless" => Protocol::Vless,
         "trojan" => Protocol::Trojan,
         "hysteria" => Protocol::Hysteria,
+        "hysteria2" | "hy2" => Protocol::Hysteria2,
+        "tuic" => Protocol::Tuic,
+        "wireguard" => Protocol::WireGuard,
         _ => Protocol::Other(protocol),
     })
 }

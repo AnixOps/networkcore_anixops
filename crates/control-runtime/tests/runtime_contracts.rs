@@ -5,15 +5,15 @@ use control_domain::{
     PlatformCapabilities, PlatformCapabilityService, PlatformCapabilityStatus,
     PlatformFeatureState, PluginInstance, PluginManifest, PluginPackage, PluginPermission,
     PluginResult, Protocol, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
-    ProxyEngineLifecycleState, ProxyEngineService, ProxyEngineStatus, RawSubscription, RouteAction,
-    RouteRule, RuleSet, SchemaVersion, SubscriptionDocument, SubscriptionService,
-    SubscriptionSource,
+    ProxyEngineLifecycleState, ProxyEngineRollbackRequest, ProxyEngineService, ProxyEngineStatus,
+    RawSubscription, RouteAction, RouteRule, RuleSet, SchemaVersion, SubscriptionDocument,
+    SubscriptionService, SubscriptionSource,
 };
 use control_runtime::{
     MitmGateOrchestrator, MitmGateRequest, RuntimeConfigRequest, RuntimeOrchestrator,
-    RUNTIME_SUBSCRIPTION_CATALOG_EMPTY_CODE, RUNTIME_SUBSCRIPTION_CATALOG_READY_CODE,
-    RUNTIME_SUBSCRIPTION_NODE_ID_DUPLICATE_CODE, RUNTIME_SUBSCRIPTION_RULES_DEFERRED_CODE,
-    RUNTIME_SUBSCRIPTION_SOURCE_UNSUPPORTED_CODE,
+    RUNTIME_ENGINE_STATUS_CONTRACT_CODE, RUNTIME_SUBSCRIPTION_CATALOG_EMPTY_CODE,
+    RUNTIME_SUBSCRIPTION_CATALOG_READY_CODE, RUNTIME_SUBSCRIPTION_NODE_ID_DUPLICATE_CODE,
+    RUNTIME_SUBSCRIPTION_RULES_DEFERRED_CODE, RUNTIME_SUBSCRIPTION_SOURCE_UNSUPPORTED_CODE,
 };
 
 struct NoopConfigurationService;
@@ -155,6 +155,10 @@ impl ProxyEngineService for FakeProxyEngineService {
             state: ProxyEngineLifecycleState::Stopped,
             diagnostics: Vec::new(),
         })
+    }
+
+    fn rollback(&self, request: &ProxyEngineRollbackRequest) -> DomainResult<ProxyEngineStatus> {
+        Ok(request.snapshot.status.clone())
     }
 
     fn status(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
@@ -669,6 +673,95 @@ fn start_runtime_rejects_platform_tunnel_denial() {
 
     assert_eq!(error.code, "runtime.platform.tunnel_unavailable");
     assert!(error.message.contains("network extension entitlement"));
+}
+
+#[test]
+fn runtime_rollback_checks_current_state_and_restores_snapshot_state() {
+    let orchestrator = RuntimeOrchestrator::new(
+        NoopConfigurationService,
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeProxyEngineService { fail_start: false },
+    );
+    let prepared = orchestrator
+        .prepare_runtime_engine(RuntimeConfigRequest::new("native", "profile = default"))
+        .expect("runtime preparation should capture a snapshot");
+
+    let restored = orchestrator
+        .rollback_runtime_engine(ProxyEngineRollbackRequest {
+            snapshot: prepared.snapshot,
+            expected_state: ProxyEngineLifecycleState::Running,
+        })
+        .expect("runtime rollback should restore the captured state");
+
+    assert_eq!(restored.engine_id, "native");
+    assert_eq!(restored.state, ProxyEngineLifecycleState::Running);
+}
+
+#[test]
+fn runtime_rollback_rejects_a_non_recovering_lifecycle_jump() {
+    let orchestrator = RuntimeOrchestrator::new(
+        NoopConfigurationService,
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeProxyEngineService { fail_start: false },
+    );
+    let mut prepared = orchestrator
+        .prepare_runtime_engine(RuntimeConfigRequest::new("native", "profile = default"))
+        .expect("runtime preparation should capture a snapshot");
+    prepared.snapshot.status.state = ProxyEngineLifecycleState::Starting;
+
+    let error = orchestrator
+        .rollback_runtime_engine(ProxyEngineRollbackRequest {
+            snapshot: prepared.snapshot,
+            expected_state: ProxyEngineLifecycleState::Running,
+        })
+        .expect_err("rollback should reject a snapshot result that skips RollingBack");
+
+    assert_eq!(error.code, RUNTIME_ENGINE_STATUS_CONTRACT_CODE);
+    assert!(error.message.contains("lifecycle exit violation"));
+}
+
+#[test]
+fn runtime_health_does_not_promote_unverified_status_to_healthy() {
+    let orchestrator = RuntimeOrchestrator::new(
+        NoopConfigurationService,
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeProxyEngineService { fail_start: false },
+    );
+
+    let health = orchestrator
+        .runtime_health("native")
+        .expect("runtime health should return an evidence report");
+
+    assert_eq!(health.engine_id, "native");
+    assert!(!health.is_healthy());
+    assert!(!health.config_validated);
+    assert!(!health.listener_reachable);
+}
+
+#[test]
+fn reload_runtime_preserves_reloading_transition_state() {
+    let orchestrator = RuntimeOrchestrator::new(
+        NoopConfigurationService,
+        StaticPlatformCapabilityService {
+            status: available_platform_status(),
+        },
+        FakeProxyEngineService { fail_start: false },
+    );
+
+    let result = orchestrator
+        .reload_runtime(RuntimeConfigRequest::new("native", "profile = default"))
+        .expect("reload transition should be accepted");
+
+    assert_eq!(
+        result.engine_status.state,
+        ProxyEngineLifecycleState::Reloading
+    );
 }
 
 #[test]

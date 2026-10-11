@@ -77,9 +77,12 @@
 
 前台 host 属于 CLI 或后续应用层 adapter，不属于 `control-runtime`：
 
-- 它只管理当前进程内 runtime，不停止其他进程。
+- 它管理当前进程内 runtime；在显式 owner-only Unix managed control socket 收到确认 stop 后，仍由拥有
+  runtime 的该前台进程执行 stop，不通过 PID、进程名或默认路径控制其他进程。
 - 它不得写 systemd unit、PID file、launchd plist、Windows service 或 installer 状态。
-- 在信号处理设计完成前，不承诺跨进程 `stop`、`reload` 或后台状态查询。
+- 前台 host 只承诺显式 Unix managed control socket 的 confirmed `stop`；不承诺跨进程 `reload`、rollback
+  或后台状态查询。显式安装的 systemd unit 由 `networkcore-linux service reload --confirm` 走 platform
+  adapter，不能被当作前台 host 的跨进程协议。
 - 如果引擎 adapter 需要事件循环、文件描述符、任务调度或信号处理，必须先补充 adapter 设计和 GitHub Actions 验证。
 - 进程退出时必须把可展示错误转换为 `Diagnostic`，并保持 CLI exit code 稳定。
 
@@ -112,4 +115,4 @@ diagnostic code。
 - `networkcore-linux start` 已接入 `NativeProxyEngineService` 和 current-process foreground lifecycle host；前台 lifecycle 已具备可注入 signal/interruption 合同、Unix `SIGINT`/`SIGTERM` OS signal source、`cli.linux.start.signal_received`/`cli.linux.start.lifecycle_interrupted` 诊断、130 退出码映射，以及 interruption 后通过当前进程内 `RuntimeOrchestrator::stop_runtime` 聚合 native runtime stop/release 诊断的合同。
 - Linux artifact readiness/release gate 已纳入 foreground stop/release 合同检查、artifact manifest 输出合同、license/NOTICE confirmation source contract、license/NOTICE transition validation contract、release license/NOTICE confirmed 状态 summary、release CI success source contract、release CI gate activation validation contract、package runner/toolchain/target contract、archive staging contract、checksum/manifest checksum contract、publish/upload boundary contract、signing/attestation policy binding contract、release notes/rollback policy binding contract 和 publish eligibility aggregate contract；当前 marker 为 `linux-artifact-release-state=confirmed-release-path`；后续 tag release 继续通过 release workflow、同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates 生成 Linux assets。
 - Linux package artifact job preflight validation contract、Linux package artifact build command validation contract、Linux package artifact staging file validation contract、Linux package artifact archive creation validation contract 和 Linux package artifact checksum execution validation contract 已定义；Linux package artifact manifest generation validation contract、Linux package artifact manifest checksum validation contract、Linux package workflow artifact bundle upload validation contract、Linux package artifact attestation execution validation contract、Linux package release notes/rollback execution validation contract 和 Linux package publish eligibility execution validation contract 已定义；release CI gate execution validation contract 和 release CI gate API implementation 已激活；当前 license/NOTICE 和 artifact gates 已进入 confirmed release path；后续 tag release 继续通过 release workflow、同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility gates 生成和发布 Linux assets。
-- daemon/control socket、service install、DNS/TUN mutation 或 release artifact 进入前，继续先补设计和回滚合同。
+- 后续新增 daemon discovery、默认 control socket、DNS/TUN mutation 或其他系统级能力前，继续先补设计、显式授权、snapshot 和 rollback 合同；当前 named systemd service install/control/removal 与 release artifact 已有独立的 source/release contracts。

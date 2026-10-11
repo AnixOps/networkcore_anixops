@@ -63,8 +63,9 @@ networkcore.adblock
 ```
 
 The plugin source must load through `anixops_engine_load_config` from the
-vendored `mitm_anixops` `v0.45.10-alpha` submodule pinned at commit
-`a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0`.
+vendored `mitm_anixops` distribution release `v1.4.6` source commit
+`6382f0147e02a8653343571791ef61b8cc885cb1`. The linked C core version remains
+`0.45.10`.
 
 The safe wrapper may expose 0.45.10 policy results as NetworkCore-owned Rust
 types, including aggregated rewrite plan, named header rewrite, bounded
@@ -179,9 +180,9 @@ manifest, permission, audit, and platform capability gates.
 
 ## Current Limitations
 
-The current plugin service does not mutate live request or response data. The
-native engine can apply only CONNECT-level `Reject` decisions before TLS or HTTP
-request parsing.
+The domain plugin service is transport-agnostic. The controlled Linux HTTP/1.1
+TLS runtime applies its request/response outcomes live; the SOCKS5 path remains
+limited to CONNECT-level `Reject` before TLS or HTTP request parsing.
 
 Blocked until later phases:
 
@@ -219,15 +220,17 @@ Blocked until later phases:
   `BrowserCaptureRollbackSnapshot`, `proxy_scheme`, launch-plan, session-plan, optional `--target-url`, optional `--proxy-scheme socks5`, launch, apply/rollback/verify/traffic-proof,
   explicit authorization, snapshot, and rollback
   boundaries before any browser/system proxy mutation.
-- `MITM_HTTP_TLS_DATA_PLANE_GATE`: currently plain-http-live-data-plane-active/tls-decryption-blocked through
-  caller-provided plain HTTP preview, explicit HTTP proxy live `http://`
-  request/response rewrite, `http_rewrite`, `NativePlainHttpMessage`,
-  `NativePlainHttpRewriteReport`, `NativeExplicitHttpProxyRequest`,
-  `NativePlainHttpProxyResponse`, `LinuxMitmHttpRewriteReport`, explicit
-  authorization and `mitm http-rewrite plan/preview`. Later increments must add
-  HTTPS CONNECT/TLS interception, SNI/host routing, HTTP/2 parsing, compression
-  handling, script runtime, and application of `mitm-policy` script dispatch to
-  live traffic. The Linux boundary is
+- `MITM_HTTP_TLS_DATA_PLANE_GATE`: `mitm http-rewrite` remains
+  plain-http-live-data-plane-active/tls-decryption-blocked through caller-provided
+  plain HTTP preview, explicit HTTP proxy live `http://` request/response rewrite,
+  `http_rewrite`, `NativePlainHttpMessage`, `NativePlainHttpRewriteReport`,
+  `NativeExplicitHttpProxyRequest`, `NativePlainHttpProxyResponse`,
+  `LinuxMitmHttpRewriteReport`, explicit authorization and `mitm http-rewrite
+  plan/preview`. Separately, explicit Linux `start --enable-https-mitm` now
+  provides controlled HTTP/1.1 CONNECT/TLS interception, authority/SNI binding,
+  web-PKI upstream forwarding, bounded live request/response rewrite, and
+  sandboxed local script dispatch. HTTP/2 parsing, compression handling,
+  streaming and browser/system capture remain out of scope. The Linux boundary is
   [Linux MITM HTTP Rewrite Source Contract](linux-mitm-http-rewrite-source-contract.md).
 - Full HTTP request and response data-plane context with parsed host/scheme,
   decompression, streaming/backpressure, and response framing.
@@ -247,8 +250,9 @@ mitm.policy.http_event.mutation_deferred
 CI must prove:
 
 - workspace contains `crates/mitm-policy`;
-- `mitm_anixops` submodule is pinned to `v0.45.10-alpha` commit
-  `a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0`;
+- `mitm_anixops` submodule is pinned to distribution release `v1.4.6` source
+  commit `6382f0147e02a8653343571791ef61b8cc885cb1`, while linked C core
+  version remains `0.45.10`;
 - `mitm-policy` exposes the built-in ad-block package and adapter service;
 - `mitm-policy` exposes 0.45.10 rewrite plan, header, body chain, script, and
   JQ max-input wrapper contracts;

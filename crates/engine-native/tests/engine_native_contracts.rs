@@ -24,17 +24,18 @@ use engine_native::{
     plan_explicit_http_connect_tls_mitm_foundation, plan_socks5_connect_http_mitm,
     plan_socks5_outbound_connect_client_success_response_write,
     plan_socks5_outbound_connect_data_relay, plan_socks5_outbound_tcp_connection,
-    read_explicit_http_proxy_request, read_https_connect_http_request, read_socks5_command_header,
-    read_socks5_connect_target, read_socks5_greeting, read_socks5_outbound_connect_response,
-    reject_unsupported_socks5_command, reject_unwired_socks5_route_outbound,
-    relay_socks5_outbound_connect_data, select_socks5_auth_method,
-    select_socks5_route_outbound_behavior, serialize_explicit_http_proxy_request_for_upstream,
-    serialize_plain_http_proxy_response, write_http_connect_established_response,
-    write_socks5_auth_method_response, write_socks5_outbound_connect_client_success_response,
-    write_socks5_outbound_connect_request, write_unwired_socks5_connect_failure_response,
-    BoundLoopbackTcpListenerHandle, LoopbackListenerHandle, NativeExplicitHttpProxyRequest,
-    NativeHttpMitmPluginHook, NativeLoopbackTcpAcceptLoopHandle, NativeNodeScriptExecutor,
-    NativeNodeScriptRuntimeConfig, NativeOutboundHandlerHandle, NativePlainHttpMessage,
+    read_explicit_http_proxy_request, read_https_connect_http_request,
+    read_plain_http_proxy_response, read_socks5_command_header, read_socks5_connect_target,
+    read_socks5_greeting, read_socks5_outbound_connect_response, reject_unsupported_socks5_command,
+    reject_unwired_socks5_route_outbound, relay_socks5_outbound_connect_data,
+    select_socks5_auth_method, select_socks5_route_outbound_behavior,
+    serialize_explicit_http_proxy_request_for_upstream, serialize_plain_http_proxy_response,
+    write_http_connect_established_response, write_socks5_auth_method_response,
+    write_socks5_outbound_connect_client_success_response, write_socks5_outbound_connect_request,
+    write_unwired_socks5_connect_failure_response, BoundLoopbackTcpListenerHandle,
+    LoopbackListenerHandle, NativeExplicitHttpProxyRequest, NativeHttpMitmPluginHook,
+    NativeLoopbackTcpAcceptLoopHandle, NativeNodeScriptExecutor, NativeNodeScriptRuntimeConfig,
+    NativeNodeScriptSandbox, NativeOutboundHandlerHandle, NativePlainHttpMessage,
     NativePlainHttpRewriteReport, NativeProxyEngineService, NativeProxyEngineStartReadiness,
     NativeRuntimeAssembly, NativeRuntimeAssemblyPlan, NativeSocks5Address,
     NativeSocks5AuthMethodDecision, NativeSocks5CommandDecision, NativeSocks5CommandHeader,
@@ -52,7 +53,8 @@ use engine_native::{
     ENGINE_NATIVE_CONFIG_LISTENER_MISSING_CODE, ENGINE_NATIVE_CONFIG_NODE_ID_DUPLICATE_CODE,
     ENGINE_NATIVE_CONFIG_NODE_MISSING_CODE, ENGINE_NATIVE_CONFIG_NODE_PROTOCOL_UNSUPPORTED_CODE,
     ENGINE_NATIVE_CONFIG_ROUTE_EMPTY_CODE, ENGINE_NATIVE_CONFIG_ROUTE_ID_DUPLICATE_CODE,
-    ENGINE_NATIVE_CONFIG_ROUTE_TARGET_MISSING_CODE, ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE,
+    ENGINE_NATIVE_CONFIG_ROUTE_TARGET_MISSING_CODE, ENGINE_NATIVE_RELOAD_FAILED_CODE,
+    ENGINE_NATIVE_RELOAD_RUNNING_CODE, ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE,
     ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_STOPPED_CODE,
     ENGINE_NATIVE_RUNTIME_CONNECTION_PRE_PROTOCOL_CLOSED_CODE,
     ENGINE_NATIVE_RUNTIME_FOREGROUND_HANDOFF_READY_CODE,
@@ -74,6 +76,8 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_HTTPS_RESPONSE_REWRITE_SCRIPT_DEFERRED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CONNECT_TLS_BLOCKED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_HTTP_VERSION_UNSUPPORTED_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE,
@@ -94,8 +98,8 @@ use engine_native::{
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_TERMINATION_PLAN_READY_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_UPSTREAM_CONFIG_READY_CODE,
     ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_DEFERRED_CODE,
-    ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_EXECUTED_CODE, ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE,
-    ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
+    ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_EXECUTED_CODE, ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_FAILED_CODE,
+    ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE, ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_ENDPOINT_INVALID_CODE,
     ENGINE_NATIVE_RUNTIME_OUTBOUND_UNSUPPORTED_CODE, ENGINE_NATIVE_RUNTIME_RELEASED_CODE,
     ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE,
@@ -1433,6 +1437,7 @@ fn node_script_executor_runs_explicit_local_asset_with_persistent_store() {
         runner_path,
         script_assets,
         persistent_store_path: Some(root.join("store.json").display().to_string()),
+        sandbox: NativeNodeScriptSandbox::Unrestricted,
         max_timeout_ms: 5000,
         max_body_bytes: 4096,
     });
@@ -1515,6 +1520,7 @@ fn node_script_executor_runs_explicit_local_asset_with_persistent_store() {
         runner_path: executor.config().runner_path.clone(),
         script_assets: BTreeMap::new(),
         persistent_store_path: None,
+        sandbox: NativeNodeScriptSandbox::Unrestricted,
         max_timeout_ms: 1000,
         max_body_bytes: 1024,
     })
@@ -1557,6 +1563,7 @@ fn native_http_mitm_hook_applies_locally_mapped_script_dispatch() {
             runner_path,
             script_assets,
             persistent_store_path: Some(root.join("store.json").display().to_string()),
+            sandbox: NativeNodeScriptSandbox::Unrestricted,
             max_timeout_ms: 5000,
             max_body_bytes: 4096,
         },
@@ -1579,6 +1586,7 @@ fn native_http_mitm_hook_applies_locally_mapped_script_dispatch() {
     assert!(report.applied);
     assert!(report.script_dispatch_executed);
     assert!(!report.script_dispatch_deferred);
+    assert!(!report.script_dispatch_failed);
     assert!(String::from_utf8(report.body)
         .expect("script hook body should remain UTF-8")
         .contains("requestRuntime"));
@@ -1588,6 +1596,62 @@ fn native_http_mitm_hook_applies_locally_mapped_script_dispatch() {
     );
 
     std::fs::remove_dir_all(&root).expect("script hook test directory should be removed");
+}
+
+#[test]
+fn native_http_mitm_hook_fails_open_when_local_script_runner_cannot_start() {
+    let script_url = "https://scripts.networkcore.test/runner-unavailable.js".to_string();
+    let mut script_assets = BTreeMap::new();
+    script_assets.insert(
+        script_url.clone(),
+        format!(
+            "{}/../../third_party/mitm_anixops/mitm_anixops/tests/fixtures/runner_replay_script.js",
+            env!("CARGO_MANIFEST_DIR")
+        ),
+    );
+    let hook = NativeHttpMitmPluginHook::new(
+        plugin_instance("networkcore.script"),
+        Arc::new(ScriptDispatchingMitmPluginService { script_url }),
+    )
+    .with_node_script_executor(NativeNodeScriptExecutor::new(
+        NativeNodeScriptRuntimeConfig {
+            node_binary: "networkcore-node-runner-unavailable".to_string(),
+            runner_path: format!(
+                "{}/../../third_party/mitm_anixops/mitm_anixops/e2e/script_runtime/anixops_runner.js",
+                env!("CARGO_MANIFEST_DIR")
+            ),
+            script_assets,
+            persistent_store_path: None,
+            sandbox: NativeNodeScriptSandbox::Unrestricted,
+            max_timeout_ms: 1000,
+            max_body_bytes: 4096,
+        },
+    ));
+    let message = NativePlainHttpMessage {
+        request_id: "node-runtime-runner-unavailable".to_string(),
+        url: "https://api.networkcore.test/v1".to_string(),
+        method: Some("POST".to_string()),
+        phase: HttpMitmPhase::Request,
+        status_code: None,
+        headers: vec![MetadataEntry {
+            key: "Content-Type".to_string(),
+            value: "application/json".to_string(),
+        }],
+        body: b"{}".to_vec(),
+    };
+
+    let report = hook.plan_plain_http(&message);
+
+    assert!(!report.applied);
+    assert!(!report.script_dispatch_executed);
+    assert!(!report.script_dispatch_deferred);
+    assert!(report.script_dispatch_failed);
+    assert_eq!(report.headers, message.headers);
+    assert_eq!(report.body, message.body);
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_FAILED_CODE,
+    );
 }
 
 #[test]
@@ -1675,6 +1739,105 @@ fn plain_http_proxy_request_parser_maps_absolute_form_to_native_plain_http_messa
     assert_diagnostic(
         &report.diagnostics,
         ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_CODE,
+    );
+}
+
+#[test]
+fn plain_http_proxy_request_parser_decodes_bounded_chunked_body_and_trailers() {
+    let mut request = Cursor::new(
+        b"POST http://example.com/upload HTTP/1.1\r\nHost: example.com\r\nTransfer-Encoding: chunked\r\n\r\n4;part=one\r\nbody\r\n0\r\nX-Trailer: complete\r\n\r\n"
+            .to_vec(),
+    );
+
+    let report = read_explicit_http_proxy_request(&mut request);
+    let parsed = report
+        .request
+        .expect("chunked explicit HTTP proxy request should parse");
+
+    assert_eq!(parsed.body, b"body".to_vec());
+    assert!(report.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_CODE
+    }));
+}
+
+#[test]
+fn plain_http_proxy_request_parser_rejects_http2_request_lines() {
+    let mut request =
+        Cursor::new(b"GET http://example.com/ HTTP/2.0\r\nHost: example.com\r\n\r\n".to_vec());
+
+    let report = read_explicit_http_proxy_request(&mut request);
+
+    assert!(report.request.is_none());
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_HTTP_VERSION_UNSUPPORTED_CODE,
+    );
+}
+
+#[test]
+fn plain_http_proxy_request_parser_rejects_ambiguous_chunked_content_length() {
+    let mut request = Cursor::new(
+        b"POST http://example.com/upload HTTP/1.1\r\nHost: example.com\r\nContent-Length: 4\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nbody\r\n0\r\n\r\n"
+            .to_vec(),
+    );
+
+    let report = read_explicit_http_proxy_request(&mut request);
+
+    assert!(report.request.is_none());
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_INVALID_CODE,
+    );
+}
+
+#[test]
+fn plain_http_proxy_request_parser_rejects_malformed_transfer_coding_and_forbidden_trailer() {
+    let mut malformed = Cursor::new(
+        b"POST http://example.com/upload HTTP/1.1\r\nHost: example.com\r\nTransfer-Encoding: chunked,\r\n\r\n0\r\n\r\n"
+            .to_vec(),
+    );
+    assert!(read_explicit_http_proxy_request(&mut malformed)
+        .request
+        .is_none());
+
+    let mut forbidden_trailer = Cursor::new(
+        b"POST http://example.com/upload HTTP/1.1\r\nHost: example.com\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nContent-Length: 0\r\n\r\n"
+            .to_vec(),
+    );
+    assert!(read_explicit_http_proxy_request(&mut forbidden_trailer)
+        .request
+        .is_none());
+}
+
+#[test]
+fn plain_http_proxy_response_parser_decodes_chunked_body() {
+    let mut response = Cursor::new(
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nContent-Type: text/plain\r\n\r\n3\r\none\r\n3\r\ntwo\r\n0\r\n\r\n"
+            .to_vec(),
+    );
+
+    let report = read_plain_http_proxy_response(&mut response);
+    let parsed = report
+        .response
+        .expect("chunked upstream HTTP response should parse");
+
+    assert_eq!(parsed.body, b"onetwo".to_vec());
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_RESPONSE_READ_CODE,
+    );
+}
+
+#[test]
+fn plain_http_proxy_response_parser_rejects_http2_status_lines() {
+    let mut response = Cursor::new(b"HTTP/2.0 200 OK\r\nContent-Length: 0\r\n\r\n".to_vec());
+
+    let report = read_plain_http_proxy_response(&mut response);
+
+    assert!(report.response.is_none());
+    assert_diagnostic(
+        &report.diagnostics,
+        ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_HTTP_VERSION_UNSUPPORTED_CODE,
     );
 }
 
@@ -1870,6 +2033,14 @@ fn controlled_tls_server_config_performs_authenticated_handshake_and_decrypts_re
 
     assert!(server_config_report.server_config_ready);
     assert_eq!(server_config_report.authority, "example.com");
+    assert_eq!(
+        server_config_report
+            .server_config
+            .as_ref()
+            .expect("downstream server config should be available")
+            .alpn_protocols,
+        vec![b"http/1.1".to_vec()]
+    );
     assert_diagnostic(
         &server_config_report.diagnostics,
         ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_SERVER_CONFIG_READY_CODE,
@@ -1990,7 +2161,14 @@ fn controlled_tls_upstream_client_config_uses_web_pki_roots() {
     let client_config_report = build_controlled_tls_upstream_client_config();
 
     assert!(client_config_report.client_config_ready);
-    assert!(client_config_report.client_config.is_some());
+    assert_eq!(
+        client_config_report
+            .client_config
+            .as_ref()
+            .expect("upstream client config should be available")
+            .alpn_protocols,
+        vec![b"http/1.1".to_vec()]
+    );
     assert_diagnostic(
         &client_config_report.diagnostics,
         ENGINE_NATIVE_RUNTIME_HTTP_PROXY_TLS_UPSTREAM_CONFIG_READY_CODE,
@@ -2415,6 +2593,7 @@ fn plain_http_proxy_request_rewrite_serializes_origin_form_for_upstream() {
         body: application.body,
         script_dispatch_deferred: application.script_dispatch_deferred,
         script_dispatch_executed: false,
+        script_dispatch_failed: false,
         audits: Vec::new(),
         diagnostics: application.diagnostics,
     };
@@ -2470,6 +2649,7 @@ fn plain_http_proxy_response_header_and_body_rewrite_returns_modified_response()
         body: b"response-new".to_vec(),
         script_dispatch_deferred: false,
         script_dispatch_executed: false,
+        script_dispatch_failed: false,
         audits: Vec::new(),
         diagnostics: Vec::new(),
     };
@@ -4407,6 +4587,132 @@ fn service_start_owns_runtime_state_for_status_events_and_stop() {
     let rebound = TcpListener::bind(("127.0.0.1", port))
         .expect("service stop should free the loopback tcp port");
     drop(rebound);
+}
+
+#[test]
+fn service_reload_replaces_the_current_process_runtime() {
+    let initial_port = unused_loopback_port();
+    let replacement_port = unused_loopback_port();
+    let service = NativeProxyEngineService::new();
+    let initial_config = graph_config(
+        DEFAULT_NATIVE_ENGINE_ID,
+        vec![node()],
+        Vec::new(),
+        vec![local_tcp_listener_with_bind(
+            "reload-initial-loopback",
+            "127.0.0.1",
+            initial_port,
+            ListenerRoute::DefaultAction(RouteAction::Proxy {
+                node_id: "node-1".to_string(),
+            }),
+        )],
+        Vec::new(),
+    );
+    let replacement_config = graph_config(
+        DEFAULT_NATIVE_ENGINE_ID,
+        vec![node()],
+        Vec::new(),
+        vec![local_tcp_listener_with_bind(
+            "reload-replacement-loopback",
+            "127.0.0.1",
+            replacement_port,
+            ListenerRoute::DefaultAction(RouteAction::Proxy {
+                node_id: "node-1".to_string(),
+            }),
+        )],
+        Vec::new(),
+    );
+
+    service
+        .start(&initial_config)
+        .expect("initial native runtime should start");
+
+    let reloaded = service
+        .reload(&replacement_config)
+        .expect("native runtime should replace its listener during reload");
+
+    assert_eq!(reloaded.state, ProxyEngineLifecycleState::Running);
+    assert_diagnostic(&reloaded.diagnostics, ENGINE_NATIVE_RELOAD_RUNNING_CODE);
+    let rebound_initial = TcpListener::bind(("127.0.0.1", initial_port))
+        .expect("reload should release the initial loopback listener");
+    drop(rebound_initial);
+
+    let events = service
+        .events(DEFAULT_NATIVE_ENGINE_ID)
+        .expect("reload events should be inspectable");
+    assert_eq!(
+        events.last().map(|event| event.kind),
+        Some(ProxyEngineEventKind::Reloaded)
+    );
+
+    service
+        .stop(DEFAULT_NATIVE_ENGINE_ID)
+        .expect("reloaded runtime should stop");
+    let rebound_replacement = TcpListener::bind(("127.0.0.1", replacement_port))
+        .expect("stopping reloaded runtime should release replacement listener");
+    drop(rebound_replacement);
+}
+
+#[test]
+fn service_reload_restores_the_previous_runtime_when_replacement_start_fails() {
+    let initial_port = unused_loopback_port();
+    let occupied_listener = TcpListener::bind(("127.0.0.1", 0))
+        .expect("test should reserve a replacement loopback port");
+    let occupied_port = occupied_listener
+        .local_addr()
+        .expect("reserved listener should expose its address")
+        .port();
+    let service = NativeProxyEngineService::new();
+    let initial_config = graph_config(
+        DEFAULT_NATIVE_ENGINE_ID,
+        vec![node()],
+        Vec::new(),
+        vec![local_tcp_listener_with_bind(
+            "reload-rollback-initial-loopback",
+            "127.0.0.1",
+            initial_port,
+            ListenerRoute::DefaultAction(RouteAction::Proxy {
+                node_id: "node-1".to_string(),
+            }),
+        )],
+        Vec::new(),
+    );
+    let blocked_config = graph_config(
+        DEFAULT_NATIVE_ENGINE_ID,
+        vec![node()],
+        Vec::new(),
+        vec![local_tcp_listener_with_bind(
+            "reload-rollback-blocked-loopback",
+            "127.0.0.1",
+            occupied_port,
+            ListenerRoute::DefaultAction(RouteAction::Proxy {
+                node_id: "node-1".to_string(),
+            }),
+        )],
+        Vec::new(),
+    );
+
+    service
+        .start(&initial_config)
+        .expect("initial native runtime should start");
+
+    let error = service
+        .reload(&blocked_config)
+        .expect_err("reload should reject a listener that cannot bind");
+
+    assert_eq!(error.code, ENGINE_NATIVE_RELOAD_FAILED_CODE);
+    let status = service
+        .status(DEFAULT_NATIVE_ENGINE_ID)
+        .expect("rollback should restore a queryable native runtime");
+    assert_eq!(status.state, ProxyEngineLifecycleState::Running);
+
+    service
+        .stop(DEFAULT_NATIVE_ENGINE_ID)
+        .expect("restored native runtime should stop");
+    let rebound_initial = TcpListener::bind(("127.0.0.1", initial_port))
+        .expect("rollback runtime stop should release its initial listener");
+    drop(rebound_initial);
+    drop(occupied_listener);
 }
 
 #[test]

@@ -10,8 +10,8 @@ use control_domain::{
     HttpMitmOutcome, HttpMitmPhase, HttpMitmScriptDispatch, HttpMitmScriptKind, ListenerDescriptor,
     ListenerKind, ListenerNetwork, ListenerRoute, MetadataEntry, MitmPluginService, NodeDescriptor,
     PluginInstance, Protocol, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
-    ProxyEngineEventKind, ProxyEngineKind, ProxyEngineLifecycleState, ProxyEngineService,
-    ProxyEngineStatus, RouteAction, RuleSet,
+    ProxyEngineEventKind, ProxyEngineHealthReport, ProxyEngineKind, ProxyEngineLifecycleState,
+    ProxyEngineRollbackRequest, ProxyEngineService, ProxyEngineStatus, RouteAction, RuleSet,
 };
 use rcgen::{
     CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, Issuer, KeyPair,
@@ -21,6 +21,7 @@ use rustls::{
     ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection, StreamOwned,
 };
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io::{ErrorKind, Read, Write};
@@ -69,6 +70,10 @@ pub const ENGINE_NATIVE_START_SERVICE_RUNTIME_OWNER_MISSING_CODE: &str =
 pub const ENGINE_NATIVE_START_RUNNING_CODE: &str = "engine.native.start.running";
 pub const ENGINE_NATIVE_START_BIND_FAILED_CODE: &str = "engine.native.start.bind_failed";
 pub const ENGINE_NATIVE_START_LIFECYCLE_FAILED_CODE: &str = "engine.native.start.lifecycle_failed";
+pub const ENGINE_NATIVE_RELOAD_RUNTIME_MISSING_CODE: &str = "engine.native.reload.runtime_missing";
+pub const ENGINE_NATIVE_RELOAD_RUNNING_CODE: &str = "engine.native.reload.running";
+pub const ENGINE_NATIVE_RELOAD_FAILED_CODE: &str = "engine.native.reload.failed";
+pub const ENGINE_NATIVE_RELOAD_ROLLBACK_FAILED_CODE: &str = "engine.native.reload.rollback_failed";
 pub const ENGINE_NATIVE_RUNTIME_LISTENER_DISABLED_CODE: &str =
     "engine.native.runtime.listener_disabled";
 pub const ENGINE_NATIVE_RUNTIME_LISTENER_NON_LOOPBACK_CODE: &str =
@@ -220,6 +225,8 @@ pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_CODE: &str =
     "engine.native.runtime.http_proxy_plain_request_read";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_INVALID_CODE: &str =
     "engine.native.runtime.http_proxy_plain_request_invalid";
+pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_HTTP_VERSION_UNSUPPORTED_CODE: &str =
+    "engine.native.runtime.http_proxy_plain_http_version_unsupported";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REQUEST_READ_FAILED_CODE: &str =
     "engine.native.runtime.http_proxy_plain_request_read_failed";
 pub const ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CONNECT_TLS_BLOCKED_CODE: &str =
@@ -326,11 +333,14 @@ const TLS_CLIENT_HELLO_OBSERVATION_TIMEOUT_MS: u64 = 1000;
 const TLS_CLIENT_HELLO_OBSERVATION_POLL_MS: u64 = 5;
 const CONTROLLED_TLS_SESSION_TIMEOUT_MS: u64 = 15_000;
 const CONTROLLED_TLS_SOCKET_READ_TIMEOUT_MS: u64 = 1000;
+const CONTROLLED_TLS_MAX_HTTP_EXCHANGES: usize = 4;
 const MAX_CONCURRENT_ACCEPTED_CONNECTIONS: usize = 64;
 const HTTP_PROXY_MAX_HEADER_BYTES: usize = 16 * 1024;
 const HTTP_PROXY_MAX_BODY_BYTES: usize = 64 * 1024;
 const SCRIPT_RUNTIME_DEFAULT_TIMEOUT_MS: usize = 5000;
 const SCRIPT_RUNTIME_HARD_MAX_TIMEOUT_MS: usize = 30_000;
+#[cfg(target_os = "linux")]
+const SCRIPT_RUNTIME_V8_MAX_OLD_SPACE_MIB: usize = 64;
 static SCRIPT_RUNTIME_TEMP_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
 
 struct NativeBoundedRead<'a, R> {
@@ -731,12 +741,21 @@ pub struct NativeLoopbackTcpAcceptLoopShutdownReport {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeNodeScriptSandbox {
+    Disabled,
+    LinuxNoNetwork,
+    /// Reserved for isolated test fixtures; product entrypoints must not select it.
+    Unrestricted,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeNodeScriptRuntimeConfig {
     pub node_binary: String,
     pub runner_path: String,
     pub script_assets: BTreeMap<String, String>,
     pub persistent_store_path: Option<String>,
+    pub sandbox: NativeNodeScriptSandbox,
     pub max_timeout_ms: usize,
     pub max_body_bytes: usize,
 }
@@ -755,15 +774,34 @@ pub struct NativeHttpScriptExecutionReport {
 #[derive(Debug, Clone)]
 pub struct NativeNodeScriptExecutor {
     config: NativeNodeScriptRuntimeConfig,
+    script_asset_hashes: BTreeMap<String, String>,
 }
 
 impl NativeNodeScriptExecutor {
     pub fn new(config: NativeNodeScriptRuntimeConfig) -> Self {
-        Self { config }
+        let script_asset_hashes = config
+            .script_assets
+            .iter()
+            .filter_map(|(url, path)| {
+                script_asset_sha256(std::path::Path::new(path)).map(|hash| (url.clone(), hash))
+            })
+            .collect();
+        Self {
+            config,
+            script_asset_hashes,
+        }
     }
 
     pub fn config(&self) -> &NativeNodeScriptRuntimeConfig {
         &self.config
+    }
+
+    pub fn script_asset_hashes(&self) -> &BTreeMap<String, String> {
+        &self.script_asset_hashes
+    }
+
+    pub fn sandbox(&self) -> &NativeNodeScriptSandbox {
+        &self.config.sandbox
     }
 
     pub fn execute(
@@ -796,6 +834,22 @@ impl NativeNodeScriptExecutor {
                 "native HTTP script dispatch has no explicitly configured local script asset",
             );
         };
+        let Some(expected_hash) = self.script_asset_hashes.get(&dispatch.script_path) else {
+            return script_execution_deferred(
+                "native HTTP script runtime could not record the mapped local script asset hash",
+            );
+        };
+        let asset_path = std::path::Path::new(script_asset_path);
+        let Some(actual_hash) = script_asset_sha256(asset_path) else {
+            return script_execution_deferred(
+                "native HTTP script runtime mapped local script asset is unavailable or unsafe",
+            );
+        };
+        if actual_hash != *expected_hash {
+            return script_execution_deferred(
+                "native HTTP script runtime mapped local script asset changed after authorization",
+            );
+        }
         if self.config.node_binary.trim().is_empty()
             || self.config.runner_path.trim().is_empty()
             || script_asset_path.trim().is_empty()
@@ -843,7 +897,11 @@ impl NativeNodeScriptExecutor {
         };
         let timeout_ms = bounded_script_timeout(dispatch.timeout_ms, self.config.max_timeout_ms);
         let execution_timeout = Duration::from_millis(timeout_ms as u64);
-        let mut command = Command::new(&self.config.node_binary);
+        let Some(mut command) = self.node_command(script_asset_path, body_path) else {
+            return script_execution_deferred(
+                "native HTTP script runtime is disabled or its sandbox could not be configured",
+            );
+        };
         command
             .arg(&self.config.runner_path)
             .arg("--script")
@@ -982,6 +1040,76 @@ impl NativeNodeScriptExecutor {
             )],
         }
     }
+
+    fn node_command(
+        &self,
+        script_asset_path: &str,
+        body_path: &std::path::Path,
+    ) -> Option<Command> {
+        match self.config.sandbox {
+            NativeNodeScriptSandbox::Disabled => None,
+            NativeNodeScriptSandbox::Unrestricted => Some(Command::new(&self.config.node_binary)),
+            NativeNodeScriptSandbox::LinuxNoNetwork => {
+                #[cfg(target_os = "linux")]
+                {
+                    let body_path = body_path.to_str()?;
+                    let read_paths = [
+                        self.config.runner_path.as_str(),
+                        script_asset_path,
+                        body_path,
+                    ]
+                    .iter()
+                    .map(|path| std::fs::canonicalize(path).ok())
+                    .collect::<Option<Vec<_>>>()?;
+                    let read_paths = read_paths
+                        .iter()
+                        .map(|path| path.to_str())
+                        .collect::<Option<Vec<_>>>()?;
+                    if read_paths.iter().any(|path| path.contains(',')) {
+                        return None;
+                    }
+                    let mut command = Command::new("unshare");
+                    command
+                        .arg("--user")
+                        .arg("--map-root-user")
+                        .arg("--net")
+                        .arg("--mount-proc")
+                        .arg("--kill-child")
+                        .arg("--")
+                        .arg(&self.config.node_binary)
+                        .arg("--experimental-permission")
+                        .arg(format!(
+                            "--max-old-space-size={SCRIPT_RUNTIME_V8_MAX_OLD_SPACE_MIB}"
+                        ))
+                        .arg(format!("--allow-fs-read={}", read_paths.join(",")));
+                    Some(command)
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    let _ = (script_asset_path, body_path);
+                    None
+                }
+            }
+        }
+    }
+}
+
+fn script_asset_sha256(path: &std::path::Path) -> Option<String> {
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+    if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+        return None;
+    }
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut hash = Sha256::new();
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let count = file.read(&mut buffer).ok()?;
+        if count == 0 {
+            break;
+        }
+        hash.update(&buffer[..count]);
+    }
+    Some(format!("{:x}", hash.finalize()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1018,6 +1146,12 @@ impl NativeHttpMitmPluginHook {
 
     pub fn script_executor_enabled(&self) -> bool {
         self.script_executor.is_some()
+    }
+
+    pub fn script_sandbox(&self) -> Option<NativeNodeScriptSandbox> {
+        self.script_executor
+            .as_ref()
+            .map(|executor| *executor.sandbox())
     }
 
     pub fn plugin_instance(&self) -> &PluginInstance {
@@ -1099,11 +1233,20 @@ fn apply_node_script_dispatch_to_plain_http_rewrite_report(
     let execution = script_executor.execute(dispatch, &script_message);
     report.diagnostics.extend(execution.diagnostics.clone());
     if !execution.executed {
+        report.script_dispatch_deferred = execution
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_DEFERRED_CODE);
+        report.script_dispatch_failed = execution
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_FAILED_CODE);
         return;
     }
 
     report.script_dispatch_executed = true;
     report.script_dispatch_deferred = false;
+    report.script_dispatch_failed = false;
     if let Some(url) = execution.url {
         if script_url_mutation_preserves_authority(&report.url, &url) {
             report.url = url;
@@ -1642,6 +1785,7 @@ pub struct NativePlainHttpRewriteReport {
     pub body: Vec<u8>,
     pub script_dispatch_deferred: bool,
     pub script_dispatch_executed: bool,
+    pub script_dispatch_failed: bool,
     pub audits: Vec<AuditEvent>,
     pub diagnostics: Vec<Diagnostic>,
 }
@@ -3440,6 +3584,7 @@ pub fn plan_and_apply_plain_http_mitm(
                 body: application.body,
                 script_dispatch_deferred: application.script_dispatch_deferred,
                 script_dispatch_executed: false,
+                script_dispatch_failed: false,
                 audits,
                 diagnostics,
             }
@@ -3465,6 +3610,7 @@ pub fn plan_and_apply_plain_http_mitm(
                 body: message.body.clone(),
                 script_dispatch_deferred: false,
                 script_dispatch_executed: false,
+                script_dispatch_failed: false,
                 audits: Vec::new(),
                 diagnostics,
             }
@@ -3656,18 +3802,17 @@ where
             "native explicit HTTP proxy request line is invalid",
         );
     }
-    let body_len = match http_content_length(&headers, HTTP_PROXY_MAX_BODY_BYTES) {
-        Ok(body_len) => body_len,
+    if version != "HTTP/1.0" && version != "HTTP/1.1" {
+        return explicit_http_proxy_request_http_version_unsupported();
+    }
+    let body = match read_http_body(reader, &headers, HTTP_PROXY_MAX_BODY_BYTES) {
+        Ok(body) => body,
         Err(()) => {
             return explicit_http_proxy_request_invalid(
-                "native explicit HTTP proxy request body framing is unsupported",
+                "native explicit HTTP proxy request body framing is unsupported or exceeds the limit",
             );
         }
     };
-    let mut body = vec![0_u8; body_len];
-    if body_len > 0 && reader.read_exact(&mut body).is_err() {
-        return explicit_http_proxy_request_read_failed();
-    }
     let Some(parsed_target) = parse_explicit_http_proxy_target(method, target, &headers) else {
         return explicit_http_proxy_request_invalid(
             "native explicit HTTP proxy request target is unsupported",
@@ -3798,15 +3943,14 @@ where
     if !version.starts_with("HTTP/") {
         return plain_http_proxy_response_read_failed();
     }
+    if version != "HTTP/1.0" && version != "HTTP/1.1" {
+        return plain_http_proxy_response_http_version_unsupported();
+    }
     let reason_phrase = status_parts.next().unwrap_or("").to_string();
-    let body_len = match http_content_length(&headers, HTTP_PROXY_MAX_BODY_BYTES) {
-        Ok(body_len) => body_len,
+    let body = match read_http_body(reader, &headers, HTTP_PROXY_MAX_BODY_BYTES) {
+        Ok(body) => body,
         Err(()) => return plain_http_proxy_response_read_failed(),
     };
-    let mut body = vec![0_u8; body_len];
-    if body_len > 0 && reader.read_exact(&mut body).is_err() {
-        return plain_http_proxy_response_read_failed();
-    }
 
     NativePlainHttpProxyResponseReadReport {
         response: Some(NativePlainHttpProxyResponse {
@@ -3835,6 +3979,18 @@ pub fn serialize_explicit_http_proxy_request_for_upstream(
     request: &NativeExplicitHttpProxyRequest,
     rewrite_report: &NativePlainHttpRewriteReport,
 ) -> Vec<u8> {
+    serialize_explicit_http_proxy_request_for_upstream_with_connection(
+        request,
+        rewrite_report,
+        true,
+    )
+}
+
+fn serialize_explicit_http_proxy_request_for_upstream_with_connection(
+    request: &NativeExplicitHttpProxyRequest,
+    rewrite_report: &NativePlainHttpRewriteReport,
+    close_connection: bool,
+) -> Vec<u8> {
     let origin_path = parse_script_absolute_url(&rewrite_report.url)
         .filter(|(_, target)| {
             target
@@ -3844,19 +4000,29 @@ pub fn serialize_explicit_http_proxy_request_for_upstream(
         })
         .map(|(_, target)| target.origin_path)
         .unwrap_or_else(|| request.origin_path.clone());
+    let had_body_framing = request.headers.iter().any(|header| {
+        header.key.eq_ignore_ascii_case("Content-Length")
+            || header.key.eq_ignore_ascii_case("Transfer-Encoding")
+    });
     let mut headers = rewrite_report.headers.clone();
     headers.retain(|header| !header.key.eq_ignore_ascii_case("Proxy-Connection"));
+    remove_plain_http_header(&mut headers, "Transfer-Encoding");
+    remove_plain_http_header(&mut headers, "Content-Length");
     set_plain_http_header(
         &mut headers,
         "Host",
         &http_host_header_authority(&request.target_host, request.target_port),
     );
-    set_plain_http_header(&mut headers, "Connection", "close");
-    if !rewrite_report.body.is_empty()
-        || headers
-            .iter()
-            .any(|header| header.key.eq_ignore_ascii_case("Content-Length"))
-    {
+    set_plain_http_header(
+        &mut headers,
+        "Connection",
+        if close_connection {
+            "close"
+        } else {
+            "keep-alive"
+        },
+    );
+    if !rewrite_report.body.is_empty() || had_body_framing {
         set_plain_http_header(
             &mut headers,
             "Content-Length",
@@ -3876,12 +4042,31 @@ pub fn serialize_plain_http_proxy_response(
     version: &str,
     rewrite_report: &NativePlainHttpRewriteReport,
 ) -> Vec<u8> {
+    serialize_plain_http_proxy_response_with_connection(version, rewrite_report, true)
+}
+
+fn serialize_plain_http_proxy_response_with_connection(
+    version: &str,
+    rewrite_report: &NativePlainHttpRewriteReport,
+    close_connection: bool,
+) -> Vec<u8> {
     let status_code = rewrite_report.final_status_code.unwrap_or(200);
     let mut headers = rewrite_report.headers.clone();
     if let Some(location) = &rewrite_report.redirect_location {
         set_plain_http_header(&mut headers, "Location", location);
     }
-    set_plain_http_header(&mut headers, "Connection", "close");
+    remove_plain_http_header(&mut headers, "Transfer-Encoding");
+    remove_plain_http_header(&mut headers, "Content-Length");
+    remove_plain_http_header(&mut headers, "Connection");
+    set_plain_http_header(
+        &mut headers,
+        "Connection",
+        if close_connection {
+            "close"
+        } else {
+            "keep-alive"
+        },
+    );
     set_plain_http_header(
         &mut headers,
         "Content-Length",
@@ -4375,9 +4560,15 @@ impl NativeRuntimeAssembly {
     }
 }
 
+#[derive(Debug)]
+struct NativeManagedRuntime {
+    handle: NativeRuntimeHandle,
+    config: ProxyEngineConfig,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct NativeProxyEngineService {
-    runtime: Arc<Mutex<Option<NativeRuntimeHandle>>>,
+    runtime: Arc<Mutex<Option<NativeManagedRuntime>>>,
     lifecycle_events: Arc<Mutex<Vec<ProxyEngineEvent>>>,
     http_mitm_hook: Option<NativeHttpMitmPluginHook>,
     tls_mitm_ca_material: Option<NativeTlsMitmCaMaterial>,
@@ -4413,9 +4604,15 @@ impl NativeProxyEngineService {
         }
     }
 
+    pub fn http_mitm_script_sandbox(&self) -> Option<NativeNodeScriptSandbox> {
+        self.http_mitm_hook
+            .as_ref()
+            .and_then(NativeHttpMitmPluginHook::script_sandbox)
+    }
+
     fn runtime_state(
         &self,
-    ) -> DomainResult<std::sync::MutexGuard<'_, Option<NativeRuntimeHandle>>> {
+    ) -> DomainResult<std::sync::MutexGuard<'_, Option<NativeManagedRuntime>>> {
         self.runtime.lock().map_err(|_| lifecycle_state_error())
     }
 
@@ -4434,6 +4631,27 @@ impl NativeProxyEngineService {
 
         self.lifecycle_event_state()?.extend(events);
         Ok(())
+    }
+
+    fn start_runtime_handle(
+        &self,
+        engine_config: &ProxyEngineConfig,
+    ) -> DomainResult<NativeRuntimeHandle> {
+        let plan = NativeRuntimeAssemblyPlan::from_config(engine_config)?;
+        let assembly = match plan
+            .start_loopback_accept_loop_with_http_mitm_hook_and_tls_mitm_ca_material(
+                self.http_mitm_hook.clone(),
+                self.tls_mitm_ca_material.clone(),
+            ) {
+            Ok(assembly) => assembly,
+            Err(failure) => {
+                let NativeRuntimeStartupFailure { error, release } = *failure;
+                self.record_events(release.events)?;
+                return Err(error);
+            }
+        };
+
+        assembly.finish()
     }
 }
 
@@ -4531,48 +4749,150 @@ impl ProxyEngineService for NativeProxyEngineService {
         {
             let runtime = self.runtime_state()?;
             if let Some(runtime) = runtime.as_ref() {
-                return Ok(running_status(runtime));
+                return Ok(running_status(&runtime.handle));
             }
         }
 
-        let plan = NativeRuntimeAssemblyPlan::from_config(engine_config)?;
-        let assembly = match plan
-            .start_loopback_accept_loop_with_http_mitm_hook_and_tls_mitm_ca_material(
-                self.http_mitm_hook.clone(),
-                self.tls_mitm_ca_material.clone(),
-            ) {
-            Ok(assembly) => assembly,
-            Err(failure) => {
-                let NativeRuntimeStartupFailure { error, release } = *failure;
-                let _ = self.record_events(release.events);
-                return Err(error);
-            }
-        };
-        let handle = assembly.finish()?;
+        let handle = self.start_runtime_handle(engine_config)?;
         let status = running_status(&handle);
         let start_events = handle.events().to_vec();
 
         let mut runtime = self.runtime_state()?;
         if let Some(existing_runtime) = runtime.as_ref() {
-            let status = running_status(existing_runtime);
+            let status = running_status(&existing_runtime.handle);
             drop(runtime);
             let _ = handle.release();
             return Ok(status);
         }
 
         self.lifecycle_event_state()?.extend(start_events);
-        *runtime = Some(handle);
+        *runtime = Some(NativeManagedRuntime {
+            handle,
+            config: engine_config.clone(),
+        });
 
         Ok(status)
     }
 
     fn reload(&self, engine_config: &ProxyEngineConfig) -> DomainResult<ProxyEngineStatus> {
         ensure_native_engine_id(&engine_config.engine_id)?;
+        let readiness = assess_native_proxy_engine_start_readiness(engine_config);
+        if readiness.readiness == NativeProxyEngineStartReadiness::Blocked {
+            let diagnostic = readiness
+                .diagnostics
+                .into_iter()
+                .find(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+                .unwrap_or_else(|| {
+                    engine_diagnostic(
+                        DiagnosticSeverity::Error,
+                        ENGINE_NATIVE_RELOAD_FAILED_CODE,
+                        "native proxy runtime reload configuration is unavailable",
+                        SOURCE_ENGINE_NATIVE_LIFECYCLE,
+                    )
+                });
+            return Err(domain_error(diagnostic.code, diagnostic.message));
+        }
 
-        Err(domain_error(
-            ENGINE_NATIVE_START_RUNTIME_UNAVAILABLE_CODE,
-            "native proxy runtime service lifecycle is not wired yet",
-        ))
+        let previous = {
+            let mut runtime = self.runtime_state()?;
+            runtime.take()
+        };
+        let Some(previous) = previous else {
+            return Err(domain_error(
+                ENGINE_NATIVE_RELOAD_RUNTIME_MISSING_CODE,
+                "native proxy runtime reload requires a running current-process runtime",
+            ));
+        };
+
+        let previous_config = previous.config;
+        let release = previous.handle.release();
+        if let Some(event) = release.events.last().cloned() {
+            self.record_events(vec![event])?;
+        }
+
+        match self.start_runtime_handle(engine_config) {
+            Ok(handle) => {
+                let start_events = handle.events().to_vec();
+                let status = reloaded_status(&handle);
+                *self.runtime_state()? = Some(NativeManagedRuntime {
+                    handle,
+                    config: engine_config.clone(),
+                });
+                self.record_events(start_events)?;
+                self.record_events(vec![runtime_event(
+                    &engine_config.engine_id,
+                    ProxyEngineEventKind::Reloaded,
+                    vec![engine_diagnostic(
+                        DiagnosticSeverity::Info,
+                        ENGINE_NATIVE_RELOAD_RUNNING_CODE,
+                        "native proxy runtime reloaded in the current process",
+                        SOURCE_ENGINE_NATIVE_LIFECYCLE,
+                    )],
+                )])?;
+                Ok(status)
+            }
+            Err(_) => match self.start_runtime_handle(&previous_config) {
+                Ok(handle) => {
+                    let rollback_events = handle.events().to_vec();
+                    *self.runtime_state()? = Some(NativeManagedRuntime {
+                        handle,
+                        config: previous_config,
+                    });
+                    self.record_events(rollback_events)?;
+                    Err(domain_error(
+                        ENGINE_NATIVE_RELOAD_FAILED_CODE,
+                        "native proxy runtime reload failed; previous configuration was restored",
+                    ))
+                }
+                Err(_) => Err(domain_error(
+                    ENGINE_NATIVE_RELOAD_ROLLBACK_FAILED_CODE,
+                    "native proxy runtime reload failed and previous configuration could not be restored",
+                )),
+            },
+        }
+    }
+
+    fn rollback(&self, request: &ProxyEngineRollbackRequest) -> DomainResult<ProxyEngineStatus> {
+        ensure_native_engine_id(&request.snapshot.engine_id)?;
+        if request.snapshot.engine_id != request.snapshot.config.engine_id {
+            return Err(domain_error(
+                ENGINE_NATIVE_RELOAD_ROLLBACK_FAILED_CODE,
+                "native proxy rollback snapshot engine identity is inconsistent",
+            ));
+        }
+
+        let current = self.status(&request.snapshot.engine_id)?;
+        if current.state != request.expected_state {
+            return Err(domain_error(
+                ENGINE_NATIVE_RELOAD_ROLLBACK_FAILED_CODE,
+                "native proxy rollback current lifecycle state does not match the expected state",
+            ));
+        }
+
+        if current.state == ProxyEngineLifecycleState::Running {
+            let _ = self.stop(&request.snapshot.engine_id)?;
+        }
+
+        if request.snapshot.status.state == ProxyEngineLifecycleState::Stopped {
+            return Ok(stopped_status(&request.snapshot.engine_id));
+        }
+
+        match self.start_runtime_handle(&request.snapshot.config) {
+            Ok(handle) => {
+                let status = running_status(&handle);
+                let events = handle.events().to_vec();
+                *self.runtime_state()? = Some(NativeManagedRuntime {
+                    handle,
+                    config: request.snapshot.config.clone(),
+                });
+                self.record_events(events)?;
+                Ok(status)
+            }
+            Err(error) => Err(domain_error(
+                ENGINE_NATIVE_RELOAD_ROLLBACK_FAILED_CODE,
+                format!("native proxy rollback failed: {}", error.message),
+            )),
+        }
     }
 
     fn stop(&self, engine_id: &str) -> DomainResult<ProxyEngineStatus> {
@@ -4586,7 +4906,7 @@ impl ProxyEngineService for NativeProxyEngineService {
             return Ok(stopped_status(engine_id));
         };
 
-        let release = handle.release();
+        let release = handle.handle.release();
         let release_event = release.events.last().cloned();
         let status = ProxyEngineStatus {
             engine_id: release.engine_id.clone(),
@@ -4606,11 +4926,75 @@ impl ProxyEngineService for NativeProxyEngineService {
         {
             let runtime = self.runtime_state()?;
             if let Some(runtime) = runtime.as_ref() {
-                return Ok(runtime.foreground_handoff_status());
+                return Ok(runtime.handle.foreground_handoff_status());
             }
         }
 
         Ok(stopped_status(engine_id))
+    }
+
+    fn health(&self, engine_id: &str) -> DomainResult<ProxyEngineHealthReport> {
+        ensure_native_engine_id(engine_id)?;
+
+        let runtime = self.runtime_state()?;
+        let Some(runtime) = runtime.as_ref() else {
+            return Ok(ProxyEngineHealthReport {
+                engine_id: engine_id.to_string(),
+                state: ProxyEngineLifecycleState::Stopped,
+                config_validated: false,
+                runtime_resources_ready: false,
+                listener_reachable: false,
+                diagnostics: vec![engine_diagnostic(
+                    DiagnosticSeverity::Warning,
+                    ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE,
+                    "native proxy runtime health probe found no active runtime resources",
+                    SOURCE_ENGINE_NATIVE_RUNTIME,
+                )],
+            });
+        };
+
+        let config_validated = !self
+            .validate_config(&runtime.config)
+            .iter()
+            .any(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error);
+        let listener_address = runtime
+            .handle
+            .accept_loops()
+            .first()
+            .map(|listener| format!("{}:{}", listener.local_host(), listener.local_port()));
+        let listener_reachable = listener_address
+            .as_deref()
+            .and_then(|address| address.parse::<std::net::SocketAddr>().ok())
+            .and_then(|address| {
+                TcpStream::connect_timeout(&address, Duration::from_millis(250)).ok()
+            })
+            .is_some();
+
+        Ok(ProxyEngineHealthReport {
+            engine_id: engine_id.to_string(),
+            state: runtime.handle.foreground_handoff_status().state,
+            config_validated,
+            runtime_resources_ready: true,
+            listener_reachable,
+            diagnostics: vec![engine_diagnostic(
+                if config_validated && listener_reachable {
+                    DiagnosticSeverity::Info
+                } else {
+                    DiagnosticSeverity::Warning
+                },
+                if config_validated && listener_reachable {
+                    ENGINE_NATIVE_RUNTIME_ACCEPT_LOOP_READY_CODE
+                } else {
+                    ENGINE_NATIVE_RUNTIME_RESOURCE_MISSING_CODE
+                },
+                if config_validated && listener_reachable {
+                    "native proxy runtime health checks confirmed configuration and loopback listener reachability"
+                } else {
+                    "native proxy runtime health checks did not confirm every readiness condition"
+                },
+                SOURCE_ENGINE_NATIVE_RUNTIME,
+            )],
+        })
     }
 
     fn events(&self, engine_id: &str) -> DomainResult<Vec<ProxyEngineEvent>> {
@@ -4626,6 +5010,17 @@ fn running_status(handle: &NativeRuntimeHandle) -> ProxyEngineStatus {
         DiagnosticSeverity::Info,
         ENGINE_NATIVE_START_RUNNING_CODE,
         "native proxy runtime is running in the current process",
+        SOURCE_ENGINE_NATIVE_LIFECYCLE,
+    ));
+    status
+}
+
+fn reloaded_status(handle: &NativeRuntimeHandle) -> ProxyEngineStatus {
+    let mut status = running_status(handle);
+    status.diagnostics.push(engine_diagnostic(
+        DiagnosticSeverity::Info,
+        ENGINE_NATIVE_RELOAD_RUNNING_CODE,
+        "native proxy runtime reloaded in the current process",
         SOURCE_ENGINE_NATIVE_LIFECYCLE,
     ));
     status
@@ -5101,6 +5496,7 @@ fn passthrough_plain_http_rewrite_report(
         body: message.body.clone(),
         script_dispatch_deferred: false,
         script_dispatch_executed: false,
+        script_dispatch_failed: false,
         audits: Vec::new(),
         diagnostics: Vec::new(),
     }
@@ -5157,12 +5553,6 @@ fn parse_http_start_line_and_headers(header_text: &str) -> Option<(&str, Vec<Met
 }
 
 fn http_content_length(headers: &[MetadataEntry], max_len: usize) -> Result<usize, ()> {
-    if headers.iter().any(|header| {
-        header.key.eq_ignore_ascii_case("Transfer-Encoding") && !header.value.trim().is_empty()
-    }) {
-        return Err(());
-    }
-
     let mut content_length = None;
     for header in headers
         .iter()
@@ -5179,6 +5569,120 @@ fn http_content_length(headers: &[MetadataEntry], max_len: usize) -> Result<usiz
     }
 
     Ok(content_length.unwrap_or(0))
+}
+
+fn read_http_body<R>(
+    reader: &mut R,
+    headers: &[MetadataEntry],
+    max_len: usize,
+) -> Result<Vec<u8>, ()>
+where
+    R: Read,
+{
+    let transfer_encoding = headers
+        .iter()
+        .filter(|header| header.key.eq_ignore_ascii_case("Transfer-Encoding"))
+        .map(|header| header.value.trim())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+
+    if !transfer_encoding.is_empty() {
+        if headers
+            .iter()
+            .any(|header| header.key.eq_ignore_ascii_case("Content-Length"))
+        {
+            return Err(());
+        }
+        let codings = transfer_encoding
+            .iter()
+            .flat_map(|value| value.split(','))
+            .map(str::trim)
+            .collect::<Vec<_>>();
+        if codings.len() != 1
+            || codings[0].is_empty()
+            || !codings[0].eq_ignore_ascii_case("chunked")
+        {
+            return Err(());
+        }
+        return read_chunked_http_body(reader, max_len);
+    }
+
+    let body_len = http_content_length(headers, max_len)?;
+    let mut body = vec![0_u8; body_len];
+    if body_len > 0 {
+        reader.read_exact(&mut body).map_err(|_| ())?;
+    }
+    Ok(body)
+}
+
+fn read_chunked_http_body<R>(reader: &mut R, max_len: usize) -> Result<Vec<u8>, ()>
+where
+    R: Read,
+{
+    let mut body = Vec::new();
+    loop {
+        let size_line = read_http_line(reader).ok_or(())?;
+        let size_text = size_line
+            .split_once(';')
+            .map(|(size, _)| size)
+            .unwrap_or(size_line.as_str())
+            .trim();
+        if size_text.is_empty() {
+            return Err(());
+        }
+        let chunk_len = usize::from_str_radix(size_text, 16).map_err(|_| ())?;
+        if chunk_len == 0 {
+            loop {
+                let trailer = read_http_line(reader).ok_or(())?;
+                if trailer.is_empty() {
+                    return Ok(body);
+                }
+                let (name, value) = trailer.split_once(':').ok_or(())?;
+                let name = name.trim();
+                if name.is_empty()
+                    || name.eq_ignore_ascii_case("Content-Length")
+                    || name.eq_ignore_ascii_case("Transfer-Encoding")
+                    || value.contains('\r')
+                    || value.contains('\n')
+                {
+                    return Err(());
+                }
+            }
+        }
+        if chunk_len > max_len.saturating_sub(body.len()) {
+            return Err(());
+        }
+        let mut chunk = vec![0_u8; chunk_len];
+        reader.read_exact(&mut chunk).map_err(|_| ())?;
+        body.extend_from_slice(&chunk);
+        let mut terminator = [0_u8; 2];
+        reader.read_exact(&mut terminator).map_err(|_| ())?;
+        if terminator != *b"\r\n" {
+            return Err(());
+        }
+    }
+}
+
+fn read_http_line<R>(reader: &mut R) -> Option<String>
+where
+    R: Read,
+{
+    let mut line = Vec::new();
+    let mut byte = [0_u8; 1];
+    while line.len() < HTTP_PROXY_MAX_HEADER_BYTES {
+        match reader.read(&mut byte) {
+            Ok(1) => {
+                line.push(byte[0]);
+                if line.ends_with(b"\r\n") {
+                    line.truncate(line.len().saturating_sub(2));
+                    return String::from_utf8(line).ok();
+                }
+            }
+            Ok(0) | Err(_) => return None,
+            Ok(_) => {}
+        }
+    }
+    None
 }
 
 fn parse_explicit_http_proxy_target(
@@ -5512,6 +6016,27 @@ fn normalized_http_version(version: &str) -> &str {
     }
 }
 
+fn http_message_requests_close(version: &str, headers: &[MetadataEntry]) -> bool {
+    if headers.iter().any(|header| {
+        header.key.eq_ignore_ascii_case("Connection")
+            && header
+                .value
+                .split(',')
+                .any(|token| token.trim().eq_ignore_ascii_case("close"))
+    }) {
+        return true;
+    }
+
+    version.eq_ignore_ascii_case("HTTP/1.0")
+        && !headers.iter().any(|header| {
+            header.key.eq_ignore_ascii_case("Connection")
+                && header
+                    .value
+                    .split(',')
+                    .any(|token| token.trim().eq_ignore_ascii_case("keep-alive"))
+        })
+}
+
 fn http_reason_phrase(status_code: u16) -> &'static str {
     match status_code {
         200 => "OK",
@@ -5562,12 +6087,33 @@ fn explicit_http_proxy_request_invalid(
     }
 }
 
+fn explicit_http_proxy_request_http_version_unsupported() -> NativeExplicitHttpProxyRequestReadReport
+{
+    NativeExplicitHttpProxyRequestReadReport {
+        request: None,
+        diagnostics: vec![runtime_warning(
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_HTTP_VERSION_UNSUPPORTED_CODE,
+            "native explicit HTTP proxy supports HTTP/1.0 and HTTP/1.1 only",
+        )],
+    }
+}
+
 fn plain_http_proxy_response_read_failed() -> NativePlainHttpProxyResponseReadReport {
     NativePlainHttpProxyResponseReadReport {
         response: None,
         diagnostics: vec![runtime_warning(
             ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_RESPONSE_READ_FAILED_CODE,
             "native plain HTTP proxy upstream response could not be read",
+        )],
+    }
+}
+
+fn plain_http_proxy_response_http_version_unsupported() -> NativePlainHttpProxyResponseReadReport {
+    NativePlainHttpProxyResponseReadReport {
+        response: None,
+        diagnostics: vec![runtime_warning(
+            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_HTTP_VERSION_UNSUPPORTED_CODE,
+            "native explicit HTTP proxy upstream response must use HTTP/1.0 or HTTP/1.1",
         )],
     }
 }
@@ -5649,6 +6195,10 @@ fn set_plain_http_header(headers: &mut Vec<MetadataEntry>, name: &str, value: &s
         key: name.to_string(),
         value: value.to_string(),
     });
+}
+
+fn remove_plain_http_header(headers: &mut Vec<MetadataEntry>, name: &str) {
+    headers.retain(|header| !header.key.eq_ignore_ascii_case(name));
 }
 
 fn plain_http_header_value(headers: &[MetadataEntry], name: &str) -> Option<String> {
@@ -6273,38 +6823,6 @@ fn run_controlled_tls_connect_http_exchange(
             })?;
         let mut downstream_tls = StreamOwned::new(downstream_connection, client_tls_stream);
 
-        let decrypted_request_report = {
-            let mut bounded_reader = NativeBoundedRead::new(&mut downstream_tls, session_timeout);
-            read_https_connect_http_request(&mut bounded_reader, connect_request)
-        };
-        diagnostics.extend(decrypted_request_report.diagnostics);
-        let decrypted_request = decrypted_request_report.request.ok_or_else(|| {
-            "controlled TLS downstream session could not read a bounded decrypted HTTP request"
-                .to_string()
-        })?;
-
-        let request_message = explicit_http_proxy_request_to_plain_http_message(&decrypted_request);
-        let request_rewrite_report = http_mitm_hook
-            .map(|hook| hook.plan_plain_http(&request_message))
-            .unwrap_or_else(|| passthrough_plain_http_rewrite_report(&request_message));
-        diagnostics.extend(request_rewrite_report.diagnostics.clone());
-        record_plain_http_live_rewrite_diagnostic(&mut diagnostics, &request_rewrite_report);
-
-        if request_rewrite_report.terminal_action.is_some() {
-            let client_response = serialize_plain_http_proxy_response(
-                &decrypted_request.version,
-                &request_rewrite_report,
-            );
-            let client_write_report =
-                write_plain_http_proxy_client_response(&mut downstream_tls, client_response);
-            let response_written = diagnostics_contain_code(
-                &client_write_report.diagnostics,
-                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
-            );
-            diagnostics.extend(client_write_report.diagnostics);
-            return Ok(response_written);
-        }
-
         let server_name = ServerName::try_from(connect_request.target_host.as_str())
             .map_err(|error| format!("controlled TLS upstream authority is invalid: {error}"))?
             .to_owned();
@@ -6313,47 +6831,106 @@ fn run_controlled_tls_connect_http_exchange(
                 format!("controlled TLS upstream session could not initialize: {error}")
             })?;
         let mut upstream_tls = StreamOwned::new(upstream_connection, outbound_stream);
-        let upstream_request = serialize_explicit_http_proxy_request_for_upstream(
-            &decrypted_request,
-            &request_rewrite_report,
-        );
-        let upstream_write_report =
-            write_plain_http_proxy_upstream_request(&mut upstream_tls, upstream_request);
-        let upstream_request_written = diagnostics_contain_code(
-            &upstream_write_report.diagnostics,
-            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE,
-        );
-        diagnostics.extend(upstream_write_report.diagnostics);
-        if !upstream_request_written {
-            return Err("controlled TLS upstream request write failed".to_string());
-        }
+        let mut response_written = false;
+        for exchange_index in 0..CONTROLLED_TLS_MAX_HTTP_EXCHANGES {
+            let decrypted_request_report = {
+                let mut bounded_reader =
+                    NativeBoundedRead::new(&mut downstream_tls, session_timeout);
+                read_https_connect_http_request(&mut bounded_reader, connect_request)
+            };
+            let Some(decrypted_request) = decrypted_request_report.request else {
+                if exchange_index == 0 {
+                    diagnostics.extend(decrypted_request_report.diagnostics);
+                    return Err(
+                        "controlled TLS downstream session could not read a bounded decrypted HTTP request"
+                            .to_string(),
+                    );
+                }
+                break;
+            };
+            diagnostics.extend(decrypted_request_report.diagnostics);
 
-        let upstream_response_report = {
-            let mut bounded_reader = NativeBoundedRead::new(&mut upstream_tls, session_timeout);
-            read_plain_http_proxy_response(&mut bounded_reader)
-        };
-        diagnostics.extend(upstream_response_report.diagnostics.clone());
-        let upstream_response = upstream_response_report.response.ok_or_else(|| {
-            "controlled TLS upstream session could not read a bounded HTTP response".to_string()
-        })?;
-        let response_message =
-            plain_http_proxy_response_to_plain_http_message(&decrypted_request, &upstream_response);
-        let response_rewrite_report = http_mitm_hook
-            .map(|hook| hook.plan_plain_http(&response_message))
-            .unwrap_or_else(|| passthrough_plain_http_rewrite_report(&response_message));
-        diagnostics.extend(response_rewrite_report.diagnostics.clone());
-        record_plain_http_live_rewrite_diagnostic(&mut diagnostics, &response_rewrite_report);
-        let client_response = serialize_plain_http_proxy_response(
-            &upstream_response.version,
-            &response_rewrite_report,
-        );
-        let client_write_report =
-            write_plain_http_proxy_client_response(&mut downstream_tls, client_response);
-        let response_written = diagnostics_contain_code(
-            &client_write_report.diagnostics,
-            ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
-        );
-        diagnostics.extend(client_write_report.diagnostics);
+            let request_message =
+                explicit_http_proxy_request_to_plain_http_message(&decrypted_request);
+            let request_rewrite_report = http_mitm_hook
+                .map(|hook| hook.plan_plain_http(&request_message))
+                .unwrap_or_else(|| passthrough_plain_http_rewrite_report(&request_message));
+            diagnostics.extend(request_rewrite_report.diagnostics.clone());
+            record_plain_http_live_rewrite_diagnostic(&mut diagnostics, &request_rewrite_report);
+
+            if request_rewrite_report.terminal_action.is_some() {
+                let client_response = serialize_plain_http_proxy_response(
+                    &decrypted_request.version,
+                    &request_rewrite_report,
+                );
+                let client_write_report =
+                    write_plain_http_proxy_client_response(&mut downstream_tls, client_response);
+                response_written = diagnostics_contain_code(
+                    &client_write_report.diagnostics,
+                    ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
+                );
+                diagnostics.extend(client_write_report.diagnostics);
+                break;
+            }
+
+            let request_close =
+                http_message_requests_close(&decrypted_request.version, &decrypted_request.headers)
+                    || exchange_index + 1 == CONTROLLED_TLS_MAX_HTTP_EXCHANGES;
+            let upstream_request =
+                serialize_explicit_http_proxy_request_for_upstream_with_connection(
+                    &decrypted_request,
+                    &request_rewrite_report,
+                    request_close,
+                );
+            let upstream_write_report =
+                write_plain_http_proxy_upstream_request(&mut upstream_tls, upstream_request);
+            let upstream_request_written = diagnostics_contain_code(
+                &upstream_write_report.diagnostics,
+                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_UPSTREAM_REQUEST_WRITTEN_CODE,
+            );
+            diagnostics.extend(upstream_write_report.diagnostics);
+            if !upstream_request_written {
+                return Err("controlled TLS upstream request write failed".to_string());
+            }
+
+            let upstream_response_report = {
+                let mut bounded_reader = NativeBoundedRead::new(&mut upstream_tls, session_timeout);
+                read_plain_http_proxy_response(&mut bounded_reader)
+            };
+            diagnostics.extend(upstream_response_report.diagnostics.clone());
+            let upstream_response = upstream_response_report.response.ok_or_else(|| {
+                "controlled TLS upstream session could not read a bounded HTTP response".to_string()
+            })?;
+            let response_close = request_close
+                || http_message_requests_close(
+                    &upstream_response.version,
+                    &upstream_response.headers,
+                );
+            let response_message = plain_http_proxy_response_to_plain_http_message(
+                &decrypted_request,
+                &upstream_response,
+            );
+            let response_rewrite_report = http_mitm_hook
+                .map(|hook| hook.plan_plain_http(&response_message))
+                .unwrap_or_else(|| passthrough_plain_http_rewrite_report(&response_message));
+            diagnostics.extend(response_rewrite_report.diagnostics.clone());
+            record_plain_http_live_rewrite_diagnostic(&mut diagnostics, &response_rewrite_report);
+            let client_response = serialize_plain_http_proxy_response_with_connection(
+                &upstream_response.version,
+                &response_rewrite_report,
+                response_close,
+            );
+            let client_write_report =
+                write_plain_http_proxy_client_response(&mut downstream_tls, client_response);
+            response_written = diagnostics_contain_code(
+                &client_write_report.diagnostics,
+                ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_CLIENT_RESPONSE_WRITTEN_CODE,
+            );
+            diagnostics.extend(client_write_report.diagnostics);
+            if response_close {
+                break;
+            }
+        }
         Ok(response_written)
     })();
 
@@ -6585,7 +7162,7 @@ fn record_plain_http_live_rewrite_diagnostic(
     diagnostics: &mut Vec<Diagnostic>,
     rewrite_report: &NativePlainHttpRewriteReport,
 ) {
-    if rewrite_report.applied || rewrite_report.script_dispatch_deferred {
+    if rewrite_report.applied {
         diagnostics.push(engine_diagnostic(
             DiagnosticSeverity::Info,
             ENGINE_NATIVE_RUNTIME_HTTP_PROXY_PLAIN_REWRITE_APPLIED_CODE,
@@ -6962,6 +7539,175 @@ mod script_runtime_security_tests {
 
         assert_eq!(mode, 0o600);
     }
+
+    #[test]
+    fn script_runtime_defers_when_an_authorized_asset_changes() {
+        let path = std::env::temp_dir().join(format!(
+            "networkcore-script-asset-hash-contract-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        std::fs::write(&path, "authorized local script")
+            .expect("script asset fixture should be written");
+        let script_url = "https://scripts.networkcore.test/authorized.js".to_string();
+        let mut script_assets = BTreeMap::new();
+        script_assets.insert(script_url.clone(), path.display().to_string());
+        let executor = NativeNodeScriptExecutor::new(NativeNodeScriptRuntimeConfig {
+            node_binary: "node".to_string(),
+            runner_path: path.display().to_string(),
+            script_assets,
+            persistent_store_path: None,
+            sandbox: NativeNodeScriptSandbox::Unrestricted,
+            max_timeout_ms: 1000,
+            max_body_bytes: 1024,
+        });
+        assert!(executor.script_asset_hashes().contains_key(&script_url));
+        std::fs::write(&path, "replacement local script")
+            .expect("script asset fixture should be replaceable for the contract");
+
+        let report = executor.execute(
+            &HttpMitmScriptDispatch {
+                kind: HttpMitmScriptKind::Request,
+                phase: HttpMitmPhase::Request,
+                requires_body: false,
+                timeout_ms: 1000,
+                max_size: 1024,
+                script_path: script_url,
+                tag: "asset-hash-contract".to_string(),
+                argument: String::new(),
+            },
+            &NativePlainHttpMessage {
+                request_id: "asset-hash-contract".to_string(),
+                url: "https://api.networkcore.test/v1".to_string(),
+                method: Some("GET".to_string()),
+                phase: HttpMitmPhase::Request,
+                status_code: None,
+                headers: Vec::new(),
+                body: Vec::new(),
+            },
+        );
+        let _ = std::fs::remove_file(&path);
+
+        assert!(!report.executed);
+        assert!(report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_DEFERRED_CODE
+        }));
+    }
+
+    #[test]
+    fn script_runtime_timeout_fails_open() {
+        let root =
+            std::env::temp_dir().join(format!("networkcore-script-timeout-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("timeout fixture directory should be created");
+        let runner = root.join("runner.sh");
+        let asset = root.join("asset.js");
+        std::fs::write(&runner, "sleep 1").expect("timeout runner should be written");
+        std::fs::write(&asset, "module.exports = {};").expect("timeout asset should be written");
+        let script_url = "https://scripts.networkcore.test/timeout.js".to_string();
+        let mut script_assets = BTreeMap::new();
+        script_assets.insert(script_url.clone(), asset.display().to_string());
+        let executor = NativeNodeScriptExecutor::new(NativeNodeScriptRuntimeConfig {
+            node_binary: "sh".to_string(),
+            runner_path: runner.display().to_string(),
+            script_assets,
+            persistent_store_path: None,
+            sandbox: NativeNodeScriptSandbox::Unrestricted,
+            max_timeout_ms: 10,
+            max_body_bytes: 1024,
+        });
+        let report = executor.execute(
+            &HttpMitmScriptDispatch {
+                kind: HttpMitmScriptKind::Request,
+                phase: HttpMitmPhase::Request,
+                requires_body: false,
+                timeout_ms: 10,
+                max_size: 1024,
+                script_path: script_url,
+                tag: "timeout".to_string(),
+                argument: String::new(),
+            },
+            &NativePlainHttpMessage {
+                request_id: "timeout".to_string(),
+                url: "https://api.networkcore.test/".to_string(),
+                method: Some("GET".to_string()),
+                phase: HttpMitmPhase::Request,
+                status_code: None,
+                headers: Vec::new(),
+                body: Vec::new(),
+            },
+        );
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(!report.executed);
+        assert!(report
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_FAILED_CODE));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_script_runtime_command_denies_network_and_unlisted_permissions() {
+        let root = std::env::temp_dir().join(format!(
+            "networkcore-script-sandbox-contract-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("script sandbox fixture directory should be created");
+        let runner_path = root.join("runner.js");
+        let asset_path = root.join("asset.js");
+        let body_path = root.join("body.txt");
+        std::fs::write(&runner_path, "process.exit(0)").expect("runner fixture should be written");
+        std::fs::write(&asset_path, "module.exports = {}")
+            .expect("asset fixture should be written");
+        std::fs::write(&body_path, "bounded body").expect("body fixture should be written");
+
+        let script_url = "https://scripts.networkcore.test/sandbox.js".to_string();
+        let mut script_assets = BTreeMap::new();
+        script_assets.insert(script_url, asset_path.display().to_string());
+        let executor = NativeNodeScriptExecutor::new(NativeNodeScriptRuntimeConfig {
+            node_binary: "node".to_string(),
+            runner_path: runner_path.display().to_string(),
+            script_assets,
+            persistent_store_path: None,
+            sandbox: NativeNodeScriptSandbox::LinuxNoNetwork,
+            max_timeout_ms: 1000,
+            max_body_bytes: 1024,
+        });
+
+        let command = executor
+            .node_command(&asset_path.display().to_string(), &body_path)
+            .expect("Linux sandbox command should be constructible for local files");
+        let arguments = command
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert_eq!(command.get_program().to_string_lossy(), "unshare");
+        assert!(arguments.iter().any(|argument| argument == "--net"));
+        assert!(arguments.iter().any(|argument| argument == "--kill-child"));
+        assert!(arguments
+            .iter()
+            .any(|argument| argument == "--experimental-permission"));
+        let expected_heap_limit =
+            format!("--max-old-space-size={SCRIPT_RUNTIME_V8_MAX_OLD_SPACE_MIB}");
+        assert!(arguments
+            .iter()
+            .any(|argument| argument == expected_heap_limit.as_str()));
+        assert!(arguments
+            .iter()
+            .any(|argument| argument.starts_with("--allow-fs-read=")));
+        assert!(!arguments
+            .iter()
+            .any(|argument| argument.starts_with("--allow-child-process")));
+        assert!(!arguments
+            .iter()
+            .any(|argument| argument.starts_with("--allow-fs-write")));
+        assert!(!arguments
+            .iter()
+            .any(|argument| argument.starts_with("--allow-net")));
+    }
 }
 
 #[cfg(test)]
@@ -6987,7 +7733,7 @@ mod controlled_tls_session_tests {
     use std::time::Duration;
 
     #[test]
-    fn controlled_tls_connect_exchange_decrypts_forwards_and_executes_scripts_over_live_sockets() {
+    fn controlled_tls_connect_session_bounds_persistent_exchanges_over_live_sockets() {
         let script_runtime_root = std::env::temp_dir().join(format!(
             "networkcore-controlled-tls-script-contract-{}",
             std::process::id()
@@ -7033,6 +7779,7 @@ mod controlled_tls_session_tests {
                 persistent_store_path: Some(
                     script_runtime_root.join("store.json").display().to_string(),
                 ),
+                sandbox: NativeNodeScriptSandbox::Unrestricted,
                 max_timeout_ms: 5000,
                 max_body_bytes: 4096,
             },
@@ -7080,26 +7827,42 @@ mod controlled_tls_session_tests {
             let connection = ServerConnection::new(upstream_server_config)
                 .expect("test upstream TLS connection should initialize");
             let mut tls_stream = StreamOwned::new(connection, stream);
-            let request = read_explicit_http_proxy_request(&mut tls_stream)
-                .request
-                .expect("test upstream should receive decrypted HTTP request");
-            assert_eq!(request.origin_path, "/resource");
-            assert!(std::str::from_utf8(&request.body)
-                .expect("script-mutated upstream request body should be UTF-8")
-                .contains("requestRuntime"));
-            let response_body = b"{\"from\":\"upstream\"}";
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                response_body.len(),
-                std::str::from_utf8(response_body)
-                    .expect("test upstream response body should be UTF-8"),
-            );
-            tls_stream
-                .write_all(response.as_bytes())
-                .expect("test upstream should write HTTPS response");
-            tls_stream
-                .flush()
-                .expect("test upstream should flush HTTPS response");
+            for exchange_index in 0..CONTROLLED_TLS_MAX_HTTP_EXCHANGES {
+                let request = read_explicit_http_proxy_request(&mut tls_stream)
+                    .request
+                    .expect("test upstream should receive decrypted HTTP request");
+                assert_eq!(request.origin_path, "/resource");
+                assert!(std::str::from_utf8(&request.body)
+                    .expect("script-mutated upstream request body should be UTF-8")
+                    .contains("requestRuntime"));
+                assert_eq!(
+                    plain_http_header_value(&request.headers, "Connection").as_deref(),
+                    Some(if exchange_index + 1 == CONTROLLED_TLS_MAX_HTTP_EXCHANGES {
+                        "close"
+                    } else {
+                        "keep-alive"
+                    }),
+                );
+                let response_body = b"{\"from\":\"upstream\"}";
+                let connection = if exchange_index + 1 == CONTROLLED_TLS_MAX_HTTP_EXCHANGES {
+                    "close"
+                } else {
+                    "keep-alive"
+                };
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: {}\r\n\r\n{}",
+                    response_body.len(),
+                    connection,
+                    std::str::from_utf8(response_body)
+                        .expect("test upstream response body should be UTF-8"),
+                );
+                tls_stream
+                    .write_all(response.as_bytes())
+                    .expect("test upstream should write HTTPS response");
+                tls_stream
+                    .flush()
+                    .expect("test upstream should flush HTTPS response");
+            }
         });
 
         let proxy_listener =
@@ -7119,19 +7882,29 @@ mod controlled_tls_session_tests {
             let connection = ClientConnection::new(downstream_client_config, server_name)
                 .expect("test TLS client connection should initialize");
             let mut tls_stream = StreamOwned::new(connection, stream);
-            tls_stream
-                .write_all(b"GET /resource HTTP/1.1\r\nHost: example.com\r\n\r\n")
-                .expect("test TLS client should write HTTP request");
-            tls_stream
-                .flush()
-                .expect("test TLS client should flush HTTP request");
-            let response = read_plain_http_proxy_response(&mut tls_stream)
-                .response
-                .expect("test TLS client should receive HTTP response");
-            assert_eq!(response.status_code, 202);
-            assert!(std::str::from_utf8(&response.body)
-                .expect("script-mutated client response body should be UTF-8")
-                .contains("responseRuntime"));
+            for exchange_index in 0..CONTROLLED_TLS_MAX_HTTP_EXCHANGES {
+                tls_stream
+                    .write_all(b"GET /resource HTTP/1.1\r\nHost: example.com\r\n\r\n")
+                    .expect("test TLS client should write HTTP request");
+                tls_stream
+                    .flush()
+                    .expect("test TLS client should flush HTTP request");
+                let response = read_plain_http_proxy_response(&mut tls_stream)
+                    .response
+                    .expect("test TLS client should receive HTTP response");
+                assert_eq!(response.status_code, 202);
+                assert!(std::str::from_utf8(&response.body)
+                    .expect("script-mutated client response body should be UTF-8")
+                    .contains("responseRuntime"));
+                assert_eq!(
+                    plain_http_header_value(&response.headers, "Connection").as_deref(),
+                    Some(if exchange_index + 1 == CONTROLLED_TLS_MAX_HTTP_EXCHANGES {
+                        "close"
+                    } else {
+                        "keep-alive"
+                    }),
+                );
+            }
         });
 
         let (proxy_stream, _) = proxy_listener

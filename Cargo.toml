@@ -2,10 +2,13 @@
 members = [
     "apps/linux-cli",
     "apps/windows-cli",
+    "apps/windows-gui",
+    "apps/windows-service",
     "crates/config-core",
     "crates/control-domain",
     "crates/control-runtime",
     "crates/engine-native",
+    "crates/engine-mieru",
     "crates/engine-singbox",
     "crates/mitm-anixops-sys",
     "crates/mitm-policy",

@@ -4,6 +4,10 @@
 //! a host probe service that only inspects Linux capability facts. It must not
 //! mutate networking, DNS, certificates, services, or process privileges.
 
+pub mod proxy;
+pub mod systemd;
+pub mod trust;
+
 use control_domain::{
     CertificateTrustState, Diagnostic, DiagnosticSeverity, DomainResult, MitmCertificateStatus,
     OperatingSystem, PlatformCapabilityService, PlatformCapabilityStatus, PlatformFeatureState,

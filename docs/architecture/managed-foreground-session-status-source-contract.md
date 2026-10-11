@@ -20,6 +20,7 @@
 - `managed-foreground-session-status-default-path=blocked`
 - `managed-foreground-session-status-liveness-verification=blocked`
 - `managed-foreground-session-status-daemon-control-socket=blocked`
+- `managed-foreground-session-status-start-recording=explicit-paths-active`
 
 ## Operation
 
@@ -105,6 +106,15 @@ socket 或进程状态，也不控制 runtime。
 
 任意未经 expected state、session/engine identity 与 explicit snapshot 校验的 record 覆盖、PID/port liveness
 检查、events/logs/reload 与 runtime rollback 由后续独立功能处理。
+
+当前 `start` 还支持显式 managed recording：
+`networkcore-linux start --managed-status <status.json> --managed-snapshot <starting.snapshot.json>
+--managed-events <event-directory>` 必须同时提供三条路径。它为本次前台 session 非覆盖写入
+`starting` status 和 `session_started` event；runtime 成功后以 expected-state 校验迁移为 `running`，保留
+初始 snapshot 并写 `status_transition` event；runtime 启动失败迁移为 `failed`，前台收到中断并完成
+runtime stop 后迁移为 `stopped`。失败状态迁移使用带后缀的 sibling snapshot，不覆盖调用方提供的初始
+snapshot。未提供三条路径时，`start` 继续保持原有 foreground-only 行为；记录字段不代表 PID、端口或
+control socket liveness。
 所有测试、构建、格式化、lint 和安全扫描只能在 GitHub Actions 执行。
 
 ## Acceptance Test

@@ -5,8 +5,10 @@
 
 评估时间：2026-07-08。
 
-参考 `mitm_anixops` 版本：`v0.45.10-alpha`
-(`a3ee0fca6376ddccc333bdfe06ac5b5e75ed23e0`)。
+参考 upstream distribution release：`v1.4.6`，source commit
+`6382f0147e02a8653343571791ef61b8cc885cb1`。linked C core version 仍为
+`0.45.10`；release tag、公开 release 和 manifest 是 provenance evidence，source
+content pin 是 commit hash。
 
 ## 结论
 
@@ -89,8 +91,8 @@ crates/mitm-policy
 `Engine` wrapper 不得实现 `Sync`。`mitm_anixops` engine 内部不加锁，运行时共享必须由 adapter 通过 `Mutex`、per-worker engine 或 immutable snapshot 控制。
 
 当前源码增量已新增 `crates/mitm-anixops-sys` 和 `crates/mitm-policy`：
-前者通过 Git submodule 固定 `third_party/mitm_anixops` 到 `v0.45.10-alpha`
-并暴露低层 C ABI；后者用 RAII wrapper 加载 `PluginPackage.source`，
+前者通过 Git submodule 固定 `third_party/mitm_anixops` 到 distribution release
+`v1.4.6` 的 source commit 并暴露低层 C ABI；后者用 RAII wrapper 加载 `PluginPackage.source`，
 实现 `AnixOpsMitmPluginService`，提供内置
 `networkcore.adblock` alpha 去广告插件包，并把 0.45.10 的 URL rewrite、
 named header rewrite、bounded header-list application、body rewrite chain、
@@ -128,9 +130,10 @@ CONNECT failure response；真实 request/response mutation 继续等待 HTTP/TL
 - body mutation truncation marker。
 - script tag、script path、argument、requires body、timeout 和 max size。
 
-仍需由 HTTP/TLS 数据面补齐：scheme/host/path 的解析权威来源、TLS/SNI
-上下文、HTTP/1.1 与 HTTP/2 framing、压缩/解压、chunk/body buffering、
-backpressure、streaming body 上限、script runtime 执行、以及 plan 的真实应用。
+当前 `engine-native` controlled HTTP/1.1 TLS path 已提供 CONNECT authority/SNI
+一致性、scheme/host/path binding、有界 request/response body handling、真实 plan 应用和
+Linux sandboxed local script dispatch。仍需由后续数据面补齐：HTTP/2 framing、压缩/解压、
+streaming body buffering、backpressure、streaming body 上限，以及浏览器/系统 capture path。
 `PluginResult` 继续保留 audit/diagnostics；真实处理结果不得只靠
 audit/diagnostics 表达。
 
@@ -174,7 +177,7 @@ P4 Client And Platform Integration；P3 Runtime Capability Baseline 已完成。
   `MitmPluginService::handle_http_mitm_event` 已存在。
 - 已覆盖 URL redirect/reject、header add/replace/delete、body replace 和
   script dispatch 的 domain outcome 映射。
-- 仍未接入 engine-native HTTP/TLS 数据面，因此只是 policy plan。
+- 当前 engine-native 已接入 controlled HTTP/1.1 TLS runtime；本节的 domain-only mapping 仍是其独立 policy-plan 层。
 
 ### Phase 2B: Linux CLI MITM command gate
 
@@ -214,7 +217,7 @@ dedicated 浏览器命令、可选 `--target-url`、`verify --confirm` 命令和
 `rollback --snapshot <path>` 只读取 NetworkCore PAC snapshot 并删除对应 PAC 文件，
 `verify --confirm` 只探测计划本地代理端点 `http://127.0.0.1:7890` 是否可达；传入 `--target-url <url>` 时只通过 `probe=http-connect-target` 检查计划代理能否对目标 host:port 打开 HTTP CONNECT 通路；它不证明浏览器真实流量捕获、HTTPS MITM 或 rewrite 应用。
 `traffic-proof --confirm [--target-url <url>] [--proof-token <token>] [--proof-log <path>]` 通过 `BrowserCaptureTrafficProofProbe` 读取 operator-provided proof log，输出 `traffic_proof_report` 和 `probe=proof-log-token`，并可在 token/log 省略时复用默认 proof 绑定；它只证明该证据文件中出现 token，不证明 HTTPS MITM 或 rewrite 应用。未接线 endpoint/proof probe 或更强 live capture probe 时仍返回 blocked。
-`mitm http-rewrite plan` / `mitm http-rewrite preview --confirm --url <url>` 输出 `http_rewrite` report，并把 `HttpMitmOutcome` 的 reject、redirect、header mutation 和 body mutation 应用到 caller-provided plain HTTP input；current `main` 还可在 controlled TLS termination plan ready 时，对 caller-provided request/response-phase `https://` input 预览 request reject/redirect/header mutation 与 response header/body mutation。native `ListenerKind::Http` explicit proxy path 也会对真实 `http://` HTTP/1.x request/response 应用这些 outcome，并通过既有 SOCKS outbound primitive 转发非 terminal request；current `main` 还可对 explicit HTTP `CONNECT host:443` 建立标准 pass-through tunnel foundation，并 bounded-peek TLS ClientHello/SNI。该边界见 `linux-mitm-http-rewrite-source-contract.md`，不解密 TLS、不执行 live CONNECT 后 HTTPS request/response rewrite、不执行完整 live HTTPS response rewrite、不执行 script dispatch、不修改 browser/system proxy。
+`mitm http-rewrite plan` / `mitm http-rewrite preview --confirm --url <url>` 输出 `http_rewrite` report，并把 `HttpMitmOutcome` 的 reject、redirect、header mutation 和 body mutation 应用到 caller-provided plain HTTP input；它仍是 preview，不解密 TLS 或执行脚本。current `main` 还可在 controlled TLS termination plan ready 时，对 caller-provided request/response-phase `https://` input 预览 request reject/redirect/header mutation 与 response header/body mutation。native `ListenerKind::Http` explicit proxy path 也会对真实 `http://` HTTP/1.x request/response 应用这些 outcome，并通过既有 SOCKS outbound primitive 转发非 terminal request；显式 `networkcore-linux start --enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path> --confirm` 则在 CONNECT authority/SNI 一致时终止下游 TLS、以 web-PKI 验证上游 TLS，并对最多四个受限 HTTP/1.1 exchange 应用 request/response rewrite。该受控路径可选用仅本地映射且无网络的脚本 sandbox；它不安装 browser/system proxy。HTTP/2、HTTP/3/QUIC、证书固定绕过、远程脚本、流式 body 和 browser/system proxy mutation 仍不支持。完整边界见 `linux-mitm-http-rewrite-source-contract.md`。
 `--proxy-scheme socks5` 只把 session-plan、launch、PAC/policy artifact、verify 和 traffic-proof 的 `proxy_scheme`/proxy URL 绑定到 `socks5://127.0.0.1:7890`，用于让显式授权 dedicated 浏览器会话走 native SOCKS5 CONNECT hook；它不写系统代理或安装浏览器 policy。
 `networkcore-linux start` 会通过 `native_proxy_engine_service_with_builtin_mitm_plugin`
 加载内置 `networkcore.adblock` 到 `engine-native`；匹配 `Reject` plan 的
