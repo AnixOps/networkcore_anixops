@@ -2,6 +2,10 @@
 
 本路线图用于把 `networkcore_AnixOps` 从 bootstrap 仓库逐步推进为可验证、可维护的全平台网络内核与客户端体系。所有阶段都必须遵守 [AGENT.md](AGENT.md) 和 [docs/ci-cd-policy.md](docs/ci-cd-policy.md)：本机只编辑文件，验证只在 GitHub Actions 中运行。
 
+## 首批交付与完整路线
+
+本轮 NetworkCore 只交付诊断事件校验、JSON 序列化与显式适配边界；Control + Agent 的机器监控插件和运维闭环先独立交付。后续完整路线依次包括订阅实际运行、进程管理、MITM、浏览器捕获和跨平台客户端。源码、CI 与真实环境分别记录于 [交付证据](docs/P4_EXECUTION_STATUS.md)，最后再进行真实环境演练、灰度、发布与维护交接。下列 P0–P4 是本仓库历史阶段，不表示跨仓库或生产验收完成。
+
 ## 当前阶段：P4 Client And Platform Integration
 
 P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成。当前工作进入客户端、平台和发布集成阶段：Linux CLI 已有 GitHub Actions 生成的预发布二进制，iOS 仍处于 source-tree/upload gates，运行层继续通过 public engine adapter 和后续 MITM gates 增量补齐能力。

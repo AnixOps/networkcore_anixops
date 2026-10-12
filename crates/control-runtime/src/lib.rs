@@ -4,6 +4,8 @@
 //! does not perform platform probing, process management, file I/O, networking,
 //! UI work, or transport-specific control API behavior.
 
+pub mod maintenance;
+
 use std::collections::BTreeSet;
 
 use control_domain::{

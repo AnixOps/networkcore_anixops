@@ -328,3 +328,10 @@ job/step 日志。
 - Linux artifact license/NOTICE 文本确认
 
 人工完成后，应继续由 CI/CD 自动推进。
+
+
+## 首批运维诊断边界验证
+
+`maintenance-contracts` job 对 `control-domain` 的严格 event/batch wire contract 和 `control-runtime` 的显式诊断适配运行真实 Rust 合同测试；CI summary 将其列为必需结果。覆盖 schema/枚举/版本/时间/UTF-8 字节/批量边界、重复及未知字段、已认证节点匹配、坏事件隔离、共享 fixture 序列化、故障与恢复的双阈值，以及诊断凭据最小化。既有 Linux/macOS/Windows Rust 全量测试与构建继续承担业务回归。
+
+源码函数存在、同提交 CI 成功和真实运行时接入分别验收。该 job 不宣称 NetworkCore 进程事件已接入 Agent，不发送邮件/Telegram，也不证明外部监控或生产环境可用。记录入口为 `docs/P4_EXECUTION_STATUS.md`。

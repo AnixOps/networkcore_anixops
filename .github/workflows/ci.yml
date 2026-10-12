@@ -363,6 +363,14 @@ jobs:
           required_files=(
             AGENT.md
             AGENTS.md
+            docs/MAINTENANCE_P0.md
+            docs/P4_EXECUTION_STATUS.md
+            docs/contracts/maintenance-event.schema.json
+            docs/contracts/maintenance-event.fixture.json
+            crates/control-domain/src/maintenance.rs
+            crates/control-domain/tests/maintenance_contracts.rs
+            crates/control-runtime/src/maintenance.rs
+            crates/control-runtime/tests/maintenance_adapter_contracts.rs
             README.md
             CONTRIBUTING.md
             ROADMAP.md
@@ -1077,6 +1085,9 @@ jobs:
           grep -q "managed-foreground-session-event-source-contract=active" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-operation=event-read" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-write-operation=event-write" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "managed-foreground-session-event-list-operation=event-list" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "managed-foreground-session-event-list-directory-scan=active" docs/architecture/managed-foreground-session-event-source-contract.md
+          grep -q "managed-foreground-session-event-list-cli=blocked" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-cli-read-operation=managed-event" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-cli-init-operation=managed-event-init" docs/architecture/managed-foreground-session-event-source-contract.md
           grep -q "managed-foreground-session-event-history-operation=event-history" docs/architecture/managed-foreground-session-event-source-contract.md
@@ -1207,6 +1218,8 @@ jobs:
           grep -q "CommandManagedForegroundSessionEventStore::write_event" TODO.md
           grep -q "CommandManagedForegroundSessionEventStore::write_event" CHANGELOG.md
           grep -q "CommandManagedForegroundSessionEventStore::write_event" apps/linux-cli/README.md
+          grep -q "CommandManagedForegroundSessionEventStore::list_events" TODO.md
+          grep -q "CommandManagedForegroundSessionEventStore::list_events" CHANGELOG.md
           grep -q "networkcore-linux managed-event" TODO.md
           grep -q "networkcore-linux managed-event" CHANGELOG.md
           grep -q "networkcore-linux managed-event" apps/linux-cli/README.md
@@ -2493,6 +2506,27 @@ jobs:
         shell: bash
         run: cargo build --locked --workspace --all-targets
 
+  maintenance-contracts:
+    name: Maintenance diagnostic contract
+    runs-on: ubuntu-latest
+    needs:
+      - detect-projects
+    if: ${{ needs.detect-projects.outputs.rust == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Validate event wire contract and adversarial inputs
+        run: cargo test --locked -p control-domain --test maintenance_contracts
+
+      - name: Validate diagnostic adaptation and secret minimization
+        run: cargo test --locked -p control-runtime --test maintenance_adapter_contracts
+
   windows-managed-client-installer:
     name: Windows managed client MSI
     runs-on: windows-latest
@@ -2942,6 +2976,7 @@ jobs:
       - rust-build-test
       - windows-managed-client-installer
       - rust-security-audit
+      - maintenance-contracts
       - node-build-test
       - swift-build-test
       - apple-project-smoke
@@ -2980,6 +3015,7 @@ jobs:
           RESULT_RUST_BUILD_TEST: ${{ needs.rust-build-test.result }}
           RESULT_WINDOWS_INSTALLER: ${{ needs.windows-managed-client-installer.result }}
           RESULT_RUST_AUDIT: ${{ needs.rust-security-audit.result }}
+          RESULT_MAINTENANCE: ${{ needs.maintenance-contracts.result }}
           RESULT_NODE_BUILD_TEST: ${{ needs.node-build-test.result }}
           RESULT_SWIFT_BUILD_TEST: ${{ needs.swift-build-test.result }}
           RESULT_APPLE_SMOKE: ${{ needs.apple-project-smoke.result }}
@@ -3076,6 +3112,7 @@ jobs:
           record_job "Rust build and test" "${RESULT_RUST_BUILD_TEST}" "${rust_required}"
           record_job "Windows managed client MSI" "${RESULT_WINDOWS_INSTALLER}" "${windows_required}"
           record_job "Rust dependency security audit" "${RESULT_RUST_AUDIT}" "${audit_required}"
+          record_job "Maintenance diagnostic contract" "${RESULT_MAINTENANCE}" "${rust_required}"
           record_job "Node build and test" "${RESULT_NODE_BUILD_TEST}" "${node_required}"
           record_job "Swift build and test" "${RESULT_SWIFT_BUILD_TEST}" "${swift_required}"
           record_job "Apple project smoke" "${RESULT_APPLE_SMOKE}" "${apple_required}"

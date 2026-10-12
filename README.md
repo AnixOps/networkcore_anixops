@@ -1,5 +1,9 @@
 # networkcore_AnixOps
 
+维护入口：[P0 维护手册](docs/MAINTENANCE_P0.md)
+
+首批交付与分层验收：[交付证据](docs/P4_EXECUTION_STATUS.md)；维护事件契约：[JSON schema](docs/contracts/maintenance-event.schema.json)。本轮仅统一诊断事件校验、序列化和适配边界，未声明 NetworkCore 运行时已接入运维通信。后续完整路线继续保留，不能以 P4 标签替代逐项验收。
+
 `networkcore_AnixOps` 是面向全平台网络内核、MITM 插件兼容和客户端体系的规划与实现仓库。
 
 ## 目标

@@ -4,6 +4,16 @@
 
 ## Unreleased
 
+### Security
+
+- 修复 Actions 依赖审计发现的 [RUSTSEC-2026-0285](https://rustsec.org/advisories/RUSTSEC-2026-0285.html)：将 `rustls` 最低版本与 lock 提升到 `0.23.45`，相应 `rustls-webpki` lock 提升到 `0.103.15`。保留依赖审计与全平台 TLS 回归，未添加漏洞忽略规则。
+
+### Added
+
+- 编写首批维护事件 v1 严格字段/时间/大小/身份校验、JSON 与逐事件批量序列化边界及显式诊断适配器；原始诊断文本不进入适配结果，自动动作契约移除 rollback。新增 Rust 合同与共享 fixture，[源码 CI](https://github.com/AnixOps/networkcore_anixops/actions/runs/35650045804) 的维护合同、三平台全量回归与依赖审计已通过，尚未接入 NetworkCore 实际运行时通信。
+
+- 完成 `v0.1.2-alpha.2` managed foreground event 第十三个 source-only list 切片：新增 `ManagedForegroundSessionEventListRequest`、`ManagedForegroundSessionEventListEntry`、`ManagedForegroundSessionEventListReport` 和 `CommandManagedForegroundSessionEventStore::list_events`，从调用方显式 directory 只读取直接常规 `.json` event record，按路径确定性排序、校验每个候选并输出 event count/entries 与 `liveness_verified=false`；跳过非 JSON、symbolic link 和嵌套目录，损坏或无效候选保留既有稳定读取/校验错误且不修改文件，不接入 `managed-event list` CLI、实时 event stream 或 runtime control；本轮回归已通过，确切 SHA 与 [CI 记录](https://github.com/AnixOps/networkcore_anixops/actions/runs/35650045804) 见交付证据。
+
 Current Windows/Linux Beta release candidate: `v0.2.0-beta.5`. It is in
 `pending_manual_acceptance`: the same commit requires GitHub Actions release
 validation and protected Windows/Linux system acceptance before it may be
