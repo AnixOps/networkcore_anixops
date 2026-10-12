@@ -54,6 +54,18 @@ final class NetworkCoreAppDecisionTests: XCTestCase {
         )
     }
 
+    func testCurrentBuildBlocksOnUnsavedVpnConfigurationWithItsOwnCode() {
+        let decision = VpnConfigurationController.decide(for: IosPlatformFactsProbe.currentStatus())
+
+        XCTAssertEqual(
+            decision,
+            .blocked(
+                reason: "iOS VPN configuration is not saved",
+                code: IosPlatformCodes.vpnConfigurationNotSaved
+            )
+        )
+    }
+
     func testApplyRefreshesDecisionWhenStatusRecovers() {
         var coordinator = AppCoordinator(status: status(runtime: .abiMismatch))
         XCTAssertFalse(coordinator.canStartTunnel)

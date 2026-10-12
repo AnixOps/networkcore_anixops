@@ -2180,6 +2180,7 @@ jobs:
           grep -q '^ios-upload-workflow-status=pending$' docs/manual-intervention.md
           grep -q '^ios-upload-workflow-release-assets=blocked$' docs/manual-intervention.md
           grep -q "iOS Source Tree Governance Placeholder" apps/ios/README.md
+          test -f apps/ios/project.yml
           grep -q '^# iOS Package.swift Manifest-Only Activation Validation Contract$' docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
           grep -q 'manifest-only source scan' docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
           grep -q 'target list verification' docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
@@ -2220,6 +2221,7 @@ jobs:
       node: ${{ steps.detect.outputs.node }}
       swift: ${{ steps.detect.outputs.swift }}
       swift_sources: ${{ steps.detect.outputs.swift_sources }}
+      ios_xcode_spec: ${{ steps.detect.outputs.ios_xcode_spec }}
       apple: ${{ steps.detect.outputs.apple }}
     steps:
       - name: Checkout
@@ -2269,6 +2271,12 @@ jobs:
             echo "swift_sources=true" >> "$GITHUB_OUTPUT"
           else
             echo "swift_sources=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if test -f apps/ios/project.yml; then
+            echo "ios_xcode_spec=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ios_xcode_spec=false" >> "$GITHUB_OUTPUT"
           fi
 
           echo "Project detection is informational only; job execution is governed by changed paths."
@@ -2989,6 +2997,47 @@ jobs:
           fi
           bash .github/scripts/verify-ios-package-manifest.sh "${phase}"
 
+  ios-xcode-build:
+    name: iOS Xcode project build
+    runs-on: macos-26
+    timeout-minutes: 45
+    needs:
+      - changes
+      - policy-fast
+      - detect-projects
+    if: >-
+      ${{
+        needs.detect-projects.outputs.ios_xcode_spec == 'true' &&
+        (
+          needs.changes.outputs.full_matrix == 'true' ||
+          needs.changes.outputs.ios == 'true' ||
+          needs.changes.outputs.apple == 'true'
+        )
+      }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install XcodeGen
+        shell: bash
+        run: brew install xcodegen
+
+      - name: Generate the Xcode project from apps/ios/project.yml
+        shell: bash
+        working-directory: apps/ios
+        run: xcodegen generate --spec project.yml
+
+      - name: Build the app without signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project apps/ios/NetworkCore.xcodeproj \
+            -scheme NetworkCoreApp \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
   apple-project-smoke:
     name: Apple project smoke
     runs-on: macos-26
@@ -3036,6 +3085,7 @@ jobs:
       - node-build-test
       - swift-build-test
       - swift-manifest-validation
+      - ios-xcode-build
       - apple-project-smoke
     steps:
       - name: Check required jobs
@@ -3063,6 +3113,8 @@ jobs:
           DETECTED_SWIFT: ${{ needs.detect-projects.outputs.swift }}
           DETECTED_SWIFT_SOURCES: ${{ needs.detect-projects.outputs.swift_sources }}
           RESULT_SWIFT_MANIFEST: ${{ needs.swift-manifest-validation.result }}
+          DETECTED_IOS_XCODE_SPEC: ${{ needs.detect-projects.outputs.ios_xcode_spec }}
+          RESULT_IOS_XCODE_BUILD: ${{ needs.ios-xcode-build.result }}
           DETECTED_APPLE: ${{ needs.detect-projects.outputs.apple }}
           RESULT_CHANGES: ${{ needs.changes.result }}
           RESULT_POLICY_FAST: ${{ needs.policy-fast.result }}
@@ -3091,6 +3143,7 @@ jobs:
           node_required=false
           swift_required=false
           swift_manifest_required=false
+          ios_xcode_required=false
           apple_required=false
 
           if [[ "${CHANGE_FULL_MATRIX}" == true || "${CHANGE_GO}" == true || "${CHANGE_RUST}" == true ||
@@ -3124,6 +3177,10 @@ jobs:
           if [[ "${DETECTED_SWIFT_SOURCES}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_IOS}" == true ||
                 "${CHANGE_APPLE}" == true) ]]; then
             swift_required=true
+          fi
+          if [[ "${DETECTED_IOS_XCODE_SPEC}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_IOS}" == true ||
+                "${CHANGE_APPLE}" == true) ]]; then
+            ios_xcode_required=true
           fi
           if [[ "${DETECTED_APPLE}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_IOS}" == true ||
                 "${CHANGE_APPLE}" == true) ]]; then
@@ -3180,6 +3237,7 @@ jobs:
           record_job "Node build and test" "${RESULT_NODE_BUILD_TEST}" "${node_required}"
           record_job "Swift build and test" "${RESULT_SWIFT_BUILD_TEST}" "${swift_required}"
           record_job "Swift package manifest validation" "${RESULT_SWIFT_MANIFEST}" "${swift_manifest_required}"
+          record_job "iOS Xcode project build" "${RESULT_IOS_XCODE_BUILD}" "${ios_xcode_required}"
           record_job "Apple project smoke" "${RESULT_APPLE_SMOKE}" "${apple_required}"
 
           join_list() {

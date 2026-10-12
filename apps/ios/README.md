@@ -22,7 +22,7 @@ material remain blocked until their own gates pass.
 
 ## Current Boundary
 
-Current boundary: `Package.swift` and the Swift package sources under `Sources/` and `Tests/` are enabled. No Xcode project, no Network Extension target.
+Current boundary: `Package.swift`, the Swift package sources under `Sources/` and `Tests/`, and the XcodeGen spec `project.yml` are enabled. The generated `.xcodeproj` is never committed. No Network Extension target yet.
 
 These files and directories must stay absent until their own activation gates are complete:
 

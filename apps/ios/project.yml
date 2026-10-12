@@ -1,0 +1,48 @@
+# XcodeGen spec for the NetworkCore iOS app.
+#
+# The generated NetworkCore.xcodeproj is produced in GitHub Actions and is never committed.
+# This spec is the source of truth for the Xcode project, as the source-tree contract requires.
+# Bundle identifiers are placeholders. Real values come from GitHub variables in the upload gate.
+name: NetworkCore
+
+options:
+  bundleIdPrefix: com.example.networkcore
+  deploymentTarget:
+    iOS: "17.0"
+
+packages:
+  NetworkCoreIOS:
+    path: .
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  NetworkCoreApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/NetworkCoreApp
+      - path: Sources/NetworkCoreAppHost
+    info:
+      path: Generated/NetworkCoreApp-Info.plist
+      properties:
+        CFBundleDisplayName: NetworkCore
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.networkcore.ios
+    dependencies:
+      - package: NetworkCoreIOS
+        product: NetworkCoreIOS
+
+schemes:
+  NetworkCoreApp:
+    build:
+      targets:
+        NetworkCoreApp: all

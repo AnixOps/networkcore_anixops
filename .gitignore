@@ -22,3 +22,7 @@ apps/windows-gui/ui/dist/
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# XcodeGen output is generated in GitHub Actions only and never committed
+apps/ios/*.xcodeproj/
+apps/ios/Generated/

@@ -520,6 +520,9 @@ installer、service、code signing、store upload 或 release asset。
 
 ```text
 ios-activation-status=swift-source-gate-active
+ios-xcode-project-gate=xcodegen-spec-active
+ios-xcode-project-committed=no-generated-in-github-actions
+ios-testflight-distribution=user-confirmed-2026-10-12
 ios-activation-maintainer-decision=unfrozen-2026-10-12
 ios-activation-branch=claude/ios-app-development-342512
 ios-apple-developer-account-type=individual

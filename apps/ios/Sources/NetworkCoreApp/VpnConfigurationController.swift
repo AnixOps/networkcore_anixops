@@ -12,20 +12,22 @@ public enum VpnConfigurationController {
         if !status.tunnel.available {
             return .blocked(
                 reason: status.tunnel.unavailableReason ?? "iOS tunnel is unavailable",
-                code: firstErrorCode(status.diagnostics)
+                code: firstCode(status.diagnostics, sources: tunnelSources)
             )
         }
         if !status.embeddedRuntime.available {
             return .blocked(
                 reason: status.embeddedRuntime.unavailableReason ?? "iOS embedded runtime is unavailable",
-                code: firstErrorCode(status.diagnostics)
+                code: firstCode(status.diagnostics, sources: [IosPlatformSources.embeddedRuntime])
             )
         }
         return .startTunnel
     }
 
-    /// Diagnostics keep the tunnel, runtime, remote-script, then storage order, so the first error is the blocking one.
-    static func firstErrorCode(_ diagnostics: [IosDiagnostic]) -> String? {
-        diagnostics.first(where: { $0.severity == .error })?.code
+    private static let tunnelSources = [IosPlatformSources.networkExtension, IosPlatformSources.vpnConfiguration]
+
+    /// The code comes from the same area as the blocking reason, so the reason and the code never disagree.
+    static func firstCode(_ diagnostics: [IosDiagnostic], sources: [String]) -> String? {
+        diagnostics.first(where: { sources.contains($0.source) })?.code
     }
 }

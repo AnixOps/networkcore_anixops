@@ -14,7 +14,8 @@ let package = Package(
         .macOS(.v14),
     ],
     products: [
-        .library(name: "NetworkCoreIOS", targets: ["NetworkCoreBridge", "NetworkCoreApp"]),
+        // NetworkCoreApp is compiled directly by the XcodeGen app target, so it is not a product.
+        .library(name: "NetworkCoreIOS", targets: ["NetworkCoreBridge"]),
     ],
     targets: [
         .target(
