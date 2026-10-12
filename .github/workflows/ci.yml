@@ -2963,10 +2963,12 @@ jobs:
 
       - name: Test
         shell: bash
+        working-directory: apps/ios
         run: swift test
 
       - name: Build
         shell: bash
+        working-directory: apps/ios
         run: swift build
 
   swift-manifest-validation:
