@@ -13,6 +13,8 @@ release-ci-source=main-same-commit-ci-summary-success-required
 
 The beta feature scope is frozen. Do not add new protocols, iOS activation, HTTP/2 or HTTP/3 MITM, JavaScript dispatch, LAN controller, Web UI, urltest automation, background subscription groups, TUN/DNS interception, or other new features for this release. Only real compile, test, package, contract, documentation, or release-gate fixes may be made before the tag.
 
+Maintainer decision (2026-10-12, on branch `claude/ios-app-development-342512`): iOS activation is unfrozen for the contract-gated manifest-only `apps/ios/Package.swift` step and the Swift source gate that follows. The beta freeze still applies to every other feature. iOS release assets, signing, TestFlight upload, App Store upload and App Review submission stay blocked until their own gates pass.
+
 The `v0.2.0-beta.5` tag is maintainer-authorized to generate candidate artifacts. It remains `pending_manual_acceptance` until protected operator evidence records both Windows and Linux acceptance as passed; GitHub Actions validates package names, versions, checksums, manifests, attestations, and bundle contents, but does not replace real host acceptance.
 
 ### Windows Beta Acceptance
@@ -511,6 +513,22 @@ alpha-release-windows-manual-test-next-action=rerun-ci-release-workflows-after-m
 
 该确认仅覆盖上述 alpha placeholder 候选版本和 GitHub Actions Windows 证据；当前仍不生成 Windows artifact、
 installer、service、code signing、store upload 或 release asset。
+
+## iOS Activation Status
+
+以下字段记录 iOS 激活的维护者决定和账号类型，不记录 Team ID、Bundle ID、证书或描述文件标识。
+
+```text
+ios-activation-status=manifest-only-active
+ios-activation-maintainer-decision=unfrozen-2026-10-12
+ios-activation-branch=claude/ios-app-development-342512
+ios-apple-developer-account-type=individual
+ios-apple-developer-account-type-source=user-reported-2026-10-12
+ios-organization-account-for-vpn-release=blocked
+ios-individual-account-release-review=blocked-pending-account-review
+```
+
+人工确认 marker 仍由维护者在独立提交中更新；CI 不得自动设为 confirmed 或 enabled。
 
 ## iOS App Review Manual Confirmation
 

@@ -95,7 +95,7 @@ Linux CLI 还提供 `proxy apply/status/rollback` 显式环境代理文件路径
 - [engine-singbox](crates/engine-singbox)
 - [mitm-anixops-sys](crates/mitm-anixops-sys)
 - [mitm-policy](crates/mitm-policy)
-- [apps/ios](apps/ios)（source tree governance placeholder，仅 README，不含 Swift/Xcode）
+- [apps/ios](apps/ios)（manifest-only `Package.swift`；Swift source、Xcode 与 Network Extension target 仍 blocked）
 - [platform-ios](crates/platform-ios)
 - [platform-linux](crates/platform-linux)
 

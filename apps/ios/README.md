@@ -1,35 +1,33 @@
 # iOS Source Tree Governance Placeholder
 
-Current status: `readme-placeholder-no-swift-source`.
+Current status: `manifest-only-active`.
 
-This directory is reserved for the future iOS application and Network Extension source tree. The current repository state only
-allows this README as a governance placeholder. It does not enable Swift, Xcode, signing, archive/export or upload work.
+This directory is the iOS application and Network Extension source tree root. The manifest-only activation adds
+`Package.swift` and nothing else. Swift sources, the Xcode project, the Network Extension target and signing or upload
+material remain blocked until their own gates pass.
 
 ## Ownership
 
-- Future iOS Swift package ownership starts at `apps/ios`.
-- Future `Package.swift` may only live at `apps/ios/Package.swift`.
-- Future `Package.swift` ownership activation is governed by
+- The iOS Swift package is owned by `apps/ios`. Its manifest is `apps/ios/Package.swift` and no other `Package.swift` may exist.
+- Package ownership is governed by
   `docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md`.
-- Future manifest-only activation is governed by
+- Manifest-only activation is governed by
   `docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md`.
-- Future Swift package targets are reserved for `NetworkCoreBridge`, `NetworkCoreApp` and `NetworkCorePacketTunnel`, with
-  `NetworkCoreBridgeTests` as the first approved test target.
-- Future Swift sources may only live under `apps/ios/Sources` or `apps/ios/Tests`.
+- Package targets: `NetworkCoreBridge` and `NetworkCoreApp` (library product `NetworkCoreIOS`), with `NetworkCoreBridgeTests`
+  as the test target.
+- `NetworkCorePacketTunnel` is the only approved Network Extension target name. It is reserved in this manifest and is not
+  declared until the Network Extension gate passes.
+- Swift sources may only live under `apps/ios/Sources` or `apps/ios/Tests`.
 - Future Xcode project or workspace files must reference this source tree and must not become the only source of truth.
-- `NetworkCorePacketTunnel` remains the only approved Network Extension target name.
-- Source directory guard: only `apps/ios/README.md` is present before Swift/Xcode activation.
 
 ## Current Boundary
 
-Current boundary: no Package.swift, no Swift source, no Xcode project.
+Current boundary: `Package.swift` (manifest only) is enabled. No Swift source, no Xcode project.
 
 These files and directories must stay absent until their own activation gates are complete:
 
-- `Package.swift`
-- `Sources/`
-- `Tests/`
-- `*.swift`
+- `Sources/` and `Tests/` until the Swift source gate passes
+- `*.swift` outside `apps/ios/Sources` and `apps/ios/Tests`
 - `*.xcodeproj`
 - `*.xcworkspace`
 - `PrivacyInfo.xcprivacy`
@@ -38,21 +36,13 @@ These files and directories must stay absent until their own activation gates ar
 - `.ipa`, `.xcarchive`, `.xcresult` or dSYM bundles
 - Provisioning Profile, certificate, private key, temporary keychain or App Store Connect API material
 
-The Package.swift ownership gate is still blocked-placeholder. It defines target ownership, source directory guard, no Swift
-source until package gate, the future `macos-26` Swift package validation hook, Xcode project blocked and upload workflow enabled
-marker blocked status; it does not enable a real `Package.swift`.
-
-The Package.swift manifest-only activation validation gate is also blocked-placeholder. It defines manifest-only source scan,
-target list verification, no Swift source before source gate, Xcode project blocked and upload workflow enabled marker blocked
-status; it does not enable a real `Package.swift`.
+`swift build` and `swift test` must not run until the Swift source gate passes.
 
 ## CI Hook
 
-GitHub Actions may statically check this README from `ubuntu-latest` as repository governance. Any future Swift/Xcode source scan,
-Swift build, Swift test, Xcode project validation, signing, archive/export or upload validation must run only in GitHub Actions on
-`macos-26` or Apple official platforms.
-
-This is the macos-26 source scan hook placeholder.
+GitHub Actions statically checks this README and runs the `macos-26` manifest validation hook,
+`.github/scripts/verify-ios-package-manifest.sh`. Any Swift/Xcode source scan, Swift build, Swift test, Xcode project validation,
+signing, archive/export or upload validation must run only in GitHub Actions on `macos-26` or Apple official platforms.
 
 The upload workflow enabled marker remains blocked. `ios-upload-workflow-status` must stay `pending` until source tree,
 manual confirmation, protected environment and secret setup gates are complete.

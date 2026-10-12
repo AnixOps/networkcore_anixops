@@ -17,10 +17,7 @@ GitHub Actions 验证入口的 source contract。它承接
 [iOS Package.swift Source Ownership Activation Preflight Contract](ios-package-swift-source-ownership-activation-preflight-contract.md) 和
 [iOS Platform Risk Assessment](ios-platform-risk-assessment.md)。
 
-当前状态：contract-only。仓库只允许 `apps/ios/README.md` 作为 source tree governance placeholder，仍不包含真实
-`apps/ios` Swift source tree、`Package.swift`、Xcode project、workspace、Swift source、Network Extension target、
-entitlement、Provisioning Profile、签名配置、TestFlight/App Store 上传 job 或 iOS release asset。本地仍不得运行
-`swift build`、`swift test`、`xcodebuild`、签名、打包或发布验证。
+当前状态：manifest-only-active。`apps/ios/Package.swift` 已通过 manifest-only 激活；Swift bridge 的 DTO 与 mapper 只在 Swift source gate 通过后引入。FFI、Network Extension target、签名与上传仍 blocked。
 
 ## Goals
 

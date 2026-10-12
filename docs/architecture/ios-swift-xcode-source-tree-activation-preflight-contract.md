@@ -14,10 +14,7 @@ TestFlight upload、App Store upload、App Review submission 或 iOS release ass
 [iOS TestFlight App Store Connect Upload Workflow Source Contract](ios-testflight-app-store-connect-upload-workflow-source-contract.md) 和
 [iOS Upload Workflow Activation Validation Contract](ios-upload-workflow-activation-validation-contract.md)。
 
-当前状态：readme-placeholder-no-swift-source。仓库只允许 `apps/ios/README.md` 作为 source tree governance
-placeholder；仍不包含 `Package.swift`、Swift source、Xcode project、workspace、Network Extension target、
-`PrivacyInfo.xcprivacy`、`.entitlements`、ExportOptions.plist、`.ipa`、`.xcarchive`、`.xcresult`、dSYM bundle、
-Provisioning Profile、signing config、TestFlight upload、App Store upload、App Review submission 或 iOS release asset。
+当前状态：manifest-only-active。`apps/ios/README.md` 与 `apps/ios/Package.swift`（manifest only）已激活；Swift source、Xcode project/workspace、Network Extension target、`PrivacyInfo.xcprivacy`、entitlement/provisioning source 与 upload enabled marker 仍按各自 gate 保持 blocked。
 
 ## Goals
 
@@ -140,13 +137,13 @@ If any precondition is missing, `ios-upload-workflow-status` must remain `pendin
 ```text
 ios-source-tree-preflight-contract=present
 ios-source-tree-preflight-source=ios-upload-readiness
-ios-source-tree-preflight-status=blocked-placeholder
-ios-source-tree-preflight-current-mode=readme-placeholder-no-swift-source
+ios-source-tree-preflight-status=manifest-only-active
+ios-source-tree-preflight-current-mode=manifest-only-no-swift-source
 ios-source-tree-preflight-contract-path=docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
 ios-source-tree-preflight-root=apps/ios
-ios-source-tree-preflight-root-status=readme-placeholder
+ios-source-tree-preflight-root-status=manifest-only
 ios-source-tree-preflight-readme-placeholder=present
-ios-source-tree-preflight-package-swift=blocked
+ios-source-tree-preflight-package-swift=manifest-only-active
 ios-source-tree-preflight-xcode-project=blocked
 ios-source-tree-preflight-network-extension-target=blocked
 ios-source-tree-preflight-privacy-manifest=blocked
@@ -155,7 +152,7 @@ ios-source-tree-preflight-macos-runner=macos-26
 ios-source-tree-preflight-source-scan=blocked-before-source
 ios-source-tree-preflight-upload-enabled-marker=blocked
 ios-source-tree-preflight-release-upload=blocked
-ios-source-tree-preflight-next-action=add-package-swift-only-after-ownership-gate
+ios-source-tree-preflight-next-action=add-swift-source-after-source-gate
 ```
 
 ## Failure Modes

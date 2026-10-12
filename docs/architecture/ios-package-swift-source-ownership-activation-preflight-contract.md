@@ -11,10 +11,7 @@ archive/export、签名、TestFlight upload、App Store upload、App Review subm
 [iOS Package.swift Manifest-Only Activation Validation Contract](ios-package-swift-manifest-only-activation-validation-contract.md)
 固定 `Package.swift` 实际进入仓库前的 manifest-only activation gate。
 
-当前状态：blocked-placeholder-before-package-swift。仓库只允许 `apps/ios/README.md` 作为 source tree governance
-placeholder；`apps/ios/Package.swift`、`apps/ios/Sources`、`apps/ios/Tests`、Swift source、Xcode project/workspace、
-Network Extension target、Privacy Manifest、entitlements、signing material、archive/export、upload workflow enabled marker
-和 iOS release asset 继续保持 blocked。
+当前状态：manifest-only-active。`apps/ios/Package.swift` 的 source ownership gate 已通过 CI 静态检查，并由独立 manifest-only 提交引入。Swift source、Xcode project/workspace、Network Extension target、Privacy Manifest、entitlements、signing material、archive/export、upload workflow enabled marker 和 iOS release asset 继续保持 blocked。
 
 ## Goals
 
@@ -112,20 +109,20 @@ activation is blocked:
 ```text
 ios-package-swift-ownership-contract=present
 ios-package-swift-ownership-source=ios-upload-readiness
-ios-package-swift-ownership-status=blocked-placeholder
-ios-package-swift-ownership-current-mode=readme-placeholder-no-package-swift
+ios-package-swift-ownership-status=active-manifest-only
+ios-package-swift-ownership-current-mode=manifest-only-package-swift-present
 ios-package-swift-ownership-contract-path=docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
 ios-package-swift-ownership-package-path=apps/ios/Package.swift
 ios-package-swift-ownership-targets=NetworkCoreBridge,NetworkCoreApp,NetworkCorePacketTunnel
 ios-package-swift-ownership-test-targets=NetworkCoreBridgeTests
 ios-package-swift-ownership-source-directory-guard=apps/ios/Sources,apps/ios/Tests
-ios-package-swift-ownership-swift-source=blocked-until-package-gate
+ios-package-swift-ownership-swift-source=blocked-until-source-gate
 ios-package-swift-ownership-macos-runner=macos-26
-ios-package-swift-ownership-validation-hook=swift-package-validation-blocked-before-package-swift
+ios-package-swift-ownership-validation-hook=swift-package-validation-manifest-only-active
 ios-package-swift-ownership-xcode-project=blocked
 ios-package-swift-ownership-upload-enabled-marker=blocked
 ios-package-swift-ownership-release-upload=blocked
-ios-package-swift-ownership-next-action=add-package-swift-only-after-ownership-gate
+ios-package-swift-ownership-next-action=add-swift-source-after-source-gate
 ```
 
 ## Failure Modes
