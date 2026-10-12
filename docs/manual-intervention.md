@@ -519,7 +519,7 @@ installer、service、code signing、store upload 或 release asset。
 以下字段记录 iOS 激活的维护者决定和账号类型，不记录 Team ID、Bundle ID、证书或描述文件标识。
 
 ```text
-ios-activation-status=manifest-only-active
+ios-activation-status=swift-source-gate-active
 ios-activation-maintainer-decision=unfrozen-2026-10-12
 ios-activation-branch=claude/ios-app-development-342512
 ios-apple-developer-account-type=individual

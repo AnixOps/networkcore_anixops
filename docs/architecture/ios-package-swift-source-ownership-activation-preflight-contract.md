@@ -11,7 +11,7 @@ archive/export、签名、TestFlight upload、App Store upload、App Review subm
 [iOS Package.swift Manifest-Only Activation Validation Contract](ios-package-swift-manifest-only-activation-validation-contract.md)
 固定 `Package.swift` 实际进入仓库前的 manifest-only activation gate。
 
-当前状态：manifest-only-active。`apps/ios/Package.swift` 的 source ownership gate 已通过 CI 静态检查，并由独立 manifest-only 提交引入。Swift source、Xcode project/workspace、Network Extension target、Privacy Manifest、entitlements、signing material、archive/export、upload workflow enabled marker 和 iOS release asset 继续保持 blocked。
+当前状态：swift-source-gate-active。`apps/ios/Package.swift` 的 source ownership gate 已通过 CI 静态检查；Swift source 位于 `apps/ios/Sources` 与 `apps/ios/Tests`。Xcode project/workspace、Network Extension target、Privacy Manifest、entitlements、signing material、archive/export、upload workflow enabled marker 和 iOS release asset 继续保持 blocked。
 
 ## Goals
 
@@ -116,13 +116,13 @@ ios-package-swift-ownership-package-path=apps/ios/Package.swift
 ios-package-swift-ownership-targets=NetworkCoreBridge,NetworkCoreApp,NetworkCorePacketTunnel
 ios-package-swift-ownership-test-targets=NetworkCoreBridgeTests
 ios-package-swift-ownership-source-directory-guard=apps/ios/Sources,apps/ios/Tests
-ios-package-swift-ownership-swift-source=blocked-until-source-gate
+ios-package-swift-ownership-swift-source=active
 ios-package-swift-ownership-macos-runner=macos-26
 ios-package-swift-ownership-validation-hook=swift-package-validation-manifest-only-active
 ios-package-swift-ownership-xcode-project=blocked
 ios-package-swift-ownership-upload-enabled-marker=blocked
 ios-package-swift-ownership-release-upload=blocked
-ios-package-swift-ownership-next-action=add-swift-source-after-source-gate
+ios-package-swift-ownership-next-action=add-xcode-and-network-extension-after-gates
 ```
 
 ## Failure Modes

@@ -12,7 +12,7 @@ entitlement/provisioning source、archive/export、签名、TestFlight upload、
 `Package.swift` ownership preflight 之后、Swift source gate 之前的 manifest-only source scan 和 target list
 verification 固定为独立门禁。
 
-当前状态：manifest-only-active。`apps/ios/Package.swift` 只含 manifest，已由独立 manifest-only 激活提交引入，且 CI 静态检查通过后才允许。`apps/ios/Sources`、`apps/ios/Tests`、Swift source、Xcode project/workspace、Network Extension target、Privacy Manifest、entitlements、signing material、archive/export、upload workflow enabled marker 和 iOS release asset 继续保持 blocked；`swift build` 与 `swift test` 在 Swift source gate 通过前不得运行。
+当前状态：swift-source-gate-active。`apps/ios/Package.swift` 与 `apps/ios/Sources`、`apps/ios/Tests` 中的 Swift source 已由 Swift source gate 引入，`swift build` 与 `swift test` 只在 GitHub Actions `macos-26` 运行。Xcode project/workspace、Network Extension target、Privacy Manifest、entitlements、signing material、archive/export、upload workflow enabled marker 和 iOS release asset 继续保持 blocked。
 
 ## Goals
 
@@ -94,8 +94,8 @@ ios-package-swift-manifest-only-target-list-verification=active
 ios-package-swift-manifest-only-targets=NetworkCoreBridge,NetworkCoreApp,NetworkCorePacketTunnel
 ios-package-swift-manifest-only-test-targets=NetworkCoreBridgeTests
 ios-package-swift-manifest-only-source-directory-guard=apps/ios/Sources,apps/ios/Tests
-ios-package-swift-manifest-only-swift-source=blocked-before-source-gate
-ios-package-swift-manifest-only-swift-build-test=blocked-until-swift-source-gate
+ios-package-swift-manifest-only-swift-source=source-gate-active
+ios-package-swift-manifest-only-swift-build-test=active-in-github-actions-macos-26
 ios-package-swift-manifest-only-macos-runner=macos-26
 ios-package-swift-manifest-only-validation-hook=manifest-only-validation-active
 ios-package-swift-manifest-only-xcode-project=blocked
@@ -103,7 +103,7 @@ ios-package-swift-manifest-only-network-extension-target=blocked
 ios-package-swift-manifest-only-upload-enabled-marker=blocked
 ios-package-swift-manifest-only-release-upload=blocked
 ios-package-swift-manifest-only-release-asset=blocked
-ios-package-swift-manifest-only-next-action=add-swift-source-after-source-gate
+ios-package-swift-manifest-only-next-action=add-xcode-and-network-extension-after-gates
 ```
 
 ## Failure Modes

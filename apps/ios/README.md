@@ -1,6 +1,6 @@
 # iOS Source Tree Governance Placeholder
 
-Current status: `manifest-only-active`.
+Current status: `swift-source-gate-active`.
 
 This directory is the iOS application and Network Extension source tree root. The manifest-only activation adds
 `Package.swift` and nothing else. Swift sources, the Xcode project, the Network Extension target and signing or upload
@@ -22,11 +22,10 @@ material remain blocked until their own gates pass.
 
 ## Current Boundary
 
-Current boundary: `Package.swift` (manifest only) is enabled. No Swift source, no Xcode project.
+Current boundary: `Package.swift` and the Swift package sources under `Sources/` and `Tests/` are enabled. No Xcode project, no Network Extension target.
 
 These files and directories must stay absent until their own activation gates are complete:
 
-- `Sources/` and `Tests/` until the Swift source gate passes
 - `*.swift` outside `apps/ios/Sources` and `apps/ios/Tests`
 - `*.xcodeproj`
 - `*.xcworkspace`
@@ -36,7 +35,7 @@ These files and directories must stay absent until their own activation gates ar
 - `.ipa`, `.xcarchive`, `.xcresult` or dSYM bundles
 - Provisioning Profile, certificate, private key, temporary keychain or App Store Connect API material
 
-`swift build` and `swift test` must not run until the Swift source gate passes.
+`swift build` and `swift test` run only in GitHub Actions on `macos-26`, never locally.
 
 ## CI Hook
 

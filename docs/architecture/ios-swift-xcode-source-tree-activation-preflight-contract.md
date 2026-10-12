@@ -14,7 +14,7 @@ TestFlight upload、App Store upload、App Review submission 或 iOS release ass
 [iOS TestFlight App Store Connect Upload Workflow Source Contract](ios-testflight-app-store-connect-upload-workflow-source-contract.md) 和
 [iOS Upload Workflow Activation Validation Contract](ios-upload-workflow-activation-validation-contract.md)。
 
-当前状态：manifest-only-active。`apps/ios/README.md` 与 `apps/ios/Package.swift`（manifest only）已激活；Swift source、Xcode project/workspace、Network Extension target、`PrivacyInfo.xcprivacy`、entitlement/provisioning source 与 upload enabled marker 仍按各自 gate 保持 blocked。
+当前状态：swift-source-gate-active。`apps/ios/README.md`、`apps/ios/Package.swift` 与 Swift source（`apps/ios/Sources`、`apps/ios/Tests`）已激活；Xcode project/workspace、Network Extension target、`PrivacyInfo.xcprivacy`、entitlement/provisioning source 与 upload enabled marker 仍按各自 gate 保持 blocked。
 
 ## Goals
 
@@ -149,10 +149,10 @@ ios-source-tree-preflight-network-extension-target=blocked
 ios-source-tree-preflight-privacy-manifest=blocked
 ios-source-tree-preflight-entitlement-provisioning=blocked
 ios-source-tree-preflight-macos-runner=macos-26
-ios-source-tree-preflight-source-scan=blocked-before-source
+ios-source-tree-preflight-source-scan=active-swift-package
 ios-source-tree-preflight-upload-enabled-marker=blocked
 ios-source-tree-preflight-release-upload=blocked
-ios-source-tree-preflight-next-action=add-swift-source-after-source-gate
+ios-source-tree-preflight-next-action=add-xcode-and-network-extension-after-gates
 ```
 
 ## Failure Modes
