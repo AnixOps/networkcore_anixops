@@ -2180,7 +2180,22 @@ jobs:
           grep -q '^ios-upload-workflow-status=pending$' docs/manual-intervention.md
           grep -q '^ios-upload-workflow-release-assets=blocked$' docs/manual-intervention.md
           grep -q "iOS Source Tree Governance Placeholder" apps/ios/README.md
-          if find . -path ./.git -prune -o \( -type f \( -name "Package.swift" -o -name "*.swift" -o -name "PrivacyInfo.xcprivacy" -o -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" -o -name "ExportOptions.plist" -o -name "*.ipa" \) -o -type d \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "*.xcarchive" -o -name "*.xcresult" -o -name "*.dSYM" \) \) -print -quit | grep -q .; then
+          grep -q '^# iOS Package.swift Manifest-Only Activation Validation Contract$' docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q 'manifest-only source scan' docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q 'target list verification' docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q 'no Swift source before source gate' docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
+          grep -q '^# iOS Package.swift Source Ownership Activation Preflight Contract$' docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          grep -q 'macos-26 Swift package validation hook' docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md
+          grep -q '^# iOS Swift Xcode Source Tree Activation Preflight Contract$' docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
+          grep -q 'NetworkCorePacketTunnel' docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md
+          grep -q '^# iOS Swift Xcode Bridge Source Contract$' docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          grep -q 'IosPlatformSnapshotDTO' docs/architecture/ios-swift-xcode-bridge-source-contract.md
+          ios_allowed='^$'
+          if [[ -f apps/ios/Package.swift ]]; then
+            ios_allowed='^\./apps/ios/(Package\.swift|Sources/.+\.swift|Tests/.+\.swift)$'
+          fi
+          ios_forbidden="$(find . -path ./.git -prune -o \( -type f \( -name "Package.swift" -o -name "*.swift" -o -name "PrivacyInfo.xcprivacy" -o -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" -o -name "ExportOptions.plist" -o -name "*.ipa" \) -o -type d \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "*.xcarchive" -o -name "*.xcresult" -o -name "*.dSYM" \) \) -print | grep -v -E "${ios_allowed}" | head -n 1 || true)"
+          if [[ -n "${ios_forbidden}" ]]; then
             echo "::error::iOS source, signing, archive/export, upload, or release material must stay out of the repository until the iOS contracts allow it."
             exit 1
           fi
@@ -2204,6 +2219,7 @@ jobs:
       rust: ${{ steps.detect.outputs.rust }}
       node: ${{ steps.detect.outputs.node }}
       swift: ${{ steps.detect.outputs.swift }}
+      swift_sources: ${{ steps.detect.outputs.swift_sources }}
       apple: ${{ steps.detect.outputs.apple }}
     steps:
       - name: Checkout
@@ -2247,6 +2263,12 @@ jobs:
             echo "apple=true" >> "$GITHUB_OUTPUT"
           else
             echo "apple=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if find apps/ios/Sources apps/ios/Tests -name '*.swift' -print -quit 2>/dev/null | grep -q .; then
+            echo "swift_sources=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "swift_sources=false" >> "$GITHUB_OUTPUT"
           fi
 
           echo "Project detection is informational only; job execution is governed by changed paths."
@@ -2914,7 +2936,7 @@ jobs:
       - detect-projects
     if: >-
       ${{
-        needs.detect-projects.outputs.swift == 'true' &&
+        needs.detect-projects.outputs.swift_sources == 'true' &&
         (
           needs.changes.outputs.full_matrix == 'true' ||
           needs.changes.outputs.ios == 'true' ||
@@ -2932,6 +2954,40 @@ jobs:
       - name: Build
         shell: bash
         run: swift build
+
+  swift-manifest-validation:
+    name: Swift package manifest validation
+    runs-on: macos-26
+    timeout-minutes: 15
+    needs:
+      - changes
+      - policy-fast
+      - detect-projects
+    if: >-
+      ${{
+        needs.detect-projects.outputs.swift == 'true' &&
+        (
+          needs.changes.outputs.full_matrix == 'true' ||
+          needs.changes.outputs.ios == 'true' ||
+          needs.changes.outputs.apple == 'true'
+        )
+      }}
+    env:
+      SWIFT_SOURCES: ${{ needs.detect-projects.outputs.swift_sources }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Validate Package.swift against the activation gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${SWIFT_SOURCES}" == true ]]; then
+            phase=source
+          else
+            phase=manifest-only
+          fi
+          bash .github/scripts/verify-ios-package-manifest.sh "${phase}"
 
   apple-project-smoke:
     name: Apple project smoke
@@ -2979,6 +3035,7 @@ jobs:
       - maintenance-contracts
       - node-build-test
       - swift-build-test
+      - swift-manifest-validation
       - apple-project-smoke
     steps:
       - name: Check required jobs
@@ -3004,6 +3061,8 @@ jobs:
           DETECTED_RUST: ${{ needs.detect-projects.outputs.rust }}
           DETECTED_NODE: ${{ needs.detect-projects.outputs.node }}
           DETECTED_SWIFT: ${{ needs.detect-projects.outputs.swift }}
+          DETECTED_SWIFT_SOURCES: ${{ needs.detect-projects.outputs.swift_sources }}
+          RESULT_SWIFT_MANIFEST: ${{ needs.swift-manifest-validation.result }}
           DETECTED_APPLE: ${{ needs.detect-projects.outputs.apple }}
           RESULT_CHANGES: ${{ needs.changes.result }}
           RESULT_POLICY_FAST: ${{ needs.policy-fast.result }}
@@ -3031,6 +3090,7 @@ jobs:
           audit_required=false
           node_required=false
           swift_required=false
+          swift_manifest_required=false
           apple_required=false
 
           if [[ "${CHANGE_FULL_MATRIX}" == true || "${CHANGE_GO}" == true || "${CHANGE_RUST}" == true ||
@@ -3058,6 +3118,10 @@ jobs:
             node_required=true
           fi
           if [[ "${DETECTED_SWIFT}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_IOS}" == true ||
+                "${CHANGE_APPLE}" == true) ]]; then
+            swift_manifest_required=true
+          fi
+          if [[ "${DETECTED_SWIFT_SOURCES}" == true && ("${CHANGE_FULL_MATRIX}" == true || "${CHANGE_IOS}" == true ||
                 "${CHANGE_APPLE}" == true) ]]; then
             swift_required=true
           fi
@@ -3115,6 +3179,7 @@ jobs:
           record_job "Maintenance diagnostic contract" "${RESULT_MAINTENANCE}" "${rust_required}"
           record_job "Node build and test" "${RESULT_NODE_BUILD_TEST}" "${node_required}"
           record_job "Swift build and test" "${RESULT_SWIFT_BUILD_TEST}" "${swift_required}"
+          record_job "Swift package manifest validation" "${RESULT_SWIFT_MANIFEST}" "${swift_manifest_required}"
           record_job "Apple project smoke" "${RESULT_APPLE_SMOKE}" "${apple_required}"
 
           join_list() {
