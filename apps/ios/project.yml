@@ -34,9 +34,36 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
+    entitlements:
+      path: Entitlements/NetworkCoreApp.entitlements
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.networkcore.ios
+    dependencies:
+      - package: NetworkCoreIOS
+        product: NetworkCoreIOS
+      - target: NetworkCorePacketTunnel
+        embed: true
+
+  NetworkCorePacketTunnel:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/NetworkCorePacketTunnel
+    info:
+      path: Generated/NetworkCorePacketTunnel-Info.plist
+      properties:
+        CFBundleDisplayName: NetworkCore Tunnel
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
+    entitlements:
+      path: Entitlements/NetworkCorePacketTunnel.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.networkcore.ios.packettunnel
     dependencies:
       - package: NetworkCoreIOS
         product: NetworkCoreIOS
@@ -46,3 +73,4 @@ schemes:
     build:
       targets:
         NetworkCoreApp: all
+        NetworkCorePacketTunnel: all

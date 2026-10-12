@@ -25,6 +25,7 @@ let package = Package(
         .target(
             name: "NetworkCoreApp",
             dependencies: ["NetworkCoreBridge"],
+            exclude: ["Resources"],
             path: "Sources/NetworkCoreApp"
         ),
         .testTarget(
