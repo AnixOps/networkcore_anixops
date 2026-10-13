@@ -594,7 +594,9 @@ ios-upload-scope-decision=maintainer-2026-10-13
 ios-upload-external-testflight=blocked
 ios-upload-beta-app-review=blocked-not-required-for-internal
 ios-upload-bundle-id-storage=github-variables-only
-ios-upload-api-key-status=not-created
+ios-upload-api-key-status=team-key-added-to-environment
+ios-upload-internal-confirmation-status=pending
+ios-upload-internal-confirmation-items=app-record,export-compliance,internal-testing-group,app-privacy-determination,privacy-policy-determination,environment-secrets-and-variables
 ```
 
 当前 workflow activation validation 仍是 blocked placeholder：`ios-upload-readiness` 只读取本节 marker、
