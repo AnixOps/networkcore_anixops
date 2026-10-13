@@ -1,3 +1,4 @@
+import NetworkCoreBridge
 import SwiftUI
 
 // SwiftUI entry point for the containing app. The app target compiles NetworkCoreApp sources directly,
