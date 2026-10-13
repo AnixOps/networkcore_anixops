@@ -595,6 +595,7 @@ ios-upload-external-testflight=blocked
 ios-upload-beta-app-review=blocked-not-required-for-internal
 ios-upload-bundle-id-storage=github-variables-only
 ios-upload-api-key-status=team-key-added-to-environment
+ios-export-compliance-answer=standard-https-only-exempt-2026-10-13
 ios-upload-internal-confirmation-status=pending
 ios-upload-internal-confirmation-items=app-record,export-compliance,internal-testing-group,app-privacy-determination,privacy-policy-determination,environment-secrets-and-variables
 ```

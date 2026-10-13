@@ -34,6 +34,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
+        ITSAppUsesNonExemptEncryption: false
     entitlements:
       path: Entitlements/NetworkCoreApp.entitlements
     settings:
@@ -56,6 +57,7 @@ targets:
         CFBundleDisplayName: NetworkCore Tunnel
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
         NSExtension:
           NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
