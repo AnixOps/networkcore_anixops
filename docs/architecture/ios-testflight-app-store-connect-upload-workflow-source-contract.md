@@ -270,3 +270,7 @@ Linux artifact 发布继续受 license/NOTICE confirmed marker、`package-linux`
   `https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments`
 - GitHub Docs: Using secrets in GitHub Actions,
   `https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets`
+
+## Internal TestFlight Scope
+
+上传范围已收窄为内部 TestFlight，详见 [iOS Upload Workflow Activation Validation Contract](ios-upload-workflow-activation-validation-contract.md) 中的 Internal TestFlight Scope 一节。本文件中关于 App Review、Beta App Review 和 App Store submission 的要求，继续适用于外部测试和上架。

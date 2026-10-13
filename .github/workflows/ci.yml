@@ -2178,6 +2178,8 @@ jobs:
           fi
 
           grep -q '^ios-upload-workflow-status=pending$' docs/manual-intervention.md
+          grep -q '^ios-upload-scope=internal-testflight-only$' docs/manual-intervention.md
+          grep -q 'Internal TestFlight Scope' docs/architecture/ios-upload-workflow-activation-validation-contract.md
           grep -q '^ios-upload-workflow-release-assets=blocked$' docs/manual-intervention.md
           grep -q "iOS Source Tree Governance Placeholder" apps/ios/README.md
           test -f apps/ios/project.yml

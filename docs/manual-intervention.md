@@ -589,6 +589,12 @@ ios-upload-workflow-macos-runner=blocked
 ios-upload-workflow-build-processing-check=blocked
 ios-upload-workflow-confirmed-at=pending
 ios-upload-workflow-confirmed-by=pending
+ios-upload-scope=internal-testflight-only
+ios-upload-scope-decision=maintainer-2026-10-13
+ios-upload-external-testflight=blocked
+ios-upload-beta-app-review=blocked-not-required-for-internal
+ios-upload-bundle-id-storage=github-variables-only
+ios-upload-api-key-status=not-created
 ```
 
 当前 workflow activation validation 仍是 blocked placeholder：`ios-upload-readiness` 只读取本节 marker、
