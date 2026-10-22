@@ -37,7 +37,11 @@ jobs:
           else
             cargo generate-lockfile
           fi
-          git diff --stat -- Cargo.lock
+          # Print the full lockfile diff so it can be reviewed and applied from
+          # the job log when the artifact store is not reachable.
+          echo "----- BEGIN CARGO.LOCK DIFF -----"
+          git diff -- Cargo.lock
+          echo "----- END CARGO.LOCK DIFF -----"
 
       - name: Upload generated lockfile
         uses: actions/upload-artifact@v4
