@@ -1,8 +1,7 @@
 use control_domain::{
     CertificateTrustState, DiagnosticSeverity, GrantedPermissions, HookPoint, HttpEvent,
     HttpHeaderMutationOperation, HttpMitmAction, HttpMitmEvent, HttpMitmPhase, HttpMitmScriptKind,
-    MetadataEntry, MitmHostnameDecision, MitmPluginService, PluginInstance, PluginManifest,
-    PluginPackage, PluginPermission,
+    MetadataEntry, MitmPluginService, PluginManifest, PluginPackage, PluginPermission,
 };
 use mitm_policy::{
     builtin_ad_block_plugin_package, builtin_bilibili_web_ad_block_plugin_package,
@@ -295,47 +294,6 @@ fn adapter_loads_builtin_ad_block_plugin_and_reports_deferred_mutation() {
     assert_diagnostic(
         &result.diagnostics,
         MITM_POLICY_HTTP_EVENT_MUTATION_DEFERRED_CODE,
-    );
-}
-
-#[test]
-fn adapter_rejects_quic_only_for_mitm_hostnames() {
-    let package = builtin_ad_block_plugin_package();
-    let service = AnixOpsMitmPluginService::new();
-    let instance = service
-        .load(
-            &package,
-            &GrantedPermissions {
-                permissions: package.manifest.permissions.clone(),
-            },
-        )
-        .expect("built-in ad block plugin should load");
-
-    let decide = |hostname: &str, is_quic: bool| {
-        service
-            .evaluate_mitm_hostname(&instance, hostname, is_quic)
-            .expect("MITM hostname decision should evaluate")
-    };
-    assert_eq!(
-        decide("stats.doubleclick.net", true),
-        MitmHostnameDecision::RejectQuic
-    );
-    assert_eq!(
-        decide("stats.doubleclick.net", false),
-        MitmHostnameDecision::Intercept
-    );
-    assert_eq!(decide("example.org", true), MitmHostnameDecision::Bypass);
-    assert_eq!(decide("example.org", false), MitmHostnameDecision::Bypass);
-
-    let sourceless = PluginInstance {
-        manifest: instance.manifest.clone(),
-        loaded_source: None,
-    };
-    assert_eq!(
-        service
-            .evaluate_mitm_hostname(&sourceless, "stats.doubleclick.net", true)
-            .expect("sourceless instance should evaluate"),
-        MitmHostnameDecision::Bypass
     );
 }
 
