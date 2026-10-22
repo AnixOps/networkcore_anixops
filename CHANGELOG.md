@@ -11,6 +11,8 @@
 
 ### Added
 
+- 路由规则支持 `DOMAIN-KEYWORD`：`config-core` 按域名子串匹配，`engine-singbox` 翻译为 sing-box `domain_keyword`；共享路由快照与 sing-box 等价性测试覆盖该规则。
+
 - iOS 节点密钥改存钥匙串：App 导入 `ss://` 节点时把密钥写入共享 keychain access group（`$(AppIdentifierPrefix)networkcore.shared`），隧道配置只保存 `passwordReference` 和不含密钥的运行时配置；隧道扩展启动时从钥匙串取回密钥再交给内核。
 
 - iOS 隧道扩展接入原生内核（M1a）：CI 在 `macos-26` 上用 `.github/scripts/build-ios-runtime-xcframework.sh` 把 `engine-embedded` 编成 `NetworkCoreRuntime.xcframework`（不提交），只由 `NetworkCorePacketTunnel` 链接；`PacketTunnelProvider` 校验运行时握手后经 C ABI 启动隧道，全量 IPv4/IPv6 路由与 DNS 进隧道；App 可粘贴 Shadowsocks-2022 `ss://` 链接保存为 VPN 配置并连接/断开、查看脱敏运行状态。隧道扩展的隐私清单声明 System Boot Time `35F9.1`。节点密钥暂存于 `providerConfiguration`，仅限内部 TestFlight。
@@ -58,7 +60,7 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 ### Changed
 
 - `config-core` now parses optional `rules` and `policy_groups` fields into a
-  routing model (DOMAIN/DOMAIN-SUFFIX/DOMAIN-KEYWORD/IP-CIDR/GEOIP/FINAL rules and
+  routing model (DOMAIN/DOMAIN-SUFFIX/IP-CIDR/GEOIP/FINAL rules and
   select/url-test/fallback groups), and `engine-singbox` can translate it to a
   sing-box route section. In `v0.2.0-beta.5` no Windows or Linux client uses
   it: a config that sets these fields is accepted, but its rules and groups are
