@@ -3112,7 +3112,13 @@ jobs:
       - name: Generate the Xcode project from apps/ios/project.yml
         shell: bash
         working-directory: apps/ios
-        run: xcodegen generate --spec project.yml
+        run: |
+          set -euo pipefail
+          xcodegen generate --spec project.yml
+          # XcodeGen must not rewrite the committed entitlements, and both targets must sign with them.
+          git diff --exit-code -- Entitlements
+          grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCoreApp.entitlements;' NetworkCore.xcodeproj/project.pbxproj
+          grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCorePacketTunnel.entitlements;' NetworkCore.xcodeproj/project.pbxproj
 
       - name: Build the app without signing
         shell: bash
@@ -3136,6 +3142,10 @@ jobs:
           test -f "${appex}/PrivacyInfo.xcprivacy"
           /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "${appex}/Info.plist" \
             | grep -qx 'com.apple.networkextension.packet-tunnel'
+          # App Store Connect rejects uploads without an asset-catalog icon or declared orientations.
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "${app}/Info.plist" | grep -qx 'AppIcon'
+          /usr/libexec/PlistBuddy -c 'Print :UISupportedInterfaceOrientations' "${app}/Info.plist" | grep -q 'UIInterfaceOrientationPortrait'
+          test -f "${app}/Assets.car"
 
       - name: Check the tunnel extension links the embedded runtime
         shell: bash
