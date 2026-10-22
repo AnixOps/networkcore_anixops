@@ -1,7 +1,7 @@
 //! First-class routing rules and policy groups.
 //!
 //! This module owns the platform-neutral routing model: ordered
-//! DOMAIN/DOMAIN-SUFFIX/IP-CIDR/GEOIP rules, a mandatory FINAL target, and
+//! DOMAIN/DOMAIN-SUFFIX/DOMAIN-KEYWORD/IP-CIDR/GEOIP rules, a mandatory FINAL target, and
 //! select/url-test/fallback policy groups. Adapters translate the model into
 //! engine configuration (for example `engine-singbox` renders a sing-box
 //! `route`), while in-process engines call [`RoutingModel::decide`] directly.

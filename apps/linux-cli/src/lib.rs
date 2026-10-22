@@ -4,6 +4,7 @@
 //! and foreground runtime handoff. Service installation/control and release
 //! packaging remain explicit platform boundaries.
 
+use config_core::routing_import::import_subscription_routing;
 use config_core::CoreSubscriptionService;
 use control_domain::{
     CertificateTrustState, ConfigurationService, Diagnostic, DiagnosticSeverity, DomainError,
@@ -23,10 +24,10 @@ use engine_mieru::{
 };
 use engine_singbox::{
     default_sing_box_install_root, read_sing_box_clash_api_selector,
-    render_sing_box_local_proxy_config, select_sing_box_clash_api_outbound,
-    sing_box_local_selector_outbound_tag, SingBoxInstallReport, SingBoxInstallRequest,
-    SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest, SingBoxProcessRunRequest,
-    SingBoxProcessRunner, SingBoxReleaseInstaller, SingBoxTarget,
+    render_sing_box_local_proxy_config, render_sing_box_local_proxy_routing_config,
+    select_sing_box_clash_api_outbound, sing_box_local_selector_outbound_tag, SingBoxInstallReport,
+    SingBoxInstallRequest, SingBoxLocalControllerConfig, SingBoxLocalProxyConfigRequest,
+    SingBoxProcessRunRequest, SingBoxProcessRunner, SingBoxReleaseInstaller, SingBoxTarget,
 };
 use mitm_policy::{
     builtin_ad_block_plugin_package, AnixOpsMitmPluginService, AnixOpsMitmPolicyEngine,
@@ -258,6 +259,7 @@ pub const CLI_RUN_URL_REMOTE_FETCH_FAILED_CODE: &str = "cli.linux.run_url.remote
 pub const CLI_RUN_URL_REMOTE_FETCH_LIMIT_EXCEEDED_CODE: &str =
     "cli.linux.run_url.remote_fetch_limit_exceeded";
 pub const CLI_RUN_URL_CONFIG_FAILED_CODE: &str = "cli.linux.run_url.config_failed";
+pub const CLI_RUN_URL_ROUTING_FALLBACK_CODE: &str = "cli.linux.run_url.routing_fallback";
 pub const CLI_RUN_URL_CONFIG_WRITE_FAILED_CODE: &str = "cli.linux.run_url.config_write_failed";
 pub const CLI_RUN_URL_PROCESS_FAILED_CODE: &str = "cli.linux.run_url.process_failed";
 pub const CLI_RUN_URL_MIERU_BINARY_REQUIRED_CODE: &str = "cli.linux.run_url.mieru_binary_required";
@@ -14715,13 +14717,38 @@ where
             &document.diagnostics,
         );
     }
-    let generated_config =
-        match render_sing_box_local_proxy_config(&SingBoxLocalProxyConfigRequest {
-            nodes: catalog.nodes,
-            selected_node_id: selected_node_id.map(str::to_string),
-            listen_host: listen_host.to_string(),
-            listen_port,
-        }) {
+    let render_request = SingBoxLocalProxyConfigRequest {
+        nodes: catalog.nodes,
+        selected_node_id: selected_node_id.map(str::to_string),
+        listen_host: listen_host.to_string(),
+        listen_port,
+    };
+    // An explicit --node keeps the single-node config; otherwise rules and
+    // policy groups in the subscription drive the sing-box route.
+    let mut routing_diagnostics = Vec::new();
+    let mut routed_config = None;
+    if selected_node_id.is_none() {
+        let imported =
+            import_subscription_routing(&raw_subscription.content, &render_request.nodes);
+        routing_diagnostics = imported.diagnostics;
+        if let Some(model) = imported.routing {
+            match render_sing_box_local_proxy_routing_config(&render_request, &model) {
+                Ok(config) => routed_config = Some(config),
+                Err(error) => routing_diagnostics.push(cli_diagnostic(
+                    DiagnosticSeverity::Warning,
+                    CLI_RUN_URL_ROUTING_FALLBACK_CODE,
+                    format!(
+                        "subscription routing was not applied and run-url uses one node: {}",
+                        error.message
+                    ),
+                    SOURCE_CLI_SING_BOX,
+                )),
+            }
+        }
+    }
+    let generated_config = match routed_config {
+        Some(config) => config,
+        None => match render_sing_box_local_proxy_config(&render_request) {
             Ok(config) => config,
             Err(error) => {
                 return domain_error_response(
@@ -14731,7 +14758,8 @@ where
                     SOURCE_CLI_SING_BOX,
                 );
             }
-        };
+        },
+    };
     let target = match SingBoxTarget::current() {
         Ok(target) => target,
         Err(error) => {
@@ -14798,6 +14826,7 @@ where
     };
     let mut diagnostics = install_report.diagnostics.clone();
     diagnostics.extend(document.diagnostics.clone());
+    diagnostics.extend(routing_diagnostics);
     diagnostics.extend(generated_config.diagnostics.clone());
     diagnostics.extend(run_report.diagnostics.clone());
     let run_status = LinuxSingBoxRunStatus {

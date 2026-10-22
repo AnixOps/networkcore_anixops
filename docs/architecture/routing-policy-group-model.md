@@ -7,7 +7,7 @@
 - 规则：`DOMAIN`、`DOMAIN-SUFFIX`、`DOMAIN-KEYWORD`、`IP-CIDR`/`IP-CIDR6`（可带 `no-resolve`）、`GEOIP`、`FINAL`。
 - 策略组：`select`、`url-test`、`fallback`。
 - 目标：`DIRECT`、`REJECT`、策略组 id、节点 id（保留名大小写不敏感）。
-- 非目标：`USER-AGENT`、`URL-REGEX`、`PROCESS-NAME`、远程规则集、`load-balance` 组、Loon `[Rule]` 段整段解析（M3 复用 `parse_rule_line`）。
+- 非目标：`USER-AGENT`、`URL-REGEX`、`PROCESS-NAME`、远程规则集、`load-balance` 组。
 
 ## 配置形状
 
@@ -94,4 +94,19 @@ CI job `Routing equivalence (sing-box)` 下载最新 sing-box 正式版和 `geoi
 - 结果与 `RoutingModel::decide` 的快照不一致即失败，并输出 sing-box 日志。带运行时状态（`live`）的用例依赖 select 选择和测速结果，不在此测试中比较。
 - 未设置 `NETWORKCORE_SING_BOX_BIN` 时（普通 workspace 测试），该测试没有可比较的对象，直接返回；专用 job 设置 `NETWORKCORE_REQUIRE_SING_BOX_EQUIVALENCE=1`，缺少二进制会失败。
 
-后续工作：把片段接入 `render_sing_box_local_proxy_*` 配置生成（beta.5 之后）；`engine-embedded` 接入 `decide`。
+## 订阅导入（config-core `routing_import`）
+
+`import_subscription_routing(content, &nodes) -> ImportedRouting { routing, diagnostics }` 从订阅原文再读一遍规则和策略组，`nodes` 是同一份订阅解析出的节点：
+
+- Surge/Loon：`[Proxy Group]` 行 `名称 = 类型, 成员, 成员, url=..., interval=..., tolerance=...`，`[Rule]` 段规则行。
+- Clash YAML：`proxy-groups`（`name`/`type`/`proxies`/`url`/`interval`/`tolerance`）与 `rules`，`MATCH` 视为 `FINAL`。
+- 成员和规则目标按代理名称映射到节点 id，策略组 id 保留原名称；`REJECT-TINYGIF` 等 `REJECT-*` 视为 `REJECT`；规则只保留 `no-resolve` 选项。
+- 不支持的规则类型、目标未导入的规则、`load-balance`/`relay` 等组、组内 `REJECT`、url-test/fallback 内的组成员都会跳过并给出警告；成员全部被跳过的组也会跳过，引用它的规则随之跳过。`FINAL` 之后的规则忽略。
+- 跳过后剩余内容仍无法通过 `RoutingModel::from_spec`（如没有 `FINAL`、组成环）时整体不导入，返回 `None` 和 `config.core.routing_import.invalid` 警告。诊断只包含规则类型、组名和节点名，不包含节点凭据。
+
+## 本地代理接入
+
+- `engine-singbox::render_sing_box_local_proxy_routing_config(request, &model)`：模型引用到的节点按节点 id 作为 tag 渲染（WireGuard 进 `endpoints`），加上策略组出站、`direct` 和 `render_sing_box_route` 的 `route`；未引用的节点不渲染。引用到的节点不能被本地代理渲染时返回错误。报告的节点是 `FINAL` 在无运行时状态时落到的节点。
+- `networkcore-linux run-url`：未指定 `--node` 时导入订阅中的规则和策略组，导入成功就用路由配置启动；导入失败或渲染失败时退回原来的单节点配置并给出警告。指定 `--node` 时保持单节点行为。Mieru 节点路径不变。
+
+后续工作：Windows GUI 与选择器（Clash API）路径接入路由；`engine-embedded` 接入 `decide`。

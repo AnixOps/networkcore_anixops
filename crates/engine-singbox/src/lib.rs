@@ -12,6 +12,9 @@ pub use route::{
     SING_BOX_FALLBACK_URLTEST_TOLERANCE_MS, SING_BOX_GEOIP_RULE_SET_URL_PREFIX,
 };
 
+use config_core::routing::{
+    PolicyTarget, RouteOutcome, RouteQuery, RoutingModel, StaticRoutingEnvironment,
+};
 use control_domain::{
     Diagnostic, DiagnosticSeverity, DomainError, DomainResult, NodeDescriptor, Protocol,
     ProxyEngineCapability, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,
@@ -37,6 +40,7 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
@@ -1199,6 +1203,139 @@ pub fn render_sing_box_local_proxy_selector_config(
     controller: &SingBoxLocalControllerConfig,
 ) -> DomainResult<SingBoxLocalProxyConfig> {
     render_sing_box_local_proxy_config_with_controller(request, Some(controller))
+}
+
+/// Render a local proxy configuration that routes by a `config-core` routing
+/// model: every node the model references becomes an outbound tagged by its
+/// node id, policy groups become selector/urltest outbounds, and the model's
+/// rules become the sing-box `route`. `request.selected_node_id` is ignored;
+/// the reported node is where FINAL goes before any selection or health check.
+pub fn render_sing_box_local_proxy_routing_config(
+    request: &SingBoxLocalProxyConfigRequest,
+    model: &RoutingModel,
+) -> DomainResult<SingBoxLocalProxyConfig> {
+    let mut referenced = BTreeSet::new();
+    let targets = model
+        .rules
+        .iter()
+        .map(|rule| &rule.target)
+        .chain(std::iter::once(&model.final_target))
+        .chain(model.groups.iter().flat_map(|group| group.members.iter()));
+    for target in targets {
+        if let PolicyTarget::Node(id) = target {
+            referenced.insert(id.as_str());
+        }
+    }
+
+    let fragment = render_sing_box_route(model);
+    let mut outbounds = fragment.outbounds;
+    let mut endpoints = Vec::new();
+    let mut selectable_nodes = Vec::new();
+    for node in request
+        .nodes
+        .iter()
+        .filter(|node| referenced.contains(node.id.as_str()))
+    {
+        if node.id == SING_BOX_DIRECT_OUTBOUND_TAG {
+            return Err(DomainError::new(
+                ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE,
+                "routed node id direct collides with the sing-box direct outbound",
+            ));
+        }
+        if !supports_local_proxy_protocol(&node.protocol) {
+            return Err(DomainError::new(
+                ENGINE_SINGBOX_CONFIG_NODE_UNSUPPORTED_CODE,
+                format!(
+                    "routed node {} uses a protocol the sing-box local proxy does not support",
+                    node.id
+                ),
+            ));
+        }
+        let mut rendered = if node.protocol == Protocol::WireGuard {
+            render_wireguard_endpoint(node)?
+        } else {
+            render_sing_box_outbound(node)?
+        };
+        rendered["tag"] = Value::String(node.id.clone());
+        if node.protocol == Protocol::WireGuard {
+            endpoints.push(rendered);
+        } else {
+            outbounds.push(rendered);
+        }
+        selectable_nodes.push(SingBoxLocalProxySelectableNode {
+            id: node.id.clone(),
+            name: node.name.clone(),
+            outbound_tag: node.id.clone(),
+        });
+    }
+    outbounds.push(json!({
+        "type": "direct",
+        "tag": SING_BOX_DIRECT_OUTBOUND_TAG
+    }));
+
+    let (selected_node_id, selected_node_name) = match model
+        .decide(&RouteQuery::default(), &StaticRoutingEnvironment)
+        .outcome
+    {
+        RouteOutcome::Node(id) => {
+            let name = selectable_nodes
+                .iter()
+                .find(|node| node.id == id)
+                .map(|node| node.name.clone())
+                .unwrap_or_else(|| id.clone());
+            (id, name)
+        }
+        RouteOutcome::Direct => (
+            SING_BOX_DIRECT_OUTBOUND_TAG.to_string(),
+            "DIRECT".to_string(),
+        ),
+        RouteOutcome::Reject => ("reject".to_string(), "REJECT".to_string()),
+    };
+
+    let mut config = json!({
+        "log": {
+            "level": "info"
+        },
+        "inbounds": [
+            {
+                "type": "mixed",
+                "tag": "mixed-in",
+                "listen": request.listen_host.as_str(),
+                "listen_port": request.listen_port
+            }
+        ],
+        "outbounds": outbounds,
+        "route": fragment.route
+    });
+    if !endpoints.is_empty() {
+        config["endpoints"] = json!(endpoints);
+    }
+    let json = serde_json::to_string_pretty(&config).map_err(|error| {
+        DomainError::new(
+            ENGINE_SINGBOX_CONFIG_RENDERED_CODE,
+            format!("failed to serialize sing-box config: {error}"),
+        )
+    })?;
+
+    Ok(SingBoxLocalProxyConfig {
+        json,
+        selected_node_id,
+        selected_node_name,
+        listen_host: request.listen_host.clone(),
+        listen_port: request.listen_port,
+        selectable_nodes,
+        controller: None,
+        diagnostics: vec![sing_box_diagnostic(
+            DiagnosticSeverity::Info,
+            ENGINE_SINGBOX_CONFIG_RENDERED_CODE,
+            format!(
+                "rendered sing-box local mixed inbound config with {} routing rules and {} policy groups",
+                model.rules.len() + 1,
+                model.groups.len()
+            ),
+            SOURCE_ENGINE_SINGBOX_CONFIG,
+        )],
+    })
 }
 
 fn render_sing_box_local_proxy_config_with_controller(
