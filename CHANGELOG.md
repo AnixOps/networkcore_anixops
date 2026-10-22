@@ -11,6 +11,8 @@
 
 ### Added
 
+- 新增 `engine-embedded` crate（M1a）：iOS Network Extension 进程内内核。Shadowsocks-2022 TCP 出站（`2022-blake3-aes-128-gcm` / `aes-256-gcm` / `chacha20-poly1305`，基于 `ring` + `blake3` 自实现，暂不支持多用户 identity header），smoltcp 用户态 TCP/IP 栈（`netstack-smoltcp`），UDP/53 经出站转 DNS-over-TCP、其余 UDP 丢弃，按 NE 内存预算设定连接数、窗口与空闲超时上限；`networkcore_ios_*` C ABI 与 `include/networkcore_ios_runtime.h`。与 shadowsocks-rust 服务端的互通测试只作为 Unix dev-dependency，不进入 NE 二进制。尚未接入 Xcode 工程和 PacketTunnelProvider。
+
 - 新增 `engine-outbound` crate：`engine-embedded` 与各协议 crate 共用的出站接口（`TargetAddr`、`BoxStream`、构造时注入的 `Dialer` 与默认 `TcpDialer`、`TcpOutbound`），只含接口，不含平台代码；UDP 接口待 TUN 层需要时再定义。
 
 - 编写首批维护事件 v1 严格字段/时间/大小/身份校验、JSON 与逐事件批量序列化边界及显式诊断适配器；原始诊断文本不进入适配结果，自动动作契约移除 rollback。新增 Rust 合同与共享 fixture，[源码 CI](https://github.com/AnixOps/networkcore_anixops/actions/runs/35650045804) 的维护合同、三平台全量回归与依赖审计已通过，尚未接入 NetworkCore 实际运行时通信。
