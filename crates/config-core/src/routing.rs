@@ -145,6 +145,8 @@ pub enum RuleMatcher {
     Domain(String),
     /// The domain itself and every subdomain.
     DomainSuffix(String),
+    /// Lower-case substring of the domain.
+    DomainKeyword(String),
     IpCidr(IpCidr),
     /// Upper-case ISO 3166-1 alpha-2 country code.
     GeoIp(String),
@@ -243,6 +245,7 @@ pub fn parse_rule_line(line: &str) -> DomainResult<RuleLine> {
         "DOMAIN-SUFFIX" => {
             RuleMatcher::DomainSuffix(normalize_rule_domain(value.trim_start_matches('.'))?)
         }
+        "DOMAIN-KEYWORD" => RuleMatcher::DomainKeyword(normalize_rule_domain(value)?),
         "IP-CIDR" | "IP-CIDR6" => RuleMatcher::IpCidr(IpCidr::parse(value).ok_or_else(|| {
             routing_error(
                 ROUTING_RULE_VALUE_INVALID_CODE,
@@ -252,7 +255,7 @@ pub fn parse_rule_line(line: &str) -> DomainResult<RuleLine> {
         "GEOIP" => RuleMatcher::GeoIp(normalize_country_code(value)?),
         _ => return Err(routing_error(
             ROUTING_RULE_TYPE_UNSUPPORTED_CODE,
-            "routing rule type must be DOMAIN, DOMAIN-SUFFIX, IP-CIDR, IP-CIDR6, GEOIP, or FINAL",
+            "routing rule type must be DOMAIN, DOMAIN-SUFFIX, DOMAIN-KEYWORD, IP-CIDR, IP-CIDR6, GEOIP, or FINAL",
         )),
     };
 
@@ -515,6 +518,9 @@ fn rule_matches(
 ) -> bool {
     match matcher {
         RuleMatcher::Domain(expected) => domain == Some(expected.as_str()),
+        RuleMatcher::DomainKeyword(keyword) => {
+            domain.is_some_and(|domain| domain.contains(keyword.as_str()))
+        }
         RuleMatcher::DomainSuffix(suffix) => domain.is_some_and(|domain| {
             domain == suffix
                 || domain

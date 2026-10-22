@@ -48,6 +48,7 @@ pub fn render_sing_box_route(model: &RoutingModel) -> SingBoxRouteFragment {
         let mut rendered = match &rule.matcher {
             RuleMatcher::Domain(domain) => json!({ "domain": [domain] }),
             RuleMatcher::DomainSuffix(suffix) => json!({ "domain_suffix": [suffix] }),
+            RuleMatcher::DomainKeyword(keyword) => json!({ "domain_keyword": [keyword] }),
             RuleMatcher::IpCidr(cidr) => json!({ "ip_cidr": [cidr.to_string()] }),
             RuleMatcher::GeoIp(country) => {
                 let tag = format!("geoip-{}", country.to_ascii_lowercase());

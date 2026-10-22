@@ -58,7 +58,7 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 ### Changed
 
 - `config-core` now parses optional `rules` and `policy_groups` fields into a
-  routing model (DOMAIN/DOMAIN-SUFFIX/IP-CIDR/GEOIP/FINAL rules and
+  routing model (DOMAIN/DOMAIN-SUFFIX/DOMAIN-KEYWORD/IP-CIDR/GEOIP/FINAL rules and
   select/url-test/fallback groups), and `engine-singbox` can translate it to a
   sing-box route section. In `v0.2.0-beta.5` no Windows or Linux client uses
   it: a config that sets these fields is accepted, but its rules and groups are

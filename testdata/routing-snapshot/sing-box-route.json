@@ -32,6 +32,7 @@
       { "domain_suffix": ["google.com"], "action": "route", "outbound": "Proxy" },
       { "domain_suffix": ["netflix.com"], "action": "route", "outbound": "Streaming" },
       { "domain_suffix": ["youtube.com"], "action": "route", "outbound": "Auto" },
+      { "domain_keyword": ["tracker"], "action": "reject" },
       { "domain": ["router.lan"], "action": "route", "outbound": "direct" },
       { "ip_cidr": ["192.168.0.0/16"], "action": "route", "outbound": "direct" },
       { "action": "resolve" },

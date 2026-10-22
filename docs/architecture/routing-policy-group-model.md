@@ -4,10 +4,10 @@
 
 ## 范围
 
-- 规则：`DOMAIN`、`DOMAIN-SUFFIX`、`IP-CIDR`/`IP-CIDR6`（可带 `no-resolve`）、`GEOIP`、`FINAL`。
+- 规则：`DOMAIN`、`DOMAIN-SUFFIX`、`DOMAIN-KEYWORD`、`IP-CIDR`/`IP-CIDR6`（可带 `no-resolve`）、`GEOIP`、`FINAL`。
 - 策略组：`select`、`url-test`、`fallback`。
 - 目标：`DIRECT`、`REJECT`、策略组 id、节点 id（保留名大小写不敏感）。
-- 非目标：`DOMAIN-KEYWORD`、`USER-AGENT`、`URL-REGEX`、`PROCESS-NAME`、远程规则集、`load-balance` 组、Loon `[Rule]` 段整段解析（M3 复用 `parse_rule_line`）。
+- 非目标：`USER-AGENT`、`URL-REGEX`、`PROCESS-NAME`、远程规则集、`load-balance` 组、Loon `[Rule]` 段整段解析（M3 复用 `parse_rule_line`）。
 
 ## 配置形状
 
@@ -43,7 +43,7 @@ tolerance_ms = 50                              # 默认值，仅 url-test
 - 目标解析顺序：`DIRECT`/`REJECT` → 策略组 id → 节点 id；策略组 id 不得与节点 id、保留名重复。
 - 组成员不能是 `REJECT`；只有 `select` 可以包含其他组；`url-test`/`fallback` 成员只能是节点或 `DIRECT`。
 - 组之间不得成环；重复成员按首次出现去重。
-- 域名统一小写、去掉结尾点；`DOMAIN-SUFFIX` 去掉开头点，匹配自身与全部子域名。
+- 域名统一小写、去掉结尾点；`DOMAIN-SUFFIX` 去掉开头点，匹配自身与全部子域名；`DOMAIN-KEYWORD` 匹配包含该子串的域名。
 - CIDR 归一化为网络地址（`10.1.2.3/8` → `10.0.0.0/8`）。
 
 ## 决策接口（engine-embedded 使用）
@@ -60,7 +60,7 @@ tolerance_ms = 50                              # 默认值，仅 url-test
 
 `render_sing_box_route(&RoutingModel) -> SingBoxRouteFragment { outbounds, route }`
 
-- 规则一对一按序翻译为 rule action（sing-box 1.11+）：`domain`、`domain_suffix`、`ip_cidr`、`rule_set`；`REJECT` 为 `action: reject`，其他为 `action: route` + `outbound`。
+- 规则一对一按序翻译为 rule action（sing-box 1.11+）：`domain`、`domain_suffix`、`domain_keyword`、`ip_cidr`、`rule_set`；`REJECT` 为 `action: reject`，其他为 `action: route` + `outbound`。
 - 第一条需要解析的 IP 规则前插入 `{ "action": "resolve" }`。
 - `GEOIP,CN` 翻译为 `rule_set: ["geoip-cn"]`，并生成指向 `SagerNet/sing-geoip` 的远程 `.srs` 规则集，经 `direct` 下载。
 - `FINAL,<目标>` 写入 `route.final`；`FINAL,REJECT` 追加无条件 `reject` 规则，`final` 为 `direct`。
