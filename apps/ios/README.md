@@ -2,9 +2,9 @@
 
 Current status: `swift-source-gate-active`.
 
-This directory is the iOS application and Network Extension source tree root. The manifest-only activation adds
-`Package.swift` and nothing else. Swift sources, the Xcode project, the Network Extension target and signing or upload
-material remain blocked until their own gates pass.
+This directory is the iOS application and Network Extension source tree root. The Swift package, the XcodeGen spec and
+the `NetworkCorePacketTunnel` extension target are active. Signing, archive/export and upload material remain blocked until
+their own gates pass.
 
 ## Ownership
 
@@ -15,22 +15,24 @@ material remain blocked until their own gates pass.
   `docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md`.
 - Package targets: `NetworkCoreBridge` and `NetworkCoreApp` (library product `NetworkCoreIOS`), with `NetworkCoreBridgeTests`
   as the test target.
-- `NetworkCorePacketTunnel` is the only approved Network Extension target name. It is reserved in this manifest and is not
-  declared until the Network Extension gate passes.
+- `NetworkCorePacketTunnel` is the only approved Network Extension target name. It is declared in `project.yml` as an
+  app extension, not in `Package.swift`, and fails closed until the embedded Rust runtime is linked.
 - Swift sources may only live under `apps/ios/Sources` or `apps/ios/Tests`.
 - Future Xcode project or workspace files must reference this source tree and must not become the only source of truth.
 
 ## Current Boundary
 
-Current boundary: `Package.swift`, the Swift package sources under `Sources/` and `Tests/`, and the XcodeGen spec `project.yml` are enabled. The generated `.xcodeproj` is never committed. No Network Extension target yet.
+Current boundary: `Package.swift`, the Swift package sources under `Sources/` and `Tests/`, the XcodeGen spec `project.yml`,
+the `NetworkCorePacketTunnel` extension target, the minimal entitlements under `Entitlements/` and the `PrivacyInfo.xcprivacy`
+manifests under `Sources/*/Resources/` are enabled. The generated `.xcodeproj` is never committed.
 
 These files and directories must stay absent until their own activation gates are complete:
 
 - `*.swift` outside `apps/ios/Sources` and `apps/ios/Tests`
 - `*.xcodeproj`
 - `*.xcworkspace`
-- `PrivacyInfo.xcprivacy`
-- `*.entitlements`
+- `PrivacyInfo.xcprivacy` outside `apps/ios/Sources/*/Resources`
+- `*.entitlements` outside `apps/ios/Entitlements`
 - `ExportOptions.plist`
 - `.ipa`, `.xcarchive`, `.xcresult` or dSYM bundles
 - Provisioning Profile, certificate, private key, temporary keychain or App Store Connect API material
