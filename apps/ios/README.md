@@ -16,7 +16,14 @@ their own gates pass.
 - Package targets: `NetworkCoreBridge` and `NetworkCoreApp` (library product `NetworkCoreIOS`), with `NetworkCoreBridgeTests`
   as the test target.
 - `NetworkCorePacketTunnel` is the only approved Network Extension target name. It is declared in `project.yml` as an
-  app extension, not in `Package.swift`, and fails closed until the embedded Rust runtime is linked.
+  app extension, not in `Package.swift`. It links the embedded Rust runtime (`crates/engine-embedded`) as
+  `Generated/NetworkCoreRuntime.xcframework`, which GitHub Actions builds with
+  `.github/scripts/build-ios-runtime-xcframework.sh` and never commits. The extension imports the C ABI as the Clang
+  module `NetworkCoreRuntimeC` and fails closed when the runtime handshake or the tunnel profile is invalid. The containing
+  app does not link the runtime.
+- M1a tunnel profile: the app imports one Shadowsocks-2022 `ss://` link and saves it in
+  `NETunnelProviderProtocol.providerConfiguration`, including the key. Moving the key to a Keychain `passwordReference`
+  shared through a keychain access group is required before external TestFlight.
 - Swift sources may only live under `apps/ios/Sources` or `apps/ios/Tests`.
 - Future Xcode project or workspace files must reference this source tree and must not become the only source of truth.
 

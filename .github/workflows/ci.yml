@@ -636,7 +636,7 @@ jobs:
           for governance_document in README.md ROADMAP.md TODO.md CHANGELOG.md docs/alpha-release-feature-matrix.md; do
             grep -qx 'current-main-release-state=pending_manual_acceptance' "${governance_document}"
             grep -qx 'current-main-source-candidate=v0.2.0-beta.5' "${governance_document}"
-            grep -qx 'current-main-latest-published-tag=v0.2.0-alpha.21' "${governance_document}"
+            grep -qx 'current-main-latest-published-tag=v0.2.0-beta.4' "${governance_document}"
             grep -qx 'current-main-latest-stable-tag=v0.1.0' "${governance_document}"
             grep -qx 'current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active' "${governance_document}"
             grep -qx 'current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active' "${governance_document}"
@@ -3045,6 +3045,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Setup Rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ios-runtime
+
+      - name: Build the embedded runtime XCFramework
+        shell: bash
+        run: bash .github/scripts/build-ios-runtime-xcframework.sh all
+
       - name: Install XcodeGen
         shell: bash
         run: brew install xcodegen
@@ -3076,6 +3092,27 @@ jobs:
           test -f "${appex}/PrivacyInfo.xcprivacy"
           /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "${appex}/Info.plist" \
             | grep -qx 'com.apple.networkextension.packet-tunnel'
+
+      - name: Check the tunnel extension links the embedded runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          products=apps/ios/build/Build/Products/Debug-iphonesimulator
+          # Debug builds may move code into <name>.debug.dylib, so read every Mach-O next to the executable.
+          symbols() {
+            local dir="$1" name="$2" out="$3"
+            : > "${out}"
+            find "${dir}" -maxdepth 1 -type f -name "${name}*" -print0 | while IFS= read -r -d '' file; do
+              nm "${file}" >> "${out}" 2>/dev/null || true
+            done
+          }
+          symbols "${products}/NetworkCoreApp.app/PlugIns/NetworkCorePacketTunnel.appex" NetworkCorePacketTunnel "${RUNNER_TEMP}/appex-symbols.txt"
+          symbols "${products}/NetworkCoreApp.app" NetworkCoreApp "${RUNNER_TEMP}/app-symbols.txt"
+          grep -q '_networkcore_ios_runtime_init$' "${RUNNER_TEMP}/appex-symbols.txt"
+          if grep -q '_networkcore_ios_runtime_init$' "${RUNNER_TEMP}/app-symbols.txt"; then
+            echo "::error::the containing app must not link the embedded runtime"
+            exit 1
+          fi
 
   apple-project-smoke:
     name: Apple project smoke

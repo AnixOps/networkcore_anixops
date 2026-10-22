@@ -69,6 +69,11 @@ targets:
     dependencies:
       - package: NetworkCoreIOS
         product: NetworkCoreIOS
+      # Static Rust runtime (crates/engine-embedded), built in GitHub Actions by
+      # .github/scripts/build-ios-runtime-xcframework.sh. Only the extension links it.
+      - framework: Generated/NetworkCoreRuntime.xcframework
+        embed: false
+      - sdk: Security.framework
 
 schemes:
   NetworkCoreApp:

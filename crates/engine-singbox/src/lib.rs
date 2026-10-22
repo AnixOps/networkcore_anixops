@@ -5,6 +5,13 @@
 //! runtime cache. It does not bundle third-party binaries into NetworkCore
 //! release artifacts.
 
+pub mod route;
+
+pub use route::{
+    render_sing_box_route, SingBoxRouteFragment, SING_BOX_DIRECT_OUTBOUND_TAG,
+    SING_BOX_FALLBACK_URLTEST_TOLERANCE_MS, SING_BOX_GEOIP_RULE_SET_URL_PREFIX,
+};
+
 use control_domain::{
     Diagnostic, DiagnosticSeverity, DomainError, DomainResult, NodeDescriptor, Protocol,
     ProxyEngineCapability, ProxyEngineConfig, ProxyEngineDescriptor, ProxyEngineEvent,

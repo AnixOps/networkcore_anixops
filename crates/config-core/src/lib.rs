@@ -3,6 +3,7 @@
 //! This crate parses and normalizes the first minimal TOML configuration shape.
 //! It performs no file I/O, network access, platform probing, or engine work.
 
+pub mod routing;
 pub mod sdwan_delivery;
 pub mod windows_tunnel;
 
@@ -30,6 +31,7 @@ use control_domain::{
     NODE_METADATA_WIREGUARD_MTU, NODE_METADATA_WIREGUARD_PEER_PUBLIC_KEY,
     NODE_METADATA_WIREGUARD_PRE_SHARED_KEY, NODE_METADATA_WIREGUARD_PRIVATE_KEY,
 };
+use routing::{PolicyGroupSpec, RoutingModel, RoutingSpec};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -121,6 +123,8 @@ pub struct ParsedConfigDocument {
     pub listeners: Vec<ListenerDescriptor>,
     pub nodes: Vec<NodeDescriptor>,
     pub routes: Vec<RuleSet>,
+    /// First-class rules and policy groups, present when `rules` is set.
+    pub routing: Option<RoutingModel>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -132,6 +136,21 @@ struct RawConfigDocument {
     listeners: Option<Vec<RawListener>>,
     nodes: Option<Vec<RawNode>>,
     routes: Option<Vec<RawRoute>>,
+    rules: Option<Vec<String>>,
+    policy_groups: Option<Vec<RawPolicyGroup>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawPolicyGroup {
+    id: String,
+    #[serde(rename = "type")]
+    kind: String,
+    members: Vec<String>,
+    default: Option<String>,
+    url: Option<String>,
+    interval_secs: Option<u32>,
+    tolerance_ms: Option<u16>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -476,6 +495,7 @@ pub fn parse_config_document(raw_config: &str) -> DomainResult<ParsedConfigDocum
     let listeners = collect_listeners(raw.listeners.unwrap_or_default())?;
     let nodes = collect_nodes(raw.nodes.unwrap_or_default())?;
     let routes = collect_routes(raw.routes.unwrap_or_default())?;
+    let routing = collect_routing(raw.rules, raw.policy_groups, &nodes)?;
 
     Ok(ParsedConfigDocument {
         schema_version: SchemaVersion::new(schema_version),
@@ -483,7 +503,39 @@ pub fn parse_config_document(raw_config: &str) -> DomainResult<ParsedConfigDocum
         listeners,
         nodes,
         routes,
+        routing,
     })
+}
+
+fn collect_routing(
+    rules: Option<Vec<String>>,
+    policy_groups: Option<Vec<RawPolicyGroup>>,
+    nodes: &[NodeDescriptor],
+) -> DomainResult<Option<RoutingModel>> {
+    if rules.is_none() && policy_groups.is_none() {
+        return Ok(None);
+    }
+    let spec = RoutingSpec {
+        rules: rules.unwrap_or_default(),
+        groups: policy_groups
+            .unwrap_or_default()
+            .into_iter()
+            .map(|group| PolicyGroupSpec {
+                id: group.id,
+                kind: group.kind,
+                members: group.members,
+                default: group.default,
+                url: group.url,
+                interval_secs: group.interval_secs,
+                tolerance_ms: group.tolerance_ms,
+            })
+            .collect(),
+    };
+    let node_ids = nodes
+        .iter()
+        .map(|node| node.id.clone())
+        .collect::<BTreeSet<_>>();
+    RoutingModel::from_spec(&spec, &node_ids).map(Some)
 }
 
 fn collect_profiles(

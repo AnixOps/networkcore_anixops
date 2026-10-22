@@ -1,0 +1,52 @@
+{
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "Proxy",
+      "outbounds": ["Auto", "hk-1", "jp-1", "direct"],
+      "default": "Auto",
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "urltest",
+      "tag": "Auto",
+      "outbounds": ["hk-1", "jp-1"],
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "600s",
+      "tolerance": 80,
+      "interrupt_exist_connections": false
+    },
+    {
+      "type": "urltest",
+      "tag": "Streaming",
+      "outbounds": ["us-1", "jp-1"],
+      "url": "https://cp.cloudflare.com/generate_204",
+      "interval": "300s",
+      "tolerance": 65535,
+      "interrupt_exist_connections": false
+    }
+  ],
+  "route": {
+    "rules": [
+      { "domain": ["ads.example.com"], "action": "reject" },
+      { "domain_suffix": ["google.com"], "action": "route", "outbound": "Proxy" },
+      { "domain_suffix": ["netflix.com"], "action": "route", "outbound": "Streaming" },
+      { "domain_suffix": ["youtube.com"], "action": "route", "outbound": "Auto" },
+      { "domain": ["router.lan"], "action": "route", "outbound": "direct" },
+      { "ip_cidr": ["192.168.0.0/16"], "action": "route", "outbound": "direct" },
+      { "action": "resolve" },
+      { "ip_cidr": ["2001:db8::/32"], "action": "route", "outbound": "Proxy" },
+      { "rule_set": ["geoip-cn"], "action": "route", "outbound": "direct" }
+    ],
+    "final": "Proxy",
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "geoip-cn",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
+        "download_detour": "direct"
+      }
+    ]
+  }
+}
