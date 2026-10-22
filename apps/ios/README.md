@@ -56,3 +56,11 @@ signing, archive/export or upload validation must run only in GitHub Actions on 
 
 `ios-upload-workflow-status=enabled` (2026-10-22) unlocks only the manual internal TestFlight workflow,
 `.github/workflows/ios-testflight.yml`. External TestFlight, App Store submission and release assets stay blocked.
+
+## App icon
+
+`Design/AppIcon.svg` is the source of the app icon. The asset catalog uses one
+1024×1024 sRGB PNG without an alpha channel
+(`Sources/NetworkCoreApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png`);
+iOS applies the corner mask. Re-export the PNG at 1024×1024 and drop the alpha
+channel whenever the SVG changes.
