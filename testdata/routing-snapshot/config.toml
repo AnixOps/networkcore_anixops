@@ -1,0 +1,57 @@
+# Shared routing snapshot fixture.
+# config-core checks decisions.json against RoutingModel::decide, and
+# engine-singbox checks sing-box-route.json against render_sing_box_route.
+# Both snapshots must change together when routing semantics change.
+schema_version = 1
+profile = "default"
+rules = [
+  "DOMAIN,ads.example.com,REJECT",
+  "DOMAIN-SUFFIX,google.com,Proxy",
+  "DOMAIN-SUFFIX,.netflix.com,Streaming",
+  "DOMAIN-SUFFIX,youtube.com,Auto",
+  "DOMAIN,Router.LAN.,DIRECT",
+  "IP-CIDR,192.168.0.0/16,DIRECT,no-resolve",
+  "IP-CIDR6,2001:db8::1/32,Proxy",
+  "GEOIP,cn,DIRECT",
+  "FINAL,Proxy",
+]
+
+[[nodes]]
+id = "hk-1"
+name = "Hong Kong 1"
+protocol = "socks"
+host = "198.51.100.10"
+port = 1080
+
+[[nodes]]
+id = "jp-1"
+name = "Japan 1"
+protocol = "socks"
+host = "198.51.100.20"
+port = 1080
+
+[[nodes]]
+id = "us-1"
+name = "United States 1"
+protocol = "socks"
+host = "198.51.100.30"
+port = 1080
+
+[[policy_groups]]
+id = "Proxy"
+type = "select"
+members = ["Auto", "hk-1", "jp-1", "DIRECT"]
+default = "Auto"
+
+[[policy_groups]]
+id = "Auto"
+type = "url-test"
+members = ["hk-1", "jp-1"]
+interval_secs = 600
+tolerance_ms = 80
+
+[[policy_groups]]
+id = "Streaming"
+type = "fallback"
+members = ["us-1", "jp-1"]
+url = "https://cp.cloudflare.com/generate_204"

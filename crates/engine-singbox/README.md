@@ -15,6 +15,9 @@ The crate currently provides source contracts for:
 - Rendering a GUI-requested multi-node `selector` config with a loopback-only
   Clash API controller, then reading, explicitly switching, and manually
   measuring one selected generated outbound through that controller.
+- Translating the `config-core` routing model into sing-box policy group
+  outbounds (`selector`/`urltest`) and an ordered `route` with rule actions,
+  GeoIP remote rule sets, and `final` (`render_sing_box_route`).
 - Recognizing a native sing-box JSON configuration without transforming it and
   locating a local `mixed` or `http` inbound for Windows system-proxy setup.
 - Rewriting only a native `type: mixed`, `tag: mixed-in` listener for the
