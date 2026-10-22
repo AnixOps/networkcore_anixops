@@ -2933,9 +2933,11 @@ jobs:
         working-directory: crates/engine-native
         run: |
           set -euo pipefail
+          # The prebuilt cargo-fuzz binary is musl-linked and would default to
+          # the musl target, which ASan cannot instrument.
           for target in tls_client_hello_alpn h2_mitm_frames h2_mitm_requests; do
             echo "::group::cargo fuzz run ${target}"
-            cargo fuzz run "${target}" -- \
+            cargo fuzz run --target x86_64-unknown-linux-gnu "${target}" -- \
               -max_total_time="${FUZZ_SECONDS_PER_TARGET}" \
               -max_len=4096 \
               -rss_limit_mb=2048 \
