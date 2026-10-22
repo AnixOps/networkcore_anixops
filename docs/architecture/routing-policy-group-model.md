@@ -52,7 +52,7 @@ tolerance_ms = 50                              # 默认值，仅 url-test
 
 - `RouteQuery { domain, ip }`：FakeIP/嗅探得到的域名与目的地址。
 - `RoutingEnvironment` 提供 GeoIP 查询、DNS 解析、select 当前选择、成员测速结果；全部方法有保守默认值，`StaticRoutingEnvironment` 即无运行时状态。
-- 第一条不带 `no-resolve` 的 IP 规则触发一次解析，之后所有 IP 规则使用解析结果，与 sing-box `resolve` 动作一致。
+- 第一条不带 `no-resolve` 的 IP 规则触发一次解析，之后所有 IP 规则使用解析结果，与 sing-box `resolve` 动作一致。解析失败时连接被拒绝（`RouteMatch::ResolveFailed`），与 sing-box 一致，不会落到 `FINAL`；需要远端解析的域名应放在 IP 规则之前用域名规则分流，或给 IP 规则加 `no-resolve`。
 - 组选择：`select` 用环境选择 → `default` → 第一个成员；`url-test` 取延迟最低的成员（无结果时取第一个）；`fallback` 取第一个有测速结果的成员（都没有时取第一个）。
 - `RouteResolution` 返回命中规则序号或 `FINAL`、规则目标、经过的组路径、最终 `Direct/Reject/Node(id)` 与解析出的地址，可直接用于诊断页。
 
@@ -70,7 +70,7 @@ tolerance_ms = 50                              # 默认值，仅 url-test
 ## 已知差异
 
 - sing-box 没有按顺序回落的 fallback 组。翻译结果首次选择的是最快成员，之后只在当前成员失败时切换；`engine-embedded` 实现严格按顺序回落。快照用无测速状态的环境，两边都取第一个成员。
-- sing-box `resolve` 失败时连接报错；决策接口在解析失败时继续匹配后续规则直至 `FINAL`。
+- sing-box 不对目的域名做大小写和结尾点归一化，决策接口会归一化；快照中对应用例标记 `engine_only`，不参与 sing-box 比较。
 - 组内 `REJECT` 暂不支持，因为 sing-box 1.13 起移除了 `block` 出站。
 
 ## 快照夹具与验收

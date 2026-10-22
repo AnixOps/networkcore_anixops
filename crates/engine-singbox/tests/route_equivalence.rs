@@ -3,7 +3,8 @@
 //! The test renders `testdata/routing-snapshot/config.toml` with
 //! `render_sing_box_route`, runs it in the sing-box binary named by
 //! `NETWORKCORE_SING_BOX_BIN`, and replays every static case of
-//! `decisions.json` through the sing-box mixed inbound. Each node and the
+//! `decisions.json` through the sing-box mixed inbound. Cases marked
+//! `engine_only` cover NetworkCore-only input normalization and are skipped. Each node and the
 //! `direct` tag are local SOCKS5 mocks, so the mock that receives a case's
 //! unique destination port shows which outbound sing-box chose. GeoIP rule
 //! sets are read from `NETWORKCORE_SING_BOX_RULE_SET_DIR` and the fixture DNS
@@ -276,11 +277,9 @@ fn sing_box_routes_match_decision_snapshot() {
     }
 
     let mut mismatches = Vec::new();
-    let static_cases = snapshot["cases"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|case| !case["live"].as_bool().unwrap_or(false));
+    let static_cases = snapshot["cases"].as_array().unwrap().iter().filter(|case| {
+        !case["live"].as_bool().unwrap_or(false) && !case["engine_only"].as_bool().unwrap_or(false)
+    });
     for (index, case) in static_cases.enumerate() {
         let destination_port = FIRST_CASE_PORT + index as u16;
         let ip = case["ip"].as_str().map(|ip| ip.parse::<IpAddr>().unwrap());

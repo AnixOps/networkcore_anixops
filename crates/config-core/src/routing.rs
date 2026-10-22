@@ -339,7 +339,8 @@ impl RoutingModel {
     /// Rules are evaluated in order. The first IP rule without `no-resolve`
     /// asks the environment to resolve a domain-only destination once; like a
     /// sing-box `resolve` action, the resolved address is then used by every
-    /// later IP rule and is reported in the result.
+    /// later IP rule and is reported in the result. As in sing-box, a failed
+    /// resolution rejects the connection instead of falling through to FINAL.
     pub fn decide(
         &self,
         query: &RouteQuery,
@@ -355,6 +356,15 @@ impl RoutingModel {
                 resolve_attempted = true;
                 if let Some(domain) = domain.as_deref() {
                     resolved_ip = environment.resolve(domain);
+                    if resolved_ip.is_none() {
+                        return RouteResolution {
+                            matched: RouteMatch::ResolveFailed(index),
+                            target: PolicyTarget::Reject,
+                            group_path: Vec::new(),
+                            outcome: RouteOutcome::Reject,
+                            resolved_ip: None,
+                        };
+                    }
                     ip = resolved_ip;
                 }
             }
@@ -444,7 +454,8 @@ pub trait RoutingEnvironment {
         None
     }
 
-    /// Resolves a domain for IP rules that allow resolution.
+    /// Resolves a domain for IP rules that allow resolution; `None` means the
+    /// lookup failed and the connection is rejected.
     fn resolve(&self, _domain: &str) -> Option<IpAddr> {
         None
     }
@@ -472,6 +483,8 @@ impl RoutingEnvironment for StaticRoutingEnvironment {}
 pub enum RouteMatch {
     /// Index into [`RoutingModel::rules`].
     Rule(usize),
+    /// Resolving the domain for the IP rule at this index failed.
+    ResolveFailed(usize),
     Final,
 }
 
