@@ -212,8 +212,10 @@ fn header_declares_every_exported_symbol() {
             NETWORKCORE_IOS_ERR_PACKET_DROPPED,
         ),
     ] {
+        // Compare whole lines: Windows checkouts may use CRLF.
+        let define = format!("#define {name} {value}");
         assert!(
-            header.contains(&format!("#define {name} {value}\n")),
+            header.lines().any(|line| line.trim_end() == define),
             "header value for {name}"
         );
     }
