@@ -20,7 +20,7 @@ JP = ss, 82.47.34.100, 11112, encrypt-method=aes-256-gcm, password=f43c0eee-13b9
 [Proxy Group]
 Proxy = select, Auto, HK, JP, DIRECT
 Auto = url-test, HK, JP, url=http://www.gstatic.com/generate_204, interval=600, tolerance=100
-Backup = fallback, JP, HK, interval=120
+Backup = fallback, JP, HK, Auto, interval=120
 Balance = load-balance, HK, JP
 Blocked = select, REJECT, Missing
 
@@ -199,6 +199,7 @@ fn surge_profile_imports_supported_rules_and_groups() {
         .join("\n");
     assert!(messages.contains("load-balance"));
     assert!(messages.contains("Blocked"));
+    assert!(messages.contains("Backup member Auto was skipped"));
     assert!(messages.contains("PROCESS-NAME x1"));
     assert!(messages.contains("URL-REGEX x1"));
     assert!(messages.contains("target Balance was not imported"));
