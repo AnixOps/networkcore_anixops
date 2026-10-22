@@ -85,4 +85,13 @@ tolerance_ms = 50                              # 默认值，仅 url-test
 
 修改路由语义时必须同时更新两个快照。验收标准：上述测试在 GitHub Actions 全矩阵中通过。
 
-后续工作：把片段接入 `render_sing_box_local_proxy_*` 配置生成；在 Linux CI 上运行真实 sing-box，用同一组 `decisions.json` 用例做端到端等价性测试；`engine-embedded` 接入 `decide`。
+## 真实 sing-box 等价性测试
+
+CI job `Routing equivalence (sing-box)` 下载最新 sing-box 正式版和 `geoip-cn.srs`，运行 `crates/engine-singbox/tests/route_equivalence.rs`：
+
+- 用 `render_sing_box_route` 渲染夹具，节点和 `direct` 都换成本地 SOCKS5 mock，GeoIP 规则集改为本地文件，夹具 DNS 由 sing-box `hosts` DNS server 提供，整个测试不访问外网目的地。
+- 先 `sing-box check`，再 `sing-box run`，把 `decisions.json` 中所有静态用例经 mixed 入站逐条发出；每条用例使用唯一目的端口，收到该端口的 mock 即 sing-box 选中的出站，`REJECT` 要求没有任何 mock 收到。
+- 结果与 `RoutingModel::decide` 的快照不一致即失败，并输出 sing-box 日志。带运行时状态（`live`）的用例依赖 select 选择和测速结果，不在此测试中比较。
+- 未设置 `NETWORKCORE_SING_BOX_BIN` 时（普通 workspace 测试），该测试没有可比较的对象，直接返回；专用 job 设置 `NETWORKCORE_REQUIRE_SING_BOX_EQUIVALENCE=1`，缺少二进制会失败。
+
+后续工作：把片段接入 `render_sing_box_local_proxy_*` 配置生成（beta.5 之后）；`engine-embedded` 接入 `decide`。
