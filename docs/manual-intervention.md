@@ -17,6 +17,53 @@ Maintainer decision (2026-10-12, on branch `claude/ios-app-development-342512`, 
 
 The `v0.2.0-beta.5` tag is maintainer-authorized to generate candidate artifacts. It remains `pending_manual_acceptance` until protected operator evidence records both Windows and Linux acceptance as passed; GitHub Actions validates package names, versions, checksums, manifests, attestations, and bundle contents, but does not replace real host acceptance.
 
+### beta.5 必须项与可推迟项
+
+beta.5 只用真实主机验收“候选工件能安全安装、跑通主路径、出错时不破坏主机、能干净卸载”。下面按编号引用本节下方的 Windows（W1–W14）和 Linux（L1–L14）步骤，以及本文件其他章节。必须项全部 passed 后才能把 `manual-acceptance-overall` 记为 passed；可推迟项不阻塞 beta.5，但必须在受保护证据中写明“未验收”，不得因省略而视为通过，也不得在发布说明中描述为已验收。
+
+划分原则：会改动主机状态（系统代理、信任库、CA 私钥、服务、systemd unit、安装与卸载）的路径，以及主路径（安装、导入订阅、连接）属于必须项，因为出错会伤害主机或泄露凭据；覆盖面矩阵（DPI/主题、睡眠/重启等环境组合）、依赖外部材料的项目（签名驱动包、Authenticode、Mieru、EasyTier POP）和可选试用功能属于可推迟项。
+
+必须项（阻塞 beta.5 验收）：
+
+| 编号 | 内容 | 范围说明 |
+| --- | --- | --- |
+| W1–W3 | 同一 run 的 MSI 与 portable ZIP 四件套下载、checksum、manifest 与文件清单 | 全部 |
+| W4 | 干净的提权 Windows 上安装 MSI、WebView2Loader、服务注册与异步启动 | 全部 |
+| W5（部分） | GUI 在 100% 和 150% DPI、浅色模式下渲染起始页并能进入六个页面 | 其余 DPI 与深色模式见可推迟项 |
+| W6 | 导入本地 profile 与 HTTP(S) 订阅；更新失败保留现有配置、不切换节点、不重启 core | 全部 |
+| W7–W8 | 通过 GUI 显式安装外部 sing-box core；只有全部就绪证据通过才显示 Connected | 全部 |
+| W9（部分） | invalid config、missing core、occupied listener、非管理员启动四种失败：保留 profile、显示真实错误、恢复代理快照 | 其余失败场景见可推迟项 |
+| W10（部分） | Disconnect、Restart service、强制终止服务、强制 core 退出后的 PID/监听清理与代理恢复 | 睡眠、重启等见可推迟项 |
+| W11 | HTTPS MITM 启用/停用、CA 私钥严格 ACL、CA 撤销、监听快照恢复；JavaScript dispatch 被阻止；HTTP/2 与 HTTP/3 报告不支持 | 全部（GUI 日常验收第 10、11 条为细化步骤） |
+| W13 | MSI 升级与卸载只移除 NetworkCore 自己的服务、文件和 Run 项；portable 解压不注册、不启动服务 | 全部 |
+| L1–L5 | Linux 四件套 checksum、manifest、tarball 内容、非 root 只读命令与平台边界诊断 | 全部 |
+| L6–L7 | 命名 systemd unit 的安装、快照、幂等重装、拒绝覆盖外部修改、connect/disconnect/restart/reload/强制停止/卸载均需 `--confirm` | 全部 |
+| L8 | 安装和移除一个订阅刷新 timer，不隐式重启 core 或切换节点 | 全部 |
+| L9 | MITM 证书 apply/rollback 与 trust-file trust-apply/trust-rollback；私钥 `0600`、冲突检测、回滚恢复 | 全部 |
+| L10（部分） | 显式确认的 HTTP/1.1 MITM 会话：SNI 匹配与不匹配、上游 web-PKI 校验、停用与回滚清理 | 脚本沙箱细项见可推迟项 |
+| L11 | pinning 绕过、HTTP/2、HTTP/3/QUIC 报告不支持并在适用处失败关闭；无 UDP 监听、TUN、DNS、防火墙或默认信任库改动 | 全部 |
+| L13 | 卸载命名服务后快照保留，无关 unit、状态目录、信任文件和代理设置不受影响 | 全部 |
+
+可推迟项（不阻塞 beta.5；验收前保持未验收状态）：
+
+| 编号或章节 | 内容 | 推迟到 |
+| --- | --- | --- |
+| W5（其余） | 125%/200% DPI、深色模式、长节点名、长错误、空状态、数百节点目录 | 下一个 Windows 发布前 |
+| W9（其余） | 无网络、selector 切换被拒、缺失 PID | 下一个 Windows 发布前 |
+| W10（其余） | 睡眠/唤醒、重启、托盘恢复、Explorer 重启、DPI 变化、登录启动、单实例恢复 | 下一个 Windows 发布前 |
+| W12 | 签名 INF 驱动包生命周期：没有维护者批准的驱动包时记录为未验收 | 获得签名驱动包后 |
+| L10（其余） | 脚本哈希漂移、无网络沙箱、超时后子进程退出等脚本 dispatch 细项（Linux HTTP/1.1 MITM Acceptance 第 4、6 条） | 下一个 Linux 发布前 |
+| L12 | 用第二个归档升级并回滚到旧二进制 | 第一个稳定版前 |
+| Windows GUI Daily Usability Acceptance 第 1–9、12、14 条 | 日常可用性覆盖矩阵、选择器组编辑、待处理操作期间的重绘 | 下一个 Windows 发布前 |
+| Windows GUI Daily Usability Acceptance 第 13 条 | Bilibili 推广请求拦截试用（默认关闭的可选功能） | 不设期限 |
+| Windows managed client | Authenticode 签名（未签名警告是 beta 已知限制） | 维护者提供签名材料后 |
+| Mieru External Core Acceptance | Mieru 外部 core 互通 | Mieru 宣称可用前 |
+| Windows Foreground Tunnel Manual Acceptance 与 Stage 4 POP | EasyTier 前台隧道与 POP 对端 | 隧道宣称可用前 |
+| 当前待处理中的运维上线环境与诊断运行时接线 | 告警渠道、独立监控、跨地域设备 | 运维上线前 |
+| iOS 各章节 | iOS 不产生 beta.5 工件，按自己的门禁推进 | 不属于 beta.5 |
+
+真实主机验收中发现必须项失败时，只修复该问题（编译、测试、打包、合同、文档或发布门禁修复），tag 之前在同一版本上重新生成候选工件，tag 之后改用下一个 beta 序号，并重做受影响的必须项；不得借机加入新功能。
+
 ### Windows Beta Acceptance
 
 Record all detailed screenshots, raw logs, route tables, process IDs, local paths, subscription URLs, CA material, driver package evidence, and service diagnostics outside Git. Commit only the redacted status markers if a maintainer later decides to update this file.
@@ -69,11 +116,12 @@ windows-gui-service-proxy-ca-driver-acceptance=[pending|passed|failed]
 linux-archive-systemd-acceptance=[pending|passed|failed]
 linux-trust-mitm-acceptance=[pending|passed|failed]
 manual-acceptance-overall=[pending|passed|failed]
+deferred-items-unaccepted=[comma-separated-item-ids-from-the-deferred-table]
 operator=[operator-id]
 recorded-at=[utc-timestamp]
 ```
 
-Keep `release-state=pending_manual_acceptance` until every required Windows and Linux row is passed. A failed or missing row blocks production-ready acceptance and must be fixed or explicitly documented before promotion beyond the maintainer-authorized beta tag.
+Keep `release-state=pending_manual_acceptance` until every required Windows and Linux row is passed. A failed or missing row blocks production-ready acceptance and must be fixed or explicitly documented before promotion beyond the maintainer-authorized beta tag. For beta.5, each row covers only the must items in "beta.5 必须项与可推迟项"; for example `windows-gui-service-proxy-ca-driver-acceptance` may pass while W12 is listed in `deferred-items-unaccepted`.
 
 ## Windows managed client
 
@@ -541,9 +589,10 @@ ios-activation-status=swift-source-gate-active
 ios-xcode-project-gate=xcodegen-spec-active
 ios-xcode-project-committed=no-generated-in-github-actions
 ios-testflight-distribution=user-confirmed-2026-10-12
-ios-network-extension-target=active-fail-closed-until-runtime
+ios-network-extension-target=active-embedded-runtime-shadowsocks-2022
+ios-embedded-runtime=engine-embedded-xcframework-built-in-github-actions
 ios-entitlements=minimal-network-extension-only
-ios-privacy-manifest=active-no-collected-data
+ios-privacy-manifest=active-no-collected-data-tunnel-system-boot-time-35F9.1
 ios-activation-maintainer-decision=unfrozen-2026-10-12
 ios-activation-branch=claude/ios-app-development-342512
 ios-apple-developer-account-type=individual
@@ -553,6 +602,27 @@ ios-individual-account-release-review=blocked-pending-account-review
 ```
 
 人工确认 marker 仍由维护者在独立提交中更新；CI 不得自动设为 confirmed 或 enabled。
+
+## iOS M1a Real-Device Acceptance
+
+M1a 的退出标准只能在真实 iPhone 上验证，CI 只能证明内核能编译、互通测试通过、扩展链接了内核。安装内部 TestFlight
+构建后，由维护者完成并把脱敏结果记录在这里（不记录节点地址、密钥、Apple 账号标识或流量内容）：
+
+1. 在 App 中粘贴一个 Shadowsocks-2022 `ss://` 链接并保存，系统弹出 VPN 授权时允许。
+2. 点击连接，确认状态变为“已连接”，Safari 能打开网页，App 内“运行状态”的 `tcp_total` 与 `dns_queries` 递增。
+3. 在 Xcode Instruments 或设备控制台记录 `NetworkCorePacketTunnel` 进程的峰值内存，目标是在 50 MB 上限内留出至少 15 MB。
+4. 保持连接 24 小时，确认没有 jetsam 终止（设备“分析数据”中无 `NetworkCorePacketTunnel` 的 JetsamEvent）。
+
+```text
+ios-m1a-acceptance-status=pending
+ios-m1a-acceptance-peak-memory-mb=pending
+ios-m1a-acceptance-24h-no-jetsam=pending
+ios-m1a-acceptance-recorded-at=pending
+ios-m1a-tunnel-profile-secret-storage=provider-configuration-internal-testflight-only
+```
+
+已知限制：节点密钥目前保存在 `NETunnelProviderProtocol.providerConfiguration` 中，只适用于内部 TestFlight；外部
+TestFlight 前必须改为 Keychain `passwordReference`，这需要在两个 target 增加 keychain access group entitlement 并更新描述文件。
 
 ## iOS App Review Manual Confirmation
 
@@ -616,7 +686,21 @@ ios-upload-api-key-status=team-key-added-to-environment
 ios-export-compliance-answer=standard-https-only-exempt-2026-10-13
 ios-upload-internal-confirmation-status=pending
 ios-upload-internal-confirmation-items=app-record,export-compliance,internal-testing-group,app-privacy-determination,privacy-policy-determination,environment-secrets-and-variables
+ios-upload-internal-workflow=.github/workflows/ios-testflight.yml
+ios-upload-internal-workflow-status=defined-fail-closed-until-enabled
+ios-upload-internal-workflow-variables=IOS_APP_BUNDLE_ID,IOS_TUNNEL_BUNDLE_ID
+ios-upload-internal-workflow-secrets=APP_STORE_CONNECT_API_KEY_ID,APP_STORE_CONNECT_ISSUER_ID,APP_STORE_CONNECT_API_PRIVATE_KEY,TEAM_ID,APPLE_CERTIFICATE_P12_BASE64,APPLE_CERTIFICATE_PASSWORD,APPLE_KEYCHAIN_PASSWORD,APPLE_PROVISIONING_PROFILE_BASE64,APPLE_PACKET_TUNNEL_PROVISIONING_PROFILE_BASE64
 ```
+
+内部 TestFlight 首次上传前的人工步骤（维护者完成后在独立提交中把 `ios-upload-internal-confirmation-status` 设为
+`confirmed`、`ios-upload-workflow-status` 设为 `enabled`，并同步 CI 中对应的 pending 检查）：
+
+1. 在 Apple Developer 注册 App ID 和 Packet Tunnel 扩展的 App ID，两者都开启 Network Extensions capability。
+2. 创建 Apple Distribution 证书，导出为 `.p12`；为两个 App ID 各创建一个 App Store 类型的 provisioning profile。
+3. 在 App Store Connect 创建 app record，建立 internal testing group。
+4. 在 GitHub Environment `ios-app-store-connect` 中配置 required reviewer，写入上面列出的 secrets（证书和描述文件用 base64），
+   并在仓库或 environment Variables 中写入两个 bundle ID。
+5. 在 Actions 页面手动运行 `iOS internal TestFlight`，在 App Store Connect 确认 build 处理完成并分发给内部测试组。
 
 当前 workflow activation validation 仍是 blocked placeholder：`ios-upload-readiness` 只读取本节 marker、
 检查 source contract、输出 source tree preflight、protected environment/manual approval/App Store Connect API secret status/

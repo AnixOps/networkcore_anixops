@@ -11,9 +11,15 @@
 
 ### Added
 
+- iOS 隧道扩展接入原生内核（M1a）：CI 在 `macos-26` 上用 `.github/scripts/build-ios-runtime-xcframework.sh` 把 `engine-embedded` 编成 `NetworkCoreRuntime.xcframework`（不提交），只由 `NetworkCorePacketTunnel` 链接；`PacketTunnelProvider` 校验运行时握手后经 C ABI 启动隧道，全量 IPv4/IPv6 路由与 DNS 进隧道；App 可粘贴 Shadowsocks-2022 `ss://` 链接保存为 VPN 配置并连接/断开、查看脱敏运行状态。隧道扩展的隐私清单声明 System Boot Time `35F9.1`。节点密钥暂存于 `providerConfiguration`，仅限内部 TestFlight。
+
+- 新增 `engine-embedded` crate（M1a）：iOS Network Extension 进程内内核。Shadowsocks-2022 TCP 出站（`2022-blake3-aes-128-gcm` / `aes-256-gcm` / `chacha20-poly1305`，基于 `ring` + `blake3` 自实现，暂不支持多用户 identity header），smoltcp 用户态 TCP/IP 栈（`netstack-smoltcp`），UDP/53 经出站转 DNS-over-TCP、其余 UDP 丢弃，按 NE 内存预算设定连接数、窗口与空闲超时上限；`networkcore_ios_*` C ABI 与 `include/networkcore_ios_runtime.h`。与 shadowsocks-rust 服务端的互通测试只作为 Unix dev-dependency，不进入 NE 二进制。尚未接入 Xcode 工程和 PacketTunnelProvider。
+
 - 新增 `tls-mimic` 与 `outbound-vless`（M1b）：`tls-mimic` 生成 Chrome 形态 TLS 1.3 ClientHello（GREASE、扩展逐连接乱序、X25519MLKEM768 + X25519 key share、ECH GREASE、新 ALPS 码位）并提供带 ClientHello 改写与证书信任 hook 的最小 TLS 1.3 客户端；`outbound-vless` 在其上实现 REALITY 客户端认证、VLESS 请求头与 XTLS Vision 填充/直通，并实现 `engine-outbound::TcpOutbound`。新增 `REALITY interop (Linux)` CI job，在 Ubuntu runner 上与 OpenSSL、Xray-core、sing-box 的 REALITY 服务端做互通测试；真实网络下的抗封锁验收记录在 `docs/manual-intervention.md`。
 
 - 新增 `engine-outbound` crate：`engine-embedded` 与各协议 crate 共用的出站接口（`TargetAddr`、`BoxStream`、构造时注入的 `Dialer` 与默认 `TcpDialer`、`TcpOutbound`），只含接口，不含平台代码；UDP 接口待 TUN 层需要时再定义。
+
+- 新增手动触发的 `.github/workflows/ios-testflight.yml`：在 `ios-app-store-connect` protected environment 中以手动签名 archive 并上传到内部 TestFlight；在维护者启用 `ios-upload-workflow-status` 和确认 `ios-upload-internal-confirmation-status` 前 fail closed，不产生 workflow artifact 或 release asset。
 
 - 编写首批维护事件 v1 严格字段/时间/大小/身份校验、JSON 与逐事件批量序列化边界及显式诊断适配器；原始诊断文本不进入适配结果，自动动作契约移除 rollback。新增 Rust 合同与共享 fixture，[源码 CI](https://github.com/AnixOps/networkcore_anixops/actions/runs/35650045804) 的维护合同、三平台全量回归与依赖审计已通过，尚未接入 NetworkCore 实际运行时通信。
 
@@ -28,7 +34,7 @@ to generate candidate artifacts for that acceptance.
 ```text
 current-main-release-state=pending_manual_acceptance
 current-main-source-candidate=v0.2.0-beta.5
-current-main-latest-published-tag=v0.2.0-alpha.21
+current-main-latest-published-tag=v0.2.0-beta.4
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
 current-main-subscription-refresh=explicit-http-single-source-status-stop-active
@@ -51,6 +57,12 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 ### Changed
 
+- `config-core` now parses optional `rules` and `policy_groups` fields into a
+  routing model (DOMAIN/DOMAIN-SUFFIX/IP-CIDR/GEOIP/FINAL rules and
+  select/url-test/fallback groups), and `engine-singbox` can translate it to a
+  sing-box route section. In `v0.2.0-beta.5` no Windows or Linux client uses
+  it: a config that sets these fields is accepted, but its rules and groups are
+  ignored at runtime. Configs without them behave as before.
 - CI validation jobs now restore Rust build caches (registry, git deps, and
   `target/`) and pnpm store caches, and `cargo-audit` installs from a prebuilt
   binary instead of compiling from source on every run. Rust validation jobs

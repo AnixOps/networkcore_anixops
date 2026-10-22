@@ -1,15 +1,93 @@
 import NetworkCoreBridge
+import NetworkExtension
 import SwiftUI
 
 // SwiftUI entry point for the containing app. The app target compiles NetworkCoreApp sources directly,
 // so this file refers to AppCoordinator without importing the NetworkCoreApp module.
 @main
 struct NetworkCoreAppMain: App {
-    private let coordinator = AppCoordinator(status: IosPlatformFactsProbe.currentStatus())
+    @StateObject private var tunnel = TunnelController()
 
     var body: some Scene {
         WindowGroup {
-            StatusView(decision: coordinator.decision)
+            TunnelView(tunnel: tunnel)
+                .task {
+                    await tunnel.load()
+                }
+        }
+    }
+}
+
+struct TunnelView: View {
+    @ObservedObject var tunnel: TunnelController
+    @State private var link = ""
+
+    var body: some View {
+        Form {
+            Section("节点") {
+                if let name = tunnel.nodeName {
+                    Text(name)
+                }
+                SecureField("粘贴 ss:// 链接", text: $link)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button("导入并保存") {
+                    let pasted = link
+                    link = ""
+                    Task {
+                        await tunnel.importLink(pasted)
+                    }
+                }
+                .disabled(link.isEmpty)
+            }
+
+            Section("隧道") {
+                StatusView(decision: tunnel.coordinator.decision)
+                Text(Self.describe(tunnel.connection))
+                    .foregroundStyle(.secondary)
+                Button(tunnel.isConnected ? "断开" : "连接") {
+                    tunnel.toggle()
+                }
+                .disabled(!tunnel.isConnected && !tunnel.coordinator.canStartTunnel)
+            }
+
+            if tunnel.connection == .connected {
+                Section("运行状态") {
+                    Button("刷新") {
+                        tunnel.refreshRuntimeStatus()
+                    }
+                    if let status = tunnel.runtimeStatus {
+                        Text(status)
+                            .font(.footnote.monospaced())
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+
+            if let message = tunnel.message {
+                Section {
+                    Text(message)
+                }
+            }
+        }
+    }
+
+    static func describe(_ status: NEVPNStatus) -> String {
+        switch status {
+        case .connected:
+            return "已连接"
+        case .connecting:
+            return "连接中"
+        case .disconnecting:
+            return "断开中"
+        case .reasserting:
+            return "重新连接中"
+        case .disconnected:
+            return "未连接"
+        case .invalid:
+            return "未配置"
+        @unknown default:
+            return "未知状态"
         }
     }
 }
@@ -18,13 +96,11 @@ struct StatusView: View {
     let decision: VpnConfigurationDecision
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("NetworkCore")
-                .font(.title2)
-            switch decision {
-            case .startTunnel:
-                Text("可以启动隧道")
-            case let .blocked(reason, code):
+        switch decision {
+        case .startTunnel:
+            Text("可以启动隧道")
+        case let .blocked(reason, code):
+            VStack(alignment: .leading, spacing: 4) {
                 Text(reason)
                 if let code = code {
                     Text(code)
@@ -33,6 +109,5 @@ struct StatusView: View {
                 }
             }
         }
-        .padding()
     }
 }

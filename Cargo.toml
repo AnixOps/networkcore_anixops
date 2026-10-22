@@ -7,6 +7,7 @@ members = [
     "crates/config-core",
     "crates/control-domain",
     "crates/control-runtime",
+    "crates/engine-embedded",
     "crates/engine-native",
     "crates/engine-outbound",
     "crates/engine-mieru",
