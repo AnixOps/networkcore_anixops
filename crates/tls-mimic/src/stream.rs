@@ -103,7 +103,7 @@ impl<S> TlsStream<S> {
         self.raw_write
     }
 
-    fn take_record(&mut self) -> io::Result<Option<(u8, [u8; 5], Vec<u8>)>> {
+    fn take_record(&mut self) -> io::Result<Option<([u8; 5], Vec<u8>)>> {
         if self.raw_in.len() < 5 {
             return Ok(None);
         }
@@ -118,7 +118,7 @@ impl<S> TlsStream<S> {
         header.copy_from_slice(&self.raw_in[..5]);
         let payload = self.raw_in[5..5 + len].to_vec();
         self.raw_in.drain(..5 + len);
-        Ok(Some((header[0], header, payload)))
+        Ok(Some((header, payload)))
     }
 
     fn process_record(&mut self, header: [u8; 5], mut payload: Vec<u8>) -> io::Result<()> {
@@ -250,7 +250,7 @@ impl<S: AsyncRead + Unpin> AsyncRead for TlsStream<S> {
             if this.read_closed {
                 return Poll::Ready(Ok(()));
             }
-            if let Some((_, header, payload)) = this.take_record()? {
+            if let Some((header, payload)) = this.take_record()? {
                 this.process_record(header, payload)?;
                 continue;
             }
