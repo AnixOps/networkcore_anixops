@@ -2177,7 +2177,13 @@ jobs:
             grep -q '^linux-artifact-license-notice-release-assets=blocked$' docs/manual-intervention.md
           fi
 
-          grep -q '^ios-upload-workflow-status=pending$' docs/manual-intervention.md
+          # enabled is only valid for the internal TestFlight scope and after the independent maintainer confirmation.
+          if grep -q '^ios-upload-workflow-status=enabled$' docs/manual-intervention.md; then
+            grep -q '^ios-upload-internal-confirmation-status=confirmed$' docs/manual-intervention.md
+            grep -q '^ios-upload-external-testflight=blocked$' docs/manual-intervention.md
+          else
+            grep -q '^ios-upload-workflow-status=pending$' docs/manual-intervention.md
+          fi
           grep -q '^ios-upload-scope=internal-testflight-only$' docs/manual-intervention.md
           grep -q '^ios-upload-internal-confirmation-status=' docs/manual-intervention.md
           grep -q 'Internal TestFlight Scope' docs/architecture/ios-upload-workflow-activation-validation-contract.md
