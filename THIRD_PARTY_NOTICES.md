@@ -16,6 +16,10 @@ NetworkCore 与上述项目没有隶属或合作关系。仓库中出现的这�
 
 iOS Network Extension 不使用上述任何程序，数据面由仓库内自研的 Rust 内核实现。
 
+## 仅用于 CI 的互通测试服务端
+
+`REALITY interop (Linux)` CI job 在 GitHub Actions runner 上临时下载 Xray-core（https://github.com/XTLS/Xray-core ，MPL-2.0）与 sing-box 的官方 release 二进制，只作为本机回环上的 REALITY 测试服务端，用来验证 `crates/outbound-vless` 的协议互通。它们不进入仓库、不进入任何发布产物；`tls-mimic` 与 `outbound-vless` 是按协议行为独立编写的 Rust 实现，不包含两者的代码。
+
 ## 订阅格式名称
 
 Clash、Surge、Loon、Quantumult X、V2Ray 等名称只用于描述兼容的订阅或配置格式，仓库不包含这些产品的代码。
