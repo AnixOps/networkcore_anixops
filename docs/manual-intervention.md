@@ -311,8 +311,28 @@ generate either lockfile on a developer workstation.
 
 ## HTTP/2 and HTTP/3 MITM Dependency Lock Refresh
 
-The current native MITM path deliberately remains HTTP/1.1. A future live
-HTTP/2/HTTP/3 implementation must use maintained protocol crates for HTTP/2
+The native MITM path now contains an HTTP/2 data plane
+(`crates/engine-native/src/h2_mitm.rs`, design in
+`docs/architecture/http2-mitm-design.md`) built on the maintained `h2`, `http`,
+`bytes`, `tokio`, and `tokio-rustls` crates. HTTP/3/QUIC is not intercepted;
+UDP/443 to MITM hostnames is refused through `plan_native_udp_mitm_decision`
+so clients fall back to TCP TLS. Until the steps below are recorded, the
+`http2_mitm_supported` and `http3_quic_mitm_supported` markers stay `false`.
+
+Lock refresh for this slice: dispatch `.github/workflows/refresh-cargo-lock.yml`
+on the feature branch with `strategy=add-missing`, which resolves only the new
+dependencies and keeps existing pins, then commit the downloaded artifact.
+
+Real-host acceptance still required: on Linux and Windows, point Chrome and
+Firefox at the explicit HTTP proxy with the MITM CA trusted, open an HTTPS site
+in the plugin hostname list that serves HTTP/2, and confirm the browser reports
+`h2`, a reject rule blocks its URL, a header rewrite is visible, and a large
+download completes unmodified (passthrough). Repeat against an HTTP/1.1-only
+origin to confirm the fallback. Record the result and any pinned-certificate
+failures here.
+
+The original constraints below still apply. A live HTTP/2/HTTP/3
+implementation must use maintained protocol crates for HTTP/2
 framing/HPACK and HTTP/3/QUIC/QPACK; it must not add hand-written protocol
 parsers to the blocking listener. The maintainer must resolve and commit the
 Cargo.lock changes from an authorized GitHub Actions dependency-refresh run,
