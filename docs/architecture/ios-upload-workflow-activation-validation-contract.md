@@ -166,6 +166,28 @@ separate manual approval explicitly enables submission.
 - App Store Connect API key：个人账号的 Individual API Key 不能使用 Provisioning endpoints。上传 job 使用手动描述文件，不依赖自动签名。如果以后需要 Provisioning endpoints，必须改用团队 key 并重新审查本节。
 - 启用仍需独立提交：真实 upload job 和 `ios-upload-workflow-status` 从 `pending` 切换为 `enabled`，都必须在各自的独立提交中完成。
 
+## Internal TestFlight Workflow
+
+内部 TestFlight 上传由独立的手动 workflow `.github/workflows/ios-testflight.yml` 承担，不进入 tag 触发的
+`release.yml`，因此 `release.yml` 仍只定义 `ios-upload-readiness` placeholder，上面 Future Workflow Shape 中的 release
+jobs 仍为 not-defined。本 workflow 是“真实 upload job”的独立提交；`ios-upload-workflow-status` 从 `pending` 切换为
+`enabled` 仍是另一个独立提交。
+
+| Item | Contract |
+| --- | --- |
+| Trigger | `workflow_dispatch` only |
+| Preflight job | `ios-upload-preflight` on `ubuntu-latest`; fails closed unless `ios-upload-workflow-status=enabled` and `ios-upload-internal-confirmation-status=confirmed` |
+| Upload job | `ios-archive-upload` on `macos-26`, `needs: ios-upload-preflight`, environment `ios-app-store-connect` |
+| Signing | manual signing with the Apple Distribution certificate and two App Store provisioning profiles; temporary keychain removed with `if: always()` |
+| Bundle IDs | GitHub Variables `IOS_APP_BUNDLE_ID` and `IOS_TUNNEL_BUNDLE_ID`, written into the runner copy of `project.yml` only |
+| Build number | `github.run_number` |
+| Export | runner-generated `ExportOptions.plist` with `method=app-store-connect`, `destination=upload`, `testFlightInternalTestingOnly=true` |
+| Secrets output | `present` or `missing` only; no values, Team ID, profile UUID or bundle ID in logs or summary |
+| Artifacts | no workflow artifact, GitHub Release asset or iOS release asset |
+
+`ios-upload-workflow-status=enabled` 的独立提交必须同时把 `.github/workflows/ci.yml` 中
+`^ios-upload-workflow-status=pending$` 的静态检查改为 enabled 分支，否则 CI 会按设计失败。
+
 ## Required Output Fields
 
 `ios-upload-readiness`, `release-placeholder` and `release-summary` must output these safe fields while the workflow is blocked:

@@ -1,0 +1,232 @@
+name: iOS internal TestFlight
+
+# Manual-only upload of the NetworkCore iOS app to internal TestFlight.
+# Governed by docs/architecture/ios-upload-workflow-activation-validation-contract.md (Internal TestFlight Scope).
+# The preflight job fails closed until the maintainer sets both enable markers in docs/manual-intervention.md
+# in an independent commit. External TestFlight, App Store submission and release assets stay out of scope.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  ios-upload-preflight:
+    name: iOS upload preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Require the internal TestFlight enable markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          manual=docs/manual-intervention.md
+          grep -q '^ios-upload-scope=internal-testflight-only$' "${manual}"
+          grep -q '^ios-upload-workflow-release-assets=blocked$' "${manual}"
+          grep -q '^ios-upload-external-testflight=blocked$' "${manual}"
+          if grep -q '^ios-upload-workflow-status=pending$' "${manual}" && grep -q '^ios-upload-workflow-status=enabled$' "${manual}"; then
+            echo "::error::ios-upload-workflow-status is both pending and enabled"
+            exit 1
+          fi
+          if ! grep -q '^ios-upload-workflow-status=enabled$' "${manual}"; then
+            echo "::error::ios-upload-workflow-status is not enabled; the maintainer enables it in an independent commit"
+            exit 1
+          fi
+          if ! grep -q '^ios-upload-internal-confirmation-status=confirmed$' "${manual}"; then
+            echo "::error::ios-upload-internal-confirmation-status is not confirmed"
+            exit 1
+          fi
+          echo "ios-upload-preflight=passed"
+
+  ios-archive-upload:
+    name: iOS archive and internal TestFlight upload
+    runs-on: macos-26
+    timeout-minutes: 45
+    needs: ios-upload-preflight
+    environment: ios-app-store-connect
+    env:
+      IOS_APP_BUNDLE_ID: ${{ vars.IOS_APP_BUNDLE_ID }}
+      IOS_TUNNEL_BUNDLE_ID: ${{ vars.IOS_TUNNEL_BUNDLE_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Check secrets and variables are present
+        shell: bash
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+          APPLE_PACKET_TUNNEL_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PACKET_TUNNEL_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in APP_STORE_CONNECT_API_KEY_ID APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_API_PRIVATE_KEY TEAM_ID \
+            APPLE_CERTIFICATE_P12_BASE64 APPLE_CERTIFICATE_PASSWORD APPLE_KEYCHAIN_PASSWORD \
+            APPLE_PROVISIONING_PROFILE_BASE64 APPLE_PACKET_TUNNEL_PROVISIONING_PROFILE_BASE64 \
+            IOS_APP_BUNDLE_ID IOS_TUNNEL_BUNDLE_ID; do
+            if [ -z "${!name:-}" ]; then
+              echo "${name}=missing"
+              missing=1
+            else
+              echo "${name}=present"
+            fi
+          done
+          if [ "${missing}" -ne 0 ]; then
+            echo "::error::required iOS upload secrets or variables are missing"
+            exit 1
+          fi
+
+      - name: Install signing certificate and provisioning profiles
+        id: signing
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+          APPLE_PACKET_TUNNEL_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PACKET_TUNNEL_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          keychain="${RUNNER_TEMP}/networkcore-signing.keychain-db"
+          certificate="${RUNNER_TEMP}/networkcore-signing.p12"
+          printf '%s' "${APPLE_CERTIFICATE_P12_BASE64}" | base64 --decode > "${certificate}"
+          security create-keychain -p "${APPLE_KEYCHAIN_PASSWORD}" "${keychain}"
+          security set-keychain-settings -lut 21600 "${keychain}"
+          security unlock-keychain -p "${APPLE_KEYCHAIN_PASSWORD}" "${keychain}"
+          security import "${certificate}" -P "${APPLE_CERTIFICATE_PASSWORD}" -A -t cert -f pkcs12 -k "${keychain}"
+          security set-key-partition-list -S apple-tool:,apple: -k "${APPLE_KEYCHAIN_PASSWORD}" "${keychain}" > /dev/null
+          security list-keychains -d user -s "${keychain}" $(security list-keychains -d user | tr -d '"')
+          rm -f "${certificate}"
+
+          profiles_dir="${HOME}/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "${profiles_dir}"
+          install_profile() {
+            local encoded="$1" output="$2" profile plist uuid name
+            profile="${RUNNER_TEMP}/${output}.mobileprovision"
+            plist="${RUNNER_TEMP}/${output}.plist"
+            printf '%s' "${encoded}" | base64 --decode > "${profile}"
+            security cms -D -i "${profile}" > "${plist}"
+            uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "${plist}")"
+            name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "${plist}")"
+            cp "${profile}" "${profiles_dir}/${uuid}.mobileprovision"
+            rm -f "${profile}" "${plist}"
+            {
+              echo "${output}_name<<NETWORKCORE_EOF"
+              echo "${name}"
+              echo "NETWORKCORE_EOF"
+            } >> "${GITHUB_OUTPUT}"
+          }
+          install_profile "${APPLE_PROVISIONING_PROFILE_BASE64}" app_profile
+          install_profile "${APPLE_PACKET_TUNNEL_PROVISIONING_PROFILE_BASE64}" tunnel_profile
+          echo "signing-material=installed-redacted"
+
+      - name: Install XcodeGen
+        shell: bash
+        run: brew install xcodegen
+
+      - name: Apply release bundle identifiers and manual signing to the XcodeGen spec
+        shell: bash
+        working-directory: apps/ios
+        env:
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          APP_PROFILE_NAME: ${{ steps.signing.outputs.app_profile_name }}
+          TUNNEL_PROFILE_NAME: ${{ steps.signing.outputs.tunnel_profile_name }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          ruby -ryaml -e '
+            spec = YAML.load_file("project.yml")
+            spec["settings"]["base"]["CURRENT_PROJECT_VERSION"] = ENV.fetch("BUILD_NUMBER")
+            {
+              "NetworkCoreApp" => [ENV.fetch("IOS_APP_BUNDLE_ID"), ENV.fetch("APP_PROFILE_NAME")],
+              "NetworkCorePacketTunnel" => [ENV.fetch("IOS_TUNNEL_BUNDLE_ID"), ENV.fetch("TUNNEL_PROFILE_NAME")],
+            }.each do |target, (bundle_id, profile)|
+              base = spec["targets"][target]["settings"]["base"]
+              base["PRODUCT_BUNDLE_IDENTIFIER"] = bundle_id
+              base["CODE_SIGN_STYLE"] = "Manual"
+              base["CODE_SIGN_IDENTITY"] = "Apple Distribution"
+              base["DEVELOPMENT_TEAM"] = ENV.fetch("TEAM_ID")
+              base["PROVISIONING_PROFILE_SPECIFIER"] = profile
+            end
+            File.write("project.yml", spec.to_yaml)
+          '
+          xcodegen generate --spec project.yml
+
+      - name: Archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project apps/ios/NetworkCore.xcodeproj \
+            -scheme NetworkCoreApp \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "${RUNNER_TEMP}/NetworkCore.xcarchive" \
+            archive
+
+      - name: Export and upload to internal TestFlight
+        shell: bash
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_API_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          APP_PROFILE_NAME: ${{ steps.signing.outputs.app_profile_name }}
+          TUNNEL_PROFILE_NAME: ${{ steps.signing.outputs.tunnel_profile_name }}
+        run: |
+          set -euo pipefail
+          api_key="${RUNNER_TEMP}/AuthKey.p8"
+          export_options="${RUNNER_TEMP}/ExportOptions.plist"
+          printf '%s' "${APP_STORE_CONNECT_API_PRIVATE_KEY}" > "${api_key}"
+          /usr/libexec/PlistBuddy \
+            -c 'Add :method string app-store-connect' \
+            -c 'Add :destination string upload' \
+            -c 'Add :signingStyle string manual' \
+            -c "Add :teamID string ${TEAM_ID}" \
+            -c 'Add :testFlightInternalTestingOnly bool true' \
+            -c 'Add :manageAppVersionAndBuildNumber bool false' \
+            -c 'Add :uploadSymbols bool true' \
+            -c 'Add :provisioningProfiles dict' \
+            "${export_options}"
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:${IOS_APP_BUNDLE_ID} string ${APP_PROFILE_NAME}" "${export_options}"
+          /usr/libexec/PlistBuddy -c "Add :provisioningProfiles:${IOS_TUNNEL_BUNDLE_ID} string ${TUNNEL_PROFILE_NAME}" "${export_options}"
+          xcodebuild \
+            -exportArchive \
+            -archivePath "${RUNNER_TEMP}/NetworkCore.xcarchive" \
+            -exportOptionsPlist "${export_options}" \
+            -exportPath "${RUNNER_TEMP}/export" \
+            -authenticationKeyPath "${api_key}" \
+            -authenticationKeyID "${APP_STORE_CONNECT_API_KEY_ID}" \
+            -authenticationKeyIssuerID "${APP_STORE_CONNECT_ISSUER_ID}"
+          {
+            echo "## iOS internal TestFlight upload"
+            echo ""
+            echo "- build-number: ${{ github.run_number }}"
+            echo "- commit: ${GITHUB_SHA}"
+            echo "- scope: internal-testflight-only"
+            echo "- release-asset: blocked"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Remove signing material
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          security delete-keychain "${RUNNER_TEMP}/networkcore-signing.keychain-db" 2>/dev/null || true
+          rm -f "${RUNNER_TEMP}/AuthKey.p8" "${RUNNER_TEMP}/ExportOptions.plist"
+          rm -f "${HOME}/Library/MobileDevice/Provisioning Profiles/"*.mobileprovision
+          rm -rf "${RUNNER_TEMP}/NetworkCore.xcarchive" "${RUNNER_TEMP}/export"
