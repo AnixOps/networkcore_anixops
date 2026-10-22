@@ -571,9 +571,10 @@ ios-activation-status=swift-source-gate-active
 ios-xcode-project-gate=xcodegen-spec-active
 ios-xcode-project-committed=no-generated-in-github-actions
 ios-testflight-distribution=user-confirmed-2026-10-12
-ios-network-extension-target=active-fail-closed-until-runtime
+ios-network-extension-target=active-embedded-runtime-shadowsocks-2022
+ios-embedded-runtime=engine-embedded-xcframework-built-in-github-actions
 ios-entitlements=minimal-network-extension-only
-ios-privacy-manifest=active-no-collected-data
+ios-privacy-manifest=active-no-collected-data-tunnel-system-boot-time-35F9.1
 ios-activation-maintainer-decision=unfrozen-2026-10-12
 ios-activation-branch=claude/ios-app-development-342512
 ios-apple-developer-account-type=individual
@@ -583,6 +584,27 @@ ios-individual-account-release-review=blocked-pending-account-review
 ```
 
 人工确认 marker 仍由维护者在独立提交中更新；CI 不得自动设为 confirmed 或 enabled。
+
+## iOS M1a Real-Device Acceptance
+
+M1a 的退出标准只能在真实 iPhone 上验证，CI 只能证明内核能编译、互通测试通过、扩展链接了内核。安装内部 TestFlight
+构建后，由维护者完成并把脱敏结果记录在这里（不记录节点地址、密钥、Apple 账号标识或流量内容）：
+
+1. 在 App 中粘贴一个 Shadowsocks-2022 `ss://` 链接并保存，系统弹出 VPN 授权时允许。
+2. 点击连接，确认状态变为“已连接”，Safari 能打开网页，App 内“运行状态”的 `tcp_total` 与 `dns_queries` 递增。
+3. 在 Xcode Instruments 或设备控制台记录 `NetworkCorePacketTunnel` 进程的峰值内存，目标是在 50 MB 上限内留出至少 15 MB。
+4. 保持连接 24 小时，确认没有 jetsam 终止（设备“分析数据”中无 `NetworkCorePacketTunnel` 的 JetsamEvent）。
+
+```text
+ios-m1a-acceptance-status=pending
+ios-m1a-acceptance-peak-memory-mb=pending
+ios-m1a-acceptance-24h-no-jetsam=pending
+ios-m1a-acceptance-recorded-at=pending
+ios-m1a-tunnel-profile-secret-storage=provider-configuration-internal-testflight-only
+```
+
+已知限制：节点密钥目前保存在 `NETunnelProviderProtocol.providerConfiguration` 中，只适用于内部 TestFlight；外部
+TestFlight 前必须改为 Keychain `passwordReference`，这需要在两个 target 增加 keychain access group entitlement 并更新描述文件。
 
 ## iOS App Review Manual Confirmation
 

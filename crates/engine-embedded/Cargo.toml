@@ -1,0 +1,31 @@
+[package]
+name = "engine-embedded"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "In-process engine for the iOS Network Extension: userspace TCP/IP, pluggable outbounds and the C ABI."
+
+[dependencies]
+base64 = "0.22"
+blake3 = "1.8"
+engine-outbound = { path = "../engine-outbound" }
+futures = "0.3"
+netstack-smoltcp = "0.2"
+ring = "0.17"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["rt", "net", "io-util", "time", "sync", "macros"] }
+
+[dev-dependencies]
+etherparse = "0.16"
+tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread", "net", "io-util", "time", "sync", "macros"] }
+
+# Reference Shadowsocks-2022 server for interop tests only. It builds aws-lc, so it stays off
+# the Windows GNU runner and never reaches the Network Extension binary.
+[target.'cfg(unix)'.dev-dependencies]
+shadowsocks = { version = "1.25", default-features = false, features = ["aead-cipher-2022"] }
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["lib", "staticlib"]
