@@ -26,7 +26,7 @@ to generate candidate artifacts for that acceptance.
 ```text
 current-main-release-state=pending_manual_acceptance
 current-main-source-candidate=v0.2.0-beta.5
-current-main-latest-published-tag=v0.2.0-alpha.21
+current-main-latest-published-tag=v0.2.0-beta.4
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
 current-main-subscription-refresh=explicit-http-single-source-status-stop-active
@@ -49,6 +49,12 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 ### Changed
 
+- `config-core` now parses optional `rules` and `policy_groups` fields into a
+  routing model (DOMAIN/DOMAIN-SUFFIX/IP-CIDR/GEOIP/FINAL rules and
+  select/url-test/fallback groups), and `engine-singbox` can translate it to a
+  sing-box route section. In `v0.2.0-beta.5` no Windows or Linux client uses
+  it: a config that sets these fields is accepted, but its rules and groups are
+  ignored at runtime. Configs without them behave as before.
 - CI validation jobs now restore Rust build caches (registry, git deps, and
   `target/`) and pnpm store caches, and `cargo-audit` installs from a prebuilt
   binary instead of compiling from source on every run. Rust validation jobs
