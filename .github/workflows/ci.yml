@@ -2184,6 +2184,23 @@ jobs:
           grep -q '^ios-upload-internal-confirmation-status=' docs/manual-intervention.md
           grep -q 'Internal TestFlight Scope' docs/architecture/ios-upload-workflow-activation-validation-contract.md
           grep -q '^ios-upload-workflow-release-assets=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-internal-workflow=.github/workflows/ios-testflight.yml$' docs/manual-intervention.md
+          test -f .github/workflows/ios-testflight.yml
+          if grep -Eq '^  (push|pull_request|pull_request_target|schedule|release|workflow_run):' .github/workflows/ios-testflight.yml; then
+            echo "::error::the internal TestFlight workflow must be workflow_dispatch only."
+            exit 1
+          fi
+          grep -q '^  workflow_dispatch:' .github/workflows/ios-testflight.yml
+          grep -q '^    environment: ios-app-store-connect$' .github/workflows/ios-testflight.yml
+          grep -q '^    needs: ios-upload-preflight$' .github/workflows/ios-testflight.yml
+          grep -q "grep -q '\^ios-upload-workflow-status=enabled\$'" .github/workflows/ios-testflight.yml
+          grep -q "grep -q '\^ios-upload-internal-confirmation-status=confirmed\$'" .github/workflows/ios-testflight.yml
+          grep -q 'testFlightInternalTestingOnly bool true' .github/workflows/ios-testflight.yml
+          grep -q 'build-ios-runtime-xcframework.sh device' .github/workflows/ios-testflight.yml
+          if grep -Eq 'upload-artifact|action-gh-release|gh release' .github/workflows/ios-testflight.yml; then
+            echo "::error::the internal TestFlight workflow must not publish workflow artifacts or release assets."
+            exit 1
+          fi
           grep -q "iOS Source Tree Governance Placeholder" apps/ios/README.md
           test -f apps/ios/project.yml
           grep -q 'NetworkCorePacketTunnel:' apps/ios/project.yml
@@ -2583,6 +2600,43 @@ jobs:
 
       - name: Validate diagnostic adaptation and secret minimization
         run: cargo test --locked -p control-runtime --test maintenance_adapter_contracts
+
+  routing-equivalence:
+    name: Routing equivalence (sing-box)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs:
+      - detect-projects
+    if: ${{ needs.detect-projects.outputs.rust == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Download latest sing-box and GeoIP rule set
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tool_dir="${RUNNER_TEMP}/sing-box"
+          mkdir -p "${tool_dir}/rule-set"
+          gh release download --repo SagerNet/sing-box --pattern 'sing-box-*-linux-amd64.tar.gz' --dir "${tool_dir}"
+          tar -xzf "${tool_dir}"/sing-box-*-linux-amd64.tar.gz -C "${tool_dir}" --strip-components=1
+          "${tool_dir}/sing-box" version
+          curl -fsSL --retry 3 -o "${tool_dir}/rule-set/geoip-cn.srs" \
+            https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs
+          echo "NETWORKCORE_SING_BOX_BIN=${tool_dir}/sing-box" >> "${GITHUB_ENV}"
+          echo "NETWORKCORE_SING_BOX_RULE_SET_DIR=${tool_dir}/rule-set" >> "${GITHUB_ENV}"
+
+      - name: Compare sing-box routing with the decision snapshot
+        env:
+          NETWORKCORE_REQUIRE_SING_BOX_EQUIVALENCE: "1"
+        run: cargo test --locked -p engine-singbox --test route_equivalence -- --nocapture
 
   windows-managed-client-installer:
     name: Windows managed client MSI
@@ -3181,6 +3235,7 @@ jobs:
       - windows-managed-client-installer
       - rust-security-audit
       - maintenance-contracts
+      - routing-equivalence
       - node-build-test
       - swift-build-test
       - swift-manifest-validation
@@ -3226,6 +3281,7 @@ jobs:
           RESULT_WINDOWS_INSTALLER: ${{ needs.windows-managed-client-installer.result }}
           RESULT_RUST_AUDIT: ${{ needs.rust-security-audit.result }}
           RESULT_MAINTENANCE: ${{ needs.maintenance-contracts.result }}
+          RESULT_ROUTING_EQUIVALENCE: ${{ needs.routing-equivalence.result }}
           RESULT_NODE_BUILD_TEST: ${{ needs.node-build-test.result }}
           RESULT_SWIFT_BUILD_TEST: ${{ needs.swift-build-test.result }}
           RESULT_APPLE_SMOKE: ${{ needs.apple-project-smoke.result }}
@@ -3333,6 +3389,7 @@ jobs:
           record_job "Windows managed client MSI" "${RESULT_WINDOWS_INSTALLER}" "${windows_required}"
           record_job "Rust dependency security audit" "${RESULT_RUST_AUDIT}" "${audit_required}"
           record_job "Maintenance diagnostic contract" "${RESULT_MAINTENANCE}" "${rust_required}"
+          record_job "Routing equivalence (sing-box)" "${RESULT_ROUTING_EQUIVALENCE}" "${rust_required}"
           record_job "Node build and test" "${RESULT_NODE_BUILD_TEST}" "${node_required}"
           record_job "Swift build and test" "${RESULT_SWIFT_BUILD_TEST}" "${swift_required}"
           record_job "Swift package manifest validation" "${RESULT_SWIFT_MANIFEST}" "${swift_manifest_required}"

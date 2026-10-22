@@ -600,11 +600,12 @@ ios-m1a-acceptance-status=pending
 ios-m1a-acceptance-peak-memory-mb=pending
 ios-m1a-acceptance-24h-no-jetsam=pending
 ios-m1a-acceptance-recorded-at=pending
-ios-m1a-tunnel-profile-secret-storage=provider-configuration-internal-testflight-only
+ios-m1a-tunnel-profile-secret-storage=keychain-password-reference-shared-access-group
 ```
 
-已知限制：节点密钥目前保存在 `NETunnelProviderProtocol.providerConfiguration` 中，只适用于内部 TestFlight；外部
-TestFlight 前必须改为 Keychain `passwordReference`，这需要在两个 target 增加 keychain access group entitlement 并更新描述文件。
+节点密钥保存在钥匙串中，隧道配置只保存 `passwordReference`。两个 target 的 entitlements 都把
+`$(AppIdentifierPrefix)networkcore.shared` 放在 `keychain-access-groups` 第一位；Apple 默认生成的描述文件已允许
+`TEAMID.*`，不需要额外开启 App ID capability。真机验收时额外确认：导入节点后锁屏重连仍可启动隧道（设备首次解锁之后）。
 
 ## iOS App Review Manual Confirmation
 
@@ -668,7 +669,21 @@ ios-upload-api-key-status=team-key-added-to-environment
 ios-export-compliance-answer=standard-https-only-exempt-2026-10-13
 ios-upload-internal-confirmation-status=pending
 ios-upload-internal-confirmation-items=app-record,export-compliance,internal-testing-group,app-privacy-determination,privacy-policy-determination,environment-secrets-and-variables
+ios-upload-internal-workflow=.github/workflows/ios-testflight.yml
+ios-upload-internal-workflow-status=defined-fail-closed-until-enabled
+ios-upload-internal-workflow-variables=IOS_APP_BUNDLE_ID,IOS_TUNNEL_BUNDLE_ID
+ios-upload-internal-workflow-secrets=APP_STORE_CONNECT_API_KEY_ID,APP_STORE_CONNECT_ISSUER_ID,APP_STORE_CONNECT_API_PRIVATE_KEY,TEAM_ID,APPLE_CERTIFICATE_P12_BASE64,APPLE_CERTIFICATE_PASSWORD,APPLE_KEYCHAIN_PASSWORD,APPLE_PROVISIONING_PROFILE_BASE64,APPLE_PACKET_TUNNEL_PROVISIONING_PROFILE_BASE64
 ```
+
+内部 TestFlight 首次上传前的人工步骤（维护者完成后在独立提交中把 `ios-upload-internal-confirmation-status` 设为
+`confirmed`、`ios-upload-workflow-status` 设为 `enabled`，并同步 CI 中对应的 pending 检查）：
+
+1. 在 Apple Developer 注册 App ID 和 Packet Tunnel 扩展的 App ID，两者都开启 Network Extensions capability。
+2. 创建 Apple Distribution 证书，导出为 `.p12`；为两个 App ID 各创建一个 App Store 类型的 provisioning profile。
+3. 在 App Store Connect 创建 app record，建立 internal testing group。
+4. 在 GitHub Environment `ios-app-store-connect` 中配置 required reviewer，写入上面列出的 secrets（证书和描述文件用 base64），
+   并在仓库或 environment Variables 中写入两个 bundle ID。
+5. 在 Actions 页面手动运行 `iOS internal TestFlight`，在 App Store Connect 确认 build 处理完成并分发给内部测试组。
 
 当前 workflow activation validation 仍是 blocked placeholder：`ios-upload-readiness` 只读取本节 marker、
 检查 source contract、输出 source tree preflight、protected environment/manual approval/App Store Connect API secret status/

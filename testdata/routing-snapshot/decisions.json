@@ -6,7 +6,8 @@
       "8.8.8.8": "US"
     },
     "dns": {
-      "baidu.com": "220.181.38.148"
+      "baidu.com": "220.181.38.148",
+      "notgoogle.com": "198.51.100.99"
     },
     "live_selected": {
       "Proxy": "jp-1"
@@ -24,12 +25,16 @@
     { "name": "suffix apex", "domain": "google.com",
       "expected": { "matched": "rule:1", "target": "Proxy", "group_path": ["Proxy", "Auto"], "outcome": "node:hk-1", "resolved_ip": null } },
     { "name": "suffix does not match a longer label", "domain": "notgoogle.com",
-      "expected": { "matched": "final", "target": "Proxy", "group_path": ["Proxy", "Auto"], "outcome": "node:hk-1", "resolved_ip": null } },
+      "expected": { "matched": "final", "target": "Proxy", "group_path": ["Proxy", "Auto"], "outcome": "node:hk-1", "resolved_ip": "198.51.100.99" } },
+    { "name": "failed resolution for an ip rule rejects", "domain": "unresolvable.test",
+      "expected": { "matched": "resolve_failed:6", "target": "REJECT", "group_path": [], "outcome": "reject", "resolved_ip": null } },
     { "name": "leading-dot suffix and static fallback", "domain": "api.netflix.com",
       "expected": { "matched": "rule:2", "target": "Streaming", "group_path": ["Streaming"], "outcome": "node:us-1", "resolved_ip": null } },
     { "name": "static url-test uses first member", "domain": "m.youtube.com",
       "expected": { "matched": "rule:3", "target": "Auto", "group_path": ["Auto"], "outcome": "node:hk-1", "resolved_ip": null } },
-    { "name": "domain normalization", "domain": "ROUTER.lan.",
+    { "name": "exact domain direct", "domain": "router.lan",
+      "expected": { "matched": "rule:4", "target": "DIRECT", "group_path": [], "outcome": "direct", "resolved_ip": null } },
+    { "name": "domain normalization", "domain": "ROUTER.lan.", "engine_only": true,
       "expected": { "matched": "rule:4", "target": "DIRECT", "group_path": [], "outcome": "direct", "resolved_ip": null } },
     { "name": "no-resolve cidr on ip destination", "ip": "192.168.1.10",
       "expected": { "matched": "rule:5", "target": "DIRECT", "group_path": [], "outcome": "direct", "resolved_ip": null } },
