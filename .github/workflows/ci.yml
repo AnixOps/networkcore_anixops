@@ -2182,6 +2182,23 @@ jobs:
           grep -q '^ios-upload-internal-confirmation-status=' docs/manual-intervention.md
           grep -q 'Internal TestFlight Scope' docs/architecture/ios-upload-workflow-activation-validation-contract.md
           grep -q '^ios-upload-workflow-release-assets=blocked$' docs/manual-intervention.md
+          grep -q '^ios-upload-internal-workflow=.github/workflows/ios-testflight.yml$' docs/manual-intervention.md
+          test -f .github/workflows/ios-testflight.yml
+          if grep -Eq '^  (push|pull_request|pull_request_target|schedule|release|workflow_run):' .github/workflows/ios-testflight.yml; then
+            echo "::error::the internal TestFlight workflow must be workflow_dispatch only."
+            exit 1
+          fi
+          grep -q '^  workflow_dispatch:' .github/workflows/ios-testflight.yml
+          grep -q '^    environment: ios-app-store-connect$' .github/workflows/ios-testflight.yml
+          grep -q '^    needs: ios-upload-preflight$' .github/workflows/ios-testflight.yml
+          grep -q "grep -q '\^ios-upload-workflow-status=enabled\$'" .github/workflows/ios-testflight.yml
+          grep -q "grep -q '\^ios-upload-internal-confirmation-status=confirmed\$'" .github/workflows/ios-testflight.yml
+          grep -q 'testFlightInternalTestingOnly bool true' .github/workflows/ios-testflight.yml
+          grep -q 'build-ios-runtime-xcframework.sh device' .github/workflows/ios-testflight.yml
+          if grep -Eq 'upload-artifact|action-gh-release|gh release' .github/workflows/ios-testflight.yml; then
+            echo "::error::the internal TestFlight workflow must not publish workflow artifacts or release assets."
+            exit 1
+          fi
           grep -q "iOS Source Tree Governance Placeholder" apps/ios/README.md
           test -f apps/ios/project.yml
           grep -q 'NetworkCorePacketTunnel:' apps/ios/project.yml
