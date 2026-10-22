@@ -34,12 +34,17 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
         ITSAppUsesNonExemptEncryption: false
-    entitlements:
-      path: Entitlements/NetworkCoreApp.entitlements
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.networkcore.ios
+        # Not the XcodeGen `entitlements:` key: without `properties` it rewrites the committed file as an empty plist.
+        CODE_SIGN_ENTITLEMENTS: Entitlements/NetworkCoreApp.entitlements
+        # iPhone only for internal TestFlight; iPad would need all four orientations and iPad icons.
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     dependencies:
       - package: NetworkCoreIOS
         product: NetworkCoreIOS
@@ -61,11 +66,11 @@ targets:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
-    entitlements:
-      path: Entitlements/NetworkCorePacketTunnel.entitlements
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.networkcore.ios.packettunnel
+        CODE_SIGN_ENTITLEMENTS: Entitlements/NetworkCorePacketTunnel.entitlements
+        TARGETED_DEVICE_FAMILY: "1"
     dependencies:
       - package: NetworkCoreIOS
         product: NetworkCoreIOS
