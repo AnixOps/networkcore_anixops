@@ -152,6 +152,20 @@ Future `ios-archive-export` must fail before upload if archive/export output is 
 or the source `.ipa` is not produced by the same release run. Future App Review submission must default to hold-only mode unless a
 separate manual approval explicitly enables submission.
 
+## Internal TestFlight Scope
+
+维护者在 2026-10-13 把上传范围收窄为内部 TestFlight。本节只改变范围，不放宽本合同其它 fail-closed 规则。
+
+- 允许范围：`ios-upload-scope=internal-testflight-only`。archive、export，并通过 App Store Connect API key 上传到 TestFlight 内部测试，全部在 protected environment `ios-app-store-connect` 中完成。
+- 继续 blocked，不属于本范围：External TestFlight testing（需要 Beta App Review）、App Store submission、App Review submission、GitHub release asset 和 iOS release asset。
+- 启用前必需：source tree 与 Xcode project gate 已通过 GitHub Actions；App Store Connect app record 已创建；protected environment 与 manual approval 已配置；App Store Connect API key secrets 已写入 environment；export compliance 已确认；internal testing group 已建立。
+- 内部范围的人工确认：`ios-upload-internal-confirmation-status=confirmed` 代替 `ios-app-review-manual-confirmation-status=confirmed`，作为启用 `ios-upload-workflow-status` 的 precondition 7。这个 marker 只能由维护者在独立提交中设置，CI 不得设置。其它 precondition 不变。
+- 启用前不要求：Beta App Review、App Review Notes、demo account、review attachment、VPN compliance 材料和 App Review submission。进行外部测试或上架前，这些必须补齐。
+- 隐私政策 URL 与 App Privacy 问卷：以 App Store Connect 对内部测试构建的实际要求为准。在确认不要求之前，视为必需。
+- Bundle ID 与 Team ID：只能存放在 GitHub Variables 或 environment secret 中。仓库文件、合同与 manual log 都不记录具体值。
+- App Store Connect API key：个人账号的 Individual API Key 不能使用 Provisioning endpoints。上传 job 使用手动描述文件，不依赖自动签名。如果以后需要 Provisioning endpoints，必须改用团队 key 并重新审查本节。
+- 启用仍需独立提交：真实 upload job 和 `ios-upload-workflow-status` 从 `pending` 切换为 `enabled`，都必须在各自的独立提交中完成。
+
 ## Required Output Fields
 
 `ios-upload-readiness`, `release-placeholder` and `release-summary` must output these safe fields while the workflow is blocked:

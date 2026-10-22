@@ -12,10 +12,7 @@ entitlement/provisioning source、archive/export、签名、TestFlight upload、
 `Package.swift` ownership preflight 之后、Swift source gate 之前的 manifest-only source scan 和 target list
 verification 固定为独立门禁。
 
-当前状态：blocked-placeholder-before-package-swift。仓库仍只允许 `apps/ios/README.md` 作为 source tree governance
-placeholder；`apps/ios/Package.swift`、`apps/ios/Sources`、`apps/ios/Tests`、Swift source、Xcode project/workspace、
-Network Extension target、Privacy Manifest、entitlements、signing material、archive/export、upload workflow enabled marker
-和 iOS release asset 继续保持 blocked。
+当前状态：swift-source-gate-active。`apps/ios/Package.swift` 与 `apps/ios/Sources`、`apps/ios/Tests` 中的 Swift source 已由 Swift source gate 引入，`swift build` 与 `swift test` 只在 GitHub Actions `macos-26` 运行。Xcode project/workspace、Network Extension target、Privacy Manifest、entitlements、signing material、archive/export、upload workflow enabled marker 和 iOS release asset 继续保持 blocked。
 
 ## Goals
 
@@ -86,27 +83,27 @@ later Swift source gate exists and passes in GitHub Actions. Local validation is
 ```text
 ios-package-swift-manifest-only-contract=present
 ios-package-swift-manifest-only-source=ios-upload-readiness
-ios-package-swift-manifest-only-status=blocked-placeholder
-ios-package-swift-manifest-only-current-mode=readme-placeholder-no-package-swift
+ios-package-swift-manifest-only-status=manifest-only-active
+ios-package-swift-manifest-only-current-mode=manifest-only-package-swift-no-swift-source
 ios-package-swift-manifest-only-contract-path=docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md
 ios-package-swift-manifest-only-package-path=apps/ios/Package.swift
-ios-package-swift-manifest-only-manifest-status=blocked
+ios-package-swift-manifest-only-manifest-status=active
 ios-package-swift-manifest-only-activation-scope=future-independent-manifest-only-commit
-ios-package-swift-manifest-only-source-scan=manifest-only-source-scan-blocked-before-package-swift
-ios-package-swift-manifest-only-target-list-verification=blocked-before-package-swift
+ios-package-swift-manifest-only-source-scan=manifest-only-source-scan-active
+ios-package-swift-manifest-only-target-list-verification=active
 ios-package-swift-manifest-only-targets=NetworkCoreBridge,NetworkCoreApp,NetworkCorePacketTunnel
 ios-package-swift-manifest-only-test-targets=NetworkCoreBridgeTests
 ios-package-swift-manifest-only-source-directory-guard=apps/ios/Sources,apps/ios/Tests
-ios-package-swift-manifest-only-swift-source=blocked-before-source-gate
-ios-package-swift-manifest-only-swift-build-test=blocked-until-swift-source-gate
+ios-package-swift-manifest-only-swift-source=source-gate-active
+ios-package-swift-manifest-only-swift-build-test=active-in-github-actions-macos-26
 ios-package-swift-manifest-only-macos-runner=macos-26
-ios-package-swift-manifest-only-validation-hook=manifest-only-validation-blocked-before-package-swift
+ios-package-swift-manifest-only-validation-hook=manifest-only-validation-active
 ios-package-swift-manifest-only-xcode-project=blocked
 ios-package-swift-manifest-only-network-extension-target=blocked
 ios-package-swift-manifest-only-upload-enabled-marker=blocked
 ios-package-swift-manifest-only-release-upload=blocked
 ios-package-swift-manifest-only-release-asset=blocked
-ios-package-swift-manifest-only-next-action=add-package-swift-manifest-only-after-contract-gate
+ios-package-swift-manifest-only-next-action=add-xcode-and-network-extension-after-gates
 ```
 
 ## Failure Modes

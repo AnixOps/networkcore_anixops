@@ -390,10 +390,16 @@ jobs:
           test -f docs/manual-intervention.md
           grep -q '^ios-upload-workflow-status=pending$' docs/manual-intervention.md
           grep -q '^ios-upload-workflow-release-assets=blocked$' docs/manual-intervention.md
-          if find . -path ./.git -prune -o \( -type f \( -name "Package.swift" -o -name "*.swift" -o -name "PrivacyInfo.xcprivacy" -o -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" -o -name "ExportOptions.plist" -o -name "*.ipa" \) -o -type d \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "*.xcarchive" -o -name "*.xcresult" -o -name "*.dSYM" \) \) -print -quit | grep -q .; then
+          ios_allowed='^$'
+          if [[ -f apps/ios/Package.swift ]]; then
+            ios_allowed='^\./apps/ios/(Package\.swift|Sources/.+\.swift|Tests/.+\.swift|Sources/NetworkCoreApp/Resources/PrivacyInfo\.xcprivacy|Sources/NetworkCorePacketTunnel/Resources/PrivacyInfo\.xcprivacy|Entitlements/NetworkCoreApp\.entitlements|Entitlements/NetworkCorePacketTunnel\.entitlements)$'
+          fi
+          ios_forbidden="$(find . -path ./.git -prune -o \( -type f \( -name "Package.swift" -o -name "*.swift" -o -name "PrivacyInfo.xcprivacy" -o -name "*.entitlements" -o -name "*.mobileprovision" -o -name "*.provisionprofile" -o -name "*.p12" -o -name "*.cer" -o -name "*.key" -o -name "*.pem" -o -name "*.xcframework" -o -name "*.a" -o -name "ExportOptions.plist" -o -name "*.ipa" \) -o -type d \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "*.xcarchive" -o -name "*.xcresult" -o -name "*.dSYM" \) \) -print | grep -v -E "${ios_allowed}" | head -n 1 || true)"
+          if [[ -n "${ios_forbidden}" ]]; then
             echo "::error::iOS source, signing, archive/export, upload, or release material must stay blocked."
             exit 1
           fi
+          { echo '```text'; bash .github/scripts/print-ios-contract-fields.sh; echo '```'; } | tee -a "${GITHUB_STEP_SUMMARY}"
           echo "ios-upload-readiness=blocked-placeholder"
 
   windows-cli-artifact-readiness:
@@ -1883,6 +1889,15 @@ jobs:
       - windows-publish-eligibility-gate
       - publish-github-release
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Record iOS placeholder governance fields
+        shell: bash
+        run: |
+          set -euo pipefail
+          { echo '```text'; bash .github/scripts/print-ios-contract-fields.sh; echo '```'; } >> "${GITHUB_STEP_SUMMARY}"
+
       - name: Summarize release state
         shell: bash
         env:
