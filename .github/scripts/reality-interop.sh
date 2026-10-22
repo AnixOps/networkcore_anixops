@@ -89,6 +89,9 @@ import functools, http.server, ssl, sys
 context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 context.minimum_version = ssl.TLSVersion.TLSv1_3
 context.load_cert_chain(sys.argv[1], sys.argv[2])
+# Real camouflage sites negotiate ALPN; Xray-core >= 26.10 pads its own
+# EncryptedExtensions to the target's size and rejects a smaller target.
+context.set_alpn_protocols(['h2', 'http/1.1'])
 handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=sys.argv[3])
 server = http.server.ThreadingHTTPServer(('127.0.0.1', 18444), handler)
 server.daemon_threads = True
