@@ -10,3 +10,8 @@ current product, release, CI, or operational requirements.
 the signed SD-WAN delivery verifier and the initial Windows EasyTier foreground
 tunnel implementation. Their resulting code, contracts, and active operational
 requirements remain in the workspace and current architecture documentation.
+
+## TODO Completed Items (2026-10)
+
+`todo-completed-2026-10.md` keeps the full "已完成" checklist that lived in
+`TODO.md` until 2026-10-22, verbatim, for audit history.
