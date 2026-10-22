@@ -81,8 +81,20 @@ open(sys.argv[1], 'wb').write(data)
   # Inner TLS 1.3 target serving files, and the REALITY camouflage target.
   (cd "${www}" && exec openssl s_server -accept 127.0.0.1:18443 -tls1_3 -WWW -quiet \
     -cert "${work}/target.crt" -key "${work}/target.key") > "${work}/target-tls.log" 2>&1 &
-  openssl s_server -accept 127.0.0.1:18444 -tls1_3 -www -quiet \
-    -cert "${work}/target.crt" -key "${work}/target.key" > "${work}/target-dest.log" 2>&1 &
+  # The camouflage target must serve connections concurrently: REALITY servers
+  # forward every unauthenticated client there, and a single-threaded
+  # `openssl s_server` stalls behind a forwarded connection that stays open.
+  python3 -c "
+import functools, http.server, ssl, sys
+context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+context.minimum_version = ssl.TLSVersion.TLSv1_3
+context.load_cert_chain(sys.argv[1], sys.argv[2])
+handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=sys.argv[3])
+server = http.server.ThreadingHTTPServer(('127.0.0.1', 18444), handler)
+server.daemon_threads = True
+server.socket = context.wrap_socket(server.socket, server_side=True, do_handshake_on_connect=False)
+server.serve_forever()
+" "${work}/target.crt" "${work}/target.key" "${www}" > "${work}/target-dest.log" 2>&1 &
   python3 -m http.server 18080 --bind 127.0.0.1 --directory "${www}" > "${work}/target-http.log" 2>&1 &
 
   local keypair private_key public_key uuid short_id server_name
