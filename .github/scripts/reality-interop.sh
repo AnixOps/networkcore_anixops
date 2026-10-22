@@ -123,7 +123,8 @@ server.serve_forever()
        "realitySettings": {"dest": "127.0.0.1:18444", "serverNames": ["${server_name}"],
          "privateKey": "${private_key}", "shortIds": ["${short_id}"], "show": true}}}
   ],
-  "outbounds": [{"protocol": "freedom"}]
+  "outbounds": [{"protocol": "freedom",
+    "settings": {"finalRules": [{"action": "allow", "network": "tcp", "ip": ["127.0.0.1"]}]}}]
 }
 EOF
 
@@ -146,6 +147,8 @@ EOF
 }
 EOF
 
+  # Xray-core >= 26.5 blackholes private targets from VLESS inbounds unless a
+  # freedom finalRules entry allows them; the test targets live on loopback.
   "${bin}/xray" run -c "${work}/xray.json" > "${work}/xray.log" 2>&1 &
   "${bin}/sing-box" run -c "${work}/sing-box.json" > "${work}/sing-box.log" 2>&1 &
 
