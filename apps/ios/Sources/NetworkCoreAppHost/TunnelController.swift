@@ -3,8 +3,8 @@ import NetworkCoreBridge
 import NetworkExtension
 
 /// Owns the app's single VPN configuration: imports an `ss://` node, saves it as the tunnel profile, and
-/// starts or stops the packet tunnel. The node password goes only into the saved profile, never into
-/// published state or messages.
+/// starts or stops the packet tunnel. The node key goes only into the Keychain; the saved profile holds a
+/// persistent reference to it and a config without it.
 @MainActor
 final class TunnelController: ObservableObject {
     @Published private(set) var coordinator: AppCoordinator
@@ -65,17 +65,26 @@ final class TunnelController: ObservableObject {
             return
         }
 
+        let profileID = "default"
         let config: Data
+        let keyReference: Data
         do {
-            config = try EmbeddedRuntimeConfig(node: node, profileID: "default").encoded()
+            config = try EmbeddedRuntimeConfig(node: node, profileID: profileID).withoutSecret().encoded()
         } catch {
             message = "无法生成隧道配置"
+            return
+        }
+        do {
+            keyReference = try NodeSecretStore.save(node.password, account: profileID)
+        } catch {
+            message = "无法把节点密钥保存到钥匙串"
             return
         }
 
         let tunnelProtocol = NETunnelProviderProtocol()
         tunnelProtocol.providerBundleIdentifier = providerBundleIdentifier
         tunnelProtocol.serverAddress = node.host
+        tunnelProtocol.passwordReference = keyReference
         tunnelProtocol.providerConfiguration = [
             TunnelProfileKeys.runtimeConfig: config,
             TunnelProfileKeys.nodeName: node.name ?? node.host,
