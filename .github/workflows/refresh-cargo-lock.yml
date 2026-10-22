@@ -2,6 +2,14 @@ name: Refresh Cargo Lock
 
 on:
   workflow_dispatch:
+    inputs:
+      strategy:
+        description: "full regenerates every entry; add-missing only resolves new dependencies and keeps existing pins"
+        type: choice
+        options:
+          - full
+          - add-missing
+        default: full
 
 permissions:
   contents: read
@@ -18,7 +26,22 @@ jobs:
 
       - name: Generate Cargo.lock
         shell: bash
-        run: cargo generate-lockfile
+        env:
+          LOCK_STRATEGY: ${{ inputs.strategy }}
+        run: |
+          set -euo pipefail
+          if [ "${LOCK_STRATEGY}" = "add-missing" ]; then
+            # Resolving metadata without --locked adds new dependencies to the
+            # checked-in lockfile and leaves every existing pin unchanged.
+            cargo metadata --format-version=1 > /dev/null
+          else
+            cargo generate-lockfile
+          fi
+          # Print the full lockfile diff so it can be reviewed and applied from
+          # the job log when the artifact store is not reachable.
+          echo "----- BEGIN CARGO.LOCK DIFF -----"
+          git diff -- Cargo.lock
+          echo "----- END CARGO.LOCK DIFF -----"
 
       - name: Upload generated lockfile
         uses: actions/upload-artifact@v4
