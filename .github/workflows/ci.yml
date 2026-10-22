@@ -2194,6 +2194,7 @@ jobs:
           grep -q "grep -q '\^ios-upload-workflow-status=enabled\$'" .github/workflows/ios-testflight.yml
           grep -q "grep -q '\^ios-upload-internal-confirmation-status=confirmed\$'" .github/workflows/ios-testflight.yml
           grep -q 'testFlightInternalTestingOnly bool true' .github/workflows/ios-testflight.yml
+          grep -q 'build-ios-runtime-xcframework.sh device' .github/workflows/ios-testflight.yml
           if grep -Eq 'upload-artifact|action-gh-release|gh release' .github/workflows/ios-testflight.yml; then
             echo "::error::the internal TestFlight workflow must not publish workflow artifacts or release assets."
             exit 1

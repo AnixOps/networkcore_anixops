@@ -134,6 +134,18 @@ jobs:
           install_profile "${APPLE_PACKET_TUNNEL_PROVISIONING_PROFILE_BASE64}" tunnel_profile
           echo "signing-material=installed-redacted"
 
+      - name: Setup Rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      # The packet tunnel target links this; it is built on the runner and never committed.
+      - name: Build the embedded runtime XCFramework
+        shell: bash
+        run: bash .github/scripts/build-ios-runtime-xcframework.sh device
+
       - name: Install XcodeGen
         shell: bash
         run: brew install xcodegen
