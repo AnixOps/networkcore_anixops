@@ -646,7 +646,7 @@ ios-app-review-confirmed-by=pending
 archive/export、App Store Connect API、protected environment 或 manual approval，因此 upload/release 保持阻断。
 
 ```text
-ios-upload-workflow-status=pending
+ios-upload-workflow-status=enabled
 ios-upload-workflow-source-contract=docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md
 ios-upload-workflow-archive-export=blocked
 ios-upload-workflow-app-store-connect-api=blocked
@@ -658,8 +658,8 @@ ios-upload-workflow-app-review-submission=blocked
 ios-upload-workflow-release-assets=blocked
 ios-upload-workflow-macos-runner=blocked
 ios-upload-workflow-build-processing-check=blocked
-ios-upload-workflow-confirmed-at=pending
-ios-upload-workflow-confirmed-by=pending
+ios-upload-workflow-confirmed-at=2026-10-22
+ios-upload-workflow-confirmed-by=kalijerry
 ios-upload-scope=internal-testflight-only
 ios-upload-scope-decision=maintainer-2026-10-13
 ios-upload-external-testflight=blocked
@@ -670,7 +670,7 @@ ios-export-compliance-answer=standard-https-only-exempt-2026-10-13
 ios-upload-internal-confirmation-status=confirmed
 ios-upload-internal-confirmation-items=app-record,export-compliance,internal-testing-group,app-privacy-determination,privacy-policy-determination,environment-secrets-and-variables
 ios-upload-internal-workflow=.github/workflows/ios-testflight.yml
-ios-upload-internal-workflow-status=defined-fail-closed-until-enabled
+ios-upload-internal-workflow-status=enabled-manual-dispatch-internal-testflight-only
 ios-upload-internal-workflow-variables=IOS_APP_BUNDLE_ID,IOS_TUNNEL_BUNDLE_ID
 ios-upload-internal-workflow-secrets=APP_STORE_CONNECT_API_KEY_ID,APP_STORE_CONNECT_ISSUER_ID,APP_STORE_CONNECT_API_PRIVATE_KEY,TEAM_ID,APPLE_CERTIFICATE_P12_BASE64,APPLE_CERTIFICATE_PASSWORD,APPLE_KEYCHAIN_PASSWORD,APPLE_PROVISIONING_PROFILE_BASE64,APPLE_PACKET_TUNNEL_PROVISIONING_PROFILE_BASE64
 ```
