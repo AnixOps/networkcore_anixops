@@ -130,68 +130,92 @@ async fn tls_mimic_completes_a_handshake_with_openssl() {
     assert_eq!(body, expected_payload());
 }
 
+/// Runs `check` against every server and reports all failures together, so
+/// one incompatible server does not hide the results of the others.
+async fn for_each_server<F, Fut>(check: F)
+where
+    F: Fn(Server) -> Fut,
+    Fut: std::future::Future<Output = Result<String, String>>,
+{
+    let mut failures = Vec::new();
+    for server in servers() {
+        let name = server.name.clone();
+        match tokio::time::timeout(TIMEOUT, check(server)).await {
+            Ok(Ok(summary)) => eprintln!("{name}: {summary}"),
+            Ok(Err(error)) => {
+                eprintln!("{name}: FAILED: {error}");
+                failures.push(format!("{name}: {error}"));
+            }
+            Err(_) => {
+                eprintln!("{name}: FAILED: timed out");
+                failures.push(format!("{name}: timed out"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "failing servers: {failures:#?}");
+}
+
 #[tokio::test(flavor = "current_thread")]
 #[ignore = "needs the REALITY interop CI environment"]
 async fn plain_http_through_each_reality_server() {
-    let expected = expected_payload();
-    for server in servers() {
-        let outbound = VlessRealityOutbound::new(server.config.clone(), Arc::new(TcpDialer));
-        let mut stream = with_timeout(outbound.connect(&target("NC_HTTP_TARGET")))
+    for_each_server(|server| async move {
+        let outbound = VlessRealityOutbound::new(server.config, Arc::new(TcpDialer));
+        let mut stream = outbound
+            .connect(&target("NC_HTTP_TARGET"))
             .await
-            .unwrap_or_else(|error| panic!("{}: connect failed: {error}", server.name));
-        let body = with_timeout(http_get(&mut stream))
+            .map_err(|error| format!("connect failed: {error}"))?;
+        let body = http_get(&mut stream)
             .await
-            .unwrap_or_else(|error| panic!("{}: HTTP failed: {error}", server.name));
-        assert_eq!(body.len(), expected.len(), "{}", server.name);
-        assert!(body == expected, "{}: payload mismatch", server.name);
-        eprintln!("{}: plain HTTP ok", server.name);
-    }
+            .map_err(|error| format!("HTTP failed: {error}"))?;
+        if body != expected_payload() {
+            return Err(format!("payload mismatch ({} bytes)", body.len()));
+        }
+        Ok("plain HTTP ok".to_owned())
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "current_thread")]
 #[ignore = "needs the REALITY interop CI environment"]
 async fn inner_tls13_through_each_reality_server_uses_vision_direct_copy() {
-    let expected = expected_payload();
-    for server in servers() {
+    for_each_server(|server| async move {
         let flow = server.config.flow;
-        let outbound = VlessRealityOutbound::new(server.config.clone(), Arc::new(TcpDialer));
-        let vless = with_timeout(outbound.connect_stream(&target("NC_TLS_TARGET")))
+        let outbound = VlessRealityOutbound::new(server.config, Arc::new(TcpDialer));
+        let vless = outbound
+            .connect_stream(&target("NC_TLS_TARGET"))
             .await
-            .unwrap_or_else(|error| panic!("{}: connect failed: {error}", server.name));
-        let mut inner = with_timeout(tls_mimic::connect(
+            .map_err(|error| format!("connect failed: {error}"))?;
+        let mut inner = tls_mimic::connect(
             vless,
             &ClientConfig::new("target.interop.test", Fingerprint::Chrome),
             &mut AcceptAnyCertificate,
-        ))
+        )
         .await
-        .unwrap_or_else(|error| panic!("{}: inner TLS failed: {error}", server.name));
-        let body = with_timeout(http_get(&mut inner))
+        .map_err(|error| format!("inner TLS failed: {error}"))?;
+        let body = http_get(&mut inner)
             .await
-            .unwrap_or_else(|error| panic!("{}: HTTPS failed: {error}", server.name));
-        assert!(body == expected, "{}: payload mismatch", server.name);
+            .map_err(|error| format!("HTTPS failed: {error}"))?;
+        if body != expected_payload() {
+            return Err(format!("payload mismatch ({} bytes)", body.len()));
+        }
         let vless = inner.get_ref();
         if flow == Flow::Vision {
             let state = vless.vision_state().unwrap();
-            assert!(
-                state.enable_xtls,
-                "{}: inner TLS 1.3 not detected",
-                server.name
-            );
-            assert!(
-                vless.is_direct_write(),
-                "{}: uplink did not switch to direct",
-                server.name
-            );
-            assert!(
-                vless.is_direct_read(),
-                "{}: downlink did not switch to direct",
-                server.name
-            );
-        } else {
-            assert!(!vless.is_direct_write() && !vless.is_direct_read());
+            if !state.enable_xtls {
+                return Err("inner TLS 1.3 not detected".to_owned());
+            }
+            if !vless.is_direct_write() {
+                return Err("uplink did not switch to direct".to_owned());
+            }
+            if !vless.is_direct_read() {
+                return Err("downlink did not switch to direct".to_owned());
+            }
+        } else if vless.is_direct_write() || vless.is_direct_read() {
+            return Err("plain flow switched to direct".to_owned());
         }
-        eprintln!("{}: inner TLS 1.3 ok (flow {flow:?})", server.name);
-    }
+        Ok(format!("inner TLS 1.3 ok (flow {flow:?})"))
+    })
+    .await;
 }
 
 #[tokio::test(flavor = "current_thread")]

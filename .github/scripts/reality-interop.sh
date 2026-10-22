@@ -113,12 +113,12 @@ server.serve_forever()
      "settings": {"clients": [{"id": "${uuid}", "flow": "xtls-rprx-vision"}], "decryption": "none"},
      "streamSettings": {"network": "tcp", "security": "reality",
        "realitySettings": {"dest": "127.0.0.1:18444", "serverNames": ["${server_name}"],
-         "privateKey": "${private_key}", "shortIds": ["${short_id}"]}}},
+         "privateKey": "${private_key}", "shortIds": ["${short_id}"], "show": true}}},
     {"tag": "plain", "listen": "127.0.0.1", "port": 24432, "protocol": "vless",
      "settings": {"clients": [{"id": "${uuid}"}], "decryption": "none"},
      "streamSettings": {"network": "tcp", "security": "reality",
        "realitySettings": {"dest": "127.0.0.1:18444", "serverNames": ["${server_name}"],
-         "privateKey": "${private_key}", "shortIds": ["${short_id}"]}}}
+         "privateKey": "${private_key}", "shortIds": ["${short_id}"], "show": true}}}
   ],
   "outbounds": [{"protocol": "freedom"}]
 }
