@@ -11,6 +11,8 @@
 
 ### Added
 
+- iOS 节点密钥改存钥匙串：App 导入 `ss://` 节点时把密钥写入共享 keychain access group（`$(AppIdentifierPrefix)networkcore.shared`），隧道配置只保存 `passwordReference` 和不含密钥的运行时配置；隧道扩展启动时从钥匙串取回密钥再交给内核。
+
 - iOS 隧道扩展接入原生内核（M1a）：CI 在 `macos-26` 上用 `.github/scripts/build-ios-runtime-xcframework.sh` 把 `engine-embedded` 编成 `NetworkCoreRuntime.xcframework`（不提交），只由 `NetworkCorePacketTunnel` 链接；`PacketTunnelProvider` 校验运行时握手后经 C ABI 启动隧道，全量 IPv4/IPv6 路由与 DNS 进隧道；App 可粘贴 Shadowsocks-2022 `ss://` 链接保存为 VPN 配置并连接/断开、查看脱敏运行状态。隧道扩展的隐私清单声明 System Boot Time `35F9.1`。节点密钥暂存于 `providerConfiguration`，仅限内部 TestFlight。
 
 - 新增 `engine-embedded` crate（M1a）：iOS Network Extension 进程内内核。Shadowsocks-2022 TCP 出站（`2022-blake3-aes-128-gcm` / `aes-256-gcm` / `chacha20-poly1305`，基于 `ring` + `blake3` 自实现，暂不支持多用户 identity header），smoltcp 用户态 TCP/IP 栈（`netstack-smoltcp`），UDP/53 经出站转 DNS-over-TCP、其余 UDP 丢弃，按 NE 内存预算设定连接数、窗口与空闲超时上限；`networkcore_ios_*` C ABI 与 `include/networkcore_ios_runtime.h`。与 shadowsocks-rust 服务端的互通测试只作为 Unix dev-dependency，不进入 NE 二进制。尚未接入 Xcode 工程和 PacketTunnelProvider。
@@ -244,6 +246,10 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 ### Fixed
 
+- The Linux managed foreground control socket now sets each accepted
+  connection back to blocking before its bounded read. On BSD-derived kernels
+  such as macOS the accepted socket inherited the listener's non-blocking mode,
+  so a request that arrived after `accept` was rejected as unreadable.
 - GUI connect now waits in its background task for SCM, the live sing-box PID,
   the configured loopback listener, and the generated NodeCatalog selector API
   before changing the current-user proxy. The proxy snapshot is atomically

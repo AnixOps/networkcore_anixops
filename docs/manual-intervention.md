@@ -618,11 +618,12 @@ ios-m1a-acceptance-status=pending
 ios-m1a-acceptance-peak-memory-mb=pending
 ios-m1a-acceptance-24h-no-jetsam=pending
 ios-m1a-acceptance-recorded-at=pending
-ios-m1a-tunnel-profile-secret-storage=provider-configuration-internal-testflight-only
+ios-m1a-tunnel-profile-secret-storage=keychain-password-reference-shared-access-group
 ```
 
-已知限制：节点密钥目前保存在 `NETunnelProviderProtocol.providerConfiguration` 中，只适用于内部 TestFlight；外部
-TestFlight 前必须改为 Keychain `passwordReference`，这需要在两个 target 增加 keychain access group entitlement 并更新描述文件。
+节点密钥保存在钥匙串中，隧道配置只保存 `passwordReference`。两个 target 的 entitlements 都把
+`$(AppIdentifierPrefix)networkcore.shared` 放在 `keychain-access-groups` 第一位；Apple 默认生成的描述文件已允许
+`TEAMID.*`，不需要额外开启 App ID capability。真机验收时额外确认：导入节点后锁屏重连仍可启动隧道（设备首次解锁之后）。
 
 ## iOS App Review Manual Confirmation
 

@@ -52,7 +52,7 @@ tolerance_ms = 50                              # 默认值，仅 url-test
 
 - `RouteQuery { domain, ip }`：FakeIP/嗅探得到的域名与目的地址。
 - `RoutingEnvironment` 提供 GeoIP 查询、DNS 解析、select 当前选择、成员测速结果；全部方法有保守默认值，`StaticRoutingEnvironment` 即无运行时状态。
-- 第一条不带 `no-resolve` 的 IP 规则触发一次解析，之后所有 IP 规则使用解析结果，与 sing-box `resolve` 动作一致。
+- 第一条不带 `no-resolve` 的 IP 规则触发一次解析，之后所有 IP 规则使用解析结果，与 sing-box `resolve` 动作一致。解析失败时连接被拒绝（`RouteMatch::ResolveFailed`），与 sing-box 一致，不会落到 `FINAL`；需要远端解析的域名应放在 IP 规则之前用域名规则分流，或给 IP 规则加 `no-resolve`。
 - 组选择：`select` 用环境选择 → `default` → 第一个成员；`url-test` 取延迟最低的成员（无结果时取第一个）；`fallback` 取第一个有测速结果的成员（都没有时取第一个）。
 - `RouteResolution` 返回命中规则序号或 `FINAL`、规则目标、经过的组路径、最终 `Direct/Reject/Node(id)` 与解析出的地址，可直接用于诊断页。
 
@@ -70,7 +70,7 @@ tolerance_ms = 50                              # 默认值，仅 url-test
 ## 已知差异
 
 - sing-box 没有按顺序回落的 fallback 组。翻译结果首次选择的是最快成员，之后只在当前成员失败时切换；`engine-embedded` 实现严格按顺序回落。快照用无测速状态的环境，两边都取第一个成员。
-- sing-box `resolve` 失败时连接报错；决策接口在解析失败时继续匹配后续规则直至 `FINAL`。
+- sing-box 不对目的域名做大小写和结尾点归一化，决策接口会归一化；快照中对应用例标记 `engine_only`，不参与 sing-box 比较。
 - 组内 `REJECT` 暂不支持，因为 sing-box 1.13 起移除了 `block` 出站。
 
 ## 快照夹具与验收
@@ -85,4 +85,13 @@ tolerance_ms = 50                              # 默认值，仅 url-test
 
 修改路由语义时必须同时更新两个快照。验收标准：上述测试在 GitHub Actions 全矩阵中通过。
 
-后续工作：把片段接入 `render_sing_box_local_proxy_*` 配置生成；在 Linux CI 上运行真实 sing-box，用同一组 `decisions.json` 用例做端到端等价性测试；`engine-embedded` 接入 `decide`。
+## 真实 sing-box 等价性测试
+
+CI job `Routing equivalence (sing-box)` 下载最新 sing-box 正式版和 `geoip-cn.srs`，运行 `crates/engine-singbox/tests/route_equivalence.rs`：
+
+- 用 `render_sing_box_route` 渲染夹具，节点和 `direct` 都换成本地 SOCKS5 mock，GeoIP 规则集改为本地文件，夹具 DNS 由 sing-box `hosts` DNS server 提供，整个测试不访问外网目的地。
+- 先 `sing-box check`，再 `sing-box run`，把 `decisions.json` 中所有静态用例经 mixed 入站逐条发出；每条用例使用唯一目的端口，收到该端口的 mock 即 sing-box 选中的出站，`REJECT` 要求没有任何 mock 收到。
+- 结果与 `RoutingModel::decide` 的快照不一致即失败，并输出 sing-box 日志。带运行时状态（`live`）的用例依赖 select 选择和测速结果，不在此测试中比较。
+- 未设置 `NETWORKCORE_SING_BOX_BIN` 时（普通 workspace 测试），该测试没有可比较的对象，直接返回；专用 job 设置 `NETWORKCORE_REQUIRE_SING_BOX_EQUIVALENCE=1`，缺少二进制会失败。
+
+后续工作：把片段接入 `render_sing_box_local_proxy_*` 配置生成（beta.5 之后）；`engine-embedded` 接入 `decide`。

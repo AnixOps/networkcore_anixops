@@ -6,5 +6,9 @@
 	<array>
 		<string>packet-tunnel-provider</string>
 	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)networkcore.shared</string>
+	</array>
 </dict>
 </plist>

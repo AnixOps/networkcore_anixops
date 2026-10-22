@@ -78,6 +78,23 @@ final class ShadowsocksNodeLinkTests: XCTestCase {
         XCTAssertEqual(outbound["password"] as? String, key)
     }
 
+    func testStoredConfigDropsTheKeyAndTheExtensionRestoresIt() throws {
+        let node = ShadowsocksNode(
+            host: "example.com",
+            port: 8388,
+            method: "2022-blake3-aes-256-gcm",
+            password: key,
+            name: nil
+        )
+        let full = EmbeddedRuntimeConfig(node: node, profileID: "default")
+        let stored = try full.withoutSecret().encoded()
+        XCTAssertNil(String(data: stored, encoding: .utf8)?.range(of: key))
+
+        let restored = try EmbeddedRuntimeConfig.decoded(from: stored).withPassword(key)
+        XCTAssertEqual(restored, full)
+        XCTAssertEqual(try restored.encoded(), try full.encoded())
+    }
+
     func testFailureCodesMapToRuntimeFacts() {
         XCTAssertEqual(NetworkCoreRuntimeFFI.embeddedRuntimeFact(forFailureCode: 0), .available)
         XCTAssertEqual(NetworkCoreRuntimeFFI.embeddedRuntimeFact(forFailureCode: 1), .missing)

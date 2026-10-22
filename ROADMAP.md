@@ -1,16 +1,12 @@
 # Roadmap
 
-本路线图用于把 `networkcore_AnixOps` 从 bootstrap 仓库逐步推进为可验证、可维护的全平台网络内核与客户端体系。所有阶段都必须遵守 [AGENT.md](AGENT.md) 和 [docs/ci-cd-policy.md](docs/ci-cd-policy.md)：本机只编辑文件，验证只在 GitHub Actions 中运行。
+本路线图把 `networkcore_AnixOps` 推进为可验证、可维护的全平台网络内核与客户端体系。所有阶段都遵守 [AGENT.md](AGENT.md) 和 [docs/ci-cd-policy.md](docs/ci-cd-policy.md)：本机只编辑文件，验证只在 GitHub Actions 中运行。各版本精确能力边界见 [docs/alpha-release-feature-matrix.md](docs/alpha-release-feature-matrix.md)，全部设计文档见 [docs/README.md](docs/README.md)。
 
-## 首批交付与完整路线
-
-本轮 NetworkCore 只交付诊断事件校验、JSON 序列化与显式适配边界；Control + Agent 的机器监控插件和运维闭环先独立交付。后续完整路线依次包括订阅实际运行、进程管理、MITM、浏览器捕获和跨平台客户端。源码、CI 与真实环境分别记录于 [交付证据](docs/P4_EXECUTION_STATUS.md)，最后再进行真实环境演练、灰度、发布与维护交接。下列 P0–P4 是本仓库历史阶段，不表示跨仓库或生产验收完成。
+下列 P0–P4 是本仓库历史阶段，不表示跨仓库或生产验收完成；源码、CI 与真实环境证据分别记录在 [交付证据](docs/P4_EXECUTION_STATUS.md)。首批运维交付只包含诊断事件校验、JSON 序列化与显式适配边界（见 [P0 维护手册](docs/MAINTENANCE_P0.md)）。
 
 ## 当前阶段：P4 Client And Platform Integration
 
-P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Kernel Skeleton 和 P3 Runtime Capability Baseline 已完成。当前工作进入客户端、平台和发布集成阶段：Linux CLI 已有 GitHub Actions 生成的预发布二进制，iOS 仍处于 source-tree/upload gates，运行层继续通过 public engine adapter 和后续 MITM gates 增量补齐能力。
-
-阶段判断以本节为准：P3 是已完成 baseline，当前仓库不再处于 P3。当前迭代、发布说明和 source contract 的 source of truth 是 P4 backlog buckets；P3 只在 completed section、历史 TODO 或 CHANGELOG 中保留审计语境。
+P0–P3 已完成，当前仓库不再处于 P3。当前迭代、发布说明和 source contract 的 source of truth 是下方 P4 backlog buckets；P3 只在已完成章节、历史 TODO 或 CHANGELOG 中保留审计语境。
 
 ```text
 current-main-release-state=pending_manual_acceptance
@@ -21,248 +17,63 @@ current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-a
 current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active
 ```
 
-当前 main 使用平台无关 `PublicEngineRunPlan`：Linux `run-url`/`run-catalog` 将 SS、Trojan、VLESS、VMess、Hysteria2 和 TUIC 路由到 sing-box，将 `mierus://` 路由到 engine-mieru；Windows NodeCatalog 导入消费相同计划和 managed service 配置。Mieru 需要显式 binary/digest、原子 config snapshot/write、apply/start 与 loopback readiness，失败保留已有配置和运行核心。Linux 已有显式 `subscription refresh schedule` systemd oneshot/timer 周期刷新；Windows GUI 现提供 opt-in 单 HTTP(S) source 的小时级刷新，并记录脱敏 attempt/success/next/result、节点增删改计数和稳定错误码。默认路径扫描和运行中节点切换仍未完成。
+当前 main 概况：
 
-当前 direct share-link compatibility 包含 Hysteria2/TUIC share-link parser gate；该前台路径不启用 HTTP/3 MITM。
-
-Linux CLI 还提供 `proxy apply/status/rollback` 显式环境代理文件路径：apply 必须带绝对文件、独立 snapshot、代理 URL 和 `--confirm`，写入后校验并在 Unix 使用 `0600`；rollback 检测外部修改并保留 snapshot。该能力不发现或修改默认桌面/系统代理位置。
-
-当前 main 还提供 `mitm certificate trust-apply/trust-rollback`：在显式 `--trust-file`、`--snapshot` 和 `--confirm` 下管理 Ubuntu-style CA trust-file，并调用 `update-ca-certificates`；默认路径发现、NSS、p11-kit、Firefox/browser profile 和其他 trust backend 仍 blocked。边界以 [Linux Trust-File Source Contract](docs/architecture/linux-trust-file-source-contract.md) 为准。
-
-## P0 Bootstrap Governance (Completed)
-
-目标是建立后续代码落地前必须稳定存在的协作、CI/CD 和规划基线。
-
-完成标准：
-
-- 代理与贡献规范清晰，且多工具入口一致指向主规范。
-- CI/CD policy 明确本地与 GitHub Actions 的职责边界。
-- CI workflow 能检查治理文件并在多平台 runner 上完成基础工作区验证。
-- Roadmap、TODO、CHANGELOG 成为每轮迭代的固定记录入口。
-- Release strategy 明确真实平台产物进入 release workflow 前的门禁、矩阵和回滚路径。
-
-## P1 Domain And Architecture Specification (Completed)
-
-目标是先定义稳定边界，再选择具体技术栈和实现顺序。
-
-预期产物：
-
-- 统一控制内核的领域模型说明。
-- 配置、订阅、策略路由、DNS、MITM 插件、跨平台控制 API 的边界文档。
-- 插件权限模型和 iOS 审核风险初评。
-- 首个可验证源码栈的 CI 设计。
-
-当前规格：
-
-- [Control Kernel Domain Specification](docs/architecture/control-kernel-domain.md)
-- [Control Kernel Interface Draft](docs/architecture/control-kernel-interfaces.md)
-- [iOS Platform Risk Assessment](docs/architecture/ios-platform-risk-assessment.md)
-- [iOS Network Extension Design](docs/architecture/ios-network-extension-design.md)
-- [iOS Platform Adapter Source Contract](docs/architecture/ios-platform-adapter-source-contract.md)
-- [iOS Swift Network Extension Bridge Design](docs/architecture/ios-swift-network-extension-bridge-design.md)
-- [iOS Swift Xcode Bridge Source Contract](docs/architecture/ios-swift-xcode-bridge-source-contract.md)
-- [iOS Embedded Runtime FFI Boundary Design](docs/architecture/ios-embedded-runtime-ffi-boundary-design.md)
-- [iOS MITM Certificate Lifecycle Design](docs/architecture/ios-mitm-certificate-lifecycle-design.md)
-- [iOS Entitlement Provisioning Source Contract](docs/architecture/ios-entitlement-provisioning-source-contract.md)
-- [iOS App Review Privacy Release Readiness Design](docs/architecture/ios-app-review-privacy-release-readiness-design.md)
-- [iOS Privacy Manifest Source Contract](docs/architecture/ios-privacy-manifest-source-contract.md)
-- [iOS App Review Manual Confirmation Source Contract](docs/architecture/ios-app-review-manual-confirmation-source-contract.md)
-- [iOS TestFlight App Store Connect Upload Workflow Source Contract](docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md)
-- [iOS Upload Workflow Activation Validation Contract](docs/architecture/ios-upload-workflow-activation-validation-contract.md)
-- [iOS Swift Xcode Source Tree Activation Preflight Contract](docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md)
-- [iOS Package.swift Source Ownership Activation Preflight Contract](docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md)
-- [iOS Package.swift Manifest-Only Activation Validation Contract](docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md)
-- [ADR 0001: Initial Core Stack](docs/architecture/adr-0001-initial-core-stack.md)
-
-## P2 Core Kernel Skeleton (Completed)
-
-目标是创建最小可编译、可测试、可回滚的内核骨架。
-
-完成产物：
-
-- 内核仓库结构和模块边界。
-- 配置模型与订阅解析的最小接口和源码合同。
-- GitHub Actions 中对应语言的 build、test、lint 或等效验证。
-- README、TODO、CHANGELOG 与设计文档同步更新。
-
-当前源码：
-
-- [networkcore-linux](apps/linux-cli)
-- [config-core](crates/config-core)（`CoreConfigurationService` 与 `CoreSubscriptionService`）
-- [control-domain](crates/control-domain)
-- [control-runtime](crates/control-runtime)
-- [engine-native](crates/engine-native)
-- [engine-singbox](crates/engine-singbox)
-- [mitm-anixops-sys](crates/mitm-anixops-sys)
-- [mitm-policy](crates/mitm-policy)
-- [apps/ios](apps/ios)（manifest-only `Package.swift`；Swift source、Xcode 与 Network Extension target 仍 blocked）
-- [platform-ios](crates/platform-ios)
-- [platform-linux](crates/platform-linux)
-
-当前规格：
-
-- [Control Runtime Orchestration Design](docs/architecture/control-runtime-orchestration.md)
-
-## P3 Runtime Capability Baseline (Completed)
-
-目标是逐步实现可组合的网络控制能力。本阶段已采用公有执行内核 adapter 优先策略：
-先固化 NetworkCore 控制层、执行内核 adapter 层和公有执行内核层的三层维护框架，
-优先接入 `sing-box`，再按需要评估 `xray-core`、`mihomo`；`engine-native` 保留为自研执行内核实验线，
-但 VLESS、Shadowsocks、Trojan、VMess、Hysteria 等私有协议实现暂缓，直到公有内核 adapter 暴露出明确无法覆盖的产品缺口。
-
-预期方向：
-
-- 策略路由与规则匹配。
-- DNS 策略和缓存模型。
-- MITM 插件运行时的高频 Loon 子集兼容。
-- 可插拔代理执行内核适配接口。
-- 公有执行内核 adapter，优先 `sing-box`，并通过统一配置、生命周期、状态、日志和回滚边界维护。
-- 自研执行内核只保留小步可审计增量，不以协议兼容追平作为当前目标。
-
-当前规格：
-
-- [Proxy Engine Adapter Interface](docs/architecture/proxy-engine-adapter.md)
-- [ADR 0002: Public Engine Adapter First](docs/architecture/adr-0002-public-engine-adapter-first.md)
-- [sing-box Public Engine Adapter Source Contract](docs/architecture/sing-box-public-engine-adapter-source-contract.md)
-- [Subscription URL To sing-box Run Source Contract](docs/architecture/subscription-url-to-sing-box-run-source-contract.md)
-- [mitm_anixops Adapter Design](docs/architecture/mitm-anixops-adapter.md)
-- [MITM Policy Ad Block Plugin Source Contract](docs/architecture/mitm-policy-ad-block-plugin-source-contract.md)
-- [Managed SD-WAN MITM Policy Gate Source Contract](docs/architecture/managed-sdwan-mitm-policy-gate-source-contract.md)
-- [Third-Party Plugin Onboarding Process](docs/architecture/third-party-plugin-onboarding-process.md)
-- [Subscription Catalog Runtime Orchestration Design](docs/architecture/subscription-catalog-runtime-orchestration.md)
-- [Persistent Subscription Catalog Source Contract](docs/architecture/subscription-catalog-persistence-source-contract.md)
-- [Managed Foreground Session Status Source Contract](docs/architecture/managed-foreground-session-status-source-contract.md)
-- [Managed Foreground Session Event Source Contract](docs/architecture/managed-foreground-session-event-source-contract.md)
-- [Managed Foreground Session Log Source Contract](docs/architecture/managed-foreground-session-log-source-contract.md)
-- [Native Engine Listener And Node Config Design](docs/architecture/native-engine-listener-node-config.md)
-- [Linux Native Proxy Engine Start Design](docs/architecture/linux-native-proxy-engine-start.md)
-
-已完成 baseline 源码状态：`control-runtime` 已具备显式 inline subscription catalog runtime gate；`networkcore-linux run-url` 可消费 Shadowsocks URL/链接列表并以前台 `sing-box run -c <config>` 暴露默认 `127.0.0.1:7890` 本地代理；`mitm_anixops` 固定到 distribution release `v1.4.6` source commit，linked C core 继续报告 `0.45.10`；`mitm-policy` 提供 safe wrapper、内置 `networkcore.adblock` 和纯 `ManagedSdwanMitmPolicyGate`，其仅消费不可变 verifier capability、只快照 linked C core，并在每次授权时使用调用方提供的受信任当前时钟重新检查 delivery expiry；`engine-native` 提供 `NativeHttpMitmPluginHook`、native SOCKS5 CONNECT plugin reject 应用路径、`NativePlainHttpMessage`、plain HTTP rewrite application 和 explicit HTTP proxy live plain HTTP data plane。
-
-当前 P4 main 的 MITM 命令面包含 `mitm status/diagnostics/certificate-plan/browser-plan`、`mitm http-rewrite plan/preview`、`traffic-proof --confirm [--target-url <url>] [--proof-token <token>] [--proof-log <path>]`、`--proxy-scheme socks5` native plugin proxy mode、`mitm certificate apply --confirm --cert-file <path> --key-file <path> [--profile-trust-file <path>] --snapshot <path>` / `rollback --snapshot <path>` TLS CA certificate PEM/private key PEM artifact lifecycle 与 dedicated profile CA PEM copy foundation，以及 browser-capture PAC/browser policy/profile prefs artifact apply/rollback。
-
-`MITM_CERTIFICATE_LIFECYCLE_GATE` 当前为 artifact-lifecycle-active/profile-trust-artifact-active/trust-mutation-blocked，输出 `certificate_plan`、`certificate_lifecycle`、当前证书状态、artifact lifecycle 步骤、dedicated profile trust artifact step、trust-plan blocked operations 和 `mutation_ready=false`；certificate apply 写入标准 CA certificate PEM 与 private key PEM，profile trust artifact 是同一 CA PEM 副本；不会安装或信任 CA，不写 system/browser trust store 或 profile trust state。`MITM_HTTP_TLS_DATA_PLANE_GATE` 当前为 plain-http-live-data-plane-active/tls-decryption-blocked，对 caller-provided plain HTTP preview 输入以及 explicit HTTP proxy `http://` live request/response 应用 reject、redirect、header mutation 和 body mutation；`MITM_BROWSER_CAPTURE_GATE` 当前为 pac-policy-profile-prefs-active/system-mutation-blocked。真实 request/response mutation plan 已有领域表达，CONNECT-level reject 可在 native explicit proxy 层生效，但 CA 安装/信任 mutation 路径、TLS 解密、HTTPS rewrite、script plan 执行和浏览器/系统代理捕获 mutation 仍 deferred/blocked。
-
-第三方 plugin/parser/runtime 后续必须先经过 source contract、pinned source、license/NOTICE、permission、safe wrapper、CI governance 和 upgrade procedure 的固定接入流程。`networkcore-linux start` 仍不消费持久 subscription catalog。后续 runtime 缺口会在 P4 集成阶段继续推进：Hysteria v1 等订阅格式、运行中节点切换、持久订阅、managed status/events/logs/reload/rollback，以及通过 `MITM_CLI_COMMAND_GATE`、`MITM_CERTIFICATE_LIFECYCLE_GATE`、`MITM_HTTP_TLS_DATA_PLANE_GATE` 和 `MITM_BROWSER_CAPTURE_GATE` 补齐 MITM 真实流量支持。
-
-当前 main 已完成并通过 GitHub Actions 全量 CI 的 `v0.1.2-alpha.1` persistent subscription catalog 首个 source-only `add` 切片：
-`CommandSubscriptionCatalogStore::add_source` 使用显式 catalog/snapshot 路径写入 schema version 1 本地 JSON，
-生成写前 rollback snapshot，拒绝重复 source id，并输出 `location_kind`/`location_redacted` 脱敏报告；
-第二个 `list_sources` source-only 切片已加入显式 catalog 读取和脱敏 entry，并已通过 GitHub Actions 全量 CI；
-第三个 `remove_source` source-only 切片已加入写前 snapshot、source-not-found 拒绝和脱敏 report，并已通过 GitHub Actions 全量 CI；
-第四个 `select_source` source-only 切片已加入显式 catalog 读取、source-not-found 拒绝和脱敏 report，并已通过 GitHub Actions 全量 CI；
-第五个 `update_source` source-only 切片已加入 location 更新、写前 snapshot、source-not-found 拒绝和脱敏 report，并已通过 GitHub Actions 全量 CI；
-第六个 `rollback_catalog` source-only 切片已加入显式 snapshot 复原、snapshot 保留、snapshot-not-found 拒绝和脱敏 report，并已通过 GitHub Actions 全量 CI；
-`v0.1.2-alpha.2` 的 `read_status`/`write_status`/`transition_status` source-only 切片已显式读取、初始非覆盖写入或受 expected state 保护地迁移 schema version 1 managed foreground session record；迁移保留原始 record snapshot，仅允许 `starting -> running/failed` 与 `running -> stopped/failed`；`networkcore-linux managed-status <status-record-path>` 已只读输出 recorded state，`networkcore-linux managed-status init <status-record-path> <session-id> <engine-id> <state>` 已非覆盖创建 record 并输出 `record_written=true`，`networkcore-linux managed-status transition <status-record-path> <snapshot-path> <expected-state> <next-state>` 已输出 previous/next state 和 `snapshot_written=true`，三者均固定 `liveness_verified=false`，不检查 live process、不接入 runtime control；
-同一阶段的 `CommandManagedForegroundSessionStore::rollback_status` 已恢复显式 snapshot 的原始 record：它要求 current record 的 expected state 与 snapshot 的 trim 后 session/engine identity 匹配，保留 snapshot，并输出 previous/restored state、`snapshot_retained=true` 与 `liveness_verified=false`；`networkcore-linux managed-status rollback <status-record-path> <snapshot-path> <expected-state>` 已输出同一回滚 report，不检查 live process，也不控制 runtime；
-同一阶段的 `CommandManagedForegroundSessionEventStore::read_event`/`write_event` 已从显式 schema version 1 event record 读取或非覆盖写入允许的 event kind、recorded state 与 recorded_at，固定 `record_written=true`（写入）与 `liveness_verified=false`；`networkcore-linux managed-event <event-record-path>` 已只读输出 record，`networkcore-linux managed-event init <event-record-path> <session-id> <engine-id> <event-id> <event-kind> <state> <recorded-at>` 已非覆盖创建 record；当前 main 的未发布增量另有 `CommandManagedForegroundSessionEventStore::list_event_history` 和 `networkcore-linux managed-event list <event-directory> [--session-id <id>] [--event-kind <kind>] [--state <state>] [--cursor <offset>] [--limit <1-100>]`，它只读取显式目录的直接常规 JSON record，先校验再 exact 过滤，按 `(recorded_at, event_id, event_path)` 确定排序并提供 offset 分页，单页/目录/单 record 分别限为 100/256/65536；不创建默认路径、不递归、枚举时跳过 event record symlink、不写入 event，也不接入实时 event stream 或 runtime control；
-当前 persistent catalog 的 CLI `subscription update` 已接入显式 HTTP(S)、绝对 `file://` 和 inline/share-link
-候选验证：先受大小/超时/重定向约束抓取，再由 `CoreSubscriptionService` parse/normalize，成功才写不可覆盖
-snapshot；失败保留旧 catalog，report 仅输出脱敏字段和验证节点数。默认路径、runtime startup 和 managed
-lifecycle 仍 blocked，
-每个切片的功能完成状态以 GitHub Actions 合同测试为准。
-
-## P4 Client And Platform Integration
-
-目标是在不破坏内核边界的前提下推进全平台客户端。
-
-当前 Windows 迭代已从 CLI artifact 进入 `v0.2.0-alpha.3` managed client
-实现：`apps/windows-gui` 是可操作的原生 Win32 GUI，`apps/windows-service`
-是 SCM 宿主，`platform-windows` 提供 service/driver/WinINet/WinHTTP/CryptoAPI/
-NewDev 实现，`installer/windows/Package.wxs` 生成 per-machine MSI。服务按托管
-配置激活 signed INF 驱动包、LocalMachine ROOT CA、WinHTTP/system proxy 和
-EasyTier tunnel，并在 stop/purge 中恢复或移除；GUI 同时维护交互用户 WinINet
-快照。JavaScript script dispatch 与 Windows subscription runnable path 仍是
-后续独立能力，不再阻挡这条客户端安装和托管生命周期主线。
-
-当前 Linux source release 切片为 `v0.1.2-alpha.3`：Linux 受控 TLS data plane 已可在显式 CA/confirm 下
-终止 authority/SNI-bound CONNECT TLS、web-PKI 转发上游并改写单个有界 HTTP/1.1 exchange；显式 local
-Node runner/script map 可执行受信本地脚本并 fail-open。该切片不安装 CA trust，也不修改 browser/system
-proxy、TUN、DNS、firewall 或路由；用户可下载状态只以同名 tag 的 GitHub Actions release workflow 为准。
-
-预期方向：
-
-- Linux、macOS、Windows 客户端控制入口。
-- iOS Network Extension 可行性验证。
-- 证书安装、权限提示、插件脚本边界和 App Review 风险治理。
-- 发布 workflow 的平台产物矩阵。
-
-当前 P4 状态：Linux CLI artifact 已通过 tag release workflow 发布到 GitHub Release，Windows managed-client 当前 source release 目标为 `v0.2.0-beta.5`，最新 stable 为 `v0.1.0`。Linux artifact release-state consistency marker 为 `linux-artifact-release-state=confirmed-release-path`。每个 tag workflow 都生成 Linux tarball 四件套，以及 Windows MSI 和 portable ZIP 各四件套；全部必须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility。Windows GUI 的日常使用、真实状态和明确的不可用能力以 [Windows GUI Daily Usability](docs/architecture/windows-gui-daily-usability.md) 为准；长期 platform、MITM、SD-WAN 和 cross-platform 目标不因该 UI 切片改变。
-
-当前 Windows main source slice 为 `v0.2.0-beta.5`：在既有 managed client、portable ZIP、Hysteria2/TUIC direct QUIC rendering、native JSON pass-through 和 V2Ray compatibility subset 之上，日常 GUI 使用 Home、Nodes、Subscriptions、Settings、Diagnostics 和 Advanced 页面组织操作。连接状态同时观察 SCM、service-owned `sing-box check -c`、loopback listener、生成 selector 的当前 outbound/default readback、service-owned sing-box child PID 和 interactive-user proxy；预检、service、core install、订阅 fetch、selector switch 和 delay test 离开 UI thread，失败不会覆盖可用 profile，且代理只在全部核心健康证据确认后应用。当前 main 还提供 shared-state tray、current-user login startup、opt-in one-shot auto-connect/core recovery、GUI-owned proxy recovery，以及 opt-in hourly 单 HTTP(S) source refresh；后者记录脱敏 attempt/success/next/result、节点增删改计数和稳定错误码，失败不覆盖可用 profile、重启核心或切换节点。MITM、证书、driver 和 service maintenance 仍在 Advanced 内通过既有显式授权、快照和回滚路径运行。自动 latency/`urltest`、订阅目录/组、route/rule 拉取、无限自动服务重启、XHTTP/ECH/multiplex 推断和 HTTP/2/HTTP/3 MITM 仍未启用。
-
-当前 main 源码已经发布 `v0.1.1-alpha.2` Windows CLI package/publish path，并开始推进 `v0.1.1-alpha.3` 订阅格式扩展：`v0.1.0` Linux-only explicit HTTPS rewrite preview 正式版能力不变，`v0.1.1-alpha.1` Windows CLI artifact source/release contract 已发布，`v0.1.1-alpha.2` 新增 `apps/windows-cli`、`platform-windows`、`package-windows`、`attest-windows`、Windows release notes/rollback gate 和 Windows publish eligibility gate，并发布 manual-extract Windows CLI zip 四件套；`v0.1.1-alpha.3` 当前源增量是 `CoreSubscriptionService` Trojan/VLESS/VMess URL parser gates、Clash YAML parser gate、sing-box JSON parser gate、Surge proxy line parser gate、Loon proxy line parser gate 和 Quantumult X proxy/server line parser gate，只把 `trojan://password@host:port?...#name`、`vless://uuid@host:port?...#name`、`vmess://base64(json)`、受支持的 Clash `proxies` 子集、sing-box JSON `outbounds` 子集、Surge/Loon `[Proxy]` line 子集以及 Quantumult X `[server_local]` line 子集归一化到 `SubscriptionDocument`/`NodeCatalog`，不启用 `run-url` Trojan/VLESS/VMess/Clash/sing-box JSON/Surge/Loon/Quantumult X 运行、节点选择、远程订阅拉取、文件订阅读取、默认路径扫描、daemon/service 或系统代理 mutation。`MITM_CLI_COMMAND_GATE` 当前做到 status/diagnostics/certificate-plan/browser-plan partial-active，marker 为 `mitm-cli-command-gate-status=partial-active`；`MITM_CERTIFICATE_LIFECYCLE_GATE` 当前为 artifact-lifecycle-active/profile-trust-artifact-active/trust-mutation-blocked，并由 [source contract](docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md) 固定 `certificate_lifecycle`、TLS CA certificate PEM/private key PEM artifact apply/rollback、`--cert-file`、`--key-file`、`--profile-trust-file`、snapshot、dedicated profile CA PEM copy 和 trust mutation blocked 边界；Linux `start --enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path> --confirm` 已执行 controlled HTTP/1.1 CONNECT TLS termination、authority/SNI binding、web-PKI upstream forwarding、最多四次有界 request/response rewrite，并以 no-network、最小 read-permission sandbox 执行显式映射的 local Node script。Linux CLI `http_rewrite` report/JSON 继续只描述 caller-provided preview，因此保持 `https_response_rewrite_ready=false` 和 `script_dispatch_ready=false`；它不否定独立 `start` runtime 的 live path。`traffic-proof` report 包含 `proof_connect_authority`，target URL 可解析时要求同一 proof log 行绑定 token、计划 proxy URL 和 CONNECT authority，失败时返回 `binding_mismatch`，text 输出现在也显式打印 CONNECT authority，方便人工审计 proof 绑定。上文 `v0.1.1-alpha.2` Windows zip 是历史发布记录；当前 main 的 Windows path 已由 `v0.2.0-alpha.3` managed client MSI 和 portable ZIP 更新，service、driver、installer、system trust store mutation、system proxy mutation、managed lifecycle、operator-staged sing-box process、asynchronous MSI service start、portable ZIP release assets 和 controlled HTTP/1.1 TLS/CA lifecycle 已 active；automatic core install、JavaScript script dispatch、HTTP/2 和 HTTP/3/QUIC MITM 仍 blocked。
-
-Linux tarball 仍是手动解压、默认前台运行模型：安装阶段不隐式安装 daemon/service，也不修改 TUN/DNS/firewall。用户可通过显式路径、snapshot 和 `--confirm` 安装、控制或卸载一个命名的 NetworkCore systemd unit；`connect`、`disconnect` 和 `restart` 在明确选择 managed-service 时分别映射到该 unit 的 start/stop/restart，且不会发现或控制任意其他 daemon。受控用户启用的 HTTP/1.1 HTTPS MITM 已通过 `start --enable-https-mitm` 可用；`mitm certificate apply/rollback` 只写入或删除调用方显式指定的 NetworkCore CA certificate PEM、private key PEM、可选 dedicated profile CA PEM copy 和 snapshot，而 Linux trust-file `trust-apply/trust-rollback` 只在显式路径、确认、snapshot、readback 和 rollback 下处理 Ubuntu-style CA trust-file。它们不发现或修改其他 system/browser trust backend 或 profile trust state；`mitm http-rewrite preview` 可应用 plugin outcome 到 caller-provided plain HTTP input，也可在 source 层对 caller-provided request/response-phase `https://` input 预览 request reject/redirect/header mutation 和 response header/body mutation；`ListenerKind::Http` explicit proxy path 可对真实 `http://` request/response 应用 reject、redirect、header/body rewrite，并可对 explicit HTTP `CONNECT` 建立 pass-through tunnel foundation 和 bounded ClientHello/SNI observation；native SOCKS5 CONNECT plugin reject 只把插件 `Reject` 应用为 CONNECT failure，不解密 HTTPS。
-
-`MITM_HTTP_TLS_DATA_PLANE_GATE` 当前为 plain-http-live-data-plane-active/tls-decryption-blocked，`MITM_BROWSER_CAPTURE_GATE` 当前为 pac-policy-profile-prefs-active/system-mutation-blocked，browser hijack 仍 deferred。Linux MITM HTTP rewrite 和 browser capture 仍分别由既有 source contract 固定命令面、授权、快照和回滚边界；真实浏览器/系统代理 mutation 仍未实现。iOS 仍只允许 `apps/ios/README.md` source tree governance placeholder 和 upload blocked gates，不包含 Swift/Xcode/Network Extension target、签名、TestFlight/App Store upload 或 iOS release asset。后续完整 HTTPS rewrite 仍需后续新 tag release 才会进入用户可下载 artifact。
+- **发布**：最新 stable `v0.1.0`（Linux-only），当前候选 `v0.2.0-beta.5`（Linux CLI tarball + Windows MSI + Windows portable ZIP，各四件套），全部须通过同 commit CI、checksum、manifest、attestation、release notes、rollback 和 publish eligibility。Linux artifact marker：`linux-artifact-release-state=confirmed-release-path`。
+- **订阅与运行**：平台无关 `PublicEngineRunPlan` 把 SS/Trojan/VLESS/VMess/Hysteria2/TUIC 路由到 sing-box，`mierus://` 路由到 engine-mieru（显式 binary/digest、原子 config、loopback readiness，失败保留现有核心）。解析层包含 Hysteria2/TUIC share-link parser gate、Clash YAML parser gate、sing-box JSON parser gate、Surge proxy line parser gate、Loon proxy line parser gate 和 Quantumult X proxy/server line parser gate；Hysteria2/TUIC 前台路径不启用 HTTP/3 MITM。
+- **持久订阅与刷新**：`v0.1.2-alpha.1` 起的显式本地 catalog（add/list/remove/select/update/rollback，见 [Persistent Subscription Catalog Source Contract](docs/architecture/subscription-catalog-persistence-source-contract.md)）；`subscription update` 先验证候选再写 snapshot，失败保留旧 catalog。Linux `subscription refresh schedule` 生成 systemd oneshot/timer；Windows GUI 提供 opt-in 单 HTTP(S) source 小时级刷新。默认路径扫描仍未启用。
+- **managed 记录**：`managed-status`、`managed-event`（含 `networkcore-linux managed-event list` 有界分页）和 `managed-log` 只读写显式 schema v1 记录，固定 `liveness_verified=false`。
+- **Linux 系统集成**：显式 systemd unit 安装/控制（`connect`/`disconnect`/`restart` 映射到该 unit）；`proxy apply/status/rollback` 写显式环境代理文件（绝对路径、独立 snapshot、`--confirm`，Unix `0600`，rollback 检测外部修改）；`mitm certificate trust-apply/trust-rollback` 管理 Ubuntu-style CA trust-file（见 [Linux Trust-File Source Contract](docs/architecture/linux-trust-file-source-contract.md)），其他 trust backend 仍 blocked。
+- **Windows**：原生 GUI（Home/Nodes/Subscriptions/Settings/Diagnostics/Advanced）、SCM service、WiX MSI、portable ZIP；连接状态由 SCM、`sing-box check -c`、loopback listener、selector readback、子进程 PID 和交互用户代理共同确认。见 [Windows GUI Daily Usability](docs/architecture/windows-gui-daily-usability.md)。自动 `urltest`、订阅目录/组、route/rule 拉取、HTTP/2/HTTP/3 MITM 仍未启用。
+- **MITM**：`mitm-cli-command-gate-status=partial-active`。Linux `start --enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path> --confirm` 提供受控 HTTP/1.1 TLS 终止、web-PKI 上游校验、每 session 最多四次有界 rewrite 和 no-network sandbox 本地脚本；Windows 可显式启用同类 HTTP/1.1 MITM，但拒绝脚本。边界合同：[certificate lifecycle](docs/architecture/linux-mitm-certificate-lifecycle-source-contract.md)、[browser capture](docs/architecture/linux-mitm-browser-capture-source-contract.md)、[HTTP rewrite](docs/architecture/linux-mitm-http-rewrite-source-contract.md)。四个 gate 的当前状态见 [README](README.md#mitm)。
+- **iOS**：`apps/ios` 已有 Swift package、XcodeGen spec 和 `NetworkCorePacketTunnel` target；嵌入式 Rust runtime、签名、TestFlight/App Store upload 和 iOS release asset 仍 blocked。
 
 P4 backlog buckets：
 
-- 订阅和客户端兼容：`v0.1.1` 主线，继续把多客户端订阅格式、运行中节点切换和 Linux/Windows CLI artifact 接入 public engine adapter 路线。
-- MITM 数据面和证书生命周期：`v0.1.0` 先完成 Linux-only explicit HTTPS rewrite preview；`v0.1.2` alpha 再相继推出 JavaScript script dispatch、system trust store mutation 和 system proxy mutation。
-- 浏览器捕获用户闭环：从 dedicated-profile launch、proxy route verify、proof-log-token traffic proof 和 PAC/browser policy artifact apply/rollback 推进到完整 live browser traffic proof 自动化、显式代理/system PAC 或系统 mutation、snapshot 和 rollback；完整 managed session 编排归入 `v0.1.2`。
+- 订阅和客户端兼容：规则/策略组运行时、运行中节点切换、默认路径与更多订阅格式（如 Hysteria v1），继续走 public engine adapter 路线。
+- MITM 数据面和证书生命周期：CA 安装/信任检测/撤销/trust-store 回滚、HTTP/2 等协议扩展、跨平台 script runtime；通过 `MITM_CLI_COMMAND_GATE`、`MITM_CERTIFICATE_LIFECYCLE_GATE`、`MITM_HTTP_TLS_DATA_PLANE_GATE`、`MITM_BROWSER_CAPTURE_GATE` 逐项放开。
+- 浏览器捕获用户闭环：完整 live browser traffic proof 自动化、显式 browser/system proxy 或系统 PAC、snapshot 与 rollback；完整 managed session 编排。
 
-已拍板版本节奏：
+## 里程碑（2026-10 起）
 
-- `v0.1.0`：Linux-only explicit HTTPS rewrite preview。alpha.14 已发布 plain HTTP live data plane，alpha.15 已发布 TLS MITM readiness，alpha.16 已发布 controlled TLS termination foundation，alpha.17 已发布 HTTPS request rewrite preview，alpha.18 已发布 HTTPS response rewrite preview，alpha.19 已发布 traffic-proof token/proxy/CONNECT authority 绑定 hardening，alpha.20 已发布 release hardening，rc.1 已发布回归冻结合同，正式版已发布 Linux-only artifact；不包含 Windows artifact、JavaScript script dispatch、system trust store mutation、system proxy mutation、daemon/service、TUN、DNS 或 firewall mutation。
-- `v0.1.1`：正式引入 Windows 版本，并把订阅兼容作为主线。Windows 首期目标是 CLI artifact 和 release path，不默认包含 Windows service、driver、installer 或系统代理 mutation；订阅侧已推进 Trojan/VLESS/VMess、Clash YAML、sing-box JSON、Surge proxy line、Loon proxy line 和 Quantumult X proxy/server line parser gates，后续推进 VLESS/Trojan/VMess/Clash/sing-box JSON/Surge/Loon/Quantumult X runnable path、节点选择和 cross-platform run plan。
-- `v0.1.2`：managed lifecycle 版本。新增 persistent subscription catalog、managed foreground status/events/logs/reload/rollback，并在 alpha 切片中相继推出 JavaScript script dispatch、system trust store mutation、system proxy mutation 和 managed MITM session orchestration；所有高风险 mutation 必须显式授权、可检测、可回滚。
+| 里程碑 | 内容 |
+|---|---|
+| M0 | 完成 `v0.2.0-beta.5` Windows/Linux 真机验收与发布 |
+| M1 | iOS 内部 TestFlight：自研 Rust 嵌入式引擎 `engine-embedded`（M1a Shadowsocks-2022，M1b VLESS + REALITY/Vision） |
+| M2 | 统一内核 v0.3：FFI C ABI、Process/Embedded 引擎抽象、规则与策略组模型、桌面 TUN、WireGuard |
+| M3 | MITM 与插件 v0.4：HTTP/2 MITM、QUIC reject、Loon 插件高频子集、脚本运行时 |
+| M4 | iOS MITM 与插件：CA 信任状态、JavaScriptCore |
+| M5 | macOS（System Extension、Developer ID）与 App Store |
+| M6 | 1.0 |
 
-当前发布规划：
+iOS Network Extension 使用 Rust 原生引擎而非 sing-box/libbox；桌面端继续使用 sing-box 等外部内核，待 `engine-embedded` 覆盖桌面后再分阶段移除外部引擎 adapter（第三方说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)）。
 
-- [Release Strategy](docs/release-strategy.md)
-- [Alpha Release Feature Matrix](docs/alpha-release-feature-matrix.md)
-- [iOS Network Extension Design](docs/architecture/ios-network-extension-design.md)
-- [iOS Platform Adapter Source Contract](docs/architecture/ios-platform-adapter-source-contract.md)
-- [iOS Swift Network Extension Bridge Design](docs/architecture/ios-swift-network-extension-bridge-design.md)
-- [iOS Swift Xcode Bridge Source Contract](docs/architecture/ios-swift-xcode-bridge-source-contract.md)
-- [iOS Embedded Runtime FFI Boundary Design](docs/architecture/ios-embedded-runtime-ffi-boundary-design.md)
-- [iOS MITM Certificate Lifecycle Design](docs/architecture/ios-mitm-certificate-lifecycle-design.md)
-- [iOS Entitlement Provisioning Source Contract](docs/architecture/ios-entitlement-provisioning-source-contract.md)
-- [iOS App Review Privacy Release Readiness Design](docs/architecture/ios-app-review-privacy-release-readiness-design.md)
-- [iOS Privacy Manifest Source Contract](docs/architecture/ios-privacy-manifest-source-contract.md)
-- [iOS App Review Manual Confirmation Source Contract](docs/architecture/ios-app-review-manual-confirmation-source-contract.md)
-- [iOS TestFlight App Store Connect Upload Workflow Source Contract](docs/architecture/ios-testflight-app-store-connect-upload-workflow-source-contract.md)
-- [iOS Upload Workflow Activation Validation Contract](docs/architecture/ios-upload-workflow-activation-validation-contract.md)
-- [iOS Swift Xcode Source Tree Activation Preflight Contract](docs/architecture/ios-swift-xcode-source-tree-activation-preflight-contract.md)
-- [iOS Package.swift Source Ownership Activation Preflight Contract](docs/architecture/ios-package-swift-source-ownership-activation-preflight-contract.md)
-- [iOS Package.swift Manifest-Only Activation Validation Contract](docs/architecture/ios-package-swift-manifest-only-activation-validation-contract.md)
-- [Linux Artifact Pre-Release Design](docs/architecture/linux-artifact-pre-release-design.md)
-- [Linux Platform Adapter Design](docs/architecture/linux-platform-adapter.md)
-- [Linux Environment Proxy Source Contract](docs/architecture/linux-environment-proxy-source-contract.md)
-- [Linux CLI Entrypoint Design](docs/architecture/linux-cli-entrypoint.md)
-- [Linux MITM Browser Capture Source Contract](docs/architecture/linux-mitm-browser-capture-source-contract.md)
-- [Linux MITM HTTP Rewrite Source Contract](docs/architecture/linux-mitm-http-rewrite-source-contract.md)
-- [Linux CLI Runtime Wiring Design](docs/architecture/linux-cli-runtime-wiring.md)
-- [Native Engine Listener And Node Config Design](docs/architecture/native-engine-listener-node-config.md)
-- [Linux Native Proxy Engine Start Design](docs/architecture/linux-native-proxy-engine-start.md)
-- [Linux CLI Artifact Installation And Rollback Design](docs/architecture/linux-cli-artifact-installation-rollback.md)
-- [Linux Package Artifact Manifest Design](docs/architecture/linux-package-artifact-manifest.md)
-- [Linux Artifact License Notice Confirmation Design](docs/architecture/linux-artifact-license-notice-confirmation.md)
-- [Linux Package License Notice Transition Validation Contract](docs/architecture/linux-package-license-notice-transition-validation-contract.md)
-- [Release CI Success Source Contract](docs/architecture/release-ci-success-source-contract.md)
-- [Linux Package Release CI Gate Activation Validation Contract](docs/architecture/linux-package-release-ci-gate-activation-validation-contract.md)
-- [Release CI Gate Execution Validation Contract](docs/architecture/release-ci-gate-execution-validation-contract.md)
-- [Release CI Gate API Implementation Plan](docs/architecture/release-ci-gate-api-implementation-plan.md)
-- [Linux Package Artifact Job Preflight Validation Contract](docs/architecture/linux-package-artifact-job-preflight-validation-contract.md)
-- [Linux Package Artifact Build Command Validation Contract](docs/architecture/linux-package-artifact-build-command-validation-contract.md)
-- [Linux Package Artifact Staging File Validation Contract](docs/architecture/linux-package-artifact-staging-file-validation-contract.md)
-- [Linux Package Artifact Archive Creation Validation Contract](docs/architecture/linux-package-artifact-archive-creation-validation-contract.md)
-- [Linux Package Artifact Checksum Execution Validation Contract](docs/architecture/linux-package-artifact-checksum-execution-validation-contract.md)
-- [Linux Package Artifact Manifest Generation Validation Contract](docs/architecture/linux-package-artifact-manifest-generation-validation-contract.md)
-- [Linux Package Artifact Manifest Checksum Validation Contract](docs/architecture/linux-package-artifact-manifest-checksum-validation-contract.md)
-- [Linux Package Workflow Artifact Bundle Upload Validation Contract](docs/architecture/linux-package-workflow-artifact-bundle-upload-validation-contract.md)
-- [Linux Package Artifact Attestation Execution Validation Contract](docs/architecture/linux-package-artifact-attestation-execution-validation-contract.md)
-- [Linux Package Release Notes Rollback Execution Validation Contract](docs/architecture/linux-package-release-notes-rollback-execution-validation-contract.md)
-- [Linux Package Publish Eligibility Execution Validation Contract](docs/architecture/linux-package-publish-eligibility-execution-validation-contract.md)
-- [Linux Package Runner Toolchain Target Contract](docs/architecture/linux-package-runner-toolchain-target-contract.md)
-- [Linux Package Archive Staging Contract](docs/architecture/linux-package-archive-staging-contract.md)
-- [Linux Package Checksum Manifest Contract](docs/architecture/linux-package-checksum-manifest-contract.md)
-- [Linux Package Publish Upload Boundary Contract](docs/architecture/linux-package-publish-upload-boundary-contract.md)
-- [Linux Package Signing Attestation Policy Binding Contract](docs/architecture/linux-package-signing-attestation-policy-binding-contract.md)
-- [Linux Package Release Notes Rollback Policy Binding Contract](docs/architecture/linux-package-release-notes-rollback-policy-binding-contract.md)
-- [Linux Package Publish Eligibility Aggregate Contract](docs/architecture/linux-package-publish-eligibility-aggregate-contract.md)
+## 版本节奏
+
+- `v0.1.0`：Linux-only explicit HTTPS rewrite preview，已发布（alpha.14–alpha.20、rc.1 依次交付 plain HTTP data plane、TLS termination foundation、HTTPS request/response rewrite preview、traffic-proof binding 与 release hardening）。不含 Windows、script dispatch、system trust/proxy mutation、daemon、TUN、DNS 或 firewall mutation。
+- `v0.1.1`：引入 Windows CLI artifact，订阅兼容为主线（各 parser gates、节点选择与 cross-platform run plan）。
+- `v0.1.2`：managed lifecycle（persistent catalog、managed status/events/logs/reload/rollback、受控 script dispatch、system trust/proxy mutation 与 managed MITM session）；高风险 mutation 必须显式授权、可检测、可回滚。
+- `v0.2.0`：Windows managed client（MSI 自 `v0.2.0-alpha.1`），当前候选 `v0.2.0-beta.5`。
+
+发布门禁与流程见 [Release Strategy](docs/release-strategy.md)。
+
+## 已完成阶段
+
+### P0 Bootstrap Governance (Completed)
+
+建立代理与贡献规范、CI/CD policy、多平台基础 CI、Roadmap/TODO/CHANGELOG 记录入口和 release strategy。
+
+### P1 Domain And Architecture Specification (Completed)
+
+定义统一控制内核领域模型，配置、订阅、策略路由、DNS、MITM 插件和控制 API 边界，插件权限模型与 iOS 审核风险初评，并选定 Rust 首选栈（[ADR 0001](docs/architecture/adr-0001-initial-core-stack.md)）。规格见 [Control Kernel Domain](docs/architecture/control-kernel-domain.md)、[Control Kernel Interfaces](docs/architecture/control-kernel-interfaces.md)、[iOS Platform Risk Assessment](docs/architecture/ios-platform-risk-assessment.md)。
+
+### P2 Core Kernel Skeleton (Completed)
+
+建立最小可编译、可测试的内核骨架：`control-domain`、`control-runtime`、`config-core`、`engine-native`、`platform-linux`、`platform-ios` 和 `networkcore-linux` CLI，以及对应 GitHub Actions 验证。规格见 [Control Runtime Orchestration Design](docs/architecture/control-runtime-orchestration.md)。
+
+### P3 Runtime Capability Baseline (Completed)
+
+确立公有执行内核 adapter 优先（[ADR 0002](docs/architecture/adr-0002-public-engine-adapter-first.md)）：NetworkCore 维护控制层，`engine-*` adapter 负责配置转换与生命周期，`sing-box` 等公有内核承担协议数据面；`engine-native` 保留为实验线，私有协议实现暂缓。完成 `engine-singbox`、`run-url` 前台运行、`mitm_anixops` `v1.4.6` 固定与 `mitm-policy` safe wrapper、内置 `networkcore.adblock`、`ManagedSdwanMitmPolicyGate`、native SOCKS5 CONNECT plugin reject 和 explicit HTTP proxy plain HTTP data plane，以及 subscription catalog runtime gate。第三方 plugin/parser/runtime 须先走 [Third-Party Plugin Onboarding Process](docs/architecture/third-party-plugin-onboarding-process.md)。
 
 ## 迭代选择规则
 
