@@ -2887,6 +2887,64 @@ jobs:
         shell: bash
         run: cargo audit
 
+  reality-interop:
+    name: REALITY interop (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: "0"
+      XRAY_VERSION: latest
+      SINGBOX_VERSION: latest
+    needs:
+      - changes
+      - policy-fast
+    if: >-
+      ${{
+        needs.changes.outputs.full_matrix == 'true' ||
+        needs.changes.outputs.rust == 'true'
+      }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build interop tests
+        shell: bash
+        run: cargo test --locked -p outbound-vless --test reality_interop --no-run
+
+      - name: Download Xray-core and sing-box
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/reality-interop.sh download
+
+      - name: Start REALITY servers and targets
+        shell: bash
+        run: bash .github/scripts/reality-interop.sh start
+
+      - name: Run interop tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -a
+          source "${RUNNER_TEMP}/reality-interop/env"
+          set +a
+          cargo test --locked -p outbound-vless --test reality_interop -- --ignored --test-threads=1 --nocapture
+
+      - name: Server logs
+        if: ${{ always() }}
+        shell: bash
+        run: bash .github/scripts/reality-interop.sh logs
+
   node-build-test:
     name: Node build and test
     runs-on: ${{ matrix.os }}
@@ -3104,6 +3162,7 @@ jobs:
       - rust-build-test
       - windows-managed-client-installer
       - rust-security-audit
+      - reality-interop
       - maintenance-contracts
       - node-build-test
       - swift-build-test
@@ -3150,6 +3209,7 @@ jobs:
           RESULT_WINDOWS_INSTALLER: ${{ needs.windows-managed-client-installer.result }}
           RESULT_RUST_AUDIT: ${{ needs.rust-security-audit.result }}
           RESULT_MAINTENANCE: ${{ needs.maintenance-contracts.result }}
+          RESULT_REALITY_INTEROP: ${{ needs.reality-interop.result }}
           RESULT_NODE_BUILD_TEST: ${{ needs.node-build-test.result }}
           RESULT_SWIFT_BUILD_TEST: ${{ needs.swift-build-test.result }}
           RESULT_APPLE_SMOKE: ${{ needs.apple-project-smoke.result }}
@@ -3168,6 +3228,7 @@ jobs:
           swift_manifest_required=false
           ios_xcode_required=false
           apple_required=false
+          reality_interop_required=false
 
           if [[ "${CHANGE_FULL_MATRIX}" == true || "${CHANGE_GO}" == true || "${CHANGE_RUST}" == true ||
                 "${CHANGE_NODE}" == true || "${CHANGE_WINDOWS}" == true || "${CHANGE_LINUX}" == true ||
@@ -3182,6 +3243,9 @@ jobs:
                 "${CHANGE_APPLE}" == true) ]]; then
             rust_required=true
             audit_required=true
+          fi
+          if [[ "${CHANGE_FULL_MATRIX}" == true || "${CHANGE_RUST}" == true ]]; then
+            reality_interop_required=true
           fi
           if [[ "${CHANGE_FULL_MATRIX}" == true || "${CHANGE_WINDOWS}" == true ]]; then
             windows_required=true
@@ -3257,6 +3321,7 @@ jobs:
           record_job "Windows managed client MSI" "${RESULT_WINDOWS_INSTALLER}" "${windows_required}"
           record_job "Rust dependency security audit" "${RESULT_RUST_AUDIT}" "${audit_required}"
           record_job "Maintenance diagnostic contract" "${RESULT_MAINTENANCE}" "${rust_required}"
+          record_job "REALITY interop (Linux)" "${RESULT_REALITY_INTEROP}" "${reality_interop_required}"
           record_job "Node build and test" "${RESULT_NODE_BUILD_TEST}" "${node_required}"
           record_job "Swift build and test" "${RESULT_SWIFT_BUILD_TEST}" "${swift_required}"
           record_job "Swift package manifest validation" "${RESULT_SWIFT_MANIFEST}" "${swift_manifest_required}"
@@ -3325,6 +3390,7 @@ jobs:
             echo "| Rust build and test | ${rust_required} | ${RESULT_RUST_BUILD_TEST} |"
             echo "| Windows managed client MSI | ${windows_required} | ${RESULT_WINDOWS_INSTALLER} |"
             echo "| Rust dependency security audit | ${audit_required} | ${RESULT_RUST_AUDIT} |"
+            echo "| REALITY interop (Linux) | ${reality_interop_required} | ${RESULT_REALITY_INTEROP} |"
             echo "| Node build and test | ${node_required} | ${RESULT_NODE_BUILD_TEST} |"
             echo "| Swift build and test | ${swift_required} | ${RESULT_SWIFT_BUILD_TEST} |"
             echo "| Apple project smoke | ${apple_required} | ${RESULT_APPLE_SMOKE} |"

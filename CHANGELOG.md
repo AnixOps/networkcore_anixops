@@ -11,6 +11,8 @@
 
 ### Added
 
+- 新增 `tls-mimic` 与 `outbound-vless`（M1b）：`tls-mimic` 生成 Chrome 形态 TLS 1.3 ClientHello（GREASE、扩展逐连接乱序、X25519MLKEM768 + X25519 key share、ECH GREASE、新 ALPS 码位）并提供带 ClientHello 改写与证书信任 hook 的最小 TLS 1.3 客户端；`outbound-vless` 在其上实现 REALITY 客户端认证、VLESS 请求头与 XTLS Vision 填充/直通，并实现 `engine-outbound::TcpOutbound`。新增 `REALITY interop (Linux)` CI job，在 Ubuntu runner 上与 OpenSSL、Xray-core、sing-box 的 REALITY 服务端做互通测试；真实网络下的抗封锁验收记录在 `docs/manual-intervention.md`。
+
 - 新增 `engine-outbound` crate：`engine-embedded` 与各协议 crate 共用的出站接口（`TargetAddr`、`BoxStream`、构造时注入的 `Dialer` 与默认 `TcpDialer`、`TcpOutbound`），只含接口，不含平台代码；UDP 接口待 TUN 层需要时再定义。
 
 - 编写首批维护事件 v1 严格字段/时间/大小/身份校验、JSON 与逐事件批量序列化边界及显式诊断适配器；原始诊断文本不进入适配结果，自动动作契约移除 rollback。新增 Rust 合同与共享 fixture，[源码 CI](https://github.com/AnixOps/networkcore_anixops/actions/runs/35650045804) 的维护合同、三平台全量回归与依赖审计已通过，尚未接入 NetworkCore 实际运行时通信。

@@ -345,6 +345,24 @@ Mieru server interoperability, real traffic forwarding, or Windows GUI/DPI
 behavior. Those results must be recorded here before M3/M4/M5 are described as
 fully accepted.
 
+## VLESS + REALITY Outbound Acceptance (M1b)
+
+`tls-mimic` and `outbound-vless` are validated in CI only: contract tests, a
+direct TLS 1.3 handshake against OpenSSL, and the `REALITY interop (Linux)` job
+against Xray-core and sing-box REALITY servers on loopback. CI cannot prove
+that a real server survives active probing or that the ClientHello passes a
+real censor.
+
+Before describing VLESS + REALITY as usable on iOS, the maintainer records here
+(no keys, UUIDs, short ids or server addresses):
+
+- the server software and version, the camouflage target domain class, and
+  whether Vision was enabled;
+- a capture or JA3/JA4 comparison showing the outbound ClientHello matches the
+  current desktop Chrome release it claims to imitate;
+- a multi-hour transfer on the target network with no resets or blocks, once
+  through `engine-embedded` on an iPhone after M1a wires the outbound in.
+
 ## 当前待处理
 
 - 首批运维上线环境尚未提供：真实邮件/Telegram 接收渠道、第三方独立 Control 监控、跨地域节点和设备以及维护负责人。当前自动化只能运行测试适配器与代码 CI，不能证明这些真实环境门槛。维护负责人补齐渠道与部署范围后，记录投递/监控/网络/设备及回滚演练证据，再由 CI/CD 推进获准的灰度发布；真实地址与密钥仅放部署系统或密码库。

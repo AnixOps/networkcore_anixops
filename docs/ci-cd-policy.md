@@ -195,7 +195,10 @@ Swift、Apple 项目检测开关，以及运行、跳过、失败的 job 和下�
 无关 job 的 `skipped` 是合法结果；应运行 job 的 `skipped`、任何 `failure`、任何非并发替代 run 的
 `cancelled` 都必须使 summary 失败。当检测到 Rust workspace 且 Rust 路径需要验证时，summary 必须同时
 检查 Rust build/test 矩阵和 Rust dependency security audit；当 Go、Node、Swift 或 Apple 路径需要验证时，
-summary 必须检查对应语言或平台 job。
+summary 必须检查对应语言或平台 job。Rust 路径或完整矩阵变化时，summary 还必须检查
+`REALITY interop (Linux)`：该 job 在 Ubuntu runner 上下载 Xray-core 与 sing-box 官方 release 二进制
+（`XRAY_VERSION`/`SINGBOX_VERSION`，默认解析为最新正式 release，并写入 Step Summary），每次生成新的
+REALITY 密钥、UUID 与 short id，只监听 127.0.0.1，再以 `--ignored` 运行 `outbound-vless` 的互通测试。
 
 ### CI 缓存策略
 
