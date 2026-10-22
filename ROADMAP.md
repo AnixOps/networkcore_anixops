@@ -15,7 +15,7 @@ P0 Bootstrap Governance、P1 Domain And Architecture Specification、P2 Core Ker
 ```text
 current-main-release-state=pending_manual_acceptance
 current-main-source-candidate=v0.2.0-beta.5
-current-main-latest-published-tag=v0.2.0-alpha.21
+current-main-latest-published-tag=v0.2.0-beta.4
 current-main-latest-stable-tag=v0.1.0
 current-main-subscription-foreground=public-engine-run-plan-mieru-and-sing-box-active
 current-main-subscription-background=linux-systemd-oneshot-timer-and-windows-opt-in-single-source-active
