@@ -244,6 +244,10 @@ current-main-cross-platform-run-plan=public-engine-run-plan-active
 
 ### Fixed
 
+- The Linux managed foreground control socket now sets each accepted
+  connection back to blocking before its bounded read. On BSD-derived kernels
+  such as macOS the accepted socket inherited the listener's non-blocking mode,
+  so a request that arrived after `accept` was rejected as unreadable.
 - GUI connect now waits in its background task for SCM, the live sing-box PID,
   the configured loopback listener, and the generated NodeCatalog selector API
   before changing the current-user proxy. The proxy snapshot is atomically
