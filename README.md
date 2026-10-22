@@ -100,7 +100,7 @@ HTTP/2、HTTP/3/QUIC、pinning bypass、streaming、无界 CONNECT session 和 b
 | `install-sing-box` / `sing-box install` | 从官方 GitHub latest release 下载、校验 `sha256:` digest 并缓存 `sing-box`；不打进 release artifact |
 | `run-url <share-link>`、`run-catalog` | 前台本地代理，输出 `sing_box_run` |
 | `start` / `stop` / `status` | 原生 engine 前台 lifecycle；`SIGINT`/`SIGTERM` 退出码 130；无 daemon/control socket |
-| `node list/switch/health` | 回环 selector 只读/切换/读回 |
+| `node list/select/switch/health` | 节点列表、选择，以及回环 selector 切换/读回 |
 | `core list`、`core install mieru`、`core start mieru` | 外部 core 管理，Mieru 需显式 binary 与 digest |
 | `proxy apply/status/rollback` | 显式环境代理文件（Unix `0600`） |
 | `install-service` 等 systemd 命令 | 显式安装/控制/卸载一个命名 NetworkCore systemd unit |
