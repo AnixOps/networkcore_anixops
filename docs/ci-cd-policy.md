@@ -197,12 +197,16 @@ Swift、Apple 项目检测开关，以及运行、跳过、失败的 job 和下�
 检查 Rust build/test 矩阵和 Rust dependency security audit；当 Go、Node、Swift 或 Apple 路径需要验证时，
 summary 必须检查对应语言或平台 job。
 
+CI 的 `concurrency` 只取消同一 pull request 上被新提交取代的旧 run。`main`、tag 与手动触发的 run 不会被取消，保证每个合并提交都有完整的验证结果。
+
 ### CI 缓存策略
 
 目标是缩短普通 CI 的重复下载和重复编译，同时保证 release 可复现。缓存只能加速，不能改变验证结论：缓存未命中时，每个 job 仍必须能从源码完整安装、构建和测试。
 
 - 普通 CI 允许的缓存（仅限 `ci.yml` 的验证 job）：
   - Rust：`Swatinem/rust-cache` 缓存 cargo registry、git 依赖和 `target/`。key 由 job、runner OS 与架构、rustc 版本、相关 `CARGO_*` 环境变量、`Cargo.lock`、`Cargo.toml`、`.cargo/config.toml` 与 `rust-toolchain` 决定。只有成功的 run 保存缓存，失败的 run 不写入缓存，避免错误状态被长期复用。Rust 验证 job 设置 `CARGO_INCREMENTAL=0`，CI 中增量编译收益低且产物体积大，关闭以减少编译和缓存开销；Windows MSI job 先安装工具链再恢复缓存，保证 key 中的 rustc 版本与实际构建所用版本一致；构建前会清除恢复出的 `webview2-com-sys` 构建输出，使 WebView2 加载器的唯一性校验只看到本次构建的产物。
+  - Rust 缓存只由 `main` 的 push run 写入（`save-if`），pull request 只恢复不保存。各 PR 分支各自保存会在仓库缓存配额内互相驱逐，导致 Windows 等 job 反复冷编译。Windows 的 `rust-build-test` 与 MSI job 用同一个 `shared-key: windows-gnu`；MSI 只构建其中子集，所以只恢复、从不写入。
+  - Windows 的 `windres`/`rc` 兼容 shim：`actions/cache` 缓存编译出的两个 exe，key 绑定 `.github/scripts/windres_compat.rs` 与 `rc_compat.rs` 的哈希；未命中时照常用 `rustc` 编译。
   - Node：`setup-node` 的 pnpm store 缓存，key 绑定 `apps/windows-gui/ui/pnpm-lock.yaml`。
   - CI 工具：`cargo-audit` 通过 `taiki-e/install-action` 安装预编译二进制，不在每次 run 从源码编译。
   - Go：`setup-go` 的模块缓存，已启用。
