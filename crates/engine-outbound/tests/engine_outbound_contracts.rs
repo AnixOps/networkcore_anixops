@@ -28,7 +28,10 @@ impl TcpOutbound for DirectOutbound {
         "direct"
     }
 
-    fn connect<'a>(&'a self, target: &'a TargetAddr) -> BoxFuture<'a, std::io::Result<BoxStream>> {
+    fn connect<'a>(
+        &'a self,
+        target: &'a TargetAddr,
+    ) -> BoxFuture<'a, std::io::Result<BoxStream>> {
         Box::pin(async move {
             let host = target.host();
             self.dialer.dial(&host, target.port()).await

@@ -11,8 +11,8 @@ use control_domain::{
     AuditDecision, AuditEvent, CertificateTrustState, Diagnostic, DiagnosticSeverity, DomainError,
     DomainResult, GrantedPermissions, HookPoint, HttpBodyMutation, HttpEvent, HttpHeaderMutation,
     HttpHeaderMutationOperation, HttpMitmAction, HttpMitmEvent, HttpMitmOutcome, HttpMitmPhase,
-    HttpMitmScriptDispatch, HttpMitmScriptKind, MitmHostnameDecision, MitmPluginService,
-    PluginInstance, PluginManifest, PluginPackage, PluginPermission, PluginResult,
+    HttpMitmScriptDispatch, HttpMitmScriptKind, MitmPluginService, PluginInstance, PluginManifest,
+    PluginPackage, PluginPermission, PluginResult,
 };
 use mitm_anixops_sys as sys;
 use std::cell::Cell;
@@ -860,29 +860,6 @@ impl MitmPluginService for AnixOpsMitmPluginService {
                 MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_CODE,
                 MITM_POLICY_HTTP_EVENT_MUTATION_PLANNED_MESSAGE,
             )],
-        })
-    }
-
-    fn evaluate_mitm_hostname(
-        &self,
-        plugin_instance: &PluginInstance,
-        hostname: &str,
-        is_quic: bool,
-    ) -> DomainResult<MitmHostnameDecision> {
-        let Some(source) = plugin_instance.loaded_source.as_deref() else {
-            return Ok(MitmHostnameDecision::Bypass);
-        };
-
-        let mut engine = AnixOpsMitmPolicyEngine::new()?;
-        engine.load_config(source)?;
-        // The data plane only asks once the operator-supplied MITM CA is
-        // active, so evaluate the hostname list as trusted.
-        engine.set_certificate_trust_state(CertificateTrustState::Trusted);
-        let decision = engine.evaluate_mitm(hostname, is_quic)?;
-        Ok(match decision.decision {
-            MitmPolicyMitmDecisionType::Bypass => MitmHostnameDecision::Bypass,
-            MitmPolicyMitmDecisionType::Intercept => MitmHostnameDecision::Intercept,
-            MitmPolicyMitmDecisionType::RejectQuic => MitmHostnameDecision::RejectQuic,
         })
     }
 

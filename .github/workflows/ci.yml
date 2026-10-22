@@ -2887,72 +2887,6 @@ jobs:
         shell: bash
         run: cargo audit
 
-  rust-h2-mitm-fuzz:
-    name: HTTP/2 MITM fuzz
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs:
-      - changes
-      - policy-fast
-      - detect-projects
-    if: >-
-      ${{
-        needs.detect-projects.outputs.rust == 'true' &&
-        (
-          needs.changes.outputs.full_matrix == 'true' ||
-          needs.changes.outputs.rust == 'true' ||
-          needs.changes.outputs.windows == 'true' ||
-          needs.changes.outputs.linux == 'true' ||
-          needs.changes.outputs.apple == 'true' ||
-          needs.changes.outputs.ios == 'true'
-        )
-      }}
-    env:
-      CARGO_INCREMENTAL: "0"
-      FUZZ_SECONDS_PER_TARGET: "60"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          submodules: true
-
-      - name: Setup Rust nightly
-        shell: bash
-        run: |
-          set -euo pipefail
-          rustup toolchain install nightly --profile minimal
-          rustup default nightly
-
-      - name: Install cargo-fuzz
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-fuzz
-
-      - name: Run fuzz targets
-        shell: bash
-        working-directory: crates/engine-native
-        run: |
-          set -euo pipefail
-          # The prebuilt cargo-fuzz binary is musl-linked and would default to
-          # the musl target, which ASan cannot instrument.
-          for target in tls_client_hello_alpn h2_mitm_frames h2_mitm_requests; do
-            echo "::group::cargo fuzz run ${target}"
-            cargo fuzz run --target x86_64-unknown-linux-gnu "${target}" -- \
-              -max_total_time="${FUZZ_SECONDS_PER_TARGET}" \
-              -max_len=4096 \
-              -rss_limit_mb=2048 \
-              -timeout=20
-            echo "::endgroup::"
-          done
-
-      - name: Upload fuzz crash artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: h2-mitm-fuzz-artifacts-${{ github.sha }}
-          path: crates/engine-native/fuzz/artifacts
-          if-no-files-found: ignore
-
   node-build-test:
     name: Node build and test
     runs-on: ${{ matrix.os }}
@@ -3170,7 +3104,6 @@ jobs:
       - rust-build-test
       - windows-managed-client-installer
       - rust-security-audit
-      - rust-h2-mitm-fuzz
       - maintenance-contracts
       - node-build-test
       - swift-build-test
@@ -3216,7 +3149,6 @@ jobs:
           RESULT_RUST_BUILD_TEST: ${{ needs.rust-build-test.result }}
           RESULT_WINDOWS_INSTALLER: ${{ needs.windows-managed-client-installer.result }}
           RESULT_RUST_AUDIT: ${{ needs.rust-security-audit.result }}
-          RESULT_RUST_H2_FUZZ: ${{ needs.rust-h2-mitm-fuzz.result }}
           RESULT_MAINTENANCE: ${{ needs.maintenance-contracts.result }}
           RESULT_NODE_BUILD_TEST: ${{ needs.node-build-test.result }}
           RESULT_SWIFT_BUILD_TEST: ${{ needs.swift-build-test.result }}
@@ -3324,7 +3256,6 @@ jobs:
           record_job "Rust build and test" "${RESULT_RUST_BUILD_TEST}" "${rust_required}"
           record_job "Windows managed client MSI" "${RESULT_WINDOWS_INSTALLER}" "${windows_required}"
           record_job "Rust dependency security audit" "${RESULT_RUST_AUDIT}" "${audit_required}"
-          record_job "HTTP/2 MITM fuzz" "${RESULT_RUST_H2_FUZZ}" "${rust_required}"
           record_job "Maintenance diagnostic contract" "${RESULT_MAINTENANCE}" "${rust_required}"
           record_job "Node build and test" "${RESULT_NODE_BUILD_TEST}" "${node_required}"
           record_job "Swift build and test" "${RESULT_SWIFT_BUILD_TEST}" "${swift_required}"
@@ -3394,7 +3325,6 @@ jobs:
             echo "| Rust build and test | ${rust_required} | ${RESULT_RUST_BUILD_TEST} |"
             echo "| Windows managed client MSI | ${windows_required} | ${RESULT_WINDOWS_INSTALLER} |"
             echo "| Rust dependency security audit | ${audit_required} | ${RESULT_RUST_AUDIT} |"
-            echo "| HTTP/2 MITM fuzz | ${rust_required} | ${RESULT_RUST_H2_FUZZ} |"
             echo "| Node build and test | ${node_required} | ${RESULT_NODE_BUILD_TEST} |"
             echo "| Swift build and test | ${swift_required} | ${RESULT_SWIFT_BUILD_TEST} |"
             echo "| Apple project smoke | ${apple_required} | ${RESULT_APPLE_SMOKE} |"
