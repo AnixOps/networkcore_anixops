@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use engine_outbound::registry::OutboundRegistry;
-use engine_outbound::{TargetAddr, TcpDialer, TcpOutbound};
+use engine_outbound::{TargetAddr, TcpDialer};
 use futures::{SinkExt, StreamExt};
 use outbound_vless::{parse_uuid, VlessFactory};
 use rcgen::{CertificateParams, KeyPair};
