@@ -22,18 +22,15 @@
 mod factory;
 
 use std::io;
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
 use std::time::Duration;
 
 use bytes::Bytes;
 use engine_outbound::{BoxFuture, BoxStream, TargetAddr, TcpOutbound};
 use ring::rand::{SecureRandom, SystemRandom};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
+use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
+use transport_quic::{quic_error, quinn, Congestion, QuicConnection, QuicConnector, QuicStream};
 use transport_tls::TlsSettings;
 
 pub use factory::{Hysteria2Factory, TYPE_NAME};
@@ -47,29 +44,21 @@ pub const TCP_REQUEST_ID: u64 = 0x401;
 
 const AUTH_URI: &str = "https://hysteria/auth";
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
-const MAX_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
-const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(10);
-const STREAM_RECEIVE_WINDOW: u32 = 8 * 1024 * 1024;
-const CONNECTION_RECEIVE_WINDOW: u32 = 20 * 1024 * 1024;
 /// Longest server message read from a TCP response.
 const MAX_RESPONSE_FIELD: u64 = 64 * 1024;
 
 pub struct Hysteria2Outbound {
-    server: String,
-    port: u16,
     password: String,
-    server_name: String,
-    client_config: quinn::ClientConfig,
+    quic: QuicConnector,
     session: Mutex<Option<Session>>,
 }
 
 /// One authenticated QUIC connection.
 struct Session {
-    connection: quinn::Connection,
+    quic: QuicConnection,
     /// The connection closes when the last request sender is dropped.
     _requests: h3::client::SendRequest<h3_quinn::OpenStreams, Bytes>,
     driver: JoinHandle<()>,
-    _endpoint: quinn::Endpoint,
 }
 
 impl Drop for Session {
@@ -85,41 +74,16 @@ impl Hysteria2Outbound {
         password: impl Into<String>,
         tls: &TlsSettings,
     ) -> io::Result<Self> {
-        let server = server.into();
         let password = password.into();
-        if server.is_empty() || port == 0 {
-            return Err(invalid("hysteria2 server address is empty"));
-        }
         if password.is_empty() {
             return Err(invalid("hysteria2 password is empty"));
         }
         if http::HeaderValue::from_str(&password).is_err() {
             return Err(invalid("hysteria2 password is not a valid header value"));
         }
-        let mut tls = tls.clone();
-        if tls.alpn.is_empty() {
-            tls.alpn.push("h3".to_owned());
-        }
-        let crypto =
-            quinn::crypto::rustls::QuicClientConfig::try_from(transport_tls::client_config(&tls)?)
-                .map_err(|_| invalid("hysteria2 tls settings are unusable for quic"))?;
-        let mut transport = quinn::TransportConfig::default();
-        transport
-            .stream_receive_window(quinn::VarInt::from_u32(STREAM_RECEIVE_WINDOW))
-            .receive_window(quinn::VarInt::from_u32(CONNECTION_RECEIVE_WINDOW))
-            .keep_alive_interval(Some(KEEP_ALIVE_INTERVAL))
-            .max_idle_timeout(Some(
-                quinn::IdleTimeout::try_from(MAX_IDLE_TIMEOUT)
-                    .map_err(|_| invalid("hysteria2 idle timeout is invalid"))?,
-            ));
-        let mut client_config = quinn::ClientConfig::new(Arc::new(crypto));
-        client_config.transport_config(Arc::new(transport));
         Ok(Self {
-            server,
-            port,
             password,
-            server_name: tls.server_name,
-            client_config,
+            quic: QuicConnector::new(server, port, tls, &["h3"], Congestion::Cubic)?,
             session: Mutex::new(None),
         })
     }
@@ -128,8 +92,8 @@ impl Hysteria2Outbound {
     async fn connection(&self) -> io::Result<quinn::Connection> {
         let mut session = self.session.lock().await;
         if let Some(current) = session.as_ref() {
-            if current.connection.close_reason().is_none() {
-                return Ok(current.connection.clone());
+            if current.quic.connection.close_reason().is_none() {
+                return Ok(current.quic.connection.clone());
             }
         }
         *session = None;
@@ -138,27 +102,14 @@ impl Hysteria2Outbound {
             .map_err(|_| {
                 io::Error::new(io::ErrorKind::TimedOut, "hysteria2 handshake timed out")
             })??;
-        let connection = fresh.connection.clone();
+        let connection = fresh.quic.connection.clone();
         *session = Some(fresh);
         Ok(connection)
     }
 
     async fn handshake(&self) -> io::Result<Session> {
-        let addr = tokio::net::lookup_host((self.server.as_str(), self.port))
-            .await?
-            .next()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "hysteria2 server not found"))?;
-        let bind: SocketAddr = if addr.is_ipv4() {
-            (Ipv4Addr::UNSPECIFIED, 0).into()
-        } else {
-            (Ipv6Addr::UNSPECIFIED, 0).into()
-        };
-        let endpoint = quinn::Endpoint::client(bind)?;
-        let connection = endpoint
-            .connect_with(self.client_config.clone(), addr, &self.server_name)
-            .map_err(|_| invalid("hysteria2 quic connect settings are invalid"))?
-            .await
-            .map_err(quic_error)?;
+        let quic = self.quic.connect().await?;
+        let connection = quic.connection.clone();
 
         let (mut driver, mut requests) =
             h3::client::new(h3_quinn::Connection::new(connection.clone()))
@@ -168,10 +119,9 @@ impl Hysteria2Outbound {
             let _ = driver.wait_idle().await;
         });
         let session = Session {
-            connection: connection.clone(),
+            quic,
             _requests: requests.clone(),
             driver,
-            _endpoint: endpoint,
         };
 
         let request = http::Request::post(AUTH_URI)
@@ -215,7 +165,7 @@ impl TcpOutbound for Hysteria2Outbound {
             let (mut send, mut recv) = connection.open_bi().await.map_err(quic_error)?;
             send.write_all(&request).await?;
             read_tcp_response(&mut recv).await?;
-            Ok(Box::new(QuicStream { send, recv }) as BoxStream)
+            Ok(QuicStream::boxed(send, recv))
         })
     }
 }
@@ -301,46 +251,6 @@ fn random_padding(min: usize, max: usize) -> io::Result<String> {
         .iter()
         .map(|byte| char::from(ALPHABET[usize::from(*byte) % ALPHABET.len()]))
         .collect())
-}
-
-/// One proxied TCP connection: a bidirectional QUIC stream. The tokio trait
-/// methods are called by path because quinn's inherent `poll_read` and
-/// `poll_write` return quinn error types.
-struct QuicStream {
-    send: quinn::SendStream,
-    recv: quinn::RecvStream,
-}
-
-impl AsyncRead for QuicStream {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        AsyncRead::poll_read(Pin::new(&mut self.recv), cx, buf)
-    }
-}
-
-impl AsyncWrite for QuicStream {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        AsyncWrite::poll_write(Pin::new(&mut self.send), cx, buf)
-    }
-
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        AsyncWrite::poll_flush(Pin::new(&mut self.send), cx)
-    }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        AsyncWrite::poll_shutdown(Pin::new(&mut self.send), cx)
-    }
-}
-
-fn quic_error(err: impl std::error::Error + Send + Sync + 'static) -> io::Error {
-    io::Error::new(io::ErrorKind::ConnectionAborted, err)
 }
 
 fn invalid(message: &'static str) -> io::Error {

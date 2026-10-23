@@ -10,6 +10,7 @@
 //! | `shadowsocks` | `shadowsocks`  | `outbound-shadowsocks` |
 //! | `socks`       | `socks`        | `outbound-socks`       |
 //! | `trojan`      | `trojan`       | `outbound-trojan`      |
+//! | `tuic`        | `tuic`         | `outbound-tuic`        |
 //! | `vless`       | `vless`        | `outbound-vless`       |
 //! | `vmess`       | `vmess`        | `outbound-vmess`       |
 //! | `wireguard`   | `wireguard`    | this crate + boringtun |
@@ -38,6 +39,8 @@ pub fn default_registry() -> OutboundRegistry {
     registry.register(Arc::new(outbound_socks::SocksFactory));
     #[cfg(feature = "trojan")]
     registry.register(Arc::new(outbound_trojan::TrojanFactory));
+    #[cfg(feature = "tuic")]
+    registry.register(Arc::new(outbound_tuic::TuicFactory));
     #[cfg(feature = "vless")]
     registry.register(Arc::new(outbound_vless::VlessFactory));
     #[cfg(feature = "vmess")]

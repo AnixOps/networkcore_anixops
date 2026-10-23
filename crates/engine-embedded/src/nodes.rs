@@ -14,7 +14,8 @@ use control_domain::{
     NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_TLS_ALPN,
     NODE_METADATA_TLS_ENABLED, NODE_METADATA_TLS_INSECURE, NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
     NODE_METADATA_TLS_REALITY_SHORT_ID, NODE_METADATA_TLS_SERVER_NAME,
-    NODE_METADATA_TROJAN_PASSWORD, NODE_METADATA_V2RAY_TRANSPORT_HOST,
+    NODE_METADATA_TROJAN_PASSWORD, NODE_METADATA_TUIC_CONGESTION_CONTROL,
+    NODE_METADATA_TUIC_PASSWORD, NODE_METADATA_TUIC_UUID, NODE_METADATA_V2RAY_TRANSPORT_HOST,
     NODE_METADATA_V2RAY_TRANSPORT_PATH, NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME,
     NODE_METADATA_V2RAY_TRANSPORT_TYPE, NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID,
     NODE_METADATA_VMESS_ALTER_ID, NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
@@ -35,6 +36,7 @@ pub fn outbound_for_node(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         Protocol::Trojan => trojan(node)?,
         Protocol::Vmess => vmess(node)?,
         Protocol::Hysteria2 => hysteria2(node)?,
+        Protocol::Tuic => tuic(node)?,
         _ => return Err("protocol is not implemented by the embedded engine yet"),
     };
     let kind = outbound["type"].as_str().unwrap_or_default();
@@ -221,6 +223,26 @@ fn hysteria2(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         "server_name": metadata(node, NODE_METADATA_TLS_SERVER_NAME),
         "alpn": alpn_list(node),
         "insecure": metadata(node, NODE_METADATA_TLS_INSECURE) == Some("true"),
+    }))
+}
+
+/// TUIC v5 over QUIC (TLS 1.3 always on). The UDP relay mode does not matter
+/// for TCP.
+fn tuic(node: &NodeDescriptor) -> Result<Value, Unsupported> {
+    let uuid = metadata(node, NODE_METADATA_TUIC_UUID).ok_or("tuic uuid is missing")?;
+    let password = metadata(node, NODE_METADATA_TUIC_PASSWORD)
+        .filter(|password| !password.is_empty())
+        .ok_or("tuic password is missing (tuic v4 tokens are not supported)")?;
+    Ok(json!({
+        "type": "tuic",
+        "server": node.endpoint.host,
+        "port": node.endpoint.port,
+        "uuid": uuid,
+        "password": password,
+        "server_name": metadata(node, NODE_METADATA_TLS_SERVER_NAME),
+        "alpn": alpn_list(node),
+        "insecure": metadata(node, NODE_METADATA_TLS_INSECURE) == Some("true"),
+        "congestion_control": metadata(node, NODE_METADATA_TUIC_CONGESTION_CONTROL),
     }))
 }
 

@@ -287,6 +287,46 @@ fn hysteria2_nodes_map_password_and_tls() {
     assert!(outbound_for_node(&missing).is_err());
 }
 
+#[cfg(feature = "tuic")]
+#[test]
+fn tuic_nodes_map_uuid_password_and_congestion() {
+    let tuic = node(
+        "tuic",
+        Protocol::Tuic,
+        &[
+            ("tuic.uuid", "b831381d-6324-4d53-ad4f-8cda48b30811"),
+            ("tuic.password", "tuic-secret"),
+            ("tuic.congestion_control", "bbr"),
+            ("tls.server_name", "tuic.example"),
+            ("tls.alpn", "h3"),
+        ],
+    );
+    let outbound = outbound_for_node(&tuic).unwrap();
+    assert_eq!(
+        outbound,
+        serde_json::json!({
+            "type": "tuic",
+            "server": "192.0.2.1",
+            "port": 443,
+            "uuid": "b831381d-6324-4d53-ad4f-8cda48b30811",
+            "password": "tuic-secret",
+            "server_name": "tuic.example",
+            "alpn": ["h3"],
+            "insecure": false,
+            "congestion_control": "bbr",
+        })
+    );
+    let (envelope, _) = single_node_envelope("p", &[tuic], None).unwrap();
+    assert_eq!(builds(&envelope), "tuic");
+
+    let v4 = node(
+        "tuic-v4",
+        Protocol::Tuic,
+        &[("tuic.uuid", "b831381d-6324-4d53-ad4f-8cda48b30811")],
+    );
+    assert!(outbound_for_node(&v4).is_err());
+}
+
 #[test]
 fn unsupported_nodes_are_reported_without_secrets() {
     let legacy_ss = node(
