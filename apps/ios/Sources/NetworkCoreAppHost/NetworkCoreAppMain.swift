@@ -23,6 +23,12 @@ struct TunnelView: View {
     @State private var link = ""
 
     var body: some View {
+        NavigationStack {
+            form
+        }
+    }
+
+    private var form: some View {
         Form {
             Section("节点") {
                 if let name = tunnel.nodeName {
@@ -72,6 +78,8 @@ struct TunnelView: View {
                     Text(message)
                 }
             }
+
+            AboutSection(tunnel: tunnel)
         }
     }
 
