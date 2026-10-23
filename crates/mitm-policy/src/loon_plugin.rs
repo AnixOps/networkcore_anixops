@@ -6,8 +6,9 @@
 //! routing model, and HTTP rewrite lines stay in the plugin source that the
 //! `mitm_anixops` core evaluates. Every non-comment line gets a support status,
 //! so a plugin can be graded as fully, partially, or not supported before it
-//! is enabled. Scripts, `[Map Local]`, and body rewrites belong to the P1 tier
-//! and are reported as deferred.
+//! is enabled. `[Script]` `http-request`/`http-response` lines (P1) are planned
+//! by the `mitm_anixops` core and executed by the `script-runtime` QuickJS
+//! runtime on desktop; `[Map Local]` and body rewrites are still deferred.
 
 use crate::{AnixOpsMitmPolicyEngine, MitmPolicyRuleDiagnosticStatus};
 use config_core::routing::{parse_rule_line, PolicyTarget, RoutingModel, RoutingRule, RuleLine};
@@ -130,6 +131,8 @@ pub enum LoonLineHandler {
     MitmHostnames,
     Routing,
     PolicyEngine,
+    /// Dispatch planned by the policy core, executed by the script runtime.
+    ScriptRuntime,
     None,
 }
 
@@ -413,15 +416,7 @@ pub fn import_loon_plugin(text: &str) -> DomainResult<LoonPluginImport> {
                     "body_rewrite.p1",
                 )
             }
-            Section::Script => {
-                parser.push(
-                    line_number,
-                    &section_name,
-                    LoonLineStatus::Deferred,
-                    LoonLineHandler::None,
-                    "script.p1",
-                );
-            }
+            Section::Script => parser.script_line(line_number, &section_name, line),
             Section::MapLocal => parser.push(
                 line_number,
                 &section_name,
@@ -760,6 +755,57 @@ impl Parser {
         self.push(line, section, status, handler, reason);
     }
 
+    /// HTTP scripts run in the script runtime; scheduled and event scripts
+    /// (`cron`, `generic`, `network-changed`) have no runtime yet.
+    fn script_line(&mut self, line: usize, section: &str, text: &str) {
+        let lower = text.to_ascii_lowercase();
+        let first = lower
+            .split(|ch: char| ch.is_whitespace() || ch == ',')
+            .next()
+            .unwrap_or("");
+        let response = match first {
+            "http-request" => false,
+            "http-response" => true,
+            // Surge-style `name = type=http-response, pattern=..., ...`.
+            _ if lower.contains("type=http-request") => false,
+            _ if lower.contains("type=http-response") => true,
+            _ => {
+                self.push(
+                    line,
+                    section,
+                    LoonLineStatus::Unsupported,
+                    LoonLineHandler::None,
+                    "script.type_unsupported",
+                );
+                return;
+            }
+        };
+        if !lower.contains("script-path") && !lower.contains("script_path") {
+            self.push(
+                line,
+                section,
+                LoonLineStatus::Unsupported,
+                LoonLineHandler::None,
+                "script.path_missing",
+            );
+            return;
+        }
+        if response {
+            self.has_response_actions = true;
+        } else {
+            self.has_request_actions = true;
+        }
+        let (status, reason) = if script_attribute_enabled(&lower, "binary-body-mode") {
+            // Bodies reach scripts as strings only.
+            (LoonLineStatus::Partial, "script.binary_body_unsupported")
+        } else if response {
+            (LoonLineStatus::Supported, "script.http_response")
+        } else {
+            (LoonLineStatus::Supported, "script.http_request")
+        };
+        self.push(line, section, status, LoonLineHandler::ScriptRuntime, reason);
+    }
+
     /// Loads the plugin into the policy core and downgrades lines it owns but
     /// did not accept. Returns the load error when the core refuses the text.
     fn cross_check_with_policy_core(&mut self, text: &str) -> Option<String> {
@@ -780,7 +826,10 @@ impl Parser {
                 .iter_mut()
                 .filter(|line| line.line == diagnostic.line)
             {
-                let owned_by_core = line.handler == LoonLineHandler::PolicyEngine;
+                let owned_by_core = matches!(
+                    line.handler,
+                    LoonLineHandler::PolicyEngine | LoonLineHandler::ScriptRuntime
+                );
                 if owned_by_core && line.status != LoonLineStatus::Deferred {
                     line.status = LoonLineStatus::Unsupported;
                     line.handler = LoonLineHandler::None;
@@ -794,6 +843,14 @@ impl Parser {
         }
         None
     }
+}
+
+fn script_attribute_enabled(lower_line: &str, name: &str) -> bool {
+    lower_line.split(',').any(|attribute| {
+        attribute.split_once('=').is_some_and(|(key, value)| {
+            key.trim().ends_with(name) && matches!(value.trim(), "true" | "1")
+        })
+    })
 }
 
 fn is_reject_policy(target: &str) -> bool {

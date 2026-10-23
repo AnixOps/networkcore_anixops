@@ -1,0 +1,16 @@
+{
+  "invocation": {
+    "phase": "request",
+    "request": { "url": "https://ads.example.test/config", "method": "POST", "body": "x=1" }
+  },
+  "expect": {
+    "status": "done",
+    "mutation": {
+      "response": {
+        "status": 200,
+        "headers": { "Content-Type": "application/json" },
+        "body": "{\"blocked\":\"POST\"}"
+      }
+    }
+  }
+}

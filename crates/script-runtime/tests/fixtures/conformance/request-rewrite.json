@@ -1,0 +1,17 @@
+{
+  "invocation": {
+    "phase": "request",
+    "request": {
+      "url": "https://api.example.test/v1/user",
+      "method": "GET",
+      "headers": { "Accept": "*/*", "Cookie": "a=1" }
+    }
+  },
+  "expect": {
+    "status": "done",
+    "mutation": {
+      "url": "https://api.example.test/v2/user",
+      "headers": { "Accept": "*/*", "X-NetworkCore": "1" }
+    }
+  }
+}

@@ -1,0 +1,34 @@
+# script-runtime
+
+Loon-compatible HTTP script runtime for MITM `[Script]` dispatches (roadmap
+M3, Loon plugin tier P1).
+
+The `$`-API is implemented once in Rust (`ScriptHost`):
+
+| Global | Behavior |
+|---|---|
+| `$request`, `$response` | URL, method, headers (object), UTF-8 body when `requires-body=true`; response status. |
+| `$argument` | The line's `argument=` value. |
+| `$done(value)` | First call wins. Request phase: `url`, `headers`, `body`, or `response: {status, headers, body}` to answer without the origin. Response phase: `status` (number or status line), `headers`, `body`. `$done()` keeps the message. String bodies only. |
+| `$persistentStore.read/write/remove` | Shared key-value store; key ≤ 256 B, value ≤ 512 KiB, total ≤ 8 MiB. A missing key uses `networkcore.script.<tag>`. |
+| `$notification.post` | Collected in the outcome (16 at most). |
+| `$httpClient.get/post/...` | Goes to a `ScriptHttpClient`; `DisabledScriptHttpClient` (the default) returns an error to the callback. |
+| `console.*`, `setTimeout`, `clearTimeout` | Logs are collected (128 lines); timers run inside the dispatch budget. |
+| `$loon`, `$script` | `NetworkCore/<version>`; script name and type. |
+
+An engine binding implements `JsEngineContext` (evaluate sloppy-mode global
+code, drain promise jobs) and defines one host function, `__nc_host(op,
+payload)`, that forwards to `ScriptHost::call`. `run_script` evaluates the
+shared `src/prelude.js` and the script, then services timers and `$httpClient`
+callbacks until `$done`, idle, or the deadline. `finish_outcome` maps the
+result the same way for every engine.
+
+The desktop binding is QuickJS-ng through rquickjs (`QuickJsScriptRuntime`).
+Each dispatch gets a fresh runtime with a heap limit and an interrupt handler
+for the wall-clock timeout, so Loon's `timeout` and `max-size` hold even for
+busy loops. Scripts have no file system, process, or network access of their
+own.
+
+`tests/fixtures/conformance/<case>.js` plus `<case>.json` (invocation, initial
+store, limits, expected outcome) form the engine-neutral conformance suite.
+The Apple JavaScriptCore binding planned for M4 must pass the same files.

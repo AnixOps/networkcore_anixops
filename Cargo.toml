@@ -18,6 +18,7 @@ members = [
     "crates/platform-ios",
     "crates/platform-linux",
     "crates/platform-windows",
+    "crates/script-runtime",
     "crates/tls-mimic",
 ]
 resolver = "2"

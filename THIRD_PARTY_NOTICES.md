@@ -28,6 +28,10 @@ Clash、Surge、Loon、Quantumult X、V2Ray 等名称只用于描述兼容的订
 
 `Cargo.lock` 和 `apps/windows-gui/ui/pnpm-lock.yaml` 列出的开源依赖按各自许可证使用，发布产物的完整依赖许可证清单以 lockfile 为准。
 
+## 静态链接的 C 代码
+
+`crates/script-runtime` 通过 rquickjs（https://github.com/DelSkayn/rquickjs ，MIT）把 QuickJS-ng（https://github.com/quickjs-ng/quickjs ，MIT）编译进桌面端二进制，用于运行 Loon `[Script]` 脚本。二者以 crates.io 源码包形式由 Cargo 获取，不 vendor 进本仓库；发布产物需要附带其 MIT 许可证文本。iOS 不链接 QuickJS，M4 改用系统 JavaScriptCore。
+
 ## 自有子模块
 
 `third_party/mitm_anixops` 指向 AnixOps 自有仓库 https://github.com/AnixOps/mitm_anixops，不属于第三方代码。

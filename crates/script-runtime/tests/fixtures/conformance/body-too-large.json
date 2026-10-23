@@ -1,0 +1,9 @@
+{
+  "invocation": {
+    "phase": "response",
+    "request": { "url": "https://api.example.test/", "method": "GET" },
+    "response": { "status": 200, "body": "0123456789abcdef" }
+  },
+  "limits": { "maxBodyBytes": 8 },
+  "expect": { "status": "failed", "failure": "script.body_too_large" }
+}

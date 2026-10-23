@@ -12,6 +12,8 @@
 
 ### Added
 
+- Loon 插件 P1 脚本：新增 `script-runtime` crate，`$request`/`$response`/`$argument`/`$done`/`$persistentStore`/`$notification`/`$httpClient`/`console`/定时器只在 Rust 里实现一份（`ScriptHost`），JS 引擎只绑定一个宿主函数并执行共享 prelude；桌面端绑定 QuickJS-ng（rquickjs），用 QuickJS 堆上限和中断回调实现 Loon `timeout`/`max-size`。`tests/fixtures/conformance` 是引擎无关的一致性夹具，M4 的 JavaScriptCore 绑定复用同一套。`engine-native` 新增进程内 `NativeQuickJsScriptExecutor`（脚本按 SHA-256 固定、`$httpClient` 默认关闭），请求阶段脚本可用 `$done({response})` 直接返回响应；`networkcore-linux start --enable-script-runtime` 不带 `--script-runner` 时使用 QuickJS，并允许 `--script-store`。Loon 导入器把 `[Script]` `http-request`/`http-response` 行定级为支持。
+
 - iOS App 支持导入 `vless://` 分享链接（`security=reality`、TCP、可选 `flow=xtls-rprx-vision`），生成 `engine-embedded` 的 `vless` 出站；uuid 与其他节点密钥一样只存入 Keychain，App 侧配置不含 uuid。`fp` 参数忽略，固定使用 Chrome 指纹。
 
 - Windows Tauri GUI 导入含规则和策略组的订阅时生成路由配置，策略组在原生分组界面中查看和修改默认成员；不含规则或导入失败时保持原来的单选择器配置。

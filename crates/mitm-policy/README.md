@@ -54,7 +54,7 @@ through `BrowserCapturePacFileStore`. Command details are in
 [apps/linux-cli/README.md](../../apps/linux-cli/README.md); the per-version
 boundary index is `docs/alpha-release-feature-matrix.md`.
 
-## Loon plugin import (P0)
+## Loon plugin import (P0, P1 scripts)
 
 `loon_plugin::import_loon_plugin` imports a user-supplied Loon plugin and
 grades every line as supported, partial, deferred, unsupported, or ignored.
@@ -72,7 +72,12 @@ The plugin as a whole is graded `full`, `partial`, or `unsupported`.
   core evaluates.
 - Rules that name another policy cannot work, because a plugin does not know
   the user's node names.
-- Scripts, `[Map Local]`, and body rewrites are deferred to the P1 tier.
+- `[Script]` `http-request` and `http-response` lines (P1) are planned by the
+  `mitm_anixops` core and run on desktop in the in-process QuickJS runtime of
+  `crates/script-runtime`. `binary-body-mode` is partial (bodies reach scripts
+  as strings), and `cron`, `generic`, and other event scripts are unsupported.
+  The iOS JavaScriptCore runtime arrives in M4.
+- `[Map Local]` and body rewrites are still deferred.
 
 The corpus in `tests/fixtures/loon-plugins` has an expected level for each
 plugin, and `tests/loon_plugin_contracts.rs` prints the graded report for

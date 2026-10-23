@@ -1,0 +1,16 @@
+{
+  "invocation": {
+    "phase": "response",
+    "argument": "clean",
+    "request": { "url": "https://api.example.test/feed", "method": "GET" },
+    "response": {
+      "status": 200,
+      "headers": { "Content-Type": "application/json" },
+      "body": "{\"ad\":{\"id\":1},\"items\":[1,2]}"
+    }
+  },
+  "expect": {
+    "status": "done",
+    "mutation": { "body": "{\"items\":[1,2],\"mode\":\"clean\"}" }
+  }
+}

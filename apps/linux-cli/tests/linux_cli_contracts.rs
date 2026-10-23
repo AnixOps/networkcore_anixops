@@ -2843,7 +2843,7 @@ fn native_engine_factory_requires_explicit_script_runtime_authorization_and_conf
             confirm: true,
         },
     )
-    .expect_err("script runtime must require runner and mappings");
+    .expect_err("script runtime must require script mappings");
     assert_eq!(
         missing_runner.code,
         CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE
@@ -2878,6 +2878,49 @@ fn native_engine_factory_requires_explicit_script_runtime_authorization_and_conf
     assert_eq!(
         configured.http_mitm_script_sandbox(),
         Some(engine_native::NativeNodeScriptSandbox::LinuxNoNetwork)
+    );
+    assert_eq!(configured.http_mitm_script_engine(), Some("node"));
+
+    let quickjs = native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
+        LinuxNativeMitmRuntimeFileConfig {
+            certificate_path: None,
+            private_key_path: None,
+            enable_https_mitm: false,
+            enable_script_runtime: true,
+            script_runner_path: None,
+            node_binary: None,
+            script_maps: &[format!(
+                "https://scripts.networkcore.test/replay.js={script_path}"
+            )],
+            script_store_path: None,
+            confirm: true,
+        },
+    )
+    .expect("without a runner the in-process QuickJS runtime should be configured");
+    assert!(quickjs.http_mitm_script_executor_enabled());
+    assert_eq!(quickjs.http_mitm_script_engine(), Some("quickjs-ng"));
+    assert_eq!(quickjs.http_mitm_script_sandbox(), None);
+
+    let node_binary_without_runner =
+        native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
+            LinuxNativeMitmRuntimeFileConfig {
+                certificate_path: None,
+                private_key_path: None,
+                enable_https_mitm: false,
+                enable_script_runtime: true,
+                script_runner_path: None,
+                node_binary: Some("/usr/bin/node"),
+                script_maps: &[format!(
+                    "https://scripts.networkcore.test/replay.js={script_path}"
+                )],
+                script_store_path: None,
+                confirm: true,
+            },
+        )
+        .expect_err("--node-binary must require the Node runner");
+    assert_eq!(
+        node_binary_without_runner.code,
+        CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE
     );
 
     let rejected_store = native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(

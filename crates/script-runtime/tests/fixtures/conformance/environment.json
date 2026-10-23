@@ -1,0 +1,11 @@
+{
+  "invocation": {
+    "phase": "request",
+    "scriptName": "env",
+    "request": { "url": "https://api.example.test/", "method": "GET" }
+  },
+  "expect": {
+    "status": "done",
+    "mutation": { "body": "string,true,http-request,env,undefined,function" }
+  }
+}
