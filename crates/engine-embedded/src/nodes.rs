@@ -11,9 +11,10 @@ use std::collections::BTreeMap;
 use config_core::routing::RoutingSpec;
 use control_domain::{
     NodeDescriptor, Protocol, NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD,
+    NODE_METADATA_TLS_ALPN, NODE_METADATA_TLS_ENABLED, NODE_METADATA_TLS_INSECURE,
     NODE_METADATA_TLS_REALITY_PUBLIC_KEY, NODE_METADATA_TLS_REALITY_SHORT_ID,
-    NODE_METADATA_TLS_SERVER_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE, NODE_METADATA_VLESS_FLOW,
-    NODE_METADATA_VLESS_UUID,
+    NODE_METADATA_TLS_SERVER_NAME, NODE_METADATA_TROJAN_PASSWORD,
+    NODE_METADATA_V2RAY_TRANSPORT_TYPE, NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID,
 };
 use serde_json::{json, Value};
 
@@ -28,6 +29,7 @@ pub fn outbound_for_node(node: &NodeDescriptor) -> Result<Value, Unsupported> {
     let outbound = match &node.protocol {
         Protocol::Shadowsocks => shadowsocks(node)?,
         Protocol::Vless => vless(node)?,
+        Protocol::Trojan => trojan(node)?,
         _ => return Err("protocol is not implemented by the embedded engine yet"),
     };
     let kind = outbound["type"].as_str().unwrap_or_default();
@@ -147,5 +149,35 @@ fn vless(node: &NodeDescriptor) -> Result<Value, Unsupported> {
             "short_id": metadata(node, NODE_METADATA_TLS_REALITY_SHORT_ID).unwrap_or_default(),
             "fingerprint": "chrome",
         },
+    }))
+}
+
+fn trojan(node: &NodeDescriptor) -> Result<Value, Unsupported> {
+    let password =
+        metadata(node, NODE_METADATA_TROJAN_PASSWORD).ok_or("trojan password is missing")?;
+    if let Some(transport) = metadata(node, NODE_METADATA_V2RAY_TRANSPORT_TYPE) {
+        if transport != "tcp" {
+            return Err("trojan transports other than tcp are not implemented yet");
+        }
+    }
+    if metadata(node, NODE_METADATA_TLS_ENABLED) == Some("false") {
+        return Err("trojan without tls is not supported");
+    }
+    let alpn: Vec<&str> = metadata(node, NODE_METADATA_TLS_ALPN)
+        .map(|list| {
+            list.split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(json!({
+        "type": "trojan",
+        "server": node.endpoint.host,
+        "port": node.endpoint.port,
+        "password": password,
+        "server_name": metadata(node, NODE_METADATA_TLS_SERVER_NAME),
+        "alpn": alpn,
+        "insecure": metadata(node, NODE_METADATA_TLS_INSECURE) == Some("true"),
     }))
 }

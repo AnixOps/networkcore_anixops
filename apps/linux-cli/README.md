@@ -70,7 +70,7 @@ and `run-catalog <catalog-path> <source-id>` parse input with `config-core` and 
 - `--node-id <id>` selects one normalized catalog node; otherwise the first node is used.
 - `run-url --engine auto|embedded|sing-box` picks the engine (default `auto`). The embedded engine
   (`engine-embedded` local proxy, SOCKS5/HTTP on `--listen-host`/`--listen-port`) runs in this process with no download;
-  it carries Shadowsocks-2022 and VLESS + REALITY today and applies subscription rules and policy groups when every node
+  it carries Shadowsocks-2022, VLESS + REALITY and Trojan (TCP) today and applies subscription rules and policy groups when every node
   is supported. `auto` uses it whenever it can run the subscription and otherwise falls back to the sing-box flow;
   `embedded` never falls back and reports the unsupported node. SIGINT exits 130, SIGTERM exits 0.
 

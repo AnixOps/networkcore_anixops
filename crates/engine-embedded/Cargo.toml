@@ -8,10 +8,11 @@ description = "In-process engine for the iOS Network Extension: userspace TCP/IP
 
 # One feature per protocol; see src/protocols.rs. `direct` is always built in.
 [features]
-default = ["local-proxy", "shadowsocks", "vless", "wireguard"]
+default = ["local-proxy", "shadowsocks", "trojan", "vless", "wireguard"]
 # Desktop local proxy (SOCKS5/HTTP listener); the iOS tunnel does not use it.
 local-proxy = ["dep:inbound-mixed"]
 shadowsocks = ["dep:outbound-shadowsocks"]
+trojan = ["dep:outbound-trojan"]
 vless = ["dep:outbound-vless"]
 wireguard = ["dep:base64", "dep:boringtun", "dep:ring"]
 
@@ -26,6 +27,7 @@ futures = "0.3"
 inbound-mixed = { path = "../inbound-mixed", optional = true }
 netstack-smoltcp = "0.2"
 outbound-shadowsocks = { path = "../outbound-shadowsocks", optional = true }
+outbound-trojan = { path = "../outbound-trojan", optional = true }
 outbound-vless = { path = "../outbound-vless", optional = true }
 ring = { version = "0.17", optional = true }
 serde = { version = "1", features = ["derive"] }

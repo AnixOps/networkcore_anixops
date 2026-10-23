@@ -12,6 +12,7 @@
 
 ### Added
 
+- 自研 Trojan 出站：新增 `transport-tls`（rustls + WebPKI 根证书的标准 TLS 客户端，`insecure` 仅跳过证书校验、仍校验握手签名，可供后续 VMess/VLESS-TLS 复用）与 `outbound-trojan`（SHA-224 密码头与首包合并发送，支持服务端先发数据的目标）；`engine-embedded` 新增 `trojan` feature（默认开启），订阅中的 TCP Trojan 节点可由自研引擎直接运行，`run-url --engine auto` 不再为 Trojan 回退到 sing-box。
 - `networkcore-linux run-url` 新增 `--engine auto|embedded|sing-box`（默认 `auto`）：自研引擎（`engine-embedded` 本地代理）能运行订阅时直接在进程内提供 SOCKS5/HTTP 代理，不再下载和启动 sing-box；目前支持 Shadowsocks-2022 与 VLESS + REALITY，全部节点都支持时同时应用订阅规则与策略组；其他协议在 `auto` 下回退到 sing-box，`embedded` 下报告不支持的节点（不含密钥）。`engine-embedded::nodes` 把 `config-core` 节点转换为配置信封，`config-core` 的 `ImportedRouting` 新增 `spec` 字段。
 - 自研桌面本地代理：新增 `inbound-mixed` crate（同一端口上的 SOCKS5 `CONNECT`（可选用户名/密码）与 HTTP 代理（`CONNECT` 隧道和绝对 URI 明文请求，可选 `Proxy-Authorization: Basic`），按首字节区分协议，请求头上限 16 KiB，统计不含地址）；`engine-embedded` 新增 `local-proxy` feature 与 `local_proxy::LocalProxy`，用与 iOS 相同的配置信封（单出站或 `routing`）在本地端口提供代理，域名规则可直接匹配。这是替换桌面端外部引擎 mixed 入站的第一步，现有 CLI 与 Windows 服务尚未切换。
 - 协议模块化第一步：`engine-outbound` 新增协议注册表（`registry::OutboundRegistry` + `OutboundFactory`），出站按配置里的 `type` 名查找对应协议的工厂构建，协议自己的字段只由协议 crate 解析。Shadowsocks-2022 从 `engine-embedded` 拆为独立的 `outbound-shadowsocks` crate；`engine-embedded` 的每个协议都是一个 cargo feature（`shadowsocks`、`vless`、`wireguard`，默认全开，`direct` 始终内置），关掉 feature 即从构建中去掉该协议，未编入的 `type` 返回 `config_rejected`。`EmbeddedRuntime::with_registry` 可传入自建注册表。新增 CI 任务 `Protocol feature matrix`，逐个单独开启每个协议做 clippy 和 C ABI 契约测试。iOS 侧配置 JSON 不变。

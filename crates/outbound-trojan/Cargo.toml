@@ -1,0 +1,24 @@
+[package]
+name = "outbound-trojan"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Trojan TCP outbound over standard TLS for the embedded engine."
+
+[dependencies]
+engine-outbound = { path = "../engine-outbound" }
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+tokio = { version = "1", default-features = false, features = ["io-util"] }
+transport-tls = { path = "../transport-tls" }
+
+[dev-dependencies]
+rcgen = "0.14.8"
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "macros", "time"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+
+[lib]
+path = "src/lib.rs"
