@@ -95,7 +95,7 @@ async fn connect(addr: SocketAddr, settings: &WsSettings) -> io::Result<BoxStrea
 fn accept_value_matches_rfc_6455_example() {
     assert_eq!(
         accept_value("dGhlIHNhbXBsZSBub25jZQ=="),
-        "s3pPLMBiXuOo9K7xsBN+zXxOo2s="
+        "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
     );
 }
 
