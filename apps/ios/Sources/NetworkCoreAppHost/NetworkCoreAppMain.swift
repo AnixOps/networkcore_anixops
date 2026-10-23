@@ -29,7 +29,7 @@ struct TunnelView: View {
                     Text(name)
                 }
                 // Multi-line so a WireGuard config can be pasted whole.
-                TextField("粘贴 ss:// 链接或 WireGuard 配置", text: $link, axis: .vertical)
+                TextField("粘贴 ss://、vless:// 链接或 WireGuard 配置", text: $link, axis: .vertical)
                     .lineLimit(1...8)
                     .font(.footnote.monospaced())
                     .textInputAutocapitalization(.never)

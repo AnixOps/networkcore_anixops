@@ -14,6 +14,30 @@ public struct EmbeddedRuntimeConfig: Codable, Equatable {
     public enum Outbound: Equatable {
         case shadowsocks(server: String, port: UInt16, method: String, password: String)
         case wireguard(WireGuardPeer)
+        case vless(VlessOutbound)
+    }
+
+    /// One VLESS + REALITY server. `uuid` is the secret.
+    public struct VlessOutbound: Equatable {
+        public var server: String
+        public var port: UInt16
+        public var uuid: String
+        public var flow: String
+        public var reality: RealitySettings
+    }
+
+    public struct RealitySettings: Codable, Equatable {
+        public var serverName: String
+        public var publicKey: String
+        public var shortID: String
+        public var fingerprint: String
+
+        enum CodingKeys: String, CodingKey {
+            case serverName = "server_name"
+            case publicKey = "public_key"
+            case shortID = "short_id"
+            case fingerprint
+        }
     }
 
     /// One WireGuard peer, keys in standard base64.
@@ -61,6 +85,26 @@ public struct EmbeddedRuntimeConfig: Codable, Equatable {
         )
     }
 
+    public init(node: VlessNode, profileID: String, mtu: Int = 1500) {
+        schemaVersion = Self.schemaVersion
+        self.profileID = profileID
+        self.mtu = mtu
+        outbound = .vless(
+            VlessOutbound(
+                server: node.host,
+                port: node.port,
+                uuid: node.uuid,
+                flow: node.flow,
+                reality: RealitySettings(
+                    serverName: node.serverName,
+                    publicKey: node.publicKey,
+                    shortID: node.shortID,
+                    fingerprint: "chrome"
+                )
+            )
+        )
+    }
+
     /// The secrets this config carries, for the Keychain.
     public var secret: NodeSecret {
         switch outbound {
@@ -68,6 +112,8 @@ public struct EmbeddedRuntimeConfig: Codable, Equatable {
             return NodeSecret(password: password)
         case let .wireguard(peer):
             return NodeSecret(privateKey: peer.privateKey, presharedKey: peer.presharedKey)
+        case let .vless(vless):
+            return NodeSecret(uuid: vless.uuid)
         }
     }
 
@@ -86,6 +132,9 @@ public struct EmbeddedRuntimeConfig: Codable, Equatable {
             peer.privateKey = secret.privateKey ?? ""
             peer.presharedKey = secret.presharedKey
             copy.outbound = .wireguard(peer)
+        case var .vless(vless):
+            vless.uuid = secret.uuid ?? ""
+            copy.outbound = .vless(vless)
         }
         return copy
     }
@@ -112,6 +161,9 @@ extension EmbeddedRuntimeConfig.Outbound: Codable {
         case peerPublicKey = "peer_public_key"
         case presharedKey = "preshared_key"
         case persistentKeepaliveSecs = "persistent_keepalive_secs"
+        case uuid
+        case flow
+        case reality
     }
 
     public init(from decoder: Decoder) throws {
@@ -138,6 +190,16 @@ extension EmbeddedRuntimeConfig.Outbound: Codable {
                     persistentKeepaliveSecs: try container.decodeIfPresent(UInt16.self, forKey: .persistentKeepaliveSecs)
                 )
             )
+        case "vless":
+            self = .vless(
+                EmbeddedRuntimeConfig.VlessOutbound(
+                    server: server,
+                    port: port,
+                    uuid: try container.decode(String.self, forKey: .uuid),
+                    flow: try container.decodeIfPresent(String.self, forKey: .flow) ?? "",
+                    reality: try container.decode(EmbeddedRuntimeConfig.RealitySettings.self, forKey: .reality)
+                )
+            )
         default:
             throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "unknown outbound type")
         }
@@ -160,6 +222,13 @@ extension EmbeddedRuntimeConfig.Outbound: Codable {
             try container.encode(peer.peerPublicKey, forKey: .peerPublicKey)
             try container.encodeIfPresent(peer.presharedKey, forKey: .presharedKey)
             try container.encodeIfPresent(peer.persistentKeepaliveSecs, forKey: .persistentKeepaliveSecs)
+        case let .vless(vless):
+            try container.encode("vless", forKey: .type)
+            try container.encode(vless.server, forKey: .server)
+            try container.encode(vless.port, forKey: .port)
+            try container.encode(vless.uuid, forKey: .uuid)
+            try container.encode(vless.flow, forKey: .flow)
+            try container.encode(vless.reality, forKey: .reality)
         }
     }
 }
@@ -169,17 +238,26 @@ public struct NodeSecret: Codable, Equatable {
     public var password: String?
     public var privateKey: String?
     public var presharedKey: String?
+    /// VLESS user id.
+    public var uuid: String?
 
     enum CodingKeys: String, CodingKey {
         case password
         case privateKey = "private_key"
         case presharedKey = "preshared_key"
+        case uuid
     }
 
-    public init(password: String? = nil, privateKey: String? = nil, presharedKey: String? = nil) {
+    public init(
+        password: String? = nil,
+        privateKey: String? = nil,
+        presharedKey: String? = nil,
+        uuid: String? = nil
+    ) {
         self.password = password
         self.privateKey = privateKey
         self.presharedKey = presharedKey
+        self.uuid = uuid
     }
 
     /// The value written to the Keychain.

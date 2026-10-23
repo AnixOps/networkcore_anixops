@@ -109,7 +109,7 @@ final class WireGuardConfigTests: XCTestCase {
     }
 
     func testUnrecognizedTextIsRejected() {
-        XCTAssertThrowsError(try TunnelNodeImport.parse("vless://abc@example.com:443", profileID: "default")) { error in
+        XCTAssertThrowsError(try TunnelNodeImport.parse("trojan://abc@example.com:443", profileID: "default")) { error in
             XCTAssertEqual(error as? TunnelNodeImportError, .unrecognized)
         }
     }

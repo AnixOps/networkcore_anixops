@@ -12,6 +12,8 @@
 
 ### Added
 
+- iOS App 支持导入 `vless://` 分享链接（`security=reality`、TCP、可选 `flow=xtls-rprx-vision`），生成 `engine-embedded` 的 `vless` 出站；uuid 与其他节点密钥一样只存入 Keychain，App 侧配置不含 uuid。`fp` 参数忽略，固定使用 Chrome 指纹。
+
 - Windows Tauri GUI 导入含规则和策略组的订阅时生成路由配置，策略组在原生分组界面中查看和修改默认成员；不含规则或导入失败时保持原来的单选择器配置。
 
 - `engine-embedded` 运行时配置支持 `routing` 段（与 `outbound` 二选一）：多个命名出站加 `config-core` 规则与策略组，`RoutedOutbound` 按连接选择直连、拒绝或节点。iOS App 尚未生成该段，现有配置行为不变。
