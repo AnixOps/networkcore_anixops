@@ -1,0 +1,17 @@
+#!name = Example Mixed Plugin
+#!desc = Mixes P0 lines with later-tier features
+
+[Rule]
+DOMAIN-KEYWORD,adtrack,REJECT
+DOMAIN-SUFFIX,video.example.com,PROXY
+
+[Rewrite]
+^https?://api\.example\.com/v2/ad reject
+^https?://api\.example\.com/v2/config response-body-replace-regex ads_enabled ads_disabled
+
+[Script]
+http-response ^https?://api\.example\.com/v2/home script-path=home.js, requires-body=true, tag=home
+
+[MITM]
+hostname = %APPEND% api.example.com
+skip-server-cert-verify = true

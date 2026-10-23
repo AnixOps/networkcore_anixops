@@ -54,6 +54,32 @@ through `BrowserCapturePacFileStore`. Command details are in
 [apps/linux-cli/README.md](../../apps/linux-cli/README.md); the per-version
 boundary index is `docs/alpha-release-feature-matrix.md`.
 
+## Loon plugin import (P0)
+
+`loon_plugin::import_loon_plugin` imports a user-supplied Loon plugin and
+grades every line as supported, partial, deferred, unsupported, or ignored.
+The plugin as a whole is graded `full`, `partial`, or `unsupported`.
+
+- `#!` metadata and `[Argument]` go to `LoonPluginMetadata`.
+- `[MITM] hostname` (`%APPEND%`/`%INSERT%`, `-host`/`!host` exclusions) goes
+  to `LoonMitmHostnames::apply`. Plugins only add hosts.
+  `skip-server-cert-verify` is always refused.
+- `[Rule]` DOMAIN, DOMAIN-SUFFIX, IP-CIDR, IP-CIDR6, and GEOIP lines with a
+  REJECT or DIRECT policy become routing rules. `routing_model_with_plugin_rules`
+  puts them before the user's rules.
+- URL-REGEX REJECT rules, reject variants, 301–308 redirects, and
+  request/response header rewrites stay in the source that the `mitm_anixops`
+  core evaluates.
+- DOMAIN-KEYWORD REJECT is partial: it only applies on decrypted hosts until
+  the routing model gains a keyword matcher.
+- Rules that name another policy cannot work, because a plugin does not know
+  the user's node names.
+- Scripts, `[Map Local]`, and body rewrites are deferred to the P1 tier.
+
+The corpus in `tests/fixtures/loon-plugins` has an expected level for each
+plugin, and `tests/loon_plugin_contracts.rs` prints the graded report for
+each one.
+
 ## Gates
 
 ```text

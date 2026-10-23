@@ -1,0 +1,21 @@
+#!name = Example Ad Block
+#!desc = Rejects ad endpoints on example hosts
+#!author = NetworkCore
+#!category = Ad Block
+#!arguments = Mode:strict
+
+[Rule]
+DOMAIN,ads.example.com,REJECT
+DOMAIN-SUFFIX,tracker.example.net,REJECT
+IP-CIDR,203.0.113.0/24,REJECT,no-resolve
+DOMAIN-SUFFIX,cdn.example.org,DIRECT
+
+[Rewrite]
+^https?://api\.example\.com/v1/ad reject-dict
+^https?://api\.example\.com/v1/banner reject-img
+^https?://old\.example\.com/(.*) 302 https://new.example.com/$1
+^https?://api\.example\.com/v1/feed header-del X-Ad-Id
+^https?://api\.example\.com/v1/feed response-header-add X-Filtered true
+
+[MITM]
+hostname = %APPEND% api.example.com, old.example.com, -login.example.com
