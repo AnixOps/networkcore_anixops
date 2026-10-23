@@ -2714,9 +2714,9 @@ jobs:
           set -euo pipefail
           cargo clippy --locked -p script-runtime --features javascriptcore --all-targets -- -D warnings
           cargo test --locked -p script-runtime --features javascriptcore --test conformance -- --nocapture
-          # The binding must also link for the iPhone, where the packet tunnel runs it.
+          # The binding must also build for the iPhone without QuickJS, whose crate ships no iOS bindings.
           rustup target add aarch64-apple-ios
-          IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo build --locked -p script-runtime --features javascriptcore --target aarch64-apple-ios
+          IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo build --locked -p script-runtime --no-default-features --features javascriptcore --target aarch64-apple-ios
 
   windows-managed-client-installer:
     name: Windows managed client MSI

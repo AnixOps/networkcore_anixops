@@ -22,6 +22,7 @@ mod driver;
 mod host;
 #[cfg(all(feature = "javascriptcore", target_vendor = "apple"))]
 mod jsc;
+#[cfg(feature = "quickjs")]
 mod quickjs;
 mod store;
 
@@ -29,6 +30,7 @@ pub use driver::{finish_outcome, run_script, JsEngineContext, JsEngineError};
 pub use host::{ScriptHost, SCRIPT_HOST_FUNCTION, SCRIPT_PRELUDE};
 #[cfg(all(feature = "javascriptcore", target_vendor = "apple"))]
 pub use jsc::{JscScriptRuntime, MAX_STUCK_WORKERS};
+#[cfg(feature = "quickjs")]
 pub use quickjs::QuickJsScriptRuntime;
 pub use store::{
     JsonFileScriptStore, MemoryScriptStore, ScriptStore, SCRIPT_STORE_MAX_KEY_BYTES,

@@ -3,6 +3,7 @@
 //! format is engine-neutral: QuickJS and JavaScriptCore run the same files. A
 //! fixture's `requires` list names engine capabilities (`heap-limit`); an
 //! engine without one skips that fixture.
+#![cfg(feature = "quickjs")]
 
 use script_runtime::{
     MemoryScriptStore, QuickJsScriptRuntime, ScriptFailure, ScriptInvocation, ScriptLimits,
