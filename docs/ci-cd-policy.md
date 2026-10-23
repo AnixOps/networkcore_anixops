@@ -158,6 +158,8 @@ CI summary job 必须显式输出 commit SHA、workflow run ID/URL、变更来�
   并写入 Step Summary），每次生成新的 REALITY 密钥、UUID 与 short id，只监听 127.0.0.1，再以 `--ignored`
   运行 `outbound-vless` 的互通测试。
 
+CI 的 `concurrency` 只取消同一 pull request 上被新提交取代的旧 run。`main`、tag 与手动触发的 run 不会被取消，保证每个合并提交都有完整的验证结果。
+
 ### CI 缓存策略
 
 缓存只能加速普通 CI，不能改变验证结论：缓存未命中时，每个 job 仍必须能从源码完整安装、构建和测试；release 必须可复现。
@@ -168,6 +170,10 @@ CI summary job 必须显式输出 commit SHA、workflow run ID/URL、变更来�
     只有成功的 run 保存缓存。Rust 验证 job 设置 `CARGO_INCREMENTAL=0`。Windows MSI job 先安装工具链再恢复缓存，
     保证 key 中的 rustc 版本与实际构建一致；构建前清除恢复出的 `webview2-com-sys` 构建输出，使 WebView2
     加载器唯一性校验只看到本次构建的产物。
+  - Rust 缓存只由 `main` 的 push run 写入（`save-if`），pull request 只恢复不保存，避免各 PR 分支在仓库缓存配额内
+    互相驱逐。Windows 的 `rust-build-test` 与 MSI job 共用 `shared-key: windows-gnu`；MSI 只构建子集，只恢复不写入。
+  - Windows 的 `windres`/`rc` 兼容 shim 用 `actions/cache` 缓存，key 绑定 `windres_compat.rs` 与 `rc_compat.rs`
+    的哈希；未命中时照常用 `rustc` 编译。
   - Node：`setup-node` 的 pnpm store 缓存，key 绑定 `apps/windows-gui/ui/pnpm-lock.yaml`。
   - CI 工具：`cargo-audit` 通过 `taiki-e/install-action` 安装预编译二进制。
   - Go：`setup-go` 的模块缓存。

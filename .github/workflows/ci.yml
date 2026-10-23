@@ -14,9 +14,11 @@ on:
 permissions:
   contents: read
 
+# Superseded pull request runs are cancelled. Runs on main, tags and manual dispatch
+# always finish so every merged commit has a complete result.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
@@ -2536,16 +2538,32 @@ jobs:
             rustup target add x86_64-pc-windows-gnu
           fi
 
+      # Only main writes Rust caches; pull requests restore them. Per-branch saves
+      # evicted each other under the repository cache quota and left Windows cold.
+      # The Windows entry shares its key with the MSI job, which builds a subset.
       - name: Restore Rust build cache
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os == 'Windows' && 'windows-gnu' || '' }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       - name: Setup Node script runtime
         uses: actions/setup-node@v7
         with:
           node-version: 22
 
-      - name: Build windres compatibility shim
+      - name: Restore windres compatibility shim
         if: runner.os == 'Windows'
+        id: windres-shim-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .github/scripts/windres.exe
+            .github/scripts/rc.exe
+          key: windres-shim-${{ runner.os }}-${{ hashFiles('.github/scripts/windres_compat.rs', '.github/scripts/rc_compat.rs') }}
+
+      - name: Build windres compatibility shim
+        if: runner.os == 'Windows' && steps.windres-shim-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -2699,8 +2717,13 @@ jobs:
           rustup default stable
           rustup target add x86_64-pc-windows-gnu
 
+      # Restores the Windows cache saved by rust-build-test on main; this job
+      # builds a subset of that workspace, so it never writes the shared entry.
       - name: Restore Rust build cache
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-gnu
+          save-if: false
 
       # A restored cache can hold webview2-com-sys outputs from an older Cargo.lock.
       # Drop them so the WebView2Loader.dll uniqueness check below sees only this build.
@@ -2717,12 +2740,27 @@ jobs:
             }
           }
 
-      - name: Build Windows binaries
+      - name: Restore windres compatibility shim
+        id: windres-shim-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .github/scripts/windres.exe
+            .github/scripts/rc.exe
+          key: windres-shim-${{ runner.os }}-${{ hashFiles('.github/scripts/windres_compat.rs', '.github/scripts/rc_compat.rs') }}
+
+      - name: Build windres compatibility shim
+        if: steps.windres-shim-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           rustc .github/scripts/windres_compat.rs -o .github/scripts/windres.exe
           rustc .github/scripts/rc_compat.rs -o .github/scripts/rc.exe
+
+      - name: Build Windows binaries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
           cargo build --locked `
             --package networkcore-windows `
             --package networkcore-windows-gui `
@@ -3158,6 +3196,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: ios-runtime
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
       - name: Build the embedded runtime XCFramework
         shell: bash
