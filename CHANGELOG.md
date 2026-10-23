@@ -6,6 +6,7 @@
 
 ### Security
 
+- 修复 Actions 依赖审计发现的 RUSTSEC-2026-0385（`ctutils` 掩码生成与 `u128` 比较非常数时间）：将 `ctutils` lock 提升到 `0.4.4`。未添加漏洞忽略规则。
 - 修复 Actions 依赖审计发现的 RUSTSEC-2026-0346、RUSTSEC-2026-0347、RUSTSEC-2026-0348、RUSTSEC-2026-0349（`rustls`）、RUSTSEC-2026-0382（`rustls-webpki`）和 RUSTSEC-2026-0381（`webpki-roots`）：将 `rustls` 最低版本与 lock 提升到 `0.23.46`，`rustls-webpki` lock 提升到 `0.103.16`，`webpki-roots` lock 提升到 `1.0.10`。未添加漏洞忽略规则。
 - 修复 Actions 依赖审计发现的 [RUSTSEC-2026-0285](https://rustsec.org/advisories/RUSTSEC-2026-0285.html)：将 `rustls` 最低版本与 lock 提升到 `0.23.45`，相应 `rustls-webpki` lock 提升到 `0.103.15`。保留依赖审计与全平台 TLS 回归，未添加漏洞忽略规则。
 
