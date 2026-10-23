@@ -2681,6 +2681,43 @@ jobs:
             echo "::endgroup::"
           done
 
+  script-runtime-jsc:
+    name: JavaScriptCore script conformance
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: "0"
+    needs:
+      - detect-projects
+    if: ${{ needs.detect-projects.outputs.rust == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: script-runtime-jsc
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+      # The iOS script binding must pass the same $-API conformance fixtures as
+      # QuickJS (only the heap-limit fixture may be skipped), and its watchdog
+      # must abandon and then refuse scripts stuck past their timeout.
+      - name: Lint and test the JavaScriptCore binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo clippy --locked -p script-runtime --features javascriptcore --all-targets -- -D warnings
+          cargo test --locked -p script-runtime --features javascriptcore --test conformance -- --nocapture
+          # The binding must also link for the iPhone, where the packet tunnel runs it.
+          rustup target add aarch64-apple-ios
+          IPHONEOS_DEPLOYMENT_TARGET=17.0 cargo build --locked -p script-runtime --features javascriptcore --target aarch64-apple-ios
+
   windows-managed-client-installer:
     name: Windows managed client MSI
     runs-on: windows-latest
@@ -3442,6 +3479,7 @@ jobs:
       - maintenance-contracts
       - routing-equivalence
       - protocol-features
+      - script-runtime-jsc
       - node-build-test
       - swift-build-test
       - swift-manifest-validation
@@ -3491,6 +3529,7 @@ jobs:
           RESULT_REALITY_INTEROP: ${{ needs.reality-interop.result }}
           RESULT_ROUTING_EQUIVALENCE: ${{ needs.routing-equivalence.result }}
           RESULT_PROTOCOL_FEATURES: ${{ needs.protocol-features.result }}
+          RESULT_SCRIPT_RUNTIME_JSC: ${{ needs.script-runtime-jsc.result }}
           RESULT_NODE_BUILD_TEST: ${{ needs.node-build-test.result }}
           RESULT_SWIFT_BUILD_TEST: ${{ needs.swift-build-test.result }}
           RESULT_APPLE_SMOKE: ${{ needs.apple-project-smoke.result }}
@@ -3606,6 +3645,7 @@ jobs:
           record_job "REALITY interop (Linux)" "${RESULT_REALITY_INTEROP}" "${reality_interop_required}"
           record_job "Routing equivalence (sing-box)" "${RESULT_ROUTING_EQUIVALENCE}" "${rust_required}"
           record_job "Protocol feature matrix" "${RESULT_PROTOCOL_FEATURES}" "${rust_required}"
+          record_job "JavaScriptCore script conformance" "${RESULT_SCRIPT_RUNTIME_JSC}" "${rust_required}"
           record_job "Node build and test" "${RESULT_NODE_BUILD_TEST}" "${node_required}"
           record_job "Swift build and test" "${RESULT_SWIFT_BUILD_TEST}" "${swift_required}"
           record_job "Swift package manifest validation" "${RESULT_SWIFT_MANIFEST}" "${swift_manifest_required}"
@@ -3677,6 +3717,7 @@ jobs:
             echo "| REALITY interop (Linux) | ${reality_interop_required} | ${RESULT_REALITY_INTEROP} |"
             echo "| HTTP/2 MITM fuzz | ${rust_required} | ${RESULT_RUST_H2_FUZZ} |"
             echo "| Protocol feature matrix | ${rust_required} | ${RESULT_PROTOCOL_FEATURES} |"
+            echo "| JavaScriptCore script conformance | ${rust_required} | ${RESULT_SCRIPT_RUNTIME_JSC} |"
             echo "| Node build and test | ${node_required} | ${RESULT_NODE_BUILD_TEST} |"
             echo "| Swift build and test | ${swift_required} | ${RESULT_SWIFT_BUILD_TEST} |"
             echo "| Apple project smoke | ${apple_required} | ${RESULT_APPLE_SMOKE} |"

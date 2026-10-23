@@ -4,7 +4,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Loon-compatible HTTP script runtime: one Rust $-API host with a thin QuickJS (quickjs-ng) binding."
+description = "Loon-compatible HTTP script runtime: one Rust $-API host with thin QuickJS (quickjs-ng) and JavaScriptCore bindings."
+
+[features]
+# Apple JavaScriptCore binding through the public C API; ignored on other targets.
+javascriptcore = []
 
 [dependencies]
 rquickjs = { version = "0.13", default-features = false, features = ["std"] }

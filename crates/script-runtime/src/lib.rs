@@ -8,8 +8,10 @@
 //! in [`run_script`] and the result mapping in [`finish_outcome`] are shared.
 //!
 //! QuickJS (quickjs-ng through rquickjs) is the desktop binding. The Apple
-//! JavaScriptCore binding (M4) implements the same trait and must pass the same
-//! conformance fixtures in `tests/fixtures/conformance`.
+//! JavaScriptCore binding ([`JscScriptRuntime`], feature `javascriptcore`,
+//! Apple targets only) implements the same trait and passes the same
+//! conformance fixtures in `tests/fixtures/conformance`, except the heap limit
+//! that JavaScriptCore's public API cannot enforce.
 //!
 //! Scripts never get file system, process, or network access of their own.
 //! Everything they can reach goes through the host: the persistent store is
@@ -18,11 +20,15 @@
 
 mod driver;
 mod host;
+#[cfg(all(feature = "javascriptcore", target_vendor = "apple"))]
+mod jsc;
 mod quickjs;
 mod store;
 
 pub use driver::{finish_outcome, run_script, JsEngineContext, JsEngineError};
 pub use host::{ScriptHost, SCRIPT_HOST_FUNCTION, SCRIPT_PRELUDE};
+#[cfg(all(feature = "javascriptcore", target_vendor = "apple"))]
+pub use jsc::{JscScriptRuntime, MAX_STUCK_WORKERS};
 pub use quickjs::QuickJsScriptRuntime;
 pub use store::{
     JsonFileScriptStore, MemoryScriptStore, ScriptStore, SCRIPT_STORE_MAX_KEY_BYTES,
@@ -87,7 +93,7 @@ pub struct ScriptLimits {
     /// Wall-clock budget for the whole dispatch, including timers and
     /// `$httpClient` callbacks.
     pub timeout: Duration,
-    /// QuickJS heap limit.
+    /// Heap limit (QuickJS only; JavaScriptCore cannot enforce one).
     pub memory_limit_bytes: usize,
     /// Larger bodies skip the script (Loon `max-size`).
     pub max_body_bytes: usize,
