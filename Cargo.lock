@@ -499,7 +499,7 @@ dependencies = [
  "blake2",
  "chacha20poly1305 0.10.1",
  "hex",
- "hmac",
+ "hmac 0.12.1",
  "ip_network",
  "ip_network_table",
  "libc",
@@ -1210,6 +1210,7 @@ dependencies = [
  "block-buffer 0.12.1",
  "const-oid",
  "crypto-common 0.2.2",
+ "ctutils",
 ]
 
 [[package]]
@@ -2185,12 +2186,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
+name = "hkdf"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4aaa26c720c68b866f2c96ef5c1264b3e6f473fe5d4ce61cd44bbe913e553018"
+dependencies = [
+ "hmac 0.13.0",
+]
+
+[[package]]
 name = "hmac"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
 dependencies = [
  "digest 0.10.7",
+]
+
+[[package]]
+name = "hmac"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6303bc9732ae41b04cb554b844a762b4115a61bfaa81e3e83050991eeb56863f"
+dependencies = [
+ "digest 0.11.3",
 ]
 
 [[package]]
@@ -2825,6 +2844,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "md-5"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
+dependencies = [
+ "cfg-if",
+ "digest 0.11.3",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3375,8 +3404,10 @@ dependencies = [
  "base64 0.22.1",
  "blake3",
  "engine-outbound",
+ "md-5 0.10.6",
  "ring",
  "serde",
+ "serde_json",
  "shadowsocks",
  "tokio",
 ]
@@ -3437,7 +3468,7 @@ dependencies = [
  "aes",
  "crc32fast",
  "engine-outbound",
- "md-5",
+ "md-5 0.10.6",
  "ring",
  "serde",
  "serde_json",
@@ -4663,7 +4694,10 @@ dependencies = [
  "bytes",
  "cfg-if",
  "chacha20poly1305 0.11.0",
+ "hkdf",
+ "md-5 0.11.0",
  "rand 0.10.2",
+ "sha1",
 ]
 
 [[package]]

@@ -115,8 +115,17 @@ fn shadowsocks(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         metadata(node, NODE_METADATA_SHADOWSOCKS_METHOD).ok_or("shadowsocks method is missing")?;
     let password = metadata(node, NODE_METADATA_SHADOWSOCKS_PASSWORD)
         .ok_or("shadowsocks password is missing")?;
-    if !method.starts_with("2022-") {
-        return Err("only Shadowsocks-2022 methods are implemented yet");
+    if !matches!(
+        method,
+        "2022-blake3-aes-128-gcm"
+            | "2022-blake3-aes-256-gcm"
+            | "2022-blake3-chacha20-poly1305"
+            | "aes-128-gcm"
+            | "aes-256-gcm"
+            | "chacha20-ietf-poly1305"
+            | "chacha20-poly1305"
+    ) {
+        return Err("shadowsocks methods other than AEAD and 2022 ones are not implemented yet");
     }
     Ok(json!({
         "type": "shadowsocks",
