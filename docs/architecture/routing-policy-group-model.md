@@ -112,7 +112,7 @@ CI job `Routing equivalence (sing-box)` 下载最新 sing-box 正式版和 `geoi
 
 ## engine-embedded 接入
 
-- 运行时配置新增 `routing` 段（与 `outbound` 二选一）：`outbounds` 以节点 id 为键，`rules` 与 `groups` 字段同 `RoutingSpec`/`PolicyGroupSpec`。
+- 运行时配置新增 `routing` 段（与 `outbound` 二选一）：`outbounds` 以节点 id 为键，`rules` 与 `groups` 字段同 `RoutingSpec`/`PolicyGroupSpec`。路由节点必须是 TCP 出站（Shadowsocks-2022、direct）；WireGuard 是包级隧道，只能作为单一 `outbound` 使用。
 - `engine_embedded::routing::RoutedOutbound` 对每个连接调用 `decide`，`DIRECT` 走直连出站，`REJECT` 直接失败，节点走对应出站。策略组使用无运行时状态的选择（select 的 `default` 或第一个成员）。
 - 隧道目前只拿到目的 IP：域名规则只在调用方传入域名目标时生效（FakeIP/嗅探尚未接入）；域名目标遇到不带 `no-resolve` 的 IP 规则时运行时不解析，按解析失败拒绝；运行时不带 GeoIP 数据库，`GEOIP` 规则不会命中。
 - Swift 侧尚未生成 `routing` 段，现有单出站配置行为不变。
