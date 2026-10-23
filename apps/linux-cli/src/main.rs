@@ -186,6 +186,28 @@ fn main() {
                     state_directory,
                     *confirm,
                 )
+            } else if let Some(response) = match &command {
+                networkcore_linux::LinuxCliCommand::RunUrl {
+                    url,
+                    selected_node_id,
+                    listen_host,
+                    listen_port,
+                    engine,
+                    ..
+                } if *engine != networkcore_linux::LinuxRunEngine::SingBox => {
+                    networkcore_linux::run_url_with_embedded_engine(
+                        &networkcore_linux::CommandRemoteSubscriptionFetcher,
+                        url,
+                        selected_node_id.as_deref(),
+                        listen_host,
+                        *listen_port,
+                        *engine,
+                        networkcore_linux::wait_for_stop_signal,
+                    )
+                }
+                _ => None,
+            } {
+                response
             } else if matches!(
                 &command,
                 networkcore_linux::LinuxCliCommand::InstallSingBox { .. }

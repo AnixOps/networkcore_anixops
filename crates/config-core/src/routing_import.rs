@@ -36,6 +36,9 @@ const HEALTH_CHECK_OPTIONS: [&str; 3] = ["url", "interval", "tolerance"];
 pub struct ImportedRouting {
     /// `None` when the payload has no rules or the imported rules are invalid.
     pub routing: Option<RoutingModel>,
+    /// The rule lines and groups `routing` was built from, for engines that
+    /// take the spec form (the embedded engine's config envelope).
+    pub spec: Option<RoutingSpec>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -52,6 +55,7 @@ pub fn import_subscription_routing(content: &str, nodes: &[NodeDescriptor]) -> I
     let Some(source) = source else {
         return ImportedRouting {
             routing: None,
+            spec: None,
             diagnostics: Vec::new(),
         };
     };
@@ -296,6 +300,7 @@ fn build_routing(source: RoutingSource, nodes: &[NodeDescriptor]) -> ImportedRou
             ));
             ImportedRouting {
                 routing: Some(model),
+                spec: Some(spec),
                 diagnostics: importer.diagnostics,
             }
         }
@@ -309,6 +314,7 @@ fn build_routing(source: RoutingSource, nodes: &[NodeDescriptor]) -> ImportedRou
             );
             ImportedRouting {
                 routing: None,
+                spec: None,
                 diagnostics: importer.diagnostics,
             }
         }

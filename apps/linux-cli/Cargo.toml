@@ -11,8 +11,10 @@ config-core = { path = "../../crates/config-core" }
 control-domain = { path = "../../crates/control-domain" }
 control-runtime = { path = "../../crates/control-runtime" }
 engine-native = { path = "../../crates/engine-native" }
+engine-embedded = { path = "../../crates/engine-embedded" }
 engine-mieru = { path = "../../crates/engine-mieru" }
 engine-singbox = { path = "../../crates/engine-singbox" }
+inbound-mixed = { path = "../../crates/inbound-mixed" }
 mitm-policy = { path = "../../crates/mitm-policy" }
 platform-linux = { path = "../../crates/platform-linux" }
 rcgen = "0.14.8"
