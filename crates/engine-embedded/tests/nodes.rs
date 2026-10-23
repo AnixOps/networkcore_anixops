@@ -254,6 +254,39 @@ fn vmess_nodes_map_security_tls_and_websocket() {
     }
 }
 
+#[cfg(feature = "hysteria2")]
+#[test]
+fn hysteria2_nodes_map_password_and_tls() {
+    let hy2 = node(
+        "hy2",
+        Protocol::Hysteria2,
+        &[
+            ("hysteria2.password", "hy2-secret"),
+            ("hysteria2.server_ports", "20000-30000"),
+            ("tls.server_name", "hy2.example"),
+            ("tls.insecure", "true"),
+        ],
+    );
+    let outbound = outbound_for_node(&hy2).unwrap();
+    assert_eq!(
+        outbound,
+        serde_json::json!({
+            "type": "hysteria2",
+            "server": "192.0.2.1",
+            "port": 443,
+            "password": "hy2-secret",
+            "server_name": "hy2.example",
+            "alpn": [],
+            "insecure": true,
+        })
+    );
+    let (envelope, _) = single_node_envelope("p", &[hy2], None).unwrap();
+    assert_eq!(builds(&envelope), "hysteria2");
+
+    let missing = node("hy2-missing", Protocol::Hysteria2, &[]);
+    assert!(outbound_for_node(&missing).is_err());
+}
+
 #[test]
 fn unsupported_nodes_are_reported_without_secrets() {
     let legacy_ss = node(
@@ -275,7 +308,11 @@ fn unsupported_nodes_are_reported_without_secrets() {
     let hysteria2 = node(
         "hy2",
         Protocol::Hysteria2,
-        &[("hysteria2.password", "hy2-secret")],
+        &[
+            ("hysteria2.password", "hy2-secret"),
+            ("hysteria2.obfs.type", "salamander"),
+            ("hysteria2.obfs.password", "obfs-secret"),
+        ],
     );
     for node in [legacy_ss, vless_h2, hysteria2] {
         let reason = outbound_for_node(&node).unwrap_err();
@@ -310,7 +347,7 @@ fn selected_node_and_routing_envelopes() {
 
     let with_unsupported = [
         ss2022(),
-        node("hy2", Protocol::Hysteria2, &[("hysteria2.password", "x")]),
+        node("hy1", Protocol::Hysteria, &[("hysteria.auth", "x")]),
     ];
     assert!(routing_envelope("p", &with_unsupported, &spec).is_err());
 }

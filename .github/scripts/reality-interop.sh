@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# REALITY (outbound-vless) and VMess (outbound-vmess) interop harness
-# (Linux runners only).
+# REALITY (outbound-vless), VMess (outbound-vmess) and Hysteria2
+# (outbound-hysteria2) interop harness (Linux runners only).
 #
-#   reality-interop.sh download   fetch Xray-core and sing-box release binaries
+#   reality-interop.sh download   fetch Xray-core, sing-box and Hysteria
+#                                 release binaries
 #   reality-interop.sh start      start targets and REALITY servers, write env
 #   reality-interop.sh logs       print server logs (for failed runs)
 #
-# Versions come from XRAY_VERSION / SINGBOX_VERSION (a release tag or
-# "latest"). Keys, UUID and short id are generated per run.
+# Versions come from XRAY_VERSION / SINGBOX_VERSION / HYSTERIA_VERSION (a
+# release tag or "latest"). Keys, UUID, short id and passwords are generated
+# per run.
 
 set -euo pipefail
 
@@ -26,8 +28,9 @@ resolve_tag() {
 }
 
 download() {
-  local xray_tag singbox_tag singbox_version
+  local xray_tag singbox_tag singbox_version hysteria_tag
   xray_tag="$(resolve_tag XTLS/Xray-core "${XRAY_VERSION:-latest}")"
+  hysteria_tag="$(resolve_tag apernet/hysteria "${HYSTERIA_VERSION:-latest}")"
   singbox_tag="$(resolve_tag SagerNet/sing-box "${SINGBOX_VERSION:-latest}")"
   singbox_version="${singbox_tag#v}"
 
@@ -38,10 +41,13 @@ download() {
     -p "sing-box-${singbox_version}-linux-amd64.tar.gz" -D "${work}" --clobber
   tar -xzf "${work}/sing-box-${singbox_version}-linux-amd64.tar.gz" -C "${work}"
   cp "${work}/sing-box-${singbox_version}-linux-amd64/sing-box" "${bin}/sing-box"
-  chmod +x "${bin}/xray" "${bin}/sing-box"
+  gh release download "${hysteria_tag}" -R apernet/hysteria -p hysteria-linux-amd64 \
+    -O "${bin}/hysteria" --clobber
+  chmod +x "${bin}/xray" "${bin}/sing-box" "${bin}/hysteria"
 
   "${bin}/xray" version | sed -n 1p
   "${bin}/sing-box" version | sed -n 1p
+  "${bin}/hysteria" version | grep -i '^version' || true
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     {
       echo "### REALITY interop servers"
@@ -50,6 +56,7 @@ download() {
       echo "| --- | --- |"
       echo "| Xray-core | ${xray_tag} |"
       echo "| sing-box | ${singbox_tag} |"
+      echo "| Hysteria | ${hysteria_tag} |"
     } >> "${GITHUB_STEP_SUMMARY}"
   fi
 }
@@ -63,6 +70,18 @@ wait_for_port() {
     sleep 0.1
   done
   echo "::error::port ${port} did not open"
+  return 1
+}
+
+wait_for_udp_port() {
+  local port="$1"
+  for _ in $(seq 1 100); do
+    if [[ -n "$(ss -Hlun "sport = :${port}")" ]]; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  echo "::error::udp port ${port} did not open"
   return 1
 }
 
@@ -101,13 +120,14 @@ server.serve_forever()
 " "${work}/target.crt" "${work}/target.key" "${www}" > "${work}/target-dest.log" 2>&1 &
   python3 -m http.server 18080 --bind 127.0.0.1 --directory "${www}" > "${work}/target-http.log" 2>&1 &
 
-  local keypair private_key public_key uuid short_id server_name
+  local keypair private_key public_key uuid short_id server_name hy2_password
   keypair="$("${bin}/sing-box" generate reality-keypair)"
   private_key="$(awk '/PrivateKey/ {print $2}' <<<"${keypair}")"
   public_key="$(awk '/PublicKey/ {print $2}' <<<"${keypair}")"
   uuid="$("${bin}/sing-box" generate uuid)"
   short_id="$(openssl rand -hex 8)"
   server_name="reality.interop.test"
+  hy2_password="$(openssl rand -hex 16)"
 
   cat > "${work}/xray.json" <<EOF
 {
@@ -158,7 +178,11 @@ EOF
      "transport": {"type": "ws", "path": "/vm"}},
     {"type": "vmess", "tag": "vmess-grpc", "listen": "127.0.0.1", "listen_port": 25443,
      "users": [{"uuid": "${uuid}", "alterId": 0}],
-     "transport": {"type": "grpc", "service_name": "vmgrpc"}}
+     "transport": {"type": "grpc", "service_name": "vmgrpc"}},
+    {"type": "hysteria2", "tag": "hy2", "listen": "127.0.0.1", "listen_port": 26441,
+     "users": [{"password": "${hy2_password}"}],
+     "tls": {"enabled": true, "alpn": ["h3"],
+       "certificate_path": "${work}/target.crt", "key_path": "${work}/target.key"}}
   ],
   "outbounds": [{"type": "direct"}]
 }
@@ -169,8 +193,23 @@ EOF
   "${bin}/xray" run -c "${work}/xray.json" > "${work}/xray.log" 2>&1 &
   "${bin}/sing-box" run -c "${work}/sing-box.json" > "${work}/sing-box.log" 2>&1 &
 
+  # The reference Hysteria2 server.
+  cat > "${work}/hysteria.yaml" <<EOF
+listen: 127.0.0.1:27441
+tls:
+  cert: ${work}/target.crt
+  key: ${work}/target.key
+auth:
+  type: password
+  password: ${hy2_password}
+EOF
+  "${bin}/hysteria" server -c "${work}/hysteria.yaml" > "${work}/hysteria.log" 2>&1 &
+
   for port in 18080 18443 18444 24431 24432 24441 24442 24443 25431 25432 25441 25442 25443; do
     wait_for_port "${port}"
+  done
+  for port in 26441 27441; do
+    wait_for_udp_port "${port}"
   done
 
   cat > "${work}/env" <<EOF
@@ -178,6 +217,9 @@ NC_INTEROP_SERVERS=xray-vision=127.0.0.1:24431:vision,xray-plain=127.0.0.1:24432
 NC_VLESS_UUID=${uuid}
 NC_VMESS_SERVERS=xray-vmess-tcp=127.0.0.1:24441:tcp,xray-vmess-ws=127.0.0.1:24442:ws,xray-vmess-grpc=127.0.0.1:24443:grpc,sing-box-vmess-tcp=127.0.0.1:25441:tcp,sing-box-vmess-ws=127.0.0.1:25442:ws,sing-box-vmess-grpc=127.0.0.1:25443:grpc
 NC_VMESS_UUID=${uuid}
+NC_HYSTERIA2_SERVERS=sing-box=127.0.0.1:26441,hysteria=127.0.0.1:27441
+NC_HYSTERIA2_PASSWORD=${hy2_password}
+NC_HYSTERIA2_SERVER_NAME=target.interop.test
 NC_REALITY_PUBLIC_KEY=${public_key}
 NC_REALITY_SHORT_ID=${short_id}
 NC_REALITY_SERVER_NAME=${server_name}
@@ -187,7 +229,7 @@ EOF
 }
 
 logs() {
-  for log in xray sing-box target-tls target-dest target-http; do
+  for log in xray sing-box hysteria target-tls target-dest target-http; do
     if [[ -f "${work}/${log}.log" ]]; then
       echo "::group::${log}.log"
       tail -n 200 "${work}/${log}.log"

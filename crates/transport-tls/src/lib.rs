@@ -36,28 +36,8 @@ impl TlsConnector {
     pub fn new(settings: &TlsSettings) -> io::Result<Self> {
         let server_name = ServerName::try_from(settings.server_name.clone())
             .map_err(|_| invalid("tls server name is invalid"))?;
-        let provider = Arc::new(rustls::crypto::ring::default_provider());
-        let builder = ClientConfig::builder_with_provider(provider.clone())
-            .with_safe_default_protocol_versions()
-            .map_err(|_| invalid("tls protocol versions are unavailable"))?;
-        let mut config = if settings.insecure {
-            builder
-                .dangerous()
-                .with_custom_certificate_verifier(Arc::new(NoCertificateVerification(provider)))
-                .with_no_client_auth()
-        } else {
-            let roots = RootCertStore {
-                roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-            };
-            builder.with_root_certificates(roots).with_no_client_auth()
-        };
-        config.alpn_protocols = settings
-            .alpn
-            .iter()
-            .map(|protocol| protocol.as_bytes().to_vec())
-            .collect();
         Ok(Self {
-            connector: tokio_rustls::TlsConnector::from(Arc::new(config)),
+            connector: tokio_rustls::TlsConnector::from(Arc::new(client_config(settings)?)),
             server_name,
         })
     }
@@ -70,6 +50,32 @@ impl TlsConnector {
             .await?;
         Ok(Box::new(stream))
     }
+}
+
+/// The rustls client configuration for `settings` (roots or `insecure`, and
+/// ALPN), for transports that run TLS themselves, such as QUIC.
+pub fn client_config(settings: &TlsSettings) -> io::Result<ClientConfig> {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let builder = ClientConfig::builder_with_provider(provider.clone())
+        .with_safe_default_protocol_versions()
+        .map_err(|_| invalid("tls protocol versions are unavailable"))?;
+    let mut config = if settings.insecure {
+        builder
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(NoCertificateVerification(provider)))
+            .with_no_client_auth()
+    } else {
+        let roots = RootCertStore {
+            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+        };
+        builder.with_root_certificates(roots).with_no_client_auth()
+    };
+    config.alpn_protocols = settings
+        .alpn
+        .iter()
+        .map(|protocol| protocol.as_bytes().to_vec())
+        .collect();
+    Ok(config)
 }
 
 /// Accepts any certificate but still verifies the handshake signature with
