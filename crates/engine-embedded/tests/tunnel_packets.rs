@@ -150,7 +150,43 @@ fn udp_dns_query_is_answered_over_tcp() {
     let stats = tunnel.stats();
     assert_eq!(stats.dns_queries, 1);
     assert_eq!(stats.dns_failed, 0);
+    assert_eq!(stats.dns_last_failure, None);
     tunnel.stop();
+    tunnel.stop();
+}
+
+/// Server that accepts and closes every connection, like a proxy that drops a
+/// request it cannot authenticate.
+fn start_closing_server() -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            drop(stream);
+        }
+    });
+    addr
+}
+
+#[test]
+fn dns_failure_reports_its_stage() {
+    let (sink, _rx) = capture();
+    let mut tunnel =
+        Tunnel::start(settings(), Arc::new(Redirect(start_closing_server())), sink).unwrap();
+
+    let mut packet = Vec::new();
+    PacketBuilder::ipv4(APP, DNS, 64)
+        .udp(5353, 53)
+        .write(&mut packet, &dns_query())
+        .unwrap();
+    assert!(tunnel.input_packet(&packet));
+
+    let deadline = Instant::now() + WAIT;
+    while tunnel.stats().dns_failed == 0 {
+        assert!(Instant::now() < deadline, "DNS query should fail");
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(tunnel.stats().dns_last_failure, Some("reply_closed"));
     tunnel.stop();
 }
 
