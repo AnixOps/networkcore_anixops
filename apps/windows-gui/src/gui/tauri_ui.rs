@@ -327,7 +327,7 @@ fn install_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("Tauri default window icon is not configured")?;
     let tray = TrayIconBuilder::with_id("networkcore")
         .icon(icon)
-        .tooltip("AnixOps NetworkCore")
+        .tooltip("AnixOps Net")
         .menu(&menu)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => show_main_window(app),

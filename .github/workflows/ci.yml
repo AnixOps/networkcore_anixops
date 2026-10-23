@@ -863,14 +863,14 @@ jobs:
           grep -q 'list_subscriptions' apps/windows-gui/src/gui/tauri_ui.rs
           grep -q 'configure_tunnel' apps/windows-gui/src/gui/tauri_ui.rs
           grep -q 'configure_dns' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'dnsConfigured' apps/windows-gui/ui/src/App.tsx
+          grep -rq 'dnsConfigured' apps/windows-gui/ui/src
           grep -q 'configure_script_runtime' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'scriptRuntimeConfigured' apps/windows-gui/ui/src/App.tsx
+          grep -rq 'scriptRuntimeConfigured' apps/windows-gui/ui/src
           grep -q 'NativeNodeScriptRuntimeConfig' apps/windows-service/src/lib.rs
           grep -q 'select_native_group_outbound' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'selectNativeGroupOutbound' apps/windows-gui/ui/src/App.tsx
+          grep -rq 'selectNativeGroupOutbound' apps/windows-gui/ui/src
           grep -q 'replace_native_group' apps/windows-gui/src/gui/tauri_ui.rs
-          grep -q 'replaceNativeGroup' apps/windows-gui/ui/src/App.tsx
+          grep -rq 'replaceNativeGroup' apps/windows-gui/ui/src
           grep -q 'runtime_snapshot' apps/windows-gui/src/gui/tauri_ui.rs
           grep -q 'desktop.snapshot' apps/windows-gui/ui/src/App.tsx
           grep -q "read_runtime_status" apps/windows-gui/src/main.rs

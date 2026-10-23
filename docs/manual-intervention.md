@@ -72,7 +72,7 @@ Record all detailed screenshots, raw logs, route tables, process IDs, local path
 2. Verify both checksum files and both manifest checksum files on Windows. Confirm the manifest version is `v0.2.0-beta.5`, schema version is `2`, target is `x86_64-pc-windows-gnu`, installer format is `msi`, and the portable ZIP declares manual-extract with no extraction-time service registration.
 3. Inspect the MSI and portable ZIP file lists. Confirm GUI, app-local x64 `WebView2Loader.dll`, service, CLI, installer metadata, license material, default managed config, and expected WiX product version are present; confirm no bundled or silently downloaded third-party core, signing private key, CA private key, production subscription, or secret is present.
 4. On a clean elevated Windows desktop, install the MSI. Confirm `WebView2Loader.dll` is installed beside the GUI executable, the Microsoft Edge WebView2 Evergreen Runtime is available, service registration, install-time asynchronous service start behavior, uninstall metadata, and expected unsigned-installer warning if Authenticode signing is still unavailable.
-5. Launch the GUI at 100%, 125%, 150%, and 200% DPI in light and dark modes. Confirm the Tauri start page renders rather than remaining blank or loading indefinitely, then exercise Home, Nodes, Subscriptions, Settings, Diagnostics, and Advanced with long node names, long errors, empty state, and a large catalog.
+5. Launch the GUI at 100%, 125%, 150%, and 200% DPI in the light, dark, and pure-black (OLED) appearances and with the system appearance switched while the window is open. Confirm the Tauri start page renders rather than remaining blank or loading indefinitely, then exercise 概览, 代理, 规则, 扩展, 活动, and 设置 with long node names, long errors, empty state, and a large catalog.
 6. Import a local profile and an operator-entered HTTP(S) subscription URL. Confirm load, update, failure retention, redacted status, node diff counts, and that failed refresh does not overwrite current config, switch node, restart core, or retry the same failure.
 7. Install or stage the approved external sing-box core through the explicit GUI/operator path. Confirm `sing-box check -c`, service-owned run, PID, exit, bounded log tail, and diagnostics use only service-owned paths.
 8. Connect a generated NodeCatalog profile. Confirm Connected is shown only after SCM running, service-owned `check -c`, loopback listener, service-owned sing-box PID, generated selector active-outbound/default readback, and exact current-user proxy evidence all pass.
@@ -221,12 +221,12 @@ experience production-ready:
 12. Import a native sing-box profile containing both a selector and a
     non-selector outbound group. With the service stopped, record the listed
     groups, switch the selector default to a listed member, and replace one
-    group's same-tag JSON using its Advanced editor. Verify the saved managed
+    group's same-tag JSON using its editor on the 规则 page. Verify the saved managed
     JSON changes only that group, start the service, and retain the relevant
     sing-box check/runtime evidence. Restore the original group JSON after
     the proof.
 13. With HTTPS MITM disabled, choose the first-party Bilibili web promotional
-    request-blocking trial in Advanced, enable HTTPS MITM, and use a Bilibili
+    request-blocking trial on the 扩展 page, enable HTTPS MITM, and use a Bilibili
     web search page through the trusted local proxy. Record only redacted
     evidence that recommendation-word requests are rejected and normal home
     feed/video/comment requests still work. Then disable the selection,
