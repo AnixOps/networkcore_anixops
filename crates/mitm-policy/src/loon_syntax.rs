@@ -73,7 +73,7 @@ pub(crate) fn attributes(text: &str) -> Vec<(String, String)> {
         }
         let mut value = String::new();
         if chars.next_if_eq(&'=').is_some() {
-            let quote = chars.next_if(|ch| matches!(ch, '"' | '\''));
+            let quote = chars.next_if(|ch| matches!(*ch, '"' | '\''));
             while let Some(ch) = chars.next() {
                 match quote {
                     Some(quote) if ch == quote => break,
@@ -111,7 +111,11 @@ mod tests {
                 r"a\b"
             ]
         );
-        let requoted = parsed.iter().map(|token| quote(token)).collect::<Vec<_>>();
+        let requoted = parsed
+            .iter()
+            .map(String::as_str)
+            .map(quote)
+            .collect::<Vec<_>>();
         assert_eq!(tokens(&requoted.join(" ")), parsed);
     }
 

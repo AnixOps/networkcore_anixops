@@ -422,7 +422,9 @@ pub fn import_loon_plugin(text: &str) -> DomainResult<LoonPluginImport> {
             }
             Section::BodyRewrite => parser.body_rewrite_line(line_number, &section_name, line),
             Section::Script => parser.script_line(line_number, &section_name, line),
-            Section::MapLocal => parser.map_local_line(line_number, &section_name, line),
+            Section::MapLocal => {
+                parser.map_local_line(line_number, &section_name, line);
+            }
             Section::Mitm => parser.mitm_line(line_number, &section_name, line),
             Section::Other => parser.push(
                 line_number,
