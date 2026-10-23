@@ -12,6 +12,7 @@
 
 ### Added
 
+- Loon 插件 P1 脚本：新增 `script-runtime` crate，`$request`/`$response`/`$argument`/`$done`/`$persistentStore`/`$notification`/`$httpClient`/`console`/定时器只在 Rust 里实现一份（`ScriptHost`），JS 引擎只绑定一个宿主函数并执行共享 prelude；桌面端绑定 QuickJS-ng（rquickjs），用 QuickJS 堆上限和中断回调实现 Loon `timeout`/`max-size`。`tests/fixtures/conformance` 是引擎无关的一致性夹具，M4 的 JavaScriptCore 绑定复用同一套。`engine-native` 新增进程内 `NativeQuickJsScriptExecutor`（脚本按 SHA-256 固定、`$httpClient` 默认关闭），请求阶段脚本可用 `$done({response})` 直接返回响应；`networkcore-linux start --enable-script-runtime` 不带 `--script-runner` 时使用 QuickJS，并允许 `--script-store`。Loon 导入器把 `[Script]` `http-request`/`http-response` 行定级为支持。
 - iOS App 新增隐藏的开发者模式：在“关于”里连点版本号 7 次开启，显示扩展内存占用、运行时长、运行时 ABI 版本、上次停止原因（含完整 domain/code 链）、格式化的运行状态 JSON（每 2 秒自动刷新）和扩展最近 200 条事件（启动步骤、停止原因、睡眠唤醒、内存压力），并可一键复制不含节点名称、地址和密钥的诊断信息。App 通过 `TunnelAppMessage.diagnostics` 请求诊断，空消息仍返回运行状态 JSON。App 隐私清单声明 UserDefaults（CA92.1）。
 - `engine-embedded` 运行状态新增 `dns_last_failure` 与 `tcp_last_failure`：只记录失败阶段和错误类别（如 `connect_timeout`、`reply_closed`、`reply_rejected`），不含地址或内容，用于在真机上区分连不上代理服务器、代理不回应和代理拒绝认证。
 - `engine-embedded` 的 Shadowsocks-2022 出站支持多用户 identity header（SIP022 EIH，`iPSK:uPSK` 形式的密码，仅 AES 方法），身份头用 RustCrypto `aes` 分组加密；节点密钥同时接受标准与 URL-safe base64，填充可省略。此前这类节点在 iOS 上导入后启动隧道会被内核拒绝（code 6）。

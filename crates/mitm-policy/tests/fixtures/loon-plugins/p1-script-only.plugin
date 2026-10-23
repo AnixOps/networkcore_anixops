@@ -1,5 +1,5 @@
 #!name = Example Script Only
-#!desc = Needs the P1 script runtime
+#!desc = Runs in the P1 script runtime
 
 [Script]
 http-request ^https?://api\.example\.com/v3/sign script-path=sign.js, tag=sign

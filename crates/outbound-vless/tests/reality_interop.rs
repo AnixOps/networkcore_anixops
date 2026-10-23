@@ -179,43 +179,63 @@ async fn plain_http_through_each_reality_server() {
 #[ignore = "needs the REALITY interop CI environment"]
 async fn inner_tls13_through_each_reality_server_uses_vision_direct_copy() {
     for_each_server(|server| async move {
-        let flow = server.config.flow;
-        let outbound = VlessRealityOutbound::new(server.config, Arc::new(TcpDialer));
-        let vless = outbound
-            .connect_stream(&target("NC_TLS_TARGET"))
-            .await
-            .map_err(|error| format!("connect failed: {error}"))?;
-        let mut inner = tls_mimic::connect(
-            vless,
-            &ClientConfig::new("target.interop.test", Fingerprint::Chrome),
-            &mut AcceptAnyCertificate,
-        )
-        .await
-        .map_err(|error| format!("inner TLS failed: {error}"))?;
-        let body = http_get(&mut inner)
-            .await
-            .map_err(|error| format!("HTTPS failed: {error}"))?;
-        if body != expected_payload() {
-            return Err(format!("payload mismatch ({} bytes)", body.len()));
+        // Xray only switches the downlink to direct when a read from the
+        // target starts on an application-data record boundary, which depends
+        // on TCP segmentation. Retry that case; every attempt still has to
+        // deliver the exact payload.
+        let mut attempt = 1;
+        loop {
+            match inner_tls13_direct_copy(server.config.clone()).await {
+                Err(error) if error == DOWNLINK_NOT_DIRECT && attempt < DIRECT_ATTEMPTS => {
+                    eprintln!("{}: attempt {attempt}: {error}, retrying", server.name);
+                    attempt += 1;
+                }
+                result => return result,
+            }
         }
-        let vless = inner.get_ref();
-        if flow == Flow::Vision {
-            let state = vless.vision_state().unwrap();
-            if !state.enable_xtls {
-                return Err("inner TLS 1.3 not detected".to_owned());
-            }
-            if !vless.is_direct_write() {
-                return Err("uplink did not switch to direct".to_owned());
-            }
-            if !vless.is_direct_read() {
-                return Err("downlink did not switch to direct".to_owned());
-            }
-        } else if vless.is_direct_write() || vless.is_direct_read() {
-            return Err("plain flow switched to direct".to_owned());
-        }
-        Ok(format!("inner TLS 1.3 ok (flow {flow:?})"))
     })
     .await;
+}
+
+const DIRECT_ATTEMPTS: usize = 3;
+const DOWNLINK_NOT_DIRECT: &str = "downlink did not switch to direct";
+
+async fn inner_tls13_direct_copy(config: VlessRealityConfig) -> Result<String, String> {
+    let flow = config.flow;
+    let outbound = VlessRealityOutbound::new(config, Arc::new(TcpDialer));
+    let vless = outbound
+        .connect_stream(&target("NC_TLS_TARGET"))
+        .await
+        .map_err(|error| format!("connect failed: {error}"))?;
+    let mut inner = tls_mimic::connect(
+        vless,
+        &ClientConfig::new("target.interop.test", Fingerprint::Chrome),
+        &mut AcceptAnyCertificate,
+    )
+    .await
+    .map_err(|error| format!("inner TLS failed: {error}"))?;
+    let body = http_get(&mut inner)
+        .await
+        .map_err(|error| format!("HTTPS failed: {error}"))?;
+    if body != expected_payload() {
+        return Err(format!("payload mismatch ({} bytes)", body.len()));
+    }
+    let vless = inner.get_ref();
+    if flow == Flow::Vision {
+        let state = vless.vision_state().unwrap();
+        if !state.enable_xtls {
+            return Err("inner TLS 1.3 not detected".to_owned());
+        }
+        if !vless.is_direct_write() {
+            return Err("uplink did not switch to direct".to_owned());
+        }
+        if !vless.is_direct_read() {
+            return Err(DOWNLINK_NOT_DIRECT.to_owned());
+        }
+    } else if vless.is_direct_write() || vless.is_direct_read() {
+        return Err("plain flow switched to direct".to_owned());
+    }
+    Ok(format!("inner TLS 1.3 ok (flow {flow:?})"))
 }
 
 #[tokio::test(flavor = "current_thread")]

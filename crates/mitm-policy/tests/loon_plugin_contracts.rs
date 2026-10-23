@@ -4,8 +4,8 @@ use config_core::routing::{
 };
 use control_domain::{GrantedPermissions, HookPoint, MitmPluginService, PluginPermission};
 use mitm_policy::loon_plugin::{
-    import_loon_plugin, routing_model_with_plugin_rules, LoonLineStatus, LoonSupportLevel,
-    LOON_PLUGIN_EMPTY_CODE, LOON_PLUGIN_ID_INVALID_CODE, LOON_PLUGIN_MAX_BYTES,
+    import_loon_plugin, routing_model_with_plugin_rules, LoonLineHandler, LoonLineStatus,
+    LoonSupportLevel, LOON_PLUGIN_EMPTY_CODE, LOON_PLUGIN_ID_INVALID_CODE, LOON_PLUGIN_MAX_BYTES,
     LOON_PLUGIN_TOO_LARGE_CODE,
 };
 use mitm_policy::{
@@ -213,7 +213,10 @@ fn mixed_plugin_reports_partial_deferred_and_unsupported_lines() {
     );
     assert_eq!(status_of("rewrite.reject"), Some(LoonLineStatus::Supported));
     assert_eq!(status_of("rewrite.body_p1"), Some(LoonLineStatus::Deferred));
-    assert_eq!(status_of("script.p1"), Some(LoonLineStatus::Deferred));
+    assert_eq!(
+        status_of("script.http_response"),
+        Some(LoonLineStatus::Supported)
+    );
     assert_eq!(
         status_of("mitm.skip_server_cert_verify_refused"),
         Some(LoonLineStatus::Unsupported)
@@ -236,10 +239,56 @@ fn mixed_plugin_reports_partial_deferred_and_unsupported_lines() {
 }
 
 #[test]
-fn script_only_plugin_is_unsupported_until_the_p1_runtime() {
+fn script_only_plugin_is_supported_by_the_p1_script_runtime() {
     let plugin = import_loon_plugin(SCRIPT_ONLY_FIXTURE).expect("script plugin should import");
-    assert_eq!(plugin.report.level, LoonSupportLevel::Unsupported);
-    assert_eq!(plugin.report.count(LoonLineStatus::Deferred), 1);
+    assert_eq!(
+        plugin.report.level,
+        LoonSupportLevel::Full,
+        "{}",
+        plugin.report.render_text("p1-script-only")
+    );
+    let script = plugin
+        .report
+        .lines
+        .iter()
+        .find(|line| line.reason == "script.http_request")
+        .expect("http-request script line should be graded");
+    assert_eq!(script.handler, LoonLineHandler::ScriptRuntime);
+
+    let package = plugin
+        .plugin_package("example.sign", "1.0.0")
+        .expect("script plugin should build a package");
+    assert_eq!(package.manifest.hooks, vec![HookPoint::Request]);
+}
+
+#[test]
+fn script_lines_without_an_http_runtime_are_graded() {
+    let plugin = import_loon_plugin(concat!(
+        "#!name = Script Kinds\n",
+        "[Script]\n",
+        "http-response ^https?://api\\.example\\.com/feed script-path=https://scripts.example.com/feed.js, requires-body=true, binary-body-mode=true, tag=feed\n",
+        "cron \"0 8 * * *\" script-path=https://scripts.example.com/checkin.js, tag=checkin\n",
+        "http-request ^https?://api\\.example\\.com/sign tag=missing-path\n",
+        "[MITM]\n",
+        "hostname = api.example.com\n",
+    ))
+    .expect("script kinds should import");
+    let reasons = plugin
+        .report
+        .lines
+        .iter()
+        .filter(|line| line.section == "Script")
+        .map(|line| (line.reason.as_str(), line.status))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        reasons,
+        vec![
+            ("script.binary_body_unsupported", LoonLineStatus::Partial),
+            ("script.type_unsupported", LoonLineStatus::Unsupported),
+            ("script.path_missing", LoonLineStatus::Unsupported),
+        ]
+    );
+    assert_eq!(plugin.report.level, LoonSupportLevel::Partial);
 }
 
 #[test]

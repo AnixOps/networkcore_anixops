@@ -1,0 +1,7 @@
+{
+  "invocation": {
+    "phase": "request",
+    "request": { "url": "https://api.example.test/", "method": "GET" }
+  },
+  "expect": { "status": "done", "mutation": {} }
+}

@@ -36,6 +36,12 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 mod h2_mitm;
+mod quickjs_script;
+
+pub use quickjs_script::{
+    NativeQuickJsScriptExecutor, NativeQuickJsScriptRuntimeConfig,
+    ENGINE_NATIVE_QUICKJS_SCRIPT_CONFIG_INVALID_CODE,
+};
 
 pub use h2_mitm::{
     run_native_h2_mitm_session, NativeH2MitmSessionConfig, NativeH2MitmSessionReport,
@@ -794,6 +800,14 @@ pub struct NativeNodeScriptRuntimeConfig {
     pub max_body_bytes: usize,
 }
 
+/// Response a request-phase script returned instead of forwarding the request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeHttpScriptResponse {
+    pub status_code: u16,
+    pub headers: Vec<MetadataEntry>,
+    pub body: Vec<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeHttpScriptExecutionReport {
     pub executed: bool,
@@ -802,6 +816,7 @@ pub struct NativeHttpScriptExecutionReport {
     pub headers: Option<Vec<MetadataEntry>>,
     pub body: Option<Vec<u8>>,
     pub status_code: Option<u16>,
+    pub response: Option<NativeHttpScriptResponse>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -1066,6 +1081,7 @@ impl NativeNodeScriptExecutor {
             headers,
             body,
             status_code,
+            response: None,
             diagnostics: vec![engine_diagnostic(
                 DiagnosticSeverity::Info,
                 ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_EXECUTED_CODE,
@@ -1154,11 +1170,40 @@ struct NativeNodeScriptDone {
     status: Option<u16>,
 }
 
+/// Runtime that executes `[Script]` dispatches for the MITM hook.
+#[derive(Debug, Clone)]
+pub enum NativeHttpScriptExecutor {
+    /// External Node.js runner inside an OS sandbox.
+    Node(NativeNodeScriptExecutor),
+    /// In-process QuickJS with the host-mediated `$`-API.
+    QuickJs(NativeQuickJsScriptExecutor),
+}
+
+impl NativeHttpScriptExecutor {
+    pub fn engine_name(&self) -> &'static str {
+        match self {
+            Self::Node(_) => "node",
+            Self::QuickJs(_) => script_runtime::QuickJsScriptRuntime::ENGINE_NAME,
+        }
+    }
+
+    pub fn execute(
+        &self,
+        dispatch: &HttpMitmScriptDispatch,
+        message: &NativePlainHttpMessage,
+    ) -> NativeHttpScriptExecutionReport {
+        match self {
+            Self::Node(executor) => executor.execute(dispatch, message),
+            Self::QuickJs(executor) => executor.execute(dispatch, message),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct NativeHttpMitmPluginHook {
     plugin_instance: PluginInstance,
     plugin_service: Arc<dyn MitmPluginService + Send + Sync>,
-    script_executor: Option<NativeNodeScriptExecutor>,
+    script_executor: Option<NativeHttpScriptExecutor>,
 }
 
 impl NativeHttpMitmPluginHook {
@@ -1174,7 +1219,12 @@ impl NativeHttpMitmPluginHook {
     }
 
     pub fn with_node_script_executor(mut self, executor: NativeNodeScriptExecutor) -> Self {
-        self.script_executor = Some(executor);
+        self.script_executor = Some(NativeHttpScriptExecutor::Node(executor));
+        self
+    }
+
+    pub fn with_quickjs_script_executor(mut self, executor: NativeQuickJsScriptExecutor) -> Self {
+        self.script_executor = Some(NativeHttpScriptExecutor::QuickJs(executor));
         self
     }
 
@@ -1182,10 +1232,19 @@ impl NativeHttpMitmPluginHook {
         self.script_executor.is_some()
     }
 
-    pub fn script_sandbox(&self) -> Option<NativeNodeScriptSandbox> {
+    /// `node` or `quickjs-ng` when a script executor is configured.
+    pub fn script_engine(&self) -> Option<&'static str> {
         self.script_executor
             .as_ref()
-            .map(|executor| *executor.sandbox())
+            .map(NativeHttpScriptExecutor::engine_name)
+    }
+
+    /// OS sandbox of the Node executor; QuickJS needs none.
+    pub fn script_sandbox(&self) -> Option<NativeNodeScriptSandbox> {
+        match self.script_executor.as_ref()? {
+            NativeHttpScriptExecutor::Node(executor) => Some(*executor.sandbox()),
+            NativeHttpScriptExecutor::QuickJs(_) => None,
+        }
     }
 
     pub fn plugin_instance(&self) -> &PluginInstance {
@@ -1215,7 +1274,7 @@ impl NativeHttpMitmPluginHook {
             self.plugin_service.as_ref(),
         );
         if let Some(script_executor) = self.script_executor.as_ref() {
-            apply_node_script_dispatch_to_plain_http_rewrite_report(
+            apply_script_dispatch_to_plain_http_rewrite_report(
                 &mut report,
                 message,
                 script_executor,
@@ -1327,10 +1386,10 @@ impl fmt::Debug for NativeHttpMitmPluginHook {
     }
 }
 
-fn apply_node_script_dispatch_to_plain_http_rewrite_report(
+fn apply_script_dispatch_to_plain_http_rewrite_report(
     report: &mut NativePlainHttpRewriteReport,
     original_message: &NativePlainHttpMessage,
-    script_executor: &NativeNodeScriptExecutor,
+    script_executor: &NativeHttpScriptExecutor,
 ) {
     let Some(dispatch) = report
         .outcome
@@ -1369,6 +1428,17 @@ fn apply_node_script_dispatch_to_plain_http_rewrite_report(
     report.script_dispatch_executed = true;
     report.script_dispatch_deferred = false;
     report.script_dispatch_failed = false;
+    if let Some(response) = execution.response {
+        if original_message.phase == HttpMitmPhase::Request {
+            report.terminal_action = Some("script-response".to_string());
+            report.final_status_code = Some(response.status_code);
+            report.redirect_location = None;
+            report.headers = response.headers;
+            report.body = response.body;
+            report.applied = true;
+            return;
+        }
+    }
     if let Some(url) = execution.url {
         if script_url_mutation_preserves_authority(&report.url, &url) {
             report.url = url;
@@ -1422,6 +1492,7 @@ fn script_execution_deferred(message: &'static str) -> NativeHttpScriptExecution
         headers: None,
         body: None,
         status_code: None,
+        response: None,
         diagnostics: vec![engine_diagnostic(
             DiagnosticSeverity::Warning,
             ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_DEFERRED_CODE,
@@ -1439,6 +1510,7 @@ fn script_execution_failed(message: &'static str) -> NativeHttpScriptExecutionRe
         headers: None,
         body: None,
         status_code: None,
+        response: None,
         diagnostics: vec![engine_diagnostic(
             DiagnosticSeverity::Warning,
             ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_FAILED_CODE,
@@ -4724,6 +4796,12 @@ impl NativeProxyEngineService {
             Some(hook) => hook.script_executor_enabled(),
             None => false,
         }
+    }
+
+    pub fn http_mitm_script_engine(&self) -> Option<&'static str> {
+        self.http_mitm_hook
+            .as_ref()
+            .and_then(NativeHttpMitmPluginHook::script_engine)
     }
 
     pub fn http_mitm_script_sandbox(&self) -> Option<NativeNodeScriptSandbox> {

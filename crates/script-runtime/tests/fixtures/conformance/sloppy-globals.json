@@ -1,0 +1,12 @@
+{
+  "invocation": {
+    "phase": "response",
+    "request": { "url": "https://api.example.test/me", "method": "GET" },
+    "response": { "status": 200, "body": "{\"vip\":false}" }
+  },
+  "expect": {
+    "status": "done",
+    "mutation": { "body": "{\"vip\":true}", "status": 201 },
+    "logs": ["patched {\"vip\":true}"]
+  }
+}

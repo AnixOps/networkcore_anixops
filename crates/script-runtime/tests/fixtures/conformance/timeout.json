@@ -1,0 +1,8 @@
+{
+  "invocation": {
+    "phase": "request",
+    "request": { "url": "https://api.example.test/", "method": "GET" }
+  },
+  "limits": { "timeoutMs": 200 },
+  "expect": { "status": "failed", "failure": "script.timeout" }
+}

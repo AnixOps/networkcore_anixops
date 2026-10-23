@@ -1,0 +1,8 @@
+{
+  "invocation": {
+    "phase": "request",
+    "request": { "url": "https://api.example.test/", "method": "GET" }
+  },
+  "limits": { "timeoutMs": 10000, "memoryBytes": 8388608 },
+  "expect": { "status": "failed", "failure": "script.memory_limit" }
+}

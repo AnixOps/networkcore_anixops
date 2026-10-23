@@ -1,0 +1,8 @@
+{
+  "invocation": {
+    "phase": "response",
+    "request": { "url": "https://api.example.test/", "method": "GET" },
+    "response": { "status": 200, "body": "" }
+  },
+  "expect": { "status": "failed", "failure": "script.invalid_done" }
+}

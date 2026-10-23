@@ -1,0 +1,17 @@
+{
+  "invocation": {
+    "phase": "response",
+    "scriptName": "counter",
+    "request": { "url": "https://api.example.test/", "method": "GET" },
+    "response": { "status": 200, "body": "" }
+  },
+  "store": { "counter": "41", "obsolete": "x" },
+  "expect": {
+    "status": "done",
+    "mutation": { "body": "true:null" },
+    "store": { "counter": "42", "networkcore.script.counter": "default" },
+    "notifications": [
+      { "title": "Counter", "subtitle": "networkcore", "content": "count=42", "openUrl": "https://example.test/" }
+    ]
+  }
+}

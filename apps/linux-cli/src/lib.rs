@@ -2028,7 +2028,7 @@ pub fn native_proxy_engine_service_with_builtin_mitm_plugin_and_tls_mitm_ca_mate
 
 pub fn native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime(
     tls_mitm_ca_material: Option<engine_native::NativeTlsMitmCaMaterial>,
-    script_executor: Option<engine_native::NativeNodeScriptExecutor>,
+    script_executor: Option<engine_native::NativeHttpScriptExecutor>,
 ) -> DomainResult<engine_native::NativeProxyEngineService> {
     let package = builtin_ad_block_plugin_package();
     let service = AnixOpsMitmPluginService::new();
@@ -2040,7 +2040,12 @@ pub fn native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime(
     )?;
     let hook = engine_native::NativeHttpMitmPluginHook::new(instance, Arc::new(service));
     let hook = match script_executor {
-        Some(executor) => hook.with_node_script_executor(executor),
+        Some(engine_native::NativeHttpScriptExecutor::Node(executor)) => {
+            hook.with_node_script_executor(executor)
+        }
+        Some(engine_native::NativeHttpScriptExecutor::QuickJs(executor)) => {
+            hook.with_quickjs_script_executor(executor)
+        }
         None => hook,
     };
 
@@ -2127,7 +2132,7 @@ pub fn native_proxy_engine_service_with_builtin_mitm_plugin_and_runtime_files(
         None
     };
 
-    let script_executor = build_native_node_script_executor(
+    let script_executor = build_native_script_executor(
         enable_script_runtime,
         script_runner_path,
         node_binary,
@@ -2203,14 +2208,18 @@ fn private_key_read_error() -> DomainError {
     )
 }
 
-fn build_native_node_script_executor(
+/// Builds the `[Script]` executor. Without `--script-runner` scripts run in
+/// the in-process QuickJS runtime, which has no file system, process, or
+/// network access, so it may keep a persistent store. With `--script-runner`
+/// they run in the sandboxed Node runner, which has no store permission.
+fn build_native_script_executor(
     enable_script_runtime: bool,
     script_runner_path: Option<&str>,
     node_binary: Option<&str>,
     script_maps: &[String],
     script_store_path: Option<&str>,
     confirm: bool,
-) -> DomainResult<Option<engine_native::NativeNodeScriptExecutor>> {
+) -> DomainResult<Option<engine_native::NativeHttpScriptExecutor>> {
     if !enable_script_runtime {
         if script_runner_path.is_some()
             || node_binary.is_some()
@@ -2230,25 +2239,24 @@ fn build_native_node_script_executor(
             "script runtime start requires explicit --confirm authorization",
         ));
     }
-    let Some(script_runner_path) = script_runner_path else {
-        return Err(DomainError::new(
-            CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE,
-            "script runtime start requires --script-runner and at least one --script-map",
-        ));
-    };
     if script_maps.is_empty() {
         return Err(DomainError::new(
             CLI_START_SCRIPT_RUNTIME_CONFIG_REQUIRED_CODE,
             "script runtime start requires at least one --script-map",
         ));
     }
-    if script_store_path.is_some() {
+    if script_runner_path.is_some() && script_store_path.is_some() {
         return Err(DomainError::new(
             CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE,
-            "sandboxed script runtime does not permit a persistent script store",
+            "sandboxed Node script runtime does not permit a persistent script store",
         ));
     }
-    let script_runner_path = canonical_local_script_runtime_file(script_runner_path)?;
+    if script_runner_path.is_none() && node_binary.is_some() {
+        return Err(DomainError::new(
+            CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE,
+            "--node-binary only applies to the Node runner selected with --script-runner",
+        ));
+    }
 
     let mut script_assets = BTreeMap::new();
     for script_map in script_maps {
@@ -2276,16 +2284,40 @@ fn build_native_node_script_executor(
         }
     }
 
-    Ok(Some(engine_native::NativeNodeScriptExecutor::new(
-        engine_native::NativeNodeScriptRuntimeConfig {
-            node_binary: node_binary.unwrap_or("node").to_string(),
-            runner_path: script_runner_path,
-            script_assets,
-            persistent_store_path: None,
-            sandbox: engine_native::NativeNodeScriptSandbox::LinuxNoNetwork,
-            max_timeout_ms: 30_000,
-            max_body_bytes: 64 * 1024,
-        },
+    let Some(script_runner_path) = script_runner_path else {
+        let executor = engine_native::NativeQuickJsScriptExecutor::new(
+            engine_native::NativeQuickJsScriptRuntimeConfig {
+                script_assets,
+                persistent_store_path: script_store_path.map(str::to_string),
+                max_timeout_ms: 30_000,
+                max_body_bytes: 1024 * 1024,
+                memory_limit_bytes: 0,
+            },
+        )
+        .map_err(|_| {
+            DomainError::new(
+                CLI_START_SCRIPT_RUNTIME_CONFIG_INVALID_CODE,
+                "QuickJS script runtime needs readable script files and a JSON object store file",
+            )
+        })?;
+        return Ok(Some(engine_native::NativeHttpScriptExecutor::QuickJs(
+            executor,
+        )));
+    };
+    let script_runner_path = canonical_local_script_runtime_file(script_runner_path)?;
+
+    Ok(Some(engine_native::NativeHttpScriptExecutor::Node(
+        engine_native::NativeNodeScriptExecutor::new(
+            engine_native::NativeNodeScriptRuntimeConfig {
+                node_binary: node_binary.unwrap_or("node").to_string(),
+                runner_path: script_runner_path,
+                script_assets,
+                persistent_store_path: None,
+                sandbox: engine_native::NativeNodeScriptSandbox::LinuxNoNetwork,
+                max_timeout_ms: 30_000,
+                max_body_bytes: 64 * 1024,
+            },
+        ),
     )))
 }
 
@@ -17190,7 +17222,7 @@ pub const fn cli_help_text() -> &'static str {
         "  networkcore-linux core start mieru --binary <local-path> --sha256 <digest> --config <absolute-path> [--format text|json]\n",
         "  networkcore-linux core stop mieru --binary <local-path> --sha256 <digest> --config <absolute-path> [--format text|json]\n",
         "  networkcore-linux core status mieru --binary <local-path> --sha256 <digest> --config <absolute-path> [--format text|json]\n",
-        "  networkcore-linux start --config <path> [--managed-status <path> --managed-snapshot <path> --managed-events <dir> [--managed-control-socket <absolute-path>]] [--enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path>] [--enable-script-runtime --script-runner <path> --script-map <url=file> ...] --confirm [--format text|json]\n",
+        "  networkcore-linux start --config <path> [--managed-status <path> --managed-snapshot <path> --managed-events <dir> [--managed-control-socket <absolute-path>]] [--enable-https-mitm --mitm-ca-cert <path> --mitm-ca-key <path>] [--enable-script-runtime [--script-runner <path>] --script-map <url=file> ... [--script-store <path>]] --confirm [--format text|json]\n",
         "  networkcore-linux connect --config <path> [same explicit foreground options as start]\n",
         "  networkcore-linux stop [--managed-control-socket <absolute-path> --confirm] [--format text|json]\n",
         "  networkcore-linux reload --managed-control-socket <absolute-path> --confirm [--format text|json]\n",
@@ -17277,11 +17309,11 @@ pub const fn cli_help_text() -> &'static str {
         "  --enable-https-mitm   Explicitly enable the controlled HTTPS MITM engine path for start; requires --confirm and both CA paths.\n",
         "  --mitm-ca-cert <path> CA certificate PEM path for explicitly enabled HTTPS MITM start.\n",
         "  --mitm-ca-key <path>  CA private key PEM path for explicitly enabled HTTPS MITM start.\n",
-        "  --enable-script-runtime Explicitly enable mapped local Node execution in a no-network sandbox; requires --confirm, runner, and maps.\n",
-        "  --script-runner <path> Local regular Node contract runner path for sandboxed script execution.\n",
+        "  --enable-script-runtime Explicitly enable mapped local [Script] execution in in-process QuickJS; requires --confirm and maps.\n",
+        "  --script-runner <path> Optional local Node contract runner; selects Node execution in a no-network sandbox instead of QuickJS.\n",
         "  --script-map <url=file> Explicit remote script URL to a local regular asset; repeat for each permitted script.\n",
-        "  --script-store <path> Rejected: sandboxed script execution has no persistent-store permission.\n",
-        "  --node-binary <path> Node executable path or command. Defaults to node.\n",
+        "  --script-store <path> QuickJS $persistentStore JSON path; rejected with --script-runner.\n",
+        "  --node-binary <path> Node executable for --script-runner. Defaults to node.\n",
         "  --managed-status <path> Explicit managed foreground status record path for lifecycle recording.\n",
         "  --managed-snapshot <path> Explicit initial managed foreground status snapshot path.\n",
         "  --managed-events <dir> Explicit managed foreground event directory for lifecycle recording.\n",

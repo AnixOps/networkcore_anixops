@@ -1,0 +1,15 @@
+[package]
+name = "script-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Loon-compatible HTTP script runtime: one Rust $-API host with a thin QuickJS (quickjs-ng) binding."
+
+[dependencies]
+rquickjs = { version = "0.13", default-features = false, features = ["std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lib]
+path = "src/lib.rs"

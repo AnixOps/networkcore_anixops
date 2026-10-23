@@ -1,4 +1,4 @@
 # fixture file name, expected support level (full | partial | unsupported)
 p0-full-ad-block.plugin full
 p0-partial-mixed.plugin partial
-p1-script-only.plugin unsupported
+p1-script-only.plugin full
