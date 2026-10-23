@@ -1,0 +1,16 @@
+[package]
+name = "transport-quic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "QUIC client transport (quinn, rustls) shared by QUIC-based outbound protocols."
+
+[dependencies]
+engine-outbound = { path = "../engine-outbound" }
+quinn = { version = "0.11.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "time"] }
+transport-tls = { path = "../transport-tls" }
+
+[lib]
+path = "src/lib.rs"

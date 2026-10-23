@@ -20,6 +20,7 @@ members = [
     "crates/outbound-shadowsocks",
     "crates/outbound-socks",
     "crates/outbound-trojan",
+    "crates/outbound-tuic",
     "crates/outbound-vless",
     "crates/outbound-vmess",
     "crates/platform-ios",
@@ -29,6 +30,7 @@ members = [
     "crates/tls-mimic",
     "crates/transport-tls",
     "crates/transport-grpc",
+    "crates/transport-quic",
     "crates/transport-ws",
 ]
 resolver = "2"

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# REALITY (outbound-vless), VMess (outbound-vmess) and Hysteria2
-# (outbound-hysteria2) interop harness (Linux runners only).
+# REALITY (outbound-vless), VMess (outbound-vmess), Hysteria2
+# (outbound-hysteria2) and TUIC (outbound-tuic) interop harness (Linux
+# runners only).
 #
 #   reality-interop.sh download   fetch Xray-core, sing-box and Hysteria
 #                                 release binaries
@@ -120,7 +121,7 @@ server.serve_forever()
 " "${work}/target.crt" "${work}/target.key" "${www}" > "${work}/target-dest.log" 2>&1 &
   python3 -m http.server 18080 --bind 127.0.0.1 --directory "${www}" > "${work}/target-http.log" 2>&1 &
 
-  local keypair private_key public_key uuid short_id server_name hy2_password
+  local keypair private_key public_key uuid short_id server_name hy2_password tuic_password
   keypair="$("${bin}/sing-box" generate reality-keypair)"
   private_key="$(awk '/PrivateKey/ {print $2}' <<<"${keypair}")"
   public_key="$(awk '/PublicKey/ {print $2}' <<<"${keypair}")"
@@ -128,6 +129,7 @@ server.serve_forever()
   short_id="$(openssl rand -hex 8)"
   server_name="reality.interop.test"
   hy2_password="$(openssl rand -hex 16)"
+  tuic_password="$(openssl rand -hex 16)"
 
   cat > "${work}/xray.json" <<EOF
 {
@@ -182,6 +184,11 @@ EOF
     {"type": "hysteria2", "tag": "hy2", "listen": "127.0.0.1", "listen_port": 26441,
      "users": [{"password": "${hy2_password}"}],
      "tls": {"enabled": true, "alpn": ["h3"],
+       "certificate_path": "${work}/target.crt", "key_path": "${work}/target.key"}},
+    {"type": "tuic", "tag": "tuic", "listen": "127.0.0.1", "listen_port": 26451,
+     "users": [{"uuid": "${uuid}", "password": "${tuic_password}"}],
+     "congestion_control": "bbr",
+     "tls": {"enabled": true, "alpn": ["h3"],
        "certificate_path": "${work}/target.crt", "key_path": "${work}/target.key"}}
   ],
   "outbounds": [{"type": "direct"}]
@@ -208,7 +215,7 @@ EOF
   for port in 18080 18443 18444 24431 24432 24441 24442 24443 25431 25432 25441 25442 25443; do
     wait_for_port "${port}"
   done
-  for port in 26441 27441; do
+  for port in 26441 26451 27441; do
     wait_for_udp_port "${port}"
   done
 
@@ -220,6 +227,10 @@ NC_VMESS_UUID=${uuid}
 NC_HYSTERIA2_SERVERS=sing-box=127.0.0.1:26441,hysteria=127.0.0.1:27441
 NC_HYSTERIA2_PASSWORD=${hy2_password}
 NC_HYSTERIA2_SERVER_NAME=target.interop.test
+NC_TUIC_SERVERS=sing-box=127.0.0.1:26451
+NC_TUIC_UUID=${uuid}
+NC_TUIC_PASSWORD=${tuic_password}
+NC_TUIC_SERVER_NAME=target.interop.test
 NC_REALITY_PUBLIC_KEY=${public_key}
 NC_REALITY_SHORT_ID=${short_id}
 NC_REALITY_SERVER_NAME=${server_name}

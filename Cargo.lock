@@ -1428,6 +1428,7 @@ dependencies = [
  "outbound-shadowsocks",
  "outbound-socks",
  "outbound-trojan",
+ "outbound-tuic",
  "outbound-vless",
  "outbound-vmess",
  "ring",
@@ -3441,6 +3442,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "transport-quic",
  "transport-tls",
 ]
 
@@ -3488,6 +3490,21 @@ dependencies = [
  "transport-grpc",
  "transport-tls",
  "transport-ws",
+]
+
+[[package]]
+name = "outbound-tuic"
+version = "0.1.0"
+dependencies = [
+ "engine-outbound",
+ "quinn",
+ "rcgen",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "transport-quic",
+ "transport-tls",
 ]
 
 [[package]]
@@ -5733,6 +5750,16 @@ dependencies = [
  "h2",
  "http",
  "tokio",
+]
+
+[[package]]
+name = "transport-quic"
+version = "0.1.0"
+dependencies = [
+ "engine-outbound",
+ "quinn",
+ "tokio",
+ "transport-tls",
 ]
 
 [[package]]

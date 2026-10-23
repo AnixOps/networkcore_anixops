@@ -8,7 +8,7 @@ description = "In-process engine for the iOS Network Extension: userspace TCP/IP
 
 # One feature per protocol; see src/protocols.rs. `direct` is always built in.
 [features]
-default = ["http", "hysteria2", "local-proxy", "shadowsocks", "socks", "trojan", "vless", "vmess", "wireguard"]
+default = ["http", "hysteria2", "local-proxy", "shadowsocks", "socks", "trojan", "tuic", "vless", "vmess", "wireguard"]
 http = ["dep:outbound-http"]
 hysteria2 = ["dep:outbound-hysteria2"]
 # Desktop local proxy (SOCKS5/HTTP listener); the iOS tunnel does not use it.
@@ -16,6 +16,7 @@ local-proxy = ["dep:inbound-mixed"]
 shadowsocks = ["dep:outbound-shadowsocks"]
 socks = ["dep:outbound-socks"]
 trojan = ["dep:outbound-trojan"]
+tuic = ["dep:outbound-tuic"]
 vless = ["dep:outbound-vless"]
 vmess = ["dep:outbound-vmess"]
 wireguard = ["dep:base64", "dep:boringtun", "dep:ring"]
@@ -35,6 +36,7 @@ outbound-hysteria2 = { path = "../outbound-hysteria2", optional = true }
 outbound-shadowsocks = { path = "../outbound-shadowsocks", optional = true }
 outbound-socks = { path = "../outbound-socks", optional = true }
 outbound-trojan = { path = "../outbound-trojan", optional = true }
+outbound-tuic = { path = "../outbound-tuic", optional = true }
 outbound-vless = { path = "../outbound-vless", optional = true }
 outbound-vmess = { path = "../outbound-vmess", optional = true }
 ring = { version = "0.17", optional = true }
