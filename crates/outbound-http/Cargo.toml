@@ -1,0 +1,22 @@
+[package]
+name = "outbound-http"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "HTTP CONNECT proxy TCP outbound (optionally over TLS, Basic auth) for the embedded engine."
+
+[dependencies]
+base64 = "0.22"
+engine-outbound = { path = "../engine-outbound" }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", default-features = false, features = ["io-util"] }
+transport-tls = { path = "../transport-tls" }
+
+[dev-dependencies]
+inbound-mixed = { path = "../inbound-mixed" }
+serde_json = "1"
+tokio = { version = "1", default-features = false, features = ["io-util", "net", "rt", "rt-multi-thread", "macros", "time"] }
+
+[lib]
+path = "src/lib.rs"

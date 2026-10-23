@@ -5,7 +5,9 @@
 //! | feature       | config `type`  | crate                  |
 //! |---------------|----------------|------------------------|
 //! | (always)      | `direct`       | this crate             |
+//! | `http`        | `http`         | `outbound-http`        |
 //! | `shadowsocks` | `shadowsocks`  | `outbound-shadowsocks` |
+//! | `socks`       | `socks`        | `outbound-socks`       |
 //! | `trojan`      | `trojan`       | `outbound-trojan`      |
 //! | `vless`       | `vless`        | `outbound-vless`       |
 //! | `wireguard`   | `wireguard`    | this crate + boringtun |
@@ -24,8 +26,12 @@ use crate::direct::DirectFactory;
 pub fn default_registry() -> OutboundRegistry {
     let mut registry = OutboundRegistry::new();
     registry.register(Arc::new(DirectFactory));
+    #[cfg(feature = "http")]
+    registry.register(Arc::new(outbound_http::HttpFactory));
     #[cfg(feature = "shadowsocks")]
     registry.register(Arc::new(outbound_shadowsocks::ShadowsocksFactory));
+    #[cfg(feature = "socks")]
+    registry.register(Arc::new(outbound_socks::SocksFactory));
     #[cfg(feature = "trojan")]
     registry.register(Arc::new(outbound_trojan::TrojanFactory));
     #[cfg(feature = "vless")]
