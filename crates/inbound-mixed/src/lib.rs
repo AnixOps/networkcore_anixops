@@ -22,13 +22,16 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use engine_outbound::{BoxStream, TargetAddr, TcpOutbound};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
 
 /// Largest request head accepted from a client, for SOCKS5 and HTTP alike.
 pub const MAX_HEAD_BYTES: usize = 16 * 1024;
 const RELAY_BUFFER_BYTES: usize = 16 * 1024;
+/// How long an error reply waits for the client to close before the socket
+/// is dropped.
+const LINGER: Duration = Duration::from_millis(500);
 
 /// Credentials a client must present. Has no `Debug` on purpose.
 #[derive(Clone, PartialEq, Eq)]
@@ -132,6 +135,7 @@ async fn handle(
         Ok(Ok(request)) => request,
         Ok(Err(_)) | Err(_) => {
             stats.handshake_failed.fetch_add(1, Ordering::Relaxed);
+            close_gracefully(client).await;
             return;
         }
     };
@@ -143,6 +147,7 @@ async fn handle(
         Ok(Err(_)) | Err(_) => {
             stats.connect_failed.fetch_add(1, Ordering::Relaxed);
             let _ = send_failure(&mut client, request.reply).await;
+            close_gracefully(client).await;
             return;
         }
     };
@@ -203,6 +208,23 @@ async fn send_failure<S: AsyncWrite + Unpin>(client: &mut S, reply: Reply) -> io
             client
                 .write_all(http::status_response(502, "Bad Gateway").as_bytes())
                 .await
+        }
+    }
+}
+
+/// Sends FIN after an error reply and drains what the client still sends for
+/// a moment. Dropping a socket with unread input makes the kernel answer with
+/// a reset, and on Windows the reset discards the reply before the client
+/// reads it.
+async fn close_gracefully(mut client: TcpStream) {
+    let _ = client.shutdown().await;
+    let mut sink = [0u8; 1024];
+    let mut drained = 0;
+    let deadline = tokio::time::Instant::now() + LINGER;
+    while drained < MAX_HEAD_BYTES {
+        match tokio::time::timeout_at(deadline, client.read(&mut sink)).await {
+            Ok(Ok(n)) if n > 0 => drained += n,
+            _ => break,
         }
     }
 }
