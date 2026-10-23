@@ -2,10 +2,10 @@
 //!
 //! The envelope is JSON. It carries either the one outbound the tunnel uses
 //! or a `routing` section with named TCP outbounds, rules and policy groups.
-//! Secrets (the Shadowsocks password, the WireGuard private and preshared
-//! keys) are read from the Keychain by the Swift side right before the call
-//! and are never written back out by this crate (no `Debug`, no status
-//! field).
+//! Secrets (the Shadowsocks password, the VLESS uuid, the WireGuard private
+//! and preshared keys) are read from the Keychain by the Swift side right
+//! before the call and are never written back out by this crate (no `Debug`,
+//! no status field).
 
 use std::collections::BTreeMap;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -13,7 +13,12 @@ use std::sync::Arc;
 
 use config_core::routing::{PolicyGroupSpec, RoutingSpec};
 use engine_outbound::{Dialer, TcpOutbound};
+use outbound_vless::{
+    parse_public_key, parse_short_id, parse_uuid, Flow, RealityConfig, VlessRealityConfig,
+    VlessRealityOutbound,
+};
 use serde::Deserialize;
+use tls_mimic::Fingerprint;
 
 use crate::direct::DirectOutbound;
 use crate::routing::RoutedOutbound;
@@ -58,6 +63,15 @@ pub enum OutboundConfig {
         method: String,
         password: String,
     },
+    /// VLESS over REALITY, optionally with the `xtls-rprx-vision` flow.
+    Vless {
+        server: String,
+        port: u16,
+        uuid: String,
+        #[serde(default)]
+        flow: String,
+        reality: RealityOutboundConfig,
+    },
     Direct,
     /// One WireGuard peer. Keys are standard base64, as in a `wg-quick` file;
     /// the private and preshared keys are injected from the Keychain.
@@ -79,6 +93,17 @@ pub enum TunnelMode {
     Stack(Arc<dyn TcpOutbound>),
     /// Packets sealed straight to a WireGuard peer.
     WireGuard(WireGuardSettings),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RealityOutboundConfig {
+    pub server_name: String,
+    pub public_key: String,
+    #[serde(default)]
+    pub short_id: String,
+    #[serde(default = "default_fingerprint")]
+    pub fingerprint: String,
 }
 
 /// Rule-based routing: TCP outbounds keyed by node id, `config-core` rule lines
@@ -155,6 +180,10 @@ impl Default for Limits {
             connect_timeout_secs: default_connect_timeout_secs(),
         }
     }
+}
+
+fn default_fingerprint() -> String {
+    "chrome".to_owned()
 }
 
 fn default_mtu() -> u16 {
@@ -333,6 +362,38 @@ impl RuntimeConfig {
     }
 }
 
+fn vless_config(
+    server: &str,
+    port: u16,
+    uuid: &str,
+    flow: &str,
+    reality: &RealityOutboundConfig,
+) -> Result<VlessRealityConfig, RuntimeError> {
+    if server.is_empty() || port == 0 {
+        return Err(rejected("vless server address is invalid"));
+    }
+    let uuid = parse_uuid(uuid).map_err(|_| rejected("vless uuid is invalid"))?;
+    let flow = Flow::from_name(flow).ok_or_else(|| rejected("unsupported vless flow"))?;
+    if reality.server_name.is_empty() {
+        return Err(rejected("reality server_name is required"));
+    }
+    let public_key = parse_public_key(&reality.public_key)
+        .map_err(|_| rejected("reality public_key is invalid"))?;
+    let short_id =
+        parse_short_id(&reality.short_id).map_err(|_| rejected("reality short_id is invalid"))?;
+    let fingerprint = Fingerprint::from_name(&reality.fingerprint)
+        .ok_or_else(|| rejected("unsupported reality fingerprint"))?;
+    let mut reality_config = RealityConfig::new(reality.server_name.clone(), public_key, short_id);
+    reality_config.fingerprint = fingerprint;
+    Ok(VlessRealityConfig {
+        server: server.to_owned(),
+        port,
+        uuid,
+        flow,
+        reality: reality_config,
+    })
+}
+
 /// Builds one TCP outbound. WireGuard runs as a packet tunnel, so it cannot be
 /// used here or as a routed node.
 fn build_single_outbound(
@@ -356,6 +417,16 @@ fn build_single_outbound(
                     RuntimeError::new(RuntimeErrorCode::ConfigRejected, safe_io_message(&err))
                 })?;
             Ok(Arc::new(outbound))
+        }
+        OutboundConfig::Vless {
+            server,
+            port,
+            uuid,
+            flow,
+            reality,
+        } => {
+            let config = vless_config(server, *port, uuid, flow, reality)?;
+            Ok(Arc::new(VlessRealityOutbound::new(config, dialer)))
         }
         OutboundConfig::Direct => Ok(Arc::new(DirectOutbound::new(dialer))),
     }

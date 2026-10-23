@@ -14,9 +14,11 @@ members = [
     "crates/engine-singbox",
     "crates/mitm-anixops-sys",
     "crates/mitm-policy",
+    "crates/outbound-vless",
     "crates/platform-ios",
     "crates/platform-linux",
     "crates/platform-windows",
+    "crates/tls-mimic",
 ]
 resolver = "2"
 

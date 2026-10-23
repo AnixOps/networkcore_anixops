@@ -6,9 +6,10 @@
 //! - [`EmbeddedRuntime`]: validated config, outbound selection and lifecycle.
 //! - [`tunnel`]: userspace TCP/IP (smoltcp) that turns packets into flows.
 //! - Outbounds implementing [`engine_outbound::TcpOutbound`]: Shadowsocks-2022
-//!   ([`shadowsocks`]) and direct ([`direct`]). New protocols plug in here
-//!   without touching the tunnel. [`routing`] wraps several of them behind
-//!   the shared `config-core` rules and policy groups.
+//!   ([`shadowsocks`]), VLESS + REALITY (`outbound-vless`) and direct
+//!   ([`direct`]). New protocols plug in here without touching the tunnel.
+//!   [`routing`] wraps several of them behind the shared `config-core` rules
+//!   and policy groups.
 //! - [`wireguard`]: an IP-level tunnel that bypasses the TCP/IP stack and
 //!   seals packets straight to one peer.
 //!

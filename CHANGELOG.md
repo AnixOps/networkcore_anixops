@@ -27,6 +27,10 @@
 
 - 新增 `engine-embedded` crate（M1a）：iOS Network Extension 进程内内核。Shadowsocks-2022 TCP 出站（`2022-blake3-aes-128-gcm` / `aes-256-gcm` / `chacha20-poly1305`，基于 `ring` + `blake3` 自实现，暂不支持多用户 identity header），smoltcp 用户态 TCP/IP 栈（`netstack-smoltcp`），UDP/53 经出站转 DNS-over-TCP、其余 UDP 丢弃，按 NE 内存预算设定连接数、窗口与空闲超时上限；`networkcore_ios_*` C ABI 与 `include/networkcore_ios_runtime.h`。与 shadowsocks-rust 服务端的互通测试只作为 Unix dev-dependency，不进入 NE 二进制。尚未接入 Xcode 工程和 PacketTunnelProvider。
 
+- `engine-embedded` 新增 `vless` 出站配置（M1b）：iOS 隧道可使用 VLESS + REALITY（可选 XTLS Vision）节点，配置字段为 `uuid`、`flow` 与 `reality.server_name/public_key/short_id/fingerprint`，非法 uuid、flow、公钥或 short id 在初始化时以 `config_rejected` 拒绝，状态输出不含 uuid、公钥、short id 或服务器地址。App 端 `vless://` 链接导入尚未接入。
+
+- 新增 `tls-mimic` 与 `outbound-vless`（M1b）：`tls-mimic` 生成 Chrome 形态 TLS 1.3 ClientHello（GREASE、扩展逐连接乱序、X25519MLKEM768 + X25519 key share、ECH GREASE、新 ALPS 码位）并提供带 ClientHello 改写与证书信任 hook 的最小 TLS 1.3 客户端；`outbound-vless` 在其上实现 REALITY 客户端认证、VLESS 请求头与 XTLS Vision 填充/直通，并实现 `engine-outbound::TcpOutbound`。新增 `REALITY interop (Linux)` CI job，在 Ubuntu runner 上与 OpenSSL、Xray-core、sing-box 的 REALITY 服务端做互通测试；真实网络下的抗封锁验收记录在 `docs/manual-intervention.md`。
+
 - 新增 `engine-outbound` crate：`engine-embedded` 与各协议 crate 共用的出站接口（`TargetAddr`、`BoxStream`、构造时注入的 `Dialer` 与默认 `TcpDialer`、`TcpOutbound`），只含接口，不含平台代码；UDP 接口待 TUN 层需要时再定义。
 
 - 新增手动触发的 `.github/workflows/ios-testflight.yml`：在 `ios-app-store-connect` protected environment 中以手动签名 archive 并上传到内部 TestFlight；在维护者启用 `ios-upload-workflow-status` 和确认 `ios-upload-internal-confirmation-status` 前 fail closed，不产生 workflow artifact 或 release asset。

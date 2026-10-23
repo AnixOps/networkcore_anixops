@@ -153,6 +153,10 @@ CI summary job 必须显式输出 commit SHA、workflow run ID/URL、变更来�
   `cancelled` 都必须使 summary 失败。
 - 检测到 Rust workspace 且 Rust 路径需要验证时，summary 必须同时检查 Rust build/test 矩阵和 Rust dependency
   security audit；Go、Node、Swift 或 Apple 路径需要验证时，必须检查对应 job。
+- Rust 路径或完整矩阵变化时，summary 还必须检查 `REALITY interop (Linux)`：该 job 在 Ubuntu runner 上下载
+  Xray-core 与 sing-box 官方 release 二进制（`XRAY_VERSION`/`SINGBOX_VERSION`，默认解析为最新正式 release，
+  并写入 Step Summary），每次生成新的 REALITY 密钥、UUID 与 short id，只监听 127.0.0.1，再以 `--ignored`
+  运行 `outbound-vless` 的互通测试。
 
 CI 的 `concurrency` 只取消同一 pull request 上被新提交取代的旧 run。`main`、tag 与手动触发的 run 不会被取消，保证每个合并提交都有完整的验证结果。
 
