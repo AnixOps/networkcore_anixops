@@ -13,8 +13,8 @@
 //! [`ShadowsocksFactory`] registers both under `"type": "shadowsocks"`; the
 //! `method` picks the protocol.
 
-mod aead;
 mod factory;
+mod sip004;
 
 use std::io;
 use std::net::SocketAddr;
@@ -31,8 +31,8 @@ use ring::aead::{self, Aad, LessSafeKey, Nonce, UnboundKey};
 use ring::rand::{SecureRandom, SystemRandom};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-pub use aead::{evp_bytes_to_key, AeadMethod, AeadOutbound};
 pub use factory::{ShadowsocksFactory, TYPE_NAME};
+pub use sip004::{evp_bytes_to_key, AeadMethod, AeadOutbound};
 
 pub const PROTOCOL: &str = "shadowsocks-2022";
 

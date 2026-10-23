@@ -73,8 +73,8 @@ impl AeadMethod {
 
     /// The session cipher for one direction: HKDF-SHA1(key, salt, "ss-subkey").
     fn session_cipher(self, key: &[u8], salt: &[u8]) -> io::Result<Cipher> {
-        let okm = hkdf::Salt::new(hkdf::HKDF_SHA1_FOR_LEGACY_USE_ONLY, salt)
-            .extract(key)
+        let prk = hkdf::Salt::new(hkdf::HKDF_SHA1_FOR_LEGACY_USE_ONLY, salt).extract(key);
+        let okm = prk
             .expand(SUBKEY_INFO, self.algorithm())
             .map_err(|_| io::Error::other("shadowsocks session key setup failed"))?;
         Ok(Cipher {
