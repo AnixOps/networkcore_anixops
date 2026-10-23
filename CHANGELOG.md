@@ -12,6 +12,7 @@
 
 ### Added
 
+- `engine-embedded` 运行状态新增 `dns_last_failure` 与 `tcp_last_failure`：只记录失败阶段和错误类别（如 `connect_timeout`、`reply_closed`、`reply_rejected`），不含地址或内容，用于在真机上区分连不上代理服务器、代理不回应和代理拒绝认证。
 - `engine-embedded` 的 Shadowsocks-2022 出站支持多用户 identity header（SIP022 EIH，`iPSK:uPSK` 形式的密码，仅 AES 方法），身份头用 RustCrypto `aes` 分组加密；节点密钥同时接受标准与 URL-safe base64，填充可省略。此前这类节点在 iOS 上导入后启动隧道会被内核拒绝（code 6）。
 - iOS 隧道启动失败时，App 显示扩展返回的失败原因，扩展把启停和失败原因写入系统日志（子系统 `networkcore.packet-tunnel`）。
 
