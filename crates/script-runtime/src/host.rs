@@ -217,10 +217,8 @@ impl ScriptHost {
             .unwrap_or(0.0)
             .min(u32::MAX as f64);
         let id = self.next_id();
-        self.timers.insert(
-            id,
-            Instant::now() + Duration::from_millis(delay_ms as u64),
-        );
+        self.timers
+            .insert(id, Instant::now() + Duration::from_millis(delay_ms as u64));
         id
     }
 
@@ -396,9 +394,9 @@ fn parse_headers(value: &Value) -> Result<Vec<(String, String)>, String> {
 }
 
 fn parse_body(value: &Value, max_output_bytes: usize) -> Result<String, String> {
-    let body = value
-        .as_str()
-        .ok_or_else(|| "$done body must be a string; binary bodies are not supported".to_string())?;
+    let body = value.as_str().ok_or_else(|| {
+        "$done body must be a string; binary bodies are not supported".to_string()
+    })?;
     if body.len() > max_output_bytes {
         return Err("$done body exceeds the output limit".to_string());
     }

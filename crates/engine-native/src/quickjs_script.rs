@@ -224,10 +224,7 @@ impl NativeQuickJsScriptExecutor {
                 diagnostics: vec![engine_diagnostic(
                     DiagnosticSeverity::Warning,
                     ENGINE_NATIVE_RUNTIME_HTTP_SCRIPT_FAILED_CODE,
-                    format!(
-                        "native QuickJS script dispatch failed: {}",
-                        failure.code()
-                    ),
+                    format!("native QuickJS script dispatch failed: {}", failure.code()),
                     SOURCE_ENGINE_NATIVE_MITM,
                 )],
             };

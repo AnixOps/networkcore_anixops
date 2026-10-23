@@ -164,7 +164,11 @@ fn check_case(case: &str, fixture: &Value, script: &str) {
         };
         assert_eq!(actual.code(), failure, "{case}: failure {actual:?}");
     }
-    assert_mutation_eq(case, &outcome.mutation, &expected_mutation(expect.get("mutation")));
+    assert_mutation_eq(
+        case,
+        &outcome.mutation,
+        &expected_mutation(expect.get("mutation")),
+    );
     if let Some(expected_store) = expect.get("store").and_then(Value::as_object) {
         let expected_store = expected_store
             .iter()
@@ -212,7 +216,10 @@ fn quickjs_passes_shared_conformance_fixtures() {
     let mut cases = std::fs::read_dir(fixture_dir())
         .expect("conformance fixture directory should exist")
         .map(|entry| entry.unwrap().path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "json"))
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
         .collect::<Vec<_>>();
     cases.sort();
     assert!(cases.len() >= 15, "conformance suite lost fixtures");

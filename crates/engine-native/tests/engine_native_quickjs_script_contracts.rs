@@ -1,10 +1,10 @@
 //! Contracts for the in-process QuickJS `[Script]` executor on the MITM hook.
 
 use control_domain::{
-    AuditEvent, Diagnostic, DomainResult, GrantedPermissions, HookPoint, HttpEvent,
-    HttpMitmAction, HttpMitmEvent, HttpMitmOutcome, HttpMitmPhase, HttpMitmScriptDispatch,
-    HttpMitmScriptKind, MetadataEntry, MitmPluginService, PluginInstance, PluginManifest,
-    PluginPackage, PluginPermission, PluginResult,
+    AuditEvent, Diagnostic, DomainResult, GrantedPermissions, HookPoint, HttpEvent, HttpMitmAction,
+    HttpMitmEvent, HttpMitmOutcome, HttpMitmPhase, HttpMitmScriptDispatch, HttpMitmScriptKind,
+    MetadataEntry, MitmPluginService, PluginInstance, PluginManifest, PluginPackage,
+    PluginPermission, PluginResult,
 };
 use engine_native::{
     NativeHttpMitmPluginHook, NativePlainHttpMessage, NativeQuickJsScriptExecutor,
@@ -82,10 +82,8 @@ impl MitmPluginService for ScriptDispatchingService {
 }
 
 fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "networkcore-quickjs-{name}-{}",
-        std::process::id()
-    ));
+    let dir =
+        std::env::temp_dir().join(format!("networkcore-quickjs-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("temp dir should be created");
     dir
@@ -156,10 +154,7 @@ fn quickjs_response_script_rewrites_body_and_persists_store() {
     assert_eq!(hook.script_engine(), Some("quickjs-ng"));
     assert_eq!(hook.script_sandbox(), None);
 
-    let report = hook.plan_plain_http(&message(
-        HttpMitmPhase::Response,
-        "{\"ad\":1,\"items\":[]}",
-    ));
+    let report = hook.plan_plain_http(&message(HttpMitmPhase::Response, "{\"ad\":1,\"items\":[]}"));
 
     assert!(report.script_dispatch_executed, "{:?}", report.diagnostics);
     assert!(report.applied);
@@ -246,7 +241,10 @@ fn quickjs_executor_rejects_missing_assets_and_corrupt_stores() {
         memory_limit_bytes: 0,
     })
     .expect_err("missing script asset must be rejected");
-    assert_eq!(missing.code, ENGINE_NATIVE_QUICKJS_SCRIPT_CONFIG_INVALID_CODE);
+    assert_eq!(
+        missing.code,
+        ENGINE_NATIVE_QUICKJS_SCRIPT_CONFIG_INVALID_CODE
+    );
 
     let store = dir.join("store.json");
     std::fs::write(&store, "not json").unwrap();
@@ -258,6 +256,9 @@ fn quickjs_executor_rejects_missing_assets_and_corrupt_stores() {
         memory_limit_bytes: 0,
     })
     .expect_err("corrupt store must be rejected");
-    assert_eq!(corrupt.code, ENGINE_NATIVE_QUICKJS_SCRIPT_CONFIG_INVALID_CODE);
+    assert_eq!(
+        corrupt.code,
+        ENGINE_NATIVE_QUICKJS_SCRIPT_CONFIG_INVALID_CODE
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -803,7 +803,13 @@ impl Parser {
         } else {
             (LoonLineStatus::Supported, "script.http_request")
         };
-        self.push(line, section, status, LoonLineHandler::ScriptRuntime, reason);
+        self.push(
+            line,
+            section,
+            status,
+            LoonLineHandler::ScriptRuntime,
+            reason,
+        );
     }
 
     /// Loads the plugin into the policy core and downgrades lines it owns but

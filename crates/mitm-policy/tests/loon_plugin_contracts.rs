@@ -5,8 +5,7 @@ use config_core::routing::{
 use control_domain::{GrantedPermissions, HookPoint, MitmPluginService, PluginPermission};
 use mitm_policy::loon_plugin::{
     import_loon_plugin, routing_model_with_plugin_rules, LoonLineHandler, LoonLineStatus,
-    LoonSupportLevel,
-    LOON_PLUGIN_EMPTY_CODE, LOON_PLUGIN_ID_INVALID_CODE, LOON_PLUGIN_MAX_BYTES,
+    LoonSupportLevel, LOON_PLUGIN_EMPTY_CODE, LOON_PLUGIN_ID_INVALID_CODE, LOON_PLUGIN_MAX_BYTES,
     LOON_PLUGIN_TOO_LARGE_CODE,
 };
 use mitm_policy::{

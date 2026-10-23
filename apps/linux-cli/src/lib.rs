@@ -2307,15 +2307,17 @@ fn build_native_script_executor(
     let script_runner_path = canonical_local_script_runtime_file(script_runner_path)?;
 
     Ok(Some(engine_native::NativeHttpScriptExecutor::Node(
-        engine_native::NativeNodeScriptExecutor::new(engine_native::NativeNodeScriptRuntimeConfig {
-            node_binary: node_binary.unwrap_or("node").to_string(),
-            runner_path: script_runner_path,
-            script_assets,
-            persistent_store_path: None,
-            sandbox: engine_native::NativeNodeScriptSandbox::LinuxNoNetwork,
-            max_timeout_ms: 30_000,
-            max_body_bytes: 64 * 1024,
-        }),
+        engine_native::NativeNodeScriptExecutor::new(
+            engine_native::NativeNodeScriptRuntimeConfig {
+                node_binary: node_binary.unwrap_or("node").to_string(),
+                runner_path: script_runner_path,
+                script_assets,
+                persistent_store_path: None,
+                sandbox: engine_native::NativeNodeScriptSandbox::LinuxNoNetwork,
+                max_timeout_ms: 30_000,
+                max_body_bytes: 64 * 1024,
+            },
+        ),
     )))
 }
 
