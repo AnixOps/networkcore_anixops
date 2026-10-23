@@ -2,3 +2,4 @@
 p0-full-ad-block.plugin full
 p0-partial-mixed.plugin partial
 p1-script-only.plugin full
+p1-map-local-body-rewrite.plugin full

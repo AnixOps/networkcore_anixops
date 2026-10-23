@@ -944,8 +944,20 @@ impl HttpMitmEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HttpMitmAction {
     Continue,
-    Redirect { status_code: u16, location: String },
-    Reject { status_code: u16 },
+    Redirect {
+        status_code: u16,
+        location: String,
+    },
+    Reject {
+        status_code: u16,
+    },
+    /// Answers the request locally without contacting the origin, for
+    /// example a Loon `[Map Local]` line.
+    Respond {
+        status_code: u16,
+        headers: Vec<MetadataEntry>,
+        body: Vec<u8>,
+    },
 }
 
 /// Host-level MITM decision for one connection attempt.

@@ -212,7 +212,10 @@ fn mixed_plugin_reports_partial_deferred_and_unsupported_lines() {
         Some(LoonLineStatus::Unsupported)
     );
     assert_eq!(status_of("rewrite.reject"), Some(LoonLineStatus::Supported));
-    assert_eq!(status_of("rewrite.body_p1"), Some(LoonLineStatus::Deferred));
+    assert_eq!(
+        status_of("rewrite.response_body"),
+        Some(LoonLineStatus::Supported)
+    );
     assert_eq!(
         status_of("script.http_response"),
         Some(LoonLineStatus::Supported)
