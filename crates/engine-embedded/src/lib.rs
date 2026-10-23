@@ -25,6 +25,7 @@ pub mod dns;
 pub mod ffi;
 #[cfg(feature = "local-proxy")]
 pub mod local_proxy;
+pub mod nodes;
 pub mod protocols;
 pub mod routing;
 pub mod tunnel;

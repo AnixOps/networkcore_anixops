@@ -4,6 +4,10 @@
 //! and foreground runtime handoff. Service installation/control and release
 //! packaging remain explicit platform boundaries.
 
+mod embedded_run;
+
+pub use embedded_run::*;
+
 use config_core::routing_import::import_subscription_routing;
 use config_core::CoreSubscriptionService;
 use control_domain::{
@@ -919,6 +923,7 @@ pub enum LinuxCliCommand {
         selected_node_id: Option<String>,
         listen_host: String,
         listen_port: u16,
+        engine: LinuxRunEngine,
         install_dir: Option<String>,
         mieru_binary_path: Option<String>,
         mieru_sha256: Option<String>,
@@ -6523,6 +6528,7 @@ struct ParsedOptions {
     service_state_directory: Option<String>,
     mieru_binary_path: Option<String>,
     mieru_sha256: Option<String>,
+    engine: Option<LinuxRunEngine>,
     format: OutputFormat,
 }
 
@@ -15748,6 +15754,19 @@ fn parse_options(args: &[String]) -> Result<ParsedOptions, LinuxCliParseError> {
             "--force" => {
                 options.force = true;
             }
+            "--engine" => {
+                index += 1;
+                let Some(engine) = args
+                    .get(index)
+                    .and_then(|value| LinuxRunEngine::parse(value))
+                else {
+                    return Err(parse_error(
+                        CLI_ARGUMENT_VALUE_MISSING_CODE,
+                        "--engine requires auto, embedded, or sing-box",
+                    ));
+                };
+                options.engine = Some(engine);
+            }
             "--confirm" => {
                 options.confirm = true;
             }
@@ -15993,6 +16012,7 @@ fn parse_run_url_command(args: &[String]) -> Result<LinuxCliCommand, LinuxCliPar
             .listen_host
             .unwrap_or_else(|| "127.0.0.1".to_string()),
         listen_port: options.listen_port.unwrap_or(7890),
+        engine: options.engine.unwrap_or_default(),
         install_dir: options.install_dir,
         mieru_binary_path: options.mieru_binary_path,
         mieru_sha256: options.mieru_sha256,
