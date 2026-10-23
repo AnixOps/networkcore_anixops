@@ -3404,10 +3404,18 @@ name = "outbound-vless"
 version = "0.1.0"
 dependencies = [
  "engine-outbound",
+ "futures",
+ "rcgen",
  "ring",
+ "rustls",
  "serde",
+ "serde_json",
  "tls-mimic",
  "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite",
+ "transport-tls",
+ "transport-ws",
  "x25519-dalek",
 ]
 

@@ -1,12 +1,18 @@
-//! VLESS outbound with REALITY and XTLS Vision for the embedded engine.
+//! VLESS outbound for the embedded engine.
 //!
-//! The outer connection is a browser-shaped TLS 1.3 handshake from
-//! `tls-mimic`, authenticated with REALITY. VLESS runs inside it, optionally
-//! with the `xtls-rprx-vision` flow. The outbound implements
-//! [`engine_outbound::TcpOutbound`]; [`VlessFactory`] registers it under
-//! `"type": "vless"`.
+//! [`VlessRealityOutbound`]: the outer connection is a browser-shaped TLS 1.3
+//! handshake from `tls-mimic`, authenticated with REALITY. VLESS runs inside
+//! it, optionally with the `xtls-rprx-vision` flow.
+//!
+//! [`VlessTlsOutbound`]: VLESS over plain TCP or standard TLS
+//! (`transport-tls`), optionally inside a WebSocket (`transport-ws`), without
+//! Vision.
+//!
+//! Both implement [`engine_outbound::TcpOutbound`]; [`VlessFactory`] registers
+//! them under `"type": "vless"`.
 
 mod factory;
+mod plain;
 pub mod protocol;
 pub mod reality;
 mod stream;
@@ -20,6 +26,7 @@ use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound};
 use tls_mimic::ClientConfig;
 
 pub use factory::{VlessFactory, TYPE_NAME};
+pub use plain::VlessTlsOutbound;
 pub use protocol::{parse_public_key, parse_short_id, parse_uuid, Flow, FLOW_VISION};
 pub use reality::{RealityConfig, RealityHooks};
 pub use stream::VlessStream;

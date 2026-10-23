@@ -12,6 +12,7 @@
 
 ### Added
 
+- VLESS 不再只支持 REALITY：`outbound-vless` 新增 `VlessTlsOutbound`，支持 VLESS over 明文 TCP、标准 TLS（`transport-tls`），以及可选的 WebSocket（`transport-ws`）。请求头与首包合并发送，响应头（含 addons）在第一个数据字节之前剥离。配置写法为 `"tls": {...}` 和/或 `"transport": {"type": "ws"}`；`reality` 不能与 `tls`/ws 同时配置。Vision 流控目前仍要求 REALITY。订阅中的 VLESS-TLS、VLESS-WS(-TLS) 和无加密 VLESS 节点现在可以由自研引擎直接运行。
 - 自研 WebSocket 传输层：新增 `transport-ws`（RFC 6455 客户端：握手校验 `Sec-WebSocket-Accept`，每次写入一个带掩码的二进制帧，读取时把数据帧按序拼成字节流，自动回应 ping，close 帧视为流结束；path/Host/自定义头拒绝可注入的字符），测试以独立实现 `tokio-tungstenite` 作为服务端。Trojan 支持 `"transport": {"type": "ws", "path", "host"}`（TLS 内跑 WebSocket），订阅中的 Trojan-WS 节点可由自研引擎直接运行。
 - 自研 SOCKS5 与 HTTP 代理出站：新增 `outbound-socks`（RFC 1928 `CONNECT`，可选 RFC 1929 用户名/密码，完整读取应答绑定地址，不吞掉目标先发的数据）与 `outbound-http`（`CONNECT` 隧道，可选 Basic 认证与 TLS（HTTPS 代理，复用 `transport-tls`），响应头逐字节读取到空行为止，目标域名拒绝控制字符以防头注入）；`engine-embedded` 新增 `socks`、`http` feature（默认开启），可作为上游代理或代理链出口，CI 协议 feature 矩阵同步覆盖。测试使用仓库自己的 `inbound-mixed` 作为服务端。
 - 自研 Trojan 出站：新增 `transport-tls`（rustls + WebPKI 根证书的标准 TLS 客户端，`insecure` 仅跳过证书校验、仍校验握手签名，可供后续 VMess/VLESS-TLS 复用）与 `outbound-trojan`（SHA-224 密码头与首包合并发送，支持服务端先发数据的目标）；`engine-embedded` 新增 `trojan` feature（默认开启），订阅中的 TCP Trojan 节点可由自研引擎直接运行，`run-url --engine auto` 不再为 Trojan 回退到 sing-box。

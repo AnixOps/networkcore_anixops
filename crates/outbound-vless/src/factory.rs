@@ -1,4 +1,6 @@
-//! Registry entry for `"type": "vless"` config entries (VLESS over REALITY).
+//! Registry entry for `"type": "vless"` config entries: REALITY when
+//! `reality` is set, otherwise plain TCP or standard TLS (`tls`), optionally
+//! inside a WebSocket (`transport`).
 
 use std::sync::Arc;
 
@@ -6,10 +8,12 @@ use engine_outbound::registry::{parse_settings, BuildError, OutboundFactory, Set
 use engine_outbound::{Dialer, TcpOutbound};
 use serde::Deserialize;
 use tls_mimic::Fingerprint;
+use transport_tls::{TlsConnector, TlsSettings};
+use transport_ws::{WsConnector, WsSettings};
 
 use crate::{
     parse_public_key, parse_short_id, parse_uuid, Flow, RealityConfig, VlessRealityConfig,
-    VlessRealityOutbound,
+    VlessRealityOutbound, VlessTlsOutbound,
 };
 
 pub const TYPE_NAME: &str = "vless";
@@ -23,7 +27,39 @@ struct VlessSettings {
     /// Empty for plain VLESS, or `xtls-rprx-vision`.
     #[serde(default)]
     flow: String,
-    reality: RealitySettings,
+    #[serde(default)]
+    reality: Option<RealitySettings>,
+    /// Standard TLS; without `reality` and `tls` the connection is plain TCP.
+    #[serde(default)]
+    tls: Option<StandardTlsSettings>,
+    /// `{"type": "ws", "path": ..., "host": ...}`; raw stream when absent.
+    #[serde(default)]
+    transport: Option<TransportSettings>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StandardTlsSettings {
+    /// SNI; defaults to `server`.
+    #[serde(default)]
+    server_name: Option<String>,
+    #[serde(default)]
+    alpn: Vec<String>,
+    #[serde(default)]
+    insecure: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
+enum TransportSettings {
+    Tcp,
+    Ws {
+        #[serde(default)]
+        path: String,
+        /// `Host` header; defaults to the TLS server name or `server`.
+        #[serde(default)]
+        host: String,
+    },
 }
 
 #[derive(Deserialize)]
@@ -55,18 +91,78 @@ impl OutboundFactory for VlessFactory {
     ) -> Result<Arc<dyn TcpOutbound>, BuildError> {
         let settings: VlessSettings =
             parse_settings(settings, "vless settings are missing or invalid")?;
-        let config = vless_config(&settings)?;
-        Ok(Arc::new(VlessRealityOutbound::new(config, dialer)))
+        if settings.server.is_empty() || settings.port == 0 {
+            return Err("vless server address is invalid");
+        }
+        let uuid = parse_uuid(&settings.uuid).map_err(|_| "vless uuid is invalid")?;
+        let flow = Flow::from_name(&settings.flow).ok_or("unsupported vless flow")?;
+        if let Some(reality) = &settings.reality {
+            if settings.tls.is_some() {
+                return Err("vless reality and tls cannot both be set");
+            }
+            if !matches!(settings.transport, None | Some(TransportSettings::Tcp)) {
+                return Err("vless reality supports only the tcp transport");
+            }
+            let config = reality_config(&settings, reality, uuid, flow)?;
+            return Ok(Arc::new(VlessRealityOutbound::new(config, dialer)));
+        }
+        if flow != Flow::None {
+            return Err("xtls-rprx-vision needs reality in this build");
+        }
+        Ok(Arc::new(standard_outbound(settings, uuid, dialer)?))
     }
 }
 
-fn vless_config(settings: &VlessSettings) -> Result<VlessRealityConfig, BuildError> {
-    if settings.server.is_empty() || settings.port == 0 {
-        return Err("vless server address is invalid");
+fn standard_outbound(
+    settings: VlessSettings,
+    uuid: [u8; 16],
+    dialer: Arc<dyn Dialer>,
+) -> Result<VlessTlsOutbound, BuildError> {
+    let tls = settings.tls.map(|tls| TlsSettings {
+        server_name: tls
+            .server_name
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| settings.server.clone()),
+        alpn: tls.alpn,
+        insecure: tls.insecure,
+    });
+    let default_host = tls
+        .as_ref()
+        .map_or(settings.server.as_str(), |tls| tls.server_name.as_str());
+    let websocket = match settings.transport {
+        None | Some(TransportSettings::Tcp) => None,
+        Some(TransportSettings::Ws { path, host }) => Some(
+            WsConnector::new(
+                &WsSettings {
+                    path,
+                    host,
+                    headers: Vec::new(),
+                },
+                default_host,
+            )
+            .map_err(|_| "vless websocket settings are invalid")?,
+        ),
+    };
+    let connector = tls
+        .as_ref()
+        .map(TlsConnector::new)
+        .transpose()
+        .map_err(|_| "vless tls settings are invalid")?;
+    let mut outbound =
+        VlessTlsOutbound::new(settings.server, settings.port, uuid, connector, dialer)
+            .map_err(|_| "vless outbound settings are invalid")?;
+    if let Some(websocket) = websocket {
+        outbound = outbound.with_websocket(websocket);
     }
-    let uuid = parse_uuid(&settings.uuid).map_err(|_| "vless uuid is invalid")?;
-    let flow = Flow::from_name(&settings.flow).ok_or("unsupported vless flow")?;
-    let reality = &settings.reality;
+    Ok(outbound)
+}
+
+fn reality_config(
+    settings: &VlessSettings,
+    reality: &RealitySettings,
+    uuid: [u8; 16],
+    flow: Flow,
+) -> Result<VlessRealityConfig, BuildError> {
     if reality.server_name.is_empty() {
         return Err("reality server_name is required");
     }
