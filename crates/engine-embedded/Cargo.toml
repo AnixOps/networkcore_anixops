@@ -6,32 +6,33 @@ license.workspace = true
 repository.workspace = true
 description = "In-process engine for the iOS Network Extension: userspace TCP/IP, pluggable outbounds and the C ABI."
 
+# One feature per protocol; see src/protocols.rs. `direct` is always built in.
+[features]
+default = ["shadowsocks", "vless", "wireguard"]
+shadowsocks = ["dep:outbound-shadowsocks"]
+vless = ["dep:outbound-vless"]
+wireguard = ["dep:base64", "dep:boringtun", "dep:ring"]
+
 [dependencies]
-# Block cipher for Shadowsocks-2022 identity headers only; session data uses ring.
-aes = "0.9"
-base64 = "0.22"
-blake3 = "1.8"
+base64 = { version = "0.22", optional = true }
 # WireGuard Noise state machine only; the `device` feature (its own TUN and sockets) stays off.
-boringtun = { version = "0.7", default-features = false }
+boringtun = { version = "0.7", default-features = false, optional = true }
 config-core = { path = "../config-core" }
 engine-outbound = { path = "../engine-outbound" }
 futures = "0.3"
 netstack-smoltcp = "0.2"
-outbound-vless = { path = "../outbound-vless" }
-ring = "0.17"
+outbound-shadowsocks = { path = "../outbound-shadowsocks", optional = true }
+outbound-vless = { path = "../outbound-vless", optional = true }
+ring = { version = "0.17", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tls-mimic = { path = "../tls-mimic" }
 tokio = { version = "1", default-features = false, features = ["rt", "net", "io-util", "time", "sync", "macros"] }
 
 [dev-dependencies]
+base64 = "0.22"
+boringtun = { version = "0.7", default-features = false }
 etherparse = "0.16"
 tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread", "net", "io-util", "time", "sync", "macros"] }
-
-# Reference Shadowsocks-2022 server for interop tests only. It builds aws-lc, so it stays off
-# the Windows GNU runner and never reaches the Network Extension binary.
-[target.'cfg(unix)'.dev-dependencies]
-shadowsocks = { version = "1.25", default-features = false, features = ["aead-cipher-2022"] }
 
 [lib]
 path = "src/lib.rs"

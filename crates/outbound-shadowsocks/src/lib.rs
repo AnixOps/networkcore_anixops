@@ -8,6 +8,10 @@
 //! The request header is sent together with the first payload write. If the
 //! application reads before writing (server-speaks-first protocols), the header
 //! is sent with random padding instead, as the specification requires.
+//!
+//! [`ShadowsocksFactory`] registers the outbound under `"type": "shadowsocks"`.
+
+mod factory;
 
 use std::io;
 use std::net::SocketAddr;
@@ -23,6 +27,8 @@ use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound};
 use ring::aead::{self, Aad, LessSafeKey, Nonce, UnboundKey};
 use ring::rand::{SecureRandom, SystemRandom};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+
+pub use factory::{ShadowsocksFactory, TYPE_NAME};
 
 pub const PROTOCOL: &str = "shadowsocks-2022";
 
@@ -214,7 +220,7 @@ fn identity_header(
 }
 
 /// SOCKS-style address: ATYP, address, big-endian port.
-pub(crate) fn encode_address(target: &TargetAddr) -> io::Result<Vec<u8>> {
+fn encode_address(target: &TargetAddr) -> io::Result<Vec<u8>> {
     let mut out = Vec::with_capacity(1 + 1 + 255 + 2);
     match target {
         TargetAddr::Ip(SocketAddr::V4(addr)) => {

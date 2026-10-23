@@ -15,13 +15,17 @@ use std::time::Duration;
 use base64::Engine;
 use boringtun::noise::{Tunn, TunnResult};
 use boringtun::x25519::{PublicKey, StaticSecret};
+use engine_outbound::registry::{parse_settings, Settings};
 use ring::rand::{SecureRandom, SystemRandom};
+use serde::Deserialize;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 
 use crate::tunnel::{bump, PacketSink, TunnelStats};
 
 pub const PROTOCOL: &str = "wireguard";
+/// Config `type` name of a WireGuard outbound.
+pub const TYPE_NAME: &str = "wireguard";
 
 /// boringtun needs `src.len() + 32` and at least 148 bytes; a UDP datagram is
 /// at most 64 KiB, so one buffer of this size fits every case.
@@ -38,6 +42,49 @@ pub struct WireGuardSettings {
     pub server: String,
     pub port: u16,
     pub persistent_keepalive_secs: Option<u16>,
+}
+
+/// One WireGuard peer as it appears in the config. Keys are standard base64,
+/// as in a `wg-quick` file; the private and preshared keys are injected from
+/// the Keychain.
+#[derive(Deserialize)]
+struct WireGuardConfig {
+    private_key: String,
+    peer_public_key: String,
+    #[serde(default)]
+    preshared_key: Option<String>,
+    server: String,
+    port: u16,
+    #[serde(default)]
+    persistent_keepalive_secs: Option<u16>,
+}
+
+/// Parses and validates the settings of a `"type": "wireguard"` outbound.
+pub fn settings_from(settings: &Settings) -> Result<WireGuardSettings, &'static str> {
+    let config: WireGuardConfig =
+        parse_settings(settings, "wireguard settings are missing or invalid")?;
+    let private_key = decode_key(&config.private_key)
+        .ok_or("wireguard private key must be 32 bytes of base64")?;
+    let peer_public_key = decode_key(&config.peer_public_key)
+        .ok_or("wireguard peer public key must be 32 bytes of base64")?;
+    let preshared_key = match config.preshared_key.as_deref() {
+        None | Some("") => None,
+        Some(key) => {
+            Some(decode_key(key).ok_or("wireguard preshared key must be 32 bytes of base64")?)
+        }
+    };
+    let server = config.server.trim();
+    if server.is_empty() || config.port == 0 {
+        return Err("wireguard endpoint is invalid");
+    }
+    Ok(WireGuardSettings {
+        private_key,
+        peer_public_key,
+        preshared_key,
+        server: server.to_owned(),
+        port: config.port,
+        persistent_keepalive_secs: config.persistent_keepalive_secs,
+    })
 }
 
 /// Decodes a standard base64 WireGuard key.

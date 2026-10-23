@@ -1,6 +1,8 @@
 //! WireGuard tunnel tests against an in-process boringtun peer that reflects
 //! every UDP packet back to its sender.
 
+#![cfg(feature = "wireguard")]
+
 use std::net::UdpSocket;
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;

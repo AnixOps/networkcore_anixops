@@ -8,8 +8,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine as _;
-use engine_embedded::shadowsocks::{Method, Ss2022Outbound};
 use engine_outbound::{TargetAddr, TcpDialer, TcpOutbound};
+use outbound_shadowsocks::{Method, Ss2022Outbound};
 use shadowsocks::config::{ServerConfig, ServerType, ServerUser, ServerUserManager};
 use shadowsocks::context::Context;
 use shadowsocks::crypto::CipherKind;

@@ -5,10 +5,25 @@ In-process engine for the iOS Network Extension (roadmap M1a). It never starts a
 - `ffi`: `networkcore_ios_*` C ABI, mirrored by `include/networkcore_ios_runtime.h`. Every symbol catches panics and returns a stable code that maps onto `platform.ios.embedded_runtime.*` diagnostics, following `docs/architecture/ios-embedded-runtime-ffi-boundary-design.md`.
 - `EmbeddedRuntime`: parses and validates the JSON config envelope (`schema_version` 1), builds the outbound, owns the tunnel lifecycle and reports a sanitized status (profile id, state, counters; no addresses, keys or traffic).
 - `tunnel`: one current-thread tokio runtime on a dedicated thread. Packets from `packetFlow` enter through `input_packet`; packets for `packetFlow` leave through the writer callback. TCP flows go through the outbound; UDP/53 is re-sent as DNS-over-TCP through the outbound; other UDP is dropped so QUIC falls back to TCP.
-- Outbounds implement `engine_outbound::TcpOutbound`: `shadowsocks` (Shadowsocks-2022, single PSK), `vless` (VLESS over REALITY with optional XTLS Vision, from `outbound-vless`) and `direct`. A new protocol plugs in without changing the tunnel.
+- Outbounds implement `engine_outbound::TcpOutbound` and are built by the protocol registry (`engine_outbound::registry`) from the config `type`: `shadowsocks` (Shadowsocks-2022, from `outbound-shadowsocks`), `vless` (VLESS over REALITY with optional XTLS Vision, from `outbound-vless`) and `direct`. A new protocol plugs in without changing the tunnel.
 - `wireguard`: a packet-level mode for one WireGuard peer. Packets skip the TCP/IP stack and are sealed with boringtun's Noise state machine (BSD-3-Clause, `device` feature off) into datagrams on one connected UDP socket; the extension's routes apply the peer's `AllowedIPs`. Buffers stay under 0.5 MiB.
 
-Config envelope:
+## Protocol modules
+
+Each protocol is its own crate behind a cargo feature; `src/protocols.rs` registers the enabled ones. The default build enables all of them.
+
+| feature | config `type` | crate |
+| --- | --- | --- |
+| (always) | `direct` | this crate |
+| `shadowsocks` | `shadowsocks` | `outbound-shadowsocks` |
+| `vless` | `vless` | `outbound-vless` |
+| `wireguard` | `wireguard` | this crate + boringtun |
+
+`cargo build -p engine-embedded --no-default-features --features vless` builds a runtime with only VLESS and direct; any other `type` is rejected with `config_rejected`. To add a protocol: create an `outbound-<name>` crate that implements `TcpOutbound` and `engine_outbound::registry::OutboundFactory`, add it as an optional dependency with a feature here, and register its factory in `protocols::default_registry`. `EmbeddedRuntime::with_registry` accepts a caller-built registry, for protocol crates kept outside this repository. The CI job `Protocol feature matrix` builds, lints and runs the C ABI contract tests with each feature alone.
+
+## Config envelope
+
+
 
 ```json
 {
@@ -69,4 +84,4 @@ A WireGuard envelope replaces `outbound` with the fields of one `wg-quick` peer 
 
 `dns` and `limits` are optional. The defaults keep the worst case near 128 flows × (2 × 64 KiB window + relay and cipher buffers), about 25 MiB, inside the roughly 50 MiB Network Extension limit. Real peak memory is measured on an iPhone during M1 acceptance.
 
-Tests: `tests/shadowsocks_interop.rs` checks the client against the shadowsocks-rust server (Unix only, dev-dependency), `tests/tunnel_packets.rs` drives raw IP packets through the stack, `tests/wireguard_packets.rs` round-trips packets through an in-process boringtun peer, and `tests/ffi_contracts.rs` exercises the C ABI. All verification runs in GitHub Actions.
+Tests: `crates/outbound-shadowsocks/tests/shadowsocks_interop.rs` checks the Shadowsocks client against the shadowsocks-rust server (Unix only, dev-dependency), `tests/tunnel_packets.rs` drives raw IP packets through the stack, `tests/wireguard_packets.rs` round-trips packets through an in-process boringtun peer, and `tests/ffi_contracts.rs` exercises the C ABI. All verification runs in GitHub Actions.

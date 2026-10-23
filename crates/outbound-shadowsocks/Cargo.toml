@@ -1,0 +1,28 @@
+[package]
+name = "outbound-shadowsocks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shadowsocks-2022 (SIP022) TCP outbound for the embedded engine."
+
+[dependencies]
+# Block cipher for Shadowsocks-2022 identity headers only; session data uses ring.
+aes = "0.9"
+base64 = "0.22"
+blake3 = "1.8"
+engine-outbound = { path = "../engine-outbound" }
+ring = "0.17"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", default-features = false, features = ["io-util"] }
+
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread", "net", "io-util", "time", "sync", "macros"] }
+
+# Reference Shadowsocks-2022 server for interop tests only. It builds aws-lc, so it stays off
+# the Windows GNU runner and never reaches the Network Extension binary.
+[target.'cfg(unix)'.dev-dependencies]
+shadowsocks = { version = "1.25", default-features = false, features = ["aead-cipher-2022"] }
+
+[lib]
+path = "src/lib.rs"

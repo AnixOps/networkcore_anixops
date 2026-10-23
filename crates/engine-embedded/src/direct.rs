@@ -3,6 +3,7 @@
 use std::io;
 use std::sync::Arc;
 
+use engine_outbound::registry::{BuildError, OutboundFactory, Settings};
 use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound};
 
 pub const PROTOCOL: &str = "direct";
@@ -27,5 +28,22 @@ impl TcpOutbound for DirectOutbound {
             let host = target.host();
             self.dialer.dial(&host, target.port()).await
         })
+    }
+}
+
+/// Registry entry for `"type": "direct"`. It takes no settings.
+pub struct DirectFactory;
+
+impl OutboundFactory for DirectFactory {
+    fn type_name(&self) -> &'static str {
+        PROTOCOL
+    }
+
+    fn build(
+        &self,
+        _settings: &Settings,
+        dialer: Arc<dyn Dialer>,
+    ) -> Result<Arc<dyn TcpOutbound>, BuildError> {
+        Ok(Arc::new(DirectOutbound::new(dialer)))
     }
 }

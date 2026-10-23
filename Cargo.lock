@@ -1396,21 +1396,18 @@ checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 name = "engine-embedded"
 version = "0.1.0"
 dependencies = [
- "aes",
  "base64 0.22.1",
- "blake3",
  "boringtun",
  "config-core",
  "engine-outbound",
  "etherparse",
  "futures",
  "netstack-smoltcp",
+ "outbound-shadowsocks",
  "outbound-vless",
  "ring",
  "serde",
  "serde_json",
- "shadowsocks",
- "tls-mimic",
  "tokio",
 ]
 
@@ -1448,6 +1445,8 @@ dependencies = [
 name = "engine-outbound"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
@@ -3313,11 +3312,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "outbound-shadowsocks"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "base64 0.22.1",
+ "blake3",
+ "engine-outbound",
+ "ring",
+ "serde",
+ "shadowsocks",
+ "tokio",
+]
+
+[[package]]
 name = "outbound-vless"
 version = "0.1.0"
 dependencies = [
  "engine-outbound",
  "ring",
+ "serde",
  "tls-mimic",
  "tokio",
  "x25519-dalek",
