@@ -11,7 +11,7 @@
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::thread;
@@ -25,7 +25,7 @@ use serde::Serialize;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::sync::{mpsc, oneshot, Semaphore};
 
-use crate::dns;
+use crate::dns::{self, OutboundFailure};
 use crate::wireguard::{self, WireGuardSettings};
 
 /// Receives every IP packet the stack emits. Called on the tunnel thread.
@@ -67,6 +67,9 @@ pub struct TunnelStats {
     pub(crate) dns_failed: AtomicU64,
     pub(crate) bytes_up: AtomicU64,
     pub(crate) bytes_down: AtomicU64,
+    /// Last `OutboundFailure` code, 0 for none.
+    pub(crate) dns_last_failure: AtomicU8,
+    pub(crate) tcp_last_failure: AtomicU8,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
@@ -83,6 +86,8 @@ pub struct TunnelStatsSnapshot {
     pub dns_failed: u64,
     pub bytes_up: u64,
     pub bytes_down: u64,
+    pub dns_last_failure: Option<&'static str>,
+    pub tcp_last_failure: Option<&'static str>,
 }
 
 impl TunnelStats {
@@ -101,8 +106,18 @@ impl TunnelStats {
             dns_failed: get(&self.dns_failed),
             bytes_up: get(&self.bytes_up),
             bytes_down: get(&self.bytes_down),
+            dns_last_failure: last_failure(&self.dns_last_failure),
+            tcp_last_failure: last_failure(&self.tcp_last_failure),
         }
     }
+}
+
+fn last_failure(slot: &AtomicU8) -> Option<&'static str> {
+    OutboundFailure::from_code(slot.load(Ordering::Relaxed)).map(OutboundFailure::as_str)
+}
+
+fn record(slot: &AtomicU8, failure: OutboundFailure) {
+    slot.store(failure as u8, Ordering::Relaxed);
 }
 
 pub(crate) fn bump(counter: &AtomicU64) {
@@ -330,7 +345,10 @@ fn spawn_tasks(
                     Ok(response) => {
                         let _ = reply_tx.send((response, dst, src)).await;
                     }
-                    Err(_) => bump(&stats.dns_failed),
+                    Err(failure) => {
+                        bump(&stats.dns_failed);
+                        record(&stats.dns_last_failure, failure);
+                    }
                 }
             });
         }
@@ -358,14 +376,25 @@ async fn handle_tcp(
     let mut remote =
         match tokio::time::timeout(settings.connect_timeout, outbound.connect(&target)).await {
             Ok(Ok(remote)) => remote,
-            _ => {
+            Ok(Err(err)) => {
                 bump(&stats.tcp_connect_failed);
+                record(&stats.tcp_last_failure, OutboundFailure::connect(&err));
+                return;
+            }
+            Err(_) => {
+                bump(&stats.tcp_connect_failed);
+                record(&stats.tcp_last_failure, OutboundFailure::ConnectTimeout);
                 return;
             }
         };
     if !first.is_empty() {
-        if remote.write_all(&first).await.is_err() || remote.flush().await.is_err() {
+        let written = match remote.write_all(&first).await {
+            Ok(()) => remote.flush().await,
+            Err(err) => Err(err),
+        };
+        if let Err(err) = written {
             bump(&stats.tcp_connect_failed);
+            record(&stats.tcp_last_failure, OutboundFailure::reply(&err));
             return;
         }
         stats
@@ -387,7 +416,15 @@ async fn handle_tcp(
     let mut last_seen = activity.load(Ordering::Relaxed);
     loop {
         tokio::select! {
-            _ = &mut copy => break,
+            result = &mut copy => {
+                // Resets are routine; only a reply the outbound rejects is worth reporting.
+                if let Err(err) = result {
+                    if err.kind() == io::ErrorKind::InvalidData {
+                        record(&stats.tcp_last_failure, OutboundFailure::ReplyRejected);
+                    }
+                }
+                break;
+            }
             _ = tokio::time::sleep(settings.idle_timeout) => {
                 let seen = activity.load(Ordering::Relaxed);
                 if seen == last_seen {

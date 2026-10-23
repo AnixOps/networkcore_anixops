@@ -647,6 +647,9 @@ ios-m1a-tunnel-profile-secret-storage=keychain-password-reference-shared-access-
 
 隧道启动失败时，App 底部会显示“隧道已停止：”加上扩展返回的固定失败原因（来自 `fetchLastDisconnectError`）。需要更多
 信息时，在 Mac 的“控制台”中选中设备，过滤子系统 `networkcore.packet-tunnel`，日志只含固定原因和错误码，不含节点或密钥。
+已连接但无法上网时，看“运行状态”的 `dns_last_failure` / `tcp_last_failure`：`connect_*` 表示连不上代理服务器，
+`reply_timeout` 表示服务器不回应（常见于密钥或加密方式不匹配，服务器静默丢弃），`reply_closed` 表示服务器主动断开，
+`reply_rejected` 表示回应未通过认证。
 
 ## iOS WireGuard Real-Device Acceptance
 
