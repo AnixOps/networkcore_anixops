@@ -12,6 +12,7 @@ members = [
     "crates/engine-outbound",
     "crates/engine-mieru",
     "crates/engine-singbox",
+    "crates/inbound-mixed",
     "crates/mitm-anixops-sys",
     "crates/mitm-policy",
     "crates/outbound-shadowsocks",

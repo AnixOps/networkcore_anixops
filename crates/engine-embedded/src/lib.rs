@@ -11,6 +11,8 @@
 //!   ([`direct`]). Each protocol is a cargo feature, so it can be added or
 //!   left out without touching the tunnel. [`routing`] wraps several of them
 //!   behind the shared `config-core` rules and policy groups.
+//! - `local_proxy` (feature `local-proxy`): the desktop mode, the same
+//!   outbounds behind a SOCKS5/HTTP listener from `inbound-mixed`.
 //! - `wireguard` (feature `wireguard`): an IP-level tunnel that bypasses the
 //!   TCP/IP stack and seals packets straight to one peer.
 //!
@@ -21,6 +23,8 @@ pub mod config;
 pub mod direct;
 pub mod dns;
 pub mod ffi;
+#[cfg(feature = "local-proxy")]
+pub mod local_proxy;
 pub mod protocols;
 pub mod routing;
 pub mod tunnel;

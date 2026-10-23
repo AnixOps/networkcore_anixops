@@ -8,7 +8,9 @@ description = "In-process engine for the iOS Network Extension: userspace TCP/IP
 
 # One feature per protocol; see src/protocols.rs. `direct` is always built in.
 [features]
-default = ["shadowsocks", "vless", "wireguard"]
+default = ["local-proxy", "shadowsocks", "vless", "wireguard"]
+# Desktop local proxy (SOCKS5/HTTP listener); the iOS tunnel does not use it.
+local-proxy = ["dep:inbound-mixed"]
 shadowsocks = ["dep:outbound-shadowsocks"]
 vless = ["dep:outbound-vless"]
 wireguard = ["dep:base64", "dep:boringtun", "dep:ring"]
@@ -20,6 +22,7 @@ boringtun = { version = "0.7", default-features = false, optional = true }
 config-core = { path = "../config-core" }
 engine-outbound = { path = "../engine-outbound" }
 futures = "0.3"
+inbound-mixed = { path = "../inbound-mixed", optional = true }
 netstack-smoltcp = "0.2"
 outbound-shadowsocks = { path = "../outbound-shadowsocks", optional = true }
 outbound-vless = { path = "../outbound-vless", optional = true }
@@ -32,6 +35,7 @@ tokio = { version = "1", default-features = false, features = ["rt", "net", "io-
 base64 = "0.22"
 boringtun = { version = "0.7", default-features = false }
 etherparse = "0.16"
+inbound-mixed = { path = "../inbound-mixed" }
 tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread", "net", "io-util", "time", "sync", "macros"] }
 
 [lib]
