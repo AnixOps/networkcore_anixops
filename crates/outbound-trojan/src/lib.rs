@@ -22,6 +22,7 @@ use std::task::{ready, Context, Poll};
 use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound};
 use sha2::{Digest, Sha224};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use transport_grpc::GrpcConnector;
 use transport_tls::{TlsConnector, TlsSettings};
 use transport_ws::WsConnector;
 
@@ -41,6 +42,7 @@ pub struct TrojanOutbound {
     password_hash: [u8; 56],
     tls: TlsConnector,
     websocket: Option<WsConnector>,
+    grpc: Option<GrpcConnector>,
     dialer: Arc<dyn Dialer>,
 }
 
@@ -65,6 +67,7 @@ impl TrojanOutbound {
             password_hash: password_hash(password),
             tls: TlsConnector::new(tls)?,
             websocket: None,
+            grpc: None,
             dialer,
         })
     }
@@ -72,6 +75,12 @@ impl TrojanOutbound {
     /// Carries the Trojan stream in a WebSocket inside the TLS connection.
     pub fn with_websocket(mut self, websocket: WsConnector) -> Self {
         self.websocket = Some(websocket);
+        self
+    }
+
+    /// Carries the stream in a gRPC (`gun`) call instead of a WebSocket.
+    pub fn with_grpc(mut self, grpc: GrpcConnector) -> Self {
+        self.grpc = Some(grpc);
         self
     }
 }
@@ -88,6 +97,9 @@ impl TcpOutbound for TrojanOutbound {
             let mut tls = self.tls.connect(transport).await?;
             if let Some(websocket) = &self.websocket {
                 tls = websocket.connect(tls).await?;
+            }
+            if let Some(grpc) = &self.grpc {
+                tls = grpc.connect(tls).await?;
             }
             Ok(Box::new(TrojanStream {
                 inner: tls,

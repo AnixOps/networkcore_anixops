@@ -5,6 +5,7 @@ use std::sync::Arc;
 use engine_outbound::registry::{parse_settings, BuildError, OutboundFactory, Settings};
 use engine_outbound::{Dialer, TcpOutbound};
 use serde::Deserialize;
+use transport_grpc::{GrpcConnector, GrpcSettings};
 use transport_tls::TlsSettings;
 use transport_ws::{WsConnector, WsSettings};
 
@@ -26,7 +27,8 @@ struct TrojanSettings {
     /// Skip certificate verification (`allowInsecure=1`).
     #[serde(default)]
     insecure: bool,
-    /// `{"type": "ws", "path": ..., "host": ...}`; plain TLS when absent.
+    /// `{"type": "ws", "path": ..., "host": ...}` or
+    /// `{"type": "grpc", "service_name": ...}`; plain TLS when absent.
     #[serde(default)]
     transport: Option<TransportSettings>,
 }
@@ -41,6 +43,14 @@ enum TransportSettings {
         /// `Host` header; defaults to the TLS server name.
         #[serde(default)]
         host: String,
+    },
+    Grpc {
+        /// Call path `/<service_name>/Tun`.
+        #[serde(default)]
+        service_name: String,
+        /// `:authority`; defaults to the TLS server name or `server`.
+        #[serde(default)]
+        authority: String,
     },
 }
 
@@ -62,13 +72,36 @@ impl OutboundFactory for TrojanFactory {
             .server_name
             .filter(|name| !name.is_empty())
             .unwrap_or_else(|| settings.server.clone());
+        let mut alpn = settings.alpn;
+        // gRPC needs HTTP/2.
+        if alpn.is_empty() && matches!(settings.transport, Some(TransportSettings::Grpc { .. })) {
+            alpn.push("h2".to_owned());
+        }
         let tls = TlsSettings {
             server_name,
-            alpn: settings.alpn,
+            alpn,
             insecure: settings.insecure,
         };
+        let mut grpc = None;
         let websocket = match settings.transport {
             None | Some(TransportSettings::Tcp) => None,
+            Some(TransportSettings::Grpc {
+                service_name,
+                authority,
+            }) => {
+                grpc = Some(
+                    GrpcConnector::new(
+                        &GrpcSettings {
+                            service_name,
+                            authority,
+                        },
+                        &tls.server_name,
+                        true,
+                    )
+                    .map_err(|_| "trojan grpc settings are invalid")?,
+                );
+                None
+            }
             Some(TransportSettings::Ws { path, host }) => Some(
                 WsConnector::new(
                     &WsSettings {
@@ -91,6 +124,9 @@ impl OutboundFactory for TrojanFactory {
         .map_err(|_| "trojan outbound settings are invalid")?;
         if let Some(websocket) = websocket {
             outbound = outbound.with_websocket(websocket);
+        }
+        if let Some(grpc) = grpc {
+            outbound = outbound.with_grpc(grpc);
         }
         Ok(Arc::new(outbound))
     }

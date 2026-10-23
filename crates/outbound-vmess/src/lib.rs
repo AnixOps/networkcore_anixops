@@ -21,6 +21,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use engine_outbound::{BoxFuture, BoxStream, Dialer, TargetAddr, TcpOutbound};
 use ring::aead::{self, LessSafeKey, UnboundKey};
 use ring::rand::{SecureRandom, SystemRandom};
+use transport_grpc::GrpcConnector;
 use transport_tls::TlsConnector;
 use transport_ws::WsConnector;
 
@@ -79,6 +80,7 @@ pub struct VmessOutbound {
     security: Security,
     tls: Option<TlsConnector>,
     websocket: Option<WsConnector>,
+    grpc: Option<GrpcConnector>,
     dialer: Arc<dyn Dialer>,
     random: SystemRandom,
 }
@@ -92,6 +94,7 @@ impl fmt::Debug for VmessOutbound {
             .field("security", &self.security)
             .field("tls", &self.tls.is_some())
             .field("websocket", &self.websocket.is_some())
+            .field("grpc", &self.grpc.is_some())
             .finish()
     }
 }
@@ -120,6 +123,7 @@ impl VmessOutbound {
             security,
             tls,
             websocket: None,
+            grpc: None,
             dialer,
             random: SystemRandom::new(),
         })
@@ -128,6 +132,12 @@ impl VmessOutbound {
     /// Carries VMess in a WebSocket (inside TLS when TLS is set).
     pub fn with_websocket(mut self, websocket: WsConnector) -> Self {
         self.websocket = Some(websocket);
+        self
+    }
+
+    /// Carries the stream in a gRPC (`gun`) call instead of a WebSocket.
+    pub fn with_grpc(mut self, grpc: GrpcConnector) -> Self {
+        self.grpc = Some(grpc);
         self
     }
 
@@ -236,6 +246,9 @@ impl TcpOutbound for VmessOutbound {
             }
             if let Some(websocket) = &self.websocket {
                 stream = websocket.connect(stream).await?;
+            }
+            if let Some(grpc) = &self.grpc {
+                stream = grpc.connect(stream).await?;
             }
             Ok(Box::new(VmessStream::new(
                 stream,

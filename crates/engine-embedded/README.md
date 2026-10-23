@@ -18,9 +18,9 @@ Each protocol is its own crate behind a cargo feature; `src/protocols.rs` regist
 | `http` | `http` (HTTP CONNECT proxy, optional TLS and Basic auth) | `outbound-http` |
 | `shadowsocks` | `shadowsocks` (`method` `2022-blake3-*` or an AEAD method) | `outbound-shadowsocks` |
 | `socks` | `socks` (SOCKS5, optional username/password) | `outbound-socks` |
-| `trojan` | `trojan` (TCP, or `"transport": {"type": "ws"}`) | `outbound-trojan` (TLS from `transport-tls`, WebSocket from `transport-ws`) |
-| `vless` | `vless` (`reality`, or `tls` and/or `"transport": {"type": "ws"}`) | `outbound-vless` |
-| `vmess` | `vmess` (AEAD, alterId 0; `security` `auto`/`aes-128-gcm`/`chacha20-poly1305`; optional `tls` and `"transport": {"type": "ws"}`) | `outbound-vmess` |
+| `trojan` | `trojan` (TCP, or `"transport": {"type": "ws"}` / `{"type": "grpc", "service_name": ...}`) | `outbound-trojan` (TLS from `transport-tls`, WebSocket from `transport-ws`, gRPC from `transport-grpc`) |
+| `vless` | `vless` (`reality`, or `tls` and/or `"transport": {"type": "ws"}` / `{"type": "grpc"}`) | `outbound-vless` |
+| `vmess` | `vmess` (AEAD, alterId 0; `security` `auto`/`aes-128-gcm`/`chacha20-poly1305`; optional `tls` and `"transport": {"type": "ws"}` / `{"type": "grpc"}`) | `outbound-vmess` |
 | `wireguard` | `wireguard` | this crate + boringtun |
 | `local-proxy` | (desktop mode, not a protocol) | `inbound-mixed` |
 
