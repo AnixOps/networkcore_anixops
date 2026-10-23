@@ -13,8 +13,8 @@ use networkcore_linux::{
 /// `ss://` link for a Shadowsocks-2022 node (method and key base64url-encoded).
 const SS_2022_LINK: &str =
     "ss://MjAyMi1ibGFrZTMtYWVzLTEyOC1nY206QUFFQ0F3UUZCZ2NJQ1FvTERBME9Edz09@192.0.2.10:8388#SS2022";
-const HYSTERIA2_LINK: &str =
-    "hysteria2://hy2-secret@edge.example.test:443?sni=cdn.example.test#Hysteria2";
+/// Hysteria2 with Salamander obfuscation, which the embedded engine lacks.
+const HYSTERIA2_OBFS_LINK: &str = "hysteria2://hy2-secret@edge.example.test:443?sni=cdn.example.test&obfs=salamander&obfs-password=obfs-secret#Hysteria2";
 
 struct NoRemoteFetch;
 
@@ -47,7 +47,7 @@ fn engine_option_parses_and_defaults_to_auto() {
 fn auto_falls_back_for_protocols_the_embedded_engine_lacks() {
     let response = run_url_with_embedded_engine(
         &NoRemoteFetch,
-        HYSTERIA2_LINK,
+        HYSTERIA2_OBFS_LINK,
         None,
         "127.0.0.1",
         0,
@@ -61,7 +61,7 @@ fn auto_falls_back_for_protocols_the_embedded_engine_lacks() {
 fn embedded_reports_unsupported_nodes_without_their_secrets() {
     let response = run_url_with_embedded_engine(
         &NoRemoteFetch,
-        HYSTERIA2_LINK,
+        HYSTERIA2_OBFS_LINK,
         None,
         "127.0.0.1",
         0,
@@ -75,7 +75,9 @@ fn embedded_reports_unsupported_nodes_without_their_secrets() {
         response.diagnostics[0].code,
         CLI_RUN_URL_EMBEDDED_UNSUPPORTED_CODE
     );
-    assert!(!format!("{:?}", response.diagnostics).contains("hy2-secret"));
+    let diagnostics = format!("{:?}", response.diagnostics);
+    assert!(!diagnostics.contains("hy2-secret"));
+    assert!(!diagnostics.contains("obfs-secret"));
 }
 
 #[test]

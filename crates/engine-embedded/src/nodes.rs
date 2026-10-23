@@ -10,14 +10,14 @@ use std::collections::BTreeMap;
 
 use config_core::routing::RoutingSpec;
 use control_domain::{
-    NodeDescriptor, Protocol, NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD,
-    NODE_METADATA_TLS_ALPN, NODE_METADATA_TLS_ENABLED, NODE_METADATA_TLS_INSECURE,
-    NODE_METADATA_TLS_REALITY_PUBLIC_KEY, NODE_METADATA_TLS_REALITY_SHORT_ID,
-    NODE_METADATA_TLS_SERVER_NAME, NODE_METADATA_TROJAN_PASSWORD,
-    NODE_METADATA_V2RAY_TRANSPORT_HOST, NODE_METADATA_V2RAY_TRANSPORT_PATH,
-    NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME, NODE_METADATA_V2RAY_TRANSPORT_TYPE,
-    NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID, NODE_METADATA_VMESS_ALTER_ID,
-    NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
+    NodeDescriptor, Protocol, NODE_METADATA_HYSTERIA2_OBFS_TYPE, NODE_METADATA_HYSTERIA2_PASSWORD,
+    NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_TLS_ALPN,
+    NODE_METADATA_TLS_ENABLED, NODE_METADATA_TLS_INSECURE, NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
+    NODE_METADATA_TLS_REALITY_SHORT_ID, NODE_METADATA_TLS_SERVER_NAME,
+    NODE_METADATA_TROJAN_PASSWORD, NODE_METADATA_V2RAY_TRANSPORT_HOST,
+    NODE_METADATA_V2RAY_TRANSPORT_PATH, NODE_METADATA_V2RAY_TRANSPORT_SERVICE_NAME,
+    NODE_METADATA_V2RAY_TRANSPORT_TYPE, NODE_METADATA_VLESS_FLOW, NODE_METADATA_VLESS_UUID,
+    NODE_METADATA_VMESS_ALTER_ID, NODE_METADATA_VMESS_SECURITY, NODE_METADATA_VMESS_UUID,
 };
 use serde_json::{json, Value};
 
@@ -34,6 +34,7 @@ pub fn outbound_for_node(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         Protocol::Vless => vless(node)?,
         Protocol::Trojan => trojan(node)?,
         Protocol::Vmess => vmess(node)?,
+        Protocol::Hysteria2 => hysteria2(node)?,
         _ => return Err("protocol is not implemented by the embedded engine yet"),
     };
     let kind = outbound["type"].as_str().unwrap_or_default();
@@ -200,6 +201,26 @@ fn vmess(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         "security": security,
         "tls": standard_tls(node),
         "transport": transport,
+    }))
+}
+
+/// Hysteria2 always runs TLS 1.3 over QUIC. Port hopping ranges are ignored:
+/// the outbound connects to the node's main port, which hopping servers also
+/// listen on.
+fn hysteria2(node: &NodeDescriptor) -> Result<Value, Unsupported> {
+    let password =
+        metadata(node, NODE_METADATA_HYSTERIA2_PASSWORD).ok_or("hysteria2 password is missing")?;
+    if metadata(node, NODE_METADATA_HYSTERIA2_OBFS_TYPE).is_some() {
+        return Err("hysteria2 obfs (salamander) is not implemented yet");
+    }
+    Ok(json!({
+        "type": "hysteria2",
+        "server": node.endpoint.host,
+        "port": node.endpoint.port,
+        "password": password,
+        "server_name": metadata(node, NODE_METADATA_TLS_SERVER_NAME),
+        "alpn": alpn_list(node),
+        "insecure": metadata(node, NODE_METADATA_TLS_INSECURE) == Some("true"),
     }))
 }
 

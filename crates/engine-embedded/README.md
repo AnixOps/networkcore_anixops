@@ -5,7 +5,7 @@ In-process engine for the iOS Network Extension (roadmap M1a). It never starts a
 - `ffi`: `networkcore_ios_*` C ABI, mirrored by `include/networkcore_ios_runtime.h`. Every symbol catches panics and returns a stable code that maps onto `platform.ios.embedded_runtime.*` diagnostics, following `docs/architecture/ios-embedded-runtime-ffi-boundary-design.md`.
 - `EmbeddedRuntime`: parses and validates the JSON config envelope (`schema_version` 1), builds the outbound, owns the tunnel lifecycle and reports a sanitized status (profile id, state, counters; no addresses, keys or traffic).
 - `tunnel`: one current-thread tokio runtime on a dedicated thread. Packets from `packetFlow` enter through `input_packet`; packets for `packetFlow` leave through the writer callback. TCP flows go through the outbound; UDP/53 is re-sent as DNS-over-TCP through the outbound; other UDP is dropped so QUIC falls back to TCP.
-- Outbounds implement `engine_outbound::TcpOutbound` and are built by the protocol registry (`engine_outbound::registry`) from the config `type`: `shadowsocks` (Shadowsocks-2022 and AEAD `aes-128-gcm`/`aes-256-gcm`/`chacha20-ietf-poly1305`, from `outbound-shadowsocks`), `vless` (VLESS over REALITY with optional XTLS Vision, or over TCP/standard TLS with an optional WebSocket, from `outbound-vless`), `vmess` (VMess AEAD over TCP/TLS/WebSocket, from `outbound-vmess`), `trojan`, `socks`, `http` and `direct`. A new protocol plugs in without changing the tunnel.
+- Outbounds implement `engine_outbound::TcpOutbound` and are built by the protocol registry (`engine_outbound::registry`) from the config `type`: `shadowsocks` (Shadowsocks-2022 and AEAD `aes-128-gcm`/`aes-256-gcm`/`chacha20-ietf-poly1305`, from `outbound-shadowsocks`), `vless` (VLESS over REALITY with optional XTLS Vision, or over TCP/standard TLS with an optional WebSocket, from `outbound-vless`), `vmess` (VMess AEAD over TCP/TLS/WebSocket, from `outbound-vmess`), `hysteria2` (TCP over QUIC, from `outbound-hysteria2`), `trojan`, `socks`, `http` and `direct`. A new protocol plugs in without changing the tunnel.
 - `wireguard`: a packet-level mode for one WireGuard peer. Packets skip the TCP/IP stack and are sealed with boringtun's Noise state machine (BSD-3-Clause, `device` feature off) into datagrams on one connected UDP socket; the extension's routes apply the peer's `AllowedIPs`. Buffers stay under 0.5 MiB.
 
 ## Protocol modules
@@ -16,6 +16,7 @@ Each protocol is its own crate behind a cargo feature; `src/protocols.rs` regist
 | --- | --- | --- |
 | (always) | `direct` | this crate |
 | `http` | `http` (HTTP CONNECT proxy, optional TLS and Basic auth) | `outbound-http` |
+| `hysteria2` | `hysteria2` (QUIC + HTTP/3 password auth, TCP streams; no obfs or port hopping yet) | `outbound-hysteria2` (TLS settings from `transport-tls`, QUIC from `quinn`) |
 | `shadowsocks` | `shadowsocks` (`method` `2022-blake3-*` or an AEAD method) | `outbound-shadowsocks` |
 | `socks` | `socks` (SOCKS5, optional username/password) | `outbound-socks` |
 | `trojan` | `trojan` (TCP, or `"transport": {"type": "ws"}` / `{"type": "grpc", "service_name": ...}`) | `outbound-trojan` (TLS from `transport-tls`, WebSocket from `transport-ws`, gRPC from `transport-grpc`) |
