@@ -29,6 +29,8 @@ their own gates pass.
   MTU) that the extension turns into `NEPacketTunnelNetworkSettings`. Shadowsocks uses the fixed full-tunnel
   interface; WireGuard uses the config's `Address`, `AllowedIPs`, `DNS` and `MTU`. Both targets list `$(AppIdentifierPrefix)networkcore.shared` first in `keychain-access-groups`, so the
   extension reads the item the app saved. The default team-prefixed profiles already allow this group.
+- UI: the app follows the AnixOps Net brand (five tabs: 首页, 代理, 规则, 扩展, 设置). Brand colors, radii and motion
+  timings live in `apps/ios/Design/tokens.json`; `Sources/NetworkCoreAppHost/BrandPalette.swift` mirrors them.
 - Swift sources may only live under `apps/ios/Sources` or `apps/ios/Tests`.
 - Future Xcode project or workspace files must reference this source tree and must not become the only source of truth.
 

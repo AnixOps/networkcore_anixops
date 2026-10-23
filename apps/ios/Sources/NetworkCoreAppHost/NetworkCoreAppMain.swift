@@ -7,10 +7,12 @@ import SwiftUI
 @main
 struct NetworkCoreAppMain: App {
     @StateObject private var tunnel = TunnelController()
+    @AppStorage(Appearance.storageKey) private var appearance = Appearance.system
 
     var body: some Scene {
         WindowGroup {
-            TunnelView(tunnel: tunnel)
+            RootView(tunnel: tunnel)
+                .preferredColorScheme(appearance.colorScheme)
                 .task {
                     await tunnel.load()
                 }
@@ -18,107 +20,92 @@ struct NetworkCoreAppMain: App {
     }
 }
 
-struct TunnelView: View {
+/// The five top-level sections shared by every AnixOps Net client.
+enum AppTab: Hashable {
+    case home
+    case proxies
+    case rules
+    case extensions
+    case settings
+}
+
+struct RootView: View {
     @ObservedObject var tunnel: TunnelController
-    @State private var link = ""
+    @AppStorage(Appearance.storageKey) private var appearance = Appearance.system
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var tab = AppTab.home
+    @State private var importing = false
 
     var body: some View {
-        NavigationStack {
-            form
+        let brand = BrandPalette.resolve(appearance: appearance, scheme: colorScheme)
+        TabView(selection: $tab) {
+            HomeView(tunnel: tunnel, tab: $tab, importing: $importing)
+                .tabItem { Label("首页", systemImage: "house") }
+                .tag(AppTab.home)
+            ProxiesView(tunnel: tunnel, importing: $importing)
+                .tabItem { Label("代理", systemImage: "globe") }
+                .tag(AppTab.proxies)
+            ComingSoonView(
+                title: "规则",
+                systemImage: "arrow.triangle.branch",
+                heading: "规则与分流",
+                message: "按域名和 IP 分流、规则集和规则测试会放在这里。当前版本按节点配置转发全部流量。"
+            )
+            .tabItem { Label("规则", systemImage: "arrow.triangle.branch") }
+            .tag(AppTab.rules)
+            ComingSoonView(
+                title: "扩展",
+                systemImage: "puzzlepiece.extension",
+                heading: "HTTPS 解密与插件",
+                message: "Loon 插件、重写、脚本和 HTTPS 解密证书向导会放在这里。"
+            )
+            .tabItem { Label("扩展", systemImage: "puzzlepiece.extension") }
+            .tag(AppTab.extensions)
+            SettingsView(tunnel: tunnel)
+                .tabItem { Label("设置", systemImage: "slider.horizontal.3") }
+                .tag(AppTab.settings)
         }
-    }
-
-    private var form: some View {
-        Form {
-            Section("节点") {
-                if let name = tunnel.nodeName {
-                    Text(name)
-                }
-                // Multi-line so a WireGuard config can be pasted whole.
-                TextField("粘贴 ss://、vless:// 链接或 WireGuard 配置", text: $link, axis: .vertical)
-                    .lineLimit(1...8)
-                    .font(.footnote.monospaced())
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                Button("导入并保存") {
-                    let pasted = link
-                    link = ""
-                    Task {
-                        await tunnel.importLink(pasted)
-                    }
-                }
-                .disabled(link.isEmpty)
-            }
-
-            Section("隧道") {
-                StatusView(decision: tunnel.coordinator.decision)
-                Text(Self.describe(tunnel.connection))
-                    .foregroundStyle(.secondary)
-                Button(tunnel.isConnected ? "断开" : "连接") {
-                    tunnel.toggle()
-                }
-                .disabled(!tunnel.isConnected && !tunnel.coordinator.canStartTunnel)
-            }
-
-            if tunnel.connection == .connected {
-                Section("运行状态") {
-                    Button("刷新") {
-                        tunnel.refreshRuntimeStatus()
-                    }
-                    if let status = tunnel.runtimeStatus {
-                        Text(status)
-                            .font(.footnote.monospaced())
-                            .textSelection(.enabled)
-                    }
-                }
-            }
-
-            if let message = tunnel.message {
-                Section {
-                    Text(message)
-                }
-            }
-
-            AboutSection(tunnel: tunnel)
-        }
-    }
-
-    static func describe(_ status: NEVPNStatus) -> String {
-        switch status {
-        case .connected:
-            return "已连接"
-        case .connecting:
-            return "连接中"
-        case .disconnecting:
-            return "断开中"
-        case .reasserting:
-            return "重新连接中"
-        case .disconnected:
-            return "未连接"
-        case .invalid:
-            return "未配置"
-        @unknown default:
-            return "未知状态"
+        .tint(brand.primary)
+        .environment(\.brand, brand)
+        .sheet(isPresented: $importing) {
+            ImportView(tunnel: tunnel)
+                .environment(\.brand, brand)
+                .tint(brand.primary)
         }
     }
 }
 
-struct StatusView: View {
-    let decision: VpnConfigurationDecision
+/// A section whose kernel support is still on the roadmap: says what will live here instead of showing fake data.
+struct ComingSoonView: View {
+    @Environment(\.brand) private var brand
+    let title: String
+    let systemImage: String
+    let heading: String
+    let message: String
 
     var body: some View {
-        switch decision {
-        case .startTunnel:
-            Text("可以启动隧道")
-        case let .blocked(reason, code):
-            VStack(alignment: .leading, spacing: 4) {
-                Text(reason)
-                if let code = code {
-                    Text(code)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+        NavigationStack {
+            ScrollView {
+                BrandEmptyState(systemImage: systemImage, title: heading, message: message)
+                    .padding(.top, 80)
             }
+            .background(brand.bg.ignoresSafeArea())
+            .navigationTitle(title)
+            .brandBars(brand)
+        }
+    }
+}
+
+extension View {
+    /// OLED keeps the navigation and tab bars pure black; other themes keep the system material.
+    @ViewBuilder
+    func brandBars(_ brand: BrandPalette) -> some View {
+        if brand.solidBars {
+            self
+                .toolbarBackground(brand.bg, for: .navigationBar, .tabBar)
+                .toolbarBackground(.visible, for: .navigationBar, .tabBar)
+        } else {
+            self
         }
     }
 }
