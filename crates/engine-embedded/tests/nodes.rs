@@ -132,6 +132,53 @@ fn trojan_websocket_nodes_carry_path_and_host() {
 }
 
 #[test]
+fn vless_tls_and_websocket_nodes_map_to_the_standard_outbound() {
+    let vless_ws_tls = node(
+        "vless-ws",
+        Protocol::Vless,
+        &[
+            ("vless.uuid", "b831381d-6324-4d53-ad4f-8cda48b30811"),
+            ("tls.enabled", "true"),
+            ("tls.server_name", "cdn.example"),
+            ("tls.alpn", "http/1.1"),
+            ("v2ray.transport.type", "ws"),
+            ("v2ray.transport.path", "/vl"),
+        ],
+    );
+    let outbound = outbound_for_node(&vless_ws_tls).unwrap();
+    assert_eq!(outbound["tls"]["server_name"], "cdn.example");
+    assert_eq!(outbound["tls"]["alpn"], serde_json::json!(["http/1.1"]));
+    assert_eq!(outbound["transport"]["path"], "/vl");
+    assert!(outbound.get("reality").is_none());
+    let (envelope, _) = single_node_envelope("p", &[vless_ws_tls], None).unwrap();
+    assert_eq!(builds(&envelope), "vless");
+
+    let vless_plain = node(
+        "vless-plain",
+        Protocol::Vless,
+        &[
+            ("vless.uuid", "b831381d-6324-4d53-ad4f-8cda48b30811"),
+            ("tls.enabled", "false"),
+        ],
+    );
+    let outbound = outbound_for_node(&vless_plain).unwrap();
+    assert!(outbound["tls"].is_null());
+    let (envelope, _) = single_node_envelope("p", &[vless_plain], None).unwrap();
+    assert_eq!(builds(&envelope), "vless");
+
+    let vision_tls = node(
+        "vision-tls",
+        Protocol::Vless,
+        &[
+            ("vless.uuid", "b831381d-6324-4d53-ad4f-8cda48b30811"),
+            ("vless.flow", "xtls-rprx-vision"),
+            ("tls.enabled", "true"),
+        ],
+    );
+    assert!(outbound_for_node(&vision_tls).is_err());
+}
+
+#[test]
 fn unsupported_nodes_are_reported_without_secrets() {
     let legacy_ss = node(
         "legacy",
@@ -141,12 +188,12 @@ fn unsupported_nodes_are_reported_without_secrets() {
             ("shadowsocks.password", "legacy-secret"),
         ],
     );
-    let vless_ws = node(
-        "ws",
+    let vless_grpc = node(
+        "grpc",
         Protocol::Vless,
         &[
             ("vless.uuid", "b831381d-6324-4d53-ad4f-8cda48b30811"),
-            ("v2ray.transport.type", "ws"),
+            ("v2ray.transport.type", "grpc"),
         ],
     );
     let hysteria2 = node(
@@ -154,7 +201,7 @@ fn unsupported_nodes_are_reported_without_secrets() {
         Protocol::Hysteria2,
         &[("hysteria2.password", "hy2-secret")],
     );
-    for node in [legacy_ss, vless_ws, hysteria2] {
+    for node in [legacy_ss, vless_grpc, hysteria2] {
         let reason = outbound_for_node(&node).unwrap_err();
         assert!(!reason.contains("secret"), "{reason}");
     }

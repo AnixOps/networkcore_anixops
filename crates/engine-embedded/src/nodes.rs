@@ -127,62 +127,90 @@ fn shadowsocks(node: &NodeDescriptor) -> Result<Value, Unsupported> {
 
 fn vless(node: &NodeDescriptor) -> Result<Value, Unsupported> {
     let uuid = metadata(node, NODE_METADATA_VLESS_UUID).ok_or("vless uuid is missing")?;
-    if let Some(transport) = metadata(node, NODE_METADATA_V2RAY_TRANSPORT_TYPE) {
-        if transport != "tcp" {
-            return Err("vless transports other than tcp are not implemented yet");
+    let flow = metadata(node, NODE_METADATA_VLESS_FLOW).unwrap_or_default();
+    let transport = websocket_transport(node)?;
+    if let Some(public_key) = metadata(node, NODE_METADATA_TLS_REALITY_PUBLIC_KEY) {
+        if !transport.is_null() {
+            return Err("vless REALITY over transports other than tcp is not implemented yet");
         }
+        let server_name = metadata(node, NODE_METADATA_TLS_SERVER_NAME)
+            .ok_or("vless REALITY server name is missing")?;
+        // tls-mimic ships one Chrome fingerprint; other names fall back to it,
+        // as the iOS importer does.
+        return Ok(json!({
+            "type": "vless",
+            "server": node.endpoint.host,
+            "port": node.endpoint.port,
+            "uuid": uuid,
+            "flow": flow,
+            "reality": {
+                "server_name": server_name,
+                "public_key": public_key,
+                "short_id": metadata(node, NODE_METADATA_TLS_REALITY_SHORT_ID).unwrap_or_default(),
+                "fingerprint": "chrome",
+            },
+        }));
     }
-    let public_key = metadata(node, NODE_METADATA_TLS_REALITY_PUBLIC_KEY)
-        .ok_or("vless without REALITY is not implemented yet")?;
-    let server_name = metadata(node, NODE_METADATA_TLS_SERVER_NAME)
-        .ok_or("vless REALITY server name is missing")?;
-    // tls-mimic ships one Chrome fingerprint; other names fall back to it, as
-    // the iOS importer does.
+    if !flow.is_empty() && flow != "none" {
+        return Err("vless flows without REALITY are not implemented yet");
+    }
+    let tls = if metadata(node, NODE_METADATA_TLS_ENABLED) == Some("true") {
+        json!({
+            "server_name": metadata(node, NODE_METADATA_TLS_SERVER_NAME),
+            "alpn": alpn_list(node),
+            "insecure": metadata(node, NODE_METADATA_TLS_INSECURE) == Some("true"),
+        })
+    } else {
+        Value::Null
+    };
     Ok(json!({
         "type": "vless",
         "server": node.endpoint.host,
         "port": node.endpoint.port,
         "uuid": uuid,
-        "flow": metadata(node, NODE_METADATA_VLESS_FLOW).unwrap_or_default(),
-        "reality": {
-            "server_name": server_name,
-            "public_key": public_key,
-            "short_id": metadata(node, NODE_METADATA_TLS_REALITY_SHORT_ID).unwrap_or_default(),
-            "fingerprint": "chrome",
-        },
+        "tls": tls,
+        "transport": transport,
     }))
 }
 
-fn trojan(node: &NodeDescriptor) -> Result<Value, Unsupported> {
-    let password =
-        metadata(node, NODE_METADATA_TROJAN_PASSWORD).ok_or("trojan password is missing")?;
-    let transport = match metadata(node, NODE_METADATA_V2RAY_TRANSPORT_TYPE) {
-        None | Some("tcp") => Value::Null,
-        Some("ws") => json!({
+/// `null` for tcp, the `ws` transport entry, or unsupported.
+fn websocket_transport(node: &NodeDescriptor) -> Result<Value, Unsupported> {
+    match metadata(node, NODE_METADATA_V2RAY_TRANSPORT_TYPE) {
+        None | Some("tcp") => Ok(Value::Null),
+        Some("ws") => Ok(json!({
             "type": "ws",
             "path": metadata(node, NODE_METADATA_V2RAY_TRANSPORT_PATH).unwrap_or_default(),
             "host": metadata(node, NODE_METADATA_V2RAY_TRANSPORT_HOST).unwrap_or_default(),
-        }),
-        Some(_) => return Err("trojan transports other than tcp and ws are not implemented yet"),
-    };
-    if metadata(node, NODE_METADATA_TLS_ENABLED) == Some("false") {
-        return Err("trojan without tls is not supported");
+        })),
+        Some(_) => Err("transports other than tcp and ws are not implemented yet"),
     }
-    let alpn: Vec<&str> = metadata(node, NODE_METADATA_TLS_ALPN)
+}
+
+fn alpn_list(node: &NodeDescriptor) -> Vec<&str> {
+    metadata(node, NODE_METADATA_TLS_ALPN)
         .map(|list| {
             list.split(',')
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .collect()
         })
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+fn trojan(node: &NodeDescriptor) -> Result<Value, Unsupported> {
+    let password =
+        metadata(node, NODE_METADATA_TROJAN_PASSWORD).ok_or("trojan password is missing")?;
+    let transport = websocket_transport(node)?;
+    if metadata(node, NODE_METADATA_TLS_ENABLED) == Some("false") {
+        return Err("trojan without tls is not supported");
+    }
     Ok(json!({
         "type": "trojan",
         "server": node.endpoint.host,
         "port": node.endpoint.port,
         "password": password,
         "server_name": metadata(node, NODE_METADATA_TLS_SERVER_NAME),
-        "alpn": alpn,
+        "alpn": alpn_list(node),
         "insecure": metadata(node, NODE_METADATA_TLS_INSECURE) == Some("true"),
         "transport": transport,
     }))
