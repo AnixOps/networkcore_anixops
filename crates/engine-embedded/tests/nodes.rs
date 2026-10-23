@@ -178,6 +178,53 @@ fn vless_tls_and_websocket_nodes_map_to_the_standard_outbound() {
     assert!(outbound_for_node(&vision_tls).is_err());
 }
 
+#[cfg(feature = "vmess")]
+#[test]
+fn vmess_nodes_map_security_tls_and_websocket() {
+    let vmess_ws_tls = node(
+        "vmess-ws",
+        Protocol::Vmess,
+        &[
+            ("vmess.uuid", "b831381d-6324-4d53-ad4f-8cda48b30811"),
+            ("vmess.security", "chacha20-poly1305"),
+            ("vmess.alter_id", "0"),
+            ("tls.enabled", "true"),
+            ("tls.server_name", "cdn.example"),
+            ("v2ray.transport.type", "ws"),
+            ("v2ray.transport.path", "/vm"),
+        ],
+    );
+    let outbound = outbound_for_node(&vmess_ws_tls).unwrap();
+    assert_eq!(outbound["security"], "chacha20-poly1305");
+    assert_eq!(outbound["tls"]["server_name"], "cdn.example");
+    assert_eq!(outbound["transport"]["path"], "/vm");
+    let (envelope, _) = single_node_envelope("p", &[vmess_ws_tls], None).unwrap();
+    assert_eq!(builds(&envelope), "vmess");
+
+    let vmess_plain = node(
+        "vmess-plain",
+        Protocol::Vmess,
+        &[("vmess.uuid", "b831381d-6324-4d53-ad4f-8cda48b30811")],
+    );
+    let outbound = outbound_for_node(&vmess_plain).unwrap();
+    assert_eq!(outbound["security"], "auto");
+    assert!(outbound["tls"].is_null());
+    let (envelope, _) = single_node_envelope("p", &[vmess_plain], None).unwrap();
+    assert_eq!(builds(&envelope), "vmess");
+
+    for (key, value) in [("vmess.alter_id", "64"), ("vmess.security", "none")] {
+        let unsupported = node(
+            "vmess-legacy",
+            Protocol::Vmess,
+            &[
+                ("vmess.uuid", "b831381d-6324-4d53-ad4f-8cda48b30811"),
+                (key, value),
+            ],
+        );
+        assert!(outbound_for_node(&unsupported).is_err(), "{key}={value}");
+    }
+}
+
 #[test]
 fn unsupported_nodes_are_reported_without_secrets() {
     let legacy_ss = node(

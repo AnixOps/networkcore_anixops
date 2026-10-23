@@ -10,6 +10,7 @@
 //! | `socks`       | `socks`        | `outbound-socks`       |
 //! | `trojan`      | `trojan`       | `outbound-trojan`      |
 //! | `vless`       | `vless`        | `outbound-vless`       |
+//! | `vmess`       | `vmess`        | `outbound-vmess`       |
 //! | `wireguard`   | `wireguard`    | this crate + boringtun |
 //!
 //! A new protocol adds its crate as an optional dependency, a feature, and one
@@ -36,6 +37,8 @@ pub fn default_registry() -> OutboundRegistry {
     registry.register(Arc::new(outbound_trojan::TrojanFactory));
     #[cfg(feature = "vless")]
     registry.register(Arc::new(outbound_vless::VlessFactory));
+    #[cfg(feature = "vmess")]
+    registry.register(Arc::new(outbound_vmess::VmessFactory));
     registry
 }
 

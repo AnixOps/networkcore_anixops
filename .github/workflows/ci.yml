@@ -2674,7 +2674,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for features in "" http shadowsocks socks trojan vless wireguard local-proxy; do
+          for features in "" http shadowsocks socks trojan vless vmess wireguard local-proxy; do
             echo "::group::engine-embedded features=[${features}]"
             cargo clippy --locked -p engine-embedded --no-default-features --features "${features}" --all-targets -- -D warnings
             cargo test --locked -p engine-embedded --no-default-features --features "${features}" --tests
@@ -3065,7 +3065,10 @@ jobs:
 
       - name: Build interop tests
         shell: bash
-        run: cargo test --locked -p outbound-vless --test reality_interop --no-run
+        run: |
+          set -euo pipefail
+          cargo test --locked -p outbound-vless --test reality_interop --no-run
+          cargo test --locked -p outbound-vmess --test vmess_interop --no-run
 
       - name: Download Xray-core and sing-box
         shell: bash
@@ -3085,6 +3088,7 @@ jobs:
           source "${RUNNER_TEMP}/reality-interop/env"
           set +a
           cargo test --locked -p outbound-vless --test reality_interop -- --ignored --test-threads=1 --nocapture
+          cargo test --locked -p outbound-vmess --test vmess_interop -- --ignored --test-threads=1 --nocapture
 
       - name: Server logs
         if: ${{ always() }}

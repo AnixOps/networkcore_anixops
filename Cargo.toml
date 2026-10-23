@@ -20,6 +20,7 @@ members = [
     "crates/outbound-socks",
     "crates/outbound-trojan",
     "crates/outbound-vless",
+    "crates/outbound-vmess",
     "crates/platform-ios",
     "crates/platform-linux",
     "crates/platform-windows",
