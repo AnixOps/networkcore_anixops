@@ -31,6 +31,8 @@ async fn ws_server() -> (SocketAddr, Arc<Mutex<Seen>>) {
         while let Ok((stream, _)) = listener.accept().await {
             let record = record.clone();
             tokio::spawn(async move {
+                // The callback signature is fixed by tungstenite.
+                #[allow(clippy::result_large_err)]
                 let callback = move |request: &Request,
                                      response: Response|
                       -> Result<Response, ErrorResponse> {

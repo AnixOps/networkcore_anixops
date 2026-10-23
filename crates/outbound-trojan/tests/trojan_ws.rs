@@ -86,6 +86,8 @@ async fn trojan_ws_server() -> (SocketAddr, Arc<Mutex<String>>) {
                 let Ok(tls) = acceptor.accept(stream).await else {
                     return;
                 };
+                // The callback signature is fixed by tungstenite.
+                #[allow(clippy::result_large_err)]
                 let callback = move |request: &Request,
                                      response: Response|
                       -> Result<Response, ErrorResponse> {
