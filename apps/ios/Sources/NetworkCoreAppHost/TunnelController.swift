@@ -213,7 +213,7 @@ final class TunnelController: ObservableObject {
     private static func describe(_ error: TunnelNodeImportError) -> String {
         switch error {
         case .unrecognized:
-            return "请粘贴 ss:// 链接或 WireGuard 配置"
+            return "请粘贴 ss://、vless:// 链接或 WireGuard 配置"
         case let .shadowsocks(error):
             switch error {
             case .notShadowsocksLink, .malformed:
@@ -222,6 +222,21 @@ final class TunnelController: ObservableObject {
                 return "目前只支持 Shadowsocks-2022 加密方式"
             case .unsupportedPlugin:
                 return "暂不支持带插件的节点"
+            }
+        case let .vless(error):
+            switch error {
+            case .notVlessLink, .malformed:
+                return "节点链接格式不正确"
+            case .invalidUUID:
+                return "VLESS 用户 ID 格式不正确"
+            case .unsupportedSecurity:
+                return "目前只支持 REALITY 安全类型的 VLESS 节点"
+            case .unsupportedTransport:
+                return "目前只支持 TCP 传输的 VLESS 节点"
+            case .unsupportedFlow:
+                return "目前只支持 xtls-rprx-vision 流控或不使用流控"
+            case .invalidRealitySettings:
+                return "REALITY 参数（sni、pbk、sid）不正确"
             }
         case let .wireguard(error):
             switch error {
