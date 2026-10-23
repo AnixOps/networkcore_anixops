@@ -5756,8 +5756,10 @@ dependencies = [
 name = "transport-quic"
 version = "0.1.0"
 dependencies = [
+ "blake2",
  "engine-outbound",
  "quinn",
+ "ring",
  "tokio",
  "transport-tls",
 ]

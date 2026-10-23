@@ -14,8 +14,9 @@
 //! variable-length integers (RFC 9000 section 16).
 //!
 //! The connection is shared by every stream and opened again when it closes.
-//! Salamander obfuscation, port hopping and Brutal congestion control are not
-//! supported; the outbound uses QUIC's default congestion control.
+//! [`Hysteria2Outbound::with_salamander`] turns on Salamander obfuscation.
+//! Port hopping and Brutal congestion control are not supported; the outbound
+//! uses QUIC's default congestion control.
 //!
 //! [`Hysteria2Factory`] registers the outbound under `"type": "hysteria2"`.
 
@@ -30,6 +31,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
+use transport_quic::salamander::Salamander;
 use transport_quic::{quic_error, quinn, Congestion, QuicConnection, QuicConnector, QuicStream};
 use transport_tls::TlsSettings;
 
@@ -86,6 +88,12 @@ impl Hysteria2Outbound {
             quic: QuicConnector::new(server, port, tls, &["h3"], Congestion::Cubic)?,
             session: Mutex::new(None),
         })
+    }
+
+    /// Obfuscates every datagram with Salamander (`obfs.type: salamander`).
+    pub fn with_salamander(mut self, salamander: Salamander) -> io::Result<Self> {
+        self.quic = self.quic.with_salamander(salamander)?;
+        Ok(self)
     }
 
     /// The live QUIC connection, authenticating a new one if needed.

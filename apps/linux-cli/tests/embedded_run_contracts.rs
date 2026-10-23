@@ -13,8 +13,8 @@ use networkcore_linux::{
 /// `ss://` link for a Shadowsocks-2022 node (method and key base64url-encoded).
 const SS_2022_LINK: &str =
     "ss://MjAyMi1ibGFrZTMtYWVzLTEyOC1nY206QUFFQ0F3UUZCZ2NJQ1FvTERBME9Edz09@192.0.2.10:8388#SS2022";
-/// Hysteria2 with Salamander obfuscation, which the embedded engine lacks.
-const HYSTERIA2_OBFS_LINK: &str = "hysteria2://hy2-secret@edge.example.test:443?sni=cdn.example.test&obfs=salamander&obfs-password=obfs-secret#Hysteria2";
+/// Hysteria2 with Gecko obfuscation, which the embedded engine lacks.
+const HYSTERIA2_OBFS_LINK: &str = "hysteria2://hy2-secret@edge.example.test:443?sni=cdn.example.test&obfs=gecko&obfs-password=obfs-secret#Hysteria2";
 
 struct NoRemoteFetch;
 

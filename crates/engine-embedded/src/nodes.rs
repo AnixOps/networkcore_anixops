@@ -10,7 +10,8 @@ use std::collections::BTreeMap;
 
 use config_core::routing::RoutingSpec;
 use control_domain::{
-    NodeDescriptor, Protocol, NODE_METADATA_HYSTERIA2_OBFS_TYPE, NODE_METADATA_HYSTERIA2_PASSWORD,
+    NodeDescriptor, Protocol, NODE_METADATA_HYSTERIA2_OBFS_PASSWORD,
+    NODE_METADATA_HYSTERIA2_OBFS_TYPE, NODE_METADATA_HYSTERIA2_PASSWORD,
     NODE_METADATA_SHADOWSOCKS_METHOD, NODE_METADATA_SHADOWSOCKS_PASSWORD, NODE_METADATA_TLS_ALPN,
     NODE_METADATA_TLS_ENABLED, NODE_METADATA_TLS_INSECURE, NODE_METADATA_TLS_REALITY_PUBLIC_KEY,
     NODE_METADATA_TLS_REALITY_SHORT_ID, NODE_METADATA_TLS_SERVER_NAME,
@@ -212,9 +213,15 @@ fn vmess(node: &NodeDescriptor) -> Result<Value, Unsupported> {
 fn hysteria2(node: &NodeDescriptor) -> Result<Value, Unsupported> {
     let password =
         metadata(node, NODE_METADATA_HYSTERIA2_PASSWORD).ok_or("hysteria2 password is missing")?;
-    if metadata(node, NODE_METADATA_HYSTERIA2_OBFS_TYPE).is_some() {
-        return Err("hysteria2 obfs (salamander) is not implemented yet");
-    }
+    let obfs = match metadata(node, NODE_METADATA_HYSTERIA2_OBFS_TYPE) {
+        None => Value::Null,
+        Some("salamander") => json!({
+            "type": "salamander",
+            "password": metadata(node, NODE_METADATA_HYSTERIA2_OBFS_PASSWORD)
+                .ok_or("hysteria2 obfs password is missing")?,
+        }),
+        Some(_) => return Err("hysteria2 obfs other than salamander is not implemented yet"),
+    };
     Ok(json!({
         "type": "hysteria2",
         "server": node.endpoint.host,
@@ -223,6 +230,7 @@ fn hysteria2(node: &NodeDescriptor) -> Result<Value, Unsupported> {
         "server_name": metadata(node, NODE_METADATA_TLS_SERVER_NAME),
         "alpn": alpn_list(node),
         "insecure": metadata(node, NODE_METADATA_TLS_INSECURE) == Some("true"),
+        "obfs": obfs,
     }))
 }
 

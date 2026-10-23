@@ -6,6 +6,10 @@
 //! family and returns an established [`QuicConnection`]; the protocol crate
 //! authenticates on it and opens one stream per proxied connection.
 //! [`QuicStream`] turns a bidirectional stream into a [`BoxStream`].
+//! [`QuicConnector::with_salamander`] obfuscates every datagram with
+//! [`salamander::Salamander`].
+
+pub mod salamander;
 
 use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -25,6 +29,8 @@ const MAX_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(10);
 const STREAM_RECEIVE_WINDOW: u32 = 8 * 1024 * 1024;
 const CONNECTION_RECEIVE_WINDOW: u32 = 20 * 1024 * 1024;
+/// Largest UDP payload MTU discovery probes for, as quinn's default.
+const MAX_UDP_PAYLOAD: u16 = 1452;
 
 /// Congestion controller of the connection.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -53,7 +59,9 @@ pub struct QuicConnector {
     server: String,
     port: u16,
     server_name: String,
+    congestion: Congestion,
     client_config: quinn::ClientConfig,
+    salamander: Option<salamander::Salamander>,
 }
 
 /// An established connection and the endpoint that drives its socket.
@@ -82,36 +90,29 @@ impl QuicConnector {
         let crypto =
             quinn::crypto::rustls::QuicClientConfig::try_from(transport_tls::client_config(&tls)?)
                 .map_err(|_| invalid("tls settings are unusable for quic"))?;
-        let mut transport = quinn::TransportConfig::default();
-        transport
-            .stream_receive_window(quinn::VarInt::from_u32(STREAM_RECEIVE_WINDOW))
-            .receive_window(quinn::VarInt::from_u32(CONNECTION_RECEIVE_WINDOW))
-            .keep_alive_interval(Some(KEEP_ALIVE_INTERVAL))
-            .max_idle_timeout(Some(
-                quinn::IdleTimeout::try_from(MAX_IDLE_TIMEOUT)
-                    .map_err(|_| invalid("quic idle timeout is invalid"))?,
-            ));
-        match congestion {
-            Congestion::Cubic => {}
-            Congestion::NewReno => {
-                transport.congestion_controller_factory(Arc::new(
-                    quinn::congestion::NewRenoConfig::default(),
-                ));
-            }
-            Congestion::Bbr => {
-                transport.congestion_controller_factory(Arc::new(
-                    quinn::congestion::BbrConfig::default(),
-                ));
-            }
-        }
         let mut client_config = quinn::ClientConfig::new(Arc::new(crypto));
-        client_config.transport_config(Arc::new(transport));
+        client_config.transport_config(Arc::new(transport_config(congestion, 0)?));
         Ok(Self {
             server,
             port,
             server_name: tls.server_name,
+            congestion,
             client_config,
+            salamander: None,
         })
+    }
+
+    /// Obfuscates every datagram of this connector's connections.
+    pub fn with_salamander(mut self, salamander: salamander::Salamander) -> io::Result<Self> {
+        // The salt makes each datagram longer; keep them within the usual
+        // path MTU.
+        self.client_config
+            .transport_config(Arc::new(transport_config(
+                self.congestion,
+                salamander::SALT_LEN as u16,
+            )?));
+        self.salamander = Some(salamander);
+        Ok(self)
     }
 
     /// Resolves the server and completes the QUIC handshake, within a
@@ -132,7 +133,25 @@ impl QuicConnector {
         } else {
             (Ipv6Addr::UNSPECIFIED, 0).into()
         };
-        let endpoint = quinn::Endpoint::client(bind)?;
+        let endpoint = match &self.salamander {
+            None => quinn::Endpoint::client(bind)?,
+            Some(salamander) => {
+                let runtime = quinn::default_runtime()
+                    .ok_or_else(|| io::Error::other("no async runtime for quic"))?;
+                let socket = std::net::UdpSocket::bind(bind)?;
+                socket.set_nonblocking(true)?;
+                let socket = salamander::SalamanderSocket::new(
+                    runtime.wrap_udp_socket(socket)?,
+                    salamander.clone(),
+                );
+                quinn::Endpoint::new_with_abstract_socket(
+                    quinn::EndpointConfig::default(),
+                    None,
+                    socket,
+                    runtime,
+                )?
+            }
+        };
         let connection = endpoint
             .connect_with(self.client_config.clone(), addr, &self.server_name)
             .map_err(|_| invalid("quic connect settings are invalid"))?
@@ -143,6 +162,38 @@ impl QuicConnector {
             _endpoint: endpoint,
         })
     }
+}
+
+/// Windows, keep-alive, idle timeout and congestion control; `overhead` bytes
+/// per datagram are kept free below the MTU discovery limit.
+fn transport_config(congestion: Congestion, overhead: u16) -> io::Result<quinn::TransportConfig> {
+    let mut transport = quinn::TransportConfig::default();
+    transport
+        .stream_receive_window(quinn::VarInt::from_u32(STREAM_RECEIVE_WINDOW))
+        .receive_window(quinn::VarInt::from_u32(CONNECTION_RECEIVE_WINDOW))
+        .keep_alive_interval(Some(KEEP_ALIVE_INTERVAL))
+        .max_idle_timeout(Some(
+            quinn::IdleTimeout::try_from(MAX_IDLE_TIMEOUT)
+                .map_err(|_| invalid("quic idle timeout is invalid"))?,
+        ));
+    if overhead > 0 {
+        let mut mtu = quinn::MtuDiscoveryConfig::default();
+        mtu.upper_bound(MAX_UDP_PAYLOAD - overhead);
+        transport.mtu_discovery_config(Some(mtu));
+    }
+    match congestion {
+        Congestion::Cubic => {}
+        Congestion::NewReno => {
+            transport.congestion_controller_factory(Arc::new(
+                quinn::congestion::NewRenoConfig::default(),
+            ));
+        }
+        Congestion::Bbr => {
+            transport
+                .congestion_controller_factory(Arc::new(quinn::congestion::BbrConfig::default()));
+        }
+    }
+    Ok(transport)
 }
 
 /// One proxied connection on a bidirectional QUIC stream. The tokio trait

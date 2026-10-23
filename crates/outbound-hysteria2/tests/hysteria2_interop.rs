@@ -4,7 +4,9 @@
 //! These tests are ignored by default; the `REALITY interop (Linux)` CI job
 //! starts the servers and targets and runs them with `--ignored`. Inputs:
 //!
-//! * `NC_HYSTERIA2_SERVERS`: `name=host:port,...`
+//! * `NC_HYSTERIA2_SERVERS`: `name=host:port[:salamander],...`
+//! * `NC_HYSTERIA2_OBFS_PASSWORD`: Salamander password of `:salamander`
+//!   servers
 //! * `NC_HYSTERIA2_PASSWORD`
 //! * `NC_HYSTERIA2_SERVER_NAME`: name in the servers' self-signed certificate
 //! * `NC_HTTP_TARGET`: plain HTTP/1.0 server serving `/payload.bin`
@@ -17,6 +19,7 @@ use std::time::Duration;
 use engine_outbound::{TargetAddr, TcpOutbound};
 use outbound_hysteria2::Hysteria2Outbound;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use transport_quic::salamander::Salamander;
 use transport_tls::TlsSettings;
 
 const PAYLOAD_LEN: usize = 1_000_000;
@@ -32,24 +35,40 @@ fn env(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("{name} must be set for interop tests"))
 }
 
-fn servers() -> Vec<(String, String, u16)> {
+/// `(name, host, port, salamander)`.
+fn servers() -> Vec<(String, String, u16, bool)> {
     env("NC_HYSTERIA2_SERVERS")
         .split(',')
         .map(|entry| {
             let (name, rest) = entry.split_once('=').expect("name=host:port");
+            let (rest, salamander) = match rest.strip_suffix(":salamander") {
+                Some(rest) => (rest, true),
+                None => (rest, false),
+            };
             let (host, port) = rest.rsplit_once(':').expect("host:port");
-            (name.to_owned(), host.to_owned(), port.parse().unwrap())
+            (
+                name.to_owned(),
+                host.to_owned(),
+                port.parse().unwrap(),
+                salamander,
+            )
         })
         .collect()
 }
 
-fn outbound(host: &str, port: u16, password: &str) -> Hysteria2Outbound {
+fn outbound(host: &str, port: u16, password: &str, salamander: bool) -> Hysteria2Outbound {
     let tls = TlsSettings {
         server_name: env("NC_HYSTERIA2_SERVER_NAME"),
         alpn: Vec::new(),
         insecure: true,
     };
-    Hysteria2Outbound::new(host, port, password, &tls).unwrap()
+    let outbound = Hysteria2Outbound::new(host, port, password, &tls).unwrap();
+    if salamander {
+        let obfs = Salamander::new(env("NC_HYSTERIA2_OBFS_PASSWORD")).unwrap();
+        outbound.with_salamander(obfs).unwrap()
+    } else {
+        outbound
+    }
 }
 
 async fn fetch_payload(outbound: &Hysteria2Outbound) -> io::Result<Vec<u8>> {
@@ -78,8 +97,8 @@ async fn downloads_through_every_server() {
     let expected = expected_payload();
     let password = env("NC_HYSTERIA2_PASSWORD");
     let mut failures = Vec::new();
-    for (name, host, port) in servers() {
-        let outbound = outbound(&host, port, &password);
+    for (name, host, port, salamander) in servers() {
+        let outbound = outbound(&host, port, &password, salamander);
         // The second download reuses the authenticated QUIC connection.
         for round in 1..=2 {
             let label = format!("{name} round {round}");
@@ -91,7 +110,7 @@ async fn downloads_through_every_server() {
             }
         }
 
-        let wrong = self::outbound(&host, port, "not-the-password");
+        let wrong = self::outbound(&host, port, "not-the-password", salamander);
         let target = TargetAddr::from(env("NC_HTTP_TARGET").parse::<SocketAddr>().unwrap());
         match tokio::time::timeout(TIMEOUT, wrong.connect(&target)).await {
             Ok(Err(error)) if error.kind() == io::ErrorKind::PermissionDenied => {
