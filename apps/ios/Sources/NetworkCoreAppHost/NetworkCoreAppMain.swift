@@ -28,7 +28,10 @@ struct TunnelView: View {
                 if let name = tunnel.nodeName {
                     Text(name)
                 }
-                SecureField("粘贴 ss:// 链接", text: $link)
+                // Multi-line so a WireGuard config can be pasted whole.
+                TextField("粘贴 ss:// 链接或 WireGuard 配置", text: $link, axis: .vertical)
+                    .lineLimit(1...8)
+                    .font(.footnote.monospaced())
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 Button("导入并保存") {

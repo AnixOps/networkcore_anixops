@@ -8,6 +8,8 @@
 //! - Outbounds implementing [`engine_outbound::TcpOutbound`]: Shadowsocks-2022
 //!   ([`shadowsocks`]) and direct ([`direct`]). New protocols plug in here
 //!   without touching the tunnel.
+//! - [`wireguard`]: an IP-level tunnel that bypasses the TCP/IP stack and
+//!   seals packets straight to one peer.
 //!
 //! The runtime never starts a process, never touches Apple SDK objects and
 //! never puts credentials or traffic into errors, status or logs.
@@ -18,6 +20,7 @@ pub mod dns;
 pub mod ffi;
 pub mod shadowsocks;
 pub mod tunnel;
+pub mod wireguard;
 
 use std::fmt;
 use std::sync::Arc;
@@ -26,8 +29,9 @@ use std::time::Duration;
 use engine_outbound::{Dialer, TcpDialer, TcpOutbound};
 use serde::Serialize;
 
-use crate::config::RuntimeConfig;
+use crate::config::{RuntimeConfig, TunnelMode};
 use crate::tunnel::{PacketSink, Tunnel, TunnelSettings, TunnelStatsSnapshot};
+use crate::wireguard::WireGuardSettings;
 
 /// Stable error categories. They map one-to-one onto the FFI error codes and
 /// the `platform.ios.embedded_runtime.*` diagnostics.
@@ -95,9 +99,16 @@ pub struct RuntimeStatus {
     pub stats: TunnelStatsSnapshot,
 }
 
+/// What carries the traffic: a TCP outbound behind the userspace stack, or a
+/// WireGuard peer that takes IP packets directly.
+enum Engine {
+    Stack(Arc<dyn TcpOutbound>),
+    WireGuard(WireGuardSettings),
+}
+
 pub struct EmbeddedRuntime {
     config: RuntimeConfig,
-    outbound: Arc<dyn TcpOutbound>,
+    engine: Engine,
     tunnel: Option<Tunnel>,
     state: RuntimeState,
     last_error: Option<RuntimeErrorCode>,
@@ -111,15 +122,22 @@ impl EmbeddedRuntime {
 
     pub fn with_dialer(bytes: &[u8], dialer: Arc<dyn Dialer>) -> Result<Self, RuntimeError> {
         let config = RuntimeConfig::from_json(bytes)?;
-        let outbound = config.build_outbound(dialer)?;
-        Ok(Self::with_outbound(config, outbound))
+        let engine = match config.build_mode(dialer)? {
+            TunnelMode::Stack(outbound) => Engine::Stack(outbound),
+            TunnelMode::WireGuard(settings) => Engine::WireGuard(settings),
+        };
+        Ok(Self::with_engine(config, engine))
     }
 
     /// Uses a caller-provided outbound, for tests and future protocol crates.
     pub fn with_outbound(config: RuntimeConfig, outbound: Arc<dyn TcpOutbound>) -> Self {
+        Self::with_engine(config, Engine::Stack(outbound))
+    }
+
+    fn with_engine(config: RuntimeConfig, engine: Engine) -> Self {
         Self {
             config,
-            outbound,
+            engine,
             tunnel: None,
             state: RuntimeState::Initialized,
             last_error: None,
@@ -145,7 +163,11 @@ impl EmbeddedRuntime {
             dns_upstream: self.config.dns.upstream,
             dns_timeout: Duration::from_millis(self.config.dns.timeout_ms),
         };
-        match Tunnel::start(settings, self.outbound.clone(), sink) {
+        let started = match &self.engine {
+            Engine::Stack(outbound) => Tunnel::start(settings, outbound.clone(), sink),
+            Engine::WireGuard(wireguard) => Tunnel::start_wireguard(wireguard.clone(), sink),
+        };
+        match started {
             Ok(tunnel) => {
                 self.tunnel = Some(tunnel);
                 self.state = RuntimeState::Running;
@@ -180,7 +202,10 @@ impl EmbeddedRuntime {
             abi_version: ffi::NETWORKCORE_IOS_ABI_VERSION,
             schema_version: config::CONFIG_SCHEMA_VERSION,
             profile_id: self.config.profile_id.clone(),
-            outbound: self.outbound.protocol(),
+            outbound: match &self.engine {
+                Engine::Stack(outbound) => outbound.protocol(),
+                Engine::WireGuard(_) => wireguard::PROTOCOL,
+            },
             state: self.state,
             last_error: self.last_error.map(RuntimeErrorCode::as_str),
             stats: match &self.tunnel {
