@@ -12,6 +12,7 @@
 
 ### Added
 
+- iOS App 按 AnixOps Net 品牌 VI 重做界面（P1）：底部五个标签（首页、代理、规则、扩展、设置）；首页连接卡用图标里的“路由 N”做连接按钮，连接中路由线循环生长、连上后点亮琥珀色终点并有触感反馈，显示连接时长；新的三步导入流程（系统粘贴按钮或文件 → 预览协议和打码后的服务器地址 → 完成），预览阶段不保存任何内容；设置里可选跟随系统、浅色、深色和纯黑 OLED 外观；规则和扩展页先说明即将提供的功能，不显示假数据。颜色、圆角和动效时长来自新的 `apps/ios/Design/tokens.json`。App 显示名和 VPN 配置名改为 AnixOps Net。
 - Loon 插件 P1 的 `[Map Local]` 与 `[Body Rewrite]`：`[Map Local]`（以及 `[Rewrite]` 里的 `mock-response-body`）命中时直接在本地返回响应、不连源站（新增 `HttpMitmAction::Respond`，数据面终止动作 `local-response`），支持 `data-type` 为 text/json/html/base64/tiny-gif、`status-code` 与 `header`，远程 `data` URL 不拉取；Loon action-first 的 `http-request`/`http-response` body 重写翻译为 core 的 url-first 规则，每对替换一条，同一 URL 的 body 规则按顺序全部应用；jq 行因 core 未编入 jq 而定级 unsupported。
 - 自研 gRPC 传输：新增 `transport-grpc`（基于 `h2` 的 V2Ray 风格 gun 客户端：每个连接一次 `/<service_name>/Tun` 双向流调用，数据封装为 protobuf `Hunk` 的 gRPC 帧，按 HTTP/2 流控发送，支持 Xray 的 `/` 自定义路径写法）。VLESS（非 REALITY）、VMess、Trojan 均支持 `"transport": {"type": "grpc", "service_name": ...}`，TLS 未指定 ALPN 时自动使用 `h2`；订阅中的 gRPC 节点现在可由自研引擎直接运行。CI 互通测试新增 Xray-core 与 sing-box 的 VMess-gRPC 入站。
 - 自研 Shadowsocks AEAD（SIP004）出站：`outbound-shadowsocks` 新增 `AeadOutbound`，支持 `aes-128-gcm`、`aes-256-gcm`、`chacha20-ietf-poly1305`（别名 `chacha20-poly1305`）：密码经 `EVP_BytesToKey` 得到主密钥，每个方向以随机 salt 和 HKDF-SHA1 派生会话密钥，长度与数据分别 AEAD 封装，目标地址随首包发送（应用先读时单独发送）。`"type": "shadowsocks"` 按 `method` 自动选择 2022 或 AEAD 协议；订阅中的这些旧版 SS 节点现在可由自研引擎直接运行，流加密（如 `aes-256-cfb`、`rc4-md5`）仍明确拒绝。测试使用 shadowsocks-rust 服务端互通。

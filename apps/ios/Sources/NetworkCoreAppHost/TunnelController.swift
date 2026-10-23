@@ -15,6 +15,8 @@ final class TunnelController: ObservableObject {
     /// Developer mode: the extension's diagnostics and the last stop error, kept after the message is replaced.
     @Published private(set) var diagnostics: TunnelDiagnostics?
     @Published private(set) var lastDisconnectError: String?
+    /// When the current connection came up, for the elapsed time on the home screen.
+    @Published private(set) var connectedSince: Date?
 
     private var manager: NETunnelProviderManager?
     private var statusObserver: NSObjectProtocol?
@@ -52,21 +54,43 @@ final class TunnelController: ObservableObject {
         refresh()
     }
 
-    func importLink(_ link: String) async {
-        let profileID = "default"
+    /// Parses pasted text for the import preview without saving anything.
+    func preview(_ link: String) -> Result<ImportPreview, ImportFailure> {
+        do {
+            let profile = try TunnelNodeImport.parse(link, profileID: Self.profileID)
+            return .success(ImportPreview(
+                name: profile.displayName,
+                outboundKind: profile.config.outboundKind,
+                maskedServer: ImportPreview.mask(profile.serverAddress)
+            ))
+        } catch let error as TunnelNodeImportError {
+            return .failure(ImportFailure(message: Self.describe(error)))
+        } catch {
+            return .failure(ImportFailure(message: "无法解析节点"))
+        }
+    }
+
+    func clearMessage() {
+        message = nil
+    }
+
+    /// Saves the node as the tunnel profile. Returns whether it was saved; on failure `message` says why.
+    @discardableResult
+    func importLink(_ link: String) async -> Bool {
+        let profileID = Self.profileID
         let profile: TunnelProfile
         do {
             profile = try TunnelNodeImport.parse(link, profileID: profileID)
         } catch let error as TunnelNodeImportError {
             message = Self.describe(error)
-            return
+            return false
         } catch {
             message = "无法解析节点"
-            return
+            return false
         }
         guard let providerBundleIdentifier = Self.tunnelBundleIdentifier() else {
             message = "找不到隧道扩展"
-            return
+            return false
         }
 
         let config: Data
@@ -77,13 +101,13 @@ final class TunnelController: ObservableObject {
             interface = try profile.interface.encoded()
         } catch {
             message = "无法生成隧道配置"
-            return
+            return false
         }
         do {
             keyReference = try NodeSecretStore.save(profile.config.secret.keychainValue(), account: profileID)
         } catch {
             message = "无法把节点密钥保存到钥匙串"
-            return
+            return false
         }
 
         let tunnelProtocol = NETunnelProviderProtocol()
@@ -98,18 +122,21 @@ final class TunnelController: ObservableObject {
 
         let target = manager ?? NETunnelProviderManager()
         target.protocolConfiguration = tunnelProtocol
-        target.localizedDescription = "NetworkCore"
+        target.localizedDescription = "AnixOps Net"
         target.isEnabled = true
         do {
             try await target.saveToPreferences()
             // Reload so the connection object reflects the saved profile.
             try await target.loadFromPreferences()
             manager = target
-            message = "已保存节点"
+            message = nil
         } catch {
             message = "保存 VPN 配置失败或未获授权"
+            refresh()
+            return false
         }
         refresh()
+        return true
     }
 
     func toggle() {
@@ -192,6 +219,7 @@ final class TunnelController: ObservableObject {
         coordinator.apply(Self.platformStatus(saved: saved))
         let previous = connection
         connection = manager?.connection.status ?? .invalid
+        connectedSince = connection == .connected ? manager?.connection.connectedDate : nil
         if connection == .disconnected, previous != .disconnected, previous != .invalid {
             showLastDisconnectError()
         }
@@ -232,6 +260,8 @@ final class TunnelController: ObservableObject {
             embeddedRuntime: .available
         )
     }
+
+    private static let profileID = "default"
 
     private static func tunnelBundleIdentifier() -> String? {
         guard let plugins = Bundle.main.builtInPlugInsURL,
@@ -296,4 +326,23 @@ final class TunnelController: ObservableObject {
             }
         }
     }
+}
+
+/// What the import sheet shows before saving: no password, key or full server address.
+struct ImportPreview: Equatable {
+    let name: String
+    let outboundKind: String
+    let maskedServer: String
+
+    /// Keeps the first two and last four characters of a host so the user can recognize it in a screenshot-safe way.
+    static func mask(_ host: String) -> String {
+        guard host.count > 8 else {
+            return "••••"
+        }
+        return "\(host.prefix(2))••••\(host.suffix(4))"
+    }
+}
+
+struct ImportFailure: Error, Equatable {
+    let message: String
 }

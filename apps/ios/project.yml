@@ -30,7 +30,7 @@ targets:
     info:
       path: Generated/NetworkCoreApp-Info.plist
       properties:
-        CFBundleDisplayName: NetworkCore
+        CFBundleDisplayName: AnixOps Net
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
@@ -59,7 +59,7 @@ targets:
     info:
       path: Generated/NetworkCorePacketTunnel-Info.plist
       properties:
-        CFBundleDisplayName: NetworkCore Tunnel
+        CFBundleDisplayName: AnixOps Net Tunnel
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ITSAppUsesNonExemptEncryption: false
