@@ -35,7 +35,7 @@ Signed-off-by: 你的名字 <你的邮箱>
 
 不要提交与 Apache-2.0 不兼容的代码或依赖（例如 GPL、AGPL、SSPL 或源码可见类许可证）。新增 Rust 依赖必须通过 `deny.toml` 的许可证检查；如需放宽白名单，在 PR 中单独说明理由。
 
-NetworkCore、AnixOps 的名称和图标不在 Apache-2.0 授权范围内（Apache-2.0 第 6 条）。
+AnixOps Net、AnixOps、NetworkCore 的名称和图标不在 Apache-2.0 授权范围内（Apache-2.0 第 6 条），使用规则见 [TRADEMARKS.md](TRADEMARKS.md)。
 
 ## Pull Request 要求
 
