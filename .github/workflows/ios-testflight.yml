@@ -177,6 +177,7 @@ jobs:
             File.write("project.yml", spec.to_yaml)
           '
           xcodegen generate --spec project.yml
+          git diff --exit-code -- Entitlements
 
       - name: Archive
         shell: bash

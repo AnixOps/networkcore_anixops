@@ -2177,7 +2177,13 @@ jobs:
             grep -q '^linux-artifact-license-notice-release-assets=blocked$' docs/manual-intervention.md
           fi
 
-          grep -q '^ios-upload-workflow-status=pending$' docs/manual-intervention.md
+          # enabled is only valid for the internal TestFlight scope and after the independent maintainer confirmation.
+          if grep -q '^ios-upload-workflow-status=enabled$' docs/manual-intervention.md; then
+            grep -q '^ios-upload-internal-confirmation-status=confirmed$' docs/manual-intervention.md
+            grep -q '^ios-upload-external-testflight=blocked$' docs/manual-intervention.md
+          else
+            grep -q '^ios-upload-workflow-status=pending$' docs/manual-intervention.md
+          fi
           grep -q '^ios-upload-scope=internal-testflight-only$' docs/manual-intervention.md
           grep -q '^ios-upload-internal-confirmation-status=' docs/manual-intervention.md
           grep -q 'Internal TestFlight Scope' docs/architecture/ios-upload-workflow-activation-validation-contract.md
@@ -3106,7 +3112,13 @@ jobs:
       - name: Generate the Xcode project from apps/ios/project.yml
         shell: bash
         working-directory: apps/ios
-        run: xcodegen generate --spec project.yml
+        run: |
+          set -euo pipefail
+          xcodegen generate --spec project.yml
+          # XcodeGen must not rewrite the committed entitlements, and both targets must sign with them.
+          git diff --exit-code -- Entitlements
+          grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCoreApp.entitlements;' NetworkCore.xcodeproj/project.pbxproj
+          grep -q 'CODE_SIGN_ENTITLEMENTS = Entitlements/NetworkCorePacketTunnel.entitlements;' NetworkCore.xcodeproj/project.pbxproj
 
       - name: Build the app without signing
         shell: bash
@@ -3130,6 +3142,18 @@ jobs:
           test -f "${appex}/PrivacyInfo.xcprivacy"
           /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "${appex}/Info.plist" \
             | grep -qx 'com.apple.networkextension.packet-tunnel'
+          # App Store Connect rejects uploads without an asset-catalog icon or declared orientations.
+          # actool records the icon under CFBundleIcons:CFBundlePrimaryIcon; some Xcode versions also add it at the top level.
+          icon="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName' "${app}/Info.plist" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "${app}/Info.plist" 2>/dev/null || true)"
+          if [ "${icon}" != "AppIcon" ]; then
+            echo "::error::the built app has no compiled AppIcon"
+            plutil -p "${app}/Info.plist"
+            ls "${app}"
+            exit 1
+          fi
+          /usr/libexec/PlistBuddy -c 'Print :UISupportedInterfaceOrientations' "${app}/Info.plist" | grep -q 'UIInterfaceOrientationPortrait'
+          test -f "${app}/Assets.car"
 
       - name: Check the tunnel extension links the embedded runtime
         shell: bash

@@ -54,5 +54,13 @@ GitHub Actions statically checks this README and runs the `macos-26` manifest va
 `.github/scripts/verify-ios-package-manifest.sh`. Any Swift/Xcode source scan, Swift build, Swift test, Xcode project validation,
 signing, archive/export or upload validation must run only in GitHub Actions on `macos-26` or Apple official platforms.
 
-The upload workflow enabled marker remains blocked. `ios-upload-workflow-status` must stay `pending` until source tree,
-manual confirmation, protected environment and secret setup gates are complete.
+`ios-upload-workflow-status=enabled` (2026-10-22) unlocks only the manual internal TestFlight workflow,
+`.github/workflows/ios-testflight.yml`. External TestFlight, App Store submission and release assets stay blocked.
+
+## App icon
+
+`Design/AppIcon.svg` is the source of the app icon. The asset catalog uses one
+1024×1024 sRGB PNG without an alpha channel
+(`Sources/NetworkCoreApp/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png`);
+iOS applies the corner mask. Re-export the PNG at 1024×1024 and drop the alpha
+channel whenever the SVG changes.
