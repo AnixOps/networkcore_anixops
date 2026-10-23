@@ -75,7 +75,7 @@ fn init_rejects_bad_input_with_stable_codes() {
     assert_eq!(code, NETWORKCORE_IOS_ERR_CONFIG_REJECTED);
 
     let (code, _) = init(
-        r#"{"schema_version":1,"profile_id":"p","outbound":{"type":"shadowsocks","server":"example.com","port":8388,"method":"aes-256-gcm","password":"x"}}"#,
+        r#"{"schema_version":1,"profile_id":"p","outbound":{"type":"shadowsocks","server":"example.com","port":8388,"method":"aes-256-cfb","password":"x"}}"#,
     );
     assert_eq!(code, NETWORKCORE_IOS_ERR_CONFIG_REJECTED);
 

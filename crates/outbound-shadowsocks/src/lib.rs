@@ -1,4 +1,5 @@
-//! Shadowsocks-2022 (SIP022) TCP client outbound.
+//! Shadowsocks TCP client outbounds: Shadowsocks-2022 (SIP022, this module)
+//! and the earlier AEAD protocol (SIP004, [`AeadOutbound`]).
 //!
 //! Supports `2022-blake3-aes-128-gcm`, `2022-blake3-aes-256-gcm` and
 //! `2022-blake3-chacha20-poly1305`. A password of the form `iPSK:...:uPSK`
@@ -9,9 +10,11 @@
 //! application reads before writing (server-speaks-first protocols), the header
 //! is sent with random padding instead, as the specification requires.
 //!
-//! [`ShadowsocksFactory`] registers the outbound under `"type": "shadowsocks"`.
+//! [`ShadowsocksFactory`] registers both under `"type": "shadowsocks"`; the
+//! `method` picks the protocol.
 
 mod factory;
+mod sip004;
 
 use std::io;
 use std::net::SocketAddr;
@@ -29,6 +32,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 pub use factory::{ShadowsocksFactory, TYPE_NAME};
+pub use sip004::{evp_bytes_to_key, AeadMethod, AeadOutbound};
 
 pub const PROTOCOL: &str = "shadowsocks-2022";
 
@@ -285,7 +289,7 @@ impl Cipher {
         let tag = self
             .key
             .seal_in_place_separate_tag(nonce, Aad::empty(), &mut out[start..])
-            .map_err(|_| io::Error::other("shadowsocks-2022 encryption failed"))?;
+            .map_err(|_| io::Error::other("shadowsocks encryption failed"))?;
         out.extend_from_slice(tag.as_ref());
         Ok(())
     }
@@ -296,7 +300,7 @@ impl Cipher {
         let plaintext = self
             .key
             .open_in_place(nonce, Aad::empty(), buf)
-            .map_err(|_| invalid_data("shadowsocks-2022 authentication failed"))?;
+            .map_err(|_| invalid_data("shadowsocks authentication failed"))?;
         Ok(plaintext.len())
     }
 }

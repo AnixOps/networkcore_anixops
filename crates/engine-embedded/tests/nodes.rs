@@ -43,6 +43,17 @@ fn ss2022() -> NodeDescriptor {
     )
 }
 
+fn ss_aead() -> NodeDescriptor {
+    node(
+        "ss-aead",
+        Protocol::Shadowsocks,
+        &[
+            ("shadowsocks.method", "chacha20-ietf-poly1305"),
+            ("shadowsocks.password", "plain-password"),
+        ],
+    )
+}
+
 fn vless_reality() -> NodeDescriptor {
     node(
         "vless",
@@ -86,6 +97,7 @@ fn builds(envelope: &str) -> &'static str {
 fn supported_nodes_become_registry_outbounds() {
     for (node, protocol) in [
         (ss2022(), "shadowsocks-2022"),
+        (ss_aead(), "shadowsocks"),
         (vless_reality(), "vless"),
         (trojan(), "trojan"),
     ] {
@@ -231,7 +243,7 @@ fn unsupported_nodes_are_reported_without_secrets() {
         "legacy",
         Protocol::Shadowsocks,
         &[
-            ("shadowsocks.method", "aes-256-gcm"),
+            ("shadowsocks.method", "aes-256-cfb"),
             ("shadowsocks.password", "legacy-secret"),
         ],
     );
